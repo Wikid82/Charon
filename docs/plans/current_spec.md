@@ -1,1158 +1,706 @@
-# Major Dependency Upgrade Plan — ESLint v10, TypeScript 6.0, Vite 8
+# Slack Notification Provider — Implementation Specification
 
-**Date:** 2026-03-12
-**Author:** Planning Agent
-**Status:** Ready for Review
-**Confidence Score:** 82% (High for ESLint v10 + TS 6.0; Medium for Vite 8 — beta with Rolldown migration)
-
----
-
-## 1. Executive Summary
-
-This plan covers the upgrade of three major frontend toolchain dependencies in the Charon project:
-
-| Dependency | Current Version | Target Version | Status | Risk |
-|---|---|---|---|---|
-| **ESLint** | `^9.39.3 <10.0.0` | `^10.0.0` | Released | **Medium** — plugin compat gate |
-| **TypeScript** | `^5.9.3` | `^6.0.0` | Beta (Feb 11) / RC (Mar 6) | **Medium** — 17+ deprecations |
-| **Vite** | `^7.3.1` | `8.0.0-beta.18` | Beta (Dec 3, 2025) | **High** — beta, Rolldown replaces Rollup+esbuild |
-
-### Key Findings
-
-1. **ESLint v10** is released with a comprehensive migration guide. The primary blocker is a note in `lefthook.yml`: _"ESLint pinned at v9.x.x — do not upgrade until react-hooks plugin supports v10."_ The `eslint-plugin-react-hooks@7.0.1` must be verified for ESLint v10 compatibility before proceeding.
-
-2. **TypeScript 6.0** is real (Beta: Feb 11, 2026; RC: Mar 6, 2026). It is explicitly designed as a **bridge release** between TS 5.9 and the native Go-based TS 7.0. It introduces 17+ deprecations/breaking changes (new defaults for `strict`, `module`, `target`, `types`, `rootDir`; removal of `outFile`, legacy module systems; deprecated `baseUrl`, `moduleResolution: node`). Charon's current `tsconfig.json` is well-positioned — it already uses `moduleResolution: bundler`, `strict: true`, and `module: ESNext`. The **critical impact** is the `types` default changing to `[]`.
-
-3. **Vite 8 exists as `8.0.0-beta.18`** (announced Dec 3, 2025). The headline change is **Rolldown replaces both Rollup and esbuild**. JS transforms and minification now use Oxc; CSS minification uses Lightning CSS. The `build.rollupOptions` config key is deprecated in favor of `build.rolldownOptions`, and `output.manualChunks` (object form) is removed. Charon's `vite.config.ts` uses `rollupOptions` with `inlineDynamicImports: true` — both need migration. Ecosystem packages (`@vitejs/plugin-react`, `vitest`) require beta versions for Vite 8 compatibility.
-
-### Recommended Execution Order
-
-```
-PR-1: TypeScript 6.0 upgrade (fewer external dependencies, most self-contained)
-PR-2: ESLint v10 upgrade (blocked on plugin compat verification)
-PR-3: Vite 8 upgrade (beta — stacked on PR-1 + PR-2 branch)
-```
+**Status:** Draft
+**Created:** 2026-03-12
+**Target:** Single PR (backend + frontend + E2E + docs)
 
 ---
 
-## 2. Current Dependency Inventory
+## 1. Overview
 
-### Root `package.json` (`/projects/Charon/package.json`)
+### What
 
-| Package | Current Version | Category |
-|---|---|---|
-| `typescript` | `^5.9.3` | devDependency |
-| `vite` | `^7.3.1` | devDependency |
-| `@playwright/test` | `^1.58.2` | devDependency |
-| `prettier` | `^3.8.1` | devDependency |
-| `markdownlint-cli2` | `^0.21.0` | devDependency |
+Add Slack as a supported notification provider type, using Slack Incoming Webhooks to post messages to channels. The webhook URL (`https://hooks.slack.com/services/T.../B.../xxx`) acts as the authentication mechanism — no separate API key is required.
 
-### Frontend `package.json` (`/projects/Charon/frontend/package.json`)
+### How it Fits
 
-| Package | Current Version | Category |
-|---|---|---|
-| `typescript` | `^5.9.3` | devDependency |
-| `vite` | `^7.3.1` | devDependency |
-| `vitest` | `^4.0.18` | devDependency |
-| `eslint` | `^9.39.3 <10.0.0` | devDependency |
-| `@eslint/js` | `^9.39.3 <10.0.0` | devDependency |
-| `@eslint/css` | `^1.0.0` | devDependency |
-| `@eslint/json` | `^1.1.0` | devDependency |
-| `@eslint/markdown` | `^7.5.1` | devDependency |
-| `typescript-eslint` | `^8.57.0` | devDependency |
-| `@typescript-eslint/eslint-plugin` | `^8.57.0` | devDependency |
-| `@typescript-eslint/parser` | `^8.57.0` | devDependency |
-| `@vitejs/plugin-react` | `^5.1.4` | devDependency |
-| `@vitest/coverage-istanbul` | `^4.0.18` | devDependency |
-| `@vitest/coverage-v8` | `^4.0.18` | devDependency |
-| `@vitest/eslint-plugin` | `^1.6.10` | devDependency |
-| `react` | `^19.2.4` | dependency |
-| `react-dom` | `^19.2.4` | dependency |
-| `react-router-dom` | `^7.13.1` | dependency |
-| `@tanstack/react-query` | `^5.90.21` | dependency |
+Slack follows the **exact same pattern** as Discord, Gotify, Telegram, and Generic Webhook providers. It:
+- Uses `sendJSONPayload()` for dispatch (same as Discord/Gotify/Telegram/Webhook)
+- Requires `text` or `blocks` in the payload (validation already exists in `sendJSONPayload`)
+- Stores the webhook URL in the `Token` column (same security treatment as Telegram bot token)
+- Is gated by a feature flag `feature.notifications.service.slack.enabled`
 
-### ESLint Plugin Inventory (18 plugins)
+### Webhook URL Security
 
-| Plugin | Current Version | ESLint v10 Risk |
-|---|---|---|
-| `eslint-plugin-react-hooks` | `^7.0.1` | **HIGH** — explicit blocker in `lefthook.yml` |
-| `eslint-plugin-react-compiler` | `^19.1.0-rc.2` | Medium — RC, check compat |
-| `eslint-plugin-react-refresh` | `^0.5.2` | Low |
-| `eslint-plugin-import-x` | `^4.16.1` | Low — modern fork |
-| `eslint-plugin-jsx-a11y` | `^6.10.2` | Medium |
-| `eslint-plugin-security` | `^4.0.0` | Low |
-| `eslint-plugin-sonarjs` | `^4.0.2` | Low |
-| `eslint-plugin-unicorn` | `^63.0.0` | Low — actively maintained |
-| `eslint-plugin-promise` | `^7.2.1` | Low |
-| `eslint-plugin-unused-imports` | `^4.4.1` | Low |
-| `eslint-plugin-no-unsanitized` | `^4.1.5` | Medium |
-| `eslint-plugin-testing-library` | `^7.16.0` | Low |
-| `typescript-eslint` | `^8.57.0` | Low — tracks ESLint closely |
-| `@vitest/eslint-plugin` | `^1.6.10` | Low |
-| `@eslint/css` | `^1.0.0` | Low — official ESLint |
-| `@eslint/json` | `^1.1.0` | Low — official ESLint |
-| `@eslint/markdown` | `^7.5.1` | Low — official ESLint |
+The Slack webhook URL contains embedded authentication credentials. The **entire Slack webhook URL is sensitive**. It must be treated the same as Telegram bot tokens and Gotify tokens:
+- Redacted from `GET /api/v1/notifications/providers` responses
+- Stored in the `Token` column (uses `json:"-"` tag) — never returned in plaintext to the frontend
+- Frontend shows a masked placeholder and "stored" indicator via `HasToken`
 
-### Config Files Affected
+**Decision: Webhook URL stored in `Token` field.**
+To reuse the existing token-redaction infrastructure (`json:"-"` tag, `HasToken` computed field, write-only semantics), the Slack webhook URL will be stored in the `Token` column, NOT the `URL` column. The `URL` column will hold an optional display-safe channel name. This follows the same security pattern as Telegram (where the bot token goes in `Token` and the chat ID goes in `URL`).
 
-| File | Impact Area |
-|---|---|
-| `frontend/tsconfig.json` | TS 6.0 — `types`, `lib`, defaults |
-| `frontend/tsconfig.node.json` | TS 6.0 — minor |
-| `frontend/tsconfig.build.json` | TS 6.0 — extends base |
-| `frontend/eslint.config.js` | ESLint v10 — plugin compat |
-| `eslint.config.js` (root) | ESLint v10 — imports frontend config |
-| `frontend/package.json` | All — version bumps |
-| `package.json` (root) | TS + Vite version bumps |
-| `lefthook.yml` | ESLint v10 — remove pin note |
-| `Dockerfile` | Node.js version (already compatible) |
-
-### Infrastructure
-
-- **Node.js:** `24.14.0-alpine` (Dockerfile) — meets all upgrade requirements
-- **No `.npmrc` file exists** in the project
-- **Go:** `1.26.1` (not affected by frontend upgrades)
+| Field | Slack Usage | Example |
+|-------|------------|---------|
+| `Token` | Full webhook URL (write-only, redacted) | `https://hooks.slack.com/services/T00.../B00.../xxxx` |
+| `URL` | Channel display name (optional, user-facing) | `#alerts` |
+| `HasToken` | `true` when webhook URL is set | — |
 
 ---
 
-## 3. Breaking Changes Analysis
+## 2. Backend Changes (Go)
 
-### 3.1 ESLint v10 Breaking Changes
+### 2.1 `backend/internal/notifications/feature_flags.go`
 
-**Source:** [ESLint v10 Migration Guide](https://eslint.org/docs/latest/use/migrate-to-10.0.0)
+**Add constant:**
 
-| # | Breaking Change | Impact on Charon | Action Required |
-|---|---|---|---|
-| 1 | **Node.js ≥ v20.19, v22.13, or v24** required | None — already on Node 24.14.0 | None |
-| 2 | **`eslint:recommended` updated** — 3 new rules: `no-unassigned-vars`, `no-useless-assignment`, `preserve-caught-error` | May flag new violations in codebase | Fix flagged code or disable rules |
-| 3 | **New config file lookup** — searches from linted file, not cwd | Flat config already used; minor risk for monorepo patterns | Verify root config is found correctly |
-| 4 | **Old `.eslintrc` format completely removed** | None — already using flat config | None |
-| 5 | **JSX references now tracked** — fixes `no-unused-vars` for JSX components | Positive — fewer false positives | May surface new true positives |
-| 6 | **`eslint-env` comments reported as errors** | Search codebase for `/* eslint-env */` | Remove if found |
-| 7 | **Jiti ≥ v2.2.0 required** | Check transitive dep version | May need explicit install |
-| 8 | **Removed deprecated `context` members** — `context.getScope()`, `context.getAncestors()`, etc. | Affects **plugins**, not our config directly | All 18 plugins must be compatible |
-| 9 | **Removed deprecated `SourceCode` methods** | Same — plugin concern | Plugin compat verification |
-| 10 | **Program AST node range spans entire source** | Unlikely to affect us | None |
-
-**Critical Plugin Gate:** The `eslint-plugin-react-hooks` compatibility with ESLint v10 must be verified. The `lefthook.yml` at line ~98 explicitly states: _"NOTE: ESLint pinned at v9.x.x — do not upgrade until react-hooks plugin supports v10."_
-
-### 3.2 TypeScript 6.0 Breaking Changes
-
-**Source:** [TypeScript 6.0 Beta Announcement](https://devblogs.microsoft.com/typescript/announcing-typescript-6-0-beta/) and [6.0 Deprecation List](https://github.com/microsoft/TypeScript/issues/54500)
-
-#### Default Value Changes
-
-| Setting | Old Default | New Default | Charon Current | Action |
-|---|---|---|---|---|
-| `strict` | `false` | **`true`** | `true` (explicit) | None — already set |
-| `module` | `commonjs` | **`esnext`** | `ESNext` (explicit) | None — already set |
-| `target` | `es5` | **`es2025`** (floating) | `ES2022` (explicit) | None — already set |
-| `types` | `["*"]` (all @types) | **`[]`** (none) | **Not set** | **ACTION: Add `"types": []`** |
-| `rootDir` | inferred | **`.`** (tsconfig dir) | Not set | Verify — no emit, `noEmit: true` |
-| `noUncheckedSideEffectImports` | `false` | **`true`** | Not set | Verify no side-effect import issues |
-| `libReplacement` | `true` | **`false`** | Not set | None — improves perf |
-
-#### Deprecations (with `ignoreDeprecations: "6.0"` escape hatch)
-
-| Deprecation | Charon Uses? | Impact |
-|---|---|---|
-| `target: es5` | No (`ES2022`) | None |
-| `--outFile` | No | None |
-| `--downlevelIteration` | No | None |
-| `--moduleResolution node/node10` | No (`bundler`) | None |
-| `--moduleResolution classic` | No | None |
-| `--baseUrl` | No | None |
-| `module: amd/umd/systemjs` | No (`ESNext`) | None |
-| `esModuleInterop: false` | Not explicitly set | None |
-| `allowSyntheticDefaultImports: false` | Not set (`true` in tsconfig.node) | None |
-| `alwaysStrict: false` | Not set (`strict: true` covers) | None |
-| Legacy `module` keyword for namespaces | No | None |
-| `asserts` keyword on imports | No | None |
-| `no-default-lib` directives | No | None |
-
-#### New Features Available
-
-| Feature | Relevance |
-|---|---|
-| `import defer` syntax | Future use — deferred module evaluation |
-| `--module node20` | Not needed — using bundler |
-| `es2025` target/lib | Can update `target` from `ES2022` to `ES2025` |
-| Temporal types | Available via `esnext` lib |
-| `dom.iterable` included in `dom` | Can simplify `lib` array |
-| `--stableTypeOrdering` | Useful for TS 7.0 migration prep |
-| Expandable hovers | Editor UX improvement |
-| `Map.getOrInsert` / `getOrInsertComputed` | Available via `esnext` lib |
-| `RegExp.escape` | Available via `es2025` lib |
-| `#/` subpath imports | Available for future module aliasing |
-
-#### lib.d.ts Changes — ArrayBuffer/Buffer Breaking Change
-
-TypeScript 5.9 introduced a behavioral change where `ArrayBuffer` is no longer a supertype of several `TypedArray` types. This may cause errors like:
-
-```
-error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'BufferSource'.
-error TS2322: Type 'Buffer' is not assignable to type 'Uint8Array<ArrayBufferLike>'.
+```go
+FlagSlackServiceEnabled = "feature.notifications.service.slack.enabled"
 ```
 
-**Mitigation:** Ensure `@types/node` is at latest version. This is a 5.9 → 6.0 carryover that must be verified.
+Add it below `FlagTelegramServiceEnabled` in the `const` block.
 
-### 3.3 Vite 8 Breaking Changes
+### 2.2 `backend/internal/services/notification_service.go`
 
-**Source:** [Vite 8 Beta Announcement](https://vite.dev/blog/announcing-vite8-beta) and [Migration from v7 Guide](https://main.vite.dev/guide/migration)
+#### 2.2.1 `isSupportedNotificationProviderType()`
 
-**Version:** `8.0.0-beta.18` (dist-tag: `beta`, announced Dec 3, 2025)
+Add `"slack"` to the switch:
 
-#### Core Architecture Change: Rolldown Replaces Rollup + esbuild
-
-Vite 8's defining change is replacing **two bundlers** (esbuild for dev transforms, Rollup for production builds) with a single Rust-based toolchain:
-
-| Component | Vite 7 | Vite 8 | Impact on Charon |
-|---|---|---|---|
-| **Bundler** | Rollup | **Rolldown** (`1.0.0-rc.8`) | `rollupOptions` → `rolldownOptions` |
-| **JS Transforms** | esbuild | **Oxc** (`@oxc-project/runtime@0.115.0`) | `esbuild` config key deprecated |
-| **JS Minification** | esbuild | **Oxc Minifier** | Different minification assumptions |
-| **CSS Minification** | esbuild | **Lightning CSS** (`^1.31.1`) | Slightly different output, bundle size may change |
-| **Dep Optimization** | esbuild | **Rolldown** | `optimizeDeps.esbuildOptions` deprecated |
-
-#### Breaking Changes Impacting Charon
-
-| # | Breaking Change | Impact on Charon | Action Required |
-|---|---|---|---|
-| 1 | **Node.js `^20.19.0 \|\| >=22.12.0`** required | None — already on Node 24.14.0 | None |
-| 2 | **`build.rollupOptions` deprecated** → `build.rolldownOptions` | **HIGH** — `vite.config.ts` uses `rollupOptions` | Rename config key |
-| 3 | **`output.manualChunks` object form removed**, function form deprecated | **HIGH** — config sets `manualChunks: undefined` | Remove or migrate to `codeSplitting` |
-| 4 | **`output.inlineDynamicImports`** — supported in Rolldown but **deprecated** in favor of `codeSplitting: false` ([rolldown docs](https://rolldown.rs/reference/OutputOptions.inlineDynamicImports)) | **HIGH** — config uses `inlineDynamicImports: true` as temporary workaround | Migrate to `codeSplitting: false`; `inlineDynamicImports` works as fallback |
-| 5 | **Default browser targets updated** (Chrome 107→111, Firefox 104→114, Safari 16.0→16.4) | Low — Charon doesn't set explicit `build.target` | None — new defaults are fine |
-| 6 | **esbuild no longer a direct dependency** | Low — Charon doesn't use esbuild config | None |
-| 7 | **Oxc Minifier** replaces esbuild minifier | Low — different assumptions about source code | Test build output; verify no minification breakage |
-| 8 | **Lightning CSS** for CSS minification | Low — may produce slightly different CSS output | Verify CSS output visually |
-| 9 | **Consistent CommonJS interop** — `default` import behavior changes for CJS modules | Medium — could affect CJS dependencies (axios, etc.) | Test all runtime imports |
-| 10 | **Module resolution format sniffing removed** — `browser`/`module` field heuristic gone | Low — modern packages use `exports` field | Verify no resolution regressions |
-| 11 | **`@vitejs/plugin-react` 5.x does NOT support Vite 8** — requires `6.0.0-beta.0` | **HIGH** — must upgrade plugin-react | Upgrade to `@vitejs/plugin-react@6.0.0-beta.0` |
-| 12 | **Plugin-react 6.0 uses `@rolldown/pluginutils`** instead of Rollup utils | Low — internal plugin change | None — handled by plugin upgrade |
-
-#### New Features Available
-
-| Feature | Relevance to Charon |
-|---|---|
-| Built-in tsconfig `paths` support (`resolve.tsconfigPaths: true`) | Could replace manual alias config if needed |
-| `emitDecoratorMetadata` support | Not needed — Charon doesn't use decorators |
-| Performance: 10–30× faster production builds | Direct benefit — faster Docker builds and CI |
-| Full Bundle Mode (upcoming) | Future — 3× faster dev server startup |
-| Module-level persistent cache (upcoming) | Future — faster rebuilds |
-
-#### Dockerfile Impact: Rollup Native Skip Flags
-
-The current Dockerfile sets:
-
-```dockerfile
-ENV npm_config_rollup_skip_nodejs_native=1 \
-    ROLLUP_SKIP_NODEJS_NATIVE=1
+```go
+case "discord", "email", "gotify", "webhook", "telegram", "slack":
+    return true
 ```
 
-These env vars are **Rollup-specific** for cross-platform builds. With Vite 8, Rollup is replaced by Rolldown, which uses its own native bindings (`@rolldown/binding-linux-x64-musl` for Alpine). These env vars become no-ops but do not cause harm. Rolldown's native bindings are installed per-platform by npm's `optionalDependencies` mechanism — the same mechanism that works for the `$BUILDPLATFORM` Docker flag.
+#### 2.2.2 `isDispatchEnabled()`
 
-**Action:** Remove the Rollup skip flags from Dockerfile and verify cross-platform builds still work. Rolldown includes `@rolldown/binding-linux-x64-musl` which is exactly what Alpine requires.
+Add slack case:
 
----
-
-## 4. Compatibility Matrix
-
-### ESLint v10 Plugin Compatibility Verification Matrix
-
-Each plugin must be verified before the ESLint v10 upgrade. The agent performing PR-2 must run these checks:
-
-```bash
-# For each plugin, check peer dependency support
-npm info eslint-plugin-react-hooks peerDependencies
-npm info eslint-plugin-react-compiler peerDependencies
-npm info eslint-plugin-jsx-a11y peerDependencies
-npm info eslint-plugin-import-x peerDependencies
-npm info eslint-plugin-security peerDependencies
-npm info eslint-plugin-sonarjs peerDependencies
-npm info eslint-plugin-unicorn peerDependencies
-npm info eslint-plugin-promise peerDependencies
-npm info eslint-plugin-unused-imports peerDependencies
-npm info eslint-plugin-no-unsanitized peerDependencies
-npm info eslint-plugin-testing-library peerDependencies
-npm info eslint-plugin-react-refresh peerDependencies
-npm info @vitest/eslint-plugin peerDependencies
-npm info typescript-eslint peerDependencies
-npm info @eslint/css peerDependencies
-npm info @eslint/json peerDependencies
-npm info @eslint/markdown peerDependencies
+```go
+case "slack":
+    return s.getFeatureFlagValue(notifications.FlagSlackServiceEnabled, true)
 ```
 
-**Decision Gate:** If `eslint-plugin-react-hooks` does NOT support ESLint v10 in its `peerDependencies`, the ESLint v10 upgrade is **BLOCKED**. Do not use `--legacy-peer-deps` or `--force` as a workaround.
+Default enabled (`true`) to match the Gotify/Telegram/Webhook pattern.
 
-### TypeScript 6.0 Ecosystem Compatibility
+#### 2.2.3 `supportsJSONTemplates()`
 
-| Tool | TS 6.0 Compat | Notes |
-|---|---|---|
-| `typescript-eslint@8.57.0` | Likely — tracks TS closely | Verify with `npm install` |
-| `vite@7.3.1` | Yes — Vite uses esbuild/swc, not tsc directly | Type-check is separate |
-| `vitest@4.0.18` | Yes — same reasoning | Type-check is separate |
-| `@vitejs/plugin-react@5.1.4` | Yes | No TS compiler dependency |
-| `react@19.2.4` / `@types/react` | Yes | Ensure `@types/react` latest |
-| `@tanstack/react-query@5.90.21` | Likely — popular library | TanStack already preparing for TS 6 |
-| `knip@5.86.0` | Verify | Uses TS programmatic API |
+`"slack"` is **already listed** in this function (approx line 109). No change needed.
 
-### Node.js Compatibility
+#### 2.2.4 Slack Webhook URL Validation
 
-| Tool | Min Node.js | Charon Node.js | Status |
-|---|---|---|---|
-| ESLint v10 | 20.19 / 22.13 / 24+ | 24.14.0 | Compatible |
-| TypeScript 6.0 | TBD (likely same as 5.9) | 24.14.0 | Compatible |
-| Vite 7 | 20.19 / 22.12+ | 24.14.0 | Compatible |
-| Vite 8 | 20.19 / 22.12+ | 24.14.0 | Compatible |
+Add a new function and regex near the existing `discordWebhookRegex`:
 
-### Vite 8 Ecosystem Compatibility Matrix
+```go
+var slackWebhookRegex = regexp.MustCompile(`^https://hooks\.slack\.com/services/T[A-Za-z0-9_-]+/B[A-Za-z0-9_-]+/[A-Za-z0-9_-]+$`)
 
-All Vite-related packages must be updated together. Stable releases do **not** support Vite 8.
-
-| Package | Current Version | Vite 8 Compatible? | Required Version | Override Needed? |
-|---|---|---|---|---|
-| `vite` | `^7.3.1` | — | `8.0.0-beta.18` | No — direct install |
-| `@vitejs/plugin-react` | `^5.1.4` | **No** (5.x peer: `vite: ^4.2.0 \|\| ^5.0.0 \|\| ^6.0.0 \|\| ^7.0.0`) | `6.0.0-beta.0` (peer: `vite: ^8.0.0` — verified via `npm info`) | No — direct install |
-| `vitest` | `^4.0.18` | **No** (deps: `^6.0.0 \|\| ^7.0.0`) | `4.1.0-beta.6` (deps: `^6.0.0 \|\| ^7.0.0 \|\| ^8.0.0-0`) | No — 4.1.0-beta.6 dep range includes Vite 8 |
-| `@vitest/coverage-istanbul` | `^4.0.18` | **No** (peer: `vitest: 4.0.18`) | `4.1.0-beta.6` | No — matches vitest beta |
-| `@vitest/coverage-v8` | `^4.0.18` | **No** (peer: `vitest: 4.0.18`) | `4.1.0-beta.6` | No — matches vitest beta |
-| `@vitest/ui` | `^4.0.18` | **No** (peer: `vitest: 4.0.18`) | `4.1.0-beta.6` | No — matches vitest beta |
-| `@vitest/eslint-plugin` | `^1.6.10` | Yes (peer: `vitest: *`) | Keep current | No |
-| `@bgotink/playwright-coverage` | `^0.3.2` | Yes (no Vite peer dep) | Keep current | No |
-| `@playwright/test` | `^1.58.2` | Yes (no Vite peer dep) | Keep current | No |
-
-**Key constraints:**
-
-- `vitest@4.0.18` has `vite` in its **dependencies** (not peer deps) pinned to `^6.0.0 || ^7.0.0` — this will refuse Vite 8 unless overridden
-- `vitest@4.1.0-beta.6` extends this to `^6.0.0 || ^7.0.0 || ^8.0.0-0` — supports Vite 8 beta
-- `@vitejs/plugin-react@6.0.0-beta.0` peers on `vite: ^8.0.0` (verified via `npm info`). New optional peer deps: `@rolldown/plugin-babel` and `babel-plugin-react-compiler` (both optional — not required)
-- All `@vitest/*` packages at `4.1.0-beta.6` must be installed together (strict peer version matching: `vitest: 4.1.0-beta.6`)
-- Since `vitest@4.1.0-beta.6` already includes `^8.0.0-0` in its `vite` dependency range, and all `@vitest/*` packages peer to exact `vitest: 4.1.0-beta.6`, **no npm overrides are needed** when all packages are installed in lockstep at their beta versions
-
----
-
-## 5. `.npmrc` Configuration
-
-**No `.npmrc` file currently exists in the project.** No changes needed for these upgrades.
-
-If plugin compatibility issues arise during ESLint v10 upgrade, **do NOT create an `.npmrc` with `legacy-peer-deps=true`**. Instead, wait for plugin updates or use granular `overrides` in `package.json`:
-
-```jsonc
-// package.json — ONLY if a specific plugin ships a fix before updating peerDeps
-{
-  "overrides": {
-    "eslint-plugin-EXAMPLE": {
-      "eslint": "^10.0.0"
+func validateSlackWebhookURL(rawURL string) error {
+    if !slackWebhookRegex.MatchString(rawURL) {
+        return fmt.Errorf("invalid Slack webhook URL: must match https://hooks.slack.com/services/T.../B.../xxx")
     }
-  }
+    return nil
 }
 ```
 
----
+**Validation rules:**
+- Must be HTTPS
+- Host must be `hooks.slack.com`
+- Path must match `/services/T<workspace>/B<bot>/<token>` pattern
+- No IP addresses, no query parameters
+- Test hook: add `var validateSlackProviderURLFunc = validateSlackWebhookURL` for testability
 
-## 6. Dockerfile Changes
+#### 2.2.5 `sendJSONPayload()` — Dispatch path
 
-**No Dockerfile changes required** for ESLint v10 or TypeScript 6.0.
+**Step A.** Extend the provider routing condition (approx line 465) to include `"slack"`:
 
-**Vite 8 requires Dockerfile changes** — the Rollup native skip flags become irrelevant:
-
-```diff
-  # Set environment to bypass native binary requirement for cross-arch builds
-- ENV npm_config_rollup_skip_nodejs_native=1 \
--     ROLLUP_SKIP_NODEJS_NATIVE=1
-+ # Vite 8 uses Rolldown (Rust native bindings, auto-resolved per platform)
-+ # No skip flags needed — Rolldown's optionalDependencies handle cross-platform
+```go
+if providerType == "gotify" || providerType == "webhook" || providerType == "telegram" || providerType == "slack" {
 ```
 
-Current Dockerfile state (frontend-builder stage):
-
-```dockerfile
-FROM --platform=$BUILDPLATFORM node:24.14.0-alpine AS frontend-builder
-# ...
-ENV npm_config_rollup_skip_nodejs_native=1 \
-    ROLLUP_SKIP_NODEJS_NATIVE=1
-RUN npm ci
-COPY frontend/ ./
-RUN npm run build
-```
-
-- Node.js 24.14.0 meets Vite 8's requirement (`^20.19.0 || >=22.12.0`)
-- `npm ci` will install Rolldown's `@rolldown/binding-linux-x64-musl` automatically on Alpine
-- `--platform=$BUILDPLATFORM` ensures native bindings match the build machine architecture
-- The `VITE_APP_VERSION` env var and build output (`dist/`) remain unchanged
-- No new environment variables or build args needed
-
-**Future (Vite 8):** If Vite 8 requires a higher Node.js, upgrade the base image at that time.
-
----
-
-## 7. Config File Changes
-
-### 7.1 TypeScript 6.0 — `frontend/tsconfig.json`
-
-```diff
-  {
-    "compilerOptions": {
-      "target": "ES2022",
-+     // Consider upgrading to "ES2025" (TS 6.0 new target)
-      "useDefineForClassFields": true,
--     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-+     "lib": ["ES2022", "DOM"],
-+     // DOM.Iterable is now included in DOM as of TS 6.0
-      "module": "ESNext",
-      "skipLibCheck": true,
-
-      /* Bundler mode */
-      "moduleResolution": "bundler",
-      "allowImportingTsExtensions": true,
-      "isolatedModules": true,
-      "moduleDetection": "force",
-      "noEmit": true,
-      "jsx": "react-jsx",
-
-      /* Linting */
-      "strict": true,
-      "noUnusedLocals": true,
-      "noUnusedParameters": true,
-      "noFallthroughCasesInSwitch": true,
-+
-+     /* TS 6.0 — explicit types to override new default of [] */
-+     "types": []
-    },
-    "include": ["src"],
-    "references": [{ "path": "./tsconfig.node.json" }]
-  }
-```
-
-**Key changes:**
-
-1. **`"types": []`** — Explicitly set to `[]`. Charon uses `noEmit: true` and doesn't rely on global `@types` packages in the main tsconfig. All types come from explicit imports.
-2. **`"lib"` simplification** — Remove `"DOM.Iterable"` since TS 6.0 includes it in `"DOM"` automatically.
-3. **`"target"` consideration** — Can optionally upgrade from `ES2022` to `ES2025` to access `RegExp.escape` and other ES2025 types natively. Not required.
-
-### 7.2 TypeScript 6.0 — `frontend/tsconfig.node.json`
-
-```diff
-  {
-    "compilerOptions": {
-      "composite": true,
-      "skipLibCheck": true,
-      "module": "ESNext",
-      "moduleResolution": "bundler",
-      "allowSyntheticDefaultImports": true,
--     "strict": true
-+     "strict": true,
-+     "types": []
-    },
-    "include": ["vite.config.ts"]
-  }
-```
-
-**Note:** `allowSyntheticDefaultImports` is fine — TS 6.0 deprecates setting it to `false`, not `true`. Setting it to `true` remains valid.
-
-### 7.3 ESLint v10 — `frontend/package.json` Version Caps
-
-```diff
-  "devDependencies": {
--   "eslint": "^9.39.3 <10.0.0",
-+   "eslint": "^10.0.0",
--   "@eslint/js": "^9.39.3 <10.0.0",
-+   "@eslint/js": "^10.0.0",
-    // ... all other ESLint plugins may need version bumps
-  }
-```
-
-### 7.4 ESLint v10 — `frontend/eslint.config.js`
-
-Likely no structural changes needed since Charon already uses flat config. Potential changes:
-
-- Remove any `/* eslint-env */` comments found in source files
-- Handle new `eslint:recommended` rules (`no-unassigned-vars`, `no-useless-assignment`, `preserve-caught-error`)
-- Verify `tseslint.config()` wrapper compatibility
-
-### 7.5 ESLint v10 — `lefthook.yml`
-
-```diff
-+ # NOTE: ESLint v10 is supported — plugin compatibility verified on [DATE]
-- # NOTE: ESLint pinned at v9.x.x — do not upgrade until react-hooks plugin supports v10.
-```
-
-### 7.6 TypeScript 6.0 — `package.json` (Root + Frontend)
-
-```diff
-  "devDependencies": {
--   "typescript": "^5.9.3",
-+   "typescript": "^6.0.0",
-  }
-```
-
----
-
-## 8. Phase-by-Phase Implementation Plan
-
-### Phase 1: Pre-Upgrade Verification (Both PRs)
-
-**Owner:** Frontend_Dev agent (or whoever picks up the PR)
-
-1. **Snapshot current state:**
-
-   ```bash
-   cd /projects/Charon && npm run lint 2>&1 | tee /tmp/eslint-v9-baseline.log
-   cd /projects/Charon/frontend && npx tsc --noEmit 2>&1 | tee /tmp/tsc-v5-baseline.log
-   ```
-
-2. **Verify ESLint plugin compatibility (PR-2 gate):**
-
-   ```bash
-   for plugin in eslint-plugin-react-hooks eslint-plugin-react-compiler \
-     eslint-plugin-jsx-a11y eslint-plugin-import-x eslint-plugin-security \
-     eslint-plugin-sonarjs eslint-plugin-unicorn eslint-plugin-promise \
-     eslint-plugin-unused-imports eslint-plugin-no-unsanitized \
-     eslint-plugin-testing-library eslint-plugin-react-refresh \
-     @vitest/eslint-plugin typescript-eslint @eslint/css @eslint/json @eslint/markdown; do
-     echo "=== $plugin ===" && npm info "$plugin" peerDependencies 2>/dev/null
-   done
-   ```
-
-3. **Search for `eslint-env` comments:**
-
-   ```bash
-   grep -r "eslint-env" frontend/src/ --include="*.ts" --include="*.tsx" --include="*.js"
-   ```
-
-### Phase 2: TypeScript 6.0 Upgrade (PR-1)
-
-**Scope:** TypeScript version bump + tsconfig adjustments
-
-1. Update `typescript` version in both `package.json` files:
-   - Root: `^5.9.3` → `^6.0.0`
-   - Frontend: `^5.9.3` → `^6.0.0`
-
-2. Apply tsconfig changes (Section 7.1 and 7.2 above):
-   - Add `"types": []` to `tsconfig.json` and `tsconfig.node.json`
-   - Remove `"DOM.Iterable"` from `lib` array (now included in `"DOM"`)
-
-3. Run `npm install` to update lock file
-
-4. Run type-check and fix any new errors:
-
-   ```bash
-   cd frontend && npx tsc --noEmit
-   ```
-
-5. Common expected issues:
-   - Missing types from `@types/*` packages (solved by `"types": []` since we don't use globals)
-   - `ArrayBuffer`/`Buffer` type narrowing (from TS 5.9 lib.d.ts changes)
-   - Type argument inference changes (may need explicit type annotations)
-
-6. Run full test suite:
-
-   ```bash
-   cd frontend && npx vitest run
-   ```
-
-7. Run Playwright E2E tests to verify build works:
-
-   ```bash
-   # The Dockerfile builds with npm ci && npm run build
-   # Verify: cd frontend && npx vite build
-   ```
-
-### Phase 3: ESLint v10 Upgrade (PR-2)
-
-**Prerequisite:** Phase 1 plugin verification passes. `eslint-plugin-react-hooks` must declare ESLint v10 support.
-
-1. Remove version cap and update ESLint packages:
-
-   ```bash
-   cd frontend
-   npm install -D eslint@^10.0.0 @eslint/js@^10.0.0
-   ```
-
-2. Update any plugins that need version bumps for ESLint v10 compat
-
-3. Run ESLint and compare against baseline:
-
-   ```bash
-   cd /projects/Charon && npm run lint 2>&1 | tee /tmp/eslint-v10-output.log
-   diff /tmp/eslint-v9-baseline.log /tmp/eslint-v10-output.log
-   ```
-
-4. Address new violations from updated `eslint:recommended`:
-   - `no-unassigned-vars` — variables declared but never assigned
-   - `no-useless-assignment` — assignments that are immediately overwritten
-   - `preserve-caught-error` — catch clause variables that are declared but unused
-
-5. Remove any `/* eslint-env */` comments found in Phase 1
-
-6. Update `lefthook.yml` — remove the ESLint v9 pin note
-
-7. Run full test suite to confirm no regressions
-
-### Phase 4: Integration Testing
-
-1. **Full lint + type-check:**
-
-   ```bash
-   cd /projects/Charon && npm run lint && cd frontend && npx tsc --noEmit
-   ```
-
-2. **Frontend build:**
-
-   ```bash
-   cd frontend && npx vite build
-   ```
-
-3. **Unit tests:**
-
-   ```bash
-   cd frontend && npx vitest run
-   ```
-
-4. **Playwright E2E tests (all browsers):**
-
-   ```bash
-   npx playwright test --project=chromium
-   npx playwright test --project=firefox
-   npx playwright test --project=webkit
-   ```
-
-5. **Docker build verification:**
-
-   ```bash
-   docker build -t charon:upgrade-test .
-   ```
-
-### Phase 5: Vite 8 Upgrade (PR-3 — stacked commit on same branch)
-
-**Prerequisites:** PR-1 (TypeScript 6.0) and PR-2 (ESLint v10) already committed on branch.
-
-**Scope:** Vite `^7.3.1` → `8.0.0-beta.18`, plugin-react `^5.1.4` → `6.0.0-beta.0`, vitest `^4.0.18` → `4.1.0-beta.6`, vite.config.ts migration, Dockerfile cleanup.
-
-#### Step 1: Install Vite 8 and ecosystem packages
-
-```bash
-cd /projects/Charon/frontend
-
-# Core Vite upgrade
-npm install -D vite@8.0.0-beta.18
-
-# Plugin-react upgrade (6.x required for Vite 8)
-npm install -D @vitejs/plugin-react@6.0.0-beta.0
-
-# Vitest + coverage upgrades (4.1.0-beta.6 supports Vite 8)
-npm install -D vitest@4.1.0-beta.6 \
-  @vitest/coverage-istanbul@4.1.0-beta.6 \
-  @vitest/coverage-v8@4.1.0-beta.6 \
-  @vitest/ui@4.1.0-beta.6
-```
-
-#### Step 2: Update root `package.json` (direct version bump only — no overrides)
-
-The root `package.json` only has `vite` as a direct devDependency (used by Playwright). It does **not** need overrides — just a version bump:
-
-```bash
-cd /projects/Charon
-npm install -D vite@8.0.0-beta.18
-```
-
-#### Step 3: Verify peer dep resolution (overrides likely NOT needed)
-
-With all packages at their Vite 8-compatible versions, overrides should not be necessary:
-
-- `vitest@4.1.0-beta.6` depends on `vite: ^6.0.0 || ^7.0.0 || ^8.0.0-0` — already includes Vite 8
-- `@vitejs/plugin-react@6.0.0-beta.0` peers on `vite: ^8.0.0` — matches
-- All `@vitest/*@4.1.0-beta.6` peer on `vitest: 4.1.0-beta.6` — matches when installed in lockstep
-
-Run `npm install` and check for peer dep warnings. **Only add overrides in `frontend/package.json`** (following the established pattern from TS 6.0 and ESLint v10 phases) if specific transitive packages fail to resolve:
-
-```jsonc
-// frontend/package.json — ONLY if npm install reports unresolved peer deps
-{
-  "overrides": {
-    // ... existing TS and ESLint overrides ...
-    // Add scoped overrides ONLY for the specific package that fails, e.g.:
-    // "some-transitive-package": { "vite": "8.0.0-beta.18" }
-  }
+**Step B.** Add Slack-specific dispatch logic inside the block, after the Telegram block:
+
+```go
+if providerType == "slack" {
+    decryptedWebhookURL := p.Token
+    if strings.TrimSpace(decryptedWebhookURL) == "" {
+        return fmt.Errorf("slack webhook URL is not configured")
+    }
+    if err := validateSlackProviderURLFunc(decryptedWebhookURL); err != nil {
+        return err
+    }
+    dispatchURL = decryptedWebhookURL
 }
 ```
 
-**Do NOT add a top-level `"vite": "8.0.0-beta.18"` override** — this forces every transitive Vite consumer to resolve to the beta, which is overly broad. If a broad override is truly needed after testing, add it with a comment explaining which transitive package requires it.
+**Step C.** Replace the existing `case "slack":` block entirely with:
 
-#### Step 4: Migrate `vite.config.ts`
-
-```diff
-  import react from '@vitejs/plugin-react'
-  import { defineConfig } from 'vite'
-
-  export default defineConfig({
-    plugins: [react()],
-    server: {
-      port: 5173,
-      proxy: {
-        '/api': {
-          target: 'http://localhost:8080',
-          changeOrigin: true
+```go
+case "slack":
+    if _, hasText := jsonPayload["text"]; !hasText {
+        if _, hasBlocks := jsonPayload["blocks"]; !hasBlocks {
+            if messageValue, hasMessage := jsonPayload["message"]; hasMessage {
+                jsonPayload["text"] = messageValue
+                normalizedBody, marshalErr := json.Marshal(jsonPayload)
+                if marshalErr != nil {
+                    return fmt.Errorf("failed to normalize slack payload: %w", marshalErr)
+                }
+                body.Reset()
+                if _, writeErr := body.Write(normalizedBody); writeErr != nil {
+                    return fmt.Errorf("failed to write normalized slack payload: %w", writeErr)
+                }
+            } else {
+                return fmt.Errorf("slack payload requires 'text' or 'blocks' field")
+            }
         }
-      }
-    },
-    build: {
-      outDir: 'dist',
-      sourcemap: true,
--     // TEMPORARY: Disable code splitting to diagnose React initialization issue
--     // If this works, the problem is module loading order in async chunks
-      chunkSizeWarningLimit: 2000,
--     rollupOptions: {
--       output: {
--         // Disable code splitting - bundle everything into one file
--         manualChunks: undefined,
--         inlineDynamicImports: true
--       }
--     }
-+     rolldownOptions: {
-+       output: {
-+         // Disable code splitting — single bundle for React init stability
-+         // codeSplitting: false is the Rolldown-native approach
-+         // (inlineDynamicImports is deprecated in Rolldown)
-+         codeSplitting: false
-+       }
-+     }
     }
-  })
 ```
 
-**Key changes:**
-1. `rollupOptions` → `rolldownOptions` (Rollup config key deprecated)
-2. `manualChunks: undefined` removed (object form no longer supported; was already a no-op since `undefined`)
-3. `inlineDynamicImports: true` replaced with `codeSplitting: false` — the Rolldown-native equivalent. Rolldown supports `inlineDynamicImports` but marks it as [deprecated](https://rolldown.rs/reference/OutputOptions.inlineDynamicImports) in favor of `codeSplitting: false`.
-4. The TEMPORARY comment is preserved in intent — this workaround may still be needed
+#### 2.2.6 `CreateProvider()` — Token field handling
 
-**Fallback if `codeSplitting: false` behaves differently than expected:**
+Update the token-clearing logic:
 
-```ts
-build: {
-  rolldownOptions: {
-    output: {
-      // Deprecated but still functional in Rolldown 1.0.0-rc.8
-      inlineDynamicImports: true
-    }
-  }
+```go
+if provider.Type != "gotify" && provider.Type != "telegram" && provider.Type != "slack" {
+    provider.Token = ""
 }
 ```
 
-#### Step 5: Update Dockerfile
+#### 2.2.7 `UpdateProvider()` — Token preservation
 
-Remove the now-irrelevant Rollup native skip flags:
+Update the token-preservation logic:
 
-```diff
-- ENV npm_config_rollup_skip_nodejs_native=1 \
--     ROLLUP_SKIP_NODEJS_NATIVE=1
-+ # Vite 8: Rolldown native bindings auto-resolved per platform via optionalDependencies
+```go
+if provider.Type == "gotify" || provider.Type == "telegram" || provider.Type == "slack" {
+    if strings.TrimSpace(provider.Token) == "" {
+        provider.Token = existing.Token
+    }
+} else {
+    provider.Token = ""
+}
 ```
 
-#### Step 6: Run `npm install` to regenerate lock file
+### 2.3 `backend/internal/api/handlers/notification_provider_handler.go`
 
-```bash
-cd /projects/Charon && npm install
-cd /projects/Charon/frontend && npm install
+#### 2.3.1 `Create()` — Type whitelist
+
+Add `"slack"` to the type validation:
+
+```go
+if providerType != "discord" && providerType != "gotify" && providerType != "webhook" &&
+   providerType != "email" && providerType != "telegram" && providerType != "slack" {
 ```
 
-#### Step 7: Verify builds and tests
+#### 2.3.2 `Update()` — Type whitelist
 
-```bash
-# 1. Frontend build (most critical — tests Rolldown bundling)
-cd /projects/Charon/frontend && npx vite build
+Same addition:
 
-# 2. Type-check (should be unaffected)
-cd /projects/Charon/frontend && npx tsc --noEmit
-
-# 3. Lint (should be unaffected)
-cd /projects/Charon && npm run lint
-
-# 4. Unit tests
-cd /projects/Charon/frontend && npx vitest run
-
-# 5. Docker build (tests Rolldown on Alpine/musl)
-docker build -t charon:vite8-test .
-
-# 6. Playwright E2E (tests the built app end-to-end)
-cd /projects/Charon && npx playwright test --project=firefox
-
-# 7. CJS interop smoke test (verify axios, react-hot-toast, react-hook-form)
-# Run the app and manually verify pages that use CJS dependencies render correctly
-# See Step 9 for detailed CJS interop verification checklist
+```go
+if providerType != "discord" && providerType != "gotify" && providerType != "webhook" &&
+   providerType != "email" && providerType != "telegram" && providerType != "slack" {
 ```
 
-#### Step 8: Verify build output
+#### 2.3.3 `Update()` — Token preservation on empty update
 
-```bash
-# Compare build output size and structure
-ls -la frontend/dist/assets/
-# Should still produce index-*.js, index-*.css
-# With codeSplitting: false, should be a single JS bundle
+Add `"slack"` to the token-keep condition:
+
+```go
+if (providerType == "gotify" || providerType == "telegram" || providerType == "slack") &&
+    strings.TrimSpace(req.Token) == "" {
+    req.Token = existing.Token
+}
 ```
 
-#### Step 9: Verify CJS interop (Vite 8 behavior change)
+#### 2.3.4 `Test()` — Token write-only guard
 
-Vite 8's consistent CJS interop may affect imports from CJS packages like `axios` and `react-hot-toast`. **Explicitly verify these packages work at runtime:**
+Add a Slack guard alongside the existing Gotify check:
 
-```bash
-# After Docker build or vite build + preview:
-# 1. Verify axios API calls work (CJS package with __esModule flag)
-#    - Navigate to any page that makes API calls (e.g., Dashboard)
-#    - Check browser console for "default is not a function" errors
-# 2. Verify react-hot-toast renders (CJS package)
-#    - Trigger a toast notification (e.g., save settings)
-#    - Check browser console for import errors
-# 3. Verify react-hook-form works (CJS interop)
-#    - Open any form page, submit a form
+```go
+if providerType == "slack" && strings.TrimSpace(req.Token) != "" {
+    respondSanitizedProviderError(c, http.StatusBadRequest, "TOKEN_WRITE_ONLY", "validation",
+        "Slack webhook URL is accepted only on provider create/update")
+    return
+}
 ```
 
-If any runtime errors appear (e.g., `default is not a function`), use the temporary escape hatch:
+#### 2.3.5 `classifyProviderTestFailure()` — Slack-specific errors
 
-```ts
-// vite.config.ts — ONLY if CJS interop breaks
-export default defineConfig({
-  legacy: {
-    inconsistentCjsInterop: true
-  }
-})
+Slack returns plain-text error strings (e.g., `"invalid_payload"`), not JSON. Add classification after the existing status code matching block:
+
+```go
+if strings.Contains(errText, "invalid_payload") ||
+    strings.Contains(errText, "missing_text_or_fallback") {
+    return "PROVIDER_TEST_VALIDATION_FAILED", "validation",
+        "Slack rejected the payload. Ensure your template includes a 'text' or 'blocks' field"
+}
+if strings.Contains(errText, "no_service") {
+    return "PROVIDER_TEST_AUTH_REJECTED", "dispatch",
+        "Slack webhook is revoked or the app is disabled. Create a new webhook"
+}
 ```
 
-#### Step 10: Update `ARCHITECTURE.md`
+#### 2.3.6 `Test()` — URL empty guard for Slack
 
-Update the Frontend technology stack table and directory structure to reflect current versions:
+The `Test()` handler rejects providers where `URL` is empty. For Slack, `URL` holds the optional channel display name — the dispatch target is the webhook URL stored in `Token`. Add Slack exemption:
 
-```diff
-  ### Frontend
-  | Component | Technology | Version | Purpose |
-- | **Build Tool** | Vite | 6.1.9 | Fast bundler and dev server |
-+ | **Build Tool** | Vite | 8.0.0-beta.18 | Fast bundler and dev server |
-- | **CSS Framework** | Tailwind CSS | 3.x | Utility-first CSS |
-+ | **CSS Framework** | Tailwind CSS | 4.2.1 | Utility-first CSS |
-- | **Unit Testing** | Vitest | 2.x | Fast unit test runner |
-+ | **Unit Testing** | Vitest | 4.1.0-beta.6 | Fast unit test runner |
-- | **E2E Testing** | Playwright | 1.50.x | Browser automation |
-+ | **E2E Testing** | Playwright | 1.58.2 | Browser automation |
+```go
+if providerType != "slack" && strings.TrimSpace(provider.URL) == "" {
+    respondSanitizedProviderError(c, http.StatusBadRequest, "PROVIDER_CONFIG_MISSING", ...)
+    return
+}
 ```
 
-Also fix the directory structure reference:
+#### 2.3.7 `isProviderValidationError()` — Slack validation errors
 
-```diff
-- │   └── vite.config.js          # Vite configuration
-+ │   └── vite.config.ts          # Vite configuration
+The function checks for specific error message strings to return 400 instead of 500. Add Slack:
+
+```go
+strings.Contains(errMsg, "invalid Slack webhook URL")
 ```
 
----
+Without this, malformed Slack webhook URLs return HTTP 500 instead of 400.
 
-## 9. Rollback Strategy
+### 2.4 `backend/internal/services/notification_service_test.go`
 
-### TypeScript 6.0 Rollback (PR-1)
+Add the following test functions:
 
-1. Revert `package.json` changes (both root and frontend):
-
-   ```diff
-   - "typescript": "^6.0.0"
-   + "typescript": "^5.9.3"
-   ```
-
-2. Revert `tsconfig.json` changes (remove `"types": []`, restore `"DOM.Iterable"`)
-3. Run `npm install` to restore lock file
-4. Verify: `cd frontend && npx tsc --noEmit && npx vitest run`
-
-**Risk:** Low — TypeScript version is a devDependency only. No runtime impact. `git revert` of the PR commit is sufficient.
-
-### ESLint v10 Rollback (PR-2)
-
-1. Revert `package.json` changes:
-
-   ```diff
-   - "eslint": "^10.0.0"
-   + "eslint": "^9.39.3 <10.0.0"
-   - "@eslint/js": "^10.0.0"
-   + "@eslint/js": "^9.39.3 <10.0.0"
-   ```
-
-2. Revert any plugin version bumps
-3. Revert `lefthook.yml` comment change
-4. Run `npm install` to restore lock file
-5. Verify: `cd /projects/Charon && npm run lint`
-
-**Risk:** Low — ESLint is a devDependency only. Code changes (fixing new rule violations) are harmless to keep even if ESLint is rolled back.
-
-### Vite 8 Rollback (PR-3 commit)
-
-1. Revert `vite` version in both `package.json` files:
-
-   ```diff
-   - "vite": "8.0.0-beta.18"
-   + "vite": "^7.3.1"
-   ```
-
-2. Revert ecosystem packages in `frontend/package.json`:
-
-   ```diff
-   - "@vitejs/plugin-react": "6.0.0-beta.0"
-   + "@vitejs/plugin-react": "^5.1.4"
-   - "vitest": "4.1.0-beta.6"
-   + "vitest": "^4.0.18"
-   - "@vitest/coverage-istanbul": "4.1.0-beta.6"
-   + "@vitest/coverage-istanbul": "^4.0.18"
-   - "@vitest/coverage-v8": "4.1.0-beta.6"
-   + "@vitest/coverage-v8": "^4.0.18"
-   - "@vitest/ui": "4.1.0-beta.6"
-   + "@vitest/ui": "^4.0.18"
-   ```
-
-3. Revert `vite.config.ts`: `rolldownOptions` → `rollupOptions`, restore `manualChunks: undefined`
-
-4. Revert Dockerfile: restore `ROLLUP_SKIP_NODEJS_NATIVE=1` env vars
-
-5. Remove Vite 8 overrides from `frontend/package.json`
-
-6. Run `npm install` to restore lock file
-
-7. Verify: `cd frontend && npx vite build && npx vitest run`
-
-**Risk:** Medium — Vite 8 is a pre-release beta. More likely to need rollback than stable upgrades. Since this is a stacked commit on the same branch, `git revert HEAD` cleanly removes only the Vite 8 changes while preserving TS 6.0 and ESLint v10.
-
----
-
-## 10. Testing Strategy
-
-### Automated Test Coverage
-
-| Test Layer | Tool | What It Validates |
-|---|---|---|
-| Type checking | `tsc --noEmit` | TS 6.0 compatibility, tsconfig changes |
-| Linting | `eslint` | ESLint v10 config + plugin compat |
-| Unit tests | `vitest run` | No runtime regressions from TS changes |
-| E2E tests | Playwright (Chromium, Firefox, WebKit) | Full app build + functionality |
-| Docker build | `docker build` | Dockerfile still works with new deps |
-| Pre-commit hooks | `lefthook` | All hooks pass with new versions |
-
-### Specific Test Scenarios for TS 6.0
-
-1. **Build output verification:**
-
-   ```bash
-   cd frontend && npx vite build
-   # Verify dist/ output is correct, no new warnings
-   ```
-
-2. **Type-check with `--stableTypeOrdering`** (prep for TS 7.0):
-
-   ```bash
-   cd frontend && npx tsc --noEmit --stableTypeOrdering
-   # Note any differences — these will be real in TS 7.0
-   ```
-
-3. **Verify no `@types` resolution issues:**
-
-   ```bash
-   # With types: [], ensure no global type errors appear
-   cd frontend && npx tsc --noEmit 2>&1 | grep "Cannot find"
-   ```
-
-### Specific Test Scenarios for ESLint v10
-
-1. **Verify all 18 plugins load without errors:**
-
-   ```bash
-   cd /projects/Charon && npx eslint --print-config frontend/src/App.tsx | head -20
-   ```
-
-2. **Count new violations vs baseline:**
-
-   ```bash
-   npx eslint frontend/src/ --format json 2>/dev/null | jq '.[] | .errorCount' | paste -sd+ | bc
-   ```
-
-3. **Verify config lookup works correctly in monorepo:**
-
-   ```bash
-   # Lint a file from the root — should find root eslint.config.js
-   npx eslint frontend/src/App.tsx
-   ```
-
----
-
-## 11. Commit Slicing Strategy
-
-### Decision: 3 Stacked Commits on Single Branch
-
-**Trigger reasons:**
-
-- Cross-domain changes (TS and ESLint are independent tools)
-- Risk isolation (if one breaks, the other can still merge)
-- Review size (each PR is focused and reviewable)
-- Plugin compatibility gate (ESLint v10 may be blocked)
-
-### PR-1: TypeScript 6.0 Upgrade
-
-| Attribute | Detail |
+| Test Function | Purpose |
 |---|---|
-| **Scope** | TypeScript ^5.9.3 → ^6.0.0, tsconfig changes, fix type errors |
-| **Files** | `package.json` (root), `frontend/package.json`, `package-lock.json`, `frontend/tsconfig.json`, `frontend/tsconfig.node.json`, possibly source files with type fixes |
-| **Dependencies** | None — can start immediately |
-| **Validation Gate** | `tsc --noEmit` passes, `vitest run` passes, `vite build` succeeds, Docker build succeeds |
-| **Estimated Complexity** | Medium — mostly defaults are already correct, `types: []` is the main change |
-| **Rollback** | `git revert` + `npm install` |
+| `TestSlackWebhookURLValidation` | Table-driven: valid/invalid URL patterns for `validateSlackWebhookURL` |
+| `TestSlackWebhookURLValidation_RejectsHTTP` | Rejects `http://hooks.slack.com/...` |
+| `TestSlackWebhookURLValidation_RejectsIPAddress` | Rejects `https://192.168.1.1/services/...` |
+| `TestSlackWebhookURLValidation_RejectsWrongHost` | Rejects `https://evil.com/services/...` |
+| `TestSlackWebhookURLValidation_RejectsQueryParams` | Rejects URLs with `?token=...` |
+| `TestNotificationService_CreateProvider_Slack` | Creates Slack provider, verifies token stored, URL is channel name |
+| `TestNotificationService_CreateProvider_Slack_ClearsTokenField` | Verifies non-Slack types don't keep token |
+| `TestNotificationService_UpdateProvider_Slack_PreservesToken` | Updates name without clearing webhook URL |
+| `TestNotificationService_TestProvider_Slack` | Tests dispatch through mock HTTP server |
+| `TestNotificationService_SendExternal_Slack` | Event filtering + dispatch via goroutine; mock webhook server |
+| `TestNotificationService_Slack_PayloadNormalizesMessageToText` | Minimal template `message` → `text` normalization |
+| `TestNotificationService_Slack_PayloadRequiresTextOrBlocks` | Custom template without `text`/`blocks`/`message` fails |
+| `TestFlagSlackServiceEnabled_ConstantValue` | `notifications.FlagSlackServiceEnabled == "feature.notifications.service.slack.enabled"` |
+| `TestNotificationService_Slack_IsDispatchEnabled` | Feature flag true/false gating |
+| `TestNotificationService_Slack_TokenNotExposedInList` | `ListProviders` redaction: HasToken=true, Token="" |
 
-### PR-2: ESLint v10 Upgrade
+### 2.5 No Changes Required
 
-| Attribute | Detail |
+| File | Reason |
+|------|--------|
+| `backend/internal/models/notification_provider.go` | Existing `Token`, `URL`, `HasToken` fields sufficient |
+| `backend/internal/notifications/http_wrapper.go` | Slack webhooks are standard HTTPS POST |
+| `backend/internal/api/routes/routes.go` | No new model to auto-migrate |
+| `Dockerfile` | No new dependencies |
+| `.gitignore` | No new artifacts |
+| `codecov.yml` | No new paths to exclude |
+| `.dockerignore` | No new paths |
+
+---
+
+## 3. Frontend Changes (React/TypeScript)
+
+### 3.1 `frontend/src/api/notifications.ts`
+
+#### 3.1.1 `SUPPORTED_NOTIFICATION_PROVIDER_TYPES`
+
+Add `'slack'`:
+
+```typescript
+export const SUPPORTED_NOTIFICATION_PROVIDER_TYPES = [
+  'discord', 'gotify', 'webhook', 'email', 'telegram', 'slack'
+] as const;
+```
+
+#### 3.1.2 `sanitizeProviderForWriteAction()`
+
+Add `'slack'` to the token-preserving types:
+
+```typescript
+if (type !== 'gotify' && type !== 'telegram' && type !== 'slack') {
+    delete payload.token;
+    return payload;
+}
+```
+
+### 3.2 `frontend/src/pages/Notifications.tsx`
+
+#### 3.2.1 `normalizeProviderPayloadForSubmit()`
+
+Add `'slack'` to the token-preserving types:
+
+```typescript
+if (type === 'gotify' || type === 'telegram' || type === 'slack') {
+```
+
+#### 3.2.2 Provider type `<select>` options
+
+Add Slack option after Telegram:
+
+```tsx
+<option value="telegram">{t('notificationProviders.telegram')}</option>
+<option value="slack">{t('notificationProviders.slack')}</option>
+```
+
+#### 3.2.3 `ProviderForm` — Conditional field rendering
+
+**Add new derived boolean:**
+
+```typescript
+const isSlack = type === 'slack';
+```
+
+**URL field label update:**
+
+```typescript
+{isEmail
+  ? t('notificationProviders.recipients')
+  : isTelegram
+    ? t('notificationProviders.telegramChatId')
+    : isSlack
+      ? t('notificationProviders.slackChannelName')
+      : <>{t('notificationProviders.urlWebhook')} <span aria-hidden="true">*</span></>}
+```
+
+**URL field validation update — Slack URL is optional:**
+
+```typescript
+required: (isEmail || isSlack) ? false : (t('notificationProviders.urlRequired') as string),
+validate: (isEmail || isTelegram || isSlack) ? undefined : validateUrl,
+```
+
+**URL placeholder update:**
+
+```typescript
+placeholder={isEmail ? 'user@example.com, admin@example.com'
+  : isTelegram ? '987654321'
+  : isSlack ? '#general'
+  : type === 'discord' ? 'https://discord.com/api/webhooks/...'
+  : type === 'gotify' ? 'https://gotify.example.com/message'
+  : 'https://example.com/webhook'}
+```
+
+**Token field visibility — show for Slack:**
+
+```typescript
+{(isGotify || isTelegram || isSlack) && (
+```
+
+**Token field label — Slack-specific:**
+
+```typescript
+{isSlack
+  ? t('notificationProviders.slackWebhookUrl')
+  : isTelegram
+    ? t('notificationProviders.telegramBotToken')
+    : t('notificationProviders.gotifyToken')}
+```
+
+**Token placeholder — Slack-specific:**
+
+```typescript
+placeholder={initialData?.has_token
+  ? t('notificationProviders.gotifyTokenKeepPlaceholder')
+  : isSlack
+    ? t('notificationProviders.slackWebhookUrlPlaceholder')
+    : isTelegram
+      ? t('notificationProviders.telegramBotTokenPlaceholder')
+      : t('notificationProviders.gotifyTokenPlaceholder')}
+```
+
+#### 3.2.4 `supportsJSONTemplates()`
+
+Add `'slack'`:
+
+```typescript
+return t === 'discord' || t === 'gotify' || t === 'webhook' || t === 'telegram' || t === 'slack';
+```
+
+#### 3.2.5 `useEffect` for clearing token
+
+Update to include `'slack'`:
+
+```typescript
+if (type !== 'gotify' && type !== 'telegram' && type !== 'slack') {
+```
+
+### 3.3 `frontend/src/locales/en/translation.json`
+
+Add these keys inside the `"notificationProviders"` object, after the Telegram keys:
+
+```json
+"slack": "Slack",
+"slackWebhookUrl": "Webhook URL",
+"slackWebhookUrlPlaceholder": "https://hooks.slack.com/services/T.../B.../xxx",
+"slackChannelName": "Channel Name (optional)",
+"slackChannelNameHelp": "Display name for the channel. The actual channel is determined by the webhook configuration."
+```
+
+### 3.4 `frontend/src/pages/__tests__/Notifications.test.tsx`
+
+Add test cases:
+
+| Test | Purpose |
 |---|---|
-| **Scope** | ESLint ^9.x → ^10.0.0, plugin updates, fix new violations, update lefthook |
-| **Files** | `frontend/package.json`, `package-lock.json`, `frontend/eslint.config.js` (if needed), `lefthook.yml`, source files with new violations |
-| **Dependencies** | **BLOCKED** until `eslint-plugin-react-hooks` declares ESLint v10 support |
-| **Validation Gate** | `npm run lint` passes, all plugins load, no new unhandled violations |
-| **Estimated Complexity** | Medium — depends on plugin ecosystem readiness |
-| **Rollback** | `git revert` + `npm install` |
+| `it('shows 6 supported provider type options including slack')` | Verify options: discord, gotify, webhook, email, telegram, slack |
+| `it('shows token field when slack type selected')` | Token input visible when slack selected |
+| `it('hides token field when switching from slack to discord')` | Token input removed on switch |
+| `it('submits slack provider with token as webhook URL')` | Verify `createProvider` receives `token` field |
+| `it('does not require URL for slack')` | No validation error when URL empty for slack |
 
-### PR-3: Vite 8 Upgrade (stacked commit on same branch)
+Update the existing `'shows supported provider type options'` test to expect 6 options instead of 5.
 
-| Attribute | Detail |
-|---|---|
-| **Scope** | Vite 7→8, plugin-react 5→6, vitest 4.0→4.1-beta, vite.config.ts migration, Dockerfile cleanup |
-| **Files** | `package.json` (root), `frontend/package.json`, `package-lock.json`, `frontend/vite.config.ts`, `Dockerfile`, `ARCHITECTURE.md` |
-| **Dependencies** | PR-1 (TS 6.0) and PR-2 (ESLint v10) already committed on branch |
-| **Validation Gate** | `vite build` succeeds with Rolldown, `vitest run` passes, Docker build succeeds, Playwright E2E passes |
-| **Estimated Complexity** | **High** — beta software, bundler engine swap (Rollup→Rolldown), multiple ecosystem packages at beta versions |
-| **Rollback** | `git revert HEAD` — cleanly removes only the Vite 8 commit |
+### 3.5 Accessibility
 
-#### npm Overrides for PR-3
-
-**No overrides expected** when all packages are installed at their beta versions in lockstep:
-- `vitest@4.1.0-beta.6` deps include `vite: ^8.0.0-0` — resolves Vite 8 without override
-- `@vitest/*@4.1.0-beta.6` peer on `vitest: 4.1.0-beta.6` — satisfied by direct install
-
-If `npm install` fails, add **scoped** overrides in `frontend/package.json` only for the failing package. Do not add a broad `"vite": "8.0.0-beta.18"` override.
-
-### Contingency
-
-- If TS 6.0 stable is delayed past RC, pin to `typescript@6.0.0-rc` temporarily
-- If ESLint v10 plugin compat is blocked for >30 days, consider temporarily dropping the blocker plugin or using `--rulesdir` workaround
-- If a plugin is permanently abandoned, research replacement plugins
-- If Vite 8 beta has blocking regressions, `git revert` the Vite 8 commit and wait for the next beta or stable release — TS 6.0 + ESLint v10 upgrades remain unaffected
-- If `vitest@4.1.0-beta.6` fails tests, try pinning `vitest@4.0.18` with an `overrides` entry for its `vite` dependency (force it to accept `^8.0.0-0`)
-- If Rolldown's `codeSplitting: false` behaves differently than expected, try the deprecated `inlineDynamicImports: true` as a fallback, or re-investigate the React initialization issue that motivated the workaround
+- The token field for Slack uses `htmlFor="provider-gotify-token"` (existing `id`)
+- `aria-describedby` points to `gotify-token-stored-hint` when `has_token` is set
+- URL field label correctly associates via `htmlFor="provider-url"`
+- Keyboard navigation order unchanged within form
+- Screen readers announce "Webhook URL" for the token field when Slack is selected
 
 ---
 
-## 12. Known Issues & Gotchas
+## 4. E2E Tests (Playwright)
 
-### ESLint v10
+### 4.1 New File: `tests/settings/slack-notification-provider.spec.ts`
 
-1. **react-hooks plugin blocker** — `lefthook.yml` explicitly states the upgrade is blocked until `eslint-plugin-react-hooks` supports v10. This is the #1 risk.
+Follow the **exact same structure** as `tests/settings/telegram-notification-provider.spec.ts`.
 
-2. **Config file lookup change** — ESLint v10 finds config files starting from the linted file and walking up. In Charon's monorepo setup (root `eslint.config.js` imports `frontend/eslint.config.js`), verify the root config is still discovered when linting `frontend/src/**`.
+#### Test Structure
 
-3. **Jiti dependency** — ESLint v10 requires `jiti >= v2.2.0` for loading config files. This is typically a transitive dependency but may need explicit installation if conflicts arise.
+```
+Slack Notification Provider
+├── Form Rendering
+│   ├── should show webhook URL field and channel name when slack type selected
+│   ├── should toggle form fields when switching between slack and discord types
+│   └── should show JSON template section for slack
+├── CRUD Operations
+│   ├── should create slack notification provider
+│   ├── should edit slack notification provider and preserve webhook URL
+│   ├── should test slack notification provider
+│   └── should delete slack notification provider
+└── Security
+    ├── GET response should NOT expose webhook URL
+    └── webhook URL should NOT be present in URL field
+```
 
-4. **Plugin API breakage** — Plugins that use deprecated `context.getScope()`, `context.getAncestors()`, `context.parserOptions`, or `context.parserPath` will break. All 18 plugins must be verified.
+#### Key Implementation Details
 
-### TypeScript 6.0
+**Mock route patterns:**
 
-1. **`types: []` default** — This is the highest-impact change for Charon. Without explicitly setting `"types"`, TS 6.0 will not auto-load any `@types/*` packages. Since Charon uses `noEmit: true` and explicit imports, this should be fine, but test thoroughly.
+```typescript
+await page.route('**/api/v1/notifications/providers', async (route, request) => { ... });
+await page.route('**/api/v1/notifications/providers/*', async (route, request) => { ... });
+await page.route('**/api/v1/notifications/providers/test', async (route, request) => { ... });
+```
 
-2. **TS 6.0 is a transition release** — It is explicitly designed as a bridge to TS 7.0 (native Go port). Adopting TS 6.0 now prepares us for TS 7.0 later. The `ignoreDeprecations: "6.0"` escape hatch exists if needed.
+**Provider mock data:**
 
-3. **`typescript-eslint` compatibility** — If `typescript-eslint@8.57.0` doesn't support TS 6.0, we may need to update it. Check for a release that adds TS 6.0 support.
+```typescript
+{
+  id: 'slack-provider-1',
+  name: 'Slack Alerts',
+  type: 'slack',
+  url: '#alerts',
+  has_token: true,
+  enabled: true,
+  notify_proxy_hosts: true,
+  notify_certs: true,
+  notify_uptime: false,
+}
+```
 
-4. **`knip` compatibility** — `knip` (`^5.86.0`) uses TS programmatic API internally. Verify it works with TS 6.0.
+**Create payload verification:**
 
-5. **ArrayBuffer/Buffer types** — TS 5.9 changes to `lib.d.ts` around `ArrayBuffer` not being a supertype of `TypedArray` may surface with TS 6.0. Ensure `@types/node` is at latest.
+```typescript
+expect(capturedPayload?.type).toBe('slack');
+expect(capturedPayload?.token).toBe('https://hooks.slack.com/services/T00000/B00000/xxxx');
+expect(capturedPayload?.url).toBe('#alerts');
+expect(capturedPayload?.gotify_token).toBeUndefined();
+```
 
-6. **`ts5to6` migration tool** — The experimental [ts5to6](https://github.com/andrewbranch/ts5to6) tool can automatically adjust `baseUrl` and `rootDir`. Charon doesn't use `baseUrl`, so this is of limited value, but worth knowing about.
+**Security tests — GET response must NOT contain webhook URL:**
 
-### Vite 8
+```typescript
+expect(provider.token).toBeUndefined();
+expect(provider.gotify_token).toBeUndefined();
+const responseStr = JSON.stringify(provider);
+expect(responseStr).not.toContain('hooks.slack.com');
+expect(responseStr).not.toContain('/services/');
+```
 
-1. **Beta software** — `8.0.0-beta.18` is pre-release. Expect edge cases and undocumented behavior. File issues at `https://github.com/vitejs/rolldown-vite/issues`.
+**Firefox-stable patterns (mandatory for all save/delete actions):**
 
-2. **Rolldown bundler is RC, not stable** — Vite 8 depends on `rolldown@1.0.0-rc.8`. Rolldown is feature-complete but may have edge cases with complex chunk splitting configurations.
+```typescript
+// CORRECT: Register listeners BEFORE the click
+await Promise.all([
+  page.waitForResponse(
+    (resp) =>
+      /\/api\/v1\/notifications\/providers\/slack-edit-id/.test(resp.url()) &&
+      resp.request().method() === 'PUT' &&
+      resp.status() === 200
+  ),
+  page.waitForResponse(
+    (resp) =>
+      /\/api\/v1\/notifications\/providers/.test(resp.url()) &&
+      resp.request().method() === 'GET' &&
+      resp.status() === 200
+  ),
+  page.getByTestId('provider-save-btn').click(),
+]);
+```
 
-3. **`codeSplitting: false` replaces `inlineDynamicImports: true`** — `frontend/vite.config.ts` has a `TEMPORARY` workaround for a "React init issue". Rolldown supports `inlineDynamicImports` but marks it as [deprecated](https://rolldown.rs/reference/OutputOptions.inlineDynamicImports) in favor of `codeSplitting: false`. The migration uses `codeSplitting: false` as the primary approach; `inlineDynamicImports: true` can be used as a deprecated fallback.
+### 4.2 Updates to `tests/settings/notifications-payload.spec.ts`
 
-4. **Oxc Minifier assumptions differ from esbuild** — The Oxc Minifier makes [different assumptions](https://oxc.rs/docs/guide/usage/minifier.html#assumptions) about source code than esbuild. If runtime errors appear after build but not in dev, the minifier is the likely culprit. Use `build.minify: false` temporarily to diagnose.
+Add Slack to the payload matrix test scenario array (alongside Discord, Gotify, Webhook):
 
-5. **CJS interop behavior change** — Vite 8 changes how `default` imports from CommonJS modules work. Packages like `axios` (CJS) may be affected. The `legacy.inconsistentCjsInterop: true` escape hatch exists if needed.
+```typescript
+{
+  type: 'slack',
+  name: `slack-matrix-${Date.now()}`,
+  url: '#slack-alerts',
+}
+```
 
-6. **All ecosystem packages are beta** — `@vitejs/plugin-react@6.0.0-beta.0`, `vitest@4.1.0-beta.6`, and all `@vitest/*` packages are pre-release. They are tightly version-locked (e.g., `@vitest/coverage-v8` peers to exact `vitest: 4.1.0-beta.6`).
+### 4.3 No Changes to Other E2E Files
 
-7. **Plugin-react 6.0 API change** — The new `@vitejs/plugin-react@6.0.0-beta.0` uses `@rolldown/pluginutils` internally instead of `@rollup/pluginutils`. The public API (`react()` call in config) appears unchanged. New optional peer deps (`@rolldown/plugin-babel`, `babel-plugin-react-compiler`) are not required for Charon's usage.
-
-8. **Lightning CSS may increase CSS bundle size** — Lightning CSS produces slightly different output than esbuild's CSS minifier. Verify CSS output and check for visual regressions.
-
-9. **Cross-platform Docker builds** — Rolldown uses native Rust bindings per platform (`@rolldown/binding-linux-x64-musl` for Alpine). The `--platform=$BUILDPLATFORM` Docker flag ensures the correct binding is installed. If cross-arch builds fail, verify the correct `@rolldown/binding-*` package is being resolved.
+- `tests/settings/notifications.spec.ts` — operates on Discord by default, no changes needed
+- `tests/settings/telegram-notification-provider.spec.ts` — Telegram-specific, no changes needed
 
 ---
 
-## 13. Risk Assessment
+## 5. Documentation Updates
 
-| Risk | Probability | Impact | Mitigation |
-|---|---|---|---|
-| `eslint-plugin-react-hooks` doesn't support ESLint v10 | **Medium** | **High** — blocks PR-2 entirely | Monitor npm for updates; check GitHub issues |
-| Other ESLint plugins break on v10 | **Low** | **Medium** — individual plugins can be disabled | Verify all 18 plugins; have disable config ready |
-| TS 6.0 `types: []` causes unexpected errors | **Medium** | **Low** — easy to fix by adding types | Test with `tsc --noEmit`; add specific types |
-| `typescript-eslint` incompatible with TS 6.0 | **Low** | **Medium** — blocks type-aware linting | Check releases; may need to update |
-| `knip` breaks with TS 6.0 | **Low** | **Low** — `knip` is optional tooling | Test separately; pin if needed |
-| TS 6.0 stable delayed | **Low** | **Low** — RC already available | Use RC or pin beta |
-| Vite 8 beta breaks production build | **Medium** | **High** — blocks Docker/deployment | Test `vite build` thoroughly; rollback with `git revert` |
-| Rolldown CJS interop breaks runtime imports | **Medium** | **Medium** — runtime errors on CJS packages | Test all CJS deps (axios, etc.); use `legacy.inconsistentCjsInterop` escape |
-| Oxc Minifier causes runtime errors | **Low** | **High** — minification bugs are subtle | Compare dev vs prod behavior; use `build.minify: false` to diagnose |
-| `vitest@4.1.0-beta.6` incompatible with test suite | **Low** | **Medium** — blocks unit test validation | Pin to `4.0.18` + override vite peer if needed |
-| `@vitejs/plugin-react@6.0.0-beta.0` breaks React HMR | **Low** | **Medium** — dev experience degraded | Rollback to 5.1.4 + Vite 7 if critical |
-| Rolldown native binding fails on Alpine cross-build | **Low** | **High** — blocks Docker build entirely | Verify `@rolldown/binding-linux-x64-musl` resolves; fall back to non-cross-platform build |
-| Lightning CSS produces visual CSS regressions | **Low** | **Low** — cosmetic issues only | Visual diff E2E screenshots |
-| Docker build fails after upgrades | **Low** | **Medium** — blocks CI/deployment | Test Docker build in PR CI |
-| Playwright E2E failures from TS changes | **Very Low** | **High** — blocks merge | Run full E2E suite before merge |
+### 5.1 `docs/features/notifications.md`
 
-### Overall Risk: **MEDIUM-HIGH**
+**Supported Services table** — Add Slack row:
 
-- TypeScript 6.0 is well-characterized and Charon's tsconfig is well-aligned with the new defaults
-- ESLint v10 is dependent on ecosystem readiness (plugin compatibility)
-- **Vite 8 is the highest-risk change** — beta software with a complete bundler engine swap (Rollup→Rolldown). The saving grace is that all three upgrades are separate commits on the same branch, enabling surgical rollback of just the Vite 8 commit if needed
+| Service | JSON Templates | Native API | Rich Formatting |
+|---------|----------------|------------|-----------------|
+| **Slack** | ✅ Yes | ✅ Webhooks | ✅ Blocks + Attachments |
+
+**Add Slack section** after "Email Notifications", before "Planned Provider Expansion":
+
+```markdown
+### Slack Notifications
+
+Slack notifications post messages to channels using Incoming Webhooks.
+
+**Setup:**
+
+1. In Slack, go to your workspace's **App Management** → **Incoming Webhooks**
+2. Create a new webhook and select the target channel
+3. Copy the webhook URL
+4. In Charon, go to **Settings** → **Notifications** → **Add Provider**
+5. Select **Slack** as the service type
+6. Paste the webhook URL in the Webhook URL field
+7. Optionally enter a channel display name
+8. Configure notification triggers and save
+
+> **Note:** The webhook URL is stored securely and never exposed in API responses.
+```
+
+**Update "Planned Provider Expansion"** — Remove Slack from the planned list since it is now implemented.
+
+### 5.2 `CHANGELOG.md`
+
+Add entry under `## [Unreleased]`:
+
+```markdown
+### Added
+- Slack notification provider with Incoming Webhook support
+```
 
 ---
 
-## Acceptance Criteria
+## 6. Commit Slicing Strategy
 
-### PR-1 (TypeScript 6.0)
+### Decision: Single PR
 
-- [ ] `typescript` upgraded to `^6.0.0` in root and frontend `package.json`
-- [ ] `tsconfig.json` updated with `types: []` and simplified `lib`
-- [ ] `tsc --noEmit` passes with zero errors
-- [ ] `vitest run` passes all tests
-- [ ] `vite build` produces correct output
-- [ ] Docker build succeeds
-- [ ] No new `ignoreDeprecations` usage (clean upgrade)
+**Rationale:**
+- Slack follows an established, well-tested pattern (identical to Telegram)
+- All changes are tightly coupled: backend type support, frontend form, E2E tests
+- Estimated diff is moderate (~670 lines across 12 files)
+- No schema migration or infrastructure changes
+- No cross-domain risk (no security module changes, no Caddy changes)
+- Feature flag provides safe rollback without code revert
 
-### PR-2 (ESLint v10)
+### PR Scope
 
-- [ ] Plugin compatibility verified for all 18 plugins
-- [ ] `eslint` and `@eslint/js` upgraded to `^10.0.0`
-- [ ] Version cap (`<10.0.0`) removed from both packages
-- [ ] `npm run lint` passes (new violations fixed)
-- [ ] `lefthook.yml` pin note removed/updated
-- [ ] All pre-commit hooks pass
+| Domain | Files | Lines (est.) |
+|--------|-------|-------------|
+| Backend - Feature flag | `feature_flags.go` | +1 |
+| Backend - Service | `notification_service.go` | +40 |
+| Backend - Handler | `notification_provider_handler.go` | +15 |
+| Backend - Tests | `notification_service_test.go` | +150 |
+| Frontend - API | `notifications.ts` | +5 |
+| Frontend - Page | `Notifications.tsx` | +30 |
+| Frontend - i18n | `translation.json` | +5 |
+| Frontend - Tests | `Notifications.test.tsx` | +40 |
+| E2E Tests | `slack-notification-provider.spec.ts` (new) | +350 |
+| E2E Tests | `notifications-payload.spec.ts` | +5 |
+| Docs | `notifications.md`, `CHANGELOG.md` | +30 |
 
-### PR-3 (Vite 8)
+**Total estimated:** ~670 lines
 
-- [ ] `vite` upgraded to `8.0.0-beta.18` in root and frontend `package.json`
-- [ ] `@vitejs/plugin-react` upgraded to `6.0.0-beta.0`
-- [ ] `vitest` upgraded to `4.1.0-beta.6` with matching `@vitest/*` packages
-- [ ] `vite.config.ts` migrated: `rollupOptions` → `rolldownOptions`, `manualChunks` removed
-- [ ] npm overrides verified: no broad overrides needed (or scoped overrides added with justification)
-- [ ] Dockerfile: Rollup native skip flags removed
-- [ ] `vite build` produces correct output with Rolldown bundler
-- [ ] `vitest run` passes all unit tests
-- [ ] `tsc --noEmit` still passes (unchanged from PR-1)
-- [ ] Docker build succeeds with Rolldown on Alpine/musl
-- [ ] Playwright E2E tests pass (all browsers)
-- [ ] No CJS interop runtime errors (axios, react-hot-toast, etc.)
-- [ ] CJS interop verified: axios API calls, react-hot-toast renders, react-hook-form submits work
-- [ ] CSS output visually correct (Lightning CSS minification)
-- [ ] `ARCHITECTURE.md` updated: Vite 8.0.0-beta.18, Vitest 4.1.0-beta.6, Playwright 1.58.2, Tailwind CSS 4.2.1, `vite.config.ts` filename
-- [ ] Pre-commit hooks pass (`lefthook`)
+### Validation Gates
+
+1. `go test ./backend/...` — all backend tests pass (including new Slack tests)
+2. `cd frontend && npx vitest run` — frontend unit tests pass
+3. `npx playwright test tests/settings/slack-notification-provider.spec.ts --project=firefox` — Slack E2E passes
+4. `npx playwright test tests/settings/notifications-payload.spec.ts --project=firefox` — payload matrix passes
+5. `make lint-fast` — staticcheck passes
+6. Manual smoke test: create Slack provider → send test notification → verify in Slack channel
+
+### Rollback
+
+If issues arise post-merge:
+- Set `feature.notifications.service.slack.enabled = false` in **Settings → Feature Flags**
+- This immediately stops all Slack dispatch without code changes
+- Existing Slack providers remain in DB but are non-dispatch
+
+---
+
+## 7. Risk Assessment
+
+### 7.1 Webhook URL Security — HIGH
+
+**Risk:** Webhook URL contains embedded credentials. If exposed in API responses, anyone with read access to the Charon API could post to the Slack channel.
+
+**Mitigation:** Store in `Token` field (uses `json:"-"` tag). Use `HasToken` computed field for frontend indication. Follow identical pattern to Telegram bot token / Gotify token.
+
+**Verification:** E2E security test `GET response should NOT expose webhook URL` explicitly checks the API response body.
+
+### 7.2 Rate Limiting — LOW
+
+**Risk:** Slack enforces 1 message/second/webhook. Burst notifications could trigger rate limiting.
+
+**Mitigation:** Not addressed in this PR. The existing Charon notification system dispatches per-event and does not batch. Acceptable for initial rollout. Future work could add per-provider rate limiting.
+
+### 7.3 Slack Webhook URL Format Changes — LOW
+
+**Risk:** Slack could change their webhook URL format, breaking the validation regex.
+
+**Mitigation:** Regex is simple and based on the documented format. Only `validateSlackWebhookURL` needs updating. Feature flag allows immediate disable as a workaround.
+
+### 7.4 Plain-Text Error Responses — MEDIUM
+
+**Risk:** Discord returns JSON error responses. Slack returns plain-text error strings (e.g., `"invalid_payload"`, `"channel_not_found"`). Error classification must handle both patterns.
+
+**Mitigation:** Added Slack-specific string matching in `classifyProviderTestFailure`. The existing fallback (`PROVIDER_TEST_FAILED`) handles unknown patterns gracefully.
+
+### 7.5 Payload Normalization — LOW
+
+**Risk:** Minimal template produces `message` key; Slack requires `text`. Without normalization, the default template would fail.
+
+**Mitigation:** The `sendJSONPayload` Slack case block normalizes `message` → `text` automatically (same pattern as Discord `message` → `content` and Telegram `message` → `text`).
+
+### 7.6 Workflow Builder Webhooks — LOW
+
+**Risk:** Slack Workflow Builder uses `/triggers/...` URLs, not `/services/...`. These are not supported by the current validation regex.
+
+**Mitigation:** Document as a known limitation. Workflow Builder webhooks can be used via the Generic Webhook provider type. Future work could extend the regex to support both formats.
+
+---
+
+## 8. Acceptance Criteria
+
+- [ ] `"slack"` is a valid provider type in both backend and frontend
+- [ ] Feature flag `feature.notifications.service.slack.enabled` gates dispatch (default: enabled)
+- [ ] Slack webhook URL is stored in `Token` field, never exposed in GET responses
+- [ ] `HasToken` is `true` when webhook URL is set
+- [ ] Create / Update / Delete Slack providers works via API and UI
+- [ ] Test notification dispatches successfully to a Slack webhook
+- [ ] Minimal template auto-normalizes `message` → `text` for Slack payloads
+- [ ] All existing notification tests continue to pass (zero regressions)
+- [ ] New Slack-specific unit tests pass (`go test ./backend/...`)
+- [ ] Frontend unit tests pass (`npx vitest run`)
+- [ ] E2E tests pass on Firefox (`--project=firefox`)
+- [ ] `make lint-fast` (staticcheck) passes
+- [ ] Documentation updated (`notifications.md`, `CHANGELOG.md`)

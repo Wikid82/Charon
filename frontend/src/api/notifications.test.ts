@@ -118,7 +118,7 @@ describe('notifications api', () => {
       type: 'gotify',
     })
 
-    await expect(createProvider({ name: 'Bad', type: 'slack' })).rejects.toThrow('Unsupported notification provider type: slack')
+    await expect(createProvider({ name: 'Bad', type: 'pushover' })).rejects.toThrow('Unsupported notification provider type: pushover')
     await expect(updateProvider('bad', { type: 'generic' })).rejects.toThrow('Unsupported notification provider type: generic')
   })
 
