@@ -183,15 +183,16 @@ done
 # ============================================================================
 echo ""
 echo "Creating backend container for proxy host..."
+docker pull kennethreitz/httpbin 2>/dev/null || true
 docker run -d --name ${BACKEND_CONTAINER} --network containers_default kennethreitz/httpbin
 
 echo "Waiting for httpbin backend to be ready..."
-for i in {1..20}; do
+for i in {1..45}; do
     if docker exec ${CONTAINER_NAME} sh -c "curl -sf http://${BACKEND_CONTAINER}/get" >/dev/null 2>&1; then
         echo "✓ httpbin backend is ready"
         break
     fi
-    if [ $i -eq 20 ]; then
+    if [ $i -eq 45 ]; then
         echo "✗ httpbin backend failed to start"
         exit 1
     fi
