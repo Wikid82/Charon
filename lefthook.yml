@@ -104,13 +104,9 @@ pre-commit:
       glob: "frontend/**/*.{ts,tsx,js,jsx}"
       run: cd frontend && npm run lint
 
-
-# ============================================================
-# PRE-PUSH  (blocking, runs on push)
-# ============================================================
-pre-push:
-  commands:
     semgrep:
+      glob: "**/*.{go,ts,tsx,js,jsx,sh,yml,yaml}"
+      exclude: 'frontend/(coverage|dist|node_modules|\.vite)/'
       run: scripts/pre-commit-hooks/semgrep-scan.sh
 
 
