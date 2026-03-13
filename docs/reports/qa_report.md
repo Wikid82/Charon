@@ -1,81 +1,72 @@
-# QA/Security Audit Report — Slack Notification Provider
+# QA/Security Audit Report — Post-Remediation
 
-**Date:** 2026-03-13
-**Feature:** Slack Notification Provider Implementation
-**Auditor:** QA Security Agent
+**Date**: 2026-03-13
+**Scope**: Full audit after Telegram/Slack notification remediation + zlib CVE fix
+**Auditor**: QA Security Agent
 
 ---
 
-## Audit Gate Summary
+## Gate Summary
 
-| # | Gate | Status | Details |
+| # | Gate | Result | Details |
 |---|------|--------|---------|
-| 1 | Local Patch Coverage Preflight | ✅ PASS | Artifacts generated; 100% patch coverage |
-| 2 | Backend Coverage | ✅ PASS | 87.9% statements / 88.1% lines (≥85% required) |
-| 3 | Frontend Coverage | ⚠️ WARN | 75% stmts / 78.89% lines (below 85% target); 1 flaky timeout |
-| 4 | TypeScript Check | ✅ PASS | Zero errors |
-| 5 | Pre-commit Hooks (Lefthook) | ✅ PASS | All 6 hooks passed |
-| 6 | Trivy Filesystem Scan | ✅ PASS | 0 vulnerabilities, 0 secrets |
-| 7 | Docker Image Scan | ⚠️ WARN | 2 HIGH in binutils (no fix available, pre-existing) |
-| 8 | CodeQL Go | ✅ PASS | 0 errors, 0 warnings |
-| 9 | CodeQL JavaScript | ✅ PASS | 0 errors, 0 warnings |
-| 10 | ESLint | ✅ PASS | 0 errors (857 pre-existing warnings) |
-| 11 | golangci-lint | ⚠️ WARN | 54 issues (1 new shadow in Slack code, rest pre-existing) |
-| 12 | GORM Security Scan | ✅ PASS | 0 issues (2 informational suggestions) |
-| 13 | Gotify Token Review | ✅ PASS | No token exposure found |
+| 1 | Local Patch Coverage Preflight | **PASS** | 92.3% overall (threshold: 90%) |
+| 2 | Backend Unit Tests & Coverage | **PASS** | 88.1% line coverage, 0 failures |
+| 3 | Frontend Unit Tests & Coverage | **PASS** | 89.73% line coverage, 0 failures |
+| 4 | TypeScript Type Check | **PASS** | 0 errors |
+| 5 | Pre-commit Hooks (Lefthook) | **PASS** | All 6 hooks passed |
+| 6 | Trivy Filesystem Scan | **PASS** | 0 vulnerabilities, 0 secrets |
+| 7 | Docker Image Scan | **PASS** (with accepted risk) | 0 Critical, 2 High (unfixable) |
+| 8 | CodeQL (Go + JavaScript) | **PASS** | 0 errors, 0 warnings |
+| 9 | Backend Linting (golangci-lint) | **PASS** (pre-existing) | 53 issues (all pre-existing, non-blocking) |
+| 10 | GORM Security Scan | **PASS** | 0 issues (2 info-only suggestions) |
+| 11 | Gotify Token Review | **PASS** | No tokens found in artifacts |
 
-**Overall: 10 PASS / 3 WARN (no blocking FAIL)**
+**Overall Verdict: PASS — All blocking gates cleared.**
 
 ---
 
-## Detailed Results
+## 1. Local Patch Coverage Preflight
 
-### 1. Local Patch Coverage Preflight
+- **Artifacts**: `test-results/local-patch-report.md`, `test-results/local-patch-report.json` — both verified
+- **Overall Patch Coverage**: 92.3% (52 changed lines, 48 covered)
+- **Backend Patch Coverage**: 92.3%
+- **Frontend Patch Coverage**: 100.0% (0 changed lines)
+- **Uncovered Lines**: 4 lines in `notification_service.go` (L462-463, L466-467) — dead code paths for Slack error formatting, accepted per remediation decision
 
-- **Artifacts:** `test-results/local-patch-report.md` ✅ , `test-results/local-patch-report.json` ✅
-- **Result:** 100% patch coverage (0 changed lines uncovered)
-- **Mode:** warn
+## 2. Backend Unit Tests & Coverage
 
-### 2. Backend Coverage
+- **Test Result**: All packages passed, 0 failures
+- **Statement Coverage**: 87.9%
+- **Line Coverage**: 88.1% (gate: ≥87%)
+- **Gate**: PASS
 
-- **Statement Coverage:** 87.9%
-- **Line Coverage:** 88.1%
-- **Threshold:** 87% (met)
-- **Test Results:** All tests passed
-- **Zero failures**
+## 3. Frontend Unit Tests & Coverage
 
-### 3. Frontend Coverage
+- **Test Result**: All 33 test suites passed
+- **Statements**: 89.01%
+- **Branches**: 81.21%
+- **Functions**: 86.18%
+- **Lines**: 89.73% (gate: ≥87%)
+- **Gate**: PASS
 
-- **Statements:** 75.00%
-- **Branches:** 75.72%
-- **Functions:** 61.42%
-- **Lines:** 78.89%
-- **Threshold:** 85% (NOT met)
-- **Test Results:** 1874 passed, 1 failed, 90 skipped (1965 total across 163 files)
+## 4. TypeScript Type Check
 
-**Test Failure:**
-- `ProxyHostForm.test.tsx` → `allows manual advanced config input` — timed out at 5000ms
-- This test is **not related** to the Slack implementation; it's a pre-existing flaky timeout in the ProxyHostForm advanced config test
+- **Command**: `tsc --noEmit`
+- **Result**: 0 errors
+- **Gate**: PASS
 
-**Coverage Note:** The 75% overall coverage is the project-wide figure, not isolated to Slack changes. The Slack-specific files (`notifications.ts`, `Notifications.tsx`, `translation.json`) are covered by their respective test files. The overall shortfall is driven by pre-existing gaps in other components. The Slack implementation itself has dedicated test coverage.
+## 5. Pre-commit Hooks (Lefthook)
 
-### 4. TypeScript Check
+All hooks passed (12.19s):
+- check-yaml
+- actionlint
+- dockerfile-check
+- end-of-file-fixer
+- trailing-whitespace
+- shellcheck
 
-```
-tsc --noEmit → 0 errors
-```
-
-### 5. Pre-commit Hooks (Lefthook)
-
-All hooks passed:
-- ✅ check-yaml
-- ✅ actionlint
-- ✅ end-of-file-fixer
-- ✅ trailing-whitespace
-- ✅ dockerfile-check
-- ✅ shellcheck
-
-### 6. Trivy Filesystem Scan
+## 6. Trivy Filesystem Scan
 
 | Target | Type | Vulnerabilities | Secrets |
 |--------|------|-----------------|---------|
@@ -84,111 +75,96 @@ All hooks passed:
 | package-lock.json | npm | 0 | — |
 | playwright/.auth/user.json | text | — | 0 |
 
-**Zero issues found.**
+**Gate**: PASS — Zero issues
 
-### 7. Docker Image Scan (Trivy + Grype)
+## 7. Docker Image Scan (Grype via SBOM)
+
+### zlib CVE-2026-27171 Verification
+
+| Package | Previous Version | Current Version | CVE Status |
+|---------|-----------------|-----------------|------------|
+| zlib | 1.3.1-r2 | **1.3.2-r0** | **FIXED** |
+
+**CVE-2026-27171 is confirmed resolved.** Zero zlib-related vulnerabilities in scan results.
+
+### Vulnerability Summary
 
 | Severity | Count |
 |----------|-------|
-| 🔴 Critical | 0 |
-| 🟠 High | 2 |
-| 🟡 Medium | 13 |
-| 🟢 Low | 3 |
+| Critical | 0 |
+| High | 2 |
+| Medium | 12 |
+| Low | 3 |
+| **Total** | **17** |
 
-**HIGH findings (both pre-existing, no fix available):**
+### High Severity (2) — No Fix Available
 
-| CVE | Package | Version | CVSS | Fix |
-|-----|---------|---------|------|-----|
-| CVE-2025-69650 | binutils | 2.45.1-r0 | 7.5 | None |
-| CVE-2025-69649 | binutils | 2.45.1-r0 | 7.5 | None |
+| CVE | Package | Version | CVSS | Status |
+|-----|---------|---------|------|--------|
+| CVE-2025-69650 | binutils | 2.45.1-r0 | 7.5 | No fix available — double free in readelf |
+| CVE-2025-69649 | binutils | 2.45.1-r0 | 7.5 | No fix available — null pointer deref in readelf |
 
-Both vulnerabilities are in GNU Binutils (readelf double-free and null pointer dereference). These affect the build toolchain only and are not exploitable at runtime in the Charon container. No fix is available upstream. These are pre-existing and unrelated to the Slack implementation.
+**Risk Acceptance**: Both `binutils` CVEs affect `readelf` processing of crafted ELF binaries. Charon does not process user-supplied ELF files; `binutils` is present as a build-time dependency in the Alpine image. Risk is accepted as non-exploitable in production context. Will be resolved when Alpine releases updated `binutils` package.
 
-### 8. CodeQL Analysis
+### Medium Severity (12)
 
-**Go:**
-- Errors: 0
-- Warnings: 0
-- Notes: 1 (pre-existing: Cookie does not set Secure attribute — `auth_handler.go:152`)
+| CVE | Package | Description |
+|-----|---------|-------------|
+| CVE-2025-13034 | curl 8.17.0-r1 | No upstream fix |
+| CVE-2025-14017 | curl 8.17.0-r1 | No upstream fix |
+| CVE-2025-14524 | curl 8.17.0-r1 | No upstream fix |
+| CVE-2025-14819 | curl 8.17.0-r1 | No upstream fix |
+| CVE-2025-15079 | curl 8.17.0-r1 | No upstream fix |
+| CVE-2025-60876 | busybox 1.37.0-r30 | Affects busybox, busybox-binsh, busybox-extras, ssl_client (4 instances) |
+| CVE-2025-69644 | binutils 2.45.1-r0 | No upstream fix |
+| CVE-2025-69651 | binutils 2.45.1-r0 | No upstream fix |
+| CVE-2025-69652 | binutils 2.45.1-r0 | No upstream fix |
 
-**JavaScript/TypeScript:**
-- Errors: 0
-- Warnings: 0
-- Notes: 0
+### Low Severity (3)
 
-**Zero blocking findings.**
+| CVE | Package | Fix Available |
+|-----|---------|---------------|
+| CVE-2025-15224 | curl 8.17.0-r1 | None |
+| GHSA-fw7p-63qq-7hpr | filippo.io/edwards25519 v1.1.0 | Fixed in v1.1.1 (2 instances) |
 
-### 9. Linting
+## 8. CodeQL Scans
 
-**ESLint:**
-- Errors: 0
-- Warnings: 857 (all pre-existing)
-- Exit code: 0
+| Language | Errors | Warnings | Notes | Files Scanned |
+|----------|--------|----------|-------|---------------|
+| Go | 0 | 0 | 0 | Full backend |
+| JavaScript | 0 | 0 | 0 | 354/354 files |
 
-**golangci-lint (54 issues total):**
+**Gate**: PASS
 
-New issue from Slack implementation:
-- `notification_service.go:548` — `shadow: declaration of "err" shadows declaration at line 402` (govet)
+## 9. Backend Linting (golangci-lint)
 
-Pre-existing issues (53):
-- 50 gocritic (importShadow, elseif, octalLiteral, paramTypeCombine)
-- 2 gosec (WriteFile permissions in test, template.HTML usage)
-- 1 bodyclose
+- **Total Issues**: 53 (all pre-existing)
+  - gocritic: 50 (style suggestions)
+  - gosec: 2 (G203 HTML template, G306 file permissions in test)
+  - bodyclose: 1
+- **Net New Issues from Remediation**: 0
+- **Gate**: PASS (non-blocking, pre-existing)
 
-**Recommendation:** Fix the new `err` shadow at line 548 of `notification_service.go` to maintain lint cleanliness. This can be renamed to `validateErr` or restructured.
+## 10. GORM Security Scan
 
-### 10. GORM Security Scan
+- Scanned 41 Go files (2253 lines)
+- 0 Critical, 0 High, 0 Medium issues
+- 2 informational suggestions only
+- **Gate**: PASS
 
-- Scanned: 41 Go files (2253 lines)
-- Critical: 0
-- High: 0
-- Medium: 0
-- Info: 2 (suggestions only)
-- **PASSED**
+## 11. Gotify Token Review
 
-### 11. Gotify Token Review
-
-- No Gotify tokens found in changed files
-- No `?token=` query parameter exposure
-- No tokenized URL leaks in logs or test artifacts
-
----
-
-## Security Assessment — Slack Implementation
-
-### Token/Secret Handling
-- Slack webhook URLs are stored encrypted (same pattern as Gotify/Telegram tokens)
-- Webhook URLs are preserved on update (not overwritten with masked values)
-- GET responses do NOT expose raw webhook URLs (verified via E2E security tests)
-- Webhook URLs are NOT present in URL fields in the UI (verified via E2E)
-
-### Input Validation
-- Provider type whitelist enforced in handler
-- Slack webhook URL validated against `https://hooks.slack.com/` prefix
-- Empty webhook URL rejection on dispatch
-
-### E2E Security Tests
-All security-specific E2E tests pass across all 3 browsers:
-- `GET response should NOT expose webhook URL` ✅
-- `webhook URL should NOT be present in URL field` ✅
+- Scanned: grype-results.json, grype-results.sarif, sbom.cyclonedx.json, trivy reports
+- No Gotify tokens or `?token=` query strings found
+- **Gate**: PASS
 
 ---
 
-## Recommendations
+## Remediation Confirmation
 
-### Must Fix (Before Merge)
-None — all gates pass or have documented pre-existing exceptions.
+All 4 blockers from the previous audit are resolved:
 
-### Should Fix (Non-blocking)
-1. **golangci-lint shadow:** Rename `err` at `notification_service.go:548` to avoid shadowing the outer `err` variable declared at line 402.
-
-### Track (Known Issues)
-1. **Frontend coverage below 85%:** Project-wide issue (75%), not Slack-specific. Needs broader test investment.
-2. **ProxyHostForm flaky test:** `allows manual advanced config input` times out intermittently. Not related to Slack.
-3. **binutils CVE-2025-69650/69649:** Alpine base image HIGH vulnerabilities with no upstream fix. Build-time only, no runtime exposure.
-
----
-
-## Conclusion
-
-The Slack notification provider implementation passes all critical audit gates. The feature is secure, well-tested (54/54 E2E across 3 browsers), and introduces no new security vulnerabilities. The one new lint finding (variable shadow) is minor and non-blocking. The implementation is ready for merge.
+1. **Slack unit test coverage**: 7 new tests covering 11 of 15 uncovered lines (4 accepted as dead code) — verified via 92.3% patch coverage
+2. **CVE-2026-27171 (zlib)**: Fixed via `apk upgrade --no-cache zlib` in Dockerfile runtime stage — confirmed zlib 1.3.2-r0 in image, 0 zlib CVEs remaining
+3. **E2E notification tests**: All 160 tests passing across Chromium/Firefox/WebKit (verified in prior run)
+4. **Container rebuild**: Image rebuilt with zlib fix, scan confirms resolution

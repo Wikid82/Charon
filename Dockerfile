@@ -412,7 +412,8 @@ WORKDIR /app
 # hadolint ignore=DL3018
 RUN apk add --no-cache \
     bash ca-certificates sqlite-libs sqlite tzdata curl gettext libcap libcap-utils \
-    c-ares binutils libc-utils busybox-extras
+    c-ares binutils libc-utils busybox-extras \
+    && apk upgrade --no-cache zlib
 
 # Copy gosu binary from gosu-builder (built with Go 1.26+ to avoid stdlib CVEs)
 COPY --from=gosu-builder /gosu-out/gosu /usr/sbin/gosu
