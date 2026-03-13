@@ -170,6 +170,7 @@ if ! docker network inspect containers_default >/dev/null 2>&1; then
 fi
 
 log_info "Starting httpbin backend container..."
+docker pull kennethreitz/httpbin 2>/dev/null || true
 docker run -d --name ${BACKEND_CONTAINER} --network containers_default kennethreitz/httpbin
 
 log_info "Starting Charon container with ALL Cerberus features enabled..."
@@ -210,12 +211,12 @@ done
 echo ""
 
 log_info "Waiting for httpbin backend to be ready..."
-for i in {1..20}; do
+for i in {1..45}; do
     if docker exec ${CONTAINER_NAME} sh -c "curl -sf http://${BACKEND_CONTAINER}/get" >/dev/null 2>&1; then
         log_info "httpbin backend is ready"
         break
     fi
-    if [ $i -eq 20 ]; then
+    if [ $i -eq 45 ]; then
         log_error "httpbin backend failed to start"
         exit 1
     fi

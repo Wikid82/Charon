@@ -429,6 +429,8 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
+# ARG CI must be declared here so Docker passes the host $CI env var into the RUN instruction
+ARG CI
 ARG GEOLITE2_COUNTRY_SHA256=b79afc28a0a52f89c15e8d92b05c173f314dd4f687719f96cf921012d900fcce
 RUN mkdir -p /app/data/geoip && \
         if [ -n "$CI" ]; then \
