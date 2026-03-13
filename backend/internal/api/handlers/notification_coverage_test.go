@@ -474,6 +474,61 @@ func TestClassifyProviderTestFailure_TLSHandshakeFailed(t *testing.T) {
 	assert.Contains(t, message, "TLS handshake failed")
 }
 
+func TestClassifyProviderTestFailure_SlackInvalidPayload(t *testing.T) {
+	code, category, message := classifyProviderTestFailure(errors.New("invalid_payload"))
+
+	assert.Equal(t, "PROVIDER_TEST_VALIDATION_FAILED", code)
+	assert.Equal(t, "validation", category)
+	assert.Contains(t, message, "Slack rejected the payload")
+}
+
+func TestClassifyProviderTestFailure_SlackMissingTextOrFallback(t *testing.T) {
+	code, category, message := classifyProviderTestFailure(errors.New("missing_text_or_fallback"))
+
+	assert.Equal(t, "PROVIDER_TEST_VALIDATION_FAILED", code)
+	assert.Equal(t, "validation", category)
+	assert.Contains(t, message, "Slack rejected the payload")
+}
+
+func TestClassifyProviderTestFailure_SlackNoService(t *testing.T) {
+	code, category, message := classifyProviderTestFailure(errors.New("no_service"))
+
+	assert.Equal(t, "PROVIDER_TEST_AUTH_REJECTED", code)
+	assert.Equal(t, "dispatch", category)
+	assert.Contains(t, message, "Slack webhook is revoked")
+}
+
+func TestNotificationProviderHandler_Test_RejectsSlackTokenInTestRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupNotificationCoverageDB(t)
+	svc := services.NewNotificationService(db, nil)
+	h := NewNotificationProviderHandler(svc)
+
+	payload := map[string]any{
+		"type":  "slack",
+		"url":   "#alerts",
+		"token": "https://hooks.slack.com/services/T00/B00/secret",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	setAdminContext(c)
+	c.Set(string(trace.RequestIDKey), "req-slack-token-reject")
+	c.Request = httptest.NewRequest(http.MethodPost, "/providers/test", bytes.NewBuffer(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.Test(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "TOKEN_WRITE_ONLY", resp["code"])
+	assert.Equal(t, "validation", resp["category"])
+	assert.Equal(t, "Slack webhook URL is accepted only on provider create/update", resp["error"])
+	assert.NotContains(t, w.Body.String(), "hooks.slack.com")
+}
+
 func TestNotificationProviderHandler_Templates(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)

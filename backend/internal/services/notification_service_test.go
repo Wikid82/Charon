@@ -3475,3 +3475,69 @@ func TestNotificationService_Slack_TokenNotExposedInList(t *testing.T) {
 	assert.True(t, providers[0].HasToken)
 	assert.Empty(t, providers[0].Token)
 }
+
+func TestSendJSONPayload_Slack_EmptyWebhookURLReturnsError(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	provider := models.NotificationProvider{
+		Type:     "slack",
+		URL:      "#alerts",
+		Token:    "",
+		Template: "minimal",
+	}
+	data := map[string]any{
+		"Title":     "Test",
+		"Message":   "Should fail before dispatch",
+		"Time":      time.Now().Format(time.RFC3339),
+		"EventType": "test",
+	}
+
+	err := svc.sendJSONPayload(context.Background(), provider, data)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "slack webhook URL is not configured")
+}
+
+func TestSendJSONPayload_Slack_WhitespaceOnlyWebhookURLReturnsError(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	provider := models.NotificationProvider{
+		Type:     "slack",
+		URL:      "#alerts",
+		Token:    "   ",
+		Template: "minimal",
+	}
+	data := map[string]any{
+		"Title":     "Test",
+		"Message":   "Should fail before dispatch",
+		"Time":      time.Now().Format(time.RFC3339),
+		"EventType": "test",
+	}
+
+	err := svc.sendJSONPayload(context.Background(), provider, data)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "slack webhook URL is not configured")
+}
+
+func TestSendJSONPayload_Slack_InvalidWebhookURLReturnsValidationError(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	provider := models.NotificationProvider{
+		Type:     "slack",
+		URL:      "#alerts",
+		Token:    "https://evil.com/not-a-slack-webhook",
+		Template: "minimal",
+	}
+	data := map[string]any{
+		"Title":     "Test",
+		"Message":   "Should fail URL validation",
+		"Time":      time.Now().Format(time.RFC3339),
+		"EventType": "test",
+	}
+
+	err := svc.sendJSONPayload(context.Background(), provider, data)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid Slack webhook URL")
+}
