@@ -188,7 +188,7 @@ docker run -d --name ${BACKEND_CONTAINER} --network containers_default mccutchen
 
 echo "Waiting for httpbin backend to be ready..."
 for i in {1..45}; do
-    if docker exec ${CONTAINER_NAME} sh -c "curl -sf http://${BACKEND_CONTAINER}/get" >/dev/null 2>&1; then
+    if docker exec ${CONTAINER_NAME} sh -c "wget -qO /dev/null http://${BACKEND_CONTAINER}/get" >/dev/null 2>&1; then
         echo "✓ httpbin backend is ready"
         break
     fi
