@@ -171,7 +171,7 @@ fi
 
 log_info "Starting httpbin backend container..."
 docker pull mccutchen/go-httpbin 2>/dev/null || true
-docker run -d --name ${BACKEND_CONTAINER} --network containers_default mccutchen/go-httpbin
+docker run -d --name ${BACKEND_CONTAINER} --network containers_default -e PORT=80 mccutchen/go-httpbin
 
 log_info "Starting Charon container with ALL Cerberus features enabled..."
 docker run -d --name ${CONTAINER_NAME} \

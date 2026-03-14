@@ -1,36 +1,28 @@
-# QA/Security Audit Report — CVE Remediation (curl / binutils / libc-utils)
+# QA Report: Integration Script Port Fix & curl→wget Remediation
 
-**Date**: 2026-03-13
-**Branch**: `feature/beta-release`
-**Scope**: Full audit after removing `curl`, `binutils`, `libc-utils` from runtime image; substituting `wget`; updating `.grype.yaml`
-**Auditor**: QA Security Agent
+**Date:** 2026-03-14
+**Branch:** `feature/beta-release`
+**Scope:** 6 shell scripts in `scripts/` — one-line changes each
+**Reviewer:** QA Security Agent
 
 ---
 
 ## Overall Verdict: PASS
 
-All blocking gates cleared. The three HIGH CVEs targeted by this remediation are confirmed absent from the runtime image. One additional critical gap (docker-compose health checks still referencing the removed `curl` binary) was discovered and corrected during Step 1.
+All 6 modified scripts pass syntax validation, ShellCheck, pre-commit hooks, verification greps, security review, and Trivy scanning. No new issues were introduced. The changes are minimal, correct, and safe for merge.
 
 ---
 
-## CVE Remediation Verification
+## Change Summary
 
-### Confirmed Eliminated
-
-| CVE | Package | Method | Verified |
-|-----|---------|--------|---------|
-| CVE-2026-3805 (HIGH) | `curl` 8.17.0-r1 | Removed from `apk add` in runtime stage | ✅ |
-| CVE-2025-69650 (HIGH) | `binutils` 2.45.1-r0 | Removed from `apk add` in runtime stage | ✅ |
-| CVE-2025-69649 (HIGH) | `binutils` 2.45.1-r0 | Removed from `apk add` in runtime stage | ✅ |
-
-Side-effect MEDIUMs eliminated: 8 (5× curl MEDIUMs, 3× binutils MEDIUMs).
-
-### .grype.yaml State
-
-| Entry | Status |
-|-------|--------|
-| `CVE-2026-22184` (zlib) | Removed — resolved by upstream Alpine fix |
-| `GHSA-69x3-g4r3-p962` (nebula in caddy) | Retained — extended to 2026-04-12; upstream still pinned to old nebula |
+| File | Change | Line |
+|------|--------|------|
+| `scripts/cerberus_integration.sh` | Add `-e PORT=80` to `docker run ... mccutchen/go-httpbin` | L174 |
+| `scripts/waf_integration.sh` | Add `-e PORT=80` to `docker run ... mccutchen/go-httpbin` | L167 |
+| `scripts/rate_limit_integration.sh` | Add `-e PORT=80` to `docker run ... mccutchen/go-httpbin` | L187 |
+| `scripts/coraza_integration.sh` | Add `-e PORT=80` to `docker run ... mccutchen/go-httpbin` | L158 |
+| `scripts/crowdsec_startup_test.sh` | Replace `curl -sf` with `wget -qO -` in `docker exec` | L179 |
+| `scripts/diagnose-test-env.sh` | Replace `curl -sf` with `wget -qO /dev/null` in `docker exec` | L104 |
 
 ---
 
@@ -38,180 +30,152 @@ Side-effect MEDIUMs eliminated: 8 (5× curl MEDIUMs, 3× binutils MEDIUMs).
 
 | # | Gate | Result | Details |
 |---|------|--------|---------|
-| 1 | E2E Container Rebuild | **PASS** | Built fresh; healthy in <5s after fixing compose health checks |
-| 2 | E2E Playwright Tests | **PASS** | 868 passed, 1 pre-existing failure, 0 flaky |
-| 3 | Local Patch Coverage Preflight | **PASS** | 93.1% overall (threshold: 90%) |
-| 4 | Backend Unit Tests & Coverage | **PASS** | 88.2% line coverage (gate: ≥87%) |
-| 5 | Frontend Unit Tests & Coverage | **PASS** | 89.73% line coverage |
-| 6 | TypeScript Type Check | **PASS** | 0 errors |
-| 7 | Pre-commit Hooks | **SKIP** | No `.pre-commit-config.yaml` in project |
-| 8 | Trivy Filesystem Scan | **PASS** | 0 CRITICAL, 0 HIGH, 0 total |
-| 9 | Docker Image Scan (Grype) | **PASS** | 0 CRITICAL, 0 HIGH |
-| 10 | CodeQL (Go + JavaScript) | **PASS** | 0 errors, 0 warnings |
-| 11 | Linting (ESLint + golangci-lint) | **PASS** | 0 errors; pre-existing warnings only |
+| 1 | Syntax Validation (`bash -n`) | **PASS** | All 6 scripts parse cleanly |
+| 2 | ShellCheck (error severity) | **PASS** | 0 errors; matches lefthook `--severity=error` |
+| 3 | ShellCheck (all severities) | **PASS** | No findings on any modified line; all findings pre-existing |
+| 4 | Pre-commit Hooks (lefthook) | **PASS** | All 6 hooks passed (shellcheck, actionlint, yaml, whitespace, eof, dockerfile) |
+| 5 | Verification: go-httpbin PORT | **PASS** | 4/4 `docker run` lines have `-e PORT=80` |
+| 6 | Verification: docker exec curl | **PASS** | 0 executed curl calls; 2 echo-only references (hints) |
+| 7 | Security Review | **PASS** | No secrets, credentials, injection vectors, or Gotify tokens |
+| 8 | Trivy Filesystem Scan | **PASS** | 0 secrets, 0 misconfigurations |
 
 ---
 
-## Step Details
+## 1. Syntax Validation (`bash -n`)
 
-### 1. E2E Container Rebuild
-
-Image rebuilt from scratch (212s build time). Container reached `healthy` in <5s. Confirmed HEALTHCHECK passes against `/api/v1/health` using `wget`. Image SHA: `ae066857e8c0`.
-
-> **See [Incidental Findings](#incidental-findings)** — all five docker-compose files still had `curl` in their health check definitions; corrected before rebuild was confirmed healthy.
-
-### 2. E2E Playwright Tests (Chromium + Firefox + WebKit)
-
-| Metric | Count |
-|--------|-------|
-| Passed | 868 |
-| Failed | 1 |
-| Skipped | 1007 |
-| Flaky | 0 |
-| Duration | ~30 min |
-
-**Failure:**
-```
-core/multi-component-workflows.spec.ts > Multi-Component Workflows
-  › User with proxy creation role is configured for proxy management [firefox]
-  Error: invalid credentials
-```
-Pre-existing test-isolation flakiness with dynamically-created users. Not related to CVE changes. No regression introduced.
-
-### 3. Local Patch Coverage Preflight
-
-| Scope | Changed Lines | Covered Lines | Coverage |
-|-------|--------------|---------------|---------|
-| Overall | 58 | 54 | **93.1%** ✅ |
-| Backend | 52 | 48 | **92.3%** |
-| Frontend | 6 | 6 | **100.0%** |
-
-Uncovered: `notification_service.go` L462–463, L466–467 (dead code paths, accepted).
-
-### 4. Backend Unit Tests & Coverage
-
-| Metric | Value |
-|--------|-------|
-| Statement coverage | 87.9% |
-| Line coverage | **88.2%** |
-| Gate (min) | 87% |
-| Status | ✅ Met |
-
-### 5. Frontend Unit Tests & Coverage
-
-Data from `frontend/coverage/coverage-summary.json` (2026-03-13 06:05). No frontend files were modified by this remediation.
-
-| Metric | Value |
-|--------|-------|
-| Lines | **89.73%** |
-| Statements | 89.01% |
-| Functions | 86.18% |
-| Branches | 81.21% |
-
-### 6. TypeScript Type Check
-
-```
-tsc --noEmit  →  exit 0 (0 errors)
-```
-
-### 7. Pre-commit Hooks
-
-**SKIP** — No `.pre-commit-config.yaml` exists in the project. Git hooks are managed via lefthook; ESLint and golangci-lint run explicitly in Step 11.
-
-### 8. Trivy Filesystem Scan
-
-| Target | Type | CRITICAL | HIGH | MEDIUM | LOW |
-|--------|------|---------|------|--------|-----|
-| `backend/go.mod` | gomod | 0 | 0 | 0 | 0 |
-| `frontend/package-lock.json` | npm | 0 | 0 | 0 | 0 |
-| `package-lock.json` | npm | 0 | 0 | 0 | 0 |
-
-Scanners: `vuln,secret`. Zero findings.
-
-### 9. Docker Image Scan (Grype)
-
-| Severity | Count |
-|----------|-------|
-| 🔴 CRITICAL | **0** |
-| 🟠 HIGH | **0** |
-| 🟡 MEDIUM | 4 |
-| 🟢 LOW | 2 |
-
-**MEDIUM (non-blocking, no Alpine fix available):**
-
-| CVE | Package(s) | Version |
-|-----|-----------|---------|
-| CVE-2025-60876 | `busybox`, `busybox-binsh`, `busybox-extras`, `ssl_client` | 1.37.0-r30 |
-
-**LOW (non-blocking):**
-
-| ID | Package | Notes |
-|----|---------|-------|
-| GHSA-fw7p-63qq-7hpr | `filippo.io/edwards25519` v1.1.0 | 2 instances; fixed in v1.1.1 |
-
-**Suppressed (documented in `.grype.yaml`):**
-
-| ID | Package | Expiry | Justification |
-|----|---------|--------|---------------|
-| GHSA-69x3-g4r3-p962 | nebula (embedded in caddy) | 2026-04-12 | smallstep/certificates still requires nebula v1.9.x; reviewed 2026-03-13 |
-
-### 10. CodeQL Static Analysis
-
-| Language | Errors | Warnings | Files Scanned |
-|----------|--------|---------|---------------|
-| Go | 0 | 0 | Full backend |
-| JavaScript/TypeScript | 0 | 0 | 354/354 files |
-
-### 11. Linting
-
-**ESLint (frontend):**
-- 0 errors, 857 warnings (all pre-existing non-blocking patterns)
-- Exit 0
-
-**golangci-lint (backend):**
-- 0 errors, 53 warnings (all pre-existing)
-  - gocritic×50, gosec×2, bodyclose×1
-- Pre-existing gosec findings (not introduced by this change):
-  - `mail_service.go:195` G203 — `template.HTML()` cast (no XSS vector in current usage)
-  - `docker_service_test.go:231` G306 — `os.WriteFile(0o660)` in test fixture
-- Exit 0
+| Script | Result |
+|--------|--------|
+| `scripts/cerberus_integration.sh` | PASS |
+| `scripts/waf_integration.sh` | PASS |
+| `scripts/rate_limit_integration.sh` | PASS |
+| `scripts/coraza_integration.sh` | PASS |
+| `scripts/crowdsec_startup_test.sh` | PASS |
+| `scripts/diagnose-test-env.sh` | PASS |
 
 ---
 
-## Incidental Findings
+## 2. ShellCheck
 
-### CRITICAL — Corrected During Audit
+### At error severity (`--severity=error`, matching lefthook pre-commit)
 
-**docker-compose health checks still referenced `curl` after CVE remediation**
+**Result: PASS** — Zero errors across all 6 scripts. Exit code 0.
 
-All five docker-compose files retained `curl`-based `healthcheck.test` definitions. Since `curl` is no longer present in the runtime image, any container started from these files would enter and remain in the `unhealthy` state. This was confirmed during Step 1 (container failed health checks immediately after first rebuild).
+### At default severity (full informational audit)
 
-**Root cause**: The Dockerfile `HEALTHCHECK` and `.docker/docker-entrypoint.sh` were correctly migrated to `wget`, but the compose `healthcheck` overrides were not updated in the same commit.
+Exit code 1 (findings present, all `note` or `warning` severity).
 
-**Files corrected:**
+| Script | Findings | Severity | On Modified Lines? |
+|--------|----------|----------|--------------------|
+| `cerberus_integration.sh` | 2× SC2086 (unquoted variable) | note | No (L204, L219) |
+| `waf_integration.sh` | ~30× SC2317 (unreachable code in trap), 3× SC2086 | note | No |
+| `rate_limit_integration.sh` | 9× SC2086 | note | No |
+| `coraza_integration.sh` | 10× SC2086, 2× SC2034 (unused variable) | note/warning | No |
+| `crowdsec_startup_test.sh` | ~10× SC2317, 1× SC2086 | note | No |
+| `diagnose-test-env.sh` | 1× SC2034 (unused variable) | warning | No |
 
-| File | Change |
-|------|--------|
-| `.docker/compose/docker-compose.playwright-local.yml` | `curl -fsS` → `wget -qO /dev/null` |
-| `.docker/compose/docker-compose.playwright-ci.yml` | `curl -sf` → `wget -qO /dev/null` |
-| `.docker/compose/docker-compose.test.yml` | `["CMD","curl","-f",...]` → `["CMD-SHELL","wget -qO /dev/null ... || exit 1"]` |
-| `.docker/compose/docker-compose.local.yml` | `curl -fsS` → `wget -qO /dev/null` |
-| `.docker/compose/docker-compose.yml` | `curl -fsS` → `wget -qO /dev/null` |
-
-### Minor — Corrected During Audit
-
-**Stale comment in Dockerfile**
-
-Removed comment `# binutils provides objdump for debug symbol detection in docker-entrypoint.sh` from Dockerfile — `binutils` is no longer installed; the comment was stale and misleading.
+**No ShellCheck findings on any of the 6 modified lines.** All findings are pre-existing.
 
 ---
 
-## Remediation Confirmation
+## 3. Pre-commit Hooks (lefthook)
 
-| Blocker | Status |
-|---------|--------|
-| CVE-2026-3805 (`curl` HIGH) | ✅ Eliminated — `curl` removed from runtime image |
-| CVE-2025-69650 (`binutils` HIGH) | ✅ Eliminated — `binutils` removed from runtime image |
-| CVE-2025-69649 (`binutils` HIGH) | ✅ Eliminated — `binutils` removed from runtime image |
-| `libc-utils` removed from runtime | ✅ Confirmed absent |
-| `wget` substituted everywhere `curl` was used | ✅ Dockerfile, entrypoint, all 5 compose files |
+Ran `lefthook run pre-commit`:
+
+| Hook | Result | Duration |
+|------|--------|----------|
+| check-yaml | PASS | 1.93s |
+| actionlint | PASS | 4.36s |
+| end-of-file-fixer | PASS | 9.23s |
+| trailing-whitespace | PASS | 9.49s |
+| dockerfile-check | PASS | 10.41s |
+| shellcheck | PASS | 11.24s |
+
+Hooks for Go, TypeScript, and Semgrep correctly skipped (no matching files).
+
+---
+
+## 4. Verification Greps
+
+### 4a. All `mccutchen/go-httpbin` `docker run` instances have `-e PORT=80`
+
+```
+scripts/cerberus_integration.sh:174:  docker run ... -e PORT=80 mccutchen/go-httpbin
+scripts/waf_integration.sh:167:       docker run ... -e PORT=80 mccutchen/go-httpbin
+scripts/rate_limit_integration.sh:187:docker run ... -e PORT=80 mccutchen/go-httpbin
+scripts/coraza_integration.sh:158:    docker run ... -e PORT=80 mccutchen/go-httpbin
+```
+
+Remaining `mccutchen/go-httpbin` matches are `docker pull` lines (no `-e PORT` needed).
+
+**Result: PASS** — 4/4 confirmed.
+
+### 4b. Zero executed `docker exec ... curl` calls
+
+Only 2 matches found in `scripts/verify_crowdsec_app_config.sh` (L94–95) — both inside `echo` statements (user hint text, not executed). Confirmed by manual review.
+
+**Result: PASS** — 0 executed `docker exec ... curl` calls.
+
+---
+
+## 5. Security Review
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Secrets/credentials in diff | PASS | `git diff | grep -iE "password\|secret\|key\|token\|credential\|auth"` — no matches |
+| Gotify tokens | PASS | `grep -rn "Gotify\|gotify\|token="` across all 6 scripts — no matches |
+| Injection vectors | PASS | `-e PORT=80` is a static literal; no user-controlled input flows into new code |
+| Command injection | PASS | `wget -qO` flags are hardcoded; no interpolated user input |
+| SSRF | N/A | URLs are internal container addresses (127.0.0.1, localhost) in CI-only scripts |
+| Sensitive data in logs | PASS | No new log/echo statements added |
+| URL query parameters | PASS | No tokenized URLs (e.g., `?token=...`) in changed or adjacent code |
+
+---
+
+## 6. Trivy Filesystem Scan
+
+Scanners: `secret,misconfig`. Severity filter: `CRITICAL,HIGH,MEDIUM`.
+
+| Target | Type | Secrets | Misconfigurations |
+|--------|------|---------|-------------------|
+| `backend/go.mod` | gomod | — | — |
+| `frontend/package-lock.json` | npm | — | — |
+| `package-lock.json` | npm | — | — |
+| `Dockerfile` | dockerfile | — | 0 |
+| `playwright/.auth/user.json` | text | 0 | — |
+
+**Result: 0 findings. Exit code 0.**
+
+---
+
+## 7. Scope Exclusions
+
+| Check | Excluded? | Justification |
+|-------|-----------|---------------|
+| E2E Playwright tests | Yes | Scripts are CI-only; no UI changes |
+| Backend unit coverage | Yes | No Go code changes |
+| Frontend unit coverage | Yes | No TypeScript/React changes |
+| Docker image scan | Yes | No Dockerfile or image changes |
+| CodeQL | Yes | No Go or JavaScript changes |
+| GORM security scan | Yes | No model/database changes |
+| Local patch coverage report | Yes | No application code; scripts not coverage-tracked |
+
+---
+
+## 8. Pre-existing Issues (Not Introduced by This Change)
+
+| Category | Count | Scripts Affected | Risk |
+|----------|-------|-----------------|------|
+| SC2086 (unquoted variables) | ~25 | All 6 | Low — CI-controlled variables |
+| SC2317 (unreachable code) | ~40 | waf, crowdsec | None — trap cleanup functions (ShellCheck false positive) |
+| SC2034 (unused variables) | 3 | coraza, diagnose | Low — may be planned for future use |
+
+---
+
+## Remaining Validation (CI)
+
+The integration scripts cannot be executed locally without a built `charon:local` image and Docker network. Full end-to-end validation will occur when the PR triggers CI:
+
+- `.github/workflows/cerberus-integration.yml`
+- `.github/workflows/waf-integration.yml`
+- `.github/workflows/rate-limit-integration.yml`
+- `.github/workflows/crowdsec-integration.yml`

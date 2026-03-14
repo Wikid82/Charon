@@ -155,7 +155,7 @@ if ! docker network inspect containers_default >/dev/null 2>&1; then
 fi
 
 docker rm -f coraza-backend >/dev/null 2>&1 || true
-docker run -d --name coraza-backend --network containers_default mccutchen/go-httpbin
+docker run -d --name coraza-backend --network containers_default -e PORT=80 mccutchen/go-httpbin
 
 echo "Waiting for httpbin backend to be ready..."
 for i in {1..20}; do
