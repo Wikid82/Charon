@@ -1,282 +1,290 @@
-# CI Supply Chain CVE Remediation Plan
+# Integration Workflow Fix Plan: go-httpbin Port Mismatch & curl-in-Container Remediation
 
 **Status:** Active
-**Created:** 2026-03-13
+**Created:** 2026-03-14
 **Branch:** `feature/beta-release`
-**Context:** Three HIGH vulnerabilities (CVE-2025-69650, CVE-2025-69649, CVE-2026-3805) in the Docker runtime image are blocking the CI supply-chain scan. Two Grype ignore-rule entries are also expired and require maintenance.
+**Context:** All four integration workflows (cerberus, crowdsec, rate-limit, waf) are failing with "httpbin not starting." Root cause is a compounding port mismatch introduced when `kennethreitz/httpbin` (port 80) was swapped for `mccutchen/go-httpbin` (port 8080) without updating port configuration. A secondary issue exists where two scripts still use `curl` via `docker exec` inside an Alpine container that only has `wget`.
+**Previous Plan:** Backed up to `docs/plans/cve_remediation_spec.md`
 
 ---
 
-## 1. Executive Summary
+## 1. Root Cause Analysis
 
-| # | Action | Severity Reduction | Effort |
-|---|--------|--------------------|--------|
-| 1 | Remove `curl` from runtime image (replace with `wget`) | Eliminates 1 HIGH + ~7 MEDIUMs + 2 LOWs | ~30 min |
-| 2 | Remove `binutils` + `libc-utils` from runtime image | Eliminates 2 HIGH + 3 MEDIUMs | ~5 min |
-| 3 | Update expired Grype ignore rules | Prevents false scan failures at next run | ~10 min |
+### 1.1 Primary: go-httpbin Port Mismatch
 
-**Bottom line:** All three HIGH CVEs are eliminated at root rather than suppressed. After Phase 1 and Phase 2, `fail-on-severity: high` passes cleanly. Phase 3 is maintenance-only.
+**Commit `042c5ec6`** replaced `kennethreitz/httpbin` with `mccutchen/go-httpbin` across all four integration scripts. However, it **only changed the image name** — no port configuration was updated.
+
+| Property | `kennethreitz/httpbin` | `mccutchen/go-httpbin` |
+|----------|----------------------|----------------------|
+| Default listen port | **80** | **8080** |
+| Port env var | N/A | `PORT` |
+| Exposed port (Dockerfile) | `80/tcp` | `8080/tcp` |
+
+**Evidence:** `docker inspect mccutchen/go-httpbin --format='{{json .Config.ExposedPorts}}'` returns `{"8080/tcp":{}}`. The [go-httpbin README](https://github.com/mccutchen/go-httpbin) confirms the default port is `8080`, configurable via `-port` flag or `PORT` environment variable.
+
+**Failure mechanism:** Each integration script has a health check loop like:
+
+```bash
+for i in {1..45}; do
+    if docker exec ${CONTAINER_NAME} sh -c "wget -qO /dev/null http://${BACKEND_CONTAINER}/get" >/dev/null 2>&1; then
+        echo "✓ httpbin backend is ready"
+        break
+    fi
+    if [ $i -eq 45 ]; then
+        echo "✗ httpbin backend failed to start"
+        exit 1
+    fi
+    sleep 1
+done
+```
+
+The `wget` URL `http://${BACKEND_CONTAINER}/get` resolves to port 80 (HTTP default). go-httpbin is listening on port 8080. The connection is refused on port 80 for 45 iterations, then the script prints "httpbin backend failed to start" and exits 1.
+
+Additionally, all four scripts create proxy hosts with `"forward_port": 80`, which would also fail at the Caddy reverse proxy level even if the health check passed.
+
+### 1.2 Secondary: curl Not Available Inside Container
+
+**Commit `58b087bc`** correctly migrated the four httpbin health checks from `curl` to `wget` (busybox). However, two other scripts still use `docker exec ... curl` to probe services inside the Alpine container, which does not have `curl` installed (removed as part of CVE remediation):
+
+1. **`scripts/crowdsec_startup_test.sh` L179** — LAPI health check uses `docker exec ${CONTAINER_NAME} curl -sf http://127.0.0.1:8085/health`. Always returns "FAILED" (soft-pass, not blocking CI, but wrong).
+2. **`scripts/diagnose-test-env.sh` L104** — CrowdSec LAPI check uses `docker exec charon-e2e curl -sf http://localhost:8090/health`. Always fails silently.
+
+### 1.3 Timeline of Changes
+
+| Commit | Change | Effect |
+|--------|--------|--------|
+| `042c5ec6` | Swap `kennethreitz/httpbin` → `mccutchen/go-httpbin` | **Introduced port mismatch** (8080 vs 80). Not caught because the prior curl-based health checks were already broken by the missing curl. |
+| `58b087bc` | Replace `curl` with `wget` in `docker exec` httpbin health checks | **Correct tool fix** for 4 scripts. But exposed the hidden port mismatch — now wget correctly tries port 80 and correctly fails (connection refused), producing the visible "httpbin not starting" error. |
+| `4b896c2e` | Replace `curl` with `wget` in Docker compose healthchecks | Correct, no issues. |
+
+**Key insight:** The curl→wget migration was a correct fix for a real problem. It was applied on top of an earlier, unnoticed bug (port mismatch from the image swap). The wget migration made the port bug visible because wget actually runs inside the container, whereas curl was silently failing (not found) and the health check was timing out for a different reason.
 
 ---
 
-## 2. CVE Inventory
+## 2. Impact Assessment
 
-### Blocking HIGH CVEs
+### 2.1 Affected Scripts — Port Mismatch (PRIMARY)
 
-| CVE | Package | Version | CVSS | Fix State | Notes |
-|-----|---------|---------|------|-----------|-------|
-| CVE-2026-3805 | `curl` | 8.17.0-r1 | 7.5 | `unknown` | **New** — appeared in Grype DB 2026-03-13, published 2026-03-11. SMB protocol use-after-free. Charon uses HTTPS/HTTP only. |
-| CVE-2025-69650 | `binutils` | 2.45.1-r0 | 7.5 | `` (none) | Double-free in `readelf`. Charon never invokes `readelf`. |
-| CVE-2025-69649 | `binutils` | 2.45.1-r0 | 7.5 | `` (none) | Null-ptr deref in `readelf`. Charon never invokes `readelf`. |
+| File | Docker Run Line | Health Check Line | Forward Port Line | Status |
+|------|----------------|-------------------|-------------------|--------|
+| `scripts/cerberus_integration.sh` | L174 | L215 | L255 | **BROKEN** |
+| `scripts/waf_integration.sh` | L167 | L206 | L246 | **BROKEN** |
+| `scripts/rate_limit_integration.sh` | L188 | L191 | L231 | **BROKEN** |
+| `scripts/coraza_integration.sh` | L159 | L163 | L191 | **BROKEN** |
 
-### Associated MEDIUM/LOW CVEs eliminated as side-effects
+### 2.2 Affected Scripts — curl Inside Container (SECONDARY)
 
-| CVEs | Package | Count | Eliminated by |
-|------|---------|-------|---------------|
-| CVE-2025-14819, CVE-2025-15079, CVE-2025-14524, CVE-2025-13034, CVE-2025-14017 | `curl` | 5 × MEDIUM | Phase 1 |
-| CVE-2025-69652, CVE-2025-69644, CVE-2025-69651 | `binutils` | 3 × MEDIUM | Phase 2 |
+| File | Line | Command | Status |
+|------|------|---------|--------|
+| `scripts/crowdsec_startup_test.sh` | L179 | `docker exec ${CONTAINER_NAME} curl -sf http://127.0.0.1:8085/health` | **SILENT FAIL** |
+| `scripts/diagnose-test-env.sh` | L104 | `docker exec charon-e2e curl -sf http://localhost:8090/health` | **SILENT FAIL** |
 
-### Expired Grype Ignore Rules
+### 2.3 NOT Affected
 
-| Entry | Expiry | Status | Action |
-|-------|--------|--------|--------|
-| `CVE-2026-22184` (zlib) | 2026-03-14 | Expires tomorrow; underlying CVE already fixed via `apk upgrade --no-cache zlib` | **Remove entirely** |
-| `GHSA-69x3-g4r3-p962` (nebula) | 2026-03-05 | **Expired 8 days ago**; upstream fix still unavailable | **Extend to 2026-04-13** |
+| Component | Reason |
+|-----------|--------|
+| Dockerfile HEALTHCHECK | Already uses `wget` — targets Charon API `:8080`, not httpbin |
+| `.docker/docker-entrypoint.sh` | Already uses `wget` — Caddy readiness on `:2019` |
+| All `docker-compose` healthchecks | Already use `wget` |
+| Workflow YAML files | Use host-side `curl` (installed on `ubuntu-latest`), not `docker exec` |
+| `scripts/crowdsec_integration.sh` | Uses only host-side `curl`; does not use httpbin at all |
+| `scripts/integration-test.sh` | Uses `whoami` image (port 80), not go-httpbin |
 
 ---
 
-## 3. Phase 1 — Remove `curl` from Runtime Image
+## 3. Remediation Plan
 
-### Rationale
+### 3.1 Fix Strategy: Add `-e PORT=80` to go-httpbin Container
 
-`curl` is present solely for:
-1. GeoLite2 DB download at build time (Dockerfile, runtime stage `RUN` block)
-2. HEALTHCHECK probe (Dockerfile `HEALTHCHECK` directive)
-3. Caddy admin API readiness poll (`.docker/docker-entrypoint.sh`)
+The **least invasive** fix is to set the `PORT` environment variable on the go-httpbin container so it listens on port 80, matching all existing health check URLs and proxy host `forward_port` values. This avoids cascading changes to URLs and Caddy configurations.
 
-`busybox` (already installed on Alpine as a transitive dependency of `busybox-extras`, which is explicitly installed) provides `wget` with sufficient functionality for all three uses.
+**Alternative considered:** Change all health check URLs and `forward_port` values to 8080. Rejected because:
+- Requires more changes (health check URLs, forward_port, potentially Caddy route expectations)
+- The proxy host `forward_port` is the user-facing API field; port 80 is the natural default for HTTP backends
 
-### 3.1 `wget` Translation Reference
+### 3.2 Exact Changes — Port Fix (4 files)
 
-| `curl` invocation | `wget` equivalent | Notes |
-|-------------------|--------------------|-------|
-| `curl -fSL -m 10 "URL" -o FILE 2>/dev/null` | `wget -qO FILE -T 10 "URL" 2>/dev/null` | `-q` = quiet; `-T` = timeout (seconds); exits nonzero on failure |
-| `curl -fSL -m 30 --retry 3 "URL" -o FILE` | `wget -qO FILE -T 30 -t 4 "URL"` | `-t 4` = 4 total tries (1 initial + 3 retries); add `&& [ -s FILE ]` guard |
-| `curl -f http://HOST/path \|\| exit 1` | `wget -q -O /dev/null http://HOST/path \|\| exit 1` | HEALTHCHECK; wget exits nonzero on HTTP error |
-| `curl -sf http://HOST/path > /dev/null 2>&1` | `wget -qO /dev/null http://HOST/path 2>/dev/null` | Silent readiness probe |
+#### `scripts/cerberus_integration.sh` — Line 174
 
-**busybox wget notes:**
-- `-T N` is per-connection timeout in seconds (equivalent to `curl --max-time`).
-- `-t N` is total number of tries, not retries; `-t 4` = 3 retries.
-- On download failure, busybox wget may leave a zero-byte or partial file at the output path. The `[ -s FILE ]` guard (`-s` = non-empty) prevents a corrupted placeholder from passing the sha256 check.
-
-### 3.2 Dockerfile Changes
-
-**File:** `Dockerfile`
-
-**Change A — Remove `curl`, `binutils`, `libc-utils` from `apk add` (runtime stage, line ~413):**
-
-Current:
-```dockerfile
-RUN apk add --no-cache \
-    bash ca-certificates sqlite-libs sqlite tzdata curl gettext libcap libcap-utils \
-    c-ares binutils libc-utils busybox-extras \
-    && apk upgrade --no-cache zlib
+```diff
+-docker run -d --name ${BACKEND_CONTAINER} --network containers_default mccutchen/go-httpbin
++docker run -d --name ${BACKEND_CONTAINER} --network containers_default -e PORT=80 mccutchen/go-httpbin
 ```
 
-New:
-```dockerfile
-RUN apk add --no-cache \
-    bash ca-certificates sqlite-libs sqlite tzdata gettext libcap libcap-utils \
-    c-ares busybox-extras \
-    && apk upgrade --no-cache zlib
+#### `scripts/waf_integration.sh` — Line 167
+
+```diff
+-docker run -d --name ${BACKEND_CONTAINER} --network containers_default mccutchen/go-httpbin
++docker run -d --name ${BACKEND_CONTAINER} --network containers_default -e PORT=80 mccutchen/go-httpbin
 ```
 
-*(This single edit covers both Phase 1 and Phase 2 removals.)*
+#### `scripts/rate_limit_integration.sh` — Line 188
 
-**Change B — GeoLite2 download block, CI path (line ~437):**
-
-Current:
-```dockerfile
-if curl -fSL -m 10 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
-    -o /app/data/geoip/GeoLite2-Country.mmdb 2>/dev/null; then
+```diff
+-docker run -d --name ${BACKEND_CONTAINER} --network containers_default mccutchen/go-httpbin
++docker run -d --name ${BACKEND_CONTAINER} --network containers_default -e PORT=80 mccutchen/go-httpbin
 ```
 
-New:
-```dockerfile
-if wget -qO /app/data/geoip/GeoLite2-Country.mmdb \
-    -T 10 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" 2>/dev/null; then
+#### `scripts/coraza_integration.sh` — Line 159
+
+```diff
+-docker run -d --name coraza-backend --network containers_default mccutchen/go-httpbin
++docker run -d --name coraza-backend --network containers_default -e PORT=80 mccutchen/go-httpbin
 ```
 
-**Change C — GeoLite2 download block, non-CI path (line ~445):**
+### 3.3 Exact Changes — curl→wget Inside Container (2 files)
 
-Current:
-```dockerfile
-if curl -fSL -m 30 --retry 3 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
-    -o /app/data/geoip/GeoLite2-Country.mmdb; then
-    if echo "${GEOLITE2_COUNTRY_SHA256}  /app/data/geoip/GeoLite2-Country.mmdb" | sha256sum -c -; then
+#### `scripts/crowdsec_startup_test.sh` — Line 179
+
+```diff
+-LAPI_HEALTH=$(docker exec ${CONTAINER_NAME} curl -sf http://127.0.0.1:8085/health 2>/dev/null || echo "FAILED")
++LAPI_HEALTH=$(docker exec ${CONTAINER_NAME} wget -qO - http://127.0.0.1:8085/health 2>/dev/null || echo "FAILED")
 ```
 
-New:
-```dockerfile
-if wget -qO /app/data/geoip/GeoLite2-Country.mmdb \
-    -T 30 -t 4 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb"; then
-    if [ -s /app/data/geoip/GeoLite2-Country.mmdb ] && \
-       echo "${GEOLITE2_COUNTRY_SHA256}  /app/data/geoip/GeoLite2-Country.mmdb" | sha256sum -c -; then
-```
+Note: Using `wget -qO -` (output to stdout) instead of `wget -qO /dev/null` because the response body is captured in `$LAPI_HEALTH` and checked.
 
-The `[ -s FILE ]` check is added before `sha256sum` to guard against wget leaving an empty file on partial failure.
+#### `scripts/diagnose-test-env.sh` — Line 104
 
-**Change D — HEALTHCHECK directive (line ~581):**
-
-Current:
-```dockerfile
-HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8080/api/v1/health || exit 1
-```
-
-New:
-```dockerfile
-HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-    CMD wget -q -O /dev/null http://localhost:8080/api/v1/health || exit 1
-```
-
-### 3.3 Entrypoint Changes
-
-**File:** `.docker/docker-entrypoint.sh`
-
-**Change E — Caddy readiness poll (line ~368):**
-
-Current:
-```sh
-if curl -sf http://127.0.0.1:2019/config/ > /dev/null 2>&1; then
-```
-
-New:
-```sh
-if wget -qO /dev/null http://127.0.0.1:2019/config/ 2>/dev/null; then
+```diff
+-if docker exec charon-e2e curl -sf http://localhost:8090/health > /dev/null 2>&1; then
++if docker exec charon-e2e wget -qO /dev/null http://localhost:8090/health 2>/dev/null; then
 ```
 
 ---
 
-## 4. Phase 2 — Remove `binutils` and `libc-utils` from Runtime Image
+## 4. wget vs curl Flag Mapping Reference
 
-### Rationale
-
-`binutils` is installed solely for `objdump`, used in `.docker/docker-entrypoint.sh` to detect DWARF debug symbols when `CHARON_DEBUG=1`. The entrypoint already has a graceful fallback (lines ~401–404):
-
-```sh
-else
-    # objdump not available, try to run Delve anyway with a warning
-    echo "Note: Cannot verify debug symbols (objdump not found). Attempting Delve..."
-    run_as_charon /usr/local/bin/dlv exec "$bin_path" ...
-fi
-```
-
-When `objdump` is absent the container functions correctly for all standard and debug-mode runs. The check is advisory.
-
-`libc-utils` appears **only once** across the entire codebase (confirmed by grep across `*.sh`, `Dockerfile`, `*.yml`): as a sibling entry on the same `apk add` line as `binutils`. It provides glibc-compatible headers for musl-based Alpine and has no independent consumer in this image. It is safe to remove together with `binutils`.
-
-### 4.1 Dockerfile Change
-
-Already incorporated in Phase 1 Change A — the `apk add` line removes both `binutils` and `libc-utils` in a single edit. No additional changes are required.
-
-### 4.2 Why Not Suppress Instead?
-
-Suppressing in Grype requires two new ignore entries with expiry maintenance every 30 days indefinitely (no upstream Alpine fix exists). Removing the packages eliminates the CVEs permanently. There is no functional regression given the working fallback.
+| curl Flag | wget Equivalent | Meaning |
+|-----------|----------------|---------|
+| `-s` (silent) | `-q` (quiet) | Suppress progress output |
+| `-f` (fail silently on HTTP errors) | *(default behavior)* | wget exits nonzero on HTTP 4xx/5xx |
+| `-o FILE` (output to file) | `-O FILE` | Write output to specified file |
+| `-o /dev/null` | `-O /dev/null` | Discard response body |
+| `> /dev/null 2>&1` | `2>/dev/null` | Suppress stderr (wget is quiet with `-q`, only stderr needs redirect) |
+| `-m SECS` / `--max-time` | `-T SECS` | Connection timeout |
+| `--retry N` | `-t N+1` | Total attempts (wget counts initial try) |
+| `-S` (show error) | *(no equivalent)* | wget shows errors by default without `-q` |
+| `-L` (follow redirects) | *(default behavior)* | wget follows redirects by default |
 
 ---
 
-## 5. Phase 3 — Update Expired Grype Ignore Rules
+## 5. Implementation Plan
 
-**File:** `.grype.yaml`
+### Phase 1: Playwright Tests (Verification of Expected Behavior)
 
-### 5.1 Remove `CVE-2026-22184` (zlib) Block
+No new Playwright tests needed. The integration scripts are bash-based CI workflows, not UI features. Existing workflow YAML files already serve as the test harness.
 
-**Action:** Delete the entire `CVE-2026-22184` ignore entry.
+### Phase 2: Backend/Script Implementation
 
-**Reason:** The Dockerfile runtime stage already contains `&& apk upgrade --no-cache zlib`, which upgrades zlib from 1.3.1-r2 to 1.3.2-r0, resolving CVE-2026-22184. Suppressing a resolved CVE creates false confidence and obscures scan accuracy. The entry's own removal criteria have been met: Alpine released `zlib 1.3.2-r0`.
+| Task | File | Change | Complexity |
+|------|------|--------|------------|
+| T1 | `scripts/cerberus_integration.sh` | Add `-e PORT=80` to docker run | Trivial |
+| T2 | `scripts/waf_integration.sh` | Add `-e PORT=80` to docker run | Trivial |
+| T3 | `scripts/rate_limit_integration.sh` | Add `-e PORT=80` to docker run | Trivial |
+| T4 | `scripts/coraza_integration.sh` | Add `-e PORT=80` to docker run | Trivial |
+| T5 | `scripts/crowdsec_startup_test.sh` | Replace `curl -sf` with `wget -qO -` | Trivial |
+| T6 | `scripts/diagnose-test-env.sh` | Replace `curl -sf` with `wget -qO /dev/null` | Trivial |
 
-### 5.2 Extend `GHSA-69x3-g4r3-p962` (nebula) Expiry
+### Phase 3: Frontend Implementation
 
-**Action:** Update the `expiry` field and review comment in the nebula block.
+N/A — no frontend changes required.
 
-Current:
-```yaml
-    expiry: "2026-03-05"  # Re-evaluate in 14 days (2026-02-19 + 14 days)
-```
+### Phase 4: Integration and Testing
 
-New:
-```yaml
-    expiry: "2026-04-13"  # Re-evaluated 2026-03-13: smallstep/certificates stable still v0.27.5, no nebula v1.10+ requirement. Extended 30 days.
-```
+1. **Local validation:** Run each integration script individually against a locally built `charon:local` image
+2. **CI validation:** Push branch and verify all four integration workflows pass:
+   - `.github/workflows/cerberus-integration.yml`
+   - `.github/workflows/waf-integration.yml`
+   - `.github/workflows/rate-limit-integration.yml`
+   - `.github/workflows/crowdsec-integration.yml`
+3. **Regression check:** Confirm E2E Playwright tests still pass (they don't touch these scripts, but verify no accidental breakage)
 
-Update the review comment line:
-```
-  # - Next review: 2026-04-13.
-  # - Reviewed 2026-03-13: smallstep stable still v0.27.5 (no nebula v1.10+ requirement). Extended 30 days.
-  # - Remove suppression immediately once upstream fixes.
-```
+### Phase 5: Documentation and Deployment
 
-**Reason:** As of 2026-03-13, `smallstep/certificates` has not released a stable version requiring nebula v1.10+. The constraint analysis from 2026-02-19 remains valid. Expiry extended 30 days to 2026-04-13.
+No documentation changes needed. The fix is internal to CI scripts.
 
 ---
 
 ## 6. File Change Summary
 
-| File | Change | Scope |
+| File | Change | Lines |
 |------|--------|-------|
-| `Dockerfile` | Remove `curl`, `binutils`, `libc-utils` from `apk add` | Line ~413–415 |
-| `Dockerfile` | Replace `curl` with `wget` in GeoLite2 CI download path | Line ~437–441 |
-| `Dockerfile` | Replace `curl` with `wget` in GeoLite2 non-CI path; add `[ -s FILE ]` guard | Line ~445–452 |
-| `Dockerfile` | Replace `curl` with `wget` in HEALTHCHECK | Line ~581 |
-| `.docker/docker-entrypoint.sh` | Replace `curl` with `wget` in Caddy readiness poll | Line ~368 |
-| `.grype.yaml` | Delete `CVE-2026-22184` (zlib) ignore block entirely | zlib block |
-| `.grype.yaml` | Extend `GHSA-69x3-g4r3-p962` expiry to 2026-04-13; update review comment | nebula block |
+| `scripts/cerberus_integration.sh` | Add `-e PORT=80` to go-httpbin `docker run` | L174 |
+| `scripts/waf_integration.sh` | Add `-e PORT=80` to go-httpbin `docker run` | L167 |
+| `scripts/rate_limit_integration.sh` | Add `-e PORT=80` to go-httpbin `docker run` | L188 |
+| `scripts/coraza_integration.sh` | Add `-e PORT=80` to go-httpbin `docker run` | L159 |
+| `scripts/crowdsec_startup_test.sh` | Replace `curl -sf` with `wget -qO -` in docker exec | L179 |
+| `scripts/diagnose-test-env.sh` | Replace `curl -sf` with `wget -qO /dev/null` in docker exec | L104 |
+
+**Total: 6 one-line changes across 6 files.**
 
 ---
 
 ## 7. Commit Slicing Strategy
 
-**Single PR** — all changes are security-related and tightly coupled. Splitting curl removal from binutils removal would produce an intermediate commit with partially resolved HIGHs, offering no validation benefit and complicating rollback.
+### Decision: Single PR
 
-Suggested commit message:
+**Reasoning:**
+- All 6 changes are trivial one-line fixes
+- Total diff is ~12 lines (6 deletions + 6 additions)
+- All changes are logically related (integration test infrastructure fix)
+- No cross-domain concerns (all bash scripts in `scripts/`)
+- Review size is well under the 200-line threshold for splitting
+- No risk of partial deployment causing issues
+
+### PR-1: Fix integration workflow httpbin startup and curl-in-container issues
+
+**Scope:** All 6 file changes
+**Files:** `scripts/{cerberus,waf,rate_limit,coraza}_integration.sh`, `scripts/crowdsec_startup_test.sh`, `scripts/diagnose-test-env.sh`
+**Dependencies:** None
+**Validation gate:** All four integration workflows pass in CI
+
+**Suggested commit message:**
 ```
-fix(security): remove curl and binutils from runtime image
+fix(ci): add PORT=80 to go-httpbin containers and replace curl with wget in docker exec
 
-Replace curl with busybox wget for GeoLite2 downloads, HEALTHCHECK,
-and the Caddy readiness probe. Remove binutils and libc-utils from the
-runtime image; the entrypoint objdump check has a documented fallback
-for missing objdump. Eliminates CVE-2026-3805 (curl HIGH), CVE-2025-69650
-and CVE-2025-69649 (binutils HIGH), plus 8 associated MEDIUM findings.
+mccutchen/go-httpbin defaults to port 8080, but all integration scripts
+expected port 80 from the previous kennethreitz/httpbin image. Add
+-e PORT=80 to the docker run commands in cerberus, waf, rate_limit,
+and coraza integration scripts.
 
-Remove the now-resolved CVE-2026-22184 (zlib) suppression from
-.grype.yaml and extend GHSA-69x3-g4r3-p962 (nebula) expiry to
-2026-04-13 pending upstream smallstep/certificates update.
+Also replace remaining docker exec curl commands with wget in
+crowdsec_startup_test.sh and diagnose-test-env.sh, since curl is not
+installed in the Alpine runtime container.
+
+Fixes: httpbin health check timeout ("httpbin not starting") in all
+four integration workflows.
 ```
+
+**Rollback:** `git revert <commit>` — safe and instant. No database migrations, no API changes, no user-facing impact.
 
 ---
 
-## 8. Expected Scan Results After Fix
+## 8. Supporting Files Review
 
-| Metric | Before | After | Delta |
-|--------|--------|-------|-------|
-| HIGH count | 3 | **0** | −3 |
-| MEDIUM count | ~13 | ~5 | −8 |
-| LOW count | ~2 | ~0 | −2 |
-| `fail-on-severity: high` | ❌ FAIL | ✅ PASS | — |
-| CI supply-chain scan | ❌ BLOCKED | ✅ GREEN | — |
-
-Remaining MEDIUMs after fix (~5):
-- `busybox` / `busybox-extras` / `ssl_client` — CVE-2025-60876 (CRLF injection in wget/ssl_client; no Alpine fix; Charon application code does not invoke `wget` directly at runtime)
+| File | Review Result | Action Needed |
+|------|--------------|---------------|
+| `.gitignore` | No changes needed — no new files or artifacts | None |
+| `codecov.yml` | No changes needed — integration scripts are not coverage-tracked | None |
+| `.dockerignore` | No changes needed — scripts are not copied into Docker image | None |
+| `Dockerfile` | Already correct — HEALTHCHECK uses wget, no httpbin references | None |
+| `.docker/docker-entrypoint.sh` | Already correct — uses wget for Caddy readiness | None |
+| `docker-compose*.yml` | Already correct — all healthchecks use wget | None |
+| Workflow YAML files | Already correct — use host-side curl for debug dumps | None |
 
 ---
 
-## 9. Validation Steps
+## 9. Acceptance Criteria
 
-1. Rebuild Docker image: `docker build -t charon:test .`
-2. Run Grype scan: `grype charon:test` — confirm zero HIGH findings
-3. Confirm HEALTHCHECK probe passes: start container, check `docker inspect` for `healthy` status
-4. Confirm Caddy readiness: inspect entrypoint logs for `"Caddy is ready!"`
-5. Run E2E suite: `npx playwright test --project=firefox`
-6. Push branch and confirm CI supply-chain workflow exits green
+- [ ] `scripts/cerberus_integration.sh` starts go-httpbin with `-e PORT=80`
+- [ ] `scripts/waf_integration.sh` starts go-httpbin with `-e PORT=80`
+- [ ] `scripts/rate_limit_integration.sh` starts go-httpbin with `-e PORT=80`
+- [ ] `scripts/coraza_integration.sh` starts go-httpbin with `-e PORT=80`
+- [ ] `scripts/crowdsec_startup_test.sh` uses `wget` instead of `curl` for LAPI health check
+- [ ] `scripts/diagnose-test-env.sh` uses `wget` instead of `curl` for CrowdSec LAPI check
+- [ ] CI workflow `cerberus-integration` passes
+- [ ] CI workflow `waf-integration` passes
+- [ ] CI workflow `rate-limit-integration` passes
+- [ ] CI workflow `crowdsec-integration` passes
+- [ ] No regression in E2E Playwright tests
+- [ ] `grep -r "docker exec.*curl" scripts/` returns zero matches (excluding comments/echo hints)
