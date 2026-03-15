@@ -9,12 +9,16 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
   const authRequestVersionRef = useRef(0);
 
   const fetchSessionUser = useCallback(async (): Promise<User> => {
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    const stored = localStorage.getItem('charon_auth_token');
+    if (stored) {
+      headers['Authorization'] = `Bearer ${stored}`;
+    }
+
     const response = await fetch('/api/v1/auth/me', {
       method: 'GET',
       credentials: 'include',
-      headers: {
-        Accept: 'application/json',
-      },
+      headers,
     });
 
     if (!response.ok) {
