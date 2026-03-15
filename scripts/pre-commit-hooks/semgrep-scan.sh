@@ -24,10 +24,13 @@ else
   SEMGREP_CONFIGS=(
     --config p/golang
     --config p/javascript
+    --config p/typescript
     --config p/react
     --config p/secrets
+    --config p/dockerfile
+    --config p/bash
   )
-  echo "Running Semgrep with configs: p/golang, p/javascript, p/react, p/secrets"
+  echo "Running Semgrep with configs: p/golang, p/javascript, p/typescript, p/react, p/secrets, p/dockerfile, p/bash"
 fi
 
 semgrep scan \
@@ -38,4 +41,4 @@ semgrep scan \
   --exclude "frontend/node_modules" \
   --exclude "frontend/coverage" \
   --exclude "frontend/dist" \
-  backend frontend/src scripts .github/workflows
+  Dockerfile backend frontend/src scripts .github/workflows
