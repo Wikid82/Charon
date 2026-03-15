@@ -15,7 +15,9 @@ Notifications can be triggered by various events:
 
 | Service | JSON Templates | Native API | Rich Formatting |
 |---------|----------------|------------|-----------------|
-| **Discord** | ✅ Yes | ✅ Webhooks | ✅ Embeds || **Slack** | ✅ Yes | ✅ Webhooks | ✅ Native Formatting || **Gotify** | ✅ Yes | ✅ HTTP API | ✅ Priority + Extras |
+| **Discord** | ✅ Yes | ✅ Webhooks | ✅ Embeds |
+| **Slack** | ✅ Yes | ✅ Webhooks | ✅ Native Formatting |
+| **Gotify** | ✅ Yes | ✅ HTTP API | ✅ Priority + Extras |
 | **Custom Webhook** | ✅ Yes | ✅ HTTP API | ✅ Template-Controlled |
 | **Email** | ❌ No | ✅ SMTP | ✅ HTML Branded Templates |
 
