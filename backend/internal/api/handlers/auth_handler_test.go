@@ -379,16 +379,16 @@ func TestHostHelpers(t *testing.T) {
 		assert.Equal(t, "localhost", originHost("http://localhost:8080/path"))
 	})
 
-	t.Run("isLocalHost", func(t *testing.T) {
-		assert.True(t, isLocalHost("localhost"))
-		assert.True(t, isLocalHost("127.0.0.1"))
-		assert.True(t, isLocalHost("::1"))
-		assert.True(t, isLocalHost("192.168.1.50"))
-		assert.True(t, isLocalHost("10.0.0.1"))
-		assert.True(t, isLocalHost("172.16.0.1"))
-		assert.True(t, isLocalHost("fd12::1"))
-		assert.False(t, isLocalHost("203.0.113.5"))
-		assert.False(t, isLocalHost("example.com"))
+	t.Run("isLocalOrPrivateHost", func(t *testing.T) {
+		assert.True(t, isLocalOrPrivateHost("localhost"))
+		assert.True(t, isLocalOrPrivateHost("127.0.0.1"))
+		assert.True(t, isLocalOrPrivateHost("::1"))
+		assert.True(t, isLocalOrPrivateHost("192.168.1.50"))
+		assert.True(t, isLocalOrPrivateHost("10.0.0.1"))
+		assert.True(t, isLocalOrPrivateHost("172.16.0.1"))
+		assert.True(t, isLocalOrPrivateHost("fd12::1"))
+		assert.False(t, isLocalOrPrivateHost("203.0.113.5"))
+		assert.False(t, isLocalOrPrivateHost("example.com"))
 	})
 }
 
@@ -1335,10 +1335,10 @@ func TestAuthHandler_HelperFunctions(t *testing.T) {
 		assert.Equal(t, "example.com", originHost("https://example.com/path"))
 	})
 
-	t.Run("isLocalHost and isLocalRequest", func(t *testing.T) {
-		assert.True(t, isLocalHost("localhost"))
-		assert.True(t, isLocalHost("127.0.0.1"))
-		assert.False(t, isLocalHost("example.com"))
+	t.Run("isLocalOrPrivateHost and isLocalRequest", func(t *testing.T) {
+		assert.True(t, isLocalOrPrivateHost("localhost"))
+		assert.True(t, isLocalOrPrivateHost("127.0.0.1"))
+		assert.False(t, isLocalOrPrivateHost("example.com"))
 
 		recorder := httptest.NewRecorder()
 		ctx, _ := gin.CreateTestContext(recorder)
