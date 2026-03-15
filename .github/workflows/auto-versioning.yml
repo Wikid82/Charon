@@ -89,7 +89,7 @@ jobs:
 
       - name: Create GitHub Release (creates tag via API)
         if: ${{ steps.semver.outputs.changed == 'true' && steps.check_release.outputs.exists == 'false' }}
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
+        uses: softprops/action-gh-release@b25b93d384199fc0fc8c2e126b2d937a0cbeb2ae # v2
         with:
           tag_name: ${{ steps.determine_tag.outputs.tag }}
           name: Release ${{ steps.determine_tag.outputs.tag }}
