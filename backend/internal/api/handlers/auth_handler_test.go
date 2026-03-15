@@ -202,6 +202,114 @@ func TestSetSecureCookie_OriginLoopbackForcesInsecure(t *testing.T) {
 	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
 }
 
+func TestSetSecureCookie_HTTP_PrivateIP_Insecure(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest("POST", "http://192.168.1.50:8080/login", http.NoBody)
+	req.Host = "192.168.1.50:8080"
+	req.Header.Set("X-Forwarded-Proto", "http")
+	ctx.Request = req
+
+	setSecureCookie(ctx, "auth_token", "abc", 60)
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	cookie := cookies[0]
+	assert.False(t, cookie.Secure)
+	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
+}
+
+func TestSetSecureCookie_HTTP_10Network_Insecure(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest("POST", "http://10.0.0.5:8080/login", http.NoBody)
+	req.Host = "10.0.0.5:8080"
+	req.Header.Set("X-Forwarded-Proto", "http")
+	ctx.Request = req
+
+	setSecureCookie(ctx, "auth_token", "abc", 60)
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	cookie := cookies[0]
+	assert.False(t, cookie.Secure)
+	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
+}
+
+func TestSetSecureCookie_HTTP_172Network_Insecure(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest("POST", "http://172.16.0.1:8080/login", http.NoBody)
+	req.Host = "172.16.0.1:8080"
+	req.Header.Set("X-Forwarded-Proto", "http")
+	ctx.Request = req
+
+	setSecureCookie(ctx, "auth_token", "abc", 60)
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	cookie := cookies[0]
+	assert.False(t, cookie.Secure)
+	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
+}
+
+func TestSetSecureCookie_HTTPS_PrivateIP_Secure(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest("POST", "https://192.168.1.50:8080/login", http.NoBody)
+	req.Host = "192.168.1.50:8080"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	ctx.Request = req
+
+	setSecureCookie(ctx, "auth_token", "abc", 60)
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	cookie := cookies[0]
+	assert.True(t, cookie.Secure)
+	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
+}
+
+func TestSetSecureCookie_HTTP_IPv6ULA_Insecure(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest("POST", "http://[fd12::1]:8080/login", http.NoBody)
+	req.Host = "[fd12::1]:8080"
+	req.Header.Set("X-Forwarded-Proto", "http")
+	ctx.Request = req
+
+	setSecureCookie(ctx, "auth_token", "abc", 60)
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	cookie := cookies[0]
+	assert.False(t, cookie.Secure)
+	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
+}
+
+func TestSetSecureCookie_HTTP_PublicIP_Secure(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest("POST", "http://203.0.113.5:8080/login", http.NoBody)
+	req.Host = "203.0.113.5:8080"
+	req.Header.Set("X-Forwarded-Proto", "http")
+	ctx.Request = req
+
+	setSecureCookie(ctx, "auth_token", "abc", 60)
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	cookie := cookies[0]
+	assert.True(t, cookie.Secure)
+	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
+}
+
 func TestIsProduction(t *testing.T) {
 	t.Setenv("CHARON_ENV", "production")
 	assert.True(t, isProduction())
@@ -275,6 +383,11 @@ func TestHostHelpers(t *testing.T) {
 		assert.True(t, isLocalHost("localhost"))
 		assert.True(t, isLocalHost("127.0.0.1"))
 		assert.True(t, isLocalHost("::1"))
+		assert.True(t, isLocalHost("192.168.1.50"))
+		assert.True(t, isLocalHost("10.0.0.1"))
+		assert.True(t, isLocalHost("172.16.0.1"))
+		assert.True(t, isLocalHost("fd12::1"))
+		assert.False(t, isLocalHost("203.0.113.5"))
 		assert.False(t, isLocalHost("example.com"))
 	})
 }
