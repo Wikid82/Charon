@@ -789,6 +789,16 @@ func (s *NotificationService) CreateProvider(provider *models.NotificationProvid
 		return err
 	}
 
+	if provider.Type == "slack" {
+		token := strings.TrimSpace(provider.Token)
+		if token == "" {
+			return fmt.Errorf("slack webhook URL is required")
+		}
+		if err := s.validateSlackURL(token); err != nil {
+			return err
+		}
+	}
+
 	if provider.Type != "gotify" && provider.Type != "telegram" && provider.Type != "slack" {
 		provider.Token = ""
 	}
@@ -831,6 +841,12 @@ func (s *NotificationService) UpdateProvider(provider *models.NotificationProvid
 		}
 	} else {
 		provider.Token = ""
+	}
+
+	if provider.Type == "slack" && provider.Token != existing.Token {
+		if err := s.validateSlackURL(strings.TrimSpace(provider.Token)); err != nil {
+			return err
+		}
 	}
 
 	// Validate custom template before saving
