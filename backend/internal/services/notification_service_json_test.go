@@ -190,14 +190,11 @@ func TestSendJSONPayload_Slack(t *testing.T) {
 	}))
 	defer server.Close()
 
-	origValidate := validateSlackProviderURLFunc
-	defer func() { validateSlackProviderURLFunc = origValidate }()
-	validateSlackProviderURLFunc = func(rawURL string) error { return nil }
-
 	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	require.NoError(t, err)
 
 	svc := NewNotificationService(db, nil)
+	svc.validateSlackURL = func(rawURL string) error { return nil }
 
 	provider := models.NotificationProvider{
 		Type:     "slack",

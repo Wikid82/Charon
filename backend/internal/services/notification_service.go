@@ -30,6 +30,7 @@ type NotificationService struct {
 	httpWrapper        *notifications.HTTPWrapper
 	mailService        MailServiceInterface
 	telegramAPIBaseURL string
+	validateSlackURL   func(string) error
 }
 
 func NewNotificationService(db *gorm.DB, mailService MailServiceInterface) *NotificationService {
@@ -38,6 +39,7 @@ func NewNotificationService(db *gorm.DB, mailService MailServiceInterface) *Noti
 		httpWrapper:        notifications.NewNotifyHTTPWrapper(),
 		mailService:        mailService,
 		telegramAPIBaseURL: "https://api.telegram.org",
+		validateSlackURL:   validateSlackWebhookURL,
 	}
 }
 
@@ -56,8 +58,6 @@ func validateSlackWebhookURL(rawURL string) error {
 	}
 	return nil
 }
-
-var validateSlackProviderURLFunc = validateSlackWebhookURL
 
 func normalizeURL(serviceType, rawURL string) string {
 	if serviceType == "discord" {
@@ -545,7 +545,7 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 			if strings.TrimSpace(decryptedWebhookURL) == "" {
 				return fmt.Errorf("slack webhook URL is not configured")
 			}
-			if validateErr := validateSlackProviderURLFunc(decryptedWebhookURL); validateErr != nil {
+			if validateErr := s.validateSlackURL(decryptedWebhookURL); validateErr != nil {
 				return validateErr
 			}
 			dispatchURL = decryptedWebhookURL
