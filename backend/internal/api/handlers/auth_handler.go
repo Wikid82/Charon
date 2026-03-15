@@ -77,12 +77,12 @@ func originHost(rawURL string) string {
 	return normalizeHost(parsedURL.Host)
 }
 
-func isLocalHost(host string) bool {
+func isLocalOrPrivateHost(host string) bool {
 	if strings.EqualFold(host, "localhost") {
 		return true
 	}
 
-	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+	if ip := net.ParseIP(host); ip != nil && (ip.IsLoopback() || ip.IsPrivate()) {
 		return true
 	}
 
@@ -117,7 +117,7 @@ func isLocalRequest(c *gin.Context) bool {
 			continue
 		}
 
-		if isLocalHost(host) {
+		if isLocalOrPrivateHost(host) {
 			return true
 		}
 	}
@@ -127,8 +127,9 @@ func isLocalRequest(c *gin.Context) bool {
 
 // setSecureCookie sets an auth cookie with security best practices
 // - HttpOnly: prevents JavaScript access (XSS protection)
-// - Secure: true for HTTPS; false only for local non-HTTPS loopback flows
-// - SameSite: Strict for HTTPS, Lax for HTTP/IP to allow forward-auth redirects
+// - Secure: true for HTTPS; false for local/private network HTTP requests
+// - SameSite: Lax for any local/private-network request (regardless of scheme),
+//   Strict otherwise (public HTTPS only)
 func setSecureCookie(c *gin.Context, name, value string, maxAge int) {
 	scheme := requestScheme(c)
 	secure := true
@@ -148,7 +149,7 @@ func setSecureCookie(c *gin.Context, name, value string, maxAge int) {
 	domain := ""
 
 	c.SetSameSite(sameSite)
-	// secure is intentionally false for local non-HTTPS loopback (development only); always true for external HTTPS requests.
+	// secure is intentionally false for local/private network HTTP requests; always true for external or HTTPS requests.
 	c.SetCookie( // codeql[go/cookie-secure-not-set]
 		name,   // name
 		value,  // value
