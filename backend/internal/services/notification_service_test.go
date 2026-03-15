@@ -3517,3 +3517,98 @@ func TestSendJSONPayload_Slack_InvalidWebhookURLReturnsValidationError(t *testin
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid Slack webhook URL")
 }
+
+func TestCreateProvider_Slack_EmptyTokenRejected(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	provider := &models.NotificationProvider{
+		Name:  "Slack Missing Token",
+		Type:  "slack",
+		URL:   "#alerts",
+		Token: "",
+	}
+	err := svc.CreateProvider(provider)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "slack webhook URL is required")
+}
+
+func TestCreateProvider_Slack_WhitespaceOnlyTokenRejected(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	provider := &models.NotificationProvider{
+		Name:  "Slack Whitespace Token",
+		Type:  "slack",
+		URL:   "#alerts",
+		Token: "   ",
+	}
+	err := svc.CreateProvider(provider)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "slack webhook URL is required")
+}
+
+func TestCreateProvider_Slack_InvalidTokenRejected(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	provider := &models.NotificationProvider{
+		Name:  "Slack Bad Token",
+		Type:  "slack",
+		URL:   "#alerts",
+		Token: "https://evil.com/not-a-slack-webhook",
+	}
+	err := svc.CreateProvider(provider)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid Slack webhook URL")
+}
+
+func TestUpdateProvider_Slack_InvalidNewTokenRejected(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	existing := models.NotificationProvider{
+		ID:    "prov-slack-update-invalid",
+		Type:  "slack",
+		Name:  "Slack Alerts",
+		URL:   "#alerts",
+		Token: "https://hooks.slack.com/services/T00000/B00000/xxxx",
+	}
+	require.NoError(t, db.Create(&existing).Error)
+
+	update := models.NotificationProvider{
+		ID:    "prov-slack-update-invalid",
+		Type:  "slack",
+		Name:  "Slack Alerts",
+		URL:   "#alerts",
+		Token: "https://evil.com/not-a-slack-webhook",
+	}
+	err := svc.UpdateProvider(&update)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid Slack webhook URL")
+}
+
+func TestUpdateProvider_Slack_UnchangedTokenSkipsValidation(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	existing := models.NotificationProvider{
+		ID:    "prov-slack-update-unchanged",
+		Type:  "slack",
+		Name:  "Slack Alerts",
+		URL:   "#alerts",
+		Token: "https://hooks.slack.com/services/T00000/B00000/xxxx",
+	}
+	require.NoError(t, db.Create(&existing).Error)
+
+	// Submitting empty token causes fallback to existing — should not re-validate
+	update := models.NotificationProvider{
+		ID:    "prov-slack-update-unchanged",
+		Type:  "slack",
+		Name:  "Slack Alerts Renamed",
+		URL:   "#general",
+		Token: "",
+	}
+	err := svc.UpdateProvider(&update)
+	require.NoError(t, err)
+}
