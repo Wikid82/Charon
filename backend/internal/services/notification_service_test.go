@@ -1453,9 +1453,8 @@ func TestSendJSONPayload_ServiceSpecificValidation(t *testing.T) {
 	})
 
 	t.Run("slack_requires_text_or_blocks", func(t *testing.T) {
-		origValidate := validateSlackProviderURLFunc
-		defer func() { validateSlackProviderURLFunc = origValidate }()
-		validateSlackProviderURLFunc = func(rawURL string) error { return nil }
+		defer func() { svc.validateSlackURL = validateSlackWebhookURL }()
+		svc.validateSlackURL = func(rawURL string) error { return nil }
 
 		provider := models.NotificationProvider{
 			Type:     "slack",
@@ -1482,9 +1481,8 @@ func TestSendJSONPayload_ServiceSpecificValidation(t *testing.T) {
 		}))
 		defer server.Close()
 
-		origValidate := validateSlackProviderURLFunc
-		defer func() { validateSlackProviderURLFunc = origValidate }()
-		validateSlackProviderURLFunc = func(rawURL string) error { return nil }
+		defer func() { svc.validateSlackURL = validateSlackWebhookURL }()
+		svc.validateSlackURL = func(rawURL string) error { return nil }
 
 		provider := models.NotificationProvider{
 			Type:     "slack",
@@ -1510,9 +1508,8 @@ func TestSendJSONPayload_ServiceSpecificValidation(t *testing.T) {
 		}))
 		defer server.Close()
 
-		origValidate := validateSlackProviderURLFunc
-		defer func() { validateSlackProviderURLFunc = origValidate }()
-		validateSlackProviderURLFunc = func(rawURL string) error { return nil }
+		defer func() { svc.validateSlackURL = validateSlackWebhookURL }()
+		svc.validateSlackURL = func(rawURL string) error { return nil }
 
 		provider := models.NotificationProvider{
 			Type:     "slack",
@@ -3309,11 +3306,8 @@ func TestNotificationService_TestProvider_Slack(t *testing.T) {
 	}))
 	defer server.Close()
 
-	origValidate := validateSlackProviderURLFunc
-	defer func() { validateSlackProviderURLFunc = origValidate }()
-	validateSlackProviderURLFunc = func(rawURL string) error { return nil }
-
 	svc := NewNotificationService(db, nil)
+	svc.validateSlackURL = func(rawURL string) error { return nil }
 
 	provider := models.NotificationProvider{
 		Type:     "slack",
@@ -3343,11 +3337,8 @@ func TestNotificationService_SendExternal_Slack(t *testing.T) {
 	}))
 	defer server.Close()
 
-	origValidate := validateSlackProviderURLFunc
-	defer func() { validateSlackProviderURLFunc = origValidate }()
-	validateSlackProviderURLFunc = func(rawURL string) error { return nil }
-
 	svc := NewNotificationService(db, nil)
+	svc.validateSlackURL = func(rawURL string) error { return nil }
 
 	provider := models.NotificationProvider{
 		Name:             "Slack E2E",
@@ -3383,11 +3374,8 @@ func TestNotificationService_Slack_PayloadNormalizesMessageToText(t *testing.T) 
 	}))
 	defer server.Close()
 
-	origValidate := validateSlackProviderURLFunc
-	defer func() { validateSlackProviderURLFunc = origValidate }()
-	validateSlackProviderURLFunc = func(rawURL string) error { return nil }
-
 	svc := NewNotificationService(db, nil)
+	svc.validateSlackURL = func(rawURL string) error { return nil }
 
 	provider := models.NotificationProvider{
 		Type:     "slack",
@@ -3414,11 +3402,8 @@ func TestNotificationService_Slack_PayloadNormalizesMessageToText(t *testing.T) 
 func TestNotificationService_Slack_PayloadRequiresTextOrBlocks(t *testing.T) {
 	db := setupNotificationTestDB(t)
 
-	origValidate := validateSlackProviderURLFunc
-	defer func() { validateSlackProviderURLFunc = origValidate }()
-	validateSlackProviderURLFunc = func(rawURL string) error { return nil }
-
 	svc := NewNotificationService(db, nil)
+	svc.validateSlackURL = func(rawURL string) error { return nil }
 
 	provider := models.NotificationProvider{
 		Type:     "slack",
