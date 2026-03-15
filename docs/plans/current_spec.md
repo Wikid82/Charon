@@ -1,497 +1,372 @@
-# Telegram Notification Provider — Test Failure Remediation Plan
+# Issue #825: User Cannot Login After Fresh Install
 
-**Date:** 2026-03-11
-**Author:** Planning Agent
-**Status:** Remediation Required — All security scans pass, test failures block merge
-**Previous Plan:** Archived as `docs/plans/telegram_implementation_spec.md`
+**Date:** 2026-03-14
+**Status:** Root Cause Identified — Code Bug + Frontend Fragility
+**Issue:** Login API returns 200 but GET `/api/v1/auth/me` immediately returns 401
+**Previous Plan:** Archived as `docs/plans/telegram_remediation_spec.md`
 
 ---
 
 ## 1. Introduction
 
-The Telegram notification provider feature is functionally complete with passing security scans and coverage gates. However, **56 E2E test failures** and **2 frontend unit test failures** block the PR merge. This plan identifies root causes, categorises each failure set, and provides specific remediation steps.
+A user reports that after a fresh install with remapped ports (`82:80`, `445:443`, `8080:8080`), accessing Charon via a separate external Caddy reverse proxy, the login succeeds (200) but the session validation (`/auth/me`) immediately fails (401).
 
-### Failure Summary
+### Objectives
 
-| Spec File | Failures | Browsers | Unique Est. | Category |
-|---|---|---|---|---|
-| `notifications.spec.ts` | 48 | 3 | ~16 | **Our change** |
-| `notifications-payload.spec.ts` | 18 | 3 | ~6 | **Our change** |
-| `telegram-notification-provider.spec.ts` | 4 | 1–3 | ~2 | **Our change** |
-| `encryption-management.spec.ts` | 20 | 3 | ~7 | Pre-existing |
-| `auth-middleware-cascade.spec.ts` | 18 | 3 | 6 | Pre-existing |
-| `Notifications.test.tsx` (unit) | 2 | — | 2 | **Our change** |
-
-CI retries: 2 per test (`playwright.config.js` L144). Failure counts above represent unique test failures × browser projects.
+1. Identify the root cause of the login→401 failure chain
+2. Determine whether this is a code bug or a user configuration issue
+3. Propose a targeted fix with minimal blast radius
 
 ---
 
-## 2. Root Cause Analysis
+## 2. Research Findings
 
-### Root Cause A: `isNew` Guard on Test Button (CRITICAL — Causes ~80% of failures)
+### 2.1 Auth Login Flow
 
-**What changed:** The Telegram feature added a guard in `Notifications.tsx` (L117-124) that blocks the "Test" button for new (unsaved) providers:
+**File:** `backend/internal/api/handlers/auth_handler.go` (lines 172-189)
 
-```typescript
-// Line 117-124: handleTest() early return guard
-const handleTest = () => {
-  const formData = watch();
-  const currentType = normalizeProviderType(formData.type);
-  if (!formData.id && currentType !== 'email') {
-    toast.error(t('notificationProviders.saveBeforeTesting'));
-    return;
-  }
-  testMutation.mutate({ ...formData, type: currentType } as Partial<NotificationProvider>);
-};
-```
+The `Login` handler:
+1. Validates email/password via `authService.Login()`
+2. Generates a JWT token (HS256, 24h expiry, includes `user_id`, `role`, `session_version`)
+3. Sets an `auth_token` HttpOnly cookie via `setSecureCookie()`
+4. Returns the token in the JSON response body: `{"token": "<jwt>"}`
 
-And a `disabled` attribute on the test button at `Notifications.tsx` (L382):
+The frontend (`frontend/src/pages/Login.tsx`, lines 43-46):
+1. POSTs to `/auth/login` via the axios client (which has `withCredentials: true`)
+2. Extracts the token from the response body
+3. Calls `login(token)` on the AuthContext
 
-```typescript
-// Line 382: Button disabled state
-disabled={testMutation.isPending || (isNew && !isEmail)}
-```
+### 2.2 Frontend AuthContext Login Flow
 
-**Why it was added:** The backend `Test` handler at `notification_provider_handler.go` (L333-336) requires a saved provider ID for all non-email types. For Gotify/Telegram, the server needs the stored token. For Discord/Webhook, the server still fetches the provider from DB. Without a saved provider, the backend returns `MISSING_PROVIDER_ID`.
+**File:** `frontend/src/context/AuthContext.tsx` (lines 84-110)
 
-**Why it breaks tests:** Many existing E2E and unit tests click the test button from a **new (unsaved) provider form** using mocked endpoints. With the new guard:
-1. The `<button>` is `disabled` → browser ignores clicks → mocked routes never receive requests
-2. Even if not disabled, `handleTest()` returns early with a toast instead of calling `testMutation.mutate()`
-3. Tests that `waitForRequest` on `/providers/test` time out (60s default)
-4. Tests that assert on `capturedTestPayload` find `null`
+The `login()` function:
+1. Stores the token in `localStorage` as `charon_auth_token`
+2. Sets the `Authorization` header on the **axios** client via `setAuthToken(token)`
+3. Calls `fetchSessionUser()` to validate the session
 
-**Is the guard correct?** Yes — it matches the backend's security-by-design constraint. The tests need to be adapted to the new behavior, not the guard removed.
-
-### Root Cause B: Pre-existing Infrastructure Failures (encryption-management, auth-middleware-cascade)
-
-**encryption-management.spec.ts** (17 tests, ~7 unique failures) navigates to `/security/encryption` and tests key rotation, validation, and history display. **Zero overlap** with notification provider code paths. No files modified in the Telegram PR affect encryption.
-
-**auth-middleware-cascade.spec.ts** (6 tests, all 6 fail) uses deprecated `waitUntil: 'networkidle'`, creates proxy hosts via UI forms (`getByLabel(/domain/i)`), and tests auth flows through Caddy. **Zero overlap** with notification code. These tests have known fragility from UI element selectors and `networkidle` waits.
-
-**Verdict:** Both are pre-existing failures. They should be tracked separately and not block the Telegram PR.
-
-### Root Cause C: Telegram E2E Spec Issues (4 failures)
-
-The `telegram-notification-provider.spec.ts` has 8 tests, with ~2 unique failures. Most likely candidates:
-
-1. **"should edit telegram notification provider and preserve token"** (L159): Uses fragile keyboard navigation (focus Send Test → Tab → Enter) to reach the Edit button. If the `title` attribute on the Send Test button doesn't match the accessible name pattern `/send test/i`, or if the tab order is affected by any intermediate focusable element, the Enter press activates the wrong button or nothing at all.
-
-2. **"should test telegram notification provider"** (L265): Clicks the row-level "Send Test" button. The locator uses `getByRole('button', { name: /send test/i })`. The button has `title={t('notificationProviders.sendTest')}` which renders as "Send Test". This should work, but the `title` attribute contributing to accessible name can be browser-dependent, particularly in WebKit.
-
----
-
-## 3. Affected Tests — Complete Inventory
-
-### 3.1 E2E Tests: `notifications.spec.ts` (Test Button on New Form)
-
-These tests open the "Add Provider" form (no `id`), click `provider-test-btn`, and expect API interactions. The disabled button now prevents all interaction.
-
-| # | Test Name | Line | Type Used | Failure Mode |
-|---|---|---|---|---|
-| 1 | should test notification provider | L1085 | discord | `waitForRequest` times out — button disabled |
-| 2 | should show test success feedback | L1142 | discord | Success icon never appears — no click fires |
-| 3 | should preserve Discord request payload contract for save, preview, and test | L1236 | discord | `capturedTestPayload` is null — button disabled |
-| 4 | should show error when test fails | L1665 | discord | Error icon never appears — no click fires |
-
-**Additional cascade effects:** The user reports ~16 unique failures from this file. The 4 above are directly caused by the `isNew` guard. Remaining failures may stem from cascading timeout effects, `beforeEach` state leakage after long timeouts, or other pre-existing flakiness amplified by the 60s timeout waterfall.
-
-### 3.2 E2E Tests: `notifications-payload.spec.ts` (Test Button on New Form)
-
-| # | Test Name | Line | Type Used | Failure Mode |
-|---|---|---|---|---|
-| 1 | provider-specific transformation strips gotify token from test and preview payloads | L264 | gotify | `provider-test-btn` disabled for new gotify form; `capturedTestPayload` is null |
-| 2 | retry split distinguishes retryable and non-retryable failures | L410 | webhook | `provider-test-btn` disabled for new webhook form; `waitForResponse` times out |
-
-**Tests that should still pass:**
-- `valid payload flows for discord, gotify, and webhook` (L54) — uses `provider-save-btn`, not test button
-- `malformed payload scenarios` (L158) — API-level tests via `page.request.post`
-- `missing required fields block submit` (L192) — uses save button
-- `auth/header behavior checks` (L217) — API-level tests
-- `security: SSRF` (L314) — API-level tests
-- `security: DNS-rebinding` (L381) — API-level tests
-- `security: token does not leak` (L512) — API-level tests
-
-### 3.3 E2E Tests: `telegram-notification-provider.spec.ts`
-
-| # | Test Name | Line | Probable Failure Mode |
-|---|---|---|---|
-| 1 | should edit telegram notification provider and preserve token | L159 | Keyboard navigation (Tab from Send Test → Edit) fragility; may hit wrong element on some browsers |
-| 2 | should test telegram notification provider | L265 | Row-level Send Test button; possible accessible name mismatch in WebKit with `title` attribute |
-
-**Tests that should pass:**
-- Form rendering tests (L25, L65) — UI assertions only
-- Create telegram provider (L89) — mocked POST
-- Delete telegram provider (L324) — mocked DELETE + confirm dialog
-- Security tests (L389, L436) — mock-based assertions
-
-### 3.4 Frontend Unit Tests: `Notifications.test.tsx`
-
-| # | Test Name | Line | Failure Mode |
-|---|---|---|---|
-| 1 | submits provider test action from form using normalized discord type | L447 | `userEvent.click()` on disabled button is no-op → `testProvider` never called → `waitFor` times out |
-| 2 | shows error toast when test mutation fails | L569 | Same — disabled button prevents click → `toast.error` with `saveBeforeTesting` fires instead of mutation error |
-
-### 3.5 Pre-existing (Not Caused By Telegram PR)
-
-| Spec | Tests | Rationale |
-|---|---|---|
-| `encryption-management.spec.ts` | ~7 unique | Tests encryption page at `/security/encryption`. No code overlap. |
-| `auth-middleware-cascade.spec.ts` | 6 unique | Tests proxy creation + auth middleware. Uses `networkidle`. No code overlap. |
-
----
-
-## 4. Remediation Plan
-
-### Priority Order
-
-1. **P0 — Fix unit tests** (fastest, unblocks local dev verification)
-2. **P1 — Fix E2E test-button tests** (the core regression from our change)
-3. **P2 — Fix telegram spec fragility** (new tests we added)
-4. **P3 — Document pre-existing failures** (not our change, track separately)
-
----
-
-### 4.1 P0: Frontend Unit Test Fixes
-
-**File:** `frontend/src/pages/__tests__/Notifications.test.tsx`
-
-#### Fix 1: "submits provider test action from form using normalized discord type" (L447)
-
-**Problem:** Test opens "Add Provider" (new form, no `id`), clicks test button. Button is now disabled for new providers.
-
-**Fix:** Change to test from an **existing provider's edit form** instead of a new form. This preserves the original intent (verifying the test payload uses normalized type).
+**Critical finding — `fetchSessionUser()` uses raw `fetch`, NOT the axios client:**
 
 ```typescript
-// BEFORE (L447-462):
-it('submits provider test action from form using normalized discord type', async () => {
-  vi.mocked(notificationsApi.testProvider).mockResolvedValue()
-  const user = userEvent.setup()
-  renderWithQueryClient(<Notifications />)
-
-  await user.click(await screen.findByTestId('add-provider-btn'))
-  await user.type(screen.getByTestId('provider-name'), 'Preview/Test Provider')
-  await user.type(screen.getByTestId('provider-url'), 'https://example.com/webhook')
-  await user.click(screen.getByTestId('provider-test-btn'))
-
-  await waitFor(() => {
-    expect(notificationsApi.testProvider).toHaveBeenCalled()
-  })
-  const payload = vi.mocked(notificationsApi.testProvider).mock.calls[0][0]
-  expect(payload.type).toBe('discord')
-})
-
-// AFTER:
-it('submits provider test action from form using normalized discord type', async () => {
-  vi.mocked(notificationsApi.testProvider).mockResolvedValue()
-  setupMocks([baseProvider])          // baseProvider has an id
-  const user = userEvent.setup()
-  renderWithQueryClient(<Notifications />)
-
-  // Open edit form for existing provider (has id → test button enabled)
-  const row = await screen.findByTestId(`provider-row-${baseProvider.id}`)
-  const buttons = within(row).getAllByRole('button')
-  await user.click(buttons[1]) // Edit button
-
-  await user.click(screen.getByTestId('provider-test-btn'))
-
-  await waitFor(() => {
-    expect(notificationsApi.testProvider).toHaveBeenCalled()
-  })
-  const payload = vi.mocked(notificationsApi.testProvider).mock.calls[0][0]
-  expect(payload.type).toBe('discord')
-})
-```
-
-#### Fix 2: "shows error toast when test mutation fails" (L569)
-
-**Problem:** Same — test opens new form, clicks test button, expects mutation error toast. Button is disabled.
-
-**Fix:** Test from an existing provider's edit form.
-
-```typescript
-// BEFORE (L569-582):
-it('shows error toast when test mutation fails', async () => {
-  vi.mocked(notificationsApi.testProvider).mockRejectedValue(new Error('Connection refused'))
-  const user = userEvent.setup()
-  renderWithQueryClient(<Notifications />)
-
-  await user.click(await screen.findByTestId('add-provider-btn'))
-  await user.type(screen.getByTestId('provider-name'), 'Failing Provider')
-  await user.type(screen.getByTestId('provider-url'), 'https://example.com/webhook')
-  await user.click(screen.getByTestId('provider-test-btn'))
-
-  await waitFor(() => {
-    expect(toast.error).toHaveBeenCalledWith('Connection refused')
-  })
-})
-
-// AFTER:
-it('shows error toast when test mutation fails', async () => {
-  vi.mocked(notificationsApi.testProvider).mockRejectedValue(new Error('Connection refused'))
-  setupMocks([baseProvider])
-  const user = userEvent.setup()
-  renderWithQueryClient(<Notifications />)
-
-  // Open edit form for existing provider
-  const row = await screen.findByTestId(`provider-row-${baseProvider.id}`)
-  const buttons = within(row).getAllByRole('button')
-  await user.click(buttons[1]) // Edit button
-
-  await user.click(screen.getByTestId('provider-test-btn'))
-
-  await waitFor(() => {
-    expect(toast.error).toHaveBeenCalledWith('Connection refused')
-  })
-})
-```
-
-#### Bonus: Add a NEW unit test for the `saveBeforeTesting` guard
-
-```typescript
-it('disables test button when provider is new (unsaved) and not email type', async () => {
-  const user = userEvent.setup()
-  renderWithQueryClient(<Notifications />)
-
-  await user.click(await screen.findByTestId('add-provider-btn'))
-  const testBtn = screen.getByTestId('provider-test-btn')
-  expect(testBtn).toBeDisabled()
-})
-```
-
----
-
-### 4.2 P1: E2E Test Fixes — notifications.spec.ts
-
-**File:** `tests/settings/notifications.spec.ts`
-
-**Strategy:** For tests that click the test button from a new form, restructure the flow to:
-1. First **save** the provider (mocked create → returns id)
-2. Then **test** from the saved provider row's Send Test button (row buttons are not gated by `isNew`)
-
-#### Fix 3: "should test notification provider" (L1085)
-
-**Current flow:** Add form → fill → mock test endpoint → click `provider-test-btn` → verify request
-**Problem:** Test button disabled for new form
-**Fix:** Save first, then click test from the provider row's Send Test button.
-
-```typescript
-// In the test, after filling the form and before clicking test:
-
-// 1. Mock the create endpoint to return a provider with an id
-await page.route('**/api/v1/notifications/providers', async (route, request) => {
-  if (request.method() === 'POST') {
-    const payload = await request.postDataJSON();
-    await route.fulfill({
-      status: 201,
-      contentType: 'application/json',
-      body: JSON.stringify({ id: 'saved-test-id', ...payload }),
+const fetchSessionUser = useCallback(async (): Promise<User> => {
+    const response = await fetch('/api/v1/auth/me', {
+      method: 'GET',
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
     });
-  } else if (request.method() === 'GET') {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([{
-        id: 'saved-test-id',
-        name: 'Test Provider',
-        type: 'discord',
-        url: 'https://discord.com/api/webhooks/test/token',
-        enabled: true
-      }]),
+    // ...
+}, []);
+```
+
+This means `fetchSessionUser()` does NOT include the `Authorization: Bearer <token>` header. It relies **exclusively** on the browser sending the `auth_token` cookie via `credentials: 'include'`.
+
+### 2.3 Cookie Secure Flag Logic
+
+**File:** `backend/internal/api/handlers/auth_handler.go` (lines 132-163)
+
+```go
+func setSecureCookie(c *gin.Context, name, value string, maxAge int) {
+    scheme := requestScheme(c)
+    secure := true                     // ← Defaults to true
+    sameSite := http.SameSiteStrictMode
+
+    if scheme != "https" {
+        sameSite = http.SameSiteLaxMode
+        if isLocalRequest(c) {         // ← Only sets secure=false for localhost/127.0.0.1
+            secure = false
+        }
+    }
+    // ...
+}
+```
+
+**`isLocalHost()` only matches `localhost` and loopback IPs:**
+
+```go
+func isLocalHost(host string) bool {
+    if strings.EqualFold(host, "localhost") { return true }
+    if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() { return true }
+    return false
+}
+```
+
+This function does **NOT** match:
+- Private network IPs: `192.168.x.x`, `10.x.x.x`, `172.16.x.x`
+- Custom hostnames: `charon.local`, `myserver.home`
+- Any non-loopback IP address
+
+### 2.4 Auth Middleware (Protects `/auth/me`)
+
+**File:** `backend/internal/api/middleware/auth.go` (lines 12-45)
+
+The `AuthMiddleware` extracts tokens in priority order:
+1. `Authorization: Bearer <token>` header
+2. `auth_token` cookie (fallback)
+3. `?token=<token>` query parameter (deprecated fallback)
+
+If no token is found, it returns `401 {"error": "Authorization header required"}`.
+
+### 2.5 Route Registration
+
+**File:** `backend/internal/api/routes/routes.go` (lines 260-267)
+
+`/auth/me` is registered under the `protected` group which uses `authMiddleware`:
+```go
+protected.GET("/auth/me", authHandler.Me)
+```
+
+### 2.6 Database Migration & Seeding
+
+- `AutoMigrate` runs on startup for all models including `User`, `Setting`, `SecurityConfig`
+- The seed command (`backend/cmd/seed/main.go`) is a **separate CLI tool**, not run during normal startup
+- Fresh install uses the `/api/v1/setup` endpoint to create the first admin user
+- The setup handler creates the user and an ACME email setting in a transaction
+- **No missing migration or seeding is involved in this bug** — tables are auto-migrated, and setup creates the user correctly
+
+### 2.7 Trusted Proxy Configuration
+
+**File:** `backend/internal/server/server.go` (lines 14-17)
+
+```go
+_ = router.SetTrustedProxies(nil)
+```
+
+Gin's `SetTrustedProxies(nil)` disables trusting forwarded headers for `c.ClientIP()`. However, the `requestScheme()` function reads `X-Forwarded-Proto` directly from the request header, bypassing Gin's trust mechanism. This is intentional for scheme detection.
+
+### 2.8 Existing Test Confirmation
+
+**File:** `backend/internal/api/handlers/auth_handler_test.go` (lines 84-99)
+
+The test `TestSetSecureCookie_HTTP_Lax` explicitly asserts the current (buggy) behavior:
+```go
+// HTTP request from non-local IP 192.0.2.10
+req := httptest.NewRequest("POST", "http://192.0.2.10/login", http.NoBody)
+req.Header.Set("X-Forwarded-Proto", "http")
+// ...
+assert.True(t, c.Secure)  // ← Asserts Secure=true on HTTP!
+```
+
+Note: `192.0.2.10` is TEST-NET-1 (RFC 5737), a documentation address — NOT a private IP. This test is actually correct for public IPs and needs no change.
+
+### 2.9 CORS Configuration
+
+No CORS middleware was found in the backend. The frontend uses relative URLs (`baseURL: '/api/v1'`), so all API requests are same-origin. CORS is not a factor in this bug.
+
+---
+
+## 3. Root Cause Analysis
+
+### Primary Root Cause: `Secure` cookie flag set to `true` on non-HTTPS, non-local connections
+
+When a user accesses Charon from a LAN IP (e.g., `192.168.1.50:8080`) over plain HTTP:
+
+| Step | Function | Value | Result |
+|------|----------|-------|--------|
+| 1 | `requestScheme(c)` | `"http"` | No X-Forwarded-Proto or TLS |
+| 2 | `secure` default | `true` | — |
+| 3 | `scheme != "https"` | `true` | Enters HTTP branch |
+| 4 | `isLocalRequest(c)` | `false` | Host is `192.168.1.50`, not `localhost`/`127.0.0.1` |
+| 5 | Final `secure` | `true` | **Cookie marked Secure on HTTP connection** |
+
+**Result:** The browser receives `Set-Cookie: auth_token=...; Secure; HttpOnly; Path=/; SameSite=Lax` over an HTTP connection. Per RFC 6265bis §5.4, browsers **reject** `Secure` cookies delivered over non-secure (HTTP) channels.
+
+### Secondary Root Cause: `fetchSessionUser()` has no fallback to Bearer token
+
+Even though the JWT token is stored in `localStorage` and set on the axios client's `Authorization` header, `fetchSessionUser()` uses raw `fetch()` without the `Authorization` header. When the cookie is rejected, there is no fallback.
+
+### Failure Chain
+
+```
+Browser (HTTP to 192.168.x.x:8080)
+  → POST /auth/login → 200 + Set-Cookie: auth_token=...; Secure
+  → Browser REJECTS Secure cookie (connection is HTTP)
+  → Frontend stores token in localStorage, sets it on axios client
+  → fetchSessionUser() calls GET /auth/me via raw fetch (no Auth header, no cookie)
+  → Auth middleware: no token found → 401
+  → User sees login failure
+```
+
+### External Caddy Scenario (likely works, but fragile)
+
+When accessing via an external Caddy that terminates TLS:
+- If Caddy sends `X-Forwarded-Proto: https` → `scheme = "https"` → `secure = true`, `sameSite = Strict`
+- Browser sees HTTPS → accepts Secure cookie → `/auth/me` succeeds
+- **But:** If the user accesses _directly_ on port 8080 for any reason, it breaks
+
+---
+
+## 4. Verdict
+
+**This is a code bug, not a user configuration issue.**
+
+The `setSecureCookie` function has a logic gap: when the scheme is HTTP and the request is from a non-loopback private IP, it still sets `Secure: true`. This makes it impossible to authenticate over HTTP from any non-localhost address, which is a valid and common deployment scenario (LAN access, Docker port mapping without TLS).
+
+The secondary issue (frontend `fetchSessionUser` not sending a Bearer token) means there is no graceful fallback when the cookie is rejected — the user gets a hard 401 with no recovery path, even though the token is available in memory.
+
+---
+
+## 5. Technical Specification
+
+### 5.1 Backend Fix: Expand `isLocalHost` to include RFC 1918 private IPs
+
+**WHEN** the request scheme is HTTP,
+**AND** the request originates from a private network IP (RFC 1918/RFC 4193),
+**THE SYSTEM SHALL** set the `Secure` cookie flag to `false`.
+
+**File:** `backend/internal/api/handlers/auth_handler.go` (line 80)
+
+**Change:** Extend `isLocalHost` to also return `true` for RFC 1918 private IPs:
+
+```go
+func isLocalHost(host string) bool {
+    if strings.EqualFold(host, "localhost") {
+        return true
+    }
+
+    ip := net.ParseIP(host)
+    if ip == nil {
+        return false
+    }
+
+    if ip.IsLoopback() {
+        return true
+    }
+
+    if ip.IsPrivate() {
+        return true
+    }
+
+    return false
+}
+```
+
+`net.IP.IsPrivate()` (Go 1.17+) checks for:
+- `10.0.0.0/8`
+- `172.16.0.0/12`
+- `192.168.0.0/16`
+- `fc00::/7` (IPv6 ULA)
+
+This **does not** change behavior for public IPs or HTTPS — `Secure: true` is preserved for all HTTPS connections and for public HTTP connections.
+
+### 5.2 Frontend Fix: Add Bearer token to `fetchSessionUser`
+
+**File:** `frontend/src/context/AuthContext.tsx` (line 12)
+
+**Change:** Include the `Authorization` header in `fetchSessionUser` when a token is available in localStorage:
+
+```typescript
+const fetchSessionUser = useCallback(async (): Promise<User> => {
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    const stored = localStorage.getItem('charon_auth_token');
+    if (stored) {
+        headers['Authorization'] = `Bearer ${stored}`;
+    }
+
+    const response = await fetch('/api/v1/auth/me', {
+        method: 'GET',
+        credentials: 'include',
+        headers,
     });
-  } else {
-    await route.continue();
-  }
-});
 
-// 2. Save the provider first
-await page.getByTestId('provider-save-btn').click();
+    if (!response.ok) {
+        throw new Error('Session validation failed');
+    }
 
-// 3. Wait for the provider to appear in the list
-await expect(page.getByText('Test Provider')).toBeVisible({ timeout: 5000 });
-
-// 4. Click row-level Send Test button
-const providerRow = page.getByTestId('provider-row-saved-test-id');
-const sendTestButton = providerRow.getByRole('button', { name: /send test/i });
-await sendTestButton.click();
+    return response.json() as Promise<User>;
+}, []);
 ```
 
-#### Fix 4: "should show test success feedback" (L1142)
+This provides a belt-and-suspenders approach: the cookie is preferred (HttpOnly, auto-sent), but if the cookie is absent (rejected, cross-domain, etc.), the Bearer token from localStorage is used as a fallback.
 
-Same pattern as Fix 3: save provider first, then test from row.
+### 5.3 Test Updates
 
-#### Fix 5: "should preserve Discord request payload contract for save, preview, and test" (L1236)
+**Existing test `TestSetSecureCookie_HTTP_Lax`:** Uses `192.0.2.10` (TEST-NET-1, RFC 5737) which is NOT a private IP → assertion unchanged (`Secure: true`).
 
-**Current flow:** Add form → fill → click preview → click test → save → verify all payloads
-**Problem:** Test button disabled for new form
-**Fix:** Reorder to: Add form → fill → click preview → **save** → **test from row** → verify payloads
+**New test cases needed:**
 
-The preview button is NOT disabled for new forms (only the test button is), so preview still works from the new form. The test step must happen after save.
+| Test Name | Host | Scheme | Expected Secure | Expected SameSite |
+|-----------|------|--------|-----------------|--------------------|
+| `TestSetSecureCookie_HTTP_PrivateIP_Insecure` | `192.168.1.50` | `http` | `false` | `Lax` |
+| `TestSetSecureCookie_HTTP_10Network_Insecure` | `10.0.0.5` | `http` | `false` | `Lax` |
+| `TestSetSecureCookie_HTTP_172Network_Insecure` | `172.16.0.1` | `http` | `false` | `Lax` |
+| `TestSetSecureCookie_HTTPS_PrivateIP_Secure` | `192.168.1.50` | `https` | `true` | `Strict` |
+| `TestSetSecureCookie_HTTP_PublicIP_Secure` | `203.0.113.5` | `http` | `true` | `Lax` |
 
-#### Fix 6: "should show error when test fails" (L1665)
+**`isLocalHost` unit test additions:**
 
-Same pattern: save first, then test from row.
+| Input | Expected |
+|-------|----------|
+| `192.168.1.50` | `true` (new) |
+| `10.0.0.1` | `true` (new) |
+| `172.16.0.1` | `true` (new) |
+| `203.0.113.5` | `false` |
 
 ---
 
-### 4.3 P1: E2E Test Fixes — notifications-payload.spec.ts
+## 6. Implementation Plan
 
-**File:** `tests/settings/notifications-payload.spec.ts`
+### Phase 1: Backend Cookie Fix
 
-#### Fix 7: "provider-specific transformation strips gotify token from test and preview payloads" (L264)
+1. Modify `isLocalHost` in `auth_handler.go` to include `ip.IsPrivate()`
+2. Verify existing test `TestSetSecureCookie_HTTP_Lax` is unchanged (TEST-NET IP)
+3. Add new test cases per table in §5.3
+4. Add `isLocalHost` unit tests for private IPs
 
-**Current flow:** Add gotify form → fill with token → click preview → click test → verify token not in payloads
-**Problem:** Test button disabled for new gotify form
-**Fix:** Preview still works from new form. For test, save first, then test from the saved provider row.
+### Phase 2: Frontend `fetchSessionUser` Fix
 
-**Note:** The row-level test call uses `{ ...provider, type: normalizeProviderType(provider.type) }` where `provider` is the list item (which never contains `token/gotify_token` per the List handler that strips tokens). So the token-stripping assertion naturally holds for row-level tests.
+1. Modify `fetchSessionUser` in `AuthContext.tsx` to include `Authorization` header from localStorage
+2. Verify existing frontend tests still pass
 
-#### Fix 8: "retry split distinguishes retryable and non-retryable failures" (L410)
+### Phase 3: E2E Validation
 
-**Current flow:** Add webhook form → fill → click test → verify retry semantics
-**Problem:** Test button disabled for new webhook form
-**Fix:** Save first (mock create), then open edit form (which has `id`) or test from the row.
-
----
-
-### 4.4 P2: Telegram E2E Spec Hardening
-
-**File:** `tests/settings/telegram-notification-provider.spec.ts`
-
-#### Fix 9: "should edit telegram notification provider and preserve token" (L159)
-
-**Problem:** Uses fragile keyboard navigation to reach the Edit button:
-```typescript
-await sendTestButton.focus();
-await page.keyboard.press('Tab');
-await page.keyboard.press('Enter');
-```
-
-This assumes Tab from Send Test lands on Edit. Tab order can vary across browsers.
-
-**Fix:** Use a direct locator for the Edit button instead of keyboard navigation:
-
-```typescript
-// BEFORE:
-await sendTestButton.focus();
-await page.keyboard.press('Tab');
-await page.keyboard.press('Enter');
-
-// AFTER:
-const editButton = providerRow.getByRole('button').nth(1); // Send Test=0, Edit=1
-await editButton.click();
-```
-
-Or use a structural locator based on the edit icon class.
-
-#### Fix 10: "should test telegram notification provider" (L265)
-
-**Probable issue:** The `getByRole('button', { name: /send test/i })` relies on `title` for accessible name. WebKit may not compute accessible name from `title` the same way.
-
-**Fix (source — preferred):** Add explicit `aria-label` to the row Send Test button in `Notifications.tsx` (L703):
-```tsx
-<Button
-  variant="secondary"
-  size="sm"
-  onClick={() => testMutation.mutate({...})}
-  title={t('notificationProviders.sendTest')}
-  aria-label={t('notificationProviders.sendTest')}
->
-```
-
-**Fix (test — alternative):** Use structural locator:
-```typescript
-const sendTestButton = providerRow.locator('button').first();
-```
-
----
-
-### 4.5 P3: Document Pre-existing Failures
-
-**Action:** File separate issues (not part of this PR) for:
-
-1. **encryption-management.spec.ts** — ~7 unique test failures in `/security/encryption`. Likely UI rendering timing issues or flaky selectors. No code overlap with Telegram PR.
-
-2. **auth-middleware-cascade.spec.ts** — All 6 tests fail × 3 browsers. Uses deprecated `waitUntil: 'networkidle'`, creates proxy hosts through fragile UI selectors (`getByLabel(/domain/i)`), and tests auth middleware cascade. Needs modernization pass for locators and waits.
-
----
-
-## 5. Implementation Plan
-
-### Phase 1: Unit Test Fixes (Immediate)
-
-| Task | File | Lines | Complexity |
-|---|---|---|---|
-| Fix "submits provider test action" test | `Notifications.test.tsx` | L447-462 | Low |
-| Fix "shows error toast" test | `Notifications.test.tsx` | L569-582 | Low |
-| Add `saveBeforeTesting` guard unit test | `Notifications.test.tsx` | New | Low |
-
-**Validation:** `cd frontend && npx vitest run src/pages/__tests__/Notifications.test.tsx`
-
-### Phase 2: E2E Test Fixes — Core Regression
-
-| Task | File | Lines | Complexity |
-|---|---|---|---|
-| Fix "should test notification provider" | `notifications.spec.ts` | L1085-1138 | Medium |
-| Fix "should show test success feedback" | `notifications.spec.ts` | L1142-1178 | Medium |
-| Fix "should preserve Discord payload contract" | `notifications.spec.ts` | L1236-1340 | Medium |
-| Fix "should show error when test fails" | `notifications.spec.ts` | L1665-1706 | Medium |
-| Fix "transformation strips gotify token" | `notifications-payload.spec.ts` | L264-312 | Medium |
-| Fix "retry split retryable/non-retryable" | `notifications-payload.spec.ts` | L410-510 | High |
-
-**Validation per test:** `npx playwright test --project=firefox <spec-file> -g "<test-name>"`
-
-### Phase 3: Telegram Spec Hardening
-
-| Task | File | Lines | Complexity |
-|---|---|---|---|
-| Replace keyboard nav with direct locator | `telegram-notification-provider.spec.ts` | L220-223 | Low |
-| Add `aria-label` to row Send Test button | `Notifications.tsx` | L703-708 | Low |
-| Verify all 8 telegram tests pass 3 browsers | All | — | Low |
-
-**Validation:** `npx playwright test tests/settings/telegram-notification-provider.spec.ts`
-
-### Phase 4: Accessibility Hardening (Optional — Low Priority)
-
-Consider adding `aria-label` attributes to all icon-only buttons in the provider row for improved accessibility and test resilience:
-
-| Button | Current Accessible Name Source | Recommended |
-|---|---|---|
-| Send Test | `title` attribute | Add `aria-label` |
-| Edit | None (icon only) | Add `aria-label={t('common.edit')}` |
-| Delete | None (icon only) | Add `aria-label={t('common.delete')}` |
-
----
-
-## 6. Commit Slicing Strategy
-
-**Decision:** Single PR with 2 focused commits
-
-**Rationale:** All fixes are tightly coupled to the Telegram feature PR and represent test adaptations to a correct behavioral change. No cross-domain changes. Small total diff.
-
-### Commit 1: "fix(test): adapt notification tests to save-before-test guard"
-- **Scope:** All unit test and E2E test fixes (Phases 1-3)
-- **Files:** `Notifications.test.tsx`, `notifications.spec.ts`, `notifications-payload.spec.ts`, `telegram-notification-provider.spec.ts`
-- **Dependencies:** None
-- **Validation Gate:** All notification-related tests pass locally on at least one browser
-
-### Commit 2: "feat(a11y): add aria-labels to notification provider row buttons"
-- **Scope:** Source code accessibility improvement (Phase 4)
-- **Files:** `Notifications.tsx`
-- **Dependencies:** Depends on Commit 1 (tests must pass first)
-- **Validation Gate:** Telegram spec tests pass consistently on WebKit
-
-### Rollback
-- These are test-only changes (except the optional aria-label). Reverting either commit has zero production impact.
-- If tests still fail after fixes, the next step is to run with `--debug` and capture trace artifacts.
+1. Rebuild E2E Docker environment
+2. Run the login/auth Playwright tests to validate no regressions
 
 ---
 
 ## 7. Acceptance Criteria
 
-- [ ] `Notifications.test.tsx` — all 2 previously failing tests pass
-- [ ] `notifications.spec.ts` — all 4 isNew-guard-affected tests pass on 3 browsers
-- [ ] `notifications-payload.spec.ts` — "transformation" and "retry split" tests pass on 3 browsers
-- [ ] `telegram-notification-provider.spec.ts` — all 8 tests pass on 3 browsers
-- [ ] No regressions in other notification tests
-- [ ] New unit test validates the `saveBeforeTesting` guard / disabled button behavior
-- [ ] `encryption-management.spec.ts` and `auth-middleware-cascade.spec.ts` failures documented as separate issues (not blocked by this PR)
+- [ ] `isLocalHost("192.168.1.50")` returns `true`
+- [ ] `isLocalHost("10.0.0.1")` returns `true`
+- [ ] `isLocalHost("172.16.0.1")` returns `true`
+- [ ] `isLocalHost("203.0.113.5")` returns `false` (public IP unchanged)
+- [ ] HTTP login from a private LAN IP sets `Secure: false` on `auth_token` cookie
+- [ ] HTTPS login from a private LAN IP still sets `Secure: true`
+- [ ] `fetchSessionUser()` sends `Authorization: Bearer <token>` when token is in localStorage
+- [ ] All existing auth handler tests pass
+- [ ] New test cases from §5.3 pass
+- [ ] E2E login tests pass
+
+---
+
+## 8. Commit Slicing Strategy
+
+**Decision:** Single PR
+
+**Rationale:** Both changes are tightly coupled to the same authentication flow. The backend fix alone resolves the primary issue, and the frontend fix is a small defense-in-depth addition. Total change is ~20 lines of production code + ~60 lines of tests. Splitting would create unnecessary review overhead.
+
+### PR-1: Fix auth cookie Secure flag for private networks + frontend Bearer fallback
+
+**Scope:**
+- `backend/internal/api/handlers/auth_handler.go` — Expand `isLocalHost` to include `ip.IsPrivate()`
+- `backend/internal/api/handlers/auth_handler_test.go` — Add new test cases, verify existing
+- `frontend/src/context/AuthContext.tsx` — Add Authorization header to `fetchSessionUser`
+
+**Validation Gates:**
+- `go test ./backend/internal/api/handlers/...` — all pass
+- `go test ./backend/internal/api/middleware/...` — all pass
+- E2E Playwright login suite — all pass
+
+**Rollback:** Revert the single commit. No database changes, no API contract changes.
+
+---
+
+## 9. Edge Cases & Risks
+
+| Risk | Mitigation |
+|------|------------|
+| `net.IP.IsPrivate()` requires Go 1.17+ | Charon requires Go 1.21+, no risk |
+| Public HTTP deployments now get `Secure: true` (no change) | Intentional: public HTTP is insecure regardless |
+| localStorage token exposed to XSS | Existing risk (unchanged); primary auth remains HttpOnly cookie |
+| `isLocalHost` name now misleading (covers private IPs) | Consider renaming to `isPrivateOrLocalHost` in follow-up refactor |
+| External reverse proxy without X-Forwarded-Proto | Frontend Bearer fallback covers this case now |
