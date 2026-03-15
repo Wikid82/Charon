@@ -77,7 +77,7 @@ func originHost(rawURL string) string {
 	return normalizeHost(parsedURL.Host)
 }
 
-func isLocalHost(host string) bool {
+func isLocalOrPrivateHost(host string) bool {
 	if strings.EqualFold(host, "localhost") {
 		return true
 	}
@@ -117,7 +117,7 @@ func isLocalRequest(c *gin.Context) bool {
 			continue
 		}
 
-		if isLocalHost(host) {
+		if isLocalOrPrivateHost(host) {
 			return true
 		}
 	}
