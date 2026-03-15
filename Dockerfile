@@ -39,7 +39,7 @@ ARG CADDY_CANDIDATE_VERSION=2.11.2
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
-ARG CADDY_SECURITY_VERSION=1.1.47
+ARG CADDY_SECURITY_VERSION=1.1.48
 # renovate: datasource=go depName=github.com/corazawaf/coraza-caddy
 ARG CORAZA_CADDY_VERSION=2.2.0
 ## When an official caddy image tag isn't available on the host, use a
