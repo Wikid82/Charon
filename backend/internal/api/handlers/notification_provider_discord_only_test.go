@@ -24,21 +24,24 @@ func TestDiscordOnly_CreateRejectsNonDiscord(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}, &models.Notification{}))
 
-	service := services.NewNotificationService(db, nil)
+	service := services.NewNotificationService(db, nil,
+		services.WithSlackURLValidator(func(string) error { return nil }),
+	)
 	handler := NewNotificationProviderHandler(service)
 
 	testCases := []struct {
 		name         string
 		providerType string
+		token        string
 		wantStatus   int
 		wantCode     string
 	}{
-		{"webhook", "webhook", http.StatusCreated, ""},
-		{"gotify", "gotify", http.StatusCreated, ""},
-		{"slack", "slack", http.StatusCreated, ""},
-		{"telegram", "telegram", http.StatusCreated, ""},
-		{"generic", "generic", http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE"},
-		{"email", "email", http.StatusCreated, ""},
+		{"webhook", "webhook", "", http.StatusCreated, ""},
+		{"gotify", "gotify", "", http.StatusCreated, ""},
+		{"slack", "slack", "https://hooks.slack.com/services/T1234567890/B1234567890/XXXXXXXXXXXXXXXXXXXX", http.StatusCreated, ""},
+		{"telegram", "telegram", "", http.StatusCreated, ""},
+		{"generic", "generic", "", http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE"},
+		{"email", "email", "", http.StatusCreated, ""},
 	}
 
 	for _, tc := range testCases {
@@ -47,6 +50,7 @@ func TestDiscordOnly_CreateRejectsNonDiscord(t *testing.T) {
 				"name":               "Test Provider",
 				"type":               tc.providerType,
 				"url":                "https://example.com/webhook",
+				"token":              tc.token,
 				"enabled":            true,
 				"notify_proxy_hosts": true,
 			}
