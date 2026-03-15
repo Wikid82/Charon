@@ -433,7 +433,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 ARG CI
 ARG GEOLITE2_COUNTRY_SHA256=b79afc28a0a52f89c15e8d92b05c173f314dd4f687719f96cf921012d900fcce
 RUN mkdir -p /app/data/geoip && \
-        if [ -n "$CI" ]; then \
+        if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
             if wget -qO /app/data/geoip/GeoLite2-Country.mmdb \
                 -T 10 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" 2>/dev/null \
