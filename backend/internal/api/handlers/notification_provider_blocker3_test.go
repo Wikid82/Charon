@@ -28,19 +28,22 @@ func TestBlocker3_CreateProviderRejectsNonDiscordWithSecurityEvents(t *testing.T
 	assert.NoError(t, err)
 
 	// Create handler
-	service := services.NewNotificationService(db, nil)
+	service := services.NewNotificationService(db, nil,
+		services.WithSlackURLValidator(func(string) error { return nil }),
+	)
 	handler := NewNotificationProviderHandler(service)
 
 	// Test cases: provider types with security events enabled
 	testCases := []struct {
 		name         string
 		providerType string
+		token        string
 		wantStatus   int
 	}{
-		{"webhook", "webhook", http.StatusCreated},
-		{"gotify", "gotify", http.StatusCreated},
-		{"slack", "slack", http.StatusCreated},
-		{"email", "email", http.StatusCreated},
+		{"webhook", "webhook", "", http.StatusCreated},
+		{"gotify", "gotify", "", http.StatusCreated},
+		{"slack", "slack", "https://hooks.slack.com/services/T1234567890/B1234567890/XXXXXXXXXXXXXXXXXXXX", http.StatusCreated},
+		{"email", "email", "", http.StatusCreated},
 	}
 
 	for _, tc := range testCases {
@@ -50,6 +53,7 @@ func TestBlocker3_CreateProviderRejectsNonDiscordWithSecurityEvents(t *testing.T
 				"name":                       "Test Provider",
 				"type":                       tc.providerType,
 				"url":                        "https://example.com/webhook",
+				"token":                      tc.token,
 				"enabled":                    true,
 				"notify_security_waf_blocks": true, // Security event enabled
 			}

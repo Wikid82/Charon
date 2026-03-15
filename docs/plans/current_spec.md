@@ -1,298 +1,301 @@
-# Integration Workflow Fix Plan: go-httpbin Port Mismatch & curl-in-Container Remediation
+# Fix Plan: Slack Sub-Test Failures in Handler-Level Provider Create Tests
 
 **Status:** Active
-**Created:** 2026-03-14
+**Created:** 2026-03-15
 **Branch:** `feature/beta-release`
-**Context:** All four integration workflows (cerberus, crowdsec, rate-limit, waf) are failing with "httpbin not starting." Root cause is a compounding port mismatch introduced when `kennethreitz/httpbin` (port 80) was swapped for `mccutchen/go-httpbin` (port 8080) without updating port configuration. A secondary issue exists where two scripts still use `curl` via `docker exec` inside an Alpine container that only has `wget`.
-**Previous Plan:** Backed up to `docs/plans/cve_remediation_spec.md`
+**Scope:** Two failing `go test` sub-tests in the handlers package
+**Previous Plan:** Backed up to `docs/plans/current_spec.md.bak`
 
 ---
 
-## 1. Root Cause Analysis
+## 1. Failing Tests
 
-### 1.1 Primary: go-httpbin Port Mismatch
-
-**Commit `042c5ec6`** replaced `kennethreitz/httpbin` with `mccutchen/go-httpbin` across all four integration scripts. However, it **only changed the image name** — no port configuration was updated.
-
-| Property | `kennethreitz/httpbin` | `mccutchen/go-httpbin` |
-|----------|----------------------|----------------------|
-| Default listen port | **80** | **8080** |
-| Port env var | N/A | `PORT` |
-| Exposed port (Dockerfile) | `80/tcp` | `8080/tcp` |
-
-**Evidence:** `docker inspect mccutchen/go-httpbin --format='{{json .Config.ExposedPorts}}'` returns `{"8080/tcp":{}}`. The [go-httpbin README](https://github.com/mccutchen/go-httpbin) confirms the default port is `8080`, configurable via `-port` flag or `PORT` environment variable.
-
-**Failure mechanism:** Each integration script has a health check loop like:
-
-```bash
-for i in {1..45}; do
-    if docker exec ${CONTAINER_NAME} sh -c "wget -qO /dev/null http://${BACKEND_CONTAINER}/get" >/dev/null 2>&1; then
-        echo "✓ httpbin backend is ready"
-        break
-    fi
-    if [ $i -eq 45 ]; then
-        echo "✗ httpbin backend failed to start"
-        exit 1
-    fi
-    sleep 1
-done
-```
-
-The `wget` URL `http://${BACKEND_CONTAINER}/get` resolves to port 80 (HTTP default). go-httpbin is listening on port 8080. The connection is refused on port 80 for 45 iterations, then the script prints "httpbin backend failed to start" and exits 1.
-
-Additionally, all four scripts create proxy hosts with `"forward_port": 80`, which would also fail at the Caddy reverse proxy level even if the health check passed.
-
-### 1.2 Secondary: curl Not Available Inside Container
-
-**Commit `58b087bc`** correctly migrated the four httpbin health checks from `curl` to `wget` (busybox). However, two other scripts still use `docker exec ... curl` to probe services inside the Alpine container, which does not have `curl` installed (removed as part of CVE remediation):
-
-1. **`scripts/crowdsec_startup_test.sh` L179** — LAPI health check uses `docker exec ${CONTAINER_NAME} curl -sf http://127.0.0.1:8085/health`. Always returns "FAILED" (soft-pass, not blocking CI, but wrong).
-2. **`scripts/diagnose-test-env.sh` L104** — CrowdSec LAPI check uses `docker exec charon-e2e curl -sf http://localhost:8090/health`. Always fails silently.
-
-### 1.3 Timeline of Changes
-
-| Commit | Change | Effect |
-|--------|--------|--------|
-| `042c5ec6` | Swap `kennethreitz/httpbin` → `mccutchen/go-httpbin` | **Introduced port mismatch** (8080 vs 80). Not caught because the prior curl-based health checks were already broken by the missing curl. |
-| `58b087bc` | Replace `curl` with `wget` in `docker exec` httpbin health checks | **Correct tool fix** for 4 scripts. But exposed the hidden port mismatch — now wget correctly tries port 80 and correctly fails (connection refused), producing the visible "httpbin not starting" error. |
-| `4b896c2e` | Replace `curl` with `wget` in Docker compose healthchecks | Correct, no issues. |
-
-**Key insight:** The curl→wget migration was a correct fix for a real problem. It was applied on top of an earlier, unnoticed bug (port mismatch from the image swap). The wget migration made the port bug visible because wget actually runs inside the container, whereas curl was silently failing (not found) and the health check was timing out for a different reason.
+| Test | File | Sub-test | Expected | Actual |
+|------|------|----------|----------|--------|
+| `TestBlocker3_CreateProviderRejectsNonDiscordWithSecurityEvents` | `notification_provider_blocker3_test.go` | `slack` | `201 Created` | `500 Internal Server Error` |
+| `TestDiscordOnly_CreateRejectsNonDiscord` | `notification_provider_discord_only_test.go` | `slack` | `201 Created` | `500 Internal Server Error` |
 
 ---
 
-## 2. Impact Assessment
+## 2. Root Cause Analysis
 
-### 2.1 Affected Scripts — Port Mismatch (PRIMARY)
+### 2.1 Execution Path
 
-| File | Docker Run Line | Health Check Line | Forward Port Line | Status |
-|------|----------------|-------------------|-------------------|--------|
-| `scripts/cerberus_integration.sh` | L174 | L215 | L255 | **BROKEN** |
-| `scripts/waf_integration.sh` | L167 | L206 | L246 | **BROKEN** |
-| `scripts/rate_limit_integration.sh` | L188 | L191 | L231 | **BROKEN** |
-| `scripts/coraza_integration.sh` | L159 | L163 | L191 | **BROKEN** |
+Both tests are table-driven. For the `slack` row, the request payload is built as:
 
-### 2.2 Affected Scripts — curl Inside Container (SECONDARY)
-
-| File | Line | Command | Status |
-|------|------|---------|--------|
-| `scripts/crowdsec_startup_test.sh` | L179 | `docker exec ${CONTAINER_NAME} curl -sf http://127.0.0.1:8085/health` | **SILENT FAIL** |
-| `scripts/diagnose-test-env.sh` | L104 | `docker exec charon-e2e curl -sf http://localhost:8090/health` | **SILENT FAIL** |
-
-### 2.3 NOT Affected
-
-| Component | Reason |
-|-----------|--------|
-| Dockerfile HEALTHCHECK | Already uses `wget` — targets Charon API `:8080`, not httpbin |
-| `.docker/docker-entrypoint.sh` | Already uses `wget` — Caddy readiness on `:2019` |
-| All `docker-compose` healthchecks | Already use `wget` |
-| Workflow YAML files | Use host-side `curl` (installed on `ubuntu-latest`), not `docker exec` |
-| `scripts/crowdsec_integration.sh` | Uses only host-side `curl`; does not use httpbin at all |
-| `scripts/integration-test.sh` | Uses `whoami` image (port 80), not go-httpbin |
-
-**File:** `backend/internal/api/routes/routes.go` (lines 260-267)
-
-## 3. Remediation Plan
-
-### 3.1 Fix Strategy: Add `-e PORT=80` to go-httpbin Container
-
-The **least invasive** fix is to set the `PORT` environment variable on the go-httpbin container so it listens on port 80, matching all existing health check URLs and proxy host `forward_port` values. This avoids cascading changes to URLs and Caddy configurations.
-
-**Alternative considered:** Change all health check URLs and `forward_port` values to 8080. Rejected because:
-- Requires more changes (health check URLs, forward_port, potentially Caddy route expectations)
-- The proxy host `forward_port` is the user-facing API field; port 80 is the natural default for HTTP backends
-
-### 3.2 Exact Changes — Port Fix (4 files)
-
-#### `scripts/cerberus_integration.sh` — Line 174
-
-```diff
--docker run -d --name ${BACKEND_CONTAINER} --network containers_default mccutchen/go-httpbin
-+docker run -d --name ${BACKEND_CONTAINER} --network containers_default -e PORT=80 mccutchen/go-httpbin
+```go
+payload := map[string]interface{}{
+    "name":    "Test Provider",
+    "type":    "slack",
+    "url":     "https://example.com/webhook",
+    "enabled": true,
+    // ... (no "token" field)
+}
 ```
 
-#### `scripts/waf_integration.sh` — Line 167
+The handler `Create()` in `notification_provider_handler.go` passes the bound request to `service.CreateProvider()`.
 
-```diff
--docker run -d --name ${BACKEND_CONTAINER} --network containers_default mccutchen/go-httpbin
-+docker run -d --name ${BACKEND_CONTAINER} --network containers_default -e PORT=80 mccutchen/go-httpbin
-```
+### 2.2 Service Enforcement
 
-#### `scripts/rate_limit_integration.sh` — Line 188
+`CreateProvider()` in `notification_service.go` (line ~793) has a mandatory token guard for Slack:
 
-```diff
--docker run -d --name ${BACKEND_CONTAINER} --network containers_default mccutchen/go-httpbin
-+docker run -d --name ${BACKEND_CONTAINER} --network containers_default -e PORT=80 mccutchen/go-httpbin
-```
-
-#### `scripts/coraza_integration.sh` — Line 159
-
-```diff
--docker run -d --name coraza-backend --network containers_default mccutchen/go-httpbin
-+docker run -d --name coraza-backend --network containers_default -e PORT=80 mccutchen/go-httpbin
-```
-
-### 3.3 Exact Changes — curl→wget Inside Container (2 files)
-
-#### `scripts/crowdsec_startup_test.sh` — Line 179
-
-```diff
--LAPI_HEALTH=$(docker exec ${CONTAINER_NAME} curl -sf http://127.0.0.1:8085/health 2>/dev/null || echo "FAILED")
-+LAPI_HEALTH=$(docker exec ${CONTAINER_NAME} wget -qO - http://127.0.0.1:8085/health 2>/dev/null || echo "FAILED")
-```
-
-Note: Using `wget -qO -` (output to stdout) instead of `wget -qO /dev/null` because the response body is captured in `$LAPI_HEALTH` and checked.
-
-#### `scripts/diagnose-test-env.sh` — Line 104
-
-```diff
--if docker exec charon-e2e curl -sf http://localhost:8090/health > /dev/null 2>&1; then
-+if docker exec charon-e2e wget -qO /dev/null http://localhost:8090/health 2>/dev/null; then
-```
-
----
-
-## 4. wget vs curl Flag Mapping Reference
-
-| curl Flag | wget Equivalent | Meaning |
-|-----------|----------------|---------|
-| `-s` (silent) | `-q` (quiet) | Suppress progress output |
-| `-f` (fail silently on HTTP errors) | *(default behavior)* | wget exits nonzero on HTTP 4xx/5xx |
-| `-o FILE` (output to file) | `-O FILE` | Write output to specified file |
-| `-o /dev/null` | `-O /dev/null` | Discard response body |
-| `> /dev/null 2>&1` | `2>/dev/null` | Suppress stderr (wget is quiet with `-q`, only stderr needs redirect) |
-| `-m SECS` / `--max-time` | `-T SECS` | Connection timeout |
-| `--retry N` | `-t N+1` | Total attempts (wget counts initial try) |
-| `-S` (show error) | *(no equivalent)* | wget shows errors by default without `-q` |
-| `-L` (follow redirects) | *(default behavior)* | wget follows redirects by default |
-
-    if ip.IsLoopback() {
-        return true
+```go
+if provider.Type == "slack" {
+    token := strings.TrimSpace(provider.Token)
+    if token == "" {
+        return fmt.Errorf("slack webhook URL is required")  // ← triggered
     }
+    if err := s.validateSlackURL(token); err != nil {
+        return err
+    }
+}
+```
 
-## 5. Implementation Plan
+Because the test payload omits `"token"`, `provider.Token` is empty, and `CreateProvider` returns the error `"slack webhook URL is required"`.
 
-### Phase 1: Playwright Tests (Verification of Expected Behavior)
+### 2.3 Handler Error Classifier Gap
 
-No new Playwright tests needed. The integration scripts are bash-based CI workflows, not UI features. Existing workflow YAML files already serve as the test harness.
+The handler passes the error to `isProviderValidationError()` (line ~280):
 
-### Phase 2: Backend/Script Implementation
+```go
+func isProviderValidationError(err error) bool {
+    errMsg := err.Error()
+    return strings.Contains(errMsg, "invalid custom template") ||
+        strings.Contains(errMsg, "rendered template") ||
+        strings.Contains(errMsg, "failed to parse template") ||
+        strings.Contains(errMsg, "failed to render template") ||
+        strings.Contains(errMsg, "invalid Discord webhook URL") ||
+        strings.Contains(errMsg, "invalid Slack webhook URL")
+}
+```
 
-| Task | File | Change | Complexity |
-|------|------|--------|------------|
-| T1 | `scripts/cerberus_integration.sh` | Add `-e PORT=80` to docker run | Trivial |
-| T2 | `scripts/waf_integration.sh` | Add `-e PORT=80` to docker run | Trivial |
-| T3 | `scripts/rate_limit_integration.sh` | Add `-e PORT=80` to docker run | Trivial |
-| T4 | `scripts/coraza_integration.sh` | Add `-e PORT=80` to docker run | Trivial |
-| T5 | `scripts/crowdsec_startup_test.sh` | Replace `curl -sf` with `wget -qO -` | Trivial |
-| T6 | `scripts/diagnose-test-env.sh` | Replace `curl -sf` with `wget -qO /dev/null` | Trivial |
+The string `"slack webhook URL is required"` matches none of these patterns. The handler falls through to the default 500 branch:
 
-### Phase 3: Frontend Implementation
+```go
+respondSanitizedProviderError(c, http.StatusInternalServerError, "PROVIDER_CREATE_FAILED", "internal", "Failed to create provider")
+```
 
-N/A — no frontend changes required.
+### 2.4 Summary
 
-### Phase 4: Integration and Testing
-
-1. **Local validation:** Run each integration script individually against a locally built `charon:local` image
-2. **CI validation:** Push branch and verify all four integration workflows pass:
-   - `.github/workflows/cerberus-integration.yml`
-   - `.github/workflows/waf-integration.yml`
-   - `.github/workflows/rate-limit-integration.yml`
-   - `.github/workflows/crowdsec-integration.yml`
-3. **Regression check:** Confirm E2E Playwright tests still pass (they don't touch these scripts, but verify no accidental breakage)
-
-### Phase 5: Documentation and Deployment
-
-No documentation changes needed. The fix is internal to CI scripts.
+The production code is correct. Slack providers must have a webhook URL (stored in `token`) at creation time. The Slack webhook URL is architecturally separate from `url` — it is a credential/secret and is stored in `token`, not `url`. The tests are wrong because they supply a `slack` provider type with no `token` field, which the service correctly rejects. The 500 response is a side-effect of `isProviderValidationError` not classifying `"slack webhook URL is required"` as a 400-class validation error, but that is a separate concern; the fix belongs in the tests.
 
 ---
 
-## 6. File Change Summary
+## 3. Files Involved
 
-| File | Change | Lines |
-|------|--------|-------|
-| `scripts/cerberus_integration.sh` | Add `-e PORT=80` to go-httpbin `docker run` | L174 |
-| `scripts/waf_integration.sh` | Add `-e PORT=80` to go-httpbin `docker run` | L167 |
-| `scripts/rate_limit_integration.sh` | Add `-e PORT=80` to go-httpbin `docker run` | L188 |
-| `scripts/coraza_integration.sh` | Add `-e PORT=80` to go-httpbin `docker run` | L159 |
-| `scripts/crowdsec_startup_test.sh` | Replace `curl -sf` with `wget -qO -` in docker exec | L179 |
-| `scripts/diagnose-test-env.sh` | Replace `curl -sf` with `wget -qO /dev/null` in docker exec | L104 |
+### Production (no changes needed)
 
-**Total: 6 one-line changes across 6 files.**
+| File | Function | Role |
+|------|----------|------|
+| `backend/internal/api/handlers/notification_provider_handler.go` | `Create()` | Binds request, calls service, returns HTTP response |
+| `backend/internal/api/handlers/notification_provider_handler.go` | `isProviderValidationError()` | Classifies service errors for 400 vs 500 routing |
+| `backend/internal/services/notification_service.go` | `CreateProvider()` | Enforces Slack token requirement at line ~793 |
+| `backend/internal/services/notification_service.go` | `validateSlackWebhookURL()` | Validates `https://hooks.slack.com/services/T.../B.../xxx` regex |
+| `backend/internal/services/notification_service.go` | `WithSlackURLValidator()` | Service option to override URL validator in tests |
 
-| Test Name | Host | Scheme | Expected Secure | Expected SameSite |
-|-----------|------|--------|-----------------|--------------------|
-| `TestSetSecureCookie_HTTP_PrivateIP_Insecure` | `192.168.1.50` | `http` | `false` | `Lax` |
-| `TestSetSecureCookie_HTTP_10Network_Insecure` | `10.0.0.5` | `http` | `false` | `Lax` |
-| `TestSetSecureCookie_HTTP_172Network_Insecure` | `172.16.0.1` | `http` | `false` | `Lax` |
-| `TestSetSecureCookie_HTTPS_PrivateIP_Secure` | `192.168.1.50` | `https` | `true` | `Strict` |
-| `TestSetSecureCookie_HTTP_PublicIP_Secure` | `203.0.113.5` | `http` | `true` | `Lax` |
+### Tests (require fixes)
 
-## 7. Commit Slicing Strategy
+| File | Test | Change |
+|------|------|--------|
+| `backend/internal/api/handlers/notification_provider_discord_only_test.go` | `TestDiscordOnly_CreateRejectsNonDiscord` | Add `token` to struct + payload; use `WithSlackURLValidator` |
+| `backend/internal/api/handlers/notification_provider_blocker3_test.go` | `TestBlocker3_CreateProviderRejectsNonDiscordWithSecurityEvents` | Add `token` to struct + payload; use `WithSlackURLValidator` |
 
-### Decision: Single PR
+---
 
-**Reasoning:**
-- All 6 changes are trivial one-line fixes
-- Total diff is ~12 lines (6 deletions + 6 additions)
-- All changes are logically related (integration test infrastructure fix)
-- No cross-domain concerns (all bash scripts in `scripts/`)
-- Review size is well under the 200-line threshold for splitting
-- No risk of partial deployment causing issues
+## 4. Minimal Fix
 
-### PR-1: Fix integration workflow httpbin startup and curl-in-container issues
+No production code changes are required. All changes are confined to the two test files.
 
-**Scope:** All 6 file changes
-**Files:** `scripts/{cerberus,waf,rate_limit,coraza}_integration.sh`, `scripts/crowdsec_startup_test.sh`, `scripts/diagnose-test-env.sh`
-**Dependencies:** None
-**Validation gate:** All four integration workflows pass in CI
+### 4.1 Established Pattern
+
+The `services` package already uses `WithSlackURLValidator` in 7 tests to bypass the real URL format check in unit tests (`notification_service_test.go` lines 1456, 1482, 1507, 3304, 3334, 3370, 3397 and `notification_service_json_test.go` line 196). The handler tests adopt the same pattern.
+
+### 4.2 Fix for `notification_provider_discord_only_test.go`
+
+**Change 1 — service constructor** (line ~27):
+
+```go
+// Before
+service := services.NewNotificationService(db, nil)
+
+// After
+service := services.NewNotificationService(db, nil,
+    services.WithSlackURLValidator(func(string) error { return nil }),
+)
+```
+
+**Change 2 — test struct** (line ~33):
+
+```go
+// Before
+testCases := []struct {
+    name         string
+    providerType string
+    wantStatus   int
+    wantCode     string
+}{
+    {"webhook",  "webhook",  http.StatusCreated,    ""},
+    {"gotify",   "gotify",   http.StatusCreated,    ""},
+    {"slack",    "slack",    http.StatusCreated,    ""},
+    {"telegram", "telegram", http.StatusCreated,    ""},
+    {"generic",  "generic",  http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE"},
+    {"email",    "email",    http.StatusCreated,    ""},
+}
+
+// After
+testCases := []struct {
+    name         string
+    providerType string
+    token        string
+    wantStatus   int
+    wantCode     string
+}{
+    {"webhook",  "webhook",  "",                                                                              http.StatusCreated,    ""},
+    {"gotify",   "gotify",   "",                                                                              http.StatusCreated,    ""},
+    {"slack",    "slack",    "https://hooks.slack.com/services/T1234567890/B1234567890/XXXXXXXXXXXXXXXXXXXX", http.StatusCreated,    ""},
+    {"telegram", "telegram", "",                                                                              http.StatusCreated,    ""},
+    {"generic",  "generic",  "",                                                                              http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE"},
+    {"email",    "email",    "",                                                                              http.StatusCreated,    ""},
+}
+```
+
+**Change 3 — payload map** (line ~48):
+
+```go
+// Before
+payload := map[string]interface{}{
+    "name":               "Test Provider",
+    "type":               tc.providerType,
+    "url":                "https://example.com/webhook",
+    "enabled":            true,
+    "notify_proxy_hosts": true,
+}
+
+// After
+payload := map[string]interface{}{
+    "name":               "Test Provider",
+    "type":               tc.providerType,
+    "url":                "https://example.com/webhook",
+    "token":              tc.token,
+    "enabled":            true,
+    "notify_proxy_hosts": true,
+}
+```
+
+### 4.3 Fix for `notification_provider_blocker3_test.go`
+
+**Change 1 — service constructor** (line ~32):
+
+```go
+// Before
+service := services.NewNotificationService(db, nil)
+
+// After
+service := services.NewNotificationService(db, nil,
+    services.WithSlackURLValidator(func(string) error { return nil }),
+)
+```
+
+**Change 2 — test struct** (line ~35):
+
+```go
+// Before
+testCases := []struct {
+    name         string
+    providerType string
+    wantStatus   int
+}{
+    {"webhook", "webhook", http.StatusCreated},
+    {"gotify",  "gotify",  http.StatusCreated},
+    {"slack",   "slack",   http.StatusCreated},
+    {"email",   "email",   http.StatusCreated},
+}
+
+// After
+testCases := []struct {
+    name         string
+    providerType string
+    token        string
+    wantStatus   int
+}{
+    {"webhook", "webhook", "",                                                                              http.StatusCreated},
+    {"gotify",  "gotify",  "",                                                                              http.StatusCreated},
+    {"slack",   "slack",   "https://hooks.slack.com/services/T1234567890/B1234567890/XXXXXXXXXXXXXXXXXXXX", http.StatusCreated},
+    {"email",   "email",   "",                                                                              http.StatusCreated},
+}
+```
+
+**Change 3 — payload map** (line ~50):
+
+```go
+// Before
+payload := map[string]interface{}{
+    "name":                       "Test Provider",
+    "type":                       tc.providerType,
+    "url":                        "https://example.com/webhook",
+    "enabled":                    true,
+    "notify_security_waf_blocks": true,
+}
+
+// After
+payload := map[string]interface{}{
+    "name":                       "Test Provider",
+    "type":                       tc.providerType,
+    "url":                        "https://example.com/webhook",
+    "token":                      tc.token,
+    "enabled":                    true,
+    "notify_security_waf_blocks": true,
+}
+```
+
+---
+
+## 5. What Is Not Changing
+
+- **`notification_provider_handler.go`** — `Create()` and `isProviderValidationError()` are correct as written.
+- **`notification_service.go`** — The Slack token requirement in `CreateProvider()` is correct behavior; Slack webhook URLs are secrets and belong in `token`, not `url`.
+- **No new tests** — Existing test coverage is sufficient. The tests just need correct input data that reflects the real API contract.
+
+---
+
+## 6. Commit Slicing Strategy
+
+A single commit and single PR is appropriate. The entire change is two test files, three small hunks each (service constructor, struct definition, payload map). There are no production code changes and no risk of merge conflicts.
 
 **Suggested commit message:**
+
 ```
-fix(ci): add PORT=80 to go-httpbin containers and replace curl with wget in docker exec
+test: supply slack webhook token in handler create sub-tests
 
-mccutchen/go-httpbin defaults to port 8080, but all integration scripts
-expected port 80 from the previous kennethreitz/httpbin image. Add
--e PORT=80 to the docker run commands in cerberus, waf, rate_limit,
-and coraza integration scripts.
+The slack sub-tests in TestDiscordOnly_CreateRejectsNonDiscord and
+TestBlocker3_CreateProviderRejectsNonDiscordWithSecurityEvents were
+omitting the required token field from their request payloads.
+CreateProvider enforces that Slack providers must have a non-empty
+token (the webhook URL) at creation time. Without it the service
+returns "slack webhook URL is required", which the handler does not
+classify as a 400 validation error, so it falls through to 500.
 
-Also replace remaining docker exec curl commands with wget in
-crowdsec_startup_test.sh and diagnose-test-env.sh, since curl is not
-installed in the Alpine runtime container.
-
-Fixes: httpbin health check timeout ("httpbin not starting") in all
-four integration workflows.
+Add a token field to each test struct, populate it for the slack
+case with a valid-format Slack webhook URL, and use
+WithSlackURLValidator to bypass the real format check in unit tests —
+matching the pattern used in all existing service-level Slack tests.
 ```
-
-**Rollback:** `git revert <commit>` — safe and instant. No database migrations, no API changes, no user-facing impact.
 
 ---
 
-## 8. Supporting Files Review
+## 7. Verification
 
-| File | Review Result | Action Needed |
-|------|--------------|---------------|
-| `.gitignore` | No changes needed — no new files or artifacts | None |
-| `codecov.yml` | No changes needed — integration scripts are not coverage-tracked | None |
-| `.dockerignore` | No changes needed — scripts are not copied into Docker image | None |
-| `Dockerfile` | Already correct — HEALTHCHECK uses wget, no httpbin references | None |
-| `.docker/docker-entrypoint.sh` | Already correct — uses wget for Caddy readiness | None |
-| `docker-compose*.yml` | Already correct — all healthchecks use wget | None |
-| Workflow YAML files | Already correct — use host-side curl for debug dumps | None |
+After applying the fix, run the two previously failing sub-tests:
 
----
+```bash
+cd /projects/Charon/backend
+go test ./internal/api/handlers/... \
+  -run "TestBlocker3_CreateProviderRejectsNonDiscordWithSecurityEvents/slack|TestDiscordOnly_CreateRejectsNonDiscord/slack" \
+  -v
+```
 
-## 9. Acceptance Criteria
+Both sub-tests must exit `PASS`. Then run the full handlers suite to confirm no regressions:
 
-- [ ] `scripts/cerberus_integration.sh` starts go-httpbin with `-e PORT=80`
-- [ ] `scripts/waf_integration.sh` starts go-httpbin with `-e PORT=80`
-- [ ] `scripts/rate_limit_integration.sh` starts go-httpbin with `-e PORT=80`
-- [ ] `scripts/coraza_integration.sh` starts go-httpbin with `-e PORT=80`
-- [ ] `scripts/crowdsec_startup_test.sh` uses `wget` instead of `curl` for LAPI health check
-- [ ] `scripts/diagnose-test-env.sh` uses `wget` instead of `curl` for CrowdSec LAPI check
-- [ ] CI workflow `cerberus-integration` passes
-- [ ] CI workflow `waf-integration` passes
-- [ ] CI workflow `rate-limit-integration` passes
-- [ ] CI workflow `crowdsec-integration` passes
-- [ ] No regression in E2E Playwright tests
-- [ ] `grep -r "docker exec.*curl" scripts/` returns zero matches (excluding comments/echo hints)
+```bash
+go test ./internal/api/handlers/... -count=1
+```
