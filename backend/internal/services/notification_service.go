@@ -33,14 +33,29 @@ type NotificationService struct {
 	validateSlackURL   func(string) error
 }
 
-func NewNotificationService(db *gorm.DB, mailService MailServiceInterface) *NotificationService {
-	return &NotificationService{
+// NotificationServiceOption configures a NotificationService at construction time.
+type NotificationServiceOption func(*NotificationService)
+
+// WithSlackURLValidator overrides the Slack webhook URL validator. Intended for use
+// in tests that need to bypass real URL validation without mutating shared state.
+func WithSlackURLValidator(fn func(string) error) NotificationServiceOption {
+	return func(s *NotificationService) {
+		s.validateSlackURL = fn
+	}
+}
+
+func NewNotificationService(db *gorm.DB, mailService MailServiceInterface, opts ...NotificationServiceOption) *NotificationService {
+	s := &NotificationService{
 		DB:                 db,
 		httpWrapper:        notifications.NewNotifyHTTPWrapper(),
 		mailService:        mailService,
 		telegramAPIBaseURL: "https://api.telegram.org",
 		validateSlackURL:   validateSlackWebhookURL,
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 var discordWebhookRegex = regexp.MustCompile(`^https://discord(?:app)?\.com/api/webhooks/(\d+)/([a-zA-Z0-9_-]+)`)

@@ -1453,8 +1453,7 @@ func TestSendJSONPayload_ServiceSpecificValidation(t *testing.T) {
 	})
 
 	t.Run("slack_requires_text_or_blocks", func(t *testing.T) {
-		defer func() { svc.validateSlackURL = validateSlackWebhookURL }()
-		svc.validateSlackURL = func(rawURL string) error { return nil }
+		subSvc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
 
 		provider := models.NotificationProvider{
 			Type:     "slack",
@@ -1470,7 +1469,7 @@ func TestSendJSONPayload_ServiceSpecificValidation(t *testing.T) {
 			"EventType": "test",
 		}
 
-		err := svc.sendJSONPayload(context.Background(), provider, data)
+		err := subSvc.sendJSONPayload(context.Background(), provider, data)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "slack payload requires 'text' or 'blocks' field")
 	})
@@ -1480,9 +1479,7 @@ func TestSendJSONPayload_ServiceSpecificValidation(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 		defer server.Close()
-
-		defer func() { svc.validateSlackURL = validateSlackWebhookURL }()
-		svc.validateSlackURL = func(rawURL string) error { return nil }
+		subSvc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
 
 		provider := models.NotificationProvider{
 			Type:     "slack",
@@ -1498,7 +1495,7 @@ func TestSendJSONPayload_ServiceSpecificValidation(t *testing.T) {
 			"EventType": "test",
 		}
 
-		err := svc.sendJSONPayload(context.Background(), provider, data)
+		err := subSvc.sendJSONPayload(context.Background(), provider, data)
 		require.NoError(t, err)
 	})
 
@@ -1507,9 +1504,7 @@ func TestSendJSONPayload_ServiceSpecificValidation(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 		defer server.Close()
-
-		defer func() { svc.validateSlackURL = validateSlackWebhookURL }()
-		svc.validateSlackURL = func(rawURL string) error { return nil }
+		subSvc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
 
 		provider := models.NotificationProvider{
 			Type:     "slack",
@@ -1525,7 +1520,7 @@ func TestSendJSONPayload_ServiceSpecificValidation(t *testing.T) {
 			"EventType": "test",
 		}
 
-		err := svc.sendJSONPayload(context.Background(), provider, data)
+		err := subSvc.sendJSONPayload(context.Background(), provider, data)
 		require.NoError(t, err)
 	})
 
@@ -3306,8 +3301,7 @@ func TestNotificationService_TestProvider_Slack(t *testing.T) {
 	}))
 	defer server.Close()
 
-	svc := NewNotificationService(db, nil)
-	svc.validateSlackURL = func(rawURL string) error { return nil }
+	svc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
 
 	provider := models.NotificationProvider{
 		Type:     "slack",
@@ -3337,8 +3331,7 @@ func TestNotificationService_SendExternal_Slack(t *testing.T) {
 	}))
 	defer server.Close()
 
-	svc := NewNotificationService(db, nil)
-	svc.validateSlackURL = func(rawURL string) error { return nil }
+	svc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
 
 	provider := models.NotificationProvider{
 		Name:             "Slack E2E",
@@ -3374,8 +3367,7 @@ func TestNotificationService_Slack_PayloadNormalizesMessageToText(t *testing.T) 
 	}))
 	defer server.Close()
 
-	svc := NewNotificationService(db, nil)
-	svc.validateSlackURL = func(rawURL string) error { return nil }
+	svc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
 
 	provider := models.NotificationProvider{
 		Type:     "slack",
@@ -3402,8 +3394,7 @@ func TestNotificationService_Slack_PayloadNormalizesMessageToText(t *testing.T) 
 func TestNotificationService_Slack_PayloadRequiresTextOrBlocks(t *testing.T) {
 	db := setupNotificationTestDB(t)
 
-	svc := NewNotificationService(db, nil)
-	svc.validateSlackURL = func(rawURL string) error { return nil }
+	svc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
 
 	provider := models.NotificationProvider{
 		Type:     "slack",
