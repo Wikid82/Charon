@@ -444,7 +444,15 @@ test.describe('Telegram Notification Provider', () => {
 
       await test.step('Navigate to trigger GET', async () => {
         await page.reload();
-        apiResponseBody = await routeBodyPromise;
+        apiResponseBody = await Promise.race([
+          routeBodyPromise,
+          new Promise<Array<Record<string, unknown>>>((_resolve, reject) =>
+            setTimeout(
+              () => reject(new Error('Timed out waiting for GET /api/v1/notifications/providers')),
+              15000
+            )
+          ),
+        ]);
         await waitForLoadingComplete(page);
       });
 
