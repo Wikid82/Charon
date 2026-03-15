@@ -37,8 +37,6 @@ Email notifications send HTML-branded alerts directly to one or more email addre
 
 Email notifications use built-in HTML templates with Charon branding — no JSON template editing is required.
 
-> **Feature Flag:** Email notifications must be enabled via `feature.notifications.service.email.enabled` in **Settings** → **Feature Flags** before the Email provider option appears.
-
 ### Why JSON Templates?
 
 JSON templates give you complete control over notification formatting, allowing you to:
@@ -192,8 +190,6 @@ Slack notifications send messages to a channel using an Incoming Webhook URL.
 9. Configure notification triggers and save
 
 > **Security:** Your Webhook URL is stored securely and is never exposed in API responses. The settings page only shows a `has_token: true` indicator, so your URL stays private even if someone gains read-only access to the API.
-
-> **Feature Flag:** Slack notifications must be enabled via `feature.notifications.service.slack.enabled` in **Settings** → **Feature Flags** before the Slack provider option appears.
 
 #### Basic Message
 
