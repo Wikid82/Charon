@@ -90,7 +90,7 @@ Additionally, all four scripts create proxy hosts with `"forward_port": 80`, whi
 | `scripts/crowdsec_integration.sh` | Uses only host-side `curl`; does not use httpbin at all |
 | `scripts/integration-test.sh` | Uses `whoami` image (port 80), not go-httpbin |
 
----
+**File:** `backend/internal/api/routes/routes.go` (lines 260-267)
 
 ## 3. Remediation Plan
 
@@ -166,7 +166,9 @@ Note: Using `wget -qO -` (output to stdout) instead of `wget -qO /dev/null` beca
 | `-S` (show error) | *(no equivalent)* | wget shows errors by default without `-q` |
 | `-L` (follow redirects) | *(default behavior)* | wget follows redirects by default |
 
----
+    if ip.IsLoopback() {
+        return true
+    }
 
 ## 5. Implementation Plan
 
@@ -218,7 +220,13 @@ No documentation changes needed. The fix is internal to CI scripts.
 
 **Total: 6 one-line changes across 6 files.**
 
----
+| Test Name | Host | Scheme | Expected Secure | Expected SameSite |
+|-----------|------|--------|-----------------|--------------------|
+| `TestSetSecureCookie_HTTP_PrivateIP_Insecure` | `192.168.1.50` | `http` | `false` | `Lax` |
+| `TestSetSecureCookie_HTTP_10Network_Insecure` | `10.0.0.5` | `http` | `false` | `Lax` |
+| `TestSetSecureCookie_HTTP_172Network_Insecure` | `172.16.0.1` | `http` | `false` | `Lax` |
+| `TestSetSecureCookie_HTTPS_PrivateIP_Secure` | `192.168.1.50` | `https` | `true` | `Strict` |
+| `TestSetSecureCookie_HTTP_PublicIP_Secure` | `203.0.113.5` | `http` | `true` | `Lax` |
 
 ## 7. Commit Slicing Strategy
 
