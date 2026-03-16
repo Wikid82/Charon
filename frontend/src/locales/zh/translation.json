@@ -74,23 +74,6 @@
     "expandSidebar": "展开侧边栏",
     "collapseSidebar": "收起侧边栏"
   },
-  "dashboard": {
-    "title": "仪表板",
-    "description": "Charon反向代理概览",
-    "proxyHosts": "代理主机",
-    "remoteServers": "远程服务器",
-    "certificates": "证书",
-    "accessLists": "访问列表",
-    "systemStatus": "系统状态",
-    "healthy": "健康",
-    "unhealthy": "不健康",
-    "pendingCertificates": "待处理证书",
-    "allCertificatesValid": "所有证书有效",
-    "activeHosts": "{{count}} 个活动",
-    "activeServers": "{{count}} 个活动",
-    "activeLists": "{{count}} 个活动",
-    "validCerts": "{{count}} 个有效"
-  },
   "settings": {
     "title": "设置",
     "description": "配置您的Charon实例",

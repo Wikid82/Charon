@@ -1,14 +1,15 @@
 import { screen, waitFor, within, fireEvent } from '@testing-library/react'
-import { act } from 'react'
 import userEvent from '@testing-library/user-event'
+import { act } from 'react'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
-import UsersPage from '../UsersPage'
-import * as usersApi from '../../api/users'
-import * as proxyHostsApi from '../../api/proxyHosts'
+
 import client from '../../api/client'
+import * as proxyHostsApi from '../../api/proxyHosts'
+import * as usersApi from '../../api/users'
+import { useAuth } from '../../hooks/useAuth'
 import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
 import { toast } from '../../utils/toast'
-import { useAuth } from '../../hooks/useAuth'
+import UsersPage from '../UsersPage'
 
 // Mock APIs
 vi.mock('../../api/users', () => ({
@@ -226,14 +227,13 @@ describe('UsersPage', () => {
       (sw) => !(sw as HTMLInputElement).disabled && (sw as HTMLInputElement).checked
     )
 
-    if (userSwitch) {
-      const user = userEvent.setup()
-      await user.click(userSwitch)
+    expect(userSwitch).toBeDefined()
+    const user = userEvent.setup()
+    await user.click(userSwitch!)
 
-      await waitFor(() => {
-        expect(usersApi.updateUser).toHaveBeenCalledWith(2, { enabled: false })
-      })
-    }
+    await waitFor(() => {
+      expect(usersApi.updateUser).toHaveBeenCalledWith(2, { enabled: false })
+    })
   })
 
   it('invites a new user', async () => {
@@ -316,7 +316,7 @@ describe('UsersPage', () => {
 
     renderWithQueryClient(<UsersPage />)
 
-    await waitFor(() => expect(screen.getByText('Regular User')).toBeInTheDocument())
+    expect(await screen.findByText('Regular User')).toBeInTheDocument()
 
     const editButtons = screen.getAllByTitle('Edit Permissions')
     const firstEditable = editButtons.find((btn) => !(btn as HTMLButtonElement).disabled)
@@ -362,7 +362,7 @@ describe('UsersPage', () => {
     renderWithQueryClient(<UsersPage />)
 
     const user = userEvent.setup()
-    await waitFor(() => expect(screen.getByText('Invite User')).toBeInTheDocument())
+    expect(await screen.findByText('Invite User')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Invite User/i }))
     await user.type(screen.getByPlaceholderText('user@example.com'), 'manual@example.com')
     await user.click(screen.getByRole('button', { name: /^Send Invite$/i }))
@@ -399,7 +399,7 @@ describe('UsersPage', () => {
     renderWithQueryClient(<UsersPage />)
 
     const user = userEvent.setup()
-    await waitFor(() => expect(screen.getByText('Invite User')).toBeTruthy())
+    expect(await screen.findByText('Invite User')).toBeTruthy()
     await user.click(screen.getByRole('button', { name: /Invite User/i }))
 
     await waitFor(() => {
@@ -414,7 +414,7 @@ describe('UsersPage', () => {
 
     renderWithQueryClient(<UsersPage />)
 
-    await waitFor(() => expect(screen.getByText('Regular User')).toBeTruthy())
+    expect(await screen.findByText('Regular User')).toBeTruthy()
 
     const user = userEvent.setup()
     const editButtons = screen.getAllByTitle('Edit User')
@@ -445,7 +445,7 @@ describe('UsersPage', () => {
       renderWithQueryClient(<UsersPage />)
 
       const user = userEvent.setup()
-      await waitFor(() => expect(screen.getByText('Invite User')).toBeInTheDocument())
+      expect(await screen.findByText('Invite User')).toBeInTheDocument()
       await user.click(screen.getByRole('button', { name: /Invite User/i }))
 
       const emailInput = screen.getByPlaceholderText('user@example.com')
@@ -476,9 +476,9 @@ describe('UsersPage', () => {
       renderWithQueryClient(<UsersPage />)
       const user = userEvent.setup()
 
-      await waitFor(() => expect(screen.getByText('Invite User')).toBeInTheDocument())
+      expect(await screen.findByText('Invite User')).toBeInTheDocument()
       await user.click(screen.getByRole('button', { name: /Invite User/i }))
-      await waitFor(() => expect(screen.getByPlaceholderText('user@example.com')).toBeInTheDocument())
+      expect(await screen.findByPlaceholderText('user@example.com')).toBeInTheDocument()
 
       vi.useFakeTimers()
 
@@ -515,7 +515,7 @@ describe('UsersPage', () => {
       renderWithQueryClient(<UsersPage />)
 
       const user = userEvent.setup()
-      await waitFor(() => expect(screen.getByText('Invite User')).toBeInTheDocument())
+      expect(await screen.findByText('Invite User')).toBeInTheDocument()
       await user.click(screen.getByRole('button', { name: /Invite User/i }))
 
       const emailInput = screen.getByPlaceholderText('user@example.com')
@@ -544,7 +544,7 @@ describe('UsersPage', () => {
       renderWithQueryClient(<UsersPage />)
 
       const user = userEvent.setup()
-      await waitFor(() => expect(screen.getByText('Invite User')).toBeInTheDocument())
+      expect(await screen.findByText('Invite User')).toBeInTheDocument()
       await user.click(screen.getByRole('button', { name: /Invite User/i }))
 
       const emailInput = screen.getByPlaceholderText('user@example.com')
@@ -563,7 +563,7 @@ describe('UsersPage', () => {
       renderWithQueryClient(<UsersPage />)
 
       const user = userEvent.setup()
-      await waitFor(() => expect(screen.getByText('Invite User')).toBeInTheDocument())
+      expect(await screen.findByText('Invite User')).toBeInTheDocument()
       await user.click(screen.getByRole('button', { name: /Invite User/i }))
 
       const emailInput = screen.getByPlaceholderText('user@example.com')
@@ -584,7 +584,7 @@ describe('UsersPage', () => {
       renderWithQueryClient(<UsersPage />)
 
       const user = userEvent.setup()
-      await waitFor(() => expect(screen.getByText('Invite User')).toBeInTheDocument())
+      expect(await screen.findByText('Invite User')).toBeInTheDocument()
       await user.click(screen.getByRole('button', { name: /Invite User/i }))
 
       const emailInput = screen.getByPlaceholderText('user@example.com')
@@ -612,11 +612,11 @@ describe('UsersPage', () => {
       renderWithQueryClient(<UsersPage />)
 
       const user = userEvent.setup()
-      await waitFor(() => expect(screen.getByText('Invite User')).toBeInTheDocument())
+      expect(await screen.findByText('Invite User')).toBeInTheDocument()
 
       // Open invite modal
       await user.click(screen.getByRole('button', { name: /Invite User/i }))
-      await waitFor(() => expect(screen.getByLabelText(/Role/i)).toBeInTheDocument())
+      expect(await screen.findByLabelText(/Role/i)).toBeInTheDocument()
 
       // Change role to passthrough
       await user.selectOptions(screen.getByLabelText(/Role/i), 'passthrough')
@@ -627,7 +627,7 @@ describe('UsersPage', () => {
 
       // Reopen modal — role should be reset to 'user'
       await user.click(screen.getByRole('button', { name: /Invite User/i }))
-      await waitFor(() => expect(screen.getByLabelText(/Role/i)).toBeInTheDocument())
+      expect(await screen.findByLabelText(/Role/i)).toBeInTheDocument()
       expect((screen.getByLabelText(/Role/i) as HTMLSelectElement).value).toBe('user')
     })
   })
@@ -642,13 +642,13 @@ describe('UsersPage', () => {
       renderWithQueryClient(<UsersPage />)
 
       const user = userEvent.setup()
-      await waitFor(() => expect(screen.getByText('Regular User')).toBeInTheDocument())
+      expect(await screen.findByText('Regular User')).toBeInTheDocument()
 
       // Click Edit User for Regular User (second "Edit User" button in the table)
       const editButtons = screen.getAllByTitle('Edit User')
       await user.click(editButtons[1]) // index 1 = Regular User row
 
-      await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+      expect(await screen.findByRole('dialog')).toBeInTheDocument()
 
       // Click Save
       await user.click(screen.getByRole('button', { name: /^Save$/i }))
@@ -665,12 +665,12 @@ describe('UsersPage', () => {
       renderWithQueryClient(<UsersPage />)
 
       const user = userEvent.setup()
-      await waitFor(() => expect(screen.getByText('My Profile')).toBeInTheDocument())
+      expect(await screen.findByText('My Profile')).toBeInTheDocument()
 
       // Click Edit User in My Profile card (opens with isSelf=true) — card button is first
       await user.click(screen.getAllByRole('button', { name: /Edit User/i })[0])
 
-      await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+      expect(await screen.findByRole('dialog')).toBeInTheDocument()
 
       // Password fields should not be visible until toggled
       expect(screen.queryByLabelText(/Current Password/i)).toBeNull()
@@ -691,14 +691,14 @@ describe('UsersPage', () => {
       renderWithQueryClient(<UsersPage />)
 
       const user = userEvent.setup()
-      await waitFor(() => expect(screen.getByText('My Profile')).toBeInTheDocument())
+      expect(await screen.findByText('My Profile')).toBeInTheDocument()
 
       await user.click(screen.getAllByRole('button', { name: /Edit User/i })[0])
-      await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+      expect(await screen.findByRole('dialog')).toBeInTheDocument()
 
       // Expand password section
       await user.click(screen.getAllByRole('button', { name: /Change Password/i })[0])
-      await waitFor(() => expect(screen.getByLabelText(/Current Password/i)).toBeInTheDocument())
+      expect(await screen.findByLabelText(/Current Password/i)).toBeInTheDocument()
 
       // Fill matching passwords
       await user.type(screen.getByLabelText(/Current Password/i), 'oldpass123')
@@ -730,13 +730,13 @@ describe('UsersPage', () => {
       renderWithQueryClient(<UsersPage />)
 
       const user = userEvent.setup()
-      await waitFor(() => expect(screen.getByText('My Profile')).toBeInTheDocument())
+      expect(await screen.findByText('My Profile')).toBeInTheDocument()
 
       await user.click(screen.getAllByRole('button', { name: /Edit User/i })[0])
-      await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+      expect(await screen.findByRole('dialog')).toBeInTheDocument()
 
       await user.click(screen.getAllByRole('button', { name: /Change Password/i })[0])
-      await waitFor(() => expect(screen.getByLabelText(/Current Password/i)).toBeInTheDocument())
+      expect(await screen.findByLabelText(/Current Password/i)).toBeInTheDocument()
 
       await user.type(screen.getByLabelText(/Current Password/i), 'wrongpass')
       await user.type(screen.getByLabelText(/^New Password/i), 'newpass456')
@@ -760,10 +760,10 @@ describe('UsersPage', () => {
       renderWithQueryClient(<UsersPage />)
 
       const user = userEvent.setup()
-      await waitFor(() => expect(screen.getByText('My Profile')).toBeInTheDocument())
+      expect(await screen.findByText('My Profile')).toBeInTheDocument()
 
       await user.click(screen.getAllByRole('button', { name: /Edit User/i })[0])
-      await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+      expect(await screen.findByRole('dialog')).toBeInTheDocument()
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Regenerate API Key/i })).toBeInTheDocument()
@@ -784,10 +784,10 @@ describe('UsersPage', () => {
       renderWithQueryClient(<UsersPage />)
 
       const user = userEvent.setup()
-      await waitFor(() => expect(screen.getByText('My Profile')).toBeInTheDocument())
+      expect(await screen.findByText('My Profile')).toBeInTheDocument()
 
       await user.click(screen.getAllByRole('button', { name: /Edit User/i })[0])
-      await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+      expect(await screen.findByRole('dialog')).toBeInTheDocument()
 
       const dialog = screen.getByRole('dialog')
       await user.click(within(dialog).getByRole('button', { name: /^Save$/i }))
@@ -805,11 +805,11 @@ describe('UsersPage', () => {
       renderWithQueryClient(<UsersPage />)
 
       const user = userEvent.setup()
-      await waitFor(() => expect(screen.getByText('Regular User')).toBeInTheDocument())
+      expect(await screen.findByText('Regular User')).toBeInTheDocument()
 
       const editButtons = screen.getAllByTitle('Edit User')
       await user.click(editButtons[1])
-      await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+      expect(await screen.findByRole('dialog')).toBeInTheDocument()
 
       const dialog = screen.getByRole('dialog')
       await user.click(within(dialog).getByRole('button', { name: /^Save$/i }))
@@ -829,10 +829,10 @@ describe('UsersPage', () => {
       renderWithQueryClient(<UsersPage />)
 
       const user = userEvent.setup()
-      await waitFor(() => expect(screen.getByText('My Profile')).toBeInTheDocument())
+      expect(await screen.findByText('My Profile')).toBeInTheDocument()
 
       await user.click(screen.getAllByRole('button', { name: /Edit User/i })[0])
-      await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+      expect(await screen.findByRole('dialog')).toBeInTheDocument()
 
       await waitFor(() => {
         expect(screen.getByText('SK-****-masktest')).toBeInTheDocument()
@@ -846,13 +846,13 @@ describe('UsersPage', () => {
       renderWithQueryClient(<UsersPage />)
 
       const user = userEvent.setup()
-      await waitFor(() => expect(screen.getByText('My Profile')).toBeInTheDocument())
+      expect(await screen.findByText('My Profile')).toBeInTheDocument()
 
       await user.click(screen.getAllByRole('button', { name: /Edit User/i })[0])
-      await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+      expect(await screen.findByRole('dialog')).toBeInTheDocument()
 
       await user.click(screen.getAllByRole('button', { name: /Change Password/i })[0])
-      await waitFor(() => expect(screen.getByLabelText(/Current Password/i)).toBeInTheDocument())
+      expect(await screen.findByLabelText(/Current Password/i)).toBeInTheDocument()
 
       await user.type(screen.getByLabelText(/Current Password/i), 'current123')
       await user.type(screen.getByLabelText(/^New Password/i), 'newpass1')

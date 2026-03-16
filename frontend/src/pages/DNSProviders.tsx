@@ -1,12 +1,13 @@
+import { Plus, Cloud } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Cloud } from 'lucide-react'
-import { Button, Alert, EmptyState, Skeleton } from '../components/ui'
+
+import { getChallenge, type ManualChallenge } from '../api/manualChallenge'
+import { ManualDNSChallenge } from '../components/dns-providers'
 import DNSProviderCard from '../components/DNSProviderCard'
 import DNSProviderForm from '../components/DNSProviderForm'
-import { ManualDNSChallenge } from '../components/dns-providers'
+import { Button, Alert, EmptyState, Skeleton } from '../components/ui'
 import { useDNSProviders, useDNSProviderMutations, type DNSProvider } from '../hooks/useDNSProviders'
-import { getChallenge, type ManualChallenge } from '../api/manualChallenge'
 import { toast } from '../utils/toast'
 
 export default function DNSProviders() {

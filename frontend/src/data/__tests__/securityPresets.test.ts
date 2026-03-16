@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+
 import {
   SECURITY_PRESETS,
   getPresetById,
@@ -14,7 +15,7 @@ describe('securityPresets', () => {
       expect(SECURITY_PRESETS.length).toBeGreaterThan(0);
 
       // Verify preset structure
-      SECURITY_PRESETS.forEach((preset) => {
+      for (const preset of SECURITY_PRESETS) {
         expect(preset).toHaveProperty('id');
         expect(preset).toHaveProperty('name');
         expect(preset).toHaveProperty('description');
@@ -23,29 +24,29 @@ describe('securityPresets', () => {
         expect(preset).toHaveProperty('estimatedIPs');
         expect(preset).toHaveProperty('dataSource');
         expect(preset).toHaveProperty('dataSourceUrl');
-      });
+      }
     });
 
     it('has valid categories', () => {
       const validCategories = ['security', 'advanced'];
-      SECURITY_PRESETS.forEach((preset) => {
+      for (const preset of SECURITY_PRESETS) {
         expect(validCategories).toContain(preset.category);
-      });
+      }
     });
 
     it('has valid types', () => {
       const validTypes = ['geo_blacklist', 'blacklist'];
-      SECURITY_PRESETS.forEach((preset) => {
+      for (const preset of SECURITY_PRESETS) {
         expect(validTypes).toContain(preset.type);
-      });
+      }
     });
 
     it('geo_blacklist presets have countryCodes', () => {
       const geoPresets = SECURITY_PRESETS.filter((p) => p.type === 'geo_blacklist');
-      geoPresets.forEach((preset) => {
+      for (const preset of geoPresets) {
         expect(preset.countryCodes).toBeDefined();
         expect(preset.countryCodes!.length).toBeGreaterThan(0);
-      });
+      }
     });
 
     it('no IP-based blacklist presets are included (CrowdSec handles dynamic IP threats)', () => {
@@ -73,17 +74,17 @@ describe('securityPresets', () => {
     it('returns security category presets', () => {
       const securityPresets = getPresetsByCategory('security');
       expect(securityPresets.length).toBeGreaterThan(0);
-      securityPresets.forEach((preset) => {
+      for (const preset of securityPresets) {
         expect(preset.category).toBe('security');
-      });
+      }
     });
 
     it('returns advanced category presets (may be empty)', () => {
       const advancedPresets = getPresetsByCategory('advanced');
       expect(Array.isArray(advancedPresets)).toBe(true);
-      advancedPresets.forEach((preset) => {
+      for (const preset of advancedPresets) {
         expect(preset.category).toBe('advanced');
-      });
+      }
     });
   });
 

@@ -1,11 +1,12 @@
-import { useEffect, useState, type FC } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getProviders, createProvider, updateProvider, deleteProvider, testProvider, getTemplates, previewProvider, NotificationProvider, getExternalTemplates, previewExternalTemplate, ExternalTemplate, createExternalTemplate, updateExternalTemplate, deleteExternalTemplate, NotificationTemplate, SUPPORTED_NOTIFICATION_PROVIDER_TYPES, type SupportedNotificationProviderType } from '../api/notifications';
-import { Card } from '../components/ui/Card';
-import { Button } from '../components/ui/Button';
 import { Bell, Plus, Trash2, Edit2, Send, Check, X, Loader2 } from 'lucide-react';
+import { useEffect, useState, type FC } from 'react';
 import { useForm } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
+
+import { getProviders, createProvider, updateProvider, deleteProvider, testProvider, getTemplates, previewProvider, type NotificationProvider, getExternalTemplates, previewExternalTemplate, type ExternalTemplate, createExternalTemplate, updateExternalTemplate, deleteExternalTemplate, type NotificationTemplate, SUPPORTED_NOTIFICATION_PROVIDER_TYPES, type SupportedNotificationProviderType } from '../api/notifications';
+import { Button } from '../components/ui/Button';
+import { Card } from '../components/ui/Card';
 import { toast } from '../utils/toast';
 
 const DISCORD_PROVIDER_TYPE: SupportedNotificationProviderType = 'discord';
@@ -22,7 +23,7 @@ const isSupportedProviderType = (providerType: string | undefined): providerType
 const supportsJSONTemplates = (providerType: string | undefined): boolean => {
   if (!providerType) return false;
   const t = providerType.toLowerCase();
-  return t === 'discord' || t === 'gotify' || t === 'webhook';
+  return t === 'discord' || t === 'gotify' || t === 'webhook' || t === 'telegram';
 };
 
 const isUnsupportedProviderType = (providerType: string | undefined): boolean => !isSupportedProviderType(providerType);
@@ -42,7 +43,7 @@ const normalizeProviderPayloadForSubmit = (data: Partial<NotificationProvider>):
     type,
   };
 
-  if (type === 'gotify') {
+  if (type === 'gotify' || type === 'telegram') {
     const normalizedToken = typeof payload.gotify_token === 'string' ? payload.gotify_token.trim() : '';
 
     if (normalizedToken.length > 0) {
@@ -115,7 +116,12 @@ const ProviderForm: FC<{
 
   const handleTest = () => {
     const formData = watch();
-    testMutation.mutate({ ...formData, type: normalizeProviderType(formData.type) } as Partial<NotificationProvider>);
+    const currentType = normalizeProviderType(formData.type);
+    if (!formData.id && currentType !== 'email') {
+      toast.error(t('notificationProviders.saveBeforeTesting'));
+      return;
+    }
+    testMutation.mutate({ ...formData, type: currentType } as Partial<NotificationProvider>);
   };
 
   const handlePreview = async () => {
@@ -125,7 +131,7 @@ const ProviderForm: FC<{
     try {
       // If using an external saved template (id), call previewExternalTemplate with template_id
       if (formData.template && typeof formData.template === 'string' && formData.template.length === 36) {
-        const res = await previewExternalTemplate(formData.template, undefined, undefined);
+        const res = await previewExternalTemplate(formData.template);
         if (res.parsed) setPreviewContent(JSON.stringify(res.parsed, null, 2)); else setPreviewContent(res.rendered);
       } else {
         const res = await previewProvider({ ...formData, type: normalizeProviderType(formData.type) } as Partial<NotificationProvider>);
@@ -139,8 +145,11 @@ const ProviderForm: FC<{
 
   const type = normalizeProviderType(watch('type'));
   const isGotify = type === 'gotify';
+  const isTelegram = type === 'telegram';
+  const isEmail = type === 'email';
+  const isNew = !watch('id');
   useEffect(() => {
-    if (type !== 'gotify') {
+    if (type !== 'gotify' && type !== 'telegram') {
       setValue('gotify_token', '', { shouldDirty: false, shouldTouch: false });
     }
   }, [type, setValue]);
@@ -194,34 +203,51 @@ const ProviderForm: FC<{
           <option value="discord">Discord</option>
           <option value="gotify">Gotify</option>
           <option value="webhook">{t('notificationProviders.genericWebhook')}</option>
+          <option value="email">Email</option>
+          <option value="telegram">{t('notificationProviders.telegram')}</option>
         </select>
       </div>
 
       <div>
-        <label htmlFor="provider-url" className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.urlWebhook')} <span aria-hidden="true">*</span></label>
+        <label htmlFor="provider-url" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          {isEmail ? t('notificationProviders.recipients') : isTelegram ? t('notificationProviders.telegramChatId') : <>{t('notificationProviders.urlWebhook')} <span aria-hidden="true">*</span></>}
+        </label>
+        {isEmail && (
+          <p id="email-recipients-help" className="text-xs text-gray-500 mt-0.5">
+            {t('notificationProviders.recipientsHelp')}
+          </p>
+        )}
         <input
           id="provider-url"
           {...register('url', {
-            required: t('notificationProviders.urlRequired') as string,
-            validate: validateUrl,
+            required: isEmail ? false : (t('notificationProviders.urlRequired') as string),
+            validate: (isEmail || isTelegram) ? undefined : validateUrl,
           })}
           data-testid="provider-url"
-          placeholder={type === 'discord' ? 'https://discord.com/api/webhooks/...' : type === 'gotify' ? 'https://gotify.example.com/message' : 'https://example.com/webhook'}
+          placeholder={isEmail ? 'user@example.com, admin@example.com' : isTelegram ? '987654321' : type === 'discord' ? 'https://discord.com/api/webhooks/...' : type === 'gotify' ? 'https://gotify.example.com/message' : 'https://example.com/webhook'}
           className={`mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm ${errors.url ? 'border-red-500' : ''}`}
           aria-invalid={errors.url ? 'true' : 'false'}
-          aria-describedby={errors.url ? 'provider-url-error' : undefined}
+          aria-describedby={isEmail ? 'email-recipients-help' : errors.url ? 'provider-url-error' : undefined}
         />
-        {errors.url && (
+        {!isEmail && errors.url && (
           <span id="provider-url-error" data-testid="provider-url-error" className="text-red-500 text-xs">
             {errors.url.message as string}
           </span>
         )}
       </div>
 
-      {isGotify && (
+      {isEmail && (
+        <div role="note" className="rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-3">
+          <p className="text-sm text-blue-800 dark:text-blue-200">
+            {t('notificationProviders.emailSmtpNotice')}
+          </p>
+        </div>
+      )}
+
+      {(isGotify || isTelegram) && (
         <div>
           <label htmlFor="provider-gotify-token" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-            {t('notificationProviders.gotifyToken')}
+            {isTelegram ? t('notificationProviders.telegramBotToken') : t('notificationProviders.gotifyToken')}
           </label>
           <input
             id="provider-gotify-token"
@@ -229,7 +255,7 @@ const ProviderForm: FC<{
             autoComplete="new-password"
             {...register('gotify_token')}
             data-testid="provider-gotify-token"
-            placeholder={initialData?.has_token ? t('notificationProviders.gotifyTokenKeepPlaceholder') : t('notificationProviders.gotifyTokenPlaceholder')}
+            placeholder={initialData?.has_token ? t('notificationProviders.gotifyTokenKeepPlaceholder') : isTelegram ? t('notificationProviders.telegramBotTokenPlaceholder') : t('notificationProviders.gotifyTokenPlaceholder')}
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
             aria-describedby={initialData?.has_token ? 'gotify-token-stored-hint' : undefined}
           />
@@ -353,7 +379,7 @@ const ProviderForm: FC<{
           type="button"
           variant="secondary"
           onClick={handleTest}
-          disabled={testMutation.isPending}
+          disabled={testMutation.isPending || (isNew && !isEmail)}
           data-testid="provider-test-btn"
           className="min-w-20"
         >
@@ -677,12 +703,13 @@ const Notifications: FC = () => {
                       onClick={() => testMutation.mutate({ ...provider, type: normalizeProviderType(provider.type) })}
                       isLoading={testMutation.isPending}
                       title={t('notificationProviders.sendTest')}
+                      aria-label={t('notificationProviders.sendTest')}
                     >
                       <Send className="w-4 h-4" />
                     </Button>
                   )}
                   {!isUnsupportedProviderType(provider.type) && (
-                    <Button variant="secondary" size="sm" onClick={() => setEditingId(provider.id)}>
+                    <Button variant="secondary" size="sm" onClick={() => setEditingId(provider.id)} aria-label={t('common.edit')}>
                       <Edit2 className="w-4 h-4" />
                     </Button>
                   )}
@@ -692,6 +719,7 @@ const Notifications: FC = () => {
                     onClick={() => {
                       if (confirm(t('notificationProviders.deleteConfirm'))) deleteMutation.mutate(provider.id);
                     }}
+                    aria-label={t('common.delete')}
                   >
                     <Trash2 className="w-4 h-4" />
                   </Button>

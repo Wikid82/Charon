@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"html"
 	"net"
 	"net/http"
 	neturl "net/url"
@@ -26,14 +26,18 @@ import (
 )
 
 type NotificationService struct {
-	DB          *gorm.DB
-	httpWrapper *notifications.HTTPWrapper
+	DB                 *gorm.DB
+	httpWrapper        *notifications.HTTPWrapper
+	mailService        MailServiceInterface
+	telegramAPIBaseURL string
 }
 
-func NewNotificationService(db *gorm.DB) *NotificationService {
+func NewNotificationService(db *gorm.DB, mailService MailServiceInterface) *NotificationService {
 	return &NotificationService{
-		DB:          db,
-		httpWrapper: notifications.NewNotifyHTTPWrapper(),
+		DB:                 db,
+		httpWrapper:        notifications.NewNotifyHTTPWrapper(),
+		mailService:        mailService,
+		telegramAPIBaseURL: "https://api.telegram.org",
 	}
 }
 
@@ -54,12 +58,6 @@ func normalizeURL(serviceType, rawURL string) string {
 		}
 	}
 	return rawURL
-}
-
-var ErrLegacyFallbackDisabled = errors.New("legacy fallback is retired and disabled")
-
-func legacyFallbackInvocationError(providerType string) error {
-	return fmt.Errorf("%w: provider type %q is not supported by notify-only runtime", ErrLegacyFallbackDisabled, providerType)
 }
 
 func validateDiscordWebhookURL(rawURL string) error {
@@ -103,7 +101,7 @@ func validateDiscordProviderURL(providerType, rawURL string) error {
 // supportsJSONTemplates returns true if the provider type can use JSON templates
 func supportsJSONTemplates(providerType string) bool {
 	switch strings.ToLower(providerType) {
-	case "webhook", "discord", "gotify", "slack", "generic":
+	case "webhook", "discord", "gotify", "slack", "generic", "telegram":
 		return true
 	default:
 		return false
@@ -112,7 +110,7 @@ func supportsJSONTemplates(providerType string) bool {
 
 func isSupportedNotificationProviderType(providerType string) bool {
 	switch strings.ToLower(strings.TrimSpace(providerType)) {
-	case "discord", "gotify", "webhook":
+	case "discord", "email", "gotify", "webhook", "telegram":
 		return true
 	default:
 		return false
@@ -123,10 +121,14 @@ func (s *NotificationService) isDispatchEnabled(providerType string) bool {
 	switch strings.ToLower(strings.TrimSpace(providerType)) {
 	case "discord":
 		return true
+	case "email":
+		return s.getFeatureFlagValue(notifications.FlagEmailServiceEnabled, false)
 	case "gotify":
 		return s.getFeatureFlagValue(notifications.FlagGotifyServiceEnabled, true)
 	case "webhook":
 		return s.getFeatureFlagValue(notifications.FlagWebhookServiceEnabled, true)
+	case "telegram":
+		return s.getFeatureFlagValue(notifications.FlagTelegramServiceEnabled, true)
 	default:
 		return false
 	}
@@ -230,10 +232,13 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 				Warn("Skipping dispatch because provider type is disabled for notify dispatch")
 			continue
 		}
+		if strings.ToLower(strings.TrimSpace(provider.Type)) == "email" {
+			go s.dispatchEmail(ctx, provider, eventType, title, message)
+			continue
+		}
 		go func(p models.NotificationProvider) {
 			if !supportsJSONTemplates(p.Type) {
-				err := legacyFallbackInvocationError(p.Type)
-				logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Notify-only runtime blocked legacy fallback invocation")
+				logger.Log().WithField("provider", util.SanitizeForLog(p.Name)).WithField("type", p.Type).Warn("Provider type is not supported by notify-only runtime")
 				return
 			}
 
@@ -244,10 +249,91 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 	}
 }
 
-// legacySendFunc is a test hook for outbound sends.
-// In notify-only mode this path is retired and always fails closed.
-var legacySendFunc = func(_ string, _ string) error {
-	return ErrLegacyFallbackDisabled
+// sanitizeForEmail strips ASCII control characters (0x00–0x1F and 0x7F DEL)
+// and trims leading/trailing whitespace from untrusted strings before they
+// enter the email pipeline. The result is a normalized, single-line string.
+// This provides defense-in-depth alongside rejectCRLF() validation in
+// SendEmail/buildEmail.
+func sanitizeForEmail(s string) string {
+	stripped := strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7F {
+			return -1
+		}
+		return r
+	}, s)
+	return strings.TrimSpace(stripped)
+}
+
+// dispatchEmail sends an email notification for the given provider.
+// It runs in a goroutine; all errors are logged rather than returned.
+func (s *NotificationService) dispatchEmail(ctx context.Context, p models.NotificationProvider, eventType, title, message string) {
+	if s.mailService == nil || !s.mailService.IsConfigured() {
+		logger.Log().WithField("provider", util.SanitizeForLog(p.Name)).Warn("Email provider is not configured, skipping dispatch")
+		return
+	}
+
+	rawRecipients := strings.Split(p.URL, ",")
+	recipients := make([]string, 0, len(rawRecipients))
+	for _, r := range rawRecipients {
+		if trimmed := strings.TrimSpace(r); trimmed != "" {
+			recipients = append(recipients, trimmed)
+		}
+	}
+
+	if len(recipients) == 0 {
+		logger.Log().WithField("provider", util.SanitizeForLog(p.Name)).Warn("Email provider has no recipients configured")
+		return
+	}
+
+	safeTitle := sanitizeForEmail(title)
+	safeMessage := sanitizeForEmail(message)
+	subject := fmt.Sprintf("[Charon Alert] %s", safeTitle)
+
+	templateName := emailTemplateForEventType(eventType)
+	data := EmailTemplateData{
+		EventType: eventType,
+		Title:     safeTitle,
+		Message:   safeMessage,
+		Timestamp: time.Now().Format(time.RFC3339),
+	}
+
+	htmlBody, renderErr := s.mailService.RenderNotificationEmail(templateName, data)
+	if renderErr != nil {
+		logger.Log().WithError(renderErr).WithField("template", templateName).Warn("Email template rendering failed, using fallback")
+		var bodyBuilder strings.Builder
+		if safeTitle != "" {
+			bodyBuilder.WriteString("<strong>")
+			bodyBuilder.WriteString(html.EscapeString(safeTitle))
+			bodyBuilder.WriteString("</strong>")
+		}
+		if safeMessage != "" {
+			if bodyBuilder.Len() > 0 {
+				bodyBuilder.WriteString("<br>")
+			}
+			bodyBuilder.WriteString(html.EscapeString(safeMessage))
+		}
+		htmlBody = bodyBuilder.String()
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	if err := s.mailService.SendEmail(timeoutCtx, recipients, subject, htmlBody); err != nil {
+		logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send email notification")
+	}
+}
+
+func emailTemplateForEventType(eventType string) string {
+	switch strings.ToLower(strings.TrimSpace(eventType)) {
+	case "security_waf", "security_acl", "security_rate_limit", "security_crowdsec":
+		return "email_security_alert.html"
+	case "cert":
+		return "email_ssl_event.html"
+	case "uptime":
+		return "email_uptime_event.html"
+	default:
+		return "email_system_event.html"
+	}
 }
 
 // webhookDoRequestFunc is a test hook for outbound JSON webhook requests.
@@ -365,9 +451,26 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 		if _, hasMessage := jsonPayload["message"]; !hasMessage {
 			return fmt.Errorf("gotify payload requires 'message' field")
 		}
+	case "telegram":
+		// Telegram requires 'text' field for the message body
+		if _, hasText := jsonPayload["text"]; !hasText {
+			if messageValue, hasMessage := jsonPayload["message"]; hasMessage {
+				jsonPayload["text"] = messageValue
+				normalizedBody, marshalErr := json.Marshal(jsonPayload)
+				if marshalErr != nil {
+					return fmt.Errorf("failed to normalize telegram payload: %w", marshalErr)
+				}
+				body.Reset()
+				if _, writeErr := body.Write(normalizedBody); writeErr != nil {
+					return fmt.Errorf("failed to write normalized telegram payload: %w", writeErr)
+				}
+			} else {
+				return fmt.Errorf("telegram payload requires 'text' field")
+			}
+		}
 	}
 
-	if providerType == "gotify" || providerType == "webhook" {
+	if providerType == "gotify" || providerType == "webhook" || providerType == "telegram" {
 		headers := map[string]string{
 			"Content-Type": "application/json",
 			"User-Agent":   "Charon-Notify/1.0",
@@ -377,14 +480,44 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 				headers["X-Request-ID"] = ridStr
 			}
 		}
+
+		dispatchURL := p.URL
+
 		if providerType == "gotify" {
 			if strings.TrimSpace(p.Token) != "" {
 				headers["X-Gotify-Key"] = strings.TrimSpace(p.Token)
 			}
 		}
 
+		if providerType == "telegram" {
+			decryptedToken := p.Token
+			telegramBase := s.telegramAPIBaseURL
+			if telegramBase == "" {
+				telegramBase = "https://api.telegram.org"
+			}
+			dispatchURL = telegramBase + "/bot" + decryptedToken + "/sendMessage"
+
+			parsedURL, parseErr := neturl.Parse(dispatchURL)
+			expectedHost := "api.telegram.org"
+			if parsedURL != nil && parsedURL.Hostname() != "" && telegramBase != "https://api.telegram.org" {
+				// In test overrides, skip the hostname pin check.
+				expectedHost = parsedURL.Hostname()
+			}
+			if parseErr != nil || parsedURL.Hostname() != expectedHost {
+				return fmt.Errorf("telegram dispatch URL validation failed: invalid hostname")
+			}
+
+			jsonPayload["chat_id"] = p.URL
+			updatedBody, marshalErr := json.Marshal(jsonPayload)
+			if marshalErr != nil {
+				return fmt.Errorf("failed to marshal telegram payload with chat_id: %w", marshalErr)
+			}
+			body.Reset()
+			body.Write(updatedBody)
+		}
+
 		if _, sendErr := s.httpWrapper.Send(ctx, notifications.HTTPWrapperRequest{
-			URL:     p.URL,
+			URL:     dispatchURL,
 			Headers: headers,
 			Body:    body.Bytes(),
 		}); sendErr != nil {
@@ -464,7 +597,7 @@ func (s *NotificationService) TestProvider(provider models.NotificationProvider)
 	}
 
 	if !supportsJSONTemplates(providerType) {
-		return legacyFallbackInvocationError(providerType)
+		return fmt.Errorf("provider type %q does not support JSON templates", providerType)
 	}
 
 	data := map[string]any{
@@ -476,6 +609,37 @@ func (s *NotificationService) TestProvider(provider models.NotificationProvider)
 		"Time":    time.Now().Format(time.RFC3339),
 	}
 	return s.sendJSONPayload(context.Background(), provider, data)
+}
+
+// TestEmailProvider sends a test email to the recipients configured in provider.URL.
+// It bypasses the JSON-template path used by TestProvider and uses the SMTP mail service directly.
+func (s *NotificationService) TestEmailProvider(provider models.NotificationProvider) error {
+	if s.mailService == nil || !s.mailService.IsConfigured() {
+		return fmt.Errorf("email service is not configured; configure SMTP settings before testing email providers")
+	}
+	rawRecipients := strings.Split(provider.URL, ",")
+	recipients := make([]string, 0, len(rawRecipients))
+	for _, r := range rawRecipients {
+		if trimmed := strings.TrimSpace(r); trimmed != "" {
+			recipients = append(recipients, trimmed)
+		}
+	}
+	if len(recipients) == 0 {
+		return fmt.Errorf("no recipients configured; add at least one recipient email address")
+	}
+	data := EmailTemplateData{
+		EventType: "test",
+		Title:     "Test Notification",
+		Message:   "This is a test notification from Charon. If you received this email, your email notification provider is configured correctly.",
+		Timestamp: time.Now().Format(time.RFC3339),
+	}
+	htmlBody, renderErr := s.mailService.RenderNotificationEmail("email_system_event.html", data)
+	if renderErr != nil {
+		htmlBody = "<strong>Test Notification</strong><br>This is a test notification from Charon. If you received this email, your email notification provider is configured correctly."
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return s.mailService.SendEmail(ctx, recipients, "[Charon Test] Test Notification", htmlBody)
 }
 
 // ListTemplates returns all external notification templates stored in the database.
@@ -575,7 +739,7 @@ func (s *NotificationService) CreateProvider(provider *models.NotificationProvid
 		return err
 	}
 
-	if provider.Type != "gotify" {
+	if provider.Type != "gotify" && provider.Type != "telegram" {
 		provider.Token = ""
 	}
 
@@ -611,7 +775,7 @@ func (s *NotificationService) UpdateProvider(provider *models.NotificationProvid
 		return err
 	}
 
-	if provider.Type == "gotify" {
+	if provider.Type == "gotify" || provider.Type == "telegram" {
 		if strings.TrimSpace(provider.Token) == "" {
 			provider.Token = existing.Token
 		}

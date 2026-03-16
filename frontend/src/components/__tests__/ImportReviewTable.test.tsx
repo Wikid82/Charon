@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import ImportReviewTable from '../ImportReviewTable'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+
 import { mockImportPreview } from '../../test/mockData'
+import ImportReviewTable from '../ImportReviewTable'
 
 describe('ImportReviewTable', () => {
   const mockOnCommit = vi.fn(() => Promise.resolve())

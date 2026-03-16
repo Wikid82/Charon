@@ -1,12 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ReactNode } from 'react';
+import { renderHook, waitFor } from '@testing-library/react';
+import { type ReactNode } from 'react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+import * as notificationsApi from '../../api/notifications';
 import {
   useSecurityNotificationSettings,
   useUpdateSecurityNotificationSettings,
 } from '../useNotifications';
-import * as notificationsApi from '../../api/notifications';
 
 // Mock the API
 vi.mock('../../api/notifications', async () => {

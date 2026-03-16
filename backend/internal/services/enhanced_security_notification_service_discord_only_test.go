@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/models"
-	"github.com/Wikid82/charon/backend/internal/notifications"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -168,41 +167,6 @@ func TestDiscordOnly_SendViaProvidersFiltersNonDiscord(t *testing.T) {
 	// The key assertion: SendViaProviders filters to only Discord before calling dispatchToProvider
 	// so the webhook provider never reaches dispatchToProvider
 	_ = originalDispatch // Suppress unused warning
-}
-
-// TestNoFallbackPath_RouterAlwaysReturnsFalse tests that the router never enables legacy fallback.
-func TestNoFallbackPath_RouterAlwaysReturnsFalse(t *testing.T) {
-	// Import router to test actual routing behavior
-	router := notifications.NewRouter()
-
-	testCases := []struct {
-		name  string
-		flags map[string]bool
-	}{
-		{"no_flags", map[string]bool{}},
-		{"fallback_false", map[string]bool{"feature.notifications.legacy.fallback_enabled": false}},
-		{"fallback_true", map[string]bool{"feature.notifications.legacy.fallback_enabled": true}},
-		{"all_enabled", map[string]bool{
-			"feature.notifications.legacy.fallback_enabled":  true,
-			"feature.notifications.engine.notify_v1.enabled": true,
-			"feature.notifications.service.discord.enabled":  true,
-		}},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Concrete assertion: Router always returns false regardless of flag state
-			shouldFallback := router.ShouldUseLegacyFallback(tc.flags)
-			assert.False(t, shouldFallback,
-				"Router must return false for all flag combinations - legacy fallback is permanently disabled")
-
-			// Proof: Even when flag is explicitly true, router returns false
-			if tc.flags["feature.notifications.legacy.fallback_enabled"] {
-				assert.False(t, shouldFallback,
-					"Router ignores legacy fallback flag and always returns false")
-			}
-		})
-	}
 }
 
 // TestNoFallbackPath_ServiceHasNoLegacyDispatchHooks tests that the service has no legacy dispatch hooks.

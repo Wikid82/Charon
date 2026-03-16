@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.26.0'
+  GO_VERSION: '1.26.1'
   GOTOOLCHAIN: auto
 
 # Minimal permissions at workflow level; write permissions granted at job level for push only
@@ -38,6 +38,7 @@ jobs:
         uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6
         with:
           go-version: ${{ env.GO_VERSION }}
+
           cache-dependency-path: backend/go.sum
 
       - name: Run Benchmark

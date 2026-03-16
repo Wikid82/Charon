@@ -1,11 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router-dom'
-import RateLimiting from '../RateLimiting'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import * as securityApi from '../../api/security'
 import * as settingsApi from '../../api/settings'
+import RateLimiting from '../RateLimiting'
+
 import type { SecurityStatus } from '../../api/security'
 
 vi.mock('../../api/security')

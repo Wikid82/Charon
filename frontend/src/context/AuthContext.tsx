@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode, type FC } from 'react';
+
+import { AuthContext, type User } from './AuthContextValue';
 import client, { setAuthToken, setAuthErrorHandler } from '../api/client';
-import { AuthContext, User } from './AuthContextValue';
 
 export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -8,12 +9,16 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
   const authRequestVersionRef = useRef(0);
 
   const fetchSessionUser = useCallback(async (): Promise<User> => {
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    const stored = localStorage.getItem('charon_auth_token');
+    if (stored) {
+      headers['Authorization'] = `Bearer ${stored}`;
+    }
+
     const response = await fetch('/api/v1/auth/me', {
       method: 'GET',
       credentials: 'include',
-      headers: {
-        Accept: 'application/json',
-      },
+      headers,
     });
 
     if (!response.ok) {
@@ -164,15 +169,15 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
     const events = ['mousedown', 'keydown', 'scroll', 'touchstart'];
     const handleActivity = () => resetTimer();
 
-    events.forEach(event => {
+    for (const event of events) {
       window.addEventListener(event, handleActivity);
-    });
+    }
 
     return () => {
       if (timeoutId) clearTimeout(timeoutId);
-      events.forEach(event => {
+      for (const event of events) {
         window.removeEventListener(event, handleActivity);
-      });
+      }
     };
   }, [user, logout]);
 

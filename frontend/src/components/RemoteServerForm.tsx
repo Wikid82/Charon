@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
 import { Loader2, Check, X, CircleHelp } from 'lucide-react'
+import { useEffect, useState } from 'react'
+
 import { type RemoteServer, testCustomRemoteServerConnection } from '../api/remoteServers'
 
 interface Props {

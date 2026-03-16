@@ -1,23 +1,24 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
-import { useNavigate, Link } from 'react-router-dom'
+import { Shield, ShieldOff, Trash2, Search, AlertTriangle, ExternalLink } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate, Link } from 'react-router-dom'
+
+import { createBackup } from '../api/backups'
+import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, type CrowdSecDecision, statusCrowdsec, type CrowdSecStatus, startCrowdsec } from '../api/crowdsec'
+import { getFeatureFlags } from '../api/featureFlags'
+import { listCrowdsecPresets, pullCrowdsecPreset, applyCrowdsecPreset, getCrowdsecPresetCache } from '../api/presets'
+import { getSecurityStatus } from '../api/security'
+import { CrowdSecBouncerKeyDisplay } from '../components/CrowdSecBouncerKeyDisplay'
+import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
-import { getSecurityStatus } from '../api/security'
-import { getFeatureFlags } from '../api/featureFlags'
-import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, CrowdSecDecision, statusCrowdsec, CrowdSecStatus, startCrowdsec } from '../api/crowdsec'
-import { listCrowdsecPresets, pullCrowdsecPreset, applyCrowdsecPreset, getCrowdsecPresetCache } from '../api/presets'
-import { createBackup } from '../api/backups'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { toast } from '../utils/toast'
-import { ConfigReloadOverlay } from '../components/LoadingStates'
-import { CrowdSecBouncerKeyDisplay } from '../components/CrowdSecBouncerKeyDisplay'
-import { Shield, ShieldOff, Trash2, Search, AlertTriangle, ExternalLink } from 'lucide-react'
-import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
-import { CROWDSEC_PRESETS, CrowdsecPreset } from '../data/crowdsecPresets'
+import { CROWDSEC_PRESETS, type CrowdsecPreset } from '../data/crowdsecPresets'
 import { useConsoleStatus, useEnrollConsole, useClearConsoleEnrollment } from '../hooks/useConsoleEnrollment'
+import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
+import { toast } from '../utils/toast'
 
 export default function CrowdSecConfig() {
   const { t } = useTranslation()
@@ -580,7 +581,7 @@ export default function CrowdSecConfig() {
             {/* Yellow warning: Process running but LAPI initializing */}
             {lapiStatusQuery.data && lapiStatusQuery.data.running && !lapiStatusQuery.data.lapi_ready && initialCheckComplete && (
               <div className="flex items-start gap-3 p-4 bg-yellow-900/20 border border-yellow-700/50 rounded-lg" data-testid="lapi-warning">
-                <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
+                <AlertTriangle className="w-5 h-5 text-yellow-400 shrink-0 mt-0.5" />
                 <div className="flex-1">
                   <p className="text-sm text-yellow-200 font-medium mb-2">
                     {t('crowdsecConfig.lapiInitializing')}
@@ -606,7 +607,7 @@ export default function CrowdSecConfig() {
             {/* Red warning: Process not running at all */}
             {lapiStatusQuery.data && !lapiStatusQuery.data.running && initialCheckComplete && (
               <div className="flex items-start gap-3 p-4 bg-red-900/20 border border-red-700/50 rounded-lg" data-testid="lapi-not-running-warning">
-                <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
                 <div className="flex-1">
                   <p className="text-sm text-red-200 font-medium mb-2">
                     {t('crowdsecConfig.notRunning')}

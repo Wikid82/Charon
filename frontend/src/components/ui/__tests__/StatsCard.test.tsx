@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
-import { describe, it, expect } from 'vitest'
 import { Users } from 'lucide-react'
+import { describe, it, expect } from 'vitest'
+
 import { StatsCard, type StatsCardChange } from '../StatsCard'
 
 describe('StatsCard', () => {

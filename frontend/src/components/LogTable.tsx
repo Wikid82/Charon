@@ -1,6 +1,7 @@
-import React from 'react';
-import { CaddyAccessLog } from '../api/logs';
 import { format } from 'date-fns';
+import React from 'react';
+
+import { type CaddyAccessLog } from '../api/logs';
 
 interface LogTableProps {
   logs: CaddyAccessLog[];

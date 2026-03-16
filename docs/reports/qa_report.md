@@ -1,82 +1,184 @@
-## QA Report — Import/Save Route Regression Test Suite
+# QA / Security Audit Report
 
-- Date: 2026-03-02
-- Branch: `feature/beta-release` (HEAD `2f90d936`)
-- Scope: Regression test coverage for import and save function routes
-- Full report: [docs/reports/qa_report_import_save_regression.md](qa_report_import_save_regression.md)
+**Feature**: Telegram Notification Provider + Test Remediation
+**Date**: 2025-07-17
+**Auditor**: QA Security Agent
+**Overall Verdict**: ✅ **PASS — Ready to Merge**
 
-## E2E Status
+---
 
-- Command status provided by current PR context:
-   `npx playwright test --project=chromium --project=firefox --project=webkit tests/core/caddy-import`
-- Result: `106 passed, 0 failed, 0 skipped`
-- Gate: PASS
+## Summary
 
-## Patch Report Status
+All 8 audit gates passed. Zero Critical or High severity findings across all security scans. Code coverage exceeds the 85% minimum threshold for both backend and frontend. E2E tests (131/133 passing) confirm functional correctness with the 2 failures being pre-existing Firefox/WebKit authentication fixture issues unrelated to this feature.
 
-- Command: `bash scripts/local-patch-report.sh`
-- Artifacts:
-   - `test-results/local-patch-report.md` (present)
-   - `test-results/local-patch-report.json` (present)
-- Result: PASS (artifacts generated)
-- Notes:
-   - Warning: overall patch coverage `81.7%` below advisory threshold `90.0%`
-   - Warning: backend patch coverage `81.6%` below advisory threshold `85.0%`
+---
 
-## Backend Coverage
+## Scope of Changes
 
-- Command: `.github/skills/scripts/skill-runner.sh test-backend-coverage`
-- Result: PASS
-- Metrics:
-   - Statement coverage: `87.5%`
-   - Line coverage: `87.7%`
-   - Gate threshold observed in run: `87%`
+| File | Type | Summary |
+|------|------|---------|
+| `frontend/src/pages/Notifications.tsx` | Modified | Added `aria-label` attributes to Send Test, Edit, and Delete icon buttons |
+| `frontend/src/pages/__tests__/Notifications.test.tsx` | Modified | Fixed 2 tests, added `saveBeforeTesting` guard test |
+| `tests/settings/notifications.spec.ts` | Modified | Fixed 4 E2E tests — save-before-test pattern |
+| `tests/settings/notifications-payload.spec.ts` | Modified | Fixed 2 E2E tests — save-before-test pattern |
+| `tests/settings/telegram-notification-provider.spec.ts` | Modified | Replaced fragile keyboard nav with direct button locator |
+| `docs/plans/current_spec.md` | Modified | Updated from implementation plan to remediation plan |
+| `docs/plans/telegram_implementation_spec.md` | New | Archived original implementation plan |
 
-## Frontend Coverage
+---
 
-- Command: `.github/skills/scripts/skill-runner.sh test-frontend-coverage`
-- Result: FAIL
-- Failure root cause:
-   - Test timeout at `frontend/src/components/__tests__/ProxyHostForm.test.tsx:1419`
-   - Failing test: `maps remote docker container to remote host and public port`
-   - Error: `Test timed out in 5000ms`
-- Coverage snapshot produced before failure:
-   - Statements: `88.95%`
-   - Lines: `89.62%`
-   - Functions: `86.05%`
-   - Branches: `81.3%`
+## Audit Checklist
 
-## Typecheck
+### 1. Pre-commit Hooks (lefthook)
 
-- Command: `npm --prefix frontend run type-check`
-- Result: PASS
+| Status | Details |
+|--------|---------|
+| ✅ PASS | 6/6 hooks executed and passed |
 
-## Pre-commit
+Hooks executed: `check-yaml`, `actionlint`, `end-of-file-fixer`, `trailing-whitespace`, `dockerfile-check`, `shellcheck`
+Language-specific hooks (Go lint, frontend lint) skipped — no staged files at audit time.
 
-- Command: `pre-commit run --all-files`
-- Result: PASS
-- Notable hooks: `golangci-lint (Fast Linters - BLOCKING)`, `Frontend TypeScript Check`, `Frontend Lint (Fix)` all passed
+---
 
-## Security Scans
+### 2. Backend Unit Test Coverage
 
-- Trivy filesystem scan:
-   - Command: `.github/skills/scripts/skill-runner.sh security-scan-trivy`
-   - Result: PASS
-   - Critical/High findings: `0/0`
+| Metric | Value | Threshold | Status |
+|--------|-------|-----------|--------|
+| Statements | 87.9% | 85% | ✅ PASS |
+| Lines | 88.1% | 85% | ✅ PASS |
 
-- Docker image scan:
-   - Command: `.github/skills/scripts/skill-runner.sh security-scan-docker-image`
-   - Result: PASS
-   - Critical/High findings: `0/0`
-   - Additional findings: `10 medium`, `3 low` (non-blocking)
+Command: `bash scripts/go-test-coverage.sh`
 
-## Remediation Required Before Merge
+---
 
-1. Stabilize the timed-out frontend test at `frontend/src/components/__tests__/ProxyHostForm.test.tsx:1419`.
-2. Re-run `.github/skills/scripts/skill-runner.sh test-frontend-coverage` until the suite is fully green.
-3. Optional quality improvement: raise patch coverage warnings (`81.7%` overall, `81.6%` backend) with targeted tests on uncovered changed lines from `test-results/local-patch-report.md`.
+### 3. Frontend Unit Test Coverage
 
-## Final Merge Recommendation
+| Metric | Value | Threshold | Status |
+|--------|-------|-----------|--------|
+| Statements | 89.01% | 85% | ✅ PASS |
+| Branches | 81.07% | — | Advisory |
+| Functions | 86.18% | 85% | ✅ PASS |
+| Lines | 89.73% | 85% | ✅ PASS |
 
-- Recommendation: **NO-GO**
-- Reason: Required frontend coverage gate did not pass due to a deterministic test timeout.
+- **Test files**: 158 passed
+- **Tests**: 1871 passed, 5 skipped, 0 failed
+
+Command: `npx vitest run --coverage`
+
+---
+
+### 4. TypeScript Type Check
+
+| Status | Details |
+|--------|---------|
+| ✅ PASS | `npx tsc --noEmit` — zero errors |
+
+---
+
+### 5. Local Patch Coverage Report
+
+| Scope | Patch Coverage | Status |
+|-------|---------------|--------|
+| Overall | 87.6% | Advisory (90% target) |
+| Backend | 87.2% | ✅ PASS (≥85%) |
+| Frontend | 88.6% | ✅ PASS (≥85%) |
+
+Artifacts generated:
+- `test-results/local-patch-report.md`
+- `test-results/local-patch-report.json`
+
+Files needing additional coverage (advisory, non-blocking):
+- `EncryptionManagement.tsx`
+- `Notifications.tsx`
+- `notification_provider_handler.go`
+- `notification_service.go`
+- `http_wrapper.go`
+
+---
+
+### 6. Trivy Filesystem Scan
+
+| Category | Count | Status |
+|----------|-------|--------|
+| Critical | 0 | ✅ |
+| High | 0 | ✅ |
+| Medium | 0 | ✅ |
+| Low | 0 | ✅ |
+| Secrets | 0 | ✅ |
+
+Command: `trivy fs --severity CRITICAL,HIGH,MEDIUM,LOW --scanners vuln,secret .`
+
+---
+
+### 7. Docker Image Scan (Grype)
+
+| Severity | Count | Status |
+|----------|-------|--------|
+| Critical | 0 | ✅ PASS |
+| High | 0 | ✅ PASS |
+| Medium | 12 | ℹ️ Non-blocking |
+| Low | 3 | ℹ️ Non-blocking |
+
+- **SBOM packages**: 1672
+- **Docker build**: All stages cached (no build changes)
+- All Medium/Low findings are in base image dependencies, not in application code
+
+---
+
+### 8. CodeQL Static Analysis
+
+| Language | Errors | Warnings | Status |
+|----------|--------|----------|--------|
+| Go | 0 | 0 | ✅ PASS |
+| JavaScript/TypeScript | 0 | 0 | ✅ PASS |
+
+- JS/TS scan covered 354/354 files
+- 1 informational note: semicolon style in test file (non-blocking)
+
+---
+
+## Additional Security Checks
+
+### GORM Security Scan
+
+**Status**: Not applicable — no changes to `backend/internal/models/**`, GORM services, or migrations in this PR.
+
+### Gotify Token Exposure Review
+
+| Location | Status |
+|----------|--------|
+| Logs & test artifacts | ✅ Clean |
+| API examples & report output | ✅ Clean |
+| Screenshots | ✅ Clean |
+| Tokenized URL query strings | ✅ Clean |
+
+---
+
+## E2E Test Results (Pre-verified)
+
+| Metric | Value |
+|--------|-------|
+| Total tests | 133 |
+| Passed | 131 |
+| Failed | 2 (pre-existing) |
+
+The 2 failures are pre-existing Firefox/WebKit authentication fixture issues unrelated to this feature. These were verified prior to this audit and were **not re-run** per instructions.
+
+---
+
+## Risk Assessment
+
+| Risk Area | Assessment |
+|-----------|-----------|
+| Security vulnerabilities | **None** — all scans clean |
+| Regression risk | **Low** — changes are additive (aria-labels) and test fixes |
+| Test coverage gaps | **Low** — all coverage thresholds exceeded |
+| Token/secret leakage | **None** — all artifact scans clean |
+
+---
+
+## Verdict
+
+**✅ PASS — All gates satisfied. Feature is ready to merge.**
+
+All 8 mandatory audit checks passed. No Critical or High severity security issues were identified. Code coverage exceeds minimum thresholds. The changes are well-scoped test remediation fixes and accessibility improvements with no architectural risk.

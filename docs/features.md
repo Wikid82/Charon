@@ -114,7 +114,7 @@ Automated static analysis that detects GORM security issues and common mistakes 
 - **3 Operating Modes** — Report, check, and enforce modes for different workflows
 - **Fast Performance** — Scans entire codebase in 2.1 seconds
 - **Zero False Positives** — Smart GORM model detection prevents incorrect warnings
-- **Pre-commit Integration** — Catches issues before they're committed
+- **Lefthook Integration** — Catches issues before they're committed
 - **VS Code Task** — Run security scans from the Command Palette
 
 **Detects:**
@@ -128,8 +128,8 @@ Automated static analysis that detects GORM security issues and common mistakes 
 
 ```bash
 # Run via VS Code: Command Palette → "Lint: GORM Security Scan"
-# Or via pre-commit:
-pre-commit run --hook-stage manual gorm-security-scan --all-files
+# Or via lefthook:
+lefthook run pre-commit
 ```
 
 → [Learn More](implementation/gorm_security_scanner_complete.md)

@@ -9,7 +9,7 @@ description: 'Repository structure guidelines to maintain organized file placeme
 
 The repository root should contain ONLY:
 
-- Essential config files (`.gitignore`, `.pre-commit-config.yaml`, `Makefile`, etc.)
+- Essential config files (`.gitignore`, `Makefile`, etc.)
 - Standard project files (`README.md`, `CONTRIBUTING.md`, `LICENSE`, `CHANGELOG.md`)
 - Go workspace files (`go.work`, `go.work.sum`)
 - VS Code workspace (`Chiron.code-workspace`)

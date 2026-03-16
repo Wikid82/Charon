@@ -1,16 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { AxiosError, AxiosResponse } from 'axios'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { AxiosError, type AxiosResponse } from 'axios'
 import { BrowserRouter } from 'react-router-dom'
-import CrowdSecConfig from '../CrowdSecConfig'
-import * as api from '../../api/security'
-import * as crowdsecApi from '../../api/crowdsec'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import * as backupsApi from '../../api/backups'
-import * as presetsApi from '../../api/presets'
+import * as crowdsecApi from '../../api/crowdsec'
 import * as featureFlagsApi from '../../api/featureFlags'
+import * as presetsApi from '../../api/presets'
+import * as api from '../../api/security'
 import { CROWDSEC_PRESETS } from '../../data/crowdsecPresets'
+import CrowdSecConfig from '../CrowdSecConfig'
+
 import type { ConsoleEnrollmentStatus } from '../../api/consoleEnrollment'
 
 vi.mock('../../api/security')
@@ -102,7 +104,7 @@ describe('CrowdSecConfig', () => {
     vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(blob)
     vi.spyOn(window, 'prompt').mockReturnValue('crowdsec-export')
     renderWithProviders(<CrowdSecConfig />)
-    await waitFor(() => expect(screen.getByText('CrowdSec Configuration')).toBeInTheDocument())
+    expect(await screen.findByText('CrowdSec Configuration')).toBeInTheDocument()
     const exportBtn = screen.getByText('Export')
     await userEvent.click(exportBtn)
     await waitFor(() => expect(crowdsecApi.exportCrowdsecConfig).toHaveBeenCalled())
@@ -114,7 +116,7 @@ describe('CrowdSecConfig', () => {
     vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] })
     vi.mocked(crowdsecApi.importCrowdsecConfig).mockResolvedValue({ status: 'imported' })
     renderWithProviders(<CrowdSecConfig />)
-    await waitFor(() => expect(screen.getByText('CrowdSec Configuration')).toBeInTheDocument())
+    expect(await screen.findByText('CrowdSec Configuration')).toBeInTheDocument()
     const input = screen.getByTestId('import-file') as HTMLInputElement
     const file = new File(['dummy'], 'cfg.tar.gz')
     await userEvent.upload(input, file)
@@ -130,7 +132,7 @@ describe('CrowdSecConfig', () => {
 
     renderWithProviders(<CrowdSecConfig />)
 
-    await waitFor(() => expect(screen.getByText('CrowdSec Configuration')).toBeInTheDocument())
+    expect(await screen.findByText('CrowdSec Configuration')).toBeInTheDocument()
     expect(screen.queryByTestId('console-enrollment-card')).not.toBeInTheDocument()
   })
 
@@ -141,7 +143,7 @@ describe('CrowdSecConfig', () => {
 
     renderWithProviders(<CrowdSecConfig />)
 
-    await waitFor(() => expect(screen.getByTestId('console-enrollment-card')).toBeInTheDocument())
+    expect(await screen.findByTestId('console-enrollment-card')).toBeInTheDocument()
     expect(screen.getByTestId('console-enrollment-token')).toBeInTheDocument()
   })
 
@@ -178,7 +180,7 @@ describe('CrowdSecConfig', () => {
 
     renderWithProviders(<CrowdSecConfig />)
 
-    await waitFor(() => expect(screen.getByTestId('console-enrollment-card')).toBeInTheDocument())
+    expect(await screen.findByTestId('console-enrollment-card')).toBeInTheDocument()
     await userEvent.type(screen.getByTestId('console-enrollment-token'), 'secret-1234567890')
     await userEvent.clear(screen.getByTestId('console-agent-name'))
     await userEvent.type(screen.getByTestId('console-agent-name'), 'agent-one')
@@ -215,7 +217,7 @@ describe('CrowdSecConfig', () => {
 
     renderWithProviders(<CrowdSecConfig />)
 
-    await waitFor(() => expect(screen.getByTestId('console-ack-checkbox')).toBeInTheDocument())
+    expect(await screen.findByTestId('console-ack-checkbox')).toBeInTheDocument()
     await userEvent.type(screen.getByTestId('console-enrollment-token'), 'another-secret-123456')
     await userEvent.click(screen.getByTestId('console-ack-checkbox'))
     await userEvent.click(screen.getByTestId('console-retry-btn'))
@@ -239,9 +241,9 @@ describe('CrowdSecConfig', () => {
     vi.mocked(crowdsecApi.writeCrowdsecFile).mockResolvedValue({ status: 'written' })
 
     renderWithProviders(<CrowdSecConfig />)
-    await waitFor(() => expect(screen.getByText('CrowdSec Configuration')).toBeInTheDocument())
+    expect(await screen.findByText('CrowdSec Configuration')).toBeInTheDocument()
     // wait for file list
-    await waitFor(() => expect(screen.getByText('conf.d/a.conf')).toBeInTheDocument())
+    expect(await screen.findByText('conf.d/a.conf')).toBeInTheDocument()
     const select = screen.getByTestId('crowdsec-file-select')
     await userEvent.selectOptions(select, 'conf.d/a.conf')
     await waitFor(() => expect(crowdsecApi.readCrowdsecFile).toHaveBeenCalledWith('conf.d/a.conf'))
@@ -264,7 +266,7 @@ describe('CrowdSecConfig', () => {
     vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] })
 
     renderWithProviders(<CrowdSecConfig />)
-    await waitFor(() => expect(screen.getByText('CrowdSec Configuration')).toBeInTheDocument())
+    expect(await screen.findByText('CrowdSec Configuration')).toBeInTheDocument()
     expect(screen.getByText(/CrowdSec is controlled via the toggle on the/i)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Security/i })).toHaveAttribute('href', '/security')
   })
@@ -287,7 +289,7 @@ describe('CrowdSecConfig', () => {
     vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValue(axiosError)
 
     renderWithProviders(<CrowdSecConfig />)
-    await waitFor(() => expect(screen.getByText('CrowdSec Configuration')).toBeInTheDocument())
+    expect(await screen.findByText('CrowdSec Configuration')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByTestId('preset-preview')).toHaveTextContent('configs:'))
     const fileSelect = screen.getByTestId('crowdsec-file-select')
     await userEvent.selectOptions(fileSelect, 'acquis.yaml')
@@ -352,7 +354,7 @@ describe('CrowdSecConfig', () => {
   const presetCard = await screen.findByText('Hub Only')
   await userEvent.click(presetCard)
 
-    await waitFor(() => expect(screen.getByTestId('preset-hub-unavailable')).toBeInTheDocument())
+    expect(await screen.findByTestId('preset-hub-unavailable')).toBeInTheDocument()
 
     const applyBtn = screen.getByTestId('apply-preset-btn') as HTMLButtonElement
     expect(applyBtn.disabled).toBe(true)
@@ -405,7 +407,7 @@ describe('CrowdSecConfig', () => {
     const applyBtn = await screen.findByTestId('apply-preset-btn')
     await userEvent.click(applyBtn)
 
-    await waitFor(() => expect(screen.getByTestId('preset-validation-error')).toBeInTheDocument())
+    expect(await screen.findByTestId('preset-validation-error')).toBeInTheDocument()
     expect(screen.getByTestId('preset-validation-error')).toHaveTextContent('Preset must be pulled before applying')
   })
 })

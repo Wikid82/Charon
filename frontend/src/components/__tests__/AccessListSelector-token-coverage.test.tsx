@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import AccessListSelector from '../AccessListSelector';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
 import * as useAccessListsHook from '../../hooks/useAccessLists';
+import AccessListSelector from '../AccessListSelector';
 
 vi.mock('../../hooks/useAccessLists');
 

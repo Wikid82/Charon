@@ -125,7 +125,7 @@ func (h *CertificateHandler) Upload(c *gin.Context) {
 		h.notificationService.SendExternal(c.Request.Context(),
 			"cert",
 			"Certificate Uploaded",
-			fmt.Sprintf("Certificate %s uploaded", util.SanitizeForLog(cert.Name)),
+			"A new custom certificate was successfully uploaded.",
 			map[string]any{
 				"Name":    util.SanitizeForLog(cert.Name),
 				"Domains": util.SanitizeForLog(cert.Domains),

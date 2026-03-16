@@ -1,10 +1,11 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
-import SMTPSettings from '../SMTPSettings'
+
 import * as smtpApi from '../../api/smtp'
-import { toast } from '../../utils/toast'
 import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
+import { toast } from '../../utils/toast'
+import SMTPSettings from '../SMTPSettings'
 
 const translations: Record<string, string> = {
   'smtp.configured': 'SMTP Configured',
@@ -224,7 +225,7 @@ describe('SMTPSettings', () => {
     renderWithQueryClient(<SMTPSettings />)
 
     const user = userEvent.setup()
-    await waitFor(() => expect(screen.getByPlaceholderText('smtp.gmail.com')).toBeInTheDocument())
+    expect(await screen.findByPlaceholderText('smtp.gmail.com')).toBeInTheDocument()
     await user.type(screen.getByPlaceholderText('smtp.gmail.com'), 'bad.host')
     await user.type(screen.getByPlaceholderText('Charon <no-reply@example.com>'), 'ops@example.com')
 
@@ -250,7 +251,7 @@ describe('SMTPSettings', () => {
     renderWithQueryClient(<SMTPSettings />)
 
     const user = userEvent.setup()
-    await waitFor(() => expect(screen.getByText(t('smtp.testConnection'))).toBeInTheDocument())
+    expect(await screen.findByText(t('smtp.testConnection'))).toBeInTheDocument()
 
     // Button should start disabled until host and from address are provided
     const testButton = screen.getByRole('button', { name: t('smtp.testConnection') })
@@ -282,7 +283,7 @@ describe('SMTPSettings', () => {
     renderWithQueryClient(<SMTPSettings />)
 
     const user = userEvent.setup()
-    await waitFor(() => expect(screen.getByText(t('smtp.sendTestEmail'))).toBeInTheDocument())
+    expect(await screen.findByText(t('smtp.sendTestEmail'))).toBeInTheDocument()
     const input = screen.getByPlaceholderText('recipient@example.com') as HTMLInputElement
     await user.type(input, 'keepme@example.com')
 

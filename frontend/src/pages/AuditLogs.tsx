@@ -1,10 +1,9 @@
-import { useState } from 'react'
 import { format } from 'date-fns'
 import { Download, Filter, X } from 'lucide-react'
-import { PageShell } from '../components/layout/PageShell'
-import { useAuditLogs, type AuditLogFilters, type AuditLog } from '../hooks/useAuditLogs'
+import { useState } from 'react'
+
 import { exportAuditLogsCSV } from '../api/auditLogs'
-import { DataTable, type Column } from '../components/ui/DataTable'
+import { PageShell } from '../components/layout/PageShell'
 import {
   Card,
   CardHeader,
@@ -14,6 +13,7 @@ import {
   Badge,
   Input,
 } from '../components/ui'
+import { DataTable, type Column } from '../components/ui/DataTable'
 import {
   Dialog,
   DialogContent,
@@ -28,6 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/Select'
+import { useAuditLogs, type AuditLogFilters, type AuditLog } from '../hooks/useAuditLogs'
 import { toast } from '../utils/toast'
 
 /** Audit log detail modal */

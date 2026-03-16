@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { renderHook, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+import { accessListsApi, type AccessList  } from '../../api/accessLists';
 import { useAccessLists, useAccessList, useCreateAccessList, useUpdateAccessList, useDeleteAccessList, useTestIP } from '../useAccessLists';
-import { accessListsApi } from '../../api/accessLists';
-import type { AccessList } from '../../api/accessLists';
+
 
 // Mock the API module
 vi.mock('../../api/accessLists');
@@ -147,7 +148,7 @@ describe('useAccessLists hooks', () => {
 
   describe('useDeleteAccessList', () => {
     it('should delete an access list', async () => {
-      vi.mocked(accessListsApi.delete).mockResolvedValueOnce(undefined);
+      vi.mocked(accessListsApi.delete).mockResolvedValueOnce();
 
       const { result } = renderHook(() => useDeleteAccessList(), {
         wrapper: createWrapper(),

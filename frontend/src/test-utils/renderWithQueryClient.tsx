@@ -1,7 +1,7 @@
-import { QueryClient, QueryClientProvider, QueryClientConfig } from '@tanstack/react-query'
-import { ReactNode } from 'react'
-import { MemoryRouter, MemoryRouterProps } from 'react-router-dom'
+import { QueryClient, QueryClientProvider, type QueryClientConfig } from '@tanstack/react-query'
 import { render } from '@testing-library/react'
+import { type ReactNode } from 'react'
+import { MemoryRouter, type MemoryRouterProps } from 'react-router-dom'
 
 const defaultConfig: QueryClientConfig = {
   defaultOptions: {

@@ -4,20 +4,23 @@
  * These tests mock the LiveLogViewer component to avoid WebSocket issues
  * and focus on testing Security.tsx core functionality.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router-dom'
-import Security from '../Security'
-import * as securityApi from '../../api/security'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import * as crowdsecApi from '../../api/crowdsec'
+import * as securityApi from '../../api/security'
 import * as settingsApi from '../../api/settings'
+import Security from '../Security'
+
+import type * as ReactRouterDom from 'react-router-dom'
 
 const mockNavigate = vi.hoisted(() => vi.fn())
 
 vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
+  const actual = await vi.importActual<typeof ReactRouterDom>('react-router-dom')
   return {
     ...actual,
     useNavigate: () => mockNavigate,

@@ -1,18 +1,20 @@
-import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Mail, Send, CheckCircle2, XCircle } from 'lucide-react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '../components/ui/Card'
-import { Button } from '../components/ui/Button'
-import { Input } from '../components/ui/Input'
-import { Label } from '../components/ui/Label'
+
+import { getSMTPConfig, updateSMTPConfig, testSMTPConnection, sendTestEmail, type SMTPConfigRequest  } from '../api/smtp'
 import { Alert } from '../components/ui/Alert'
 import { Badge } from '../components/ui/Badge'
-import { Skeleton } from '../components/ui/Skeleton'
+import { Button } from '../components/ui/Button'
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '../components/ui/Card'
+import { Input } from '../components/ui/Input'
+import { Label } from '../components/ui/Label'
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '../components/ui/Select'
+import { Skeleton } from '../components/ui/Skeleton'
 import { toast } from '../utils/toast'
-import { getSMTPConfig, updateSMTPConfig, testSMTPConnection, sendTestEmail } from '../api/smtp'
-import type { SMTPConfigRequest } from '../api/smtp'
-import { Mail, Send, CheckCircle2, XCircle } from 'lucide-react'
+
+
 
 export default function SMTPSettings() {
   const { t } = useTranslation()

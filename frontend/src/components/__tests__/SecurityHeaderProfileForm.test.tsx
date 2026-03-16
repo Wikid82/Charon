@@ -1,8 +1,9 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
-import { SecurityHeaderProfileForm } from '../SecurityHeaderProfileForm';
+
 import { securityHeadersApi, type SecurityHeaderProfile } from '../../api/securityHeaders';
+import { SecurityHeaderProfileForm } from '../SecurityHeaderProfileForm';
 
 vi.mock('../../api/securityHeaders');
 
@@ -305,10 +306,9 @@ describe('SecurityHeaderProfileForm', () => {
     const reportOnlyContainer = reportOnlyText.closest('div')?.parentElement;
     const reportOnlySwitch = reportOnlyContainer?.querySelector('input[type="checkbox"]');
 
-    if(reportOnlySwitch) {
-        fireEvent.click(reportOnlySwitch); // Disable
-        expect(screen.queryByPlaceholderText(/^https:\/\/example\.com\/csp-report$/)).not.toBeInTheDocument();
-    }
+    expect(reportOnlySwitch).toBeDefined();
+    fireEvent.click(reportOnlySwitch!); // Disable
+    expect(screen.queryByPlaceholderText(/^https:\/\/example\.com\/csp-report$/)).not.toBeInTheDocument();
   });
 
   it('should disable form for presets', () => {

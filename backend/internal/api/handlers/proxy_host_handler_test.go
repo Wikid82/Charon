@@ -36,7 +36,7 @@ func setupTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 		&models.NotificationProvider{},
 	))
 
-	ns := services.NewNotificationService(db)
+	ns := services.NewNotificationService(db, nil)
 	h := NewProxyHostHandler(db, nil, ns, nil)
 	r := gin.New()
 	api := r.Group("/api/v1")
@@ -60,7 +60,7 @@ func setupTestRouterWithReferenceTables(t *testing.T) (*gin.Engine, *gorm.DB) {
 		&models.NotificationProvider{},
 	))
 
-	ns := services.NewNotificationService(db)
+	ns := services.NewNotificationService(db, nil)
 	h := NewProxyHostHandler(db, nil, ns, nil)
 	r := gin.New()
 	api := r.Group("/api/v1")
@@ -86,7 +86,7 @@ func setupTestRouterWithUptime(t *testing.T) (*gin.Engine, *gorm.DB) {
 		&models.Setting{},
 	))
 
-	ns := services.NewNotificationService(db)
+	ns := services.NewNotificationService(db, nil)
 	us := services.NewUptimeService(db, ns)
 	h := NewProxyHostHandler(db, nil, ns, us)
 	r := gin.New()
@@ -100,7 +100,7 @@ func TestProxyHostHandler_ResolveAccessListReference_TargetedBranches(t *testing
 	t.Parallel()
 
 	_, db := setupTestRouterWithReferenceTables(t)
-	h := NewProxyHostHandler(db, nil, services.NewNotificationService(db), nil)
+	h := NewProxyHostHandler(db, nil, services.NewNotificationService(db, nil), nil)
 
 	resolved, err := h.resolveAccessListReference(true)
 	require.Error(t, err)
@@ -124,7 +124,7 @@ func TestProxyHostHandler_ResolveSecurityHeaderReference_TargetedBranches(t *tes
 	t.Parallel()
 
 	_, db := setupTestRouterWithReferenceTables(t)
-	h := NewProxyHostHandler(db, nil, services.NewNotificationService(db), nil)
+	h := NewProxyHostHandler(db, nil, services.NewNotificationService(db, nil), nil)
 
 	resolved, err := h.resolveSecurityHeaderProfileReference("  ")
 	require.NoError(t, err)
@@ -327,7 +327,7 @@ func TestProxyHostDelete_WithUptimeCleanup(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.UptimeMonitor{}, &models.UptimeHeartbeat{}))
 
-	ns := services.NewNotificationService(db)
+	ns := services.NewNotificationService(db, nil)
 	us := services.NewUptimeService(db, ns)
 	h := NewProxyHostHandler(db, nil, ns, us)
 
@@ -381,7 +381,7 @@ func TestProxyHostErrors(t *testing.T) {
 	manager := caddy.NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	// Setup Handler
-	ns := services.NewNotificationService(db)
+	ns := services.NewNotificationService(db, nil)
 	h := NewProxyHostHandler(db, manager, ns, nil)
 	r := gin.New()
 	api := r.Group("/api/v1")
@@ -661,7 +661,7 @@ func TestProxyHostWithCaddyIntegration(t *testing.T) {
 	manager := caddy.NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	// Setup Handler
-	ns := services.NewNotificationService(db)
+	ns := services.NewNotificationService(db, nil)
 	h := NewProxyHostHandler(db, manager, ns, nil)
 	r := gin.New()
 	api := r.Group("/api/v1")
@@ -1894,7 +1894,7 @@ func TestUpdate_IntegrationCaddyConfig(t *testing.T) {
 	client := caddy.NewClientWithExpectedPort(caddyServer.URL, expectedPortFromURL(t, caddyServer.URL))
 	manager := caddy.NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
-	ns := services.NewNotificationService(db)
+	ns := services.NewNotificationService(db, nil)
 	h := NewProxyHostHandler(db, manager, ns, nil)
 	r := gin.New()
 	api := r.Group("/api/v1")

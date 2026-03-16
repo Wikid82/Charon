@@ -1,7 +1,9 @@
-import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { describe, it, expect, vi } from 'vitest'
+
 import { DNSDetectionResult } from '../DNSDetectionResult'
+
 import type { DetectionResult } from '../../api/dnsDetection'
 import type { DNSProvider } from '../../api/dnsProviders'
 

@@ -1,14 +1,16 @@
-import { useState, useEffect } from 'react'
-import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useTranslation } from 'react-i18next'
-import { Card } from '../components/ui/Card'
-import { Button } from '../components/ui/Button'
-import { Input } from '../components/ui/Input'
-import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter'
-import { toast } from '../utils/toast'
-import { validateInvite, acceptInvite } from '../api/users'
 import { Loader2, CheckCircle2, XCircle, UserCheck } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
+import { useSearchParams, useNavigate } from 'react-router-dom'
+
+import { validateInvite, acceptInvite } from '../api/users'
+import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter'
+import { Button } from '../components/ui/Button'
+import { Card } from '../components/ui/Card'
+import { Input } from '../components/ui/Input'
+import { toast } from '../utils/toast'
+
 
 export default function AcceptInvite() {
   const { t } = useTranslation()

@@ -24,7 +24,7 @@ func setupDomainTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.Domain{}, &models.Notification{}, &models.NotificationProvider{}))
 
-	ns := services.NewNotificationService(db)
+	ns := services.NewNotificationService(db, nil)
 	h := NewDomainHandler(db, ns)
 	r := gin.New()
 

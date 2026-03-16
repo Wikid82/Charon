@@ -1,10 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BrowserRouter } from 'react-router-dom'
-import ImportCaddy from '../ImportCaddy'
-import { useImport } from '../../hooks/useImport'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import { createBackup } from '../../api/backups'
+import { useImport } from '../../hooks/useImport'
+import ImportCaddy from '../ImportCaddy'
 
 // Mock the hooks and API calls
 vi.mock('../../hooks/useImport')

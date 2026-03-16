@@ -1,13 +1,13 @@
 import { Suspense, lazy } from 'react'
-import { Navigate } from 'react-router-dom'
-import { BrowserRouter as Router, Routes, Route, Outlet } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
+import { BrowserRouter as Router, Routes, Route, Outlet, Navigate  } from 'react-router-dom'
+
 import Layout from './components/Layout'
-import { ToastContainer } from './components/Toast'
-import { SetupGuard } from './components/SetupGuard'
 import { LoadingOverlay } from './components/LoadingStates'
 import RequireAuth from './components/RequireAuth'
 import RequireRole from './components/RequireRole'
+import { SetupGuard } from './components/SetupGuard'
+import { ToastContainer } from './components/Toast'
 import { AuthProvider } from './context/AuthContext'
 
 // Lazy load pages for code splitting

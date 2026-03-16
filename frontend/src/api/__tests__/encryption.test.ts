@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+import client from '../client'
 import {
   getEncryptionStatus,
   rotateEncryptionKey,
@@ -9,7 +11,6 @@ import {
   type RotationHistoryEntry,
   type KeyValidationResult,
 } from '../encryption'
-import client from '../client'
 
 vi.mock('../client')
 

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+
 import client from '../client'
 import { getProfile, regenerateApiKey, updateProfile } from '../users'
 

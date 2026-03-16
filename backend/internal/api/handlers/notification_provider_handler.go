@@ -92,7 +92,7 @@ func respondSanitizedProviderError(c *gin.Context, status int, code, category, m
 	c.JSON(status, response)
 }
 
-var providerStatusCodePattern = regexp.MustCompile(`provider returned status\s+(\d{3})`)
+var providerStatusCodePattern = regexp.MustCompile(`provider returned status\s+(\d{3})(?::\s*(.+))?`)
 
 func classifyProviderTestFailure(err error) (code string, category string, message string) {
 	if err == nil {
@@ -107,14 +107,18 @@ func classifyProviderTestFailure(err error) (code string, category string, messa
 		return "PROVIDER_TEST_URL_INVALID", "validation", "Provider URL is invalid or blocked. Verify the URL and try again"
 	}
 
-	if statusMatch := providerStatusCodePattern.FindStringSubmatch(errText); len(statusMatch) == 2 {
+	if statusMatch := providerStatusCodePattern.FindStringSubmatch(errText); len(statusMatch) >= 2 {
+		hint := ""
+		if len(statusMatch) >= 3 && strings.TrimSpace(statusMatch[2]) != "" {
+			hint = ": " + strings.TrimSpace(statusMatch[2])
+		}
 		switch statusMatch[1] {
 		case "401", "403":
-			return "PROVIDER_TEST_AUTH_REJECTED", "dispatch", "Provider rejected authentication. Verify your Gotify token"
+			return "PROVIDER_TEST_AUTH_REJECTED", "dispatch", "Provider rejected authentication. Verify your credentials"
 		case "404":
 			return "PROVIDER_TEST_ENDPOINT_NOT_FOUND", "dispatch", "Provider endpoint was not found. Verify the provider URL path"
 		default:
-			return "PROVIDER_TEST_REMOTE_REJECTED", "dispatch", fmt.Sprintf("Provider rejected the test request (HTTP %s)", statusMatch[1])
+			return "PROVIDER_TEST_REMOTE_REJECTED", "dispatch", fmt.Sprintf("Provider rejected the test request (HTTP %s)%s", statusMatch[1], hint)
 		}
 	}
 
@@ -168,7 +172,7 @@ func (h *NotificationProviderHandler) Create(c *gin.Context) {
 	}
 
 	providerType := strings.ToLower(strings.TrimSpace(req.Type))
-	if providerType != "discord" && providerType != "gotify" && providerType != "webhook" {
+	if providerType != "discord" && providerType != "gotify" && providerType != "webhook" && providerType != "email" && providerType != "telegram" {
 		respondSanitizedProviderError(c, http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE", "validation", "Unsupported notification provider type")
 		return
 	}
@@ -228,12 +232,12 @@ func (h *NotificationProviderHandler) Update(c *gin.Context) {
 	}
 
 	providerType := strings.ToLower(strings.TrimSpace(existing.Type))
-	if providerType != "discord" && providerType != "gotify" && providerType != "webhook" {
+	if providerType != "discord" && providerType != "gotify" && providerType != "webhook" && providerType != "email" && providerType != "telegram" {
 		respondSanitizedProviderError(c, http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE", "validation", "Unsupported notification provider type")
 		return
 	}
 
-	if providerType == "gotify" && strings.TrimSpace(req.Token) == "" {
+	if (providerType == "gotify" || providerType == "telegram") && strings.TrimSpace(req.Token) == "" {
 		// Keep existing token if update payload omits token
 		req.Token = existing.Token
 	}
@@ -303,6 +307,23 @@ func (h *NotificationProviderHandler) Test(c *gin.Context) {
 	providerType := strings.ToLower(strings.TrimSpace(req.Type))
 	if providerType == "gotify" && strings.TrimSpace(req.Token) != "" {
 		respondSanitizedProviderError(c, http.StatusBadRequest, "TOKEN_WRITE_ONLY", "validation", "Gotify token is accepted only on provider create/update")
+		return
+	}
+
+	// Email providers use global SMTP + recipients from the URL field; they don't require a saved provider ID.
+	if providerType == "email" {
+		provider := models.NotificationProvider{
+			ID:   strings.TrimSpace(req.ID),
+			Name: req.Name,
+			Type: req.Type,
+			URL:  req.URL,
+		}
+		if err := h.service.TestEmailProvider(provider); err != nil {
+			code, category, message := classifyProviderTestFailure(err)
+			respondSanitizedProviderError(c, http.StatusBadRequest, code, category, message)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "Test notification sent"})
 		return
 	}
 

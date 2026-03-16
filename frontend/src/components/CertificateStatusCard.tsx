@@ -1,7 +1,9 @@
+import { FileKey, Loader2 } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { FileKey, Loader2 } from 'lucide-react'
+
 import { Card, CardHeader, CardContent, Badge, Skeleton, Progress } from './ui'
+
 import type { Certificate } from '../api/certificates'
 import type { ProxyHost } from '../api/proxyHosts'
 
@@ -21,15 +23,15 @@ export default function CertificateStatusCard({ certificates, hosts, isLoading }
   // so we match by domain name instead
   const certifiedDomains = useMemo(() => {
     const domains = new Set<string>()
-    certificates.forEach(cert => {
+    for (const cert of certificates) {
       // Handle missing or undefined domain field
-      if (!cert.domain) return
+      if (!cert.domain) continue
       // Certificate domain field can be comma-separated
-      cert.domain.split(',').forEach(d => {
+      for (const d of cert.domain.split(',')) {
         const trimmed = d.trim().toLowerCase()
         if (trimmed) domains.add(trimmed)
-      })
-    })
+      }
+    }
     return domains
   }, [certificates])
 
@@ -38,13 +40,13 @@ export default function CertificateStatusCard({ certificates, hosts, isLoading }
     const sslHosts = hosts.filter(h => h.ssl_forced && h.enabled)
 
     let withCerts = 0
-    sslHosts.forEach(host => {
+    for (const host of sslHosts) {
       // Check if any of the host's domains have a certificate
       const hostDomains = host.domain_names.split(',').map(d => d.trim().toLowerCase())
       if (hostDomains.some(domain => certifiedDomains.has(domain))) {
         withCerts++
       }
-    })
+    }
 
     return {
       pendingCount: sslHosts.length - withCerts,

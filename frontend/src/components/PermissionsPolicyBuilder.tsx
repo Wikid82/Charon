@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react';
 import { Plus, X, Code } from 'lucide-react';
+import { useState, useEffect } from 'react';
+
+import { Alert } from './ui/Alert';
+import { Badge } from './ui/Badge';
 import { Button } from './ui/Button';
+import { Card } from './ui/Card';
 import { Input } from './ui/Input';
 import { NativeSelect } from './ui/NativeSelect';
-import { Card } from './ui/Card';
-import { Badge } from './ui/Badge';
-import { Alert } from './ui/Alert';
 
 interface PermissionsPolicyItem {
   feature: string;
@@ -127,11 +128,11 @@ export function PermissionsPolicyBuilder({ value, onChange }: PermissionsPolicyB
 
     // Merge with existing (don't duplicate)
     const merged = [...policies];
-    newPolicies.forEach((newPolicy) => {
+    for (const newPolicy of newPolicies) {
       if (!merged.some((p) => p.feature === newPolicy.feature)) {
         merged.push(newPolicy);
       }
-    });
+    }
 
     updatePolicies(merged);
   };
@@ -225,7 +226,7 @@ export function PermissionsPolicyBuilder({ value, onChange }: PermissionsPolicyB
         ) : (
           policies.map((policy) => (
             <div key={policy.feature} className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-              <span className="font-mono text-sm font-semibold text-gray-900 dark:text-white flex-shrink-0">
+              <span className="font-mono text-sm font-semibold text-gray-900 dark:text-white shrink-0">
                 {policy.feature}
               </span>
               <div className="flex-1">

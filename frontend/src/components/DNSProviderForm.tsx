@@ -1,6 +1,8 @@
+import { ChevronDown, ChevronUp, ExternalLink, CheckCircle, XCircle, Settings } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown, ChevronUp, ExternalLink, CheckCircle, XCircle, Settings } from 'lucide-react'
+
+import CredentialManager from './CredentialManager'
 import {
   Dialog,
   DialogContent,
@@ -19,11 +21,11 @@ import {
   Alert,
   Textarea,
 } from './ui'
-import { useDNSProviderTypes, useDNSProviderMutations, type DNSProvider } from '../hooks/useDNSProviders'
-import type { DNSProviderRequest, DNSProviderTypeInfo } from '../api/dnsProviders'
 import { defaultProviderSchemas } from '../data/dnsProviderSchemas'
 import { useEnableMultiCredentials, useCredentials } from '../hooks/useCredentials'
-import CredentialManager from './CredentialManager'
+import { useDNSProviderTypes, useDNSProviderMutations, type DNSProvider } from '../hooks/useDNSProviders'
+
+import type { DNSProviderRequest, DNSProviderTypeInfo } from '../api/dnsProviders'
 
 interface DNSProviderFormProps {
   open: boolean
@@ -136,11 +138,7 @@ export default function DNSProviderForm({
     }
 
     try {
-      if (provider) {
-        await updateMutation.mutateAsync({ id: provider.id, data })
-      } else {
-        await createMutation.mutateAsync(data)
-      }
+      await (provider ? updateMutation.mutateAsync({ id: provider.id, data }) : createMutation.mutateAsync(data));
       onSuccess()
       onOpenChange(false)
       resetForm()

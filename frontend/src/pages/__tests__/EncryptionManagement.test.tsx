@@ -1,10 +1,12 @@
-import { render, screen, waitFor } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { BrowserRouter } from 'react-router-dom'
-import EncryptionManagement from '../EncryptionManagement'
-import * as encryptionApi from '../../api/encryption'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { BrowserRouter } from 'react-router-dom'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+import * as encryptionApi from '../../api/encryption'
+import EncryptionManagement from '../EncryptionManagement'
+
 
 // Mock the API module
 vi.mock('../../api/encryption')

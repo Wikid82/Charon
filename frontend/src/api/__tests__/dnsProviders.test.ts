@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+import client from '../client'
 import {
   getDNSProviders,
   getDNSProvider,
@@ -12,7 +14,6 @@ import {
   type DNSProviderRequest,
   type DNSProviderTypeInfo,
 } from '../dnsProviders'
-import client from '../client'
 
 vi.mock('../client')
 

@@ -364,7 +364,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: "1.26.1"
       - name: Run Backend Tests with Coverage
         run: .github/skills/scripts/skill-runner.sh test-backend-coverage
 ```
