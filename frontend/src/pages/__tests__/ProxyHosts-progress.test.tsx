@@ -1,15 +1,18 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { toast } from 'react-hot-toast'
 import { MemoryRouter } from 'react-router-dom'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
-import type { ProxyHost, BulkUpdateACLResponse } from '../../api/proxyHosts'
-import ProxyHosts from '../ProxyHosts'
-import * as proxyHostsApi from '../../api/proxyHosts'
-import * as certificatesApi from '../../api/certificates'
+
 import * as accessListsApi from '../../api/accessLists'
+import * as certificatesApi from '../../api/certificates'
+import * as proxyHostsApi from '../../api/proxyHosts'
 import * as settingsApi from '../../api/settings'
-import { toast } from 'react-hot-toast'
+import ProxyHosts from '../ProxyHosts'
+
+import type { ProxyHost, BulkUpdateACLResponse } from '../../api/proxyHosts'
+
 
 vi.mock('react-hot-toast', () => ({
   toast: { success: vi.fn(), error: vi.fn(), loading: vi.fn(), dismiss: vi.fn() },
@@ -90,18 +93,18 @@ describe('ProxyHosts progress apply', () => {
     })
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('H1')).toBeTruthy())
+    expect(await screen.findByText('H1')).toBeTruthy()
 
     // Select both hosts via select-all
     const checkboxes = screen.getAllByRole('checkbox')
     await userEvent.click(checkboxes[0])
 
     // Open bulk ACL modal
-    await waitFor(() => expect(screen.getByText('Manage ACL')).toBeTruthy())
+    expect(await screen.findByText('Manage ACL')).toBeTruthy()
     await userEvent.click(screen.getByText('Manage ACL'))
 
     // Wait for ACL list
-    await waitFor(() => expect(screen.getByText('ACL1')).toBeTruthy())
+    expect(await screen.findByText('ACL1')).toBeTruthy()
 
     // Select both ACLs
     const aclCheckboxes = screen.getAllByRole('checkbox')
@@ -115,7 +118,7 @@ describe('ProxyHosts progress apply', () => {
     await userEvent.click(applyBtn)
 
     // Progress indicator should appear
-    await waitFor(() => expect(screen.getByText(/Applying ACLs/)).toBeTruthy())
+    expect(await screen.findByText(/Applying ACLs/)).toBeTruthy()
     // After the first bulk operation starts, we should have a resolver
     await waitFor(() => expect(resolvers.length).toBeGreaterThanOrEqual(1))
 
@@ -137,7 +140,7 @@ describe('ProxyHosts progress apply', () => {
     vi.mocked(settingsApi.getSettings).mockResolvedValue({ 'ui.domain_link_behavior': 'same_tab' })
 
     renderWithProviders(<ProxyHosts />)
-    await waitFor(() => expect(screen.getByText('One')).toBeTruthy())
+    expect(await screen.findByText('One')).toBeTruthy()
     const anchor = screen.getByRole('link', { name: /^example\.com$/i })
     expect(anchor.getAttribute('target')).toBe('_self')
   })

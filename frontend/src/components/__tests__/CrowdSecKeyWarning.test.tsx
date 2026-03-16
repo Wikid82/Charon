@@ -1,10 +1,11 @@
-import { render, screen, waitFor } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import userEvent from '@testing-library/user-event'
-import { CrowdSecKeyWarning } from '../CrowdSecKeyWarning'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import * as crowdsecApi from '../../api/crowdsec'
 import { toast } from '../../utils/toast'
+import { CrowdSecKeyWarning } from '../CrowdSecKeyWarning'
 
 vi.mock('../../api/crowdsec')
 vi.mock('react-i18next', () => ({

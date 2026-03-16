@@ -266,7 +266,7 @@ jobs:
       # Generate SBOM using official Anchore action (auto-updated by Renovate)
       - name: Generate SBOM
         if: steps.set-target.outputs.image_name != ''
-        uses: anchore/sbom-action@17ae1740179002c89186b61233e0f892c3118b11 # v0.23.0
+        uses: anchore/sbom-action@57aae528053a48a3f6235f2d9461b05fbcb7366d # v0.23.1
         id: sbom
         with:
           image: ${{ steps.set-target.outputs.image_name }}
@@ -285,7 +285,7 @@ jobs:
       - name: Install Grype
         if: steps.set-target.outputs.image_name != ''
         run: |
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.107.1
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.109.1
 
       - name: Scan for vulnerabilities
         if: steps.set-target.outputs.image_name != ''
@@ -362,7 +362,7 @@ jobs:
 
       - name: Upload SARIF to GitHub Security
         if: steps.check-artifact.outputs.artifact_found == 'true'
-        uses: github/codeql-action/upload-sarif@c793b717bc78562f491db7b0e93a3a178b099162 # v4
+        uses: github/codeql-action/upload-sarif@0d579ffd059c29b07949a3cce3983f0780820c98 # v4
         continue-on-error: true
         with:
           sarif_file: grype-results.sarif

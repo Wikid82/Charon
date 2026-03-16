@@ -27,7 +27,7 @@ codeql database create codeql-db-js \
 
 echo ""
 echo "📊 Analyzing with security-and-quality suite..."
-# Analyze with CI-aligned suite
+# Analyze with CI-aligned suite (mirrors codeql.yml queries: security-and-quality)
 codeql database analyze codeql-db-js \
   codeql/javascript-queries:codeql-suites/javascript-security-and-quality.qls \
   --format=sarif-latest \
@@ -38,4 +38,4 @@ codeql database analyze codeql-db-js \
 echo -e "${GREEN}✅ CodeQL JavaScript/TypeScript scan complete${NC}"
 echo "Results saved to: codeql-results-js.sarif"
 echo ""
-echo "Run 'pre-commit run codeql-check-findings' to validate findings"
+echo "Run 'lefthook run pre-commit' (or `lefthook run pre-commit` which includes codeql-check-findings) to validate findings"

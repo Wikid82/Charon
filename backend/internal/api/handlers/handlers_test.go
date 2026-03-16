@@ -50,7 +50,7 @@ func TestRemoteServerHandler_List(t *testing.T) {
 	}
 	db.Create(server)
 
-	ns := services.NewNotificationService(db)
+	ns := services.NewNotificationService(db, nil)
 	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
@@ -74,7 +74,7 @@ func TestRemoteServerHandler_Create(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 
-	ns := services.NewNotificationService(db)
+	ns := services.NewNotificationService(db, nil)
 	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
@@ -119,7 +119,7 @@ func TestRemoteServerHandler_TestConnection(t *testing.T) {
 	}
 	db.Create(server)
 
-	ns := services.NewNotificationService(db)
+	ns := services.NewNotificationService(db, nil)
 	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
@@ -154,7 +154,7 @@ func TestRemoteServerHandler_Get(t *testing.T) {
 	}
 	db.Create(server)
 
-	ns := services.NewNotificationService(db)
+	ns := services.NewNotificationService(db, nil)
 	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
@@ -188,7 +188,7 @@ func TestRemoteServerHandler_Update(t *testing.T) {
 	}
 	db.Create(server)
 
-	ns := services.NewNotificationService(db)
+	ns := services.NewNotificationService(db, nil)
 	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
@@ -234,7 +234,7 @@ func TestRemoteServerHandler_Delete(t *testing.T) {
 	}
 	db.Create(server)
 
-	ns := services.NewNotificationService(db)
+	ns := services.NewNotificationService(db, nil)
 	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
@@ -271,7 +271,7 @@ func TestProxyHostHandler_List(t *testing.T) {
 	}
 	db.Create(host)
 
-	ns := services.NewNotificationService(db)
+	ns := services.NewNotificationService(db, nil)
 	handler := handlers.NewProxyHostHandler(db, nil, ns, nil)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
@@ -295,7 +295,7 @@ func TestProxyHostHandler_Create(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 
-	ns := services.NewNotificationService(db)
+	ns := services.NewNotificationService(db, nil)
 	handler := handlers.NewProxyHostHandler(db, nil, ns, nil)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
@@ -343,7 +343,7 @@ func TestProxyHostHandler_PartialUpdate_DoesNotWipeFields(t *testing.T) {
 	}
 	db.Create(original)
 
-	ns := services.NewNotificationService(db)
+	ns := services.NewNotificationService(db, nil)
 	handler := handlers.NewProxyHostHandler(db, nil, ns, nil)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
@@ -408,7 +408,7 @@ func TestRemoteServerHandler_Errors(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 
-	ns := services.NewNotificationService(db)
+	ns := services.NewNotificationService(db, nil)
 	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))

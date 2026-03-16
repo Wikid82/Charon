@@ -1,6 +1,7 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import { dockerApi } from '../docker';
+
 import client from '../client';
+import { dockerApi } from '../docker';
 
 vi.mock('../client', () => ({
   default: {

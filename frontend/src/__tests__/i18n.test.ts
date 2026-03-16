@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
+
 import i18n from '../i18n'
 
 describe('i18n configuration', () => {
@@ -13,9 +14,9 @@ describe('i18n configuration', () => {
 
   it('has all required language resources', () => {
     const languages = ['en', 'es', 'fr', 'de', 'zh']
-    languages.forEach((lang) => {
+    for (const lang of languages) {
       expect(i18n.hasResourceBundle(lang, 'translation')).toBe(true)
-    })
+    }
   })
 
   it('translates common keys', () => {

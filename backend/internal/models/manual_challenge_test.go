@@ -134,6 +134,7 @@ func TestManualChallenge_StructFields(t *testing.T) {
 	assert.Empty(t, challenge.ErrorMessage)
 	assert.False(t, challenge.DNSPropagated)
 	assert.Equal(t, now, challenge.CreatedAt)
+	assert.Equal(t, now.Add(10*time.Minute), challenge.ExpiresAt)
 	assert.NotNil(t, challenge.LastCheckAt)
 	assert.NotNil(t, challenge.VerifiedAt)
 }

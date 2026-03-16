@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { accessListsApi } from '../accessLists';
+
+import { accessListsApi, type AccessList  } from '../accessLists';
 import client from '../client';
-import type { AccessList } from '../accessLists';
+
 
 // Mock the client module
 vi.mock('../client', () => ({

@@ -1,12 +1,13 @@
-import { ReactNode } from 'react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { type ReactNode } from 'react'
 import { BrowserRouter } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import Layout from '../Layout'
-import { ThemeProvider } from '../../context/ThemeContext'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import * as featureFlagsApi from '../../api/featureFlags'
+import { ThemeProvider } from '../../context/ThemeContext'
+import Layout from '../Layout'
 
 const mockLogout = vi.fn()
 

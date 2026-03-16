@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -14,13 +15,24 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		// Allow all origins for development. In production, this should check
-		// against a whitelist of allowed origins.
-		return true
-	},
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			// No Origin header — non-browser client or same-origin request.
+			return true
+		}
+		originURL, err := url.Parse(origin)
+		if err != nil {
+			return false
+		}
+		requestHost := r.Host
+		if forwardedHost := r.Header.Get("X-Forwarded-Host"); forwardedHost != "" {
+			requestHost = forwardedHost
+		}
+		return originURL.Host == requestHost
+	},
 }
 
 // LogEntry represents a structured log entry sent over WebSocket.

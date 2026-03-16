@@ -1,15 +1,16 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import userEvent from '@testing-library/user-event';
-import SecurityHeaders from '../../pages/SecurityHeaders';
+
+import { createBackup } from '../../api/backups';
 import {
   securityHeadersApi,
-  SecurityHeaderProfile,
+  type SecurityHeaderProfile,
   type ScoreBreakdown,
 } from '../../api/securityHeaders';
-import { createBackup } from '../../api/backups';
+import SecurityHeaders from '../../pages/SecurityHeaders';
 
 vi.mock('../../api/securityHeaders');
 vi.mock('../../api/backups');
@@ -266,7 +267,7 @@ describe('SecurityHeaders', () => {
     vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as SecurityHeaderProfile[]);
     vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
     vi.mocked(createBackup).mockResolvedValue({ filename: 'backup.tar.gz' });
-    vi.mocked(securityHeadersApi.deleteProfile).mockResolvedValue(undefined);
+    vi.mocked(securityHeadersApi.deleteProfile).mockResolvedValue();
 
     render(<SecurityHeaders />, { wrapper: createWrapper() });
 

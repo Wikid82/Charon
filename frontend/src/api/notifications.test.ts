@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import client from './client'
 import {
   getProviders,
@@ -119,7 +120,52 @@ describe('notifications api', () => {
 
     await expect(createProvider({ name: 'Bad', type: 'slack' })).rejects.toThrow('Unsupported notification provider type: slack')
     await expect(updateProvider('bad', { type: 'generic' })).rejects.toThrow('Unsupported notification provider type: generic')
-    await expect(testProvider({ id: 'bad', type: 'email' })).rejects.toThrow('Unsupported notification provider type: email')
+  })
+
+  it('supports telegram provider with token payload contract', async () => {
+    mockedClient.post.mockResolvedValue({ data: { id: 'tg1' } })
+    mockedClient.put.mockResolvedValue({ data: { id: 'tg1' } })
+
+    await createProvider({ name: 'Telegram', type: 'telegram', gotify_token: 'bot123:ABC' })
+    expect(mockedClient.post).toHaveBeenCalledWith('/notifications/providers', {
+      name: 'Telegram',
+      type: 'telegram',
+      token: 'bot123:ABC',
+    })
+
+    await updateProvider('tg1', { type: 'telegram', url: '987654321', gotify_token: 'newtoken' })
+    expect(mockedClient.put).toHaveBeenCalledWith('/notifications/providers/tg1', {
+      type: 'telegram',
+      url: '987654321',
+      token: 'newtoken',
+    })
+
+    await updateProvider('tg1', { type: 'telegram', url: '987654321' })
+    expect(mockedClient.put).toHaveBeenCalledWith('/notifications/providers/tg1', {
+      type: 'telegram',
+      url: '987654321',
+    })
+  })
+
+  it('telegram preserves token in sanitization and strips gotify_token key', async () => {
+    mockedClient.post.mockResolvedValue({ data: { id: 'tg2' } })
+
+    await createProvider({ name: 'TG', type: 'telegram', token: 'direct-token', gotify_token: '' })
+    expect(mockedClient.post).toHaveBeenCalledWith('/notifications/providers', {
+      name: 'TG',
+      type: 'telegram',
+      token: 'direct-token',
+    })
+  })
+
+  it('telegram test/preview strips token from read-like actions', async () => {
+    mockedClient.post.mockResolvedValue({ data: { id: 'tg3' } })
+
+    await testProvider({ id: 'tg3', type: 'telegram', gotify_token: 'should-not-send' })
+    expect(mockedClient.post).toHaveBeenCalledWith('/notifications/providers/test', {
+      id: 'tg3',
+      type: 'telegram',
+    })
   })
 
   it('fetches templates and previews provider payloads with data', async () => {

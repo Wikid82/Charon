@@ -1,6 +1,7 @@
-import { ReactNode, useState, useEffect } from 'react'
+import { type ReactNode, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { LanguageContext, Language } from './LanguageContextValue'
+
+import { LanguageContext, type Language } from './LanguageContextValue'
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const { i18n } = useTranslation()

@@ -8,6 +8,25 @@ ARG VCS_REF
 # Set BUILD_DEBUG=1 to build with debug symbols (required for Delve debugging)
 ARG BUILD_DEBUG=0
 
+# ---- Pinned Toolchain Versions ----
+# renovate: datasource=docker depName=golang versioning=docker
+ARG GO_VERSION=1.26.1
+
+# renovate: datasource=docker depName=alpine versioning=docker
+ARG ALPINE_IMAGE=alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659
+
+# ---- Shared CrowdSec Version ----
+# renovate: datasource=github-releases depName=crowdsecurity/crowdsec
+ARG CROWDSEC_VERSION=1.7.6
+# CrowdSec fallback tarball checksum (v${CROWDSEC_VERSION})
+ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0bfe5e38f863bd
+
+# ---- Shared Go Security Patches ----
+# renovate: datasource=go depName=github.com/expr-lang/expr
+ARG EXPR_LANG_VERSION=1.17.7
+# renovate: datasource=go depName=golang.org/x/net
+ARG XNET_VERSION=0.51.0
+
 # Allow pinning Caddy version - Renovate will update this
 # Build the most recent Caddy 2.x release (keeps major pinned under v3).
 # Setting this to '2' tells xcaddy to resolve the latest v2.x tag so we
@@ -20,14 +39,14 @@ ARG CADDY_CANDIDATE_VERSION=2.11.2
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
-ARG CADDY_SECURITY_VERSION=1.1.36
+ARG CADDY_SECURITY_VERSION=1.1.45
+# renovate: datasource=go depName=github.com/corazawaf/coraza-caddy
+ARG CORAZA_CADDY_VERSION=2.2.0
 ## When an official caddy image tag isn't available on the host, use a
 ## plain Alpine base image and overwrite its caddy binary with our
 ## xcaddy-built binary in the later COPY step. This avoids relying on
 ## upstream caddy image tags while still shipping a pinned caddy binary.
 ## Alpine 3.23 base to reduce glibc CVE exposure and image size.
-# renovate: datasource=docker depName=alpine versioning=docker
-ARG CADDY_IMAGE=alpine:3.23.3
 
 # ---- Cross-Compilation Helpers ----
 # renovate: datasource=docker depName=tonistiigi/xx
@@ -38,8 +57,7 @@ FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.9.0@sha256:c64defb9ed5a91eacb37f9
 # This fixes 22 HIGH/CRITICAL CVEs in stdlib embedded in Debian's gosu package
 # CVEs fixed: CVE-2023-24531, CVE-2023-24540, CVE-2023-29402, CVE-2023-29404,
 #             CVE-2023-29405, CVE-2024-24790, CVE-2025-22871, and 15 more
-# renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS gosu-builder
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS gosu-builder
 COPY --from=xx / /
 
 WORKDIR /tmp/gosu
@@ -70,7 +88,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.14.0-alpine AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.14.0-alpine@sha256:7fddd9ddeae8196abf4a3ef2de34e11f7b1a722119f91f28ddf1e99dcafdf114 AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -93,8 +111,7 @@ RUN --mount=type=cache,target=/app/frontend/node_modules/.cache \
     npm run build
 
 # ---- Backend Builder ----
-# renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS backend-builder
 # Copy xx helpers for cross-compilation
 COPY --from=xx / /
 
@@ -196,8 +213,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Caddy Builder ----
 # Build Caddy from source to ensure we use the latest Go version and dependencies
 # This fixes vulnerabilities found in the pre-built Caddy images (e.g. CVE-2025-59530, stdlib issues)
-# renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS caddy-builder
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS caddy-builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
@@ -205,11 +221,14 @@ ARG CADDY_CANDIDATE_VERSION
 ARG CADDY_USE_CANDIDATE
 ARG CADDY_PATCH_SCENARIO
 ARG CADDY_SECURITY_VERSION
+ARG CORAZA_CADDY_VERSION
 # renovate: datasource=go depName=github.com/caddyserver/xcaddy
 ARG XCADDY_VERSION=0.4.5
+ARG EXPR_LANG_VERSION
+ARG XNET_VERSION
 
 # hadolint ignore=DL3018
-RUN apk add --no-cache git
+RUN apk add --no-cache bash git
 # hadolint ignore=DL3062
 RUN --mount=type=cache,target=/go/pkg/mod \
     go install github.com/caddyserver/xcaddy/cmd/xcaddy@v${XCADDY_VERSION}
@@ -221,7 +240,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # hadolint ignore=SC2016
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    sh -c 'set -e; \
+    bash -c 'set -e; \
         CADDY_TARGET_VERSION="${CADDY_VERSION}"; \
         if [ "${CADDY_USE_CANDIDATE}" = "1" ]; then \
             CADDY_TARGET_VERSION="${CADDY_CANDIDATE_VERSION}"; \
@@ -234,7 +253,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_TARGET_VERSION} \
             --with github.com/caddyserver/caddy/v2@v${CADDY_TARGET_VERSION} \
             --with github.com/greenpau/caddy-security@v${CADDY_SECURITY_VERSION} \
-            --with github.com/corazawaf/coraza-caddy/v2 \
+            --with github.com/corazawaf/coraza-caddy/v2@v${CORAZA_CADDY_VERSION} \
             --with github.com/hslatman/caddy-crowdsec-bouncer@v0.10.0 \
             --with github.com/zhangjiayin/caddy-geoip2 \
             --with github.com/mholt/caddy-ratelimit \
@@ -251,10 +270,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Patch ALL dependencies BEFORE building the final binary
         # These patches fix CVEs in transitive dependencies
         # Renovate tracks these via regex manager in renovate.json
-        # renovate: datasource=go depName=github.com/expr-lang/expr
-        go get github.com/expr-lang/expr@v1.17.7; \
+        go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION}; \
         # renovate: datasource=go depName=github.com/hslatman/ipstore
         go get github.com/hslatman/ipstore@v0.4.0; \
+        go get golang.org/x/net@v${XNET_VERSION}; \
         if [ "${CADDY_PATCH_SCENARIO}" = "A" ]; then \
             # Rollback scenario: keep explicit nebula pin if upstream compatibility regresses.
             # NOTE: smallstep/certificates (pulled by caddy-security stack) currently
@@ -288,10 +307,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         rm -rf /tmp/buildenv_* /tmp/caddy-initial'
 
 # ---- CrowdSec Builder ----
-# Build CrowdSec from source to ensure we use Go 1.26.0+ and avoid stdlib vulnerabilities
+# Build CrowdSec from source to ensure we use Go 1.26.1+ and avoid stdlib vulnerabilities
 # (CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729)
-# renovate: datasource=docker depName=golang versioning=docker
-FROM --platform=$BUILDPLATFORM golang:1.26.0-alpine AS crowdsec-builder
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS crowdsec-builder
 COPY --from=xx / /
 
 WORKDIR /tmp/crowdsec
@@ -299,11 +317,10 @@ WORKDIR /tmp/crowdsec
 ARG TARGETPLATFORM
 ARG TARGETOS
 ARG TARGETARCH
-# CrowdSec version - Renovate can update this
-# renovate: datasource=github-releases depName=crowdsecurity/crowdsec
-ARG CROWDSEC_VERSION=1.7.6
-# CrowdSec fallback tarball checksum (v${CROWDSEC_VERSION})
-ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0bfe5e38f863bd
+ARG CROWDSEC_VERSION
+ARG CROWDSEC_RELEASE_SHA256
+ARG EXPR_LANG_VERSION
+ARG XNET_VERSION
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache git clang lld
@@ -317,10 +334,10 @@ RUN git clone --depth 1 --branch "v${CROWDSEC_VERSION}" https://github.com/crowd
 
 # Patch dependencies to fix CVEs in transitive dependencies
 # This follows the same pattern as Caddy's dependency patches
-# renovate: datasource=go depName=github.com/expr-lang/expr
 # renovate: datasource=go depName=golang.org/x/crypto
-RUN go get github.com/expr-lang/expr@v1.17.7 && \
+RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     go get golang.org/x/crypto@v0.46.0 && \
+    go get golang.org/x/net@v${XNET_VERSION} && \
     go mod tidy
 
 # Fix compatibility issues with expr-lang v1.17.7
@@ -350,18 +367,15 @@ RUN mkdir -p /crowdsec-out/config && \
     cp -r config/* /crowdsec-out/config/ || true
 
 # ---- CrowdSec Fallback (for architectures where build fails) ----
-# renovate: datasource=docker depName=alpine versioning=docker
-FROM alpine:3.23.3 AS crowdsec-fallback
+FROM ${ALPINE_IMAGE} AS crowdsec-fallback
 
 SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 
 WORKDIR /tmp/crowdsec
 
 ARG TARGETARCH
-# CrowdSec version - Renovate can update this
-# renovate: datasource=github-releases depName=crowdsecurity/crowdsec
-ARG CROWDSEC_VERSION=1.7.6
-ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0bfe5e38f863bd
+ARG CROWDSEC_VERSION
+ARG CROWDSEC_RELEASE_SHA256
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache curl ca-certificates
@@ -390,7 +404,7 @@ RUN set -eux; \
     fi
 
 # ---- Final Runtime with Caddy ----
-FROM ${CADDY_IMAGE}
+FROM ${ALPINE_IMAGE}
 WORKDIR /app
 
 # Install runtime dependencies for Charon, including bash for maintenance scripts
@@ -450,7 +464,7 @@ COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 # Allow non-root to bind privileged ports (80/443) securely
 RUN setcap 'cap_net_bind_service=+ep' /usr/bin/caddy
 
-# Copy CrowdSec binaries from the crowdsec-builder stage (built with Go 1.26.0+)
+# Copy CrowdSec binaries from the crowdsec-builder stage (built with Go 1.26.1+)
 # This ensures we don't have stdlib vulnerabilities from older Go versions
 COPY --from=crowdsec-builder /crowdsec-out/crowdsec /usr/local/bin/crowdsec
 COPY --from=crowdsec-builder /crowdsec-out/cscli /usr/local/bin/cscli

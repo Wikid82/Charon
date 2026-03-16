@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
+
 import { createBackup } from '../api/backups'
-import { useJSONImport } from '../hooks/useJSONImport'
 import ImportSuccessModal from '../components/dialogs/ImportSuccessModal'
+import { useJSONImport } from '../hooks/useJSONImport'
 
 export default function ImportJSON() {
   const { t } = useTranslation()

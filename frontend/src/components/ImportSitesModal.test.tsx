@@ -1,7 +1,8 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import ImportSitesModal from './ImportSitesModal'
 import { vi } from 'vitest'
-import { CaddyFile } from '../api/import'
+
+import ImportSitesModal from './ImportSitesModal'
+import { type CaddyFile } from '../api/import'
 
 // Mock the upload API used by the component
 const mockUpload = vi.fn()
@@ -37,8 +38,8 @@ describe('ImportSitesModal', () => {
     expect(textareasAfterRemove.length).toBe(1)
 
     // type into textarea
-    const ta = screen.getAllByRole('textbox').filter(el => el.tagName === 'TEXTAREA')[0]
-    fireEvent.change(ta, { target: { value: 'example.com { reverse_proxy 127.0.0.1:8080 }' } })
+    const ta = screen.getAllByRole('textbox').find(el => el.tagName === 'TEXTAREA')
+    fireEvent.change(ta!, { target: { value: 'example.com { reverse_proxy 127.0.0.1:8080 }' } })
     expect((ta as HTMLTextAreaElement).value).toContain('example.com')
   })
 
@@ -94,6 +95,6 @@ describe('ImportSitesModal', () => {
     fireEvent.click(screen.getByText('Parse and Review'))
 
     // error message appears
-    await waitFor(() => expect(screen.getByText(/upload-failed|Upload failed/i)).toBeInTheDocument())
+    expect(await screen.findByText(/upload-failed|Upload failed/i)).toBeInTheDocument()
   })
 })

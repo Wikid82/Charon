@@ -1,6 +1,7 @@
+import { RefreshCw, Package, AlertCircle, CheckCircle, XCircle, Info } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { RefreshCw, Package, AlertCircle, CheckCircle, XCircle, Info } from 'lucide-react'
+
 import {
   Button,
   Badge,
@@ -175,7 +176,7 @@ export default function Plugins() {
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3">
-                      <Package className="w-5 h-5 text-content-secondary flex-shrink-0" />
+                      <Package className="w-5 h-5 text-content-secondary shrink-0" />
                       <div className="flex-1 min-w-0">
                         <h3 className="text-base font-medium text-content-primary truncate">
                           {plugin.name}
@@ -228,7 +229,7 @@ export default function Plugins() {
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3">
-                      <Package className="w-5 h-5 text-brand-500 flex-shrink-0" />
+                      <Package className="w-5 h-5 text-brand-500 shrink-0" />
                       <div className="flex-1 min-w-0">
                         <h3 className="text-base font-medium text-content-primary truncate">
                           {plugin.name}

@@ -404,7 +404,7 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 		h.notificationService.SendExternal(c.Request.Context(),
 			"proxy_host",
 			"Proxy Host Created",
-			fmt.Sprintf("Proxy Host %s (%s) created", util.SanitizeForLog(host.Name), util.SanitizeForLog(host.DomainNames)),
+			"A new proxy host was successfully created.",
 			map[string]any{
 				"Name":    util.SanitizeForLog(host.Name),
 				"Domains": util.SanitizeForLog(host.DomainNames),
@@ -679,7 +679,7 @@ func (h *ProxyHostHandler) Delete(c *gin.Context) {
 		h.notificationService.SendExternal(c.Request.Context(),
 			"proxy_host",
 			"Proxy Host Deleted",
-			fmt.Sprintf("Proxy Host %s deleted", host.Name),
+			"A proxy host was successfully deleted.",
 			map[string]any{
 				"Name":   host.Name,
 				"Action": "deleted",

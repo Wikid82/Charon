@@ -30,7 +30,7 @@ codeql database create codeql-db-go \
 echo ""
 echo "📊 Analyzing with security-and-quality suite..."
 ANALYZE_LOG=$(mktemp)
-# Analyze with CI-aligned suite
+# Analyze with CI-aligned suite (mirrors codeql.yml queries: security-and-quality)
 codeql database analyze codeql-db-go \
   codeql/go-queries:codeql-suites/go-security-and-quality.qls \
   --format=sarif-latest \
@@ -68,4 +68,4 @@ echo -e "${GREEN}✅ Extraction parity OK${NC} (compiled baseline=$BASELINE_COUN
 echo -e "${GREEN}✅ CodeQL Go scan complete${NC}"
 echo "Results saved to: codeql-results-go.sarif"
 echo ""
-echo "Run 'pre-commit run codeql-check-findings' to validate findings"
+echo "Run 'lefthook run pre-commit' (or `lefthook run pre-commit` which includes codeql-check-findings) to validate findings"

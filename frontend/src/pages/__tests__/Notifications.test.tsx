@@ -1,10 +1,12 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import Notifications from '../Notifications'
-import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+
 import * as notificationsApi from '../../api/notifications'
+import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
 import { toast } from '../../utils/toast'
+import Notifications from '../Notifications'
+
 import type { NotificationProvider } from '../../api/notifications'
 
 vi.mock('react-i18next', () => ({
@@ -14,7 +16,7 @@ vi.mock('react-i18next', () => ({
 }))
 
 vi.mock('../../api/notifications', () => ({
-  SUPPORTED_NOTIFICATION_PROVIDER_TYPES: ['discord', 'gotify', 'webhook'],
+  SUPPORTED_NOTIFICATION_PROVIDER_TYPES: ['discord', 'gotify', 'webhook', 'email', 'telegram'],
   getProviders: vi.fn(),
   createProvider: vi.fn(),
   updateProvider: vi.fn(),
@@ -146,8 +148,8 @@ describe('Notifications', () => {
     const typeSelect = screen.getByTestId('provider-type') as HTMLSelectElement
     const options = Array.from(typeSelect.options)
 
-    expect(options).toHaveLength(3)
-    expect(options.map((option) => option.value)).toEqual(['discord', 'gotify', 'webhook'])
+    expect(options).toHaveLength(5)
+    expect(options.map((option) => option.value)).toEqual(['discord', 'gotify', 'webhook', 'email', 'telegram'])
     expect(typeSelect.disabled).toBe(false)
   })
 
@@ -290,7 +292,7 @@ describe('Notifications', () => {
     }
 
     vi.mocked(notificationsApi.getExternalTemplates).mockResolvedValue([template])
-    vi.mocked(notificationsApi.deleteExternalTemplate).mockResolvedValue(undefined)
+    vi.mocked(notificationsApi.deleteExternalTemplate).mockResolvedValue()
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     const user = userEvent.setup()
@@ -397,7 +399,7 @@ describe('Notifications', () => {
     }
 
     vi.mocked(notificationsApi.getExternalTemplates).mockResolvedValue([template])
-    vi.mocked(notificationsApi.deleteExternalTemplate).mockResolvedValue(undefined)
+    vi.mocked(notificationsApi.deleteExternalTemplate).mockResolvedValue()
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
 
     const user = userEvent.setup()
@@ -443,14 +445,14 @@ describe('Notifications', () => {
   })
 
   it('submits provider test action from form using normalized discord type', async () => {
-    vi.mocked(notificationsApi.testProvider).mockResolvedValue(undefined)
+    vi.mocked(notificationsApi.testProvider).mockResolvedValue()
+    setupMocks([baseProvider])
 
     const user = userEvent.setup()
     renderWithQueryClient(<Notifications />)
 
-    await user.click(await screen.findByTestId('add-provider-btn'))
-    await user.type(screen.getByTestId('provider-name'), 'Preview/Test Provider')
-    await user.type(screen.getByTestId('provider-url'), 'https://example.com/webhook')
+    const row = await screen.findByTestId(`provider-row-${baseProvider.id}`)
+    await user.click(within(row).getByRole('button', { name: /edit/i }))
 
     await user.click(screen.getByTestId('provider-test-btn'))
 
@@ -500,7 +502,7 @@ describe('Notifications', () => {
 
   it('triggers row-level send test action with discord payload', async () => {
     setupMocks([baseProvider])
-    vi.mocked(notificationsApi.testProvider).mockResolvedValue(undefined)
+    vi.mocked(notificationsApi.testProvider).mockResolvedValue()
 
     const user = userEvent.setup()
     renderWithQueryClient(<Notifications />)
@@ -566,18 +568,28 @@ describe('Notifications', () => {
 
   it('shows error toast when test mutation fails', async () => {
     vi.mocked(notificationsApi.testProvider).mockRejectedValue(new Error('Connection refused'))
+    setupMocks([baseProvider])
 
     const user = userEvent.setup()
     renderWithQueryClient(<Notifications />)
 
-    await user.click(await screen.findByTestId('add-provider-btn'))
-    await user.type(screen.getByTestId('provider-name'), 'Failing Provider')
-    await user.type(screen.getByTestId('provider-url'), 'https://example.com/webhook')
+    const row = await screen.findByTestId(`provider-row-${baseProvider.id}`)
+    await user.click(within(row).getByRole('button', { name: /edit/i }))
+
     await user.click(screen.getByTestId('provider-test-btn'))
 
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalledWith('Connection refused')
     })
+  })
+
+  it('disables test button when provider is new (unsaved) and not email type', async () => {
+    const user = userEvent.setup()
+    renderWithQueryClient(<Notifications />)
+
+    await user.click(await screen.findByTestId('add-provider-btn'))
+    const testBtn = screen.getByTestId('provider-test-btn')
+    expect(testBtn).toBeDisabled()
   })
 
   it('shows JSON template selector for gotify provider', async () => {

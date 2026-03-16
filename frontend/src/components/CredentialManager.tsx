@@ -1,6 +1,7 @@
+import { Plus, Edit, Trash2, CheckCircle, XCircle, TestTube } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Edit, Trash2, CheckCircle, XCircle, TestTube } from 'lucide-react'
+
 import {
   Dialog,
   DialogContent,
@@ -22,8 +23,9 @@ import {
   type DNSProviderCredential,
   type CredentialRequest,
 } from '../hooks/useCredentials'
-import type { DNSProvider, DNSProviderTypeInfo } from '../api/dnsProviders'
 import { toast } from '../utils/toast'
+
+import type { DNSProvider, DNSProviderTypeInfo } from '../api/dnsProviders'
 
 interface CredentialManagerProps {
   open: boolean
@@ -369,7 +371,6 @@ function CredentialForm({
       }
     }
     setErrors((prev) => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { zone_filter: _, ...rest } = prev
       return rest
     })
@@ -393,13 +394,12 @@ function CredentialForm({
 
     // Check required credential fields
     const missingFields: string[] = []
-    providerTypeInfo?.fields
-      .filter((f) => f.required)
-      .forEach((field) => {
+    for (const field of (providerTypeInfo?.fields ?? [])
+      .filter((f) => f.required)) {
         if (!credentials[field.name]) {
           missingFields.push(field.label)
         }
-      })
+      }
 
     if (missingFields.length > 0 && !credential) {
       // Only enforce for new credentials

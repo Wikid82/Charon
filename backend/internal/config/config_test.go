@@ -152,6 +152,24 @@ func TestGetEnvIntAny(t *testing.T) {
 	})
 }
 
+func TestLoad_JWTSecretFallbackGeneration(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("CHARON_DB_PATH", filepath.Join(tempDir, "test.db"))
+	t.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tempDir, "caddy"))
+	t.Setenv("CHARON_IMPORT_DIR", filepath.Join(tempDir, "imports"))
+
+	// Clear both JWT secret env vars to trigger fallback generation
+	t.Setenv("CHARON_JWT_SECRET", "")
+	t.Setenv("CPM_JWT_SECRET", "")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	// Fallback generates 32 random bytes → 64-char hex string
+	assert.NotEmpty(t, cfg.JWTSecret)
+	assert.Len(t, cfg.JWTSecret, 64)
+}
+
 func TestLoad_SecurityConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("CHARON_DB_PATH", filepath.Join(tempDir, "test.db"))

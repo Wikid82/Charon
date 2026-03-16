@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { useManualChallenge, useChallengePoll, useManualChallengeMutations } from '../useManualChallenge'
+import { renderHook, waitFor, act } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
 import * as api from '../../api/manualChallenge'
+import { useManualChallenge, useChallengePoll, useManualChallengeMutations } from '../useManualChallenge'
 
 vi.mock('../../api/manualChallenge')
 
@@ -207,7 +208,7 @@ describe('useManualChallenge hooks', () => {
 
     describe('deleteMutation', () => {
       it('deletes a challenge', async () => {
-        vi.mocked(api.deleteChallenge).mockResolvedValueOnce(undefined)
+        vi.mocked(api.deleteChallenge).mockResolvedValueOnce()
 
         const { result } = renderHook(
           () => useManualChallengeMutations(),

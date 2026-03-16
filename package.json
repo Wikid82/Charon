@@ -11,19 +11,20 @@
   },
   "dependencies": {
     "@typescript/analyze-trace": "^0.10.1",
-    "tldts": "^7.0.24",
+    "tldts": "^7.0.25",
     "type-check": "^0.4.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.1"
   },
   "devDependencies": {
+    "@types/eslint-plugin-jsx-a11y": "^6.10.1",
     "@bgotink/playwright-coverage": "^0.3.2",
     "@playwright/test": "^1.58.2",
-    "@types/node": "^25.3.3",
+    "@types/node": "^25.4.0",
     "dotenv": "^17.3.1",
     "markdownlint-cli2": "^0.21.0",
     "prettier": "^3.8.1",
     "prettier-plugin-tailwindcss": "^0.7.2",
-    "tar": "^7.5.9"
+    "tar": "^7.5.11"
   }
 }

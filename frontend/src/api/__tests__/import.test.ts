@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { uploadCaddyfile, uploadCaddyfilesMulti, getImportPreview, commitImport, cancelImport, getImportStatus } from '../import';
+
 import client from '../client';
+import { uploadCaddyfile, uploadCaddyfilesMulti, getImportPreview, commitImport, cancelImport, getImportStatus } from '../import';
 
 vi.mock('../client', () => ({
   default: {

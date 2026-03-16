@@ -1,12 +1,16 @@
+import { X, Plus, ExternalLink, Shield, AlertTriangle, Info, Download, Trash2 } from 'lucide-react';
 import { useState } from 'react';
+import toast from 'react-hot-toast';
+
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Switch } from './ui/Switch';
-import { X, Plus, ExternalLink, Shield, AlertTriangle, Info, Download, Trash2 } from 'lucide-react';
-import type { AccessList, AccessListRule } from '../api/accessLists';
-import { SECURITY_PRESETS, calculateTotalIPs, formatIPCount, type SecurityPreset } from '../data/securityPresets';
 import { getMyIP } from '../api/system';
-import toast from 'react-hot-toast';
+import { SECURITY_PRESETS, calculateTotalIPs, formatIPCount, type SecurityPreset } from '../data/securityPresets';
+
+import type { AccessList, AccessListRule } from '../api/accessLists';
+
+
 
 interface AccessListFormProps {
   initialData?: AccessList;
@@ -239,7 +243,7 @@ export function AccessListForm({ initialData, onSubmit, onCancel, onDelete, isLo
           </select>
           {(formData.type === 'blacklist' || formData.type === 'geo_blacklist') && (
             <div className="mt-2 flex items-start gap-2 p-3 bg-blue-900/20 border border-blue-700/50 rounded-lg">
-              <Info className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" />
+              <Info className="h-4 w-4 text-blue-400 mt-0.5 shrink-0" />
               <p className="text-xs text-blue-300">
                 <strong>Recommended:</strong> Block lists are safer than allow lists. They block known bad actors while allowing everyone else access, preventing lockouts.
               </p>
@@ -302,7 +306,7 @@ export function AccessListForm({ initialData, onSubmit, onCancel, onDelete, isLo
                             </div>
                             {preset.warning && (
                               <div className="flex items-start gap-1 mt-2 text-xs text-orange-400">
-                                <AlertTriangle className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                                <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
                                 <span>{preset.warning}</span>
                               </div>
                             )}
@@ -352,7 +356,7 @@ export function AccessListForm({ initialData, onSubmit, onCancel, onDelete, isLo
                             </div>
                             {preset.warning && (
                               <div className="flex items-start gap-1 mt-2 text-xs text-orange-400">
-                                <AlertTriangle className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                                <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
                                 <span>{preset.warning}</span>
                               </div>
                             )}

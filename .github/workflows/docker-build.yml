@@ -118,13 +118,14 @@ jobs:
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
       - name: Set up Docker Buildx
         if: steps.skip.outputs.skip_build != 'true'
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
       - name: Resolve Alpine base image digest
         if: steps.skip.outputs.skip_build != 'true'
-        id: caddy
+        id: alpine
         run: |
-          docker pull alpine:3.23.3
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' alpine:3.23.3)
+          ALPINE_TAG=$(grep -m1 'ARG ALPINE_IMAGE=' Dockerfile | sed 's/ARG ALPINE_IMAGE=alpine://' | cut -d'@' -f1)
+          docker pull "alpine:${ALPINE_TAG}"
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "alpine:${ALPINE_TAG}")
           echo "image=$DIGEST" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GitHub Container Registry
@@ -199,7 +200,7 @@ jobs:
 
       - name: Generate Docker metadata
         id: meta
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
         with:
           images: |
             ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
@@ -271,7 +272,7 @@ jobs:
               --build-arg "VERSION=${{ steps.meta.outputs.version }}"
               --build-arg "BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}"
               --build-arg "VCS_REF=${{ env.TRIGGER_HEAD_SHA }}"
-              --build-arg "CADDY_IMAGE=${{ steps.caddy.outputs.image }}"
+              --build-arg "ALPINE_IMAGE=${{ steps.alpine.outputs.image }}"
               --iidfile /tmp/image-digest.txt
               .
             )
@@ -531,23 +532,25 @@ jobs:
 
       - name: Run Trivy scan (table output)
         if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
-        uses: aquasecurity/trivy-action@97e0b3872f55f89b95b2f65b3dbab56962816478 # 0.34.2
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
           image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
+          version: 'v0.69.3'
         continue-on-error: true
 
       - name: Run Trivy vulnerability scanner (SARIF)
         if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         id: trivy
-        uses: aquasecurity/trivy-action@97e0b3872f55f89b95b2f65b3dbab56962816478 # 0.34.2
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
           image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
+          version: 'v0.69.3'
         continue-on-error: true
 
       - name: Check Trivy SARIF exists
@@ -562,7 +565,7 @@ jobs:
 
       - name: Upload Trivy results
         if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.trivy-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@c793b717bc78562f491db7b0e93a3a178b099162 # v4.32.5
+        uses: github/codeql-action/upload-sarif@0d579ffd059c29b07949a3cce3983f0780820c98 # v4.32.6
         with:
           sarif_file: 'trivy-results.sarif'
           category: '.github/workflows/docker-build.yml:build-and-push'
@@ -571,7 +574,7 @@ jobs:
       # Generate SBOM (Software Bill of Materials) for supply chain security
       # Only for production builds (main/development) - feature branches use downstream supply-chain-pr.yml
       - name: Generate SBOM
-        uses: anchore/sbom-action@17ae1740179002c89186b61233e0f892c3118b11 # v0.23.0
+        uses: anchore/sbom-action@57aae528053a48a3f6235f2d9461b05fbcb7366d # v0.23.1
         if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         with:
           image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
@@ -591,7 +594,7 @@ jobs:
       # Install Cosign for keyless signing
       - name: Install Cosign
         if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
-        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
+        uses: sigstore/cosign-installer@ba7bc0a3fef59531c69a25acd34668d6d3fe6f22 # v4.1.0
 
       # Sign GHCR image with keyless signing (Sigstore/Fulcio)
       - name: Sign GHCR Image
@@ -689,22 +692,24 @@ jobs:
           echo "✅ Image freshness validated"
 
       - name: Run Trivy scan on PR image (table output)
-        uses: aquasecurity/trivy-action@97e0b3872f55f89b95b2f65b3dbab56962816478 # 0.34.2
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
           image-ref: ${{ steps.pr-image.outputs.image_ref }}
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
+          version: 'v0.69.3'
 
       - name: Run Trivy scan on PR image (SARIF - blocking)
         id: trivy-scan
-        uses: aquasecurity/trivy-action@97e0b3872f55f89b95b2f65b3dbab56962816478 # 0.34.2
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
           image-ref: ${{ steps.pr-image.outputs.image_ref }}
           format: 'sarif'
           output: 'trivy-pr-results.sarif'
           severity: 'CRITICAL,HIGH'
           exit-code: '1'  # Intended to block, but continued on error for now
+          version: 'v0.69.3'
         continue-on-error: true
 
       - name: Check Trivy PR SARIF exists
@@ -719,14 +724,14 @@ jobs:
 
       - name: Upload Trivy scan results
         if: always() && steps.trivy-pr-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@c793b717bc78562f491db7b0e93a3a178b099162 # v4.32.5
+        uses: github/codeql-action/upload-sarif@0d579ffd059c29b07949a3cce3983f0780820c98 # v4.32.6
         with:
           sarif_file: 'trivy-pr-results.sarif'
           category: 'docker-pr-image'
 
       - name: Upload Trivy compatibility results (docker-build category)
         if: always() && steps.trivy-pr-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@c793b717bc78562f491db7b0e93a3a178b099162 # v4.32.5
+        uses: github/codeql-action/upload-sarif@0d579ffd059c29b07949a3cce3983f0780820c98 # v4.32.6
         with:
           sarif_file: 'trivy-pr-results.sarif'
           category: '.github/workflows/docker-build.yml:build-and-push'
@@ -734,7 +739,7 @@ jobs:
 
       - name: Upload Trivy compatibility results (docker-publish alias)
         if: always() && steps.trivy-pr-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@c793b717bc78562f491db7b0e93a3a178b099162 # v4.32.5
+        uses: github/codeql-action/upload-sarif@0d579ffd059c29b07949a3cce3983f0780820c98 # v4.32.6
         with:
           sarif_file: 'trivy-pr-results.sarif'
           category: '.github/workflows/docker-publish.yml:build-and-push'
@@ -742,7 +747,7 @@ jobs:
 
       - name: Upload Trivy compatibility results (nightly alias)
         if: always() && steps.trivy-pr-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@c793b717bc78562f491db7b0e93a3a178b099162 # v4.32.5
+        uses: github/codeql-action/upload-sarif@0d579ffd059c29b07949a3cce3983f0780820c98 # v4.32.6
         with:
           sarif_file: 'trivy-pr-results.sarif'
           category: 'trivy-nightly'

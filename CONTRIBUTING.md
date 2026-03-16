@@ -33,7 +33,19 @@ This project follows a Code of Conduct that all contributors are expected to adh
 
 ### Development Tools
 
-Install golangci-lint for pre-commit hooks (required for Go development):
+Install golangci-lint for lefthook pre-commit-phase hooks (required for Go development):
+
+Also install lefthook itself so the git hooks work:
+
+```bash
+# Option 1: Homebrew (macOS/Linux)
+brew install lefthook
+
+# Option 2: Go install
+go install github.com/evilmartians/lefthook@latest
+```
+
+
 
 ```bash
 # Option 1: Homebrew (macOS/Linux)
@@ -59,7 +71,7 @@ golangci-lint --version
 # Should output: golangci-lint has version 1.xx.x ...
 ```
 
-**Note:** Pre-commit hooks will **BLOCK commits** if golangci-lint finds issues. This is intentional - fix the issues before committing.
+**Note:** Lefthook pre-commit-phase hooks will **BLOCK commits** if golangci-lint finds issues. This is intentional - fix the issues before committing.
 
 ### CI/CD Go Version Management
 
@@ -84,7 +96,7 @@ When the project's Go version is updated (usually by Renovate):
 
 3. **Rebuild your development tools**
    ```bash
-   # This fixes pre-commit hook errors and IDE issues
+   # This fixes lefthook hook errors and IDE issues
    ./scripts/rebuild-go-tools.sh
    ```
 
@@ -104,7 +116,7 @@ Rebuilding tools with `./scripts/rebuild-go-tools.sh` fixes this by compiling th
 
 **What if I forget?**
 
-Don't worry! The pre-commit hook will detect the version mismatch and automatically rebuild tools for you. You'll see:
+Don't worry! The lefthook pre-commit hook will detect the version mismatch and automatically rebuild tools for you. You'll see:
 
 ```
 ⚠️  golangci-lint Go version mismatch:

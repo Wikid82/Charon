@@ -26,7 +26,7 @@ func TestUptimeMonitorInitialStatePending(t *testing.T) {
 	_ = db.AutoMigrate(&models.UptimeMonitor{}, &models.UptimeHost{})
 
 	// Create handler with service
-	notificationService := services.NewNotificationService(db)
+	notificationService := services.NewNotificationService(db, nil)
 	uptimeService := services.NewUptimeService(db, notificationService)
 
 	// Test: Create a monitor via service

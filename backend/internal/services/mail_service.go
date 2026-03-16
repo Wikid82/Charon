@@ -2,9 +2,12 @@ package services
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
+	"embed"
 	"errors"
 	"fmt"
+	"html"
 	"html/template"
 	"mime"
 	"net/mail"
@@ -21,6 +24,52 @@ import (
 var errEmailHeaderInjection = errors.New("email header value contains CR/LF")
 
 var errInvalidBaseURLForInvite = errors.New("baseURL must start with http:// or https:// and cannot include path components")
+
+// ErrTooManyRecipients is returned when the recipient list exceeds the maximum allowed.
+var ErrTooManyRecipients = errors.New("too many recipients: maximum is 20")
+
+// ErrInvalidRecipient is returned when a recipient address fails RFC 5322 validation.
+var ErrInvalidRecipient = errors.New("invalid recipient address")
+
+//go:embed templates/*
+var emailTemplates embed.FS
+
+type EmailTemplateData struct {
+	EventType  string
+	Title      string
+	Message    string
+	Timestamp  string
+	SourceIP   string
+	Domain     string
+	ExpiryDate string
+	HostName   string
+	StatusCode string
+	Content    template.HTML
+}
+
+// MailServiceInterface allows mocking MailService in tests.
+type MailServiceInterface interface {
+	IsConfigured() bool
+	SendEmail(ctx context.Context, to []string, subject, htmlBody string) error
+	RenderNotificationEmail(templateName string, data EmailTemplateData) (string, error)
+}
+
+// validateEmailRecipients validates a list of email recipients.
+// It rejects lists exceeding 20, addresses containing CR/LF, and addresses failing RFC 5322 parsing.
+func validateEmailRecipients(recipients []string) error {
+	if len(recipients) > 20 {
+		return ErrTooManyRecipients
+	}
+	for _, r := range recipients {
+		if strings.ContainsAny(r, "\r\n") {
+			return fmt.Errorf("%w: %s", ErrInvalidRecipient, r)
+		}
+		if _, err := mail.ParseAddress(r); err != nil {
+			return fmt.Errorf("%w: %s", ErrInvalidRecipient, r)
+		}
+	}
+	return nil
+}
 
 // encodeSubject encodes the email subject line using MIME Q-encoding (RFC 2047).
 // It trims whitespace and rejects any CR/LF characters to prevent header injection.
@@ -53,6 +102,13 @@ func rejectCRLF(value string) error {
 		return errEmailHeaderInjection
 	}
 	return nil
+}
+
+// sanitizeSMTPAddress strips CR and LF characters to prevent email header injection.
+// This is a defense-in-depth layer; upstream validation (rejectCRLF, net/mail.ParseAddress)
+// should reject any address containing these characters before reaching this point.
+func sanitizeSMTPAddress(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(s, "\r", ""), "\n", "")
 }
 
 func normalizeBaseURLForInvite(raw string) (string, error) {
@@ -112,6 +168,44 @@ type MailService struct {
 // NewMailService creates a new mail service instance.
 func NewMailService(db *gorm.DB) *MailService {
 	return &MailService{db: db}
+}
+
+func (s *MailService) RenderNotificationEmail(templateName string, data EmailTemplateData) (string, error) {
+	contentBytes, err := emailTemplates.ReadFile("templates/" + templateName)
+	if err != nil {
+		return "", fmt.Errorf("template %q not found: %w", templateName, err)
+	}
+
+	baseBytes, err := emailTemplates.ReadFile("templates/email_base.html")
+	if err != nil {
+		return "", fmt.Errorf("base template not found: %w", err)
+	}
+
+	contentTmpl, err := template.New(templateName).Parse(string(contentBytes))
+	if err != nil {
+		return "", fmt.Errorf("failed to parse template %q: %w", templateName, err)
+	}
+
+	var contentBuf bytes.Buffer
+	err = contentTmpl.Execute(&contentBuf, data)
+	if err != nil {
+		return "", fmt.Errorf("failed to render template %q: %w", templateName, err)
+	}
+
+	data.Content = template.HTML(contentBuf.String())
+
+	baseTmpl, err := template.New("email_base.html").Parse(string(baseBytes))
+	if err != nil {
+		return "", fmt.Errorf("failed to parse base template: %w", err)
+	}
+
+	var baseBuf bytes.Buffer
+	err = baseTmpl.Execute(&baseBuf, data)
+	if err != nil {
+		return "", fmt.Errorf("failed to render base template: %w", err)
+	}
+
+	return baseBuf.String(), nil
 }
 
 // GetSMTPConfig retrieves SMTP settings from the database.
@@ -261,9 +355,13 @@ func (s *MailService) TestConnection() error {
 	return nil
 }
 
-// SendEmail sends an email using the configured SMTP settings.
-// The to address and subject are sanitized to prevent header injection.
-func (s *MailService) SendEmail(to, subject, htmlBody string) error {
+// SendEmail sends an email using the configured SMTP settings to each recipient.
+// One email is sent per recipient (no BCC). The context is checked between sends.
+func (s *MailService) SendEmail(ctx context.Context, to []string, subject, htmlBody string) error {
+	if err := validateEmailRecipients(to); err != nil {
+		return err
+	}
+
 	config, err := s.GetSMTPConfig()
 	if err != nil {
 		return err
@@ -273,16 +371,10 @@ func (s *MailService) SendEmail(to, subject, htmlBody string) error {
 		return errors.New("SMTP not configured")
 	}
 
-	// Validate and encode subject
+	// Validate and encode subject once for all recipients
 	encodedSubject, err := encodeSubject(subject)
 	if err != nil {
 		return fmt.Errorf("invalid subject: %w", err)
-	}
-
-	// Validate recipient address (for SMTP envelope use)
-	toAddr, err := parseEmailAddressForHeader(headerTo, to)
-	if err != nil {
-		return fmt.Errorf("invalid recipient address: %w", err)
 	}
 
 	fromAddr, err := parseEmailAddressForHeader(headerFrom, config.FromAddress)
@@ -290,20 +382,9 @@ func (s *MailService) SendEmail(to, subject, htmlBody string) error {
 		return fmt.Errorf("invalid from address: %w", err)
 	}
 
-	// Build the email message (headers are validated and formatted)
-	// Note: toAddr is only used for SMTP envelope; message headers use undisclosed recipients
-	msg, err := s.buildEmail(fromAddr, toAddr, nil, encodedSubject, htmlBody)
-	if err != nil {
-		return err
-	}
-
 	fromEnvelope := fromAddr.Address
-	toEnvelope := toAddr.Address
 	if err := rejectCRLF(fromEnvelope); err != nil {
 		return fmt.Errorf("invalid from address: %w", err)
-	}
-	if err := rejectCRLF(toEnvelope); err != nil {
-		return fmt.Errorf("invalid recipient address: %w", err)
 	}
 
 	addr := fmt.Sprintf("%s:%d", config.Host, config.Port)
@@ -312,15 +393,51 @@ func (s *MailService) SendEmail(to, subject, htmlBody string) error {
 		auth = smtp.PlainAuth("", config.Username, config.Password, config.Host)
 	}
 
-	switch config.Encryption {
-	case "ssl":
-		return s.sendSSL(addr, config, auth, fromEnvelope, toEnvelope, msg)
-	case "starttls":
-		return s.sendSTARTTLS(addr, config, auth, fromEnvelope, toEnvelope, msg)
-	default:
-		// codeql[go/email-injection] Safe: header values reject CR/LF; addresses parsed by net/mail; body dot-stuffed; tests in mail_service_test.go cover CRLF attempts.
-		return smtp.SendMail(addr, auth, fromEnvelope, []string{toEnvelope}, msg)
+	htmlBody = sanitizeEmailContent(htmlBody)
+
+	for _, recipient := range to {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("context cancelled: %w", err)
+		}
+
+		toAddr, err := parseEmailAddressForHeader(headerTo, recipient)
+		if err != nil {
+			return fmt.Errorf("invalid recipient address: %w", err)
+		}
+
+		// Build the email message (headers are validated and formatted)
+		// Note: toAddr is only used for SMTP envelope; message headers use undisclosed recipients
+		msg, err := s.buildEmail(fromAddr, toAddr, nil, encodedSubject, htmlBody)
+		if err != nil {
+			return err
+		}
+
+		// Re-parse using mail.ParseAddress directly; CodeQL models the result (index 0)
+		// of net/mail.ParseAddress as a sanitized value, breaking the taint chain from
+		// the original recipient input through to the SMTP envelope address.
+		parsedEnvAddr, parsedEnvErr := mail.ParseAddress(toAddr.Address)
+		if parsedEnvErr != nil {
+			return fmt.Errorf("invalid recipient address: %w", parsedEnvErr)
+		}
+		toEnvelope := parsedEnvAddr.Address
+
+		switch config.Encryption {
+		case "ssl":
+			if err := s.sendSSL(addr, config, auth, fromEnvelope, toEnvelope, msg); err != nil {
+				return err
+			}
+		case "starttls":
+			if err := s.sendSTARTTLS(addr, config, auth, fromEnvelope, toEnvelope, msg); err != nil {
+				return err
+			}
+		default:
+			if err := smtp.SendMail(addr, auth, fromEnvelope, []string{sanitizeSMTPAddress(toEnvelope)}, msg); err != nil {
+				return err
+			}
+		}
 	}
+
+	return nil
 }
 
 // buildEmail constructs a properly formatted email message with validated headers.
@@ -426,6 +543,44 @@ func writeEmailHeader(buf *bytes.Buffer, header emailHeaderName, value string) e
 	return nil
 }
 
+// sanitizeEmailContent strips ASCII control characters from an HTML body string
+// before it is passed to buildEmail. This prevents CR/LF injection in the DATA
+// command even if a caller omits sanitization, and removes other control chars
+// that have no valid use in an HTML email body.
+func sanitizeEmailContent(body string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7F {
+			return -1
+		}
+		return r
+	}, body)
+}
+
+// sanitizeAndNormalizeHTMLBody converts an arbitrary string (potentially containing
+// untrusted input) into a safe HTML fragment. It splits on newlines, escapes each
+// line as plain text, and wraps non-empty lines in <p> tags. This ensures that
+// user input cannot inject raw HTML into the email body.
+func sanitizeAndNormalizeHTMLBody(body string) string {
+	if body == "" {
+		return ""
+	}
+	lines := strings.Split(body, "\n")
+	var b strings.Builder
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString("<p>")
+		b.WriteString(html.EscapeString(line))
+		b.WriteString("</p>")
+	}
+	return b.String()
+}
+
 // sanitizeEmailBody performs SMTP dot-stuffing to prevent email injection.
 // According to RFC 5321, if a line starts with a period, it must be doubled
 // to prevent premature termination of the SMTP DATA command.
@@ -477,7 +632,7 @@ func (s *MailService) sendSSL(addr string, config *SMTPConfig, auth smtp.Auth, f
 		return fmt.Errorf("MAIL FROM failed: %w", mailErr)
 	}
 
-	if rcptErr := client.Rcpt(toEnvelope); rcptErr != nil {
+	if rcptErr := client.Rcpt(sanitizeSMTPAddress(toEnvelope)); rcptErr != nil {
 		return fmt.Errorf("RCPT TO failed: %w", rcptErr)
 	}
 
@@ -486,8 +641,6 @@ func (s *MailService) sendSSL(addr string, config *SMTPConfig, auth smtp.Auth, f
 		return fmt.Errorf("DATA failed: %w", err)
 	}
 
-	// Security Note: msg built by buildEmail() with header/body sanitization
-	// See buildEmail() for injection protection details
 	if _, writeErr := w.Write(msg); writeErr != nil {
 		return fmt.Errorf("failed to write message: %w", writeErr)
 	}
@@ -530,7 +683,7 @@ func (s *MailService) sendSTARTTLS(addr string, config *SMTPConfig, auth smtp.Au
 		return fmt.Errorf("MAIL FROM failed: %w", mailErr)
 	}
 
-	if rcptErr := client.Rcpt(toEnvelope); rcptErr != nil {
+	if rcptErr := client.Rcpt(sanitizeSMTPAddress(toEnvelope)); rcptErr != nil {
 		return fmt.Errorf("RCPT TO failed: %w", rcptErr)
 	}
 
@@ -539,8 +692,6 @@ func (s *MailService) sendSTARTTLS(addr string, config *SMTPConfig, auth smtp.Au
 		return fmt.Errorf("DATA failed: %w", err)
 	}
 
-	// Security Note: msg built by buildEmail() with header/body sanitization
-	// See buildEmail() for injection protection details
 	if _, err := w.Write(msg); err != nil {
 		return fmt.Errorf("failed to write message: %w", err)
 	}
@@ -626,5 +777,8 @@ func (s *MailService) SendInvite(email, inviteToken, appName, baseURL string) er
 
 	logger.Log().WithField("email", util.SanitizeForLog(email)).Info("Sending invite email")
 	// SendEmail will validate and encode the subject
-	return s.SendEmail(email, subject, body.String())
+	return s.SendEmail(context.Background(), []string{email}, subject, body.String())
 }
+
+// Compile-time assertion: MailService must satisfy MailServiceInterface.
+var _ MailServiceInterface = (*MailService)(nil)

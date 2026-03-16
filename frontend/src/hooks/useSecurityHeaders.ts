@@ -1,7 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { securityHeadersApi } from '../api/securityHeaders';
-import type { CreateProfileRequest, ApplyPresetRequest } from '../api/securityHeaders';
 import toast from 'react-hot-toast';
+
+import { securityHeadersApi, type CreateProfileRequest, type ApplyPresetRequest  } from '../api/securityHeaders';
+
 
 export function useSecurityHeaderProfiles() {
   return useQuery({

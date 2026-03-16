@@ -1,6 +1,7 @@
 import { Globe } from 'lucide-react'
+
+import { type Language } from '../context/LanguageContextValue'
 import { useLanguage } from '../hooks/useLanguage'
-import { Language } from '../context/LanguageContextValue'
 
 const languageOptions: { code: Language; label: string; nativeLabel: string }[] = [
   { code: 'en', label: 'English', nativeLabel: 'English' },

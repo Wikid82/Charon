@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
 import { connectLiveLogs } from '../logs';
 
 // Mock WebSocket

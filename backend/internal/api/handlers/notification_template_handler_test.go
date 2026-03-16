@@ -23,7 +23,7 @@ func TestNotificationTemplateHandler_CRUDAndPreview(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}, &models.Notification{}, &models.NotificationProvider{}))
 
-	svc := services.NewNotificationService(db)
+	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationTemplateHandler(svc)
 
 	r := gin.New()
@@ -92,7 +92,7 @@ func TestNotificationTemplateHandler_Create_InvalidJSON(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:?mode=memory&cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}))
-	svc := services.NewNotificationService(db)
+	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationTemplateHandler(svc)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
@@ -113,7 +113,7 @@ func TestNotificationTemplateHandler_Update_InvalidJSON(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:?mode=memory&cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}))
-	svc := services.NewNotificationService(db)
+	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationTemplateHandler(svc)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
@@ -134,7 +134,7 @@ func TestNotificationTemplateHandler_Preview_InvalidJSON(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:?mode=memory&cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}))
-	svc := services.NewNotificationService(db)
+	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationTemplateHandler(svc)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
@@ -155,7 +155,7 @@ func TestNotificationTemplateHandler_AdminRequired(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:?mode=memory&cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}))
-	svc := services.NewNotificationService(db)
+	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationTemplateHandler(svc)
 
 	r := gin.New()
@@ -185,7 +185,7 @@ func TestNotificationTemplateHandler_List_DBError(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:?mode=memory&cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}))
-	svc := services.NewNotificationService(db)
+	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationTemplateHandler(svc)
 
 	r := gin.New()
@@ -205,7 +205,7 @@ func TestNotificationTemplateHandler_WriteOps_DBError(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:?mode=memory&cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}))
-	svc := services.NewNotificationService(db)
+	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationTemplateHandler(svc)
 
 	r := gin.New()
@@ -264,7 +264,7 @@ func TestNotificationTemplateHandler_WriteOps_PermissionErrorResponse(t *testing
 		_ = db.Callback().Delete().Remove(deleteHook)
 	})
 
-	svc := services.NewNotificationService(db)
+	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationTemplateHandler(svc)
 
 	r := gin.New()

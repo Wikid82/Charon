@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+
 import client from './client'
-import { getLogs, getLogContent, downloadLog, connectLiveLogs, connectSecurityLogs } from './logs'
-import type { LiveLogEntry, SecurityLogEntry } from './logs'
+import { getLogs, getLogContent, downloadLog, connectLiveLogs, connectSecurityLogs, type LiveLogEntry, type SecurityLogEntry  } from './logs'
+
 
 vi.mock('./client', () => ({
   default: {

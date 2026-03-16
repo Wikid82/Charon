@@ -1,5 +1,6 @@
-import * as React from 'react'
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import * as React from 'react'
+
 import { cn } from '../../utils/cn'
 
 export interface StatsCardChange {

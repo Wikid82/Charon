@@ -23,7 +23,7 @@ func setupNotificationProviderTest(t *testing.T) (*gin.Engine, *gorm.DB) {
 	db := handlers.OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}, &models.Notification{}))
 
-	service := services.NewNotificationService(db)
+	service := services.NewNotificationService(db, nil)
 	handler := handlers.NewNotificationProviderHandler(service)
 
 	r := gin.Default()
@@ -509,4 +509,162 @@ func TestNotificationProviderHandler_Create_ResponseHasHasToken(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &raw))
 	assert.Equal(t, true, raw["has_token"])
 	assert.NotContains(t, w.Body.String(), "app-token-123")
+}
+
+func TestNotificationProviderHandler_Test_Email_NoMailService_Returns400(t *testing.T) {
+	r, _ := setupNotificationProviderTest(t)
+
+	// mailService is nil in test setup — email test should return 400 (not MISSING_PROVIDER_ID)
+	payload := map[string]interface{}{
+		"type": "email",
+		"url":  "user@example.com",
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers/test", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestNotificationProviderHandler_Test_Email_EmptyURL_Returns400(t *testing.T) {
+	r, _ := setupNotificationProviderTest(t)
+
+	payload := map[string]interface{}{
+		"type": "email",
+		"url":  "",
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers/test", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestNotificationProviderHandler_Test_Email_DoesNotRequireProviderID(t *testing.T) {
+	r, _ := setupNotificationProviderTest(t)
+
+	// No ID field — email path must not return MISSING_PROVIDER_ID
+	payload := map[string]interface{}{
+		"type": "email",
+		"url":  "user@example.com",
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers/test", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	var resp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NotEqual(t, "MISSING_PROVIDER_ID", resp["code"])
+}
+
+func TestNotificationProviderHandler_Test_NonEmail_StillRequiresProviderID(t *testing.T) {
+	r, _ := setupNotificationProviderTest(t)
+
+	payload := map[string]interface{}{
+		"type": "discord",
+		"url":  "https://discord.com/api/webhooks/123/abc",
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers/test", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	var resp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, "MISSING_PROVIDER_ID", resp["code"])
+}
+
+func TestNotificationProviderHandler_Create_Telegram(t *testing.T) {
+	r, _ := setupNotificationProviderTest(t)
+
+	payload := map[string]interface{}{
+		"name":     "My Telegram Bot",
+		"type":     "telegram",
+		"url":      "123456789",
+		"token":    "bot123456789:ABCdefGHIjklMNOpqrSTUvwxYZ",
+		"template": "minimal",
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	var raw map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &raw))
+	assert.Equal(t, "telegram", raw["type"])
+	assert.Equal(t, true, raw["has_token"])
+	// Token must never appear in response
+	assert.NotContains(t, w.Body.String(), "bot123456789:ABCdefGHIjklMNOpqrSTUvwxYZ")
+}
+
+func TestNotificationProviderHandler_Update_TelegramTokenPreservation(t *testing.T) {
+	r, db := setupNotificationProviderTest(t)
+
+	p := models.NotificationProvider{
+		ID:    "tg-preserve",
+		Name:  "Telegram Bot",
+		Type:  "telegram",
+		URL:   "123456789",
+		Token: "original-bot-token",
+	}
+	require.NoError(t, db.Create(&p).Error)
+
+	// Update without token — token should be preserved
+	payload := map[string]interface{}{
+		"name": "Updated Telegram Bot",
+		"type": "telegram",
+		"url":  "987654321",
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("PUT", "/api/v1/notifications/providers/tg-preserve", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// Verify token was preserved in DB
+	var dbProvider models.NotificationProvider
+	require.NoError(t, db.Where("id = ?", "tg-preserve").First(&dbProvider).Error)
+	assert.Equal(t, "original-bot-token", dbProvider.Token)
+	assert.Equal(t, "987654321", dbProvider.URL)
+}
+
+func TestNotificationProviderHandler_List_TelegramNeverExposesBotToken(t *testing.T) {
+	r, db := setupNotificationProviderTest(t)
+
+	p := models.NotificationProvider{
+		ID:    "tg-secret",
+		Name:  "Secret Telegram",
+		Type:  "telegram",
+		URL:   "123456789",
+		Token: "bot999:SECRETTOKEN",
+	}
+	require.NoError(t, db.Create(&p).Error)
+
+	req, _ := http.NewRequest("GET", "/api/v1/notifications/providers", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.NotContains(t, w.Body.String(), "bot999:SECRETTOKEN")
+	assert.NotContains(t, w.Body.String(), "api.telegram.org")
+
+	var raw []map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &raw))
+	require.Len(t, raw, 1)
+	assert.Equal(t, true, raw[0]["has_token"])
+	_, hasTokenField := raw[0]["token"]
+	assert.False(t, hasTokenField, "raw token field must not appear in JSON response")
 }

@@ -1,6 +1,7 @@
-import * as React from 'react'
 import * as ProgressPrimitive from '@radix-ui/react-progress'
 import { cva, type VariantProps } from 'class-variance-authority'
+import * as React from 'react'
+
 import { cn } from '../../utils/cn'
 
 const progressVariants = cva(

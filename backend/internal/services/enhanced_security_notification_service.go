@@ -84,10 +84,11 @@ func (s *EnhancedSecurityNotificationService) getProviderAggregatedConfig() (*mo
 	// Blocker 3: Filter for supported notify-only provider types (PR-1 scope)
 	// All supported types are included in GET aggregation for configuration visibility
 	supportedTypes := map[string]bool{
-		"webhook": true,
-		"discord": true,
-		"slack":   true,
-		"gotify":  true,
+		"webhook":  true,
+		"discord":  true,
+		"slack":    true,
+		"gotify":   true,
+		"telegram": true,
 	}
 	filteredProviders := []models.NotificationProvider{}
 	for _, p := range providers {

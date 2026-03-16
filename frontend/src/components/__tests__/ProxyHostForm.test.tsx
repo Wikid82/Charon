@@ -1,11 +1,13 @@
-import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { act } from 'react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import ProxyHostForm from '../ProxyHostForm'
-import type { ProxyHost } from '../../api/proxyHosts'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
+
+import { testProxyHostConnection, type ProxyHost  } from '../../api/proxyHosts'
 import { mockRemoteServers } from '../../test/mockData'
+import ProxyHostForm from '../ProxyHostForm'
+
 
 // Mock the hooks
 vi.mock('../../hooks/useRemoteServers', () => ({
@@ -163,7 +165,6 @@ const selectComboboxOption = async (label: string | RegExp, optionText: string) 
   await userEvent.click(option)
 }
 
-import { testProxyHostConnection } from '../../api/proxyHosts'
 
 describe('ProxyHostForm', () => {
   const mockOnSubmit = vi.fn(() => Promise.resolve())
@@ -250,7 +251,7 @@ describe('ProxyHostForm', () => {
   })
 
   it('tests connection successfully', async () => {
-    vi.mocked(testProxyHostConnection).mockResolvedValue(undefined)
+    vi.mocked(testProxyHostConnection).mockResolvedValue()
 
     await renderWithClientAct(
       <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
@@ -1297,9 +1298,7 @@ describe('ProxyHostForm', () => {
       const advancedConfigField = screen.getByLabelText(/Advanced Caddy Config/i) as HTMLTextAreaElement
 
       // Verify it contains JSON (Plex has some default config)
-      if (advancedConfigField.value) {
-        expect(advancedConfigField.value).toContain('handler')
-      }
+      expect(advancedConfigField.value).toContain('handler')
     })
 
     it('allows manual advanced config input', async () => {

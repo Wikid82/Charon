@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom/vitest'
 import { render, screen } from '@testing-library/react'
-import { describe, it, expect } from 'vitest'
 import userEvent from '@testing-library/user-event'
+import { describe, it, expect } from 'vitest'
+
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './Tabs'
 
 describe('Tabs', () => {

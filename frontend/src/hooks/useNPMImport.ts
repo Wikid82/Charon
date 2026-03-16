@@ -1,11 +1,12 @@
-import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+
 import {
   uploadNPMExport,
   commitNPMImport,
   cancelNPMImport,
-  NPMImportPreview,
-  NPMImportCommitResult,
+  type NPMImportPreview,
+  type NPMImportCommitResult,
 } from '../api/npmImport';
 
 /**
