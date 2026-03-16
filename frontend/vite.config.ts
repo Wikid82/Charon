@@ -16,14 +16,13 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
-    // TEMPORARY: Disable code splitting to diagnose React initialization issue
-    // If this works, the problem is module loading order in async chunks
     chunkSizeWarningLimit: 2000,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        // Disable code splitting - bundle everything into one file
-        manualChunks: undefined,
-        inlineDynamicImports: true
+        // Disable code splitting — single bundle for React init stability
+        // codeSplitting: false is the Rolldown-native approach
+        // (inlineDynamicImports is deprecated in Rolldown)
+        codeSplitting: false
       }
     }
   }

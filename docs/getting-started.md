@@ -21,6 +21,24 @@ Imagine you have several apps running on your computer. Maybe a blog, a file sto
 
 ## Step 1: Install Charon
 
+### Required Secrets (Generate Before Installing)
+
+Two secrets must be set before starting Charon. Omitting them will cause **sessions to reset on every container restart**, locking users out.
+
+Generate both values now and keep them somewhere safe:
+
+```bash
+# JWT secret — signs and validates login sessions
+openssl rand -hex 32
+
+# Encryption key — protects stored credentials at rest
+openssl rand -base64 32
+```
+
+> **Why this matters:** If `CHARON_JWT_SECRET` is not set, Charon generates a random key on each boot. Any active login session becomes invalid the moment the container restarts, producing a "Session validation failed" error.
+
+---
+
 ### Option A: Docker Compose (Easiest)
 
 Create a file called `docker-compose.yml`:
@@ -43,6 +61,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       - CHARON_ENV=production
+      - CHARON_JWT_SECRET=<output of: openssl rand -hex 32>
+      - CHARON_ENCRYPTION_KEY=<output of: openssl rand -base64 32>
 ```
 
 Then run:
@@ -64,6 +84,8 @@ docker run -d \
   -v ./charon-data:/app/data \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   -e CHARON_ENV=production \
+  -e CHARON_JWT_SECRET=<output of: openssl rand -hex 32> \
+  -e CHARON_ENCRYPTION_KEY=<output of: openssl rand -base64 32> \
   wikid82/charon:latest
 ```
 
@@ -78,6 +100,8 @@ docker run -d \
   -v ./charon-data:/app/data \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   -e CHARON_ENV=production \
+  -e CHARON_JWT_SECRET=<output of: openssl rand -hex 32> \
+  -e CHARON_ENCRYPTION_KEY=<output of: openssl rand -base64 32> \
   ghcr.io/wikid82/charon:latest
 ```
 

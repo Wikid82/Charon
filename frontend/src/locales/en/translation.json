@@ -586,7 +586,12 @@
     "emailRecipientsHelp": "Comma-separated email addresses.",
     "recipients": "Recipients",
     "recipientsHelp": "Comma-separated email addresses (max 20)",
-    "emailSmtpNotice": "Email notifications are sent via the configured SMTP server. Ensure SMTP is configured in Settings \u2192 SMTP."
+    "emailSmtpNotice": "Email notifications are sent via the configured SMTP server. Ensure SMTP is configured in Settings \u2192 SMTP.",
+    "slack": "Slack",
+    "slackWebhookUrl": "Webhook URL",
+    "slackWebhookUrlPlaceholder": "https://hooks.slack.com/services/T.../B.../xxx",
+    "slackChannelName": "Channel Name (optional)",
+    "slackChannelNameHelp": "Display name for the channel. The actual channel is determined by the webhook configuration."
   },
   "users": {
     "title": "User Management",

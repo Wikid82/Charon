@@ -155,12 +155,12 @@ if ! docker network inspect containers_default >/dev/null 2>&1; then
 fi
 
 docker rm -f coraza-backend >/dev/null 2>&1 || true
-docker run -d --name coraza-backend --network containers_default kennethreitz/httpbin
+docker run -d --name coraza-backend --network containers_default -e PORT=80 mccutchen/go-httpbin
 
 echo "Waiting for httpbin backend to be ready..."
 for i in {1..20}; do
   # Check if container is running and has network connectivity
-  if docker exec charon-debug sh -c 'curl -s http://coraza-backend/get' >/dev/null 2>&1; then
+  if docker exec charon-debug sh -c 'wget -qO /dev/null http://coraza-backend/get' >/dev/null 2>&1; then
     echo "✓ httpbin backend is ready"
     break
   fi

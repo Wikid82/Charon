@@ -93,8 +93,9 @@ pre-commit:
       run: bash scripts/check-version-match-tag.sh
 
     # --- Frontend ---
-    # NOTE: ESLint pinned at v9.x.x — do not upgrade until react-hooks plugin
-    # supports v10. TypeScript check runs first; lint runs after so fixes apply.
+    # NOTE: ESLint upgraded to v10.x. Overrides in frontend/package.json for
+    # react-hooks, jsx-a11y, promise plugins (peer deps not yet updated).
+    # Remove overrides when plugins declare ESLint v10 support natively.
     frontend-type-check:
       glob: "frontend/**/*.{ts,tsx}"
       run: cd frontend && npx tsc --noEmit
@@ -103,13 +104,9 @@ pre-commit:
       glob: "frontend/**/*.{ts,tsx,js,jsx}"
       run: cd frontend && npm run lint
 
-
-# ============================================================
-# PRE-PUSH  (blocking, runs on push)
-# ============================================================
-pre-push:
-  commands:
     semgrep:
+      glob: "{**/*.{go,ts,tsx,js,jsx,sh,yml,yaml,json},Dockerfile*}"
+      exclude: 'frontend/(coverage|dist|node_modules|\.vite)/'
       run: scripts/pre-commit-hooks/semgrep-scan.sh
 
 

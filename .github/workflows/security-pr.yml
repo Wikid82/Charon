@@ -240,7 +240,7 @@ jobs:
       - name: Download PR image artifact
         if: github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch'
         # actions/download-artifact v4.1.8
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317
         with:
           name: ${{ steps.check-artifact.outputs.artifact_name }}
           run-id: ${{ steps.check-artifact.outputs.run_id }}
@@ -385,7 +385,7 @@ jobs:
       - name: Upload Trivy SARIF to GitHub Security
         if: always() && steps.trivy-sarif-check.outputs.exists == 'true'
         # github/codeql-action v4
-        uses: github/codeql-action/upload-sarif@1a97b0f94ec9297d6f58aefe5a6b5441c045bed4
+        uses: github/codeql-action/upload-sarif@7dd76e6bf79d24133aa649887a6ee01d8b063816
         with:
           sarif_file: 'trivy-binary-results.sarif'
           category: ${{ steps.pr-info.outputs.is_push == 'true' && format('security-scan-{0}', github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name) || format('security-scan-pr-{0}', steps.pr-info.outputs.pr_number) }}

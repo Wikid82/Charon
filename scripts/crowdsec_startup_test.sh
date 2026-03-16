@@ -176,7 +176,7 @@ fi
 log_test "Check 2: CrowdSec LAPI health (127.0.0.1:8085/health)"
 
 # Use docker exec to check LAPI health from inside the container
-LAPI_HEALTH=$(docker exec ${CONTAINER_NAME} curl -sf http://127.0.0.1:8085/health 2>/dev/null || echo "FAILED")
+LAPI_HEALTH=$(docker exec ${CONTAINER_NAME} wget -qO - http://127.0.0.1:8085/health 2>/dev/null || echo "FAILED")
 
 if [ "$LAPI_HEALTH" != "FAILED" ] && [ -n "$LAPI_HEALTH" ]; then
     log_info "  LAPI is healthy"

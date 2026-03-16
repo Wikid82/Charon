@@ -1,184 +1,134 @@
-# QA / Security Audit Report
+# QA Audit Report — Dockerfile npm CVE Remediation
 
-**Feature**: Telegram Notification Provider + Test Remediation
-**Date**: 2025-07-17
-**Auditor**: QA Security Agent
-**Overall Verdict**: ✅ **PASS — Ready to Merge**
-
----
-
-## Summary
-
-All 8 audit gates passed. Zero Critical or High severity findings across all security scans. Code coverage exceeds the 85% minimum threshold for both backend and frontend. E2E tests (131/133 passing) confirm functional correctness with the 2 failures being pre-existing Firefox/WebKit authentication fixture issues unrelated to this feature.
+**Date:** 2026-03-16
+**Scope:** `Dockerfile` — `frontend-builder` stage npm upgrade to address 6 HIGH CVEs in `node:24.14.0-alpine`
+**Reviewer:** QA Security Agent
 
 ---
 
-## Scope of Changes
+## Overall Verdict: APPROVED
 
-| File | Type | Summary |
-|------|------|---------|
-| `frontend/src/pages/Notifications.tsx` | Modified | Added `aria-label` attributes to Send Test, Edit, and Delete icon buttons |
-| `frontend/src/pages/__tests__/Notifications.test.tsx` | Modified | Fixed 2 tests, added `saveBeforeTesting` guard test |
-| `tests/settings/notifications.spec.ts` | Modified | Fixed 4 E2E tests — save-before-test pattern |
-| `tests/settings/notifications-payload.spec.ts` | Modified | Fixed 2 E2E tests — save-before-test pattern |
-| `tests/settings/telegram-notification-provider.spec.ts` | Modified | Replaced fragile keyboard nav with direct button locator |
-| `docs/plans/current_spec.md` | Modified | Updated from implementation plan to remediation plan |
-| `docs/plans/telegram_implementation_spec.md` | New | Archived original implementation plan |
+All structural, linting, and security gates pass. The change is correctly scoped to the build-only `frontend-builder` stage and introduces no new attack surface in the final runtime image.
 
 ---
 
-## Audit Checklist
+## Changes Under Review
 
-### 1. Pre-commit Hooks (lefthook)
-
-| Status | Details |
-|--------|---------|
-| ✅ PASS | 6/6 hooks executed and passed |
-
-Hooks executed: `check-yaml`, `actionlint`, `end-of-file-fixer`, `trailing-whitespace`, `dockerfile-check`, `shellcheck`
-Language-specific hooks (Go lint, frontend lint) skipped — no staged files at audit time.
-
----
-
-### 2. Backend Unit Test Coverage
-
-| Metric | Value | Threshold | Status |
-|--------|-------|-----------|--------|
-| Statements | 87.9% | 85% | ✅ PASS |
-| Lines | 88.1% | 85% | ✅ PASS |
-
-Command: `bash scripts/go-test-coverage.sh`
+| Element | Location | Description |
+|---|---|---|
+| `ARG NPM_VERSION=11.11.1` | Line 30 (global ARG block) | Pinned npm version with Renovate comment |
+| `ARG NPM_VERSION` | Line 105 (frontend-builder) | Bare re-declaration to inherit global ARG into stage |
+| `# hadolint ignore=DL3017` | Line 106 | Lint suppression for intentional `apk upgrade` |
+| `RUN apk upgrade --no-cache && ...` | Lines 107–109 | Three-command RUN: OS patch + npm upgrade + cache clear |
+| `RUN npm ci` | Line 111 | Unchanged dependency install follows the new RUN block |
 
 ---
 
-### 3. Frontend Unit Test Coverage
+## Gate Summary
 
-| Metric | Value | Threshold | Status |
-|--------|-------|-----------|--------|
-| Statements | 89.01% | 85% | ✅ PASS |
-| Branches | 81.07% | — | Advisory |
-| Functions | 86.18% | 85% | ✅ PASS |
-| Lines | 89.73% | 85% | ✅ PASS |
-
-- **Test files**: 158 passed
-- **Tests**: 1871 passed, 5 skipped, 0 failed
-
-Command: `npx vitest run --coverage`
-
----
-
-### 4. TypeScript Type Check
-
-| Status | Details |
-|--------|---------|
-| ✅ PASS | `npx tsc --noEmit` — zero errors |
+| # | Gate | Result | Details |
+|---|---|---|---|
+| 1 | Global `ARG NPM_VERSION` present with Renovate comment | **PASS** | Line 30; `# renovate: datasource=npm depName=npm` at line 29 |
+| 2 | `ARG NPM_VERSION` bare re-declaration inside stage | **PASS** | Line 105 |
+| 3 | `# hadolint ignore=DL3017` on own line before RUN block | **PASS** | Line 106 |
+| 4 | RUN block — three correct commands | **PASS** | Lines 107–109: `apk upgrade --no-cache`, `npm install -g npm@${NPM_VERSION} --no-fund --no-audit`, `npm cache clean --force` |
+| 5 | `RUN npm ci` still present and follows new block | **PASS** | Line 111 |
+| 6 | FROM line unchanged | **PASS** | `node:24.14.0-alpine@sha256:7fddd9ddeae8196abf4a3ef2de34e11f7b1a722119f91f28ddf1e99dcafdf114` |
+| 7 | `${NPM_VERSION}` used (no hard-coded version) | **PASS** | Confirmed variable reference in install command |
+| 8 | Trivy config scan (HIGH/CRITICAL) | **PASS** | 0 misconfigurations |
+| 9 | Hadolint (new code area) | **PASS** | No errors or warnings; only pre-existing `info`-level DL3059 at unrelated lines |
+| 10 | Runtime image isolation | **PASS** | Only `/app/frontend/dist` artifacts copied into final image via line 535 |
+| 11 | `--no-audit` acceptability | **PASS** | Applies only to the single-package global npm upgrade; `npm ci` is unaffected |
+| 12 | `npm cache clean --force` safety | **PASS** | Safe cache clear between npm tool upgrade and dependency install |
 
 ---
 
-### 5. Local Patch Coverage Report
+## 1. Dockerfile Structural Verification
 
-| Scope | Patch Coverage | Status |
-|-------|---------------|--------|
-| Overall | 87.6% | Advisory (90% target) |
-| Backend | 87.2% | ✅ PASS (≥85%) |
-| Frontend | 88.6% | ✅ PASS (≥85%) |
+### Global ARG block (lines 25–40)
 
-Artifacts generated:
-- `test-results/local-patch-report.md`
-- `test-results/local-patch-report.json`
+```
+29: # renovate: datasource=npm depName=npm
+30: ARG NPM_VERSION=11.11.1
+```
 
-Files needing additional coverage (advisory, non-blocking):
-- `EncryptionManagement.tsx`
-- `Notifications.tsx`
-- `notification_provider_handler.go`
-- `notification_service.go`
-- `http_wrapper.go`
+Both the Renovate comment and the pinned ARG are present in the correct order. Renovate will track `npm` releases on `datasource=npm` and propose version bumps automatically.
 
----
+### frontend-builder stage (lines 93–115)
 
-### 6. Trivy Filesystem Scan
+```
+93:  FROM --platform=$BUILDPLATFORM node:24.14.0-alpine@sha256:... AS frontend-builder
+...
+105: ARG NPM_VERSION
+106: # hadolint ignore=DL3017
+107: RUN apk upgrade --no-cache && \
+108:     npm install -g npm@${NPM_VERSION} --no-fund --no-audit && \
+109:     npm cache clean --force
+...
+111: RUN npm ci
+```
 
-| Category | Count | Status |
-|----------|-------|--------|
-| Critical | 0 | ✅ |
-| High | 0 | ✅ |
-| Medium | 0 | ✅ |
-| Low | 0 | ✅ |
-| Secrets | 0 | ✅ |
-
-Command: `trivy fs --severity CRITICAL,HIGH,MEDIUM,LOW --scanners vuln,secret .`
+All structural requirements confirmed: bare re-declaration, lint suppression on dedicated line, three-command RUN, and unmodified `npm ci`.
 
 ---
 
-### 7. Docker Image Scan (Grype)
+## 2. Security Tool Results
 
-| Severity | Count | Status |
-|----------|-------|--------|
-| Critical | 0 | ✅ PASS |
-| High | 0 | ✅ PASS |
-| Medium | 12 | ℹ️ Non-blocking |
-| Low | 3 | ℹ️ Non-blocking |
+### Trivy config scan
 
-- **SBOM packages**: 1672
-- **Docker build**: All stages cached (no build changes)
-- All Medium/Low findings are in base image dependencies, not in application code
+**Command:** `docker run aquasec/trivy config Dockerfile --severity HIGH,CRITICAL`
 
----
+```
+Report Summary
+┌────────────┬────────────┬───────────────────┐
+│   Target   │    Type    │ Misconfigurations │
+├────────────┼────────────┼───────────────────┤
+│ Dockerfile │ dockerfile │         0         │
+└────────────┴────────────┴───────────────────┘
+```
 
-### 8. CodeQL Static Analysis
+No HIGH or CRITICAL misconfigurations detected.
 
-| Language | Errors | Warnings | Status |
-|----------|--------|----------|--------|
-| Go | 0 | 0 | ✅ PASS |
-| JavaScript/TypeScript | 0 | 0 | ✅ PASS |
+### Hadolint
 
-- JS/TS scan covered 354/354 files
-- 1 informational note: semicolon style in test file (non-blocking)
+**Command:** `docker run hadolint/hadolint < Dockerfile`
 
----
+Findings affecting the new code: **none**.
 
-## Additional Security Checks
+Pre-existing `info`-level findings (unrelated to this change):
 
-### GORM Security Scan
+| Line | Rule | Message |
+|---|---|---|
+| 78, 81, 137, 335, 338 | DL3059 info | Multiple consecutive RUN — pre-existing pattern |
+| 492 | SC2012 info | Use `find` instead of `ls` — unrelated |
 
-**Status**: Not applicable — no changes to `backend/internal/models/**`, GORM services, or migrations in this PR.
-
-### Gotify Token Exposure Review
-
-| Location | Status |
-|----------|--------|
-| Logs & test artifacts | ✅ Clean |
-| API examples & report output | ✅ Clean |
-| Screenshots | ✅ Clean |
-| Tokenized URL query strings | ✅ Clean |
+No errors or warnings in the `frontend-builder` section.
 
 ---
 
-## E2E Test Results (Pre-verified)
+## 3. Logical Security Review
 
-| Metric | Value |
-|--------|-------|
-| Total tests | 133 |
-| Passed | 131 |
-| Failed | 2 (pre-existing) |
+### Attack surface — build-only stage
 
-The 2 failures are pre-existing Firefox/WebKit authentication fixture issues unrelated to this feature. These were verified prior to this audit and were **not re-run** per instructions.
+The `frontend-builder` stage is strictly a build artifact producer. The final runtime image receives only compiled frontend assets via a single targeted `COPY`:
+
+```
+COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
+```
+
+The Alpine OS packages upgraded by `apk upgrade --no-cache`, the globally installed npm binary, and all `node_modules` are confined to the builder layer and never reach the runtime image. The CVE remediation has zero footprint in the deployed container.
+
+### `--no-audit` flag
+
+`--no-audit` suppresses npm audit output during `npm install -g npm@${NPM_VERSION}`. This applies only to the single-package global npm tool upgrade, not to the project dependency installation. `npm ci` on line 111 installs project dependencies from `package-lock.json` and is unaffected by this flag. Suppressing audit during a build-time tool upgrade is the standard pattern for avoiding advisory database noise that cannot be acted on during the image build.
+
+### `npm cache clean --force`
+
+Clears the npm package cache between the global npm upgrade and the `npm ci` run. This is safe: it ensures the freshly installed npm binary is used without stale cache entries left by the older npm version bundled in the base image. The `--force` flag suppresses npm's deprecation warning about manual cache cleaning; it does not alter the clean operation itself.
 
 ---
 
-## Risk Assessment
+## Blocking Issues
 
-| Risk Area | Assessment |
-|-----------|-----------|
-| Security vulnerabilities | **None** — all scans clean |
-| Regression risk | **Low** — changes are additive (aria-labels) and test fixes |
-| Test coverage gaps | **Low** — all coverage thresholds exceeded |
-| Token/secret leakage | **None** — all artifact scans clean |
+None.
 
----
-
-## Verdict
-
-**✅ PASS — All gates satisfied. Feature is ready to merge.**
-
-All 8 mandatory audit checks passed. No Critical or High severity security issues were identified. Code coverage exceeds minimum thresholds. The changes are well-scoped test remediation fixes and accessibility improvements with no architectural risk.
