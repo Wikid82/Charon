@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Pushover Notification Provider**: Send push notifications to your devices via the Pushover app
+  - Supports JSON templates (minimal, detailed, custom)
+  - Application API Token stored securely — never exposed in API responses
+  - User Key stored in the URL field, following the same pattern as Telegram
+  - Feature flag: `feature.notifications.service.pushover.enabled` (on by default)
+  - Emergency priority (2) is intentionally unsupported — deferred to a future release
+
 - **Slack Notification Provider**: Send alerts to Slack channels via Incoming Webhooks
   - Supports JSON templates (minimal, detailed, custom) with Slack's native `text` format
   - Webhook URL stored securely — never exposed in API responses

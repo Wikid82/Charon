@@ -16,7 +16,7 @@ vi.mock('react-i18next', () => ({
 }))
 
 vi.mock('../../api/notifications', () => ({
-  SUPPORTED_NOTIFICATION_PROVIDER_TYPES: ['discord', 'gotify', 'webhook', 'email', 'telegram', 'slack'],
+  SUPPORTED_NOTIFICATION_PROVIDER_TYPES: ['discord', 'gotify', 'webhook', 'email', 'telegram', 'slack', 'pushover'],
   getProviders: vi.fn(),
   createProvider: vi.fn(),
   updateProvider: vi.fn(),
@@ -148,8 +148,8 @@ describe('Notifications', () => {
     const typeSelect = screen.getByTestId('provider-type') as HTMLSelectElement
     const options = Array.from(typeSelect.options)
 
-    expect(options).toHaveLength(6)
-    expect(options.map((option) => option.value)).toEqual(['discord', 'gotify', 'webhook', 'email', 'telegram', 'slack'])
+    expect(options).toHaveLength(7)
+    expect(options.map((option) => option.value)).toEqual(['discord', 'gotify', 'webhook', 'email', 'telegram', 'slack', 'pushover'])
     expect(typeSelect.disabled).toBe(false)
   })
 
@@ -428,8 +428,8 @@ describe('Notifications', () => {
     const legacyProvider: NotificationProvider = {
       ...baseProvider,
       id: 'legacy-provider',
-      name: 'Legacy Pushover',
-      type: 'pushover',
+      name: 'Legacy SMS',
+      type: 'legacy_sms',
       enabled: false,
     }
 
@@ -668,5 +668,16 @@ describe('Notifications', () => {
     })
 
     expect(screen.queryByTestId('provider-url-error')).toBeNull()
+  })
+
+  it('renders pushover form with API Token field and User Key placeholder', async () => {
+    const user = userEvent.setup()
+    renderWithQueryClient(<Notifications />)
+
+    await user.click(await screen.findByTestId('add-provider-btn'))
+    await user.selectOptions(screen.getByTestId('provider-type'), 'pushover')
+
+    expect(screen.getByTestId('provider-gotify-token')).toBeInTheDocument()
+    expect(screen.getByTestId('provider-url')).toHaveAttribute('placeholder', 'notificationProviders.pushoverUserKeyPlaceholder')
   })
 })
