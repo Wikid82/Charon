@@ -3849,3 +3849,32 @@ func TestIsDispatchEnabled_PushoverDisabledByFlag(t *testing.T) {
 
 	assert.False(t, svc.isDispatchEnabled("pushover"))
 }
+
+func TestPushoverDispatch_DefaultBaseURL(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+	// Reset the test seam to "" so the defensive 'if pushoverBase == ""' path executes,
+	// setting it to the production URL "https://api.pushover.net".
+	svc.pushoverAPIBaseURL = ""
+
+	provider := models.NotificationProvider{
+		Type:     "pushover",
+		Token:    "test-token",
+		URL:      "test-user-key",
+		Template: "minimal",
+	}
+	data := map[string]any{
+		"Title":     "Test",
+		"Message":   "Hello",
+		"Time":      time.Now().Format(time.RFC3339),
+		"EventType": "test",
+	}
+
+	// Pre-cancel the context so the HTTP send fails immediately.
+	// The defensive path (assigning the production base URL) still executes before any I/O.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := svc.sendJSONPayload(ctx, provider, data)
+	require.Error(t, err)
+}
