@@ -26,6 +26,8 @@ ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0b
 ARG EXPR_LANG_VERSION=1.17.7
 # renovate: datasource=go depName=golang.org/x/net
 ARG XNET_VERSION=0.51.0
+# renovate: datasource=npm depName=npm
+ARG NPM_VERSION=11.11.1
 
 # Allow pinning Caddy version - Renovate will update this
 # Build the most recent Caddy 2.x release (keeps major pinned under v3).
@@ -100,6 +102,11 @@ ARG VERSION=dev
 ENV VITE_APP_VERSION=${VERSION}
 
 # Vite 8: Rolldown native bindings auto-resolved per platform via optionalDependencies
+ARG NPM_VERSION
+# hadolint ignore=DL3017
+RUN apk upgrade --no-cache && \
+    npm install -g npm@${NPM_VERSION} --no-fund --no-audit && \
+    npm cache clean --force
 
 RUN npm ci
 

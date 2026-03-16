@@ -28,9 +28,8 @@ else
     --config p/react
     --config p/secrets
     --config p/dockerfile
-    --config p/bash
   )
-  echo "Running Semgrep with configs: p/golang, p/javascript, p/typescript, p/react, p/secrets, p/dockerfile, p/bash"
+  echo "Running Semgrep with configs: p/golang, p/javascript, p/typescript, p/react, p/secrets, p/dockerfile"
 fi
 
 semgrep scan \

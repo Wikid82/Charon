@@ -1,27 +1,26 @@
-# QA Audit Report — Slack Sub-Test Fixes
+# QA Audit Report — Dockerfile npm CVE Remediation
 
-**Date:** 2026-03-15
-**Branch:** `feature/beta-release`
-**Commit:** `6e4294dc` — `fix: validate Slack webhook URL at provider create/update time`
-**Scope:** Two handler test files + service test + notification_service.go (Slack URL validation)
+**Date:** 2026-03-16
+**Scope:** `Dockerfile` — `frontend-builder` stage npm upgrade to address 6 HIGH CVEs in `node:24.14.0-alpine`
 **Reviewer:** QA Security Agent
 
 ---
 
-## Overall Verdict: PASS
+## Overall Verdict: APPROVED
 
-All quality and security gates pass. The two test-only fixes are safe, coverage is maintained above threshold, and no security regressions were introduced.
+All structural, linting, and security gates pass. The change is correctly scoped to the build-only `frontend-builder` stage and introduces no new attack surface in the final runtime image.
 
 ---
 
 ## Changes Under Review
 
-| File | Type | Description |
+| Element | Location | Description |
 |---|---|---|
-| `backend/internal/services/notification_service.go` | Production | Added `WithSlackURLValidator` option and Slack URL validation at create/update |
-| `backend/internal/services/notification_service_test.go` | Test | Added Slack sub-tests using `WithSlackURLValidator` bypass |
-| `backend/internal/api/handlers/notification_provider_discord_only_test.go` | Test | Added `token` field and `WithSlackURLValidator` to fix failing `slack` sub-test |
-| `backend/internal/api/handlers/notification_provider_blocker3_test.go` | Test | Added `token` field and `WithSlackURLValidator` to fix failing `slack` sub-test |
+| `ARG NPM_VERSION=11.11.1` | Line 30 (global ARG block) | Pinned npm version with Renovate comment |
+| `ARG NPM_VERSION` | Line 105 (frontend-builder) | Bare re-declaration to inherit global ARG into stage |
+| `# hadolint ignore=DL3017` | Line 106 | Lint suppression for intentional `apk upgrade` |
+| `RUN apk upgrade --no-cache && ...` | Lines 107–109 | Three-command RUN: OS patch + npm upgrade + cache clear |
+| `RUN npm ci` | Line 111 | Unchanged dependency install follows the new RUN block |
 
 ---
 
@@ -29,298 +28,107 @@ All quality and security gates pass. The two test-only fixes are safe, coverage 
 
 | # | Gate | Result | Details |
 |---|---|---|---|
-| 1 | Backend test suite — pass/fail | **PASS** | 0 failures across all packages |
-| 2 | Line coverage ≥87% | **PASS** | 88.2% line / 87.9% statement |
-| 3 | Patch coverage ≥90% (overall) | **PASS** | 95.1% on changed lines |
-| 4 | go vet | **PASS** | 0 issues |
-| 5 | golangci-lint (fast) | **PASS** | 0 issues |
-| 6 | Pre-commit hooks (lefthook) | **PASS** | All 6 hooks pass |
-| 7 | Trivy filesystem scan (Critical/High) | **PASS** | 0 findings |
-| 8 | GORM security scan (Critical/High) | **PASS** | 0 findings |
-| 9 | Security review of `WithSlackURLValidator` | **PASS** | Production defaults are safe; informational note only |
+| 1 | Global `ARG NPM_VERSION` present with Renovate comment | **PASS** | Line 30; `# renovate: datasource=npm depName=npm` at line 29 |
+| 2 | `ARG NPM_VERSION` bare re-declaration inside stage | **PASS** | Line 105 |
+| 3 | `# hadolint ignore=DL3017` on own line before RUN block | **PASS** | Line 106 |
+| 4 | RUN block — three correct commands | **PASS** | Lines 107–109: `apk upgrade --no-cache`, `npm install -g npm@${NPM_VERSION} --no-fund --no-audit`, `npm cache clean --force` |
+| 5 | `RUN npm ci` still present and follows new block | **PASS** | Line 111 |
+| 6 | FROM line unchanged | **PASS** | `node:24.14.0-alpine@sha256:7fddd9ddeae8196abf4a3ef2de34e11f7b1a722119f91f28ddf1e99dcafdf114` |
+| 7 | `${NPM_VERSION}` used (no hard-coded version) | **PASS** | Confirmed variable reference in install command |
+| 8 | Trivy config scan (HIGH/CRITICAL) | **PASS** | 0 misconfigurations |
+| 9 | Hadolint (new code area) | **PASS** | No errors or warnings; only pre-existing `info`-level DL3059 at unrelated lines |
+| 10 | Runtime image isolation | **PASS** | Only `/app/frontend/dist` artifacts copied into final image via line 535 |
+| 11 | `--no-audit` acceptability | **PASS** | Applies only to the single-package global npm upgrade; `npm ci` is unaffected |
+| 12 | `npm cache clean --force` safety | **PASS** | Safe cache clear between npm tool upgrade and dependency install |
 
 ---
 
-## 1. Backend Test Suite
+## 1. Dockerfile Structural Verification
 
-**Command:** `bash /projects/Charon/.github/skills/scripts/skill-runner.sh test-backend-coverage`
-
-| Metric | Result | Threshold |
-|---|---|---|
-| Test failures | **0** | 0 |
-| Statement coverage | **87.9%** | ≥87% |
-| Line coverage | **88.2%** | ≥87% |
-
-All packages returned `ok`. No `FAIL` entries. Selected package breakdown:
-
-| Package | Coverage |
-|---|---|
-| `internal/api/handlers` | 86.3% |
-| `internal/api/middleware` | 97.2% |
-| `internal/api/routes` | 89.5% |
-| `internal/caddy` | 96.8% |
-| `internal/cerberus` | 93.8% |
-| `internal/metrics` | 100.0% |
-| `internal/models` | 97.3% |
-| `internal/services` | included in global |
-
----
-
-## 2. Patch Coverage (Local Patch Report)
-
-**Command:** `bash /projects/Charon/scripts/local-patch-report.sh`
-
-| Scope | Changed Lines | Covered | Patch Coverage | Threshold |
-|---|---|---|---|---|
-| Overall | 81 | 77 | **95.1%** | ≥90% |
-| Backend | 75 | 71 | **94.7%** | ≥85% |
-| Frontend | 6 | 6 | **100.0%** | ≥85% |
-
-**4 uncovered changed lines** in `notification_service.go` at lines 477–478 and 481–482. These are error-handling branches for `json.Marshal` and `bytes.Buffer.Write` in Slack payload normalization — conditions requiring OOM-class failures and effectively unreachable in practice. Not a coverage concern.
-
----
-
-## 3. Pre-Commit Hooks
-
-**Commands:** `lefthook run pre-commit`; `go vet ./...`; `golangci-lint`
-
-| Hook | Result |
-|---|---|
-| `end-of-file-fixer` | PASS |
-| `trailing-whitespace` | PASS |
-| `check-yaml` | PASS |
-| `actionlint` | PASS |
-| `dockerfile-check` | PASS |
-| `shellcheck` | PASS |
-| `go vet ./...` (manual) | PASS — 0 issues |
-| `golangci-lint` v2.9.0 (manual) | PASS — 0 issues |
-
-Go and frontend hooks were skipped by lefthook (no staged files). Both were run manually and returned clean results.
-
----
-
-## 4. Trivy Filesystem Scan
-
-**Command:** `bash /projects/Charon/.github/skills/scripts/skill-runner.sh security-scan-trivy`
-
-Scanners: `vuln,secret`. Severity filter: `CRITICAL,HIGH,MEDIUM`.
-
-| Target | Type | Vulnerabilities | Secrets |
-|---|---|---|---|
-| `backend/go.mod` | gomod | **0** | — |
-| `frontend/package-lock.json` | npm | **0** | — |
-| `package-lock.json` | npm | **0** | — |
-| `playwright/.auth/user.json` | text | — | **0** |
-
-**Result: 0 findings.**
-
----
-
-## 5. GORM Security Scan
-
-**Command:** `bash /projects/Charon/.github/skills/scripts/skill-runner.sh security-scan-gorm`
-
-Scanned 41 Go files (2,253 lines).
-
-| Severity | Count |
-|---|---|
-| CRITICAL | **0** |
-| HIGH | **0** |
-| MEDIUM | **0** |
-| INFO | 2 (pre-existing, informational only) |
-
-**Result: 0 actionable issues.**
-
----
-
-## 6. Security Review: `WithSlackURLValidator`
-
-The new `WithSlackURLValidator` functional option exposes a test-injectable hook in `NotificationService`.
-
-| Concern | Assessment |
-|---|---|
-| SSRF via production bypass | **Not a risk.** `NewNotificationService` always defaults to `validateSlackWebhookURL`. The option must be explicitly passed at construction time. |
-| Allowlist strength | Regex `^https://hooks\.slack\.com/services/T[A-Za-z0-9_-]+/B[A-Za-z0-9_-]+/[A-Za-z0-9_-]+$` — pins to HTTPS, exact domain, and enforced path structure. Robust against SSRF. |
-| Test bypass scope | Only used in `*_test.go` files. Comment states: *"Intended for use in tests that need to bypass real URL validation without mutating shared state."* |
-| Exported from production package | **LOW / Informational.** The option is exported from `services` with no `//go:build test` build-tag guard. It could theoretically be called from production code, but there is no evidence of misuse and the default is safe. Consider adding a build-tag guard in a future cleanup pass if stricter separation is desired. |
-
----
-
-## 7. Scope Exclusions
-
-| Check | Excluded | Justification |
-|---|---|---|
-| E2E Playwright tests | Yes | No UI or routing changes |
-| CodeQL | Yes | No Go or JavaScript semantic changes |
-| Docker image scan | Yes | No Dockerfile changes |
-| Frontend unit coverage | N/A | Frontend patch coverage 100% |
-
-
----
-
-## Change Summary
-
-| File | Change | Line |
-|------|--------|------|
-| `scripts/cerberus_integration.sh` | Add `-e PORT=80` to `docker run ... mccutchen/go-httpbin` | L174 |
-| `scripts/waf_integration.sh` | Add `-e PORT=80` to `docker run ... mccutchen/go-httpbin` | L167 |
-| `scripts/rate_limit_integration.sh` | Add `-e PORT=80` to `docker run ... mccutchen/go-httpbin` | L187 |
-| `scripts/coraza_integration.sh` | Add `-e PORT=80` to `docker run ... mccutchen/go-httpbin` | L158 |
-| `scripts/crowdsec_startup_test.sh` | Replace `curl -sf` with `wget -qO -` in `docker exec` | L179 |
-| `scripts/diagnose-test-env.sh` | Replace `curl -sf` with `wget -qO /dev/null` in `docker exec` | L104 |
-
----
-
-## Gate Summary
-
-| # | Gate | Result | Details |
-|---|------|--------|---------|
-| 1 | Syntax Validation (`bash -n`) | **PASS** | All 6 scripts parse cleanly |
-| 2 | ShellCheck (error severity) | **PASS** | 0 errors; matches lefthook `--severity=error` |
-| 3 | ShellCheck (all severities) | **PASS** | No findings on any modified line; all findings pre-existing |
-| 4 | Pre-commit Hooks (lefthook) | **PASS** | All 6 hooks passed (shellcheck, actionlint, yaml, whitespace, eof, dockerfile) |
-| 5 | Verification: go-httpbin PORT | **PASS** | 4/4 `docker run` lines have `-e PORT=80` |
-| 6 | Verification: docker exec curl | **PASS** | 0 executed curl calls; 2 echo-only references (hints) |
-| 7 | Security Review | **PASS** | No secrets, credentials, injection vectors, or Gotify tokens |
-| 8 | Trivy Filesystem Scan | **PASS** | 0 secrets, 0 misconfigurations |
-
----
-
-## 1. Syntax Validation (`bash -n`)
-
-| Script | Result |
-|--------|--------|
-| `scripts/cerberus_integration.sh` | PASS |
-| `scripts/waf_integration.sh` | PASS |
-| `scripts/rate_limit_integration.sh` | PASS |
-| `scripts/coraza_integration.sh` | PASS |
-| `scripts/crowdsec_startup_test.sh` | PASS |
-| `scripts/diagnose-test-env.sh` | PASS |
-
----
-
-## 2. ShellCheck
-
-### At error severity (`--severity=error`, matching lefthook pre-commit)
-
-**Result: PASS** — Zero errors across all 6 scripts. Exit code 0.
-
-### At default severity (full informational audit)
-
-Exit code 1 (findings present, all `note` or `warning` severity).
-
-| Script | Findings | Severity | On Modified Lines? |
-|--------|----------|----------|--------------------|
-| `cerberus_integration.sh` | 2× SC2086 (unquoted variable) | note | No (L204, L219) |
-| `waf_integration.sh` | ~30× SC2317 (unreachable code in trap), 3× SC2086 | note | No |
-| `rate_limit_integration.sh` | 9× SC2086 | note | No |
-| `coraza_integration.sh` | 10× SC2086, 2× SC2034 (unused variable) | note/warning | No |
-| `crowdsec_startup_test.sh` | ~10× SC2317, 1× SC2086 | note | No |
-| `diagnose-test-env.sh` | 1× SC2034 (unused variable) | warning | No |
-
-**No ShellCheck findings on any of the 6 modified lines.** All findings are pre-existing.
-
----
-
-## 3. Pre-commit Hooks (lefthook)
-
-Ran `lefthook run pre-commit`:
-
-| Hook | Result | Duration |
-|------|--------|----------|
-| check-yaml | PASS | 1.93s |
-| actionlint | PASS | 4.36s |
-| end-of-file-fixer | PASS | 9.23s |
-| trailing-whitespace | PASS | 9.49s |
-| dockerfile-check | PASS | 10.41s |
-| shellcheck | PASS | 11.24s |
-
-Hooks for Go, TypeScript, and Semgrep correctly skipped (no matching files).
-
----
-
-## 4. Verification Greps
-
-### 4a. All `mccutchen/go-httpbin` `docker run` instances have `-e PORT=80`
+### Global ARG block (lines 25–40)
 
 ```
-scripts/cerberus_integration.sh:174:  docker run ... -e PORT=80 mccutchen/go-httpbin
-scripts/waf_integration.sh:167:       docker run ... -e PORT=80 mccutchen/go-httpbin
-scripts/rate_limit_integration.sh:187:docker run ... -e PORT=80 mccutchen/go-httpbin
-scripts/coraza_integration.sh:158:    docker run ... -e PORT=80 mccutchen/go-httpbin
+29: # renovate: datasource=npm depName=npm
+30: ARG NPM_VERSION=11.11.1
 ```
 
-Remaining `mccutchen/go-httpbin` matches are `docker pull` lines (no `-e PORT` needed).
+Both the Renovate comment and the pinned ARG are present in the correct order. Renovate will track `npm` releases on `datasource=npm` and propose version bumps automatically.
 
-**Result: PASS** — 4/4 confirmed.
+### frontend-builder stage (lines 93–115)
 
-### 4b. Zero executed `docker exec ... curl` calls
+```
+93:  FROM --platform=$BUILDPLATFORM node:24.14.0-alpine@sha256:... AS frontend-builder
+...
+105: ARG NPM_VERSION
+106: # hadolint ignore=DL3017
+107: RUN apk upgrade --no-cache && \
+108:     npm install -g npm@${NPM_VERSION} --no-fund --no-audit && \
+109:     npm cache clean --force
+...
+111: RUN npm ci
+```
 
-Only 2 matches found in `scripts/verify_crowdsec_app_config.sh` (L94–95) — both inside `echo` statements (user hint text, not executed). Confirmed by manual review.
-
-**Result: PASS** — 0 executed `docker exec ... curl` calls.
-
----
-
-## 5. Security Review
-
-| Check | Result | Notes |
-|-------|--------|-------|
-| Secrets/credentials in diff | PASS | `git diff | grep -iE "password\|secret\|key\|token\|credential\|auth"` — no matches |
-| Gotify tokens | PASS | `grep -rn "Gotify\|gotify\|token="` across all 6 scripts — no matches |
-| Injection vectors | PASS | `-e PORT=80` is a static literal; no user-controlled input flows into new code |
-| Command injection | PASS | `wget -qO` flags are hardcoded; no interpolated user input |
-| SSRF | N/A | URLs are internal container addresses (127.0.0.1, localhost) in CI-only scripts |
-| Sensitive data in logs | PASS | No new log/echo statements added |
-| URL query parameters | PASS | No tokenized URLs (e.g., `?token=...`) in changed or adjacent code |
+All structural requirements confirmed: bare re-declaration, lint suppression on dedicated line, three-command RUN, and unmodified `npm ci`.
 
 ---
 
-## 6. Trivy Filesystem Scan
+## 2. Security Tool Results
 
-Scanners: `secret,misconfig`. Severity filter: `CRITICAL,HIGH,MEDIUM`.
+### Trivy config scan
 
-| Target | Type | Secrets | Misconfigurations |
-|--------|------|---------|-------------------|
-| `backend/go.mod` | gomod | — | — |
-| `frontend/package-lock.json` | npm | — | — |
-| `package-lock.json` | npm | — | — |
-| `Dockerfile` | dockerfile | — | 0 |
-| `playwright/.auth/user.json` | text | 0 | — |
+**Command:** `docker run aquasec/trivy config Dockerfile --severity HIGH,CRITICAL`
 
-**Result: 0 findings. Exit code 0.**
+```
+Report Summary
+┌────────────┬────────────┬───────────────────┐
+│   Target   │    Type    │ Misconfigurations │
+├────────────┼────────────┼───────────────────┤
+│ Dockerfile │ dockerfile │         0         │
+└────────────┴────────────┴───────────────────┘
+```
 
----
+No HIGH or CRITICAL misconfigurations detected.
 
-## 7. Scope Exclusions
+### Hadolint
 
-| Check | Excluded? | Justification |
-|-------|-----------|---------------|
-| E2E Playwright tests | Yes | Scripts are CI-only; no UI changes |
-| Backend unit coverage | Yes | No Go code changes |
-| Frontend unit coverage | Yes | No TypeScript/React changes |
-| Docker image scan | Yes | No Dockerfile or image changes |
-| CodeQL | Yes | No Go or JavaScript changes |
-| GORM security scan | Yes | No model/database changes |
-| Local patch coverage report | Yes | No application code; scripts not coverage-tracked |
+**Command:** `docker run hadolint/hadolint < Dockerfile`
 
----
+Findings affecting the new code: **none**.
 
-## 8. Pre-existing Issues (Not Introduced by This Change)
+Pre-existing `info`-level findings (unrelated to this change):
 
-| Category | Count | Scripts Affected | Risk |
-|----------|-------|-----------------|------|
-| SC2086 (unquoted variables) | ~25 | All 6 | Low — CI-controlled variables |
-| SC2317 (unreachable code) | ~40 | waf, crowdsec | None — trap cleanup functions (ShellCheck false positive) |
-| SC2034 (unused variables) | 3 | coraza, diagnose | Low — may be planned for future use |
+| Line | Rule | Message |
+|---|---|---|
+| 78, 81, 137, 335, 338 | DL3059 info | Multiple consecutive RUN — pre-existing pattern |
+| 492 | SC2012 info | Use `find` instead of `ls` — unrelated |
+
+No errors or warnings in the `frontend-builder` section.
 
 ---
 
-## Remaining Validation (CI)
+## 3. Logical Security Review
 
-The integration scripts cannot be executed locally without a built `charon:local` image and Docker network. Full end-to-end validation will occur when the PR triggers CI:
+### Attack surface — build-only stage
 
-- `.github/workflows/cerberus-integration.yml`
-- `.github/workflows/waf-integration.yml`
-- `.github/workflows/rate-limit-integration.yml`
-- `.github/workflows/crowdsec-integration.yml`
+The `frontend-builder` stage is strictly a build artifact producer. The final runtime image receives only compiled frontend assets via a single targeted `COPY`:
+
+```
+COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
+```
+
+The Alpine OS packages upgraded by `apk upgrade --no-cache`, the globally installed npm binary, and all `node_modules` are confined to the builder layer and never reach the runtime image. The CVE remediation has zero footprint in the deployed container.
+
+### `--no-audit` flag
+
+`--no-audit` suppresses npm audit output during `npm install -g npm@${NPM_VERSION}`. This applies only to the single-package global npm tool upgrade, not to the project dependency installation. `npm ci` on line 111 installs project dependencies from `package-lock.json` and is unaffected by this flag. Suppressing audit during a build-time tool upgrade is the standard pattern for avoiding advisory database noise that cannot be acted on during the image build.
+
+### `npm cache clean --force`
+
+Clears the npm package cache between the global npm upgrade and the `npm ci` run. This is safe: it ensures the freshly installed npm binary is used without stale cache entries left by the older npm version bundled in the base image. The `--force` flag suppresses npm's deprecation warning about manual cache cleaning; it does not alter the clean operation itself.
+
+---
+
+## Blocking Issues
+
+None.
+
