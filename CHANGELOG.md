@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Slack Notification Provider**: Send alerts to Slack channels via Incoming Webhooks
+  - Supports JSON templates (minimal, detailed, custom) with Slack's native `text` format
+  - Webhook URL stored securely — never exposed in API responses
+  - Optional channel display name for easy identification in provider list
+  - Feature flag: `feature.notifications.service.slack.enabled` (on by default)
+  - See [Notification Guide](docs/features/notifications.md) for setup instructions
+
 ### CI/CD
 - **Supply Chain**: Optimized verification workflow to prevent redundant builds
   - Change: Removed direct Push/PR triggers; now waits for 'Docker Build' via `workflow_run`

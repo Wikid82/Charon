@@ -193,11 +193,12 @@ func TestSendJSONPayload_Slack(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	require.NoError(t, err)
 
-	svc := NewNotificationService(db, nil)
+	svc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
 
 	provider := models.NotificationProvider{
 		Type:     "slack",
-		URL:      server.URL,
+		URL:      "#test",
+		Token:    server.URL,
 		Template: "custom",
 		Config:   `{"text": {{toJSON .Message}}}`,
 	}

@@ -23,9 +23,11 @@ ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0b
 
 # ---- Shared Go Security Patches ----
 # renovate: datasource=go depName=github.com/expr-lang/expr
-ARG EXPR_LANG_VERSION=1.17.7
+ARG EXPR_LANG_VERSION=1.17.8
 # renovate: datasource=go depName=golang.org/x/net
-ARG XNET_VERSION=0.51.0
+ARG XNET_VERSION=0.52.0
+# renovate: datasource=npm depName=npm
+ARG NPM_VERSION=11.11.1
 
 # Allow pinning Caddy version - Renovate will update this
 # Build the most recent Caddy 2.x release (keeps major pinned under v3).
@@ -39,7 +41,7 @@ ARG CADDY_CANDIDATE_VERSION=2.11.2
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
-ARG CADDY_SECURITY_VERSION=1.1.45
+ARG CADDY_SECURITY_VERSION=1.1.48
 # renovate: datasource=go depName=github.com/corazawaf/coraza-caddy
 ARG CORAZA_CADDY_VERSION=2.2.0
 ## When an official caddy image tag isn't available on the host, use a
@@ -99,9 +101,12 @@ ARG VERSION=dev
 # Make version available to Vite as VITE_APP_VERSION during the frontend build
 ENV VITE_APP_VERSION=${VERSION}
 
-# Set environment to bypass native binary requirement for cross-arch builds
-ENV npm_config_rollup_skip_nodejs_native=1 \
-    ROLLUP_SKIP_NODEJS_NATIVE=1
+# Vite 8: Rolldown native bindings auto-resolved per platform via optionalDependencies
+ARG NPM_VERSION
+# hadolint ignore=DL3017
+RUN apk upgrade --no-cache && \
+    npm install -g npm@${NPM_VERSION} --no-fund --no-audit && \
+    npm cache clean --force
 
 RUN npm ci
 
@@ -410,11 +415,11 @@ WORKDIR /app
 # Install runtime dependencies for Charon, including bash for maintenance scripts
 # Note: gosu is now built from source (see gosu-builder stage) to avoid CVEs from Debian's pre-compiled version
 # Explicitly upgrade packages to fix security vulnerabilities
-# binutils provides objdump for debug symbol detection in docker-entrypoint.sh
 # hadolint ignore=DL3018
 RUN apk add --no-cache \
-    bash ca-certificates sqlite-libs sqlite tzdata curl gettext libcap libcap-utils \
-    c-ares binutils libc-utils busybox-extras
+    bash ca-certificates sqlite-libs sqlite tzdata gettext libcap libcap-utils \
+    c-ares busybox-extras \
+    && apk upgrade --no-cache zlib
 
 # Copy gosu binary from gosu-builder (built with Go 1.26+ to avoid stdlib CVEs)
 COPY --from=gosu-builder /gosu-out/gosu /usr/sbin/gosu
@@ -433,10 +438,11 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # In CI, timeout quickly rather than retrying to save build time
 ARG GEOLITE2_COUNTRY_SHA256=aa154fc6bcd712644de232a4abcdd07dac1f801308c0b6f93dbc2b375443da7b
 RUN mkdir -p /app/data/geoip && \
-        if [ -n "$CI" ]; then \
+        if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
-            if curl -fSL -m 10 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
-                -o /app/data/geoip/GeoLite2-Country.mmdb 2>/dev/null; then \
+            if wget -qO /app/data/geoip/GeoLite2-Country.mmdb \
+                -T 10 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" 2>/dev/null \
+                && [ -s /app/data/geoip/GeoLite2-Country.mmdb ]; then \
                 echo "✅ GeoIP downloaded"; \
             else \
                 echo "⚠️  GeoIP skipped"; \
@@ -444,9 +450,10 @@ RUN mkdir -p /app/data/geoip && \
             fi; \
         else \
             echo "Local - full download (30s timeout, 3 retries)"; \
-            if curl -fSL -m 30 --retry 3 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
-                -o /app/data/geoip/GeoLite2-Country.mmdb; then \
-                if echo "${GEOLITE2_COUNTRY_SHA256}  /app/data/geoip/GeoLite2-Country.mmdb" | sha256sum -c -; then \
+            if wget -qO /app/data/geoip/GeoLite2-Country.mmdb \
+                -T 30 -t 4 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb"; then \
+                if [ -s /app/data/geoip/GeoLite2-Country.mmdb ] && \
+                   echo "${GEOLITE2_COUNTRY_SHA256}  /app/data/geoip/GeoLite2-Country.mmdb" | sha256sum -c -; then \
                     echo "✅ GeoIP checksum verified"; \
                 else \
                     echo "⚠️  Checksum failed"; \
@@ -579,8 +586,8 @@ EXPOSE 80 443 443/udp 2019 8080
 
 # Security: Add healthcheck to monitor container health
 # Verifies the Charon API is responding correctly
-HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8080/api/v1/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD wget -q -O /dev/null http://localhost:8080/api/v1/health || exit 1
 
 # Create CrowdSec symlink as root before switching to non-root user
 # This symlink allows CrowdSec to use persistent storage at /app/data/crowdsec/config

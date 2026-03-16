@@ -18,7 +18,7 @@ vi.mock('react-hot-toast', () => ({
 }));
 
 // Mock ResizeObserver for any layout dependent components
-global.ResizeObserver = vi.fn().mockImplementation(() => ({
+globalThis.ResizeObserver = vi.fn().mockImplementation(() => ({
   observe: vi.fn(),
   unobserve: vi.fn(),
   disconnect: vi.fn(),

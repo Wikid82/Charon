@@ -516,14 +516,16 @@ func TestNotificationService_TestProvider_Errors(t *testing.T) {
 		assert.Error(t, err)
 	})
 
-	t.Run("slack type not supported", func(t *testing.T) {
+	t.Run("slack with missing webhook URL", func(t *testing.T) {
 		provider := models.NotificationProvider{
-			Type: "slack",
-			URL:  "https://hooks.slack.com/services/INVALID/WEBHOOK/URL",
+			Type:     "slack",
+			URL:      "#alerts",
+			Token:    "",
+			Template: "minimal",
 		}
 		err := svc.TestProvider(provider)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "unsupported provider type")
+		assert.Contains(t, err.Error(), "slack webhook URL is not configured")
 	})
 
 	t.Run("webhook success", func(t *testing.T) {
@@ -1451,17 +1453,14 @@ func TestSendJSONPayload_ServiceSpecificValidation(t *testing.T) {
 	})
 
 	t.Run("slack_requires_text_or_blocks", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer server.Close()
+		subSvc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
 
-		// Slack without text or blocks should fail
 		provider := models.NotificationProvider{
 			Type:     "slack",
-			URL:      server.URL,
+			URL:      "#test",
+			Token:    "https://hooks.slack.com/services/T00/B00/xxx",
 			Template: "custom",
-			Config:   `{"message": {{toJSON .Message}}}`, // Missing text/blocks
+			Config:   `{"username": "Charon"}`,
 		}
 		data := map[string]any{
 			"Title":     "Test",
@@ -1470,7 +1469,7 @@ func TestSendJSONPayload_ServiceSpecificValidation(t *testing.T) {
 			"EventType": "test",
 		}
 
-		err := svc.sendJSONPayload(context.Background(), provider, data)
+		err := subSvc.sendJSONPayload(context.Background(), provider, data)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "slack payload requires 'text' or 'blocks' field")
 	})
@@ -1480,10 +1479,12 @@ func TestSendJSONPayload_ServiceSpecificValidation(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 		defer server.Close()
+		subSvc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
 
 		provider := models.NotificationProvider{
 			Type:     "slack",
-			URL:      server.URL,
+			URL:      "#test",
+			Token:    server.URL,
 			Template: "custom",
 			Config:   `{"text": {{toJSON .Message}}}`,
 		}
@@ -1494,7 +1495,7 @@ func TestSendJSONPayload_ServiceSpecificValidation(t *testing.T) {
 			"EventType": "test",
 		}
 
-		err := svc.sendJSONPayload(context.Background(), provider, data)
+		err := subSvc.sendJSONPayload(context.Background(), provider, data)
 		require.NoError(t, err)
 	})
 
@@ -1503,10 +1504,12 @@ func TestSendJSONPayload_ServiceSpecificValidation(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 		defer server.Close()
+		subSvc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
 
 		provider := models.NotificationProvider{
 			Type:     "slack",
-			URL:      server.URL,
+			URL:      "#test",
+			Token:    server.URL,
 			Template: "custom",
 			Config:   `{"blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": {{toJSON .Message}}}}]}`,
 		}
@@ -1517,7 +1520,7 @@ func TestSendJSONPayload_ServiceSpecificValidation(t *testing.T) {
 			"EventType": "test",
 		}
 
-		err := svc.sendJSONPayload(context.Background(), provider, data)
+		err := subSvc.sendJSONPayload(context.Background(), provider, data)
 		require.NoError(t, err)
 	})
 
@@ -1826,7 +1829,6 @@ func TestTestProvider_NotifyOnlyRejectsUnsupportedProvider(t *testing.T) {
 		providerType string
 		url          string
 	}{
-		{"slack", "slack", "https://hooks.slack.com/services/T/B/X"},
 		{"pushover", "pushover", "pushover://token@user"},
 	}
 
@@ -3168,4 +3170,445 @@ func TestIsDispatchEnabled_TelegramDisabledByFlag(t *testing.T) {
 	// Explicitly disable telegram via feature flag
 	db.Create(&models.Setting{Key: "feature.notifications.service.telegram.enabled", Value: "false"})
 	assert.False(t, svc.isDispatchEnabled("telegram"))
+}
+
+// --- Slack Notification Provider Tests ---
+
+func TestSlackWebhookURLValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		{"valid_url", "https://hooks.slack.com/services/T00000000/B00000000/abcdefghijklmnop", false},
+		{"valid_url_with_dashes", "https://hooks.slack.com/services/T0-A_z/B0-A_z/abc-def_123", false},
+		{"http_scheme", "http://hooks.slack.com/services/T00000000/B00000000/abcdefghijklmnop", true},
+		{"wrong_host", "https://evil.com/services/T00000000/B00000000/abcdefghijklmnop", true},
+		{"ip_address", "https://192.168.1.1/services/T00000000/B00000000/abcdefghijklmnop", true},
+		{"missing_T_prefix", "https://hooks.slack.com/services/X00000000/B00000000/abcdefghijklmnop", true},
+		{"missing_B_prefix", "https://hooks.slack.com/services/T00000000/X00000000/abcdefghijklmnop", true},
+		{"query_params", "https://hooks.slack.com/services/T00000000/B00000000/abcdefghijklmnop?token=leak", true},
+		{"empty_string", "", true},
+		{"just_host", "https://hooks.slack.com", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateSlackWebhookURL(tt.url)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestSlackWebhookURLValidation_RejectsHTTP(t *testing.T) {
+	err := validateSlackWebhookURL("http://hooks.slack.com/services/T00000/B00000/token123")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid Slack webhook URL")
+}
+
+func TestSlackWebhookURLValidation_RejectsIPAddress(t *testing.T) {
+	err := validateSlackWebhookURL("https://192.168.1.1/services/T00000/B00000/token123")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid Slack webhook URL")
+}
+
+func TestSlackWebhookURLValidation_RejectsWrongHost(t *testing.T) {
+	err := validateSlackWebhookURL("https://evil.com/services/T00000/B00000/token123")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid Slack webhook URL")
+}
+
+func TestSlackWebhookURLValidation_RejectsQueryParams(t *testing.T) {
+	err := validateSlackWebhookURL("https://hooks.slack.com/services/T00000/B00000/token123?token=leak")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid Slack webhook URL")
+}
+
+func TestNotificationService_CreateProvider_Slack(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	provider := &models.NotificationProvider{
+		Name:  "Slack Alerts",
+		Type:  "slack",
+		URL:   "#alerts",
+		Token: "https://hooks.slack.com/services/T00000/B00000/xxxx",
+	}
+	err := svc.CreateProvider(provider)
+	require.NoError(t, err)
+
+	var saved models.NotificationProvider
+	require.NoError(t, db.Where("id = ?", provider.ID).First(&saved).Error)
+	assert.Equal(t, "https://hooks.slack.com/services/T00000/B00000/xxxx", saved.Token)
+	assert.Equal(t, "#alerts", saved.URL)
+	assert.Equal(t, "slack", saved.Type)
+}
+
+func TestNotificationService_CreateProvider_Slack_ClearsTokenField(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	provider := &models.NotificationProvider{
+		Name:  "Webhook Test",
+		Type:  "webhook",
+		URL:   "https://example.com/hook",
+		Token: "should-be-cleared",
+	}
+	err := svc.CreateProvider(provider)
+	require.NoError(t, err)
+
+	var saved models.NotificationProvider
+	require.NoError(t, db.Where("id = ?", provider.ID).First(&saved).Error)
+	assert.Empty(t, saved.Token)
+}
+
+func TestNotificationService_UpdateProvider_Slack_PreservesToken(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	existing := models.NotificationProvider{
+		ID:    "prov-slack-token",
+		Type:  "slack",
+		Name:  "Slack Alerts",
+		URL:   "#alerts",
+		Token: "https://hooks.slack.com/services/T00000/B00000/xxxx",
+	}
+	require.NoError(t, db.Create(&existing).Error)
+
+	update := models.NotificationProvider{
+		ID:    "prov-slack-token",
+		Type:  "slack",
+		Name:  "Slack Alerts Updated",
+		URL:   "#general",
+		Token: "",
+	}
+	err := svc.UpdateProvider(&update)
+	require.NoError(t, err)
+	assert.Equal(t, "https://hooks.slack.com/services/T00000/B00000/xxxx", update.Token)
+}
+
+func TestNotificationService_TestProvider_Slack(t *testing.T) {
+	db := setupNotificationTestDB(t)
+
+	var capturedBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	svc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
+
+	provider := models.NotificationProvider{
+		Type:     "slack",
+		URL:      "#test",
+		Token:    server.URL,
+		Template: "minimal",
+	}
+
+	err := svc.TestProvider(provider)
+	require.NoError(t, err)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(capturedBody, &payload))
+	assert.NotEmpty(t, payload["text"])
+}
+
+func TestNotificationService_SendExternal_Slack(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	_ = db.AutoMigrate(&models.Setting{})
+
+	received := make(chan []byte, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		received <- body
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	svc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
+
+	provider := models.NotificationProvider{
+		Name:             "Slack E2E",
+		Type:             "slack",
+		URL:              "#alerts",
+		Token:            server.URL,
+		Enabled:          true,
+		NotifyProxyHosts: true,
+		Template:         "minimal",
+	}
+	require.NoError(t, svc.CreateProvider(&provider))
+
+	svc.SendExternal(context.Background(), "proxy_host", "Title", "Message", nil)
+
+	select {
+	case body := <-received:
+		var payload map[string]any
+		require.NoError(t, json.Unmarshal(body, &payload))
+		assert.NotEmpty(t, payload["text"])
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timed out waiting for slack webhook")
+	}
+}
+
+func TestNotificationService_Slack_PayloadNormalizesMessageToText(t *testing.T) {
+	db := setupNotificationTestDB(t)
+
+	var capturedBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	svc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
+
+	provider := models.NotificationProvider{
+		Type:     "slack",
+		URL:      "#test",
+		Token:    server.URL,
+		Template: "custom",
+		Config:   `{"message": {{toJSON .Message}}}`,
+	}
+	data := map[string]any{
+		"Title":     "Test",
+		"Message":   "Normalize me",
+		"Time":      time.Now().Format(time.RFC3339),
+		"EventType": "test",
+	}
+
+	err := svc.sendJSONPayload(context.Background(), provider, data)
+	require.NoError(t, err)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(capturedBody, &payload))
+	assert.Equal(t, "Normalize me", payload["text"])
+}
+
+func TestNotificationService_Slack_PayloadRequiresTextOrBlocks(t *testing.T) {
+	db := setupNotificationTestDB(t)
+
+	svc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
+
+	provider := models.NotificationProvider{
+		Type:     "slack",
+		URL:      "#test",
+		Token:    "https://hooks.slack.com/services/T00/B00/xxx",
+		Template: "custom",
+		Config:   `{"title": {{toJSON .Title}}}`,
+	}
+	data := map[string]any{
+		"Title":     "Test",
+		"Message":   "Test Message",
+		"Time":      time.Now().Format(time.RFC3339),
+		"EventType": "test",
+	}
+
+	err := svc.sendJSONPayload(context.Background(), provider, data)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "slack payload requires 'text' or 'blocks' field")
+}
+
+func TestFlagSlackServiceEnabled_ConstantValue(t *testing.T) {
+	assert.Equal(t, "feature.notifications.service.slack.enabled", notifications.FlagSlackServiceEnabled)
+}
+
+func TestNotificationService_Slack_IsDispatchEnabled(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	_ = db.AutoMigrate(&models.Setting{})
+	svc := NewNotificationService(db, nil)
+
+	assert.True(t, svc.isDispatchEnabled("slack"))
+
+	db.Create(&models.Setting{Key: "feature.notifications.service.slack.enabled", Value: "false"})
+	assert.False(t, svc.isDispatchEnabled("slack"))
+}
+
+func TestNotificationService_Slack_TokenNotExposedInList(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	provider := &models.NotificationProvider{
+		Name:  "Slack Secret",
+		Type:  "slack",
+		URL:   "#secret",
+		Token: "https://hooks.slack.com/services/T00000/B00000/secrettoken",
+	}
+	require.NoError(t, svc.CreateProvider(provider))
+
+	providers, err := svc.ListProviders()
+	require.NoError(t, err)
+	require.Len(t, providers, 1)
+
+	providers[0].HasToken = providers[0].Token != ""
+	providers[0].Token = ""
+	assert.True(t, providers[0].HasToken)
+	assert.Empty(t, providers[0].Token)
+}
+
+func TestSendJSONPayload_Slack_EmptyWebhookURLReturnsError(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	provider := models.NotificationProvider{
+		Type:     "slack",
+		URL:      "#alerts",
+		Token:    "",
+		Template: "minimal",
+	}
+	data := map[string]any{
+		"Title":     "Test",
+		"Message":   "Should fail before dispatch",
+		"Time":      time.Now().Format(time.RFC3339),
+		"EventType": "test",
+	}
+
+	err := svc.sendJSONPayload(context.Background(), provider, data)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "slack webhook URL is not configured")
+}
+
+func TestSendJSONPayload_Slack_WhitespaceOnlyWebhookURLReturnsError(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	provider := models.NotificationProvider{
+		Type:     "slack",
+		URL:      "#alerts",
+		Token:    "   ",
+		Template: "minimal",
+	}
+	data := map[string]any{
+		"Title":     "Test",
+		"Message":   "Should fail before dispatch",
+		"Time":      time.Now().Format(time.RFC3339),
+		"EventType": "test",
+	}
+
+	err := svc.sendJSONPayload(context.Background(), provider, data)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "slack webhook URL is not configured")
+}
+
+func TestSendJSONPayload_Slack_InvalidWebhookURLReturnsValidationError(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	provider := models.NotificationProvider{
+		Type:     "slack",
+		URL:      "#alerts",
+		Token:    "https://evil.com/not-a-slack-webhook",
+		Template: "minimal",
+	}
+	data := map[string]any{
+		"Title":     "Test",
+		"Message":   "Should fail URL validation",
+		"Time":      time.Now().Format(time.RFC3339),
+		"EventType": "test",
+	}
+
+	err := svc.sendJSONPayload(context.Background(), provider, data)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid Slack webhook URL")
+}
+
+func TestCreateProvider_Slack_EmptyTokenRejected(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	provider := &models.NotificationProvider{
+		Name:  "Slack Missing Token",
+		Type:  "slack",
+		URL:   "#alerts",
+		Token: "",
+	}
+	err := svc.CreateProvider(provider)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "slack webhook URL is required")
+}
+
+func TestCreateProvider_Slack_WhitespaceOnlyTokenRejected(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	provider := &models.NotificationProvider{
+		Name:  "Slack Whitespace Token",
+		Type:  "slack",
+		URL:   "#alerts",
+		Token: "   ",
+	}
+	err := svc.CreateProvider(provider)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "slack webhook URL is required")
+}
+
+func TestCreateProvider_Slack_InvalidTokenRejected(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	provider := &models.NotificationProvider{
+		Name:  "Slack Bad Token",
+		Type:  "slack",
+		URL:   "#alerts",
+		Token: "https://evil.com/not-a-slack-webhook",
+	}
+	err := svc.CreateProvider(provider)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid Slack webhook URL")
+}
+
+func TestUpdateProvider_Slack_InvalidNewTokenRejected(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	existing := models.NotificationProvider{
+		ID:    "prov-slack-update-invalid",
+		Type:  "slack",
+		Name:  "Slack Alerts",
+		URL:   "#alerts",
+		Token: "https://hooks.slack.com/services/T00000/B00000/xxxx",
+	}
+	require.NoError(t, db.Create(&existing).Error)
+
+	update := models.NotificationProvider{
+		ID:    "prov-slack-update-invalid",
+		Type:  "slack",
+		Name:  "Slack Alerts",
+		URL:   "#alerts",
+		Token: "https://evil.com/not-a-slack-webhook",
+	}
+	err := svc.UpdateProvider(&update)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid Slack webhook URL")
+}
+
+func TestUpdateProvider_Slack_UnchangedTokenSkipsValidation(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	existing := models.NotificationProvider{
+		ID:    "prov-slack-update-unchanged",
+		Type:  "slack",
+		Name:  "Slack Alerts",
+		URL:   "#alerts",
+		Token: "https://hooks.slack.com/services/T00000/B00000/xxxx",
+	}
+	require.NoError(t, db.Create(&existing).Error)
+
+	// Submitting empty token causes fallback to existing — should not re-validate
+	update := models.NotificationProvider{
+		ID:    "prov-slack-update-unchanged",
+		Type:  "slack",
+		Name:  "Slack Alerts Renamed",
+		URL:   "#general",
+		Token: "",
+	}
+	err := svc.UpdateProvider(&update)
+	require.NoError(t, err)
 }

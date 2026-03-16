@@ -139,15 +139,15 @@ graph TB
 | Component | Technology | Version | Purpose |
 |-----------|-----------|---------|---------|
 | **Framework** | React | 19.2.3 | UI framework |
-| **Language** | TypeScript | 5.x | Type-safe JavaScript |
-| **Build Tool** | Vite | 6.1.9 | Fast bundler and dev server |
-| **CSS Framework** | Tailwind CSS | 3.x | Utility-first CSS |
+| **Language** | TypeScript | 6.x | Type-safe JavaScript |
+| **Build Tool** | Vite | 8.0.0-beta.18 | Fast bundler and dev server |
+| **CSS Framework** | Tailwind CSS | 4.2.1 | Utility-first CSS |
 | **Routing** | React Router | 7.x | Client-side routing |
 | **HTTP Client** | Fetch API | Native | API communication |
 | **State Management** | React Hooks + Context | Native | Global state |
 | **Internationalization** | i18next | Latest | 5 language support |
-| **Unit Testing** | Vitest | 2.x | Fast unit test runner |
-| **E2E Testing** | Playwright | 1.50.x | Browser automation |
+| **Unit Testing** | Vitest | 4.1.0-beta.6 | Fast unit test runner |
+| **E2E Testing** | Playwright | 1.58.2 | Browser automation |
 
 ### Infrastructure
 
@@ -218,7 +218,7 @@ graph TB
 │   │   └── main.tsx            # Application entry point
 │   ├── public/                 # Static assets
 │   ├── package.json            # NPM dependencies
-│   └── vite.config.js          # Vite configuration
+│   └── vite.config.ts          # Vite configuration
 │
 ├── .docker/                    # Docker configuration
 │   ├── compose/                # Docker Compose files
