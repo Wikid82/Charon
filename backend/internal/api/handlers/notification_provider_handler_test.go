@@ -668,3 +668,35 @@ func TestNotificationProviderHandler_List_TelegramNeverExposesBotToken(t *testin
 	_, hasTokenField := raw[0]["token"]
 	assert.False(t, hasTokenField, "raw token field must not appear in JSON response")
 }
+
+func TestNotificationProviderHandler_Test_TelegramTokenRejected(t *testing.T) {
+	r, _ := setupNotificationProviderTest(t)
+
+	payload := map[string]any{
+		"type":  "telegram",
+		"token": "bot123:TOKEN",
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers/test", bytes.NewBuffer(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "TOKEN_WRITE_ONLY")
+}
+
+func TestNotificationProviderHandler_Test_PushoverTokenRejected(t *testing.T) {
+	r, _ := setupNotificationProviderTest(t)
+
+	payload := map[string]any{
+		"type":  "pushover",
+		"token": "app-token-abc",
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers/test", bytes.NewBuffer(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "TOKEN_WRITE_ONLY")
+}
