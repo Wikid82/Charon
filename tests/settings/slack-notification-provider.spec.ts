@@ -109,7 +109,12 @@ test.describe('Slack Notification Provider', () => {
           if (request.method() === 'POST') {
             const payload = (await request.postDataJSON()) as Record<string, unknown>;
             capturedPayload = payload;
-            const created = { id: 'slack-provider-1', ...payload };
+            const { token, gotify_token, ...rest } = payload;
+            const created: Record<string, unknown> = {
+              id: 'slack-provider-1',
+              ...rest,
+              ...(token !== undefined || gotify_token !== undefined ? { has_token: true } : {}),
+            };
             createdProviders.push(created);
             await route.fulfill({
               status: 201,
