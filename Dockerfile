@@ -23,9 +23,9 @@ ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0b
 
 # ---- Shared Go Security Patches ----
 # renovate: datasource=go depName=github.com/expr-lang/expr
-ARG EXPR_LANG_VERSION=1.17.7
+ARG EXPR_LANG_VERSION=1.17.8
 # renovate: datasource=go depName=golang.org/x/net
-ARG XNET_VERSION=0.51.0
+ARG XNET_VERSION=0.52.0
 # renovate: datasource=npm depName=npm
 ARG NPM_VERSION=11.11.1
 
