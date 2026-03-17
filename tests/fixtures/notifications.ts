@@ -21,7 +21,8 @@ export type NotificationProviderType =
   | 'telegram'
   | 'generic'
   | 'webhook'
-  | 'email';
+  | 'email'
+  | 'pushover';
 
 /**
  * Notification provider configuration interface
@@ -165,6 +166,24 @@ export const telegramProvider: NotificationProviderConfig = {
   type: 'telegram',
   url: '987654321',
   token: 'bot123456789:ABCdefGHIjklMNOpqrSTUvwxYZ',
+  enabled: true,
+  notify_proxy_hosts: true,
+  notify_certs: true,
+  notify_uptime: true,
+};
+
+// ============================================================================
+// Pushover Provider Fixtures
+// ============================================================================
+
+/**
+ * Valid Pushover notification provider configuration
+ */
+export const pushoverProvider: NotificationProviderConfig = {
+  name: generateProviderName('pushover'),
+  type: 'pushover',
+  url: 'uQiRzpo4DXghDmr9QzzfQu27cmVRsG',
+  token: 'azGDORePK8gMaC0QOYAMyEEuzJnyUi',
   enabled: true,
   notify_proxy_hosts: true,
   notify_certs: true,

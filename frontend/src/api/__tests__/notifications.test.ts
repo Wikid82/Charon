@@ -53,7 +53,7 @@ describe('notifications api', () => {
     await testProvider({ id: '2', name: 'test', type: 'discord' })
     expect(client.post).toHaveBeenCalledWith('/notifications/providers/test', { id: '2', name: 'test', type: 'discord' })
 
-    await expect(createProvider({ name: 'x', type: 'pushover' })).rejects.toThrow('Unsupported notification provider type: pushover')
+    await expect(createProvider({ name: 'x', type: 'pagerduty' })).rejects.toThrow('Unsupported notification provider type: pagerduty')
     await expect(updateProvider('2', { name: 'updated', type: 'generic' })).rejects.toThrow('Unsupported notification provider type: generic')
     await testProvider({ id: '2', name: 'test', type: 'telegram' })
     expect(client.post).toHaveBeenCalledWith('/notifications/providers/test', { id: '2', name: 'test', type: 'telegram' })

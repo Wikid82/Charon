@@ -367,7 +367,7 @@ func TestDiscordOnly_ErrorCodes(t *testing.T) {
 			requestFunc: func(id string) (*http.Request, gin.Params) {
 				payload := map[string]interface{}{
 					"name": "Test",
-					"type": "pushover",
+					"type": "sms",
 					"url":  "https://example.com",
 				}
 				body, _ := json.Marshal(payload)
