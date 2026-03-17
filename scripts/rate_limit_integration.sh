@@ -170,7 +170,7 @@ for i in {1..30}; do
         echo "✓ Charon API is ready"
         break
     fi
-    if [ $i -eq 30 ]; then
+    if [ "$i" -eq 30 ]; then
         echo "✗ Charon API failed to start"
         exit 1
     fi
@@ -192,7 +192,7 @@ for i in {1..45}; do
         echo "✓ httpbin backend is ready"
         break
     fi
-    if [ $i -eq 45 ]; then
+    if [ "$i" -eq 45 ]; then
         echo "✗ httpbin backend failed to start"
         exit 1
     fi
@@ -212,7 +212,7 @@ curl -s -X POST -H "Content-Type: application/json" \
 
 LOGIN_STATUS=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" \
     -d '{"email":"ratelimit@example.local","password":"password123"}' \
-    -c ${TMP_COOKIE} \
+    -c "${TMP_COOKIE}" \
     http://localhost:8280/api/v1/auth/login | tail -n1)
 
 if [ "$LOGIN_STATUS" != "200" ]; then
@@ -240,7 +240,7 @@ EOF
 
 CREATE_RESP=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" \
     -d "${PROXY_HOST_PAYLOAD}" \
-    -b ${TMP_COOKIE} \
+    -b "${TMP_COOKIE}" \
     http://localhost:8280/api/v1/proxy-hosts)
 CREATE_STATUS=$(echo "$CREATE_RESP" | tail -n1)
 
@@ -278,7 +278,7 @@ for i in {1..20}; do
         echo "✓ Caddy admin API is ready"
         break
     fi
-    if [ $i -eq 20 ]; then
+    if [ "$i" -eq 20 ]; then
         echo "✗ Caddy admin API failed to become ready"
         exit 1
     fi
@@ -288,7 +288,7 @@ done
 
 SEC_CONFIG_RESP=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" \
     -d "${SEC_CFG_PAYLOAD}" \
-    -b ${TMP_COOKIE} \
+    -b "${TMP_COOKIE}" \
     http://localhost:8280/api/v1/security/config)
 SEC_CONFIG_STATUS=$(echo "$SEC_CONFIG_RESP" | tail -n1)
 SEC_CONFIG_BODY=$(echo "$SEC_CONFIG_RESP" | head -n-1)
@@ -313,7 +313,7 @@ if ! verify_rate_limit_config; then
     curl -s http://localhost:2119/config/ 2>/dev/null | head -200 || echo "Admin API not responding"
     echo ""
     echo "=== Security config from API ==="
-    curl -s -b ${TMP_COOKIE} http://localhost:8280/api/v1/security/config 2>/dev/null || echo "API not responding"
+    curl -s -b "${TMP_COOKIE}" http://localhost:8280/api/v1/security/config 2>/dev/null || echo "API not responding"
     exit 1
 fi
 
@@ -369,10 +369,10 @@ else
     echo "  ✗ Expected HTTP 429, got HTTP $BLOCKED_STATUS"
     echo ""
     echo "=== DEBUG: SecurityConfig from API ==="
-    curl -s -b ${TMP_COOKIE} http://localhost:8280/api/v1/security/config | jq .
+    curl -s -b "${TMP_COOKIE}" http://localhost:8280/api/v1/security/config | jq .
     echo ""
     echo "=== DEBUG: SecurityStatus from API ==="
-    curl -s -b ${TMP_COOKIE} http://localhost:8280/api/v1/security/status | jq .
+    curl -s -b "${TMP_COOKIE}" http://localhost:8280/api/v1/security/status | jq .
     echo ""
     echo "=== DEBUG: Caddy config (first proxy route handlers) ==="
     curl -s http://localhost:2119/config/ | jq '.apps.http.servers.charon_server.routes[0].handle // []'
@@ -427,12 +427,12 @@ echo ""
 
 # Remove test proxy host from database
 echo "Removing test proxy host from database..."
-INTEGRATION_UUID=$(curl -s -b ${TMP_COOKIE} http://localhost:8280/api/v1/proxy-hosts | \
+INTEGRATION_UUID=$(curl -s -b "${TMP_COOKIE}" http://localhost:8280/api/v1/proxy-hosts | \
     grep -o '"uuid":"[^"]*"[^}]*"domain_names":"'${TEST_DOMAIN}'"' | head -n1 | \
     grep -o '"uuid":"[^"]*"' | sed 's/"uuid":"\([^"]*\)"/\1/')
 
 if [ -n "$INTEGRATION_UUID" ]; then
-    curl -s -X DELETE -b ${TMP_COOKIE} \
+    curl -s -X DELETE -b "${TMP_COOKIE}" \
         "http://localhost:8280/api/v1/proxy-hosts/${INTEGRATION_UUID}?delete_uptime=true" >/dev/null
     echo "✓ Deleted test proxy host ${INTEGRATION_UUID}"
 fi
