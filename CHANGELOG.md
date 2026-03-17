@@ -45,6 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Prevents timeout errors in Firefox/WebKit caused by strict label matching
 
 ### Fixed
+- **CI: Rate Limit Integration Tests**: Hardened test script reliability — login now validates HTTP status, Caddy admin API readiness gated on `/config/` poll, security config failures are fatal with full diagnostics, and poll interval increased to 5s
+- **CI: Rate Limit Integration Tests**: Removed stale GeoIP database SHA256 checksum from Dockerfile non-CI path (hash was perpetually stale due to weekly upstream updates)
+- **CI: Rate Limit Integration Tests**: Fixed Caddy admin API debug dump URL to use canonical trailing slash in workflow
 - Fixed: Added robust validation and debug logging for Docker image tags to prevent invalid reference errors.
 - Fixed: Removed log masking for image references and added manifest validation to debug CI failures.
 - **Proxy Hosts**: Fixed ACL and Security Headers dropdown selections so create/edit saves now keep the selected values (including clearing to none) after submit and reload.

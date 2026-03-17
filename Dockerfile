@@ -451,16 +451,11 @@ RUN mkdir -p /app/data/geoip && \
         else \
             echo "Local - full download (30s timeout, 3 retries)"; \
             if wget -qO /app/data/geoip/GeoLite2-Country.mmdb \
-                -T 30 -t 4 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb"; then \
-                if [ -s /app/data/geoip/GeoLite2-Country.mmdb ] && \
-                   echo "${GEOLITE2_COUNTRY_SHA256}  /app/data/geoip/GeoLite2-Country.mmdb" | sha256sum -c -; then \
-                    echo "✅ GeoIP checksum verified"; \
-                else \
-                    echo "⚠️  Checksum failed"; \
-                    touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder; \
-                fi; \
+                -T 30 -t 4 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
+                && [ -s /app/data/geoip/GeoLite2-Country.mmdb ]; then \
+                echo "✅ GeoIP downloaded"; \
             else \
-                echo "⚠️  Download failed"; \
+                echo "⚠️  GeoIP download failed or empty — skipping"; \
                 touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder; \
             fi; \
         fi

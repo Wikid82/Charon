@@ -68,7 +68,7 @@ jobs:
 
             echo "### Caddy Admin Config (rate_limit handlers)"
             echo '```json'
-            curl -s http://localhost:2119/config 2>/dev/null | grep -A 20 '"handler":"rate_limit"' | head -30 || echo "Could not retrieve Caddy config"
+            curl -s http://localhost:2119/config/ 2>/dev/null | grep -A 20 '"handler":"rate_limit"' | head -30 || echo "Could not retrieve Caddy config"
             echo '```'
             echo ""
 
