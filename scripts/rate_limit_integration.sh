@@ -263,6 +263,7 @@ SEC_CFG_PAYLOAD=$(cat <<EOF
     "name": "default",
     "enabled": true,
     "rate_limit_mode": "enabled",
+    "rate_limit_enable": true,
     "rate_limit_requests": ${RATE_LIMIT_REQUESTS},
     "rate_limit_window_sec": ${RATE_LIMIT_WINDOW_SEC},
     "rate_limit_burst": ${RATE_LIMIT_BURST},

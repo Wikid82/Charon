@@ -150,6 +150,7 @@ func (s *SecurityService) Upsert(cfg *models.SecurityConfig) error {
 	existing.WAFParanoiaLevel = cfg.WAFParanoiaLevel
 	existing.WAFExclusions = cfg.WAFExclusions
 	existing.RateLimitEnable = cfg.RateLimitEnable
+	existing.RateLimitMode = cfg.RateLimitMode
 	existing.RateLimitBurst = cfg.RateLimitBurst
 	existing.RateLimitRequests = cfg.RateLimitRequests
 	existing.RateLimitWindowSec = cfg.RateLimitWindowSec
