@@ -18,6 +18,7 @@ Notifications can be triggered by various events:
 | **Discord** | ✅ Yes | ✅ Webhooks | ✅ Embeds |
 | **Slack** | ✅ Yes | ✅ Webhooks | ✅ Native Formatting |
 | **Gotify** | ✅ Yes | ✅ HTTP API | ✅ Priority + Extras |
+| **Pushover** | ✅ Yes | ✅ HTTP API | ✅ Priority + Sound |
 | **Custom Webhook** | ✅ Yes | ✅ HTTP API | ✅ Template-Controlled |
 | **Email** | ❌ No | ✅ SMTP | ✅ HTML Branded Templates |
 
@@ -213,6 +214,51 @@ Slack notifications send messages to a channel using an Incoming Webhook URL.
 - Use `\n` for line breaks
 - Use `•` for bullet points
 - Slack automatically linkifies URLs
+
+### Pushover
+
+Pushover delivers push notifications directly to your iOS, Android, or desktop devices.
+
+**Setup:**
+
+1. Create an account at [pushover.net](https://pushover.net) and install the Pushover app on your device
+2. From your Pushover dashboard, copy your **User Key**
+3. Create a new **Application/API Token** for Charon
+4. In Charon, go to **Settings** → **Notifications** and click **"Add Provider"**
+5. Select **Pushover** as the service type
+6. Enter your **Application API Token** in the token field
+7. Enter your **User Key** in the User Key field
+8. Configure notification triggers and save
+
+> **Security:** Your Application API Token is stored securely and is never exposed in API responses.
+
+#### Basic Message
+
+```json
+{
+  "title": "{{.Title}}",
+  "message": "{{.Message}}"
+}
+```
+
+#### Message with Priority
+
+```json
+{
+  "title": "{{.Title}}",
+  "message": "{{.Message}}",
+  "priority": 1
+}
+```
+
+**Pushover priority levels:**
+
+- `-2` - Lowest (no sound or vibration)
+- `-1` - Low (quiet)
+- `0` - Normal (default)
+- `1` - High (bypass quiet hours)
+
+> **Note:** Emergency priority (`2`) is not supported and will be rejected with a clear error.
 
 ## Planned Provider Expansion
 

@@ -182,7 +182,7 @@ func (h *NotificationProviderHandler) Create(c *gin.Context) {
 	}
 
 	providerType := strings.ToLower(strings.TrimSpace(req.Type))
-	if providerType != "discord" && providerType != "gotify" && providerType != "webhook" && providerType != "email" && providerType != "telegram" && providerType != "slack" {
+	if providerType != "discord" && providerType != "gotify" && providerType != "webhook" && providerType != "email" && providerType != "telegram" && providerType != "slack" && providerType != "pushover" {
 		respondSanitizedProviderError(c, http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE", "validation", "Unsupported notification provider type")
 		return
 	}
@@ -242,12 +242,12 @@ func (h *NotificationProviderHandler) Update(c *gin.Context) {
 	}
 
 	providerType := strings.ToLower(strings.TrimSpace(existing.Type))
-	if providerType != "discord" && providerType != "gotify" && providerType != "webhook" && providerType != "email" && providerType != "telegram" && providerType != "slack" {
+	if providerType != "discord" && providerType != "gotify" && providerType != "webhook" && providerType != "email" && providerType != "telegram" && providerType != "slack" && providerType != "pushover" {
 		respondSanitizedProviderError(c, http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE", "validation", "Unsupported notification provider type")
 		return
 	}
 
-	if (providerType == "gotify" || providerType == "telegram" || providerType == "slack") && strings.TrimSpace(req.Token) == "" {
+	if (providerType == "gotify" || providerType == "telegram" || providerType == "slack" || providerType == "pushover") && strings.TrimSpace(req.Token) == "" {
 		// Keep existing token if update payload omits token
 		req.Token = existing.Token
 	}
@@ -323,6 +323,16 @@ func (h *NotificationProviderHandler) Test(c *gin.Context) {
 
 	if providerType == "slack" && strings.TrimSpace(req.Token) != "" {
 		respondSanitizedProviderError(c, http.StatusBadRequest, "TOKEN_WRITE_ONLY", "validation", "Slack webhook URL is accepted only on provider create/update")
+		return
+	}
+
+	if providerType == "telegram" && strings.TrimSpace(req.Token) != "" {
+		respondSanitizedProviderError(c, http.StatusBadRequest, "TOKEN_WRITE_ONLY", "validation", "Telegram bot token is accepted only on provider create/update")
+		return
+	}
+
+	if providerType == "pushover" && strings.TrimSpace(req.Token) != "" {
+		respondSanitizedProviderError(c, http.StatusBadRequest, "TOKEN_WRITE_ONLY", "validation", "Pushover API token is accepted only on provider create/update")
 		return
 	}
 
