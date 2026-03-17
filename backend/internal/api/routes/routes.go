@@ -127,6 +127,13 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 	}
 
 	migrateViewerToPassthrough(db)
+
+	// Seed the default SecurityConfig row on every startup (idempotent).
+	// Missing on fresh installs causes GetStatus to return all-disabled zero values.
+	if _, err := models.SeedDefaultSecurityConfig(db); err != nil {
+		logger.Log().WithError(err).Warn("Failed to seed default SecurityConfig — continuing startup")
+	}
+
 	// Let's Encrypt certs are auto-managed by Caddy and should not be assigned via certificate_id
 	logger.Log().Info("Cleaning up invalid Let's Encrypt certificate associations...")
 	var hostsWithInvalidCerts []models.ProxyHost
