@@ -555,3 +555,592 @@ Same as Issue 6 — introduce `WithAllowRFC1918()` for admin-configured monitori
 5. **Issue 5:** TCP monitor creation succeeds with `host:port` format; i18n placeholder no longer includes misleading `tcp://` scheme; dynamic placeholder guides user
 6. **Issue 6:** HTTP monitors to private IPs succeed for admin-configured uptime monitors
 7. **Issue 7:** Uptime heartbeat messages do not contain "private IP blocked" errors for admin monitors
+
+---
+
+## PR-3 Implementation Plan
+
+**Title:** Allow RFC 1918 IPs for admin-configured uptime monitors (dual-layer SSRF fix)
+**Issues Resolved:** Issue 6 (CONFIRMED BUG) + Issue 7 (BY DESIGN / UX gap)
+**Status:** **APPROVED** (all blocking concerns resolved)
+**Dependencies:** None (independent of PR-1 and PR-2)
+
+---
+
+### Overview
+
+HTTP/HTTPS uptime monitors targeting LAN addresses permanently report "down" on fresh installs. The root cause is a dual-layer SSRF guard: **Layer 1** (`url_validator.go`) rejects private IPs during hostname resolution, and **Layer 2** (`safeclient.go`) re-checks every IP at TCP dial time to defeat DNS rebinding. Because both layers enforce `IsPrivateIP`, patching only one would produce a monitor that passes URL validation but is silently killed at dial time—the bug would appear fixed in logs but remain broken in practice.
+
+The fix threads a single `AllowRFC1918` signal through both layers, visible as the `WithAllowRFC1918()` functional option. It **only** unblocks the three RFC 1918 ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`). All other restricted ranges—cloud metadata (`169.254.0.0/16` including `169.254.169.254`), loopback (`127.0.0.0/8`, `::1`), IPv6 link-local (`fe80::/10`), IPv6 unique-local (`fc00::/7`), and all reserved blocks—remain fully blocked regardless of the option.
+
+**Authentication posture is verified:** Uptime monitor routes (`POST /uptime/monitors/:id/check`, etc.) live inside the `management` route group in `backend/internal/api/routes/routes.go`. That group is nested under `protected`, which enforces `authMiddleware` (JWT), and then applies `middleware.RequireManagementAccess()`. The RFC 1918 bypass is therefore **exclusively accessible to authenticated, management-tier users**—never to passthrough users or unauthenticated callers.
+
+---
+
+### A. File-by-File Change Plan
+
+---
+
+#### File 1: `backend/internal/network/safeclient.go`
+
+**Package:** `network`
+
+**Change 1 — Add RFC 1918 block set**
+
+Below the `privateBlocks` and `initOnce` declarations, introduce a parallel set of `sync.Once`-guarded CIDR blocks containing only the three RFC 1918 ranges. These are stored separately so the `IsRFC1918` check can remain a cheap, focused predicate without reopening the full `IsPrivateIP` logic.
+
+New package-level variables (insert after `initOnce sync.Once`):
+
+```go
+var (
+    rfc1918Blocks []*net.IPNet
+    rfc1918Once   sync.Once
+)
+
+var rfc1918CIDRs = []string{
+    "10.0.0.0/8",
+    "172.16.0.0/12",
+    "192.168.0.0/16",
+}
+```
+
+New init function (insert after `initPrivateBlocks`):
+
+```go
+func initRFC1918Blocks() {
+    rfc1918Once.Do(func() {
+        rfc1918Blocks = make([]*net.IPNet, 0, len(rfc1918CIDRs))
+        for _, cidr := range rfc1918CIDRs {
+            _, block, err := net.ParseCIDR(cidr)
+            if err != nil {
+                continue
+            }
+            rfc1918Blocks = append(rfc1918Blocks, block)
+        }
+    })
+}
+```
+
+**Change 2 — Add `IsRFC1918` exported predicate**
+
+Insert after the `IsPrivateIP` function. This function is exported so `url_validator.go` (in the `security` package) can call it via `network.IsRFC1918(ip)`, eliminating duplicated CIDR definitions.
+
+```go
+// IsRFC1918 reports whether ip falls within one of the three RFC 1918 private ranges:
+// 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16.
+//
+// Unlike IsPrivateIP, this function does NOT cover loopback, link-local, cloud metadata,
+// or any reserved ranges. Use it only to selectively unblock LAN addresses for
+// admin-configured features (e.g., uptime monitors) while preserving all other SSRF guards.
+func IsRFC1918(ip net.IP) bool {
+    if ip == nil {
+        return false
+    }
+    initRFC1918Blocks()
+    if ip4 := ip.To4(); ip4 != nil {
+        ip = ip4
+    }
+    for _, block := range rfc1918Blocks {
+        if block.Contains(ip) {
+            return true
+        }
+    }
+    return false
+}
+```
+
+**Change 3 — Add `AllowRFC1918` to `ClientOptions` struct**
+
+Insert after the `DialTimeout` field:
+
+```go
+// AllowRFC1918 permits connections to RFC 1918 private IP ranges:
+// 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16.
+//
+// SECURITY NOTE: Enable only for admin-configured features (e.g., uptime monitors).
+// All other restricted ranges (loopback, link-local, cloud metadata, reserved) remain
+// blocked regardless of this flag.
+AllowRFC1918 bool
+```
+
+`defaultOptions()` returns `AllowRFC1918: false` — no change needed there.
+
+**Change 4 — Add `WithAllowRFC1918` functional option**
+
+Insert after `WithDialTimeout`:
+
+```go
+// WithAllowRFC1918 permits connections to RFC 1918 private addresses.
+// Use exclusively for admin-configured outbound calls such as uptime monitors;
+// never for user-supplied URLs.
+func WithAllowRFC1918() Option {
+    return func(opts *ClientOptions) {
+        opts.AllowRFC1918 = true
+    }
+}
+```
+
+**Change 5 — Update `safeDialer` validation loop**
+
+Locate the loop inside `safeDialer` that reads:
+```go
+for _, ip := range ips {
+    if opts.AllowLocalhost && ip.IP.IsLoopback() {
+        continue
+    }
+    if IsPrivateIP(ip.IP) {
+        return nil, fmt.Errorf("connection to private IP blocked: %s resolved to %s", host, ip.IP)
+    }
+}
+```
+
+Replace with:
+```go
+for _, ip := range ips {
+    if opts.AllowLocalhost && ip.IP.IsLoopback() {
+        continue
+    }
+    // Admin-configured monitors may legitimately target LAN services.
+    // Allow RFC 1918 ranges only; all other restricted ranges (link-local,
+    // cloud metadata 169.254.169.254, loopback, reserved) remain blocked.
+    if opts.AllowRFC1918 && IsRFC1918(ip.IP) {
+        continue
+    }
+    if IsPrivateIP(ip.IP) {
+        return nil, fmt.Errorf("connection to private IP blocked: %s resolved to %s", host, ip.IP)
+    }
+}
+```
+
+**Change 6 — Update `safeDialer` IP selection loop**
+
+Locate the loop that selects `selectedIP`:
+```go
+for _, ip := range ips {
+    if opts.AllowLocalhost && ip.IP.IsLoopback() {
+        selectedIP = ip.IP
+        break
+    }
+    if !IsPrivateIP(ip.IP) {
+        selectedIP = ip.IP
+        break
+    }
+}
+```
+
+Replace with:
+```go
+for _, ip := range ips {
+    if opts.AllowLocalhost && ip.IP.IsLoopback() {
+        selectedIP = ip.IP
+        break
+    }
+    if opts.AllowRFC1918 && IsRFC1918(ip.IP) {
+        selectedIP = ip.IP
+        break
+    }
+    if !IsPrivateIP(ip.IP) {
+        selectedIP = ip.IP
+        break
+    }
+}
+```
+
+**Change 7 — `validateRedirectTarget` (removed from PR-3 scope)**
+
+`checkMonitor` passes `network.WithMaxRedirects(0)`. In `NewSafeHTTPClient`'s `CheckRedirect` handler, `MaxRedirects == 0` causes an immediate return via `http.ErrUseLastResponse` — meaning `validateRedirectTarget` is **never called** for any uptime monitor request. Adding RFC 1918 logic here would ship dead code with no test coverage.
+
+Instead, add the following TODO comment at the top of `validateRedirectTarget` in `safeclient.go`:
+
+```go
+// TODO: if MaxRedirects > 0 is ever added to uptime monitor checks, also pass
+// WithAllowRFC1918() into validateRedirectTarget so that redirect targets to
+// RFC 1918 addresses are permitted for admin-configured monitor call sites.
+```
+
+*No other functions in `safeclient.go` require changes.*
+
+---
+
+#### File 2: `backend/internal/security/url_validator.go`
+
+**Package:** `security`
+
+**Change 1 — Add `AllowRFC1918` field to `ValidationConfig`**
+
+Locate the `ValidationConfig` struct:
+```go
+type ValidationConfig struct {
+    AllowLocalhost  bool
+    AllowHTTP       bool
+    MaxRedirects    int
+    Timeout         time.Duration
+    BlockPrivateIPs bool
+}
+```
+
+Add the new field after `BlockPrivateIPs`:
+```go
+// AllowRFC1918 permits URLs that resolve to RFC 1918 private addresses.
+// Does not disable blocking of loopback, link-local, cloud metadata, or reserved ranges.
+AllowRFC1918 bool
+```
+
+**Change 2 — Add `WithAllowRFC1918` functional option**
+
+Insert after the `WithMaxRedirects` function:
+
+```go
+// WithAllowRFC1918 permits hostnames that resolve to RFC 1918 private IP ranges
+// (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16).
+//
+// SECURITY NOTE: Use only for admin-controlled call sites such as uptime monitors.
+// Cloud metadata (169.254.169.254), link-local, loopback, and all reserved ranges
+// are still blocked when this option is active.
+func WithAllowRFC1918() ValidationOption {
+    return func(c *ValidationConfig) { c.AllowRFC1918 = true }
+}
+```
+
+**`ValidateExternalURL` initializer** — ensure the default `ValidationConfig` sets `AllowRFC1918: false` explicitly. The current initialization block already defaults unlisted bools to `false`, so no line change is required here.
+
+**Change 3 — Update Phase 4 private IP blocking loop in `ValidateExternalURL`**
+
+This is the critical logic change. Locate the IPv4-mapped IPv6 check block and the `IsPrivateIP` call inside the `if config.BlockPrivateIPs` block:
+
+```go
+if config.BlockPrivateIPs {
+    for _, ip := range ips {
+        if ip.To4() != nil && ip.To16() != nil && isIPv4MappedIPv6(ip) {
+            ipv4 := ip.To4()
+            if network.IsPrivateIP(ipv4) {
+                return "", fmt.Errorf("connection to private ip addresses is blocked for security (detected IPv4-mapped IPv6: %s)", ip.String())
+            }
+        }
+
+        if network.IsPrivateIP(ip) {
+            sanitizedIP := sanitizeIPForError(ip.String())
+            if ip.String() == "169.254.169.254" {
+                return "", fmt.Errorf("access to cloud metadata endpoints is blocked for security (detected: %s)", sanitizedIP)
+            }
+            return "", fmt.Errorf("connection to private ip addresses is blocked for security (detected: %s)", sanitizedIP)
+        }
+    }
+}
+```
+
+Replace with:
+
+```go
+if config.BlockPrivateIPs {
+    for _, ip := range ips {
+        // Handle IPv4-mapped IPv6 form (::ffff:a.b.c.d) to prevent SSRF bypass.
+        if ip.To4() != nil && ip.To16() != nil && isIPv4MappedIPv6(ip) {
+            ipv4 := ip.To4()
+            // RFC 1918 bypass applies even in IPv4-mapped IPv6 form.
+            if config.AllowRFC1918 && network.IsRFC1918(ipv4) {
+                continue
+            }
+            if network.IsPrivateIP(ipv4) {
+                return "", fmt.Errorf("connection to private ip addresses is blocked for security (detected IPv4-mapped IPv6: %s)", ip.String())
+            }
+        }
+
+        // Admin-configured monitors may target LAN services; allow RFC 1918 only.
+        // Link-local (169.254.x.x), loopback, cloud metadata, and reserved ranges
+        // remain blocked unconditionally even when AllowRFC1918 is set.
+        if config.AllowRFC1918 && network.IsRFC1918(ip) {
+            continue
+        }
+
+        if network.IsPrivateIP(ip) {
+            sanitizedIP := sanitizeIPForError(ip.String())
+            if ip.String() == "169.254.169.254" {
+                return "", fmt.Errorf("access to cloud metadata endpoints is blocked for security (detected: %s)", sanitizedIP)
+            }
+            return "", fmt.Errorf("connection to private ip addresses is blocked for security (detected: %s)", sanitizedIP)
+        }
+    }
+}
+```
+
+*No other functions in `url_validator.go` require changes.*
+
+---
+
+#### File 3: `backend/internal/services/uptime_service.go`
+
+**Package:** `services`
+
+**Change 1 — `checkMonitor`: add `WithAllowRFC1918()` to URL validation**
+
+Locate the `security.ValidateExternalURL` call inside the `case "http", "https":` branch:
+
+```go
+validatedURL, err := security.ValidateExternalURL(
+    monitor.URL,
+    // Uptime monitors are an explicit admin-configured feature and commonly
+    // target loopback in local/dev setups (and in unit tests).
+    security.WithAllowLocalhost(),
+    security.WithAllowHTTP(),
+    security.WithTimeout(3*time.Second),
+)
+```
+
+Replace with:
+
+```go
+validatedURL, err := security.ValidateExternalURL(
+    monitor.URL,
+    // Uptime monitors are admin-configured; LAN targets are a legitimate use-case.
+    security.WithAllowLocalhost(),
+    security.WithAllowHTTP(),
+    // Allow RFC 1918 private ranges for LAN service monitoring. Cloud metadata
+    // (169.254.169.254), link-local, and loopback remain blocked.
+    security.WithAllowRFC1918(),
+    security.WithTimeout(3*time.Second),
+)
+```
+
+**Change 2 — `checkMonitor`: add `WithAllowRFC1918()` to HTTP client**
+
+Locate the `network.NewSafeHTTPClient` call immediately below the URL validation block:
+
+```go
+client := network.NewSafeHTTPClient(
+    network.WithTimeout(10*time.Second),
+    network.WithDialTimeout(5*time.Second),
+    // Explicit redirect policy per call site: disable.
+    network.WithMaxRedirects(0),
+    // Uptime monitors are an explicit admin-configured feature and commonly
+    // target loopback in local/dev setups (and in unit tests).
+    network.WithAllowLocalhost(),
+)
+```
+
+Replace with:
+
+```go
+client := network.NewSafeHTTPClient(
+    network.WithTimeout(10*time.Second),
+    network.WithDialTimeout(5*time.Second),
+    // Explicit redirect policy per call site: disable.
+    network.WithMaxRedirects(0),
+    // Uptime monitors are admin-configured; LAN targets are a legitimate use-case.
+    network.WithAllowLocalhost(),
+    // Must mirror the WithAllowRFC1918() passed to ValidateExternalURL above.
+    // Both the URL validator (DNS resolution) and the safe dialer (TCP connect)
+    // enforce SSRF rules independently; both must be relaxed or the fix is partial.
+    network.WithAllowRFC1918(),
+)
+```
+
+**Change 3 — `checkMonitor`: annotate the TCP bypass**
+
+Locate the TCP case:
+
+```go
+case "tcp":
+    conn, err := net.DialTimeout("tcp", monitor.URL, 10*time.Second)
+```
+
+Add a comment above the dial line:
+
+```go
+case "tcp":
+    // TCP monitors use net.DialTimeout directly, bypassing the URL validator and
+    // safe dialer entirely. This is a deliberate design choice: TCP monitors accept
+    // only admin-configured host:port strings (no URL parsing, no redirects, no DNS
+    // rebinding surface), so the SSRF attack vector is minimal. If SSRF validation
+    // is ever added to TCP monitors, it must also receive WithAllowRFC1918() so that
+    // LAN services continue to be reachable.
+    conn, err := net.DialTimeout("tcp", monitor.URL, 10*time.Second)
+```
+
+*No other functions in `uptime_service.go` require changes.*
+
+---
+
+### B. Option Pattern Design
+
+The implementation uses two parallel functional-option systems that must be kept in sync at the call site. They share identical semantics but live in different packages for separation of concerns.
+
+#### `ValidationConfig` and `ValidationOption` (in `security` package)
+
+The existing struct gains one field:
+
+```go
+type ValidationConfig struct {
+    AllowLocalhost  bool
+    AllowHTTP       bool
+    MaxRedirects    int
+    Timeout         time.Duration
+    BlockPrivateIPs bool
+    AllowRFC1918    bool  // NEW: permits 10/8, 172.16/12, 192.168/16
+}
+```
+
+New option constructor:
+
+```go
+func WithAllowRFC1918() ValidationOption {
+    return func(c *ValidationConfig) { c.AllowRFC1918 = true }
+}
+```
+
+#### `ClientOptions` and `Option` (in `network` package)
+
+The existing struct gains one field:
+
+```go
+type ClientOptions struct {
+    Timeout        time.Duration
+    AllowLocalhost bool
+    AllowedDomains []string
+    MaxRedirects   int
+    DialTimeout    time.Duration
+    AllowRFC1918   bool  // NEW: permits 10/8, 172.16/12, 192.168/16
+}
+```
+
+New option constructor and new exported predicate:
+
+```go
+func WithAllowRFC1918() Option {
+    return func(opts *ClientOptions) { opts.AllowRFC1918 = true }
+}
+
+func IsRFC1918(ip net.IP) bool { /* see File 1, Change 2 above */ }
+```
+
+#### Coordination in `uptime_service.go`
+
+The two options are always activated together. The ordering at the call site makes this explicit:
+
+```go
+security.ValidateExternalURL(
+    monitor.URL,
+    security.WithAllowLocalhost(),
+    security.WithAllowHTTP(),
+    security.WithAllowRFC1918(),   // ← Layer 1 relaxed
+    security.WithTimeout(3*time.Second),
+)
+
+network.NewSafeHTTPClient(
+    network.WithTimeout(10*time.Second),
+    network.WithDialTimeout(5*time.Second),
+    network.WithMaxRedirects(0),
+    network.WithAllowLocalhost(),
+    network.WithAllowRFC1918(),    // ← Layer 2 relaxed (must mirror Layer 1)
+)
+```
+
+**Invariant:** Any future call site that enables `WithAllowRFC1918()` at Layer 1 MUST also enable it at Layer 2 (and vice-versa), or the fix will only partially work. The comments at the call site in `uptime_service.go` make this constraint explicit.
+
+---
+
+### C. Test Plan
+
+All test changes are additive — no existing tests are modified.
+
+#### `backend/internal/network/safeclient_test.go`
+
+| # | Test Function | Scenario | Expected Result |
+|---|--------------|----------|-----------------|
+| 1 | `TestIsRFC1918_RFC1918Addresses` | Table-driven: `10.0.0.1`, `10.255.255.255`, `172.16.0.1`, `172.31.255.255`, `192.168.0.1`, `192.168.255.255` | `IsRFC1918` returns `true` for all |
+| 2 | `TestIsRFC1918_NonRFC1918Addresses` | Table-driven: `169.254.169.254`, `127.0.0.1`, `::1`, `8.8.8.8`, `0.0.0.1`, `240.0.0.1`, `fe80::1`, `fc00::1` | `IsRFC1918` returns `false` for all |
+| 3 | `TestIsRFC1918_NilIP` | `nil` IP | Returns `false` (nil is not RFC 1918; `IsPrivateIP` handles nil → block) |
+| 4 | `TestIsRFC1918_BoundaryAddresses` | `172.15.255.255` (just outside range), `172.32.0.0` (just outside), `192.167.255.255` (just outside), `192.169.0.0` (just outside) | `IsRFC1918` returns `false` for all |
+| 5 | `TestSafeDialer_AllowRFC1918_ValidationLoopSkipsRFC1918` | `ClientOptions{AllowRFC1918: true, DialTimeout: 1s}` (no `AllowLocalhost`), call `safeDialer` against a host that resolves to `192.168.1.1`; the TCP connect will fail (nothing listening), but the returned error must NOT contain `"connection to private IP blocked"` — absence of that string confirms the RFC 1918 bypass path was taken. White-box test in `package network` (`safeclient_test.go`). | Error does not contain `"connection to private IP blocked"`; confirms `if opts.AllowRFC1918 && IsRFC1918(ip.IP) { continue }` was executed. |
+| 6 | `TestSafeDialer_AllowRFC1918_BlocksLinkLocal` | `ClientOptions{AllowRFC1918: true, DialTimeout: 1s}`, dial to `169.254.169.254:80` | Returns error containing "private IP blocked" |
+| 7 | `TestSafeDialer_AllowRFC1918_BlocksLoopbackWithoutAllowLocalhost` | `ClientOptions{AllowRFC1918: true, AllowLocalhost: false, DialTimeout: 1s}`, dial to `127.0.0.1:80` | Returns error; loopback not covered by AllowRFC1918 |
+| 8 | `TestNewSafeHTTPClient_AllowRFC1918_BlocksSSRFMetadata` | Create client with `WithAllowRFC1918()`, attempt GET to `http://169.254.169.254/` | Error; cloud metadata endpoint not accessible |
+| 9 | `TestNewSafeHTTPClient_WithAllowRFC1918_OptionApplied` | Create client with `WithAllowRFC1918()`, verify `ClientOptions.AllowRFC1918` is `true` | Structural test — option propagates to config |
+| 10 | `TestIsRFC1918_IPv4MappedAddresses` | Table-driven: `IsRFC1918(net.ParseIP("::ffff:192.168.1.1"))` → `true`; `IsRFC1918(net.ParseIP("::ffff:169.254.169.254"))` → `false`. White-box test in `package network` (`safeclient_test.go`). | `true` for IPv4-mapped RFC 1918; `false` for IPv4-mapped link-local/non-RFC-1918. Validates `To4()` normalization in `IsRFC1918`. |
+
+**Implementation note for tests 5–9:** Test 5 (`TestSafeDialer_AllowRFC1918_ValidationLoopSkipsRFC1918`) dials a host resolving to `192.168.1.1` with no `AllowLocalhost`; the expected outcome is that the error does NOT match `"connection to private IP blocked"` (a TCP connection-refused error from nothing listening is acceptable — it means the validation loop passed the IP). For tests 6–9, real TCP connections to RFC 1918 addresses are unavailable in the CI environment. Those tests should use `httptest.NewServer` (which binds to loopback) combined with `AllowLocalhost: true` and `AllowRFC1918: true` to verify no *validation* error occurs. For tests that must confirm a block (e.g., `169.254.169.254`), the dialer is called directly with a short `DialTimeout` — the expected error is the SSRF block error, not a connection-refused error.
+
+#### `backend/internal/security/url_validator_test.go`
+
+| # | Test Function | Scenario | Expected Result |
+|---|--------------|----------|-----------------|
+| 11 | `TestValidateExternalURL_WithAllowRFC1918_Permits10x` | `http://10.0.0.1` with `WithAllowHTTP()` + `WithAllowRFC1918()` | Passes URL validation phase (may fail DNS in test env — accept `dns resolution failed` as OK since that means validation passed) |
+| 12 | `TestValidateExternalURL_WithAllowRFC1918_Permits172_16x` | `http://172.16.0.1` with `WithAllowHTTP()` + `WithAllowRFC1918()` | Same as above |
+| 13 | `TestValidateExternalURL_WithAllowRFC1918_Permits192_168x` | `http://192.168.1.100` with `WithAllowHTTP()` + `WithAllowRFC1918()` | Same as above |
+| 14 | `TestValidateExternalURL_WithAllowRFC1918_BlocksMetadata` | `http://169.254.169.254` with `WithAllowHTTP()` + `WithAllowRFC1918()` | Returns error containing `"cloud metadata endpoints is blocked"` |
+| 15 | `TestValidateExternalURL_WithAllowRFC1918_BlocksLinkLocal` | `http://169.254.10.1` with `WithAllowHTTP()` + `WithAllowRFC1918()` | Returns error containing `"private ip addresses is blocked"` |
+| 16 | `TestValidateExternalURL_WithAllowRFC1918_BlocksLoopback` | `http://127.0.0.1` with `WithAllowHTTP()` + `WithAllowRFC1918()` (no `WithAllowLocalhost`) | Returns error; loopback not covered |
+| 17 | `TestValidateExternalURL_RFC1918BlockedByDefault` | `http://192.168.1.1` with `WithAllowHTTP()` only (no RFC 1918 option) | Returns error containing `"private ip addresses is blocked"` — regression guard |
+| 18 | `TestValidateExternalURL_WithAllowRFC1918_IPv4MappedIPv6Allowed` | `http://[::ffff:192.168.1.1]` with `WithAllowHTTP()` + `WithAllowRFC1918()` | Permit (RFC 1918 bypass applies to IPv4-mapped form too) |
+| 19 | `TestValidateExternalURL_WithAllowRFC1918_IPv4MappedMetadataBlocked` | `http://[::ffff:169.254.169.254]` with `WithAllowHTTP()` + `WithAllowRFC1918()` | Blocked; cloud metadata remains rejected in mapped form |
+
+**Implementation note for tests 11–13:** `ValidateExternalURL` calls `net.Resolver.LookupIP` on literal IP strings. In Go, `LookupIP` on a literal IP (e.g., `"192.168.1.1"`) returns that IP immediately without a real DNS query. So tests 11–13 should succeed at validation and return either a normalized URL (success) or a DNS timeout error if the test environment's resolver behaves unexpectedly. Both outcomes are acceptable; the important invariant is that the returned error must NOT contain `"private ip addresses is blocked"`.
+
+#### `backend/internal/services/uptime_service_test.go`
+
+| # | Test Function | Scenario | Expected Result |
+|---|--------------|----------|-----------------|
+| 20 | `TestCheckMonitor_HTTP_LocalhostSucceedsWithPrivateIPBypass` | Start an `httptest.NewServer` on loopback, create HTTP monitor pointing to its URL, call `checkMonitor` — verifies that `WithAllowLocalhost` + `WithAllowRFC1918` together produce a "up" result | Monitor status `"up"`, heartbeat message `"HTTP 200"` |
+| 21 | `TestCheckMonitor_TCP_AcceptsRFC1918Address` | TCP monitor with `host:port` format pointing to a server listening on `127.0.0.1`, call `checkMonitor` | Success (TCP uses `net.DialTimeout`, no SSRF layer to relax) |
+
+---
+
+### D. Security Review Checklist
+
+Every item below is a security property that the implementation must satisfy. Each entry names the property, which code enforces it, and how to verify it.
+
+| # | Property | Enforced By | Verification Method |
+|---|----------|-------------|---------------------|
+| 1 | **Cloud metadata remains blocked.** `169.254.169.254` (AWS/GCP/Azure metadata service) is never reachable, even with `AllowRFC1918` active. | `IsRFC1918` returns `false` for `169.254.x.x` (link-local, not RFC 1918). Both `ValidateExternalURL` and `safeDialer` will still call `IsPrivateIP` which blocks `169.254.0.0/16`. | Test 8 + Test 14. |
+| 2 | **Full link-local range blocked.** Not just `169.254.169.254` but the entire `169.254.0.0/16` range is blocked. | Same as #1. `IsPrivateIP` covers `169.254.0.0/16`. `IsRFC1918` excludes this range. | Test 6 + Test 15. |
+| 3 | **Loopback does not gain blanket bypass.** `127.0.0.0/8` and `::1` are not unblocked by `AllowRFC1918`. Only `AllowLocalhost` can bypass loopback, and it is not added unexpectedly. | `IsRFC1918` only covers the three RFC 1918 ranges. Loopback is handled independently by `AllowLocalhost`. | Test 7 + Test 16. |
+| 4 | **IPv6 unique-local and link-local remain blocked.** `fc00::/7` and `fe80::/10` are not unblocked. RFC 1918 is IPv4-only. | `IsRFC1918` converts to IPv4 via `To4()`; it returns `false` for all IPv6 addresses. | Test 2 (`fe80::1`, `fc00::1` in `TestIsRFC1918_NonRFC1918Addresses`). |
+| 5 | **Reserved ranges remain blocked.** `0.0.0.0/8`, `240.0.0.0/4`, `255.255.255.255/32` are not unblocked. | Same as above — not in `rfc1918CIDRs`. | Test 2 (`0.0.0.1`, `240.0.0.1` in `TestIsRFC1918_NonRFC1918Addresses`). |
+| 6 | **RFC 1918 bypass is bounded precisely.** Addresses just outside the three RFC 1918 ranges (e.g., `172.15.255.255`, `172.32.0.0`) are not treated as RFC 1918. | `net.ParseCIDR` + `block.Contains` provide exact CIDR boundary enforcement. | Test 4 (`TestIsRFC1918_BoundaryAddresses`). |
+| 7 | **IPv4-mapped IPv6 addresses are handled.** `::ffff:192.168.1.1` is permitted with `AllowRFC1918`; `::ffff:169.254.169.254` is not. | `IsRFC1918` normalizes to IPv4 via `To4()` before CIDR check. The URL validator's IPv4-mapped branch also checks `IsRFC1918` before `IsPrivateIP`. Unit-level coverage provided by Test 10 (`TestIsRFC1918_IPv4MappedAddresses`). | Test 10 + Test 18 + Test 19. |
+| 8 | **Option is not accessible to unauthenticated users.** The uptime monitor check routes are behind `authMiddleware` + `middleware.RequireManagementAccess()`. | `routes.go` nests uptime routes inside `management` group which is `protected.Group("/")` with `RequireManagementAccess()`. | Code review of `backend/internal/api/routes/routes.go` (confirmed: `management.POST("/uptime/monitors/:id/check", ...)` at line 461). |
+| 9 | **Option is not applied to user-facing URL validation.** Webhook URLs, notification URLs, and other user-supplied inputs use `ValidateExternalURL` without `WithAllowRFC1918()`. | `WithAllowRFC1918()` is only added in `checkMonitor` in `uptime_service.go`. No other `ValidateExternalURL` call site is modified. | Grep all `ValidateExternalURL` call sites; verify only `uptime_service.go` carries `WithAllowRFC1918()`. |
+| 10 | **Both layers are consistently relaxed.** If `WithAllowRFC1918()` is at Layer 1 (URL validator), it is also at Layer 2 (safe dialer). Partial bypass is not possible. | Comment in `uptime_service.go` creates a code-review anchor. | Cross-reference Layer 1 and Layer 2 call sites in `checkMonitor`. |
+| 11 | **DNS rebinding is still defeated.** The safe dialer re-resolves the hostname at connect time and re-applies the same RFC 1918 policy. A hostname that resolves to a public IP during validation cannot be swapped for a private non-RFC-1918 IP at connect time. | `safeDialer` validates ALL resolved IPs against the same logic as the URL validator. `IsPrivateIP` is still called for non-RFC-1918 addresses. | Existing `TestSafeDialer_BlocksPrivateIPs` remains unchanged and continues to pass. |
+| 12 | **`IsRFC1918(nil)` returns `false`, not `true`.** `IsPrivateIP(nil)` returns `true` (block-by-default safety). `IsRFC1918(nil)` should return `false` because `nil` is not an RFC 1918 address — it would fall through to `IsPrivateIP` which handles the nil case. | Early nil check in `IsRFC1918`: `if ip == nil { return false }`. | Test 3 (`TestIsRFC1918_NilIP`). |
+| 13 | **`CheckMonitor` exported wrapper propagates the fix automatically.** The exported `CheckMonitor` method delegates directly to the unexported `checkMonitor`. All RFC 1918 option changes applied inside `checkMonitor` take effect for both entry points without separate configuration. | `uptime_service.go`: `CheckMonitor` calls `checkMonitor` without re-creating the HTTP client or invoking `ValidateExternalURL` independently. | Code review: verify `CheckMonitor` does not construct its own HTTP client or URL validation path outside of `checkMonitor`. |
+| 14 | **Coordination invariant is comment-enforced; integration test can assert the contract.** The requirement that Layer 1 (`WithAllowRFC1918()` in `ValidateExternalURL`) and Layer 2 (`WithAllowRFC1918()` in `NewSafeHTTPClient`) are always relaxed together is documented via the inline comment at the `NewSafeHTTPClient` call site in `checkMonitor`. Partial bypass — relaxing only one layer — is not possible silently because the code-review anchor makes the intent explicit. A `TestCheckMonitor` integration test (Test 20) can additionally assert the "up" outcome to confirm both layers cooperate. | Comment in `uptime_service.go`: "Must mirror the `WithAllowRFC1918()` passed to `ValidateExternalURL` above." | Cross-reference both `WithAllowRFC1918()` call sites in `checkMonitor`; any future call site adding only one of the two options is a mis-use detectable at code review. |
+
+---
+
+### E. Commit Message
+
+```
+fix(uptime): allow RFC 1918 IPs for admin-configured monitors
+
+HTTP/HTTPS uptime monitors targeting LAN addresses (e.g., 192.168.x.x,
+10.x.x.x, 172.16.x.x) permanently reported "down" on fresh installs.
+The SSRF protection layer silently blocked private IPs at two independent
+checkpoints — URL validation and TCP dial time — causing monitors that
+pointed to self-hosted LAN services to always fail.
+
+Introduce WithAllowRFC1918() as a functional option in both the
+url_validator (security package) and NewSafeHTTPClient / safeDialer
+(network package). A new IsRFC1918() exported predicate in the network
+package covers exactly the three RFC 1918 ranges without touching the
+broader IsPrivateIP logic.
+
+Apply WithAllowRFC1918() exclusively in checkMonitor() (uptime_service.go)
+for the http/https case. Both layers are relaxed in concert; relaxing only
+one produces a partial fix where URL validation passes but the TCP dialer
+still blocks the connection.
+
+Security properties preserved:
+- 169.254.169.254 and the full 169.254.0.0/16 link-local range remain
+  blocked unconditionally (not RFC 1918)
+- Loopback (127.0.0.0/8, ::1) is not affected by this option
+- IPv6 unique-local (fc00::/7) and link-local (fe80::/10) remain blocked
+- Reserved ranges (0.0.0.0/8, 240.0.0.0/4, broadcast) remain blocked
+- The bypass is only reachable by authenticated management-tier users
+- No user-facing URL validation call site is modified
+
+Add an explanatory comment at the TCP net.DialTimeout call site in
+checkMonitor documenting the deliberate SSRF bypass for TCP monitors.
+
+Fixes issues 6 and 7 from the fresh-install bug report.
+```

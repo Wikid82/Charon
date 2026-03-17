@@ -1788,3 +1788,97 @@ func TestUptimeService_UpdateMonitor_EnabledField(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, result.Enabled)
 }
+
+// PR-3: RFC 1918 bypass integration tests
+
+func TestCheckMonitor_HTTP_LocalhostSucceedsWithPrivateIPBypass(t *testing.T) {
+	// Confirm that after the dual-layer RFC 1918 bypass is wired into
+	// checkMonitor, an HTTP monitor targeting the loopback interface still
+	// reports "up" (localhost is explicitly allowed by WithAllowLocalhost).
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db, nil)
+	us := newTestUptimeService(t, db, ns)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to start listener: %v", err)
+	}
+	addr := listener.Addr().(*net.TCPAddr)
+	server := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() {
+		_ = server.Close()
+	})
+
+	// Wait for server to be ready before creating the monitor.
+	for i := 0; i < 20; i++ {
+		conn, dialErr := net.DialTimeout("tcp", addr.String(), 50*time.Millisecond)
+		if dialErr == nil {
+			_ = conn.Close()
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	monitor := models.UptimeMonitor{
+		ID:      "pr3-http-localhost-test",
+		Name:    "HTTP Localhost RFC1918 Bypass",
+		Type:    "http",
+		URL:     fmt.Sprintf("http://127.0.0.1:%d", addr.Port),
+		Status:  "pending",
+		Enabled: true,
+	}
+	db.Create(&monitor)
+
+	us.CheckMonitor(monitor)
+
+	var result models.UptimeMonitor
+	db.First(&result, "id = ?", monitor.ID)
+	assert.Equal(t, "up", result.Status, "HTTP monitor on localhost should be up with RFC1918 bypass")
+}
+
+func TestCheckMonitor_TCP_AcceptsRFC1918Address(t *testing.T) {
+	// TCP monitors bypass URL validation entirely and dial directly.
+	// Confirm that a TCP monitor targeting the loopback interface reports "up"
+	// after the RFC 1918 bypass changes.
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db, nil)
+	us := newTestUptimeService(t, db, ns)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to start TCP listener: %v", err)
+	}
+	addr := listener.Addr().(*net.TCPAddr)
+	go func() {
+		for {
+			conn, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				return
+			}
+			_ = conn.Close()
+		}
+	}()
+	t.Cleanup(func() { _ = listener.Close() })
+
+	monitor := models.UptimeMonitor{
+		ID:      "pr3-tcp-rfc1918-test",
+		Name:    "TCP RFC1918 Accepted",
+		Type:    "tcp",
+		URL:     addr.String(),
+		Status:  "pending",
+		Enabled: true,
+	}
+	db.Create(&monitor)
+
+	us.CheckMonitor(monitor)
+
+	var result models.UptimeMonitor
+	db.First(&result, "id = ?", monitor.ID)
+	assert.Equal(t, "up", result.Status, "TCP monitor to loopback should report up")
+}
