@@ -59,6 +59,18 @@ func TestSeedDefaultSecurityConfig_Idempotent(t *testing.T) {
 	assert.Equal(t, int64(1), count, "exactly one row should exist after two seed calls")
 }
 
+func TestSeedDefaultSecurityConfig_DBError(t *testing.T) {
+	db := newSeedTestDB(t)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	rec, err := models.SeedDefaultSecurityConfig(db)
+	assert.Error(t, err)
+	assert.Nil(t, rec)
+}
+
 func TestSeedDefaultSecurityConfig_DoesNotOverwriteExisting(t *testing.T) {
 	db := newSeedTestDB(t)
 
