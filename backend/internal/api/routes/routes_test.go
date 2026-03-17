@@ -1322,3 +1322,29 @@ func TestMigrateViewerToPassthrough(t *testing.T) {
 	require.NoError(t, db.First(&updated, viewer.ID).Error)
 	assert.Equal(t, models.RolePassthrough, updated.Role)
 }
+
+func TestRegister_CleansLetsEncryptCertAssignments(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_lecleaner"), &gorm.Config{})
+	require.NoError(t, err)
+
+	// Pre-migrate just the two tables needed to seed test data before Register runs.
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
+
+	cert := models.SSLCertificate{Provider: "letsencrypt"}
+	require.NoError(t, db.Create(&cert).Error)
+
+	certID := cert.ID
+	host := models.ProxyHost{DomainNames: "test.example.com", CertificateID: &certID}
+	require.NoError(t, db.Create(&host).Error)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	err = Register(router, db, cfg)
+	require.NoError(t, err)
+
+	var reloaded models.ProxyHost
+	require.NoError(t, db.First(&reloaded, host.ID).Error)
+	assert.Nil(t, reloaded.CertificateID, "letsencrypt cert assignment must be cleared")
+}
