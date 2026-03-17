@@ -460,7 +460,8 @@ func TestSettingsHandler_UpdateSetting_EmptyValueAccepted(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var setting models.Setting
-	db.Where("key = ?", "some.setting").First(&setting)
+	require.NoError(t, db.Where("key = ?", "some.setting").First(&setting).Error)
+	assert.Equal(t, "some.setting", setting.Key)
 	assert.Equal(t, "", setting.Value)
 }
 
