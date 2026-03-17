@@ -1,8 +1,9 @@
-# QA Audit Report — Dockerfile npm CVE Remediation
+# QA Audit Report — PR-1: Allow Empty Value in UpdateSetting
 
-**Date:** 2026-03-16
-**Scope:** `Dockerfile` — `frontend-builder` stage npm upgrade to address 6 HIGH CVEs in `node:24.14.0-alpine`
-**Reviewer:** QA Security Agent
+**Date:** 2026-03-17
+**Scope:** Remove `binding:"required"` from `Value` field in `UpdateSettingRequest`
+**File:** `backend/internal/api/handlers/settings_handler.go`
+**Purpose:** Allow admins to set a setting to an empty string value (required to fix the fresh-install CrowdSec enabling bug where `value` was legitimately empty).
 
 ---
 

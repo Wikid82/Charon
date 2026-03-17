@@ -438,6 +438,54 @@ func TestSettingsHandler_UpdateSetting_InvalidAdminWhitelist(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "Invalid admin_whitelist")
 }
 
+func TestSettingsHandler_UpdateSetting_EmptyValueAccepted(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.POST("/settings", handler.UpdateSetting)
+
+	payload := map[string]string{
+		"key":   "some.setting",
+		"value": "",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/settings", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var setting models.Setting
+	db.Where("key = ?", "some.setting").First(&setting)
+	assert.Equal(t, "", setting.Value)
+}
+
+func TestSettingsHandler_UpdateSetting_MissingKeyRejected(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.POST("/settings", handler.UpdateSetting)
+
+	payload := map[string]string{
+		"value": "some-value",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/settings", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "Key")
+}
+
 func TestSettingsHandler_UpdateSetting_InvalidKeepaliveIdle(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
@@ -744,13 +792,24 @@ func TestSettingsHandler_Errors(t *testing.T) {
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	// Missing Key/Value
+	// Value omitted — allowed since binding:"required" was removed; empty string is a valid value
 	payload := map[string]string{
 		"key": "some_key",
-		// value missing
+		// value intentionally absent; defaults to empty string
 	}
 	body, _ := json.Marshal(payload)
 	req, _ = http.NewRequest("POST", "/settings", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// Missing key — key is still binding:"required" so this must return 400
+	payloadNoKey := map[string]string{
+		"value": "some_value",
+	}
+	bodyNoKey, _ := json.Marshal(payloadNoKey)
+	req, _ = http.NewRequest("POST", "/settings", bytes.NewBuffer(bodyNoKey))
 	req.Header.Set("Content-Type", "application/json")
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
