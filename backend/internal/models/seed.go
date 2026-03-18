@@ -10,15 +10,15 @@ import (
 // overwritten.  Returns the upserted record and any error encountered.
 func SeedDefaultSecurityConfig(db *gorm.DB) (*SecurityConfig, error) {
 	record := SecurityConfig{
-		UUID:               uuid.NewString(),
-		Name:               "default",
-		Enabled:            false,
-		CrowdSecMode:       "disabled",
-		CrowdSecAPIURL:     "http://127.0.0.1:8085",
-		WAFMode:            "disabled",
-		WAFParanoiaLevel:   1,
-		RateLimitMode:   "disabled",
-		RateLimitEnable: false,
+		UUID:             uuid.NewString(),
+		Name:             "default",
+		Enabled:          false,
+		CrowdSecMode:     "disabled",
+		CrowdSecAPIURL:   "http://127.0.0.1:8085",
+		WAFMode:          "disabled",
+		WAFParanoiaLevel: 1,
+		RateLimitMode:    "disabled",
+		RateLimitEnable:  false,
 		// Zero values are intentional for the disabled default state.
 		// cerberus.RateLimitMiddleware guards against zero/negative values by falling
 		// back to safe operational defaults (requests=100, window=60s, burst=20) before
