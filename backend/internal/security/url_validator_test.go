@@ -1059,42 +1059,51 @@ func TestIsIPv4MappedIPv6_EdgeCases(t *testing.T) {
 
 func TestValidateExternalURL_WithAllowRFC1918_Permits10x(t *testing.T) {
 	t.Parallel()
-	_, err := ValidateExternalURL(
+	// Literal IPs are resolved by Go's net.Resolver without a DNS query, so the
+	// result is deterministic — err must be nil when AllowRFC1918 is active.
+	got, err := ValidateExternalURL(
 		"http://10.0.0.1",
 		WithAllowHTTP(),
 		WithAllowRFC1918(),
 		WithTimeout(200*time.Millisecond),
 	)
-	// The key invariant: RFC 1918 bypass must NOT produce the blocking error.
-	// DNS may succeed (returning the IP) or fail (network unavailable) — both acceptable.
-	if err != nil && strings.Contains(err.Error(), "private ip addresses is blocked") {
-		t.Errorf("AllowRFC1918 should skip 10.x.x.x blocking; got: %v", err)
+	if err != nil {
+		t.Fatalf("AllowRFC1918 should permit 10.x.x.x; got: %v", err)
+	}
+	if got != "http://10.0.0.1" {
+		t.Errorf("expected normalized URL %q, got %q", "http://10.0.0.1", got)
 	}
 }
 
 func TestValidateExternalURL_WithAllowRFC1918_Permits172_16x(t *testing.T) {
 	t.Parallel()
-	_, err := ValidateExternalURL(
+	got, err := ValidateExternalURL(
 		"http://172.16.0.1",
 		WithAllowHTTP(),
 		WithAllowRFC1918(),
 		WithTimeout(200*time.Millisecond),
 	)
-	if err != nil && strings.Contains(err.Error(), "private ip addresses is blocked") {
-		t.Errorf("AllowRFC1918 should skip 172.16.x.x blocking; got: %v", err)
+	if err != nil {
+		t.Fatalf("AllowRFC1918 should permit 172.16.x.x; got: %v", err)
+	}
+	if got != "http://172.16.0.1" {
+		t.Errorf("expected normalized URL %q, got %q", "http://172.16.0.1", got)
 	}
 }
 
 func TestValidateExternalURL_WithAllowRFC1918_Permits192_168x(t *testing.T) {
 	t.Parallel()
-	_, err := ValidateExternalURL(
+	got, err := ValidateExternalURL(
 		"http://192.168.1.1",
 		WithAllowHTTP(),
 		WithAllowRFC1918(),
 		WithTimeout(200*time.Millisecond),
 	)
-	if err != nil && strings.Contains(err.Error(), "private ip addresses is blocked") {
-		t.Errorf("AllowRFC1918 should skip 192.168.x.x blocking; got: %v", err)
+	if err != nil {
+		t.Fatalf("AllowRFC1918 should permit 192.168.x.x; got: %v", err)
+	}
+	if got != "http://192.168.1.1" {
+		t.Errorf("expected normalized URL %q, got %q", "http://192.168.1.1", got)
 	}
 }
 
@@ -1162,14 +1171,18 @@ func TestValidateExternalURL_WithAllowRFC1918_IPv4MappedIPv6Allowed(t *testing.T
 	t.Parallel()
 	// ::ffff:192.168.1.1 is an IPv4-mapped IPv6 of an RFC 1918 address.
 	// With AllowRFC1918, the mapped IPv4 is extracted and the RFC 1918 bypass fires.
-	_, err := ValidateExternalURL(
+	// A literal bracketed IPv6 address is also resolved without a DNS query.
+	got, err := ValidateExternalURL(
 		"http://[::ffff:192.168.1.1]",
 		WithAllowHTTP(),
 		WithAllowRFC1918(),
 		WithTimeout(200*time.Millisecond),
 	)
-	if err != nil && strings.Contains(err.Error(), "private ip addresses is blocked") {
-		t.Errorf("AllowRFC1918 should permit ::ffff:192.168.1.1; got: %v", err)
+	if err != nil {
+		t.Fatalf("AllowRFC1918 should permit ::ffff:192.168.1.1; got: %v", err)
+	}
+	if got != "http://[::ffff:192.168.1.1]" {
+		t.Errorf("expected normalized URL %q, got %q", "http://[::ffff:192.168.1.1]", got)
 	}
 }
 
