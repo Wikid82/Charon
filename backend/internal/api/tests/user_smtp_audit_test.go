@@ -120,9 +120,13 @@ func TestInviteToken_MustBeUnguessable(t *testing.T) {
 	// Token MUST be at least 32 bytes (64 hex chars = 256 bits of entropy)
 	require.GreaterOrEqual(t, len(token), 64, "invite token must be at least 64 hex chars (256 bits); got len=%d token=%q", len(token), token)
 
-	// Token must decode cleanly as lowercase hex — hex.DecodeString rejects uppercase and non-hex chars
+	// Token must be valid hex (all characters in [0-9a-f]).
+	// hex.DecodeString accepts both cases, so check for lowercase explicitly:
+	// hex.EncodeToString (used by generateSecureToken) always emits lowercase,
+	// so uppercase would indicate a regression in the token-generation path.
 	_, err := hex.DecodeString(token)
-	require.NoError(t, err, "invite token must be valid lowercase hex; got %q", token)
+	require.NoError(t, err, "invite token must be valid hex; got %q", token)
+	require.Equal(t, strings.ToLower(token), token, "invite token must be lowercase hex (as produced by hex.EncodeToString); got %q", token)
 }
 
 func TestInviteToken_ExpiredCannotBeUsed(t *testing.T) {
