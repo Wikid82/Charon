@@ -1571,7 +1571,7 @@ func TestSettingsHandler_TestPublicURL_SSRFProtection(t *testing.T) {
 			url:               "http://169.254.169.254",
 			expectedStatus:    http.StatusOK,
 			expectedReachable: false,
-			errorContains:     "private",
+			errorContains:     "cloud metadata",
 		},
 		{
 			name:              "blocks link-local",
