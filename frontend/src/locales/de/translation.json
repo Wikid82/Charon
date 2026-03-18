@@ -240,6 +240,7 @@
       "disabledDescription": "Intrusion Prevention System mit Community-Bedrohungsintelligenz",
       "processRunning": "Läuft (PID {{pid}})",
       "processStopped": "Prozess gestoppt",
+      "starting": "Startet...",
       "toggleTooltip": "CrowdSec-Schutz umschalten",
       "copyFailed": "Kopieren des API-Schlüssels fehlgeschlagen",
       "keyWarning": {
