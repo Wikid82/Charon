@@ -173,8 +173,9 @@ describe('Security CrowdSec mutation UX', () => {
     vi.mocked(crowdsecApi.statusCrowdsec)
       .mockResolvedValueOnce({ running: false, pid: 0, lapi_ready: false })
       .mockResolvedValue({ running: true, pid: 123, lapi_ready: true })
+    // Call order: 1st → baseStatus, 2nd → baseStatus, 3rd+ → enabled
     vi.mocked(api.getSecurityStatus)
-      .mockResolvedValue(baseStatus)
+      .mockResolvedValueOnce(baseStatus)
       .mockResolvedValueOnce(baseStatus)
       .mockResolvedValue({ ...baseStatus, crowdsec: { ...baseStatus.crowdsec, enabled: true } })
 
