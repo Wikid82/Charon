@@ -1175,7 +1175,8 @@ func TestValidateExternalURL_WithAllowRFC1918_IPv4MappedIPv6Allowed(t *testing.T
 
 func TestValidateExternalURL_WithAllowRFC1918_IPv4MappedMetadataBlocked(t *testing.T) {
 	t.Parallel()
-	// ::ffff:169.254.169.254 maps to the cloud metadata IP; must stay blocked.
+	// ::ffff:169.254.169.254 maps to the cloud metadata IP; must stay blocked and
+	// produce the same cloud-metadata error as the non-mapped address.
 	_, err := ValidateExternalURL(
 		"http://[::ffff:169.254.169.254]",
 		WithAllowHTTP(),
@@ -1184,5 +1185,11 @@ func TestValidateExternalURL_WithAllowRFC1918_IPv4MappedMetadataBlocked(t *testi
 	)
 	if err == nil {
 		t.Fatal("expected IPv4-mapped metadata address to be blocked, got nil")
+	}
+	if !strings.Contains(err.Error(), "cloud metadata") {
+		t.Errorf("expected cloud-metadata error for ::ffff:169.254.169.254, got: %v", err)
+	}
+	if strings.Contains(err.Error(), "ffff") {
+		t.Errorf("error message must not leak the raw IPv6 form, got: %v", err)
 	}
 }
