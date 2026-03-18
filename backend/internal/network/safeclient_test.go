@@ -920,3 +920,230 @@ func containsSubstr(s, substr string) bool {
 	}
 	return false
 }
+
+// PR-3: IsRFC1918 unit tests
+
+func TestIsRFC1918_RFC1918Addresses(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		ip   string
+	}{
+		{"10.0.0.0 start", "10.0.0.0"},
+		{"10.0.0.1", "10.0.0.1"},
+		{"10.128.0.1", "10.128.0.1"},
+		{"10.255.255.255 end", "10.255.255.255"},
+		{"172.16.0.0 start", "172.16.0.0"},
+		{"172.16.0.1", "172.16.0.1"},
+		{"172.24.0.1", "172.24.0.1"},
+		{"172.31.255.255 end", "172.31.255.255"},
+		{"192.168.0.0 start", "192.168.0.0"},
+		{"192.168.1.1", "192.168.1.1"},
+		{"192.168.255.255 end", "192.168.255.255"},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ip := net.ParseIP(tt.ip)
+			if ip == nil {
+				t.Fatalf("failed to parse IP: %s", tt.ip)
+			}
+			if !IsRFC1918(ip) {
+				t.Errorf("IsRFC1918(%s) = false, want true", tt.ip)
+			}
+		})
+	}
+}
+
+func TestIsRFC1918_NonRFC1918Addresses(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		ip   string
+	}{
+		{"Loopback 127.0.0.1", "127.0.0.1"},
+		{"Link-local 169.254.1.1", "169.254.1.1"},
+		{"Cloud metadata 169.254.169.254", "169.254.169.254"},
+		{"IPv6 loopback ::1", "::1"},
+		{"IPv6 link-local fe80::1", "fe80::1"},
+		{"Public 8.8.8.8", "8.8.8.8"},
+		{"Unspecified 0.0.0.0", "0.0.0.0"},
+		{"Broadcast 255.255.255.255", "255.255.255.255"},
+		{"Reserved 240.0.0.1", "240.0.0.1"},
+		{"IPv6 unique local fc00::1", "fc00::1"},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ip := net.ParseIP(tt.ip)
+			if ip == nil {
+				t.Fatalf("failed to parse IP: %s", tt.ip)
+			}
+			if IsRFC1918(ip) {
+				t.Errorf("IsRFC1918(%s) = true, want false", tt.ip)
+			}
+		})
+	}
+}
+
+func TestIsRFC1918_NilIP(t *testing.T) {
+	t.Parallel()
+	if IsRFC1918(nil) {
+		t.Error("IsRFC1918(nil) = true, want false")
+	}
+}
+
+func TestIsRFC1918_BoundaryAddresses(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		ip       string
+		expected bool
+	}{
+		{"11.0.0.0 just outside 10/8", "11.0.0.0", false},
+		{"172.15.255.255 just below 172.16/12", "172.15.255.255", false},
+		{"172.32.0.0 just above 172.31/12", "172.32.0.0", false},
+		{"192.167.255.255 just below 192.168/16", "192.167.255.255", false},
+		{"192.169.0.0 just above 192.168/16", "192.169.0.0", false},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ip := net.ParseIP(tt.ip)
+			if ip == nil {
+				t.Fatalf("failed to parse IP: %s", tt.ip)
+			}
+			if got := IsRFC1918(ip); got != tt.expected {
+				t.Errorf("IsRFC1918(%s) = %v, want %v", tt.ip, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestIsRFC1918_IPv4MappedAddresses(t *testing.T) {
+	t.Parallel()
+	// IPv4-mapped IPv6 representations of RFC 1918 addresses should be
+	// recognised as RFC 1918 (after To4() normalisation inside IsRFC1918).
+	tests := []struct {
+		name     string
+		ip       string
+		expected bool
+	}{
+		{"::ffff:10.0.0.1 mapped", "::ffff:10.0.0.1", true},
+		{"::ffff:192.168.1.1 mapped", "::ffff:192.168.1.1", true},
+		{"::ffff:172.16.0.1 mapped", "::ffff:172.16.0.1", true},
+		{"::ffff:8.8.8.8 mapped public", "::ffff:8.8.8.8", false},
+		{"::ffff:169.254.169.254 mapped link-local", "::ffff:169.254.169.254", false},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ip := net.ParseIP(tt.ip)
+			if ip == nil {
+				t.Fatalf("failed to parse IP: %s", tt.ip)
+			}
+			if got := IsRFC1918(ip); got != tt.expected {
+				t.Errorf("IsRFC1918(%s) = %v, want %v", tt.ip, got, tt.expected)
+			}
+		})
+	}
+}
+
+// PR-3: AllowRFC1918 safeDialer / client tests
+
+func TestSafeDialer_AllowRFC1918_ValidationLoopSkipsRFC1918(t *testing.T) {
+	// When AllowRFC1918 is set, the validation loop must NOT return
+	// "connection to private IP blocked" for RFC 1918 addresses.
+	// The subsequent TCP connection will fail because nothing is listening on
+	// 192.168.1.1:80 in the test environment, but the error must be a
+	// connection-level error, not an SSRF-block.
+	opts := &ClientOptions{
+		Timeout:      200 * time.Millisecond,
+		DialTimeout:  200 * time.Millisecond,
+		AllowRFC1918: true,
+	}
+	dial := safeDialer(opts)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	_, err := dial(ctx, "tcp", "192.168.1.1:80")
+	if err == nil {
+		t.Fatal("expected a connection error, got nil")
+	}
+	if contains(err.Error(), "connection to private IP blocked") {
+		t.Errorf("AllowRFC1918 should prevent private-IP blocking message; got: %v", err)
+	}
+}
+
+func TestSafeDialer_AllowRFC1918_BlocksLinkLocal(t *testing.T) {
+	// Link-local (169.254.x.x) must remain blocked even when AllowRFC1918=true.
+	opts := &ClientOptions{
+		Timeout:      200 * time.Millisecond,
+		DialTimeout:  200 * time.Millisecond,
+		AllowRFC1918: true,
+	}
+	dial := safeDialer(opts)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	_, err := dial(ctx, "tcp", "169.254.1.1:80")
+	if err == nil {
+		t.Fatal("expected an error for link-local address, got nil")
+	}
+	if !contains(err.Error(), "connection to private IP blocked") {
+		t.Errorf("expected link-local to be blocked; got: %v", err)
+	}
+}
+
+func TestSafeDialer_AllowRFC1918_BlocksLoopbackWithoutAllowLocalhost(t *testing.T) {
+	// Loopback must remain blocked when AllowRFC1918=true but AllowLocalhost=false.
+	opts := &ClientOptions{
+		Timeout:        200 * time.Millisecond,
+		DialTimeout:    200 * time.Millisecond,
+		AllowRFC1918:   true,
+		AllowLocalhost: false,
+	}
+	dial := safeDialer(opts)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	_, err := dial(ctx, "tcp", "127.0.0.1:80")
+	if err == nil {
+		t.Fatal("expected an error for loopback without AllowLocalhost, got nil")
+	}
+	if !contains(err.Error(), "connection to private IP blocked") {
+		t.Errorf("expected loopback to be blocked; got: %v", err)
+	}
+}
+
+func TestNewSafeHTTPClient_AllowRFC1918_BlocksSSRFMetadata(t *testing.T) {
+	// Cloud metadata endpoint (169.254.169.254) must be blocked even with AllowRFC1918.
+	client := NewSafeHTTPClient(
+		WithTimeout(200*time.Millisecond),
+		WithDialTimeout(200*time.Millisecond),
+		WithAllowRFC1918(),
+	)
+	resp, err := client.Get("http://169.254.169.254/latest/meta-data/")
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if err == nil {
+		t.Fatal("expected metadata endpoint to be blocked, got nil")
+	}
+	if !contains(err.Error(), "connection to private IP blocked") {
+		t.Errorf("expected metadata endpoint blocking error; got: %v", err)
+	}
+}
+
+func TestNewSafeHTTPClient_WithAllowRFC1918_OptionApplied(t *testing.T) {
+	// Verify that WithAllowRFC1918() sets AllowRFC1918=true on ClientOptions.
+	opts := defaultOptions()
+	WithAllowRFC1918()(&opts)
+	if !opts.AllowRFC1918 {
+		t.Error("WithAllowRFC1918() should set AllowRFC1918=true")
+	}
+}
