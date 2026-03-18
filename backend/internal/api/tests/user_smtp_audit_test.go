@@ -2,6 +2,7 @@ package tests
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -20,6 +22,15 @@ import (
 	"github.com/Wikid82/charon/backend/internal/api/handlers"
 	"github.com/Wikid82/charon/backend/internal/models"
 )
+
+// hashForTest returns a bcrypt hash using minimum cost for fast test setup.
+// NEVER use this in production — use models.User.SetPassword instead.
+func hashForTest(t *testing.T, password string) string {
+	t.Helper()
+	h, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
+	require.NoError(t, err)
+	return string(h)
+}
 
 // setupAuditTestDB creates a clean in-memory database for each test
 func setupAuditTestDB(t *testing.T) *gorm.DB {
@@ -43,14 +54,14 @@ func setupAuditTestDB(t *testing.T) *gorm.DB {
 func createTestAdminUser(t *testing.T, db *gorm.DB) uint {
 	t.Helper()
 	admin := models.User{
-		UUID:    "admin-uuid-1234",
-		Email:   "admin@test.com",
-		Name:    "Test Admin",
-		Role:    models.RoleAdmin,
-		Enabled: true,
-		APIKey:  "test-api-key",
+		UUID:         "admin-uuid-1234",
+		Email:        "admin@test.com",
+		Name:         "Test Admin",
+		Role:         models.RoleAdmin,
+		Enabled:      true,
+		APIKey:       "test-api-key",
+		PasswordHash: hashForTest(t, "adminpassword123"),
 	}
-	require.NoError(t, admin.SetPassword("adminpassword123"))
 	require.NoError(t, db.Create(&admin).Error)
 	return admin.ID
 }
@@ -96,7 +107,7 @@ func TestInviteToken_MustBeUnguessable(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	require.Equal(t, http.StatusCreated, w.Code)
+	require.Equal(t, http.StatusCreated, w.Code, "invite endpoint failed; body: %s", w.Body.String())
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
@@ -104,15 +115,14 @@ func TestInviteToken_MustBeUnguessable(t *testing.T) {
 	var invitedUser models.User
 	require.NoError(t, db.Where("email = ?", "user@test.com").First(&invitedUser).Error)
 	token := invitedUser.InviteToken
-	require.NotEmpty(t, token)
+	require.NotEmpty(t, token, "invite token must not be empty")
 
-	// Token MUST be at least 32 chars (64 hex = 32 bytes = 256 bits)
-	assert.GreaterOrEqual(t, len(token), 64, "Invite token must be at least 64 hex chars (256 bits)")
+	// Token MUST be at least 32 bytes (64 hex chars = 256 bits of entropy)
+	require.GreaterOrEqual(t, len(token), 64, "invite token must be at least 64 hex chars (256 bits); got len=%d token=%q", len(token), token)
 
-	// Token must be hex
-	for _, c := range token {
-		assert.True(t, (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'), "Token must be hex encoded")
-	}
+	// Token must decode cleanly as lowercase hex — hex.DecodeString rejects uppercase and non-hex chars
+	_, err := hex.DecodeString(token)
+	require.NoError(t, err, "invite token must be valid lowercase hex; got %q", token)
 }
 
 func TestInviteToken_ExpiredCannotBeUsed(t *testing.T) {
@@ -156,11 +166,11 @@ func TestInviteToken_CannotBeReused(t *testing.T) {
 		Name:         "Accepted User",
 		Role:         models.RoleUser,
 		Enabled:      true,
+		PasswordHash: hashForTest(t, "somepassword"),
 		InviteToken:  "accepted-token-1234567890123456789012345678901",
 		InvitedAt:    &invitedAt,
 		InviteStatus: "accepted",
 	}
-	require.NoError(t, user.SetPassword("somepassword"))
 	require.NoError(t, db.Create(&user).Error)
 
 	r := setupRouterWithAuth(db, adminID, "admin")
@@ -267,26 +277,26 @@ func TestUserEndpoints_RequireAdmin(t *testing.T) {
 
 	// Create regular user
 	user := models.User{
-		UUID:    "user-uuid-1234",
-		Email:   "user@test.com",
-		Name:    "Regular User",
-		Role:    models.RoleUser,
-		Enabled: true,
-		APIKey:  "user-api-key-unique",
+		UUID:         "user-uuid-1234",
+		Email:        "user@test.com",
+		Name:         "Regular User",
+		Role:         models.RoleUser,
+		Enabled:      true,
+		APIKey:       "user-api-key-unique",
+		PasswordHash: hashForTest(t, "userpassword123"),
 	}
-	require.NoError(t, user.SetPassword("userpassword123"))
 	require.NoError(t, db.Create(&user).Error)
 
 	// Create a second user to test admin-only operations against a non-self target
 	otherUser := models.User{
-		UUID:    "other-uuid-5678",
-		Email:   "other@test.com",
-		Name:    "Other User",
-		Role:    models.RoleUser,
-		Enabled: true,
-		APIKey:  "other-api-key-unique",
+		UUID:         "other-uuid-5678",
+		Email:        "other@test.com",
+		Name:         "Other User",
+		Role:         models.RoleUser,
+		Enabled:      true,
+		APIKey:       "other-api-key-unique",
+		PasswordHash: hashForTest(t, "otherpassword123"),
 	}
-	require.NoError(t, otherUser.SetPassword("otherpassword123"))
 	require.NoError(t, db.Create(&otherUser).Error)
 
 	// Router with regular user role
@@ -328,13 +338,13 @@ func TestSMTPEndpoints_RequireAdmin(t *testing.T) {
 	db := setupAuditTestDB(t)
 
 	user := models.User{
-		UUID:    "user-uuid-5678",
-		Email:   "user2@test.com",
-		Name:    "Regular User 2",
-		Role:    models.RoleUser,
-		Enabled: true,
+		UUID:         "user-uuid-5678",
+		Email:        "user2@test.com",
+		Name:         "Regular User 2",
+		Role:         models.RoleUser,
+		Enabled:      true,
+		PasswordHash: hashForTest(t, "userpassword123"),
 	}
-	require.NoError(t, user.SetPassword("userpassword123"))
 	require.NoError(t, db.Create(&user).Error)
 
 	r := setupRouterWithAuth(db, user.ID, "user")
