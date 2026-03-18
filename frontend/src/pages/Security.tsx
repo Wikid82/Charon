@@ -197,7 +197,9 @@ export default function Security() {
         return { enabled: false }
       }
     },
-    // NO optimistic updates - wait for actual confirmation
+    // No optimistic backend/status invalidation — server state is not updated until
+    // onSuccess. The UI does derive checked state from mutation variables while
+    // isPending to reflect the user's intent immediately (see crowdsecChecked).
     onMutate: async (enabled: boolean) => {
       if (enabled) {
         queryClient.setQueryData(['crowdsec-starting'], { isStarting: true, startedAt: Date.now() })
