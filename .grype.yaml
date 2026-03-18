@@ -81,6 +81,78 @@ ignore:
     # 3. If no fix yet: Extend expiry by 14 days and document justification
     # 4. If extended 3+ times: Open upstream issue on smallstep/certificates
 
+  # CVE-2026-2673: OpenSSL TLS 1.3 server key exchange group downgrade
+  # Severity: HIGH (CVSS 7.5)
+  # Packages: libcrypto3 3.5.5-r0 and libssl3 3.5.5-r0 (Alpine apk)
+  # Status: No upstream fix available — Alpine 3.23 still ships libcrypto3/libssl3 3.5.5-r0 as of 2026-03-18
+  #
+  # Vulnerability Details:
+  # - When DEFAULT is in the TLS 1.3 group configuration, the OpenSSL server may select
+  #   a weaker key exchange group than preferred, enabling a limited key exchange downgrade.
+  # - Only affects systems acting as a raw TLS 1.3 server using OpenSSL's server-side group negotiation.
+  #
+  # Root Cause (No Fix Available):
+  # - Alpine upstream has not published a patched libcrypto3/libssl3 for Alpine 3.23.
+  # - Checked: Alpine 3.23 still ships libcrypto3/libssl3 3.5.5-r0 as of 2026-03-18.
+  # - Fix path: once Alpine publishes a patched libcrypto3/libssl3, rebuild the Docker image
+  #   and remove this suppression.
+  #
+  # Risk Assessment: ACCEPTED (No upstream fix; limited exposure in Charon context)
+  # - Charon terminates TLS at the Caddy layer — the Go backend does not act as a raw TLS 1.3 server.
+  # - The vulnerability requires the affected application to directly configure TLS 1.3 server
+  #   group negotiation via OpenSSL, which Charon does not do.
+  # - Container-level isolation reduces the attack surface further.
+  #
+  # Mitigation (active while suppression is in effect):
+  # - Monitor Alpine security advisories: https://security.alpinelinux.org/vuln/CVE-2026-2673
+  # - Weekly CI security rebuild (security-weekly-rebuild.yml) flags any new CVEs in the full image.
+  #
+  # Review:
+  # - Reviewed 2026-03-18 (initial suppression): no upstream fix available. Set 30-day review.
+  # - Next review: 2026-04-18. Remove suppression immediately once upstream fixes.
+  #
+  # Removal Criteria:
+  # - Alpine publishes a patched version of libcrypto3 and libssl3
+  # - Rebuild Docker image and verify CVE-2026-2673 no longer appears in grype-results.json
+  # - Remove both these entries and the corresponding .trivyignore entry simultaneously
+  #
+  # References:
+  # - CVE-2026-2673: https://nvd.nist.gov/vuln/detail/CVE-2026-2673
+  # - Alpine security tracker: https://security.alpinelinux.org/vuln/CVE-2026-2673
+  - vulnerability: CVE-2026-2673
+    package:
+      name: libcrypto3
+      version: "3.5.5-r0"
+      type: apk
+    reason: |
+      HIGH — OpenSSL TLS 1.3 server key exchange group downgrade in libcrypto3 3.5.5-r0 (Alpine base image).
+      No upstream fix: Alpine 3.23 still ships libcrypto3 3.5.5-r0 as of 2026-03-18. Charon
+      terminates TLS at the Caddy layer; the Go backend does not act as a raw TLS 1.3 server.
+      Risk accepted pending Alpine upstream patch.
+    expiry: "2026-04-18"  # Initial 30-day review period. Extend in 14–30 day increments with documented justification.
+
+    # Action items when this suppression expires:
+    # 1. Check Alpine security tracker: https://security.alpinelinux.org/vuln/CVE-2026-2673
+    # 2. If a patched Alpine package is now available:
+    #    a. Rebuild Docker image without suppression
+    #    b. Run local security-scan-docker-image and confirm CVE is resolved
+    #    c. Remove this suppression entry, the libssl3 entry below, and the .trivyignore entry
+    # 3. If no fix yet: Extend expiry by 14–30 days and update the review comment above
+    # 4. If extended 3+ times: Open an issue to track the upstream status formally
+
+  # CVE-2026-2673 (libssl3) — see full justification in the libcrypto3 entry above
+  - vulnerability: CVE-2026-2673
+    package:
+      name: libssl3
+      version: "3.5.5-r0"
+      type: apk
+    reason: |
+      HIGH — OpenSSL TLS 1.3 server key exchange group downgrade in libssl3 3.5.5-r0 (Alpine base image).
+      No upstream fix: Alpine 3.23 still ships libssl3 3.5.5-r0 as of 2026-03-18. Charon
+      terminates TLS at the Caddy layer; the Go backend does not act as a raw TLS 1.3 server.
+      Risk accepted pending Alpine upstream patch.
+    expiry: "2026-04-18"  # Initial 30-day review period. See libcrypto3 entry above for action items.
+
 # Match exclusions (patterns to ignore during scanning)
 # Use sparingly - prefer specific CVE suppressions above
 match:
