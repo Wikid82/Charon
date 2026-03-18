@@ -86,14 +86,21 @@ func TestUptimeService_CheckAll(t *testing.T) {
 	go func() { _ = server.Serve(listener) }()
 	defer func() { _ = server.Close() }()
 
-	// Wait for HTTP server to be ready by making a test request
+	// Wait for HTTP server to be ready by making a test request.
+	// Fail the test immediately if the server is still unreachable after all
+	// attempts so subsequent assertions don't produce misleading failures.
+	serverReady := false
 	for i := 0; i < 10; i++ {
 		conn, dialErr := net.DialTimeout("tcp", addr.String(), 100*time.Millisecond)
 		if dialErr == nil {
 			_ = conn.Close()
+			serverReady = true
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+	if !serverReady {
+		t.Fatalf("test HTTP server never became reachable on %s", addr.String())
 	}
 
 	// Create a listener and close it immediately to get a free port that is definitely closed (DOWN)
