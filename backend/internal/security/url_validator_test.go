@@ -1185,4 +1185,12 @@ func TestValidateExternalURL_WithAllowRFC1918_IPv4MappedMetadataBlocked(t *testi
 	if err == nil {
 		t.Fatal("expected IPv4-mapped metadata address to be blocked, got nil")
 	}
+	// Must produce the cloud-metadata-specific error, not the generic private-IP error.
+	if !strings.Contains(err.Error(), "cloud metadata") {
+		t.Errorf("expected cloud metadata error, got: %v", err)
+	}
+	// The raw mapped form must not be leaked in the error message.
+	if strings.Contains(err.Error(), "::ffff:") {
+		t.Errorf("error message leaks raw IPv4-mapped form: %v", err)
+	}
 }
