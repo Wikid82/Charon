@@ -90,7 +90,7 @@
     "jsdom": "29.0.0",
     "knip": "^5.88.0",
     "postcss": "^8.5.8",
-    "tailwindcss": "^4.2.1",
+    "tailwindcss": "^4.2.2",
     "typescript": "^6.0.1-rc",
     "typescript-eslint": "^8.57.1",
     "vite": "^8.0.0",
