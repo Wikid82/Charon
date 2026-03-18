@@ -33,7 +33,7 @@ test.describe('CrowdSec first-enable UX @security', () => {
     await toggle.click();
 
     // Immediately after click, the toggle should remain checked (user intent)
-    await expect(toggle).toHaveAttribute('aria-checked', 'true');
+    await expect(toggle).toBeChecked();
   });
 
   test('CrowdSec card shows Starting badge while starting', async ({ page }) => {
