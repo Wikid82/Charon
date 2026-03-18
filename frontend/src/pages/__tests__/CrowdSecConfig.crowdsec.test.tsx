@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import * as crowdsecApi from '../../api/crowdsec'
+import type { CrowdSecStatus } from '../../api/crowdsec'
 import * as featureFlagsApi from '../../api/featureFlags'
 import * as presetsApi from '../../api/presets'
 import * as securityApi from '../../api/security'
@@ -74,11 +75,16 @@ function renderWithSeed(
   crowdsecStartingData: { isStarting: boolean; startedAt?: number },
   lapiStatus: { running: boolean; pid?: number; lapi_ready: boolean }
 ) {
+  const fullStatus: CrowdSecStatus = { pid: 0, ...lapiStatus }
   const queryClient = makeQueryClient()
   queryClient.setQueryData(['crowdsec-starting'], crowdsecStartingData)
-  queryClient.setQueryData(['crowdsec-lapi-status'], lapiStatus)
   queryClient.setQueryData(['feature-flags'], { 'feature.crowdsec.console_enrollment': true })
   queryClient.setQueryData(['security-status'], baseStatus)
+  // Seed lapi-status so the component has data immediately (no loading gap).
+  // Also override the mock so any refetch after initialCheckComplete returns the
+  // same value, preventing the beforeEach default from overwriting the seed.
+  queryClient.setQueryData(['crowdsec-lapi-status'], fullStatus)
+  vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue(fullStatus)
 
   return {
     queryClient,
