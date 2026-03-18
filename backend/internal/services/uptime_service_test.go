@@ -1816,13 +1816,18 @@ func TestCheckMonitor_HTTP_LocalhostSucceedsWithPrivateIPBypass(t *testing.T) {
 	})
 
 	// Wait for server to be ready before creating the monitor.
+	ready := false
 	for i := 0; i < 20; i++ {
 		conn, dialErr := net.DialTimeout("tcp", addr.String(), 50*time.Millisecond)
 		if dialErr == nil {
 			_ = conn.Close()
+			ready = true
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+	if !ready {
+		t.Fatalf("test server on %s never became reachable after 20 attempts", addr.String())
 	}
 
 	monitor := models.UptimeMonitor{
@@ -1833,7 +1838,9 @@ func TestCheckMonitor_HTTP_LocalhostSucceedsWithPrivateIPBypass(t *testing.T) {
 		Status:  "pending",
 		Enabled: true,
 	}
-	db.Create(&monitor)
+	if res := db.Create(&monitor); res.Error != nil {
+		t.Fatalf("failed to create HTTP monitor: %v", res.Error)
+	}
 
 	us.CheckMonitor(monitor)
 
@@ -1874,7 +1881,9 @@ func TestCheckMonitor_TCP_AcceptsRFC1918Address(t *testing.T) {
 		Status:  "pending",
 		Enabled: true,
 	}
-	db.Create(&monitor)
+	if res := db.Create(&monitor); res.Error != nil {
+		t.Fatalf("failed to create TCP monitor: %v", res.Error)
+	}
 
 	us.CheckMonitor(monitor)
 
