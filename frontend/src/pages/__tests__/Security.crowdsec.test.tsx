@@ -118,10 +118,11 @@ describe('Security CrowdSec mutation UX', () => {
     // startCrowdsec never resolves — keeps mutation pending
     vi.mocked(crowdsecApi.startCrowdsec).mockReturnValue(new Promise(() => {}))
 
+    const user = userEvent.setup()
     renderSecurity()
 
     const toggle = await screen.findByTestId('toggle-crowdsec')
-    await userEvent.click(toggle)
+    await user.click(toggle)
 
     // While pending, the toggle must reflect the user's intent (checked=true)
     await waitFor(() => {
@@ -132,10 +133,11 @@ describe('Security CrowdSec mutation UX', () => {
   it('CrowdSec badge shows "Starting..." while mutation is pending', async () => {
     vi.mocked(crowdsecApi.startCrowdsec).mockReturnValue(new Promise(() => {}))
 
+    const user = userEvent.setup()
     renderSecurity()
 
     const toggle = await screen.findByTestId('toggle-crowdsec')
-    await userEvent.click(toggle)
+    await user.click(toggle)
 
     await waitFor(() => {
       expect(screen.getByText('Starting...')).toBeInTheDocument()
@@ -153,10 +155,11 @@ describe('Security CrowdSec mutation UX', () => {
       message: 'Key rejected',
     })
 
+    const user = userEvent.setup()
     renderSecurity()
 
     const toggle = await screen.findByTestId('toggle-crowdsec')
-    await userEvent.click(toggle)
+    await user.click(toggle)
 
     await waitFor(() => {
       expect(toggle).toBeChecked()
@@ -175,10 +178,11 @@ describe('Security CrowdSec mutation UX', () => {
       .mockResolvedValueOnce(baseStatus)
       .mockResolvedValue({ ...baseStatus, crowdsec: { ...baseStatus.crowdsec, enabled: true } })
 
+    const user = userEvent.setup()
     renderSecurity()
 
     const toggle = await screen.findByTestId('toggle-crowdsec')
-    await userEvent.click(toggle)
+    await user.click(toggle)
 
     await waitFor(() => {
       expect(toggle).toBeChecked()
@@ -188,10 +192,11 @@ describe('Security CrowdSec mutation UX', () => {
   it('toggle reverts to unchecked when mutation fails', async () => {
     vi.mocked(crowdsecApi.startCrowdsec).mockRejectedValue(new Error('failed'))
 
+    const user = userEvent.setup()
     renderSecurity()
 
     const toggle = await screen.findByTestId('toggle-crowdsec')
-    await userEvent.click(toggle)
+    await user.click(toggle)
 
     await waitFor(() => {
       expect(toggle).not.toBeChecked()
