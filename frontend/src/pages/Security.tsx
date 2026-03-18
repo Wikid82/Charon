@@ -198,7 +198,13 @@ export default function Security() {
       }
     },
     // NO optimistic updates - wait for actual confirmation
+    onMutate: async (enabled: boolean) => {
+      if (enabled) {
+        queryClient.setQueryData(['crowdsec-starting'], { isStarting: true, startedAt: Date.now() })
+      }
+    },
     onError: (err: unknown, enabled: boolean) => {
+      queryClient.setQueryData(['crowdsec-starting'], { isStarting: false })
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(enabled ? `Failed to start CrowdSec: ${msg}` : `Failed to stop CrowdSec: ${msg}`)
       // Force refresh status from backend to ensure UI matches reality
@@ -206,6 +212,7 @@ export default function Security() {
       fetchCrowdsecStatus()
     },
     onSuccess: async (result: { lapi_ready?: boolean; enabled?: boolean } | boolean) => {
+      queryClient.setQueryData(['crowdsec-starting'], { isStarting: false })
       // Refresh all related queries to ensure consistency
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['security-status'] }),
@@ -263,6 +270,13 @@ export default function Security() {
       </PageShell>
     )
   }
+
+  // During the crowdsecPowerMutation, use the mutation's argument as the authoritative
+  // checked state. Neither crowdsecStatus (local, stale) nor status.crowdsec.enabled
+  // (server, not yet invalidated) reflects the user's intent until onSuccess fires.
+  const crowdsecChecked = crowdsecPowerMutation.isPending
+    ? (crowdsecPowerMutation.variables ?? (crowdsecStatus?.running ?? status.crowdsec.enabled))
+    : (crowdsecStatus?.running ?? status.crowdsec.enabled)
 
   const cerberusDisabled = !status.cerberus?.enabled
   const crowdsecToggleDisabled = cerberusDisabled || crowdsecPowerMutation.isPending
@@ -351,8 +365,8 @@ export default function Security() {
           </Alert>
         )}
 
-        {/* CrowdSec Key Rejection Warning */}
-        {status.cerberus?.enabled && (crowdsecStatus?.running ?? status.crowdsec.enabled) && (
+        {/* CrowdSec Key Rejection Warning — suppressed during startup to avoid flashing before bouncer registration completes */}
+        {status.cerberus?.enabled && !crowdsecPowerMutation.isPending && (crowdsecStatus?.running ?? status.crowdsec.enabled) && (
           <CrowdSecKeyWarning />
         )}
 
@@ -410,13 +424,13 @@ export default function Security() {
                   <Badge variant="outline" size="sm">{t('security.layer1')}</Badge>
                   <Badge variant="primary" size="sm">{t('security.ids')}</Badge>
                 </div>
-                <Badge variant={(crowdsecStatus?.running ?? status.crowdsec.enabled) ? 'success' : 'default'}>
-                  {(crowdsecStatus?.running ?? status.crowdsec.enabled) ? t('common.enabled') : t('common.disabled')}
+                <Badge variant={crowdsecPowerMutation.isPending && crowdsecPowerMutation.variables ? 'warning' : crowdsecChecked ? 'success' : 'default'}>
+                  {crowdsecPowerMutation.isPending && crowdsecPowerMutation.variables ? t('security.crowdsec.starting') : crowdsecChecked ? t('common.enabled') : t('common.disabled')}
                 </Badge>
               </div>
               <div className="flex items-center gap-3 mt-3">
-                <div className={`p-2 rounded-lg ${(crowdsecStatus?.running ?? status.crowdsec.enabled) ? 'bg-success/10' : 'bg-surface-muted'}`}>
-                  <ShieldAlert className={`w-5 h-5 ${(crowdsecStatus?.running ?? status.crowdsec.enabled) ? 'text-success' : 'text-content-muted'}`} />
+                <div className={`p-2 rounded-lg ${crowdsecChecked ? 'bg-success/10' : 'bg-surface-muted'}`}>
+                  <ShieldAlert className={`w-5 h-5 ${crowdsecChecked ? 'text-success' : 'text-content-muted'}`} />
                 </div>
                 <div>
                   <CardTitle className="text-base">{t('security.crowdsec')}</CardTitle>
@@ -426,7 +440,7 @@ export default function Security() {
             </CardHeader>
             <CardContent className="flex-1">
               <p className="text-sm text-content-muted">
-                {(crowdsecStatus?.running ?? status.crowdsec.enabled)
+                {crowdsecChecked
                   ? t('security.crowdsecProtects')
                   : t('security.crowdsecDisabledDescription')}
               </p>
@@ -441,7 +455,7 @@ export default function Security() {
                 <TooltipTrigger asChild>
                   <div>
                     <Switch
-                      checked={crowdsecStatus?.running ?? status.crowdsec.enabled}
+                      checked={crowdsecChecked}
                       disabled={crowdsecToggleDisabled}
                       onCheckedChange={(checked) => crowdsecPowerMutation.mutate(checked)}
                       data-testid="toggle-crowdsec"

@@ -240,6 +240,7 @@
       "disabledDescription": "由社区威胁情报驱动的入侵防御系统",
       "processRunning": "运行中 (PID {{pid}})",
       "processStopped": "进程已停止",
+      "starting": "启动中...",
       "toggleTooltip": "切换 CrowdSec 保护",
       "copyFailed": "复制API密钥失败",
       "keyWarning": {

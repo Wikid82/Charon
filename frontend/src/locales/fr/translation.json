@@ -240,6 +240,7 @@
       "disabledDescription": "Système de Prévention des Intrusions alimenté par le renseignement communautaire sur les menaces",
       "processRunning": "En cours d'exécution (PID {{pid}})",
       "processStopped": "Processus arrêté",
+      "starting": "Démarrage...",
       "toggleTooltip": "Basculer la protection CrowdSec",
       "copyFailed": "Échec de la copie de la clé API",
       "keyWarning": {
