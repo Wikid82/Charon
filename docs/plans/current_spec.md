@@ -1144,3 +1144,508 @@ checkMonitor documenting the deliberate SSRF bypass for TCP monitors.
 
 Fixes issues 6 and 7 from the fresh-install bug report.
 ```
+
+---
+
+## PR-4: CrowdSec First-Enable UX (Issues 3 & 4)
+
+**Title:** fix(frontend): stabilize CrowdSec first-enable UX and guard empty-value regression
+**Issues Resolved:** Issue 3 (UI bugs on first enabling CrowdSec) + Issue 4 ("required value" error)
+**Dependencies:** PR-1 (already merged — confirmed by code inspection)
+**Status:** APPROVED (after Supervisor corrections applied)
+
+---
+
+### Overview
+
+Two bugs compound to produce a broken first-enable experience. **Issue 4** (backend) is already
+fixed: `UpdateSettingRequest.Value` no longer carries `binding:"required"` (confirmed in
+`backend/internal/api/handlers/settings_handler.go` line 116 — the tag reads `json:"value"` with
+no `binding` directive). PR-4 only needs a regression test to preserve this, plus a note in the
+plan confirming it is done.
+
+**Issue 3** (frontend) is the real work. When CrowdSec is first enabled, the
+`crowdsecPowerMutation` in `Security.tsx` takes 10–60 seconds to complete. During this window:
+
+1. **Toggle flicker** — `switch checked` reads `crowdsecStatus?.running ?? status.crowdsec.enabled`.
+   Both sources lag behind user intent: `crowdsecStatus` is local state that hasn't been
+   re-fetched yet (`null`), and `status.crowdsec.enabled` is the stale server value (`false` still,
+   because `queryClient.invalidateQueries` fires only in `onSuccess`, which has not fired). The
+   toggle therefore immediately reverts to unchecked the moment it is clicked.
+
+2. **Stale "Disabled" badge** — The `<Badge>` inside the CrowdSec card reads the same condition
+   and shows "Disabled" for the entire startup duration even though the user explicitly enabled it.
+
+3. **Premature `CrowdSecKeyWarning`** — The warning is conditionally rendered at
+   `Security.tsx` line ~355. The condition is `status.cerberus?.enabled && (crowdsecStatus?.running ?? status.crowdsec.enabled)`. During startup the condition may briefly evaluate `true` after
+   `crowdsecStatus` is updated by `fetchCrowdsecStatus()` inside the mutation body, before bouncer
+   registration completes on the backend, causing the key-rejection warning to flash.
+
+4. **LAPI "not ready" / "not running" alerts in `CrowdSecConfig.tsx`** — If the user navigates to
+   `/security/crowdsec` while the mutation is running, `lapiStatusQuery` (which polls every 5s) will
+   immediately return `running: false` or `lapi_ready: false`. The 3-second `initialCheckComplete`
+   guard is insufficient for a 10–60 second startup. The page shows an alarming red "CrowdSec not
+   running" banner unnecessarily.
+
+---
+
+### A. Pre-flight: Issue 4 Verification and Regression Test
+
+#### Confirmed Status
+
+Open `backend/internal/api/handlers/settings_handler.go` at **line 115–121**. The current struct
+is:
+
+```go
+type UpdateSettingRequest struct {
+    Key      string `json:"key" binding:"required"`
+    Value    string `json:"value"`
+    Category string `json:"category"`
+    Type     string `json:"type"`
+}
+```
+
+`binding:"required"` is absent from `Value`. The backend fix is **complete**.
+
+#### Handler Compensation: No Additional Key-Specific Validation Needed
+
+Scan the `UpdateSetting` handler body (lines 127–250). The only value-level validation that exists
+targets two specific keys:
+- `security.admin_whitelist` → calls `validateAdminWhitelist(req.Value)` (line ~138)
+- `caddy.keepalive_idle` / `caddy.keepalive_count` → calls `validateOptionalKeepaliveSetting` (line ~143)
+
+Both already handle empty values gracefully by returning early or using zero-value defaults. No new
+key-specific validation is required for the CrowdSec enable flow.
+
+#### Regression Test to Add
+
+**File:** `backend/internal/api/handlers/settings_handler_test.go`
+
+**Test name:** `TestUpdateSetting_EmptyValueIsAccepted`
+
+**Location in file:** Add to the existing `TestUpdateSetting*` suite. The file uses `package handlers_test` and already has a `mockCaddyConfigManager` / `mockCacheInvalidator` test harness.
+
+**What it asserts:**
+
+```
+POST /settings  body: {"key":"security.crowdsec.enabled","value":""}
+→ HTTP 200 (not 400)
+→ DB contains a Setting row with Key="security.crowdsec.enabled" and Value=""
+```
+
+**Scaffolding pattern** (mirror the helpers already present in the test file):
+
+```go
+func TestUpdateSetting_EmptyValueIsAccepted(t *testing.T) {
+    db := setupTestDB(t) // helper already in the test file
+    h := handlers.NewSettingsHandler(db)
+    router := setupTestRouter(h) // helper already in the test file
+
+    body := `{"key":"security.crowdsec.enabled","value":""}`
+    req := httptest.NewRequest(http.MethodPost, "/settings", strings.NewReader(body))
+    req.Header.Set("Content-Type", "application/json")
+    // inject admin role as the existing test helpers do
+    injectAdminContext(req) // helper pattern used across the file
+
+    w := httptest.NewRecorder()
+    router.ServeHTTP(w, req)
+
+    assert.Equal(t, http.StatusOK, w.Code, "empty Value must not trigger a 400 validation error")
+
+    var s models.Setting
+    require.NoError(t, db.Where("key = ?", "security.crowdsec.enabled").First(&s).Error)
+    assert.Equal(t, "", s.Value)
+}
+```
+
+**Why this test matters:** Gin's `binding:"required"` treats the empty string `""` as a missing
+value for `string` fields and returns 400. Without this test, re-adding the tag silently (e.g. by a
+future contributor copying the `Key` field's annotation) would regress the fix without any CI
+signal.
+
+---
+
+### B. Issue 3 Fix Plan — `frontend/src/pages/Security.tsx`
+
+**File:** `frontend/src/pages/Security.tsx`
+**Affected lines:** ~90 (state block), ~168–228 (crowdsecPowerMutation), ~228–240 (derived vars),
+~354–357 (CrowdSecKeyWarning gate), ~413–415 (card Badge), ~418–420 (card icon), ~429–431 (card
+body text), ~443 (Switch checked prop).
+
+#### Change 1 — Derive `crowdsecChecked` from mutation intent
+
+**Current code block** (lines ~228–232):
+
+```tsx
+const cerberusDisabled = !status.cerberus?.enabled
+const crowdsecToggleDisabled = cerberusDisabled || crowdsecPowerMutation.isPending
+const crowdsecControlsDisabled = cerberusDisabled || crowdsecPowerMutation.isPending
+```
+
+**Add immediately before `cerberusDisabled`:**
+
+```tsx
+// During the crowdsecPowerMutation, use the mutation's argument as the authoritative
+// checked state. Neither crowdsecStatus (local, stale) nor status.crowdsec.enabled
+// (server, not yet invalidated) reflects the user's intent until onSuccess fires.
+const crowdsecChecked = crowdsecPowerMutation.isPending
+  ? (crowdsecPowerMutation.variables ?? (crowdsecStatus?.running ?? status.crowdsec.enabled))
+  : (crowdsecStatus?.running ?? status.crowdsec.enabled)
+```
+
+`crowdsecPowerMutation.variables` holds the `enabled: boolean` argument passed to `mutate()`. When
+the user clicks to enable, `variables` is `true`; when they click to disable, it is `false`. This
+is the intent variable that must drive the UI.
+
+#### Change 2 — Replace every occurrence of the raw condition in the CrowdSec card
+
+There are **six** places in the CrowdSec card (starting at line ~405) that currently read
+`(crowdsecStatus?.running ?? status.crowdsec.enabled)`. All must be replaced with `crowdsecChecked`.
+
+| Location | JSX attribute / expression | Before | After |
+|----------|---------------------------|--------|-------|
+| Line ~413 | `Badge variant` | `(crowdsecStatus?.running ?? status.crowdsec.enabled) ? 'success' : 'default'` | `crowdsecPowerMutation.isPending && crowdsecPowerMutation.variables ? 'warning' : crowdsecChecked ? 'success' : 'default'` |
+| Line ~415 | `Badge text` | `(crowdsecStatus?.running ?? status.crowdsec.enabled) ? t('common.enabled') : t('common.disabled')` | `crowdsecPowerMutation.isPending && crowdsecPowerMutation.variables ? t('security.crowdsec.starting') : crowdsecChecked ? t('common.enabled') : t('common.disabled')` |
+| Line ~418 | `div bg class` | `(crowdsecStatus?.running ?? status.crowdsec.enabled) ? 'bg-success/10' : 'bg-surface-muted'` | `crowdsecChecked ? 'bg-success/10' : 'bg-surface-muted'` |
+| Line ~420 | `ShieldAlert text class` | `(crowdsecStatus?.running ?? status.crowdsec.enabled) ? 'text-success' : 'text-content-muted'` | `crowdsecChecked ? 'text-success' : 'text-content-muted'` |
+| Line ~429 | `CardContent body text` | `(crowdsecStatus?.running ?? status.crowdsec.enabled) ? t('security.crowdsecProtects') : t('security.crowdsecDisabledDescription')` | `crowdsecChecked ? t('security.crowdsecProtects') : t('security.crowdsecDisabledDescription')` |
+| Line ~443 | `Switch checked` | `crowdsecStatus?.running ?? status.crowdsec.enabled` | `crowdsecChecked` |
+
+The `Badge` for the status indicator gets one additional case: the "Starting..." variant. Use
+`variant="warning"` (already exists in the Badge component based on other usages in the file).
+
+#### Change 3 — Suppress `CrowdSecKeyWarning` during mutation
+
+**Current code** (lines ~353–357):
+
+```tsx
+{/* CrowdSec Key Rejection Warning */}
+{status.cerberus?.enabled && (crowdsecStatus?.running ?? status.crowdsec.enabled) && (
+  <CrowdSecKeyWarning />
+)}
+```
+
+**Replace with:**
+
+```tsx
+{/* CrowdSec Key Rejection Warning — suppressed during startup to avoid flashing before bouncer registration completes */}
+{status.cerberus?.enabled && !crowdsecPowerMutation.isPending && (crowdsecStatus?.running ?? status.crowdsec.enabled) && (
+  <CrowdSecKeyWarning />
+)}
+```
+
+The only change is `&& !crowdsecPowerMutation.isPending`. This prevents the warning from
+rendering during the full 10–60s startup window.
+
+#### Change 4 — Broadcast "starting" state to the QueryClient cache
+
+`CrowdSecConfig.tsx` cannot read `crowdsecPowerMutation.isPending` directly — it lives in a
+different component tree. The cleanest cross-component coordination mechanism in TanStack Query is
+`queryClient.setQueryData` on a synthetic key. This is not an HTTP fetch; no network call occurs.
+`CrowdSecConfig.tsx` consumes the value via `useQuery` with a stub `queryFn` and
+`staleTime: Infinity`, which means it returns the cache value immediately.
+
+**Add `onMutate` to `crowdsecPowerMutation`** (insert before `onError` at line ~199):
+
+```tsx
+onMutate: async (enabled: boolean) => {
+  if (enabled) {
+    queryClient.setQueryData(['crowdsec-starting'], { isStarting: true, startedAt: Date.now() })
+  }
+},
+```
+
+Note: The `if (enabled)` guard is intentional. The disable path does NOT set `isStartingUp` in CrowdSecConfig.tsx — when disabling CrowdSec, 'LAPI not running' banners are accurate and should not be suppressed.
+
+**Modify `onError`** — add one line at the beginning of the existing handler body (line ~199):
+
+```tsx
+onError: (err: unknown, enabled: boolean) => {
+  queryClient.setQueryData(['crowdsec-starting'], { isStarting: false })
+  // ...existing error handling unchanged...
+```
+
+**Modify `onSuccess`** — add one line at the beginning of the existing handler body (line ~205):
+
+```tsx
+onSuccess: async (result: { lapi_ready?: boolean; enabled?: boolean } | boolean) => {
+  queryClient.setQueryData(['crowdsec-starting'], { isStarting: false })
+  // ...existing success handling unchanged...
+```
+
+The `startedAt` timestamp enables `CrowdSecConfig.tsx` to apply a safety cap: if the cache was
+never cleared (e.g., the app crashed mid-mutation), the "is starting" signal expires after 90
+seconds regardless.
+
+---
+
+### C. Issue 3 Fix Plan — `frontend/src/pages/CrowdSecConfig.tsx`
+
+**File:** `frontend/src/pages/CrowdSecConfig.tsx`
+**Affected lines:** ~44 (state block, after `queryClient`), ~582 (LAPI-initializing warning), ~608
+(LAPI-not-running warning).
+
+#### Change 1 — Read the "starting" signal
+
+The file already declares `const queryClient = useQueryClient()` (line ~44). Insert immediately
+after it:
+
+```tsx
+// Read the "CrowdSec is starting" signal broadcast by Security.tsx via the
+// QueryClient cache. No HTTP call is made; this is pure in-memory coordination.
+const { data: crowdsecStartingCache } = useQuery<{ isStarting: boolean; startedAt?: number }>({
+  queryKey: ['crowdsec-starting'],
+  queryFn: () => ({ isStarting: false, startedAt: 0 }),
+  staleTime: Infinity,
+  gcTime: Infinity,
+})
+
+// isStartingUp is true only while the mutation is genuinely running.
+// The 90-second cap guards against stale cache if Security.tsx onSuccess/onError
+// never fired (e.g., browser tab was closed mid-mutation).
+const isStartingUp =
+  (crowdsecStartingCache?.isStarting === true) &&
+  Date.now() - (crowdsecStartingCache.startedAt ?? 0) < 90_000
+```
+
+#### Change 2 — Suppress the "LAPI initializing" yellow banner
+
+**Current condition** (line ~582):
+
+```tsx
+{lapiStatusQuery.data && lapiStatusQuery.data.running && !lapiStatusQuery.data.lapi_ready && initialCheckComplete && (
+```
+
+**Replace with:**
+
+```tsx
+{lapiStatusQuery.data && lapiStatusQuery.data.running && !lapiStatusQuery.data.lapi_ready && initialCheckComplete && !isStartingUp && (
+```
+
+#### Change 3 — Suppress the "CrowdSec not running" red banner
+
+**Current condition** (line ~608):
+
+```tsx
+{lapiStatusQuery.data && !lapiStatusQuery.data.running && initialCheckComplete && (
+```
+
+**Replace with:**
+
+```tsx
+{lapiStatusQuery.data && !lapiStatusQuery.data.running && initialCheckComplete && !isStartingUp && (
+```
+
+Both suppressions share the same `isStartingUp` flag derived in Change 1. When
+`crowdsecPowerMutation` completes (or fails), `isStartingUp` immediately becomes `false`, and the
+banners are re-evaluated based on real LAPI state.
+
+---
+
+### D. Issue 3 Fix Plan — `frontend/src/components/CrowdSecKeyWarning.tsx`
+
+**No changes required to the component itself.** The suppression is fully handled at the call site
+in `Security.tsx` (Section B, Change 3 above). The component's own render guard already returns
+`null` if `isLoading` or `!keyStatus?.env_key_rejected`, which provides an additional layer of
+safety. No new props are needed.
+
+---
+
+### E. i18n Requirements
+
+#### New key: `security.crowdsec.starting`
+
+This key drives the CrowdSec card badge text during the startup window. It must be added inside the
+`security.crowdsec` namespace object in every locale file.
+
+**Exact insertion point in each file:** Insert after the `"processStopped"` key inside the
+`"crowdsec"` object (line ~252 in `en/translation.json`).
+
+| Locale file | Key path | Value |
+|-------------|----------|-------|
+| `frontend/src/locales/en/translation.json` | `security.crowdsec.starting` | `"Starting..."` |
+| `frontend/src/locales/de/translation.json` | `security.crowdsec.starting` | `"Startet..."` |
+| `frontend/src/locales/es/translation.json` | `security.crowdsec.starting` | `"Iniciando..."` |
+| `frontend/src/locales/fr/translation.json` | `security.crowdsec.starting` | `"Démarrage..."` |
+| `frontend/src/locales/zh/translation.json` | `security.crowdsec.starting` | `"启动中..."` |
+
+**Usage in `Security.tsx`:**
+
+```tsx
+t('security.crowdsec.starting')
+```
+
+No other new i18n keys are required. The `CrowdSecConfig.tsx` changes reuse the existing keys
+`t('crowdsecConfig.lapiInitializing')`, `t('crowdsecConfig.notRunning')`, etc. — they are only
+suppressed via the `isStartingUp` guard, not replaced.
+
+---
+
+### F. Test Plan
+
+#### 1. Backend Unit Test (Regression Guard for Issue 4)
+
+**File:** `backend/internal/api/handlers/settings_handler_test.go`
+**Test type:** Go unit test (`go test ./backend/internal/api/handlers/...`)
+**Mock requirements:** Uses the existing `setupTestDB` / `setupTestRouter` / `injectAdminContext`
+helpers already present in the file. No additional mocks needed.
+
+| Test name | Assertion | Pass condition |
+|-----------|-----------|----------------|
+| `TestUpdateSetting_EmptyValueIsAccepted` | POST `{"key":"security.crowdsec.enabled","value":""}` returns HTTP 200 and the DB row has `Value=""` | HTTP 200, no 400 "required" error |
+| `TestUpdateSetting_MissingKeyRejected` | POST `{"value":"true"}` (no `key` field) returns HTTP 400 | HTTP 400 — `Key` still requires `binding:"required"` |
+
+The second test ensures the `binding:"required"` was only removed from `Value`, not accidentally
+from `Key` as well.
+
+#### 2. Frontend RTL Tests
+
+**Framework:** Vitest + React Testing Library (same as `frontend/src/hooks/__tests__/useSecurity.test.tsx`)
+
+##### File: `frontend/src/pages/__tests__/Security.crowdsec.test.tsx` (new file)
+
+**Scaffolding pattern:** Mirror the setup in `useSecurity.test.tsx` — `QueryClientProvider` wrapper,
+`vi.mock('../api/crowdsec')`, `vi.mock('../api/settings')`, `vi.mock('../api/security')`,
+`vi.mock('../hooks/useSecurity')`.
+
+| Test name | What is mocked | What is rendered | Assertion |
+|-----------|---------------|-----------------|-----------|
+| `toggle stays checked while crowdsecPowerMutation is pending` | `startCrowdsec` never resolves (pending promise). `getSecurityStatus` returns `{ cerberus: { enabled: true }, crowdsec: { enabled: false }, ... }`. `statusCrowdsec` returns `{ running: false, pid: 0, lapi_ready: false }`. | `<Security />` | Click the CrowdSec toggle → `Switch[data-testid="toggle-crowdsec"]` remains checked (`aria-checked="true"`) while mutation is pending. Without the fix, it would be unchecked. |
+| `CrowdSec badge shows "Starting..." while mutation is pending` | Same as above | `<Security />` | Click toggle → Badge inside the CrowdSec card contains text "Starting...". |
+| `CrowdSecKeyWarning is not rendered while crowdsecPowerMutation is pending` | Same as above. `getCrowdsecKeyStatus` returns `{ env_key_rejected: true, full_key: "abc" }`. | `<Security />` | Click toggle → `CrowdSecKeyWarning` (identified by its unique title text or `data-testid` if added) is not present in the DOM. |
+| `toggle reflects correct final state after mutation succeeds` | `startCrowdsec` resolves `{ pid: 123, lapi_ready: true }`. `statusCrowdsec` returns `{ running: true, pid: 123, lapi_ready: true }`. | `<Security />` | After mutation resolves → toggle is checked, badge shows "Enabled". |
+| `toggle reverts to unchecked when mutation fails` | `startCrowdsec` rejects with `new Error("failed")`. | `<Security />` | After rejection → toggle is unchecked, badge shows "Disabled". |
+
+##### File: `frontend/src/pages/__tests__/CrowdSecConfig.crowdsec.test.tsx` (new file)
+
+**Required mocks:** `vi.mock('../api/crowdsec')`, `vi.mock('../api/security')`,
+`vi.mock('../api/featureFlags')`. Seed the `QueryClient` with
+`queryClient.setQueryData(['crowdsec-starting'], { isStarting: true, startedAt: Date.now() })` before rendering.
+
+REQUIRED: Because `initialCheckComplete` is driven by a `setTimeout(..., 3000)` inside a `useEffect`, tests must use Vitest fake timers. Without this, positive-case tests will fail and suppression tests will vacuously pass:
+
+```ts
+beforeEach(() => {
+  vi.useFakeTimers()
+})
+afterEach(() => {
+  vi.useRealTimers()
+})
+// In each test, after render(), advance timers past the 3s guard:
+await vi.advanceTimersByTimeAsync(3001)
+```
+
+| Test name | Setup | Assertion |
+|-----------|-------|-----------|
+| `LAPI not-running banner suppressed when isStartingUp is true` | `lapiStatusQuery` loaded with `{ running: false, lapi_ready: false }`. `['crowdsec-starting']` cache: `{ isStarting: true, startedAt: Date.now() }`. `initialCheckComplete` timer fires normally. | `[data-testid="lapi-not-running-warning"]` is not present in DOM. |
+| `LAPI initializing banner suppressed when isStartingUp is true` | `lapiStatusQuery` loaded with `{ running: true, lapi_ready: false }`. `['crowdsec-starting']` cache: `{ isStarting: true, startedAt: Date.now() }`. | `[data-testid="lapi-warning"]` is not present in DOM. |
+| `LAPI not-running banner shows after isStartingUp expires` | `['crowdsec-starting']` cache: `{ isStarting: true, startedAt: Date.now() - 100_000 }` (100s ago, past 90s cap). `lapiStatusQuery` loaded with `{ running: false, lapi_ready: false }`. `initialCheckComplete` = true. | `[data-testid="lapi-not-running-warning"]` is present in DOM. |
+| `LAPI not-running banner shows when isStartingUp is false` | `['crowdsec-starting']` cache: `{ isStarting: false }`. `lapiStatusQuery`: `{ running: false, lapi_ready: false }`. `initialCheckComplete` = true. | `[data-testid="lapi-not-running-warning"]` is present in DOM. |
+
+#### 3. Playwright E2E Tests
+
+E2E testing for CrowdSec startup UX is constrained because the Docker E2E environment does not have
+CrowdSec installed. The mutations will fail immediately, making it impossible to test the "pending"
+window with a real startup delay.
+
+**Recommended approach:** UI-only behavioral tests that mock the mutation pending state at the API
+layer (via Playwright route interception), focused on the visible symptoms.
+
+**File:** `playwright/tests/security/crowdsec-first-enable.spec.ts` (new file)
+
+| Test title | Playwright intercept | Steps | Assertion |
+|------------|---------------------|-------|-----------|
+| `CrowdSec toggle stays checked while starting` | Intercept `POST /api/v1/admin/crowdsec/start` — respond after a 2s delay with success | Navigate to `/security`, click CrowdSec toggle | `[data-testid="toggle-crowdsec"]` has `aria-checked="true"` immediately after click (before response) |
+| `CrowdSec card shows Starting badge while starting` | Same intercept | Click toggle | A badge with text "Starting..." is visible in the CrowdSec card |
+| `CrowdSecKeyWarning absent while starting` | Same intercept; also intercept `GET /api/v1/admin/crowdsec/key-status` → return `{ env_key_rejected: true, full_key: "key123", ... }` | Click toggle | The key-warning alert (ARIA role "alert" with heading "CrowdSec API Key Updated") is not present |
+| `Backend rejects empty key for setting` | No intercept | POST `{"key":"security.crowdsec.enabled","value":""}` via `page.evaluate` (or `fetch`) | Response code is 200 |
+
+---
+
+### G. Commit Slicing Strategy
+
+**Decision:** Single PR (`PR-4`).
+
+**Rationale:**
+- The backend change is a one-line regression test addition — not a fix (the fix is already in).
+- The frontend changes are all tightly coupled: the `crowdsecChecked` derived variable feeds both
+  the toggle fix and the badge fix; the `onMutate` broadcast is consumed by `CrowdSecConfig.tsx`.
+  Splitting them would produce an intermediate state where `Security.tsx` broadcasts a signal that
+  nothing reads, or `CrowdSecConfig.tsx` reads a signal that is never set.
+- Total file count: 5 files changed (`Security.tsx`, `CrowdSecConfig.tsx`, `en/translation.json`,
+  `de/translation.json`, `es/translation.json`, `fr/translation.json`, `zh/translation.json`) +
+  2 new test files + 1 new test in the backend handler test file. Review surface is small.
+
+**Files changed:**
+
+| File | Change type |
+|------|-------------|
+| `frontend/src/pages/Security.tsx` | Derived state, onMutate, suppression |
+| `frontend/src/pages/CrowdSecConfig.tsx` | useQuery cache read, conditional suppression |
+| `frontend/src/locales/en/translation.json` | New key `security.crowdsec.starting` |
+| `frontend/src/locales/de/translation.json` | New key `security.crowdsec.starting` |
+| `frontend/src/locales/es/translation.json` | New key `security.crowdsec.starting` |
+| `frontend/src/locales/fr/translation.json` | New key `security.crowdsec.starting` |
+| `frontend/src/locales/zh/translation.json` | New key `security.crowdsec.starting` |
+| `frontend/src/pages/__tests__/Security.crowdsec.test.tsx` | New RTL test file |
+| `frontend/src/pages/__tests__/CrowdSecConfig.crowdsec.test.tsx` | New RTL test file |
+| `backend/internal/api/handlers/settings_handler_test.go` | 2 new test functions |
+| `playwright/tests/security/crowdsec-first-enable.spec.ts` | New E2E spec file |
+
+**Rollback:** The PR is independently revertable. No database migrations. No API contract changes.
+The `['crowdsec-starting']` QueryClient key is ephemeral (in-memory only); removing the PR removes
+the key cleanly.
+
+---
+
+### H. Acceptance Criteria
+
+| # | Criterion | How to verify |
+|---|-----------|---------------|
+| 1 | POST `{"key":"any.key","value":""}` returns HTTP 200 | `TestUpdateSetting_EmptyValueIsAccepted` passes |
+| 2 | CrowdSec toggle shows the user's intended state immediately after click, for the full pending duration | RTL test `toggle stays checked while crowdsecPowerMutation is pending` passes |
+| 3 | CrowdSec card badge shows "Starting..." text while mutation is pending | RTL test `CrowdSec badge shows Starting... while mutation is pending` passes |
+| 4 | `CrowdSecKeyWarning` is not rendered while `crowdsecPowerMutation.isPending` | RTL test `CrowdSecKeyWarning is not rendered while crowdsecPowerMutation is pending` passes |
+| 5 | LAPI "not running" red banner absent on `CrowdSecConfig` while `isStartingUp` is true | RTL test `LAPI not-running banner suppressed when isStartingUp is true` passes |
+| 6 | LAPI "initializing" yellow banner absent on `CrowdSecConfig` while `isStartingUp` is true | RTL test `LAPI initializing banner suppressed when isStartingUp is true` passes |
+| 7 | Both banners reappear correctly after the 90s cap or after mutation completes | RTL test `LAPI not-running banner shows after isStartingUp expires` passes |
+| 8 | Translation key `security.crowdsec.starting` exists in all 5 locale files | CI lint / i18n-check passes |
+| 9 | Playwright: toggle does not flicker on click (stays `aria-checked="true"` during delayed API response) | E2E test `CrowdSec toggle stays checked while starting` passes |
+| 10 | No regressions in existing `useSecurity.test.tsx` or other security test suites | Full Vitest suite green |
+
+---
+
+### I. Commit Message
+
+```
+fix(frontend): stabilize CrowdSec first-enable UX and guard empty-value regression
+
+When CrowdSec is first enabled, the 10–60 second startup window caused the
+toggle to immediately flicker back to unchecked, the card badge to show
+"Disabled" throughout startup, the CrowdSecKeyWarning to flash before bouncer
+registration completed, and CrowdSecConfig to show alarming LAPI-not-ready
+banners at the user.
+
+Root cause: the toggle, badge, and warning conditions all read from stale
+sources (crowdsecStatus local state and status.crowdsec.enabled server data),
+neither of which reflects user intent during a pending mutation.
+
+Derive a crowdsecChecked variable from crowdsecPowerMutation.variables during
+the pending window so the UI reflects intent, not lag. Suppress
+CrowdSecKeyWarning unconditionally while the mutation is pending. Show a
+"Starting..." badge variant (warning) during startup.
+
+Coordinate the "is starting" state to CrowdSecConfig.tsx via a synthetic
+QueryClient cache key ['crowdsec-starting'] set in onMutate and cleared in
+onSuccess/onError. CrowdSecConfig reads this key via useQuery and uses it to
+suppress the LAPI-not-running and LAPI-initializing alerts during startup.
+A 90-second safety cap prevents stale suppression if the mutation never resolves.
+
+Also add a regression test confirming that UpdateSettingRequest accepts an empty
+string Value (the binding:"required" tag was removed in PR-1; this test ensures
+it is not re-introduced).
+
+Adds security.crowdsec.starting i18n key to all 5 supported locales.
+
+Closes issue 3, closes issue 4 (regression test only, backend fix in PR-1).
+```

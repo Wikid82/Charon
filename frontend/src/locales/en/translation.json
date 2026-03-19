@@ -250,6 +250,7 @@
       "disabledDescription": "Intrusion Prevention System powered by community threat intelligence",
       "processRunning": "Running (PID {{pid}})",
       "processStopped": "Process stopped",
+      "starting": "Starting...",
       "toggleTooltip": "Toggle CrowdSec protection",
       "bouncerApiKey": "Bouncer API Key",
       "keyCopied": "API key copied to clipboard",

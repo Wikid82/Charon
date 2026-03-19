@@ -41,7 +41,7 @@ ARG CADDY_CANDIDATE_VERSION=2.11.2
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
-ARG CADDY_SECURITY_VERSION=1.1.49
+ARG CADDY_SECURITY_VERSION=1.1.50
 # renovate: datasource=go depName=github.com/corazawaf/coraza-caddy
 ARG CORAZA_CADDY_VERSION=2.2.0
 ## When an official caddy image tag isn't available on the host, use a
@@ -279,6 +279,16 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # renovate: datasource=go depName=github.com/hslatman/ipstore
         go get github.com/hslatman/ipstore@v0.4.0; \
         go get golang.org/x/net@v${XNET_VERSION}; \
+        # CVE-2026-33186 (GHSA-p77j-4mvh-x3m3): gRPC-Go auth bypass via missing leading slash
+        # Fix available at v1.79.3. Pin here so the Caddy binary is patched immediately;
+        # remove once Caddy ships a release built with grpc >= v1.79.3.
+        # renovate: datasource=go depName=google.golang.org/grpc
+        go get google.golang.org/grpc@v1.79.3; \
+        # GHSA-479m-364c-43vc: goxmldsig XML signature validation bypass (loop variable capture)
+        # Fix available at v1.6.0. Pin here so the Caddy binary is patched immediately;
+        # remove once caddy-security ships a release built with goxmldsig >= v1.6.0.
+        # renovate: datasource=go depName=github.com/russellhaering/goxmldsig
+        go get github.com/russellhaering/goxmldsig@v1.6.0; \
         if [ "${CADDY_PATCH_SCENARIO}" = "A" ]; then \
             # Rollback scenario: keep explicit nebula pin if upstream compatibility regresses.
             # NOTE: smallstep/certificates (pulled by caddy-security stack) currently
@@ -343,6 +353,11 @@ RUN git clone --depth 1 --branch "v${CROWDSEC_VERSION}" https://github.com/crowd
 RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     go get golang.org/x/crypto@v0.46.0 && \
     go get golang.org/x/net@v${XNET_VERSION} && \
+    # CVE-2026-33186 (GHSA-p77j-4mvh-x3m3): gRPC-Go auth bypass via missing leading slash
+    # Fix available at v1.79.3. Pin here so the CrowdSec binary is patched immediately;
+    # remove once CrowdSec ships a release built with grpc >= v1.79.3.
+    # renovate: datasource=go depName=google.golang.org/grpc
+    go get google.golang.org/grpc@v1.79.3 && \
     go mod tidy
 
 # Fix compatibility issues with expr-lang v1.17.7
