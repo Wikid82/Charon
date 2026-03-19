@@ -294,14 +294,12 @@ func ValidateExternalURL(rawURL string, options ...ValidationOption) (string, er
 					continue
 				}
 				if network.IsPrivateIP(ipv4) {
-					// Normalize to the extracted IPv4 for both the cloud-metadata special-case
-					// and sanitization, so ::ffff:169.254.169.254 produces the same error as
-					// 169.254.169.254 and doesn't leak the raw IPv6 form in messages.
-					sanitizedIPv4 := sanitizeIPForError(ipv4.String())
+					// Cloud metadata endpoint must produce the specific error even
+					// when the address arrives as an IPv4-mapped IPv6 value.
 					if ipv4.String() == "169.254.169.254" {
-						return "", fmt.Errorf("access to cloud metadata endpoints is blocked for security (detected: %s)", sanitizedIPv4)
+						return "", fmt.Errorf("access to cloud metadata endpoints is blocked for security (detected: %s)", sanitizeIPForError(ipv4.String()))
 					}
-					return "", fmt.Errorf("connection to private ip addresses is blocked for security (detected IPv4-mapped IPv6: %s)", sanitizedIPv4)
+					return "", fmt.Errorf("connection to private ip addresses is blocked for security (detected: %s)", sanitizeIPForError(ipv4.String()))
 				}
 			}
 

@@ -1823,3 +1823,48 @@ func TestSettingsHandler_TestPublicURL_IPv6LocalhostBlocked(t *testing.T) {
 	assert.False(t, resp["reachable"].(bool))
 	// IPv6 loopback should be blocked
 }
+
+// TestUpdateSetting_EmptyValueIsAccepted guards the PR-1 fix: Value must NOT carry
+// binding:"required". Gin treats "" as missing for string fields and returns 400 if
+// the tag is present. Re-adding the tag would silently regress the CrowdSec enable
+// flow (which sends value="" to clear the setting).
+func TestUpdateSetting_EmptyValueIsAccepted(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.POST("/settings", handler.UpdateSetting)
+
+	body := `{"key":"security.crowdsec.enabled","value":""}`
+	req, _ := http.NewRequest(http.MethodPost, "/settings", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code, "empty Value must not trigger a 400 validation error")
+
+	var s models.Setting
+	require.NoError(t, db.Where("key = ?", "security.crowdsec.enabled").First(&s).Error)
+	assert.Equal(t, "", s.Value)
+}
+
+// TestUpdateSetting_MissingKeyRejected ensures binding:"required" was only removed
+// from Value and not accidentally also from Key. A request with no "key" field must
+// still return 400.
+func TestUpdateSetting_MissingKeyRejected(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.POST("/settings", handler.UpdateSetting)
+
+	body := `{"value":"true"}`
+	req, _ := http.NewRequest(http.MethodPost, "/settings", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
