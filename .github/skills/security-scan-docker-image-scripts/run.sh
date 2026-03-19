@@ -35,7 +35,7 @@ fi
 # Check Grype
 if ! command -v grype >/dev/null 2>&1; then
     log_error "Grype not found - install from: https://github.com/anchore/grype"
-    log_error "Installation: curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.109.1"
+    log_error "Installation: curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.110.0"
     error_exit "Grype is required for vulnerability scanning" 2
 fi
 
@@ -51,7 +51,7 @@ GRYPE_INSTALLED_VERSION=$(grype version | grep -oP 'Version:\s*\Kv?[0-9]+\.[0-9]
 
 # Set defaults matching CI workflow
 set_default_env "SYFT_VERSION" "v1.42.3"
-set_default_env "GRYPE_VERSION" "v0.109.1"
+set_default_env "GRYPE_VERSION" "v0.110.0"
 set_default_env "IMAGE_TAG" "charon:local"
 set_default_env "FAIL_ON_SEVERITY" "Critical,High"
 
