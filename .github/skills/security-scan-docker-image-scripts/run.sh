@@ -50,7 +50,7 @@ SYFT_INSTALLED_VERSION=$(syft version | grep -oP 'Version:\s*\Kv?[0-9]+\.[0-9]+\
 GRYPE_INSTALLED_VERSION=$(grype version | grep -oP 'Version:\s*\Kv?[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
 
 # Set defaults matching CI workflow
-set_default_env "SYFT_VERSION" "v1.42.2"
+set_default_env "SYFT_VERSION" "v1.42.3"
 set_default_env "GRYPE_VERSION" "v0.109.1"
 set_default_env "IMAGE_TAG" "charon:local"
 set_default_env "FAIL_ON_SEVERITY" "Critical,High"
