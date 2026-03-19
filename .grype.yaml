@@ -153,6 +153,295 @@ ignore:
       Risk accepted pending Alpine upstream patch.
     expiry: "2026-04-18"  # Initial 30-day review period. See libcrypto3 entry above for action items.
 
+  # CVE-2026-33186 / GHSA-p77j-4mvh-x3m3: gRPC-Go authorization bypass via missing leading slash
+  # Severity: CRITICAL (CVSS 9.1)
+  # Package: google.golang.org/grpc v1.74.2 (embedded in /usr/local/bin/crowdsec and /usr/local/bin/cscli)
+  # Status: Fix available at v1.79.3 — waiting on CrowdSec upstream to release with patched grpc
+  #
+  # Vulnerability Details:
+  # - gRPC-Go server path-based authorization (grpc/authz) fails to match deny rules when
+  #   the HTTP/2 :path pseudo-header is missing its leading slash (e.g., "Service/Method"
+  #   instead of "/Service/Method"), allowing a fallback allow-rule to grant access instead.
+  # - CVSSv3: AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N
+  #
+  # Root Cause (Third-Party Binary):
+  # - Charon's own grpc dependency is patched to v1.79.3 (updated 2026-03-19).
+  # - CrowdSec ships grpc v1.74.2 compiled into its binary; Charon has no control over this.
+  # - This is a server-side vulnerability. CrowdSec uses grpc as a server; Charon uses it
+  #   only as a client (via the Docker SDK). CrowdSec's internal grpc server is not exposed
+  #   to external traffic in a standard Charon deployment.
+  # - Fix path: once CrowdSec releases a version built with grpc >= v1.79.3, rebuild the
+  #   Docker image (Renovate tracks the CrowdSec version) and remove this suppression.
+  #
+  # Risk Assessment: ACCEPTED (Constrained exploitability in Charon context)
+  # - The vulnerable code path requires an attacker to reach CrowdSec's internal grpc server,
+  #   which is bound to localhost/internal interfaces in the Charon container network.
+  # - Container-level isolation (no exposed grpc port) significantly limits exposure.
+  # - Charon does not configure grpc/authz deny rules on CrowdSec's server.
+  #
+  # Mitigation (active while suppression is in effect):
+  # - Monitor CrowdSec releases: https://github.com/crowdsecurity/crowdsec/releases
+  # - Weekly CI security rebuild flags the moment a fixed CrowdSec image ships.
+  #
+  # Review:
+  # - Reviewed 2026-03-19 (initial suppression): grpc v1.79.3 fix exists; CrowdSec has not
+  #   yet shipped an updated release. Suppression set for 14-day review given fix availability.
+  # - Next review: 2026-04-02. Remove suppression once CrowdSec ships with grpc >= v1.79.3.
+  #
+  # Removal Criteria:
+  # - CrowdSec releases a version built with google.golang.org/grpc >= v1.79.3
+  # - Rebuild Docker image, run security-scan-docker-image, confirm finding is resolved
+  # - Remove this entry and the corresponding .trivyignore entry simultaneously
+  #
+  # References:
+  # - GHSA-p77j-4mvh-x3m3: https://github.com/advisories/GHSA-p77j-4mvh-x3m3
+  # - CVE-2026-33186: https://nvd.nist.gov/vuln/detail/CVE-2026-33186
+  # - grpc fix (v1.79.3): https://github.com/grpc/grpc-go/releases/tag/v1.79.3
+  # - CrowdSec releases: https://github.com/crowdsecurity/crowdsec/releases
+  - vulnerability: CVE-2026-33186
+    package:
+      name: google.golang.org/grpc
+      version: "v1.74.2"
+      type: go-module
+    reason: |
+      CRITICAL — gRPC-Go authorization bypass in grpc v1.74.2 embedded in /usr/local/bin/crowdsec
+      and /usr/local/bin/cscli. Fix available at v1.79.3 (Charon's own dep is patched); waiting
+      on CrowdSec upstream to release with patched grpc. CrowdSec's grpc server is not exposed
+      externally in a standard Charon deployment. Risk accepted pending CrowdSec upstream fix.
+      Reviewed 2026-03-19: CrowdSec has not yet released with grpc >= v1.79.3.
+    expiry: "2026-04-02"  # 14-day review: fix exists at v1.79.3; check CrowdSec releases.
+
+    # Action items when this suppression expires:
+    # 1. Check CrowdSec releases: https://github.com/crowdsecurity/crowdsec/releases
+    # 2. If CrowdSec ships with grpc >= v1.79.3:
+    #    a. Renovate should auto-PR the new CrowdSec version in the Dockerfile
+    #    b. Merge the Renovate PR, rebuild Docker image
+    #    c. Run local security-scan-docker-image and confirm grpc v1.74.2 is gone
+    #    d. Remove this suppression entry and the corresponding .trivyignore entry
+    # 3. If no fix yet: Extend expiry by 14 days and document justification
+    # 4. If extended 3+ times: Open an upstream issue on crowdsecurity/crowdsec
+
+  # CVE-2026-33186 (Caddy) — see full justification in the CrowdSec entry above
+  # Package: google.golang.org/grpc v1.79.1 (embedded in /usr/bin/caddy)
+  # Status: Fix available at v1.79.3 — waiting on a new Caddy release built with patched grpc
+  - vulnerability: CVE-2026-33186
+    package:
+      name: google.golang.org/grpc
+      version: "v1.79.1"
+      type: go-module
+    reason: |
+      CRITICAL — gRPC-Go authorization bypass in grpc v1.79.1 embedded in /usr/bin/caddy.
+      Fix available at v1.79.3; waiting on Caddy upstream to release a build with patched grpc.
+      Caddy's grpc server is not exposed externally in a standard Charon deployment.
+      Risk accepted pending Caddy upstream fix. Reviewed 2026-03-19: no Caddy release with grpc >= v1.79.3 yet.
+    expiry: "2026-04-02"  # 14-day review: fix exists at v1.79.3; check Caddy releases.
+
+    # Action items when this suppression expires:
+    # 1. Check Caddy releases: https://github.com/caddyserver/caddy/releases
+    #    (or the custom caddy-builder in the Dockerfile for caddy-security plugin)
+    # 2. If a new Caddy build ships with grpc >= v1.79.3:
+    #    a. Update the Caddy version pin in the Dockerfile caddy-builder stage
+    #    b. Rebuild Docker image and run local security-scan-docker-image
+    #    c. Remove this suppression entry and the corresponding .trivyignore entry
+    # 3. If no fix yet: Extend expiry by 14 days and document justification
+    # 4. If extended 3+ times: Open an issue on caddyserver/caddy
+
+  # GHSA-479m-364c-43vc: goxmldsig XML signature validation bypass (loop variable capture)
+  # Severity: HIGH (CVSS 7.5)
+  # Package: github.com/russellhaering/goxmldsig v1.5.0 (embedded in /usr/bin/caddy)
+  # Status: Fix available at v1.6.0 — waiting on a new Caddy release built with patched goxmldsig
+  #
+  # Vulnerability Details:
+  # - Loop variable capture in validateSignature causes the signature reference to always
+  #   point to the last element in SignedInfo.References; an attacker can substitute signed
+  #   element content and bypass XML signature integrity validation (CWE-347, CWE-682).
+  # - CVSSv3: AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N
+  #
+  # Root Cause (Third-Party Binary):
+  # - Charon does not use goxmldsig directly. The package is compiled into /usr/bin/caddy
+  #   via the caddy-security plugin's SAML/SSO support.
+  # - Fix path: once Caddy (or the caddy-security plugin) releases a build with
+  #   goxmldsig >= v1.6.0, rebuild the Docker image and remove this suppression.
+  #
+  # Risk Assessment: ACCEPTED (Low exploitability in default Charon context)
+  # - The vulnerability only affects SAML/XML signature validation workflows.
+  # - Charon does not enable or configure SAML-based SSO in its default setup.
+  # - Exploiting this requires an active SAML integration, which is non-default.
+  #
+  # Mitigation (active while suppression is in effect):
+  # - Monitor caddy-security plugin releases: https://github.com/greenpau/caddy-security/releases
+  # - Monitor Caddy releases: https://github.com/caddyserver/caddy/releases
+  # - Weekly CI security rebuild flags the moment a fixed image ships.
+  #
+  # Review:
+  # - Reviewed 2026-03-19 (initial suppression): goxmldsig v1.6.0 fix exists; Caddy has not
+  #   yet shipped with the updated dep. Set 14-day review given fix availability.
+  # - Next review: 2026-04-02. Remove suppression once Caddy ships with goxmldsig >= v1.6.0.
+  #
+  # Removal Criteria:
+  # - Caddy (or caddy-security plugin) releases a build with goxmldsig >= v1.6.0
+  # - Rebuild Docker image, run security-scan-docker-image, confirm finding is resolved
+  # - Remove this entry and the corresponding .trivyignore entry simultaneously
+  #
+  # References:
+  # - GHSA-479m-364c-43vc: https://github.com/advisories/GHSA-479m-364c-43vc
+  # - goxmldsig v1.6.0 fix: https://github.com/russellhaering/goxmldsig/releases/tag/v1.6.0
+  # - caddy-security plugin: https://github.com/greenpau/caddy-security/releases
+  - vulnerability: GHSA-479m-364c-43vc
+    package:
+      name: github.com/russellhaering/goxmldsig
+      version: "v1.5.0"
+      type: go-module
+    reason: |
+      HIGH — XML signature validation bypass in goxmldsig v1.5.0 embedded in /usr/bin/caddy.
+      Fix available at v1.6.0; waiting on Caddy upstream to release a build with patched goxmldsig.
+      Charon does not configure SAML-based SSO by default; the vulnerable XML signature path
+      is not reachable in a standard deployment. Risk accepted pending Caddy upstream fix.
+      Reviewed 2026-03-19: no Caddy release with goxmldsig >= v1.6.0 yet.
+    expiry: "2026-04-02"  # 14-day review: fix exists at v1.6.0; check Caddy/caddy-security releases.
+
+    # Action items when this suppression expires:
+    # 1. Check caddy-security releases: https://github.com/greenpau/caddy-security/releases
+    # 2. If a new build ships with goxmldsig >= v1.6.0:
+    #    a. Update the Caddy version pin in the Dockerfile caddy-builder stage if needed
+    #    b. Rebuild Docker image and run local security-scan-docker-image
+    #    c. Remove this suppression entry and the corresponding .trivyignore entry
+    # 3. If no fix yet: Extend expiry by 14 days and document justification
+
+  # GHSA-6g7g-w4f8-9c9x: buger/jsonparser Delete panic on malformed JSON (DoS)
+  # Severity: HIGH (CVSS 7.5)
+  # Package: github.com/buger/jsonparser v1.1.1 (embedded in /usr/local/bin/crowdsec and /usr/local/bin/cscli)
+  # Status: NO upstream fix available — OSV marks "Last affected: v1.1.1" with no Fixed event
+  #
+  # Vulnerability Details:
+  # - The Delete function fails to validate offsets on malformed JSON input, producing a
+  #   negative slice index and a runtime panic — denial of service (CWE-125).
+  # - CVSSv3: AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H
+  #
+  # Root Cause (Third-Party Binary + No Upstream Fix):
+  # - Charon does not use buger/jsonparser directly. It is compiled into CrowdSec binaries.
+  # - The buger/jsonparser repository has no released fix as of 2026-03-19 (GitHub issue #275
+  #   and golang/vulndb #4514 are both open).
+  # - Fix path: once buger/jsonparser releases a patched version and CrowdSec updates their
+  #   dependency, rebuild the Docker image and remove this suppression.
+  #
+  # Risk Assessment: ACCEPTED (Limited exploitability + no upstream fix)
+  # - The DoS vector requires passing malformed JSON to the vulnerable Delete function within
+  #   CrowdSec's internal processing pipeline; this is not a direct attack surface in Charon.
+  # - CrowdSec's exposed surface is its HTTP API (not raw JSON stream parsing via this path).
+  #
+  # Mitigation (active while suppression is in effect):
+  # - Monitor buger/jsonparser: https://github.com/buger/jsonparser/issues/275
+  # - Monitor CrowdSec releases: https://github.com/crowdsecurity/crowdsec/releases
+  # - Weekly CI security rebuild flags the moment a fixed image ships.
+  #
+  # Review:
+  # - Reviewed 2026-03-19 (initial suppression): no upstream fix exists. Set 30-day review.
+  # - Next review: 2026-04-19. Remove suppression once buger/jsonparser ships a fix and
+  #   CrowdSec updates their dependency.
+  #
+  # Removal Criteria:
+  # - buger/jsonparser releases a patched version (v1.1.2 or higher)
+  # - CrowdSec releases a version built with the patched jsonparser
+  # - Rebuild Docker image, run security-scan-docker-image, confirm finding is resolved
+  # - Remove this entry and the corresponding .trivyignore entry simultaneously
+  #
+  # References:
+  # - GHSA-6g7g-w4f8-9c9x: https://github.com/advisories/GHSA-6g7g-w4f8-9c9x
+  # - Upstream issue: https://github.com/buger/jsonparser/issues/275
+  # - golang/vulndb: https://github.com/golang/vulndb/issues/4514
+  # - CrowdSec releases: https://github.com/crowdsecurity/crowdsec/releases
+  - vulnerability: GHSA-6g7g-w4f8-9c9x
+    package:
+      name: github.com/buger/jsonparser
+      version: "v1.1.1"
+      type: go-module
+    reason: |
+      HIGH — DoS panic via malformed JSON in buger/jsonparser v1.1.1 embedded in CrowdSec binaries.
+      No upstream fix: buger/jsonparser has no released patch as of 2026-03-19 (issue #275 open).
+      Charon does not use this package directly; the vector requires reaching CrowdSec's internal
+      JSON processing pipeline. Risk accepted; no remediation path until upstream ships a fix.
+      Reviewed 2026-03-19: no patched release available.
+    expiry: "2026-04-19"  # 30-day review: no fix exists. Extend in 30-day increments with documented justification.
+
+    # Action items when this suppression expires:
+    # 1. Check buger/jsonparser releases: https://github.com/buger/jsonparser/releases
+    #    and issue #275: https://github.com/buger/jsonparser/issues/275
+    # 2. If a fix has shipped AND CrowdSec has updated their dependency:
+    #    a. Rebuild Docker image and run local security-scan-docker-image
+    #    b. Remove this suppression entry and the corresponding .trivyignore entry
+    # 3. If no fix yet: Extend expiry by 30 days and update the review comment above
+    # 4. If extended 3+ times with no progress: Consider opening an issue upstream or
+    #    evaluating whether CrowdSec can replace buger/jsonparser with a safe alternative
+
+  # GHSA-jqcq-xjh3-6g23: pgproto3/v2 DataRow.Decode panic on negative field length (DoS)
+  # Severity: HIGH (CVSS 7.5)
+  # Package: github.com/jackc/pgproto3/v2 v2.3.3 (embedded in /usr/local/bin/crowdsec and /usr/local/bin/cscli)
+  # Status: NO fix in pgproto3/v2 (archived/EOL) — fix path requires CrowdSec to migrate to pgx/v5
+  #
+  # Vulnerability Details:
+  # - DataRow.Decode does not validate field lengths; a malicious or compromised PostgreSQL server
+  #   can send a negative field length causing a slice-bounds panic — denial of service (CWE-129).
+  # - CVSSv3: AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H
+  #
+  # Root Cause (EOL Module + Third-Party Binary):
+  # - Charon does not use pgproto3/v2 directly nor communicate with PostgreSQL. The package
+  #   is compiled into CrowdSec binaries for their internal database communication.
+  # - The pgproto3/v2 module is archived and EOL; no fix will be released. The fix path
+  #   is migration to pgx/v5, which embeds an updated pgproto3/v3.
+  # - Fix path: once CrowdSec migrates to pgx/v5 and releases an updated binary, rebuild
+  #   the Docker image and remove this suppression.
+  #
+  # Risk Assessment: ACCEPTED (Non-exploitable in Charon context + no upstream fix path)
+  # - The vulnerability requires a malicious PostgreSQL server response. Charon uses SQLite
+  #   internally and does not run PostgreSQL. CrowdSec's database path is not exposed to
+  #   external traffic in a standard Charon deployment.
+  # - The attack requires a compromised database server, which would imply full host compromise.
+  #
+  # Mitigation (active while suppression is in effect):
+  # - Monitor CrowdSec releases for pgx/v5 migration:
+  #   https://github.com/crowdsecurity/crowdsec/releases
+  # - Weekly CI security rebuild flags the moment a fixed image ships.
+  #
+  # Review:
+  # - Reviewed 2026-03-19 (initial suppression): pgproto3/v2 is EOL; no fix exists or will exist.
+  #   Waiting on CrowdSec to migrate to pgx/v5. Set 30-day review.
+  # - Next review: 2026-04-19. Remove suppression once CrowdSec ships with pgx/v5.
+  #
+  # Removal Criteria:
+  # - CrowdSec releases a version with pgx/v5 (pgproto3/v3) replacing pgproto3/v2
+  # - Rebuild Docker image, run security-scan-docker-image, confirm finding is resolved
+  # - Remove this entry and the corresponding .trivyignore entry simultaneously
+  #
+  # References:
+  # - GHSA-jqcq-xjh3-6g23: https://github.com/advisories/GHSA-jqcq-xjh3-6g23
+  # - pgproto3/v2 archive notice: https://github.com/jackc/pgproto3
+  # - pgx/v5 (replacement): https://github.com/jackc/pgx
+  # - CrowdSec releases: https://github.com/crowdsecurity/crowdsec/releases
+  - vulnerability: GHSA-jqcq-xjh3-6g23
+    package:
+      name: github.com/jackc/pgproto3/v2
+      version: "v2.3.3"
+      type: go-module
+    reason: |
+      HIGH — DoS panic via negative field length in pgproto3/v2 v2.3.3 embedded in CrowdSec binaries.
+      pgproto3/v2 is archived/EOL with no fix planned; fix path requires CrowdSec to migrate to pgx/v5.
+      Charon uses SQLite, not PostgreSQL; this code path is not reachable in a standard deployment.
+      Risk accepted; no remediation until CrowdSec ships with pgx/v5.
+      Reviewed 2026-03-19: pgproto3/v2 EOL confirmed; CrowdSec has not migrated to pgx/v5 yet.
+    expiry: "2026-04-19"  # 30-day review: no fix path until CrowdSec migrates to pgx/v5.
+
+    # Action items when this suppression expires:
+    # 1. Check CrowdSec releases for pgx/v5 migration:
+    #    https://github.com/crowdsecurity/crowdsec/releases
+    # 2. Verify with: `go version -m /path/to/crowdsec | grep pgproto3`
+    #    Expected: pgproto3/v3 (or no pgproto3 reference if fully replaced)
+    # 3. If CrowdSec has migrated:
+    #    a. Rebuild Docker image and run local security-scan-docker-image
+    #    b. Remove this suppression entry and the corresponding .trivyignore entry
+    # 4. If not yet migrated: Extend expiry by 30 days and update the review comment above
+    # 5. If extended 3+ times: Open an upstream issue on crowdsecurity/crowdsec requesting pgx/v5 migration
+
 # Match exclusions (patterns to ignore during scanning)
 # Use sparingly - prefer specific CVE suppressions above
 match:
