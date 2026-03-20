@@ -1,8 +1,135 @@
-# Fresh Install Bug Investigation — Comprehensive Plan
+# Fix: `should create new TCP monitor` Playwright Test Failure
 
-**Date:** 2026-03-17
-**Source:** Community user bug report (see `docs/plans/chores.md`)
-**Confidence Score:** 85% — High certainty based on code analysis; some issues require runtime reproduction to confirm edge cases.
+**Status:** Ready to implement
+**Scope:** Test-only fix — no production code changes
+**Affected file:** `tests/monitoring/uptime-monitoring.spec.ts`
+
+---
+
+## Root Cause
+
+The test at line 414 (`should create new TCP monitor`) fills the URL field with `tcp://redis.local:6379`, then selects type `tcp`. The PR **"fix(uptime): fix TCP monitor UX — correct format guidance and add client-side validation"** added a guard in `handleSubmit` inside `CreateMonitorModal` (`frontend/src/pages/Uptime.tsx`, ~line 373) that explicitly blocks form submission when the TCP URL contains a scheme prefix (`://`):
+
+```js
+if (type === 'tcp' && url.trim().includes('://')) {
+    setUrlError(t('uptime.invalidTcpFormat'));
+    return;  // ← early return; mutation.mutate() never called
+}
+```
+
+Because `mutation.mutate()` is never called, the Axios POST to `/api/v1/uptime/monitors` is never sent. Playwright's `page.waitForResponse(...)` waiting on that POST times out, and the test fails consistently across all three retry attempts.
+
+The same component also sets a real-time inline error via the URL `onChange` handler when `type === 'tcp'` and the value contains `://`. At the time the URL is filled in the test the type is still `'http'` (no real-time error), but when `handleSubmit` fires after the type has been switched to `'tcp'`, the guard catches it.
+
+The validation enforces the correct TCP URL format: bare `host:port` with **no** scheme prefix (e.g. `redis.local:6379`, not `tcp://redis.local:6379`). This is documented in the translation string `uptime.urlHelperTcp` and the placeholder `uptime.urlPlaceholderTcp` (`192.168.1.1:8080`).
+
+---
+
+## Validation Chain (for reference)
+
+| Location | File | ~Line | Guard |
+|---|---|---|---|
+| `handleSubmit` | `frontend/src/pages/Uptime.tsx` | 373 | `if (type === 'tcp' && url.trim().includes('://')) return;` |
+| URL `onChange` | `frontend/src/pages/Uptime.tsx` | 392 | `if (type === 'tcp' && val.includes('://')) setUrlError(...)` |
+| Backend binding | `backend/internal/api/handlers/uptime_handler.go` | 34 | `binding:"required,oneof=http tcp https"` — type only; no URL format check server-side |
+
+The backend does **not** validate the TCP URL format — that enforcement lives entirely in the frontend. The test was written before the client-side validation was introduced and uses a URL that now fails that guard.
+
+---
+
+## Required Changes
+
+### File: `tests/monitoring/uptime-monitoring.spec.ts`
+
+Two lines need to change inside the `should create new TCP monitor` test block (lines 414–467).
+
+#### Change 1 — URL fill value (line 447)
+
+The URL passed to the form must be bare `host:port` format, matching what the validation permits.
+
+**Before (line 447):**
+```ts
+await page.fill('input#create-monitor-url', 'tcp://redis.local:6379');
+```
+
+**After:**
+```ts
+await page.fill('input#create-monitor-url', 'redis.local:6379');
+```
+
+#### Change 2 — URL assertion (line 466)
+
+The assertion verifying the payload sent to the API must reflect the corrected URL value.
+
+**Before (line 466):**
+```ts
+expect(createPayload?.url).toBe('tcp://redis.local:6379');
+```
+
+**After:**
+```ts
+expect(createPayload?.url).toBe('redis.local:6379');
+```
+
+---
+
+## Scope Confirmation — What Does NOT Need Changing
+
+| Item | Reason |
+|---|---|
+| `mockMonitors[2].url` (`tcp://redis:6379`, line ~82) | Static fixture data returned by a mocked GET response. Never submitted through the form; never hits validation. Tests in `Monitor List Display` that display this monitor continue to pass. |
+| `tests/fixtures/auth-fixtures.ts` | No TCP monitor creation logic; unaffected. |
+| `tests/utils/wait-helpers.ts` | Utility helpers; unaffected. |
+| `frontend/src/pages/Uptime.tsx` | Production code — must not be changed per scope constraint. |
+| `backend/internal/api/handlers/uptime_handler.go` | Production code — must not be changed per scope constraint. |
+| `frontend/src/api/uptime.ts` | API client; no change needed. |
+
+---
+
+## Verification Steps
+
+After applying the two-line fix:
+
+1. Run the specific failing test in Firefox to confirm it passes:
+   ```bash
+   cd /projects/Charon
+   npx playwright test tests/monitoring/uptime-monitoring.spec.ts \
+     --grep "should create new TCP monitor" \
+     --project=firefox
+   ```
+
+2. Run the full CRUD describe block to confirm no regression in neighbouring tests:
+   ```bash
+   npx playwright test tests/monitoring/uptime-monitoring.spec.ts \
+     --grep "Monitor CRUD Operations" \
+     --project=firefox
+   ```
+
+3. Optionally run the full uptime spec across all shards to confirm end-to-end health.
+
+---
+
+## Commit Slicing Strategy
+
+A single commit is appropriate — this is a two-line test fix with no branching concerns.
+
+```
+test(uptime): fix TCP monitor test to use bare host:port URL format
+
+The should-create-new-TCP-monitor test was passing tcp://redis.local:6379
+as the monitor URL. Client-side validation added in the TCP UX fix PR
+blocks form submission when a TCP URL contains a scheme prefix,
+so the POST to /api/v1/uptime/monitors never fired and waitForResponse
+timed out.
+
+Update the URL fill value and the corresponding payload assertion to use
+the correct bare host:port format (redis.local:6379), which satisfies
+the existing validation and matches the documented TCP address format.
+```
+
+**Branch:** `fix/tcp-monitor-e2e-url-format` → PR targeting `main`
+**Files changed:** 1
+**Lines changed:** 2
 
 ---
 
