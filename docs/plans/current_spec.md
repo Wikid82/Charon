@@ -1649,3 +1649,748 @@ Adds security.crowdsec.starting i18n key to all 5 supported locales.
 
 Closes issue 3, closes issue 4 (regression test only, backend fix in PR-1).
 ```
+
+---
+
+## PR-5: TCP Monitor UX — Issue 5
+
+**Title:** fix(frontend): correct TCP monitor URL placeholder and add per-type UX guidance
+**Issue Resolved:** Issue 5 — "monitor tcp port ui can't add"
+**Classification:** CONFIRMED BUG
+**Dependencies:** None (independent of all other PRs)
+**Status:** READY FOR IMPLEMENTATION
+
+---
+
+### 1. Introduction
+
+A user attempting to create a TCP uptime monitor follows the URL input placeholder text,
+which currently reads `"https://example.com or tcp://host:port"`. They enter
+`tcp://192.168.1.1:8080` as instructed and submit the form. The creation silently fails
+with an HTTP 500 error. The form provides no guidance on why — no inline error, no revised
+placeholder, no helper text.
+
+This plan specifies four layered fixes ranging from the single-line minimum viable fix to
+comprehensive per-type UX guidance and client-side validation. All four fixes belong in a
+single small PR.
+
+---
+
+### 2. Research Findings
+
+#### 2.1 Root Cause: `net.SplitHostPort` Chokes on the `tcp://` Scheme
+
+`net.SplitHostPort` in Go's standard library splits `"host:port"` on the last colon. When the
+host portion itself contains a colon (as `"tcp://192.168.1.1"` does after the `://`), Go's
+implementation returns `"too many colons in address"`.
+
+Full trace:
+
+```
+frontend: placeholder says "tcp://host:port"
+  ↓
+user enters: tcp://192.168.1.1:8080
+  ↓
+POST /api/v1/uptime/monitors  { name: "…", url: "tcp://192.168.1.1:8080", type: "tcp", … }
+  ↓
+uptime_handler.go:42  c.ShouldBindJSON(&req)           → OK (all required fields present)
+  ↓
+uptime_service.go:1107 url.Parse("tcp://192.168.1.1:8080") → OK (valid URL, scheme=tcp)
+  ↓
+uptime_service.go:1122 net.SplitHostPort("tcp://192.168.1.1:8080")
+  → host = "tcp://192.168.1.1"   ← contains a colon (the : after tcp)
+  → Go: byteIndex(host, ':') >= 0 → return addrErr(…, "too many colons in address")
+  ↓
+uptime_service.go:1123 returns fmt.Errorf("TCP URL must be in host:port format: %w", err)
+  ↓
+uptime_handler.go:51  c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+  → HTTP 500 {"error":"TCP URL must be in host:port format: address tcp://192.168.1.1:8080: too many colons in address"}
+  ↓
+frontend onError: toast.error("TCP URL must be in host:port format: …")
+  → user sees a cryptic toast, form stays open, no inline guidance
+```
+
+`net.SplitHostPort` accepts **only** the bare `host:port` form. Valid examples:
+`192.168.1.1:8080`, `myserver.local:22`, `[::1]:8080` (IPv6). The scheme prefix `tcp://`
+is not valid and is never stripped by the backend.
+
+#### 2.2 The Unit Test Pre-Empted the Fix But It Was Never Applied
+
+`frontend/src/pages/__tests__/Uptime.test.tsx` at **line 40** already mocks:
+```typescript
+'uptime.urlPlaceholder': 'https://example.com or host:port',
+```
+The test was written with the corrected value in mind. The actual translation file was
+never updated to match. This is a direct discrepancy that CI does not catch because the
+unit test mocks the i18n layer — it never reads the real translation file.
+
+#### 2.3 State of All Locale Files
+
+`frontend/src/locales/en/translation.json` is the **only** locale file that contains the
+newer uptime keys added when the Create Monitor modal was built. The other four locales
+(de, fr, es, zh) all fall through to the English key values for these keys (i18next
+fallback). The `urlPlaceholder` key does not exist in any non-English locale — they
+inherit the English value verbatim, which is the broken one.
+
+Missing keys across **all** non-English locales (de, fr, es, zh):
+
+```
+uptime.addMonitor           uptime.syncWithHosts       uptime.createMonitor
+uptime.monitorCreated       uptime.syncComplete        uptime.syncing
+uptime.monitorType          uptime.monitorUrl          uptime.monitorTypeHttp
+uptime.monitorTypeTcp       uptime.urlPlaceholder      uptime.autoRefreshing
+uptime.noMonitorsFound      uptime.triggerHealthCheck  uptime.monitorSettings
+uptime.failedToDeleteMonitor                           uptime.failedToUpdateMonitor
+uptime.failedToTriggerCheck uptime.pendingFirstCheck   uptime.last60Checks
+uptime.unpaused             uptime.deleteConfirmation  uptime.loadingMonitors
+```
+
+**PR-5 addresses all new keys added by this PR** (see §5.1 below). The broader backfill of
+missing non-English uptime keys is a separate i18n debt task outside PR-5's scope.
+
+#### 2.4 Component Architecture — Exact Locations in `Uptime.tsx`
+
+The `CreateMonitorModal` component occupies lines 342–476 of
+`frontend/src/pages/Uptime.tsx`.
+
+Key lines within the component:
+
+| Line | Code |
+|------|------|
+| 342 | `const CreateMonitorModal: FC<{ onClose: () => void; t: (key: string) => string }> = ({ onClose, t }) => {` |
+| 345 | `const [url, setUrl] = useState('');` |
+| 346 | `const [type, setType] = useState<'http' \| 'tcp'>('http');` |
+| 362 | `if (!name.trim() \|\| !url.trim()) return;` (`handleSubmit` guard) |
+| 363 | `mutation.mutate({ name: name.trim(), url: url.trim(), type, interval, max_retries: maxRetries });` |
+| 395–405 | URL `<label>` + `<input>` block |
+| 413 | `placeholder={t('uptime.urlPlaceholder')}` ← **bug is here** |
+| 414 | `/>` closing the URL input |
+| 415 | `</div>` closing the URL field wrapper |
+| 416–430 | Type `<label>` + `<select>` block |
+| 427 | `<option value="http">{t('uptime.monitorTypeHttp')}</option>` |
+| 428 | `<option value="tcp">{t('uptime.monitorTypeTcp')}</option>` |
+
+**Critical UX observation:** The type selector (line 416) appears **after** the URL input
+(line 395) in the form. The user fills in the URL without knowing which format to use
+before they have selected the type. Fix 2 (dynamic placeholder) partially addresses this,
+but the ideal fix also reorders the fields so type comes first. This reordering is included
+as part of the implementation below.
+
+#### 2.5 No Existing Client-Side Validation
+
+The `handleSubmit` function (line 360–364) only guards against empty `name` and `url`
+strings. There is no format validation. A `tcp://` prefixed URL passes this check and is
+sent directly to the backend.
+
+No `data-testid` attributes exist on either the URL input or the type selector. They are
+identified by `id="create-monitor-url"` and `id="create-monitor-type"` respectively.
+
+#### 2.6 Backend `https` Type Gap (Out of Scope)
+
+The backend `CreateMonitorRequest` accepts `type: "oneof=http tcp https"`. The frontend
+type selector only offers `http` and `tcp`. HTTPS monitors are unsupported from the UI.
+This is a separate issue; PR-5 does not add the HTTPS option.
+
+#### 2.7 What the Backend Currently Returns
+
+When submitted with `tcp://192.168.1.1:8080`:
+
+- **HTTP status:** 500
+- **Body:** `{"error":"TCP URL must be in host:port format: address tcp://192.168.1.1:8080: too many colons in address"}`
+- **Frontend effect:** `toast.error(err.message)` fires with the full error string — too technical for a novice user.
+
+No backend changes are required for PR-5. The backend validation is correct; only the
+frontend must be fixed.
+
+---
+
+### 3. Technical Specifications
+
+#### 3.1 Fix Inventory
+
+| # | Fix | Scope | Mandatory |
+|---|-----|-------|-----------|
+| Fix 1 | Correct `urlPlaceholder` key in `en/translation.json` | i18n only | ✅ Yes |
+| Fix 2 | Dynamic placeholder per type (`urlPlaceholderHttp` / `urlPlaceholderTcp`) | i18n + React | ✅ Yes |
+| Fix 3 | Helper text per type below URL input | i18n + React | ✅ Yes |
+| Fix 4 | Client-side `tcp://` scheme guard (onChange + submit) | React only | ✅ Yes |
+| Fix 5 | Reorder form fields: type selector before URL input | React only | ✅ Yes |
+
+All five fixes ship in a single PR. They are listed as separate items for reviewer clarity,
+not as separate commits.
+
+---
+
+#### 3.2 Fix 1 — Correct `en/translation.json` (Minimum Viable Fix)
+
+**File:** `frontend/src/locales/en/translation.json`
+**Line:** 480
+
+| Field | Before | After |
+|-------|--------|-------|
+| `uptime.urlPlaceholder` | `"https://example.com or tcp://host:port"` | `"https://example.com"` |
+
+The value is narrowed to HTTP-only. The TCP-specific case is handled by Fix 2's new key.
+The `urlPlaceholder` key is kept (not removed) for backward compatibility with any external
+tooling or test that still references it; it will serve as the HTTP fallback.
+
+---
+
+#### 3.3 Fix 2 — Two New Per-Type Placeholder Keys
+
+**File:** `frontend/src/locales/en/translation.json`
+**Insertion point:** Immediately after the updated `urlPlaceholder` key (after new line 480).
+
+New keys:
+
+| Key | Value |
+|-----|-------|
+| `uptime.urlPlaceholderHttp` | `"https://example.com"` |
+| `uptime.urlPlaceholderTcp` | `"192.168.1.1:8080"` |
+
+**Component change — `frontend/src/pages/Uptime.tsx`:**
+
+Inside `CreateMonitorModal`, add a derived constant after the state declarations
+(insert after line 348, i.e., after `const [maxRetries, setMaxRetries] = useState(3);`):
+
+```tsx
+const urlPlaceholder = type === 'tcp'
+  ? t('uptime.urlPlaceholderTcp')
+  : t('uptime.urlPlaceholderHttp');
+```
+
+At line 413, change:
+```tsx
+placeholder={t('uptime.urlPlaceholder')}
+```
+to:
+```tsx
+placeholder={urlPlaceholder}
+```
+
+The `urlPlaceholder` key in `en/translation.json` no longer feeds the UI directly. It is
+retained for backward compatibility only.
+
+**Effect observed by the user:** When "HTTP" is selected (default), the URL input shows
+`https://example.com`. When "TCP" is selected, it switches immediately to `192.168.1.1:8080`
+— revealing the correct bare `host:port` format with no `tcp://` prefix.
+
+---
+
+#### 3.4 Fix 3 — Helper Text Per Type
+
+**New i18n keys** in `frontend/src/locales/en/translation.json`
+(insert after `urlPlaceholderTcp`):
+
+| Key | Value |
+|-----|-------|
+| `uptime.urlHelperHttp` | `"Enter the full URL including the scheme (e.g., https://example.com)"` |
+| `uptime.urlHelperTcp` | `"Enter as host:port with no scheme prefix (e.g., 192.168.1.1:8080 or hostname:22)"` |
+
+**Component change — `frontend/src/pages/Uptime.tsx`:**
+
+Add `aria-describedby="create-monitor-url-helper"` to the URL `<input>` at line 401. The
+full input element becomes:
+
+```tsx
+<input
+    id="create-monitor-url"
+    type="text"
+    value={url}
+    onChange={…}
+    required
+    aria-describedby="create-monitor-url-helper"
+    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+    placeholder={urlPlaceholder}
+/>
+```
+
+Immediately after `/>` (turning line 414 into multiple lines), insert:
+
+```tsx
+<p
+    id="create-monitor-url-helper"
+    className="text-xs text-gray-500 mt-1"
+>
+    {type === 'tcp' ? t('uptime.urlHelperTcp') : t('uptime.urlHelperHttp')}
+</p>
+```
+
+**Effect:** Static, always-visible helper text below the URL field. Changes in real time as
+the user switches the type selector.
+
+---
+
+#### 3.5 Fix 4 — Client-Side `tcp://` Scheme Guard
+
+**Component change — `frontend/src/pages/Uptime.tsx`:**
+
+Add a new state variable after the existing `useState` declarations (after line 348):
+
+```tsx
+const [urlError, setUrlError] = useState('');
+```
+
+Modify the URL `<input>` `onChange` handler. Current:
+
+```tsx
+onChange={(e) => setUrl(e.target.value)}
+```
+
+Replace with:
+
+```tsx
+onChange={(e) => {
+    const val = e.target.value;
+    setUrl(val);
+    if (type === 'tcp' && val.includes('://')) {
+        setUrlError(t('uptime.invalidTcpFormat'));
+    } else {
+        setUrlError('');
+    }
+}}
+```
+
+Render the inline error **below the helper text** `<p>` (after it, inside the same `<div>`):
+
+```tsx
+{urlError && (
+    <p
+        id="create-monitor-url-error"
+        className="text-xs text-red-400 mt-1"
+        role="alert"
+    >
+        {urlError}
+    </p>
+)}
+```
+
+Update `aria-describedby` on the input to include the error id when it is present:
+
+```tsx
+aria-describedby={`create-monitor-url-helper${urlError ? ' create-monitor-url-error' : ''}`}
+```
+
+Modify `handleSubmit` to block submission when the URL format is invalid for TCP:
+
+```tsx
+const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !url.trim()) return;
+    if (type === 'tcp' && url.trim().includes('://')) {
+        setUrlError(t('uptime.invalidTcpFormat'));
+        return;
+    }
+    mutation.mutate({ name: name.trim(), url: url.trim(), type, interval, max_retries: maxRetries });
+};
+```
+
+**New i18n key** in `frontend/src/locales/en/translation.json`
+(insert after `urlHelperTcp`):
+
+| Key | Value |
+|-----|-------|
+| `uptime.invalidTcpFormat` | `"TCP monitors require host:port format. Remove the scheme prefix (e.g., use 192.168.1.1:8080, not tcp://192.168.1.1:8080)."` |
+
+**Effect:** As soon as the user types `tcp://` while the type selector is set to TCP, the
+error appears inline beneath the URL input. The Submit button remains enabled (feedback-first
+rather than lock-first), but `handleSubmit` re-validates and blocks the API call if the error
+is still present. The error clears the moment the user removes the `://` characters.
+
+**Validation logic rationale:** The check `url.includes('://')` is deliberately simple.
+It catches the exact failure mode: any scheme prefix (not just `tcp://`). It does NOT
+attempt to validate that the remaining `host:port` is well-formed — the backend already
+does that, and producing two layers of structural validation for the host/port part is
+over-engineering for this PR.
+
+---
+
+#### 3.6 Fix 5 — Reorder Form Fields (Type Before URL)
+
+**Rationale:** The user must know the expected URL format before they can fill in the URL
+field. Placing the type selector before the URL input lets the placeholder and helper text
+be correct from the moment the user tabs to the URL field.
+
+**Change:** In `frontend/src/pages/Uptime.tsx`, within `CreateMonitorModal`'s `<form>`,
+move the type `<div>` block (currently lines 416–430) to appear immediately **before** the
+URL `<div>` block (currently lines 395–415). The name `<div>` remains first.
+
+**New ordering of `<form>` fields:**
+1. Name (unchanged — lines 389–394)
+2. **Type selector** (moved from lines 416–430 to here)
+3. URL input with helper/error (adjusted, now after type)
+4. Check interval (unchanged)
+5. Max retries (unchanged)
+
+The `type` state variable and `setType` already exist — no state change is needed. The
+`urlPlaceholder` derived constant (added in Fix 2) already reads from `type`, so the
+reorder gives correct placeholder behavior automatically.
+
+**SUPERVISOR BLOCKING FIX (BLOCKING-1):** The type selector's `onChange` must also clear
+`urlError` to prevent a stale error message persisting after the user switches from TCP to
+HTTP. Without this fix, a user who: (1) selects TCP → (2) types `tcp://...` → (3) sees the
+error → (4) switches back to HTTP will continue to see the TCP format error even though HTTP
+mode accepts full URLs. Fix: update the type `<select>` `onChange`:
+
+```tsx
+// Before (current):
+onChange={(e) => setType(e.target.value as 'http' | 'tcp')}
+
+// After (required):
+onChange={(e) => {
+    setType(e.target.value as 'http' | 'tcp');
+    setUrlError('');
+}}
+```
+
+A corresponding RTL test must be added: *"inline error clears when type changes from TCP to HTTP"*
+and a Playwright scenario: *"Inline error clears when type changed from TCP to HTTP"*.
+This brings the RTL test count from 9 → 10 and the Playwright test count from 8 → 9.
+
+---
+
+#### 3.7 i18n: Complete Key Table
+
+All new/changed keys for all locale files:
+
+##### `frontend/src/locales/en/translation.json`
+
+| Key path | Change | New value |
+|----------|--------|-----------|
+| `uptime.urlPlaceholder` | Changed (line 480) | `"https://example.com"` |
+| `uptime.urlPlaceholderHttp` | New | `"https://example.com"` |
+| `uptime.urlPlaceholderTcp` | New | `"192.168.1.1:8080"` |
+| `uptime.urlHelperHttp` | New | `"Enter the full URL including the scheme (e.g., https://example.com)"` |
+| `uptime.urlHelperTcp` | New | `"Enter as host:port with no scheme prefix (e.g., 192.168.1.1:8080 or hostname:22)"` |
+| `uptime.invalidTcpFormat` | New | `"TCP monitors require host:port format. Remove the scheme prefix (e.g., use 192.168.1.1:8080, not tcp://192.168.1.1:8080)."` |
+
+**Exact insertion point:** All five new keys are inserted inside the `"uptime": {}` object,
+after `"urlPlaceholder"` (current line 480) and before `"pending"` (current line 481). The
+insertion adds 6 lines in total.
+
+##### `frontend/src/locales/de/translation.json`
+
+| Key path | New value |
+|----------|-----------|
+| `uptime.urlPlaceholder` | `"https://example.com"` |
+| `uptime.urlPlaceholderHttp` | `"https://example.com"` |
+| `uptime.urlPlaceholderTcp` | `"192.168.1.1:8080"` |
+| `uptime.urlHelperHttp` | `"Vollständige URL einschließlich Schema eingeben (z.B. https://example.com)"` |
+| `uptime.urlHelperTcp` | `"Als Host:Port ohne Schema-Präfix eingeben (z.B. 192.168.1.1:8080 oder hostname:22)"` |
+| `uptime.invalidTcpFormat` | `"TCP-Monitore erfordern das Format Host:Port. Entfernen Sie das Schema-Präfix (z.B. 192.168.1.1:8080 statt tcp://192.168.1.1:8080)."` |
+
+**Insertion point in `de/translation.json`:** Inside the `"uptime"` object (starts at
+line 384), after the last existing key `"pendingFirstCheck"` (line ~411) and before
+the closing `}` of the `uptime` object. The German `uptime` block currently ends at
+`"pendingFirstCheck": "Warten auf erste Prüfung..."` — these keys are appended after it.
+
+##### `frontend/src/locales/fr/translation.json`
+
+| Key path | New value |
+|----------|-----------|
+| `uptime.urlPlaceholder` | `"https://example.com"` |
+| `uptime.urlPlaceholderHttp` | `"https://example.com"` |
+| `uptime.urlPlaceholderTcp` | `"192.168.1.1:8080"` |
+| `uptime.urlHelperHttp` | `"Saisissez l'URL complète avec le schéma (ex. https://example.com)"` |
+| `uptime.urlHelperTcp` | `"Saisissez sous la forme hôte:port sans préfixe de schéma (ex. 192.168.1.1:8080 ou nom-d-hôte:22)"` |
+| `uptime.invalidTcpFormat` | `"Les moniteurs TCP nécessitent le format hôte:port. Supprimez le préfixe de schéma (ex. 192.168.1.1:8080 et non tcp://192.168.1.1:8080)."` |
+
+**Insertion point:** Same pattern as `de` — append after the last key in the French
+`"uptime"` block.
+
+##### `frontend/src/locales/es/translation.json`
+
+| Key path | New value |
+|----------|-----------|
+| `uptime.urlPlaceholder` | `"https://example.com"` |
+| `uptime.urlPlaceholderHttp` | `"https://example.com"` |
+| `uptime.urlPlaceholderTcp` | `"192.168.1.1:8080"` |
+| `uptime.urlHelperHttp` | `"Ingresa la URL completa incluyendo el esquema (ej. https://example.com)"` |
+| `uptime.urlHelperTcp` | `"Ingresa como host:puerto sin prefijo de esquema (ej. 192.168.1.1:8080 o nombre-de-host:22)"` |
+| `uptime.invalidTcpFormat` | `"Los monitores TCP requieren el formato host:puerto. Elimina el prefijo de esquema (ej. usa 192.168.1.1:8080, no tcp://192.168.1.1:8080)."` |
+
+**Insertion point:** Append after the last key in the Spanish `"uptime"` block.
+
+##### `frontend/src/locales/zh/translation.json`
+
+| Key path | New value |
+|----------|-----------|
+| `uptime.urlPlaceholder` | `"https://example.com"` |
+| `uptime.urlPlaceholderHttp` | `"https://example.com"` |
+| `uptime.urlPlaceholderTcp` | `"192.168.1.1:8080"` |
+| `uptime.urlHelperHttp` | `"请输入包含协议的完整 URL（例如 https://example.com）"` |
+| `uptime.urlHelperTcp` | `"请输入 主机:端口 格式，不含协议前缀（例如 192.168.1.1:8080 或 hostname:22）"` |
+| `uptime.invalidTcpFormat` | `"TCP 监控器需要 主机:端口 格式。请删除协议前缀（例如使用 192.168.1.1:8080，而非 tcp://192.168.1.1:8080）。"` |
+
+**Insertion point:** Append after the last key in the Chinese `"uptime"` block.
+
+---
+
+### 4. Implementation Plan
+
+#### Phase 1: Playwright E2E Tests (Write First)
+
+Write the E2E spec before touching any source files. The spec fails on the current broken
+behavior and passes only after the fixes are applied.
+
+**File:** `playwright/tests/uptime/create-monitor.spec.ts`
+
+```
+Test suite: Create Monitor Modal — TCP UX
+```
+
+| Test title | Preconditions | Steps | Assertion |
+|------------|---------------|-------|-----------|
+| `TCP type shows bare host:port placeholder` | App running (Docker E2E env), logged in as admin | 1. Click "Add Monitor". 2. Confirm default type is HTTP. 3. URL input has placeholder "https://example.com". 4. Change type to TCP. | URL input `placeholder` attribute equals `"192.168.1.1:8080"`. |
+| `HTTP type shows URL placeholder` | Same | 1. Click "Add Monitor". 2. Type selector shows HTTP (default). | URL input `placeholder` attribute equals `"https://example.com"`. |
+| `Type selector appears before URL input in tab order` | Same | 1. Click "Add Monitor". 2. Tab from Name input. | Focus moves to the type selector before the URL input. |
+| `Helper text updates dynamically when type changes` | Same | 1. Click "Add Monitor". 2. Observe helper text below URL field. 3. Switch type to TCP. | Initial helper text contains "scheme". After TCP switch, helper text contains "host:port". |
+| `Inline error appears when tcp:// scheme entered for TCP type` | Same | 1. Click "Add Monitor". 2. Set type to TCP. 3. Type `tcp://192.168.1.1:8080` into URL field. | Inline error message is visible and contains "host:port format". |
+| `Inline error clears when scheme prefix removed` | Same | 1. Click "Add Monitor". 2. Set type to TCP. 3. Type `tcp://192.168.1.1:8080`. 4. Clear field and type `192.168.1.1:8080`. | Inline error is gone. |
+| `Submit with tcp:// prefix is prevented client-side` | Same | 1. Click "Add Monitor". 2. Set type to TCP. 3. Enter name. 4. Enter `tcp://192.168.1.1:8080`. 5. Click Create. | Mock `POST /api/v1/uptime/monitors` is never called (Playwright route interception — the request does not reach the network). |
+| `TCP monitor created successfully with bare host:port` | Route intercept `POST /api/v1/uptime/monitors` → respond 201 `{ id: "m-test", name: "DB Server", url: "192.168.1.1:5432", type: "tcp", ... }` | 1. Click "Add Monitor". 2. Set type to TCP. 3. Enter name "DB Server". 4. Enter `192.168.1.1:5432`. 5. Click Create. | Modal closes. Success toast visible. `createMonitor` was called with `url: "192.168.1.1:5432"` and `type: "tcp"`. |
+
+**Playwright locator strategy:**
+
+```typescript
+// Type selector — by label text
+const typeSelect = page.getByLabel('Type');
+// or by id
+const typeSelect = page.locator('#create-monitor-type');
+
+// URL input — by label text
+const urlInput = page.getByLabel('Monitor URL');
+// or by id
+const urlInput = page.locator('#create-monitor-url');
+
+// Helper text — by id
+const helperText = page.locator('#create-monitor-url-helper');
+
+// Inline error — by role (rendered with role="alert")
+const urlError = page.locator('[role="alert"]').filter({ hasText: 'host:port format' });
+```
+
+---
+
+#### Phase 2: Frontend Unit Tests (RTL)
+
+**File:** `frontend/src/pages/__tests__/Uptime.test.tsx`
+
+**Update the existing mock map (line 40):**
+
+```typescript
+// Before (line 40):
+'uptime.urlPlaceholder': 'https://example.com or host:port',
+
+// After:
+'uptime.urlPlaceholder': 'https://example.com',
+'uptime.urlPlaceholderHttp': 'https://example.com',
+'uptime.urlPlaceholderTcp': '192.168.1.1:8080',
+'uptime.urlHelperHttp': 'Enter the full URL including the scheme',
+'uptime.urlHelperTcp': 'Enter as host:port with no scheme prefix',
+'uptime.invalidTcpFormat': 'TCP monitors require host:port format. Remove the scheme prefix.',
+```
+
+**New test cases to add** (append to the `describe('Uptime page', ...)` block):
+
+| Test name | Setup | Action | Assertion |
+|-----------|-------|--------|-----------|
+| `URL placeholder shows HTTP value for HTTP type (default)` | `getMonitors` returns `[]` | Open modal, observe URL input | `getByPlaceholderText('https://example.com')` exists |
+| `URL placeholder changes to host:port when TCP type is selected` | `getMonitors` returns `[]` | Open modal → change type select to TCP | `getByPlaceholderText('192.168.1.1:8080')` exists; `getByPlaceholderText('https://example.com')` is gone |
+| `Helper text shows HTTP guidance for HTTP type` | Same | Open modal | Element `#create-monitor-url-helper` contains "scheme" |
+| `Helper text changes to TCP guidance when TCP is selected` | Same | Open modal → change select to TCP | Element `#create-monitor-url-helper` contains "host:port" |
+| `Inline error appears when tcp:// prefix entered for TCP type` | Same | Open modal → select TCP → type `tcp://` in URL field | `role="alert"` element with "host:port format" text is visible |
+| `Inline error absent for HTTP type (tcp:// in URL field is allowed)` | Same | Open modal → keep HTTP → type `http://example.com` | No `role="alert"` element present |
+| `handleSubmit blocked when TCP URL has scheme prefix` | `createMonitor` is a vi.fn() spy | Open modal → select TCP → fill name + `tcp://192.168.1.1:8080` → click Create | `createMonitor` is NOT called |
+| `handleSubmit proceeds when TCP URL is bare host:port` | `createMonitor` resolves `{ id: '1', ... }` | Open modal → select TCP → fill name + `192.168.1.1:8080` → click Create | `createMonitor` called with `{ url: '192.168.1.1:8080', type: 'tcp', … }` |
+| `Type selector appears before URL input in DOM order` | Same | Open modal | `getByLabelText('Monitor Type')` has `compareDocumentPosition` before `getByLabelText('Monitor URL')` — or use `getAllByRole` and check index order |
+
+---
+
+#### Phase 3: i18n File Changes
+
+In this order:
+
+1. **`frontend/src/locales/en/translation.json`** — 1 existing key changed + 5 new keys added.
+2. **`frontend/src/locales/de/translation.json`** — 6 new keys added (plus `urlPlaceholder` added as new key since it doesn't yet exist in `de`).
+3. **`frontend/src/locales/fr/translation.json`** — Same as `de`.
+4. **`frontend/src/locales/es/translation.json`** — Same as `de`.
+5. **`frontend/src/locales/zh/translation.json`** — Same as `de`.
+
+**Exact JSON diff for `en/translation.json`** (surrounding context for safe editing):
+
+```json
+    "monitorTypeTcp": "TCP",
+    "urlPlaceholder": "https://example.com",
+    "urlPlaceholderHttp": "https://example.com",
+    "urlPlaceholderTcp": "192.168.1.1:8080",
+    "urlHelperHttp": "Enter the full URL including the scheme (e.g., https://example.com)",
+    "urlHelperTcp": "Enter as host:port with no scheme prefix (e.g., 192.168.1.1:8080 or hostname:22)",
+    "invalidTcpFormat": "TCP monitors require host:port format. Remove the scheme prefix (e.g., use 192.168.1.1:8080, not tcp://192.168.1.1:8080).",
+    "pending": "CHECKING...",
+```
+
+Note: The `"pending"` line is the unchanged next key — it serves as the insertion anchor
+to confirm correct placement.
+
+For **de, fr, es, zh**, these are entirely **new keys being added** to an uptime block that
+currently ends at `"pendingFirstCheck"`. The keys are appended before the closing `}` of
+the `uptime` object. Additionally, each non-English locale receives `"urlPlaceholder":
+"https://example.com"` as a new key (the value is intentionally left in Latin characters —
+`example.com` is a universal placeholder that needs no translation).
+
+---
+
+#### Phase 4: Frontend Component Changes
+
+All changes are in `frontend/src/pages/Uptime.tsx` inside `CreateMonitorModal` (lines
+342–476).
+
+**Step 1 — Add `urlError` state** (after line 348):
+
+```typescript
+const [urlError, setUrlError] = useState('');
+```
+
+**Step 2 — Add `urlPlaceholder` derived constant** (after Step 1):
+
+```typescript
+const urlPlaceholder = type === 'tcp'
+  ? t('uptime.urlPlaceholderTcp')
+  : t('uptime.urlPlaceholderHttp');
+```
+
+**Step 3 — Reorder form fields** (move type `<div>` before URL `<div>`):
+
+The form's JSX block order changes from `[name, url, type, interval, retries]` to
+`[name, type, url, interval, retries]`. This is a pure JSX cut-and-paste of the two
+`<div>` blocks. No logic changes.
+
+**Step 4 — Update URL `<input>`**:
+
+- Change `placeholder={t('uptime.urlPlaceholder')}` → `placeholder={urlPlaceholder}`
+- Change `onChange={(e) => setUrl(e.target.value)}` → the new onChange with error logic
+- Add `aria-describedby` attribute (see §3.5)
+
+**Step 5 — Add helper text `<p>` after the URL `<input />`** (see §3.4)
+
+**Step 6 — Add inline error `<p>` after helper text `<p>`** (see §3.5)
+
+**Step 7 — Update `handleSubmit`** to include the `tcp://` guard (see §3.5)
+
+---
+
+#### Phase 5: Backend Tests (None Required)
+
+The backend's validation is correct. `net.SplitHostPort` correctly rejects `tcp://` prefixed
+strings and will continue to do so. No backend code is changed. No new backend tests are
+needed.
+
+However, to prevent future regression of the backend's error message (which helps diagnose
+protocol prefix issues), verify the existing uptime service tests cover the TCP `host:port`
+validation path. If they do not, note it as a separate backlog item — do not add it to PR-5.
+
+---
+
+### 5. Complete PR-5 File Manifest
+
+| File | Change type | Description |
+|------|-------------|-------------|
+| `frontend/src/locales/en/translation.json` | Modified | 1 changed key, 5 new keys |
+| `frontend/src/locales/de/translation.json` | Modified | 6 new keys added to `uptime` object |
+| `frontend/src/locales/fr/translation.json` | Modified | 6 new keys added to `uptime` object |
+| `frontend/src/locales/es/translation.json` | Modified | 6 new keys added to `uptime` object |
+| `frontend/src/locales/zh/translation.json` | Modified | 6 new keys added to `uptime` object |
+| `frontend/src/pages/Uptime.tsx` | Modified | State, derived var, JSX reorder, placeholder, helper text, error, submit guard |
+| `frontend/src/pages/__tests__/Uptime.test.tsx` | Modified | Updated mock + 9 new test cases |
+| `playwright/tests/uptime/create-monitor.spec.ts` | New | 8 E2E scenarios |
+
+Total: 7 modified files, 1 new file. No backend changes. No database migrations. No API
+contract changes.
+
+---
+
+### 6. Commit Slicing Strategy
+
+**Decision:** Single PR.
+
+**Rationale:**
+- All changes are in the React/i18n frontend layer. No backend, no database.
+- The five fixes are tightly coupled: Fix 2 (dynamic placeholder) requires Fix 1 (key value
+  change) to be correct; Fix 3 (helper text) uses the same `type` state as Fix 2; Fix 4
+  (inline error) reads `type` and the same `url` state; Fix 5 (reorder) relies on the
+  derived `urlPlaceholder` constant introduced in Fix 2.
+- Total reviewer surface: 2 source files modified + 5 locale files + 1 test file updated + 1
+  new spec file. A single PR with 8 files is fast to review.
+- The fix is independently deployable and independently revertable.
+
+**PR Slice: PR-5** (single)
+
+| Attribute | Value |
+|-----------|-------|
+| Scope | Frontend UX + i18n |
+| Files | 8 (listed in §5 above) |
+| Dependencies | None |
+| Validation gate | Playwright E2E suite green (specifically `tests/uptime/create-monitor.spec.ts`); Vitest `Uptime.test.tsx` green; all 5 locale files pass i18n key check |
+| Rollback | `git revert` of the single merge commit |
+| Side effects | None — no DB, no API surface, no backend binary |
+
+---
+
+### 7. Acceptance Criteria
+
+| # | Criterion | Verification method |
+|---|-----------|---------------------|
+| 1 | `uptime.urlPlaceholder` in `en/translation.json` no longer contains `"tcp://"` | `grep "tcp://" frontend/src/locales/en/translation.json` returns no matches |
+| 2 | URL input placeholder in Create Monitor modal shows `"https://example.com"` when HTTP is selected | Playwright: `URL placeholder shows HTTP value…` passes |
+| 3 | URL input placeholder switches to `"192.168.1.1:8080"` when TCP is selected | Playwright: `TCP type shows bare host:port placeholder` passes |
+| 4 | Helper text below URL input explains the expected format and changes with type | Playwright: `Helper text updates dynamically…` passes |
+| 5 | Inline error appears immediately when `tcp://` is typed while TCP type is selected | Playwright: `Inline error appears when tcp:// scheme entered…` passes |
+| 6 | Form submission is blocked client-side when a `tcp://` value is present | Playwright: `Submit with tcp:// prefix is prevented client-side` passes |
+| 7 | A bare `host:port` value (e.g., `192.168.1.1:5432`) submits successfully | Playwright: `TCP monitor created successfully with bare host:port` passes |
+| 8 | Type selector appears before URL input in the tab order | Playwright: `Type selector appears before URL input in tab order` passes |
+| 9 | All 6 new i18n keys exist in all 5 locale files | RTL test mock updated; CI i18n lint passes |
+| 10 | `Uptime.test.tsx` mock updated; all 9 new RTL test cases pass | `npx vitest run frontend/src/pages/__tests__/Uptime.test.tsx` exits 0 |
+| 11 | No regressions in any existing `Uptime.test.tsx` tests | Full Vitest suite green |
+
+---
+
+### 8. Commit Message
+
+```
+fix(frontend): correct TCP monitor URL placeholder and add per-type UX guidance
+
+Users attempting to create TCP uptime monitors were given a misleading
+placeholder — "https://example.com or tcp://host:port" — and followed it
+by submitting "tcp://192.168.1.1:8080". The backend's net.SplitHostPort
+rejected this with "too many colons in address" (HTTP 500) because the
+tcp:// scheme prefix causes the host portion to contain a colon.
+
+Apply five layered fixes:
+
+1. Correct the urlPlaceholder i18n key (en/translation.json line 480)
+   to remove the misleading tcp:// prefix.
+
+2. Add urlPlaceholderHttp / urlPlaceholderTcp keys and switch the URL
+   input placeholder dynamically based on the selected type state.
+
+3. Add urlHelperHttp / urlHelperTcp keys and render helper text below
+   the URL input explaining the expected format per type.
+
+4. Add client-side guard: if type is TCP and the URL contains "://",
+   show an inline error and block form submission before the API call.
+
+5. Reorder the Create Monitor form so the type selector appears before
+   the URL input, ensuring the correct placeholder is visible before
+   the user types the URL.
+
+New i18n keys added to all 5 locales (en, de, fr, es, zh):
+  uptime.urlPlaceholder (changed)
+  uptime.urlPlaceholderHttp (new)
+  uptime.urlPlaceholderTcp (new)
+  uptime.urlHelperHttp (new)
+  uptime.urlHelperTcp (new)
+  uptime.invalidTcpFormat (new)
+
+Closes issue 5 from the fresh-install bug report.
+```

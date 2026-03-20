@@ -346,6 +346,11 @@ const CreateMonitorModal: FC<{ onClose: () => void; t: (key: string) => string }
     const [type, setType] = useState<'http' | 'tcp'>('http');
     const [interval, setInterval] = useState(60);
     const [maxRetries, setMaxRetries] = useState(3);
+    const [urlError, setUrlError] = useState('');
+
+    const urlPlaceholder = type === 'tcp'
+        ? t('uptime.urlPlaceholderTcp')
+        : t('uptime.urlPlaceholderHttp');
 
     const mutation = useMutation({
         mutationFn: (data: { name: string; url: string; type: string; interval?: number; max_retries?: number }) =>
@@ -363,6 +368,10 @@ const CreateMonitorModal: FC<{ onClose: () => void; t: (key: string) => string }
     const handleSubmit = (e: FormEvent) => {
         e.preventDefault();
         if (!name.trim() || !url.trim()) return;
+        if (type === 'tcp' && url.trim().includes('://')) {
+            setUrlError(t('uptime.invalidTcpFormat'));
+            return;
+        }
         mutation.mutate({ name: name.trim(), url: url.trim(), type, interval, max_retries: maxRetries });
     };
 
@@ -400,6 +409,24 @@ const CreateMonitorModal: FC<{ onClose: () => void; t: (key: string) => string }
                     </div>
 
                     <div>
+                        <label htmlFor="create-monitor-type" className="block text-sm font-medium text-gray-300 mb-1">
+                            {t('uptime.monitorType')} *
+                        </label>
+                        <select
+                            id="create-monitor-type"
+                            value={type}
+                            onChange={(e) => {
+                                setType(e.target.value as 'http' | 'tcp');
+                                setUrlError('');
+                            }}
+                            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                            <option value="http">{t('uptime.monitorTypeHttp')}</option>
+                            <option value="tcp">{t('uptime.monitorTypeTcp')}</option>
+                        </select>
+                    </div>
+
+                    <div>
                         <label htmlFor="create-monitor-url" className="block text-sm font-medium text-gray-300 mb-1">
                             {t('uptime.monitorUrl')} *
                         </label>
@@ -407,26 +434,35 @@ const CreateMonitorModal: FC<{ onClose: () => void; t: (key: string) => string }
                             id="create-monitor-url"
                             type="text"
                             value={url}
-                            onChange={(e) => setUrl(e.target.value)}
+                            onChange={(e) => {
+                                const val = e.target.value;
+                                setUrl(val);
+                                if (type === 'tcp' && val.includes('://')) {
+                                    setUrlError(t('uptime.invalidTcpFormat'));
+                                } else {
+                                    setUrlError('');
+                                }
+                            }}
                             required
+                            aria-describedby={`create-monitor-url-helper${urlError ? ' create-monitor-url-error' : ''}`}
                             className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            placeholder={t('uptime.urlPlaceholder')}
+                            placeholder={urlPlaceholder}
                         />
-                    </div>
-
-                    <div>
-                        <label htmlFor="create-monitor-type" className="block text-sm font-medium text-gray-300 mb-1">
-                            {t('uptime.monitorType')} *
-                        </label>
-                        <select
-                            id="create-monitor-type"
-                            value={type}
-                            onChange={(e) => setType(e.target.value as 'http' | 'tcp')}
-                            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        <p
+                            id="create-monitor-url-helper"
+                            className="text-xs text-gray-400 mt-1"
                         >
-                            <option value="http">{t('uptime.monitorTypeHttp')}</option>
-                            <option value="tcp">{t('uptime.monitorTypeTcp')}</option>
-                        </select>
+                            {type === 'tcp' ? t('uptime.urlHelperTcp') : t('uptime.urlHelperHttp')}
+                        </p>
+                        {urlError && (
+                            <p
+                                id="create-monitor-url-error"
+                                className="text-xs text-red-400 mt-1"
+                                role="alert"
+                            >
+                                {urlError}
+                            </p>
+                        )}
                     </div>
 
                     <div>
