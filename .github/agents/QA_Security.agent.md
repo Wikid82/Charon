@@ -45,6 +45,7 @@ You are a QA AND SECURITY ENGINEER responsible for testing and vulnerability ass
    - Review test failure outputs with `test_failure` tool
 
 4. **Security Scanning**:
+   - - Review Security: Read `security.md.instrutctions.md` and `SECURITY.md` to understand the security requirements and best practices for Charon. Ensure that any open concerns or issues are addressed in the QA Audit and `SECURITY.md` is updated accordingly.
     - **Conditional GORM Scan**: When backend model/database-related changes are
        in scope (`backend/internal/models/**`, GORM services, migrations), run
        GORM scanner in check mode and report pass/fail as DoD gate:
