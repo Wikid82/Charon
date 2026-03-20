@@ -45,6 +45,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Prevents timeout errors in Firefox/WebKit caused by strict label matching
 
 ### Fixed
+- **TCP Monitor Creation**: Fixed misleading form UX that caused silent HTTP 500 errors when creating TCP monitors
+  - Corrected URL placeholder to show `host:port` format instead of the incorrect `tcp://host:port` prefix
+  - Added dynamic per-type placeholder and helper text (HTTP monitors show a full URL example; TCP monitors show `host:port`)
+  - Added client-side validation that blocks form submission when a scheme prefix (e.g. `tcp://`) is detected, with an inline error message
+  - Reordered form fields so the monitor type selector appears above the URL input, making the dynamic helper text immediately relevant
+  - i18n: Added 5 new translation keys across en, de, fr, es, and zh locales
 - **CI: Rate Limit Integration Tests**: Hardened test script reliability — login now validates HTTP status, Caddy admin API readiness gated on `/config/` poll, security config failures are fatal with full diagnostics, and poll interval increased to 5s
 - **CI: Rate Limit Integration Tests**: Removed stale GeoIP database SHA256 checksum from Dockerfile non-CI path (hash was perpetually stale due to weekly upstream updates)
 - **CI: Rate Limit Integration Tests**: Fixed Caddy admin API debug dump URL to use canonical trailing slash in workflow
