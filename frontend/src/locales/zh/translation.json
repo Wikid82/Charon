@@ -407,7 +407,13 @@
     "monitorDeleted": "监控器已删除",
     "deleteConfirm": "删除此监控器？此操作无法撤销。",
     "pending": "检查中...",
-    "pendingFirstCheck": "等待首次检查..."
+    "pendingFirstCheck": "等待首次检查...",
+    "urlPlaceholder": "https://example.com",
+    "urlPlaceholderHttp": "https://example.com",
+    "urlPlaceholderTcp": "192.168.1.1:8080",
+    "urlHelperHttp": "请输入包含协议的完整 URL（例如 https://example.com）",
+    "urlHelperTcp": "请输入 主机:端口 格式，不含协议前缀（例如 192.168.1.1:8080 或 hostname:22）",
+    "invalidTcpFormat": "TCP 监控器需要 主机:端口 格式。请删除协议前缀（例如使用 192.168.1.1:8080，而非 tcp://192.168.1.1:8080）。"
   },
   "domains": {
     "title": "域名",
