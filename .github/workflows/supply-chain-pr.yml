@@ -266,7 +266,7 @@ jobs:
       # Generate SBOM using official Anchore action (auto-updated by Renovate)
       - name: Generate SBOM
         if: steps.set-target.outputs.image_name != ''
-        uses: anchore/sbom-action@57aae528053a48a3f6235f2d9461b05fbcb7366d # v0.23.1
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         id: sbom
         with:
           image: ${{ steps.set-target.outputs.image_name }}
@@ -362,7 +362,7 @@ jobs:
 
       - name: Upload SARIF to GitHub Security
         if: steps.check-artifact.outputs.artifact_found == 'true'
-        uses: github/codeql-action/upload-sarif@c6f931105cb2c34c8f901cc885ba1e2e259cf745 # v4
+        uses: github/codeql-action/upload-sarif@38697555549f1db7851b81482ff19f1fa5c4fedc # v4
         continue-on-error: true
         with:
           sarif_file: grype-results.sarif
