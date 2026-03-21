@@ -5,7 +5,7 @@ import { STORAGE_STATE } from '../../constants';
 
 const IMPORT_PAGE_PATH = '/tasks/import/caddyfile';
 
-async function getStoredAuthHeader(page: Page): Promise<Record<string, string>> {
+export async function getStoredAuthHeader(page: Page): Promise<Record<string, string>> {
   const token = await page.evaluate(() => localStorage.getItem('charon_auth_token')).catch(() => null);
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
