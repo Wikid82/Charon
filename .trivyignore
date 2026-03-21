@@ -15,6 +15,14 @@ CVE-2026-25793
 # See also: .grype.yaml for full justification
 CVE-2026-22184
 
+# CVE-2026-27171: zlib CPU spin via crc32_combine64 infinite loop (DoS)
+# Severity: MEDIUM (CVSS 5.5 NVD / 2.9 MITRE) — Package: zlib 1.3.1-r2 in Alpine base image
+# Fix requires zlib >= 1.3.2. No upstream fix available: Alpine 3.23 still ships zlib 1.3.1-r2.
+# Attack requires local access (AV:L); the vulnerable code path is not reachable via Charon's
+# network-facing surface. Non-blocking by CI policy (MEDIUM). Review by: 2026-04-21
+# exp: 2026-04-21
+CVE-2026-27171
+
 # CVE-2026-2673: OpenSSL TLS 1.3 server key exchange group downgrade (libcrypto3/libssl3)
 # Severity: HIGH (CVSS 7.5) — Packages: libcrypto3 3.5.5-r0 and libssl3 3.5.5-r0 in Alpine base image
 # No upstream fix available: Alpine 3.23 still ships libcrypto3/libssl3 3.5.5-r0 as of 2026-03-18.
