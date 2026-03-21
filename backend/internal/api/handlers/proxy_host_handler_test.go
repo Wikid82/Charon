@@ -1552,7 +1552,7 @@ func TestProxyHostUpdate_SecurityHeaderProfile_InvalidString(t *testing.T) {
 
 	var result map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
-	require.Contains(t, result["error"], "invalid security_header_profile_id")
+	require.Contains(t, result["error"], "security header profile not found")
 }
 
 // Test invalid float value (should fail gracefully)
