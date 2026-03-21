@@ -236,10 +236,6 @@ func (h *ProxyHostHandler) resolveSecurityHeaderProfileReference(value any) (*ui
 		return nil, nil
 	}
 
-	if _, err := uuid.Parse(trimmed); err != nil {
-		return nil, parseErr
-	}
-
 	var profile models.SecurityHeaderProfile
 	if err := h.db.Select("id").Where("uuid = ?", trimmed).First(&profile).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {

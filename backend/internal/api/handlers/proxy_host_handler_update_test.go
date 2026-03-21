@@ -732,7 +732,49 @@ func TestProxyHostUpdate_SecurityHeaderProfileID_InvalidString(t *testing.T) {
 
 	var result map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
-	assert.Contains(t, result["error"], "invalid security_header_profile_id")
+	assert.Contains(t, result["error"], "security header profile not found")
+}
+
+// TestProxyHostUpdate_SecurityHeaderProfileID_PresetSlugUUID tests that a preset-style UUID
+// slug (e.g. "preset-basic") resolves correctly to the numeric profile ID via a DB lookup,
+// bypassing the uuid.Parse gate that would otherwise reject non-standard slug formats.
+func TestProxyHostUpdate_SecurityHeaderProfileID_PresetSlugUUID(t *testing.T) {
+	t.Parallel()
+	router, db := setupUpdateTestRouter(t)
+
+	// Create a profile whose UUID mimics a preset slug (non-standard UUID format)
+	slugUUID := "preset-basic"
+	profile := models.SecurityHeaderProfile{
+		UUID:          slugUUID,
+		Name:          "Basic Security",
+		IsPreset:      true,
+		SecurityScore: 65,
+	}
+	require.NoError(t, db.Create(&profile).Error)
+
+	host := createTestProxyHost(t, db, "preset-slug-test")
+
+	updateBody := map[string]any{
+		"name":                       "Test Host Updated",
+		"domain_names":               "preset-slug-test.test.com",
+		"forward_scheme":             "http",
+		"forward_host":               "localhost",
+		"forward_port":               8080,
+		"security_header_profile_id": slugUUID,
+	}
+	body, _ := json.Marshal(updateBody)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/"+host.UUID, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var updated models.ProxyHost
+	require.NoError(t, db.First(&updated, "uuid = ?", host.UUID).Error)
+	require.NotNil(t, updated.SecurityHeaderProfileID)
+	assert.Equal(t, profile.ID, *updated.SecurityHeaderProfileID)
 }
 
 // TestProxyHostUpdate_SecurityHeaderProfileID_UnsupportedType tests that an unsupported type
@@ -819,6 +861,10 @@ func TestProxyHostUpdate_SecurityHeaderProfileID_ValidAssignment(t *testing.T) {
 		{
 			name:  "as_string",
 			value: fmt.Sprintf("%d", profile.ID),
+		},
+		{
+			name:  "as_uuid_string",
+			value: profile.UUID,
 		},
 	}
 
