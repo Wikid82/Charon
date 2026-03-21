@@ -4,6 +4,11 @@ import { readFileSync } from 'fs';
 import { STORAGE_STATE } from '../../constants';
 
 const IMPORT_PAGE_PATH = '/tasks/import/caddyfile';
+
+export async function getStoredAuthHeader(page: Page): Promise<Record<string, string>> {
+  const token = await page.evaluate(() => localStorage.getItem('charon_auth_token')).catch(() => null);
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 const SETUP_TEST_EMAIL = process.env.E2E_TEST_EMAIL || 'e2e-test@example.com';
 const SETUP_TEST_PASSWORD = process.env.E2E_TEST_PASSWORD || 'TestPassword123!';
 const IMPORT_BLOCKING_STATUS_CODES = new Set([401, 403, 302, 429]);
@@ -252,7 +257,7 @@ export async function resetImportSession(page: Page): Promise<void> {
 
 async function readImportStatus(page: Page): Promise<{ hasPending: boolean; sessionId: string }> {
   try {
-    const statusResponse = await page.request.get('/api/v1/import/status');
+    const statusResponse = await page.request.get('/api/v1/import/status', { headers: await getStoredAuthHeader(page) });
     if (!statusResponse.ok()) {
       return { hasPending: false, sessionId: '' };
     }
@@ -272,16 +277,17 @@ async function readImportStatus(page: Page): Promise<{ hasPending: boolean; sess
 }
 
 async function issuePendingSessionCancel(page: Page, sessionId: string): Promise<void> {
+  const authHeader = await getStoredAuthHeader(page);
   if (sessionId) {
     await page
       .request
-      .delete(`/api/v1/import/cancel?session_uuid=${encodeURIComponent(sessionId)}`)
+      .delete(`/api/v1/import/cancel?session_uuid=${encodeURIComponent(sessionId)}`, { headers: authHeader })
       .catch(() => null);
   }
 
   // Keep legacy endpoints for compatibility across backend variants.
-  await page.request.delete('/api/v1/import/cancel').catch(() => null);
-  await page.request.post('/api/v1/import/cancel').catch(() => null);
+  await page.request.delete('/api/v1/import/cancel', { headers: authHeader }).catch(() => null);
+  await page.request.post('/api/v1/import/cancel', { headers: authHeader }).catch(() => null);
 }
 
 async function clearPendingImportSession(page: Page): Promise<void> {
