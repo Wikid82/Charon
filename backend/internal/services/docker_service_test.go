@@ -228,7 +228,7 @@ func TestBuildLocalDockerUnavailableDetails_PermissionDeniedSocketGIDInGroups(t 
 	// Temp file GID = our primary GID (already in process groups) → no group hint
 	tmpDir := t.TempDir()
 	socketFile := filepath.Join(tmpDir, "docker.sock")
-	require.NoError(t, os.WriteFile(socketFile, []byte(""), 0o660))
+	require.NoError(t, os.WriteFile(socketFile, []byte(""), 0o600))
 
 	host := "unix://" + socketFile
 	err := &net.OpError{Op: "dial", Net: "unix", Err: syscall.EACCES}

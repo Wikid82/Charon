@@ -26,6 +26,8 @@ ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0b
 ARG EXPR_LANG_VERSION=1.17.8
 # renovate: datasource=go depName=golang.org/x/net
 ARG XNET_VERSION=0.52.0
+# renovate: datasource=go depName=github.com/smallstep/certificates
+ARG SMALLSTEP_CERTIFICATES_VERSION=0.30.0
 # renovate: datasource=npm depName=npm
 ARG NPM_VERSION=11.11.1
 
@@ -231,6 +233,7 @@ ARG CORAZA_CADDY_VERSION
 ARG XCADDY_VERSION=0.4.5
 ARG EXPR_LANG_VERSION
 ARG XNET_VERSION
+ARG SMALLSTEP_CERTIFICATES_VERSION
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache bash git
@@ -289,6 +292,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # remove once caddy-security ships a release built with goxmldsig >= v1.6.0.
         # renovate: datasource=go depName=github.com/russellhaering/goxmldsig
         go get github.com/russellhaering/goxmldsig@v1.6.0; \
+        # CVE-2026-30836: smallstep/certificates 0.30.0-rc3 vulnerability
+        # Fix available at v0.30.0. Pin here so the Caddy binary is patched immediately;
+        # remove once caddy-security ships a release built with smallstep/certificates >= v0.30.0.
+        go get github.com/smallstep/certificates@v${SMALLSTEP_CERTIFICATES_VERSION}; \
         if [ "${CADDY_PATCH_SCENARIO}" = "A" ]; then \
             # Rollback scenario: keep explicit nebula pin if upstream compatibility regresses.
             # NOTE: smallstep/certificates (pulled by caddy-security stack) currently

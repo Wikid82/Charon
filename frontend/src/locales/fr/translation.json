@@ -407,7 +407,13 @@
     "monitorDeleted": "Moniteur supprimé",
     "deleteConfirm": "Supprimer ce moniteur? Cette action est irréversible.",
     "pending": "VÉRIFICATION...",
-    "pendingFirstCheck": "En attente de la première vérification..."
+    "pendingFirstCheck": "En attente de la première vérification...",
+    "urlPlaceholder": "https://example.com",
+    "urlPlaceholderHttp": "https://example.com",
+    "urlPlaceholderTcp": "192.168.1.1:8080",
+    "urlHelperHttp": "Saisissez l'URL complète avec le schéma (ex. https://example.com)",
+    "urlHelperTcp": "Saisissez sous la forme hôte:port sans préfixe de schéma (ex. 192.168.1.1:8080 ou nom-d-hôte:22)",
+    "invalidTcpFormat": "Les moniteurs TCP nécessitent le format hôte:port. Supprimez le préfixe de schéma (ex. 192.168.1.1:8080 et non tcp://192.168.1.1:8080)."
   },
   "domains": {
     "title": "Domaines",

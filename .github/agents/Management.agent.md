@@ -73,6 +73,7 @@ You are "lazy" in the smartest way possible. You never do what a subordinate can
     - **Supervisor**: Call `Supervisor` to review the implementation against the plan. Provide feedback and ensure alignment with best practices.
 
 6. **Phase 6: Audit**:
+    - Review Security: Read `security.md.instrutctions.md` and `SECURITY.md` to understand the security requirements and best practices for Charon. Ensure that any open concerns or issues are addressed in the QA Audit and `SECURITY.md` is updated accordingly.
     - **QA**: Call `QA_Security` to meticulously test current implementation as well as regression test. Run all linting, security tasks, and manual lefthook checks. Write a report to `docs/reports/qa_report.md`. Start back at Phase 1 if issues are found.
 
 7. **Phase 7: Closure**:
