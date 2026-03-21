@@ -358,7 +358,7 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 	if host.AdvancedConfig != "" {
 		var parsed any
 		if err := json.Unmarshal([]byte(host.AdvancedConfig), &parsed); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid advanced_config JSON: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "advanced_config must be valid Caddy JSON (not Caddyfile syntax). See https://caddyserver.com/docs/json/ for the correct format."})
 			return
 		}
 		parsed = caddy.NormalizeAdvancedConfig(parsed)
@@ -586,7 +586,7 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 		if v != "" && v != host.AdvancedConfig {
 			var parsed any
 			if err := json.Unmarshal([]byte(v), &parsed); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid advanced_config JSON: " + err.Error()})
+				c.JSON(http.StatusBadRequest, gin.H{"error": "advanced_config must be valid Caddy JSON (not Caddyfile syntax). See https://caddyserver.com/docs/json/ for the correct format."})
 				return
 			}
 			parsed = caddy.NormalizeAdvancedConfig(parsed)
