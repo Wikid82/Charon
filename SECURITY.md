@@ -27,49 +27,85 @@ public disclosure.
 
 ## Known Vulnerabilities
 
-### [HIGH] CHARON-2026-001 · Debian Base Image CVE Cluster
+### [CRITICAL] CVE-2025-68121 · Go Stdlib Critical in CrowdSec Bundled Binaries
 
 | Field        | Value |
 |--------------|-------|
-| **ID**       | CHARON-2026-001 (aliases: CVE-2026-0861, CVE-2025-15281, CVE-2026-0915, CVE-2025-13151, and 2 libtiff HIGH CVEs) |
-| **Severity** | High · 8.4 (highest per CVSS v3.1, preliminary) |
-| **Status**   | Fix In Progress |
+| **ID**       | CVE-2025-68121 (see also CHARON-2025-001) |
+| **Severity** | Critical |
+| **Status**   | Awaiting Upstream |
 
 **What**
-Seven HIGH-severity CVEs in Debian Trixie base image system libraries (`glibc`, `libtasn1-6`,
-`libtiff`). These vulnerabilities reside in the container's OS-level packages. No fixes are
-available from the Debian Security Team. The project migrated from Alpine to Debian to avoid
-CVE-2025-60876 (busybox heap overflow); now that Alpine has patched that CVE, migration back to
-Alpine is underway to eliminate this cluster entirely.
+A critical Go standard library vulnerability affects CrowdSec binaries bundled in the Charon
+container image. The binaries were compiled against Go 1.25.6, which contains this flaw.
+Charon's own application code, compiled with Go 1.26.1, is unaffected.
 
 **Who**
-- Discovered by: Automated scan (Trivy)
-- Reported: 2026-02-04
-- Affects: Container runtime environment; no known direct exploitation path through Charon's
-  application interface
+- Discovered by: Automated scan (Grype)
+- Reported: 2026-03-20
+- Affects: CrowdSec Agent component within the container; not directly exposed through Charon's
+  primary application interface
 
 **Where**
-- Component: Debian Trixie base image (`libc6`, `libc-bin`, `libtasn1-6`, `libtiff`)
-- Versions affected: All Charon container images built on Debian Trixie base
+- Component: CrowdSec Agent (bundled `cscli` and `crowdsec` binaries)
+- Versions affected: Charon container images with CrowdSec binaries compiled against Go < 1.25.7
 
 **When**
-- Discovered: 2026-02-04
-- Disclosed (if public): 2026-02-04 (internal advisory)
-- Target fix: 2026-03-05 (Alpine base image migration)
+- Discovered: 2026-03-20
+- Disclosed (if public): Not yet publicly disclosed
+- Target fix: When `golang:1.26.2-alpine` is published on Docker Hub
 
 **How**
-The affected packages are OS-level shared libraries bundled in the container base image.
-Exploitation would require local access to the container or a prior application-level compromise
-to reach the vulnerable library code. Caddy reverse proxy ingress filtering and container
-isolation significantly reduce the effective attack surface.
+The vulnerability resides entirely within CrowdSec's compiled binary artifacts. Exploitation
+is limited to the CrowdSec agent's internal execution paths, which are not externally exposed
+through Charon's API or network interface.
 
 **Planned Remediation**
-Revert to Alpine Linux base image (CVE-2025-60876 is now patched upstream). Expected outcome is
-100% CVE reduction (7 HIGH → 0).
+`golang:1.26.2-alpine` is not yet available on Docker Hub. The `GO_VERSION` ARG has been
+reverted to `1.26.1` (the latest published image) until `1.26.2` is released. Once
+`golang:1.26.2-alpine` is available, bumping `GO_VERSION` to `1.26.2` and rebuilding the image
+will also resolve CVE-2026-25679 (High) and CVE-2025-61732 (High) tracked under CHARON-2025-001.
 
-- Spec: [docs/plans/alpine_migration_spec.md](docs/plans/alpine_migration_spec.md)
-- Advisory: [docs/security/advisory_2026-02-04_debian_cves_temporary.md](docs/security/advisory_2026-02-04_debian_cves_temporary.md)
-- Risk Assessment: [docs/security/VULNERABILITY_ACCEPTANCE.md](docs/security/VULNERABILITY_ACCEPTANCE.md)
+---
+
+### [HIGH] CVE-2026-2673 · OpenSSL TLS 1.3 Key Exchange Group Downgrade
+
+| Field        | Value |
+|--------------|-------|
+| **ID**       | CVE-2026-2673 (affects `libcrypto3` and `libssl3`) |
+| **Severity** | High · 7.5 |
+| **Status**   | Awaiting Upstream |
+
+**What**
+An OpenSSL TLS 1.3 server may fail to negotiate the intended key exchange group when the
+configuration includes the `DEFAULT` keyword, potentially allowing downgrade to weaker cipher
+suites. Affects Alpine 3.23.3 packages `libcrypto3` and `libssl3` at version 3.5.5-r0.
+
+**Who**
+- Discovered by: Automated scan (Grype)
+- Reported: 2026-03-20
+- Affects: Container runtime environment; Caddy reverse proxy TLS negotiation could be affected
+  if default key group configuration is used
+
+**Where**
+- Component: Alpine 3.23.3 base image (`libcrypto3` 3.5.5-r0, `libssl3` 3.5.5-r0)
+- Versions affected: Alpine 3.23.3 prior to a patched `openssl` APK release
+
+**When**
+- Discovered: 2026-03-20
+- Disclosed (if public): 2026-03-13 (OpenSSL advisory)
+- Target fix: When Alpine Security publishes a patched `openssl` APK
+
+**How**
+When an OpenSSL TLS 1.3 server configuration uses the `DEFAULT` keyword for key exchange groups,
+the negotiation logic may select a weaker group than intended. Charon's Caddy TLS configuration
+does not use the `DEFAULT` keyword, which limits practical exploitability. The packages are
+present in the base image regardless of Caddy's configuration.
+
+**Planned Remediation**
+Monitor https://security.alpinelinux.org/vuln/CVE-2026-2673 for a patched Alpine APK. Once
+available, update the pinned `ALPINE_IMAGE` digest in the Dockerfile, or add an explicit
+`RUN apk upgrade --no-cache libcrypto3 libssl3` to the runtime stage.
 
 ---
 
@@ -77,30 +113,32 @@ Revert to Alpine Linux base image (CVE-2025-60876 is now patched upstream). Expe
 
 | Field        | Value |
 |--------------|-------|
-| **ID**       | CHARON-2025-001 (aliases: CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729) |
+| **ID**       | CHARON-2025-001 (aliases: CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729, CVE-2026-25679, CVE-2025-61732, CVE-2026-27142, CVE-2026-27139) |
 | **Severity** | High · (preliminary, CVSS scores pending upstream confirmation) |
 | **Status**   | Awaiting Upstream |
 
 **What**
-Four HIGH-severity CVEs in Go standard library packages (HTTP/2 handling, TLS certificate
-validation, archive parsing) present in CrowdSec binaries bundled with Charon. These vulnerabilities
-exist because CrowdSec's distributed binaries were compiled against Go 1.25.1. Charon's own
-application code is unaffected.
+Multiple CVEs in Go standard library packages continue to accumulate in CrowdSec binaries bundled
+with Charon. The cluster originated when CrowdSec was compiled against Go 1.25.1; subsequent
+CrowdSec updates advanced the toolchain to Go 1.25.6/1.25.7, resolving earlier CVEs but
+introducing new ones. The cluster now includes a Critical-severity finding (CVE-2025-68121,
+tracked separately above). All issues resolve when CrowdSec is rebuilt against Go ≥ 1.26.2.
+Charon's own application code is unaffected.
 
 **Who**
-- Discovered by: Automated scan (Trivy)
-- Reported: 2025-12-01
+- Discovered by: Automated scan (Trivy, Grype)
+- Reported: 2025-12-01 (original cluster); expanded 2026-03-20
 - Affects: CrowdSec Agent component within the container; not directly exposed through Charon's
   primary application interface
 
 **Where**
 - Component: CrowdSec Agent (bundled `cscli` and `crowdsec` binaries)
-- Versions affected: All Charon versions shipping CrowdSec binaries compiled against Go < 1.26.0
+- Versions affected: All Charon versions shipping CrowdSec binaries compiled against Go < 1.26.2
 
 **When**
 - Discovered: 2025-12-01
 - Disclosed (if public): Not yet publicly disclosed
-- Target fix: Dependent on CrowdSec upstream release timeline
+- Target fix: When `golang:1.26.2-alpine` is published on Docker Hub
 
 **How**
 The CVEs reside entirely within CrowdSec's compiled binaries and cover HTTP/2, TLS, and archive
@@ -108,12 +146,59 @@ processing paths that are not invoked by Charon's core application logic. The re
 interfaces are not externally exposed via Charon's API surface.
 
 **Planned Remediation**
-Monitor CrowdSec releases for binaries built with Go 1.26.0+. Upgrade CrowdSec in Charon's build
-pipeline as soon as a patched release is available.
+`golang:1.26.2-alpine` is not yet available on Docker Hub. The `GO_VERSION` ARG has been
+reverted to `1.26.1` (the latest published image) until `1.26.2` is released. Once available,
+bumping `GO_VERSION` to `1.26.2` and rebuilding the image will resolve the entire alias cluster.
+CVE-2025-68121 (Critical severity, same root cause) is tracked separately above.
 
 ---
 
 ## Patched Vulnerabilities
+
+### ✅ [HIGH] CHARON-2026-001 · Debian Base Image CVE Cluster
+
+| Field        | Value |
+|--------------|-------|
+| **ID**       | CHARON-2026-001 (aliases: CVE-2026-0861, CVE-2025-15281, CVE-2026-0915, CVE-2025-13151, and 2 libtiff HIGH CVEs) |
+| **Severity** | High · 8.4 (highest per CVSS v3.1) |
+| **Patched**  | 2026-03-20 (Alpine base image migration complete) |
+
+**What**
+Seven HIGH-severity CVEs in Debian Trixie base image system libraries (`glibc`, `libtasn1-6`,
+`libtiff`). These vulnerabilities resided in the container's OS-level packages with no fixes
+available from the Debian Security Team.
+
+**Who**
+- Discovered by: Automated scan (Trivy)
+- Reported: 2026-02-04
+
+**Where**
+- Component: Debian Trixie base image (`libc6`, `libc-bin`, `libtasn1-6`, `libtiff`)
+- Versions affected: Charon container images built on Debian Trixie base (prior to Alpine migration)
+
+**When**
+- Discovered: 2026-02-04
+- Patched: 2026-03-20
+- Time to patch: 44 days
+
+**How**
+The affected packages were OS-level shared libraries bundled in the Debian Trixie container base
+image. Exploitation would have required local container access or a prior application-level
+compromise. Caddy reverse proxy ingress filtering and container isolation significantly reduced
+the effective attack surface throughout the exposure window.
+
+**Resolution**
+Reverted to Alpine Linux base image (Alpine 3.23.3). Alpine's patch of CVE-2025-60876 (busybox
+heap overflow) removed the original blocker for the Alpine migration. Post-migration scan
+confirmed zero HIGH/CRITICAL CVEs from this cluster.
+
+- Spec: [docs/plans/alpine_migration_spec.md](docs/plans/alpine_migration_spec.md)
+- Advisory: [docs/security/advisory_2026-02-04_debian_cves_temporary.md](docs/security/advisory_2026-02-04_debian_cves_temporary.md)
+
+**Credit**
+Internal remediation; no external reporter.
+
+---
 
 ### ✅ [HIGH] CVE-2025-68156 · expr-lang/expr ReDoS
 
