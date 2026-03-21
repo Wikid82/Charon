@@ -416,8 +416,13 @@ const CreateMonitorModal: FC<{ onClose: () => void; t: (key: string) => string }
                             id="create-monitor-type"
                             value={type}
                             onChange={(e) => {
-                                setType(e.target.value as 'http' | 'tcp');
-                                setUrlError('');
+                                const newType = e.target.value as 'http' | 'tcp';
+                                setType(newType);
+                                if (newType === 'tcp' && url.trim().includes('://')) {
+                                    setUrlError(t('uptime.invalidTcpFormat'));
+                                } else {
+                                    setUrlError('');
+                                }
                             }}
                             className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                         >
@@ -444,6 +449,7 @@ const CreateMonitorModal: FC<{ onClose: () => void; t: (key: string) => string }
                                 }
                             }}
                             required
+                            aria-invalid={urlError ? true : undefined}
                             aria-describedby={`create-monitor-url-helper${urlError ? ' create-monitor-url-error' : ''}`}
                             className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                             placeholder={urlPlaceholder}
