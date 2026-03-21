@@ -153,6 +153,48 @@ CVE-2025-68121 (Critical severity, same root cause) is tracked separately above.
 
 ---
 
+### [MEDIUM] CVE-2026-27171 · zlib CPU Exhaustion via Infinite Loop in CRC Combine Functions
+
+| Field        | Value |
+|--------------|-------|
+| **ID**       | CVE-2026-27171 |
+| **Severity** | Medium · 5.5 (NVD) / 2.9 (MITRE) |
+| **Status**   | Awaiting Upstream |
+
+**What**
+zlib before 1.3.2 allows unbounded CPU consumption (denial of service) via the `crc32_combine64`
+and `crc32_combine_gen64` functions. An internal helper `x2nmodp` performs right-shifts inside a
+loop with no termination condition when given a specially crafted input, causing a CPU spin
+(CWE-1284).
+
+**Who**
+- Discovered by: 7aSecurity audit (commissioned by OSTIF)
+- Reported: 2026-02-17
+- Affects: Any component in the container that calls `crc32_combine`-family functions with
+  attacker-controlled input; not directly exposed through Charon's application interface
+
+**Where**
+- Component: Alpine 3.23.3 base image (`zlib` package, version 1.3.1-r2)
+- Versions affected: zlib < 1.3.2; all current Charon images using Alpine 3.23.3
+
+**When**
+- Discovered: 2026-02-17 (NVD published 2026-02-17)
+- Disclosed (if public): 2026-02-17
+- Target fix: When Alpine 3.23 publishes a patched `zlib` APK (requires zlib 1.3.2)
+
+**How**
+Exploitation requires local access (CVSS vector `AV:L`) and the ability to pass a crafted value
+to the `crc32_combine`-family functions. This code path is not invoked by Charon's reverse proxy
+or backend API. The vulnerability is non-blocking under the project's CI severity policy.
+
+**Planned Remediation**
+Monitor https://security.alpinelinux.org/vuln/CVE-2026-27171 for a patched Alpine APK. Once
+available, update the pinned `ALPINE_IMAGE` digest in the Dockerfile, or add an explicit
+`RUN apk upgrade --no-cache zlib` to the runtime stage. Remove the `.trivyignore` entry at
+that time.
+
+---
+
 ## Patched Vulnerabilities
 
 ### ✅ [HIGH] CHARON-2026-001 · Debian Base Image CVE Cluster
