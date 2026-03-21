@@ -57,26 +57,20 @@ test.describe('Create Monitor Modal — TCP UX', () => {
     await expect(urlInput).toHaveAttribute('placeholder', '192.168.1.1:8080');
   });
 
-  test('Type selector appears before URL input in tab order', async ({ page }) => {
+  test('Type selector precedes URL input in DOM order', async ({ page }) => {
     await openCreateModal(page);
 
-    const typeSelect = page.locator('#create-monitor-type');
-    const urlInput = page.locator('#create-monitor-url');
+    await expect(page.locator('#create-monitor-type')).toBeVisible();
+    await expect(page.locator('#create-monitor-url')).toBeVisible();
 
-    await expect(typeSelect).toBeVisible();
-    await expect(urlInput).toBeVisible();
-
-    // Verify DOM order: type select must appear before URL input
-    const typePosition = await typeSelect.evaluate((el) => {
-      const all = Array.from(document.querySelectorAll('select, input[type="text"]'));
-      return all.indexOf(el as HTMLElement);
-    });
-    const urlPosition = await urlInput.evaluate((el) => {
-      const all = Array.from(document.querySelectorAll('select, input[type="text"]'));
-      return all.indexOf(el as HTMLElement);
+    const typeComesBeforeUrl = await page.evaluate(() => {
+      const typeEl = document.getElementById('create-monitor-type');
+      const urlEl = document.getElementById('create-monitor-url');
+      if (!typeEl || !urlEl) return false;
+      return !!(typeEl.compareDocumentPosition(urlEl) & Node.DOCUMENT_POSITION_FOLLOWING);
     });
 
-    expect(typePosition).toBeLessThan(urlPosition);
+    expect(typeComesBeforeUrl).toBe(true);
   });
 
   test('Helper text updates dynamically when type changes', async ({ page }) => {
@@ -152,7 +146,11 @@ test.describe('Create Monitor Modal — TCP UX', () => {
 
     await page.getByRole('button', { name: /create/i }).click();
 
-    await page.waitForTimeout(500);
+    // Inline error confirms client-side validation blocked the submit
+    await expect(page.locator('[role="alert"]')).toBeVisible();
+    // Modal still open — form was not submitted
+    await expect(page.getByRole('heading', { name: /create monitor/i })).toBeVisible();
+
     expect(createCalled).toBe(false);
   });
 
