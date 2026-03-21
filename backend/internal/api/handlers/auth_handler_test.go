@@ -112,7 +112,7 @@ func TestSetSecureCookie_HTTP_Loopback_Insecure(t *testing.T) {
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
-	assert.False(t, cookie.Secure)
+	assert.True(t, cookie.Secure)
 	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
 }
 
@@ -216,7 +216,7 @@ func TestSetSecureCookie_HTTP_PrivateIP_Insecure(t *testing.T) {
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
-	assert.False(t, cookie.Secure)
+	assert.True(t, cookie.Secure)
 	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
 }
 
@@ -234,7 +234,7 @@ func TestSetSecureCookie_HTTP_10Network_Insecure(t *testing.T) {
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
-	assert.False(t, cookie.Secure)
+	assert.True(t, cookie.Secure)
 	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
 }
 
@@ -252,7 +252,7 @@ func TestSetSecureCookie_HTTP_172Network_Insecure(t *testing.T) {
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
-	assert.False(t, cookie.Secure)
+	assert.True(t, cookie.Secure)
 	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
 }
 
@@ -288,7 +288,7 @@ func TestSetSecureCookie_HTTP_IPv6ULA_Insecure(t *testing.T) {
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
-	assert.False(t, cookie.Secure)
+	assert.True(t, cookie.Secure)
 	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
 }
 
@@ -439,6 +439,7 @@ func TestClearSecureCookie(t *testing.T) {
 	require.Len(t, cookies, 1)
 	assert.Equal(t, "auth_token", cookies[0].Name)
 	assert.Equal(t, -1, cookies[0].MaxAge)
+	assert.True(t, cookies[0].Secure)
 }
 
 func TestAuthHandler_Login_Errors(t *testing.T) {
