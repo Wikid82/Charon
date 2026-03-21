@@ -60,3 +60,13 @@ GHSA-6g7g-w4f8-9c9x
 # See also: .grype.yaml for full justification
 # exp: 2026-04-19
 GHSA-jqcq-xjh3-6g23
+
+# GHSA-x6gf-mpr2-68h6 / CVE-2026-4427: pgproto3/v2 DataRow.Decode panic on negative field length (DoS)
+# Severity: HIGH (CVSS 7.5) — Package: github.com/jackc/pgproto3/v2 v2.3.3, embedded in CrowdSec binaries
+# NVD/Red Hat alias (CVE-2026-4427) for the same underlying bug as GHSA-jqcq-xjh3-6g23.
+# pgproto3/v2 is archived/EOL — no fix will be released. Fix path requires CrowdSec to migrate to pgx/v5.
+# Charon uses SQLite; the PostgreSQL code path is not reachable in a standard deployment.
+# Review by: 2026-04-21
+# See also: .grype.yaml for full justification
+# exp: 2026-04-21
+GHSA-x6gf-mpr2-68h6
