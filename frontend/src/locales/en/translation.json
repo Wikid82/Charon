@@ -477,7 +477,12 @@
     "monitorUrl": "URL",
     "monitorTypeHttp": "HTTP",
     "monitorTypeTcp": "TCP",
-    "urlPlaceholder": "https://example.com or tcp://host:port",
+    "urlPlaceholder": "https://example.com",
+    "urlPlaceholderHttp": "https://example.com",
+    "urlPlaceholderTcp": "192.168.1.1:8080",
+    "urlHelperHttp": "Enter the full URL including the scheme (e.g., https://example.com)",
+    "urlHelperTcp": "Enter as host:port with no scheme prefix (e.g., 192.168.1.1:8080 or hostname:22)",
+    "invalidTcpFormat": "TCP monitors require host:port format. Remove the scheme prefix (e.g., use 192.168.1.1:8080, not tcp://192.168.1.1:8080).",
     "pending": "CHECKING...",
     "pendingFirstCheck": "Waiting for first check..."
   },
