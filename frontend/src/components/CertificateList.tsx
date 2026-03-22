@@ -1,37 +1,57 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Trash2, ChevronUp, ChevronDown } from 'lucide-react'
 import { useState, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { LoadingSpinner, ConfigReloadOverlay } from './LoadingStates'
-import { createBackup } from '../api/backups'
-import { deleteCertificate } from '../api/certificates'
+import DeleteCertificateDialog from './dialogs/DeleteCertificateDialog'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/Tooltip'
+import { deleteCertificate, type Certificate } from '../api/certificates'
 import { useCertificates } from '../hooks/useCertificates'
 import { useProxyHosts } from '../hooks/useProxyHosts'
 import { toast } from '../utils/toast'
 
+import type { ProxyHost } from '../api/proxyHosts'
+
 type SortColumn = 'name' | 'expires'
 type SortDirection = 'asc' | 'desc'
+
+export function isInUse(cert: Certificate, hosts: ProxyHost[]): boolean {
+  return hosts.some(h => (h.certificate_id ?? h.certificate?.id) === cert.id)
+}
+
+export function isDeletable(cert: Certificate, hosts: ProxyHost[]): boolean {
+  if (!cert.id) return false
+  if (isInUse(cert, hosts)) return false
+  return (
+    cert.provider === 'custom' ||
+    cert.provider === 'letsencrypt-staging' ||
+    cert.status === 'expired'
+  )
+}
 
 export default function CertificateList() {
   const { certificates, isLoading, error } = useCertificates()
   const { hosts } = useProxyHosts()
   const queryClient = useQueryClient()
+  const { t } = useTranslation()
   const [sortColumn, setSortColumn] = useState<SortColumn>('name')
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
+  const [certToDelete, setCertToDelete] = useState<Certificate | null>(null)
 
   const deleteMutation = useMutation({
-    // Perform backup before actual deletion
     mutationFn: async (id: number) => {
-      await createBackup()
       await deleteCertificate(id)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['certificates'] })
       queryClient.invalidateQueries({ queryKey: ['proxyHosts'] })
-      toast.success('Certificate deleted')
+      toast.success(t('certificates.deleteSuccess'))
+      setCertToDelete(null)
     },
     onError: (error: Error) => {
-      toast.error(`Failed to delete certificate: ${error.message}`)
+      toast.error(`${t('certificates.deleteFailed')}: ${error.message}`)
+      setCertToDelete(null)
     },
   })
 
@@ -142,34 +162,46 @@ export default function CertificateList() {
                     <StatusBadge status={cert.status} />
                   </td>
                   <td className="px-6 py-4">
-                    {cert.id && (cert.provider === 'custom' || cert.issuer?.toLowerCase().includes('staging')) && (
-                      <button
-                        onClick={() => {
-                          // Determine if certificate is in use by any proxy host
-                          const inUse = hosts.some(h => {
-                            const cid = h.certificate_id ?? h.certificate?.id
-                            return cid === cert.id
-                          })
+                    {(() => {
+                      const inUse = isInUse(cert, hosts)
+                      const deletable = isDeletable(cert, hosts)
 
-                          if (inUse) {
-                            toast.error('Certificate cannot be deleted because it is in use by a proxy host')
-                            return
-                          }
+                      if (cert.id && inUse && (cert.provider === 'custom' || cert.provider === 'letsencrypt-staging' || cert.status === 'expired')) {
+                        return (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  aria-disabled="true"
+                                  aria-label={t('certificates.deleteTitle')}
+                                  className="text-red-400/40 cursor-not-allowed transition-colors"
+                                  onClick={(e) => e.preventDefault()}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {t('certificates.deleteInUse')}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )
+                      }
 
-                          // Allow deletion for custom/staging certs not in use (status check removed)
-                          const message = cert.provider === 'custom'
-                            ? 'Are you sure you want to delete this certificate? This will create a backup before deleting.'
-                            : 'Delete this staging certificate? It will be regenerated on next request.'
-                          if (confirm(message)) {
-                            deleteMutation.mutate(cert.id!)
-                          }
-                        }}
-                        className="text-red-400 hover:text-red-300 transition-colors"
-                        title={cert.provider === 'custom' ? 'Delete Certificate' : 'Delete Staging Certificate'}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
+                      if (deletable) {
+                        return (
+                          <button
+                            onClick={() => setCertToDelete(cert)}
+                            className="text-red-400 hover:text-red-300 transition-colors"
+                            aria-label={t('certificates.deleteTitle')}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )
+                      }
+
+                      return null
+                    })()}
                   </td>
                 </tr>
               ))
@@ -178,6 +210,17 @@ export default function CertificateList() {
         </table>
       </div>
       </div>
+      <DeleteCertificateDialog
+        certificate={certToDelete}
+        open={certToDelete !== null}
+        onConfirm={() => {
+          if (certToDelete?.id) {
+            deleteMutation.mutate(certToDelete.id)
+          }
+        }}
+        onCancel={() => setCertToDelete(null)}
+        isDeleting={deleteMutation.isPending}
+      />
     </>
   )
 }

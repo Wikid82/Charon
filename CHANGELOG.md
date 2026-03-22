@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Certificate Deletion**: Clean up expired and unused certificates directly from the Certificates page
+  - Expired Let's Encrypt certificates not attached to any proxy host can now be deleted
+  - Custom and staging certificates remain deletable when not in use
+  - In-use certificates show a disabled delete button with a tooltip explaining why
+  - Native browser confirmation replaced with an accessible, themed confirmation dialog
+
 - **Pushover Notification Provider**: Send push notifications to your devices via the Pushover app
   - Supports JSON templates (minimal, detailed, custom)
   - Application API Token stored securely — never exposed in API responses

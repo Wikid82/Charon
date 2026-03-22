@@ -173,7 +173,16 @@
     "uploadSuccess": "Zertifikat erfolgreich hochgeladen",
     "uploadFailed": "Fehler beim Hochladen des Zertifikats",
     "note": "Hinweis",
-    "noteText": "Sie können benutzerdefinierte Zertifikate und Staging-Zertifikate löschen. Produktions-Let's-Encrypt-Zertifikate werden automatisch erneuert und sollten nur beim Umgebungswechsel gelöscht werden."
+    "noteText": "You can delete custom certificates, staging certificates, and expired production certificates that are not attached to any proxy host. Active production certificates are automatically renewed by Caddy.",
+    "provider": "Provider",
+    "deleteTitle": "Delete Certificate",
+    "deleteConfirmCustom": "This will permanently delete this certificate. A backup will be created first.",
+    "deleteConfirmStaging": "This staging certificate will be removed. It will be regenerated on next request.",
+    "deleteConfirmExpired": "This expired certificate is no longer active and will be permanently removed.",
+    "deleteSuccess": "Certificate deleted",
+    "deleteFailed": "Failed to delete certificate",
+    "deleteInUse": "Cannot delete — certificate is attached to a proxy host",
+    "deleteButton": "Delete"
   },
   "auth": {
     "login": "Anmelden",
