@@ -15,7 +15,6 @@ import { test, expect, loginUser } from './fixtures/auth-fixtures';
 import { request as playwrightRequest } from '@playwright/test';
 import {
   waitForLoadingComplete,
-  waitForToast,
   waitForDialog,
   waitForAPIResponse,
 } from './utils/wait-helpers';
