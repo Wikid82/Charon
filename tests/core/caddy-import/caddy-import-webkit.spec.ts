@@ -22,6 +22,7 @@ import { Page } from '@playwright/test';
 import {
   attachImportDiagnostics,
   ensureImportUiPreconditions,
+  getStoredAuthHeader,
   logImportFailureContext,
   resetImportSession,
   waitForSuccessfulImportResponse,
@@ -72,7 +73,7 @@ async function ensureWebkitAuthSession(page: Page): Promise<void> {
     });
   }
 
-  const meResponse = await page.request.get('/api/v1/auth/me');
+  const meResponse = await page.request.get('/api/v1/auth/me', { headers: await getStoredAuthHeader(page) });
   if (!meResponse.ok()) {
     throw new Error(
       `WebKit auth bootstrap verification failed: /api/v1/auth/me returned ${meResponse.status()} at ${page.url()}`
