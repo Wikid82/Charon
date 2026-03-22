@@ -1,220 +1,132 @@
-# QA Security Audit Report — PR-5: TCP Monitor UX
+# QA Security Audit Report — CWE-614 Remediation
 
-**Date:** March 19, 2026
-**Auditor:** QA Security Agent
-**PR:** PR-5 TCP Monitor UX
-**Branch:** `feature/beta-release`
-**Verdict:** ✅ APPROVED
+**Date:** 2026-03-21
+**Scope:** `backend/internal/api/handlers/auth_handler.go` — removal of `secure = false` branch from `setSecureCookie`
+**Audited by:** QA Security Agent
 
 ---
 
 ## Scope
 
-Frontend-only changes. Files audited:
+Backend-only change. File audited:
 
 | File | Change Type |
 |------|-------------|
-| `frontend/src/pages/Uptime.tsx` | Modified — TCP type selector, URL validation, inline error |
-| `frontend/src/locales/en/translation.json` | Modified — TCP UX keys added |
-| `frontend/src/locales/de/translation.json` | Modified — TCP UX keys added |
-| `frontend/src/locales/fr/translation.json` | Modified — TCP UX keys added |
-| `frontend/src/locales/es/translation.json` | Modified — TCP UX keys added |
-| `frontend/src/locales/zh/translation.json` | Modified — TCP UX keys added |
-| `frontend/src/pages/__tests__/Uptime.tcp-ux.test.tsx` | New — 10 unit tests |
-| `tests/monitoring/create-monitor.spec.ts` | New — E2E suite for TCP UX |
+| `backend/internal/api/handlers/auth_handler.go` | Modified — `secure = false` branch removed; `Secure` always `true` |
+| `backend/internal/api/handlers/auth_handler_test.go` | Modified — all `TestSetSecureCookie_*` assertions updated to `assert.True(t, cookie.Secure)` |
 
 ---
 
-## Check Results
+## 1. Test Results
 
-### 1. TypeScript Check
+| Metric | Value | Gate | Status |
+|---|---|---|---|
+| Statement coverage | 88.0% | ≥ 87% | ✅ PASS |
+| Line coverage | 88.2% | ≥ 87% | ✅ PASS |
+| Test failures | 0 | 0 | ✅ PASS |
 
-```
-cd /projects/Charon/frontend && npm run type-check
-```
-
-**Result: ✅ PASS**
-- Exit code: 0
-- 0 TypeScript errors
+All `TestSetSecureCookie_*` variants assert `cookie.Secure == true` unconditionally, correctly reflecting the remediated behaviour.
 
 ---
 
-### 2. ESLint
+## 2. Lint Results
 
-```
-cd /projects/Charon/frontend && npm run lint
-```
+**Tool:** `golangci-lint` (fast config — staticcheck, govet, errcheck, ineffassign, unused)
 
-**Result: ✅ PASS**
-- Exit code: 0
-- 0 errors
-- 839 warnings — all pre-existing (`testing-library/no-node-access`, `unicorn/no-useless-undefined`, `security/detect-unsafe-regex`). No new warnings introduced by PR-5 files.
+**Result:** `0 issues` — ✅ PASS
 
 ---
 
-### 3. Local Patch Report
+## 3. Pre-commit Hooks
 
-```
-cd /projects/Charon && bash scripts/local-patch-report.sh
-```
+**Tool:** Lefthook v2.1.4
 
-**Result: ✅ PASS**
-- Mode: `warn` | Baseline: `origin/development...HEAD`
-- Overall patch coverage: 100% (0 changed lines / 0 uncovered)
-- Backend: PASS | Frontend: PASS | Overall: PASS
-- Artifacts written: `test-results/local-patch-report.json`, `test-results/local-patch-report.md`
+| Hook | Result |
+|---|---|
+| check-yaml | ✅ PASS |
+| actionlint | ✅ PASS |
+| end-of-file-fixer | ✅ PASS |
+| trailing-whitespace | ✅ PASS |
+| dockerfile-check | ✅ PASS |
+| shellcheck | ✅ PASS |
 
-_Note: Patch report shows 0 changed lines, indicating PR-5 changes are already included in the comparison baseline. Coverage thresholds are not blocking._
-
----
-
-### 4. Frontend Unit Tests — TCP UX Suite
-
-```
-npx vitest run src/pages/__tests__/Uptime.tcp-ux.test.tsx --reporter=verbose
-```
-
-**Result: ✅ PASS — 10/10 tests passed**
-
-| Test | Result |
-|------|--------|
-| renders HTTP placeholder by default | ✅ |
-| renders TCP placeholder when type is TCP | ✅ |
-| shows HTTP helper text by default | ✅ |
-| shows TCP helper text when type is TCP | ✅ |
-| shows inline error when tcp:// entered in TCP mode | ✅ |
-| inline error clears when scheme prefix removed | ✅ |
-| inline error clears when type changes from TCP to HTTP | ✅ |
-| handleSubmit blocked when tcp:// in URL while type is TCP | ✅ |
-| handleSubmit proceeds when TCP URL is bare host:port | ✅ |
-| type selector appears before URL input in DOM order | ✅ |
-
-**Full suite status:** The complete frontend test suite (30+ files) was observed running with no failures across all captured test files (ProxyHostForm, AccessListForm, SecurityHeaders, Plugins, Security, CrowdSecConfig, WafConfig, AuditLogs, Uptime, and others). The full suite exceeds the automated timeout window due to single-worker configuration. No failures observed. CI will produce the authoritative coverage percentage.
+Go-specific hooks (`go-vet`, `golangci-lint-fast`) were skipped — no staged files. These were validated directly via `make lint-fast`.
 
 ---
 
-### 5. Pre-commit Hooks (Lefthook)
+## 4. Trivy Security Scan
+
+**Tool:** Trivy v0.52.2
+
+### New Vulnerabilities Introduced by This Change
+
+**None.** Zero HIGH or CRITICAL vulnerabilities attributable to the CWE-614 remediation.
+
+### Pre-existing Baseline Finding (unrelated)
+
+| ID | Severity | Type | Description |
+|---|---|---|---|
+| DS002 | HIGH | Dockerfile misconfiguration | Container runs as root — pre-existing, not introduced by this change |
+
+---
+
+## 5. CWE-614 Verification
+
+### Pattern Search: `secure = false` in handlers package
 
 ```
-cd /projects/Charon && lefthook run pre-commit
+grep -rn "secure = false" /projects/Charon/backend/
 ```
 
-_Note: Project uses lefthook v2.1.4. `pre-commit` is not configured; `.pre-commit-config.yaml` does not exist._
+**Result:** 0 matches — ✅ CLEARED
 
-**Result: ✅ PASS — All active hooks passed**
-
-| Hook | Result | Time |
-|------|--------|------|
-| check-yaml | ✅ PASS | 1.47s |
-| actionlint | ✅ PASS | 2.91s |
-| end-of-file-fixer | ✅ PASS | 8.22s |
-| trailing-whitespace | ✅ PASS | 8.24s |
-| dockerfile-check | ✅ PASS | 8.46s |
-| shellcheck | ✅ PASS | 9.43s |
-
-Skipped (no matched staged files): `golangci-lint-fast`, `semgrep`, `frontend-lint`, `frontend-type-check`, `go-vet`, `check-version-match`.
-
----
-
-### 6. Trivy Filesystem Scan
-
-**Result: ⚠️ NOT EXECUTED**
-- Trivy is not installed on this system.
-- Semgrep executed as a compensating control (see Step 7).
-
----
-
-### 7. Semgrep Static Analysis
+### Pattern Search: Inline CodeQL suppression
 
 ```
-semgrep scan --config auto --severity ERROR \
-  frontend/src/pages/Uptime.tsx \
-  frontend/src/pages/__tests__/Uptime.tcp-ux.test.tsx
+grep -rn "codeql[go/cookie-secure-not-set]" /projects/Charon/backend/
 ```
 
-**Result: ✅ PASS**
-- Exit code: 0
-- 0 findings
-- 2 files scanned | 311 rules applied (TypeScript + multilang)
+**Result:** 0 matches — ✅ CLEARED
 
----
+### `setSecureCookie` Implementation
 
-## Security Review — `frontend/src/pages/Uptime.tsx`
+The function unconditionally passes `true` as the `secure` argument to `c.SetCookie`:
 
-### Finding 1: XSS Risk — `<p>{urlError}</p>`
-
-**Assessment: ✅ NOT EXPLOITABLE**
-
-`urlError` is set exclusively by the component itself:
-
-```tsx
-setUrlError(t('uptime.invalidTcpFormat'));  // from i18n translation
-setUrlError('');                             // clear
+```go
+c.SetCookie(
+    name,   // name
+    value,  // value
+    maxAge, // maxAge in seconds
+    "/",    // path
+    domain, // domain (empty = current host)
+    true,   // secure  ← always true, no conditional branch
+    true,   // httpOnly
+)
 ```
 
-The value always originates from the i18n translation system, never from raw user input. React JSX rendering (`{urlError}`) performs automatic HTML entity escaping on all string values. Even if a translation file were compromised to contain HTML tags, React would render them as escaped text. No XSS vector exists.
-
----
-
-### Finding 2: `url.includes('://')` Bypass Risk
-
-**Assessment: ⚠️ LOW — UX guard only; backend must be authoritative**
-
-The scheme check `url.trim().includes('://')` correctly intercepts the primary misuse pattern (`tcp://`, `http://`, `ftp://`, etc.). Edge cases:
-
-- **Percent-encoded bypass**: `tcp%3A//host:8080` does not contain the literal `://` and would pass the frontend guard, reaching the backend with the raw percent-encoded value.
-- **`data:` URIs**: Use `:` not `://` — would pass the frontend check but would fail at the backend as an invalid TCP target.
-- **Internal whitespace**: `tcp ://host` is not caught (`.trim()` strips only leading/trailing whitespace).
-
-All bypass paths result in an invalid monitor that fails to connect. There is no SSRF risk, credential leak, or XSS vector from these edge cases. The backend API is the authoritative validator.
-
-**Recommendation:** No frontend change required. Confirm the backend validates TCP monitor URLs server-side (host:port format) independent of client input.
-
----
-
-### Finding 3: `handleSubmit` Guard — Path Analysis
-
-**Assessment: ✅ DEFENSE-IN-DEPTH OPERATING AS DESIGNED**
-
-Three independent submission guards are present:
-
-1. **HTML `required` attribute** on `name` and `url` inputs — browser-enforced
-2. **Button `disabled` state**: `disabled={mutation.isPending || !name.trim() || !url.trim()}`
-3. **JS guard in `handleSubmit`**: early return on empty fields, followed by TCP scheme check
-
-All three must be bypassed for an invalid TCP URL to reach the API through normal UI interaction. Direct API calls bypass all three layers by design; backend validation covers that path. The guard fires correctly in all 10 test-covered scenarios.
-
----
-
-### Finding 4: `<a href={monitor.url}>` with TCP Addresses (Informational)
-
-**Assessment: ℹ️ INFORMATIONAL — No security risk**
-
-TCP monitor URLs (e.g., `192.168.1.1:8080`) are rendered inside `<a href={monitor.url}>`. A browser interprets this as a relative URL reference; clicking it fails gracefully. React sanitizes `javascript:` hrefs since v16.9.0. No security impact.
+All test cases (`TestSetSecureCookie_HTTPS_Strict`, `_HTTP_Lax`, `_HTTP_Loopback_Insecure`,
+`_ForwardedHTTPS_*`, `_HTTP_PrivateIP_Insecure`, `_HTTP_10Network_Insecure`,
+`_HTTP_172Network_Insecure`) assert `cookie.Secure == true`.
 
 ---
 
 ## Summary
 
 | Check | Result | Notes |
-|-------|--------|-------|
-| TypeScript | ✅ PASS | 0 errors |
-| ESLint | ✅ PASS | 0 errors, 839 pre-existing warnings |
-| Local Patch Report | ✅ PASS | Artifacts generated |
-| Unit Tests (TCP UX) | ✅ PASS | 10/10 |
-| Full Unit Suite | ✅ NO FAILURES OBSERVED | Coverage % deferred to CI |
-| Lefthook Pre-commit | ✅ PASS | All 6 active hooks passed |
-| Trivy | ⚠️ N/A | Not installed; Semgrep used as compensating control |
-| Semgrep | ✅ PASS | 0 findings |
-| XSS (`urlError`) | ✅ NOT EXPLOITABLE | i18n value + React JSX escaping |
-| Scheme check bypass | ⚠️ LOW | Frontend UX guard only; backend must validate |
-| `handleSubmit` guard | ✅ CORRECT | Defense-in-depth as designed |
+|---|---|---|
+| Backend unit tests | ✅ PASS | 0 failures, 88.0% coverage (gate: 87%) |
+| Lint | ✅ PASS | 0 issues |
+| Pre-commit hooks | ✅ PASS | All 6 active hooks passed |
+| Trivy | ✅ PASS | No new HIGH/CRITICAL vulns |
+| `secure = false` removed | ✅ CLEARED | 0 matches in handlers package |
+| CodeQL suppression removed | ✅ CLEARED | 0 matches in handlers package |
 
 ---
 
 ## Overall: ✅ PASS
 
-PR-5 implements TCP monitor UX with correct validation layering, clean TypeScript, and complete unit test coverage of all TCP-specific behaviors. One low-severity observation (backend must own TCP URL format validation independently) does not block the PR — this is an existing project convention, not a regression introduced by these changes.
+The CWE-614 remediation is complete and correct. All cookies set by `setSecureCookie` now unconditionally carry `Secure = true`. No regressions, no new security findings, and coverage remains above the required threshold.
+
 
 ---
 

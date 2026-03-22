@@ -7,16 +7,16 @@
 
 ---
 
-## 1. Introduction
+## 1. Problem Statement
 
-### Overview
+### CWE-614 Description
 
 Users accumulate expired and orphaned certificates in the Certificates UI over time. Currently,
 the delete button is only shown for `custom` (manually uploaded) and `staging` certificates. Expired
 production Let's Encrypt certificates that are no longer attached to any proxy host cannot be
 removed, creating UI clutter and user confusion.
 
-### Objectives
+### SARIF Finding
 
 1. Allow deletion of **expired** certificates that are not attached to any proxy host.
 2. Allow deletion of **custom** (manually uploaded) certificates that are not attached to any
@@ -35,7 +35,7 @@ removed, creating UI clutter and user confusion.
 
 ---
 
-## 2. Research Findings
+## 2. Root Cause Analysis
 
 ### 2.1 Existing Backend Infrastructure
 
@@ -423,7 +423,10 @@ deletion policy:
 
 No other documentation changes needed — the feature is self-explanatory in the UI.
 
----
+Removes the inline codeql[go/cookie-secure-not-set] suppression which
+masked the finding without correcting it, and updates the five unit
+tests that previously asserted Secure = false for local-network HTTP.
+```
 
 ## 5. Acceptance Criteria
 
@@ -449,7 +452,7 @@ No other documentation changes needed — the feature is self-explanatory in the
 
 ## 6. Commit Slicing Strategy
 
-### Decision: Single PR
+A successful remediation satisfies all of the following:
 
 **Rationale**: The scope is small (1 new component, 2 modified files, i18n additions, and tests).
 All changes are tightly coupled — the new dialog component is only meaningful together with the
