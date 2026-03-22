@@ -246,6 +246,48 @@ describe('CertificateList', () => {
     expect(await screen.findByText('Failed to load certificates')).toBeInTheDocument()
   })
 
+  it('shows error toast when delete mutation fails', async () => {
+    const { deleteCertificate } = await import('../../api/certificates')
+    const { toast } = await import('../../utils/toast')
+    vi.mocked(deleteCertificate).mockRejectedValueOnce(new Error('Network error'))
+    const user = userEvent.setup()
+
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const customRow = rows.find(r => r.querySelector('td')?.textContent?.includes('CustomCert'))!
+    await user.click(within(customRow).getByRole('button', { name: 'certificates.deleteTitle' }))
+
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: 'certificates.deleteButton' }))
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('certificates.deleteFailed: Network error'))
+  })
+
+  it('clicking disabled delete button for in-use cert does not open dialog', async () => {
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const activeRow = rows.find(r => r.querySelector('td')?.textContent?.includes('ActiveCert'))!
+    const btn = within(activeRow).getByRole('button', { name: 'certificates.deleteTitle' })
+
+    await user.click(btn)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('closes delete dialog when cancel is clicked', async () => {
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const customRow = rows.find(r => r.querySelector('td')?.textContent?.includes('CustomCert'))!
+    await user.click(within(customRow).getByRole('button', { name: 'certificates.deleteTitle' }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: 'common.cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
   it('sorts certificates by name and expiry when headers are clicked', async () => {
     const certificates: Certificate[] = [
       { id: 10, name: 'Zulu', domain: 'z.example.com', issuer: 'Custom CA', expires_at: '2026-03-01T00:00:00Z', status: 'valid', provider: 'custom' },
