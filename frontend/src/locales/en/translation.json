@@ -182,7 +182,16 @@
     "uploadSuccess": "Certificate uploaded successfully",
     "uploadFailed": "Failed to upload certificate",
     "note": "Note",
-    "noteText": "You can delete custom certificates and staging certificates. Production Let's Encrypt certificates are automatically renewed and should not be deleted unless switching environments."
+    "noteText": "You can delete custom certificates, staging certificates, and expired production certificates that are not attached to any proxy host. Active production certificates are automatically renewed by Caddy.",
+    "provider": "Provider",
+    "deleteTitle": "Delete Certificate",
+    "deleteConfirmCustom": "This will permanently delete this certificate. A backup will be created first.",
+    "deleteConfirmStaging": "This staging certificate will be removed. It will be regenerated on next request.",
+    "deleteConfirmExpired": "This expired certificate is no longer active and will be permanently removed.",
+    "deleteSuccess": "Certificate deleted",
+    "deleteFailed": "Failed to delete certificate",
+    "deleteInUse": "Cannot delete — certificate is attached to a proxy host",
+    "deleteButton": "Delete"
   },
   "auth": {
     "login": "Login",

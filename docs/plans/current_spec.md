@@ -1,9 +1,9 @@
-# Security Remediation Plan — 2026-03-20 Audit
+# Certificate Deletion Feature — Spec
 
-**Date**: 2026-03-20
-**Scope**: All patchable CVEs and code findings from the 2026-03-20 QA security scan
-**Source**: `docs/reports/qa_security_scan_report.md`
-**Status**: Draft — Awaiting implementation
+**Date**: 2026-03-22
+**Priority**: Medium
+**Type**: User Requested Feature
+**Status**: Approved — Supervisor Reviewed 2026-03-22
 
 ---
 
@@ -11,683 +11,481 @@
 
 ### Overview
 
-A full-stack security audit conducted on 2026-03-20 identified 18 findings across the Charon
-container image, Go modules, source code, and Python development tooling. This plan covers all
-**actionable** items that can be resolved without waiting for upstream patches.
-
-The audit also confirmed two prior remediations are complete:
-
-- **CHARON-2026-001** (Debian CVE cluster): The Alpine 3.23.3 migration eliminated all 7 HIGH
-  Debian CVEs. `SECURITY.md` must be updated to reflect this as patched.
-- **CVE-2026-25793** (nebula in Caddy): Resolved by `CADDY_PATCH_SCENARIO=B`.
+Users accumulate expired and orphaned certificates in the Certificates UI over time. Currently,
+the delete button is only shown for `custom` (manually uploaded) and `staging` certificates. Expired
+production Let's Encrypt certificates that are no longer attached to any proxy host cannot be
+removed, creating UI clutter and user confusion.
 
 ### Objectives
 
-1. Rebuild the `charon:local` Docker image so CrowdSec binaries are compiled with a patched Go
-   toolchain, resolving 1 CRITICAL + 5 additional CVEs.
-2. Suppress a gosec false positive in `mail_service.go` with a justification comment.
-3. Fix an overly-permissive test file permission setting.
-4. Upgrade Python development tooling to resolve 4 Medium/Low advisory findings.
-5. Update `SECURITY.md` to accurately reflect the current vulnerability state:
-   move resolved entries to Patched, expand CHARON-2025-001, and add new Known entries.
-6. Confirm DS-0002 (Dockerfile root user) is a false positive.
+1. Allow deletion of **expired** certificates that are not attached to any proxy host.
+2. Allow deletion of **custom** (manually uploaded) certificates that are not attached to any
+   proxy host, regardless of expiry status (already partially implemented).
+3. Allow deletion of **staging** certificates that are not attached to any proxy host (already
+   partially implemented).
+4. **Prevent deletion** of any certificate currently attached to a proxy host.
+5. Replace the native `confirm()` dialog with an accessible, themed confirmation dialog.
+6. Provide clear visual feedback on why a certificate can or cannot be deleted.
 
-### Out of Scope
+### Non-Goals
 
-- **CVE-2026-2673** (OpenSSL `libcrypto3`/`libssl3`): No Alpine fix available as of 2026-03-20.
-  Tracked in `SECURITY.md` as Awaiting Upstream.
-- **CHARON-2025-001 original cluster** (CVE-2025-58183/58186/58187/61729): Awaiting CrowdSec
-  upstream release with Go 1.26.0+ binaries.
+- Bulk certificate deletion (separate feature).
+- Auto-cleanup / scheduled pruning of expired certificates.
+- Changes to certificate auto-renewal logic.
 
 ---
 
 ## 2. Research Findings
 
-### 2.1 Container Image State
+### 2.1 Existing Backend Infrastructure
 
-| Property | Value |
-|----------|-------|
-| OS | Alpine Linux 3.23.3 |
-| Base image digest | `alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659` |
-| Charon backend | go 1.26.1 — **clean** (govulncheck: 0 findings) |
-| CrowdSec binaries (scanned) | go1.25.6 / go1.25.7 |
-| CrowdSec binaries (Dockerfile intent) | go1.26.1 (see §3.1) |
-| npm dependencies | **clean** (281 packages, 0 advisories) |
+The backend already has complete delete support:
 
-The contradiction between the scanned go1.25.6/go1.25.7 CrowdSec binaries and the Dockerfile's
-`GO_VERSION=1.26.1` is because the `charon:local` image cached on the build host predates the
-last Dockerfile update. A fresh Docker build will compile CrowdSec with go1.26.1.
+| Component | File | Status |
+|-----------|------|--------|
+| Model | `backend/internal/models/ssl_certificate.go` | `SSLCertificate` struct with `Provider` ("letsencrypt", "letsencrypt-staging", "custom"), `ExpiresAt` fields |
+| Service | `backend/internal/services/certificate_service.go` | `DeleteCertificate(id)`, `IsCertificateInUse(id)` — fully implemented |
+| Handler | `backend/internal/api/handlers/certificate_handler.go` | `Delete()` — validates in-use, creates backup, deletes, sends notification |
+| Route | `backend/internal/api/routes/routes.go:673` | `DELETE /api/v1/certificates/:id` — already registered |
+| Error | `backend/internal/services/certificate_service.go:23` | `ErrCertInUse` sentinel error defined |
+| Tests | `backend/internal/api/handlers/certificate_handler_test.go` | Tests for in-use, backup, backup failure, auth, invalid ID, not found |
 
-### 2.2 Dockerfile — CrowdSec Build Stage
+**Key finding**: The backend imposes NO provider or expiry restrictions on deletion. Any certificate
+can be deleted as long as it is not referenced by a proxy host (`certificate_id` FK). The
+backend is already correct for the requested feature.
 
-The `crowdsec-builder` stage is defined at Dockerfile line 334:
+### 2.2 Existing Frontend Infrastructure
 
-```dockerfile
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS crowdsec-builder
+| Component | File | Status |
+|-----------|------|--------|
+| API client | `frontend/src/api/certificates.ts` | `deleteCertificate(id)` — exists |
+| Hook | `frontend/src/hooks/useCertificates.ts` | `useCertificates()` — react-query based |
+| List component | `frontend/src/components/CertificateList.tsx` | Delete button and mutation — exists but **gated incorrectly** |
+| Page | `frontend/src/pages/Certificates.tsx` | Upload dialog only |
+| Cleanup dialog | `frontend/src/components/dialogs/CertificateCleanupDialog.tsx` | Used for proxy host deletion cleanup — not for standalone cert deletion |
+| i18n | `frontend/src/locales/en/translation.json:168-185` | Certificate strings — needs new deletion strings |
+
+### 2.3 Current Delete Button Visibility Logic (The Problem)
+
+In `frontend/src/components/CertificateList.tsx:145`:
+
+```tsx
+{cert.id && (cert.provider === 'custom' || cert.issuer?.toLowerCase().includes('staging')) && (
 ```
 
-The controlling argument (Dockerfile line 13):
+This condition **excludes expired production Let's Encrypt certificates**, which is the core
+issue. An expired LE cert not attached to any host should be deletable.
 
-```dockerfile
-# renovate: datasource=docker depName=golang versioning=docker
-ARG GO_VERSION=1.26.1
-```
+### 2.4 Certificate-to-ProxyHost Relationship
 
-**ARG name**: `GO_VERSION`
-**Current value**: `1.26.1`
-**Scope**: Shared — also used by `gosu-builder`, `backend-builder`, and `caddy-builder`.
+- `ProxyHost.CertificateID` (`*uint`, nullable FK) → `SSLCertificate.ID`
+- Defined in `backend/internal/models/proxy_host.go:24-25`
+- GORM foreign key: `gorm:"foreignKey:CertificateID"`
+- **No cascade delete** on the FK — deletion is manually guarded by `IsCertificateInUse()`
+- Frontend checks in-use client-side via `hosts.some(h => h.certificate_id === cert.id)`
 
-**go1.26.1 vs go1.25.8**: Go follows a dual-branch patch model. CVEs patched in go1.25.7 are
-simultaneously patched in the corresponding go1.26.x release. Since go1.26.1 was released after
-the go1.25.7 fixes, it covers CVE-2025-68121 and CVE-2025-61732. CVE-2026-25679 and
-CVE-2026-27142/CVE-2026-27139 (fixed in go1.25.8) require verification that go1.26.1 incorporates
-the equivalent go1.25.8-level patches. If go1.26.2 is available at time of implementation,
-prefer updating `GO_VERSION=1.26.2`.
+### 2.5 Provider Values
 
-**Action**: No Dockerfile ARG change is required if go1.26.1 covers all go1.25.8 CVEs. The fix
-is a Docker image rebuild with `--no-cache`. If post-rebuild scanning still reports go stdlib
-CVEs in CrowdSec binaries, increment `GO_VERSION` to the latest available stable go1.26.x patch.
+| Provider Value | Source | Deletable? |
+|---------------|--------|------------|
+| `letsencrypt` | Auto-provisioned by Caddy ACME | Only when **expired** AND **not in use** |
+| `letsencrypt-staging` | Staging ACME | When **not in use** (any status) |
+| `custom` | User-uploaded via UI | When **not in use** (any status) |
 
-### 2.3 Dockerfile — Final Stage USER Instruction (DS-0002)
+> **Note**: The model comment in `ssl_certificate.go` lists `"self-signed"` as a possible
+> provider, but no code path ever writes that value. The actual provider universe is
+> `letsencrypt`, `letsencrypt-staging`, `custom`. The stale comment should be corrected as
+> part of this PR.
 
-The Dockerfile final stage contains (approximately line 625):
+#### Edge Case: `expiring` LE Cert Not In Use
 
-```dockerfile
-# Security: Run the container as non-root by default.
-USER charon
-```
+An `expiring` Let's Encrypt certificate that is not attached to any proxy host is in limbo —
+not expired yet, but no proxy host references it, so no renewal will be triggered. **Decision**:
+accept this as intended behavior. The cert will eventually expire and become deletable. We do
+**not** add `expiring` to the deletable set because Caddy may still auto-renew certificates
+that were previously provisioned, even if no host currently references them.
 
-`charon` (uid 1000) is created earlier in the build sequence:
+### 2.6 Existing UX Issues
 
-```dockerfile
-RUN addgroup -S charon && adduser -S charon -G charon
-```
-
-The `charon` user owns `/app`, `/config`, and all runtime directories.
-`SECURITY.md`'s Security Features section also states: "Charon runs as an unprivileged user
-(`charon`, uid 1000) inside the container."
-
-**Verdict: DS-0002 is a FALSE POSITIVE.** The `USER charon` instruction is present. The Trivy
-repository scan flagged this against an older cached image or ran without full multi-stage build
-context. No code change is required.
-
-### 2.4 mail\_service.go — G203 Template Cast Analysis
-
-**File**: `backend/internal/services/mail_service.go`, line 195
-**Flagged code**: `data.Content = template.HTML(contentBuf.String())`
-
-Data flow through `RenderNotificationEmail`:
-
-1. `contentBytes` loaded from `emailTemplates.ReadFile("templates/" + templateName)` — an
-   `//go:embed templates/*` embedded FS. Templates are compiled into the binary; fully trusted.
-2. `contentTmpl.Execute(&contentBuf, data)` renders the inner template. Go's `html/template`
-   engine **auto-escapes all string fields** in `data` at this step.
-3. All user-supplied fields in `EmailTemplateData` (`Title`, `Message`, etc.) are pre-sanitized
-   via `sanitizeForEmail()` before the struct is populated (confirmed at `notification_service.go`
-   lines 332–333).
-4. `template.HTML(contentBuf.String())` wraps the **already-escaped, fully-rendered** output
-   as a trusted HTML fragment so the outer `baseTmpl.Execute` does not double-escape HTML
-   entities when embedding `.Content` in the base layout template.
-
-This is the idiomatic nested-template composition pattern in Go's `html/template` package.
-The cast is intentional and safe because the content it wraps was produced by `html/template`
-execution (not from raw user input).
-
-**Verdict: FALSE POSITIVE.** Fix: suppress with `// #nosec G203` and `//nolint:gosec`.
-
-### 2.5 docker\_service\_test.go — G306 File Permission
-
-**File**: `backend/internal/services/docker_service_test.go`, line 231
-
-```go
-// Current
-require.NoError(t, os.WriteFile(socketFile, []byte(""), 0o660))
-```
-
-`0o660` (rw-rw----) grants write access to the file's group. The correct mode for a temporary
-test socket placeholder is `0o600` (rw-------). No production impact; trivial fix.
-
-### 2.6 Python Dev Tooling
-
-Affects the development host only. None of these packages enter the production Docker image.
-
-| Package | Installed | Target | Advisory |
-|---------|-----------|--------|----------|
-| `filelock` | 3.20.0 | ≥ 3.20.3 | GHSA-qmgc-5h2g-mvrw, GHSA-w853-jp5j-5j7f |
-| `virtualenv` | 20.35.4 | ≥ 20.36.1 | GHSA-597g-3phw-6986 |
-| `pip` | 25.3 | ≥ 26.0 | GHSA-6vgw-5pg2-w6jp |
-
-### 2.7 CVE-2025-60876 (busybox) — Status Unconfirmed
-
-`SECURITY.md` (written 2026-02-04) stated Alpine had patched CVE-2025-60876. The 2026-03-18
-`grype` image scan reports `busybox` 1.37.0-r30 with no fixed version. This requires live
-verification against a freshly built `charon:local` image before adding to SECURITY.md.
+1. Delete uses native `confirm()` — not accessible, not themed.
+2. No tooltip or visual indicator explaining why a cert cannot be deleted.
+3. The in-use check is duplicated: once client-side before `confirm()`, once server-side in the handler. This is fine (defense in depth) but the server is the source of truth.
 
 ---
 
 ## 3. Technical Specifications
 
-### P1 — Docker Image Rebuild (CrowdSec Go Toolchain)
+### 3.1 Backend Changes
 
-**Resolves**: CVE-2025-68121 (CRITICAL), CVE-2026-25679 (HIGH), CVE-2025-61732 (HIGH),
-CVE-2026-27142 (MEDIUM), CVE-2026-27139 (LOW), GHSA-fw7p-63qq-7hpr (LOW).
+**No backend code changes required.** The existing `DELETE /api/v1/certificates/:id` endpoint
+already:
+- Validates the certificate exists
+- Checks `IsCertificateInUse()` and returns `409 Conflict` if in use
+- Creates a backup before deletion
+- Deletes the DB record (and ACME files for LE certs)
+- Invalidates the cert cache
+- Sends a notification
+- Returns `200 OK` on success
 
-#### Dockerfile ARG Reference
+The backend does not restrict by provider or expiry — all deletion policy is enforced by the
+frontend's visibility of the delete button and confirmed server-side by the in-use check.
 
-| File | Line | ARG Name | Current Value | Action |
-|------|------|----------|---------------|--------|
-| `Dockerfile` | 13 | `GO_VERSION` | `1.26.1` | No change required if go1.26.1 covers go1.25.8-equivalent patches. Increment to latest stable go1.26.x only if post-rebuild scan confirms CVEs persist in CrowdSec binaries. |
+### 3.2 Frontend Changes
 
-The `crowdsec-builder` stage consumes this ARG as:
+#### 3.2.1 Delete Button Visibility — `CertificateList.tsx`
 
-```dockerfile
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS crowdsec-builder
+Replace the current delete button condition with new business logic:
+
+```
+isDeletable(cert, hosts) =
+  cert.id exists
+  AND NOT isInUse(cert, hosts)
+  AND (
+    cert.provider === 'custom'
+    OR cert.provider === 'letsencrypt-staging'
+    OR cert.status === 'expired'
+  )
 ```
 
-#### Build Command
-
-```bash
-docker build --no-cache -t charon:local .
+Where `isInUse(cert, hosts)` checks:
+```
+hosts.some(h => (h.certificate_id ?? h.certificate?.id) === cert.id)
 ```
 
-`--no-cache` forces the CrowdSec builder to compile fresh binaries against the current toolchain
-and prevents Docker from reusing a cached layer that produced the go1.25.6 binaries.
+In plain terms:
+- **Custom / staging** certs: deletable if not in use (any expiry status).
+- **Production LE** certs: deletable **only if expired** AND not in use.
+- **Any cert in use** by a proxy host: NOT deletable, regardless of status.
 
-#### Post-Rebuild Validation
+> **Important**: Use `cert.provider === 'letsencrypt-staging'` for staging detection — not
+> `cert.issuer?.toLowerCase().includes('staging')`. The `provider` field is the canonical,
+> authoritative classification. Issuer-based checks are fragile and may break if the ACME
+> issuer string changes.
 
-```bash
-# Confirm CrowdSec binary toolchain version
-docker run --rm charon:local cscli version
+#### 3.2.2 Confirmation Dialog — New `DeleteCertificateDialog.tsx`
 
-# Scan for remaining stdlib CVEs in CrowdSec binaries
-grype charon:local -o table --only-fixed | grep -E "CRITICAL|HIGH"
+Create `frontend/src/components/dialogs/DeleteCertificateDialog.tsx`:
 
-# Expected: CVE-2025-68121, CVE-2026-25679, CVE-2025-61732 should no longer appear
+- Reuse the existing `Dialog`, `DialogContent`, `DialogHeader`, `DialogTitle`, `DialogFooter`,
+  `Button` UI components from `frontend/src/components/ui`.
+- Show certificate name, domain, status, and provider.
+- Warning text varies by cert type:
+  - Custom: "This will permanently delete this certificate. A backup will be created first."
+  - Staging: "This staging certificate will be removed. It will be regenerated on next request."
+  - Expired LE: "This expired certificate is no longer active and will be permanently removed."
+- Two buttons: Cancel (secondary) and Delete (destructive).
+- Props: `certificate: Certificate | null`, `onConfirm: () => void`, `onCancel: () => void`,
+  `open: boolean`, `isDeleting: boolean`.
+- Keyboard accessible: focus trap, Escape to close, Enter on Delete button.
+
+#### 3.2.3 Disabled Delete Button with Tooltip
+
+When a certificate is in use by a proxy host, render the delete button as `aria-disabled="true"`
+(not HTML `disabled`) with a Radix Tooltip explaining why. Using `aria-disabled` keeps the
+button focusable, which is required for the tooltip to appear on hover/focus.
+
+Use the existing Radix-based Tooltip component from `frontend/src/components/ui/Tooltip.tsx`
+(`Tooltip`, `TooltipTrigger`, `TooltipContent` exports).
+
+Tooltip text: "Cannot delete — certificate is attached to a proxy host".
+
+When a production LE cert is valid/expiring (not expired) and not in use, do **not** show the
+delete button at all. Production LE certs in active use are auto-managed.
+
+#### 3.2.4 i18n Translation Keys
+
+Add to `frontend/src/locales/en/translation.json` under `"certificates"`:
+
+```json
+"deleteTitle": "Delete Certificate",
+"deleteConfirmCustom": "This will permanently delete this certificate. A backup will be created first.",
+"deleteConfirmStaging": "This staging certificate will be removed. It will be regenerated on next request.",
+"deleteConfirmExpired": "This expired certificate is no longer active and will be permanently removed.",
+"deleteSuccess": "Certificate deleted",
+"deleteFailed": "Failed to delete certificate",
+"deleteInUse": "Cannot delete — certificate is attached to a proxy host",
+"deleteButton": "Delete"
 ```
 
-If any of those CVEs persist post-rebuild, update the ARG:
+A shared `"common.cancel"` key already exists — use `t('common.cancel')` for the Cancel
+button instead of a certificate-specific key.
 
-```dockerfile
-# Dockerfile line 13 — increment to latest stable go1.26.x patch
-# renovate: datasource=docker depName=golang versioning=docker
-ARG GO_VERSION=1.26.2   # or latest stable at time of implementation
+The same keys should be added to all other locale files (`de`, `es`, `fr`, `pt`) with
+placeholder English values (to be translated later).
+
+#### 3.2.5 Data Flow
+
+```
+User clicks delete icon → isDeletable check (client) → open DeleteCertificateDialog
+  → User confirms → deleteMutation fires:
+    1. deleteCertificate(id) → DELETE /api/v1/certificates/:id
+       → Handler: IsCertificateInUse check (server)
+       → Handler: createBackup (server)
+       → Handler: DeleteCertificate (service)
+       → Handler: notification
+    2. Invalidate react-query cache → UI refreshes
 ```
 
-### P2 — DS-0002 (Dockerfile Root User): FALSE POSITIVE
+Note: Remove the duplicate client-side `createBackup()` call from the mutation — the server
+already creates a backup. Keeping the client-side call creates two backups per deletion.
 
-| Evidence | Location |
-|----------|----------|
-| `USER charon` present | `Dockerfile` line ~625 |
-| `addgroup -S charon && adduser -S charon -G charon` | Earlier in final stage |
-| Non-root documented | `SECURITY.md` Security Features section |
+### 3.3 Database Considerations
 
-**No code change required.** Do not add DS-0002 as a real finding to `SECURITY.md`.
+- **No schema changes needed.** The `ssl_certificates` table and `proxy_hosts.certificate_id` FK
+  are already correct.
+- **No cascade behavior changes.** Deletion is guarded by the in-use check, not by DB cascades.
+- The existing backup-before-delete behavior in the handler is sufficient for data safety.
 
-### P3 — G203: mail\_service.go template.HTML Cast
+### 3.4 Security Considerations
 
-**File**: `backend/internal/services/mail_service.go`
-**Line**: 195
+- **Authorization**: The `DELETE /api/v1/certificates/:id` route is under the `management` group
+  which requires authentication middleware. No changes needed.
+- **Server-side validation**: `IsCertificateInUse()` is checked server-side as defense-in-depth,
+  preventing deletion even if the frontend check is bypassed.
+- **ID parameter**: The handler uses numeric ID from URL param, validated with `strconv.ParseUint`.
+  This prevents injection.
+- **Backup safety**: A backup is created before every deletion. Low disk space is checked first
+  (100MB minimum).
 
-Current code:
-```go
-data.Content = template.HTML(contentBuf.String())
-```
+### 3.5 Accessibility Considerations
 
-Proposed change — add suppression comment immediately above the line, inline annotation on
-the same line:
+- New `DeleteCertificateDialog` must use the existing `Dialog` component which already provides
+  focus trap, `role="dialog"`, and `aria-modal`.
+- Disabled delete buttons must use `aria-disabled="true"` (not HTML `disabled`) to remain
+  focusable. Wrap in the Radix `Tooltip` / `TooltipTrigger` / `TooltipContent` from
+  `frontend/src/components/ui/Tooltip.tsx` for an accessible visible tooltip (not just
+  `title` attribute).
+- The delete icon button needs `aria-label` for screen readers.
 
-```go
-// #nosec G203 -- contentBuf is the output of html/template.Execute, which auto-escapes all
-// string fields in EmailTemplateData. The cast prevents double-escaping when this rendered
-// fragment is embedded in the outer base layout template.
-data.Content = template.HTML(contentBuf.String()) //nolint:gosec
-```
+> **Known inconsistency**: The existing `CertificateCleanupDialog` uses a hand-rolled overlay
+> (`<div className="fixed inset-0 bg-black/50 ...">`) instead of the Radix Dialog component.
+> This is a pre-existing issue — **not in scope for this PR**. Flagged as a future chore to
+> migrate `CertificateCleanupDialog` to Radix Dialog for consistency.
 
-### P4 — G306: docker\_service\_test.go File Permission
+### 3.6 Config/Build File Review
 
-**File**: `backend/internal/services/docker_service_test.go`
-**Line**: 231
-
-| | Current | Proposed |
-|-|---------|----------|
-| Permission | `0o660` | `0o600` |
-
-```go
-// Current
-require.NoError(t, os.WriteFile(socketFile, []byte(""), 0o660))
-
-// Proposed
-require.NoError(t, os.WriteFile(socketFile, []byte(""), 0o600))
-```
-
-### P5 — Python Dev Tooling Upgrade
-
-Dev environment only; does not affect the production container.
-
-```bash
-pip install --upgrade filelock virtualenv pip
-```
-
-Post-upgrade verification:
-
-```bash
-pip list | grep -E "filelock|virtualenv|pip"
-pip audit   # should report 0 MEDIUM/HIGH advisories for these packages
-```
+| File | Change Needed? | Notes |
+|------|---------------|-------|
+| `.gitignore` | No | No new artifacts to ignore |
+| `codecov.yml` | No | New dialog component will be covered by existing frontend test config |
+| `.dockerignore` | No | No new build inputs |
+| `Dockerfile` | No | Frontend is built into `dist/` as part of existing build stage |
 
 ---
 
-## 4. SECURITY.md Changes
+## 4. Implementation Plan
 
-All edits must conform to the entry format specified in
-`.github/instructions/security.md.instructions.md`. The following is a field-level description
-of every required SECURITY.md change.
+### Phase 1: Playwright E2E Tests (Test-First)
 
-### 4.1 Move CHARON-2026-001: Known → Patched
+**File**: `tests/certificate-delete.spec.ts`
 
-**Remove** the entire `### [HIGH] CHARON-2026-001 · Debian Base Image CVE Cluster` block from
-`## Known Vulnerabilities`.
+Write E2E tests that define expected behavior:
 
-**Add** the following entry at the **top** of `## Patched Vulnerabilities` (newest-patched first,
-positioned above the existing CVE-2025-68156 entry):
+1. **Test: Delete button visible for expired cert not in use**
+   - Seed an expired custom cert with no proxy host attachment.
+   - Navigate to Certificates page.
+   - Verify delete button is visible for the expired cert row.
 
-```markdown
-### ✅ [HIGH] CHARON-2026-001 · Debian Base Image CVE Cluster
+2. **Test: Delete button visible for custom cert not in use**
+   - Seed a custom cert not attached to any proxy host.
+   - Verify delete button is visible.
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | CHARON-2026-001 (aliases: CVE-2026-0861, CVE-2025-15281, CVE-2026-0915, CVE-2025-13151, and 2 libtiff HIGH CVEs) |
-| **Severity** | High · 8.4 (highest per CVSS v3.1) |
-| **Patched**  | 2026-03-20 (Alpine base image migration complete) |
+3. **Test: Delete button disabled for cert in use**
+   - Seed a cert attached to a proxy host.
+   - Verify delete button is `aria-disabled="true"` with tooltip text.
 
-**What**
-Seven HIGH-severity CVEs in Debian Trixie base image system libraries (`glibc`, `libtasn1-6`,
-`libtiff`). These vulnerabilities resided in the container's OS-level packages with no available
-fixes from the Debian Security Team.
+4. **Test: Delete button NOT visible for valid production LE cert**
+   - Seed a valid LE cert not in use.
+   - Verify no delete button (auto-managed, not expired).
 
-**Who**
-- Discovered by: Automated scan (Trivy)
-- Reported: 2026-02-04
+5. **Test: Confirmation dialog appears on delete click**
+   - Click delete on a deletable cert.
+   - Verify dialog opens with cert details and Cancel/Delete buttons.
+   - Click Cancel, verify dialog closes, cert still exists.
 
-**Where**
-- Component: Debian Trixie base image (`libc6`, `libc-bin`, `libtasn1-6`, `libtiff`)
-- Versions affected: All Charon container images built on Debian Trixie base
+6. **Test: Successful deletion flow**
+   - Click delete on a deletable cert.
+   - Confirm in dialog.
+   - Verify cert disappears from list.
+   - Verify success toast appears.
 
-**When**
-- Discovered: 2026-02-04
-- Patched: 2026-03-20
-- Time to patch: 45 days
+7. **Test: In-use cert shows disabled button with tooltip**
+   - Seed a cert in use.
+   - Verify delete button has `aria-disabled="true"` and tooltip is shown on hover.
 
-**How**
-OS-level shared libraries bundled in the Debian Trixie container base image. Exploitation
-required local container access or a prior application-level compromise to reach the vulnerable
-library code. Caddy reverse proxy ingress filtering and container isolation limited the
-effective attack surface.
+#### E2E Seeding Strategy
 
-**Resolution**
-Migrated the container base image from Debian Trixie to Alpine Linux 3.23.3. Confirmed via
-`docker inspect charon:local` showing Alpine 3.23.3. All 7 Debian HIGH CVEs are eliminated.
-Post-migration Trivy scan reports 0 HIGH/CRITICAL vulnerabilities in the base OS layer.
+Certificates are scanned from Caddy's certificate storage, not manually inserted. Tests
+should seed data by:
+1. Using the existing API to create proxy hosts with different SSL modes (which triggers
+   cert provisioning by Caddy).
+2. For expired/custom certs, use the certificate upload API (`POST /api/v1/certificates`)
+   with pre-generated test certificates.
+3. For in-use vs. not-in-use states, create/delete proxy host associations via the proxy
+   host API.
+4. Direct database manipulation is a last resort and should be avoided to keep tests
+   realistic.
 
-- Spec: [docs/plans/alpine_migration_spec.md](docs/plans/alpine_migration_spec.md)
-- Advisory: [docs/security/advisory_2026-02-04_debian_cves_temporary.md](docs/security/advisory_2026-02-04_debian_cves_temporary.md)
+**Complexity**: Low — straightforward UI interaction tests.
+
+### Phase 2: Frontend Implementation
+
+**Estimated changes**: ~3 files modified, 1 file created.
+
+#### Step 1: Create `DeleteCertificateDialog`
+
+**File**: `frontend/src/components/dialogs/DeleteCertificateDialog.tsx`
+
+```
+Props:
+  - certificate: Certificate | null (from api/certificates.ts)
+  - open: boolean
+  - onConfirm: () => void
+  - onCancel: () => void
+  - isDeleting: boolean
+
+Structure:
+  - Dialog (open, onOpenChange=onCancel)
+    - DialogContent
+      - DialogHeader
+        - DialogTitle: t('certificates.deleteTitle')
+      - Certificate info: name, domain, status badge, provider
+      - Warning text (varies by provider/status)
+      - DialogFooter
+        - Button (secondary): t('common.cancel')
+        - Button (destructive, loading=isDeleting): Delete
 ```
 
-### 4.2 Update CHARON-2025-001 in Known Vulnerabilities
+#### Step 2: Update `CertificateList.tsx`
 
-Apply the following field-level changes to the existing entry:
+1. Extract `isDeletable(cert, hosts)` helper function.
+2. Extract `isInUse(cert, hosts)` helper function.
+3. Replace the inline delete button condition with `isDeletable()`.
+4. Add disabled delete button with tooltip for in-use certs.
+5. Replace `confirm()` with `DeleteCertificateDialog` state management:
+   - `const [certToDelete, setCertToDelete] = useState<Certificate | null>(null)`
+   - Open dialog: `setCertToDelete(cert)`
+   - Confirm: `deleteMutation.mutate(certToDelete.id)`
+   - Cancel/success: `setCertToDelete(null)`
+6. Remove the duplicate client-side `createBackup()` call from the mutation — the server
+   already creates a backup. Keeping the client-side call creates two backups per deletion.
 
-**Field: `**ID**`**
+#### Step 3: Add i18n keys
 
-| | Current | Proposed |
-|-|---------|----------|
-| Aliases | `CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729` | `CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729, CVE-2025-68121, CVE-2026-25679, CVE-2025-61732` |
+**Files**: All locale files under `frontend/src/locales/*/translation.json`
 
-**Field: `**Status**`**
+Add the keys from §3.2.4.
 
-| | Current | Proposed |
-|-|---------|----------|
-| Status | `Awaiting Upstream` | `Fix In Progress` |
+**Complexity**: Low — mostly UI wiring, no new APIs.
 
-**Field: `**What**` — replace paragraph with:**
+### Phase 3: Backend Unit Tests (Gap Coverage)
 
-> Multiple Go standard library CVEs (HTTP/2 handling, TLS certificate validation, archive
-> parsing, and net/http) present in CrowdSec binaries bundled with Charon. The original cluster
-> (compiled against go1.25.1) was partially addressed as CrowdSec updated to go1.25.6/go1.25.7,
-> but new CVEs — including CVE-2025-68121 (CRITICAL) — continue to accumulate against those
-> versions. All CVEs in this cluster resolve when CrowdSec binaries are rebuilt against
-> go ≥ 1.25.8 (or the equivalent go1.26.x patch). Charon's own application code is unaffected.
+While the backend code needs no changes, add tests for the newly-important scenarios:
 
-**Field: `Versions affected` (in `**Where**`)**
+**File**: `backend/internal/api/handlers/certificate_handler_test.go`
 
-| | Current | Proposed |
-|-|---------|----------|
-| Versions affected | `All Charon versions shipping CrowdSec binaries compiled against Go < 1.26.0` | `All Charon versions shipping CrowdSec binaries compiled against Go < 1.25.8 (or equivalent go1.26.x patch)` |
+1. **Test: Delete expired LE cert not in use succeeds** — ensures the backend does not block
+   expired LE certs from deletion.
+2. **Test: Delete valid LE cert not in use succeeds** — confirms the backend has no
+   provider-based restrictions (policy is frontend-only).
 
-**Field: `**Planned Remediation**` — replace paragraph with:**
+The `IsCertificateInUse` service-level tests already exist in `certificate_service_test.go`.
+Do **not** duplicate them. Keep only the handler-level tests above that verify the HTTP layer
+behavior for expired LE cert deletion.
 
-> Rebuild the `charon:local` Docker image using the current Dockerfile. The `crowdsec-builder`
-> stage at Dockerfile line 334 compiles CrowdSec from source against
-> `golang:${GO_VERSION}-alpine` (currently go1.26.1), which incorporates the equivalent of the
-> go1.25.7 and go1.25.8 patch series. Use `docker build --no-cache` to force recompilation of
-> CrowdSec binaries. See: [docs/plans/current_spec.md](docs/plans/current_spec.md)
+**Complexity**: Low — standard Go table-driven tests.
 
-### 4.3 Add New Known Entries
+### Phase 4: Frontend Unit Tests
 
-Insert the following entries into `## Known Vulnerabilities`. Sort order: CRITICAL entries first
-(currently none), then HIGH, MEDIUM, LOW. Place CVE-2025-68121 before CVE-2026-2673.
+**File**: `frontend/src/components/__tests__/CertificateList.test.tsx`
 
-#### New Entry 1: CVE-2025-68121 (CRITICAL)
+1. Test `isDeletable()` helper with all provider/status/in-use combinations.
+2. Test that delete button renders for deletable certs.
+3. Test that delete button is disabled for in-use certs.
+4. Test that delete button is hidden for valid production LE certs.
 
-```markdown
-### [CRITICAL] CVE-2025-68121 · Go stdlib — CrowdSec Bundled Binaries
+**File**: `frontend/src/components/dialogs/__tests__/DeleteCertificateDialog.test.tsx`
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | CVE-2025-68121 (see also CHARON-2025-001) |
-| **Severity** | Critical |
-| **Status**   | Fix In Progress |
+5. Test dialog renders with correct warning text per provider.
+6. Test Cancel closes dialog.
+7. Test Delete calls onConfirm.
 
-**What**
-A critical vulnerability in the Go standard library present in CrowdSec binaries bundled with
-Charon. The binaries in the current `charon:local` image were compiled with go1.25.6, which is
-affected. Fixed in go1.25.7 (and the equivalent go1.26.x patch). All CVEs in this component
-resolve upon Docker image rebuild using the current Dockerfile (go1.26.1 toolchain).
+**Complexity**: Low.
 
-**Who**
-- Discovered by: Automated scan (grype, 2026-03-20)
-- Reported: 2026-03-20
-- Affects: CrowdSec Agent component within the container
+### Phase 5: Documentation
 
-**Where**
-- Component: CrowdSec Agent (`cscli`, `crowdsec` binaries)
-- Versions affected: Charon images with CrowdSec binaries compiled against go1.25.6 or earlier
+Update `frontend/src/locales/en/translation.json` key `"noteText"` to reflect the expanded
+deletion policy:
 
-**When**
-- Discovered: 2026-03-20
-- Disclosed (if public): 2026-03-20
-- Target fix: Docker image rebuild (see CHARON-2025-001)
+> "You can delete custom certificates, staging certificates, and expired production certificates
+> that are not attached to any proxy host. Active production certificates are automatically
+> renewed by Caddy."
 
-**How**
-The vulnerability exists in the Go standard library compiled into CrowdSec's distributed
-binaries. Exploitation targets CrowdSec's internal processing paths; the agent's network
-interfaces are not directly exposed through Charon's primary API surface.
-
-**Planned Remediation**
-Rebuild the Docker image with `docker build --no-cache`. The `crowdsec-builder` stage compiles
-CrowdSec from source against go1.26.1 (Dockerfile `ARG GO_VERSION=1.26.1`, line 13), which
-incorporates the equivalent of the go1.25.7 patch. See CHARON-2025-001 and
-[docs/plans/current_spec.md](docs/plans/current_spec.md).
-```
-
-#### New Entry 2: CVE-2026-2673 (HIGH ×2 — OpenSSL)
-
-```markdown
-### [HIGH] CVE-2026-2673 · OpenSSL TLS 1.3 Key Exchange Downgrade — Alpine 3.23.3
-
-| Field        | Value |
-|--------------|-------|
-| **ID**       | CVE-2026-2673 |
-| **Severity** | High · 7.5 |
-| **Status**   | Awaiting Upstream |
-
-**What**
-An OpenSSL TLS 1.3 key exchange group downgrade vulnerability affecting `libcrypto3` and
-`libssl3` in Alpine 3.23.3. A server configured with the `DEFAULT` keyword in its key group
-list may negotiate a weaker cipher suite than intended. Charon's Caddy TLS configuration does
-not use `DEFAULT` key groups explicitly, materially limiting practical impact. No Alpine APK
-fix is available as of 2026-03-20.
-
-**Who**
-- Discovered by: Automated scan (grype, image scan 2026-03-18)
-- Reported: 2026-03-20 (OpenSSL advisory: 2026-03-13)
-- Affects: Container TLS stack
-
-**Where**
-- Component: Alpine 3.23.3 base image (`libcrypto3` 3.5.5-r0, `libssl3` 3.5.5-r0)
-- Versions affected: All Charon images built on Alpine 3.23.3 with these package versions
-
-**When**
-- Discovered: 2026-03-13 (OpenSSL advisory)
-- Disclosed (if public): 2026-03-13
-- Target fix: Awaiting Alpine security tracker patch
-
-**How**
-The OpenSSL TLS 1.3 server may fail to negotiate the configured key exchange group when the
-configuration includes the `DEFAULT` keyword, potentially allowing a downgrade to a weaker
-cipher suite. Exploitation requires a man-in-the-middle attacker capable of intercepting and
-influencing TLS handshake negotiation.
-
-**Planned Remediation**
-Monitor https://security.alpinelinux.org/vuln/CVE-2026-2673. Once Alpine releases a patched
-APK for `libcrypto3`/`libssl3`, either update the pinned `ALPINE_IMAGE` SHA256 digest in the
-Dockerfile or apply an explicit upgrade in the final stage:
-
-```dockerfile
-RUN apk upgrade --no-cache libcrypto3 libssl3
-```
-```
-
-### 4.4 CVE-2025-60876 (busybox) — Conditional Entry
-
-**Do not add until the post-rebuild scan verification in Phase 3 is complete.**
-
-Verification command (run after rebuilding `charon:local`):
-
-```bash
-grype charon:local -o table | grep -i busybox
-```
-
-- **If busybox shows CVE-2025-60876 with no fixed version** → add the entry below to `SECURITY.md`.
-- **If busybox is clean** → do not add; the previous SECURITY.md note was correct.
-
-Conditional entry (add only if scan confirms vulnerability):
-
-```markdown
-### [MEDIUM] CVE-2025-60876 · busybox Heap Overflow — Alpine 3.23.3
-
-| Field        | Value |
-|--------------|-------|
-| **ID**       | CVE-2025-60876 |
-| **Severity** | Medium · 6.5 |
-| **Status**   | Awaiting Upstream |
-
-**What**
-A heap overflow vulnerability in busybox affecting `busybox`, `busybox-binsh`, `busybox-extras`,
-and `ssl_client` in Alpine 3.23.3. The live scanner reports no fix version for 1.37.0-r30,
-contradicting an earlier internal note that stated Alpine had patched this CVE.
-
-**Who**
-- Discovered by: Automated scan (grype, image scan 2026-03-18)
-- Reported: 2026-03-20
-- Affects: Container OS-level utility binaries
-
-**Where**
-- Component: Alpine 3.23.3 base image (`busybox` 1.37.0-r30, `busybox-binsh`, `busybox-extras`, `ssl_client`)
-- Versions affected: Charon images with busybox 1.37.0-r30
-
-**When**
-- Discovered: 2026-03-18 (scan)
-- Disclosed (if public): Not confirmed
-- Target fix: Awaiting Alpine upstream patch
-
-**How**
-Heap overflow in busybox utility programs. Requires shell or CLI access to the container;
-not reachable through Charon's application interface.
-
-**Planned Remediation**
-Monitor Alpine security tracker for a patched busybox release. Rebuild the Docker image once
-a fixed APK is available.
-```
+No other documentation changes needed — the feature is self-explanatory in the UI.
 
 ---
 
-## 5. Implementation Plan
+## 5. Acceptance Criteria
 
-### Phase 1 — Pre-Implementation Verification
-
-| Task | Command | Decision Gate |
-|------|---------|---------------|
-| Verify go1.26.1 covers go1.25.8 CVEs | Review Go 1.26.1 release notes / security advisories for CVE-2026-25679 equivalent | If not covered → update `GO_VERSION` to go1.26.2+ in Dockerfile |
-| Confirm busybox CVE-2025-60876 status | Run post-rebuild grype scan (see Phase 3) | Determines §4.4 SECURITY.md addition |
-
-### Phase 2 — Code Changes
-
-| Task | File | Line | Change |
-|------|------|------|--------|
-| Suppress G203 false positive | `backend/internal/services/mail_service.go` | 195 | Add `// #nosec G203 --` comment block above; `//nolint:gosec` inline |
-| Fix file permission G306 | `backend/internal/services/docker_service_test.go` | 231 | `0o660` → `0o600` |
-
-### Phase 3 — Docker Rebuild + Scan
-
-| Task | Command | Expected Outcome |
-|------|---------|-----------------|
-| Rebuild image | `docker build --no-cache -t charon:local .` | Fresh CrowdSec binaries compiled with go1.26.1 |
-| Verify CrowdSec toolchain | `docker run --rm charon:local cscli version` | Reports go1.26.1 in version string |
-| Confirm CVE cluster resolved | `grype charon:local -o table --only-fixed \| grep -E "CVE-2025-68121\|CVE-2026-25679\|CVE-2025-61732"` | No rows returned |
-| Check busybox | `grype charon:local -o table \| grep busybox` | Determines §4.4 addition |
-| Verify no USER regression | `docker inspect charon:local \| jq '.[0].Config.User'` | Returns `"charon"` |
-
-### Phase 4 — Python Dev Tooling
-
-| Task | Command |
-|------|---------|
-| Upgrade packages | `pip install --upgrade filelock virtualenv pip` |
-| Verify | `pip audit` (expect 0 MEDIUM/HIGH for upgraded packages) |
-
-### Phase 5 — SECURITY.md Updates
-
-Execute in order:
-
-1. Move CHARON-2026-001: Known → Patched (§4.1)
-2. Update CHARON-2025-001 aliases, status, What, Versions affected, Planned Remediation (§4.2)
-3. Add CVE-2025-68121 CRITICAL Known entry (§4.3, Entry 1)
-4. Add CVE-2026-2673 HIGH Known entry (§4.3, Entry 2)
-5. Add CVE-2025-60876 MEDIUM Known entry only if Phase 3 scan confirms it (§4.4)
+- [ ] Expired certificates not attached to any proxy host show a delete button.
+- [ ] Custom certificates not attached to any proxy host show a delete button.
+- [ ] Staging certificates not attached to any proxy host show a delete button.
+- [ ] Certificates attached to a proxy host show a disabled delete button with tooltip.
+- [ ] Valid production LE certificates not in use do NOT show a delete button.
+- [ ] Clicking delete opens an accessible confirmation dialog (not native `confirm()`).
+- [ ] Dialog shows certificate details and appropriate warning text.
+- [ ] Confirming deletion removes the certificate and shows a success toast.
+- [ ] Canceling the dialog does not delete anything.
+- [ ] Server returns `409 Conflict` if the certificate becomes attached between client check and
+  server delete (race condition safety).
+- [ ] A backup is created before each deletion (server-side).
+- [ ] All new UI elements are keyboard navigable and screen-reader accessible.
+- [ ] All Playwright E2E tests pass on Firefox, Chromium, and WebKit.
+- [ ] All new backend unit tests pass.
+- [ ] All new frontend unit tests pass.
+- [ ] No regressions in existing certificate or proxy host tests.
 
 ---
 
-## 6. Acceptance Criteria
-
-| ID | Criterion | Evidence |
-|----|-----------|----------|
-| AC-1 | CrowdSec binaries compiled with go ≥ 1.25.8 equivalent | `cscli version` shows go1.26.x; grype reports 0 stdlib CVEs for CrowdSec |
-| AC-2 | G203 suppressed with justification | `golangci-lint run ./...` reports 0 G203 findings |
-| AC-3 | Test file permission corrected | Source shows `0o600`; gosec reports 0 G306 findings |
-| AC-4 | Python dev tooling upgraded | `pip audit` reports 0 MEDIUM/HIGH for filelock, virtualenv, pip |
-| AC-5 | SECURITY.md matches current state | CHARON-2026-001 in Patched; CHARON-2025-001 updated with new aliases; CVE-2025-68121 and CVE-2026-2673 in Known |
-| AC-6 | DS-0002 confirmed false positive | `docker inspect charon:local \| jq '.[0].Config.User'` returns `"charon"` |
-| AC-7 | Backend linting clean | `make lint-backend` exits 0 |
-| AC-8 | All backend tests pass | `cd backend && go test ./...` exits 0 |
-
----
-
-## 7. Commit Slicing Strategy
+## 6. Commit Slicing Strategy
 
 ### Decision: Single PR
 
-All changes originate from a single audit, are security remediations, and are low-risk. A
-single PR provides a coherent audit trail and does not impose review burden that would justify
-splitting. No schema migrations, no cross-domain feature work, no conflicting refactoring.
+**Rationale**: The scope is small (1 new component, 2 modified files, i18n additions, and tests).
+All changes are tightly coupled — the new dialog component is only meaningful together with the
+updated delete button logic. Splitting this into multiple PRs would add review overhead without
+reducing risk.
 
-**Triggers that would justify a multi-PR split (none apply here)**:
-- Security fix coupled to a large feature refactor
-- Database schema migration alongside code changes
-- Changes spanning unrelated subsystems requiring separate review queues
+### PR-1: Certificate Deletion UX Enhancement
 
-### PR-1 (sole PR): `fix(security): remediate 2026-03-20 audit findings`
+**Scope**: All phases (E2E tests, frontend implementation, backend test gaps, frontend unit tests,
+docs update).
 
-**Files changed**:
+**Files**:
 
-| File | Change |
+| File | Action |
 |------|--------|
-| `backend/internal/services/mail_service.go` | `// #nosec G203` comment + `//nolint:gosec` at line 195 |
-| `backend/internal/services/docker_service_test.go` | `0o660` → `0o600` at line 231 |
-| `SECURITY.md` | Move CHARON-2026-001 to Patched; update CHARON-2025-001; add new Known entries |
-| `Dockerfile` *(conditional)* | Increment `ARG GO_VERSION` only if post-rebuild scan shows CVEs persist |
+| `tests/certificate-delete.spec.ts` | Create |
+| `frontend/src/components/dialogs/DeleteCertificateDialog.tsx` | Create |
+| `frontend/src/components/dialogs/__tests__/DeleteCertificateDialog.test.tsx` | Create |
+| `frontend/src/components/CertificateList.tsx` | Modify |
+| `frontend/src/components/__tests__/CertificateList.test.tsx` | Modify |
+| `frontend/src/locales/en/translation.json` | Modify |
+| `frontend/src/locales/de/translation.json` | Modify |
+| `frontend/src/locales/es/translation.json` | Modify |
+| `frontend/src/locales/fr/translation.json` | Modify |
+| `frontend/src/locales/pt/translation.json` | Modify |
+| `backend/internal/api/handlers/certificate_handler_test.go` | Modify |
 
-**Dependencies**: Docker image rebuild is a CI/CD pipeline step triggered by merge, not a file
-change tracked in this PR. Use `docker build --no-cache` for local validation.
+**Dependencies**: None — the backend API is already complete.
 
-**Validation gates before merge**:
-1. `go test ./...` passes
-2. `golangci-lint run ./...` reports 0 G203 and 0 G306 findings
-3. Docker image rebuilt and `grype charon:local` clean for the P1 CVE cluster
+**Validation Gates**:
+- `go test ./backend/...` — all pass
+- `npx vitest run` — all pass
+- Playwright E2E on Firefox, Chromium, WebKit — all pass
+- `make lint-fast` — no new warnings
 
-**Rollback**: All changes are trivially reversible via `git revert`. The `//nolint` comment can
-be removed, the permission reverted, and SECURITY.md restored. No infrastructure or database
-changes are involved.
+**Rollback**: Revert the single PR. No database migrations to undo. No backend API changes.
 
-**Suggested commit message**:
-
-```
-fix(security): remediate 2026-03-20 audit findings
-
-Suppress G203 false positive in mail_service.go with justification comment.
-The template.HTML cast is safe because contentBuf is produced by
-html/template.Execute, which auto-escapes all EmailTemplateData fields
-before the rendered fragment is embedded in the base layout template.
-
-Correct test file permission from 0o660 to 0o600 in docker_service_test.go
-to satisfy gosec G306. No production impact.
-
-Update SECURITY.md: move CHARON-2026-001 (Debian CVE cluster) to Patched
-following confirmed Alpine 3.23.3 migration; expand CHARON-2025-001 aliases
-to include CVE-2025-68121, CVE-2026-25679, and CVE-2025-61732; add Known
-entries for CVE-2025-68121 (CRITICAL) and CVE-2026-2673 (HIGH, awaiting
-upstream Alpine patch).
-
-Docker image rebuild with --no-cache resolves the CrowdSec Go stdlib CVE
-cluster (CVE-2025-68121 CRITICAL + 5 others) by recompiling CrowdSec from
-source against go1.26.1 via the existing crowdsec-builder Dockerfile stage.
-DS-0002 (Dockerfile root user) confirmed false positive — USER charon
-instruction is present.
-```
-
----
-
-## 8. Items Requiring No Code Change
-
-| Item | Reason |
-|------|--------|
-| DS-0002 (Dockerfile `USER`) | FALSE POSITIVE — `USER charon` present in final stage (~line 625) |
-| CVE-2026-2673 (OpenSSL) | No Alpine fix available; tracked in SECURITY.md as Awaiting Upstream |
-| CHARON-2025-001 original cluster | Awaiting CrowdSec upstream release with go1.26.0+ binaries |
-
----
-
-## 9. Scan Artifact .gitignore Coverage
-
-The following files exist at the repository root and contain scan output. Verify each is covered
-by `.gitignore` to prevent accidental commits of stale or sensitive scan data:
-
-```
-grype-results.json
-grype-results.sarif
-trivy-report.json
-trivy-image-report.json
-vuln-results.json
-sbom-generated.json
-codeql-results-go.sarif
-codeql-results-javascript.sarif
-codeql-results-js.sarif
-```
-
-Verify with:
-
-```bash
-git check-ignore -v grype-results.json trivy-report.json trivy-image-report.json vuln-results.json
-```
-
-If any are missing a `.gitignore` pattern, add under a `# Security scan artifacts` comment:
-
-```gitignore
-# Security scan artifacts
-grype-results*.json
-grype-results*.sarif
-trivy-*.json
-trivy-*.sarif
-vuln-results.json
-sbom-generated.json
-codeql-results-*.sarif
-```
+**Contingency**: If E2E tests are flaky due to certificate seed data timing, add explicit
+`waitFor` on the certificate list load state before asserting button visibility.
