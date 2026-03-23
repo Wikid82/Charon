@@ -190,6 +190,7 @@
     "bulkDeleteTitle": "Eliminar {{count}} Certificado(s)",
     "bulkDeleteDescription": "Eliminar {{count}} certificado(s)",
     "bulkDeleteConfirm": "Los siguientes certificados se eliminarán permanentemente. El servidor crea una copia de seguridad antes de cada eliminación.",
+    "bulkDeleteListAriaLabel": "Certificados a eliminar",
     "bulkDeleteButton": "Eliminar {{count}} Certificado(s)",
     "bulkDeleteSuccess": "{{count}} certificado(s) eliminado(s)",
     "bulkDeletePartial": "{{deleted}} eliminado(s), {{failed}} fallido(s)",

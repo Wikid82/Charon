@@ -190,6 +190,7 @@
     "bulkDeleteTitle": "删除 {{count}} 个证书",
     "bulkDeleteDescription": "删除 {{count}} 个证书",
     "bulkDeleteConfirm": "以下证书将被永久删除。服务器在每次删除前会创建备份。",
+    "bulkDeleteListAriaLabel": "将被删除的证书",
     "bulkDeleteButton": "删除 {{count}} 个证书",
     "bulkDeleteSuccess": "已删除 {{count}} 个证书",
     "bulkDeletePartial": "已删除 {{deleted}} 个，{{failed}} 个失败",

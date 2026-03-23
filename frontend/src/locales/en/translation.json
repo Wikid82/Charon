@@ -199,6 +199,7 @@
     "bulkDeleteTitle": "Delete {{count}} Certificate(s)",
     "bulkDeleteDescription": "Delete {{count}} certificate(s)",
     "bulkDeleteConfirm": "The following certificates will be permanently deleted. The server creates a backup before each removal.",
+    "bulkDeleteListAriaLabel": "Certificates to be deleted",
     "bulkDeleteButton": "Delete {{count}} Certificate(s)",
     "bulkDeleteSuccess": "{{count}} certificate(s) deleted",
     "bulkDeletePartial": "{{deleted}} deleted, {{failed}} failed",

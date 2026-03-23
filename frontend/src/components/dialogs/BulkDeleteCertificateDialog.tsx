@@ -59,7 +59,7 @@ export default function BulkDeleteCertificateDialog({
           </div>
 
           <ul
-            aria-label="Certificates to be deleted"
+            aria-label={t('certificates.bulkDeleteListAriaLabel')}
             className="max-h-48 overflow-y-auto rounded-lg border border-gray-800 divide-y divide-gray-800"
           >
             {certificates.map((cert) => (
