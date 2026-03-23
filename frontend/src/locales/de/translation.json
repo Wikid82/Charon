@@ -190,6 +190,7 @@
     "bulkDeleteTitle": "{{count}} Zertifikat(e) löschen",
     "bulkDeleteDescription": "{{count}} Zertifikat(e) löschen",
     "bulkDeleteConfirm": "Die folgenden Zertifikate werden dauerhaft gelöscht. Der Server erstellt vor jeder Löschung eine Sicherung.",
+    "bulkDeleteListAriaLabel": "Zu löschende Zertifikate",
     "bulkDeleteButton": "{{count}} Zertifikat(e) löschen",
     "bulkDeleteSuccess": "{{count}} Zertifikat(e) gelöscht",
     "bulkDeletePartial": "{{deleted}} gelöscht, {{failed}} fehlgeschlagen",
