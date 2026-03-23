@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Trash2, ChevronUp, ChevronDown } from 'lucide-react'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import BulkDeleteCertificateDialog from './dialogs/BulkDeleteCertificateDialog'
@@ -45,6 +45,15 @@ export default function CertificateList() {
   const [certToDelete, setCertToDelete] = useState<Certificate | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false)
+
+  useEffect(() => {
+    setSelectedIds(prev => {
+      const validIds = new Set(certificates.map(c => c.id).filter((id): id is number => id != null))
+      const reconciled = new Set([...prev].filter(id => validIds.has(id)))
+      if (reconciled.size === prev.size) return prev
+      return reconciled
+    })
+  }, [certificates])
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
