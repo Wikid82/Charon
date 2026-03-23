@@ -173,7 +173,7 @@
     "uploadSuccess": "Certificado subido exitosamente",
     "uploadFailed": "Error al subir el certificado",
     "note": "Nota",
-    "noteText": "You can delete custom certificates, staging certificates, and expired production certificates that are not attached to any proxy host. Active production certificates are automatically renewed by Caddy.",
+    "noteText": "Puedes eliminar certificados personalizados, certificados de staging y certificados de producción vencidos o por vencer que no estén vinculados a ningún host proxy. Los certificados de producción activos se renuevan automáticamente mediante Caddy.",
     "provider": "Provider",
     "deleteTitle": "Delete Certificate",
     "deleteConfirmCustom": "This will permanently delete this certificate. A backup will be created first.",
