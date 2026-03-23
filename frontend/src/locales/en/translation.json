@@ -202,7 +202,11 @@
     "bulkDeleteButton": "Delete {{count}} Certificate(s)",
     "bulkDeleteSuccess": "{{count}} certificate(s) deleted",
     "bulkDeletePartial": "{{deleted}} deleted, {{failed}} failed",
-    "bulkDeleteFailed": "Failed to delete certificates"
+    "bulkDeleteFailed": "Failed to delete certificates",
+    "providerStaging": "Staging",
+    "providerCustom": "Custom",
+    "providerExpiredLE": "Expired LE",
+    "providerExpiringLE": "Expiring LE"
   },
   "auth": {
     "login": "Login",

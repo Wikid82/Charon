@@ -193,7 +193,11 @@
     "bulkDeleteButton": "删除 {{count}} 个证书",
     "bulkDeleteSuccess": "已删除 {{count}} 个证书",
     "bulkDeletePartial": "已删除 {{deleted}} 个，{{failed}} 个失败",
-    "bulkDeleteFailed": "证书删除失败"
+    "bulkDeleteFailed": "证书删除失败",
+    "providerStaging": "测试",
+    "providerCustom": "自定义",
+    "providerExpiredLE": "已过期 LE",
+    "providerExpiringLE": "即将过期 LE"
   },
   "auth": {
     "login": "登录",
