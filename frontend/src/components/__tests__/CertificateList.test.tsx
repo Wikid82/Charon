@@ -107,7 +107,7 @@ const getRowNames = () =>
   screen
     .getAllByRole('row')
     .slice(1)
-    .map(row => row.querySelector('td')?.textContent?.trim() ?? '')
+    .map(row => row.querySelectorAll('td')[1]?.textContent?.trim() ?? '')
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -177,21 +177,21 @@ describe('CertificateList', () => {
   it('renders delete button for deletable certs', async () => {
     renderWithClient(<CertificateList />)
     const rows = await screen.findAllByRole('row')
-    const customRow = rows.find(r => r.querySelector('td')?.textContent?.includes('CustomCert'))!
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
     expect(within(customRow).getByRole('button', { name: 'certificates.deleteTitle' })).toBeInTheDocument()
   })
 
   it('renders delete button for expired LE cert not in use', async () => {
     renderWithClient(<CertificateList />)
     const rows = await screen.findAllByRole('row')
-    const expiredLeRow = rows.find(r => r.querySelector('td')?.textContent?.includes('ExpiredLE'))!
+    const expiredLeRow = rows.find(r => r.textContent?.includes('ExpiredLE'))!
     expect(within(expiredLeRow).getByRole('button', { name: 'certificates.deleteTitle' })).toBeInTheDocument()
   })
 
   it('renders aria-disabled delete button for in-use cert', async () => {
     renderWithClient(<CertificateList />)
     const rows = await screen.findAllByRole('row')
-    const activeRow = rows.find(r => r.querySelector('td')?.textContent?.includes('ActiveCert'))!
+    const activeRow = rows.find(r => r.textContent?.includes('ActiveCert'))!
     const btn = within(activeRow).getByRole('button', { name: 'certificates.deleteTitle' })
     expect(btn).toHaveAttribute('aria-disabled', 'true')
   })
@@ -199,7 +199,7 @@ describe('CertificateList', () => {
   it('hides delete button for valid production LE cert', async () => {
     renderWithClient(<CertificateList />)
     const rows = await screen.findAllByRole('row')
-    const validLeRow = rows.find(r => r.querySelector('td')?.textContent?.includes('ValidLE'))!
+    const validLeRow = rows.find(r => r.textContent?.includes('ValidLE'))!
     expect(within(validLeRow).queryByRole('button', { name: 'certificates.deleteTitle' })).not.toBeInTheDocument()
   })
 
@@ -209,7 +209,7 @@ describe('CertificateList', () => {
 
     renderWithClient(<CertificateList />)
     const rows = await screen.findAllByRole('row')
-    const customRow = rows.find(r => r.querySelector('td')?.textContent?.includes('CustomCert'))!
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
     await user.click(within(customRow).getByRole('button', { name: 'certificates.deleteTitle' }))
 
     const dialog = await screen.findByRole('dialog')
@@ -226,7 +226,7 @@ describe('CertificateList', () => {
 
     renderWithClient(<CertificateList />)
     const rows = await screen.findAllByRole('row')
-    const customRow = rows.find(r => r.querySelector('td')?.textContent?.includes('CustomCert'))!
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
     await user.click(within(customRow).getByRole('button', { name: 'certificates.deleteTitle' }))
 
     const dialog = await screen.findByRole('dialog')
@@ -254,7 +254,7 @@ describe('CertificateList', () => {
 
     renderWithClient(<CertificateList />)
     const rows = await screen.findAllByRole('row')
-    const customRow = rows.find(r => r.querySelector('td')?.textContent?.includes('CustomCert'))!
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
     await user.click(within(customRow).getByRole('button', { name: 'certificates.deleteTitle' }))
 
     const dialog = await screen.findByRole('dialog')
@@ -267,7 +267,7 @@ describe('CertificateList', () => {
     const user = userEvent.setup()
     renderWithClient(<CertificateList />)
     const rows = await screen.findAllByRole('row')
-    const activeRow = rows.find(r => r.querySelector('td')?.textContent?.includes('ActiveCert'))!
+    const activeRow = rows.find(r => r.textContent?.includes('ActiveCert'))!
     const btn = within(activeRow).getByRole('button', { name: 'certificates.deleteTitle' })
 
     await user.click(btn)
@@ -278,7 +278,7 @@ describe('CertificateList', () => {
     const user = userEvent.setup()
     renderWithClient(<CertificateList />)
     const rows = await screen.findAllByRole('row')
-    const customRow = rows.find(r => r.querySelector('td')?.textContent?.includes('CustomCert'))!
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
     await user.click(within(customRow).getByRole('button', { name: 'certificates.deleteTitle' }))
 
     const dialog = await screen.findByRole('dialog')
@@ -286,6 +286,115 @@ describe('CertificateList', () => {
 
     await user.click(within(dialog).getByRole('button', { name: 'common.cancel' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('renders enabled checkboxes for deletable not-in-use certs (ids 1, 2, 4, 5)', async () => {
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    for (const name of ['CustomCert', 'LE Staging', 'UnusedValidCert', 'ExpiredLE']) {
+      const row = rows.find(r => r.textContent?.includes(name))!
+      const checkbox = within(row).getByRole('checkbox')
+      expect(checkbox).toBeEnabled()
+      expect(checkbox).not.toHaveAttribute('aria-disabled', 'true')
+    }
+  })
+
+  it('renders disabled checkbox for in-use cert (id 3)', async () => {
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const activeRow = rows.find(r => r.textContent?.includes('ActiveCert'))!
+    const checkboxes = within(activeRow).getAllByRole('checkbox')
+    const rowCheckbox = checkboxes[0]
+    expect(rowCheckbox).toBeDisabled()
+    expect(rowCheckbox).toHaveAttribute('aria-disabled', 'true')
+  })
+
+  it('renders no checkbox in valid production LE cert row (id 6)', async () => {
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const validLeRow = rows.find(r => r.textContent?.includes('ValidLE'))!
+    expect(within(validLeRow).queryByRole('checkbox')).not.toBeInTheDocument()
+  })
+
+  it('selecting one cert makes the bulk action toolbar visible', async () => {
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
+    await user.click(within(customRow).getByRole('checkbox'))
+    expect(screen.getByRole('status')).toBeInTheDocument()
+  })
+
+  it('header select-all selects only ids 1, 2, 4, 5 (not in-use id 3)', async () => {
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const headerRow = (await screen.findAllByRole('row'))[0]
+    const headerCheckbox = within(headerRow).getByRole('checkbox')
+    await user.click(headerCheckbox)
+    expect(screen.getByRole('status')).toBeInTheDocument()
+    const rows = screen.getAllByRole('row').slice(1)
+    const activeRow = rows.find(r => r.textContent?.includes('ActiveCert'))!
+    const activeCheckbox = within(activeRow).getByRole('checkbox')
+    expect(activeCheckbox).toBeDisabled()
+    expect(activeCheckbox).not.toBeChecked()
+  })
+
+  it('clicking the toolbar Delete button opens BulkDeleteCertificateDialog', async () => {
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
+    await user.click(within(customRow).getByRole('checkbox'))
+    await user.click(screen.getByRole('button', { name: /certificates\.bulkDeleteButton/i }))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('confirming in the bulk dialog calls deleteCertificate for each selected ID', async () => {
+    const { deleteCertificate } = await import('../../api/certificates')
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
+    const stagingRow = rows.find(r => r.textContent?.includes('LE Staging'))!
+    await user.click(within(customRow).getByRole('checkbox'))
+    await user.click(within(stagingRow).getByRole('checkbox'))
+    await user.click(screen.getByRole('button', { name: /certificates\.bulkDeleteButton/i }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: /certificates\.bulkDeleteButton/i }))
+    await waitFor(() => {
+      expect(deleteCertificate).toHaveBeenCalledWith(1)
+      expect(deleteCertificate).toHaveBeenCalledWith(2)
+    })
+  })
+
+  it('shows partial failure toast when some bulk deletes fail', async () => {
+    const { deleteCertificate } = await import('../../api/certificates')
+    const { toast } = await import('../../utils/toast')
+    vi.mocked(deleteCertificate).mockImplementation(async (id: number) => {
+      if (id === 2) throw new Error('network error')
+    })
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
+    const stagingRow = rows.find(r => r.textContent?.includes('LE Staging'))!
+    await user.click(within(customRow).getByRole('checkbox'))
+    await user.click(within(stagingRow).getByRole('checkbox'))
+    await user.click(screen.getByRole('button', { name: /certificates\.bulkDeleteButton/i }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: /certificates\.bulkDeleteButton/i }))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('certificates.bulkDeletePartial'))
+  })
+
+  it('clicking header checkbox twice deselects all and hides the bulk action toolbar', async () => {
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const headerRow = (await screen.findAllByRole('row'))[0]
+    const headerCheckbox = within(headerRow).getByRole('checkbox')
+    await user.click(headerCheckbox)
+    expect(screen.getByRole('status')).toBeInTheDocument()
+    await user.click(headerCheckbox)
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument())
   })
 
   it('sorts certificates by name and expiry when headers are clicked', async () => {

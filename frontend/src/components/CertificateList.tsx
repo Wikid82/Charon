@@ -3,8 +3,11 @@ import { Trash2, ChevronUp, ChevronDown } from 'lucide-react'
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { LoadingSpinner, ConfigReloadOverlay } from './LoadingStates'
+import BulkDeleteCertificateDialog from './dialogs/BulkDeleteCertificateDialog'
 import DeleteCertificateDialog from './dialogs/DeleteCertificateDialog'
+import { LoadingSpinner, ConfigReloadOverlay } from './LoadingStates'
+import { Button } from './ui/Button'
+import { Checkbox } from './ui/Checkbox'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/Tooltip'
 import { deleteCertificate, type Certificate } from '../api/certificates'
 import { useCertificates } from '../hooks/useCertificates'
@@ -38,6 +41,8 @@ export default function CertificateList() {
   const [sortColumn, setSortColumn] = useState<SortColumn>('name')
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
   const [certToDelete, setCertToDelete] = useState<Certificate | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false)
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -52,6 +57,30 @@ export default function CertificateList() {
     onError: (error: Error) => {
       toast.error(`${t('certificates.deleteFailed')}: ${error.message}`)
       setCertToDelete(null)
+    },
+  })
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      const results = await Promise.allSettled(ids.map(id => deleteCertificate(id)))
+      const failed = results.filter(r => r.status === 'rejected').length
+      const succeeded = results.filter(r => r.status === 'fulfilled').length
+      return { succeeded, failed }
+    },
+    onSuccess: ({ succeeded, failed }) => {
+      queryClient.invalidateQueries({ queryKey: ['certificates'] })
+      queryClient.invalidateQueries({ queryKey: ['proxyHosts'] })
+      setSelectedIds(new Set())
+      setShowBulkDeleteDialog(false)
+      if (failed > 0) {
+        toast.error(t('certificates.bulkDeletePartial', { deleted: succeeded, failed }))
+      } else {
+        toast.success(t('certificates.bulkDeleteSuccess', { count: succeeded }))
+      }
+    },
+    onError: () => {
+      toast.error(t('certificates.bulkDeleteFailed'))
+      setShowBulkDeleteDialog(false)
     },
   })
 
@@ -78,6 +107,39 @@ export default function CertificateList() {
     })
   }, [certificates, sortColumn, sortDirection])
 
+  const selectableCertIds = useMemo<Set<number>>(() => {
+    const ids = new Set<number>()
+    for (const cert of sortedCertificates) {
+      if (isDeletable(cert, hosts) && cert.id) {
+        ids.add(cert.id)
+      }
+    }
+    return ids
+  }, [sortedCertificates, hosts])
+
+  const allSelectableSelected =
+    selectableCertIds.size > 0 && selectedIds.size === selectableCertIds.size
+  const someSelected =
+    selectedIds.size > 0 && selectedIds.size < selectableCertIds.size
+
+  const handleSelectAll = () => {
+    if (selectedIds.size === selectableCertIds.size) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(selectableCertIds))
+    }
+  }
+
+  const handleSelectRow = (id: number) => {
+    const next = new Set(selectedIds)
+    if (next.has(id)) {
+      next.delete(id)
+    } else {
+      next.add(id)
+    }
+    setSelectedIds(next)
+  }
+
   const handleSort = (column: SortColumn) => {
     if (sortColumn === column) {
       setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')
@@ -97,18 +159,46 @@ export default function CertificateList() {
 
   return (
     <>
-      {deleteMutation.isPending && (
+      {(deleteMutation.isPending || bulkDeleteMutation.isPending) && (
         <ConfigReloadOverlay
           message="Returning to shore..."
           submessage="Certificate departure in progress"
           type="charon"
         />
       )}
+      {selectedIds.size > 0 && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-center justify-between rounded-lg border border-brand-500/30 bg-brand-500/10 px-4 py-2 mb-3"
+        >
+          <span className="text-sm text-gray-300">
+            {t('certificates.bulkSelectedCount', { count: selectedIds.size })}
+          </span>
+          <Button
+            variant="danger"
+            size="sm"
+            leftIcon={Trash2}
+            onClick={() => setShowBulkDeleteDialog(true)}
+          >
+            {t('certificates.bulkDeleteButton', { count: selectedIds.size })}
+          </Button>
+        </div>
+      )}
       <div className="bg-dark-card rounded-lg border border-gray-800 overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm text-gray-400">
           <thead className="bg-gray-900 text-gray-200 uppercase font-medium">
             <tr>
+              <th className="w-12 px-4 py-3">
+                <Checkbox
+                  checked={allSelectableSelected}
+                  indeterminate={someSelected}
+                  onCheckedChange={handleSelectAll}
+                  aria-label={t('certificates.bulkSelectAll')}
+                  disabled={selectableCertIds.size === 0}
+                />
+              </th>
               <th
                 onClick={() => handleSort('name')}
                 className="px-6 py-3 cursor-pointer hover:text-white transition-colors"
@@ -136,13 +226,47 @@ export default function CertificateList() {
           <tbody className="divide-y divide-gray-800">
             {certificates.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
                   No certificates found.
                 </td>
               </tr>
             ) : (
-              sortedCertificates.map((cert) => (
+              sortedCertificates.map((cert) => {
+                const inUse = isInUse(cert, hosts)
+                const deletable = isDeletable(cert, hosts)
+                const isInUseDeletableCategory = inUse && (cert.provider === 'custom' || cert.provider === 'letsencrypt-staging' || cert.status === 'expired')
+
+                return (
                 <tr key={cert.id || cert.domain} className="hover:bg-gray-800/50 transition-colors">
+                  {deletable && !inUse ? (
+                    <td className="w-12 px-4 py-4">
+                      <Checkbox
+                        checked={selectedIds.has(cert.id!)}
+                        onCheckedChange={() => handleSelectRow(cert.id!)}
+                        aria-label={t('certificates.selectCert', { name: cert.name || cert.domain })}
+                      />
+                    </td>
+                  ) : isInUseDeletableCategory ? (
+                    <td className="w-12 px-4 py-4">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="inline-flex">
+                              <Checkbox
+                                checked={false}
+                                disabled
+                                aria-disabled="true"
+                                aria-label={t('certificates.selectCert', { name: cert.name || cert.domain })}
+                              />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>{t('certificates.deleteInUse')}</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </td>
+                  ) : (
+                    <td className="w-12 px-4 py-4" aria-hidden="true" />
+                  )}
                   <td className="px-6 py-4 font-medium text-white">{cert.name || '-'}</td>
                   <td className="px-6 py-4 font-medium text-white">{cert.domain}</td>
                   <td className="px-6 py-4">
@@ -163,9 +287,6 @@ export default function CertificateList() {
                   </td>
                   <td className="px-6 py-4">
                     {(() => {
-                      const inUse = isInUse(cert, hosts)
-                      const deletable = isDeletable(cert, hosts)
-
                       if (cert.id && inUse && (cert.provider === 'custom' || cert.provider === 'letsencrypt-staging' || cert.status === 'expired')) {
                         return (
                           <TooltipProvider>
@@ -204,7 +325,8 @@ export default function CertificateList() {
                     })()}
                   </td>
                 </tr>
-              ))
+                )
+              })
             )}
           </tbody>
         </table>
@@ -220,6 +342,13 @@ export default function CertificateList() {
         }}
         onCancel={() => setCertToDelete(null)}
         isDeleting={deleteMutation.isPending}
+      />
+      <BulkDeleteCertificateDialog
+        certificates={sortedCertificates.filter(c => c.id && selectedIds.has(c.id))}
+        open={showBulkDeleteDialog}
+        onConfirm={() => bulkDeleteMutation.mutate(Array.from(selectedIds))}
+        onCancel={() => setShowBulkDeleteDialog(false)}
+        isDeleting={bulkDeleteMutation.isPending}
       />
     </>
   )
