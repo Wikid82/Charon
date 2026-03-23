@@ -179,6 +179,7 @@
     "deleteConfirmCustom": "This will permanently delete this certificate. A backup will be created first.",
     "deleteConfirmStaging": "This staging certificate will be removed. It will be regenerated on next request.",
     "deleteConfirmExpired": "This expired certificate is no longer active and will be permanently removed.",
+    "deleteConfirmExpiring": "This certificate is expiring soon. It will be permanently removed and will not be auto-renewed.",
     "deleteSuccess": "Certificate deleted",
     "deleteFailed": "Failed to delete certificate",
     "deleteInUse": "Cannot delete — certificate is attached to a proxy host",

@@ -126,4 +126,18 @@ describe('BulkDeleteCertificateDialog', () => {
     )
     expect(container.innerHTML).toBe('')
   })
+
+  it('renders "Expiring LE" label for a letsencrypt cert with status expiring', () => {
+    const expiringCert = makeCert({ id: 4, name: 'Expiring Cert', domain: 'expiring.example.com', provider: 'letsencrypt', status: 'expiring' })
+    render(
+      <BulkDeleteCertificateDialog
+        certificates={[expiringCert]}
+        open={true}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+        isDeleting={false}
+      />
+    )
+    expect(screen.getByText('Expiring LE')).toBeInTheDocument()
+  })
 })
