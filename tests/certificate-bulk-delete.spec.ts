@@ -13,7 +13,6 @@
  * @see /projects/Charon/docs/plans/current_spec.md §4 Phase 5
  */
 
-import { readFileSync } from 'fs';
 import { test, expect, loginUser } from './fixtures/auth-fixtures';
 import { request as playwrightRequest } from '@playwright/test';
 import {
@@ -23,6 +22,7 @@ import {
   waitForToast,
 } from './utils/wait-helpers';
 import { generateUniqueId } from './fixtures/test-data';
+import { getStorageStateAuthHeaders } from './utils/api-helpers';
 import { STORAGE_STATE } from './constants';
 
 const CERTIFICATES_API = /\/api\/v1\/certificates/;
@@ -83,26 +83,6 @@ yRNV1UrzJGv5ZUVKq2kymBut
 -----END PRIVATE KEY-----`;
 
 /**
- * Read the auth JWT from the storage state's localStorage entry.
- * The Charon API requires an Authorization: Bearer header; cookies alone are not
- * sufficient in API request contexts (as opposed to browser contexts).
- */
-function getAuthToken(baseURL: string): string | undefined {
-  try {
-    const state = JSON.parse(readFileSync(STORAGE_STATE, 'utf-8'));
-    const origin = new URL(baseURL).origin;
-    const match = (state.origins ?? []).find(
-      (o: { origin: string }) => o.origin === origin
-    );
-    return match?.localStorage?.find(
-      (e: { name: string }) => e.name === 'charon_auth_token'
-    )?.value;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
  * Create a custom certificate directly via the API, bypassing TestDataManager's
  * narrow CertificateData type which omits the required `name` field.
  * Returns the numeric cert ID (from list endpoint) and name for later lookup/cleanup.
@@ -110,12 +90,11 @@ function getAuthToken(baseURL: string): string | undefined {
 async function createCustomCertViaAPI(baseURL: string): Promise<{ id: number; certName: string }> {
   const id = generateUniqueId();
   const certName = `bulk-cert-${id}`;
-  const token = getAuthToken(baseURL);
 
   const ctx = await playwrightRequest.newContext({
     baseURL,
     storageState: STORAGE_STATE,
-    ...(token ? { extraHTTPHeaders: { Authorization: `Bearer ${token}` } } : {}),
+    extraHTTPHeaders: getStorageStateAuthHeaders(),
   });
 
   try {
@@ -164,11 +143,10 @@ async function createCustomCertViaAPI(baseURL: string): Promise<{ id: number; ce
  * Delete a certificate directly via the API for cleanup.
  */
 async function deleteCertViaAPI(baseURL: string, certId: number): Promise<void> {
-  const token = getAuthToken(baseURL);
   const ctx = await playwrightRequest.newContext({
     baseURL,
     storageState: STORAGE_STATE,
-    ...(token ? { extraHTTPHeaders: { Authorization: `Bearer ${token}` } } : {}),
+    extraHTTPHeaders: getStorageStateAuthHeaders(),
   });
 
   try {
