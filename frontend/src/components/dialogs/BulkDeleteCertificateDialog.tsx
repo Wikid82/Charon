@@ -25,6 +25,7 @@ function providerLabel(cert: Certificate): string {
   if (cert.provider === 'letsencrypt-staging') return 'Staging'
   if (cert.provider === 'custom') return 'Custom'
   if (cert.status === 'expired') return 'Expired LE'
+  if (cert.status === 'expiring') return 'Expiring LE'
   return cert.provider
 }
 

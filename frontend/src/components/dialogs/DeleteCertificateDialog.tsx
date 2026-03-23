@@ -23,6 +23,7 @@ interface DeleteCertificateDialogProps {
 
 function getWarningKey(cert: Certificate): string {
   if (cert.status === 'expired') return 'certificates.deleteConfirmExpired'
+  if (cert.status === 'expiring') return 'certificates.deleteConfirmExpiring'
   if (cert.provider === 'letsencrypt-staging') return 'certificates.deleteConfirmStaging'
   return 'certificates.deleteConfirmCustom'
 }

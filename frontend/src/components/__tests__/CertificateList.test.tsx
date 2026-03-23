@@ -150,9 +150,14 @@ describe('CertificateList', () => {
       expect(isDeletable(cert, noHosts)).toBe(false)
     })
 
-    it('returns false for expiring LE cert not in use', () => {
+    it('returns true for expiring LE cert not in use', () => {
       const cert: Certificate = { id: 7, name: 'Exp', domain: 'd', issuer: 'LE', expires_at: '', status: 'expiring', provider: 'letsencrypt' }
-      expect(isDeletable(cert, noHosts)).toBe(false)
+      expect(isDeletable(cert, noHosts)).toBe(true)
+    })
+
+    it('returns false for expiring LE cert that is in use', () => {
+      const cert: Certificate = { id: 7, name: 'Exp', domain: 'd', issuer: 'LE', expires_at: '', status: 'expiring', provider: 'letsencrypt' }
+      expect(isDeletable(cert, withHost(7))).toBe(false)
     })
   })
 
@@ -171,6 +176,12 @@ describe('CertificateList', () => {
     it('returns false when no host references cert', () => {
       const cert: Certificate = { id: 99, domain: 'd', issuer: 'X', expires_at: '', status: 'valid', provider: 'custom' }
       expect(isInUse(cert, [createProxyHost({ certificate_id: 3 })])).toBe(false)
+    })
+
+    it('returns false when cert.id is undefined even if a host has certificate_id undefined', () => {
+      const cert: Certificate = { domain: 'd', issuer: 'X', expires_at: '', status: 'valid', provider: 'custom' }
+      const host = createProxyHost({ certificate_id: undefined })
+      expect(isInUse(cert, [host])).toBe(false)
     })
   })
 

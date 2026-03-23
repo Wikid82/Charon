@@ -20,6 +20,7 @@ type SortColumn = 'name' | 'expires'
 type SortDirection = 'asc' | 'desc'
 
 export function isInUse(cert: Certificate, hosts: ProxyHost[]): boolean {
+  if (!cert.id) return false
   return hosts.some(h => (h.certificate_id ?? h.certificate?.id) === cert.id)
 }
 
@@ -29,7 +30,8 @@ export function isDeletable(cert: Certificate, hosts: ProxyHost[]): boolean {
   return (
     cert.provider === 'custom' ||
     cert.provider === 'letsencrypt-staging' ||
-    cert.status === 'expired'
+    cert.status === 'expired' ||
+    cert.status === 'expiring'
   )
 }
 
@@ -234,7 +236,7 @@ export default function CertificateList() {
               sortedCertificates.map((cert) => {
                 const inUse = isInUse(cert, hosts)
                 const deletable = isDeletable(cert, hosts)
-                const isInUseDeletableCategory = inUse && (cert.provider === 'custom' || cert.provider === 'letsencrypt-staging' || cert.status === 'expired')
+                const isInUseDeletableCategory = inUse && (cert.provider === 'custom' || cert.provider === 'letsencrypt-staging' || cert.status === 'expired' || cert.status === 'expiring')
 
                 return (
                 <tr key={cert.id || cert.domain} className="hover:bg-gray-800/50 transition-colors">
