@@ -21,11 +21,11 @@ interface BulkDeleteCertificateDialogProps {
   isDeleting: boolean
 }
 
-function providerLabel(cert: Certificate): string {
-  if (cert.provider === 'letsencrypt-staging') return 'Staging'
-  if (cert.provider === 'custom') return 'Custom'
-  if (cert.status === 'expired') return 'Expired LE'
-  if (cert.status === 'expiring') return 'Expiring LE'
+function providerLabel(cert: Certificate, t: (key: string) => string): string {
+  if (cert.provider === 'letsencrypt-staging') return t('certificates.providerStaging')
+  if (cert.provider === 'custom') return t('certificates.providerCustom')
+  if (cert.status === 'expired') return t('certificates.providerExpiredLE')
+  if (cert.status === 'expiring') return t('certificates.providerExpiringLE')
   return cert.provider
 }
 
@@ -68,7 +68,7 @@ export default function BulkDeleteCertificateDialog({
                 className="flex items-center justify-between px-4 py-2"
               >
                 <span className="text-sm text-white">{cert.name || cert.domain}</span>
-                <span className="text-xs text-gray-500">{providerLabel(cert)}</span>
+                <span className="text-xs text-gray-500">{providerLabel(cert, t)}</span>
               </li>
             ))}
           </ul>

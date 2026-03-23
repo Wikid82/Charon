@@ -193,7 +193,11 @@
     "bulkDeleteButton": "Eliminar {{count}} Certificado(s)",
     "bulkDeleteSuccess": "{{count}} certificado(s) eliminado(s)",
     "bulkDeletePartial": "{{deleted}} eliminado(s), {{failed}} fallido(s)",
-    "bulkDeleteFailed": "No se pudieron eliminar los certificados"
+    "bulkDeleteFailed": "No se pudieron eliminar los certificados",
+    "providerStaging": "Pruebas",
+    "providerCustom": "Personalizado",
+    "providerExpiredLE": "LE Expirado",
+    "providerExpiringLE": "LE Por expirar"
   },
   "auth": {
     "login": "Iniciar Sesión",

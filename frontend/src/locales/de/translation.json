@@ -193,7 +193,11 @@
     "bulkDeleteButton": "{{count}} Zertifikat(e) löschen",
     "bulkDeleteSuccess": "{{count}} Zertifikat(e) gelöscht",
     "bulkDeletePartial": "{{deleted}} gelöscht, {{failed}} fehlgeschlagen",
-    "bulkDeleteFailed": "Zertifikate konnten nicht gelöscht werden"
+    "bulkDeleteFailed": "Zertifikate konnten nicht gelöscht werden",
+    "providerStaging": "Staging",
+    "providerCustom": "Benutzerdefiniert",
+    "providerExpiredLE": "Abgelaufen LE",
+    "providerExpiringLE": "Ablaufend LE"
   },
   "auth": {
     "login": "Anmelden",
