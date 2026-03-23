@@ -132,6 +132,32 @@
     },
     {
       "customType": "regex",
+      "description": "Track gotestsum version in codecov workflow",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/codecov-upload\\.yml$/"
+      ],
+      "matchStrings": [
+        "gotestsum@v(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "gotest.tools/gotestsum",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track gotestsum version in quality checks workflow",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/quality-checks\\.yml$/"
+      ],
+      "matchStrings": [
+        "gotestsum@v(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "gotest.tools/gotestsum",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
       "description": "Track govulncheck version in scripts",
       "managerFilePatterns": ["/^scripts\\/security-scan\\.sh$/"],
       "matchStrings": [
