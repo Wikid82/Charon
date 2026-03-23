@@ -173,7 +173,7 @@
     "uploadSuccess": "证书上传成功",
     "uploadFailed": "证书上传失败",
     "note": "注意",
-    "noteText": "You can delete custom certificates, staging certificates, and expired production certificates that are not attached to any proxy host. Active production certificates are automatically renewed by Caddy.",
+    "noteText": "您可以删除未附加到任何代理主机的自定义证书、暂存证书以及已过期或即将过期的生产证书。活跃的生产证书由 Caddy 自动续期。",
     "provider": "Provider",
     "deleteTitle": "Delete Certificate",
     "deleteConfirmCustom": "This will permanently delete this certificate. A backup will be created first.",
