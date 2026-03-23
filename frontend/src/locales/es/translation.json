@@ -182,7 +182,17 @@
     "deleteSuccess": "Certificate deleted",
     "deleteFailed": "Failed to delete certificate",
     "deleteInUse": "Cannot delete — certificate is attached to a proxy host",
-    "deleteButton": "Delete"
+    "deleteButton": "Delete",
+    "bulkSelectAll": "Seleccionar todos los certificados eliminables",
+    "selectCert": "Seleccionar certificado {{name}}",
+    "bulkSelectedCount": "{{count}} certificado(s) seleccionado(s)",
+    "bulkDeleteTitle": "Eliminar {{count}} Certificado(s)",
+    "bulkDeleteDescription": "Eliminar {{count}} certificado(s)",
+    "bulkDeleteConfirm": "Los siguientes certificados se eliminarán permanentemente. El servidor crea una copia de seguridad antes de cada eliminación.",
+    "bulkDeleteButton": "Eliminar {{count}} Certificado(s)",
+    "bulkDeleteSuccess": "{{count}} certificado(s) eliminado(s)",
+    "bulkDeletePartial": "{{deleted}} eliminado(s), {{failed}} fallido(s)",
+    "bulkDeleteFailed": "No se pudieron eliminar los certificados"
   },
   "auth": {
     "login": "Iniciar Sesión",

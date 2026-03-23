@@ -182,7 +182,17 @@
     "deleteSuccess": "Certificate deleted",
     "deleteFailed": "Failed to delete certificate",
     "deleteInUse": "Cannot delete — certificate is attached to a proxy host",
-    "deleteButton": "Delete"
+    "deleteButton": "Delete",
+    "bulkSelectAll": "选择所有可删除的证书",
+    "selectCert": "选择证书 {{name}}",
+    "bulkSelectedCount": "已选择 {{count}} 个证书",
+    "bulkDeleteTitle": "删除 {{count}} 个证书",
+    "bulkDeleteDescription": "删除 {{count}} 个证书",
+    "bulkDeleteConfirm": "以下证书将被永久删除。服务器在每次删除前会创建备份。",
+    "bulkDeleteButton": "删除 {{count}} 个证书",
+    "bulkDeleteSuccess": "已删除 {{count}} 个证书",
+    "bulkDeletePartial": "已删除 {{deleted}} 个，{{failed}} 个失败",
+    "bulkDeleteFailed": "证书删除失败"
   },
   "auth": {
     "login": "登录",
