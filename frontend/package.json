@@ -68,10 +68,10 @@
     "@typescript-eslint/parser": "^8.57.1",
     "@typescript-eslint/utils": "^8.57.1",
     "@vitejs/plugin-react": "^6.0.1",
-    "@vitest/coverage-istanbul": "^4.1.0",
-    "@vitest/coverage-v8": "^4.1.0",
+    "@vitest/coverage-istanbul": "^4.0.18",
+    "@vitest/coverage-v8": "^4.0.18",
     "@vitest/eslint-plugin": "^1.6.13",
-    "@vitest/ui": "^4.1.0",
+    "@vitest/ui": "^4.0.18",
     "autoprefixer": "^10.4.27",
     "eslint": "^10.1.0",
     "eslint-import-resolver-typescript": "^4.4.4",
@@ -94,7 +94,7 @@
     "typescript": "^6.0.1-rc",
     "typescript-eslint": "^8.57.1",
     "vite": "^8.0.1",
-    "vitest": "^4.1.0",
+    "vitest": "^4.0.18",
     "zod-validation-error": "^5.0.0"
   },
   "overrides": {
