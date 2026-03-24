@@ -25,11 +25,13 @@ The CrowdSec "Ban IP" and "Unban IP" modals were identified as lacking standard 
 Verification was performed using the Playwright E2E test suite running against a Dockerized environment.
 
 ### Test Environment
+
 - **Container**: `charon-e2e`
 - **Base URL**: `http://localhost:8080`
 - **Browser**: Firefox
 
 ### Test Execution
+
 **Command**: `npx playwright test tests/security/crowdsec-decisions.spec.ts -g "should open ban modal"`
 
 **Result**: ✅ **PASSED**
@@ -49,6 +51,7 @@ A broader run of `tests/security/crowdsec-decisions.spec.ts` was also executed, 
 ## 4. Code Snippets
 
 ### Ban Modal
+
 ```tsx
 <div
   className="fixed inset-0 z-50 flex items-center justify-center"

@@ -47,6 +47,7 @@ Docker auto-discovery eliminates manual IP address hunting and port memorization
 For Charon to discover containers, it needs Docker API access.
 
 **Docker Compose:**
+
 ```yaml
 services:
   charon:
@@ -56,6 +57,7 @@ services:
 ```
 
 **Docker Run:**
+
 ```bash
 docker run -v /var/run/docker.sock:/var/run/docker.sock:ro charon
 ```

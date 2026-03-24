@@ -60,6 +60,7 @@ logger.step('Click login button', 245); // with duration in ms
 ```
 
 **Output:**
+
 ```
 ├─ Navigate to home page
 ├─ Click login button (245ms)
@@ -81,6 +82,7 @@ logger.network({
 ```
 
 **Output:**
+
 ```
 ✅ POST https://api.example.com/login [200] 342ms
 ```
@@ -94,6 +96,7 @@ logger.locator('[role="button"]', 'click', true, 45);
 ```
 
 **Output:**
+
 ```
 ✓ click "[role="button"]" 45ms
 ```
@@ -108,6 +111,7 @@ logger.assertion('URL is correct', false, 'http://old.com', 'http://new.com');
 ```
 
 **Output:**
+
 ```
 ✓ Assert: Button is visible
 ✗ Assert: URL is correct | expected: "http://new.com", actual: "http://old.com"
@@ -122,6 +126,7 @@ logger.error('Network request failed', new Error('TIMEOUT'), 1);
 ```
 
 **Output:**
+
 ```
 ❌ ERROR: Network request failed - TIMEOUT
 🔄 Recovery: 1 attempts remaining
@@ -134,6 +139,7 @@ Traces capture all interactions, network activity, and DOM snapshots. They're in
 ### Automatic Trace Capture
 
 Traces are automatically captured:
+
 - On first retry of failed tests
 - On failure when running locally (if configured)
 
@@ -166,6 +172,7 @@ npx playwright show-trace test-results/path/to/trace.zip
 ```
 
 The Trace Viewer shows:
+
 - **Timeline**: Chronological list of all actions
 - **Network**: HTTP requests/responses with full details
 - **Console**: Page JS console output
@@ -490,18 +497,21 @@ test('should toggle security features', async ({ page }) => {
 ```
 
 **Key Features**:
+
 - Automatically finds parent `<label>` element
 - Scrolls element into view (sticky header aware)
 - Cross-browser compatible (Chromium, Firefox, WebKit)
 - No `force: true` or hard-coded waits needed
 
 **When to Use**:
+
 - Any test that clicks Switch/Toggle components
 - Settings pages with enable/disable toggles
 - Security dashboard module toggles (CrowdSec, ACL, WAF, Rate Limiting)
 - Access lists and configuration toggles
 
 **References**:
+
 - [Implementation](../../tests/utils/ui-helpers.ts) - Full helper code
 - [QA Report](../reports/qa_report.md) - Test results and validation
 

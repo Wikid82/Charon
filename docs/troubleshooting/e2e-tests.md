@@ -11,11 +11,13 @@ Common issues and solutions for Playwright E2E tests.
 **Symptoms**: Tests timing out after 30 seconds, config reload overlay blocking interactions
 
 **Resolution**:
+
 - Extended timeout from 30s to 60s for feature flag propagation
 - Added automatic detection and waiting for config reload overlay
 - Improved test isolation with proper cleanup in afterEach hooks
 
 **If you still experience timeouts**:
+
 1. Rebuild the E2E container: `.github/skills/scripts/skill-runner.sh docker-rebuild-e2e`
 2. Check Docker logs for health check failures
 3. Verify emergency token is set in `.env` file
@@ -25,6 +27,7 @@ Common issues and solutions for Playwright E2E tests.
 **Symptoms**: Feature flag tests failing with propagation timeout
 
 **Resolution**:
+
 - Added key normalization to handle both `feature.cerberus.enabled` and `cerberus.enabled` formats
 - Tests now automatically detect and adapt to API response format
 
@@ -67,21 +70,25 @@ Emergency token not configured in `.env` file.
 ### Solution
 
 1. **Generate token:**
+
    ```bash
    openssl rand -hex 32
    ```
 
 2. **Add to `.env` file:**
+
    ```bash
    echo "CHARON_EMERGENCY_TOKEN=<paste_token_here>" >> .env
    ```
 
 3. **Verify:**
+
    ```bash
    grep CHARON_EMERGENCY_TOKEN .env
    ```
 
 4. **Run tests:**
+
    ```bash
    npx playwright test --project=chromium
    ```
@@ -104,16 +111,19 @@ Token is shorter than 64 characters (security requirement).
 ### Solution
 
 1. **Regenerate token with correct length:**
+
    ```bash
    openssl rand -hex 32  # Generates 64-char hex string
    ```
 
 2. **Update `.env` file:**
+
    ```bash
    sed -i "s/CHARON_EMERGENCY_TOKEN=.*/CHARON_EMERGENCY_TOKEN=<new_token>/" .env
    ```
 
 3. **Verify length:**
+
    ```bash
    echo -n "$(grep CHARON_EMERGENCY_TOKEN .env | cut -d= -f2)" | wc -c
    # Should output: 64
@@ -139,6 +149,7 @@ Token is shorter than 64 characters (security requirement).
 ### Solution
 
 **Step 1: Verify token configuration**
+
 ```bash
 # Check token exists and is 64 chars
 echo -n "$(grep CHARON_EMERGENCY_TOKEN .env | cut -d= -f2)" | wc -c
@@ -148,12 +159,14 @@ docker exec charon env | grep CHARON_EMERGENCY_TOKEN
 ```
 
 **Step 2: Verify backend is running**
+
 ```bash
 curl http://localhost:8080/api/v1/health
 # Should return: {"status":"ok"}
 ```
 
 **Step 3: Test emergency endpoint directly**
+
 ```bash
 curl -X POST http://localhost:8080/api/v1/emergency/security-reset \
   -H "X-Emergency-Token: $(grep CHARON_EMERGENCY_TOKEN .env | cut -d= -f2)" \
@@ -162,6 +175,7 @@ curl -X POST http://localhost:8080/api/v1/emergency/security-reset \
 ```
 
 **Step 4: Check backend logs**
+
 ```bash
 # Docker Compose
 docker compose logs charon | tail -50
@@ -171,6 +185,7 @@ docker logs charon | tail -50
 ```
 
 **Step 5: Regenerate token if needed**
+
 ```bash
 # Generate new token
 NEW_TOKEN=$(openssl rand -hex 32)
@@ -201,6 +216,7 @@ Security teardown did not successfully disable ACL before tests ran.
 ### Solution
 
 1. **Run teardown script manually:**
+
    ```bash
    npx playwright test tests/security-teardown.setup.ts
    ```
@@ -210,12 +226,14 @@ Security teardown did not successfully disable ACL before tests ran.
    - Verify no error messages about missing token
 
 3. **Verify ACL is disabled:**
+
    ```bash
    curl http://localhost:8080/api/v1/security/status | jq
    # acl.enabled should be false
    ```
 
 4. **If still blocked, manually disable via API:**
+
    ```bash
    # Using emergency token
    curl -X POST http://localhost:8080/api/v1/emergency/security-reset \
@@ -225,6 +243,7 @@ Security teardown did not successfully disable ACL before tests ran.
    ```
 
 5. **Run tests again:**
+
    ```bash
    npx playwright test --project=chromium
    ```
@@ -282,11 +301,13 @@ Backend container not running or not accessible.
 ### Solution
 
 1. **Check container status:**
+
    ```bash
    docker ps | grep charon
    ```
 
 2. **If not running, start it:**
+
    ```bash
    # Docker Compose
    docker compose up -d
@@ -296,11 +317,13 @@ Backend container not running or not accessible.
    ```
 
 3. **Wait for health:**
+
    ```bash
    timeout 60 bash -c 'until curl -f http://localhost:8080/api/v1/health; do sleep 2; done'
    ```
 
 4. **Check logs if still failing:**
+
    ```bash
    docker logs charon | tail -50
    ```
@@ -317,6 +340,7 @@ Backend container not running or not accessible.
 ### Cause
 
 Token contains common placeholder strings like:
+
 - `test-emergency-token`
 - `your_64_character`
 - `replace_this`
@@ -325,16 +349,19 @@ Token contains common placeholder strings like:
 ### Solution
 
 1. **Generate a unique token:**
+
    ```bash
    openssl rand -hex 32
    ```
 
 2. **Replace placeholder in `.env`:**
+
    ```bash
    sed -i "s/CHARON_EMERGENCY_TOKEN=.*/CHARON_EMERGENCY_TOKEN=<new_token>/" .env
    ```
 
 3. **Verify it's not a placeholder:**
+
    ```bash
    grep CHARON_EMERGENCY_TOKEN .env
    # Should show a random hex string
@@ -389,16 +416,19 @@ Enables all debug output.
 **Solutions:**
 
 1. **Use sharding (parallel execution):**
+
    ```bash
    npx playwright test --shard=1/4 --project=chromium
    ```
 
 2. **Run specific test files:**
+
    ```bash
    npx playwright test tests/manual-dns-provider.spec.ts
    ```
 
 3. **Skip slow tests during development:**
+
    ```bash
    npx playwright test --grep-invert "@slow"
    ```
@@ -406,19 +436,23 @@ Enables all debug output.
 ### Feature Flag Toggle Tests Timing Out
 
 **Symptoms:**
+
 - Tests in `tests/settings/system-settings.spec.ts` fail with timeout errors
 - Error messages mention feature flag toggles (Cerberus, CrowdSec, Uptime, Persist)
 
 **Cause:**
+
 - Backend N+1 query pattern causing 300-600ms latency in CI
 - Hard-coded waits insufficient for slower CI environments
 
 **Solution (Fixed in v2.x):**
+
 - Backend now uses batch query pattern (3-6x faster: 600ms → 200ms P99)
 - Tests use condition-based polling with `waitForFeatureFlagPropagation()`
 - Retry logic with exponential backoff handles transient failures
 
 **If you still experience issues:**
+
 1. Check backend latency: `grep "[METRICS]" docker logs charon`
 2. Verify batch query is being used (should see `WHERE key IN (...)` in logs)
 3. Ensure you're running latest version with the optimization
@@ -432,16 +466,19 @@ Enables all debug output.
 **Solutions:**
 
 1. **Increase health check timeout:**
+
    ```bash
    timeout 120 bash -c 'until curl -f http://localhost:8080/api/v1/health; do sleep 2; done'
    ```
 
 2. **Pre-pull Docker image:**
+
    ```bash
    docker pull wikid82/charon:latest
    ```
 
 3. **Check Docker resource limits:**
+
    ```bash
    docker stats charon
    # Ensure adequate CPU/memory
@@ -458,6 +495,7 @@ If you're still stuck after trying these solutions:
    - Search [GitHub Issues](https://github.com/Wikid82/charon/issues)
 
 2. **Collect diagnostic info:**
+
    ```bash
    # Environment
    echo "OS: $(uname -a)"

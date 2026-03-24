@@ -78,6 +78,7 @@ git pull origin development
 ```
 
 This script:
+
 - Detects the required Go version from `go.work`
 - Downloads it from golang.org
 - Installs it to `~/sdk/go{version}/`
@@ -103,6 +104,7 @@ Even if you used Option A (which rebuilds automatically), you can always manuall
 ```
 
 This rebuilds:
+
 - **golangci-lint** — Pre-commit linter (critical)
 - **gopls** — IDE language server (critical)
 - **govulncheck** — Security scanner
@@ -132,11 +134,13 @@ Current Go version: go version go1.26.0 linux/amd64
 Your IDE caches the old Go language server (gopls). Reload to use the new one:
 
 **VS Code:**
+
 - Press `Cmd/Ctrl+Shift+P`
 - Type "Developer: Reload Window"
 - Press Enter
 
 **GoLand or IntelliJ IDEA:**
+
 - File → Invalidate Caches → Restart
 - Wait for indexing to complete
 
@@ -243,6 +247,7 @@ go install golang.org/x/tools/gopls@latest
 ### How often do Go versions change?
 
 Go releases **two major versions per year**:
+
 - February (e.g., Go 1.26.0)
 - August (e.g., Go 1.27.0)
 
@@ -255,6 +260,7 @@ Plus occasional patch releases (e.g., Go 1.26.1) for security fixes.
 **Usually no**, but it doesn't hurt. Patch releases (like 1.26.0 → 1.26.1) rarely break tool compatibility.
 
 **Rebuild if:**
+
 - Pre-commit hooks start failing
 - IDE shows unexpected errors
 - Tools report version mismatches
@@ -262,6 +268,7 @@ Plus occasional patch releases (e.g., Go 1.26.1) for security fixes.
 ### Why don't CI builds have this problem?
 
 CI environments are **ephemeral** (temporary). Every workflow run:
+
 1. Starts with a fresh container
 2. Installs Go from scratch
 3. Installs tools from scratch
@@ -295,12 +302,14 @@ But for Charon development, you only need **one version** (whatever's in `go.wor
 **Short answer:** Your local tools will be out of sync, but CI will still work.
 
 **What breaks:**
+
 - Pre-commit hooks fail (but will auto-rebuild)
 - IDE shows phantom errors
 - Manual `go test` might fail locally
 - CI is unaffected (it always uses the correct version)
 
 **When to catch up:**
+
 - Before opening a PR (CI checks will fail if your code uses old Go features)
 - When local development becomes annoying
 
@@ -326,6 +335,7 @@ But they only take ~400MB each, so cleanup is optional.
 Renovate updates **Dockerfile** and **go.work**, but it can't update tools on *your* machine.
 
 **Think of it like this:**
+
 - Renovate: "Hey team, we're now using Go 1.26.0"
 - Your machine: "Cool, but my tools are still Go 1.25.6. Let me rebuild them."
 
@@ -334,18 +344,22 @@ The rebuild script bridges that gap.
 ### What's the difference between `go.work`, `go.mod`, and my system Go?
 
 **`go.work`** — Workspace file (multi-module projects like Charon)
+
 - Specifies minimum Go version for the entire project
 - Used by Renovate to track upgrades
 
 **`go.mod`** — Module file (individual Go modules)
+
 - Each module (backend, tools) has its own `go.mod`
 - Inherits Go version from `go.work`
 
 **System Go** (`go version`) — What's installed on your machine
+
 - Must be >= the version in `go.work`
 - Tools are compiled with whatever version this is
 
 **Example:**
+
 ```
 go.work says: "Use Go 1.26.0 or newer"
 go.mod says: "I'm part of the workspace, use its Go version"
@@ -364,12 +378,14 @@ Charon's pre-commit hook automatically detects and fixes tool version mismatches
 **How it works:**
 
 1. **Check versions:**
+
    ```bash
    golangci-lint version → "built with go1.25.6"
    go version → "go version go1.26.0"
    ```
 
 2. **Detect mismatch:**
+
    ```
    ⚠️  golangci-lint Go version mismatch:
       golangci-lint: 1.25.6
@@ -377,6 +393,7 @@ Charon's pre-commit hook automatically detects and fixes tool version mismatches
    ```
 
 3. **Auto-rebuild:**
+
    ```
    🔧 Rebuilding golangci-lint with current Go version...
    ✅ golangci-lint rebuilt successfully
@@ -406,11 +423,13 @@ If you want manual control, edit `scripts/pre-commit-hooks/golangci-lint-fast.sh
 ## Need Help?
 
 **Open a [Discussion](https://github.com/Wikid82/charon/discussions)** if:
+
 - These instructions didn't work for you
 - You're seeing errors not covered in troubleshooting
 - You have suggestions for improving this guide
 
 **Open an [Issue](https://github.com/Wikid82/charon/issues)** if:
+
 - The rebuild script crashes
 - Pre-commit auto-rebuild isn't working
 - CI is failing for Go version reasons

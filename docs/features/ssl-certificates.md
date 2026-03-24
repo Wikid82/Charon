@@ -62,6 +62,21 @@ When you delete a proxy host, Charon automatically:
 
 This prevents certificate accumulation and keeps your system tidy.
 
+## Manual Certificate Deletion
+
+Over time, expired or unused certificates can pile up in the Certificates list. You can remove them manually:
+
+| Certificate Type | When You Can Delete It |
+|------------------|----------------------|
+| **Expired Let's Encrypt** | When it's not attached to any proxy host |
+| **Custom (uploaded)** | When it's not attached to any proxy host |
+| **Staging** | When it's not attached to any proxy host |
+| **Valid Let's Encrypt** | Managed automatically — no delete button shown |
+
+If a certificate is still attached to a proxy host, the delete button is disabled and a tooltip explains which host is using it. Remove the certificate from the proxy host first, then come back to delete it.
+
+A confirmation dialog appears before anything is removed. Charon creates a backup before deleting, so you have a safety net.
+
 ## Troubleshooting
 
 | Issue | Solution |

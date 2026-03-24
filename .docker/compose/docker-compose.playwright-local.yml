@@ -48,7 +48,8 @@ services:
     tmpfs:
       # True tmpfs for E2E test data - fresh on every run, in-memory only
       # mode=1777 allows any user to write (container runs as non-root)
-      - /app/data:size=100M,mode=1777
+      # 256M gives headroom for the backup service's 100MB disk-space check
+      - /app/data:size=256M,mode=1777
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro # For container discovery in tests
     healthcheck:
