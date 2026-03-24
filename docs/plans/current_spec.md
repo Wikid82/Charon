@@ -1,219 +1,204 @@
-# Fix: Allow deletion of expiring_soon certificates not in use
+# Fix: Frontend Unit Test i18n Failures in BulkDeleteCertificateDialog
 
-> **Status note:** The bug report refers to the status as `expiring_soon`. In this codebase the actual status string is `'expiring'` (defined in `frontend/src/api/certificates.ts` line 10 and `backend/internal/services/certificate_service.go` line 33). All references below use `'expiring'`.
-
----
-
-## 1. Bug Root Cause
-
-`frontend/src/components/CertificateList.tsx` — `isDeletable` (lines 26–34):
-
-```ts
-export function isDeletable(cert: Certificate, hosts: ProxyHost[]): boolean {
-  if (!cert.id) return false
-  if (isInUse(cert, hosts)) return false
-  return (
-    cert.provider === 'custom' ||
-    cert.provider === 'letsencrypt-staging' ||
-    cert.status === 'expired'
-  )
-}
-```
-
-A cert with `provider === 'letsencrypt'` and `status === 'expiring'` that is not attached to any proxy host evaluates to `false` because `'expiring' !== 'expired'`. No delete button is rendered, and the cert cannot be selected for bulk delete.
-
-**Additional bug:** `isInUse` has a false-positive when `cert.id` is falsy — `undefined === undefined` would match any proxy host with an unset certificate reference, incorrectly treating the cert as in-use. Fix by adding `if (!cert.id) return false` as the first line of `isInUse`.
-
-Three secondary locations propagate the same status blind-spot:
-
-- `frontend/src/components/dialogs/BulkDeleteCertificateDialog.tsx` — `providerLabel` falls through to `return cert.provider` (showing raw `"letsencrypt"`) for expiring certs instead of a human-readable label.
-- `frontend/src/components/dialogs/DeleteCertificateDialog.tsx` — `getWarningKey` falls through to `'certificates.deleteConfirmCustom'` for expiring certs instead of a contextual message.
+> **Status:** Ready for implementation
+> **Severity:** CI-blocking (2 test failures)
+> **Scope:** Single test file change
 
 ---
 
-## 2. Frontend Fix
+## 1. Introduction
 
-### 2a. `frontend/src/components/CertificateList.tsx` — `isDeletable`
+Two frontend unit tests fail in CI because `BulkDeleteCertificateDialog.test.tsx` contains a local `vi.mock('react-i18next')` that overrides the global mock in the test setup. The local mock returns raw translation keys and JSON-serialized options instead of resolved English strings, causing assertion mismatches.
 
-**Before:**
-```ts
-return (
-  cert.provider === 'custom' ||
-  cert.provider === 'letsencrypt-staging' ||
-  cert.status === 'expired'
-)
-```
+### Objectives
 
-**After:**
-```ts
-return (
-  cert.provider === 'custom' ||
-  cert.provider === 'letsencrypt-staging' ||
-  cert.status === 'expired' ||
-  cert.status === 'expiring'
-)
-```
-
-### 2b. `frontend/src/components/dialogs/BulkDeleteCertificateDialog.tsx` — `providerLabel`
-
-**Before:**
-```ts
-function providerLabel(cert: Certificate): string {
-  if (cert.provider === 'letsencrypt-staging') return 'Staging'
-  if (cert.provider === 'custom') return 'Custom'
-  if (cert.status === 'expired') return 'Expired LE'
-  return cert.provider
-}
-```
-
-**After:**
-```ts
-function providerLabel(cert: Certificate): string {
-  if (cert.provider === 'letsencrypt-staging') return 'Staging'
-  if (cert.provider === 'custom') return 'Custom'
-  if (cert.status === 'expired') return 'Expired LE'
-  if (cert.status === 'expiring') return 'Expiring LE'
-  return cert.provider
-}
-```
-
-### 2c. `frontend/src/components/dialogs/DeleteCertificateDialog.tsx` — `getWarningKey`
-
-**Before:**
-```ts
-function getWarningKey(cert: Certificate): string {
-  if (cert.status === 'expired') return 'certificates.deleteConfirmExpired'
-  if (cert.provider === 'letsencrypt-staging') return 'certificates.deleteConfirmStaging'
-  return 'certificates.deleteConfirmCustom'
-}
-```
-
-**After:**
-```ts
-function getWarningKey(cert: Certificate): string {
-  if (cert.status === 'expired') return 'certificates.deleteConfirmExpired'
-  if (cert.status === 'expiring') return 'certificates.deleteConfirmExpiring'
-  if (cert.provider === 'letsencrypt-staging') return 'certificates.deleteConfirmStaging'
-  return 'certificates.deleteConfirmCustom'
-}
-```
-
-### 2d. `frontend/src/locales/en/translation.json` — two string updates
-
-**Add** new key after `"deleteConfirmExpired"`:
-```json
-"deleteConfirmExpiring": "This certificate is expiring soon. It will be permanently removed and will not be auto-renewed.",
-```
-
-**Update** `"noteText"` to reflect that expiring certs are now also deletable:
-
-**Before:**
-```json
-"noteText": "You can delete custom certificates, staging certificates, and expired production certificates that are not attached to any proxy host. Active production certificates are automatically renewed by Caddy.",
-```
-
-**After:**
-```json
-"noteText": "You can delete custom certificates, staging certificates, and expired or expiring production certificates that are not attached to any proxy host. Active production certificates are automatically renewed by Caddy.",
-```
+- Fix the 2 failing tests in CI
+- Align `BulkDeleteCertificateDialog.test.tsx` with the project's established i18n test pattern
+- No behavioral or component changes required
 
 ---
 
-## 3. Unit Test Updates
+## 2. Research Findings
 
-### 3a. `frontend/src/components/__tests__/CertificateList.test.tsx`
+### 2.1 Failing Tests (from CI log)
 
-**Existing test at line 152–155 — update assertion:**
+| # | Test Name | Expected | Actual (DOM) |
+|---|-----------|----------|--------------|
+| 1 | `lists each certificate name in the scrollable list` | `"Custom"`, `"Staging"`, `"Expired LE"` | `certificates.providerCustom`, `certificates.providerStaging`, `certificates.providerExpiredLE` |
+| 2 | `renders "Expiring LE" label for a letsencrypt cert with status expiring` | `"Expiring LE"` | `certificates.providerExpiringLE` |
 
-The test currently documents the wrong behavior:
+Additional rendering artifacts visible in the DOM dump:
 
-```ts
-it('returns false for expiring LE cert not in use', () => {
-  const cert: Certificate = { id: 7, name: 'Exp', domain: 'd', issuer: 'LE', expires_at: '', status: 'expiring', provider: 'letsencrypt' }
-  expect(isDeletable(cert, noHosts)).toBe(false)  // wrong — must become true
-})
+- Dialog title: `{"count":3}` instead of `"Delete 3 Certificate(s)"`
+- Button text: `{"count":3}` instead of `"Delete 3 Certificate(s)"`
+- Cancel button: `common.cancel` instead of `"Cancel"`
+- Warning text: `certificates.bulkDeleteConfirm` instead of translated string
+- Aria label: `certificates.bulkDeleteListAriaLabel` instead of translated string
+
+### 2.2 Relevant File Paths
+
+| File | Role |
+|------|------|
+| `frontend/src/components/dialogs/__tests__/BulkDeleteCertificateDialog.test.tsx` | **Failing test file** — contains the problematic local mock |
+| `frontend/src/components/dialogs/BulkDeleteCertificateDialog.tsx` | Component under test |
+| `frontend/src/test/setup.ts` | Global test setup with proper i18n mock (lines 20–60) |
+| `frontend/vitest.config.ts` | Vitest config — confirms `setupFiles: './src/test/setup.ts'` (line 24) |
+| `frontend/src/locales/en/translation.json` | English translations source |
+
+### 2.3 i18n Mock Architecture
+
+**Global mock** (`frontend/src/test/setup.ts`, lines 20–60):
+
+- Dynamically imports `../locales/en/translation.json`
+- Implements `getTranslation(key)` that resolves dot-notation keys (e.g., `certificates.providerCustom` → `"Custom"`)
+- Handles `{{variable}}` interpolation via regex replacement
+- Applied automatically to all test files via `setupFiles` in vitest config
+
+**Local mock** (`BulkDeleteCertificateDialog.test.tsx`, lines 9–14):
+
+```typescript
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, opts?: Record<string, unknown>) => (opts ? JSON.stringify(opts) : key),
+    i18n: { language: 'en', changeLanguage: vi.fn() },
+  }),
+}))
 ```
 
-**Changes:**
-- Rename description to `'returns true for expiring LE cert not in use'`
-- Change assertion to `toBe(true)`
+This local mock **overrides** the global mock because Vitest's `vi.mock()` at the file level takes precedence over the setup file's `vi.mock()`. It returns:
 
-**Add** a new test case to guard the in-use path:
-```ts
-it('returns false for expiring LE cert in use', () => {
-  const cert: Certificate = { id: 8, name: 'ExpUsed', domain: 'd', issuer: 'LE', expires_at: '', status: 'expiring', provider: 'letsencrypt' }
-  expect(isDeletable(cert, withHost(8))).toBe(false)
-})
-```
+- Raw key when no options: `t('certificates.providerCustom')` → `"certificates.providerCustom"`
+- JSON string when options present: `t('key', { count: 3 })` → `'{"count":3}'`
 
-### 3b. `frontend/src/components/dialogs/__tests__/BulkDeleteCertificateDialog.test.tsx`
+### 2.4 Translation Keys Required
 
-The current `certs` fixture (lines 28–30) covers: `custom/valid`, `letsencrypt-staging/untrusted`, `letsencrypt/expired`. No `expiring` fixture exists.
+From `frontend/src/locales/en/translation.json`:
 
-**Add** a standalone test verifying `providerLabel` renders the correct label for an expiring cert:
-```ts
-it('renders "Expiring LE" label for expiring letsencrypt certificate', () => {
-  render(
-    <BulkDeleteCertificateDialog
-      certificates={[makeCert({ id: 4, name: 'Cert Four', domain: 'four.example.com', provider: 'letsencrypt', status: 'expiring' })]}
-      open={true}
-      onConfirm={vi.fn()}
-      onCancel={vi.fn()}
-      isDeleting={false}
-    />
-  )
-  expect(screen.getByText('Expiring LE')).toBeInTheDocument()
-})
-```
+| Key | English Value |
+|-----|---------------|
+| `certificates.bulkDeleteTitle` | `"Delete {{count}} Certificate(s)"` |
+| `certificates.bulkDeleteDescription` | `"Delete {{count}} certificate(s)"` |
+| `certificates.bulkDeleteConfirm` | `"The following certificates will be permanently deleted. The server creates a backup before each removal."` |
+| `certificates.bulkDeleteListAriaLabel` | `"Certificates to be deleted"` |
+| `certificates.bulkDeleteButton` | `"Delete {{count}} Certificate(s)"` |
+| `certificates.providerStaging` | `"Staging"` |
+| `certificates.providerCustom` | `"Custom"` |
+| `certificates.providerExpiredLE` | `"Expired LE"` |
+| `certificates.providerExpiringLE` | `"Expiring LE"` |
+| `common.cancel` | `"Cancel"` |
+
+All keys exist in the translation file. No missing translations.
+
+### 2.5 Pattern Analysis — Other Test Files
+
+20+ test files have local `vi.mock('react-i18next')` overrides. Most use `t: (key) => key` and assert against raw keys — this is internally consistent and **not failing**. The `BulkDeleteCertificateDialog.test.tsx` file is unique because its **assertions expect translated values** while its mock returns raw keys.
+
+| File | Local Mock | Assertions | Status |
+|------|-----------|------------|--------|
+| `CertificateList.test.tsx` | `t: (key) => key` | Raw keys (`certificates.deleteTitle`) | Passing |
+| `Certificates.test.tsx` | Custom translations map | Translated values | Passing |
+| `AccessLists.test.tsx` | Custom translations map | Translated values | Passing |
+| **BulkDeleteCertificateDialog.test.tsx** | `t: (key, opts) => opts ? JSON.stringify(opts) : key` | **Mix of translated values AND raw keys** | **Failing** |
 
 ---
 
-## 4. Backend Verification
+## 3. Root Cause Analysis
 
-**No backend change required.**
+**The local `vi.mock('react-i18next')` in `BulkDeleteCertificateDialog.test.tsx` returns raw translation keys, but the test assertions expect resolved English strings.**
 
-`DELETE /api/v1/certificates/:id` is handled by `CertificateHandler.Delete` in `backend/internal/api/handlers/certificate_handler.go` (line 140). The only guard is `IsCertificateInUse` (line 156). There is no status-based check — the handler invokes `service.DeleteCertificate(uint(id))` unconditionally once the in-use check passes.
-
-`CertificateService.DeleteCertificate` in `backend/internal/services/certificate_service.go` (line 396) likewise only inspects `IsCertificateInUse` before proceeding. The cert's `Status` field is never read or compared during deletion.
-
-A cert with `status = 'expiring'` that is not in use is deleted successfully by the backend today; the bug is frontend-only.
+This is a mock/assertion mismatch introduced when the test was authored. The test expectations (`'Custom'`, `'Expiring LE'`) are correct for what the component should render, but the mock prevents translation resolution.
 
 ---
 
-## 5. E2E Consideration
+## 4. Technical Specification
 
-**File:** `tests/certificate-bulk-delete.spec.ts`
+### 4.1 Fix: Remove Local Mock, Update Assertions
 
-The spec currently has no fixture that places a cert into `expiring` status, because status is computed server-side at query time from the actual expiry date. Manufacturing an `expiring` cert in Playwright requires inserting a certificate whose expiry falls within the renewal window (≈30 days out).
+**File:** `frontend/src/components/dialogs/__tests__/BulkDeleteCertificateDialog.test.tsx`
 
-**Recommended addition:** Add a test scenario that uploads a custom certificate with an expiry date 15 days from now and is not attached to any proxy host, then asserts:
-1. Its row checkbox is enabled and its per-row delete button is present.
-2. It can be selected and bulk-deleted via `BulkDeleteCertificateDialog`.
+**Change 1 — Delete the local `vi.mock('react-i18next', ...)` block (lines 9–14)**
 
-If producing a near-expiry cert at the E2E layer is not feasible, coverage from §3a and §3b is sufficient for this fix and the E2E test may be deferred to a follow-up.
+Removing this allows the global mock from `setup.ts` to take effect, which properly resolves translation keys to English values with interpolation.
+
+**Change 2 — Update assertions that relied on the local mock's behavior**
+
+With the global mock active, translation calls resolve differently:
+
+| Call in component | Local mock output | Global mock output |
+|-------------------|-------------------|--------------------|
+| `t('certificates.bulkDeleteTitle', { count: 3 })` | `'{"count":3}'` | `'Delete 3 Certificate(s)'` |
+| `t('certificates.bulkDeleteButton', { count: 3 })` | `'{"count":3}'` | `'Delete 3 Certificate(s)'` |
+| `t('certificates.bulkDeleteButton', { count: 1 })` | `'{"count":1}'` | `'Delete 1 Certificate(s)'` |
+| `t('common.cancel')` | `'common.cancel'` | `'Cancel'` |
+| `t('certificates.providerCustom')` | `'certificates.providerCustom'` | `'Custom'` |
+| `t('certificates.providerExpiringLE')` | `'certificates.providerExpiringLE'` | `'Expiring LE'` |
+
+Assertions to update:
+
+| Line | Old Assertion | New Assertion |
+|------|---------------|---------------|
+| ~48 | `getByRole('heading', { name: '{"count":3}' })` | `getByRole('heading', { name: 'Delete 3 Certificate(s)' })` |
+| ~82 | `getByRole('button', { name: '{"count":3}' })` | `getByRole('button', { name: 'Delete 3 Certificate(s)' })` |
+| ~95 | `getByRole('button', { name: 'common.cancel' })` | `getByRole('button', { name: 'Cancel' })` |
+| ~109 | `getByRole('button', { name: '{"count":3}' })` | `getByRole('button', { name: 'Delete 3 Certificate(s)' })` |
+| ~111 | `getByRole('button', { name: 'common.cancel' })` | `getByRole('button', { name: 'Cancel' })` |
+
+The currently-failing assertions (`getByText('Custom')`, `getByText('Expiring LE')`, etc.) will pass without changes once the global mock is active.
+
+### 4.2 Config File Review
+
+| File | Finding |
+|------|---------|
+| `.gitignore` | No changes needed. Test artifacts, coverage outputs, and CI logs are properly excluded. |
+| `codecov.yml` | No changes needed. Test files (`**/__tests__/**`, `**/*.test.tsx`) and test setup (`**/vitest.config.ts`, `**/vitest.setup.ts`) are already excluded from coverage. |
+| `.dockerignore` | No changes needed. Test artifacts and coverage files are excluded from Docker builds. |
+| `Dockerfile` | No changes needed. No test files are copied into the production image. |
 
 ---
 
-## 6. Commit Slicing Strategy
+## 5. Implementation Plan
 
-**Single PR.** This is a self-contained bug fix with no API contract changes and no migration.
+### Phase 1: Fix the Test File
 
-Suggested commit message:
-```
-fix(certificates): allow deletion of expiring certs not in use
+**Single file edit:** `frontend/src/components/dialogs/__tests__/BulkDeleteCertificateDialog.test.tsx`
 
-Expiring Let's Encrypt certs not attached to any proxy host were
-undeletable because isDeletable only permitted deletion when
-status === 'expired'. Extends the condition to also allow
-status === 'expiring', updates providerLabel and getWarningKey for
-consistent UX, and corrects the existing unit test that was asserting
-the wrong behavior.
-```
+1. Remove the local `vi.mock('react-i18next', ...)` block (lines 9–14)
+2. Update 5 assertion strings to use resolved English translations (see table in §4.1)
+3. No other files need changes
 
-**Files changed:**
-- `frontend/src/components/CertificateList.tsx`
-- `frontend/src/components/dialogs/BulkDeleteCertificateDialog.tsx`
-- `frontend/src/components/dialogs/DeleteCertificateDialog.tsx`
-- `frontend/src/locales/en/translation.json`
-- `frontend/src/components/__tests__/CertificateList.test.tsx`
-- `frontend/src/components/dialogs/__tests__/BulkDeleteCertificateDialog.test.tsx`
+### Phase 2: Validation
+
+1. Run the specific test file: `cd /projects/Charon/frontend && npx vitest run src/components/dialogs/__tests__/BulkDeleteCertificateDialog.test.tsx`
+2. Run the full frontend test suite: `cd /projects/Charon/frontend && npx vitest run`
+3. Verify no regressions in other test files
+
+---
+
+## 6. Acceptance Criteria
+
+- [ ] Both failing tests pass: `lists each certificate name in the scrollable list` and `renders "Expiring LE" label for a letsencrypt cert with status expiring`
+- [ ] All 7 tests in `BulkDeleteCertificateDialog.test.tsx` pass
+- [ ] Full frontend test suite passes with no new failures
+- [ ] No local `vi.mock('react-i18next')` remains in `BulkDeleteCertificateDialog.test.tsx`
+
+---
+
+## 7. Commit Slicing Strategy
+
+### Decision: Single PR
+
+**Rationale:** This is a single-file fix with no cross-domain changes, no schema changes, no API changes, and no risk of affecting other components. The change is purely correcting assertion/mock alignment in one test file.
+
+### PR-1: Fix BulkDeleteCertificateDialog i18n test mock
+
+| Attribute | Value |
+|-----------|-------|
+| **Scope** | Remove local i18n mock override, update 5 assertions |
+| **Files** | `frontend/src/components/dialogs/__tests__/BulkDeleteCertificateDialog.test.tsx` |
+| **Dependencies** | None |
+| **Validation Gate** | All 7 tests in the file pass; full frontend suite green |
+| **Rollback** | Revert single commit |
+
+### Contingency
+
+If the global mock from `setup.ts` does not resolve all keys correctly (unlikely given the translation JSON analysis), the fallback is to replace the local mock with a custom translations map pattern (as used in `AccessLists.test.tsx` and `Certificates.test.tsx`) containing the exact keys needed by this component.

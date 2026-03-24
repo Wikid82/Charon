@@ -6,13 +6,6 @@ import BulkDeleteCertificateDialog from '../../dialogs/BulkDeleteCertificateDial
 
 import type { Certificate } from '../../../api/certificates'
 
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (key: string, opts?: Record<string, unknown>) => (opts ? JSON.stringify(opts) : key),
-    i18n: { language: 'en', changeLanguage: vi.fn() },
-  }),
-}))
-
 const makeCert = (overrides: Partial<Certificate>): Certificate => ({
   id: 1,
   name: 'Test Cert',
@@ -42,7 +35,7 @@ describe('BulkDeleteCertificateDialog', () => {
       />
     )
     const dialog = screen.getByRole('dialog')
-    expect(within(dialog).getByRole('heading', { name: '{"count":3}' })).toBeInTheDocument()
+    expect(within(dialog).getByRole('heading', { name: 'Delete 3 Certificate(s)' })).toBeInTheDocument()
   })
 
   it('lists each certificate name in the scrollable list', () => {
@@ -76,7 +69,7 @@ describe('BulkDeleteCertificateDialog', () => {
       />
     )
     const dialog = screen.getByRole('dialog')
-    await user.click(within(dialog).getByRole('button', { name: '{"count":3}' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Delete 3 Certificate(s)' }))
     expect(onConfirm).toHaveBeenCalled()
   })
 
@@ -93,7 +86,7 @@ describe('BulkDeleteCertificateDialog', () => {
       />
     )
     const dialog = screen.getByRole('dialog')
-    await user.click(within(dialog).getByRole('button', { name: 'common.cancel' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     expect(onCancel).toHaveBeenCalled()
   })
 
@@ -108,9 +101,9 @@ describe('BulkDeleteCertificateDialog', () => {
       />
     )
     const dialog = screen.getByRole('dialog')
-    const deleteBtn = within(dialog).getByRole('button', { name: '{"count":3}' })
+    const deleteBtn = within(dialog).getByRole('button', { name: 'Delete 3 Certificate(s)' })
     expect(deleteBtn).toBeDisabled()
-    const cancelBtn = within(dialog).getByRole('button', { name: 'common.cancel' })
+    const cancelBtn = within(dialog).getByRole('button', { name: 'Cancel' })
     expect(cancelBtn).toBeDisabled()
   })
 
