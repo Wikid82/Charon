@@ -129,7 +129,7 @@ func validateDiscordProviderURL(providerType, rawURL string) error {
 // supportsJSONTemplates returns true if the provider type can use JSON templates
 func supportsJSONTemplates(providerType string) bool {
 	switch strings.ToLower(providerType) {
-	case "webhook", "discord", "gotify", "slack", "generic", "telegram", "pushover":
+	case "webhook", "discord", "gotify", "slack", "generic", "telegram", "pushover", "ntfy":
 		return true
 	default:
 		return false
@@ -138,7 +138,7 @@ func supportsJSONTemplates(providerType string) bool {
 
 func isSupportedNotificationProviderType(providerType string) bool {
 	switch strings.ToLower(strings.TrimSpace(providerType)) {
-	case "discord", "email", "gotify", "webhook", "telegram", "slack", "pushover":
+	case "discord", "email", "gotify", "webhook", "telegram", "slack", "pushover", "ntfy":
 		return true
 	default:
 		return false
@@ -161,6 +161,8 @@ func (s *NotificationService) isDispatchEnabled(providerType string) bool {
 		return s.getFeatureFlagValue(notifications.FlagSlackServiceEnabled, true)
 	case "pushover":
 		return s.getFeatureFlagValue(notifications.FlagPushoverServiceEnabled, true)
+	case "ntfy":
+		return s.getFeatureFlagValue(notifications.FlagNtfyServiceEnabled, true)
 	default:
 		return false
 	}
@@ -520,9 +522,13 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 				return fmt.Errorf("pushover emergency priority (2) requires retry and expire parameters; not yet supported")
 			}
 		}
+	case "ntfy":
+		if _, hasMessage := jsonPayload["message"]; !hasMessage {
+			return fmt.Errorf("ntfy payload must include a 'message' field")
+		}
 	}
 
-	if providerType == "gotify" || providerType == "webhook" || providerType == "telegram" || providerType == "slack" || providerType == "pushover" {
+	if providerType == "gotify" || providerType == "webhook" || providerType == "telegram" || providerType == "slack" || providerType == "pushover" || providerType == "ntfy" {
 		headers := map[string]string{
 			"Content-Type": "application/json",
 			"User-Agent":   "Charon-Notify/1.0",
@@ -577,6 +583,12 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 				return validateErr
 			}
 			dispatchURL = decryptedWebhookURL
+		}
+
+		if providerType == "ntfy" {
+			if strings.TrimSpace(p.Token) != "" {
+				headers["Authorization"] = "Bearer " + strings.TrimSpace(p.Token)
+			}
 		}
 
 		if providerType == "pushover" {
@@ -847,7 +859,7 @@ func (s *NotificationService) CreateProvider(provider *models.NotificationProvid
 		}
 	}
 
-	if provider.Type != "gotify" && provider.Type != "telegram" && provider.Type != "slack" {
+	if provider.Type != "gotify" && provider.Type != "telegram" && provider.Type != "slack" && provider.Type != "ntfy" && provider.Type != "pushover" {
 		provider.Token = ""
 	}
 
@@ -883,7 +895,7 @@ func (s *NotificationService) UpdateProvider(provider *models.NotificationProvid
 		return err
 	}
 
-	if provider.Type == "gotify" || provider.Type == "telegram" || provider.Type == "slack" {
+	if provider.Type == "gotify" || provider.Type == "telegram" || provider.Type == "slack" || provider.Type == "ntfy" || provider.Type == "pushover" {
 		if strings.TrimSpace(provider.Token) == "" {
 			provider.Token = existing.Token
 		}

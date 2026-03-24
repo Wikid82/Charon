@@ -112,6 +112,11 @@ test.describe('Notifications Payload Matrix', () => {
         name: `slack-matrix-${Date.now()}`,
         url: '#slack-alerts',
       },
+      {
+        type: 'ntfy',
+        name: `ntfy-matrix-${Date.now()}`,
+        url: 'https://ntfy.sh/my-topic',
+      },
     ] as const;
 
     for (const scenario of scenarios) {
@@ -134,12 +139,16 @@ test.describe('Notifications Payload Matrix', () => {
           await page.getByTestId('provider-gotify-token').fill('https://hooks.slack.com/services/T00000000/B00000000/xxxxxxxxxxxxxxxxxxxx');
         }
 
+        if (scenario.type === 'ntfy') {
+          await page.getByTestId('provider-gotify-token').fill('tk_ntfy_matrix_token');
+        }
+
         await page.getByTestId('provider-save-btn').click();
       });
     }
 
     await test.step('Verify payload contract per provider type', async () => {
-      expect(capturedCreatePayloads).toHaveLength(5);
+      expect(capturedCreatePayloads).toHaveLength(6);
 
       const discordPayload = capturedCreatePayloads.find((payload) => payload.type === 'discord');
       expect(discordPayload).toBeTruthy();
@@ -167,6 +176,12 @@ test.describe('Notifications Payload Matrix', () => {
       expect(slackPayload?.token).toBe('https://hooks.slack.com/services/T00000000/B00000000/xxxxxxxxxxxxxxxxxxxx');
       expect(slackPayload?.gotify_token).toBeUndefined();
       expect(slackPayload?.url).toBe('#slack-alerts');
+
+      const ntfyPayload = capturedCreatePayloads.find((payload) => payload.type === 'ntfy');
+      expect(ntfyPayload).toBeTruthy();
+      expect(ntfyPayload?.token).toBe('tk_ntfy_matrix_token');
+      expect(ntfyPayload?.gotify_token).toBeUndefined();
+      expect(ntfyPayload?.url).toBe('https://ntfy.sh/my-topic');
     });
   });
 

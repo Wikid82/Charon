@@ -531,7 +531,12 @@
     "webhookUrl": "Webhook URL (Optional)",
     "webhookUrlHelp": "POST requests will be sent to this URL when security events occur.",
     "emailRecipients": "Email Recipients (Optional)",
-    "emailRecipientsHelp": "Comma-separated email addresses."
+    "emailRecipientsHelp": "Comma-separated email addresses.",
+    "ntfy": "Ntfy",
+    "ntfyTopicUrl": "Topic URL",
+    "ntfyAccessToken": "Access Token (optional)",
+    "ntfyAccessTokenPlaceholder": "Enter your Ntfy access token",
+    "ntfyAccessTokenHelp": "Your Ntfy access token for authenticated topics. Required for password-protected topics on self-hosted instances. The token is stored securely and separately."
   },
   "users": {
     "title": "Benutzerverwaltung",

@@ -109,7 +109,7 @@ func TestRouter_ShouldUseNotify_PushoverServiceFlag(t *testing.T) {
 	router := NewRouter()
 
 	flags := map[string]bool{
-		FlagNotifyEngineEnabled:   true,
+		FlagNotifyEngineEnabled:    true,
 		FlagPushoverServiceEnabled: true,
 	}
 
@@ -120,5 +120,23 @@ func TestRouter_ShouldUseNotify_PushoverServiceFlag(t *testing.T) {
 	flags[FlagPushoverServiceEnabled] = false
 	if router.ShouldUseNotify("pushover", flags) {
 		t.Fatalf("expected notify routing disabled for pushover when FlagPushoverServiceEnabled is false")
+	}
+}
+
+func TestRouter_ShouldUseNotify_NtfyServiceFlag(t *testing.T) {
+	router := NewRouter()
+
+	flags := map[string]bool{
+		FlagNotifyEngineEnabled: true,
+		FlagNtfyServiceEnabled:  true,
+	}
+
+	if !router.ShouldUseNotify("ntfy", flags) {
+		t.Fatalf("expected notify routing enabled for ntfy when FlagNtfyServiceEnabled is true")
+	}
+
+	flags[FlagNtfyServiceEnabled] = false
+	if router.ShouldUseNotify("ntfy", flags) {
+		t.Fatalf("expected notify routing disabled for ntfy when FlagNtfyServiceEnabled is false")
 	}
 }

@@ -255,11 +255,11 @@ func TestSanitizeOutboundHeadersAllowlist(t *testing.T) {
 		"Cookie":        "sid=1",
 	})
 
-	if len(headers) != 4 {
-		t.Fatalf("expected 4 allowed headers, got %d", len(headers))
+	if len(headers) != 5 {
+		t.Fatalf("expected 5 allowed headers, got %d", len(headers))
 	}
-	if _, ok := headers["Authorization"]; ok {
-		t.Fatalf("authorization header must be stripped")
+	if _, ok := headers["Authorization"]; !ok {
+		t.Fatalf("authorization header must be allowed for ntfy Bearer auth")
 	}
 	if _, ok := headers["Cookie"]; ok {
 		t.Fatalf("cookie header must be stripped")
