@@ -281,6 +281,12 @@
       "matchUpdateTypes": ["major"],
       "automerge": false,
       "labels": ["manual-review"]
+    },
+    {
+      "description": "Fix Renovate lookup for geoip2-golang v2 module path",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/oschwald/geoip2-golang/v2"],
+      "sourceUrl": "https://github.com/oschwald/geoip2-golang"
     }
   ]
 }
