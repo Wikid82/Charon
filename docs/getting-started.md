@@ -229,16 +229,19 @@ The emergency token is a security feature that allows bypassing all security mod
 Choose your platform:
 
 **Linux/macOS (recommended):**
+
 ```bash
 openssl rand -hex 32
 ```
 
 **Windows PowerShell:**
+
 ```powershell
 [Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
 ```
 
 **Node.js (all platforms):**
+
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
@@ -252,11 +255,13 @@ CHARON_EMERGENCY_TOKEN=<paste_64_character_token_here>
 ```
 
 **Example:**
+
 ```bash
 CHARON_EMERGENCY_TOKEN=7b3b8a36a6fad839f1b3122131ed4b1f05453118a91b53346482415796e740e2
 ```
 
 **Verify:**
+
 ```bash
 # Token should be exactly 64 characters
 echo -n "$(grep CHARON_EMERGENCY_TOKEN .env | cut -d= -f2)" | wc -c
@@ -287,20 +292,23 @@ For continuous integration, store the token in GitHub Secrets:
 ### Security Best Practices
 
 ✅ **DO:**
+
 - Generate tokens using cryptographically secure methods
 - Store in `.env` (gitignored) or secrets management
 - Rotate quarterly or after security events
 - Use minimum 64 characters
 
 ❌ **DON'T:**
+
 - Commit tokens to repository (even in examples)
 - Share tokens via email or chat
 - Use weak or predictable values
 - Reuse tokens across environments
 
 ---
-2. **Settings table** for `security.crowdsec.enabled = "true"`
-3. **Starts CrowdSec** if either condition is true
+
+1. **Settings table** for `security.crowdsec.enabled = "true"`
+2. **Starts CrowdSec** if either condition is true
 
 **How it works:**
 
@@ -582,7 +590,7 @@ Click "Watch" → "Custom" → Select "Security advisories" on the [Charon repos
 
 **2. Notifications and Automatic Updates with Dockhand**
 
-  - Dockhand is a free service that monitors Docker images for updates and can send notifications or trigger auto-updates. https://github.com/Finsys/dockhand
+- Dockhand is a free service that monitors Docker images for updates and can send notifications or trigger auto-updates. <https://github.com/Finsys/dockhand>
 
 **Best Practices:**
 

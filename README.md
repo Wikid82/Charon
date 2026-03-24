@@ -94,6 +94,7 @@ services:
       retries: 3
       start_period: 40s
 ```
+
 > **Docker Socket Access:** Charon runs as a non-root user. If you mount the Docker socket for container discovery, the container needs permission to read it. Find your socket's group ID and add it to the compose file:
 >
 > ```bash
@@ -107,26 +108,34 @@ services:
 >       - "998"
 > ```
 
-### 2️⃣ Generate encryption key:
+### 2️⃣ Generate encryption key
+
 ```bash
 openssl rand -base64 32
 ```
-### 3️⃣ Start Charon:
+
+### 3️⃣ Start Charon
+
 ```bash
 docker-compose up -d
 ```
-### 4️⃣ Access the dashboard:
+
+### 4️⃣ Access the dashboard
+
 Open your browser and navigate to `http://localhost:8080` to access the dashboard and create your admin account.
+
 ```code
 http://localhost:8080
 ```
-### Getting Started:
-Full setup instructions and documentation are available at [https://wikid82.github.io/Charon/docs/getting-started.html](https://wikid82.github.io/Charon/docs/getting-started.html).
 
+### Getting Started
+
+Full setup instructions and documentation are available at [https://wikid82.github.io/Charon/docs/getting-started.html](https://wikid82.github.io/Charon/docs/getting-started.html).
 
 --- ## ✨ Top 10 Features
 
 ### 🎯 **Point & Click Management**
+
 No config files. No terminal commands. Just click, type your domain name, and you're live. If you can use a website, you can run Charon.
 
 ### 🔐 **Automatic HTTPS Certificates**
@@ -160,6 +169,7 @@ See exactly what's happening with live request logs, uptime monitoring, and inst
 ### 📥 **Migration Made Easy**
 
 Already invested in another reverse proxy? Bring your work with you by importing your existing configurations with one click:
+
 - **Caddyfile** — Migrate from other Caddy setups
 - **Nginx** — Import from Nginx based configurations (Coming Soon)
 - **Traefik** - Import from Traefik based configurations (Coming Soon)

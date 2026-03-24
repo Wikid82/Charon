@@ -3,6 +3,7 @@
 **Playwright-based end-to-end tests for the Charon management interface.**
 
 Quick Links:
+
 - 📖 [Complete Testing Documentation](../docs/testing/)
 - 📝 [E2E Test Writing Guide](../docs/testing/e2e-test-writing-guide.md)
 - 🐛 [Debugging Guide](../docs/testing/debugging-guide.md)
@@ -109,6 +110,7 @@ await scriptPath.fill('/usr/local/bin/dns-challenge.sh');
 ```
 
 **Why**: Browsers handle label association differently. This helper provides 4-tier fallback:
+
 1. `getByLabel()` — Standard label association
 2. `getByPlaceholder()` — Fallback to placeholder text
 3. `locator('#id')` — Fallback to direct ID
@@ -221,6 +223,7 @@ logger.error('Failed to load settings', new Error('Network timeout'));
 ### 1. Only Poll When State Changes
 
 ❌ **Before (Inefficient)**:
+
 ```typescript
 test.beforeEach(async ({ page }) => {
   // Polls even if flags already correct
@@ -234,6 +237,7 @@ test('Test', async ({ page }) => {
 ```
 
 ✅ **After (Optimized)**:
+
 ```typescript
 test.afterEach(async ({ request }) => {
   // Restore defaults once at end
@@ -370,6 +374,7 @@ test('Start long task', async ({ page }) => {
 | `getByRole()` | Semantic locators | ✅ Chromium ✅ Firefox ✅ WebKit |
 
 **Avoid**:
+
 - CSS selectors (brittle, browser-specific)
 - `{ force: true }` clicks (bypasses real user behavior)
 - `waitForTimeout()` (non-deterministic)
@@ -385,6 +390,7 @@ test('Start long task', async ({ page }) => {
 **Cause**: Label matching differs between browsers.
 
 **Fix**: Use `getFormFieldByLabel()` with fallbacks:
+
 ```typescript
 const field = getFormFieldByLabel(page, /field name/i, {
   placeholder: /enter value/i
@@ -396,14 +402,17 @@ const field = getFormFieldByLabel(page, /field name/i, {
 **Symptom**: `Feature flag propagation timeout after 120 attempts`
 
 **Causes**:
+
 1. Config reload overlay stuck visible
 2. Backend not updating flags
 3. Database transaction not committed
 
 **Fix**:
+
 1. Check backend logs for PUT `/api/v1/feature-flags` errors
 2. Check if overlay is stuck: `page.locator('[data-testid="config-reload-overlay"]').isVisible()`
 3. Add retry wrapper:
+
 ```typescript
 await retryAction(async () => {
   await clickSwitch(toggle);
@@ -418,6 +427,7 @@ await retryAction(async () => {
 **Cause**: Config reload overlay or sticky header blocking interaction.
 
 **Fix**: Use `clickSwitch()` (handles overlay automatically):
+
 ```typescript
 await clickSwitch(page.getByRole('switch', { name: /feature/i }));
 ```

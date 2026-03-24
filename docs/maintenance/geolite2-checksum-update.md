@@ -15,6 +15,7 @@ Charon uses the [MaxMind GeoLite2-Country database](https://dev.maxmind.com/geoi
 Update the checksum when:
 
 1. **Docker build fails** with the following error:
+
    ```
    sha256sum: /app/data/geoip/GeoLite2-Country.mmdb: FAILED
    sha256sum: WARNING: 1 computed checksum did NOT match
@@ -29,6 +30,7 @@ Update the checksum when:
 ## Automated Workflow (Recommended)
 
 Charon includes a GitHub Actions workflow that automatically:
+
 - Checks for upstream GeoLite2 database changes weekly
 - Calculates the new checksum
 - Creates a pull request with the update
@@ -39,6 +41,7 @@ Charon includes a GitHub Actions workflow that automatically:
 **Schedule:** Mondays at 2 AM UTC (weekly)
 
 **Manual Trigger:**
+
 ```bash
 gh workflow run update-geolite2.yml
 ```
@@ -75,16 +78,19 @@ sha256sum /tmp/geolite2-test.mmdb
 **File:** [`Dockerfile`](../../Dockerfile) (line ~352)
 
 **Find this line:**
+
 ```dockerfile
 ARG GEOLITE2_COUNTRY_SHA256=<old-checksum>
 ```
 
 **Replace with the new checksum:**
+
 ```dockerfile
 ARG GEOLITE2_COUNTRY_SHA256=436135ee98a521da715a6d483951f3dbbd62557637f2d50d1987fc048874bd5d
 ```
 
 **Using sed (automated):**
+
 ```bash
 NEW_CHECKSUM=$(curl -fsSL "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" | sha256sum | cut -d' ' -f1)
 
@@ -119,6 +125,7 @@ docker run --rm charon:test-checksum /app/charon --version
 ```
 
 **Expected output:**
+
 ```
 ✅ GeoLite2-Country.mmdb: OK
 ✅ Successfully tagged charon:test-checksum
@@ -171,11 +178,13 @@ fi
 ```
 
 **Make executable:**
+
 ```bash
 chmod +x scripts/verify-geolite2-checksum.sh
 ```
 
 **Run verification:**
+
 ```bash
 ./scripts/verify-geolite2-checksum.sh
 ```
@@ -187,22 +196,26 @@ chmod +x scripts/verify-geolite2-checksum.sh
 ### Issue: Build Still Fails After Update
 
 **Symptoms:**
+
 - Checksum verification fails
 - "FAILED" error persists
 
 **Solutions:**
 
 1. **Clear Docker build cache:**
+
    ```bash
    docker builder prune -af
    ```
 
 2. **Verify the checksum was committed:**
+
    ```bash
    git show HEAD:Dockerfile | grep "GEOLITE2_COUNTRY_SHA256"
    ```
 
 3. **Re-download and verify upstream file:**
+
    ```bash
    curl -fsSL "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" -o /tmp/test.mmdb
    sha256sum /tmp/test.mmdb
@@ -212,28 +225,31 @@ chmod +x scripts/verify-geolite2-checksum.sh
 ### Issue: Upstream File Unavailable (404)
 
 **Symptoms:**
+
 - `curl` returns 404 Not Found
 - Automated workflow fails with `download_failed` error
 
 **Investigation Steps:**
 
 1. **Check upstream repository:**
-   - Visit: https://github.com/P3TERX/GeoLite.mmdb
+   - Visit: <https://github.com/P3TERX/GeoLite.mmdb>
    - Verify the file still exists at the raw URL
    - Check for repository status or announcements
 
 2. **Check MaxMind status:**
-   - Visit: https://status.maxmind.com/
+   - Visit: <https://status.maxmind.com/>
    - Check for service outages or maintenance
 
 **Temporary Solutions:**
 
 1. **Use cached Docker layer** (if available):
+
    ```bash
    docker build --cache-from ghcr.io/wikid82/charon:latest -t charon:latest .
    ```
 
 2. **Use local copy** (temporary):
+
    ```bash
    # Download from a working container
    docker run --rm ghcr.io/wikid82/charon:latest cat /app/data/geoip/GeoLite2-Country.mmdb > /tmp/GeoLite2-Country.mmdb
@@ -249,12 +265,14 @@ chmod +x scripts/verify-geolite2-checksum.sh
 ### Issue: Checksum Mismatch on Re-download
 
 **Symptoms:**
+
 - Checksum calculated locally differs from what's in the Dockerfile
 - Checksum changes between downloads
 
 **Investigation Steps:**
 
 1. **Verify file integrity:**
+
    ```bash
    # Download multiple times and compare
    for i in {1..3}; do
@@ -267,12 +285,14 @@ chmod +x scripts/verify-geolite2-checksum.sh
    - Try from different network locations
 
 3. **Verify no MITM proxy:**
+
    ```bash
    # Download via HTTPS and verify certificate
    curl -v -fsSL "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" -o /tmp/test.mmdb 2>&1 | grep "CN="
    ```
 
 **If confirmed as supply chain attack:**
+
 - **STOP** and do not proceed
 - Report to security team
 - See [Security Incident Response](../security-incident-response.md)
@@ -280,6 +300,7 @@ chmod +x scripts/verify-geolite2-checksum.sh
 ### Issue: Multi-Platform Build Fails (arm64)
 
 **Symptoms:**
+
 - `linux/amd64` build succeeds
 - `linux/arm64` build fails with checksum error
 
@@ -290,12 +311,14 @@ chmod +x scripts/verify-geolite2-checksum.sh
    - Should be identical across all platforms
 
 2. **Check buildx platform emulation:**
+
    ```bash
    docker buildx ls
    docker buildx inspect
    ```
 
 3. **Test arm64 build explicitly:**
+
    ```bash
    docker buildx build --platform linux/arm64 --load -t test-arm64 .
    ```
@@ -308,8 +331,8 @@ chmod +x scripts/verify-geolite2-checksum.sh
 - **Implementation Plan:** [`docs/plans/current_spec.md`](../plans/current_spec.md)
 - **QA Report:** [`docs/reports/qa_report.md`](../reports/qa_report.md)
 - **Dockerfile:** [`Dockerfile`](../../Dockerfile) (line ~352)
-- **MaxMind GeoLite2:** https://dev.maxmind.com/geoip/geolite2-free-geolocation-data
-- **P3TERX Mirror:** https://github.com/P3TERX/GeoLite.mmdb
+- **MaxMind GeoLite2:** <https://dev.maxmind.com/geoip/geolite2-free-geolocation-data>
+- **P3TERX Mirror:** <https://github.com/P3TERX/GeoLite.mmdb>
 
 ---
 
@@ -321,9 +344,10 @@ chmod +x scripts/verify-geolite2-checksum.sh
 
 **Solution:** Updated one line in `Dockerfile` (line 352) with the correct checksum and implemented an automated workflow to prevent future occurrences.
 
-**Build Failure URL:** https://github.com/Wikid82/Charon/actions/runs/21584236523/job/62188372617
+**Build Failure URL:** <https://github.com/Wikid82/Charon/actions/runs/21584236523/job/62188372617>
 
 **Related PRs:**
+
 - Fix implementation: (link to PR)
 - Automated workflow addition: (link to PR)
 

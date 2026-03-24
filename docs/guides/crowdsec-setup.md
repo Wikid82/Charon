@@ -88,6 +88,7 @@ In CrowdSec terms:
 > **✅ Good News: Charon Handles This For You!**
 >
 > When you enable CrowdSec for the first time, Charon automatically:
+>
 > 1. Starts the CrowdSec engine
 > 2. Registers a bouncer and generates a valid API key
 > 3. Saves the key so it survives container restarts
@@ -317,11 +318,13 @@ Replace `YOUR_ENROLLMENT_KEY` with the key from your Console.
 **Solution:**
 
 1. Check if you're manually setting an API key:
+
    ```bash
    grep -i "crowdsec_api_key" docker-compose.yml
    ```
 
 2. If you find one, **remove it**:
+
    ```yaml
    # REMOVE this line:
    - CHARON_SECURITY_CROWDSEC_API_KEY=anything
@@ -330,6 +333,7 @@ Replace `YOUR_ENROLLMENT_KEY` with the key from your Console.
 3. Follow the [Manual Bouncer Registration](#manual-bouncer-registration) steps above
 
 4. Restart the container:
+
    ```bash
    docker restart charon
    ```
@@ -347,6 +351,7 @@ Replace `YOUR_ENROLLMENT_KEY` with the key from your Console.
 1. Wait 60 seconds after container start
 
 2. Check if CrowdSec is running:
+
    ```bash
    docker exec charon cscli lapi status
    ```
@@ -354,6 +359,7 @@ Replace `YOUR_ENROLLMENT_KEY` with the key from your Console.
 3. If you see "connection refused," try toggling CrowdSec OFF then ON in the GUI
 
 4. Check the logs:
+
    ```bash
    docker logs charon | grep -i crowdsec
    ```
@@ -431,6 +437,7 @@ If you already run CrowdSec separately (not inside Charon), you can connect to i
 **Steps:**
 
 1. Register a bouncer on your external CrowdSec:
+
    ```bash
    cscli bouncers add charon-bouncer
    ```
@@ -438,6 +445,7 @@ If you already run CrowdSec separately (not inside Charon), you can connect to i
 2. Save the API key that's generated (you won't see it again!)
 
 3. In your docker-compose.yml:
+
    ```yaml
    environment:
      - CHARON_SECURITY_CROWDSEC_API_URL=http://your-crowdsec-server:8080
@@ -445,6 +453,7 @@ If you already run CrowdSec separately (not inside Charon), you can connect to i
    ```
 
 4. Restart Charon:
+
    ```bash
    docker restart charon
    ```

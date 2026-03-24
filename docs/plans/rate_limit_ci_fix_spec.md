@@ -11,6 +11,7 @@
 ### Issue 1: `rate_limit` handler never appears in running Caddy config
 
 **Observed symptom** (from CI log):
+
 ```
 Attempt 10/10: rate_limit handler not found, waiting...
 ✗ rate_limit handler verification failed after 10 attempts
@@ -22,6 +23,7 @@ Rate limit enforcement test FAILED
 #### Code path trace
 
 The `verify_rate_limit_config` function in `scripts/rate_limit_integration.sh` (lines ~35–58) executes:
+
 ```bash
 caddy_config=$(curl -s http://localhost:2119/config 2>/dev/null || echo "")
 if echo "$caddy_config" | grep -q '"handler":"rate_limit"'; then
@@ -48,6 +50,7 @@ The handler is absent from Caddy's running config because `ApplyConfig` in `back
 **Root cause A — silent failure of the security config POST step** (contributing):
 
 The security config POST step in the script discards stdout only; curl exits 0 for HTTP 4xx without -f flag, so auth failures are invisible:
+
 ```bash
 # scripts/rate_limit_integration.sh, ~line 248
 curl -s -X POST -H "Content-Type: application/json" \
@@ -55,9 +58,11 @@ curl -s -X POST -H "Content-Type: application/json" \
     -b ${TMP_COOKIE} \
     http://localhost:8280/api/v1/security/config >/dev/null
 ```
+
 No HTTP status check is performed. If this returns 4xx (e.g., `403 Forbidden` because the requesting user lacks the admin role, or `401 Unauthorized` because the cookie was not accepted), the config is never saved to DB, `ApplyConfig` is never called with the rate_limit values, and the handler is never injected.
 
 The route is protected by `middleware.RequireRole(models.RoleAdmin)` (routes.go:572–573):
+
 ```go
 securityAdmin := management.Group("/security")
 securityAdmin.Use(middleware.RequireRole(models.RoleAdmin))
@@ -69,6 +74,7 @@ A non-admin authenticated user, or an unauthenticated request, returns `403` sil
 **Root cause B — warn-and-proceed instead of fail-hard** (amplifier):
 
 `verify_rate_limit_config` returns `1` on failure, but the calling site in the script treats the failure as non-fatal:
+
 ```bash
 # scripts/rate_limit_integration.sh, ~line 269
 if ! verify_rate_limit_config; then
@@ -76,11 +82,13 @@ if ! verify_rate_limit_config; then
     echo "Proceeding with test anyway..."
 fi
 ```
+
 The enforcement test that follows is guaranteed to fail when the handler is absent (all requests pass through with HTTP 200, never hitting 429), yet the test proceeds unconditionally. The verification failure should be a hard exit.
 
 **Root cause C — no response code check for proxy host creation** (contributing):
 
 The proxy host creation at step 5 checks the status code (`201` vs other), but allows non-201 with a soft log message:
+
 ```bash
 if [ "$CREATE_STATUS" = "201" ]; then
     echo "✓ Proxy host created successfully"
@@ -88,11 +96,13 @@ else
     echo "  Proxy host may already exist (status: $CREATE_STATUS)"
 fi
 ```
+
 If this returns `401` (auth failure), no proxy host is registered. Requests to `http://localhost:8180/get` with `Host: ratelimit.local` then hit Caddy's catch-all route returning HTTP 200 (the Charon frontend), not the backend. No 429 will ever appear regardless of rate limit configuration.
 
 **Root cause D — `ApplyConfig` failure is swallowed; Caddy not yet ready when config is posted** (primary):
 
 In `UpdateConfig` (`security_handler.go:289–292`):
+
 ```go
 if h.caddyManager != nil {
     if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
@@ -101,6 +111,7 @@ if h.caddyManager != nil {
 }
 c.JSON(http.StatusOK, gin.H{"config": payload})
 ```
+
 If `ApplyConfig` fails (Caddy not yet fully initialized, config validation error), the error is logged as a warning but the HTTP response is still `200 OK`. The test script sees 200, assumes success, and proceeds.
 
 ---
@@ -110,11 +121,13 @@ If `ApplyConfig` fails (Caddy not yet fully initialized, config validation error
 **Observed symptom**: During non-CI Docker builds, the GeoIP download step prints `⚠️  Checksum failed` and creates a `.placeholder` file, but the downloaded `.mmdb` is left on disk alongside the placeholder.
 
 **Code location**: `Dockerfile`, lines that contain:
+
 ```dockerfile
 ARG GEOLITE2_COUNTRY_SHA256=aa154fc6bcd712644de232a4abcdd07dac1f801308c0b6f93dbc2b375443da7b
 ```
 
 **Non-CI verification block** (Dockerfile, local build path):
+
 ```dockerfile
 if [ -s /app/data/geoip/GeoLite2-Country.mmdb ] && \
    echo "${GEOLITE2_COUNTRY_SHA256}  /app/data/geoip/GeoLite2-Country.mmdb" | sha256sum -c -; then
@@ -146,6 +159,7 @@ fi;
 **Required change**: Capture the HTTP status code from the login response. Fail fast if login returns non-200.
 
 Exact change — replace:
+
 ```bash
 curl -s -X POST -H "Content-Type: application/json" \
     -d '{"email":"ratelimit@example.local","password":"password123"}' \
@@ -156,6 +170,7 @@ echo "✓ Authentication complete"
 ```
 
 With:
+
 ```bash
 LOGIN_STATUS=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" \
     -d '{"email":"ratelimit@example.local","password":"password123"}' \
@@ -174,6 +189,7 @@ echo "✓ Authentication complete (HTTP $LOGIN_STATUS)"
 **Current behavior**: Non-201 responses are treated as "may already exist" and execution continues — including `401`/`403` auth failures.
 
 Required change — replace:
+
 ```bash
 if [ "$CREATE_STATUS" = "201" ]; then
     echo "✓ Proxy host created successfully"
@@ -183,6 +199,7 @@ fi
 ```
 
 With:
+
 ```bash
 if [ "$CREATE_STATUS" = "201" ]; then
     echo "✓ Proxy host created successfully"
@@ -201,6 +218,7 @@ fi
 **Rationale**: Root Cause D is the primary driver of handler-not-found failures. If Caddy's admin API is not yet fully initialized when the security config is POSTed, `ApplyConfig` fails silently (logged as a warning only), the rate_limit handler is never injected into Caddy's running config, and the verification loop times out. The readiness gate ensures Caddy is accepting admin API requests before any config change is attempted.
 
 **Required change** — insert before the security config POST:
+
 ```bash
 echo "Waiting for Caddy admin API to be ready..."
 for i in {1..20}; do
@@ -224,6 +242,7 @@ done
 **Current behavior**: Response is discarded with `>/dev/null`. No status check.
 
 Required change — replace:
+
 ```bash
 curl -s -X POST -H "Content-Type: application/json" \
     -d "${SEC_CFG_PAYLOAD}" \
@@ -234,6 +253,7 @@ echo "✓ Rate limiting configured"
 ```
 
 With:
+
 ```bash
 SEC_CONFIG_RESP=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" \
     -d "${SEC_CFG_PAYLOAD}" \
@@ -258,6 +278,7 @@ echo "✓ Rate limiting configured (HTTP $SEC_CONFIG_STATUS)"
 **Current behavior**: Failed verification logs a warning and continues.
 
 Required change — replace:
+
 ```bash
 echo "Waiting for Caddy to apply configuration..."
 sleep 5
@@ -270,6 +291,7 @@ fi
 ```
 
 With:
+
 ```bash
 echo "Waiting for Caddy to apply configuration..."
 sleep 8
@@ -307,6 +329,7 @@ local wait=5   # was: 3
 #### Change 7 — Use trailing slash on Caddy admin API URL in `verify_rate_limit_config`
 
 **Location**: `verify_rate_limit_config`, line ~42:
+
 ```bash
 caddy_config=$(curl -s http://localhost:2119/config 2>/dev/null || echo "")
 ```
@@ -314,11 +337,13 @@ caddy_config=$(curl -s http://localhost:2119/config 2>/dev/null || echo "")
 Caddy's admin API specification defines `GET /config/` (with trailing slash) as the canonical endpoint for the full running config. Omitting the slash works in practice because Caddy does not redirect, but using the canonical form is more correct and avoids any future behavioral change:
 
 Replace:
+
 ```bash
 caddy_config=$(curl -s http://localhost:2119/config 2>/dev/null || echo "")
 ```
 
 With:
+
 ```bash
 caddy_config=$(curl -s http://localhost:2119/config/ 2>/dev/null || echo "")
 ```
@@ -377,6 +402,7 @@ fi
 **Important**: Do NOT remove the `ARG GEOLITE2_COUNTRY_SHA256` declaration from the Dockerfile. The `update-geolite2.yml` workflow uses `sed` to update that ARG. If the ARG disappears, the workflow's `sed` command will silently no-op and fail to update the Dockerfile on next run, leaving the stale hash in source while the workflow reports success. Keeping the ARG (even unused) preserves Renovate/workflow compatibility.
 
 Keep:
+
 ```dockerfile
 ARG GEOLITE2_COUNTRY_SHA256=aa154fc6bcd712644de232a4abcdd07dac1f801308c0b6f93dbc2b375443da7b
 ```
@@ -402,6 +428,7 @@ This ARG is now only referenced by the `update-geolite2.yml` workflow (to know i
 ### Validating Issue 1 fix
 
 **Step 1 — Build and run the integration test locally:**
+
 ```bash
 # From /projects/Charon
 chmod +x scripts/rate_limit_integration.sh
@@ -409,6 +436,7 @@ scripts/rate_limit_integration.sh 2>&1 | tee /tmp/ratelimit-test.log
 ```
 
 **Expected output sequence (key lines)**:
+
 ```
 ✓ Charon API is ready
 ✓ Authentication complete (HTTP 200)
@@ -428,16 +456,20 @@ Sending request 3+1 (should return 429 Too Many Requests)...
 
 **Step 2 — Deliberately break auth to verify the new guard fires:**
 Temporarily change `password123` in the login curl to a wrong password. The test should now print:
+
 ```
 ✗ Login failed (HTTP 401) — aborting
 ```
+
 and exit with code 1, rather than proceeding to a confusing 429-enforcement failure.
 
 **Step 3 — Verify Caddy config contains the handler before enforcement:**
+
 ```bash
 # After security config step and sleep 8:
 curl -s http://localhost:2119/config/ | python3 -m json.tool | grep -A2 '"handler": "rate_limit"'
 ```
+
 Expected: handler block with `"rate_limits"` sub-key containing `"static"` zone.
 
 **Step 4 — CI validation:** Push to a PR and observe the `Rate Limiting Integration` workflow. The workflow now exits at the first unmissable error rather than proceeding to a deceptive "enforcement test FAILED" message.
@@ -445,21 +477,27 @@ Expected: handler block with `"rate_limits"` sub-key containing `"static"` zone.
 ### Validating Issue 2 fix
 
 **Step 1 — Local build without CI flag:**
+
 ```bash
 docker build -t charon:geolip-test --build-arg CI=false . 2>&1 | grep -E "GeoIP|GeoLite|checksum|✅|⚠️"
 ```
+
 Expected: `✅ GeoIP downloaded` (no mention of checksum failure).
 
 **Step 2 — Verify file is present and readable:**
+
 ```bash
 docker run --rm charon:geolip-test stat /app/data/geoip/GeoLite2-Country.mmdb
 ```
+
 Expected: file exists with non-zero size, no `.placeholder` alongside.
 
 **Step 3 — Confirm ARG still exists for workflow compatibility:**
+
 ```bash
 grep "GEOLITE2_COUNTRY_SHA256" Dockerfile
 ```
+
 Expected: `ARG GEOLITE2_COUNTRY_SHA256=<hash>` line is present.
 
 ---

@@ -26,12 +26,14 @@ During Docker image security scanning, 7 HIGH severity CVEs were identified in t
 **Actual Risk Level**: 🟢 **LOW**
 
 **Justification**:
+
 - CVEs affect Debian system libraries, NOT application code
 - No direct exploit paths identified in Charon's usage patterns
 - Application runs in isolated container environment
 - User-facing services do not expose vulnerable library functionality
 
 **Mitigating Factors**:
+
 1. Container isolation limits exploit surface area
 2. Charon does not directly invoke vulnerable libc/libtiff functions
 3. Network ingress filtered through Caddy proxy
@@ -42,6 +44,7 @@ During Docker image security scanning, 7 HIGH severity CVEs were identified in t
 **Strategy**: Migrate back to Alpine Linux base image
 
 **Timeline**:
+
 - **Week 1 (Feb 5-8)**: Verify Alpine CVE-2025-60876 is patched
 - **Weeks 2-3 (Feb 11-22)**: Dockerfile migration + comprehensive testing
 - **Week 4 (Feb 26-28)**: Staging deployment validation
@@ -64,6 +67,7 @@ During Docker image security scanning, 7 HIGH severity CVEs were identified in t
 ### Why Not Block?
 
 Blocking the CrowdSec fix would:
+
 - Leave user's production environment broken
 - Provide ZERO security improvement (CVEs pre-exist in all branches)
 - Delay critical authentication fixes unrelated to base image
@@ -72,17 +76,20 @@ Blocking the CrowdSec fix would:
 ## Monitoring
 
 **Continuous Tracking**:
+
 - Debian security advisories (daily monitoring)
 - Alpine CVE status (Phase 1 gate: must be clean)
 - Exploit database updates (CISA KEV, Exploit-DB)
 
 **Alerting**:
+
 - Notify if Debian releases patches (expedite Alpine migration)
 - Alert if active exploits published (emergency Alpine migration)
 
 ## User Communication
 
 **Transparency Commitment**:
+
 - Document in CHANGELOG.md
 - Include in release notes
 - Update SECURITY.md with mitigation timeline
@@ -99,6 +106,7 @@ Blocking the CrowdSec fix would:
 ---
 
 **References**:
+
 - Alpine Migration Spec: [`docs/plans/alpine_migration_spec.md`](../plans/alpine_migration_spec.md)
 - QA Report: [`docs/reports/qa_report.md`](../reports/qa_report.md)
 - Vulnerability Acceptance Policy: [`docs/security/VULNERABILITY_ACCEPTANCE.md`](VULNERABILITY_ACCEPTANCE.md)

@@ -1,6 +1,6 @@
 **Status**: ✅ RESOLVED (January 30, 2026)
 
-https://github.com/Wikid82/Charon/actions/runs/21503634925/job/61955008214
+<https://github.com/Wikid82/Charon/actions/runs/21503634925/job/61955008214>
 
 Run # Normalize image name for reference
 🔍 Extracting binary from: ghcr.io/wikid82/charon:feature/beta-release
@@ -27,6 +27,7 @@ Add a check to ensure steps.pr-info.outputs.pr_number is set before constructing
 Suggested code improvement for the “Extract charon binary from container” step:
 
 YAML
+
 - name: Extract charon binary from container
   if: steps.check-artifact.outputs.artifact_exists == 'true'
   id: extract
@@ -44,6 +45,7 @@ YAML
     echo "🔍 Extracting binary from: ${IMAGE_REF}"
     ...
 This ensures the workflow does not attempt to use an invalid image tag when the PR number is missing. Adjust similar logic throughout the workflow to handle missing variables gracefully.
+
 ## Resolution
 
 Fixed by adding proper validation for PR number before constructing Docker image reference, ensuring IMAGE_REF is never constructed with empty/missing variables. Branch name sanitization also implemented to handle slashes in feature branch names.
