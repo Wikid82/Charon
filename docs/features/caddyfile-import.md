@@ -52,6 +52,7 @@ Caddyfile import parses your existing Caddy configuration files and converts the
 Choose one of three methods:
 
 **Paste Content:**
+
 ```
 example.com {
     reverse_proxy localhost:3000
@@ -63,10 +64,12 @@ api.example.com {
 ```
 
 **Upload File:**
+
 - Click **Choose File**
 - Select your Caddyfile
 
 **Fetch from URL:**
+
 - Enter URL to raw Caddyfile content
 - Useful for version-controlled configurations
 

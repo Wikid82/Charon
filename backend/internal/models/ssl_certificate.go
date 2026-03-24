@@ -10,7 +10,7 @@ type SSLCertificate struct {
 	ID          uint       `json:"-" gorm:"primaryKey"`
 	UUID        string     `json:"uuid" gorm:"uniqueIndex"`
 	Name        string     `json:"name" gorm:"index"`
-	Provider    string     `json:"provider" gorm:"index"`        // "letsencrypt", "custom", "self-signed"
+	Provider    string     `json:"provider" gorm:"index"`        // "letsencrypt", "letsencrypt-staging", "custom"
 	Domains     string     `json:"domains" gorm:"index"`         // comma-separated list of domains
 	Certificate string     `json:"certificate" gorm:"type:text"` // PEM-encoded certificate
 	PrivateKey  string     `json:"private_key" gorm:"type:text"` // PEM-encoded private key

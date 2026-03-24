@@ -16,6 +16,7 @@ A complete debugging ecosystem has been implemented to provide maximum observabi
 **File**: `tests/utils/debug-logger.ts` (291 lines)
 
 **Features**:
+
 - Class-based logger with methods: `step()`, `network()`, `pageState()`, `locator()`, `assertion()`, `error()`
 - Automatic duration tracking for operations
 - Color-coded console output for local runs (ANSI colors)
@@ -26,6 +27,7 @@ A complete debugging ecosystem has been implemented to provide maximum observabi
 - Integration with Playwright test.step() system
 
 **Key Methods**:
+
 ```typescript
 step(name: string, duration?: number)           // Log test steps
 network(entry: NetworkLogEntry)                 // Log HTTP activity
@@ -38,6 +40,7 @@ printSummary()                                  // Print colored summary to cons
 ```
 
 **Output Example**:
+
 ```
 ├─ Navigate to home page
 ├─ Fill login form (234ms)
@@ -51,6 +54,7 @@ printSummary()                                  // Print colored summary to cons
 **File**: `tests/global-setup.ts` (Updated with timing logs)
 
 **Enhancements**:
+
 - Timing information for health checks (all operations timed)
 - Port connectivity checks with timing (Caddy admin, emergency server)
 - IPv4 vs IPv6 detection in URL parsing
@@ -60,6 +64,7 @@ printSummary()                                  // Print colored summary to cons
 - Error context on failures with next steps
 
 **Sample Output**:
+
 ```
 🔍 Checking Caddy admin API health at http://localhost:2019...
   ✅ Caddy admin API (port 2019) is healthy [45ms]
@@ -76,6 +81,7 @@ printSummary()                                  // Print colored summary to cons
 **File**: `playwright.config.js` (Updated)
 
 **Enhancements**:
+
 - `trace: 'on-first-retry'` - Captures traces for all retries (not just first)
 - `video: 'retain-on-failure'` - Records videos only for failed tests
 - `screenshot: 'only-on-failure'` - Screenshots on failure only
@@ -83,6 +89,7 @@ printSummary()                                  // Print colored summary to cons
 - Comprehensive comments explaining each option
 
 **Configuration Added**:
+
 ```javascript
 use: {
   trace: process.env.CI ? 'on-first-retry' : 'on-first-retry',
@@ -96,6 +103,7 @@ use: {
 **File**: `tests/reporters/debug-reporter.ts` (130 lines)
 
 **Features**:
+
 - Parses test step execution and identifies slow operations (>5s)
 - Aggregates failures by type (timeout, assertion, network, locator)
 - Generates structured summary output to stdout
@@ -104,6 +112,7 @@ use: {
 - Creates visual bar charts for failure distribution
 
 **Sample Output**:
+
 ```
 ╔════════════════════════════════════════════════════════════╗
 ║              E2E Test Execution Summary                      ║
@@ -130,6 +139,7 @@ network      │ ░░░░░░░░░░░░░░░░░░░░  1
 **File**: `tests/fixtures/network.ts` (286 lines)
 
 **Features**:
+
 - Intercepts all HTTP requests and responses
 - Tracks metrics per request:
   - URL, method, status code, elapsed time
@@ -150,6 +160,7 @@ network      │ ░░░░░░░░░░░░░░░░░░░░  1
 - Per-test request logging to debug logger
 
 **Export Example**:
+
 ```csv
 "Timestamp","Method","URL","Status","Duration (ms)","Content-Type","Body Size","Error"
 "2024-01-27T10:30:45.123Z","GET","https://api.example.com/health","200","45","application/json","234",""
@@ -161,6 +172,7 @@ network      │ ░░░░░░░░░░░░░░░░░░░░  1
 **File**: `tests/utils/test-steps.ts` (148 lines)
 
 **Features**:
+
 - `testStep()` - Wrapper around test.step() with automatic logging
 - `LoggedPage` - Page wrapper that logs all interactions
 - `testAssert()` - Assertion helper with logging
@@ -171,6 +183,7 @@ network      │ ░░░░░░░░░░░░░░░░░░░░  1
 - Performance tracking per test
 
 **Usage Example**:
+
 ```typescript
 await testStep('Login', async () => {
   await page.click('[role="button"]');
@@ -187,6 +200,7 @@ console.log(`Completed in ${result.duration}ms`);
 **File**: `.github/workflows/e2e-tests.yml` (Updated)
 
 **Environment Variables Added**:
+
 ```yaml
 env:
   DEBUG: 'charon:*,charon-test:*'
@@ -195,12 +209,14 @@ env:
 ```
 
 **Shard Step Enhancements**:
+
 - Per-shard start/end logging with timestamps
 - Shard duration tracking
 - Sequential output format for easy parsing
 - Status banner for each shard completion
 
 **Sample Shard Output**:
+
 ```
 ════════════════════════════════════════════════════════════
 E2E Test Shard 1/4
@@ -214,6 +230,7 @@ Shard 1 Complete | Duration: 125s
 ```
 
 **Job Summary Enhancements**:
+
 - Per-shard status table with timestamps
 - Test artifact locations (HTML report, videos, traces, logs)
 - Debugging tips for common scenarios
@@ -254,6 +271,7 @@ Shard 1 Complete | Duration: 125s
 **File**: `docs/testing/debugging-guide.md` (600+ lines)
 
 **Sections**:
+
 - Quick start for local testing
 - VS Code debug task usage guide
 - Debug logger method reference
@@ -265,6 +283,7 @@ Shard 1 Complete | Duration: 125s
 - Troubleshooting tips
 
 **Features**:
+
 - Code examples for all utilities
 - Sample output for each feature
 - Commands for common debugging tasks
@@ -276,6 +295,7 @@ Shard 1 Complete | Duration: 125s
 ## File Inventory
 
 ### Created Files (4)
+
 | File | Lines | Purpose |
 |------|-------|---------|
 | `tests/utils/debug-logger.ts` | 291 | Core debug logging utility |
@@ -287,6 +307,7 @@ Shard 1 Complete | Duration: 125s
 **Total New Code**: 1,455+ lines
 
 ### Modified Files (3)
+
 | File | Changes |
 |------|---------|
 | `tests/global-setup.ts` | Enhanced timing logs, error context, detailed output |
@@ -314,6 +335,7 @@ PLAYWRIGHT_BASE_URL=http://localhost:8080
 ### In CI (GitHub Actions)
 
 Set automatically in workflow:
+
 ```yaml
 env:
   DEBUG: 'charon:*,charon-test:*'
@@ -333,6 +355,7 @@ All new tasks are in the "test" group in VS Code:
 4. ✅ `Test: E2E Playwright - View Coverage Report`
 
 Plus existing tasks:
+
 - `Test: E2E Playwright (Chromium)`
 - `Test: E2E Playwright (All Browsers)`
 - `Test: E2E Playwright (Headed)`
@@ -434,6 +457,7 @@ Plus existing tasks:
 ### After Implementation
 
 ✅ **Local Debugging**
+
 - Interactive step-by-step debugging
 - Full trace capture with Playwright Inspector
 - Color-coded console output with timing
@@ -441,6 +465,7 @@ Plus existing tasks:
 - Automatic slow operation detection
 
 ✅ **CI Diagnostics**
+
 - Per-shard status tracking with timing
 - Failure categorization by type (timeout, assertion, network)
 - Aggregated statistics across all shards
@@ -448,6 +473,7 @@ Plus existing tasks:
 - Artifact collection for detailed analysis
 
 ✅ **Performance Analysis**
+
 - Per-operation duration tracking
 - Network request metrics (status, size, timing)
 - Automatic identification of slow operations (>5s)
@@ -455,6 +481,7 @@ Plus existing tasks:
 - Request/response size analysis
 
 ✅ **Network Visibility**
+
 - All HTTP requests logged
 - Status codes and response times tracked
 - Request/response headers (sanitized)
@@ -462,6 +489,7 @@ Plus existing tasks:
 - Error context with messages
 
 ✅ **Data Export**
+
 - Network logs as CSV for spreadsheet analysis
 - Structured JSON for programmatic access
 - Test metrics for trend analysis
@@ -487,6 +515,7 @@ Plus existing tasks:
 ## Next Steps for Users
 
 1. **Try Local Debugging**:
+
    ```bash
    npm run e2e -- --grep="test-name"
    ```
@@ -497,11 +526,13 @@ Plus existing tasks:
    - Select a debug task
 
 3. **View Test Reports**:
+
    ```bash
    npx playwright show-report
    ```
 
 4. **Inspect Traces**:
+
    ```bash
    npx playwright show-trace test-results/[test-name]/trace.zip
    ```

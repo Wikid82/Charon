@@ -24,8 +24,10 @@ Example: `0.1.0-alpha`, `1.0.0-beta.1`, `2.0.0-rc.2`
 1. **Create and push a release tag**:
 
    ```bash
+
   git tag -a v1.0.0 -m "Release v1.0.0"
   git push origin v1.0.0
+
    ```
 
 2. **GitHub Actions automatically**:
@@ -51,10 +53,12 @@ Use it only when you need local/version-file parity checks:
   echo "1.0.0" > .version
    ```
 
-2. **Validate `.version` matches the latest tag**:
+1. **Validate `.version` matches the latest tag**:
 
    ```bash
+
   bash scripts/check-version-match-tag.sh
+
    ```
 
 ### Deterministic Rollout Verification Gates (Mandatory)

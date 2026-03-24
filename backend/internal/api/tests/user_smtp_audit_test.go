@@ -32,7 +32,9 @@ func hashForTest(t *testing.T, password string) string {
 	return string(h)
 }
 
-// setupAuditTestDB creates a clean in-memory database for each test
+// setupAuditTestDB creates a clean in-memory database for each test.
+// MaxOpenConns(1) is required: without it, GORM's pool can open multiple
+// connections to ":memory:", each receiving its own empty database.
 func setupAuditTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
@@ -40,11 +42,23 @@ func setupAuditTestDB(t *testing.T) *gorm.DB {
 	})
 	require.NoError(t, err)
 
-	// Auto-migrate required models
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+	})
+
+	// Auto-migrate required models (includes SecurityAudit so the
+	// background audit goroutine in SecurityService doesn't retry
+	// against a missing table).
 	err = db.AutoMigrate(
 		&models.User{},
 		&models.Setting{},
 		&models.ProxyHost{},
+		&models.SecurityAudit{},
 	)
 	require.NoError(t, err)
 	return db

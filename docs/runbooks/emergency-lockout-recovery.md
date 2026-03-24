@@ -72,12 +72,14 @@ For test and development environments (`CHARON_ENV=test|e2e|development`), the e
 E2E tests validate both break glass tiers to ensure defense in depth:
 
 **Tier 1 (Main Endpoint):**
+
 ```bash
 curl -X POST http://localhost:8080/api/v1/emergency/security-reset \
   -H "X-Emergency-Token: $TOKEN"
 ```
 
 **Tier 2 (Emergency Server):**
+
 ```bash
 curl -X POST http://localhost:2020/emergency/security-reset \
   -H "X-Emergency-Token: $TOKEN" \

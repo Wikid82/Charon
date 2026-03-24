@@ -42,6 +42,7 @@ await scriptPath.fill('/path/to/script.sh');
 ```
 
 **Error (Firefox/WebKit)**:
+
 ```
 TimeoutError: locator.fill: Timeout 5000ms exceeded.
 =========================== logs ===========================
@@ -78,12 +79,14 @@ await scriptPath.fill('/path/to/script.sh');
 ### When to Use `getFormFieldByLabel()`
 
 ✅ **Use when**:
+
 - Form fields have complex label structures (nested elements, icons, tooltips)
 - Tests fail in Firefox/WebKit but pass in Chromium
 - Label text is dynamic or internationalized
 - Multiple fields have similar labels
 
 ❌ **Don't use when**:
+
 - Standard `getByLabel()` works reliably across all browsers
 - Field has a unique `data-testid` or `name` attribute
 - Field is the only one of its type on the page
@@ -184,11 +187,13 @@ if (alreadyMatches(currentState, expectedFlags)) {
 ```
 
 **Cache Key Format**:
+
 ```
 [worker_index]:[sorted_flags_json]
 ```
 
 **Example**:
+
 ```
 Worker 0: "0:{\"feature.cerberus.enabled\":false,\"feature.crowdsec.enabled\":false}"
 Worker 1: "1:{\"feature.cerberus.enabled\":false,\"feature.crowdsec.enabled\":false}"
@@ -201,11 +206,13 @@ Worker 1: "1:{\"feature.cerberus.enabled\":false,\"feature.crowdsec.enabled\":fa
 ### When to Use `waitForFeatureFlagPropagation()`
 
 ✅ **Use when**:
+
 - A test **toggles** a feature flag via the UI
 - Backend state changes and you need to verify propagation
 - Test depends on a specific flag state being active
 
 ❌ **Don't use when**:
+
 - Setting up initial state in `beforeEach` (use API directly instead)
 - Flags haven't changed since last verification
 - Test doesn't modify flags
@@ -239,6 +246,7 @@ test.describe('System Settings', () => {
 ```
 
 **Why This Works**:
+
 - Each test starts from known defaults (restored by previous test's `afterEach`)
 - No unnecessary polling in `beforeEach`
 - Cleanup happens once, not N times per describe block
@@ -261,6 +269,7 @@ export async function waitForFeatureFlagPropagation(...) {
 ```
 
 **You don't need to manually wait for the overlay** — it's handled by:
+
 - `clickSwitch()`
 - `clickAndWaitForResponse()`
 - `waitForFeatureFlagPropagation()`
@@ -272,6 +281,7 @@ export async function waitForFeatureFlagPropagation(...) {
 ### Why Isolation Matters
 
 Tests running in parallel can interfere with each other if they:
+
 - Share mutable state (database, config files, feature flags)
 - Don't clean up resources
 - Rely on global defaults
@@ -423,11 +433,13 @@ await field.fill('value');
 **Symptom**: `Feature flag propagation timeout after 120 attempts (60000ms)`
 
 **Causes**:
+
 1. Backend not updating flags
 2. Config reload overlay blocking UI
 3. Database transaction not committed
 
 **Fix Steps**:
+
 1. Check backend logs: Does PUT `/api/v1/feature-flags` succeed?
 2. Check overlay state: Is `[data-testid="config-reload-overlay"]` stuck visible?
 3. Increase timeout temporarily: `waitForFeatureFlagPropagation(page, flags, { timeout: 120000 })`
@@ -499,6 +511,7 @@ test.afterEach(async ({ request }) => {
 ---
 
 **See Also**:
+
 - [Testing README](./README.md) — Quick reference and debugging guide
 - [Switch Component Testing](./README.md#-switchtoggle-component-testing) — Detailed switch patterns
 - [Debugging Guide](./debugging-guide.md) — Troubleshooting slow/flaky tests

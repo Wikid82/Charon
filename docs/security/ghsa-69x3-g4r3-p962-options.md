@@ -158,6 +158,7 @@ These checks help estimate practical risk and verify assumptions. They do **not*
 7. Reassess exception validity on each CI security scan cycle.
 
 ## Notes
+
 - As of the testing on 2026-02-19, just updating nebula to `1.10.3` in the Dockerfile causes build failures due to upstream incompatibilities, which supports the attribution and reproduction evidence for the temporary exception path.
 - The conflict between `smallstep/certificates` and `nebula` API changes is a known issue in the ecosystem, which adds external validity to the hypothesis about the dependency chain.
 - Will need to monitor upstream releases of `smallstep/certificates` and `Caddy` for compatible versions that allow upgrading `nebula` without breaking builds.

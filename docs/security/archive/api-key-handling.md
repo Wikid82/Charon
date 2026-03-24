@@ -33,6 +33,7 @@ The `maskAPIKey()` function implements these rules:
 3. **Normal keys (≥ 16 chars)**: Shows first 4 + last 4 characters (e.g., `abcd...xyz9`)
 
 These rules ensure that:
+
 - Keys cannot be reconstructed from logs
 - Users can still identify which key was used (by prefix/suffix)
 - Debugging remains possible without exposing secrets
@@ -49,6 +50,7 @@ err := os.WriteFile(keyFile, []byte(apiKey), 0600)
 ```
 
 **Required permissions**: `0600` (rw-------)
+
 - Owner: read + write
 - Group: no access
 - Others: no access
@@ -96,6 +98,7 @@ strings.Repeat("a", 129)              // ❌ Too long (> 128 chars)
 ### Log Aggregation Risks
 
 If logs are shipped to external services (CloudWatch, Splunk, Datadog, etc.):
+
 - Masked keys are safe to log
 - Full keys would be exposed across multiple systems
 - Log retention policies apply to all destinations
@@ -148,11 +151,13 @@ c.JSON(200, gin.H{
 ### Rotation Procedure
 
 1. Generate new bouncer in CrowdSec:
+
    ```bash
    cscli bouncers add new-bouncer-name
    ```
 
 2. Update Charon configuration:
+
    ```bash
    # Update environment variable
    CHARON_SECURITY_CROWDSEC_API_KEY=new-key-here
@@ -165,6 +170,7 @@ c.JSON(200, gin.H{
 3. Restart Charon to apply new key
 
 4. Revoke old bouncer:
+
    ```bash
    cscli bouncers delete old-bouncer-name
    ```
@@ -233,6 +239,7 @@ go test ./backend/internal/api/handlers -run TestSaveKeyToFile_SecurePermissions
 ### Test Scenarios
 
 Tests cover:
+
 - ✅ Empty keys → `[empty]`
 - ✅ Short keys (< 16) → `[REDACTED]`
 - ✅ Normal keys → `abcd...xyz9`
