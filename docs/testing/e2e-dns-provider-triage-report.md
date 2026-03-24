@@ -11,6 +11,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 ## Test Results
 
 ### Before Fixes
+
 | Status | Count |
 |--------|-------|
 | ❌ Failed | 7 |
@@ -18,6 +19,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 | ⏭️ Skipped | 3 |
 
 ### After Fixes
+
 | Status | Count |
 |--------|-------|
 | ❌ Failed | 0 |
@@ -27,12 +29,15 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 ## Test Files Summary
 
 ### 1. `tests/auth.setup.ts`
+
 | Test | Status |
 |------|--------|
 | authenticate | ✅ Pass |
 
 ### 2. `tests/dns-provider-types.spec.ts`
+
 **API Tests:**
+
 | Test | Status |
 |------|--------|
 | GET /dns-providers/types returns all built-in and custom providers | ✅ Pass |
@@ -43,6 +48,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 | Script provider type has command/path field | ✅ Pass |
 
 **UI Tests:**
+
 | Test | Status |
 |------|--------|
 | Provider selector shows all provider types in dropdown | ✅ Pass |
@@ -54,7 +60,9 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 | Script type selection shows script path field | ✅ Pass |
 
 ### 3. `tests/dns-provider-crud.spec.ts`
+
 **Create Provider:**
+
 | Test | Status |
 |------|--------|
 | Create Manual DNS provider | ✅ Pass |
@@ -63,6 +71,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 | Validate webhook URL format | ✅ Pass |
 
 **Provider List:**
+
 | Test | Status |
 |------|--------|
 | Display provider list or empty state | ✅ Pass |
@@ -70,17 +79,20 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 | Show provider details in list | ✅ Pass |
 
 **Edit Provider:**
+
 | Test | Status |
 |------|--------|
 | Open edit dialog for existing provider | ⏭️ Skipped (conditional) |
 | Update provider name | ⏭️ Skipped (conditional) |
 
 **Delete Provider:**
+
 | Test | Status |
 |------|--------|
 | Show delete confirmation dialog | ⏭️ Skipped (conditional) |
 
 **API Operations:**
+
 | Test | Status |
 |------|--------|
 | List providers via API | ✅ Pass |
@@ -89,6 +101,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 | Get single provider via API | ✅ Pass |
 
 **Form Accessibility:**
+
 | Test | Status |
 |------|--------|
 | Form has accessible labels | ✅ Pass |
@@ -96,7 +109,9 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 | Errors announced to screen readers | ✅ Pass |
 
 ### 4. `tests/manual-dns-provider.spec.ts`
+
 **Provider Selection Flow:**
+
 | Test | Status |
 |------|--------|
 | Navigate to DNS Providers page | ✅ Pass |
@@ -104,6 +119,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 | Display Manual option in provider selection | ✅ Pass (Fixed) |
 
 **Manual Challenge UI Display:**
+
 | Test | Status |
 |------|--------|
 | Display challenge panel with required elements | ✅ Pass |
@@ -112,12 +128,14 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 | Display status indicator | ✅ Pass (Fixed) |
 
 **Copy to Clipboard:**
+
 | Test | Status |
 |------|--------|
 | Have accessible copy buttons | ✅ Pass |
 | Show copied feedback on click | ✅ Pass |
 
 **Verify Button Interactions:**
+
 | Test | Status |
 |------|--------|
 | Have Check DNS Now button | ✅ Pass |
@@ -125,6 +143,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 | Have Verify button with description | ✅ Pass |
 
 **Accessibility Checks:**
+
 | Test | Status |
 |------|--------|
 | Keyboard accessible interactive elements | ✅ Pass |
@@ -134,6 +153,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 | Validate accessibility tree structure | ✅ Pass (Fixed) |
 
 **Component Tests:**
+
 | Test | Status |
 |------|--------|
 | Render all required challenge information | ✅ Pass |
@@ -141,6 +161,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 | Handle verified challenge state | ✅ Pass |
 
 **Error Handling:**
+
 | Test | Status |
 |------|--------|
 | Display error message on verification failure | ✅ Pass |
@@ -149,6 +170,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 ## Issues Fixed
 
 ### 1. URL Path Mismatch
+
 **Issue**: `manual-dns-provider.spec.ts` used `/dns-providers` URL while the frontend uses `/dns/providers`.
 
 **Fix**: Updated all occurrences to use `/dns/providers`.
@@ -156,11 +178,13 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 **Files Changed**: `tests/manual-dns-provider.spec.ts`
 
 ### 2. Button Selector Too Strict
+
 **Issue**: Tests used `getByRole('button', { name: /add provider/i })` without `.first()` which failed when multiple buttons matched.
 
 **Fix**: Added `.first()` to handle both header button and empty state button.
 
 ### 3. Dropdown Search Filter Test
+
 **Issue**: Test tried to fill text into a combobox that doesn't support text input.
 
 **Fix**: Changed test to verify keyboard navigation works instead.
@@ -168,6 +192,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 **File**: `tests/dns-provider-types.spec.ts`
 
 ### 4. Dynamic Field Locators
+
 **Issue**: Tests used `getByLabel(/url/i)` but credential fields are rendered dynamically without proper labels.
 
 **Fix**: Changed to locate fields by label text followed by input structure.
@@ -175,6 +200,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 **Files Changed**: `tests/dns-provider-types.spec.ts`
 
 ### 5. Conditional Status Icon Test
+
 **Issue**: Test expected SVG icon in status indicator but icon may not always be present.
 
 **Fix**: Made icon check conditional.
@@ -194,6 +220,7 @@ This is expected behavior — these tests only run when provider cards with edit
 ## Test Fixtures Created
 
 Created `tests/fixtures/dns-providers.ts` with:
+
 - Mock provider types (built-in and custom)
 - Mock provider data for different types
 - Mock API responses

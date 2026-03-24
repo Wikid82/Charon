@@ -19,6 +19,7 @@
 ### ❌ AVOID: Polling in beforeEach Hooks
 
 **Anti-Pattern**:
+
 ```typescript
 test.beforeEach(async ({ page, adminUser }) => {
   await loginUser(page, adminUser);
@@ -37,6 +38,7 @@ test.beforeEach(async ({ page, adminUser }) => {
 ```
 
 **Why This Is Bad**:
+
 - Polls `/api/v1/feature-flags` endpoint **31 times** per test file (once per test)
 - With 12 parallel processes (4 shards × 3 browsers), causes API server bottleneck
 - Adds 310s minimum execution time per shard (31 tests × 10s timeout)
@@ -49,6 +51,7 @@ test.beforeEach(async ({ page, adminUser }) => {
 ### ✅ PREFER: Per-Test Verification Only When Toggled
 
 **Correct Pattern**:
+
 ```typescript
 test('should toggle Cerberus feature', async ({ page }) => {
   await test.step('Navigate to system settings', async () => {
@@ -74,12 +77,14 @@ test('should toggle Cerberus feature', async ({ page }) => {
 ```
 
 **Why This Is Better**:
+
 - API calls reduced by **90%** (from 31 per shard to 3-5 per shard)
 - Only tests that actually toggle flags incur the polling cost
 - Faster test execution (shards complete in <15 minutes vs >30 minutes)
 - Clearer test intent—verification is tied to the action that requires it
 
 **Rule of Thumb**:
+
 - **No toggle, no propagation check**: If a test reads flag state without changing it, don't poll.
 - **Toggle = verify**: Always verify propagation after toggling to ensure state change persisted.
 
@@ -90,6 +95,7 @@ test('should toggle Cerberus feature', async ({ page }) => {
 ### ❌ AVOID: Label-Only Locators
 
 **Anti-Pattern**:
+
 ```typescript
 await test.step('Verify Script path/command field appears', async () => {
   // ⚠️ PROBLEM: Fails in Firefox/WebKit
@@ -99,6 +105,7 @@ await test.step('Verify Script path/command field appears', async () => {
 ```
 
 **Why This Fails**:
+
 - Label locators depend on browser-specific DOM rendering
 - Firefox/WebKit may render Label components differently than Chromium
 - Regex patterns may not match if label has extra whitespace or is split across nodes
@@ -109,6 +116,7 @@ await test.step('Verify Script path/command field appears', async () => {
 ### ✅ PREFER: Multi-Strategy Locators with Fallbacks
 
 **Correct Pattern**:
+
 ```typescript
 import { getFormFieldByLabel } from './utils/ui-helpers';
 
@@ -127,6 +135,7 @@ await test.step('Verify Script path/command field appears', async () => {
 ```
 
 **Helper Implementation** (`tests/utils/ui-helpers.ts`):
+
 ```typescript
 /**
  * Get form field with cross-browser label matching
@@ -169,12 +178,14 @@ export function getFormFieldByLabel(
 ```
 
 **Why This Is Better**:
+
 - **95%+ pass rate** on Firefox/WebKit (up from 70%)
 - Gracefully degrades through fallback strategies
 - No browser-specific workarounds needed in test code
 - Single helper enforces consistent pattern across all tests
 
 **When to Use**:
+
 - Any test that interacts with form fields
 - Tests that must pass on all three browsers (Chromium, Firefox, WebKit)
 - Accessibility-critical tests (label locators are user-facing)
@@ -186,6 +197,7 @@ export function getFormFieldByLabel(
 ### ❌ AVOID: Duplicate API Requests
 
 **Anti-Pattern**:
+
 ```typescript
 // Multiple tests in parallel all polling the same endpoint
 test('test 1', async ({ page }) => {
@@ -198,6 +210,7 @@ test('test 2', async ({ page }) => {
 ```
 
 **Why This Is Bad**:
+
 - 12 parallel workers all hit `/api/v1/feature-flags` simultaneously
 - No request coalescing or caching
 - API server degrades under concurrent load
@@ -208,6 +221,7 @@ test('test 2', async ({ page }) => {
 ### ✅ PREFER: Request Coalescing with Worker Isolation
 
 **Correct Pattern** (`tests/utils/wait-helpers.ts`):
+
 ```typescript
 // Cache in-flight requests per worker
 const inflightRequests = new Map<string, Promise<Record<string, boolean>>>();
@@ -249,12 +263,14 @@ export async function waitForFeatureFlagPropagation(
 ```
 
 **Why This Is Better**:
+
 - **30-40% reduction** in duplicate API calls
 - Multiple tests requesting same state share one API call
 - Worker isolation prevents cache collisions between parallel processes
 - Sorted keys ensure semantic equivalence (`{a:true, b:false}` === `{b:false, a:true}`)
 
 **Cache Behavior**:
+
 - **Hit**: Another test in same worker already polling for same state
 - **Miss**: First test in worker to request this state OR different state requested
 - **Clear**: Cache cleared after all tests in worker complete (`test.afterAll()`)
@@ -266,6 +282,7 @@ export async function waitForFeatureFlagPropagation(
 ### ❌ PROBLEM: Shards Exceeding Timeout
 
 **Symptom**:
+
 ```bash
 # GitHub Actions logs
 Error: The operation was canceled.
@@ -273,6 +290,7 @@ Job duration: 31m 45s (exceeds 30m limit)
 ```
 
 **Root Causes**:
+
 1. Feature flag polling in beforeEach (31 tests × 10s = 310s minimum)
 2. API bottleneck under parallel load
 3. Slow browser startup in CI environment
@@ -283,6 +301,7 @@ Job duration: 31m 45s (exceeds 30m limit)
 ### ✅ SOLUTION: Enforce 15-Minute Budget Per Shard
 
 **CI Configuration** (`.github/workflows/e2e-tests.yml`):
+
 ```yaml
 - name: Verify shard performance budget
   if: always()
@@ -300,23 +319,30 @@ Job duration: 31m 45s (exceeds 30m limit)
 ```
 
 **Why This Is Better**:
+
 - **Early detection** of performance regressions in CI
 - Forces developers to optimize slow tests before merge
 - Prevents accumulation of "death by a thousand cuts" slowdowns
 - Clear failure message directs investigation to bottleneck
 
 **How to Debug Timeouts**:
+
 1. **Check metrics**: Review API call counts in test output
+
    ```bash
    grep "CACHE HIT\|CACHE MISS" test-output.log
    ```
+
 2. **Profile locally**: Instrument slow helpers
+
    ```typescript
    const startTime = Date.now();
    await waitForLoadingComplete(page);
    console.log(`Loading took ${Date.now() - startTime}ms`);
    ```
+
 3. **Isolate shard**: Run failing shard locally to reproduce
+
    ```bash
    npx playwright test --shard=2/4 --project=firefox
    ```
@@ -328,6 +354,7 @@ Job duration: 31m 45s (exceeds 30m limit)
 ### ❌ AVOID: State Leakage Between Tests
 
 **Anti-Pattern**:
+
 ```typescript
 test('enable Cerberus', async ({ page }) => {
   await toggleCerberus(page, true);
@@ -342,6 +369,7 @@ test('ACL settings require Cerberus', async ({ page }) => {
 ```
 
 **Why This Is Bad**:
+
 - Tests depend on execution order (serial execution works, parallel fails)
 - Flakiness when running with `--workers=4` or `--repeat-each=5`
 - Hard to debug failures (root cause is in different test file)
@@ -351,6 +379,7 @@ test('ACL settings require Cerberus', async ({ page }) => {
 ### ✅ PREFER: Explicit State Restoration
 
 **Correct Pattern**:
+
 ```typescript
 test.afterEach(async ({ page }) => {
   await test.step('Restore default feature flag state', async () => {
@@ -375,12 +404,14 @@ test.afterEach(async ({ page }) => {
 ```
 
 **Why This Is Better**:
+
 - **Zero inter-test dependencies**: Tests can run in any order
 - Passes randomization testing: `--repeat-each=5 --workers=4`
 - Explicit cleanup makes state management visible in code
 - Fast restoration (no polling required, direct API call)
 
 **Validation Command**:
+
 ```bash
 # Verify test isolation with randomization
 npx playwright test tests/settings/system-settings.spec.ts \
@@ -398,6 +429,7 @@ npx playwright test tests/settings/system-settings.spec.ts \
 ### ❌ AVOID: Boolean Logic on Transient States
 
 **Anti-Pattern**:
+
 ```typescript
 const hasEmptyMessage = await emptyCellMessage.isVisible().catch(() => false);
 const hasTable = await table.isVisible().catch(() => false);
@@ -405,6 +437,7 @@ expect(hasEmptyMessage || hasTable).toBeTruthy();
 ```
 
 **Why This Is Bad**:
+
 - Fails during the split second where neither element is fully visible (loading transitions).
 - Playwright's auto-retrying logic is bypassed by the `catch()` block.
 - Leads to flaky "false negatives" where both checks return false before content loads.
@@ -412,6 +445,7 @@ expect(hasEmptyMessage || hasTable).toBeTruthy();
 ### ✅ PREFER: Locator Composition with `.or()`
 
 **Correct Pattern**:
+
 ```typescript
 await expect(
   page.getByRole('table').or(page.getByText(/no.*certificates.*found/i))
@@ -419,6 +453,7 @@ await expect(
 ```
 
 **Why This Is Better**:
+
 - Leverages Playwright's built-in **auto-retry** mechanism.
 - Waits for *either* condition to become true.
 - Handles loading spinners and layout shifts gracefully.
@@ -431,6 +466,7 @@ await expect(
 ### ❌ AVOID: Fixed Timeouts or Custom Loops
 
 **Anti-Pattern**:
+
 ```typescript
 // Flaky custom retry loop
 for (let i = 0; i < 3; i++) {
@@ -446,6 +482,7 @@ for (let i = 0; i < 3; i++) {
 ### ✅ PREFER: `.toPass()` for Verification Loops
 
 **Correct Pattern**:
+
 ```typescript
 await expect(async () => {
   const response = await request.post('/endpoint');
@@ -457,6 +494,7 @@ await expect(async () => {
 ```
 
 **Why This Is Better**:
+
 - Built-in assertion retry logic.
 - Configurable backoff intervals.
 - Cleaner syntax for verifying eventual success (e.g. valid API response after background processing).

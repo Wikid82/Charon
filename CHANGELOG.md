@@ -30,16 +30,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - See [Notification Guide](docs/features/notifications.md) for setup instructions
 
 ### CI/CD
+
 - **Supply Chain**: Optimized verification workflow to prevent redundant builds
   - Change: Removed direct Push/PR triggers; now waits for 'Docker Build' via `workflow_run`
 
 ### Security
+
 - **Supply Chain**: Enhanced PR verification workflow stability and accuracy
   - **Vulnerability Reporting**: Eliminated false negatives ("0 vulnerabilities") by enforcing strict failure conditions
   - **Tooling**: Switched to manual Grype installation ensuring usage of latest stable binary
   - **Observability**: Improved debugging visibility for vulnerability scans and SARIF generation
 
 ### Performance
+
 - **E2E Tests**: Reduced feature flag API calls by 90% through conditional polling optimization (Phase 2)
   - Conditional skip: Exits immediately if flags already in expected state (~50% of cases)
   - Request coalescing: Shares in-flight API requests between parallel test workers
@@ -51,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Prevents timeout errors in Firefox/WebKit caused by strict label matching
 
 ### Fixed
+
 - **TCP Monitor Creation**: Fixed misleading form UX that caused silent HTTP 500 errors when creating TCP monitors
   - Corrected URL placeholder to show `host:port` format instead of the incorrect `tcp://host:port` prefix
   - Added dynamic per-type placeholder and helper text (HTTP monitors show a full URL example; TCP monitors show `host:port`)
@@ -72,6 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test Performance**: Reduced system settings test execution time by 31% (from 23 minutes to 16 minutes)
 
 ### Changed
+
 - **Testing Infrastructure**: Enhanced E2E test helpers with better synchronization and error handling
 - **CI**: Optimized E2E workflow shards [Reduced from 4 to 3]
 

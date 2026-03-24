@@ -41,16 +41,19 @@ container image. The binaries were compiled against Go 1.25.6, which contains th
 Charon's own application code, compiled with Go 1.26.1, is unaffected.
 
 **Who**
+
 - Discovered by: Automated scan (Grype)
 - Reported: 2026-03-20
 - Affects: CrowdSec Agent component within the container; not directly exposed through Charon's
   primary application interface
 
 **Where**
+
 - Component: CrowdSec Agent (bundled `cscli` and `crowdsec` binaries)
 - Versions affected: Charon container images with CrowdSec binaries compiled against Go < 1.25.7
 
 **When**
+
 - Discovered: 2026-03-20
 - Disclosed (if public): Not yet publicly disclosed
 - Target fix: When `golang:1.26.2-alpine` is published on Docker Hub
@@ -82,16 +85,19 @@ configuration includes the `DEFAULT` keyword, potentially allowing downgrade to 
 suites. Affects Alpine 3.23.3 packages `libcrypto3` and `libssl3` at version 3.5.5-r0.
 
 **Who**
+
 - Discovered by: Automated scan (Grype)
 - Reported: 2026-03-20
 - Affects: Container runtime environment; Caddy reverse proxy TLS negotiation could be affected
   if default key group configuration is used
 
 **Where**
+
 - Component: Alpine 3.23.3 base image (`libcrypto3` 3.5.5-r0, `libssl3` 3.5.5-r0)
 - Versions affected: Alpine 3.23.3 prior to a patched `openssl` APK release
 
 **When**
+
 - Discovered: 2026-03-20
 - Disclosed (if public): 2026-03-13 (OpenSSL advisory)
 - Target fix: When Alpine Security publishes a patched `openssl` APK
@@ -103,7 +109,7 @@ does not use the `DEFAULT` keyword, which limits practical exploitability. The p
 present in the base image regardless of Caddy's configuration.
 
 **Planned Remediation**
-Monitor https://security.alpinelinux.org/vuln/CVE-2026-2673 for a patched Alpine APK. Once
+Monitor <https://security.alpinelinux.org/vuln/CVE-2026-2673> for a patched Alpine APK. Once
 available, update the pinned `ALPINE_IMAGE` digest in the Dockerfile, or add an explicit
 `RUN apk upgrade --no-cache libcrypto3 libssl3` to the runtime stage.
 
@@ -126,16 +132,19 @@ tracked separately above). All issues resolve when CrowdSec is rebuilt against G
 Charon's own application code is unaffected.
 
 **Who**
+
 - Discovered by: Automated scan (Trivy, Grype)
 - Reported: 2025-12-01 (original cluster); expanded 2026-03-20
 - Affects: CrowdSec Agent component within the container; not directly exposed through Charon's
   primary application interface
 
 **Where**
+
 - Component: CrowdSec Agent (bundled `cscli` and `crowdsec` binaries)
 - Versions affected: All Charon versions shipping CrowdSec binaries compiled against Go < 1.26.2
 
 **When**
+
 - Discovered: 2025-12-01
 - Disclosed (if public): Not yet publicly disclosed
 - Target fix: When `golang:1.26.2-alpine` is published on Docker Hub
@@ -168,16 +177,19 @@ loop with no termination condition when given a specially crafted input, causing
 (CWE-1284).
 
 **Who**
+
 - Discovered by: 7aSecurity audit (commissioned by OSTIF)
 - Reported: 2026-02-17
 - Affects: Any component in the container that calls `crc32_combine`-family functions with
   attacker-controlled input; not directly exposed through Charon's application interface
 
 **Where**
+
 - Component: Alpine 3.23.3 base image (`zlib` package, version 1.3.1-r2)
 - Versions affected: zlib < 1.3.2; all current Charon images using Alpine 3.23.3
 
 **When**
+
 - Discovered: 2026-02-17 (NVD published 2026-02-17)
 - Disclosed (if public): 2026-02-17
 - Target fix: When Alpine 3.23 publishes a patched `zlib` APK (requires zlib 1.3.2)
@@ -188,7 +200,7 @@ to the `crc32_combine`-family functions. This code path is not invoked by Charon
 or backend API. The vulnerability is non-blocking under the project's CI severity policy.
 
 **Planned Remediation**
-Monitor https://security.alpinelinux.org/vuln/CVE-2026-27171 for a patched Alpine APK. Once
+Monitor <https://security.alpinelinux.org/vuln/CVE-2026-27171> for a patched Alpine APK. Once
 available, update the pinned `ALPINE_IMAGE` digest in the Dockerfile, or add an explicit
 `RUN apk upgrade --no-cache zlib` to the runtime stage. Remove the `.trivyignore` entry at
 that time.
@@ -211,14 +223,17 @@ Seven HIGH-severity CVEs in Debian Trixie base image system libraries (`glibc`, 
 available from the Debian Security Team.
 
 **Who**
+
 - Discovered by: Automated scan (Trivy)
 - Reported: 2026-02-04
 
 **Where**
+
 - Component: Debian Trixie base image (`libc6`, `libc-bin`, `libtasn1-6`, `libtiff`)
 - Versions affected: Charon container images built on Debian Trixie base (prior to Alpine migration)
 
 **When**
+
 - Discovered: 2026-02-04
 - Patched: 2026-03-20
 - Time to patch: 44 days
@@ -256,14 +271,17 @@ by CrowdSec for expression evaluation. Malicious regular expressions in CrowdSec
 parsers could cause CPU exhaustion and service degradation through exponential backtracking.
 
 **Who**
+
 - Discovered by: Automated scan (Trivy)
 - Reported: 2026-01-11
 
 **Where**
+
 - Component: CrowdSec (via `expr-lang/expr` dependency)
 - Versions affected: CrowdSec versions using `expr-lang/expr` < v1.17.7
 
 **When**
+
 - Discovered: 2026-01-11
 - Patched: 2026-01-11
 - Time to patch: 0 days

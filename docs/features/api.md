@@ -23,6 +23,7 @@ Authorization: Bearer your-api-token-here
 ```
 
 Tokens support granular permissions:
+
 - **Read-only**: View configurations without modification
 - **Full access**: Complete CRUD operations
 - **Scoped**: Limit to specific resource types
