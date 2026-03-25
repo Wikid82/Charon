@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import { Shield, ShieldOff, Trash2, Search, AlertTriangle, ExternalLink } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, Link } from 'react-router-dom'
 
@@ -15,10 +15,14 @@ import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
+import { Skeleton } from '../components/ui/Skeleton'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/Tabs'
 import { CROWDSEC_PRESETS, type CrowdsecPreset } from '../data/crowdsecPresets'
 import { useConsoleStatus, useEnrollConsole, useClearConsoleEnrollment } from '../hooks/useConsoleEnrollment'
 import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
 import { toast } from '../utils/toast'
+
+const CrowdSecDashboard = lazy(() => import('../components/crowdsec/CrowdSecDashboard'))
 
 export default function CrowdSecConfig() {
   const { t } = useTranslation()
@@ -556,6 +560,20 @@ export default function CrowdSecConfig() {
       )}
       <div className="space-y-6">
       <h1 className="text-2xl font-bold">{t('crowdsecConfig.title')}</h1>
+
+      <Tabs defaultValue="config">
+        <TabsList>
+          <TabsTrigger value="config">{t('security.crowdsec.tabs.config', 'Configuration')}</TabsTrigger>
+          <TabsTrigger value="dashboard">{t('security.crowdsec.tabs.dashboard', 'Dashboard')}</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="dashboard" className="mt-4">
+          <Suspense fallback={<div className="space-y-4"><Skeleton className="h-24 w-full" /><Skeleton className="h-64 w-full" /></div>}>
+            <CrowdSecDashboard />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="config" className="mt-4">
 
       {/* CrowdSec Bouncer API Key - moved from Security Dashboard */}
       {status.cerberus?.enabled && status.crowdsec.enabled && (
@@ -1221,6 +1239,9 @@ export default function CrowdSecConfig() {
           )}
         </div>
       </Card>
+
+      </TabsContent>
+      </Tabs>
       </div>
 
       {/* Ban IP Modal */}
