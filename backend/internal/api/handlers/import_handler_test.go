@@ -136,7 +136,6 @@ func TestImportHandler_GetStatus_MountCommittedUnchanged(t *testing.T) {
 		handler, _, _ := setupTestHandler(t, tx)
 		handler.mountPath = mountPath
 
-		gin.SetMode(gin.TestMode)
 		router := gin.New()
 		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
@@ -173,7 +172,6 @@ func TestImportHandler_GetStatus_MountModifiedAfterCommit(t *testing.T) {
 		handler, _, _ := setupTestHandler(t, tx)
 		handler.mountPath = mountPath
 
-		gin.SetMode(gin.TestMode)
 		router := gin.New()
 		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
@@ -223,7 +221,6 @@ func TestUpload_NormalizationSuccess(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 
-		gin.SetMode(gin.TestMode)
 		router := gin.New()
 		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
@@ -272,7 +269,6 @@ func TestUpload_NormalizationFailure(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 
-		gin.SetMode(gin.TestMode)
 		router := gin.New()
 		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
@@ -313,7 +309,6 @@ func TestUpload_PathTraversalBlocked(t *testing.T) {
 				req.Header.Set("Content-Type", "application/json")
 				w := httptest.NewRecorder()
 
-				gin.SetMode(gin.TestMode)
 				router := gin.New()
 				addAdminMiddleware(router)
 				handler.RegisterRoutes(router.Group("/api/v1"))
@@ -354,7 +349,6 @@ func TestUploadMulti_ArchiveExtraction(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 
-		gin.SetMode(gin.TestMode)
 		router := gin.New()
 		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
@@ -400,7 +394,6 @@ func TestUploadMulti_ConflictDetection(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 
-		gin.SetMode(gin.TestMode)
 		router := gin.New()
 		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
@@ -439,7 +432,6 @@ func TestCommit_TransientToImport(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 
-		gin.SetMode(gin.TestMode)
 		router := gin.New()
 		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
@@ -484,7 +476,6 @@ func TestCommit_RollbackOnError(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 
-		gin.SetMode(gin.TestMode)
 		router := gin.New()
 		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
@@ -517,7 +508,6 @@ func TestDetectImports_EmptyCaddyfile(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 
-		gin.SetMode(gin.TestMode)
 		router := gin.New()
 		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
@@ -662,7 +652,6 @@ func TestImportHandler_Upload_NullByteInjection(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 
-		gin.SetMode(gin.TestMode)
 		router := gin.New()
 		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
@@ -689,7 +678,6 @@ func TestImportHandler_DetectImports_MalformedFile(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 
-		gin.SetMode(gin.TestMode)
 		router := gin.New()
 		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
@@ -835,7 +823,6 @@ func TestImportHandler_Upload_InvalidSessionPaths(t *testing.T) {
 				req.Header.Set("Content-Type", "application/json")
 				w := httptest.NewRecorder()
 
-				gin.SetMode(gin.TestMode)
 				router := gin.New()
 				addAdminMiddleware(router)
 				handler.RegisterRoutes(router.Group("/api/v1"))
@@ -860,7 +847,6 @@ func TestImportHandler_Commit_InvalidSessionUUID_BranchCoverage(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 
-		gin.SetMode(gin.TestMode)
 		router := gin.New()
 		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
@@ -893,7 +879,6 @@ func TestImportHandler_Upload_NoImportableHosts_WithImportsDetected(t *testing.T
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 
-		gin.SetMode(gin.TestMode)
 		router := gin.New()
 		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
@@ -925,7 +910,6 @@ func TestImportHandler_Upload_NoImportableHosts_NoImportsNoFileServer(t *testing
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 
-		gin.SetMode(gin.TestMode)
 		router := gin.New()
 		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
@@ -967,7 +951,6 @@ func TestImportHandler_Commit_OverwriteAndRenameFlows(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 
-		gin.SetMode(gin.TestMode)
 		router := gin.New()
 		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
@@ -986,7 +969,6 @@ func TestImportHandler_Cancel_ValidationAndNotFound_BranchCoverage(t *testing.T)
 	testutil.WithTx(t, setupImportTestDB(t), func(tx *gorm.DB) {
 		handler, _, _ := setupTestHandler(t, tx)
 
-		gin.SetMode(gin.TestMode)
 		router := gin.New()
 		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))
@@ -1021,7 +1003,6 @@ func TestImportHandler_Cancel_TransientUploadCancelled_BranchCoverage(t *testing
 		uploadPath := filepath.Join(uploadDir, sessionID+".caddyfile")
 		require.NoError(t, os.WriteFile(uploadPath, []byte("example.com { respond \"ok\" }"), 0o600))
 
-		gin.SetMode(gin.TestMode)
 		router := gin.New()
 		addAdminMiddleware(router)
 		handler.RegisterRoutes(router.Group("/api/v1"))

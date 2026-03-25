@@ -15,7 +15,6 @@ import (
 )
 
 func TestSecurityHandler_GetGeoIPStatus_NotInitialized(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	h := NewSecurityHandler(config.SecurityConfig{}, nil, nil)
 	r := gin.New()
@@ -34,7 +33,6 @@ func TestSecurityHandler_GetGeoIPStatus_NotInitialized(t *testing.T) {
 }
 
 func TestSecurityHandler_GetGeoIPStatus_Initialized_NotLoaded(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	h := NewSecurityHandler(config.SecurityConfig{}, nil, nil)
 	h.SetGeoIPService(&services.GeoIPService{})
@@ -55,7 +53,6 @@ func TestSecurityHandler_GetGeoIPStatus_Initialized_NotLoaded(t *testing.T) {
 }
 
 func TestSecurityHandler_ReloadGeoIP_NotInitialized(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	h := NewSecurityHandler(config.SecurityConfig{}, nil, nil)
 	r := gin.New()
@@ -73,7 +70,6 @@ func TestSecurityHandler_ReloadGeoIP_NotInitialized(t *testing.T) {
 }
 
 func TestSecurityHandler_ReloadGeoIP_LoadError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	h := NewSecurityHandler(config.SecurityConfig{}, nil, nil)
 	h.SetGeoIPService(&services.GeoIPService{}) // dbPath empty => Load() will error
@@ -94,7 +90,6 @@ func TestSecurityHandler_ReloadGeoIP_LoadError(t *testing.T) {
 }
 
 func TestSecurityHandler_LookupGeoIP_MissingIPAddress(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	h := NewSecurityHandler(config.SecurityConfig{}, nil, nil)
 	r := gin.New()
@@ -115,7 +110,6 @@ func TestSecurityHandler_LookupGeoIP_MissingIPAddress(t *testing.T) {
 }
 
 func TestSecurityHandler_LookupGeoIP_ServiceUnavailable(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	h := NewSecurityHandler(config.SecurityConfig{}, nil, nil)
 	h.SetGeoIPService(&services.GeoIPService{}) // present but not loaded

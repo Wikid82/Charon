@@ -32,7 +32,6 @@ func TestPluginHandler_NewPluginHandler(t *testing.T) {
 }
 
 func TestPluginHandler_ListPlugins(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 
@@ -82,7 +81,6 @@ func TestPluginHandler_ListPlugins(t *testing.T) {
 }
 
 func TestPluginHandler_GetPlugin_InvalidID(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 	handler := NewPluginHandler(db, pluginLoader)
@@ -99,7 +97,6 @@ func TestPluginHandler_GetPlugin_InvalidID(t *testing.T) {
 }
 
 func TestPluginHandler_GetPlugin_NotFound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 	handler := NewPluginHandler(db, pluginLoader)
@@ -116,7 +113,6 @@ func TestPluginHandler_GetPlugin_NotFound(t *testing.T) {
 }
 
 func TestPluginHandler_GetPlugin_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 
@@ -152,7 +148,6 @@ func TestPluginHandler_GetPlugin_Success(t *testing.T) {
 }
 
 func TestPluginHandler_EnablePlugin_InvalidID(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 	handler := NewPluginHandler(db, pluginLoader)
@@ -168,7 +163,6 @@ func TestPluginHandler_EnablePlugin_InvalidID(t *testing.T) {
 }
 
 func TestPluginHandler_EnablePlugin_NotFound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 	handler := NewPluginHandler(db, pluginLoader)
@@ -184,7 +178,6 @@ func TestPluginHandler_EnablePlugin_NotFound(t *testing.T) {
 }
 
 func TestPluginHandler_EnablePlugin_AlreadyEnabled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 
@@ -212,7 +205,6 @@ func TestPluginHandler_EnablePlugin_AlreadyEnabled(t *testing.T) {
 }
 
 func TestPluginHandler_EnablePlugin_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 
@@ -245,7 +237,6 @@ func TestPluginHandler_EnablePlugin_Success(t *testing.T) {
 }
 
 func TestPluginHandler_DisablePlugin_InvalidID(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 	handler := NewPluginHandler(db, pluginLoader)
@@ -261,7 +252,6 @@ func TestPluginHandler_DisablePlugin_InvalidID(t *testing.T) {
 }
 
 func TestPluginHandler_DisablePlugin_NotFound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 	handler := NewPluginHandler(db, pluginLoader)
@@ -277,7 +267,6 @@ func TestPluginHandler_DisablePlugin_NotFound(t *testing.T) {
 }
 
 func TestPluginHandler_DisablePlugin_AlreadyDisabled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 
@@ -309,7 +298,6 @@ func TestPluginHandler_DisablePlugin_AlreadyDisabled(t *testing.T) {
 }
 
 func TestPluginHandler_DisablePlugin_InUse(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 
@@ -346,7 +334,6 @@ func TestPluginHandler_DisablePlugin_InUse(t *testing.T) {
 }
 
 func TestPluginHandler_DisablePlugin_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 
@@ -378,7 +365,6 @@ func TestPluginHandler_DisablePlugin_Success(t *testing.T) {
 }
 
 func TestPluginHandler_ReloadPlugins_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/nonexistent/plugins", nil)
 	handler := NewPluginHandler(db, pluginLoader)
@@ -397,7 +383,6 @@ func TestPluginHandler_ReloadPlugins_Success(t *testing.T) {
 
 // TestPluginHandler_ListPlugins_WithBuiltInProviders tests listing when built-in providers are registered
 func TestPluginHandler_ListPlugins_WithBuiltInProviders(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 
@@ -502,7 +487,6 @@ func (m *mockDNSProvider) PollingInterval() time.Duration {
 // =============================================================================
 
 func TestPluginHandler_ListPlugins_ExternalLoadedPlugin(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 
@@ -570,7 +554,6 @@ func TestPluginHandler_ListPlugins_ExternalLoadedPlugin(t *testing.T) {
 }
 
 func TestPluginHandler_GetPlugin_WithProvider(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 
@@ -619,7 +602,6 @@ func TestPluginHandler_GetPlugin_WithProvider(t *testing.T) {
 }
 
 func TestPluginHandler_EnablePlugin_WithLoadError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/nonexistent/plugins", nil)
 
@@ -663,7 +645,6 @@ func TestPluginHandler_EnablePlugin_WithLoadError(t *testing.T) {
 }
 
 func TestPluginHandler_DisablePlugin_WithUnloadError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 
@@ -698,7 +679,6 @@ func TestPluginHandler_DisablePlugin_WithUnloadError(t *testing.T) {
 }
 
 func TestPluginHandler_DisablePlugin_MultipleProviders(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 
@@ -741,7 +721,6 @@ func TestPluginHandler_DisablePlugin_MultipleProviders(t *testing.T) {
 }
 
 func TestPluginHandler_ReloadPlugins_WithErrors(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 
 	// Create a regular file and use it as pluginDir to force os.ReadDir error deterministically.
@@ -763,7 +742,6 @@ func TestPluginHandler_ReloadPlugins_WithErrors(t *testing.T) {
 }
 
 func TestPluginHandler_ListPlugins_FailedPluginWithLoadedAt(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 
@@ -813,7 +791,6 @@ func TestPluginHandler_ListPlugins_FailedPluginWithLoadedAt(t *testing.T) {
 }
 
 func TestPluginHandler_GetPlugin_WithLoadedAt(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 
@@ -868,7 +845,6 @@ func TestPluginHandler_Count(t *testing.T) {
 
 // TestPluginHandler_EnablePlugin_DBUpdateError tests DB error when updating plugin enabled status
 func TestPluginHandler_EnablePlugin_DBUpdateError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 
@@ -901,7 +877,6 @@ func TestPluginHandler_EnablePlugin_DBUpdateError(t *testing.T) {
 
 // TestPluginHandler_DisablePlugin_DBUpdateError tests DB error when updating plugin disabled status
 func TestPluginHandler_DisablePlugin_DBUpdateError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 
@@ -934,7 +909,6 @@ func TestPluginHandler_DisablePlugin_DBUpdateError(t *testing.T) {
 
 // TestPluginHandler_GetPlugin_DBInternalError tests DB internal error when getting a plugin
 func TestPluginHandler_GetPlugin_DBInternalError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 
@@ -968,7 +942,6 @@ func TestPluginHandler_GetPlugin_DBInternalError(t *testing.T) {
 
 // TestPluginHandler_EnablePlugin_FirstDBLookupError tests DB error in first plugin lookup
 func TestPluginHandler_EnablePlugin_FirstDBLookupError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 
@@ -1002,7 +975,6 @@ func TestPluginHandler_EnablePlugin_FirstDBLookupError(t *testing.T) {
 
 // TestPluginHandler_DisablePlugin_FirstDBLookupError tests DB error in first plugin lookup during disable
 func TestPluginHandler_DisablePlugin_FirstDBLookupError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 

@@ -31,7 +31,6 @@ func TestUserLoginAfterEmailChange(t *testing.T) {
 	userHandler := NewUserHandler(db, nil)
 
 	// Setup Router
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 
 	// Register Routes

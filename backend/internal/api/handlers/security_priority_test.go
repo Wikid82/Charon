@@ -19,7 +19,6 @@ import (
 // 2. SecurityConfig DB (middle)
 // 3. Static config (lowest)
 func TestSecurityHandler_Priority_SettingsOverSecurityConfig(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
 		name              string
@@ -112,7 +111,6 @@ func TestSecurityHandler_Priority_SettingsOverSecurityConfig(t *testing.T) {
 
 // TestSecurityHandler_Priority_AllModules verifies priority system works for all security modules
 func TestSecurityHandler_Priority_AllModules(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
 

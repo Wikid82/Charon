@@ -26,7 +26,6 @@ import (
 // =============================================================================
 
 func TestPluginHandler_EnablePlugin_DatabaseUpdateError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 
@@ -58,7 +57,6 @@ func TestPluginHandler_EnablePlugin_DatabaseUpdateError(t *testing.T) {
 }
 
 func TestPluginHandler_DisablePlugin_DatabaseUpdateError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 
@@ -90,7 +88,6 @@ func TestPluginHandler_DisablePlugin_DatabaseUpdateError(t *testing.T) {
 }
 
 func TestPluginHandler_GetPlugin_DatabaseError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 
@@ -122,7 +119,6 @@ func TestPluginHandler_GetPlugin_DatabaseError(t *testing.T) {
 }
 
 func TestPluginHandler_EnablePlugin_DatabaseFirstError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 
@@ -144,7 +140,6 @@ func TestPluginHandler_EnablePlugin_DatabaseFirstError(t *testing.T) {
 }
 
 func TestPluginHandler_DisablePlugin_DatabaseFirstError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
 
@@ -170,7 +165,6 @@ func TestPluginHandler_DisablePlugin_DatabaseFirstError(t *testing.T) {
 // =============================================================================
 
 func TestEncryptionHandler_Validate_NonAdminAccess(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	currentKey, _ := crypto.GenerateNewKey()
 	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", currentKey))
@@ -192,7 +186,6 @@ func TestEncryptionHandler_Validate_NonAdminAccess(t *testing.T) {
 }
 
 func TestEncryptionHandler_GetHistory_PaginationBoundary(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	currentKey, _ := crypto.GenerateNewKey()
 	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", currentKey))
@@ -227,7 +220,6 @@ func TestEncryptionHandler_GetHistory_PaginationBoundary(t *testing.T) {
 }
 
 func TestEncryptionHandler_GetStatus_VersionInfo(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	currentKey, _ := crypto.GenerateNewKey()
 	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", currentKey))
@@ -261,7 +253,6 @@ func TestEncryptionHandler_GetStatus_VersionInfo(t *testing.T) {
 // =============================================================================
 
 func TestSettingsHandler_TestPublicURL_RoleNotExists(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
 	require.NoError(t, err)
@@ -282,7 +273,6 @@ func TestSettingsHandler_TestPublicURL_RoleNotExists(t *testing.T) {
 }
 
 func TestSettingsHandler_TestPublicURL_InvalidURLFormat(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
 	require.NoError(t, err)
@@ -306,7 +296,6 @@ func TestSettingsHandler_TestPublicURL_InvalidURLFormat(t *testing.T) {
 }
 
 func TestSettingsHandler_TestPublicURL_PrivateIPBlocked_Coverage(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
 	require.NoError(t, err)
@@ -335,7 +324,6 @@ func TestSettingsHandler_TestPublicURL_PrivateIPBlocked_Coverage(t *testing.T) {
 }
 
 func TestSettingsHandler_ValidatePublicURL_WithTrailingSlash(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
 	require.NoError(t, err)
@@ -363,7 +351,6 @@ func TestSettingsHandler_ValidatePublicURL_WithTrailingSlash(t *testing.T) {
 }
 
 func TestSettingsHandler_ValidatePublicURL_MissingScheme(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
 	require.NoError(t, err)
@@ -395,7 +382,6 @@ func TestSettingsHandler_ValidatePublicURL_MissingScheme(t *testing.T) {
 // =============================================================================
 
 func TestAuditLogHandler_List_PaginationEdgeCases(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	dbPath := fmt.Sprintf("/tmp/test_audit_pagination_%d.db", time.Now().UnixNano())
 	t.Cleanup(func() { _ = os.Remove(dbPath) })
@@ -429,7 +415,6 @@ func TestAuditLogHandler_List_PaginationEdgeCases(t *testing.T) {
 }
 
 func TestAuditLogHandler_List_CategoryFilter(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	dbPath := fmt.Sprintf("/tmp/test_audit_category_%d.db", time.Now().UnixNano())
 	t.Cleanup(func() { _ = os.Remove(dbPath) })
@@ -467,7 +452,6 @@ func TestAuditLogHandler_List_CategoryFilter(t *testing.T) {
 }
 
 func TestAuditLogHandler_ListByProvider_DatabaseError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	dbPath := fmt.Sprintf("/tmp/test_audit_db_error_%d.db", time.Now().UnixNano())
 	t.Cleanup(func() { _ = os.Remove(dbPath) })
@@ -494,7 +478,6 @@ func TestAuditLogHandler_ListByProvider_DatabaseError(t *testing.T) {
 }
 
 func TestAuditLogHandler_ListByProvider_InvalidProviderID(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	dbPath := fmt.Sprintf("/tmp/test_audit_invalid_id_%d.db", time.Now().UnixNano())
 	t.Cleanup(func() { _ = os.Remove(dbPath) })
@@ -521,7 +504,6 @@ func TestAuditLogHandler_ListByProvider_InvalidProviderID(t *testing.T) {
 // =============================================================================
 
 func TestGetActorFromGinContext_InvalidUserIDType(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	router := gin.New()
 	var capturedActor string
@@ -547,7 +529,6 @@ func TestGetActorFromGinContext_InvalidUserIDType(t *testing.T) {
 // =============================================================================
 
 func TestIsAdmin_NonAdminRole(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
@@ -577,7 +558,6 @@ func setupCredentialHandlerTestWithCtx(t *testing.T) (*gin.Engine, *gorm.DB, *mo
 	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="))
 	t.Cleanup(func() { require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY")) })
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	dbName := fmt.Sprintf("file:%s?mode=memory&cache=shared&_journal_mode=WAL", t.Name())
@@ -679,7 +659,6 @@ func TestCredentialHandler_List_DatabaseClosed(t *testing.T) {
 	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="))
 	defer func() { require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY")) }()
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	dbName := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
@@ -820,7 +799,6 @@ func TestCredentialHandler_EnableMultiCredentials_BadProviderID(t *testing.T) {
 // =============================================================================
 
 func TestEncryptionHandler_Validate_AdminSuccess(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	currentKey, _ := crypto.GenerateNewKey()
 	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", currentKey))

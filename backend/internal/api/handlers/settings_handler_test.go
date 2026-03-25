@@ -160,7 +160,6 @@ func newAdminRouter() *gin.Engine {
 }
 
 func TestSettingsHandler_GetSettings(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	// Seed data
@@ -183,7 +182,6 @@ func TestSettingsHandler_GetSettings(t *testing.T) {
 }
 
 func TestSettingsHandler_GetSettings_MasksSensitiveValues(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	db.Create(&models.Setting{Key: "smtp_password", Value: "super-secret-password", Category: "smtp", Type: "string"})
@@ -208,7 +206,6 @@ func TestSettingsHandler_GetSettings_MasksSensitiveValues(t *testing.T) {
 }
 
 func TestSettingsHandler_GetSettings_DatabaseError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	// Close the database to force an error
@@ -231,7 +228,6 @@ func TestSettingsHandler_GetSettings_DatabaseError(t *testing.T) {
 }
 
 func TestSettingsHandler_UpdateSettings(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)
@@ -274,7 +270,6 @@ func TestSettingsHandler_UpdateSettings(t *testing.T) {
 }
 
 func TestSettingsHandler_UpdateSetting_SyncsAdminWhitelist(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)
@@ -301,7 +296,6 @@ func TestSettingsHandler_UpdateSetting_SyncsAdminWhitelist(t *testing.T) {
 }
 
 func TestSettingsHandler_UpdateSetting_EnablesCerberusWhenACLEnabled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)
@@ -343,7 +337,6 @@ func TestSettingsHandler_UpdateSetting_EnablesCerberusWhenACLEnabled(t *testing.
 }
 
 func TestSettingsHandler_UpdateSetting_SecurityKeyAppliesConfigSynchronously(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	mgr := &mockCaddyConfigManager{}
@@ -367,7 +360,6 @@ func TestSettingsHandler_UpdateSetting_SecurityKeyAppliesConfigSynchronously(t *
 }
 
 func TestSettingsHandler_UpdateSetting_SecurityKeyApplyFailureReturnsError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	mgr := &mockCaddyConfigManager{applyFunc: func(context.Context) error {
@@ -393,7 +385,6 @@ func TestSettingsHandler_UpdateSetting_SecurityKeyApplyFailureReturnsError(t *te
 }
 
 func TestSettingsHandler_UpdateSetting_NonAdminForbidden(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)
@@ -416,7 +407,6 @@ func TestSettingsHandler_UpdateSetting_NonAdminForbidden(t *testing.T) {
 }
 
 func TestSettingsHandler_UpdateSetting_InvalidAdminWhitelist(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)
@@ -439,7 +429,6 @@ func TestSettingsHandler_UpdateSetting_InvalidAdminWhitelist(t *testing.T) {
 }
 
 func TestSettingsHandler_UpdateSetting_EmptyValueAccepted(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)
@@ -466,7 +455,6 @@ func TestSettingsHandler_UpdateSetting_EmptyValueAccepted(t *testing.T) {
 }
 
 func TestSettingsHandler_UpdateSetting_MissingKeyRejected(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)
@@ -488,7 +476,6 @@ func TestSettingsHandler_UpdateSetting_MissingKeyRejected(t *testing.T) {
 }
 
 func TestSettingsHandler_UpdateSetting_InvalidKeepaliveIdle(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)
@@ -511,7 +498,6 @@ func TestSettingsHandler_UpdateSetting_InvalidKeepaliveIdle(t *testing.T) {
 }
 
 func TestSettingsHandler_UpdateSetting_ValidKeepaliveCount(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)
@@ -540,7 +526,6 @@ func TestSettingsHandler_UpdateSetting_ValidKeepaliveCount(t *testing.T) {
 }
 
 func TestSettingsHandler_UpdateSetting_SecurityKeyInvalidatesCache(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	mgr := &mockCaddyConfigManager{}
@@ -566,7 +551,6 @@ func TestSettingsHandler_UpdateSetting_SecurityKeyInvalidatesCache(t *testing.T)
 }
 
 func TestSettingsHandler_PatchConfig_InvalidAdminWhitelist(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)
@@ -590,7 +574,6 @@ func TestSettingsHandler_PatchConfig_InvalidAdminWhitelist(t *testing.T) {
 }
 
 func TestSettingsHandler_PatchConfig_InvalidKeepaliveCount(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)
@@ -614,7 +597,6 @@ func TestSettingsHandler_PatchConfig_InvalidKeepaliveCount(t *testing.T) {
 }
 
 func TestSettingsHandler_PatchConfig_ValidKeepaliveSettings(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)
@@ -648,7 +630,6 @@ func TestSettingsHandler_PatchConfig_ValidKeepaliveSettings(t *testing.T) {
 }
 
 func TestSettingsHandler_PatchConfig_ReloadFailureReturns500(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	mgr := &mockCaddyConfigManager{applyFunc: func(context.Context) error {
@@ -678,7 +659,6 @@ func TestSettingsHandler_PatchConfig_ReloadFailureReturns500(t *testing.T) {
 }
 
 func TestSettingsHandler_PatchConfig_SyncsAdminWhitelist(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)
@@ -710,7 +690,6 @@ func TestSettingsHandler_PatchConfig_SyncsAdminWhitelist(t *testing.T) {
 }
 
 func TestSettingsHandler_PatchConfig_EnablesCerberusWhenACLEnabled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)
@@ -749,7 +728,6 @@ func TestSettingsHandler_PatchConfig_EnablesCerberusWhenACLEnabled(t *testing.T)
 }
 
 func TestSettingsHandler_UpdateSetting_DatabaseError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)
@@ -779,7 +757,6 @@ func TestSettingsHandler_UpdateSetting_DatabaseError(t *testing.T) {
 }
 
 func TestSettingsHandler_Errors(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)
@@ -830,7 +807,6 @@ func setupSettingsHandlerWithMail(t *testing.T) (*handlers.SettingsHandler, *gor
 }
 
 func TestSettingsHandler_GetSMTPConfig(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, db := setupSettingsHandlerWithMail(t)
 
 	// Seed SMTP config
@@ -859,7 +835,6 @@ func TestSettingsHandler_GetSMTPConfig(t *testing.T) {
 }
 
 func TestSettingsHandler_GetSMTPConfig_Empty(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := newAdminRouter()
@@ -877,7 +852,6 @@ func TestSettingsHandler_GetSMTPConfig_Empty(t *testing.T) {
 }
 
 func TestSettingsHandler_GetSMTPConfig_DatabaseError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, db := setupSettingsHandlerWithMail(t)
 	sqlDB, _ := db.DB()
 	_ = sqlDB.Close()
@@ -893,7 +867,6 @@ func TestSettingsHandler_GetSMTPConfig_DatabaseError(t *testing.T) {
 }
 
 func TestSettingsHandler_GetSMTPConfig_NonAdminForbidden(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := gin.New()
@@ -912,7 +885,6 @@ func TestSettingsHandler_GetSMTPConfig_NonAdminForbidden(t *testing.T) {
 }
 
 func TestSettingsHandler_UpdateSMTPConfig_NonAdmin(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := newAdminRouter()
@@ -938,7 +910,6 @@ func TestSettingsHandler_UpdateSMTPConfig_NonAdmin(t *testing.T) {
 }
 
 func TestSettingsHandler_UpdateSMTPConfig_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := newAdminRouter()
@@ -957,7 +928,6 @@ func TestSettingsHandler_UpdateSMTPConfig_InvalidJSON(t *testing.T) {
 }
 
 func TestSettingsHandler_UpdateSMTPConfig_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := newAdminRouter()
@@ -985,7 +955,6 @@ func TestSettingsHandler_UpdateSMTPConfig_Success(t *testing.T) {
 }
 
 func TestSettingsHandler_UpdateSMTPConfig_KeepExistingPassword(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, db := setupSettingsHandlerWithMail(t)
 
 	// Seed existing password
@@ -1025,7 +994,6 @@ func TestSettingsHandler_UpdateSMTPConfig_KeepExistingPassword(t *testing.T) {
 }
 
 func TestSettingsHandler_TestSMTPConfig_NonAdmin(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := newAdminRouter()
@@ -1043,7 +1011,6 @@ func TestSettingsHandler_TestSMTPConfig_NonAdmin(t *testing.T) {
 }
 
 func TestSettingsHandler_TestSMTPConfig_NotConfigured(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := newAdminRouter()
@@ -1064,7 +1031,6 @@ func TestSettingsHandler_TestSMTPConfig_NotConfigured(t *testing.T) {
 }
 
 func TestSettingsHandler_TestSMTPConfig_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, db := setupSettingsHandlerWithMail(t)
 
 	host, port := startTestSMTPServer(t)
@@ -1093,7 +1059,6 @@ func TestSettingsHandler_TestSMTPConfig_Success(t *testing.T) {
 }
 
 func TestSettingsHandler_SendTestEmail_NonAdmin(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := newAdminRouter()
@@ -1114,7 +1079,6 @@ func TestSettingsHandler_SendTestEmail_NonAdmin(t *testing.T) {
 }
 
 func TestSettingsHandler_SendTestEmail_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := newAdminRouter()
@@ -1133,7 +1097,6 @@ func TestSettingsHandler_SendTestEmail_InvalidJSON(t *testing.T) {
 }
 
 func TestSettingsHandler_SendTestEmail_NotConfigured(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := newAdminRouter()
@@ -1157,7 +1120,6 @@ func TestSettingsHandler_SendTestEmail_NotConfigured(t *testing.T) {
 }
 
 func TestSettingsHandler_SendTestEmail_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, db := setupSettingsHandlerWithMail(t)
 
 	host, port := startTestSMTPServer(t)
@@ -1199,7 +1161,6 @@ func TestMaskPassword(t *testing.T) {
 // ============= URL Testing Tests =============
 
 func TestSettingsHandler_ValidatePublicURL_NonAdmin(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := newAdminRouter()
@@ -1220,7 +1181,6 @@ func TestSettingsHandler_ValidatePublicURL_NonAdmin(t *testing.T) {
 }
 
 func TestSettingsHandler_ValidatePublicURL_InvalidFormat(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := newAdminRouter()
@@ -1257,7 +1217,6 @@ func TestSettingsHandler_ValidatePublicURL_InvalidFormat(t *testing.T) {
 }
 
 func TestSettingsHandler_ValidatePublicURL_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := newAdminRouter()
@@ -1297,7 +1256,6 @@ func TestSettingsHandler_ValidatePublicURL_Success(t *testing.T) {
 }
 
 func TestSettingsHandler_TestPublicURL_NonAdmin(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := newAdminRouter()
@@ -1318,7 +1276,6 @@ func TestSettingsHandler_TestPublicURL_NonAdmin(t *testing.T) {
 }
 
 func TestSettingsHandler_TestPublicURL_NoRole(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := gin.New()
@@ -1336,7 +1293,6 @@ func TestSettingsHandler_TestPublicURL_NoRole(t *testing.T) {
 }
 
 func TestSettingsHandler_TestPublicURL_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := newAdminRouter()
@@ -1355,7 +1311,6 @@ func TestSettingsHandler_TestPublicURL_InvalidJSON(t *testing.T) {
 }
 
 func TestSettingsHandler_TestPublicURL_InvalidURL(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := newAdminRouter()
@@ -1380,7 +1335,6 @@ func TestSettingsHandler_TestPublicURL_InvalidURL(t *testing.T) {
 }
 
 func TestSettingsHandler_TestPublicURL_PrivateIPBlocked(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := newAdminRouter()
@@ -1430,7 +1384,6 @@ func contains(s, substr string) bool {
 }
 
 func TestSettingsHandler_TestPublicURL_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	// NOTE: Using a real public URL instead of httptest.NewServer() because
@@ -1464,7 +1417,6 @@ func TestSettingsHandler_TestPublicURL_Success(t *testing.T) {
 }
 
 func TestSettingsHandler_TestPublicURL_DNSFailure(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := newAdminRouter()
@@ -1493,7 +1445,6 @@ func TestSettingsHandler_TestPublicURL_DNSFailure(t *testing.T) {
 }
 
 func TestSettingsHandler_TestPublicURL_ConnectivityError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := newAdminRouter()
@@ -1584,7 +1535,6 @@ func TestSettingsHandler_TestPublicURL_SSRFProtection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gin.SetMode(gin.TestMode)
 			handler, _ := setupSettingsHandlerWithMail(t)
 
 			router := newAdminRouter()
@@ -1619,7 +1569,6 @@ func TestSettingsHandler_TestPublicURL_SSRFProtection(t *testing.T) {
 }
 
 func TestSettingsHandler_TestPublicURL_EmbeddedCredentials(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := newAdminRouter()
@@ -1647,7 +1596,6 @@ func TestSettingsHandler_TestPublicURL_EmbeddedCredentials(t *testing.T) {
 }
 
 func TestSettingsHandler_TestPublicURL_EmptyURL(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := newAdminRouter()
@@ -1679,7 +1627,6 @@ func TestSettingsHandler_TestPublicURL_EmptyURL(t *testing.T) {
 }
 
 func TestSettingsHandler_TestPublicURL_InvalidScheme(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := newAdminRouter()
@@ -1719,7 +1666,6 @@ func TestSettingsHandler_TestPublicURL_InvalidScheme(t *testing.T) {
 }
 
 func TestSettingsHandler_ValidatePublicURL_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := newAdminRouter()
@@ -1738,7 +1684,6 @@ func TestSettingsHandler_ValidatePublicURL_InvalidJSON(t *testing.T) {
 }
 
 func TestSettingsHandler_ValidatePublicURL_URLWithWarning(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := newAdminRouter()
@@ -1765,7 +1710,6 @@ func TestSettingsHandler_ValidatePublicURL_URLWithWarning(t *testing.T) {
 }
 
 func TestSettingsHandler_UpdateSMTPConfig_DatabaseError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, db := setupSettingsHandlerWithMail(t)
 
 	// Close the database to force an error
@@ -1798,7 +1742,6 @@ func TestSettingsHandler_UpdateSMTPConfig_DatabaseError(t *testing.T) {
 }
 
 func TestSettingsHandler_TestPublicURL_IPv6LocalhostBlocked(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
 	router := newAdminRouter()
@@ -1829,7 +1772,6 @@ func TestSettingsHandler_TestPublicURL_IPv6LocalhostBlocked(t *testing.T) {
 // the tag is present. Re-adding the tag would silently regress the CrowdSec enable
 // flow (which sends value="" to clear the setting).
 func TestUpdateSetting_EmptyValueIsAccepted(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)
@@ -1853,7 +1795,6 @@ func TestUpdateSetting_EmptyValueIsAccepted(t *testing.T) {
 // from Value and not accidentally also from Key. A request with no "key" field must
 // still return 400.
 func TestUpdateSetting_MissingKeyRejected(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
 
 	handler := handlers.NewSettingsHandler(db)

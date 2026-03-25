@@ -21,7 +21,6 @@ func setupAccessListTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	err = db.AutoMigrate(&models.AccessList{}, &models.ProxyHost{})
 	assert.NoError(t, err)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	handler := NewAccessListHandler(db)

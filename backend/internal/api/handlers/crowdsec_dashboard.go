@@ -203,7 +203,7 @@ func (h *CrowdsecHandler) fetchActiveDecisionCount(ctx context.Context) int64 {
 		}
 	}
 
-	baseURL, err := validateCrowdsecLAPIBaseURL(lapiURL)
+	baseURL, err := h.resolveLAPIURLValidator(lapiURL)
 	if err != nil {
 		return -1
 	}
@@ -476,7 +476,7 @@ func (h *CrowdsecHandler) fetchLAPIAlerts(ctx context.Context, since time.Time, 
 		}
 	}
 
-	baseURL, err := validateCrowdsecLAPIBaseURL(lapiURL)
+	baseURL, err := h.resolveLAPIURLValidator(lapiURL)
 	if err != nil {
 		return h.fetchAlertsCscli(ctx, scenario, limit)
 	}

@@ -28,7 +28,6 @@ func TestCrowdsecWave7_ReadAcquisitionConfig_ReadErrorOnDirectory(t *testing.T) 
 }
 
 func TestCrowdsecWave7_Start_CreateSecurityConfigFailsOnReadOnlyDB(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "crowdsec-readonly.db")

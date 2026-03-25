@@ -28,7 +28,6 @@ func TestSystemPermissionsWave6_RepairPermissions_NonRootBranchViaSeteuid(t *tes
 		require.NoError(t, restoreErr)
 	}()
 
-	gin.SetMode(gin.TestMode)
 
 	root := t.TempDir()
 	dataDir := filepath.Join(root, "data")

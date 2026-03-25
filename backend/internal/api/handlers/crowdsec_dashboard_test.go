@@ -19,7 +19,6 @@ import (
 // setupDashboardHandler creates a CrowdsecHandler with an in-memory DB seeded with decisions.
 func setupDashboardHandler(t *testing.T) (*CrowdsecHandler, *gin.Engine) {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
 
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
@@ -419,7 +418,6 @@ func TestDashboardCache_TTLExpiry_DeletesEntry(t *testing.T) {
 
 func TestDashboardSummary_DecisionsTrend(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
@@ -582,7 +580,6 @@ func TestDashboardSummary_7dRange(t *testing.T) {
 
 func TestDashboardSummary_TrendNegative100(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
@@ -914,19 +911,12 @@ func TestExportDecisions_AllSources(t *testing.T) {
 
 func TestDashboardSummary_ActiveDecisions_LAPIReachable(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`[{"id":"1"},{"id":"2"},{"id":"3"}]`))
 	}))
 	t.Cleanup(server.Close)
-
-	original := validateCrowdsecLAPIBaseURLFunc
-	validateCrowdsecLAPIBaseURLFunc = func(raw string) (*url.URL, error) {
-		return url.Parse(raw)
-	}
-	t.Cleanup(func() { validateCrowdsecLAPIBaseURLFunc = original })
 
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
@@ -938,6 +928,7 @@ func TestDashboardSummary_ActiveDecisions_LAPIReachable(t *testing.T) {
 	}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+	h.validateLAPIURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -961,18 +952,11 @@ func TestDashboardSummary_ActiveDecisions_LAPIReachable(t *testing.T) {
 
 func TestDashboardSummary_ActiveDecisions_LAPIBadStatus(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	t.Cleanup(server.Close)
-
-	original := validateCrowdsecLAPIBaseURLFunc
-	validateCrowdsecLAPIBaseURLFunc = func(raw string) (*url.URL, error) {
-		return url.Parse(raw)
-	}
-	t.Cleanup(func() { validateCrowdsecLAPIBaseURLFunc = original })
 
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
@@ -981,6 +965,7 @@ func TestDashboardSummary_ActiveDecisions_LAPIBadStatus(t *testing.T) {
 	}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+	h.validateLAPIURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -998,19 +983,12 @@ func TestDashboardSummary_ActiveDecisions_LAPIBadStatus(t *testing.T) {
 
 func TestDashboardSummary_ActiveDecisions_LAPIBadJSON(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`not-json`))
 	}))
 	t.Cleanup(server.Close)
-
-	original := validateCrowdsecLAPIBaseURLFunc
-	validateCrowdsecLAPIBaseURLFunc = func(raw string) (*url.URL, error) {
-		return url.Parse(raw)
-	}
-	t.Cleanup(func() { validateCrowdsecLAPIBaseURLFunc = original })
 
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
@@ -1019,6 +997,7 @@ func TestDashboardSummary_ActiveDecisions_LAPIBadJSON(t *testing.T) {
 	}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+	h.validateLAPIURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -1036,19 +1015,12 @@ func TestDashboardSummary_ActiveDecisions_LAPIBadJSON(t *testing.T) {
 
 func TestListAlerts_LAPISuccess(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`[{"id":"a1"},{"id":"a2"},{"id":"a3"},{"id":"a4"},{"id":"a5"}]`))
 	}))
 	t.Cleanup(server.Close)
-
-	original := validateCrowdsecLAPIBaseURLFunc
-	validateCrowdsecLAPIBaseURLFunc = func(raw string) (*url.URL, error) {
-		return url.Parse(raw)
-	}
-	t.Cleanup(func() { validateCrowdsecLAPIBaseURLFunc = original })
 
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
@@ -1057,6 +1029,7 @@ func TestListAlerts_LAPISuccess(t *testing.T) {
 	}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+	h.validateLAPIURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -1075,19 +1048,12 @@ func TestListAlerts_LAPISuccess(t *testing.T) {
 
 func TestListAlerts_LAPISuccessWithOffset(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`[{"id":"a1"},{"id":"a2"},{"id":"a3"},{"id":"a4"},{"id":"a5"}]`))
 	}))
 	t.Cleanup(server.Close)
-
-	original := validateCrowdsecLAPIBaseURLFunc
-	validateCrowdsecLAPIBaseURLFunc = func(raw string) (*url.URL, error) {
-		return url.Parse(raw)
-	}
-	t.Cleanup(func() { validateCrowdsecLAPIBaseURLFunc = original })
 
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
@@ -1096,6 +1062,7 @@ func TestListAlerts_LAPISuccessWithOffset(t *testing.T) {
 	}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+	h.validateLAPIURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -1116,19 +1083,12 @@ func TestListAlerts_LAPISuccessWithOffset(t *testing.T) {
 
 func TestListAlerts_LAPISuccessWithLargeOffset(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`[{"id":"a1"},{"id":"a2"}]`))
 	}))
 	t.Cleanup(server.Close)
-
-	original := validateCrowdsecLAPIBaseURLFunc
-	validateCrowdsecLAPIBaseURLFunc = func(raw string) (*url.URL, error) {
-		return url.Parse(raw)
-	}
-	t.Cleanup(func() { validateCrowdsecLAPIBaseURLFunc = original })
 
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
@@ -1137,6 +1097,7 @@ func TestListAlerts_LAPISuccessWithLargeOffset(t *testing.T) {
 	}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+	h.validateLAPIURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -1159,19 +1120,12 @@ func TestListAlerts_LAPISuccessWithLargeOffset(t *testing.T) {
 
 func TestListAlerts_LAPISuccessWithLimitSlicing(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`[{"id":"a1"},{"id":"a2"},{"id":"a3"},{"id":"a4"},{"id":"a5"}]`))
 	}))
 	t.Cleanup(server.Close)
-
-	original := validateCrowdsecLAPIBaseURLFunc
-	validateCrowdsecLAPIBaseURLFunc = func(raw string) (*url.URL, error) {
-		return url.Parse(raw)
-	}
-	t.Cleanup(func() { validateCrowdsecLAPIBaseURLFunc = original })
 
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
@@ -1180,6 +1134,7 @@ func TestListAlerts_LAPISuccessWithLimitSlicing(t *testing.T) {
 	}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+	h.validateLAPIURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -1200,19 +1155,12 @@ func TestListAlerts_LAPISuccessWithLimitSlicing(t *testing.T) {
 
 func TestListAlerts_LAPIBadJSON(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`not-json`))
 	}))
 	t.Cleanup(server.Close)
-
-	original := validateCrowdsecLAPIBaseURLFunc
-	validateCrowdsecLAPIBaseURLFunc = func(raw string) (*url.URL, error) {
-		return url.Parse(raw)
-	}
-	t.Cleanup(func() { validateCrowdsecLAPIBaseURLFunc = original })
 
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
@@ -1221,6 +1169,7 @@ func TestListAlerts_LAPIBadJSON(t *testing.T) {
 	}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+	h.validateLAPIURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -1239,18 +1188,11 @@ func TestListAlerts_LAPIBadJSON(t *testing.T) {
 
 func TestListAlerts_LAPIBadStatus(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 	}))
 	t.Cleanup(server.Close)
-
-	original := validateCrowdsecLAPIBaseURLFunc
-	validateCrowdsecLAPIBaseURLFunc = func(raw string) (*url.URL, error) {
-		return url.Parse(raw)
-	}
-	t.Cleanup(func() { validateCrowdsecLAPIBaseURLFunc = original })
 
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
@@ -1259,6 +1201,7 @@ func TestListAlerts_LAPIBadStatus(t *testing.T) {
 	}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+	h.validateLAPIURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -1276,7 +1219,6 @@ func TestListAlerts_LAPIBadStatus(t *testing.T) {
 
 func TestListAlerts_LAPIWithScenarioFilter(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	var capturedQuery string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1286,12 +1228,6 @@ func TestListAlerts_LAPIWithScenarioFilter(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	original := validateCrowdsecLAPIBaseURLFunc
-	validateCrowdsecLAPIBaseURLFunc = func(raw string) (*url.URL, error) {
-		return url.Parse(raw)
-	}
-	t.Cleanup(func() { validateCrowdsecLAPIBaseURLFunc = original })
-
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
 	require.NoError(t, db.Create(&models.SecurityConfig{
@@ -1299,6 +1235,7 @@ func TestListAlerts_LAPIWithScenarioFilter(t *testing.T) {
 	}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+	h.validateLAPIURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -1314,7 +1251,6 @@ func TestListAlerts_LAPIWithScenarioFilter(t *testing.T) {
 
 func TestFetchAlertsCscli_ErrorExec(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
@@ -1345,7 +1281,6 @@ func TestFetchAlertsCscli_ErrorExec(t *testing.T) {
 
 func TestFetchAlertsCscli_ValidJSON(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))

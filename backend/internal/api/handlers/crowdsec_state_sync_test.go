@@ -14,7 +14,6 @@ import (
 
 // TestStartSyncsSettingsTable verifies that Start() updates the settings table.
 func TestStartSyncsSettingsTable(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 
 	// Migrate both SecurityConfig and Setting tables
@@ -78,7 +77,6 @@ func TestStartSyncsSettingsTable(t *testing.T) {
 
 // TestStopSyncsSettingsTable verifies that Stop() updates the settings table.
 func TestStopSyncsSettingsTable(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 
 	// Migrate both SecurityConfig and Setting tables
@@ -147,7 +145,6 @@ func TestStopSyncsSettingsTable(t *testing.T) {
 
 // TestStartAndStopStateConsistency verifies consistent state across Start/Stop cycles.
 func TestStartAndStopStateConsistency(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
@@ -219,7 +216,6 @@ func TestStartAndStopStateConsistency(t *testing.T) {
 
 // TestExistingSettingIsUpdated verifies that an existing setting is updated, not duplicated.
 func TestExistingSettingIsUpdated(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
@@ -293,7 +289,6 @@ func (f *fakeFailingExec) Status(ctx context.Context, configDir string) (running
 
 // TestStartFailureRevertsSettings verifies that a failed Start reverts the settings.
 func TestStartFailureRevertsSettings(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
@@ -330,7 +325,6 @@ func TestStartFailureRevertsSettings(t *testing.T) {
 
 // TestStatusResponseFormat verifies the status endpoint response format.
 func TestStatusResponseFormat(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))

@@ -29,7 +29,6 @@ func (f *errorExec) Status(ctx context.Context, configDir string) (running bool,
 }
 
 func TestCrowdsec_Start_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -48,7 +47,6 @@ func TestCrowdsec_Start_Error(t *testing.T) {
 }
 
 func TestCrowdsec_Stop_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -67,7 +65,6 @@ func TestCrowdsec_Stop_Error(t *testing.T) {
 }
 
 func TestCrowdsec_Status_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -87,7 +84,6 @@ func TestCrowdsec_Status_Error(t *testing.T) {
 
 // ReadFile tests
 func TestCrowdsec_ReadFile_MissingPath(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -106,7 +102,6 @@ func TestCrowdsec_ReadFile_MissingPath(t *testing.T) {
 }
 
 func TestCrowdsec_ReadFile_PathTraversal(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -126,7 +121,6 @@ func TestCrowdsec_ReadFile_PathTraversal(t *testing.T) {
 }
 
 func TestCrowdsec_ReadFile_NotFound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -146,7 +140,6 @@ func TestCrowdsec_ReadFile_NotFound(t *testing.T) {
 
 // WriteFile tests
 func TestCrowdsec_WriteFile_InvalidPayload(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -166,7 +159,6 @@ func TestCrowdsec_WriteFile_InvalidPayload(t *testing.T) {
 }
 
 func TestCrowdsec_WriteFile_MissingPath(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -189,7 +181,6 @@ func TestCrowdsec_WriteFile_MissingPath(t *testing.T) {
 }
 
 func TestCrowdsec_WriteFile_PathTraversal(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -214,7 +205,6 @@ func TestCrowdsec_WriteFile_PathTraversal(t *testing.T) {
 
 // ExportConfig tests
 func TestCrowdsec_ExportConfig_NotFound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	// Use a non-existent directory
 	nonExistentDir := "/tmp/crowdsec-nonexistent-dir-12345"
@@ -238,7 +228,6 @@ func TestCrowdsec_ExportConfig_NotFound(t *testing.T) {
 
 // ListFiles tests
 func TestCrowdsec_ListFiles_EmptyDir(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -263,7 +252,6 @@ func TestCrowdsec_ListFiles_EmptyDir(t *testing.T) {
 }
 
 func TestCrowdsec_ListFiles_NonExistent(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	nonExistentDir := "/tmp/crowdsec-nonexistent-dir-67890"
 	_ = os.RemoveAll(nonExistentDir)
@@ -289,7 +277,6 @@ func TestCrowdsec_ListFiles_NonExistent(t *testing.T) {
 
 // ImportConfig error cases
 func TestCrowdsec_ImportConfig_NoFile(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -310,7 +297,6 @@ func TestCrowdsec_ImportConfig_NoFile(t *testing.T) {
 
 // Additional ReadFile test with nested path that exists
 func TestCrowdsec_ReadFile_NestedPath(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -336,7 +322,6 @@ func TestCrowdsec_ReadFile_NestedPath(t *testing.T) {
 
 // Test WriteFile when backup fails (simulate by making dir unwritable)
 func TestCrowdsec_WriteFile_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -364,7 +349,6 @@ func TestCrowdsec_WriteFile_Success(t *testing.T) {
 }
 
 func TestCrowdsec_ListPresets_Disabled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "false")
 	tmpDir := t.TempDir()
@@ -383,7 +367,6 @@ func TestCrowdsec_ListPresets_Disabled(t *testing.T) {
 }
 
 func TestCrowdsec_ListPresets_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -406,7 +389,6 @@ func TestCrowdsec_ListPresets_Success(t *testing.T) {
 }
 
 func TestCrowdsec_PullPreset_Validation(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -431,7 +413,6 @@ func TestCrowdsec_PullPreset_Validation(t *testing.T) {
 }
 
 func TestCrowdsec_ApplyPreset_Validation(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 

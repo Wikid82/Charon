@@ -50,7 +50,6 @@ func addAdminMiddleware(router *gin.Engine) {
 }
 
 func TestImportHandler_GetStatus(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 
 	// Case 1: No active session, no mount
@@ -78,7 +77,6 @@ func TestImportHandler_GetStatus(t *testing.T) {
 }
 
 func TestImportHandler_Commit(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
@@ -120,7 +118,6 @@ func TestImportHandler_Commit(t *testing.T) {
 }
 
 func TestImportHandler_Upload(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 
 	// Use fake caddy script
@@ -151,7 +148,6 @@ func TestImportHandler_Upload(t *testing.T) {
 }
 
 func TestImportHandler_GetPreview_WithContent(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 	tmpDir := t.TempDir()
 	handler := handlers.NewImportHandler(db, "echo", tmpDir, "")
@@ -188,7 +184,6 @@ func TestImportHandler_GetPreview_WithContent(t *testing.T) {
 }
 
 func TestImportHandler_Commit_Errors(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
@@ -233,7 +228,6 @@ func TestImportHandler_Commit_Errors(t *testing.T) {
 }
 
 func TestImportHandler_Cancel_Errors(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
@@ -279,7 +273,6 @@ func TestCheckMountedImport(t *testing.T) {
 }
 
 func TestImportHandler_Upload_Failure(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 
 	// Use fake caddy script that fails
@@ -310,7 +303,6 @@ func TestImportHandler_Upload_Failure(t *testing.T) {
 }
 
 func TestImportHandler_Upload_Conflict(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 
 	// Pre-create a host to cause conflict
@@ -359,7 +351,6 @@ func TestImportHandler_Upload_Conflict(t *testing.T) {
 }
 
 func TestImportHandler_GetPreview_BackupContent(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 	tmpDir := t.TempDir()
 	handler := handlers.NewImportHandler(db, "echo", tmpDir, "")
@@ -410,7 +401,6 @@ func TestImportHandler_RegisterRoutes(t *testing.T) {
 }
 
 func TestImportHandler_GetPreview_TransientMount(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 	tmpDir := t.TempDir()
 	mountPath := filepath.Join(tmpDir, "mounted.caddyfile")
@@ -455,7 +445,6 @@ func TestImportHandler_GetPreview_TransientMount(t *testing.T) {
 }
 
 func TestImportHandler_Commit_TransientUpload(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 	tmpDir := t.TempDir()
 
@@ -515,7 +504,6 @@ func TestImportHandler_Commit_TransientUpload(t *testing.T) {
 }
 
 func TestImportHandler_Commit_TransientMount(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 	tmpDir := t.TempDir()
 	mountPath := filepath.Join(tmpDir, "mounted.caddyfile")
@@ -562,7 +550,6 @@ func TestImportHandler_Commit_TransientMount(t *testing.T) {
 }
 
 func TestImportHandler_Cancel_TransientUpload(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 	tmpDir := t.TempDir()
 
@@ -597,7 +584,6 @@ func TestImportHandler_Cancel_TransientUpload(t *testing.T) {
 }
 
 func TestImportHandler_DetectImports(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
@@ -660,7 +646,6 @@ func TestImportHandler_DetectImports(t *testing.T) {
 }
 
 func TestImportHandler_DetectImports_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
@@ -676,7 +661,6 @@ func TestImportHandler_DetectImports_InvalidJSON(t *testing.T) {
 }
 
 func TestImportHandler_UploadMulti(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 	tmpDir := t.TempDir()
 
@@ -791,7 +775,6 @@ func TestImportHandler_UploadMulti(t *testing.T) {
 // Additional tests for comprehensive coverage
 
 func TestImportHandler_Cancel_MissingSessionUUID(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
@@ -810,7 +793,6 @@ func TestImportHandler_Cancel_MissingSessionUUID(t *testing.T) {
 }
 
 func TestImportHandler_Cancel_InvalidSessionUUID(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
@@ -829,7 +811,6 @@ func TestImportHandler_Cancel_InvalidSessionUUID(t *testing.T) {
 }
 
 func TestImportHandler_Commit_InvalidSessionUUID(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
@@ -884,7 +865,6 @@ func (m *mockProxyHostService) List() ([]models.ProxyHost, error) {
 
 // TestImportHandler_Commit_UpdateFailure tests the error logging path when Update fails (line 676)
 func TestImportHandler_Commit_UpdateFailure(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 
 	// Create an existing host that we'll try to overwrite
@@ -959,7 +939,6 @@ func TestImportHandler_Commit_UpdateFailure(t *testing.T) {
 
 // TestImportHandler_Commit_CreateFailure tests the error logging path when Create fails (line 682)
 func TestImportHandler_Commit_CreateFailure(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 
 	// Create an existing host to cause a duplicate error
@@ -1019,7 +998,6 @@ func TestImportHandler_Commit_CreateFailure(t *testing.T) {
 
 // TestUpload_NormalizationSuccess tests the success path where NormalizeCaddyfile succeeds (line 271)
 func TestUpload_NormalizationSuccess(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 
 	// Use fake caddy script that handles both fmt and adapt
@@ -1065,7 +1043,6 @@ func TestUpload_NormalizationSuccess(t *testing.T) {
 
 // TestUpload_NormalizationFallback tests the fallback path where NormalizeCaddyfile fails (line 269)
 func TestUpload_NormalizationFallback(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 
 	// Use fake caddy script that fails fmt but succeeds on adapt
@@ -1113,7 +1090,6 @@ func TestUpload_NormalizationFallback(t *testing.T) {
 
 // TestCommit_OverwriteAction tests that overwrite preserves certificate ID
 func TestCommit_OverwriteAction(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 
 	// Create existing host with certificate association
@@ -1184,7 +1160,6 @@ func ptrToUint(v uint) *uint {
 
 // TestCommit_RenameAction tests that rename appends suffix
 func TestCommit_RenameAction(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 
 	// Create existing host
@@ -1252,7 +1227,6 @@ func TestCommit_RenameAction(t *testing.T) {
 }
 
 func TestGetPreview_WithConflictDetails(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 	tmpDir := t.TempDir()
 	mountPath := filepath.Join(tmpDir, "mounted.caddyfile")
@@ -1310,7 +1284,6 @@ func TestGetPreview_WithConflictDetails(t *testing.T) {
 }
 
 func TestSafeJoin_PathTraversalCases(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 	tmpDir := t.TempDir()
 	handler := handlers.NewImportHandler(db, "echo", tmpDir, "")
@@ -1375,7 +1348,6 @@ func TestSafeJoin_PathTraversalCases(t *testing.T) {
 }
 
 func TestCommit_SkipAction(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 
 	session := models.ImportSession{
@@ -1433,7 +1405,6 @@ func TestCommit_SkipAction(t *testing.T) {
 }
 
 func TestCommit_CustomNames(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 
 	session := models.ImportSession{
@@ -1483,7 +1454,6 @@ func TestCommit_CustomNames(t *testing.T) {
 }
 
 func TestGetStatus_AlreadyCommittedMount(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 	tmpDir := t.TempDir()
 	mountPath := filepath.Join(tmpDir, "mounted.caddyfile")
@@ -1519,7 +1489,6 @@ func TestGetStatus_AlreadyCommittedMount(t *testing.T) {
 }
 
 func TestImportHandler_Commit_SessionSaveWarning(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 
 	// Create an import session with one host to create
@@ -1591,7 +1560,6 @@ func newTestImportHandler(t *testing.T, db *gorm.DB, importDir string, mountPath
 
 // TestGetStatus_DatabaseError tests GetStatus when database query fails
 func TestGetStatus_DatabaseError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 	handler := newTestImportHandler(t, db, t.TempDir(), "")
 
@@ -1613,7 +1581,6 @@ func TestGetStatus_DatabaseError(t *testing.T) {
 
 // TestGetPreview_MountAlreadyCommitted tests GetPreview when mount is already committed with FUTURE timestamp
 func TestGetPreview_MountAlreadyCommitted(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 
 	// Create mount file
@@ -1648,7 +1615,6 @@ func TestGetPreview_MountAlreadyCommitted(t *testing.T) {
 
 // TestUpload_MkdirAllFailure tests Upload when MkdirAll fails
 func TestUpload_MkdirAllFailure(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 
 	// Create a FILE where uploads directory should be (blocks MkdirAll)
