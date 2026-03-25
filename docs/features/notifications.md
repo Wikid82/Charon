@@ -270,12 +270,11 @@ Ntfy delivers push notifications to your phone or desktop using a simple HTTP-ba
 1. Pick a topic name (or use an existing one) on [ntfy.sh](https://ntfy.sh) or your self-hosted server
 2. In Charon, go to **Settings** → **Notifications** and click **"Add Provider"**
 3. Select **Ntfy** as the service type
-4. Enter your server URL (e.g., `https://ntfy.sh` or `https://ntfy.example.com`)
-5. Enter your topic name
-6. (Optional) Add a Bearer token if your server requires authentication
-7. Configure notification triggers and save
+4. Enter your Topic URL (e.g., `https://ntfy.sh/charon-alerts` or `https://ntfy.example.com/charon-alerts`)
+5. (Optional) Add an access token if your topic requires authentication
+6. Configure notification triggers and save
 
-> **Security:** Your Bearer token is stored securely and is never exposed in API responses.
+> **Security:** Your access token is stored securely and is never exposed in API responses.
 
 #### Basic Message
 
