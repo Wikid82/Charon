@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Notifications:** Added Ntfy notification provider with support for self-hosted and cloud instances, optional Bearer token authentication, and JSON template customization
+
 - **Certificate Deletion**: Clean up expired and unused certificates directly from the Certificates page
   - Expired Let's Encrypt certificates not attached to any proxy host can now be deleted
   - Custom and staging certificates remain deletable when not in use
@@ -55,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Notifications:** Fixed Pushover token-clearing bug where tokens were silently stripped on provider create/update
 - **TCP Monitor Creation**: Fixed misleading form UX that caused silent HTTP 500 errors when creating TCP monitors
   - Corrected URL placeholder to show `host:port` format instead of the incorrect `tcp://host:port` prefix
   - Added dynamic per-type placeholder and helper text (HTTP monitors show a full URL example; TCP monitors show `host:port`)

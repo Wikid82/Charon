@@ -19,6 +19,7 @@ Notifications can be triggered by various events:
 | **Slack** | ✅ Yes | ✅ Webhooks | ✅ Native Formatting |
 | **Gotify** | ✅ Yes | ✅ HTTP API | ✅ Priority + Extras |
 | **Pushover** | ✅ Yes | ✅ HTTP API | ✅ Priority + Sound |
+| **Ntfy** | ✅ Yes | ✅ HTTP API | ✅ Priority + Tags |
 | **Custom Webhook** | ✅ Yes | ✅ HTTP API | ✅ Template-Controlled |
 | **Email** | ❌ No | ✅ SMTP | ✅ HTML Branded Templates |
 
@@ -259,6 +260,51 @@ Pushover delivers push notifications directly to your iOS, Android, or desktop d
 - `1` - High (bypass quiet hours)
 
 > **Note:** Emergency priority (`2`) is not supported and will be rejected with a clear error.
+
+### Ntfy
+
+Ntfy delivers push notifications to your phone or desktop using a simple HTTP-based publish/subscribe model. Works with the free hosted service at [ntfy.sh](https://ntfy.sh) or your own self-hosted instance.
+
+**Setup:**
+
+1. Pick a topic name (or use an existing one) on [ntfy.sh](https://ntfy.sh) or your self-hosted server
+2. In Charon, go to **Settings** → **Notifications** and click **"Add Provider"**
+3. Select **Ntfy** as the service type
+4. Enter your Topic URL (e.g., `https://ntfy.sh/charon-alerts` or `https://ntfy.example.com/charon-alerts`)
+5. (Optional) Add an access token if your topic requires authentication
+6. Configure notification triggers and save
+
+> **Security:** Your access token is stored securely and is never exposed in API responses.
+
+#### Basic Message
+
+```json
+{
+  "topic": "charon-alerts",
+  "title": "{{.Title}}",
+  "message": "{{.Message}}"
+}
+```
+
+#### Message with Priority and Tags
+
+```json
+{
+  "topic": "charon-alerts",
+  "title": "{{.Title}}",
+  "message": "{{.Message}}",
+  "priority": 4,
+  "tags": ["rotating_light"]
+}
+```
+
+**Ntfy priority levels:**
+
+- `1` - Min
+- `2` - Low
+- `3` - Default
+- `4` - High
+- `5` - Max (urgent)
 
 ## Planned Provider Expansion
 

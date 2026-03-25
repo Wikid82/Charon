@@ -3878,3 +3878,31 @@ func TestPushoverDispatch_DefaultBaseURL(t *testing.T) {
 	err := svc.sendJSONPayload(ctx, provider, data)
 	require.Error(t, err)
 }
+
+func TestIsSupportedNotificationProviderType_Ntfy(t *testing.T) {
+	assert.True(t, isSupportedNotificationProviderType("ntfy"))
+	assert.True(t, isSupportedNotificationProviderType("Ntfy"))
+	assert.True(t, isSupportedNotificationProviderType(" ntfy "))
+}
+
+func TestIsDispatchEnabled_NtfyDefaultTrue(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	_ = db.AutoMigrate(&models.Setting{})
+	svc := NewNotificationService(db, nil)
+
+	assert.True(t, svc.isDispatchEnabled("ntfy"))
+}
+
+func TestIsDispatchEnabled_NtfyDisabledByFlag(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	_ = db.AutoMigrate(&models.Setting{})
+	db.Create(&models.Setting{Key: "feature.notifications.service.ntfy.enabled", Value: "false"})
+	svc := NewNotificationService(db, nil)
+
+	assert.False(t, svc.isDispatchEnabled("ntfy"))
+}
+
+func TestSupportsJSONTemplates_Ntfy(t *testing.T) {
+	assert.True(t, supportsJSONTemplates("ntfy"))
+	assert.True(t, supportsJSONTemplates("Ntfy"))
+}
