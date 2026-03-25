@@ -27,49 +27,7 @@ public disclosure.
 
 ## Known Vulnerabilities
 
-### [CRITICAL] CVE-2025-68121 · Go Stdlib Critical in CrowdSec Bundled Binaries
-
-| Field        | Value |
-|--------------|-------|
-| **ID**       | CVE-2025-68121 (see also CHARON-2025-001) |
-| **Severity** | Critical |
-| **Status**   | Awaiting Upstream |
-
-**What**
-A critical Go standard library vulnerability affects CrowdSec binaries bundled in the Charon
-container image. The binaries were compiled against Go 1.25.6, which contains this flaw.
-Charon's own application code, compiled with Go 1.26.1, is unaffected.
-
-**Who**
-
-- Discovered by: Automated scan (Grype)
-- Reported: 2026-03-20
-- Affects: CrowdSec Agent component within the container; not directly exposed through Charon's
-  primary application interface
-
-**Where**
-
-- Component: CrowdSec Agent (bundled `cscli` and `crowdsec` binaries)
-- Versions affected: Charon container images with CrowdSec binaries compiled against Go < 1.25.7
-
-**When**
-
-- Discovered: 2026-03-20
-- Disclosed (if public): Not yet publicly disclosed
-- Target fix: When `golang:1.26.2-alpine` is published on Docker Hub
-
-**How**
-The vulnerability resides entirely within CrowdSec's compiled binary artifacts. Exploitation
-is limited to the CrowdSec agent's internal execution paths, which are not externally exposed
-through Charon's API or network interface.
-
-**Planned Remediation**
-`golang:1.26.2-alpine` is not yet available on Docker Hub. The `GO_VERSION` ARG has been
-reverted to `1.26.1` (the latest published image) until `1.26.2` is released. Once
-`golang:1.26.2-alpine` is available, bumping `GO_VERSION` to `1.26.2` and rebuilding the image
-will also resolve CVE-2026-25679 (High) and CVE-2025-61732 (High) tracked under CHARON-2025-001.
-
----
+Last reviewed: 2026-03-24
 
 ### [HIGH] CVE-2026-2673 · OpenSSL TLS 1.3 Key Exchange Group Downgrade
 
@@ -115,13 +73,135 @@ available, update the pinned `ALPINE_IMAGE` digest in the Dockerfile, or add an 
 
 ---
 
-### [HIGH] CHARON-2025-001 · CrowdSec Bundled Binaries — Go Stdlib CVEs
+### [MEDIUM] CVE-2025-60876 · BusyBox wget HTTP Request Smuggling
+
+| Field        | Value |
+|--------------|-------|
+| **ID**       | CVE-2025-60876 |
+| **Severity** | Medium · 6.5 |
+| **Status**   | Awaiting Upstream |
+
+**What**
+BusyBox wget through 1.37 accepts raw CR/LF and other C0 control bytes in the HTTP
+request-target, allowing request line splitting and header injection (CWE-284).
+
+**Who**
+
+- Discovered by: Automated scan (Grype)
+- Reported: 2026-03-24
+- Affects: Container runtime environment; Charon does not invoke busybox wget in application logic
+
+**Where**
+
+- Component: Alpine 3.23.3 base image (`busybox` 1.37.0-r30)
+- Versions affected: All Charon images using Alpine 3.23.3 with busybox < patched version
+
+**When**
+
+- Discovered: 2026-03-24
+- Disclosed (if public): Not yet publicly disclosed with fix
+- Target fix: When Alpine Security publishes a patched busybox APK
+
+**How**
+The vulnerable wget applet would need to be manually invoked inside the container with
+attacker-controlled URLs. Charon's application logic does not use busybox wget. EPSS score is
+0.00064 (0.20 percentile), indicating extremely low exploitation probability.
+
+**Planned Remediation**
+Monitor Alpine 3.23 for a patched busybox APK. No immediate action required. Practical risk to
+Charon users is negligible since the vulnerable code path is not exercised.
+
+---
+
+### [LOW] CVE-2026-26958 · edwards25519 MultiScalarMult Invalid Results
+
+| Field        | Value |
+|--------------|-------|
+| **ID**       | CVE-2026-26958 (GHSA-fw7p-63qq-7hpr) |
+| **Severity** | Low · 1.7 |
+| **Status**   | Awaiting Upstream |
+
+**What**
+`filippo.io/edwards25519` v1.1.0 `MultiScalarMult` produces invalid results or undefined
+behavior if the receiver is not the identity point. Fix available at v1.1.1 but requires
+CrowdSec to rebuild.
+
+**Who**
+
+- Discovered by: Automated scan (Grype)
+- Reported: 2026-03-24
+- Affects: CrowdSec Agent component within the container; not directly exposed through Charon's
+  primary application interface
+
+**Where**
+
+- Component: CrowdSec Agent (bundled `cscli` and `crowdsec` binaries)
+- Versions affected: CrowdSec builds using `filippo.io/edwards25519` < v1.1.1
+
+**When**
+
+- Discovered: 2026-03-24
+- Disclosed (if public): Public
+- Target fix: When CrowdSec releases a build with updated dependency
+
+**How**
+This is a rarely used advanced API within the edwards25519 library. CrowdSec does not directly
+expose MultiScalarMult to external input. EPSS score is 0.00018 (0.04 percentile).
+
+**Planned Remediation**
+Awaiting CrowdSec upstream release with updated dependency. No action available for Charon
+maintainers.
+
+---
+
+## Patched Vulnerabilities
+
+### ✅ [CRITICAL] CVE-2025-68121 · Go Stdlib Critical in CrowdSec Bundled Binaries
+
+| Field        | Value |
+|--------------|-------|
+| **ID**       | CVE-2025-68121 (see also CHARON-2025-001) |
+| **Severity** | Critical |
+| **Patched**  | 2026-03-24 |
+
+**What**
+A critical Go standard library vulnerability affects CrowdSec binaries bundled in the Charon
+container image. The binaries were compiled against Go 1.25.6, which contains this flaw.
+Charon's own application code, compiled with Go 1.26.1, is unaffected.
+
+**Who**
+
+- Discovered by: Automated scan (Grype)
+- Reported: 2026-03-20
+
+**Where**
+
+- Component: CrowdSec Agent (bundled `cscli` and `crowdsec` binaries)
+- Versions affected: Charon container images with CrowdSec binaries compiled against Go < 1.25.7
+
+**When**
+
+- Discovered: 2026-03-20
+- Patched: 2026-03-24
+- Time to patch: 4 days
+
+**How**
+The vulnerability resides entirely within CrowdSec's compiled binary artifacts. Exploitation
+is limited to the CrowdSec agent's internal execution paths, which are not externally exposed
+through Charon's API or network interface.
+
+**Resolution**
+CrowdSec binaries now compiled with Go 1.26.1 (was 1.25.6).
+
+---
+
+### ✅ [HIGH] CHARON-2025-001 · CrowdSec Bundled Binaries — Go Stdlib CVEs
 
 | Field        | Value |
 |--------------|-------|
 | **ID**       | CHARON-2025-001 (aliases: CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729, CVE-2026-25679, CVE-2025-61732, CVE-2026-27142, CVE-2026-27139) |
 | **Severity** | High · (preliminary, CVSS scores pending upstream confirmation) |
-| **Status**   | Awaiting Upstream |
+| **Patched**  | 2026-03-24 |
 
 **What**
 Multiple CVEs in Go standard library packages continue to accumulate in CrowdSec binaries bundled
@@ -135,8 +215,6 @@ Charon's own application code is unaffected.
 
 - Discovered by: Automated scan (Trivy, Grype)
 - Reported: 2025-12-01 (original cluster); expanded 2026-03-20
-- Affects: CrowdSec Agent component within the container; not directly exposed through Charon's
-  primary application interface
 
 **Where**
 
@@ -146,29 +224,26 @@ Charon's own application code is unaffected.
 **When**
 
 - Discovered: 2025-12-01
-- Disclosed (if public): Not yet publicly disclosed
-- Target fix: When `golang:1.26.2-alpine` is published on Docker Hub
+- Patched: 2026-03-24
+- Time to patch: 114 days
 
 **How**
 The CVEs reside entirely within CrowdSec's compiled binaries and cover HTTP/2, TLS, and archive
 processing paths that are not invoked by Charon's core application logic. The relevant network
 interfaces are not externally exposed via Charon's API surface.
 
-**Planned Remediation**
-`golang:1.26.2-alpine` is not yet available on Docker Hub. The `GO_VERSION` ARG has been
-reverted to `1.26.1` (the latest published image) until `1.26.2` is released. Once available,
-bumping `GO_VERSION` to `1.26.2` and rebuilding the image will resolve the entire alias cluster.
-CVE-2025-68121 (Critical severity, same root cause) is tracked separately above.
+**Resolution**
+CrowdSec binaries now compiled with Go 1.26.1.
 
 ---
 
-### [MEDIUM] CVE-2026-27171 · zlib CPU Exhaustion via Infinite Loop in CRC Combine Functions
+### ✅ [MEDIUM] CVE-2026-27171 · zlib CPU Exhaustion via Infinite Loop in CRC Combine Functions
 
 | Field        | Value |
 |--------------|-------|
 | **ID**       | CVE-2026-27171 |
 | **Severity** | Medium · 5.5 (NVD) / 2.9 (MITRE) |
-| **Status**   | Awaiting Upstream |
+| **Patched**  | 2026-03-24 |
 
 **What**
 zlib before 1.3.2 allows unbounded CPU consumption (denial of service) via the `crc32_combine64`
@@ -180,8 +255,6 @@ loop with no termination condition when given a specially crafted input, causing
 
 - Discovered by: 7aSecurity audit (commissioned by OSTIF)
 - Reported: 2026-02-17
-- Affects: Any component in the container that calls `crc32_combine`-family functions with
-  attacker-controlled input; not directly exposed through Charon's application interface
 
 **Where**
 
@@ -190,24 +263,19 @@ loop with no termination condition when given a specially crafted input, causing
 
 **When**
 
-- Discovered: 2026-02-17 (NVD published 2026-02-17)
-- Disclosed (if public): 2026-02-17
-- Target fix: When Alpine 3.23 publishes a patched `zlib` APK (requires zlib 1.3.2)
+- Discovered: 2026-02-17
+- Patched: 2026-03-24
+- Time to patch: 35 days
 
 **How**
 Exploitation requires local access (CVSS vector `AV:L`) and the ability to pass a crafted value
 to the `crc32_combine`-family functions. This code path is not invoked by Charon's reverse proxy
 or backend API. The vulnerability is non-blocking under the project's CI severity policy.
 
-**Planned Remediation**
-Monitor <https://security.alpinelinux.org/vuln/CVE-2026-27171> for a patched Alpine APK. Once
-available, update the pinned `ALPINE_IMAGE` digest in the Dockerfile, or add an explicit
-`RUN apk upgrade --no-cache zlib` to the runtime stage. Remove the `.trivyignore` entry at
-that time.
+**Resolution**
+Alpine now ships zlib 1.3.2-r0 (fix threshold was 1.3.2).
 
 ---
-
-## Patched Vulnerabilities
 
 ### ✅ [HIGH] CHARON-2026-001 · Debian Base Image CVE Cluster
 
@@ -565,4 +633,4 @@ We recognize security researchers who help improve Charon:
 
 ---
 
-**Last Updated**: 2026-03-20
+**Last Updated**: 2026-03-24

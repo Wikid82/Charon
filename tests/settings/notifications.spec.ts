@@ -294,8 +294,8 @@ test.describe('Notification Providers', () => {
 
       await test.step('Verify provider type select contains supported options', async () => {
         const providerTypeSelect = page.getByTestId('provider-type');
-        await expect(providerTypeSelect.locator('option')).toHaveCount(7);
-        await expect(providerTypeSelect.locator('option')).toHaveText(['Discord', 'Gotify', 'Generic Webhook', 'Email', 'Telegram', 'Slack', 'Pushover']);
+        await expect(providerTypeSelect.locator('option')).toHaveCount(8);
+        await expect(providerTypeSelect.locator('option')).toHaveText(['Discord', 'Gotify', 'Generic Webhook', 'Email', 'Telegram', 'Slack', 'Pushover', 'Ntfy']);
         await expect(providerTypeSelect).toBeEnabled();
       });
     });
