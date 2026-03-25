@@ -66,6 +66,7 @@ type CrowdsecHandler struct {
 	CaddyManager     *caddy.Manager // For config reload after bouncer registration
 	LAPIMaxWait      time.Duration  // For testing; 0 means 60s default
 	LAPIPollInterval time.Duration  // For testing; 0 means 500ms default
+	dashCache        *dashboardCache
 
 	// registrationMutex protects concurrent bouncer registration attempts
 	registrationMutex sync.Mutex
@@ -370,14 +371,15 @@ func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir
 		consoleSvc = crowdsec.NewConsoleEnrollmentService(db, &crowdsec.SecureCommandExecutor{}, dataDir, consoleSecret)
 	}
 	return &CrowdsecHandler{
-		DB:       db,
-		Executor: executor,
-		CmdExec:  &RealCommandExecutor{},
-		BinPath:  binPath,
-		DataDir:  dataDir,
-		Hub:      hubSvc,
-		Console:  consoleSvc,
-		Security: securitySvc,
+		DB:        db,
+		Executor:  executor,
+		CmdExec:   &RealCommandExecutor{},
+		BinPath:   binPath,
+		DataDir:   dataDir,
+		Hub:       hubSvc,
+		Console:   consoleSvc,
+		Security:  securitySvc,
+		dashCache: newDashboardCache(),
 	}
 }
 
@@ -2287,6 +2289,20 @@ func (h *CrowdsecHandler) BanIP(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "banned", "ip": ip, "duration": duration})
+
+	// Log to security_decisions for dashboard aggregation
+	if h.Security != nil {
+		parsedDur, _ := time.ParseDuration(duration)
+		_ = h.Security.LogDecision(&models.SecurityDecision{
+			IP:        ip,
+			Action:    "block",
+			Source:    "crowdsec",
+			RuleID:    reason,
+			Scenario:  "manual",
+			ExpiresAt: time.Now().Add(parsedDur),
+		})
+	}
+	h.dashCache.Invalidate("dashboard")
 }
 
 // UnbanIP removes a ban for an IP address
@@ -2313,6 +2329,7 @@ func (h *CrowdsecHandler) UnbanIP(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "unbanned", "ip": ip})
+	h.dashCache.Invalidate("dashboard")
 }
 
 // RegisterBouncer registers a new bouncer or returns existing bouncer status.
@@ -2711,4 +2728,11 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	// Acquisition configuration endpoints
 	rg.GET("/admin/crowdsec/acquisition", h.GetAcquisitionConfig)
 	rg.PUT("/admin/crowdsec/acquisition", h.UpdateAcquisitionConfig)
+	// Dashboard aggregation endpoints (PR-1)
+	rg.GET("/admin/crowdsec/dashboard/summary", h.DashboardSummary)
+	rg.GET("/admin/crowdsec/dashboard/timeline", h.DashboardTimeline)
+	rg.GET("/admin/crowdsec/dashboard/top-ips", h.DashboardTopIPs)
+	rg.GET("/admin/crowdsec/dashboard/scenarios", h.DashboardScenarios)
+	rg.GET("/admin/crowdsec/alerts", h.ListAlerts)
+	rg.GET("/admin/crowdsec/decisions/export", h.ExportDecisions)
 }
