@@ -106,7 +106,6 @@ func (m *MockDNSProviderService) GetDecryptedCredentials(ctx context.Context, id
 }
 
 func setupDNSProviderTestRouter() (*gin.Engine, *MockDNSProviderService) {
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	mockService := new(MockDNSProviderService)
 	handler := NewDNSProviderHandler(mockService)

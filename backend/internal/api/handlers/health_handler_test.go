@@ -11,7 +11,6 @@ import (
 )
 
 func TestHealthHandler(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/health", HealthHandler)
 

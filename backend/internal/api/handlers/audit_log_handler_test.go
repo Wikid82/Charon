@@ -30,7 +30,6 @@ func setupAuditLogTestDB(t *testing.T) *gorm.DB {
 }
 
 func TestAuditLogHandler_List(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupAuditLogTestDB(t)
 	securityService := services.NewSecurityService(db)
 	defer securityService.Close()
@@ -130,7 +129,6 @@ func TestAuditLogHandler_List(t *testing.T) {
 }
 
 func TestAuditLogHandler_Get(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupAuditLogTestDB(t)
 	securityService := services.NewSecurityService(db)
 	defer securityService.Close()
@@ -198,7 +196,6 @@ func TestAuditLogHandler_Get(t *testing.T) {
 }
 
 func TestAuditLogHandler_ListByProvider(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupAuditLogTestDB(t)
 	securityService := services.NewSecurityService(db)
 	defer securityService.Close()
@@ -286,7 +283,6 @@ func TestAuditLogHandler_ListByProvider(t *testing.T) {
 }
 
 func TestAuditLogHandler_ListWithDateFilters(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupAuditLogTestDB(t)
 	securityService := services.NewSecurityService(db)
 	defer securityService.Close()
@@ -371,7 +367,6 @@ func TestAuditLogHandler_ListWithDateFilters(t *testing.T) {
 
 // TestAuditLogHandler_ServiceErrors tests error handling when service layer fails
 func TestAuditLogHandler_ServiceErrors(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupAuditLogTestDB(t)
 	securityService := services.NewSecurityService(db)
 	defer securityService.Close()
@@ -422,7 +417,6 @@ func TestAuditLogHandler_ServiceErrors(t *testing.T) {
 
 // TestAuditLogHandler_List_PaginationBoundaryEdgeCases tests pagination boundary edge cases
 func TestAuditLogHandler_List_PaginationBoundaryEdgeCases(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupAuditLogTestDB(t)
 	securityService := services.NewSecurityService(db)
 	defer securityService.Close()
@@ -513,7 +507,6 @@ func TestAuditLogHandler_List_PaginationBoundaryEdgeCases(t *testing.T) {
 
 // TestAuditLogHandler_ListByProvider_PaginationBoundaryEdgeCases tests pagination boundary edge cases for provider list
 func TestAuditLogHandler_ListByProvider_PaginationBoundaryEdgeCases(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupAuditLogTestDB(t)
 	securityService := services.NewSecurityService(db)
 	defer securityService.Close()
@@ -583,7 +576,6 @@ func TestAuditLogHandler_ListByProvider_PaginationBoundaryEdgeCases(t *testing.T
 
 // TestAuditLogHandler_List_InvalidDateFormats tests handling of invalid date formats
 func TestAuditLogHandler_List_InvalidDateFormats(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupAuditLogTestDB(t)
 	securityService := services.NewSecurityService(db)
 	defer securityService.Close()
@@ -624,7 +616,6 @@ func TestAuditLogHandler_List_InvalidDateFormats(t *testing.T) {
 
 // TestAuditLogHandler_Get_InternalError tests Get when service returns internal error
 func TestAuditLogHandler_Get_InternalError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Create a fresh DB and immediately close it to simulate internal error
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})

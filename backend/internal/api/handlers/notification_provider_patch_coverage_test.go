@@ -36,7 +36,6 @@ func TestUpdate_BlockTypeMutationForNonDiscord(t *testing.T) {
 	service := services.NewNotificationService(db, nil)
 	handler := NewNotificationProviderHandler(service)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -88,7 +87,6 @@ func TestUpdate_AllowTypeMutationForDiscord(t *testing.T) {
 	service := services.NewNotificationService(db, nil)
 	handler := NewNotificationProviderHandler(service)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")

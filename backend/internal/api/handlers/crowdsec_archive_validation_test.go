@@ -251,7 +251,6 @@ func TestConfigArchiveValidator_RequiredFiles(t *testing.T) {
 // TestImportConfig_Validation tests the enhanced ImportConfig handler with validation.
 func TestImportConfig_Validation(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()
@@ -320,7 +319,6 @@ func TestImportConfig_Validation(t *testing.T) {
 // TestImportConfig_Rollback tests backup restoration on validation failure.
 func TestImportConfig_Rollback(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()

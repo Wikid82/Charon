@@ -23,7 +23,6 @@ func setupDomainCoverageDB(t *testing.T) *gorm.DB {
 }
 
 func TestDomainHandler_List_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupDomainCoverageDB(t)
 	h := NewDomainHandler(db, nil)
 
@@ -40,7 +39,6 @@ func TestDomainHandler_List_Error(t *testing.T) {
 }
 
 func TestDomainHandler_Create_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupDomainCoverageDB(t)
 	h := NewDomainHandler(db, nil)
 
@@ -55,7 +53,6 @@ func TestDomainHandler_Create_InvalidJSON(t *testing.T) {
 }
 
 func TestDomainHandler_Create_DBError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupDomainCoverageDB(t)
 	h := NewDomainHandler(db, nil)
 
@@ -76,7 +73,6 @@ func TestDomainHandler_Create_DBError(t *testing.T) {
 }
 
 func TestDomainHandler_Delete_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupDomainCoverageDB(t)
 	h := NewDomainHandler(db, nil)
 
@@ -103,7 +99,6 @@ func setupRemoteServerCoverageDB(t *testing.T) *gorm.DB {
 }
 
 func TestRemoteServerHandler_List_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupRemoteServerCoverageDB(t)
 	svc := services.NewRemoteServerService(db)
 	h := NewRemoteServerHandler(svc, nil)
@@ -121,7 +116,6 @@ func TestRemoteServerHandler_List_Error(t *testing.T) {
 }
 
 func TestRemoteServerHandler_List_EnabledOnly(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupRemoteServerCoverageDB(t)
 	svc := services.NewRemoteServerService(db)
 	h := NewRemoteServerHandler(svc, nil)
@@ -140,7 +134,6 @@ func TestRemoteServerHandler_List_EnabledOnly(t *testing.T) {
 }
 
 func TestRemoteServerHandler_Update_NotFound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupRemoteServerCoverageDB(t)
 	svc := services.NewRemoteServerService(db)
 	h := NewRemoteServerHandler(svc, nil)
@@ -155,7 +148,6 @@ func TestRemoteServerHandler_Update_NotFound(t *testing.T) {
 }
 
 func TestRemoteServerHandler_Update_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupRemoteServerCoverageDB(t)
 	svc := services.NewRemoteServerService(db)
 	h := NewRemoteServerHandler(svc, nil)
@@ -176,7 +168,6 @@ func TestRemoteServerHandler_Update_InvalidJSON(t *testing.T) {
 }
 
 func TestRemoteServerHandler_TestConnection_NotFound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupRemoteServerCoverageDB(t)
 	svc := services.NewRemoteServerService(db)
 	h := NewRemoteServerHandler(svc, nil)
@@ -191,7 +182,6 @@ func TestRemoteServerHandler_TestConnection_NotFound(t *testing.T) {
 }
 
 func TestRemoteServerHandler_TestConnectionCustom_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupRemoteServerCoverageDB(t)
 	svc := services.NewRemoteServerService(db)
 	h := NewRemoteServerHandler(svc, nil)
@@ -207,7 +197,6 @@ func TestRemoteServerHandler_TestConnectionCustom_InvalidJSON(t *testing.T) {
 }
 
 func TestRemoteServerHandler_TestConnectionCustom_Unreachable(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupRemoteServerCoverageDB(t)
 	svc := services.NewRemoteServerService(db)
 	h := NewRemoteServerHandler(svc, nil)
@@ -239,7 +228,6 @@ func setupUptimeCoverageDB(t *testing.T) *gorm.DB {
 }
 
 func TestUptimeHandler_List_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupUptimeCoverageDB(t)
 	svc := services.NewUptimeService(db, nil)
 	h := NewUptimeHandler(svc)
@@ -257,7 +245,6 @@ func TestUptimeHandler_List_Error(t *testing.T) {
 }
 
 func TestUptimeHandler_GetHistory_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupUptimeCoverageDB(t)
 	svc := services.NewUptimeService(db, nil)
 	h := NewUptimeHandler(svc)
@@ -276,7 +263,6 @@ func TestUptimeHandler_GetHistory_Error(t *testing.T) {
 }
 
 func TestUptimeHandler_Update_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupUptimeCoverageDB(t)
 	svc := services.NewUptimeService(db, nil)
 	h := NewUptimeHandler(svc)
@@ -293,7 +279,6 @@ func TestUptimeHandler_Update_InvalidJSON(t *testing.T) {
 }
 
 func TestUptimeHandler_Sync_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupUptimeCoverageDB(t)
 	svc := services.NewUptimeService(db, nil)
 	h := NewUptimeHandler(svc)
@@ -311,7 +296,6 @@ func TestUptimeHandler_Sync_Error(t *testing.T) {
 }
 
 func TestUptimeHandler_Delete_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupUptimeCoverageDB(t)
 	svc := services.NewUptimeService(db, nil)
 	h := NewUptimeHandler(svc)
@@ -330,7 +314,6 @@ func TestUptimeHandler_Delete_Error(t *testing.T) {
 }
 
 func TestUptimeHandler_CheckMonitor_NotFound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupUptimeCoverageDB(t)
 	svc := services.NewUptimeService(db, nil)
 	h := NewUptimeHandler(svc)

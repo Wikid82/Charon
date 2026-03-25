@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
@@ -45,7 +44,6 @@ func TestAuthHandler_Login(t *testing.T) {
 	_ = user.SetPassword("password123")
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/login", handler.Login)
 
@@ -65,9 +63,6 @@ func TestAuthHandler_Login(t *testing.T) {
 }
 
 func TestSetSecureCookie_HTTPS_Strict(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	_ = os.Setenv("CHARON_ENV", "production")
-	defer func() { _ = os.Unsetenv("CHARON_ENV") }()
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	req := httptest.NewRequest("POST", "https://example.com/login", http.NoBody)
@@ -83,7 +78,6 @@ func TestSetSecureCookie_HTTPS_Strict(t *testing.T) {
 
 func TestSetSecureCookie_HTTP_Lax(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	req := httptest.NewRequest("POST", "http://192.0.2.10/login", http.NoBody)
@@ -100,7 +94,6 @@ func TestSetSecureCookie_HTTP_Lax(t *testing.T) {
 
 func TestSetSecureCookie_HTTP_Loopback_Insecure(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	req := httptest.NewRequest("POST", "http://127.0.0.1:8080/login", http.NoBody)
@@ -118,9 +111,6 @@ func TestSetSecureCookie_HTTP_Loopback_Insecure(t *testing.T) {
 
 func TestSetSecureCookie_ForwardedHTTPS_LocalhostForcesInsecure(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
-	_ = os.Setenv("CHARON_ENV", "production")
-	defer func() { _ = os.Unsetenv("CHARON_ENV") }()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -139,9 +129,6 @@ func TestSetSecureCookie_ForwardedHTTPS_LocalhostForcesInsecure(t *testing.T) {
 
 func TestSetSecureCookie_ForwardedHTTPS_LoopbackForcesInsecure(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
-	_ = os.Setenv("CHARON_ENV", "production")
-	defer func() { _ = os.Unsetenv("CHARON_ENV") }()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -160,9 +147,6 @@ func TestSetSecureCookie_ForwardedHTTPS_LoopbackForcesInsecure(t *testing.T) {
 
 func TestSetSecureCookie_ForwardedHostLocalhostForcesInsecure(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
-	_ = os.Setenv("CHARON_ENV", "production")
-	defer func() { _ = os.Unsetenv("CHARON_ENV") }()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -182,9 +166,6 @@ func TestSetSecureCookie_ForwardedHostLocalhostForcesInsecure(t *testing.T) {
 
 func TestSetSecureCookie_OriginLoopbackForcesInsecure(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
-	_ = os.Setenv("CHARON_ENV", "production")
-	defer func() { _ = os.Unsetenv("CHARON_ENV") }()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -204,7 +185,6 @@ func TestSetSecureCookie_OriginLoopbackForcesInsecure(t *testing.T) {
 
 func TestSetSecureCookie_HTTP_PrivateIP_Insecure(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	req := httptest.NewRequest("POST", "http://192.168.1.50:8080/login", http.NoBody)
@@ -222,7 +202,6 @@ func TestSetSecureCookie_HTTP_PrivateIP_Insecure(t *testing.T) {
 
 func TestSetSecureCookie_HTTP_10Network_Insecure(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	req := httptest.NewRequest("POST", "http://10.0.0.5:8080/login", http.NoBody)
@@ -240,7 +219,6 @@ func TestSetSecureCookie_HTTP_10Network_Insecure(t *testing.T) {
 
 func TestSetSecureCookie_HTTP_172Network_Insecure(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	req := httptest.NewRequest("POST", "http://172.16.0.1:8080/login", http.NoBody)
@@ -258,7 +236,6 @@ func TestSetSecureCookie_HTTP_172Network_Insecure(t *testing.T) {
 
 func TestSetSecureCookie_HTTPS_PrivateIP_Secure(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	req := httptest.NewRequest("POST", "https://192.168.1.50:8080/login", http.NoBody)
@@ -276,7 +253,6 @@ func TestSetSecureCookie_HTTPS_PrivateIP_Secure(t *testing.T) {
 
 func TestSetSecureCookie_HTTP_IPv6ULA_Insecure(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	req := httptest.NewRequest("POST", "http://[fd12::1]:8080/login", http.NoBody)
@@ -294,7 +270,6 @@ func TestSetSecureCookie_HTTP_IPv6ULA_Insecure(t *testing.T) {
 
 func TestSetSecureCookie_HTTP_PublicIP_Secure(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	req := httptest.NewRequest("POST", "http://203.0.113.5:8080/login", http.NoBody)
@@ -322,7 +297,6 @@ func TestIsProduction(t *testing.T) {
 }
 
 func TestRequestScheme(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	t.Run("forwarded proto first value wins", func(t *testing.T) {
 		recorder := httptest.NewRecorder()
@@ -393,7 +367,6 @@ func TestHostHelpers(t *testing.T) {
 }
 
 func TestIsLocalRequest(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	t.Run("forwarded host list includes localhost", func(t *testing.T) {
 		recorder := httptest.NewRecorder()
@@ -428,7 +401,6 @@ func TestIsLocalRequest(t *testing.T) {
 }
 
 func TestClearSecureCookie(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest("POST", "http://example.com/logout", http.NoBody)
@@ -445,7 +417,6 @@ func TestClearSecureCookie(t *testing.T) {
 func TestAuthHandler_Login_Errors(t *testing.T) {
 	t.Parallel()
 	handler, _ := setupAuthHandler(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/login", handler.Login)
 
@@ -473,7 +444,6 @@ func TestAuthHandler_Register(t *testing.T) {
 	t.Parallel()
 	handler, _ := setupAuthHandler(t)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/register", handler.Register)
 
@@ -497,7 +467,6 @@ func TestAuthHandler_Register_Duplicate(t *testing.T) {
 	handler, db := setupAuthHandler(t)
 	db.Create(&models.User{UUID: uuid.NewString(), Email: "dup@example.com", Name: "Dup"})
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/register", handler.Register)
 
@@ -519,7 +488,6 @@ func TestAuthHandler_Logout(t *testing.T) {
 	t.Parallel()
 	handler, _ := setupAuthHandler(t)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/logout", handler.Logout)
 
@@ -548,7 +516,6 @@ func TestAuthHandler_Me(t *testing.T) {
 	}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	// Simulate middleware
 	r.Use(func(c *gin.Context) {
@@ -574,7 +541,6 @@ func TestAuthHandler_Me(t *testing.T) {
 func TestAuthHandler_Me_NotFound(t *testing.T) {
 	t.Parallel()
 	handler, _ := setupAuthHandler(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("userID", uint(999)) // Non-existent ID
@@ -602,7 +568,6 @@ func TestAuthHandler_ChangePassword(t *testing.T) {
 	_ = user.SetPassword("oldpassword")
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	// Simulate middleware
 	r.Use(func(c *gin.Context) {
@@ -637,7 +602,6 @@ func TestAuthHandler_ChangePassword_WrongOld(t *testing.T) {
 	_ = user.SetPassword("correct")
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("userID", user.ID)
@@ -661,7 +625,6 @@ func TestAuthHandler_ChangePassword_WrongOld(t *testing.T) {
 func TestAuthHandler_ChangePassword_Errors(t *testing.T) {
 	t.Parallel()
 	handler, _ := setupAuthHandler(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/change-password", handler.ChangePassword)
 
@@ -708,7 +671,6 @@ func TestNewAuthHandlerWithDB(t *testing.T) {
 func TestAuthHandler_Verify_NoCookie(t *testing.T) {
 	t.Parallel()
 	handler, _ := setupAuthHandlerWithDB(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/verify", handler.Verify)
 
@@ -723,7 +685,6 @@ func TestAuthHandler_Verify_NoCookie(t *testing.T) {
 func TestAuthHandler_Verify_InvalidToken(t *testing.T) {
 	t.Parallel()
 	handler, _ := setupAuthHandlerWithDB(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/verify", handler.Verify)
 
@@ -753,7 +714,6 @@ func TestAuthHandler_Verify_ValidToken(t *testing.T) {
 	// Generate token
 	token, _ := handler.authService.GenerateToken(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/verify", handler.Verify)
 
@@ -783,7 +743,6 @@ func TestAuthHandler_Verify_BearerToken(t *testing.T) {
 
 	token, _ := handler.authService.GenerateToken(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/verify", handler.Verify)
 
@@ -813,7 +772,6 @@ func TestAuthHandler_Verify_DisabledUser(t *testing.T) {
 
 	token, _ := handler.authService.GenerateToken(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/verify", handler.Verify)
 
@@ -853,7 +811,6 @@ func TestAuthHandler_Verify_ForwardAuthDenied(t *testing.T) {
 
 	token, _ := handler.authService.GenerateToken(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/verify", handler.Verify)
 
@@ -869,7 +826,6 @@ func TestAuthHandler_Verify_ForwardAuthDenied(t *testing.T) {
 func TestAuthHandler_VerifyStatus_NotAuthenticated(t *testing.T) {
 	t.Parallel()
 	handler, _ := setupAuthHandlerWithDB(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/status", handler.VerifyStatus)
 
@@ -886,7 +842,6 @@ func TestAuthHandler_VerifyStatus_NotAuthenticated(t *testing.T) {
 func TestAuthHandler_VerifyStatus_InvalidToken(t *testing.T) {
 	t.Parallel()
 	handler, _ := setupAuthHandlerWithDB(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/status", handler.VerifyStatus)
 
@@ -917,7 +872,6 @@ func TestAuthHandler_VerifyStatus_Authenticated(t *testing.T) {
 
 	token, _ := handler.authService.GenerateToken(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/status", handler.VerifyStatus)
 
@@ -951,7 +905,6 @@ func TestAuthHandler_VerifyStatus_DisabledUser(t *testing.T) {
 
 	token, _ := handler.authService.GenerateToken(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/status", handler.VerifyStatus)
 
@@ -969,7 +922,6 @@ func TestAuthHandler_VerifyStatus_DisabledUser(t *testing.T) {
 func TestAuthHandler_GetAccessibleHosts_Unauthorized(t *testing.T) {
 	t.Parallel()
 	handler, _ := setupAuthHandlerWithDB(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/hosts", handler.GetAccessibleHosts)
 
@@ -1000,7 +952,6 @@ func TestAuthHandler_GetAccessibleHosts_AllowAll(t *testing.T) {
 	}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("userID", user.ID)
@@ -1037,7 +988,6 @@ func TestAuthHandler_GetAccessibleHosts_DenyAll(t *testing.T) {
 	}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("userID", user.ID)
@@ -1077,7 +1027,6 @@ func TestAuthHandler_GetAccessibleHosts_PermittedHosts(t *testing.T) {
 	}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("userID", user.ID)
@@ -1100,7 +1049,6 @@ func TestAuthHandler_GetAccessibleHosts_UserNotFound(t *testing.T) {
 	t.Parallel()
 	handler, _ := setupAuthHandlerWithDB(t)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("userID", uint(99999))
@@ -1118,7 +1066,6 @@ func TestAuthHandler_GetAccessibleHosts_UserNotFound(t *testing.T) {
 func TestAuthHandler_CheckHostAccess_Unauthorized(t *testing.T) {
 	t.Parallel()
 	handler, _ := setupAuthHandlerWithDB(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/hosts/:hostId/access", handler.CheckHostAccess)
 
@@ -1136,7 +1083,6 @@ func TestAuthHandler_CheckHostAccess_InvalidHostID(t *testing.T) {
 	user := &models.User{UUID: uuid.NewString(), Email: "check@example.com", Enabled: true}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("userID", user.ID)
@@ -1166,7 +1112,6 @@ func TestAuthHandler_CheckHostAccess_Allowed(t *testing.T) {
 	}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("userID", user.ID)
@@ -1199,7 +1144,6 @@ func TestAuthHandler_CheckHostAccess_Denied(t *testing.T) {
 	}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("userID", user.ID)
@@ -1276,7 +1220,6 @@ func TestAuthHandler_Me_RequiresUserContext(t *testing.T) {
 	t.Parallel()
 	handler, _ := setupAuthHandler(t)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/me", handler.Me)
 
@@ -1360,7 +1303,6 @@ func TestAuthHandler_Refresh(t *testing.T) {
 	require.NoError(t, user.SetPassword("password123"))
 	require.NoError(t, db.Create(user).Error)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/refresh", func(c *gin.Context) {
 		c.Set("userID", user.ID)
@@ -1381,7 +1323,6 @@ func TestAuthHandler_Refresh_Unauthorized(t *testing.T) {
 	t.Parallel()
 
 	handler, _ := setupAuthHandler(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/refresh", handler.Refresh)
 
@@ -1396,7 +1337,6 @@ func TestAuthHandler_Register_BadRequest(t *testing.T) {
 	t.Parallel()
 
 	handler, _ := setupAuthHandler(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/register", handler.Register)
 
@@ -1412,7 +1352,6 @@ func TestAuthHandler_Logout_InvalidateSessionsFailure(t *testing.T) {
 	t.Parallel()
 
 	handler, _ := setupAuthHandler(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("userID", uint(999999))
@@ -1456,7 +1395,6 @@ func TestAuthHandler_Verify_UsesOriginalHostFallback(t *testing.T) {
 	token, err := handler.authService.GenerateToken(user)
 	require.NoError(t, err)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/verify", handler.Verify)
 
@@ -1474,7 +1412,6 @@ func TestAuthHandler_GetAccessibleHosts_DatabaseUnavailable(t *testing.T) {
 	t.Parallel()
 
 	handler, _ := setupAuthHandler(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("userID", uint(1))
@@ -1494,7 +1431,6 @@ func TestAuthHandler_CheckHostAccess_DatabaseUnavailable(t *testing.T) {
 	t.Parallel()
 
 	handler, _ := setupAuthHandler(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("userID", uint(1))
@@ -1514,7 +1450,6 @@ func TestAuthHandler_CheckHostAccess_UserNotFound(t *testing.T) {
 	t.Parallel()
 
 	handler, _ := setupAuthHandlerWithDB(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("userID", uint(999999))

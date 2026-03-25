@@ -67,7 +67,6 @@ func TestCompatibilityGET_ORAggregation(t *testing.T) {
 	service := services.NewEnhancedSecurityNotificationService(db)
 	handler := NewSecurityNotificationHandler(service)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/v1/notifications/settings/security", http.NoBody)
@@ -104,7 +103,6 @@ func TestCompatibilityGET_AllFalse(t *testing.T) {
 	service := services.NewEnhancedSecurityNotificationService(db)
 	handler := NewSecurityNotificationHandler(service)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/v1/notifications/settings/security", http.NoBody)
@@ -145,7 +143,6 @@ func TestCompatibilityGET_DisabledProvidersIgnored(t *testing.T) {
 	service := services.NewEnhancedSecurityNotificationService(db)
 	handler := NewSecurityNotificationHandler(service)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/v1/notifications/settings/security", http.NoBody)
@@ -182,7 +179,6 @@ func TestCompatibilityPUT_DeterministicTargetSet(t *testing.T) {
 		"security_rate_limit_enabled": true
 	}`)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	setAdminContext(c)
@@ -216,7 +212,6 @@ func TestCompatibilityPUT_CreatesManagedProviderIfNone(t *testing.T) {
 		"webhook_url": "https://example.com/webhook"
 	}`)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	setAdminContext(c)
@@ -259,7 +254,6 @@ func TestCompatibilityPUT_Idempotency(t *testing.T) {
 	}`)
 
 	// First PUT
-	gin.SetMode(gin.TestMode)
 	w1 := httptest.NewRecorder()
 	c1, _ := gin.CreateTestContext(w1)
 	setAdminContext(c1)
@@ -305,7 +299,6 @@ func TestCompatibilityPUT_WebhookMapping(t *testing.T) {
 		"webhook_url": "https://example.com/webhook"
 	}`)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	setAdminContext(c)
@@ -336,7 +329,6 @@ func TestCompatibilityPUT_MultipleDestinations422(t *testing.T) {
 		"discord_webhook_url": "https://discord.com/webhook"
 	}`)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	setAdminContext(c)
@@ -432,7 +424,6 @@ func TestCompatibilityPUT_MultipleManagedProviders_UpdatesAll(t *testing.T) {
 		"security_rate_limit_enabled": true
 	}`)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	setAdminContext(c)
@@ -547,7 +538,6 @@ func TestFeatureFlag_Disabled(t *testing.T) {
 	handler := NewSecurityNotificationHandler(service)
 
 	// GET should still work via compatibility path
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/v1/notifications/settings/security", http.NoBody)

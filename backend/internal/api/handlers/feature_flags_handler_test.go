@@ -28,7 +28,6 @@ func TestFeatureFlags_GetAndUpdate(t *testing.T) {
 
 	h := NewFeatureFlagsHandler(db)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/api/v1/feature-flags", h.GetFlags)
 	r.PUT("/api/v1/feature-flags", h.UpdateFlags)
@@ -81,7 +80,6 @@ func TestFeatureFlags_EnvFallback(t *testing.T) {
 	db := setupFlagsDB(t)
 	// Do not write any settings so DB lookup fails and env is used
 	h := NewFeatureFlagsHandler(db)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/api/v1/feature-flags", h.GetFlags)
 
@@ -178,7 +176,6 @@ func TestGetFlags_BatchQuery(t *testing.T) {
 	db.Create(&models.Setting{Key: "feature.crowdsec.console_enrollment", Value: "true", Type: "bool", Category: "feature"})
 
 	h := NewFeatureFlagsHandler(db)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/api/v1/feature-flags", h.GetFlags)
 
@@ -219,7 +216,6 @@ func TestUpdateFlags_TransactionRollback(t *testing.T) {
 	_ = sqlDB.Close()
 
 	h := NewFeatureFlagsHandler(db)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.PUT("/api/v1/feature-flags", h.UpdateFlags)
 
@@ -244,7 +240,6 @@ func TestUpdateFlags_TransactionAtomic(t *testing.T) {
 	db := setupFlagsDB(t)
 
 	h := NewFeatureFlagsHandler(db)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.PUT("/api/v1/feature-flags", h.UpdateFlags)
 

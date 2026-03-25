@@ -23,7 +23,6 @@ func setupSecurityHeadersTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	err = db.AutoMigrate(&models.SecurityHeaderProfile{}, &models.ProxyHost{})
 	assert.NoError(t, err)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	handler := NewSecurityHeadersHandler(db, nil)
@@ -638,7 +637,6 @@ func TestUpdateProfile_LookupDBError(t *testing.T) {
 	err = db.AutoMigrate(&models.SecurityHeaderProfile{}, &models.ProxyHost{})
 	assert.NoError(t, err)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	handler := NewSecurityHeadersHandler(db, nil)
@@ -685,7 +683,6 @@ func TestDeleteProfile_LookupDBError(t *testing.T) {
 	err = db.AutoMigrate(&models.SecurityHeaderProfile{}, &models.ProxyHost{})
 	assert.NoError(t, err)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	handler := NewSecurityHeadersHandler(db, nil)
@@ -716,7 +713,6 @@ func TestDeleteProfile_CountDBError(t *testing.T) {
 	}
 	db.Create(&profile)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	handler := NewSecurityHeadersHandler(db, nil)
@@ -742,7 +738,6 @@ func TestDeleteProfile_DeleteDBError(t *testing.T) {
 	}
 	db.Create(&profile)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	handler := NewSecurityHeadersHandler(db, nil)
@@ -852,7 +847,6 @@ func TestGetProfile_UUID_DBError_NonNotFound(t *testing.T) {
 	err = db.AutoMigrate(&models.SecurityHeaderProfile{}, &models.ProxyHost{})
 	assert.NoError(t, err)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	handler := NewSecurityHeadersHandler(db, nil)
@@ -902,7 +896,6 @@ func TestUpdateProfile_SaveError(t *testing.T) {
 	db.Create(&profile)
 	profileID := profile.ID
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	handler := NewSecurityHeadersHandler(db, nil)

@@ -33,7 +33,6 @@ func setAdminContext(c *gin.Context) {
 // Notification Handler Tests
 
 func TestNotificationHandler_List_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationHandler(svc)
@@ -55,7 +54,6 @@ func TestNotificationHandler_List_Error(t *testing.T) {
 }
 
 func TestNotificationHandler_List_UnreadOnly(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationHandler(svc)
@@ -75,7 +73,6 @@ func TestNotificationHandler_List_UnreadOnly(t *testing.T) {
 }
 
 func TestNotificationHandler_MarkAsRead_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationHandler(svc)
@@ -95,7 +92,6 @@ func TestNotificationHandler_MarkAsRead_Error(t *testing.T) {
 }
 
 func TestNotificationHandler_MarkAllAsRead_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationHandler(svc)
@@ -116,7 +112,6 @@ func TestNotificationHandler_MarkAllAsRead_Error(t *testing.T) {
 // Notification Provider Handler Tests
 
 func TestNotificationProviderHandler_List_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)
@@ -135,7 +130,6 @@ func TestNotificationProviderHandler_List_Error(t *testing.T) {
 }
 
 func TestNotificationProviderHandler_Create_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)
@@ -152,7 +146,6 @@ func TestNotificationProviderHandler_Create_InvalidJSON(t *testing.T) {
 }
 
 func TestNotificationProviderHandler_Create_DBError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)
@@ -180,7 +173,6 @@ func TestNotificationProviderHandler_Create_DBError(t *testing.T) {
 }
 
 func TestNotificationProviderHandler_Create_InvalidTemplate(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)
@@ -206,7 +198,6 @@ func TestNotificationProviderHandler_Create_InvalidTemplate(t *testing.T) {
 }
 
 func TestNotificationProviderHandler_Update_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)
@@ -224,7 +215,6 @@ func TestNotificationProviderHandler_Update_InvalidJSON(t *testing.T) {
 }
 
 func TestNotificationProviderHandler_Update_InvalidTemplate(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)
@@ -256,7 +246,6 @@ func TestNotificationProviderHandler_Update_InvalidTemplate(t *testing.T) {
 }
 
 func TestNotificationProviderHandler_Update_DBError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)
@@ -285,7 +274,6 @@ func TestNotificationProviderHandler_Update_DBError(t *testing.T) {
 }
 
 func TestNotificationProviderHandler_Delete_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)
@@ -305,7 +293,6 @@ func TestNotificationProviderHandler_Delete_Error(t *testing.T) {
 }
 
 func TestNotificationProviderHandler_Test_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)
@@ -322,7 +309,6 @@ func TestNotificationProviderHandler_Test_InvalidJSON(t *testing.T) {
 }
 
 func TestNotificationProviderHandler_Test_RejectsClientSuppliedGotifyToken(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)
@@ -354,7 +340,6 @@ func TestNotificationProviderHandler_Test_RejectsClientSuppliedGotifyToken(t *te
 }
 
 func TestNotificationProviderHandler_Test_RejectsGotifyTokenWithWhitespace(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)
@@ -499,7 +484,6 @@ func TestClassifyProviderTestFailure_SlackNoService(t *testing.T) {
 }
 
 func TestNotificationProviderHandler_Test_RejectsSlackTokenInTestRequest(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)
@@ -530,7 +514,6 @@ func TestNotificationProviderHandler_Test_RejectsSlackTokenInTestRequest(t *test
 }
 
 func TestNotificationProviderHandler_Templates(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)
@@ -548,7 +531,6 @@ func TestNotificationProviderHandler_Templates(t *testing.T) {
 }
 
 func TestNotificationProviderHandler_Preview_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)
@@ -565,7 +547,6 @@ func TestNotificationProviderHandler_Preview_InvalidJSON(t *testing.T) {
 }
 
 func TestNotificationProviderHandler_Preview_WithData(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)
@@ -591,7 +572,6 @@ func TestNotificationProviderHandler_Preview_WithData(t *testing.T) {
 }
 
 func TestNotificationProviderHandler_Preview_InvalidTemplate(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)
@@ -616,7 +596,6 @@ func TestNotificationProviderHandler_Preview_InvalidTemplate(t *testing.T) {
 // Notification Template Handler Tests
 
 func TestNotificationTemplateHandler_List_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationTemplateHandler(svc)
@@ -635,7 +614,6 @@ func TestNotificationTemplateHandler_List_Error(t *testing.T) {
 }
 
 func TestNotificationTemplateHandler_Create_BadJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationTemplateHandler(svc)
@@ -652,7 +630,6 @@ func TestNotificationTemplateHandler_Create_BadJSON(t *testing.T) {
 }
 
 func TestNotificationTemplateHandler_Create_DBError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationTemplateHandler(svc)
@@ -678,7 +655,6 @@ func TestNotificationTemplateHandler_Create_DBError(t *testing.T) {
 }
 
 func TestNotificationTemplateHandler_Update_BadJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationTemplateHandler(svc)
@@ -696,7 +672,6 @@ func TestNotificationTemplateHandler_Update_BadJSON(t *testing.T) {
 }
 
 func TestNotificationTemplateHandler_Update_DBError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationTemplateHandler(svc)
@@ -723,7 +698,6 @@ func TestNotificationTemplateHandler_Update_DBError(t *testing.T) {
 }
 
 func TestNotificationTemplateHandler_Delete_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationTemplateHandler(svc)
@@ -743,7 +717,6 @@ func TestNotificationTemplateHandler_Delete_Error(t *testing.T) {
 }
 
 func TestNotificationTemplateHandler_Preview_BadJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationTemplateHandler(svc)
@@ -760,7 +733,6 @@ func TestNotificationTemplateHandler_Preview_BadJSON(t *testing.T) {
 }
 
 func TestNotificationTemplateHandler_Preview_TemplateNotFound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationTemplateHandler(svc)
@@ -783,7 +755,6 @@ func TestNotificationTemplateHandler_Preview_TemplateNotFound(t *testing.T) {
 }
 
 func TestNotificationTemplateHandler_Preview_WithStoredTemplate(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationTemplateHandler(svc)
@@ -815,7 +786,6 @@ func TestNotificationTemplateHandler_Preview_WithStoredTemplate(t *testing.T) {
 }
 
 func TestNotificationTemplateHandler_Preview_InvalidTemplate(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationTemplateHandler(svc)
@@ -837,7 +807,6 @@ func TestNotificationTemplateHandler_Preview_InvalidTemplate(t *testing.T) {
 }
 
 func TestNotificationProviderHandler_Preview_TokenWriteOnly(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)
@@ -861,7 +830,6 @@ func TestNotificationProviderHandler_Preview_TokenWriteOnly(t *testing.T) {
 }
 
 func TestNotificationProviderHandler_Update_TypeChangeRejected(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)
@@ -895,7 +863,6 @@ func TestNotificationProviderHandler_Update_TypeChangeRejected(t *testing.T) {
 }
 
 func TestNotificationProviderHandler_Test_MissingProviderID(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)
@@ -918,7 +885,6 @@ func TestNotificationProviderHandler_Test_MissingProviderID(t *testing.T) {
 }
 
 func TestNotificationProviderHandler_Test_ProviderNotFound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)
@@ -942,7 +908,6 @@ func TestNotificationProviderHandler_Test_ProviderNotFound(t *testing.T) {
 }
 
 func TestNotificationProviderHandler_Test_EmptyProviderURL(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)
@@ -995,7 +960,6 @@ func TestIsProviderValidationError_Comprehensive(t *testing.T) {
 }
 
 func TestNotificationProviderHandler_Update_UnsupportedType(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)
@@ -1028,7 +992,6 @@ func TestNotificationProviderHandler_Update_UnsupportedType(t *testing.T) {
 }
 
 func TestNotificationProviderHandler_Update_GotifyKeepsExistingToken(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)
@@ -1066,7 +1029,6 @@ func TestNotificationProviderHandler_Update_GotifyKeepsExistingToken(t *testing.
 }
 
 func TestNotificationProviderHandler_Test_ReadDBError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationCoverageDB(t)
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)

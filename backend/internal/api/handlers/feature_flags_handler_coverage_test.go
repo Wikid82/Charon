@@ -15,7 +15,6 @@ import (
 )
 
 func TestFeatureFlagsHandler_GetFlags_DBPrecedence(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupFlagsDB(t)
 
 	// Set a flag in DB
@@ -48,7 +47,6 @@ func TestFeatureFlagsHandler_GetFlags_DBPrecedence(t *testing.T) {
 }
 
 func TestFeatureFlagsHandler_GetFlags_EnvFallback(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupFlagsDB(t)
 
 	// Set env var (no DB value exists)
@@ -73,7 +71,6 @@ func TestFeatureFlagsHandler_GetFlags_EnvFallback(t *testing.T) {
 }
 
 func TestFeatureFlagsHandler_GetFlags_EnvShortForm(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupFlagsDB(t)
 
 	// Set short form env var (CERBERUS_ENABLED instead of FEATURE_CERBERUS_ENABLED)
@@ -98,7 +95,6 @@ func TestFeatureFlagsHandler_GetFlags_EnvShortForm(t *testing.T) {
 }
 
 func TestFeatureFlagsHandler_GetFlags_EnvNumeric(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupFlagsDB(t)
 
 	// Set numeric env var (1/0 instead of true/false)
@@ -123,7 +119,6 @@ func TestFeatureFlagsHandler_GetFlags_EnvNumeric(t *testing.T) {
 }
 
 func TestFeatureFlagsHandler_GetFlags_DefaultTrue(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupFlagsDB(t)
 
 	// No DB value, no env var - check defaults
@@ -148,7 +143,6 @@ func TestFeatureFlagsHandler_GetFlags_DefaultTrue(t *testing.T) {
 }
 
 func TestFeatureFlagsHandler_GetFlags_AllDefaultFlagsPresent(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupFlagsDB(t)
 
 	h := NewFeatureFlagsHandler(db)
@@ -173,7 +167,6 @@ func TestFeatureFlagsHandler_GetFlags_AllDefaultFlagsPresent(t *testing.T) {
 }
 
 func TestFeatureFlagsHandler_UpdateFlags_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupFlagsDB(t)
 
 	h := NewFeatureFlagsHandler(db)
@@ -208,7 +201,6 @@ func TestFeatureFlagsHandler_UpdateFlags_Success(t *testing.T) {
 }
 
 func TestFeatureFlagsHandler_UpdateFlags_Upsert(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupFlagsDB(t)
 
 	// Create existing setting
@@ -249,7 +241,6 @@ func TestFeatureFlagsHandler_UpdateFlags_Upsert(t *testing.T) {
 }
 
 func TestFeatureFlagsHandler_UpdateFlags_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupFlagsDB(t)
 
 	h := NewFeatureFlagsHandler(db)
@@ -265,7 +256,6 @@ func TestFeatureFlagsHandler_UpdateFlags_InvalidJSON(t *testing.T) {
 }
 
 func TestFeatureFlagsHandler_UpdateFlags_OnlyAllowedKeys(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupFlagsDB(t)
 
 	h := NewFeatureFlagsHandler(db)
@@ -298,7 +288,6 @@ func TestFeatureFlagsHandler_UpdateFlags_OnlyAllowedKeys(t *testing.T) {
 }
 
 func TestFeatureFlagsHandler_UpdateFlags_EmptyPayload(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupFlagsDB(t)
 
 	h := NewFeatureFlagsHandler(db)
@@ -339,7 +328,6 @@ func TestFeatureFlagsHandler_GetFlags_DBValueVariants(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gin.SetMode(gin.TestMode)
 			db := setupFlagsDB(t)
 
 			// Set flag with test value
@@ -387,7 +375,6 @@ func TestFeatureFlagsHandler_GetFlags_EnvValueVariants(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gin.SetMode(gin.TestMode)
 			db := setupFlagsDB(t)
 
 			// Set env var (no DB value)
@@ -425,7 +412,6 @@ func TestFeatureFlagsHandler_UpdateFlags_BoolValues(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gin.SetMode(gin.TestMode)
 			db := setupFlagsDB(t)
 
 			h := NewFeatureFlagsHandler(db)
@@ -462,7 +448,6 @@ func TestFeatureFlagsHandler_NewFeatureFlagsHandler(t *testing.T) {
 }
 
 func TestFeatureFlagsHandler_GetFlags_EmailFlagDefaultFalse(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupFlagsDB(t)
 
 	h := NewFeatureFlagsHandler(db)

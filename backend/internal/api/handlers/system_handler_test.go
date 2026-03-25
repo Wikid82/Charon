@@ -44,7 +44,6 @@ func TestGetClientIPHeadersAndRemoteAddr(t *testing.T) {
 }
 
 func TestGetMyIPHandler(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	handler := NewSystemHandler()
 	r.GET("/myip", handler.GetMyIP)

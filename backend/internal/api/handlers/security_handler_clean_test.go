@@ -28,7 +28,6 @@ func setupTestDB(t *testing.T) *gorm.DB {
 }
 
 func TestSecurityHandler_GetStatus_Clean(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Basic disabled scenario
 	cfg := config.SecurityConfig{
@@ -54,7 +53,6 @@ func TestSecurityHandler_GetStatus_Clean(t *testing.T) {
 }
 
 func TestSecurityHandler_Cerberus_DBOverride(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db := setupTestDB(t)
 	// set DB to enable cerberus
@@ -80,7 +78,6 @@ func TestSecurityHandler_Cerberus_DBOverride(t *testing.T) {
 }
 
 func TestSecurityHandler_ACL_DBOverride(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db := setupTestDB(t)
 	// set DB to enable ACL (override config)
@@ -116,7 +113,6 @@ func TestSecurityHandler_ACL_DBOverride(t *testing.T) {
 }
 
 func TestSecurityHandler_GenerateBreakGlass_ReturnsToken(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
@@ -139,7 +135,6 @@ func TestSecurityHandler_GenerateBreakGlass_ReturnsToken(t *testing.T) {
 }
 
 func TestSecurityHandler_ACL_DisabledWhenCerberusOff(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db := setupTestDB(t)
 	// set DB to enable ACL but disable Cerberus
@@ -171,7 +166,6 @@ func TestSecurityHandler_ACL_DisabledWhenCerberusOff(t *testing.T) {
 }
 
 func TestSecurityHandler_CrowdSec_Mode_DBOverride(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db := setupTestDB(t)
 	// set DB to configure crowdsec.mode to local
@@ -197,7 +191,6 @@ func TestSecurityHandler_CrowdSec_Mode_DBOverride(t *testing.T) {
 }
 
 func TestSecurityHandler_CrowdSec_ExternalMappedToDisabled_DBOverride(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	// set DB to configure crowdsec.mode to external
 	if err := db.Create(&models.Setting{Key: "security.crowdsec.mode", Value: "unknown"}).Error; err != nil {
@@ -221,7 +214,6 @@ func TestSecurityHandler_CrowdSec_ExternalMappedToDisabled_DBOverride(t *testing
 }
 
 func TestSecurityHandler_ExternalModeMappedToDisabled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	cfg := config.SecurityConfig{
 		CrowdSecMode:  "unknown",
 		WAFMode:       "disabled",
@@ -245,7 +237,6 @@ func TestSecurityHandler_ExternalModeMappedToDisabled(t *testing.T) {
 }
 
 func TestSecurityHandler_Enable_Disable_WithAdminWhitelistAndToken(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	// Add SecurityConfig with no admin whitelist - should refuse enable
 	sec := models.SecurityConfig{Name: "default", Enabled: false, AdminWhitelist: ""}

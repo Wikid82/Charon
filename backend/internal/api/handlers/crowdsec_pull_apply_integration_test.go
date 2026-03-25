@@ -24,7 +24,6 @@ import (
 // TestPullThenApplyIntegration tests the complete pull→apply workflow from the user's perspective.
 // This reproduces the scenario where a user pulls a preset and then tries to apply it.
 func TestPullThenApplyIntegration(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Setup
 	cacheDir := t.TempDir()
@@ -111,7 +110,6 @@ func TestPullThenApplyIntegration(t *testing.T) {
 
 // TestApplyWithoutPullReturnsProperError verifies the error message when applying without pulling first.
 func TestApplyWithoutPullReturnsProperError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	cacheDir := t.TempDir()
 	dataDir := t.TempDir()
@@ -155,7 +153,6 @@ func TestApplyWithoutPullReturnsProperError(t *testing.T) {
 }
 
 func TestApplyRollbackWhenCacheMissingAndRepullFails(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	cacheDir := t.TempDir()
 	dataRoot := t.TempDir()

@@ -36,7 +36,6 @@ func mockAuthMiddleware() gin.HandlerFunc {
 
 func setupCertTestRouter(t *testing.T, db *gorm.DB) *gin.Engine {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 
@@ -110,7 +109,6 @@ func TestDeleteCertificate_CreatesBackup(t *testing.T) {
 		t.Fatalf("failed to create cert: %v", err)
 	}
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
@@ -164,7 +162,6 @@ func TestDeleteCertificate_BackupFailure(t *testing.T) {
 		t.Fatalf("failed to create cert: %v", err)
 	}
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
@@ -218,7 +215,6 @@ func TestDeleteCertificate_InUse_NoBackup(t *testing.T) {
 		t.Fatalf("failed to create proxy host: %v", err)
 	}
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
@@ -296,7 +292,6 @@ func TestCertificateHandler_List(t *testing.T) {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	r.Use(mockAuthMiddleware())
@@ -324,7 +319,6 @@ func TestCertificateHandler_Upload_MissingName(t *testing.T) {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
@@ -352,7 +346,6 @@ func TestCertificateHandler_Upload_MissingCertFile(t *testing.T) {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
@@ -383,7 +376,6 @@ func TestCertificateHandler_Upload_MissingKeyFile(t *testing.T) {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
@@ -410,7 +402,6 @@ func TestCertificateHandler_Upload_MissingKeyFile_MultipartWithCert(t *testing.T
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
@@ -450,7 +441,6 @@ func TestCertificateHandler_Upload_Success(t *testing.T) {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 
@@ -525,7 +515,6 @@ func TestCertificateHandler_Upload_WithNotificationService(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}, &models.Setting{}, &models.NotificationProvider{}))
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 
@@ -564,7 +553,6 @@ func TestDeleteCertificate_InvalidID(t *testing.T) {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
@@ -590,7 +578,6 @@ func TestDeleteCertificate_ZeroID(t *testing.T) {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
@@ -622,7 +609,6 @@ func TestDeleteCertificate_LowDiskSpace(t *testing.T) {
 		t.Fatalf("failed to create cert: %v", err)
 	}
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
@@ -671,7 +657,6 @@ func TestDeleteCertificate_DiskSpaceCheckError(t *testing.T) {
 		t.Fatalf("failed to create cert: %v", err)
 	}
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
@@ -730,7 +715,6 @@ func TestDeleteCertificate_ExpiredLetsEncrypt_NotInUse(t *testing.T) {
 		t.Fatalf("failed to create cert: %v", err)
 	}
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
@@ -789,7 +773,6 @@ func TestDeleteCertificate_ValidLetsEncrypt_NotInUse(t *testing.T) {
 		t.Fatalf("failed to create cert: %v", err)
 	}
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
@@ -835,7 +818,6 @@ func TestDeleteCertificate_UsageCheckError(t *testing.T) {
 		t.Fatalf("failed to create cert: %v", err)
 	}
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
@@ -873,7 +855,6 @@ func TestDeleteCertificate_NotificationRateLimit(t *testing.T) {
 		t.Fatalf("failed to create cert2: %v", err)
 	}
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)

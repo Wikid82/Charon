@@ -40,7 +40,6 @@ func TestJSONImportHandler_RegisterRoutes(t *testing.T) {
 	db := setupJSONTestDB(t)
 	handler := NewJSONImportHandler(db)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	api := router.Group("/api/v1")
 	handler.RegisterRoutes(api)
@@ -60,7 +59,6 @@ func TestJSONImportHandler_Upload_CharonFormat(t *testing.T) {
 	db := setupJSONTestDB(t)
 	handler := NewJSONImportHandler(db)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	api := router.Group("/api/v1")
 	handler.RegisterRoutes(api)
@@ -119,7 +117,6 @@ func TestJSONImportHandler_Upload_NPMFormatFallback(t *testing.T) {
 	db := setupJSONTestDB(t)
 	handler := NewJSONImportHandler(db)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	api := router.Group("/api/v1")
 	handler.RegisterRoutes(api)
@@ -162,7 +159,6 @@ func TestJSONImportHandler_Upload_UnrecognizedFormat(t *testing.T) {
 	db := setupJSONTestDB(t)
 	handler := NewJSONImportHandler(db)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	api := router.Group("/api/v1")
 	handler.RegisterRoutes(api)
@@ -188,7 +184,6 @@ func TestJSONImportHandler_Upload_InvalidJSON(t *testing.T) {
 	db := setupJSONTestDB(t)
 	handler := NewJSONImportHandler(db)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	api := router.Group("/api/v1")
 	handler.RegisterRoutes(api)
@@ -208,7 +203,6 @@ func TestJSONImportHandler_Commit_CharonFormat(t *testing.T) {
 	db := setupJSONTestDB(t)
 	handler := NewJSONImportHandler(db)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	api := router.Group("/api/v1")
 	handler.RegisterRoutes(api)
@@ -277,7 +271,6 @@ func TestJSONImportHandler_Commit_NPMFormatFallback(t *testing.T) {
 	db := setupJSONTestDB(t)
 	handler := NewJSONImportHandler(db)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	api := router.Group("/api/v1")
 	handler.RegisterRoutes(api)
@@ -339,7 +332,6 @@ func TestJSONImportHandler_Commit_SessionNotFound(t *testing.T) {
 	db := setupJSONTestDB(t)
 	handler := NewJSONImportHandler(db)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	api := router.Group("/api/v1")
 	handler.RegisterRoutes(api)
@@ -370,7 +362,6 @@ func TestJSONImportHandler_Cancel(t *testing.T) {
 	db := setupJSONTestDB(t)
 	handler := NewJSONImportHandler(db)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	api := router.Group("/api/v1")
 	handler.RegisterRoutes(api)
@@ -459,7 +450,6 @@ func TestJSONImportHandler_ConflictDetection(t *testing.T) {
 
 	handler := NewJSONImportHandler(db)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	api := router.Group("/api/v1")
 	handler.RegisterRoutes(api)
@@ -501,7 +491,6 @@ func TestJSONImportHandler_Cancel_RequiresValidJSONBody(t *testing.T) {
 	db := setupJSONTestDB(t)
 	handler := NewJSONImportHandler(db)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	api := router.Group("/api/v1")
 	handler.RegisterRoutes(api)

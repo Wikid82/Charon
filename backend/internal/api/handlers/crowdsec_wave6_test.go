@@ -17,7 +17,6 @@ func TestCrowdsecWave6_BouncerKeyPath_UsesEnvFallback(t *testing.T) {
 }
 
 func TestCrowdsecWave6_GetBouncerInfo_NoneSource(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("CROWDSEC_API_KEY", "")
 	t.Setenv("CROWDSEC_BOUNCER_API_KEY", "")
 	t.Setenv("CERBERUS_SECURITY_CROWDSEC_API_KEY", "")
@@ -40,7 +39,6 @@ func TestCrowdsecWave6_GetBouncerInfo_NoneSource(t *testing.T) {
 }
 
 func TestCrowdsecWave6_GetKeyStatus_NoKeyConfiguredMessage(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("CROWDSEC_API_KEY", "")
 	t.Setenv("CROWDSEC_BOUNCER_API_KEY", "")
 	t.Setenv("CERBERUS_SECURITY_CROWDSEC_API_KEY", "")

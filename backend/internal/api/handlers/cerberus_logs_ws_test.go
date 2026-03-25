@@ -21,7 +21,6 @@ import (
 )
 
 func init() {
-	gin.SetMode(gin.TestMode)
 }
 
 // TestCerberusLogsHandler_NewHandler verifies handler creation.

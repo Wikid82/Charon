@@ -89,7 +89,6 @@ func newTestCrowdsecHandler(t *testing.T, db *gorm.DB, executor CrowdsecExecutor
 
 func TestCrowdsecEndpoints(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -127,7 +126,6 @@ func TestCrowdsecEndpoints(t *testing.T) {
 
 func TestImportConfig(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 	fe := &fakeExec{}
@@ -173,7 +171,6 @@ func TestImportConfig(t *testing.T) {
 
 func TestImportCreatesBackup(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 	// create existing config dir with a marker file
@@ -240,7 +237,6 @@ func TestImportCreatesBackup(t *testing.T) {
 
 func TestExportConfig(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -272,7 +268,6 @@ func TestExportConfig(t *testing.T) {
 
 func TestListAndReadFile(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 	// create a nested file
@@ -304,7 +299,6 @@ func TestListAndReadFile(t *testing.T) {
 
 func TestExportConfigStreamsArchive(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	dataDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.yaml"), []byte("hello"), 0o600)) // #nosec G306 -- test fixture
@@ -345,7 +339,6 @@ func TestExportConfigStreamsArchive(t *testing.T) {
 
 func TestWriteFileCreatesBackup(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 	// create existing config dir with a marker file
@@ -384,7 +377,6 @@ func TestWriteFileCreatesBackup(t *testing.T) {
 }
 
 func TestListPresetsCerberusDisabled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "false")
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
@@ -403,7 +395,6 @@ func TestListPresetsCerberusDisabled(t *testing.T) {
 
 func TestReadFileInvalidPath(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -420,7 +411,6 @@ func TestReadFileInvalidPath(t *testing.T) {
 
 func TestWriteFileInvalidPath(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -439,7 +429,6 @@ func TestWriteFileInvalidPath(t *testing.T) {
 
 func TestWriteFileMissingPath(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -456,7 +445,6 @@ func TestWriteFileMissingPath(t *testing.T) {
 
 func TestWriteFileInvalidPayload(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -472,7 +460,6 @@ func TestWriteFileInvalidPayload(t *testing.T) {
 
 func TestImportConfigRequiresFile(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -489,7 +476,6 @@ func TestImportConfigRequiresFile(t *testing.T) {
 
 func TestImportConfigRejectsEmptyUpload(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -513,7 +499,6 @@ func TestImportConfigRejectsEmptyUpload(t *testing.T) {
 
 func TestListFilesMissingDir(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	missingDir := filepath.Join(t.TempDir(), "does-not-exist")
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", missingDir)
 
@@ -532,7 +517,6 @@ func TestListFilesMissingDir(t *testing.T) {
 
 func TestListFilesReturnsEntries(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	dataDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "root.txt"), []byte("root"), 0o600)) // #nosec G306 -- test fixture
 	nestedDir := filepath.Join(dataDir, "nested")
@@ -562,7 +546,6 @@ func TestListFilesReturnsEntries(t *testing.T) {
 
 func TestIsCerberusEnabledFromDB(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}))
 	require.NoError(t, db.Create(&models.Setting{Key: "feature.cerberus.enabled", Value: "0"}).Error)
@@ -582,7 +565,6 @@ func TestIsCerberusEnabledFromDB(t *testing.T) {
 }
 
 func TestIsCerberusEnabledInvalidEnv(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "not-a-bool")
 	h := newTestCrowdsecHandler(t, nil, &fakeExec{}, "/bin/false", t.TempDir())
 
@@ -592,7 +574,6 @@ func TestIsCerberusEnabledInvalidEnv(t *testing.T) {
 }
 
 func TestIsCerberusEnabledLegacyEnv(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	h := newTestCrowdsecHandler(t, nil, &fakeExec{}, "/bin/false", t.TempDir())
 
 	t.Setenv("CERBERUS_ENABLED", "0")
@@ -636,7 +617,6 @@ func (m *mockEnvExecutor) ExecuteWithEnv(ctx context.Context, name string, args 
 
 func setupTestConsoleEnrollment(t *testing.T) (*CrowdsecHandler, *mockEnvExecutor) {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.CrowdsecConsoleEnrollment{}))
 
@@ -651,7 +631,6 @@ func setupTestConsoleEnrollment(t *testing.T) (*CrowdsecHandler, *mockEnvExecuto
 }
 
 func TestConsoleEnrollDisabled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "false")
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
@@ -670,7 +649,6 @@ func TestConsoleEnrollDisabled(t *testing.T) {
 }
 
 func TestConsoleEnrollServiceUnavailable(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
@@ -691,7 +669,6 @@ func TestConsoleEnrollServiceUnavailable(t *testing.T) {
 }
 
 func TestConsoleEnrollInvalidPayload(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
 
 	h, _ := setupTestConsoleEnrollment(t)
@@ -709,7 +686,6 @@ func TestConsoleEnrollInvalidPayload(t *testing.T) {
 }
 
 func TestConsoleEnrollSuccess(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
 
 	h, _ := setupTestConsoleEnrollment(t)
@@ -732,7 +708,6 @@ func TestConsoleEnrollSuccess(t *testing.T) {
 }
 
 func TestConsoleEnrollMissingAgentName(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
 
 	h, _ := setupTestConsoleEnrollment(t)
@@ -751,7 +726,6 @@ func TestConsoleEnrollMissingAgentName(t *testing.T) {
 }
 
 func TestConsoleStatusDisabled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "false")
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
@@ -768,7 +742,6 @@ func TestConsoleStatusDisabled(t *testing.T) {
 }
 
 func TestConsoleStatusServiceUnavailable(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
@@ -787,7 +760,6 @@ func TestConsoleStatusServiceUnavailable(t *testing.T) {
 }
 
 func TestConsoleStatusSuccess(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
 
 	h, _ := setupTestConsoleEnrollment(t)
@@ -808,7 +780,6 @@ func TestConsoleStatusSuccess(t *testing.T) {
 }
 
 func TestConsoleStatusAfterEnroll(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
 
 	h, _ := setupTestConsoleEnrollment(t)
@@ -844,7 +815,6 @@ func TestConsoleStatusAfterEnroll(t *testing.T) {
 
 func TestIsConsoleEnrollmentEnabledFromDB(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}))
 	require.NoError(t, db.Create(&models.Setting{Key: "feature.crowdsec.console_enrollment", Value: "true"}).Error)
@@ -855,7 +825,6 @@ func TestIsConsoleEnrollmentEnabledFromDB(t *testing.T) {
 
 func TestIsConsoleEnrollmentDisabledFromDB(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}))
 	require.NoError(t, db.Create(&models.Setting{Key: "feature.crowdsec.console_enrollment", Value: "false"}).Error)
@@ -865,7 +834,6 @@ func TestIsConsoleEnrollmentDisabledFromDB(t *testing.T) {
 }
 
 func TestIsConsoleEnrollmentEnabledFromEnv(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
 
 	h := newTestCrowdsecHandler(t, nil, &fakeExec{}, "/bin/false", t.TempDir())
@@ -873,7 +841,6 @@ func TestIsConsoleEnrollmentEnabledFromEnv(t *testing.T) {
 }
 
 func TestIsConsoleEnrollmentDisabledFromEnv(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "0")
 
 	h := newTestCrowdsecHandler(t, nil, &fakeExec{}, "/bin/false", t.TempDir())
@@ -881,7 +848,6 @@ func TestIsConsoleEnrollmentDisabledFromEnv(t *testing.T) {
 }
 
 func TestIsConsoleEnrollmentInvalidEnv(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "invalid")
 
 	h := newTestCrowdsecHandler(t, nil, &fakeExec{}, "/bin/false", t.TempDir())
@@ -889,7 +855,6 @@ func TestIsConsoleEnrollmentInvalidEnv(t *testing.T) {
 }
 
 func TestIsConsoleEnrollmentDefaultDisabled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	h := newTestCrowdsecHandler(t, nil, &fakeExec{}, "/bin/false", t.TempDir())
 	require.False(t, h.isConsoleEnrollmentEnabled())
@@ -914,7 +879,6 @@ func TestIsConsoleEnrollmentDBTrueVariants(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.value, func(t *testing.T) {
-			gin.SetMode(gin.TestMode)
 			db := OpenTestDB(t)
 			require.NoError(t, db.AutoMigrate(&models.Setting{}))
 			require.NoError(t, db.Create(&models.Setting{Key: "feature.crowdsec.console_enrollment", Value: tc.value}).Error)
@@ -948,7 +912,6 @@ func (m *mockCmdExecutor) Execute(ctx context.Context, name string, args ...stri
 
 func TestRegisterBouncerScriptNotFound(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -965,7 +928,6 @@ func TestRegisterBouncerScriptNotFound(t *testing.T) {
 
 func TestRegisterBouncerSuccess(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	// Create a temp script that mimics successful bouncer registration
 	tmpDir := t.TempDir()
@@ -1003,7 +965,6 @@ func TestRegisterBouncerSuccess(t *testing.T) {
 
 func TestRegisterBouncerExecutionError(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	// Create a mock command executor that simulates execution error
 	mockExec := &mockCmdExecutor{
@@ -1032,7 +993,6 @@ func TestRegisterBouncerExecutionError(t *testing.T) {
 // ============================================
 
 func TestGetAcquisitionConfigNotFound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("CHARON_CROWDSEC_ACQUIS_PATH", filepath.Join(t.TempDir(), "missing-acquis.yaml"))
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
@@ -1048,7 +1008,6 @@ func TestGetAcquisitionConfigNotFound(t *testing.T) {
 }
 
 func TestGetAcquisitionConfigSuccess(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Create a temp acquis.yaml to test with
 	tmpDir := t.TempDir()
@@ -1087,7 +1046,6 @@ labels:
 // ============================================
 
 func TestDeleteConsoleEnrollmentDisabled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	// Feature flag not set, should return 404
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
@@ -1104,7 +1062,6 @@ func TestDeleteConsoleEnrollmentDisabled(t *testing.T) {
 }
 
 func TestDeleteConsoleEnrollmentServiceUnavailable(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
 
 	// Create handler with nil Console service
@@ -1131,7 +1088,6 @@ func TestDeleteConsoleEnrollmentServiceUnavailable(t *testing.T) {
 }
 
 func TestDeleteConsoleEnrollmentSuccess(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
 
 	h, _ := setupTestConsoleEnrollment(t)
@@ -1164,7 +1120,6 @@ func TestDeleteConsoleEnrollmentSuccess(t *testing.T) {
 }
 
 func TestDeleteConsoleEnrollmentNoRecordSuccess(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
 
 	h, _ := setupTestConsoleEnrollment(t)
@@ -1184,7 +1139,6 @@ func TestDeleteConsoleEnrollmentNoRecordSuccess(t *testing.T) {
 }
 
 func TestDeleteConsoleEnrollmentThenReenroll(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
 
 	h, _ := setupTestConsoleEnrollment(t)
@@ -1252,7 +1206,6 @@ func TestDeleteConsoleEnrollmentThenReenroll(t *testing.T) {
 // Start Handler - LAPI Readiness Polling Tests
 func TestCrowdsecStart_LAPINotReadyTimeout(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	// Mock executor that returns error for lapi status checks
 	mockExec := &mockCmdExecutor{
@@ -1311,7 +1264,6 @@ func (f *fakeExecWithError) Status(ctx context.Context, configDir string) (runni
 
 func TestCrowdsecHandler_Status_Error(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	fe := &fakeExecWithError{statusError: errors.New("status check failed")}
 	db := setupCrowdDB(t)
@@ -1331,7 +1283,6 @@ func TestCrowdsecHandler_Status_Error(t *testing.T) {
 
 func TestCrowdsecHandler_Start_ExecutorError(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	fe := &fakeExecWithError{startError: errors.New("failed to start process")}
 	db := setupCrowdDB(t)
@@ -1351,7 +1302,6 @@ func TestCrowdsecHandler_Start_ExecutorError(t *testing.T) {
 
 func TestCrowdsecHandler_ExportConfig_DirNotFound(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	db := setupCrowdDB(t)
 	// Use a non-existent directory
@@ -1376,7 +1326,6 @@ func TestCrowdsecHandler_ExportConfig_DirNotFound(t *testing.T) {
 
 func TestCrowdsecHandler_ReadFile_NotFound(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
@@ -1396,7 +1345,6 @@ func TestCrowdsecHandler_ReadFile_NotFound(t *testing.T) {
 
 func TestCrowdsecHandler_ReadFile_MissingPath(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	db := setupCrowdDB(t)
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
@@ -1415,7 +1363,6 @@ func TestCrowdsecHandler_ReadFile_MissingPath(t *testing.T) {
 
 func TestCrowdsecHandler_ListDecisions_Success(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	// Mock executor that returns valid JSON decisions
 	mockExec := &mockCmdExecutor{
@@ -1444,7 +1391,6 @@ func TestCrowdsecHandler_ListDecisions_Success(t *testing.T) {
 
 func TestCrowdsecHandler_ListDecisions_Empty(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	// Mock executor that returns null (no decisions)
 	mockExec := &mockCmdExecutor{
@@ -1472,7 +1418,6 @@ func TestCrowdsecHandler_ListDecisions_Empty(t *testing.T) {
 
 func TestCrowdsecHandler_ListDecisions_CscliError(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	// Mock executor that returns an error
 	mockExec := &mockCmdExecutor{
@@ -1498,7 +1443,6 @@ func TestCrowdsecHandler_ListDecisions_CscliError(t *testing.T) {
 
 func TestCrowdsecHandler_ListDecisions_InvalidJSON(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	// Mock executor that returns invalid JSON
 	mockExec := &mockCmdExecutor{
@@ -1524,7 +1468,6 @@ func TestCrowdsecHandler_ListDecisions_InvalidJSON(t *testing.T) {
 
 func TestCrowdsecHandler_BanIP_Success(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	mockExec := &mockCmdExecutor{
 		output: []byte("Decision created"),
@@ -1554,7 +1497,6 @@ func TestCrowdsecHandler_BanIP_Success(t *testing.T) {
 
 func TestCrowdsecHandler_BanIP_MissingIP(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	db := setupCrowdDB(t)
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
@@ -1575,7 +1517,6 @@ func TestCrowdsecHandler_BanIP_MissingIP(t *testing.T) {
 
 func TestCrowdsecHandler_BanIP_EmptyIP(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	db := setupCrowdDB(t)
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
@@ -1596,7 +1537,6 @@ func TestCrowdsecHandler_BanIP_EmptyIP(t *testing.T) {
 
 func TestCrowdsecHandler_BanIP_DefaultDuration(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	mockExec := &mockCmdExecutor{
 		output: []byte("Decision created"),
@@ -1626,7 +1566,6 @@ func TestCrowdsecHandler_BanIP_DefaultDuration(t *testing.T) {
 
 func TestCrowdsecHandler_UnbanIP_Success(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	mockExec := &mockCmdExecutor{
 		output: []byte("Decision deleted"),
@@ -1653,7 +1592,6 @@ func TestCrowdsecHandler_UnbanIP_Success(t *testing.T) {
 
 func TestCrowdsecHandler_UnbanIP_Error(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	mockExec := &mockCmdExecutor{
 		output: []byte("error"),
@@ -1682,7 +1620,6 @@ func TestCrowdsecHandler_UnbanIP_Error(t *testing.T) {
 
 func TestCrowdsecHandler_BanIP_ExecutionError(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	mockExec := &mockCmdExecutor{
 		output: []byte("error: failed to add decision"),
@@ -1711,7 +1648,6 @@ func TestCrowdsecHandler_BanIP_ExecutionError(t *testing.T) {
 
 func TestCrowdsecHandler_CheckLAPIHealth_InvalidURL(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	db := setupCrowdDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
@@ -1747,7 +1683,6 @@ func TestCrowdsecHandler_CheckLAPIHealth_InvalidURL(t *testing.T) {
 
 func TestCrowdsecHandler_GetLAPIDecisions_Fallback(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	// Mock executor that simulates fallback to cscli
 	mockExec := &mockCmdExecutor{
@@ -1786,7 +1721,6 @@ func TestCrowdsecHandler_GetLAPIDecisions_Fallback(t *testing.T) {
 }
 
 func TestCrowdsecHandler_PullPreset_CerberusDisabled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "false")
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
@@ -1805,7 +1739,6 @@ func TestCrowdsecHandler_PullPreset_CerberusDisabled(t *testing.T) {
 }
 
 func TestCrowdsecHandler_PullPreset_InvalidPayload(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
@@ -1823,7 +1756,6 @@ func TestCrowdsecHandler_PullPreset_InvalidPayload(t *testing.T) {
 }
 
 func TestCrowdsecHandler_PullPreset_EmptySlug(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
@@ -1842,7 +1774,6 @@ func TestCrowdsecHandler_PullPreset_EmptySlug(t *testing.T) {
 }
 
 func TestCrowdsecHandler_PullPreset_HubUnavailable(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
@@ -1863,7 +1794,6 @@ func TestCrowdsecHandler_PullPreset_HubUnavailable(t *testing.T) {
 }
 
 func TestCrowdsecHandler_ApplyPreset_CerberusDisabled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "false")
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
@@ -1882,7 +1812,6 @@ func TestCrowdsecHandler_ApplyPreset_CerberusDisabled(t *testing.T) {
 }
 
 func TestCrowdsecHandler_ApplyPreset_InvalidPayload(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
@@ -1900,7 +1829,6 @@ func TestCrowdsecHandler_ApplyPreset_InvalidPayload(t *testing.T) {
 }
 
 func TestCrowdsecHandler_ApplyPreset_EmptySlug(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
@@ -1919,7 +1847,6 @@ func TestCrowdsecHandler_ApplyPreset_EmptySlug(t *testing.T) {
 }
 
 func TestCrowdsecHandler_ApplyPreset_HubUnavailable(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
@@ -1941,7 +1868,6 @@ func TestCrowdsecHandler_ApplyPreset_HubUnavailable(t *testing.T) {
 
 func TestCrowdsecHandler_UpdateAcquisitionConfig_MissingContent(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
@@ -1960,7 +1886,6 @@ func TestCrowdsecHandler_UpdateAcquisitionConfig_MissingContent(t *testing.T) {
 
 func TestCrowdsecHandler_UpdateAcquisitionConfig_InvalidJSON(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
@@ -1977,7 +1902,6 @@ func TestCrowdsecHandler_UpdateAcquisitionConfig_InvalidJSON(t *testing.T) {
 
 func TestCrowdsecHandler_ListDecisions_WithConfigYaml(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 	// Create config.yaml to trigger the config path code
@@ -2018,7 +1942,6 @@ func TestCrowdsecHandler_ListDecisions_WithConfigYaml(t *testing.T) {
 
 func TestCrowdsecHandler_BanIP_WithConfigYaml(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 	// Create config.yaml to trigger the config path code
@@ -2048,7 +1971,6 @@ func TestCrowdsecHandler_BanIP_WithConfigYaml(t *testing.T) {
 
 func TestCrowdsecHandler_UnbanIP_WithConfigYaml(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 	// Create config.yaml to trigger the config path code
@@ -2076,7 +1998,6 @@ func TestCrowdsecHandler_UnbanIP_WithConfigYaml(t *testing.T) {
 
 func TestCrowdsecHandler_Status_LAPIReady(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 	// Create config.yaml
@@ -2112,7 +2033,6 @@ func TestCrowdsecHandler_Status_LAPIReady(t *testing.T) {
 
 func TestCrowdsecHandler_Status_LAPINotReady(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 
@@ -2146,7 +2066,6 @@ func TestCrowdsecHandler_Status_LAPINotReady(t *testing.T) {
 
 func TestCrowdsecHandler_ListDecisions_WithCreatedAt(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	// Mock executor that returns decisions with created_at field
 	mockExec := &mockCmdExecutor{
@@ -2180,7 +2099,6 @@ func TestCrowdsecHandler_ListDecisions_WithCreatedAt(t *testing.T) {
 
 func TestCrowdsecHandler_HubEndpoints(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	// Test with nil Hub
 	h := &CrowdsecHandler{Hub: nil}
@@ -2196,7 +2114,6 @@ func TestCrowdsecHandler_HubEndpoints(t *testing.T) {
 }
 
 func TestCrowdsecHandler_ConsoleEnroll_ProgressConflict(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
 
 	h, _ := setupTestConsoleEnrollment(t)
@@ -2224,7 +2141,6 @@ func TestCrowdsecHandler_ConsoleEnroll_ProgressConflict(t *testing.T) {
 }
 
 func TestCrowdsecHandler_GetCachedPreset_CerberusDisabled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "false")
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
@@ -2241,7 +2157,6 @@ func TestCrowdsecHandler_GetCachedPreset_CerberusDisabled(t *testing.T) {
 }
 
 func TestCrowdsecHandler_GetCachedPreset_HubUnavailable(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
@@ -2261,7 +2176,6 @@ func TestCrowdsecHandler_GetCachedPreset_HubUnavailable(t *testing.T) {
 }
 
 func TestCrowdsecHandler_GetCachedPreset_EmptySlug(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
 	db := OpenTestDB(t)
@@ -2283,7 +2197,6 @@ func TestCrowdsecHandler_GetCachedPreset_EmptySlug(t *testing.T) {
 // TestCrowdsecHandler_Start_StatusCode tests starting CrowdSec returns 200 status
 func TestCrowdsecHandler_Start_StatusCode(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 	fe := &fakeExec{}
@@ -2307,7 +2220,6 @@ func TestCrowdsecHandler_Start_StatusCode(t *testing.T) {
 // TestCrowdsecHandler_Stop_UpdatesSecurityConfig tests stopping CrowdSec updates SecurityConfig
 func TestCrowdsecHandler_Stop_UpdatesSecurityConfig(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 	fe := &fakeExec{started: true}
@@ -2342,7 +2254,6 @@ func TestCrowdsecHandler_Stop_UpdatesSecurityConfig(t *testing.T) {
 // TestCrowdsecHandler_ActorFromContext tests actor extraction from Gin context
 func TestCrowdsecHandler_ActorFromContext(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	// Test with userID present
 	c1, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -2359,7 +2270,6 @@ func TestCrowdsecHandler_ActorFromContext(t *testing.T) {
 // TestCrowdsecHandler_IsCerberusEnabled_EnvVar tests Cerberus feature flag via environment variable
 func TestCrowdsecHandler_IsCerberusEnabled_EnvVar(t *testing.T) {
 	// Note: Cannot use t.Parallel() with t.Setenv in subtests
-	gin.SetMode(gin.TestMode)
 
 	testCases := []struct {
 		name     string
@@ -2397,7 +2307,6 @@ func TestCrowdsecHandler_IsCerberusEnabled_EnvVar(t *testing.T) {
 
 // TestCrowdsecHandler_ApplyPreset_InvalidJSON verifies JSON binding error handling
 func TestCrowdsecHandler_ApplyPreset_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
@@ -2416,7 +2325,6 @@ func TestCrowdsecHandler_ApplyPreset_InvalidJSON(t *testing.T) {
 
 // TestCrowdsecHandler_ApplyPreset_MissingPresetFile verifies cache miss handling
 func TestCrowdsecHandler_ApplyPreset_MissingPresetFile(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
 	db := OpenTestDB(t)
@@ -2444,7 +2352,6 @@ func TestCrowdsecHandler_ApplyPreset_MissingPresetFile(t *testing.T) {
 
 // TestCrowdsecHandler_GetPresets_DirectoryReadError simulates directory access errors
 func TestCrowdsecHandler_GetPresets_DirectoryReadError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
 	db := OpenTestDB(t)
@@ -2480,7 +2387,6 @@ func TestCrowdsecHandler_GetPresets_DirectoryReadError(t *testing.T) {
 // TestCrowdsecHandler_Start_AlreadyRunning verifies Start when process is already running
 func TestCrowdsecHandler_Start_AlreadyRunning(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	// Create executor that reports process is already running
 	fe := &fakeExec{started: true}
@@ -2514,7 +2420,6 @@ func TestCrowdsecHandler_Start_AlreadyRunning(t *testing.T) {
 // TestCrowdsecHandler_Stop_WhenNotRunning verifies Stop behavior when process isn't running
 func TestCrowdsecHandler_Stop_WhenNotRunning(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	fe := &fakeExec{started: false}
 
@@ -2539,7 +2444,6 @@ func TestCrowdsecHandler_Stop_WhenNotRunning(t *testing.T) {
 // TestCrowdsecHandler_BanIP_InvalidJSON verifies JSON binding for ban requests
 func TestCrowdsecHandler_BanIP_InvalidJSON(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
@@ -2558,7 +2462,6 @@ func TestCrowdsecHandler_BanIP_InvalidJSON(t *testing.T) {
 // TestCrowdsecHandler_UnbanIP_MissingParam verifies parameter validation
 func TestCrowdsecHandler_UnbanIP_MissingParam(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
@@ -2583,7 +2486,6 @@ func TestCrowdsecHandler_ListFiles_WalkError(t *testing.T) {
 	}
 
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 	restrictedDir := filepath.Join(tmpDir, "restricted")
@@ -2609,7 +2511,6 @@ func TestCrowdsecHandler_ListFiles_WalkError(t *testing.T) {
 
 // TestCrowdsecHandler_GetCachedPreset_InvalidSlug verifies slug validation
 func TestCrowdsecHandler_GetCachedPreset_InvalidSlug(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
@@ -2627,7 +2528,6 @@ func TestCrowdsecHandler_GetCachedPreset_InvalidSlug(t *testing.T) {
 
 // TestCrowdsecHandler_GetCachedPreset_CacheMiss verifies cache miss handling
 func TestCrowdsecHandler_GetCachedPreset_CacheMiss(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
@@ -2651,7 +2551,6 @@ func TestCrowdsecHandler_GetCachedPreset_CacheMiss(t *testing.T) {
 
 func TestCrowdsecHandler_RegisterBouncer_InvalidAPIKey(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	// Create mock executor that returns invalid API key format
 	mockExec := &mockCmdExecutor{
@@ -2686,7 +2585,6 @@ exit 1
 
 func TestCrowdsecHandler_RegisterBouncer_LAPIConnectionError(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	mockExec := &mockCmdExecutor{
 		output: []byte("Error: Cannot connect to LAPI\ncscli lapi status: connection refused\n"),
@@ -2712,7 +2610,6 @@ func TestCrowdsecHandler_RegisterBouncer_LAPIConnectionError(t *testing.T) {
 
 func TestCrowdsecHandler_GetAcquisitionConfig_FileNotFound(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
@@ -2735,7 +2632,6 @@ func TestCrowdsecHandler_GetAcquisitionConfig_FileNotFound(t *testing.T) {
 
 func TestCrowdsecHandler_GetAcquisitionConfig_ParseError(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	// This test verifies the handler returns content even if YAML is malformed
 	// The handler doesn't parse YAML, it just reads the file content
@@ -2758,7 +2654,6 @@ func TestCrowdsecHandler_GetAcquisitionConfig_ParseError(t *testing.T) {
 
 func TestCrowdsecHandler_ImportConfig_InvalidYAML(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
@@ -2788,7 +2683,6 @@ func TestCrowdsecHandler_ImportConfig_InvalidYAML(t *testing.T) {
 
 func TestCrowdsecHandler_ImportConfig_ReadError(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
@@ -2816,7 +2710,6 @@ func TestCrowdsecHandler_ImportConfig_ReadError(t *testing.T) {
 
 func TestCrowdsecHandler_ImportConfig_MissingRequiredFields(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	db := setupCrowdDB(t)
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
@@ -2848,7 +2741,6 @@ func TestCrowdsecHandler_ExportConfig_WriteError(t *testing.T) {
 	}
 
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 
@@ -2880,7 +2772,6 @@ func TestCrowdsecHandler_ExportConfig_PermissionsDenied(t *testing.T) {
 	}
 
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 	restrictedFile := filepath.Join(tmpDir, "restricted.conf")
@@ -2910,7 +2801,6 @@ func TestCrowdsecHandler_ExportConfig_PermissionsDenied(t *testing.T) {
 
 func TestCrowdsecHandler_ExportConfig_SuccessValidation(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 
@@ -2976,7 +2866,6 @@ common:
 
 func TestCrowdsecHandler_ListFiles_DirectoryNotExists(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	// Use explicitly non-existent directory
 	nonExistentDir := filepath.Join(os.TempDir(), "crowdsec-test-nonexistent-"+t.Name())
@@ -3019,7 +2908,6 @@ func TestCrowdsecHandler_ListFiles_PermissionDenied(t *testing.T) {
 	}
 
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 	restrictedDir := filepath.Join(tmpDir, "restricted")
@@ -3050,7 +2938,6 @@ func TestCrowdsecHandler_ListFiles_PermissionDenied(t *testing.T) {
 
 func TestCrowdsecHandler_ListFiles_FilteringLogic(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 
@@ -3103,7 +2990,6 @@ func TestCrowdsecHandler_ListFiles_FilteringLogic(t *testing.T) {
 // Test actual file operations to increase ExportConfig coverage
 func TestCrowdsecHandler_ExportConfig_MultipleDirectories(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 
@@ -3163,7 +3049,6 @@ func TestCrowdsecHandler_ExportConfig_MultipleDirectories(t *testing.T) {
 // Test ListFiles with deeply nested structure
 func TestCrowdsecHandler_ListFiles_DeepNesting(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 
@@ -3194,7 +3079,6 @@ func TestCrowdsecHandler_ListFiles_DeepNesting(t *testing.T) {
 // Test ImportConfig with actual file operations
 func TestCrowdsecHandler_ImportConfig_LargeFile(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
@@ -3235,7 +3119,6 @@ func TestCrowdsecHandler_ImportConfig_LargeFile(t *testing.T) {
 // Test Start with SecurityConfig creation
 func TestCrowdsecHandler_Start_CreatesSecurityConfig(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
@@ -3269,7 +3152,6 @@ func TestCrowdsecHandler_Start_CreatesSecurityConfig(t *testing.T) {
 // Test Stop updates existing SecurityConfig
 func TestCrowdsecHandler_Stop_UpdatesExistingConfig(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
@@ -3306,7 +3188,6 @@ func TestCrowdsecHandler_Stop_UpdatesExistingConfig(t *testing.T) {
 // Test WriteFile backup creation
 func TestCrowdsecHandler_WriteFile_BackupCreation(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 
@@ -3350,7 +3231,6 @@ func TestCrowdsecHandler_WriteFile_BackupCreation(t *testing.T) {
 // Test ReadFile with path traversal protection
 func TestCrowdsecHandler_ReadFile_PathTraversal(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 
@@ -3375,7 +3255,6 @@ func TestCrowdsecHandler_ReadFile_PathTraversal(t *testing.T) {
 // Test Status with config.yaml present
 func TestCrowdsecHandler_Status_WithConfigFile(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 
@@ -3412,7 +3291,6 @@ func TestCrowdsecHandler_Status_WithConfigFile(t *testing.T) {
 // Test BanIP with reason
 func TestCrowdsecHandler_BanIP_WithReason(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	mockExec := &mockCmdExecutor{
 		output: []byte("Decision created"),
@@ -3457,7 +3335,6 @@ func TestCrowdsecHandler_UpdateAcquisitionConfig_CreatesBackup(t *testing.T) {
 	}
 
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 
@@ -3483,7 +3360,6 @@ func TestCrowdsecHandler_UpdateAcquisitionConfig_CreatesBackup(t *testing.T) {
 // Test Start when executor.Start fails
 func TestCrowdsecHandler_Start_ExecutorFailure(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	db := setupCrowdDB(t)
 
@@ -3522,7 +3398,6 @@ func TestCrowdsecHandler_Start_ExecutorFailure(t *testing.T) {
 // Test Start when LAPI doesn't become ready
 func TestCrowdsecHandler_Start_LAPINotReady(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	db := setupCrowdDB(t)
 
@@ -3557,7 +3432,6 @@ func TestCrowdsecHandler_Start_LAPINotReady(t *testing.T) {
 
 // Test ConsoleStatus when not enrolled
 func TestCrowdsecHandler_ConsoleStatus_NotEnrolled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
 
@@ -3590,7 +3464,6 @@ func TestCrowdsecHandler_ConsoleStatus_NotEnrolled(t *testing.T) {
 // Test WriteFile with directory creation
 func TestCrowdsecHandler_WriteFile_DirectoryCreation(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 
@@ -3624,7 +3497,6 @@ func TestCrowdsecHandler_WriteFile_DirectoryCreation(t *testing.T) {
 // Test GetLAPIDecisions with API errors
 func TestCrowdsecHandler_GetLAPIDecisions_APIError(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	db := setupCrowdDB(t)
 
@@ -3659,7 +3531,6 @@ func TestCrowdsecHandler_UpdateAcquisitionConfig_ReadError(t *testing.T) {
 	}
 
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 
@@ -3682,7 +3553,6 @@ func TestCrowdsecHandler_UpdateAcquisitionConfig_ReadError(t *testing.T) {
 // Test CheckLAPIHealth with various failure modes
 func TestCrowdsecHandler_CheckLAPIHealth_Timeout(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	mockExec := &mockCmdExecutor{
 		output: []byte(""),
@@ -3711,7 +3581,6 @@ func TestCrowdsecHandler_CheckLAPIHealth_Timeout(t *testing.T) {
 // Test ExportConfig with write errors
 func TestCrowdsecHandler_ExportConfig_EmptyDirectory(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 	// Don't create any subdirectories
@@ -3733,7 +3602,6 @@ func TestCrowdsecHandler_ExportConfig_EmptyDirectory(t *testing.T) {
 // Test ImportConfig with corrupted archive
 func TestCrowdsecHandler_ImportConfig_CorruptedArchive(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
@@ -3894,7 +3762,6 @@ func TestValidateAPIKeyFormat(t *testing.T) {
 // Security: Critical test to prevent API key leakage in logs (CWE-312, CWE-315, CWE-359).
 func TestLogBouncerKeyBanner_NoSecretExposure(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()
@@ -4493,7 +4360,6 @@ func TestEnsureBouncerRegistration_ConcurrentCalls(t *testing.T) {
 
 func TestValidateBouncerKey_BouncerExists(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	mockExec := &mockCmdExecutor{
 		output: []byte(`[{"name":"caddy-bouncer"}]`),
@@ -4514,7 +4380,6 @@ func TestValidateBouncerKey_BouncerExists(t *testing.T) {
 
 func TestValidateBouncerKey_BouncerNotFound(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	mockExec := &mockCmdExecutor{
 		output: []byte(`[{"name":"some-other-bouncer"}]`),
@@ -4533,7 +4398,6 @@ func TestValidateBouncerKey_BouncerNotFound(t *testing.T) {
 
 func TestValidateBouncerKey_EmptyOutput(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	mockExec := &mockCmdExecutor{
 		output: []byte(``),
@@ -4552,7 +4416,6 @@ func TestValidateBouncerKey_EmptyOutput(t *testing.T) {
 
 func TestValidateBouncerKey_NullOutput(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	mockExec := &mockCmdExecutor{
 		output: []byte(`null`),
@@ -4571,7 +4434,6 @@ func TestValidateBouncerKey_NullOutput(t *testing.T) {
 
 func TestValidateBouncerKey_CmdError(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	mockExec := &mockCmdExecutor{
 		output: nil,
@@ -4590,7 +4452,6 @@ func TestValidateBouncerKey_CmdError(t *testing.T) {
 
 func TestValidateBouncerKey_InvalidJSON(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	mockExec := &mockCmdExecutor{
 		output: []byte(`not valid json`),
@@ -4608,7 +4469,6 @@ func TestValidateBouncerKey_InvalidJSON(t *testing.T) {
 }
 
 func TestGetBouncerInfo_FromEnvVar(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("CROWDSEC_API_KEY", "test-api-key-12345678901234567890")
 
 	mockExec := &mockCmdExecutor{
@@ -4636,7 +4496,6 @@ func TestGetBouncerInfo_FromEnvVar(t *testing.T) {
 }
 
 func TestGetBouncerInfo_NotRegistered(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("CROWDSEC_API_KEY", "test-api-key-12345678901234567890")
 
 	mockExec := &mockCmdExecutor{
@@ -4663,7 +4522,6 @@ func TestGetBouncerInfo_NotRegistered(t *testing.T) {
 }
 
 func TestGetBouncerKey_FromEnvVar(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("CROWDSEC_API_KEY", "test-env-key-value-12345")
 
 	h := &CrowdsecHandler{}
@@ -4683,7 +4541,6 @@ func TestGetBouncerKey_FromEnvVar(t *testing.T) {
 }
 
 func TestGetKeyStatus_EnvKeyValid(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("CROWDSEC_API_KEY", "test-api-key-12345678901234567890")
 
 	h := &CrowdsecHandler{}
@@ -4703,7 +4560,6 @@ func TestGetKeyStatus_EnvKeyValid(t *testing.T) {
 }
 
 func TestGetKeyStatus_EnvKeyRejected(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("CROWDSEC_API_KEY", "rejected-key-123456789012345")
 
 	h := &CrowdsecHandler{

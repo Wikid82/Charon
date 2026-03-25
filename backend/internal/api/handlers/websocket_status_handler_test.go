@@ -15,7 +15,6 @@ import (
 )
 
 func TestWebSocketStatusHandler_GetConnections(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	tracker := services.NewWebSocketTracker()
 	handler := NewWebSocketStatusHandler(tracker)
@@ -65,7 +64,6 @@ func TestWebSocketStatusHandler_GetConnections(t *testing.T) {
 }
 
 func TestWebSocketStatusHandler_GetConnectionsEmpty(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	tracker := services.NewWebSocketTracker()
 	handler := NewWebSocketStatusHandler(tracker)
@@ -92,7 +90,6 @@ func TestWebSocketStatusHandler_GetConnectionsEmpty(t *testing.T) {
 }
 
 func TestWebSocketStatusHandler_GetStats(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	tracker := services.NewWebSocketTracker()
 	handler := NewWebSocketStatusHandler(tracker)
@@ -141,7 +138,6 @@ func TestWebSocketStatusHandler_GetStats(t *testing.T) {
 }
 
 func TestWebSocketStatusHandler_GetStatsEmpty(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	tracker := services.NewWebSocketTracker()
 	handler := NewWebSocketStatusHandler(tracker)

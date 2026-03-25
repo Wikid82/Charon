@@ -17,7 +17,6 @@ import (
 )
 
 func setupToggleTest(t *testing.T) (*SecurityHandler, *gorm.DB) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
 
@@ -213,7 +212,6 @@ func TestACLEnabledIfIPWhitelisted(t *testing.T) {
 }
 
 func TestSecurityToggles_RollbackSettingWhenApplyFails(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
 	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", Enabled: true}).Error)

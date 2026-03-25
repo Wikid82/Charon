@@ -16,7 +16,6 @@ import (
 
 // TestListPresetsShowsCachedStatus verifies the /presets endpoint marks cached presets.
 func TestListPresetsShowsCachedStatus(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	cacheDir := t.TempDir()
 	dataDir := t.TempDir()
