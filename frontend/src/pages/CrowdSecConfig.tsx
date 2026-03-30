@@ -40,6 +40,22 @@ export default function CrowdSecConfig() {
   const [validationError, setValidationError] = useState<string | null>(null)
   const [applyInfo, setApplyInfo] = useState<{ status?: string; backup?: string; reloadHint?: boolean; usedCscli?: boolean; cacheKey?: string } | null>(null)
   const queryClient = useQueryClient()
+  // Read the "CrowdSec is starting" signal broadcast by Security.tsx via the
+  // QueryClient cache. No HTTP call is made; this is pure in-memory coordination.
+  const { data: crowdsecStartingCache } = useQuery<{ isStarting: boolean; startedAt?: number }>({
+    queryKey: ['crowdsec-starting'],
+    queryFn: () => ({ isStarting: false, startedAt: 0 }),
+    staleTime: Infinity,
+    gcTime: Infinity,
+  })
+
+  // isStartingUp is true only while the mutation is genuinely running.
+  // The 90-second cap guards against stale cache if Security.tsx onSuccess/onError
+  // never fired (e.g., browser tab was closed mid-mutation).
+  const isStartingUp =
+    (crowdsecStartingCache?.isStarting === true) &&
+    Date.now() - (crowdsecStartingCache.startedAt ?? 0) < 90_000
+
   const isLocalMode = !!status && status.crowdsec?.mode !== 'disabled'
   // Note: CrowdSec mode is now controlled via Security Dashboard toggle
   const { data: featureFlags } = useQuery({ queryKey: ['feature-flags'], queryFn: getFeatureFlags })
@@ -579,7 +595,7 @@ export default function CrowdSecConfig() {
             )}
 
             {/* Yellow warning: Process running but LAPI initializing */}
-            {lapiStatusQuery.data && lapiStatusQuery.data.running && !lapiStatusQuery.data.lapi_ready && initialCheckComplete && (
+            {lapiStatusQuery.data && lapiStatusQuery.data.running && !lapiStatusQuery.data.lapi_ready && initialCheckComplete && !isStartingUp && (
               <div className="flex items-start gap-3 p-4 bg-yellow-900/20 border border-yellow-700/50 rounded-lg" data-testid="lapi-warning">
                 <AlertTriangle className="w-5 h-5 text-yellow-400 shrink-0 mt-0.5" />
                 <div className="flex-1">
@@ -605,7 +621,7 @@ export default function CrowdSecConfig() {
             )}
 
             {/* Red warning: Process not running at all */}
-            {lapiStatusQuery.data && !lapiStatusQuery.data.running && initialCheckComplete && (
+            {lapiStatusQuery.data && !lapiStatusQuery.data.running && initialCheckComplete && !isStartingUp && (
               <div className="flex items-start gap-3 p-4 bg-red-900/20 border border-red-700/50 rounded-lg" data-testid="lapi-not-running-warning">
                 <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
                 <div className="flex-1">

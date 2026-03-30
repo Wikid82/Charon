@@ -81,7 +81,7 @@ Object.defineProperty(window, 'matchMedia', {
 })
 
 // Add ResizeObserver mock (required by Radix UI)
-global.ResizeObserver = class ResizeObserver {
+globalThis.ResizeObserver = class ResizeObserver {
   observe() {}
   unobserve() {}
   disconnect() {}

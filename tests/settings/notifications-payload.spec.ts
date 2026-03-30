@@ -107,6 +107,16 @@ test.describe('Notifications Payload Matrix', () => {
         name: `telegram-matrix-${Date.now()}`,
         url: '987654321',
       },
+      {
+        type: 'slack',
+        name: `slack-matrix-${Date.now()}`,
+        url: '#slack-alerts',
+      },
+      {
+        type: 'ntfy',
+        name: `ntfy-matrix-${Date.now()}`,
+        url: 'https://ntfy.sh/my-topic',
+      },
     ] as const;
 
     for (const scenario of scenarios) {
@@ -125,12 +135,20 @@ test.describe('Notifications Payload Matrix', () => {
           await page.getByTestId('provider-gotify-token').fill('bot123456789:ABCdefGHI');
         }
 
+        if (scenario.type === 'slack') {
+          await page.getByTestId('provider-gotify-token').fill('https://hooks.slack.com/services/T00000000/B00000000/xxxxxxxxxxxxxxxxxxxx');
+        }
+
+        if (scenario.type === 'ntfy') {
+          await page.getByTestId('provider-gotify-token').fill('tk_ntfy_matrix_token');
+        }
+
         await page.getByTestId('provider-save-btn').click();
       });
     }
 
     await test.step('Verify payload contract per provider type', async () => {
-      expect(capturedCreatePayloads).toHaveLength(4);
+      expect(capturedCreatePayloads).toHaveLength(6);
 
       const discordPayload = capturedCreatePayloads.find((payload) => payload.type === 'discord');
       expect(discordPayload).toBeTruthy();
@@ -152,6 +170,18 @@ test.describe('Notifications Payload Matrix', () => {
       expect(telegramPayload?.token).toBe('bot123456789:ABCdefGHI');
       expect(telegramPayload?.gotify_token).toBeUndefined();
       expect(telegramPayload?.url).toBe('987654321');
+
+      const slackPayload = capturedCreatePayloads.find((payload) => payload.type === 'slack');
+      expect(slackPayload).toBeTruthy();
+      expect(slackPayload?.token).toBe('https://hooks.slack.com/services/T00000000/B00000000/xxxxxxxxxxxxxxxxxxxx');
+      expect(slackPayload?.gotify_token).toBeUndefined();
+      expect(slackPayload?.url).toBe('#slack-alerts');
+
+      const ntfyPayload = capturedCreatePayloads.find((payload) => payload.type === 'ntfy');
+      expect(ntfyPayload).toBeTruthy();
+      expect(ntfyPayload?.token).toBe('tk_ntfy_matrix_token');
+      expect(ntfyPayload?.gotify_token).toBeUndefined();
+      expect(ntfyPayload?.url).toBe('https://ntfy.sh/my-topic');
     });
   });
 
@@ -324,7 +354,15 @@ test.describe('Notifications Payload Matrix', () => {
       await page.getByTestId('provider-name').fill(gotifyName);
       await page.getByTestId('provider-url').fill('https://gotify.example.com/message');
       await page.getByTestId('provider-gotify-token').fill('super-secret-token');
+
+      const previewResponsePromise = page.waitForResponse(
+        (response) =>
+          /\/api\/v1\/notifications\/providers\/preview$/.test(response.url())
+          && response.request().method() === 'POST'
+      );
       await page.getByTestId('provider-preview-btn').click();
+      const previewResponse = await previewResponsePromise;
+      capturedPreviewPayload = (await previewResponse.request().postDataJSON()) as Record<string, unknown>;
     });
 
     await test.step('Save provider', async () => {
@@ -334,8 +372,16 @@ test.describe('Notifications Payload Matrix', () => {
     await test.step('Send test from saved provider row', async () => {
       const providerRow = page.getByTestId('provider-row-gotify-transform-id');
       await expect(providerRow).toBeVisible({ timeout: 5000 });
+
+      const testResponsePromise = page.waitForResponse(
+        (response) =>
+          /\/api\/v1\/notifications\/providers\/test$/.test(response.url())
+          && response.request().method() === 'POST'
+      );
       const sendTestButton = providerRow.getByRole('button', { name: /send test/i });
       await sendTestButton.click();
+      const testResponse = await testResponsePromise;
+      capturedTestPayload = (await testResponse.request().postDataJSON()) as Record<string, unknown>;
     });
 
     await test.step('Assert token is not sent on preview/test payloads', async () => {

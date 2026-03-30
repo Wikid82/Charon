@@ -173,7 +173,32 @@
     "uploadSuccess": "Certificat téléversé avec succès",
     "uploadFailed": "Échec du téléversement du certificat",
     "note": "Note",
-    "noteText": "Vous pouvez supprimer les certificats personnalisés et les certificats de test. Les certificats Let's Encrypt de production sont renouvelés automatiquement et ne doivent pas être supprimés sauf en cas de changement d'environnement."
+    "noteText": "Vous pouvez supprimer les certificats personnalisés, les certificats de staging et les certificats de production expirés ou arrivant à expiration qui ne sont associés à aucun hôte proxy. Les certificats de production actifs sont renouvelés automatiquement par Caddy.",
+    "provider": "Provider",
+    "deleteTitle": "Delete Certificate",
+    "deleteConfirmCustom": "This will permanently delete this certificate. A backup will be created first.",
+    "deleteConfirmStaging": "This staging certificate will be removed. It will be regenerated on next request.",
+    "deleteConfirmExpired": "This expired certificate is no longer active and will be permanently removed.",
+    "deleteConfirmExpiring": "This certificate is expiring soon. It will be permanently removed and will not be auto-renewed.",
+    "deleteSuccess": "Certificate deleted",
+    "deleteFailed": "Failed to delete certificate",
+    "deleteInUse": "Cannot delete — certificate is attached to a proxy host",
+    "deleteButton": "Delete",
+    "bulkSelectAll": "Sélectionner tous les certificats supprimables",
+    "selectCert": "Sélectionner le certificat {{name}}",
+    "bulkSelectedCount": "{{count}} certificat(s) sélectionné(s)",
+    "bulkDeleteTitle": "Supprimer {{count}} Certificat(s)",
+    "bulkDeleteDescription": "Supprimer {{count}} certificat(s)",
+    "bulkDeleteConfirm": "Les certificats suivants seront définitivement supprimés. Le serveur crée une sauvegarde avant chaque suppression.",
+    "bulkDeleteListAriaLabel": "Certificats à supprimer",
+    "bulkDeleteButton": "Supprimer {{count}} Certificat(s)",
+    "bulkDeleteSuccess": "{{count}} certificat(s) supprimé(s)",
+    "bulkDeletePartial": "{{deleted}} supprimé(s), {{failed}} échoué(s)",
+    "bulkDeleteFailed": "Impossible de supprimer les certificats",
+    "providerStaging": "Test",
+    "providerCustom": "Personnalisé",
+    "providerExpiredLE": "LE Expiré",
+    "providerExpiringLE": "LE Expirant"
   },
   "auth": {
     "login": "Connexion",
@@ -240,6 +265,7 @@
       "disabledDescription": "Système de Prévention des Intrusions alimenté par le renseignement communautaire sur les menaces",
       "processRunning": "En cours d'exécution (PID {{pid}})",
       "processStopped": "Processus arrêté",
+      "starting": "Démarrage...",
       "toggleTooltip": "Basculer la protection CrowdSec",
       "copyFailed": "Échec de la copie de la clé API",
       "keyWarning": {
@@ -406,7 +432,13 @@
     "monitorDeleted": "Moniteur supprimé",
     "deleteConfirm": "Supprimer ce moniteur? Cette action est irréversible.",
     "pending": "VÉRIFICATION...",
-    "pendingFirstCheck": "En attente de la première vérification..."
+    "pendingFirstCheck": "En attente de la première vérification...",
+    "urlPlaceholder": "https://example.com",
+    "urlPlaceholderHttp": "https://example.com",
+    "urlPlaceholderTcp": "192.168.1.1:8080",
+    "urlHelperHttp": "Saisissez l'URL complète avec le schéma (ex. https://example.com)",
+    "urlHelperTcp": "Saisissez sous la forme hôte:port sans préfixe de schéma (ex. 192.168.1.1:8080 ou nom-d-hôte:22)",
+    "invalidTcpFormat": "Les moniteurs TCP nécessitent le format hôte:port. Supprimez le préfixe de schéma (ex. 192.168.1.1:8080 et non tcp://192.168.1.1:8080)."
   },
   "domains": {
     "title": "Domaines",
@@ -499,7 +531,12 @@
     "webhookUrl": "Webhook URL (Optional)",
     "webhookUrlHelp": "POST requests will be sent to this URL when security events occur.",
     "emailRecipients": "Email Recipients (Optional)",
-    "emailRecipientsHelp": "Comma-separated email addresses."
+    "emailRecipientsHelp": "Comma-separated email addresses.",
+    "ntfy": "Ntfy",
+    "ntfyTopicUrl": "Topic URL",
+    "ntfyAccessToken": "Access Token (optional)",
+    "ntfyAccessTokenPlaceholder": "Enter your Ntfy access token",
+    "ntfyAccessTokenHelp": "Your Ntfy access token for authenticated topics. Required for password-protected topics on self-hosted instances. The token is stored securely and separately."
   },
   "users": {
     "title": "Gestion des Utilisateurs",

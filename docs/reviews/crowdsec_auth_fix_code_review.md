@@ -32,12 +32,14 @@ Successfully implemented Bug #1 fix per investigation report `docs/issues/crowds
 **Purpose**: Validates API key by making authenticated request to LAPI `/v1/decisions/stream` endpoint.
 
 **Behavior**:
+
 - **Connection Refused** → Retry with exponential backoff (500ms → 750ms → 1125ms → ..., max 5s per attempt)
 - **403 Forbidden** → Fail immediately (indicates invalid key, no retry)
 - **200 OK** → Key valid
 - **Timeout**: 30 seconds total, 5 seconds per HTTP request
 
 **Example Log Output**:
+
 ```
 time="..." level=info msg="LAPI not ready, retrying with backoff" attempt=1 error="connection refused" next_attempt_ms=500
 time="..." level=info msg="CrowdSec bouncer authentication successful" masked_key="abcd...wxyz" source=file
@@ -48,6 +50,7 @@ time="..." level=info msg="CrowdSec bouncer authentication successful" masked_ke
 **Purpose**: Ensures valid bouncer authentication using environment variable → file → auto-generation priority.
 
 **Updated Logic**:
+
 1. Check `CROWDSEC_API_KEY` environment variable → **Test against LAPI**
 2. Check `CHARON_SECURITY_CROWDSEC_API_KEY` environment variable → **Test against LAPI**
 3. Check file `/app/data/crowdsec/bouncer_key` → **Test against LAPI**
@@ -60,6 +63,7 @@ time="..." level=info msg="CrowdSec bouncer authentication successful" masked_ke
 **Updated**: Atomic write pattern using temp file + rename.
 
 **Security Improvements**:
+
 - Directory created with `0700` permissions (owner only)
 - Key file created with `0600` permissions (owner read/write only)
 - Atomic write prevents corruption if process killed mid-write
@@ -86,6 +90,7 @@ time="..." level=info msg="CrowdSec bouncer authentication successful" masked_ke
 | `TestGetBouncerAPIKeyFromEnv_Priority` | ✅ | Verifies env var precedence |
 
 **Coverage Results**:
+
 ```
 crowdsec_handler.go:1548: testKeyAgainstLAPI        75.0%
 crowdsec_handler.go:1641: ensureBouncerRegistration 83.3%
@@ -109,6 +114,7 @@ crowdsec_handler.go:1830: saveKeyToFile             58.3%
 | `TestBouncerAuth_FileKeyPersistsAcrossRestarts` | Verifies key persistence across container restarts | Yes |
 
 **Execution**:
+
 ```bash
 cd backend
 go test -tags=integration ./integration/ -run "TestBouncerAuth"
@@ -168,10 +174,12 @@ time="..." level=info msg="CrowdSec bouncer authentication successful" masked_ke
 **Function**: `maskAPIKey()` (line 1752)
 
 **Behavior**:
+
 - Keys < 8 chars: Return `[REDACTED]`
 - Keys >= 8 chars: Return `first4...last4` (e.g., `abcd...wxyz`)
 
 **Example**:
+
 ```go
 maskAPIKey("valid-api-key-12345678")
 // Returns: "vali...5678"
@@ -187,6 +195,7 @@ maskAPIKey("valid-api-key-12345678")
 | `/app/data/crowdsec/bouncer_key` | `0600` | Owner read/write only |
 
 **Code**:
+
 ```go
 os.MkdirAll(filepath.Dir(keyFile), 0700)
 os.WriteFile(tempPath, []byte(apiKey), 0600)
@@ -209,6 +218,7 @@ os.Rename(tempPath, keyFile)                   // Atomic rename
 ## Breaking Changes
 
 **None**. All changes are backward compatible:
+
 - Old `validateBouncerKey()` method preserved but unused
 - Environment variable names unchanged (`CROWDSEC_API_KEY` and `CHARON_SECURITY_CROWDSEC_API_KEY`)
 - File path unchanged (`/app/data/crowdsec/bouncer_key`)
@@ -221,12 +231,14 @@ os.Rename(tempPath, keyFile)                   // Atomic rename
 **Document**: `docs/testing/crowdsec_auth_manual_verification.md`
 
 **Test Scenarios**:
+
 1. Invalid Environment Variable Auto-Recovery
 2. LAPI Startup Delay Handling (30s retry window)
 3. No More "Access Forbidden" Errors in Production
 4. Key Source Visibility in Logs (env var vs file vs auto-generated)
 
 **How to Test**:
+
 ```bash
 # Scenario 1: Invalid env var
 echo "CHARON_SECURITY_CROWDSEC_API_KEY=fakeinvalidkey" >> docker-compose.yml
@@ -258,6 +270,7 @@ docker logs -f charon | grep -i "invalid"
 **Formula**: `nextBackoff = currentBackoff * 1.5` (exponential)
 
 **Timings**:
+
 - Attempt 1: 500ms delay
 - Attempt 2: 750ms delay
 - Attempt 3: 1.125s delay

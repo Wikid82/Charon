@@ -35,14 +35,14 @@ TEST_DOMAIN="ratelimit.local"
 # Verifies rate limit handler is present in Caddy config
 verify_rate_limit_config() {
     local retries=10
-    local wait=3
+    local wait=5
 
     echo "Verifying rate limit config in Caddy..."
 
     for i in $(seq 1 $retries); do
         # Fetch Caddy config via admin API
         local caddy_config
-        caddy_config=$(curl -s http://localhost:2119/config 2>/dev/null || echo "")
+        caddy_config=$(curl -s http://localhost:2119/config/ 2>/dev/null || echo "")
 
         if [ -z "$caddy_config" ]; then
             echo "  Attempt $i/$retries: Caddy admin API not responding, retrying..."
@@ -79,7 +79,7 @@ on_failure() {
     echo ""
 
     echo "=== Caddy Admin API Config ==="
-    curl -s http://localhost:2119/config 2>/dev/null | head -300 || echo "Could not retrieve Caddy config"
+    curl -s http://localhost:2119/config/ 2>/dev/null | head -300 || echo "Could not retrieve Caddy config"
     echo ""
 
     echo "=== Security Config in API ==="
@@ -170,7 +170,7 @@ for i in {1..30}; do
         echo "✓ Charon API is ready"
         break
     fi
-    if [ $i -eq 30 ]; then
+    if [ "$i" -eq 30 ]; then
         echo "✗ Charon API failed to start"
         exit 1
     fi
@@ -183,15 +183,16 @@ done
 # ============================================================================
 echo ""
 echo "Creating backend container for proxy host..."
-docker run -d --name ${BACKEND_CONTAINER} --network containers_default kennethreitz/httpbin
+docker pull mccutchen/go-httpbin 2>/dev/null || true
+docker run -d --name ${BACKEND_CONTAINER} --network containers_default -e PORT=80 mccutchen/go-httpbin
 
 echo "Waiting for httpbin backend to be ready..."
-for i in {1..20}; do
-    if docker exec ${CONTAINER_NAME} sh -c "curl -sf http://${BACKEND_CONTAINER}/get" >/dev/null 2>&1; then
+for i in {1..45}; do
+    if docker exec ${CONTAINER_NAME} sh -c "wget -qO /dev/null http://${BACKEND_CONTAINER}/get" >/dev/null 2>&1; then
         echo "✓ httpbin backend is ready"
         break
     fi
-    if [ $i -eq 20 ]; then
+    if [ "$i" -eq 45 ]; then
         echo "✗ httpbin backend failed to start"
         exit 1
     fi
@@ -209,12 +210,16 @@ curl -s -X POST -H "Content-Type: application/json" \
     -d '{"email":"ratelimit@example.local","password":"password123","name":"Rate Limit Tester"}' \
     http://localhost:8280/api/v1/auth/register >/dev/null 2>&1 || true
 
-curl -s -X POST -H "Content-Type: application/json" \
+LOGIN_STATUS=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" \
     -d '{"email":"ratelimit@example.local","password":"password123"}' \
-    -c ${TMP_COOKIE} \
-    http://localhost:8280/api/v1/auth/login >/dev/null
+    -c "${TMP_COOKIE}" \
+    http://localhost:8280/api/v1/auth/login | tail -n1)
 
-echo "✓ Authentication complete"
+if [ "$LOGIN_STATUS" != "200" ]; then
+    echo "✗ Login failed (HTTP $LOGIN_STATUS) — aborting"
+    exit 1
+fi
+echo "✓ Authentication complete (HTTP $LOGIN_STATUS)"
 
 # ============================================================================
 # Step 5: Create proxy host
@@ -235,14 +240,17 @@ EOF
 
 CREATE_RESP=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" \
     -d "${PROXY_HOST_PAYLOAD}" \
-    -b ${TMP_COOKIE} \
+    -b "${TMP_COOKIE}" \
     http://localhost:8280/api/v1/proxy-hosts)
 CREATE_STATUS=$(echo "$CREATE_RESP" | tail -n1)
 
 if [ "$CREATE_STATUS" = "201" ]; then
     echo "✓ Proxy host created successfully"
+elif [ "$CREATE_STATUS" = "401" ] || [ "$CREATE_STATUS" = "403" ]; then
+    echo "✗ Proxy host creation failed — authentication/authorization error (HTTP $CREATE_STATUS)"
+    exit 1
 else
-    echo "  Proxy host may already exist (status: $CREATE_STATUS)"
+    echo "  Proxy host may already exist or was created (status: $CREATE_STATUS) — continuing"
 fi
 
 # ============================================================================
@@ -254,6 +262,7 @@ SEC_CFG_PAYLOAD=$(cat <<EOF
 {
     "name": "default",
     "enabled": true,
+    "rate_limit_mode": "enabled",
     "rate_limit_enable": true,
     "rate_limit_requests": ${RATE_LIMIT_REQUESTS},
     "rate_limit_window_sec": ${RATE_LIMIT_WINDOW_SEC},
@@ -263,20 +272,49 @@ SEC_CFG_PAYLOAD=$(cat <<EOF
 EOF
 )
 
-curl -s -X POST -H "Content-Type: application/json" \
-    -d "${SEC_CFG_PAYLOAD}" \
-    -b ${TMP_COOKIE} \
-    http://localhost:8280/api/v1/security/config >/dev/null
+echo "Waiting for Caddy admin API to be ready..."
+for i in {1..20}; do
+    if curl -s -f http://localhost:2119/config/ >/dev/null 2>&1; then
+        echo "✓ Caddy admin API is ready"
+        break
+    fi
+    if [ "$i" -eq 20 ]; then
+        echo "✗ Caddy admin API failed to become ready"
+        exit 1
+    fi
+    echo -n '.'
+    sleep 1
+done
 
-echo "✓ Rate limiting configured"
+SEC_CONFIG_RESP=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" \
+    -d "${SEC_CFG_PAYLOAD}" \
+    -b "${TMP_COOKIE}" \
+    http://localhost:8280/api/v1/security/config)
+SEC_CONFIG_STATUS=$(echo "$SEC_CONFIG_RESP" | tail -n1)
+SEC_CONFIG_BODY=$(echo "$SEC_CONFIG_RESP" | head -n-1)
+
+if [ "$SEC_CONFIG_STATUS" != "200" ]; then
+    echo "✗ Security config update failed (HTTP $SEC_CONFIG_STATUS)"
+    echo "  Response body: $SEC_CONFIG_BODY"
+    echo "  Verify the auth cookie is valid and the user has the admin role."
+    exit 1
+fi
+echo "✓ Rate limiting configured (HTTP $SEC_CONFIG_STATUS)"
 
 echo "Waiting for Caddy to apply configuration..."
-sleep 5
+sleep 8
 
-# Verify rate limit handler is configured
+# Verify rate limit handler is configured — this is a hard requirement
 if ! verify_rate_limit_config; then
-    echo "WARNING: Rate limit handler verification failed (Caddy may still be loading)"
-    echo "Proceeding with test anyway..."
+    echo "✗ Rate limit handler verification failed — aborting test"
+    echo "  The handler must be present in Caddy config before enforcement can be tested."
+    echo ""
+    echo "=== Caddy admin API full config ==="
+    curl -s http://localhost:2119/config/ 2>/dev/null | head -200 || echo "Admin API not responding"
+    echo ""
+    echo "=== Security config from API ==="
+    curl -s -b "${TMP_COOKIE}" http://localhost:8280/api/v1/security/config 2>/dev/null || echo "API not responding"
+    exit 1
 fi
 
 # ============================================================================
@@ -331,10 +369,10 @@ else
     echo "  ✗ Expected HTTP 429, got HTTP $BLOCKED_STATUS"
     echo ""
     echo "=== DEBUG: SecurityConfig from API ==="
-    curl -s -b ${TMP_COOKIE} http://localhost:8280/api/v1/security/config | jq .
+    curl -s -b "${TMP_COOKIE}" http://localhost:8280/api/v1/security/config | jq .
     echo ""
     echo "=== DEBUG: SecurityStatus from API ==="
-    curl -s -b ${TMP_COOKIE} http://localhost:8280/api/v1/security/status | jq .
+    curl -s -b "${TMP_COOKIE}" http://localhost:8280/api/v1/security/status | jq .
     echo ""
     echo "=== DEBUG: Caddy config (first proxy route handlers) ==="
     curl -s http://localhost:2119/config/ | jq '.apps.http.servers.charon_server.routes[0].handle // []'
@@ -389,12 +427,12 @@ echo ""
 
 # Remove test proxy host from database
 echo "Removing test proxy host from database..."
-INTEGRATION_UUID=$(curl -s -b ${TMP_COOKIE} http://localhost:8280/api/v1/proxy-hosts | \
+INTEGRATION_UUID=$(curl -s -b "${TMP_COOKIE}" http://localhost:8280/api/v1/proxy-hosts | \
     grep -o '"uuid":"[^"]*"[^}]*"domain_names":"'${TEST_DOMAIN}'"' | head -n1 | \
     grep -o '"uuid":"[^"]*"' | sed 's/"uuid":"\([^"]*\)"/\1/')
 
 if [ -n "$INTEGRATION_UUID" ]; then
-    curl -s -X DELETE -b ${TMP_COOKIE} \
+    curl -s -X DELETE -b "${TMP_COOKIE}" \
         "http://localhost:8280/api/v1/proxy-hosts/${INTEGRATION_UUID}?delete_uptime=true" >/dev/null
     echo "✓ Deleted test proxy host ${INTEGRATION_UUID}"
 fi

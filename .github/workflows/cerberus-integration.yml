@@ -31,7 +31,7 @@ jobs:
       - name: Build Docker image (Local)
         run: |
           echo "Building image locally for integration tests..."
-          docker build -t charon:local .
+          docker build -t charon:local --build-arg CI="${CI:-false}" .
           echo "✅ Successfully built charon:local"
 
       - name: Run Cerberus integration tests

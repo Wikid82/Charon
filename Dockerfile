@@ -23,9 +23,13 @@ ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0b
 
 # ---- Shared Go Security Patches ----
 # renovate: datasource=go depName=github.com/expr-lang/expr
-ARG EXPR_LANG_VERSION=1.17.7
+ARG EXPR_LANG_VERSION=1.17.8
 # renovate: datasource=go depName=golang.org/x/net
-ARG XNET_VERSION=0.51.0
+ARG XNET_VERSION=0.52.0
+# renovate: datasource=go depName=github.com/smallstep/certificates
+ARG SMALLSTEP_CERTIFICATES_VERSION=0.30.0
+# renovate: datasource=npm depName=npm
+ARG NPM_VERSION=11.11.1
 
 # Allow pinning Caddy version - Renovate will update this
 # Build the most recent Caddy 2.x release (keeps major pinned under v3).
@@ -39,7 +43,7 @@ ARG CADDY_CANDIDATE_VERSION=2.11.2
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
-ARG CADDY_SECURITY_VERSION=1.1.45
+ARG CADDY_SECURITY_VERSION=1.1.51
 # renovate: datasource=go depName=github.com/corazawaf/coraza-caddy
 ARG CORAZA_CADDY_VERSION=2.2.0
 ## When an official caddy image tag isn't available on the host, use a
@@ -99,9 +103,12 @@ ARG VERSION=dev
 # Make version available to Vite as VITE_APP_VERSION during the frontend build
 ENV VITE_APP_VERSION=${VERSION}
 
-# Set environment to bypass native binary requirement for cross-arch builds
-ENV npm_config_rollup_skip_nodejs_native=1 \
-    ROLLUP_SKIP_NODEJS_NATIVE=1
+# Vite 8: Rolldown native bindings auto-resolved per platform via optionalDependencies
+ARG NPM_VERSION
+# hadolint ignore=DL3017
+RUN apk upgrade --no-cache && \
+    npm install -g npm@${NPM_VERSION} --no-fund --no-audit && \
+    npm cache clean --force
 
 RUN npm ci
 
@@ -226,6 +233,7 @@ ARG CORAZA_CADDY_VERSION
 ARG XCADDY_VERSION=0.4.5
 ARG EXPR_LANG_VERSION
 ARG XNET_VERSION
+ARG SMALLSTEP_CERTIFICATES_VERSION
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache bash git
@@ -274,6 +282,20 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # renovate: datasource=go depName=github.com/hslatman/ipstore
         go get github.com/hslatman/ipstore@v0.4.0; \
         go get golang.org/x/net@v${XNET_VERSION}; \
+        # CVE-2026-33186 (GHSA-p77j-4mvh-x3m3): gRPC-Go auth bypass via missing leading slash
+        # Fix available at v1.79.3. Pin here so the Caddy binary is patched immediately;
+        # remove once Caddy ships a release built with grpc >= v1.79.3.
+        # renovate: datasource=go depName=google.golang.org/grpc
+        go get google.golang.org/grpc@v1.79.3; \
+        # GHSA-479m-364c-43vc: goxmldsig XML signature validation bypass (loop variable capture)
+        # Fix available at v1.6.0. Pin here so the Caddy binary is patched immediately;
+        # remove once caddy-security ships a release built with goxmldsig >= v1.6.0.
+        # renovate: datasource=go depName=github.com/russellhaering/goxmldsig
+        go get github.com/russellhaering/goxmldsig@v1.6.0; \
+        # CVE-2026-30836: smallstep/certificates 0.30.0-rc3 vulnerability
+        # Fix available at v0.30.0. Pin here so the Caddy binary is patched immediately;
+        # remove once caddy-security ships a release built with smallstep/certificates >= v0.30.0.
+        go get github.com/smallstep/certificates@v${SMALLSTEP_CERTIFICATES_VERSION}; \
         if [ "${CADDY_PATCH_SCENARIO}" = "A" ]; then \
             # Rollback scenario: keep explicit nebula pin if upstream compatibility regresses.
             # NOTE: smallstep/certificates (pulled by caddy-security stack) currently
@@ -338,6 +360,11 @@ RUN git clone --depth 1 --branch "v${CROWDSEC_VERSION}" https://github.com/crowd
 RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     go get golang.org/x/crypto@v0.46.0 && \
     go get golang.org/x/net@v${XNET_VERSION} && \
+    # CVE-2026-33186 (GHSA-p77j-4mvh-x3m3): gRPC-Go auth bypass via missing leading slash
+    # Fix available at v1.79.3. Pin here so the CrowdSec binary is patched immediately;
+    # remove once CrowdSec ships a release built with grpc >= v1.79.3.
+    # renovate: datasource=go depName=google.golang.org/grpc
+    go get google.golang.org/grpc@v1.79.3 && \
     go mod tidy
 
 # Fix compatibility issues with expr-lang v1.17.7
@@ -410,11 +437,11 @@ WORKDIR /app
 # Install runtime dependencies for Charon, including bash for maintenance scripts
 # Note: gosu is now built from source (see gosu-builder stage) to avoid CVEs from Debian's pre-compiled version
 # Explicitly upgrade packages to fix security vulnerabilities
-# binutils provides objdump for debug symbol detection in docker-entrypoint.sh
 # hadolint ignore=DL3018
 RUN apk add --no-cache \
-    bash ca-certificates sqlite-libs sqlite tzdata curl gettext libcap libcap-utils \
-    c-ares binutils libc-utils busybox-extras
+    bash ca-certificates sqlite-libs sqlite tzdata gettext libcap libcap-utils \
+    c-ares busybox-extras \
+    && apk upgrade --no-cache zlib
 
 # Copy gosu binary from gosu-builder (built with Go 1.26+ to avoid stdlib CVEs)
 COPY --from=gosu-builder /gosu-out/gosu /usr/sbin/gosu
@@ -433,10 +460,11 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # In CI, timeout quickly rather than retrying to save build time
 ARG GEOLITE2_COUNTRY_SHA256=c6549807950f93f609d6433fa295fa517fbdec0ad975a4aafba69c136d5d2347
 RUN mkdir -p /app/data/geoip && \
-        if [ -n "$CI" ]; then \
+        if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
-            if curl -fSL -m 10 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
-                -o /app/data/geoip/GeoLite2-Country.mmdb 2>/dev/null; then \
+            if wget -qO /app/data/geoip/GeoLite2-Country.mmdb \
+                -T 10 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" 2>/dev/null \
+                && [ -s /app/data/geoip/GeoLite2-Country.mmdb ]; then \
                 echo "✅ GeoIP downloaded"; \
             else \
                 echo "⚠️  GeoIP skipped"; \
@@ -444,16 +472,12 @@ RUN mkdir -p /app/data/geoip && \
             fi; \
         else \
             echo "Local - full download (30s timeout, 3 retries)"; \
-            if curl -fSL -m 30 --retry 3 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
-                -o /app/data/geoip/GeoLite2-Country.mmdb; then \
-                if echo "${GEOLITE2_COUNTRY_SHA256}  /app/data/geoip/GeoLite2-Country.mmdb" | sha256sum -c -; then \
-                    echo "✅ GeoIP checksum verified"; \
-                else \
-                    echo "⚠️  Checksum failed"; \
-                    touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder; \
-                fi; \
+            if wget -qO /app/data/geoip/GeoLite2-Country.mmdb \
+                -T 30 -t 4 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
+                && [ -s /app/data/geoip/GeoLite2-Country.mmdb ]; then \
+                echo "✅ GeoIP downloaded"; \
             else \
-                echo "⚠️  Download failed"; \
+                echo "⚠️  GeoIP download failed or empty — skipping"; \
                 touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder; \
             fi; \
         fi
@@ -579,8 +603,8 @@ EXPOSE 80 443 443/udp 2019 8080
 
 # Security: Add healthcheck to monitor container health
 # Verifies the Charon API is responding correctly
-HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8080/api/v1/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD wget -q -O /dev/null http://localhost:8080/api/v1/health || exit 1
 
 # Create CrowdSec symlink as root before switching to non-root user
 # This symlink allows CrowdSec to use persistent storage at /app/data/crowdsec/config

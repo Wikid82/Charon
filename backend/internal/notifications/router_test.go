@@ -86,3 +86,57 @@ func TestRouter_ShouldUseNotify_WebhookServiceFlag(t *testing.T) {
 		t.Fatalf("expected notify routing disabled for webhook when FlagWebhookServiceEnabled is false")
 	}
 }
+
+func TestRouter_ShouldUseNotify_SlackServiceFlag(t *testing.T) {
+	router := NewRouter()
+
+	flags := map[string]bool{
+		FlagNotifyEngineEnabled: true,
+		FlagSlackServiceEnabled: true,
+	}
+
+	if !router.ShouldUseNotify("slack", flags) {
+		t.Fatalf("expected notify routing enabled for slack when FlagSlackServiceEnabled is true")
+	}
+
+	flags[FlagSlackServiceEnabled] = false
+	if router.ShouldUseNotify("slack", flags) {
+		t.Fatalf("expected notify routing disabled for slack when FlagSlackServiceEnabled is false")
+	}
+}
+
+func TestRouter_ShouldUseNotify_PushoverServiceFlag(t *testing.T) {
+	router := NewRouter()
+
+	flags := map[string]bool{
+		FlagNotifyEngineEnabled:    true,
+		FlagPushoverServiceEnabled: true,
+	}
+
+	if !router.ShouldUseNotify("pushover", flags) {
+		t.Fatalf("expected notify routing enabled for pushover when FlagPushoverServiceEnabled is true")
+	}
+
+	flags[FlagPushoverServiceEnabled] = false
+	if router.ShouldUseNotify("pushover", flags) {
+		t.Fatalf("expected notify routing disabled for pushover when FlagPushoverServiceEnabled is false")
+	}
+}
+
+func TestRouter_ShouldUseNotify_NtfyServiceFlag(t *testing.T) {
+	router := NewRouter()
+
+	flags := map[string]bool{
+		FlagNotifyEngineEnabled: true,
+		FlagNtfyServiceEnabled:  true,
+	}
+
+	if !router.ShouldUseNotify("ntfy", flags) {
+		t.Fatalf("expected notify routing enabled for ntfy when FlagNtfyServiceEnabled is true")
+	}
+
+	flags[FlagNtfyServiceEnabled] = false
+	if router.ShouldUseNotify("ntfy", flags) {
+		t.Fatalf("expected notify routing disabled for ntfy when FlagNtfyServiceEnabled is false")
+	}
+}

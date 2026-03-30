@@ -11,11 +11,13 @@ During Sprint 1, we resolved critical issues affecting E2E test reliability and 
 **What was happening**: Some tests would hang indefinitely or timeout after 30 seconds, especially in CI/CD pipelines.
 
 **Root cause**:
+
 - Config reload overlay was blocking test interactions
 - Feature flag propagation was too slow during high load
 - API polling happened unnecessarily for every test
 
 **What we did**:
+
 1. Added smart detection to wait for config reloads to complete
 2. Increased timeouts to accommodate slower environments
 3. Implemented request caching to reduce redundant API calls

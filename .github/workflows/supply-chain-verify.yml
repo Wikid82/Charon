@@ -119,7 +119,7 @@ jobs:
       # Generate SBOM using official Anchore action (auto-updated by Renovate)
       - name: Generate and Verify SBOM
         if: steps.image-check.outputs.exists == 'true'
-        uses: anchore/sbom-action@57aae528053a48a3f6235f2d9461b05fbcb7366d # v0.23.1
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
           image: ghcr.io/${{ github.repository_owner }}/charon:${{ steps.tag.outputs.tag }}
           format: cyclonedx-json
@@ -233,7 +233,7 @@ jobs:
       # Scan for vulnerabilities using official Anchore action (auto-updated by Renovate)
       - name: Scan for Vulnerabilities
         if: steps.validate-sbom.outputs.valid == 'true'
-        uses: anchore/scan-action@7037fa011853d5a11690026fb85feee79f4c946c # v7.3.2
+        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
         id: scan
         with:
           sbom: sbom-verify.cyclonedx.json

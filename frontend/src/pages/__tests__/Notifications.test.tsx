@@ -16,7 +16,7 @@ vi.mock('react-i18next', () => ({
 }))
 
 vi.mock('../../api/notifications', () => ({
-  SUPPORTED_NOTIFICATION_PROVIDER_TYPES: ['discord', 'gotify', 'webhook', 'email', 'telegram'],
+  SUPPORTED_NOTIFICATION_PROVIDER_TYPES: ['discord', 'gotify', 'webhook', 'email', 'telegram', 'slack', 'pushover', 'ntfy'],
   getProviders: vi.fn(),
   createProvider: vi.fn(),
   updateProvider: vi.fn(),
@@ -148,8 +148,8 @@ describe('Notifications', () => {
     const typeSelect = screen.getByTestId('provider-type') as HTMLSelectElement
     const options = Array.from(typeSelect.options)
 
-    expect(options).toHaveLength(5)
-    expect(options.map((option) => option.value)).toEqual(['discord', 'gotify', 'webhook', 'email', 'telegram'])
+    expect(options).toHaveLength(8)
+    expect(options.map((option) => option.value)).toEqual(['discord', 'gotify', 'webhook', 'email', 'telegram', 'slack', 'pushover', 'ntfy'])
     expect(typeSelect.disabled).toBe(false)
   })
 
@@ -428,8 +428,8 @@ describe('Notifications', () => {
     const legacyProvider: NotificationProvider = {
       ...baseProvider,
       id: 'legacy-provider',
-      name: 'Legacy Slack',
-      type: 'slack',
+      name: 'Legacy SMS',
+      type: 'legacy_sms',
       enabled: false,
     }
 
@@ -610,5 +610,74 @@ describe('Notifications', () => {
     await user.selectOptions(screen.getByTestId('provider-type'), 'webhook')
 
     expect(screen.getByTestId('provider-config')).toBeInTheDocument()
+  })
+
+  it('shows token field when slack type selected', async () => {
+    const user = userEvent.setup()
+    renderWithQueryClient(<Notifications />)
+
+    await user.click(await screen.findByTestId('add-provider-btn'))
+    await user.selectOptions(screen.getByTestId('provider-type'), 'slack')
+
+    expect(screen.getByTestId('provider-gotify-token')).toBeInTheDocument()
+  })
+
+  it('hides token field when switching from slack to discord', async () => {
+    const user = userEvent.setup()
+    renderWithQueryClient(<Notifications />)
+
+    await user.click(await screen.findByTestId('add-provider-btn'))
+    await user.selectOptions(screen.getByTestId('provider-type'), 'slack')
+    expect(screen.getByTestId('provider-gotify-token')).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByTestId('provider-type'), 'discord')
+    expect(screen.queryByTestId('provider-gotify-token')).toBeNull()
+  })
+
+  it('submits slack provider with token as webhook URL', async () => {
+    const user = userEvent.setup()
+    renderWithQueryClient(<Notifications />)
+
+    await user.click(await screen.findByTestId('add-provider-btn'))
+    await user.selectOptions(screen.getByTestId('provider-type'), 'slack')
+    await user.type(screen.getByTestId('provider-name'), 'Slack Alerts')
+    await user.type(screen.getByTestId('provider-gotify-token'), 'https://hooks.slack.com/services/T00/B00/xxx')
+    await user.click(screen.getByTestId('provider-save-btn'))
+
+    await waitFor(() => {
+      expect(notificationsApi.createProvider).toHaveBeenCalled()
+    })
+
+    const payload = vi.mocked(notificationsApi.createProvider).mock.calls[0][0]
+    expect(payload.type).toBe('slack')
+    expect(payload.token).toBe('https://hooks.slack.com/services/T00/B00/xxx')
+  })
+
+  it('does not require URL for slack', async () => {
+    const user = userEvent.setup()
+    renderWithQueryClient(<Notifications />)
+
+    await user.click(await screen.findByTestId('add-provider-btn'))
+    await user.selectOptions(screen.getByTestId('provider-type'), 'slack')
+    await user.type(screen.getByTestId('provider-name'), 'Slack No URL')
+    await user.type(screen.getByTestId('provider-gotify-token'), 'https://hooks.slack.com/services/T00/B00/xxx')
+    await user.click(screen.getByTestId('provider-save-btn'))
+
+    await waitFor(() => {
+      expect(notificationsApi.createProvider).toHaveBeenCalled()
+    })
+
+    expect(screen.queryByTestId('provider-url-error')).toBeNull()
+  })
+
+  it('renders pushover form with API Token field and User Key placeholder', async () => {
+    const user = userEvent.setup()
+    renderWithQueryClient(<Notifications />)
+
+    await user.click(await screen.findByTestId('add-provider-btn'))
+    await user.selectOptions(screen.getByTestId('provider-type'), 'pushover')
+
+    expect(screen.getByTestId('provider-gotify-token')).toBeInTheDocument()
+    expect(screen.getByTestId('provider-url')).toHaveAttribute('placeholder', 'notificationProviders.pushoverUserKeyPlaceholder')
   })
 })

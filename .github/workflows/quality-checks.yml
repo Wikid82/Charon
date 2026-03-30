@@ -148,14 +148,24 @@ jobs:
         run: |
           bash "scripts/repo_health_check.sh"
 
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.13.0
+
       - name: Run Go tests
         id: go-tests
         working-directory: ${{ github.workspace }}
         env:
           CGO_ENABLED: 1
         run: |
-          bash "scripts/go-test-coverage.sh" 2>&1 | tee backend/test-output.txt
-          exit "${PIPESTATUS[0]}"
+          bash "scripts/go-test-coverage.sh" 2>&1 | tee backend/test-output.txt; exit "${PIPESTATUS[0]}"
+
+      - name: Upload test output artifact
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: backend-test-output
+          path: backend/test-output.txt
+          retention-days: 7
 
       - name: Go Test Summary
         if: always()
@@ -232,11 +242,12 @@ jobs:
           PERF_MAX_MS_GETSTATUS_P95_PARALLEL: 1500ms
           PERF_MAX_MS_LISTDECISIONS_P95: 2000ms
         run: |
+          go test -run TestPerf -v ./internal/api/handlers -count=1 2>&1 | tee perf-output.txt; PERF_STATUS="${PIPESTATUS[0]}"
           {
             echo "## 🔍 Running performance assertions (TestPerf)"
-            go test -run TestPerf -v ./internal/api/handlers -count=1 | tee perf-output.txt
+            cat perf-output.txt
           } >> "$GITHUB_STEP_SUMMARY"
-          exit "${PIPESTATUS[0]}"
+          exit "$PERF_STATUS"
 
   frontend-quality:
     name: Frontend (React)
@@ -298,8 +309,7 @@ jobs:
         id: frontend-tests
         working-directory: ${{ github.workspace }}
         run: |
-          bash scripts/frontend-test-coverage.sh 2>&1 | tee frontend/test-output.txt
-          exit "${PIPESTATUS[0]}"
+          bash scripts/frontend-test-coverage.sh 2>&1 | tee frontend/test-output.txt; exit "${PIPESTATUS[0]}"
 
       - name: Frontend Test Summary
         if: always()

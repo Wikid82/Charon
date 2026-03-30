@@ -68,6 +68,7 @@ E2E tests require an emergency token to be configured in GitHub Secrets. This to
 ### Why This Is Needed
 
 The emergency token is used by E2E tests to:
+
 - Disable security modules (ACL, WAF, CrowdSec) after testing them
 - Prevent cascading test failures due to leftover security state
 - Ensure tests can always access the API regardless of security configuration
@@ -77,16 +78,19 @@ The emergency token is used by E2E tests to:
 1. **Generate emergency token:**
 
    **Linux/macOS:**
+
    ```bash
    openssl rand -hex 32
    ```
 
    **Windows PowerShell:**
+
    ```powershell
    [Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
    ```
 
    **Node.js (all platforms):**
+
    ```bash
    node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
    ```
@@ -141,11 +145,13 @@ If the secret is missing or invalid, the workflow will fail with a clear error m
 ### Security Best Practices
 
 ✅ **DO:**
+
 - Use cryptographically secure generation methods
 - Rotate quarterly or after security events
 - Store separately for local dev (`.env`) and CI/CD (GitHub Secrets)
 
 ❌ **DON'T:**
+
 - Share tokens via email or chat
 - Commit tokens to repository (even in example files)
 - Reuse tokens across different environments
@@ -154,11 +160,13 @@ If the secret is missing or invalid, the workflow will fail with a clear error m
 ### Troubleshooting
 
 **Error: "CHARON_EMERGENCY_TOKEN not set"**
+
 - Check secret name is exactly `CHARON_EMERGENCY_TOKEN` (case-sensitive)
 - Verify secret is repository-level, not environment-level
 - Re-run workflow after adding secret
 
 **Error: "Token too short"**
+
 - Hex method must generate exactly 64 characters
 - Verify you copied the entire token value
 - Regenerate if needed

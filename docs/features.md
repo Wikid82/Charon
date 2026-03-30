@@ -237,7 +237,7 @@ Watch requests flow through your proxy in real-time. Filter by domain, status co
 
 ### 🔔 Notifications
 
-Get alerted when it matters. Charon notifications now run through the Notify HTTP wrapper with support for Discord, Gotify, and Custom Webhook providers. Payload-focused test coverage is included to help catch formatting and delivery regressions before release.
+Get alerted when it matters. Charon sends notifications through Discord, Gotify, Ntfy, Pushover, Slack, Email, and Custom Webhook providers. Choose a built-in JSON template or write your own to control exactly what your alerts look like.
 
 → [Learn More](features/notifications.md)
 

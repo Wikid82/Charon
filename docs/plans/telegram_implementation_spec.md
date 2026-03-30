@@ -37,6 +37,7 @@ Content-Type: application/json
 ```
 
 **Key design decisions:**
+
 - **Token storage:** The bot token is stored in `NotificationProvider.Token` (`json:"-"`, encrypted at rest) — never in the URL field. This mirrors the Gotify pattern where secrets are separated from endpoints.
 - **URL field:** Stores only the `chat_id` (e.g., `987654321`). At dispatch time, the full API URL is constructed dynamically: `https://api.telegram.org/bot` + decryptedToken + `/sendMessage`. The `chat_id` is passed in the POST body alongside the message text. This prevents token leakage via API responses since URL is `json:"url"`.
 - **SSRF mitigation:** Before dispatching, validate that the constructed URL hostname is exactly `api.telegram.org`. This prevents SSRF if stored data is tampered with.
@@ -475,6 +476,7 @@ Request/response schemas are unchanged. The `type` field now accepts `"telegram"
 Modeled after `tests/settings/email-notification-provider.spec.ts`.
 
 Test scenarios:
+
 1. Create a Telegram provider (name, chat_id in URL field, bot token in token field, enable events)
 2. Verify provider appears in the list
 3. Edit the Telegram provider (change name, verify token preservation)
@@ -611,6 +613,7 @@ Add telegram to the payload matrix test scenarios.
 **Scope:** Feature flags, service layer, handler layer, all Go unit tests
 
 **Files changed:**
+
 - `backend/internal/notifications/feature_flags.go`
 - `backend/internal/api/handlers/feature_flags_handler.go`
 - `backend/internal/notifications/router.go`
@@ -624,6 +627,7 @@ Add telegram to the payload matrix test scenarios.
 **Dependencies:** None (self-contained backend change)
 
 **Validation gates:**
+
 - `go test ./...` passes
 - `make lint-fast` passes
 - Coverage ≥ 85%
@@ -636,6 +640,7 @@ Add telegram to the payload matrix test scenarios.
 **Scope:** Frontend API client, Notifications page, i18n strings, frontend unit tests, Playwright E2E tests
 
 **Files changed:**
+
 - `frontend/src/api/notifications.ts`
 - `frontend/src/pages/Notifications.tsx`
 - `frontend/src/locales/en/translation.json`
@@ -648,6 +653,7 @@ Add telegram to the payload matrix test scenarios.
 **Dependencies:** PR-1 must be merged first (backend must accept `type: "telegram"`)
 
 **Validation gates:**
+
 - `npm test` passes
 - `npm run type-check` passes
 - `npx playwright test --project=firefox` passes

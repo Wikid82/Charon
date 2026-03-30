@@ -16,6 +16,7 @@ import {
   previewExternalTemplate,
   getSecurityNotificationSettings,
   updateSecurityNotificationSettings,
+  SUPPORTED_NOTIFICATION_PROVIDER_TYPES,
 } from './notifications'
 
 vi.mock('./client', () => ({
@@ -118,7 +119,7 @@ describe('notifications api', () => {
       type: 'gotify',
     })
 
-    await expect(createProvider({ name: 'Bad', type: 'slack' })).rejects.toThrow('Unsupported notification provider type: slack')
+    await expect(createProvider({ name: 'Bad', type: 'sms' })).rejects.toThrow('Unsupported notification provider type: sms')
     await expect(updateProvider('bad', { type: 'generic' })).rejects.toThrow('Unsupported notification provider type: generic')
   })
 
@@ -227,5 +228,29 @@ describe('notifications api', () => {
     const updated = await updateSecurityNotificationSettings({ enabled: false, min_log_level: 'error' })
     expect(mockedClient.put).toHaveBeenCalledWith('/notifications/settings/security', { enabled: false, min_log_level: 'error' })
     expect(updated.enabled).toBe(false)
+  })
+
+  it('pushover is in SUPPORTED_NOTIFICATION_PROVIDER_TYPES', () => {
+    expect(SUPPORTED_NOTIFICATION_PROVIDER_TYPES).toContain('pushover')
+  })
+
+  it('sanitizeProviderForWriteAction preserves token for pushover type', async () => {
+    mockedClient.post.mockResolvedValue({ data: { id: 'po1' } })
+    mockedClient.put.mockResolvedValue({ data: { id: 'po1' } })
+
+    await createProvider({ name: 'Pushover', type: 'pushover', gotify_token: 'app-api-token', url: 'uQiRzpo4DXghDmr9QzzfQu27cmVRsG' })
+    expect(mockedClient.post).toHaveBeenCalledWith('/notifications/providers', {
+      name: 'Pushover',
+      type: 'pushover',
+      token: 'app-api-token',
+      url: 'uQiRzpo4DXghDmr9QzzfQu27cmVRsG',
+    })
+
+    await updateProvider('po1', { type: 'pushover', url: 'uQiRzpo4DXghDmr9QzzfQu27cmVRsG', gotify_token: 'new-token' })
+    expect(mockedClient.put).toHaveBeenCalledWith('/notifications/providers/po1', {
+      type: 'pushover',
+      url: 'uQiRzpo4DXghDmr9QzzfQu27cmVRsG',
+      token: 'new-token',
+    })
   })
 })

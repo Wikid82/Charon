@@ -193,11 +193,12 @@ func TestSendJSONPayload_Slack(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	require.NoError(t, err)
 
-	svc := NewNotificationService(db, nil)
+	svc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
 
 	provider := models.NotificationProvider{
 		Type:     "slack",
-		URL:      server.URL,
+		URL:      "#test",
+		Token:    server.URL,
 		Template: "custom",
 		Config:   `{"text": {{toJSON .Message}}}`,
 	}
@@ -659,4 +660,97 @@ func TestSendJSONPayload_Telegram_401ErrorMessage(t *testing.T) {
 	sendErr := svc.sendJSONPayload(context.Background(), provider, data)
 	require.Error(t, sendErr)
 	assert.Contains(t, sendErr.Error(), "provider returned status 401")
+}
+
+func TestSendJSONPayload_Ntfy_Valid(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "POST", r.Method)
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+		assert.Empty(t, r.Header.Get("Authorization"), "no auth header when token is empty")
+
+		var payload map[string]any
+		err := json.NewDecoder(r.Body).Decode(&payload)
+		require.NoError(t, err)
+		assert.NotNil(t, payload["message"], "ntfy payload should have message field")
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
+	require.NoError(t, err)
+
+	svc := NewNotificationService(db, nil)
+
+	provider := models.NotificationProvider{
+		Type:     "ntfy",
+		URL:      server.URL,
+		Template: "custom",
+		Config:   `{"message": {{toJSON .Message}}, "title": {{toJSON .Title}}}`,
+	}
+
+	data := map[string]any{
+		"Message": "Test notification",
+		"Title":   "Test",
+	}
+
+	err = svc.sendJSONPayload(context.Background(), provider, data)
+	assert.NoError(t, err)
+}
+
+func TestSendJSONPayload_Ntfy_WithToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "Bearer tk_test123", r.Header.Get("Authorization"))
+
+		var payload map[string]any
+		err := json.NewDecoder(r.Body).Decode(&payload)
+		require.NoError(t, err)
+		assert.NotNil(t, payload["message"])
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
+	require.NoError(t, err)
+
+	svc := NewNotificationService(db, nil)
+
+	provider := models.NotificationProvider{
+		Type:     "ntfy",
+		URL:      server.URL,
+		Token:    "tk_test123",
+		Template: "custom",
+		Config:   `{"message": {{toJSON .Message}}, "title": {{toJSON .Title}}}`,
+	}
+
+	data := map[string]any{
+		"Message": "Test notification",
+		"Title":   "Test",
+	}
+
+	err = svc.sendJSONPayload(context.Background(), provider, data)
+	assert.NoError(t, err)
+}
+
+func TestSendJSONPayload_Ntfy_MissingMessage(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
+	require.NoError(t, err)
+
+	svc := NewNotificationService(db, nil)
+
+	provider := models.NotificationProvider{
+		Type:     "ntfy",
+		URL:      "http://localhost:9999",
+		Template: "custom",
+		Config:   `{"title": "Test"}`,
+	}
+
+	data := map[string]any{
+		"Message": "Test",
+	}
+
+	err = svc.sendJSONPayload(context.Background(), provider, data)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "ntfy payload must include a 'message' field")
 }

@@ -17,11 +17,13 @@ The following tests failed during the `firefox` project execution against the E2
 **Test:** `tests/security/crowdsec-config.spec.ts`
 **Case:** `CrowdSec Configuration @security › Accessibility › should have accessible form controls`
 **Error:**
+
 ```text
 Error: expect(received).toBeTruthy()
 Received: null
 Location: crowdsec-config.spec.ts:296:28
 ```
+
 **Analysis:** Input fields in the CrowdSec configuration form are missing accessible labels (via `aria-label`, `aria-labelledby`, or `<label for="...">`). This violates WCAG 2.1 guidelines and causes test failure.
 
 ### 2.2. Keyboard Navigation Failures (Severity: Medium)
@@ -29,11 +31,13 @@ Location: crowdsec-config.spec.ts:296:28
 **Test:** `tests/security/crowdsec-decisions.spec.ts`
 **Case:** `CrowdSec Banned IPs Management › Accessibility › should be keyboard navigable`
 **Error:**
+
 ```text
 Error: expect(locator).toBeVisible() failed
 Locator: locator(':focus')
 Expected: visible
 ```
+
 **Analysis:** The "Banned IPs" card or table does not properly handle initial focus or tab navigation, resulting in focus being lost or placed on a non-visible element.
 
 ### 2.3. Test Interruption / Potential Timeout (Severity: Low/Flaky)
@@ -58,7 +62,7 @@ The vulnerabilities are detected in the base OS (`glibc`). Currently, there is n
 
 ## 4. Recommendations
 
-1.  **Remediate Accessibility:** Update `CrowdSecConfig` React component to add `aria-label` to form inputs, specifically those used for configuration toggles or text fields.
-2.  **Fix Focus Management:** Ensure the Banned IPs table has a valid tab order and visually indicates focus.
-3.  **Monitor Flakiness:** Re-run diagnostics tests in isolation to confirm if the interruption is persistent.
-4.  **Accept Risk (OS):** Acknowledge the `glibc` vulnerabilities and schedule a base image update check in 30 days.
+1. **Remediate Accessibility:** Update `CrowdSecConfig` React component to add `aria-label` to form inputs, specifically those used for configuration toggles or text fields.
+2. **Fix Focus Management:** Ensure the Banned IPs table has a valid tab order and visually indicates focus.
+3. **Monitor Flakiness:** Re-run diagnostics tests in isolation to confirm if the interruption is persistent.
+4. **Accept Risk (OS):** Acknowledge the `glibc` vulnerabilities and schedule a base image update check in 30 days.

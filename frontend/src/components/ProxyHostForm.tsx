@@ -1388,11 +1388,23 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               id="advanced-config"
               value={formData.advanced_config}
               onChange={e => setFormData(prev => ({ ...prev, advanced_config: e.target.value }))}
-              placeholder="Additional Caddy directives..."
+              placeholder='{"handler": "headers", "request": {"set": {"X-Custom": ["value"]}}}'
               rows={4}
               className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             </div>
+            <p className="mt-1.5 text-xs text-gray-500">
+              Accepts{' '}
+              <a
+                href="https://caddyserver.com/docs/json/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-400 hover:underline"
+              >
+                Caddy JSON
+              </a>
+              {' '}format only — not Caddyfile syntax.
+            </p>
           </div>
 
           {/* Enabled Toggle */}

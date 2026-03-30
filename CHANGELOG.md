@@ -7,17 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Notifications:** Added Ntfy notification provider with support for self-hosted and cloud instances, optional Bearer token authentication, and JSON template customization
+
+- **Certificate Deletion**: Clean up expired and unused certificates directly from the Certificates page
+  - Expired Let's Encrypt certificates not attached to any proxy host can now be deleted
+  - Custom and staging certificates remain deletable when not in use
+  - In-use certificates show a disabled delete button with a tooltip explaining why
+  - Native browser confirmation replaced with an accessible, themed confirmation dialog
+
+- **Pushover Notification Provider**: Send push notifications to your devices via the Pushover app
+  - Supports JSON templates (minimal, detailed, custom)
+  - Application API Token stored securely — never exposed in API responses
+  - User Key stored in the URL field, following the same pattern as Telegram
+  - Feature flag: `feature.notifications.service.pushover.enabled` (on by default)
+  - Emergency priority (2) is intentionally unsupported — deferred to a future release
+
+- **Slack Notification Provider**: Send alerts to Slack channels via Incoming Webhooks
+  - Supports JSON templates (minimal, detailed, custom) with Slack's native `text` format
+  - Webhook URL stored securely — never exposed in API responses
+  - Optional channel display name for easy identification in provider list
+  - Feature flag: `feature.notifications.service.slack.enabled` (on by default)
+  - See [Notification Guide](docs/features/notifications.md) for setup instructions
+
 ### CI/CD
+
 - **Supply Chain**: Optimized verification workflow to prevent redundant builds
   - Change: Removed direct Push/PR triggers; now waits for 'Docker Build' via `workflow_run`
 
 ### Security
+
 - **Supply Chain**: Enhanced PR verification workflow stability and accuracy
   - **Vulnerability Reporting**: Eliminated false negatives ("0 vulnerabilities") by enforcing strict failure conditions
   - **Tooling**: Switched to manual Grype installation ensuring usage of latest stable binary
   - **Observability**: Improved debugging visibility for vulnerability scans and SARIF generation
 
 ### Performance
+
 - **E2E Tests**: Reduced feature flag API calls by 90% through conditional polling optimization (Phase 2)
   - Conditional skip: Exits immediately if flags already in expected state (~50% of cases)
   - Request coalescing: Shares in-flight API requests between parallel test workers
@@ -29,6 +56,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Prevents timeout errors in Firefox/WebKit caused by strict label matching
 
 ### Fixed
+
+- **Notifications:** Fixed Pushover token-clearing bug where tokens were silently stripped on provider create/update
+- **TCP Monitor Creation**: Fixed misleading form UX that caused silent HTTP 500 errors when creating TCP monitors
+  - Corrected URL placeholder to show `host:port` format instead of the incorrect `tcp://host:port` prefix
+  - Added dynamic per-type placeholder and helper text (HTTP monitors show a full URL example; TCP monitors show `host:port`)
+  - Added client-side validation that blocks form submission when a scheme prefix (e.g. `tcp://`) is detected, with an inline error message
+  - Reordered form fields so the monitor type selector appears above the URL input, making the dynamic helper text immediately relevant
+  - i18n: Added 5 new translation keys across en, de, fr, es, and zh locales
+- **CI: Rate Limit Integration Tests**: Hardened test script reliability — login now validates HTTP status, Caddy admin API readiness gated on `/config/` poll, security config failures are fatal with full diagnostics, and poll interval increased to 5s
+- **CI: Rate Limit Integration Tests**: Removed stale GeoIP database SHA256 checksum from Dockerfile non-CI path (hash was perpetually stale due to weekly upstream updates)
+- **CI: Rate Limit Integration Tests**: Fixed Caddy admin API debug dump URL to use canonical trailing slash in workflow
 - Fixed: Added robust validation and debug logging for Docker image tags to prevent invalid reference errors.
 - Fixed: Removed log masking for image references and added manifest validation to debug CI failures.
 - **Proxy Hosts**: Fixed ACL and Security Headers dropdown selections so create/edit saves now keep the selected values (including clearing to none) after submit and reload.
@@ -41,6 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test Performance**: Reduced system settings test execution time by 31% (from 23 minutes to 16 minutes)
 
 ### Changed
+
 - **Testing Infrastructure**: Enhanced E2E test helpers with better synchronization and error handling
 - **CI**: Optimized E2E workflow shards [Reduced from 4 to 3]
 

@@ -7,5 +7,8 @@ const (
 	FlagGotifyServiceEnabled          = "feature.notifications.service.gotify.enabled"
 	FlagWebhookServiceEnabled         = "feature.notifications.service.webhook.enabled"
 	FlagTelegramServiceEnabled        = "feature.notifications.service.telegram.enabled"
+	FlagSlackServiceEnabled           = "feature.notifications.service.slack.enabled"
+	FlagPushoverServiceEnabled        = "feature.notifications.service.pushover.enabled"
+	FlagNtfyServiceEnabled            = "feature.notifications.service.ntfy.enabled"
 	FlagSecurityProviderEventsEnabled = "feature.notifications.security_provider_events.enabled"
 )

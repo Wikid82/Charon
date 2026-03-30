@@ -1,12 +1,12 @@
 import { QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import { useCertificates } from '../../hooks/useCertificates'
 import { useProxyHosts } from '../../hooks/useProxyHosts'
 import { createTestQueryClient } from '../../test/createTestQueryClient'
-import CertificateList from '../CertificateList'
+import CertificateList, { isDeletable, isInUse } from '../CertificateList'
 
 import type { Certificate } from '../../api/certificates'
 import type { ProxyHost } from '../../api/proxyHosts'
@@ -21,6 +21,13 @@ vi.mock('../../api/certificates', () => ({
 
 vi.mock('../../api/backups', () => ({
   createBackup: vi.fn(async () => ({ filename: 'backup-cert' })),
+}))
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string) => key,
+    i18n: { language: 'en', changeLanguage: vi.fn() },
+  }),
 }))
 
 vi.mock('../../hooks/useProxyHosts', () => ({
@@ -42,6 +49,8 @@ const createCertificatesValue = (overrides: Partial<ReturnType<typeof useCertifi
     { id: 2, name: 'LE Staging', domain: 'staging.example.com', issuer: "Let's Encrypt Staging", expires_at: '2026-04-01T00:00:00Z', status: 'untrusted', provider: 'letsencrypt-staging' },
     { id: 3, name: 'ActiveCert', domain: 'active.example.com', issuer: 'Custom CA', expires_at: '2026-02-01T00:00:00Z', status: 'valid', provider: 'custom' },
     { id: 4, name: 'UnusedValidCert', domain: 'unused.example.com', issuer: 'Custom CA', expires_at: '2026-05-01T00:00:00Z', status: 'valid', provider: 'custom' },
+    { id: 5, name: 'ExpiredLE', domain: 'expired-le.example.com', issuer: "Let's Encrypt", expires_at: '2025-01-01T00:00:00Z', status: 'expired', provider: 'letsencrypt' },
+    { id: 6, name: 'ValidLE', domain: 'valid-le.example.com', issuer: "Let's Encrypt", expires_at: '2026-12-01T00:00:00Z', status: 'valid', provider: 'letsencrypt' },
   ]
 
   return {
@@ -98,7 +107,7 @@ const getRowNames = () =>
   screen
     .getAllByRole('row')
     .slice(1)
-    .map(row => row.querySelector('td')?.textContent?.trim() ?? '')
+    .map(row => row.querySelectorAll('td')[1]?.textContent?.trim() ?? '')
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -107,58 +116,133 @@ beforeEach(() => {
 })
 
 describe('CertificateList', () => {
-  it('deletes custom certificate when confirmed', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => true)
+  describe('isDeletable', () => {
+    const noHosts: ProxyHost[] = []
+    const withHost = (certId: number): ProxyHost[] => [createProxyHost({ certificate_id: certId })]
+
+    it('returns true for custom cert not in use', () => {
+      const cert: Certificate = { id: 1, name: 'C', domain: 'd', issuer: 'X', expires_at: '', status: 'valid', provider: 'custom' }
+      expect(isDeletable(cert, noHosts)).toBe(true)
+    })
+
+    it('returns true for staging cert not in use', () => {
+      const cert: Certificate = { id: 2, name: 'S', domain: 'd', issuer: 'X', expires_at: '', status: 'untrusted', provider: 'letsencrypt-staging' }
+      expect(isDeletable(cert, noHosts)).toBe(true)
+    })
+
+    it('returns true for expired LE cert not in use', () => {
+      const cert: Certificate = { id: 3, name: 'E', domain: 'd', issuer: 'LE', expires_at: '', status: 'expired', provider: 'letsencrypt' }
+      expect(isDeletable(cert, noHosts)).toBe(true)
+    })
+
+    it('returns false for valid LE cert not in use', () => {
+      const cert: Certificate = { id: 4, name: 'V', domain: 'd', issuer: 'LE', expires_at: '', status: 'valid', provider: 'letsencrypt' }
+      expect(isDeletable(cert, noHosts)).toBe(false)
+    })
+
+    it('returns false for cert in use', () => {
+      const cert: Certificate = { id: 5, name: 'U', domain: 'd', issuer: 'X', expires_at: '', status: 'valid', provider: 'custom' }
+      expect(isDeletable(cert, withHost(5))).toBe(false)
+    })
+
+    it('returns false for cert without id', () => {
+      const cert: Certificate = { domain: 'd', issuer: 'X', expires_at: '', status: 'valid', provider: 'custom' }
+      expect(isDeletable(cert, noHosts)).toBe(false)
+    })
+
+    it('returns true for expiring LE cert not in use', () => {
+      const cert: Certificate = { id: 7, name: 'Exp', domain: 'd', issuer: 'LE', expires_at: '', status: 'expiring', provider: 'letsencrypt' }
+      expect(isDeletable(cert, noHosts)).toBe(true)
+    })
+
+    it('returns false for expiring LE cert that is in use', () => {
+      const cert: Certificate = { id: 7, name: 'Exp', domain: 'd', issuer: 'LE', expires_at: '', status: 'expiring', provider: 'letsencrypt' }
+      expect(isDeletable(cert, withHost(7))).toBe(false)
+    })
+  })
+
+  describe('isInUse', () => {
+    it('returns true when host references cert by certificate_id', () => {
+      const cert: Certificate = { id: 10, domain: 'd', issuer: 'X', expires_at: '', status: 'valid', provider: 'custom' }
+      expect(isInUse(cert, [createProxyHost({ certificate_id: 10 })])).toBe(true)
+    })
+
+    it('returns true when host references cert via certificate.id', () => {
+      const cert: Certificate = { id: 10, domain: 'd', issuer: 'X', expires_at: '', status: 'valid', provider: 'custom' }
+      const host = createProxyHost({ certificate_id: undefined, certificate: { id: 10, uuid: 'u', name: 'c', provider: 'custom', domains: 'd', expires_at: '' } })
+      expect(isInUse(cert, [host])).toBe(true)
+    })
+
+    it('returns false when no host references cert', () => {
+      const cert: Certificate = { id: 99, domain: 'd', issuer: 'X', expires_at: '', status: 'valid', provider: 'custom' }
+      expect(isInUse(cert, [createProxyHost({ certificate_id: 3 })])).toBe(false)
+    })
+
+    it('returns false when cert.id is undefined even if a host has certificate_id undefined', () => {
+      const cert: Certificate = { domain: 'd', issuer: 'X', expires_at: '', status: 'valid', provider: 'custom' }
+      const host = createProxyHost({ certificate_id: undefined })
+      expect(isInUse(cert, [host])).toBe(false)
+    })
+  })
+
+  it('renders delete button for deletable certs', async () => {
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
+    expect(within(customRow).getByRole('button', { name: 'certificates.deleteTitle' })).toBeInTheDocument()
+  })
+
+  it('renders delete button for expired LE cert not in use', async () => {
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const expiredLeRow = rows.find(r => r.textContent?.includes('ExpiredLE'))!
+    expect(within(expiredLeRow).getByRole('button', { name: 'certificates.deleteTitle' })).toBeInTheDocument()
+  })
+
+  it('renders aria-disabled delete button for in-use cert', async () => {
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const activeRow = rows.find(r => r.textContent?.includes('ActiveCert'))!
+    const btn = within(activeRow).getByRole('button', { name: 'certificates.deleteTitle' })
+    expect(btn).toHaveAttribute('aria-disabled', 'true')
+  })
+
+  it('hides delete button for valid production LE cert', async () => {
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const validLeRow = rows.find(r => r.textContent?.includes('ValidLE'))!
+    expect(within(validLeRow).queryByRole('button', { name: 'certificates.deleteTitle' })).not.toBeInTheDocument()
+  })
+
+  it('opens dialog and deletes cert on confirm', async () => {
     const { deleteCertificate } = await import('../../api/certificates')
-    const { createBackup } = await import('../../api/backups')
-    const { toast } = await import('../../utils/toast')
     const user = userEvent.setup()
 
     renderWithClient(<CertificateList />)
     const rows = await screen.findAllByRole('row')
-    const customRow = rows.find(r => r.querySelector('td')?.textContent?.includes('CustomCert')) as HTMLElement
-    expect(customRow).toBeTruthy()
-    const customBtn = customRow.querySelector('button[title="Delete Certificate"]') as HTMLButtonElement
-    expect(customBtn).toBeTruthy()
-    await user.click(customBtn)
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
+    await user.click(within(customRow).getByRole('button', { name: 'certificates.deleteTitle' }))
 
-    await waitFor(() => expect(createBackup).toHaveBeenCalled())
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toBeInTheDocument()
+    expect(within(dialog).getByText('certificates.deleteTitle')).toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: 'certificates.deleteButton' }))
     await waitFor(() => expect(deleteCertificate).toHaveBeenCalledWith(1))
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Certificate deleted'))
-    confirmSpy.mockRestore()
   })
 
-  it('deletes staging certificate when confirmed', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => true)
-    const { deleteCertificate } = await import('../../api/certificates')
-    const user = userEvent.setup()
-
-    renderWithClient(<CertificateList />)
-    const stagingButtons = await screen.findAllByTitle('Delete Staging Certificate')
-    expect(stagingButtons.length).toBeGreaterThan(0)
-    await user.click(stagingButtons[0])
-
-    await waitFor(() => expect(deleteCertificate).toHaveBeenCalledWith(2))
-    confirmSpy.mockRestore()
-  })
-
-  it('deletes valid custom certificate when not in use', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => true)
-    const { deleteCertificate } = await import('../../api/certificates')
+  it('does not call createBackup on delete (server handles it)', async () => {
     const { createBackup } = await import('../../api/backups')
     const user = userEvent.setup()
 
     renderWithClient(<CertificateList />)
     const rows = await screen.findAllByRole('row')
-    const unusedRow = rows.find(r => r.querySelector('td')?.textContent?.includes('UnusedValidCert')) as HTMLElement
-    expect(unusedRow).toBeTruthy()
-    const unusedButton = unusedRow.querySelector('button[title="Delete Certificate"]') as HTMLButtonElement
-    expect(unusedButton).toBeTruthy()
-    await user.click(unusedButton)
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
+    await user.click(within(customRow).getByRole('button', { name: 'certificates.deleteTitle' }))
 
-    await waitFor(() => expect(createBackup).toHaveBeenCalled())
-    await waitFor(() => expect(deleteCertificate).toHaveBeenCalledWith(4))
-    confirmSpy.mockRestore()
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: 'certificates.deleteButton' }))
+    await waitFor(() => expect(createBackup).not.toHaveBeenCalled())
   })
 
   it('renders empty state when no certificates exist', async () => {
@@ -171,6 +255,157 @@ describe('CertificateList', () => {
     vi.mocked(useCertificates).mockReturnValue(createCertificatesValue({ error: new Error('boom') }))
     renderWithClient(<CertificateList />)
     expect(await screen.findByText('Failed to load certificates')).toBeInTheDocument()
+  })
+
+  it('shows error toast when delete mutation fails', async () => {
+    const { deleteCertificate } = await import('../../api/certificates')
+    const { toast } = await import('../../utils/toast')
+    vi.mocked(deleteCertificate).mockRejectedValueOnce(new Error('Network error'))
+    const user = userEvent.setup()
+
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
+    await user.click(within(customRow).getByRole('button', { name: 'certificates.deleteTitle' }))
+
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: 'certificates.deleteButton' }))
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('certificates.deleteFailed: Network error'))
+  })
+
+  it('clicking disabled delete button for in-use cert does not open dialog', async () => {
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const activeRow = rows.find(r => r.textContent?.includes('ActiveCert'))!
+    const btn = within(activeRow).getByRole('button', { name: 'certificates.deleteTitle' })
+
+    await user.click(btn)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('closes delete dialog when cancel is clicked', async () => {
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
+    await user.click(within(customRow).getByRole('button', { name: 'certificates.deleteTitle' }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: 'common.cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('renders enabled checkboxes for deletable not-in-use certs (ids 1, 2, 4, 5)', async () => {
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    for (const name of ['CustomCert', 'LE Staging', 'UnusedValidCert', 'ExpiredLE']) {
+      const row = rows.find(r => r.textContent?.includes(name))!
+      const checkbox = within(row).getByRole('checkbox')
+      expect(checkbox).toBeEnabled()
+      expect(checkbox).not.toHaveAttribute('aria-disabled', 'true')
+    }
+  })
+
+  it('renders disabled checkbox for in-use cert (id 3)', async () => {
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const activeRow = rows.find(r => r.textContent?.includes('ActiveCert'))!
+    const checkboxes = within(activeRow).getAllByRole('checkbox')
+    const rowCheckbox = checkboxes[0]
+    expect(rowCheckbox).toBeDisabled()
+    expect(rowCheckbox).toHaveAttribute('aria-disabled', 'true')
+  })
+
+  it('renders no checkbox in valid production LE cert row (id 6)', async () => {
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const validLeRow = rows.find(r => r.textContent?.includes('ValidLE'))!
+    expect(within(validLeRow).queryByRole('checkbox')).not.toBeInTheDocument()
+  })
+
+  it('selecting one cert makes the bulk action toolbar visible', async () => {
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
+    await user.click(within(customRow).getByRole('checkbox'))
+    expect(screen.getByRole('status')).toBeInTheDocument()
+  })
+
+  it('header select-all selects only ids 1, 2, 4, 5 (not in-use id 3)', async () => {
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const headerRow = (await screen.findAllByRole('row'))[0]
+    const headerCheckbox = within(headerRow).getByRole('checkbox')
+    await user.click(headerCheckbox)
+    expect(screen.getByRole('status')).toBeInTheDocument()
+    const rows = screen.getAllByRole('row').slice(1)
+    const activeRow = rows.find(r => r.textContent?.includes('ActiveCert'))!
+    const activeCheckbox = within(activeRow).getByRole('checkbox')
+    expect(activeCheckbox).toBeDisabled()
+    expect(activeCheckbox).not.toBeChecked()
+  })
+
+  it('clicking the toolbar Delete button opens BulkDeleteCertificateDialog', async () => {
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
+    await user.click(within(customRow).getByRole('checkbox'))
+    await user.click(screen.getByRole('button', { name: /certificates\.bulkDeleteButton/i }))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('confirming in the bulk dialog calls deleteCertificate for each selected ID', async () => {
+    const { deleteCertificate } = await import('../../api/certificates')
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
+    const stagingRow = rows.find(r => r.textContent?.includes('LE Staging'))!
+    await user.click(within(customRow).getByRole('checkbox'))
+    await user.click(within(stagingRow).getByRole('checkbox'))
+    await user.click(screen.getByRole('button', { name: /certificates\.bulkDeleteButton/i }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: /certificates\.bulkDeleteButton/i }))
+    await waitFor(() => {
+      expect(deleteCertificate).toHaveBeenCalledWith(1)
+      expect(deleteCertificate).toHaveBeenCalledWith(2)
+    })
+  })
+
+  it('shows partial failure toast when some bulk deletes fail', async () => {
+    const { deleteCertificate } = await import('../../api/certificates')
+    const { toast } = await import('../../utils/toast')
+    vi.mocked(deleteCertificate).mockImplementation(async (id: number) => {
+      if (id === 2) throw new Error('network error')
+    })
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
+    const stagingRow = rows.find(r => r.textContent?.includes('LE Staging'))!
+    await user.click(within(customRow).getByRole('checkbox'))
+    await user.click(within(stagingRow).getByRole('checkbox'))
+    await user.click(screen.getByRole('button', { name: /certificates\.bulkDeleteButton/i }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: /certificates\.bulkDeleteButton/i }))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('certificates.bulkDeletePartial'))
+  })
+
+  it('clicking header checkbox twice deselects all and hides the bulk action toolbar', async () => {
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const headerRow = (await screen.findAllByRole('row'))[0]
+    const headerCheckbox = within(headerRow).getByRole('checkbox')
+    await user.click(headerCheckbox)
+    expect(screen.getByRole('status')).toBeInTheDocument()
+    await user.click(headerCheckbox)
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument())
   })
 
   it('sorts certificates by name and expiry when headers are clicked', async () => {

@@ -136,6 +136,16 @@ func classifyProviderTestFailure(err error) (code string, category string, messa
 		return "PROVIDER_TEST_UNREACHABLE", "dispatch", "Could not reach provider endpoint. Verify URL, DNS, and network connectivity"
 	}
 
+	if strings.Contains(errText, "invalid_payload") ||
+		strings.Contains(errText, "missing_text_or_fallback") {
+		return "PROVIDER_TEST_VALIDATION_FAILED", "validation",
+			"Slack rejected the payload. Ensure your template includes a 'text' or 'blocks' field"
+	}
+	if strings.Contains(errText, "no_service") {
+		return "PROVIDER_TEST_AUTH_REJECTED", "dispatch",
+			"Slack webhook is revoked or the app is disabled. Create a new webhook"
+	}
+
 	return "PROVIDER_TEST_FAILED", "dispatch", "Provider test failed"
 }
 
@@ -172,7 +182,7 @@ func (h *NotificationProviderHandler) Create(c *gin.Context) {
 	}
 
 	providerType := strings.ToLower(strings.TrimSpace(req.Type))
-	if providerType != "discord" && providerType != "gotify" && providerType != "webhook" && providerType != "email" && providerType != "telegram" {
+	if providerType != "discord" && providerType != "gotify" && providerType != "webhook" && providerType != "email" && providerType != "telegram" && providerType != "slack" && providerType != "pushover" && providerType != "ntfy" {
 		respondSanitizedProviderError(c, http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE", "validation", "Unsupported notification provider type")
 		return
 	}
@@ -232,12 +242,12 @@ func (h *NotificationProviderHandler) Update(c *gin.Context) {
 	}
 
 	providerType := strings.ToLower(strings.TrimSpace(existing.Type))
-	if providerType != "discord" && providerType != "gotify" && providerType != "webhook" && providerType != "email" && providerType != "telegram" {
+	if providerType != "discord" && providerType != "gotify" && providerType != "webhook" && providerType != "email" && providerType != "telegram" && providerType != "slack" && providerType != "pushover" && providerType != "ntfy" {
 		respondSanitizedProviderError(c, http.StatusBadRequest, "UNSUPPORTED_PROVIDER_TYPE", "validation", "Unsupported notification provider type")
 		return
 	}
 
-	if (providerType == "gotify" || providerType == "telegram") && strings.TrimSpace(req.Token) == "" {
+	if (providerType == "gotify" || providerType == "telegram" || providerType == "slack" || providerType == "pushover" || providerType == "ntfy") && strings.TrimSpace(req.Token) == "" {
 		// Keep existing token if update payload omits token
 		req.Token = existing.Token
 	}
@@ -278,7 +288,8 @@ func isProviderValidationError(err error) bool {
 		strings.Contains(errMsg, "rendered template") ||
 		strings.Contains(errMsg, "failed to parse template") ||
 		strings.Contains(errMsg, "failed to render template") ||
-		strings.Contains(errMsg, "invalid Discord webhook URL")
+		strings.Contains(errMsg, "invalid Discord webhook URL") ||
+		strings.Contains(errMsg, "invalid Slack webhook URL")
 }
 
 func (h *NotificationProviderHandler) Delete(c *gin.Context) {
@@ -307,6 +318,21 @@ func (h *NotificationProviderHandler) Test(c *gin.Context) {
 	providerType := strings.ToLower(strings.TrimSpace(req.Type))
 	if providerType == "gotify" && strings.TrimSpace(req.Token) != "" {
 		respondSanitizedProviderError(c, http.StatusBadRequest, "TOKEN_WRITE_ONLY", "validation", "Gotify token is accepted only on provider create/update")
+		return
+	}
+
+	if providerType == "slack" && strings.TrimSpace(req.Token) != "" {
+		respondSanitizedProviderError(c, http.StatusBadRequest, "TOKEN_WRITE_ONLY", "validation", "Slack webhook URL is accepted only on provider create/update")
+		return
+	}
+
+	if providerType == "telegram" && strings.TrimSpace(req.Token) != "" {
+		respondSanitizedProviderError(c, http.StatusBadRequest, "TOKEN_WRITE_ONLY", "validation", "Telegram bot token is accepted only on provider create/update")
+		return
+	}
+
+	if providerType == "pushover" && strings.TrimSpace(req.Token) != "" {
+		respondSanitizedProviderError(c, http.StatusBadRequest, "TOKEN_WRITE_ONLY", "validation", "Pushover API token is accepted only on provider create/update")
 		return
 	}
 
@@ -343,7 +369,7 @@ func (h *NotificationProviderHandler) Test(c *gin.Context) {
 		return
 	}
 
-	if strings.TrimSpace(provider.URL) == "" {
+	if providerType != "slack" && strings.TrimSpace(provider.URL) == "" {
 		respondSanitizedProviderError(c, http.StatusBadRequest, "PROVIDER_CONFIG_MISSING", "validation", "Trusted provider configuration is incomplete")
 		return
 	}

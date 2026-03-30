@@ -458,10 +458,11 @@ func readCappedResponseBody(body io.Reader) ([]byte, error) {
 
 func sanitizeOutboundHeaders(headers map[string]string) map[string]string {
 	allowed := map[string]struct{}{
-		"content-type": {},
-		"user-agent":   {},
-		"x-request-id": {},
-		"x-gotify-key": {},
+		"content-type":  {},
+		"user-agent":    {},
+		"x-request-id":  {},
+		"x-gotify-key":  {},
+		"authorization": {},
 	}
 
 	sanitized := make(map[string]string)

@@ -1311,7 +1311,7 @@ describe('ProxyHostForm', () => {
       await userEvent.type(screen.getByLabelText(/^Host/), '192.168.1.100')
       await userEvent.type(screen.getByLabelText(/^Port/), '80')
 
-      const advancedConfigField = screen.getByPlaceholderText('Additional Caddy directives...')
+      const advancedConfigField = screen.getByRole('textbox', { name: /Advanced Caddy Config/i })
       await userEvent.type(advancedConfigField, 'header /api/* X-Custom-Header "test"')
 
       await userEvent.click(screen.getByText('Save'))

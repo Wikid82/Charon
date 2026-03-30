@@ -23,7 +23,7 @@ const isSupportedProviderType = (providerType: string | undefined): providerType
 const supportsJSONTemplates = (providerType: string | undefined): boolean => {
   if (!providerType) return false;
   const t = providerType.toLowerCase();
-  return t === 'discord' || t === 'gotify' || t === 'webhook' || t === 'telegram';
+  return t === 'discord' || t === 'gotify' || t === 'webhook' || t === 'telegram' || t === 'slack' || t === 'pushover' || t === 'ntfy';
 };
 
 const isUnsupportedProviderType = (providerType: string | undefined): boolean => !isSupportedProviderType(providerType);
@@ -43,7 +43,7 @@ const normalizeProviderPayloadForSubmit = (data: Partial<NotificationProvider>):
     type,
   };
 
-  if (type === 'gotify' || type === 'telegram') {
+  if (type === 'gotify' || type === 'telegram' || type === 'slack' || type === 'pushover' || type === 'ntfy') {
     const normalizedToken = typeof payload.gotify_token === 'string' ? payload.gotify_token.trim() : '';
 
     if (normalizedToken.length > 0) {
@@ -147,9 +147,12 @@ const ProviderForm: FC<{
   const isGotify = type === 'gotify';
   const isTelegram = type === 'telegram';
   const isEmail = type === 'email';
+  const isSlack = type === 'slack';
+  const isPushover = type === 'pushover';
+  const isNtfy = type === 'ntfy';
   const isNew = !watch('id');
   useEffect(() => {
-    if (type !== 'gotify' && type !== 'telegram') {
+    if (type !== 'gotify' && type !== 'telegram' && type !== 'slack' && type !== 'pushover' && type !== 'ntfy') {
       setValue('gotify_token', '', { shouldDirty: false, shouldTouch: false });
     }
   }, [type, setValue]);
@@ -205,12 +208,25 @@ const ProviderForm: FC<{
           <option value="webhook">{t('notificationProviders.genericWebhook')}</option>
           <option value="email">Email</option>
           <option value="telegram">{t('notificationProviders.telegram')}</option>
+          <option value="slack">{t('notificationProviders.slack')}</option>
+          <option value="pushover">Pushover</option>
+          <option value="ntfy">{t('notificationProviders.ntfy')}</option>
         </select>
       </div>
 
       <div>
         <label htmlFor="provider-url" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-          {isEmail ? t('notificationProviders.recipients') : isTelegram ? t('notificationProviders.telegramChatId') : <>{t('notificationProviders.urlWebhook')} <span aria-hidden="true">*</span></>}
+          {isEmail
+            ? t('notificationProviders.recipients')
+            : isTelegram
+              ? t('notificationProviders.telegramChatId')
+              : isSlack
+                ? t('notificationProviders.slackChannelName')
+                : isPushover
+                  ? t('notificationProviders.pushoverUserKey')
+                  : isNtfy
+                    ? <>{t('notificationProviders.ntfyTopicUrl')} <span aria-hidden="true">*</span></>
+                    : <>{t('notificationProviders.urlWebhook')} <span aria-hidden="true">*</span></>}
         </label>
         {isEmail && (
           <p id="email-recipients-help" className="text-xs text-gray-500 mt-0.5">
@@ -220,11 +236,11 @@ const ProviderForm: FC<{
         <input
           id="provider-url"
           {...register('url', {
-            required: isEmail ? false : (t('notificationProviders.urlRequired') as string),
-            validate: (isEmail || isTelegram) ? undefined : validateUrl,
+            required: (isEmail || isSlack) ? false : (t('notificationProviders.urlRequired') as string),
+            validate: (isEmail || isTelegram || isSlack || isPushover) ? undefined : validateUrl,
           })}
           data-testid="provider-url"
-          placeholder={isEmail ? 'user@example.com, admin@example.com' : isTelegram ? '987654321' : type === 'discord' ? 'https://discord.com/api/webhooks/...' : type === 'gotify' ? 'https://gotify.example.com/message' : 'https://example.com/webhook'}
+          placeholder={isEmail ? 'user@example.com, admin@example.com' : isTelegram ? '987654321' : isSlack ? '#general' : isPushover ? t('notificationProviders.pushoverUserKeyPlaceholder') : type === 'ntfy' ? 'https://ntfy.sh/my-topic' : type === 'discord' ? 'https://discord.com/api/webhooks/...' : type === 'gotify' ? 'https://gotify.example.com/message' : 'https://example.com/webhook'}
           className={`mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm ${errors.url ? 'border-red-500' : ''}`}
           aria-invalid={errors.url ? 'true' : 'false'}
           aria-describedby={isEmail ? 'email-recipients-help' : errors.url ? 'provider-url-error' : undefined}
@@ -244,10 +260,10 @@ const ProviderForm: FC<{
         </div>
       )}
 
-      {(isGotify || isTelegram) && (
+      {(isGotify || isTelegram || isSlack || isPushover || isNtfy) && (
         <div>
           <label htmlFor="provider-gotify-token" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-            {isTelegram ? t('notificationProviders.telegramBotToken') : t('notificationProviders.gotifyToken')}
+            {isNtfy ? t('notificationProviders.ntfyAccessToken') : isPushover ? t('notificationProviders.pushoverApiToken') : isSlack ? t('notificationProviders.slackWebhookUrl') : isTelegram ? t('notificationProviders.telegramBotToken') : t('notificationProviders.gotifyToken')}
           </label>
           <input
             id="provider-gotify-token"
@@ -255,7 +271,7 @@ const ProviderForm: FC<{
             autoComplete="new-password"
             {...register('gotify_token')}
             data-testid="provider-gotify-token"
-            placeholder={initialData?.has_token ? t('notificationProviders.gotifyTokenKeepPlaceholder') : isTelegram ? t('notificationProviders.telegramBotTokenPlaceholder') : t('notificationProviders.gotifyTokenPlaceholder')}
+            placeholder={initialData?.has_token ? t('notificationProviders.gotifyTokenKeepPlaceholder') : isNtfy ? t('notificationProviders.ntfyAccessTokenPlaceholder') : isPushover ? t('notificationProviders.pushoverApiTokenPlaceholder') : isSlack ? t('notificationProviders.slackWebhookUrlPlaceholder') : isTelegram ? t('notificationProviders.telegramBotTokenPlaceholder') : t('notificationProviders.gotifyTokenPlaceholder')}
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
             aria-describedby={initialData?.has_token ? 'gotify-token-stored-hint' : undefined}
           />

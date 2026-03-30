@@ -192,7 +192,10 @@ func (s *MailService) RenderNotificationEmail(templateName string, data EmailTem
 		return "", fmt.Errorf("failed to render template %q: %w", templateName, err)
 	}
 
-	data.Content = template.HTML(contentBuf.String())
+	// html/template.Execute already escapes all EmailTemplateData fields; the
+	// template.HTML cast here prevents double-escaping in the outer layout template.
+	// #nosec G203 -- html/template.Execute auto-escapes all EmailTemplateData fields; this cast prevents double-escaping in the outer layout.
+	data.Content = template.HTML(contentBuf.String()) //nolint:gosec // see above
 
 	baseTmpl, err := template.New("email_base.html").Parse(string(baseBytes))
 	if err != nil {

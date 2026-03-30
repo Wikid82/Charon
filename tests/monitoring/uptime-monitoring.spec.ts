@@ -444,7 +444,7 @@ test.describe('Uptime Monitoring Page', () => {
       await page.click(SELECTORS.addMonitorButton);
 
       await page.fill('input#create-monitor-name', 'Redis Cache');
-      await page.fill('input#create-monitor-url', 'tcp://redis.local:6379');
+      await page.fill('input#create-monitor-url', 'redis.local:6379');
       await page.selectOption('select#create-monitor-type', 'tcp');
       await page.fill('input#create-monitor-interval', '30');
 
@@ -462,7 +462,7 @@ test.describe('Uptime Monitoring Page', () => {
 
       expect(createPayload).not.toBeNull();
       expect(createPayload?.type).toBe('tcp');
-      expect(createPayload?.url).toBe('tcp://redis.local:6379');
+      expect(createPayload?.url).toBe('redis.local:6379');
     });
 
     test('should update existing monitor', async ({ page, authenticatedUser }) => {
