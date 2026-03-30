@@ -438,6 +438,55 @@ func TestSettingsHandler_UpdateSetting_InvalidAdminWhitelist(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "Invalid admin_whitelist")
 }
 
+func TestSettingsHandler_UpdateSetting_EmptyValueAccepted(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.POST("/settings", handler.UpdateSetting)
+
+	payload := map[string]string{
+		"key":   "some.setting",
+		"value": "",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/settings", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var setting models.Setting
+	require.NoError(t, db.Where("key = ?", "some.setting").First(&setting).Error)
+	assert.Equal(t, "some.setting", setting.Key)
+	assert.Equal(t, "", setting.Value)
+}
+
+func TestSettingsHandler_UpdateSetting_MissingKeyRejected(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.POST("/settings", handler.UpdateSetting)
+
+	payload := map[string]string{
+		"value": "some-value",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/settings", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "Key")
+}
+
 func TestSettingsHandler_UpdateSetting_InvalidKeepaliveIdle(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
@@ -744,13 +793,24 @@ func TestSettingsHandler_Errors(t *testing.T) {
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	// Missing Key/Value
+	// Value omitted — allowed since binding:"required" was removed; empty string is a valid value
 	payload := map[string]string{
 		"key": "some_key",
-		// value missing
+		// value intentionally absent; defaults to empty string
 	}
 	body, _ := json.Marshal(payload)
 	req, _ = http.NewRequest("POST", "/settings", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// Missing key — key is still binding:"required" so this must return 400
+	payloadNoKey := map[string]string{
+		"value": "some_value",
+	}
+	bodyNoKey, _ := json.Marshal(payloadNoKey)
+	req, _ = http.NewRequest("POST", "/settings", bytes.NewBuffer(bodyNoKey))
 	req.Header.Set("Content-Type", "application/json")
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -1511,7 +1571,7 @@ func TestSettingsHandler_TestPublicURL_SSRFProtection(t *testing.T) {
 			url:               "http://169.254.169.254",
 			expectedStatus:    http.StatusOK,
 			expectedReachable: false,
-			errorContains:     "private",
+			errorContains:     "cloud metadata",
 		},
 		{
 			name:              "blocks link-local",
@@ -1762,4 +1822,49 @@ func TestSettingsHandler_TestPublicURL_IPv6LocalhostBlocked(t *testing.T) {
 	require.NoError(t, err, "Failed to unmarshal response")
 	assert.False(t, resp["reachable"].(bool))
 	// IPv6 loopback should be blocked
+}
+
+// TestUpdateSetting_EmptyValueIsAccepted guards the PR-1 fix: Value must NOT carry
+// binding:"required". Gin treats "" as missing for string fields and returns 400 if
+// the tag is present. Re-adding the tag would silently regress the CrowdSec enable
+// flow (which sends value="" to clear the setting).
+func TestUpdateSetting_EmptyValueIsAccepted(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.POST("/settings", handler.UpdateSetting)
+
+	body := `{"key":"security.crowdsec.enabled","value":""}`
+	req, _ := http.NewRequest(http.MethodPost, "/settings", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code, "empty Value must not trigger a 400 validation error")
+
+	var s models.Setting
+	require.NoError(t, db.Where("key = ?", "security.crowdsec.enabled").First(&s).Error)
+	assert.Equal(t, "", s.Value)
+}
+
+// TestUpdateSetting_MissingKeyRejected ensures binding:"required" was only removed
+// from Value and not accidentally also from Key. A request with no "key" field must
+// still return 400.
+func TestUpdateSetting_MissingKeyRejected(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.POST("/settings", handler.UpdateSetting)
+
+	body := `{"value":"true"}`
+	req, _ := http.NewRequest(http.MethodPost, "/settings", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }

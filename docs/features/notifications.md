@@ -16,7 +16,10 @@ Notifications can be triggered by various events:
 | Service | JSON Templates | Native API | Rich Formatting |
 |---------|----------------|------------|-----------------|
 | **Discord** | ✅ Yes | ✅ Webhooks | ✅ Embeds |
+| **Slack** | ✅ Yes | ✅ Webhooks | ✅ Native Formatting |
 | **Gotify** | ✅ Yes | ✅ HTTP API | ✅ Priority + Extras |
+| **Pushover** | ✅ Yes | ✅ HTTP API | ✅ Priority + Sound |
+| **Ntfy** | ✅ Yes | ✅ HTTP API | ✅ Priority + Tags |
 | **Custom Webhook** | ✅ Yes | ✅ HTTP API | ✅ Template-Controlled |
 | **Email** | ❌ No | ✅ SMTP | ✅ HTML Branded Templates |
 
@@ -35,8 +38,6 @@ Email notifications send HTML-branded alerts directly to one or more email addre
 5. Configure notification triggers and save
 
 Email notifications use built-in HTML templates with Charon branding — no JSON template editing is required.
-
-> **Feature Flag:** Email notifications must be enabled via `feature.notifications.service.email.enabled` in **Settings** → **Feature Flags** before the Email provider option appears.
 
 ### Why JSON Templates?
 
@@ -60,7 +61,7 @@ JSON templates give you complete control over notification formatting, allowing 
 
 ### JSON Template Support
 
-For JSON-based services (Discord, Gotify, and Custom Webhook), you can choose from three template options. Email uses its own built-in HTML templates and does not use JSON templates.
+For JSON-based services (Discord, Slack, Gotify, and Custom Webhook), you can choose from three template options. Email uses its own built-in HTML templates and does not use JSON templates.
 
 #### 1. Minimal Template (Default)
 
@@ -174,11 +175,141 @@ Discord supports rich embeds with colors, fields, and timestamps.
 - `16776960` - Yellow (warning)
 - `3066993` - Green (success)
 
+### Slack Webhooks
+
+Slack notifications send messages to a channel using an Incoming Webhook URL.
+
+**Setup:**
+
+1. In Slack, go to **[Your Apps](https://api.slack.com/apps)** → **Create New App** → **From scratch**
+2. Under **Features**, select **Incoming Webhooks** and toggle it **on**
+3. Click **"Add New Webhook to Workspace"** and choose the channel to post to
+4. Copy the Webhook URL (it looks like `https://hooks.slack.com/services/T.../B.../...`)
+5. In Charon, go to **Settings** → **Notifications** and click **"Add Provider"**
+6. Select **Slack** as the service type
+7. Paste your Webhook URL into the **Webhook URL** field
+8. Optionally enter a channel display name (e.g., `#alerts`) for easy identification
+9. Configure notification triggers and save
+
+> **Security:** Your Webhook URL is stored securely and is never exposed in API responses. The settings page only shows a `has_token: true` indicator, so your URL stays private even if someone gains read-only access to the API.
+
+#### Basic Message
+
+```json
+{
+  "text": "{{.Title}}: {{.Message}}"
+}
+```
+
+#### Formatted Message with Context
+
+```json
+{
+  "text": "*{{.Title}}*\n{{.Message}}\n\n• *Event:* {{.EventType}}\n• *Host:* {{.HostName}}\n• *Severity:* {{.Severity}}\n• *Time:* {{.Timestamp}}"
+}
+```
+
+**Slack formatting tips:**
+
+- Use `*bold*` for emphasis
+- Use `\n` for line breaks
+- Use `•` for bullet points
+- Slack automatically linkifies URLs
+
+### Pushover
+
+Pushover delivers push notifications directly to your iOS, Android, or desktop devices.
+
+**Setup:**
+
+1. Create an account at [pushover.net](https://pushover.net) and install the Pushover app on your device
+2. From your Pushover dashboard, copy your **User Key**
+3. Create a new **Application/API Token** for Charon
+4. In Charon, go to **Settings** → **Notifications** and click **"Add Provider"**
+5. Select **Pushover** as the service type
+6. Enter your **Application API Token** in the token field
+7. Enter your **User Key** in the User Key field
+8. Configure notification triggers and save
+
+> **Security:** Your Application API Token is stored securely and is never exposed in API responses.
+
+#### Basic Message
+
+```json
+{
+  "title": "{{.Title}}",
+  "message": "{{.Message}}"
+}
+```
+
+#### Message with Priority
+
+```json
+{
+  "title": "{{.Title}}",
+  "message": "{{.Message}}",
+  "priority": 1
+}
+```
+
+**Pushover priority levels:**
+
+- `-2` - Lowest (no sound or vibration)
+- `-1` - Low (quiet)
+- `0` - Normal (default)
+- `1` - High (bypass quiet hours)
+
+> **Note:** Emergency priority (`2`) is not supported and will be rejected with a clear error.
+
+### Ntfy
+
+Ntfy delivers push notifications to your phone or desktop using a simple HTTP-based publish/subscribe model. Works with the free hosted service at [ntfy.sh](https://ntfy.sh) or your own self-hosted instance.
+
+**Setup:**
+
+1. Pick a topic name (or use an existing one) on [ntfy.sh](https://ntfy.sh) or your self-hosted server
+2. In Charon, go to **Settings** → **Notifications** and click **"Add Provider"**
+3. Select **Ntfy** as the service type
+4. Enter your Topic URL (e.g., `https://ntfy.sh/charon-alerts` or `https://ntfy.example.com/charon-alerts`)
+5. (Optional) Add an access token if your topic requires authentication
+6. Configure notification triggers and save
+
+> **Security:** Your access token is stored securely and is never exposed in API responses.
+
+#### Basic Message
+
+```json
+{
+  "topic": "charon-alerts",
+  "title": "{{.Title}}",
+  "message": "{{.Message}}"
+}
+```
+
+#### Message with Priority and Tags
+
+```json
+{
+  "topic": "charon-alerts",
+  "title": "{{.Title}}",
+  "message": "{{.Message}}",
+  "priority": 4,
+  "tags": ["rotating_light"]
+}
+```
+
+**Ntfy priority levels:**
+
+- `1` - Min
+- `2` - Low
+- `3` - Default
+- `4` - High
+- `5` - Max (urgent)
+
 ## Planned Provider Expansion
 
-Additional providers (for example Slack and Telegram) are planned for later
-staged releases. This page will be expanded as each provider is validated and
-released.
+Additional providers (for example Telegram) are planned for later staged
+releases. This page will be expanded as each provider is validated and released.
 
 ## Template Variables
 
@@ -341,6 +472,7 @@ Use separate Discord providers for different event types:
 Be mindful of service limits:
 
 - **Discord**: 5 requests per 2 seconds per webhook
+- **Slack**: 1 request per second per webhook
 - **Email**: Subject to your SMTP server's sending limits
 
 ### 6. Keep Templates Maintainable

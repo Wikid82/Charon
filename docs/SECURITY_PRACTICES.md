@@ -53,6 +53,7 @@ logger.Infof("API Key: %s", apiKey)
 ```
 
 Charon's masking rules:
+
 - Empty: `[empty]`
 - Short (< 16 chars): `[REDACTED]`
 - Normal (≥ 16 chars): `abcd...xyz9` (first 4 + last 4)
@@ -68,6 +69,7 @@ if !validateAPIKeyFormat(apiKey) {
 ```
 
 Requirements:
+
 - Length: 16-128 characters
 - Charset: Alphanumeric + underscore + hyphen
 - No spaces or special characters
@@ -99,6 +101,7 @@ Rotate secrets regularly:
 ### What to Log
 
 ✅ **Safe to log**:
+
 - Timestamps
 - User IDs (not usernames if PII)
 - IP addresses (consider GDPR implications)
@@ -108,6 +111,7 @@ Rotate secrets regularly:
 - Performance metrics
 
 ❌ **Never log**:
+
 - Passwords or password hashes
 - API keys or tokens (use masking)
 - Session IDs (full values)
@@ -139,6 +143,7 @@ logger.Infof("Login attempt: username=%s password=%s", username, password)
 ### Log Aggregation
 
 If using external log services (CloudWatch, Splunk, Datadog):
+
 - Ensure logs are encrypted in transit (TLS)
 - Ensure logs are encrypted at rest
 - Redact sensitive data before shipping
@@ -333,6 +338,7 @@ limiter := rate.NewLimiter(rate.Every(36*time.Second), 100)
 ```
 
 **Critical endpoints** (require stricter limits):
+
 - Login: 5 attempts per 15 minutes
 - Password reset: 3 attempts per hour
 - API key generation: 5 per day
@@ -369,6 +375,7 @@ return c.JSON(401, gin.H{"error": "invalid API key: abc123"})
 **Applicable if**: Processing data of EU residents
 
 **Requirements**:
+
 1. **Data minimization**: Collect only necessary data
 2. **Purpose limitation**: Use data only for stated purposes
 3. **Storage limitation**: Delete data when no longer needed
@@ -376,6 +383,7 @@ return c.JSON(401, gin.H{"error": "invalid API key: abc123"})
 5. **Breach notification**: Report breaches within 72 hours
 
 **Implementation**:
+
 - ✅ Charon masks API keys in logs (prevents exposure of personal data)
 - ✅ Secure file permissions (0600) protect sensitive data
 - ✅ Log retention policies prevent indefinite storage
@@ -390,12 +398,14 @@ return c.JSON(401, gin.H{"error": "invalid API key: abc123"})
 **Applicable if**: Processing, storing, or transmitting credit card data
 
 **Requirements**:
+
 1. **Requirement 3.4**: Render PAN unreadable (encryption, masking)
 2. **Requirement 8.2**: Strong authentication
 3. **Requirement 10.2**: Audit trails
 4. **Requirement 10.7**: Retain audit logs for 1 year
 
 **Implementation**:
+
 - ✅ Charon uses masking for sensitive credentials (same principle for PAN)
 - ✅ Secure file permissions align with access control requirements
 - ⚠️ Charon doesn't handle payment cards directly (delegated to payment processors)
@@ -409,12 +419,14 @@ return c.JSON(401, gin.H{"error": "invalid API key: abc123"})
 **Applicable if**: SaaS providers, cloud services
 
 **Trust Service Criteria**:
+
 1. **CC6.1**: Logical access controls (authentication, authorization)
 2. **CC6.6**: Encryption of data in transit
 3. **CC6.7**: Encryption of data at rest
 4. **CC7.2**: Monitoring and detection (logging, alerting)
 
 **Implementation**:
+
 - ✅ API key validation ensures strong credentials (CC6.1)
 - ✅ File permissions (0600) protect data at rest (CC6.7)
 - ✅ Masked logging enables monitoring without exposing secrets (CC7.2)
@@ -429,12 +441,14 @@ return c.JSON(401, gin.H{"error": "invalid API key: abc123"})
 **Applicable to**: Any organization implementing ISMS
 
 **Key Controls**:
+
 1. **A.9.4.3**: Password management systems
 2. **A.10.1.1**: Cryptographic controls
 3. **A.12.4.1**: Event logging
 4. **A.18.1.5**: Protection of personal data
 
 **Implementation**:
+
 - ✅ API key format validation (minimum 16 chars, charset restrictions)
 - ✅ Key rotation procedures documented
 - ✅ Secure storage with file permissions (0600)
@@ -491,6 +505,7 @@ grep -i "api[_-]key\|token\|password" playwright-report/index.html
 **Recommended schedule**: Annual or after major releases
 
 **Focus areas**:
+
 1. Authentication bypass
 2. Authorization vulnerabilities
 3. SQL injection

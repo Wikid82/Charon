@@ -699,6 +699,124 @@ func TestDeleteCertificate_DiskSpaceCheckError(t *testing.T) {
 	}
 }
 
+// Test that an expired Let's Encrypt certificate not in use can be deleted.
+// The backend has no provider-based restrictions; deletion policy is frontend-only.
+func TestDeleteCertificate_ExpiredLetsEncrypt_NotInUse(t *testing.T) {
+	dbPath := t.TempDir() + "/cert_expired_le.db"
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1", dbPath)), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("failed to access sql db: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+		t.Fatalf("failed to migrate: %v", err)
+	}
+
+	expired := time.Now().Add(-24 * time.Hour)
+	cert := models.SSLCertificate{
+		UUID:      "expired-le-cert",
+		Name:      "expired-le",
+		Provider:  "letsencrypt",
+		Domains:   "expired.example.com",
+		ExpiresAt: &expired,
+	}
+	if err = db.Create(&cert).Error; err != nil {
+		t.Fatalf("failed to create cert: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(mockAuthMiddleware())
+	svc := services.NewCertificateService("/tmp", db)
+
+	mockBS := &mockBackupService{
+		createFunc: func() (string, error) {
+			return "backup-expired-le.tar.gz", nil
+		},
+	}
+
+	h := NewCertificateHandler(svc, mockBS, nil)
+	r.DELETE("/api/certificates/:id", h.Delete)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d, body=%s", w.Code, w.Body.String())
+	}
+
+	var found models.SSLCertificate
+	if err = db.First(&found, cert.ID).Error; err == nil {
+		t.Fatal("expected expired LE certificate to be deleted")
+	}
+}
+
+// Test that a valid (non-expired) Let's Encrypt certificate not in use can be deleted.
+// Confirms the backend imposes no provider-based restrictions on deletion.
+func TestDeleteCertificate_ValidLetsEncrypt_NotInUse(t *testing.T) {
+	dbPath := t.TempDir() + "/cert_valid_le.db"
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1", dbPath)), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("failed to access sql db: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+
+	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+		t.Fatalf("failed to migrate: %v", err)
+	}
+
+	future := time.Now().Add(30 * 24 * time.Hour)
+	cert := models.SSLCertificate{
+		UUID:      "valid-le-cert",
+		Name:      "valid-le",
+		Provider:  "letsencrypt",
+		Domains:   "valid.example.com",
+		ExpiresAt: &future,
+	}
+	if err = db.Create(&cert).Error; err != nil {
+		t.Fatalf("failed to create cert: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(mockAuthMiddleware())
+	svc := services.NewCertificateService("/tmp", db)
+
+	mockBS := &mockBackupService{
+		createFunc: func() (string, error) {
+			return "backup-valid-le.tar.gz", nil
+		},
+	}
+
+	h := NewCertificateHandler(svc, mockBS, nil)
+	r.DELETE("/api/certificates/:id", h.Delete)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d, body=%s", w.Code, w.Body.String())
+	}
+
+	var found models.SSLCertificate
+	if err = db.First(&found, cert.ID).Error; err == nil {
+		t.Fatal("expected valid LE certificate to be deleted")
+	}
+}
+
 // Test Delete when IsCertificateInUse fails
 func TestDeleteCertificate_UsageCheckError(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})

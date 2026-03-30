@@ -114,7 +114,7 @@ func isSensitiveSettingKey(key string) bool {
 
 type UpdateSettingRequest struct {
 	Key      string `json:"key" binding:"required"`
-	Value    string `json:"value" binding:"required"`
+	Value    string `json:"value"`
 	Category string `json:"category"`
 	Type     string `json:"type"`
 }

@@ -19,7 +19,7 @@
 import { test, expect, type TestUser } from '../../fixtures/auth-fixtures';
 import type { TestDataManager } from '../../utils/TestDataManager';
 import type { Page } from '@playwright/test';
-import { ensureAuthenticatedImportFormReady, ensureImportFormReady, resetImportSession } from './import-page-helpers';
+import { ensureAuthenticatedImportFormReady, ensureImportFormReady, getStoredAuthHeader, resetImportSession } from './import-page-helpers';
 
 /**
  * Helper: Generate unique domain with namespace isolation
@@ -328,7 +328,7 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
   // Gap 3: Overwrite Resolution Flow
   // =========================================================================
   test.describe('Overwrite Resolution Flow', () => {
-    test('3.1: should update existing host when selecting Replace with Imported resolution', async ({ page, request, testData, browserName, adminUser }) => {
+    test('3.1: should update existing host when selecting Replace with Imported resolution', async ({ page, testData, browserName, adminUser }) => {
       // Create existing host with initial config
       const result = await testData.createProxyHost({
         domain: 'overwrite-test.example.com',
@@ -379,7 +379,7 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
 
       await test.step('Verify existing host was updated (not duplicated)', async () => {
         // Fetch the host via API
-        const response = await request.get(`/api/v1/proxy-hosts/${hostId}`);
+        const response = await page.request.get(`/api/v1/proxy-hosts/${hostId}`, { headers: await getStoredAuthHeader(page) });
         expect(response.ok()).toBeTruthy();
 
         const host = await response.json();
@@ -389,7 +389,7 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
         expect(host.forward_port).toBe(9000);
 
         // Verify no duplicate was created - fetch all hosts and check count
-        const allHostsResponse = await request.get('/api/v1/proxy-hosts');
+        const allHostsResponse = await page.request.get('/api/v1/proxy-hosts', { headers: await getStoredAuthHeader(page) });
         expect(allHostsResponse.ok()).toBeTruthy();
         const allHosts = await allHostsResponse.json();
 
@@ -627,7 +627,7 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
   // Gap 5: Name Editing in Review
   // =========================================================================
   test.describe('Name Editing in Review', () => {
-    test('5.1: should create proxy host with custom name from review table input', async ({ page, request, testData }) => {
+    test('5.1: should create proxy host with custom name from review table input', async ({ page, testData }) => {
       const domain = generateDomain(testData, 'custom-name-test');
       const customName = 'My Custom Proxy Name';
       const caddyfile = `${domain} { reverse_proxy localhost:5000 }`;
@@ -669,7 +669,7 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
 
       await test.step('Verify created host has custom name', async () => {
         // Fetch all proxy hosts
-        const response = await request.get('/api/v1/proxy-hosts');
+        const response = await page.request.get('/api/v1/proxy-hosts', { headers: await getStoredAuthHeader(page) });
         expect(response.ok()).toBeTruthy();
 
         const hosts = await response.json();

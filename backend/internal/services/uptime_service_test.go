@@ -10,6 +10,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -86,14 +87,21 @@ func TestUptimeService_CheckAll(t *testing.T) {
 	go func() { _ = server.Serve(listener) }()
 	defer func() { _ = server.Close() }()
 
-	// Wait for HTTP server to be ready by making a test request
+	// Wait for HTTP server to be ready by making a test request.
+	// Fail the test immediately if the server is still unreachable after all
+	// attempts so subsequent assertions don't produce misleading failures.
+	serverReady := false
 	for i := 0; i < 10; i++ {
 		conn, dialErr := net.DialTimeout("tcp", addr.String(), 100*time.Millisecond)
 		if dialErr == nil {
 			_ = conn.Close()
+			serverReady = true
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+	if !serverReady {
+		t.Fatalf("test HTTP server never became reachable on %s", addr.String())
 	}
 
 	// Create a listener and close it immediately to get a free port that is definitely closed (DOWN)
@@ -115,7 +123,7 @@ func TestUptimeService_CheckAll(t *testing.T) {
 		ForwardPort: addr.Port,
 		Enabled:     true,
 	}
-	db.Create(&upHost)
+	require.NoError(t, db.Create(&upHost).Error)
 
 	downHost := models.ProxyHost{
 		UUID:        "uuid-2",
@@ -124,7 +132,7 @@ func TestUptimeService_CheckAll(t *testing.T) {
 		ForwardPort: downAddr.Port,
 		Enabled:     true,
 	}
-	db.Create(&downHost)
+	require.NoError(t, db.Create(&downHost).Error)
 
 	// Sync Monitors (this creates UptimeMonitor records)
 	err = us.SyncMonitors()
@@ -198,11 +206,11 @@ func TestUptimeService_ListMonitors(t *testing.T) {
 	ns := NewNotificationService(db, nil)
 	us := newTestUptimeService(t, db, ns)
 
-	db.Create(&models.UptimeMonitor{
+	require.NoError(t, db.Create(&models.UptimeMonitor{
 		Name: "Test Monitor",
 		Type: "http",
 		URL:  "https://discord.com/api/webhooks/123/abc",
-	})
+	}).Error)
 
 	monitors, err := us.ListMonitors()
 	assert.NoError(t, err)
@@ -224,7 +232,7 @@ func TestUptimeService_GetMonitorByID(t *testing.T) {
 		Enabled:  true,
 		Status:   "up",
 	}
-	db.Create(&monitor)
+	require.NoError(t, db.Create(&monitor).Error)
 
 	t.Run("get existing monitor", func(t *testing.T) {
 		result, err := us.GetMonitorByID(monitor.ID)
@@ -252,20 +260,20 @@ func TestUptimeService_GetMonitorHistory(t *testing.T) {
 		ID:   "monitor-1",
 		Name: "Test Monitor",
 	}
-	db.Create(&monitor)
+	require.NoError(t, db.Create(&monitor).Error)
 
-	db.Create(&models.UptimeHeartbeat{
+	require.NoError(t, db.Create(&models.UptimeHeartbeat{
 		MonitorID: monitor.ID,
 		Status:    "up",
 		Latency:   10,
 		CreatedAt: time.Now().Add(-1 * time.Minute),
-	})
-	db.Create(&models.UptimeHeartbeat{
+	}).Error)
+	require.NoError(t, db.Create(&models.UptimeHeartbeat{
 		MonitorID: monitor.ID,
 		Status:    "down",
 		Latency:   0,
 		CreatedAt: time.Now(),
-	})
+	}).Error)
 
 	history, err := us.GetMonitorHistory(monitor.ID, 100)
 	assert.NoError(t, err)
@@ -295,8 +303,8 @@ func TestUptimeService_SyncMonitors_Errors(t *testing.T) {
 		// Create proxy hosts
 		host1 := models.ProxyHost{UUID: "test-1", DomainNames: "test1.com", Enabled: true}
 		host2 := models.ProxyHost{UUID: "test-2", DomainNames: "test2.com", Enabled: false}
-		db.Create(&host1)
-		db.Create(&host2)
+		require.NoError(t, db.Create(&host1).Error)
+		require.NoError(t, db.Create(&host2).Error)
 
 		err := us.SyncMonitors()
 		assert.NoError(t, err)
@@ -312,7 +320,7 @@ func TestUptimeService_SyncMonitors_Errors(t *testing.T) {
 		us := newTestUptimeService(t, db, ns)
 
 		host := models.ProxyHost{UUID: "test-1", DomainNames: "test1.com", Enabled: true}
-		db.Create(&host)
+		require.NoError(t, db.Create(&host).Error)
 
 		err := us.SyncMonitors()
 		assert.NoError(t, err)
@@ -340,7 +348,7 @@ func TestUptimeService_SyncMonitors_NameSync(t *testing.T) {
 		us := newTestUptimeService(t, db, ns)
 
 		host := models.ProxyHost{UUID: "test-1", Name: "Original Name", DomainNames: "test1.com", Enabled: true}
-		db.Create(&host)
+		require.NoError(t, db.Create(&host).Error)
 
 		err := us.SyncMonitors()
 		assert.NoError(t, err)
@@ -366,7 +374,7 @@ func TestUptimeService_SyncMonitors_NameSync(t *testing.T) {
 		us := newTestUptimeService(t, db, ns)
 
 		host := models.ProxyHost{UUID: "test-2", Name: "", DomainNames: "fallback.com, secondary.com", Enabled: true}
-		db.Create(&host)
+		require.NoError(t, db.Create(&host).Error)
 
 		err := us.SyncMonitors()
 		assert.NoError(t, err)
@@ -382,7 +390,7 @@ func TestUptimeService_SyncMonitors_NameSync(t *testing.T) {
 		us := newTestUptimeService(t, db, ns)
 
 		host := models.ProxyHost{UUID: "test-3", Name: "Named Host", DomainNames: "domain.com", Enabled: true}
-		db.Create(&host)
+		require.NoError(t, db.Create(&host).Error)
 
 		err := us.SyncMonitors()
 		assert.NoError(t, err)
@@ -417,7 +425,7 @@ func TestUptimeService_SyncMonitors_TCPMigration(t *testing.T) {
 			ForwardPort: 8080,
 			Enabled:     true,
 		}
-		db.Create(&host)
+		require.NoError(t, db.Create(&host).Error)
 
 		// Manually create old-style TCP monitor (simulating legacy data)
 		oldMonitor := models.UptimeMonitor{
@@ -429,7 +437,7 @@ func TestUptimeService_SyncMonitors_TCPMigration(t *testing.T) {
 			Enabled:     true,
 			Status:      "pending",
 		}
-		db.Create(&oldMonitor)
+		require.NoError(t, db.Create(&oldMonitor).Error)
 
 		err := us.SyncMonitors()
 		assert.NoError(t, err)
@@ -453,7 +461,7 @@ func TestUptimeService_SyncMonitors_TCPMigration(t *testing.T) {
 			ForwardPort: 8080,
 			Enabled:     true,
 		}
-		db.Create(&host)
+		require.NoError(t, db.Create(&host).Error)
 
 		// Create TCP monitor with custom URL (user-configured)
 		customMonitor := models.UptimeMonitor{
@@ -465,7 +473,7 @@ func TestUptimeService_SyncMonitors_TCPMigration(t *testing.T) {
 			Enabled:     true,
 			Status:      "pending",
 		}
-		db.Create(&customMonitor)
+		require.NoError(t, db.Create(&customMonitor).Error)
 
 		err := us.SyncMonitors()
 		assert.NoError(t, err)
@@ -491,7 +499,7 @@ func TestUptimeService_SyncMonitors_HTTPSUpgrade(t *testing.T) {
 			SSLForced:   false,
 			Enabled:     true,
 		}
-		db.Create(&host)
+		require.NoError(t, db.Create(&host).Error)
 
 		// Create HTTP monitor
 		httpMonitor := models.UptimeMonitor{
@@ -503,7 +511,7 @@ func TestUptimeService_SyncMonitors_HTTPSUpgrade(t *testing.T) {
 			Enabled:     true,
 			Status:      "pending",
 		}
-		db.Create(&httpMonitor)
+		require.NoError(t, db.Create(&httpMonitor).Error)
 
 		// Sync first (no change expected)
 		err := us.SyncMonitors()
@@ -536,7 +544,7 @@ func TestUptimeService_SyncMonitors_HTTPSUpgrade(t *testing.T) {
 			SSLForced:   false,
 			Enabled:     true,
 		}
-		db.Create(&host)
+		require.NoError(t, db.Create(&host).Error)
 
 		// Create HTTPS monitor
 		httpsMonitor := models.UptimeMonitor{
@@ -548,7 +556,7 @@ func TestUptimeService_SyncMonitors_HTTPSUpgrade(t *testing.T) {
 			Enabled:     true,
 			Status:      "pending",
 		}
-		db.Create(&httpsMonitor)
+		require.NoError(t, db.Create(&httpsMonitor).Error)
 
 		err := us.SyncMonitors()
 		assert.NoError(t, err)
@@ -573,7 +581,7 @@ func TestUptimeService_SyncMonitors_RemoteServers(t *testing.T) {
 			Scheme:  "http",
 			Enabled: true,
 		}
-		db.Create(&server)
+		require.NoError(t, db.Create(&server).Error)
 
 		err := us.SyncMonitors()
 		assert.NoError(t, err)
@@ -598,7 +606,7 @@ func TestUptimeService_SyncMonitors_RemoteServers(t *testing.T) {
 			Scheme:  "",
 			Enabled: true,
 		}
-		db.Create(&server)
+		require.NoError(t, db.Create(&server).Error)
 
 		err := us.SyncMonitors()
 		assert.NoError(t, err)
@@ -621,7 +629,7 @@ func TestUptimeService_SyncMonitors_RemoteServers(t *testing.T) {
 			Scheme:  "https",
 			Enabled: true,
 		}
-		db.Create(&server)
+		require.NoError(t, db.Create(&server).Error)
 
 		err := us.SyncMonitors()
 		assert.NoError(t, err)
@@ -653,7 +661,7 @@ func TestUptimeService_SyncMonitors_RemoteServers(t *testing.T) {
 			Scheme:  "http",
 			Enabled: true,
 		}
-		db.Create(&server)
+		require.NoError(t, db.Create(&server).Error)
 
 		err := us.SyncMonitors()
 		assert.NoError(t, err)
@@ -686,7 +694,7 @@ func TestUptimeService_SyncMonitors_RemoteServers(t *testing.T) {
 			Scheme:  "http",
 			Enabled: true,
 		}
-		db.Create(&server)
+		require.NoError(t, db.Create(&server).Error)
 
 		err := us.SyncMonitors()
 		assert.NoError(t, err)
@@ -718,7 +726,7 @@ func TestUptimeService_SyncMonitors_RemoteServers(t *testing.T) {
 			Scheme:  "",
 			Enabled: true,
 		}
-		db.Create(&server)
+		require.NoError(t, db.Create(&server).Error)
 
 		err := us.SyncMonitors()
 		assert.NoError(t, err)
@@ -772,7 +780,7 @@ func TestUptimeService_CheckAll_Errors(t *testing.T) {
 			Enabled:     true,
 			ProxyHostID: &orphanID, // Non-existent host
 		}
-		db.Create(&monitor)
+		require.NoError(t, db.Create(&monitor).Error)
 
 		// CheckAll should not panic
 		us.CheckAll()
@@ -805,7 +813,7 @@ func TestUptimeService_CheckAll_Errors(t *testing.T) {
 			ForwardPort: 9999,
 			Enabled:     true,
 		}
-		db.Create(&host)
+		require.NoError(t, db.Create(&host).Error)
 
 		err := us.SyncMonitors()
 		assert.NoError(t, err)
@@ -1104,7 +1112,7 @@ func TestUptimeService_CheckMonitor_EdgeCases(t *testing.T) {
 			URL:    "://invalid-url",
 			Status: "pending",
 		}
-		db.Create(&monitor)
+		require.NoError(t, db.Create(&monitor).Error)
 
 		us.CheckAll()
 		time.Sleep(500 * time.Millisecond) // Increased wait time
@@ -1140,7 +1148,7 @@ func TestUptimeService_CheckMonitor_EdgeCases(t *testing.T) {
 			ForwardPort: addr.Port,
 			Enabled:     true,
 		}
-		db.Create(&host)
+		require.NoError(t, db.Create(&host).Error)
 
 		err = us.SyncMonitors()
 		assert.NoError(t, err)
@@ -1169,7 +1177,7 @@ func TestUptimeService_CheckMonitor_EdgeCases(t *testing.T) {
 			URL:    "https://expired.badssl.com/",
 			Status: "pending",
 		}
-		db.Create(&monitor)
+		require.NoError(t, db.Create(&monitor).Error)
 
 		us.CheckAll()
 		time.Sleep(3 * time.Second) // HTTPS checks can take longer
@@ -1198,16 +1206,16 @@ func TestUptimeService_GetMonitorHistory_EdgeCases(t *testing.T) {
 		us := newTestUptimeService(t, db, ns)
 
 		monitor := models.UptimeMonitor{ID: "monitor-limit", Name: "Limit Test"}
-		db.Create(&monitor)
+		require.NoError(t, db.Create(&monitor).Error)
 
 		// Create 10 heartbeats
 		for i := 0; i < 10; i++ {
-			db.Create(&models.UptimeHeartbeat{
+			require.NoError(t, db.Create(&models.UptimeHeartbeat{
 				MonitorID: monitor.ID,
 				Status:    "up",
 				Latency:   int64(i),
 				CreatedAt: time.Now().Add(time.Duration(i) * time.Second),
-			})
+			}).Error)
 		}
 
 		history, err := us.GetMonitorHistory(monitor.ID, 5)
@@ -1233,7 +1241,7 @@ func TestUptimeService_ListMonitors_EdgeCases(t *testing.T) {
 		us := newTestUptimeService(t, db, ns)
 
 		host := models.ProxyHost{UUID: "test-host", DomainNames: "test.com", Enabled: true}
-		db.Create(&host)
+		require.NoError(t, db.Create(&host).Error)
 
 		monitor := models.UptimeMonitor{
 			ID:          "with-host",
@@ -1242,7 +1250,7 @@ func TestUptimeService_ListMonitors_EdgeCases(t *testing.T) {
 			URL:         "http://test.com",
 			ProxyHostID: &host.ID,
 		}
-		db.Create(&monitor)
+		require.NoError(t, db.Create(&monitor).Error)
 
 		monitors, err := us.ListMonitors()
 		assert.NoError(t, err)
@@ -1265,7 +1273,7 @@ func TestUptimeService_UpdateMonitor(t *testing.T) {
 			MaxRetries: 3,
 			Interval:   60,
 		}
-		db.Create(&monitor)
+		require.NoError(t, db.Create(&monitor).Error)
 
 		updates := map[string]any{
 			"max_retries": 5,
@@ -1286,7 +1294,7 @@ func TestUptimeService_UpdateMonitor(t *testing.T) {
 			Name:     "Interval Test",
 			Interval: 60,
 		}
-		db.Create(&monitor)
+		require.NoError(t, db.Create(&monitor).Error)
 
 		updates := map[string]any{
 			"interval": 120,
@@ -1321,7 +1329,7 @@ func TestUptimeService_UpdateMonitor(t *testing.T) {
 			MaxRetries: 3,
 			Interval:   60,
 		}
-		db.Create(&monitor)
+		require.NoError(t, db.Create(&monitor).Error)
 
 		updates := map[string]any{
 			"max_retries": 10,
@@ -1348,7 +1356,7 @@ func TestUptimeService_NotificationBatching(t *testing.T) {
 			Name:   "Test Server",
 			Status: "up",
 		}
-		db.Create(&host)
+		require.NoError(t, db.Create(&host).Error)
 
 		// Create multiple monitors pointing to the same host
 		monitors := []models.UptimeMonitor{
@@ -1357,7 +1365,7 @@ func TestUptimeService_NotificationBatching(t *testing.T) {
 			{ID: "mon-3", Name: "Service C", UpstreamHost: "192.168.1.100", UptimeHostID: &host.ID, Status: "up", MaxRetries: 3},
 		}
 		for _, m := range monitors {
-			db.Create(&m)
+			require.NoError(t, db.Create(&m).Error)
 		}
 
 		// Queue down notifications for all three
@@ -1401,7 +1409,7 @@ func TestUptimeService_NotificationBatching(t *testing.T) {
 			Name:   "Single Service Host",
 			Status: "up",
 		}
-		db.Create(&host)
+		require.NoError(t, db.Create(&host).Error)
 
 		monitor := models.UptimeMonitor{
 			ID:           "single-mon",
@@ -1411,7 +1419,7 @@ func TestUptimeService_NotificationBatching(t *testing.T) {
 			Status:       "up",
 			MaxRetries:   3,
 		}
-		db.Create(&monitor)
+		require.NoError(t, db.Create(&monitor).Error)
 
 		// Queue single down notification
 		us.queueDownNotification(monitor, "HTTP 502", "5h 30m")
@@ -1443,7 +1451,7 @@ func TestUptimeService_HostLevelCheck(t *testing.T) {
 			ForwardHost: "10.0.0.50",
 			ForwardPort: 8080,
 		}
-		db.Create(&proxyHost)
+		require.NoError(t, db.Create(&proxyHost).Error)
 
 		// Sync monitors
 		err := us.SyncMonitors()
@@ -1475,7 +1483,7 @@ func TestUptimeService_HostLevelCheck(t *testing.T) {
 			{UUID: "ph-3", DomainNames: "app3.example.com", ForwardHost: "10.0.0.100", ForwardPort: 8082, Name: "App 3"},
 		}
 		for _, h := range hosts {
-			db.Create(&h)
+			require.NoError(t, db.Create(&h).Error)
 		}
 
 		// Sync monitors
@@ -1533,7 +1541,7 @@ func TestUptimeService_SyncMonitorForHost(t *testing.T) {
 			SSLForced:   false,
 			Enabled:     true,
 		}
-		db.Create(&host)
+		require.NoError(t, db.Create(&host).Error)
 
 		// Sync monitors to create the uptime monitor
 		err := us.SyncMonitors()
@@ -1580,7 +1588,7 @@ func TestUptimeService_SyncMonitorForHost(t *testing.T) {
 			ForwardPort: 8080,
 			Enabled:     true,
 		}
-		db.Create(&host)
+		require.NoError(t, db.Create(&host).Error)
 
 		// Call SyncMonitorForHost - should return nil without error
 		err := us.SyncMonitorForHost(host.ID)
@@ -1616,7 +1624,7 @@ func TestUptimeService_SyncMonitorForHost(t *testing.T) {
 			ForwardPort: 8080,
 			Enabled:     true,
 		}
-		db.Create(&host)
+		require.NoError(t, db.Create(&host).Error)
 
 		// Sync monitors
 		err := us.SyncMonitors()
@@ -1652,7 +1660,7 @@ func TestUptimeService_SyncMonitorForHost(t *testing.T) {
 			SSLForced:   true,
 			Enabled:     true,
 		}
-		db.Create(&host)
+		require.NoError(t, db.Create(&host).Error)
 
 		// Sync monitors
 		err := us.SyncMonitors()
@@ -1686,7 +1694,7 @@ func TestUptimeService_DeleteMonitor(t *testing.T) {
 			Status:   "up",
 			Interval: 60,
 		}
-		db.Create(&monitor)
+		require.NoError(t, db.Create(&monitor).Error)
 
 		// Create some heartbeats
 		for i := 0; i < 5; i++ {
@@ -1696,7 +1704,7 @@ func TestUptimeService_DeleteMonitor(t *testing.T) {
 				Latency:   int64(100 + i),
 				CreatedAt: time.Now().Add(-time.Duration(i) * time.Minute),
 			}
-			db.Create(&hb)
+			require.NoError(t, db.Create(&hb).Error)
 		}
 
 		// Verify heartbeats exist
@@ -1742,7 +1750,7 @@ func TestUptimeService_DeleteMonitor(t *testing.T) {
 			Status:   "pending",
 			Interval: 60,
 		}
-		db.Create(&monitor)
+		require.NoError(t, db.Create(&monitor).Error)
 
 		// Delete the monitor
 		err := us.DeleteMonitor(monitor.ID)
@@ -1768,7 +1776,7 @@ func TestUptimeService_UpdateMonitor_EnabledField(t *testing.T) {
 		Enabled:  true,
 		Interval: 60,
 	}
-	db.Create(&monitor)
+	require.NoError(t, db.Create(&monitor).Error)
 
 	// Disable the monitor
 	updates := map[string]any{
@@ -1787,4 +1795,98 @@ func TestUptimeService_UpdateMonitor_EnabledField(t *testing.T) {
 	result, err = us.UpdateMonitor(monitor.ID, updates)
 	assert.NoError(t, err)
 	assert.True(t, result.Enabled)
+}
+
+// PR-3: RFC 1918 bypass integration tests
+
+func TestCheckMonitor_HTTP_LocalhostSucceedsWithPrivateIPBypass(t *testing.T) {
+	// Confirm that after the dual-layer RFC 1918 bypass is wired into
+	// checkMonitor, an HTTP monitor targeting the loopback interface still
+	// reports "up" (localhost is explicitly allowed by WithAllowLocalhost).
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db, nil)
+	us := newTestUptimeService(t, db, ns)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to start listener: %v", err)
+	}
+	addr := listener.Addr().(*net.TCPAddr)
+	server := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() {
+		_ = server.Close()
+	})
+
+	// Wait for server to be ready before creating the monitor.
+	for i := 0; i < 20; i++ {
+		conn, dialErr := net.DialTimeout("tcp", addr.String(), 50*time.Millisecond)
+		if dialErr == nil {
+			_ = conn.Close()
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	monitor := models.UptimeMonitor{
+		ID:      "pr3-http-localhost-test",
+		Name:    "HTTP Localhost RFC1918 Bypass",
+		Type:    "http",
+		URL:     fmt.Sprintf("http://127.0.0.1:%d", addr.Port),
+		Status:  "pending",
+		Enabled: true,
+	}
+	require.NoError(t, db.Create(&monitor).Error)
+
+	us.CheckMonitor(monitor)
+
+	var result models.UptimeMonitor
+	db.First(&result, "id = ?", monitor.ID)
+	assert.Equal(t, "up", result.Status, "HTTP monitor on localhost should be up with RFC1918 bypass")
+}
+
+func TestCheckMonitor_TCP_AcceptsRFC1918Address(t *testing.T) {
+	// TCP monitors bypass URL validation entirely and dial directly.
+	// Confirm that a TCP monitor targeting the loopback interface reports "up"
+	// after the RFC 1918 bypass changes.
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db, nil)
+	us := newTestUptimeService(t, db, ns)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to start TCP listener: %v", err)
+	}
+	addr := listener.Addr().(*net.TCPAddr)
+	go func() {
+		for {
+			conn, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				return
+			}
+			_ = conn.Close()
+		}
+	}()
+	t.Cleanup(func() { _ = listener.Close() })
+
+	monitor := models.UptimeMonitor{
+		ID:      "pr3-tcp-rfc1918-test",
+		Name:    "TCP RFC1918 Accepted",
+		Type:    "tcp",
+		URL:     addr.String(),
+		Status:  "pending",
+		Enabled: true,
+	}
+	require.NoError(t, db.Create(&monitor).Error)
+
+	us.CheckMonitor(monitor)
+
+	var result models.UptimeMonitor
+	db.First(&result, "id = ?", monitor.ID)
+	assert.Equal(t, "up", result.Status, "TCP monitor to loopback should report up")
 }
