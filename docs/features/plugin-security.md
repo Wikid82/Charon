@@ -35,18 +35,21 @@ CHARON_PLUGIN_SIGNATURES='{"pluginname": "sha256:..."}'
 ### Examples
 
 **Permissive mode (default)**:
+
 ```bash
 # Unset — all plugins load without verification
 unset CHARON_PLUGIN_SIGNATURES
 ```
 
 **Strict block-all**:
+
 ```bash
 # Empty object — no external plugins will load
 export CHARON_PLUGIN_SIGNATURES='{}'
 ```
 
 **Allowlist specific plugins**:
+
 ```bash
 # Only powerdns and custom-provider plugins are allowed
 export CHARON_PLUGIN_SIGNATURES='{"powerdns": "sha256:a1b2c3d4...", "custom-provider": "sha256:e5f6g7h8..."}'
@@ -63,6 +66,7 @@ sha256sum myplugin.so | awk '{print "sha256:" $1}'
 ```
 
 **Example output**:
+
 ```
 sha256:a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6a7b8c9d0e1f2
 ```
@@ -96,6 +100,7 @@ services:
 ```
 
 This prevents runtime modification of plugin files, mitigating:
+
 - Time-of-check to time-of-use (TOCTOU) attacks
 - Malicious plugin replacement after signature verification
 
@@ -113,6 +118,7 @@ services:
 ```
 
 Or in Dockerfile:
+
 ```dockerfile
 FROM charon:latest
 USER charon
@@ -128,6 +134,7 @@ Plugin directories must **not** be world-writable. Charon enforces this at start
 | `0777` (world-writable) | ❌ Rejected — plugin loading disabled |
 
 **Set secure permissions**:
+
 ```bash
 chmod 755 /path/to/plugins
 chmod 644 /path/to/plugins/*.so  # Or 755 for executable
@@ -192,22 +199,26 @@ After updating plugins, always update your `CHARON_PLUGIN_SIGNATURES` with the n
 ### Checking if a Plugin Loaded
 
 **Check startup logs**:
+
 ```bash
 docker compose logs charon | grep -i plugin
 ```
 
 **Expected success output**:
+
 ```
 INFO Loaded DNS provider plugin type=powerdns name="PowerDNS" version="1.0.0"
 INFO Loaded 1 external DNS provider plugins (0 failed)
 ```
 
 **If using allowlist**:
+
 ```
 INFO Plugin signature allowlist enabled with 2 entries
 ```
 
 **Via API**:
+
 ```bash
 curl http://localhost:8080/api/admin/plugins \
   -H "Authorization: Bearer YOUR-TOKEN"
@@ -220,6 +231,7 @@ curl http://localhost:8080/api/admin/plugins \
 **Cause**: The plugin filename (without `.so`) is not in `CHARON_PLUGIN_SIGNATURES`.
 
 **Solution**: Add the plugin to your allowlist:
+
 ```bash
 # Get the signature
 sha256sum powerdns.so | awk '{print "sha256:" $1}'
@@ -233,6 +245,7 @@ export CHARON_PLUGIN_SIGNATURES='{"powerdns": "sha256:YOUR_HASH_HERE"}'
 **Cause**: The plugin file's SHA-256 hash doesn't match the allowlist.
 
 **Solution**:
+
 1. Verify you have the correct plugin file
 2. Re-compute the signature: `sha256sum plugin.so`
 3. Update `CHARON_PLUGIN_SIGNATURES` with the correct hash
@@ -242,6 +255,7 @@ export CHARON_PLUGIN_SIGNATURES='{"powerdns": "sha256:YOUR_HASH_HERE"}'
 **Cause**: The plugin directory is world-writable (mode `0777` or similar).
 
 **Solution**:
+
 ```bash
 chmod 755 /path/to/plugins
 chmod 644 /path/to/plugins/*.so
@@ -252,11 +266,13 @@ chmod 644 /path/to/plugins/*.so
 **Cause**: Malformed JSON in the environment variable.
 
 **Solution**: Validate your JSON:
+
 ```bash
 echo '{"powerdns": "sha256:abc123"}' | jq .
 ```
 
 Common issues:
+
 - Missing quotes around keys or values
 - Trailing commas
 - Single quotes instead of double quotes
@@ -266,6 +282,7 @@ Common issues:
 **Cause**: File permissions too restrictive or ownership mismatch.
 
 **Solution**:
+
 ```bash
 # Check current permissions
 ls -la /path/to/plugins/
@@ -278,27 +295,32 @@ chown charon:charon /path/to/plugins/*.so
 ### Debugging Checklist
 
 1. **Is the plugin directory configured?**
+
    ```bash
    echo $CHARON_PLUGINS_DIR
    ```
 
 2. **Does the plugin file exist?**
+
    ```bash
    ls -la $CHARON_PLUGINS_DIR/*.so
    ```
 
 3. **Are directory permissions secure?**
+
    ```bash
    stat -c "%a %n" $CHARON_PLUGINS_DIR
    # Should be 755 or stricter
    ```
 
 4. **Is the signature correct?**
+
    ```bash
    sha256sum $CHARON_PLUGINS_DIR/myplugin.so
    ```
 
 5. **Is the JSON valid?**
+
    ```bash
    echo "$CHARON_PLUGIN_SIGNATURES" | jq .
    ```

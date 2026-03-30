@@ -9,6 +9,7 @@ This directory contains operational maintenance guides for keeping Charon runnin
 **When to use:** Docker build fails with GeoLite2-Country.mmdb checksum mismatch
 
 **Topics covered:**
+
 - Automated weekly checksum verification workflow
 - Manual checksum update procedures (5 minutes)
 - Verification script for checking upstream changes
@@ -16,6 +17,7 @@ This directory contains operational maintenance guides for keeping Charon runnin
 - Alternative sources if upstream mirrors are unavailable
 
 **Quick fix:**
+
 ```bash
 # Download and update checksum automatically
 NEW_CHECKSUM=$(curl -fsSL "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" | sha256sum | cut -d' ' -f1)
@@ -34,6 +36,7 @@ Found a maintenance issue not covered here? Please:
 3. **Update this index** with a link to your guide
 
 **Format:**
+
 ```markdown
 ### [Guide Title](filename.md)
 

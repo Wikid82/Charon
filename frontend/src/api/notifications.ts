@@ -1,6 +1,6 @@
 import client from './client';
 
-export const SUPPORTED_NOTIFICATION_PROVIDER_TYPES = ['discord', 'gotify', 'webhook', 'email', 'telegram'] as const;
+export const SUPPORTED_NOTIFICATION_PROVIDER_TYPES = ['discord', 'gotify', 'webhook', 'email', 'telegram', 'slack', 'pushover', 'ntfy'] as const;
 export type SupportedNotificationProviderType = (typeof SUPPORTED_NOTIFICATION_PROVIDER_TYPES)[number];
 const DEFAULT_PROVIDER_TYPE: SupportedNotificationProviderType = 'discord';
 
@@ -59,7 +59,7 @@ const sanitizeProviderForWriteAction = (data: Partial<NotificationProvider>): Pa
 
   delete payload.gotify_token;
 
-  if (type !== 'gotify' && type !== 'telegram') {
+  if (type !== 'gotify' && type !== 'telegram' && type !== 'slack' && type !== 'pushover' && type !== 'ntfy') {
     delete payload.token;
     return payload;
   }

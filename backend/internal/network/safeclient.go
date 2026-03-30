@@ -19,6 +19,22 @@ var (
 	initOnce      sync.Once
 )
 
+// rfc1918Blocks holds pre-parsed CIDR blocks for RFC 1918 private address ranges only.
+// Initialized once and used by IsRFC1918 to support the AllowRFC1918 bypass path.
+var (
+	rfc1918Blocks []*net.IPNet
+	rfc1918Once   sync.Once
+)
+
+// rfc1918CIDRs enumerates exactly the three RFC 1918 private address ranges.
+// Intentionally excludes loopback, link-local, cloud metadata (169.254.x.x),
+// and all other reserved ranges — those remain blocked regardless of AllowRFC1918.
+var rfc1918CIDRs = []string{
+	"10.0.0.0/8",
+	"172.16.0.0/12",
+	"192.168.0.0/16",
+}
+
 // privateCIDRs defines all private and reserved IP ranges to block for SSRF protection.
 // This list covers:
 // - RFC 1918 private networks (10.x, 172.16-31.x, 192.168.x)
@@ -68,6 +84,21 @@ func initPrivateBlocks() {
 	})
 }
 
+// initRFC1918Blocks parses the three RFC 1918 CIDR blocks once at startup.
+func initRFC1918Blocks() {
+	rfc1918Once.Do(func() {
+		rfc1918Blocks = make([]*net.IPNet, 0, len(rfc1918CIDRs))
+		for _, cidr := range rfc1918CIDRs {
+			_, block, err := net.ParseCIDR(cidr)
+			if err != nil {
+				// This should never happen with valid CIDR strings
+				continue
+			}
+			rfc1918Blocks = append(rfc1918Blocks, block)
+		}
+	})
+}
+
 // IsPrivateIP checks if an IP address is private, loopback, link-local, or otherwise restricted.
 // This function implements comprehensive SSRF protection by blocking:
 //   - Private IPv4 ranges (RFC 1918): 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
@@ -110,6 +141,35 @@ func IsPrivateIP(ip net.IP) bool {
 	return false
 }
 
+// IsRFC1918 reports whether an IP address belongs to one of the three RFC 1918
+// private address ranges: 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16.
+//
+// Unlike IsPrivateIP, this function only covers RFC 1918 ranges. It does NOT
+// return true for loopback, link-local (169.254.x.x), cloud metadata endpoints,
+// or any other reserved ranges. Use this to implement the AllowRFC1918 bypass
+// while keeping all other SSRF protections in place.
+//
+// Exported so url_validator.go (package security) can call it without duplicating logic.
+func IsRFC1918(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+
+	initRFC1918Blocks()
+
+	// Normalise IPv4-mapped IPv6 addresses (::ffff:192.168.x.x → 192.168.x.x)
+	if ip4 := ip.To4(); ip4 != nil {
+		ip = ip4
+	}
+
+	for _, block := range rfc1918Blocks {
+		if block.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 // ClientOptions configures the behavior of the safe HTTP client.
 type ClientOptions struct {
 	// Timeout is the total request timeout (default: 10s)
@@ -129,6 +189,14 @@ type ClientOptions struct {
 
 	// DialTimeout is the connection timeout for individual dial attempts (default: 5s)
 	DialTimeout time.Duration
+
+	// AllowRFC1918 permits connections to RFC 1918 private address ranges:
+	// 10.0.0.0/8, 172.16.0.0/12, and 192.168.0.0/16.
+	//
+	// SECURITY NOTE: Enable only for admin-configured features (e.g., uptime monitors
+	// targeting internal hosts). All other restricted ranges — loopback, link-local,
+	// cloud metadata (169.254.x.x), and reserved — remain blocked regardless.
+	AllowRFC1918 bool
 }
 
 // Option is a functional option for configuring ClientOptions.
@@ -183,6 +251,17 @@ func WithDialTimeout(timeout time.Duration) Option {
 	}
 }
 
+// WithAllowRFC1918 permits connections to RFC 1918 private address ranges
+// (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16).
+//
+// Use only for admin-configured features such as uptime monitors that need to
+// reach internal hosts. All other SSRF protections remain active.
+func WithAllowRFC1918() Option {
+	return func(opts *ClientOptions) {
+		opts.AllowRFC1918 = true
+	}
+}
+
 // safeDialer creates a custom dial function that validates IP addresses at connection time.
 // This prevents DNS rebinding attacks by:
 // 1. Resolving the hostname to IP addresses
@@ -225,6 +304,13 @@ func safeDialer(opts *ClientOptions) func(ctx context.Context, network, addr str
 				continue
 			}
 
+			// Allow RFC 1918 addresses only when explicitly permitted (e.g., admin-configured
+			// uptime monitors targeting internal hosts). Link-local (169.254.x.x), loopback,
+			// cloud metadata, and all other restricted ranges remain blocked.
+			if opts.AllowRFC1918 && IsRFC1918(ip.IP) {
+				continue
+			}
+
 			if IsPrivateIP(ip.IP) {
 				return nil, fmt.Errorf("connection to private IP blocked: %s resolved to %s", host, ip.IP)
 			}
@@ -234,6 +320,11 @@ func safeDialer(opts *ClientOptions) func(ctx context.Context, network, addr str
 		var selectedIP net.IP
 		for _, ip := range ips {
 			if opts.AllowLocalhost && ip.IP.IsLoopback() {
+				selectedIP = ip.IP
+				break
+			}
+			// Select RFC 1918 IPs when the caller has opted in.
+			if opts.AllowRFC1918 && IsRFC1918(ip.IP) {
 				selectedIP = ip.IP
 				break
 			}
@@ -255,6 +346,9 @@ func safeDialer(opts *ClientOptions) func(ctx context.Context, network, addr str
 
 // validateRedirectTarget checks if a redirect URL is safe to follow.
 // Returns an error if the redirect target resolves to private IPs.
+//
+// TODO: If MaxRedirects is ever re-enabled for uptime monitors, thread AllowRFC1918
+// through this function to permit RFC 1918 redirect targets.
 func validateRedirectTarget(req *http.Request, opts *ClientOptions) error {
 	host := req.URL.Hostname()
 	if host == "" {

@@ -101,7 +101,7 @@ echo ""
 
 # Check CrowdSec LAPI
 echo "7. CrowdSec LAPI Status:"
-if docker exec charon-e2e curl -sf http://localhost:8090/health > /dev/null 2>&1; then
+if docker exec charon-e2e wget -qO /dev/null http://localhost:8090/health 2>/dev/null; then
   echo -e "   ${GREEN}✓${NC} CrowdSec LAPI is responding (port 8090)"
 else
   echo -e "   ${YELLOW}⚠${NC} CrowdSec LAPI is not responding"
