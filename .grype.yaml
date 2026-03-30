@@ -284,6 +284,133 @@ ignore:
     # 4. If not yet migrated: Extend expiry by 30 days and update the review comment above
     # 5. If extended 3+ times: Open an upstream issue on crowdsecurity/crowdsec requesting pgx/v5 migration
 
+  # GHSA-x744-4wpc-v9h2 / CVE-2026-34040: Docker AuthZ plugin bypass via oversized request body
+  # Severity: HIGH (CVSS 8.8)
+  # CVSS Vector: CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H
+  # CWE: CWE-863 (Incorrect Authorization)
+  # Package: github.com/docker/docker v28.5.2+incompatible (go-module)
+  # Status: Fixed in moby/moby v29.3.1 — NO fix available for docker/docker import path
+  #
+  # Vulnerability Details:
+  # - Incomplete fix for Docker AuthZ plugin bypass (CVE-2024-41110). An attacker can send an
+  #   oversized request body to the Docker daemon, causing it to forward the request to the AuthZ
+  #   plugin without the body, allowing unauthorized approvals.
+  #
+  # Root Cause (No Fix Available for Import Path):
+  # - The fix exists in moby/moby v29.3.1, but not for the docker/docker import path that Charon uses.
+  # - Migration to moby/moby/v2 is not practical: currently beta with breaking changes.
+  # - Fix path: once docker/docker publishes a patched version or moby/moby/v2 stabilizes,
+  #   update the dependency and remove this suppression.
+  #
+  # Risk Assessment: ACCEPTED (Not exploitable in Charon context)
+  # - Charon uses the Docker client SDK only (list containers). The vulnerability is server-side
+  #   in the Docker daemon's AuthZ plugin handler.
+  # - Charon does not run a Docker daemon or use AuthZ plugins.
+  # - The attack vector requires local access to the Docker daemon socket with AuthZ plugins enabled.
+  #
+  # Mitigation (active while suppression is in effect):
+  # - Monitor docker/docker releases: https://github.com/moby/moby/releases
+  # - Monitor moby/moby/v2 stabilization: https://github.com/moby/moby
+  # - Weekly CI security rebuild flags the moment a fixed version ships.
+  #
+  # Review:
+  # - Reviewed 2026-03-30 (initial suppression): no fix for docker/docker import path. Set 30-day review.
+  # - Next review: 2026-04-30. Remove suppression once a fix is available for the docker/docker import path.
+  #
+  # Removal Criteria:
+  # - docker/docker publishes a patched version OR moby/moby/v2 stabilizes and migration is feasible
+  # - Update dependency, rebuild, run security-scan-docker-image, confirm finding is resolved
+  # - Remove this entry, the GHSA-pxq6-2prw-chj9 entry, and the corresponding .trivyignore entries simultaneously
+  #
+  # References:
+  # - GHSA-x744-4wpc-v9h2: https://github.com/advisories/GHSA-x744-4wpc-v9h2
+  # - CVE-2026-34040: https://nvd.nist.gov/vuln/detail/CVE-2026-34040
+  # - CVE-2024-41110 (original): https://nvd.nist.gov/vuln/detail/CVE-2024-41110
+  # - moby/moby releases: https://github.com/moby/moby/releases
+  - vulnerability: GHSA-x744-4wpc-v9h2
+    package:
+      name: github.com/docker/docker
+      version: "v28.5.2+incompatible"
+      type: go-module
+    reason: |
+      HIGH — Docker AuthZ plugin bypass via oversized request body in docker/docker v28.5.2+incompatible.
+      Incomplete fix for CVE-2024-41110. Fixed in moby/moby v29.3.1 but no fix for docker/docker import path.
+      Charon uses Docker client SDK only (list containers); the vulnerability is server-side in the Docker
+      daemon's AuthZ plugin handler. Charon does not run a Docker daemon or use AuthZ plugins.
+      Risk accepted; no remediation path until docker/docker publishes a fix or moby/moby/v2 stabilizes.
+      Reviewed 2026-03-30: no patched release available for docker/docker import path.
+    expiry: "2026-04-30"  # 30-day review: no fix for docker/docker import path. Extend in 30-day increments with documented justification.
+
+    # Action items when this suppression expires:
+    # 1. Check docker/docker and moby/moby releases: https://github.com/moby/moby/releases
+    # 2. Check if moby/moby/v2 has stabilized: https://github.com/moby/moby
+    # 3. If a fix has shipped for docker/docker import path OR moby/moby/v2 is stable:
+    #    a. Update the dependency and rebuild Docker image
+    #    b. Run local security-scan-docker-image and confirm finding is resolved
+    #    c. Remove this entry, GHSA-pxq6-2prw-chj9 entry, and all corresponding .trivyignore entries
+    # 4. If no fix yet: Extend expiry by 30 days and update the review comment above
+    # 5. If extended 3+ times: Open an issue to track moby/moby/v2 migration feasibility
+
+  # GHSA-pxq6-2prw-chj9 / CVE-2026-33997: Moby off-by-one error in plugin privilege validation
+  # Severity: MEDIUM (CVSS 6.8)
+  # Package: github.com/docker/docker v28.5.2+incompatible (go-module)
+  # Status: Fixed in moby/moby v29.3.1 — NO fix available for docker/docker import path
+  #
+  # Vulnerability Details:
+  # - Off-by-one error in Moby's plugin privilege validation allows potential privilege escalation
+  #   via crafted plugin configurations.
+  #
+  # Root Cause (No Fix Available for Import Path):
+  # - Same import path issue as GHSA-x744-4wpc-v9h2. The fix exists in moby/moby v29.3.1 but not
+  #   for the docker/docker import path that Charon uses.
+  # - Fix path: same as GHSA-x744-4wpc-v9h2 — wait for docker/docker patch or moby/moby/v2 stabilization.
+  #
+  # Risk Assessment: ACCEPTED (Not exploitable in Charon context)
+  # - Charon uses the Docker client SDK only (list containers). The vulnerability is in Docker's
+  #   plugin privilege validation, which is server-side functionality.
+  # - Charon does not run a Docker daemon, install Docker plugins, or interact with plugin privileges.
+  #
+  # Mitigation (active while suppression is in effect):
+  # - Monitor docker/docker releases: https://github.com/moby/moby/releases
+  # - Weekly CI security rebuild flags the moment a fixed version ships.
+  #
+  # Review:
+  # - Reviewed 2026-03-30 (initial suppression): no fix for docker/docker import path. Set 30-day review.
+  # - Next review: 2026-04-30. Remove suppression once a fix is available for the docker/docker import path.
+  #
+  # Removal Criteria:
+  # - Same as GHSA-x744-4wpc-v9h2: docker/docker publishes a patched version OR moby/moby/v2 stabilizes
+  # - Update dependency, rebuild, run security-scan-docker-image, confirm finding is resolved
+  # - Remove this entry, GHSA-x744-4wpc-v9h2 entry, and all corresponding .trivyignore entries simultaneously
+  #
+  # References:
+  # - GHSA-pxq6-2prw-chj9: https://github.com/advisories/GHSA-pxq6-2prw-chj9
+  # - CVE-2026-33997: https://nvd.nist.gov/vuln/detail/CVE-2026-33997
+  # - moby/moby releases: https://github.com/moby/moby/releases
+  - vulnerability: GHSA-pxq6-2prw-chj9
+    package:
+      name: github.com/docker/docker
+      version: "v28.5.2+incompatible"
+      type: go-module
+    reason: |
+      MEDIUM — Off-by-one error in Moby plugin privilege validation in docker/docker v28.5.2+incompatible.
+      Fixed in moby/moby v29.3.1 but no fix for docker/docker import path.
+      Charon uses Docker client SDK only (list containers); the vulnerability is in Docker's server-side
+      plugin privilege validation. Charon does not run a Docker daemon or install Docker plugins.
+      Risk accepted; no remediation path until docker/docker publishes a fix or moby/moby/v2 stabilizes.
+      Reviewed 2026-03-30: no patched release available for docker/docker import path.
+    expiry: "2026-04-30"  # 30-day review: no fix for docker/docker import path. Extend in 30-day increments with documented justification.
+
+    # Action items when this suppression expires:
+    # 1. Check docker/docker and moby/moby releases: https://github.com/moby/moby/releases
+    # 2. Check if moby/moby/v2 has stabilized: https://github.com/moby/moby
+    # 3. If a fix has shipped for docker/docker import path OR moby/moby/v2 is stable:
+    #    a. Update the dependency and rebuild Docker image
+    #    b. Run local security-scan-docker-image and confirm finding is resolved
+    #    c. Remove this entry, GHSA-x744-4wpc-v9h2 entry, and all corresponding .trivyignore entries
+    # 4. If no fix yet: Extend expiry by 30 days and update the review comment above
+    # 5. If extended 3+ times: Open an issue to track moby/moby/v2 migration feasibility
+
 # Match exclusions (patterns to ignore during scanning)
 # Use sparingly - prefer specific CVE suppressions above
 match:
