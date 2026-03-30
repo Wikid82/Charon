@@ -139,15 +139,15 @@ graph TB
 | Component | Technology | Version | Purpose |
 |-----------|-----------|---------|---------|
 | **Framework** | React | 19.2.3 | UI framework |
-| **Language** | TypeScript | 5.x | Type-safe JavaScript |
-| **Build Tool** | Vite | 6.1.9 | Fast bundler and dev server |
-| **CSS Framework** | Tailwind CSS | 3.x | Utility-first CSS |
+| **Language** | TypeScript | 6.x | Type-safe JavaScript |
+| **Build Tool** | Vite | 8.0.0-beta.18 | Fast bundler and dev server |
+| **CSS Framework** | Tailwind CSS | 4.2.1 | Utility-first CSS |
 | **Routing** | React Router | 7.x | Client-side routing |
 | **HTTP Client** | Fetch API | Native | API communication |
 | **State Management** | React Hooks + Context | Native | Global state |
 | **Internationalization** | i18next | Latest | 5 language support |
-| **Unit Testing** | Vitest | 2.x | Fast unit test runner |
-| **E2E Testing** | Playwright | 1.50.x | Browser automation |
+| **Unit Testing** | Vitest | 4.1.0-beta.6 | Fast unit test runner |
+| **E2E Testing** | Playwright | 1.58.2 | Browser automation |
 
 ### Infrastructure
 
@@ -218,7 +218,7 @@ graph TB
 │   │   └── main.tsx            # Application entry point
 │   ├── public/                 # Static assets
 │   ├── package.json            # NPM dependencies
-│   └── vite.config.js          # Vite configuration
+│   └── vite.config.ts          # Vite configuration
 │
 ├── .docker/                    # Docker configuration
 │   ├── compose/                # Docker Compose files
@@ -306,11 +306,13 @@ graph TB
 **Key Modules:**
 
 #### API Layer (`internal/api/`)
+
 - **Handlers:** Process HTTP requests, validate input, return responses
 - **Middleware:** CORS, GZIP, authentication, logging, metrics, panic recovery
 - **Routes:** Route registration and grouping (public vs authenticated)
 
 **Example Endpoints:**
+
 - `GET /api/v1/proxy-hosts` - List all proxy hosts
 - `POST /api/v1/proxy-hosts` - Create new proxy host
 - `PUT /api/v1/proxy-hosts/:id` - Update proxy host
@@ -318,6 +320,7 @@ graph TB
 - `WS /api/v1/logs` - WebSocket for real-time logs
 
 #### Service Layer (`internal/services/`)
+
 - **ProxyService:** CRUD operations for proxy hosts, validation logic
 - **CertificateService:** ACME certificate provisioning and renewal
 - **DockerService:** Container discovery and monitoring
@@ -327,12 +330,14 @@ graph TB
 **Design Pattern:** Services contain business logic and call multiple repositories/managers
 
 #### Caddy Manager (`internal/caddy/`)
+
 - **Manager:** Orchestrates Caddy configuration updates
 - **Config Builder:** Generates Caddy JSON from database models
 - **Reload Logic:** Atomic config application with rollback on failure
 - **Security Integration:** Injects Cerberus middleware into Caddy pipelines
 
 **Responsibilities:**
+
 1. Generate Caddy JSON configuration from database state
 2. Validate configuration before applying
 3. Trigger Caddy reload via JSON API
@@ -340,22 +345,26 @@ graph TB
 5. Integrate security layers (WAF, ACL, Rate Limiting)
 
 #### Security Suite (`internal/cerberus/`)
+
 - **ACL (Access Control Lists):** IP-based allow/deny rules, GeoIP blocking
 - **WAF (Web Application Firewall):** Coraza engine with OWASP CRS
 - **CrowdSec:** Behavior-based threat detection with global intelligence
 - **Rate Limiter:** Per-IP request throttling
 
 **Integration Points:**
+
 - Middleware injection into Caddy request pipeline
 - Database-driven rule configuration
 - Metrics collection for security events
 
 #### Database Layer (`internal/database/`)
+
 - **Migrations:** Automatic schema versioning with GORM AutoMigrate
 - **Seeding:** Default settings and admin user creation
 - **Connection Management:** SQLite with WAL mode and connection pooling
 
 **Schema Overview:**
+
 - **ProxyHost:** Domain, upstream target, SSL config
 - **RemoteServer:** Upstream server definitions
 - **CaddyConfig:** Generated Caddy configuration (audit trail)
@@ -372,6 +381,7 @@ graph TB
 **Component Architecture:**
 
 #### Pages (`src/pages/`)
+
 - **Dashboard:** System overview, recent activity, quick actions
 - **ProxyHosts:** List, create, edit, delete proxy configurations
 - **Certificates:** Manage SSL/TLS certificates, view expiry
@@ -380,17 +390,20 @@ graph TB
 - **Users:** User management (admin only)
 
 #### Components (`src/components/`)
+
 - **Forms:** Reusable form inputs with validation
 - **Modals:** Dialog components for CRUD operations
 - **Tables:** Data tables with sorting, filtering, pagination
 - **Layout:** Header, sidebar, navigation
 
 #### API Client (`src/api/`)
+
 - Centralized API calls with error handling
 - Request/response type definitions
 - Authentication token management
 
 **Example:**
+
 ```typescript
 export const getProxyHosts = async (): Promise<ProxyHost[]> => {
   const response = await fetch('/api/v1/proxy-hosts', {
@@ -402,11 +415,13 @@ export const getProxyHosts = async (): Promise<ProxyHost[]> => {
 ```
 
 #### State Management
+
 - **React Context:** Global state for auth, theme, language
 - **Local State:** Component-specific state with `useState`
 - **Custom Hooks:** Encapsulate API calls and side effects
 
 **Example Hook:**
+
 ```typescript
 export const useProxyHosts = () => {
   const [hosts, setHosts] = useState<ProxyHost[]>([]);
@@ -425,11 +440,13 @@ export const useProxyHosts = () => {
 **Purpose:** High-performance reverse proxy with automatic HTTPS
 
 **Integration:**
+
 - Embedded as a library in the Go backend
 - Configured via JSON API (not Caddyfile)
 - Listens on ports 80 (HTTP) and 443 (HTTPS)
 
 **Features Used:**
+
 - Dynamic configuration updates without restarts
 - Automatic HTTPS with Let's Encrypt and ZeroSSL
 - DNS challenge support for wildcard certificates
@@ -437,6 +454,7 @@ export const useProxyHosts = () => {
 - Request logging and metrics
 
 **Configuration Flow:**
+
 1. User creates proxy host via frontend
 2. Backend validates and saves to database
 3. Caddy Manager generates JSON configuration
@@ -461,12 +479,14 @@ For each proxy host, Charon generates **two routes** with the same domain:
    - Handlers: Full Cerberus security suite
 
 This pattern is **intentional and valid**:
+
 - Emergency route provides break-glass access to security controls
 - Main route protects application with enterprise security features
 - Caddy processes routes in order (emergency matches first)
 - Validator allows duplicate hosts when one has paths and one doesn't
 
 **Example:**
+
 ```json
 // Emergency Route (evaluated first)
 {
@@ -488,6 +508,7 @@ This pattern is **intentional and valid**:
 **Purpose:** Persistent data storage
 
 **Why SQLite:**
+
 - Embedded (no external database server)
 - Serverless (perfect for single-user/small team)
 - ACID compliant with WAL mode
@@ -495,16 +516,19 @@ This pattern is **intentional and valid**:
 - Backup-friendly (single file)
 
 **Configuration:**
+
 - **WAL Mode:** Allows concurrent reads during writes
 - **Foreign Keys:** Enforced referential integrity
 - **Pragma Settings:** Performance optimizations
 
 **Backup Strategy:**
+
 - Automated daily backups to `data/backups/`
 - Retention: 7 daily, 4 weekly, 12 monthly backups
 - Backup during low-traffic periods
 
 **Migrations:**
+
 - GORM AutoMigrate for schema changes
 - Manual migrations for complex data transformations
 - Rollback support via backup restoration
@@ -537,6 +561,7 @@ graph LR
 **Purpose:** Prevent brute-force attacks and API abuse
 
 **Implementation:**
+
 - Per-IP request counters with sliding window
 - Configurable thresholds (e.g., 100 req/min, 1000 req/hour)
 - HTTP 429 response when limit exceeded
@@ -547,12 +572,14 @@ graph LR
 **Purpose:** Behavior-based threat detection
 
 **Features:**
+
 - Local log analysis (brute-force, port scans, exploits)
 - Global threat intelligence (crowd-sourced IP reputation)
 - Automatic IP banning with configurable duration
 - Decision management API (view, create, delete bans)
 
 **Modes:**
+
 - **Local Only:** No external API calls
 - **API Mode:** Sync with CrowdSec cloud for global intelligence
 
@@ -561,12 +588,14 @@ graph LR
 **Purpose:** IP-based access control
 
 **Features:**
+
 - Per-proxy-host allow/deny rules
 - CIDR range support (e.g., `192.168.1.0/24`)
 - Geographic blocking via GeoIP2 (MaxMind)
 - Admin whitelist (emergency access)
 
 **Evaluation Order:**
+
 1. Check admin whitelist (always allow)
 2. Check deny list (explicit block)
 3. Check allow list (explicit allow)
@@ -579,6 +608,7 @@ graph LR
 **Engine:** Coraza with OWASP Core Rule Set (CRS)
 
 **Detection Categories:**
+
 - SQL Injection (SQLi)
 - Cross-Site Scripting (XSS)
 - Remote Code Execution (RCE)
@@ -587,12 +617,14 @@ graph LR
 - Command Injection
 
 **Modes:**
+
 - **Monitor:** Log but don't block (testing)
 - **Block:** Return HTTP 403 for violations
 
 ### Layer 5: Application Security
 
 **Additional Protections:**
+
 - **SSRF Prevention:** Block requests to private IP ranges in webhooks/URL validation
 - **HTTP Security Headers:** CSP, HSTS, X-Frame-Options, X-Content-Type-Options
 - **Input Validation:** Server-side validation for all user inputs
@@ -610,6 +642,7 @@ graph LR
 3. **Direct Database Access:** Manual SQLite update as last resort
 
 **Emergency Token:**
+
 - 64-character hex token set via `CHARON_EMERGENCY_TOKEN`
 - Grants temporary admin access
 - Rotated after each use
@@ -635,6 +668,7 @@ Charon operates with **two distinct traffic flows** on separate ports, each with
 - **Testing:** Playwright E2E tests verify UI/UX functionality on this port
 
 **Why No Middleware?**
+
 - Management interface must remain accessible even when security modules are misconfigured
 - Emergency endpoints (`/api/v1/emergency/*`) require unrestricted access for system recovery
 - Separation of concerns: admin access control is handled by JWT, not proxy-level security
@@ -797,6 +831,7 @@ sequenceDiagram
 **Rationale:** Simplicity over scalability - target audience is home users and small teams
 
 **Container Contents:**
+
 - Frontend static files (Vite build output)
 - Go backend binary
 - Embedded Caddy server
@@ -911,11 +946,13 @@ services:
 ### High Availability Considerations
 
 **Current Limitations:**
+
 - SQLite does not support clustering
 - Single point of failure (one container)
 - Not designed for horizontal scaling
 
 **Future Options:**
+
 - PostgreSQL backend for HA deployments
 - Read replicas for load balancing
 - Container orchestration (Kubernetes, Docker Swarm)
@@ -927,6 +964,7 @@ services:
 ### Local Development Setup
 
 1. **Prerequisites:**
+
    ```bash
    - Go 1.26+ (backend development)
    - Node.js 23+ and npm (frontend development)
@@ -935,12 +973,14 @@ services:
    ```
 
 2. **Clone Repository:**
+
    ```bash
    git clone https://github.com/Wikid82/Charon.git
    cd Charon
    ```
 
 3. **Backend Development:**
+
    ```bash
    cd backend
    go mod download
@@ -949,6 +989,7 @@ services:
    ```
 
 4. **Frontend Development:**
+
    ```bash
    cd frontend
    npm install
@@ -957,6 +998,7 @@ services:
    ```
 
 5. **Full-Stack Development (Docker):**
+
    ```bash
    docker-compose -f .docker/compose/docker-compose.dev.yml up
    # Frontend + Backend + Caddy in one container
@@ -965,12 +1007,14 @@ services:
 ### Git Workflow
 
 **Branch Strategy:**
+
 - `main`: Stable production branch
 - `feature/*`: New feature development
 - `fix/*`: Bug fixes
 - `chore/*`: Maintenance tasks
 
 **Commit Convention:**
+
 - `feat:` New user-facing feature
 - `fix:` Bug fix in application code
 - `chore:` Infrastructure, CI/CD, dependencies
@@ -979,6 +1023,7 @@ services:
 - `test:` Adding or updating tests
 
 **Example:**
+
 ```
 feat: add DNS-01 challenge support for Cloudflare
 
@@ -1031,6 +1076,7 @@ Closes #123
 **Purpose:** Validate critical user flows in a real browser
 
 **Scope:**
+
 - User authentication
 - Proxy host CRUD operations
 - Certificate provisioning
@@ -1038,6 +1084,7 @@ Closes #123
 - Real-time log streaming
 
 **Execution:**
+
 ```bash
 # Run against Docker container
 npx playwright test --project=chromium
@@ -1050,10 +1097,12 @@ npx playwright test --debug
 ```
 
 **Coverage Modes:**
+
 - **Docker Mode:** Integration testing, no coverage (0% reported)
 - **Vite Dev Mode:** Coverage collection with V8 inspector
 
 **Why Two Modes?**
+
 - Playwright coverage requires source maps and raw source files
 - Docker serves pre-built production files (no source maps)
 - Vite dev server exposes source files for coverage instrumentation
@@ -1067,6 +1116,7 @@ npx playwright test --debug
 **Coverage Target:** 85% minimum
 
 **Execution:**
+
 ```bash
 # Run all tests
 go test ./...
@@ -1079,11 +1129,13 @@ go test -cover ./...
 ```
 
 **Test Organization:**
+
 - `*_test.go` files alongside source code
 - Table-driven tests for comprehensive coverage
 - Mocks for external dependencies (database, HTTP clients)
 
 **Example:**
+
 ```go
 func TestCreateProxyHost(t *testing.T) {
     tests := []struct {
@@ -1123,6 +1175,7 @@ func TestCreateProxyHost(t *testing.T) {
 **Coverage Target:** 85% minimum
 
 **Execution:**
+
 ```bash
 # Run all tests
 npm test
@@ -1135,6 +1188,7 @@ npm run test:coverage
 ```
 
 **Test Organization:**
+
 - `*.test.tsx` files alongside components
 - Mock API calls with MSW (Mock Service Worker)
 - Snapshot tests for UI consistency
@@ -1146,12 +1200,14 @@ npm run test:coverage
 **Location:** `backend/integration/`
 
 **Scope:**
+
 - API endpoint end-to-end flows
 - Database migrations
 - Caddy manager integration
 - CrowdSec API calls
 
 **Execution:**
+
 ```bash
 go test ./integration/...
 ```
@@ -1161,6 +1217,7 @@ go test ./integration/...
 **Automated Hooks (via `.pre-commit-config.yaml`):**
 
 **Fast Stage (< 5 seconds):**
+
 - Trailing whitespace removal
 - EOF fixer
 - YAML syntax check
@@ -1168,11 +1225,13 @@ go test ./integration/...
 - Markdown link validation
 
 **Manual Stage (run explicitly):**
+
 - Backend coverage tests (60-90s)
 - Frontend coverage tests (30-60s)
 - TypeScript type checking (10-20s)
 
 **Why Manual?**
+
 - Coverage tests are slow and would block commits
 - Developers run them on-demand before pushing
 - CI enforces coverage on pull requests
@@ -1180,10 +1239,12 @@ go test ./integration/...
 ### Continuous Integration (GitHub Actions)
 
 **Workflow Triggers:**
+
 - `push` to `main`, `feature/*`, `fix/*`
 - `pull_request` to `main`
 
 **CI Jobs:**
+
 1. **Lint:** golangci-lint, ESLint, markdownlint, hadolint
 2. **Test:** Go tests, Vitest, Playwright
 3. **Security:** Trivy, CodeQL, Grype, Govulncheck
@@ -1205,6 +1266,7 @@ go test ./integration/...
 - **PRERELEASE:** `-beta.1`, `-rc.1`, etc.
 
 **Examples:**
+
 - `1.0.0` - Stable release
 - `1.1.0` - New feature (DNS provider support)
 - `1.1.1` - Bug fix (GORM query fix)
@@ -1215,12 +1277,14 @@ go test ./integration/...
 ### Build Pipeline (Multi-Platform)
 
 **Platforms Supported:**
+
 - `linux/amd64`
 - `linux/arm64`
 
 **Build Process:**
 
 1. **Frontend Build:**
+
    ```bash
    cd frontend
    npm ci --only=production
@@ -1229,6 +1293,7 @@ go test ./integration/...
    ```
 
 2. **Backend Build:**
+
    ```bash
    cd backend
    go build -o charon cmd/api/main.go
@@ -1236,6 +1301,7 @@ go test ./integration/...
    ```
 
 3. **Docker Image Build:**
+
    ```bash
    docker buildx build \
      --platform linux/amd64,linux/arm64 \
@@ -1292,6 +1358,7 @@ go test ./integration/...
    - Level: SLSA Build L3 (hermetic builds)
 
 **Verification Example:**
+
 ```bash
 # Verify image signature
 cosign verify \
@@ -1309,6 +1376,7 @@ grype ghcr.io/wikid82/charon@sha256:<index-digest>
 ### Rollback Strategy
 
 **Container Rollback:**
+
 ```bash
 # List available versions
 docker images wikid82/charon
@@ -1319,6 +1387,7 @@ docker-compose up -d --pull always wikid82/charon:1.1.1
 ```
 
 **Database Rollback:**
+
 ```bash
 # Restore from backup
 docker exec charon /app/scripts/restore-backup.sh \
@@ -1355,11 +1424,13 @@ docker exec charon /app/scripts/restore-backup.sh \
 ### API Extensibility
 
 **REST API Design:**
+
 - Version prefix: `/api/v1/`
 - Future versions: `/api/v2/` (backward-compatible)
 - Deprecation policy: 2 major versions supported
 
 **WebHooks (Future):**
+
 - Event notifications for external systems
 - Triggers: Proxy host created, certificate renewed, security event
 - Payload: JSON with event type and data
@@ -1369,6 +1440,7 @@ docker exec charon /app/scripts/restore-backup.sh \
 **Current:** Cerberus security middleware injected into Caddy pipeline
 
 **Future:**
+
 - User-defined middleware (rate limiting rules, custom headers)
 - JavaScript/Lua scripting for request transformation
 - Plugin marketplace for community contributions
@@ -1452,6 +1524,7 @@ docker exec charon /app/scripts/restore-backup.sh \
 **GitHub Copilot Instructions:**
 
 All agents (`Planning`, `Backend_Dev`, `Frontend_Dev`, `DevOps`) must reference `ARCHITECTURE.md` when:
+
 - Creating new components
 - Modifying core systems
 - Changing integration points

@@ -21,6 +21,24 @@ Imagine you have several apps running on your computer. Maybe a blog, a file sto
 
 ## Step 1: Install Charon
 
+### Required Secrets (Generate Before Installing)
+
+Two secrets must be set before starting Charon. Omitting them will cause **sessions to reset on every container restart**, locking users out.
+
+Generate both values now and keep them somewhere safe:
+
+```bash
+# JWT secret — signs and validates login sessions
+openssl rand -hex 32
+
+# Encryption key — protects stored credentials at rest
+openssl rand -base64 32
+```
+
+> **Why this matters:** If `CHARON_JWT_SECRET` is not set, Charon generates a random key on each boot. Any active login session becomes invalid the moment the container restarts, producing a "Session validation failed" error.
+
+---
+
 ### Option A: Docker Compose (Easiest)
 
 Create a file called `docker-compose.yml`:
@@ -43,6 +61,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       - CHARON_ENV=production
+      - CHARON_JWT_SECRET=<output of: openssl rand -hex 32>
+      - CHARON_ENCRYPTION_KEY=<output of: openssl rand -base64 32>
 ```
 
 Then run:
@@ -64,6 +84,8 @@ docker run -d \
   -v ./charon-data:/app/data \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   -e CHARON_ENV=production \
+  -e CHARON_JWT_SECRET=<output of: openssl rand -hex 32> \
+  -e CHARON_ENCRYPTION_KEY=<output of: openssl rand -base64 32> \
   wikid82/charon:latest
 ```
 
@@ -78,6 +100,8 @@ docker run -d \
   -v ./charon-data:/app/data \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   -e CHARON_ENV=production \
+  -e CHARON_JWT_SECRET=<output of: openssl rand -hex 32> \
+  -e CHARON_ENCRYPTION_KEY=<output of: openssl rand -base64 32> \
   ghcr.io/wikid82/charon:latest
 ```
 
@@ -205,16 +229,19 @@ The emergency token is a security feature that allows bypassing all security mod
 Choose your platform:
 
 **Linux/macOS (recommended):**
+
 ```bash
 openssl rand -hex 32
 ```
 
 **Windows PowerShell:**
+
 ```powershell
 [Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
 ```
 
 **Node.js (all platforms):**
+
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
@@ -228,11 +255,13 @@ CHARON_EMERGENCY_TOKEN=<paste_64_character_token_here>
 ```
 
 **Example:**
+
 ```bash
 CHARON_EMERGENCY_TOKEN=7b3b8a36a6fad839f1b3122131ed4b1f05453118a91b53346482415796e740e2
 ```
 
 **Verify:**
+
 ```bash
 # Token should be exactly 64 characters
 echo -n "$(grep CHARON_EMERGENCY_TOKEN .env | cut -d= -f2)" | wc -c
@@ -263,20 +292,23 @@ For continuous integration, store the token in GitHub Secrets:
 ### Security Best Practices
 
 ✅ **DO:**
+
 - Generate tokens using cryptographically secure methods
 - Store in `.env` (gitignored) or secrets management
 - Rotate quarterly or after security events
 - Use minimum 64 characters
 
 ❌ **DON'T:**
+
 - Commit tokens to repository (even in examples)
 - Share tokens via email or chat
 - Use weak or predictable values
 - Reuse tokens across environments
 
 ---
-2. **Settings table** for `security.crowdsec.enabled = "true"`
-3. **Starts CrowdSec** if either condition is true
+
+1. **Settings table** for `security.crowdsec.enabled = "true"`
+2. **Starts CrowdSec** if either condition is true
 
 **How it works:**
 
@@ -558,7 +590,7 @@ Click "Watch" → "Custom" → Select "Security advisories" on the [Charon repos
 
 **2. Notifications and Automatic Updates with Dockhand**
 
-  - Dockhand is a free service that monitors Docker images for updates and can send notifications or trigger auto-updates. https://github.com/Finsys/dockhand
+- Dockhand is a free service that monitors Docker images for updates and can send notifications or trigger auto-updates. <https://github.com/Finsys/dockhand>
 
 **Best Practices:**
 

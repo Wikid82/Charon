@@ -69,22 +69,26 @@ X-Forwarded-Host preserves the original domain:
 Your backend must trust proxy headers from Charon. Common configurations:
 
 **Node.js/Express:**
+
 ```javascript
 app.set('trust proxy', true);
 ```
 
 **Django:**
+
 ```python
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 USE_X_FORWARDED_HOST = True
 ```
 
 **Rails:**
+
 ```ruby
 config.action_dispatch.trusted_proxies = [IPAddr.new('10.0.0.0/8')]
 ```
 
 **PHP/Laravel:**
+
 ```php
 // In TrustProxies middleware
 protected $proxies = '*';

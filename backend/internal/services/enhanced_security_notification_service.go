@@ -89,6 +89,7 @@ func (s *EnhancedSecurityNotificationService) getProviderAggregatedConfig() (*mo
 		"slack":    true,
 		"gotify":   true,
 		"telegram": true,
+		"pushover": true,
 	}
 	filteredProviders := []models.NotificationProvider{}
 	for _, p := range providers {

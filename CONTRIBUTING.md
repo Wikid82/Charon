@@ -45,8 +45,6 @@ brew install lefthook
 go install github.com/evilmartians/lefthook@latest
 ```
 
-
-
 ```bash
 # Option 1: Homebrew (macOS/Linux)
 brew install golangci-lint
@@ -84,17 +82,20 @@ For local development, install go 1.26.0+ from [go.dev/dl](https://go.dev/dl/).
 When the project's Go version is updated (usually by Renovate):
 
 1. **Pull the latest changes**
+
    ```bash
    git pull
    ```
 
 2. **Update your local Go installation**
+
    ```bash
    # Run the Go update skill (downloads and installs the new version)
    .github/skills/scripts/skill-runner.sh utility-update-go-version
    ```
 
 3. **Rebuild your development tools**
+
    ```bash
    # This fixes lefthook hook errors and IDE issues
    ./scripts/rebuild-go-tools.sh

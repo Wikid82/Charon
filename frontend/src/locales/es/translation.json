@@ -173,7 +173,32 @@
     "uploadSuccess": "Certificado subido exitosamente",
     "uploadFailed": "Error al subir el certificado",
     "note": "Nota",
-    "noteText": "Puedes eliminar certificados personalizados y certificados de prueba. Los certificados de Let's Encrypt de producción se renuevan automáticamente y no deben eliminarse a menos que cambies de entorno."
+    "noteText": "Puedes eliminar certificados personalizados, certificados de staging y certificados de producción vencidos o por vencer que no estén vinculados a ningún host proxy. Los certificados de producción activos se renuevan automáticamente mediante Caddy.",
+    "provider": "Provider",
+    "deleteTitle": "Delete Certificate",
+    "deleteConfirmCustom": "This will permanently delete this certificate. A backup will be created first.",
+    "deleteConfirmStaging": "This staging certificate will be removed. It will be regenerated on next request.",
+    "deleteConfirmExpired": "This expired certificate is no longer active and will be permanently removed.",
+    "deleteConfirmExpiring": "This certificate is expiring soon. It will be permanently removed and will not be auto-renewed.",
+    "deleteSuccess": "Certificate deleted",
+    "deleteFailed": "Failed to delete certificate",
+    "deleteInUse": "Cannot delete — certificate is attached to a proxy host",
+    "deleteButton": "Delete",
+    "bulkSelectAll": "Seleccionar todos los certificados eliminables",
+    "selectCert": "Seleccionar certificado {{name}}",
+    "bulkSelectedCount": "{{count}} certificado(s) seleccionado(s)",
+    "bulkDeleteTitle": "Eliminar {{count}} Certificado(s)",
+    "bulkDeleteDescription": "Eliminar {{count}} certificado(s)",
+    "bulkDeleteConfirm": "Los siguientes certificados se eliminarán permanentemente. El servidor crea una copia de seguridad antes de cada eliminación.",
+    "bulkDeleteListAriaLabel": "Certificados a eliminar",
+    "bulkDeleteButton": "Eliminar {{count}} Certificado(s)",
+    "bulkDeleteSuccess": "{{count}} certificado(s) eliminado(s)",
+    "bulkDeletePartial": "{{deleted}} eliminado(s), {{failed}} fallido(s)",
+    "bulkDeleteFailed": "No se pudieron eliminar los certificados",
+    "providerStaging": "Pruebas",
+    "providerCustom": "Personalizado",
+    "providerExpiredLE": "LE Expirado",
+    "providerExpiringLE": "LE Por expirar"
   },
   "auth": {
     "login": "Iniciar Sesión",
@@ -240,6 +265,7 @@
       "disabledDescription": "Sistema de Prevención de Intrusiones impulsado por inteligencia de amenazas comunitaria",
       "processRunning": "Ejecutando (PID {{pid}})",
       "processStopped": "Proceso detenido",
+      "starting": "Iniciando...",
       "toggleTooltip": "Alternar protección CrowdSec",
       "copyFailed": "Error al copiar la clave API",
       "keyWarning": {
@@ -406,7 +432,13 @@
     "monitorDeleted": "Monitor eliminado",
     "deleteConfirm": "¿Eliminar este monitor? Esto no se puede deshacer.",
     "pending": "VERIFICANDO...",
-    "pendingFirstCheck": "Esperando primera verificación..."
+    "pendingFirstCheck": "Esperando primera verificación...",
+    "urlPlaceholder": "https://example.com",
+    "urlPlaceholderHttp": "https://example.com",
+    "urlPlaceholderTcp": "192.168.1.1:8080",
+    "urlHelperHttp": "Ingresa la URL completa incluyendo el esquema (ej. https://example.com)",
+    "urlHelperTcp": "Ingresa como host:puerto sin prefijo de esquema (ej. 192.168.1.1:8080 o nombre-de-host:22)",
+    "invalidTcpFormat": "Los monitores TCP requieren el formato host:puerto. Elimina el prefijo de esquema (ej. usa 192.168.1.1:8080, no tcp://192.168.1.1:8080)."
   },
   "domains": {
     "title": "Dominios",
@@ -499,7 +531,12 @@
     "webhookUrl": "Webhook URL (Optional)",
     "webhookUrlHelp": "POST requests will be sent to this URL when security events occur.",
     "emailRecipients": "Email Recipients (Optional)",
-    "emailRecipientsHelp": "Comma-separated email addresses."
+    "emailRecipientsHelp": "Comma-separated email addresses.",
+    "ntfy": "Ntfy",
+    "ntfyTopicUrl": "Topic URL",
+    "ntfyAccessToken": "Access Token (optional)",
+    "ntfyAccessTokenPlaceholder": "Enter your Ntfy access token",
+    "ntfyAccessTokenHelp": "Your Ntfy access token for authenticated topics. Required for password-protected topics on self-hosted instances. The token is stored securely and separately."
   },
   "users": {
     "title": "Gestión de Usuarios",

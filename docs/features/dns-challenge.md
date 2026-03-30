@@ -447,6 +447,7 @@ Charon displays instructions to remove the TXT record after certificate issuance
 **Symptom**: Certificate request stuck at "Waiting for Propagation" or validation fails.
 
 **Causes**:
+
 - DNS TTL is high (cached old records)
 - DNS provider has slow propagation
 - Regional DNS inconsistency
@@ -497,6 +498,7 @@ Charon displays instructions to remove the TXT record after certificate issuance
 **Symptom**: Connection test passes, but record creation fails.
 
 **Causes**:
+
 - API token has read-only permissions
 - Zone/domain not accessible with current credentials
 - Rate limiting or account restrictions
@@ -513,6 +515,7 @@ Charon displays instructions to remove the TXT record after certificate issuance
 **Symptom**: "Record already exists" error during certificate request.
 
 **Causes**:
+
 - Previous challenge attempt left orphaned record
 - Manual DNS record with same name exists
 - Another ACME client managing the same domain
@@ -551,6 +554,7 @@ Charon displays instructions to remove the TXT record after certificate issuance
 **Symptom**: "Too many requests" or "Rate limit exceeded" errors.
 
 **Causes**:
+
 - Too many certificate requests in short period
 - DNS provider API rate limits
 - Let's Encrypt rate limits

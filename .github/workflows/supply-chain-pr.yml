@@ -266,7 +266,7 @@ jobs:
       # Generate SBOM using official Anchore action (auto-updated by Renovate)
       - name: Generate SBOM
         if: steps.set-target.outputs.image_name != ''
-        uses: anchore/sbom-action@57aae528053a48a3f6235f2d9461b05fbcb7366d # v0.23.1
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         id: sbom
         with:
           image: ${{ steps.set-target.outputs.image_name }}
@@ -285,7 +285,7 @@ jobs:
       - name: Install Grype
         if: steps.set-target.outputs.image_name != ''
         run: |
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.109.1
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.110.0
 
       - name: Scan for vulnerabilities
         if: steps.set-target.outputs.image_name != ''
@@ -362,7 +362,7 @@ jobs:
 
       - name: Upload SARIF to GitHub Security
         if: steps.check-artifact.outputs.artifact_found == 'true'
-        uses: github/codeql-action/upload-sarif@0d579ffd059c29b07949a3cce3983f0780820c98 # v4
+        uses: github/codeql-action/upload-sarif@38697555549f1db7851b81482ff19f1fa5c4fedc # v4
         continue-on-error: true
         with:
           sarif_file: grype-results.sarif
@@ -381,9 +381,12 @@ jobs:
 
       - name: Comment on PR
         if: steps.set-target.outputs.image_name != '' && steps.pr-number.outputs.is_push != 'true' && steps.pr-number.outputs.pr_number != ''
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
+
           PR_NUMBER="${{ steps.pr-number.outputs.pr_number }}"
           COMPONENT_COUNT="${{ steps.sbom-count.outputs.component_count }}"
           CRITICAL_COUNT="${{ steps.vuln-summary.outputs.critical_count }}"
@@ -429,29 +432,38 @@ jobs:
           EOF
           )
 
-          # Find and update existing comment or create new one
-          COMMENT_ID=$(gh api \
+          # Fetch existing comments — skip gracefully on 403 / permission errors
+          COMMENTS_JSON=""
+          if ! COMMENTS_JSON=$(gh api \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            "/repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
-            --jq '.[] | select(.body | contains("Supply Chain Verification Results")) | .id' | head -1)
+            "/repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" 2>/dev/null); then
+            echo "⚠️ Cannot access PR comments (likely token permissions / fork / event context). Skipping PR comment."
+            exit 0
+          fi
 
-          if [[ -n "${COMMENT_ID}" ]]; then
+          COMMENT_ID=$(echo "${COMMENTS_JSON}" | jq -r '.[] | select(.body | contains("Supply Chain Verification Results")) | .id' | head -1)
+
+          if [[ -n "${COMMENT_ID:-}" && "${COMMENT_ID}" != "null" ]]; then
             echo "📝 Updating existing comment..."
-            gh api \
-              --method PATCH \
+            if ! gh api --method PATCH \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
               "/repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
-              -f body="${COMMENT_BODY}"
+              -f body="${COMMENT_BODY}"; then
+              echo "⚠️ Failed to update comment (permissions?). Skipping."
+              exit 0
+            fi
           else
             echo "📝 Creating new comment..."
-            gh api \
-              --method POST \
+            if ! gh api --method POST \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
               "/repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
-              -f body="${COMMENT_BODY}"
+              -f body="${COMMENT_BODY}"; then
+              echo "⚠️ Failed to create comment (permissions?). Skipping."
+              exit 0
+            fi
           fi
 
           echo "✅ PR comment posted"

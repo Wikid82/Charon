@@ -173,7 +173,32 @@
     "uploadSuccess": "Zertifikat erfolgreich hochgeladen",
     "uploadFailed": "Fehler beim Hochladen des Zertifikats",
     "note": "Hinweis",
-    "noteText": "Sie können benutzerdefinierte Zertifikate und Staging-Zertifikate löschen. Produktions-Let's-Encrypt-Zertifikate werden automatisch erneuert und sollten nur beim Umgebungswechsel gelöscht werden."
+    "noteText": "Sie können benutzerdefinierte Zertifikate, Staging-Zertifikate sowie abgelaufene oder ablaufende Produktionszertifikate löschen, die keinem Proxy-Host zugeordnet sind. Aktive Produktionszertifikate werden von Caddy automatisch erneuert.",
+    "provider": "Provider",
+    "deleteTitle": "Delete Certificate",
+    "deleteConfirmCustom": "This will permanently delete this certificate. A backup will be created first.",
+    "deleteConfirmStaging": "This staging certificate will be removed. It will be regenerated on next request.",
+    "deleteConfirmExpired": "This expired certificate is no longer active and will be permanently removed.",
+    "deleteConfirmExpiring": "This certificate is expiring soon. It will be permanently removed and will not be auto-renewed.",
+    "deleteSuccess": "Certificate deleted",
+    "deleteFailed": "Failed to delete certificate",
+    "deleteInUse": "Cannot delete — certificate is attached to a proxy host",
+    "deleteButton": "Delete",
+    "bulkSelectAll": "Alle löschbaren Zertifikate auswählen",
+    "selectCert": "Zertifikat {{name}} auswählen",
+    "bulkSelectedCount": "{{count}} Zertifikat(e) ausgewählt",
+    "bulkDeleteTitle": "{{count}} Zertifikat(e) löschen",
+    "bulkDeleteDescription": "{{count}} Zertifikat(e) löschen",
+    "bulkDeleteConfirm": "Die folgenden Zertifikate werden dauerhaft gelöscht. Der Server erstellt vor jeder Löschung eine Sicherung.",
+    "bulkDeleteListAriaLabel": "Zu löschende Zertifikate",
+    "bulkDeleteButton": "{{count}} Zertifikat(e) löschen",
+    "bulkDeleteSuccess": "{{count}} Zertifikat(e) gelöscht",
+    "bulkDeletePartial": "{{deleted}} gelöscht, {{failed}} fehlgeschlagen",
+    "bulkDeleteFailed": "Zertifikate konnten nicht gelöscht werden",
+    "providerStaging": "Staging",
+    "providerCustom": "Benutzerdefiniert",
+    "providerExpiredLE": "Abgelaufen LE",
+    "providerExpiringLE": "Ablaufend LE"
   },
   "auth": {
     "login": "Anmelden",
@@ -240,6 +265,7 @@
       "disabledDescription": "Intrusion Prevention System mit Community-Bedrohungsintelligenz",
       "processRunning": "Läuft (PID {{pid}})",
       "processStopped": "Prozess gestoppt",
+      "starting": "Startet...",
       "toggleTooltip": "CrowdSec-Schutz umschalten",
       "copyFailed": "Kopieren des API-Schlüssels fehlgeschlagen",
       "keyWarning": {
@@ -406,7 +432,13 @@
     "monitorDeleted": "Monitor gelöscht",
     "deleteConfirm": "Diesen Monitor löschen? Dies kann nicht rückgängig gemacht werden.",
     "pending": "PRÜFUNG...",
-    "pendingFirstCheck": "Warten auf erste Prüfung..."
+    "pendingFirstCheck": "Warten auf erste Prüfung...",
+    "urlPlaceholder": "https://example.com",
+    "urlPlaceholderHttp": "https://example.com",
+    "urlPlaceholderTcp": "192.168.1.1:8080",
+    "urlHelperHttp": "Vollständige URL einschließlich Schema eingeben (z.B. https://example.com)",
+    "urlHelperTcp": "Als Host:Port ohne Schema-Präfix eingeben (z.B. 192.168.1.1:8080 oder hostname:22)",
+    "invalidTcpFormat": "TCP-Monitore erfordern das Format Host:Port. Entfernen Sie das Schema-Präfix (z.B. 192.168.1.1:8080 statt tcp://192.168.1.1:8080)."
   },
   "domains": {
     "title": "Domänen",
@@ -499,7 +531,12 @@
     "webhookUrl": "Webhook URL (Optional)",
     "webhookUrlHelp": "POST requests will be sent to this URL when security events occur.",
     "emailRecipients": "Email Recipients (Optional)",
-    "emailRecipientsHelp": "Comma-separated email addresses."
+    "emailRecipientsHelp": "Comma-separated email addresses.",
+    "ntfy": "Ntfy",
+    "ntfyTopicUrl": "Topic URL",
+    "ntfyAccessToken": "Access Token (optional)",
+    "ntfyAccessTokenPlaceholder": "Enter your Ntfy access token",
+    "ntfyAccessTokenHelp": "Your Ntfy access token for authenticated topics. Required for password-protected topics on self-hosted instances. The token is stored securely and separately."
   },
   "users": {
     "title": "Benutzerverwaltung",

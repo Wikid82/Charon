@@ -30,15 +30,34 @@ type NotificationService struct {
 	httpWrapper        *notifications.HTTPWrapper
 	mailService        MailServiceInterface
 	telegramAPIBaseURL string
+	pushoverAPIBaseURL string
+	validateSlackURL   func(string) error
 }
 
-func NewNotificationService(db *gorm.DB, mailService MailServiceInterface) *NotificationService {
-	return &NotificationService{
+// NotificationServiceOption configures a NotificationService at construction time.
+type NotificationServiceOption func(*NotificationService)
+
+// WithSlackURLValidator overrides the Slack webhook URL validator. Intended for use
+// in tests that need to bypass real URL validation without mutating shared state.
+func WithSlackURLValidator(fn func(string) error) NotificationServiceOption {
+	return func(s *NotificationService) {
+		s.validateSlackURL = fn
+	}
+}
+
+func NewNotificationService(db *gorm.DB, mailService MailServiceInterface, opts ...NotificationServiceOption) *NotificationService {
+	s := &NotificationService{
 		DB:                 db,
 		httpWrapper:        notifications.NewNotifyHTTPWrapper(),
 		mailService:        mailService,
 		telegramAPIBaseURL: "https://api.telegram.org",
+		pushoverAPIBaseURL: "https://api.pushover.net",
+		validateSlackURL:   validateSlackWebhookURL,
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 var discordWebhookRegex = regexp.MustCompile(`^https://discord(?:app)?\.com/api/webhooks/(\d+)/([a-zA-Z0-9_-]+)`)
@@ -46,6 +65,15 @@ var discordWebhookRegex = regexp.MustCompile(`^https://discord(?:app)?\.com/api/
 var allowedDiscordWebhookHosts = map[string]struct{}{
 	"discord.com":        {},
 	"canary.discord.com": {},
+}
+
+var slackWebhookRegex = regexp.MustCompile(`^https://hooks\.slack\.com/services/T[A-Za-z0-9_-]+/B[A-Za-z0-9_-]+/[A-Za-z0-9_-]+$`)
+
+func validateSlackWebhookURL(rawURL string) error {
+	if !slackWebhookRegex.MatchString(rawURL) {
+		return fmt.Errorf("invalid Slack webhook URL: must match https://hooks.slack.com/services/T.../B.../xxx")
+	}
+	return nil
 }
 
 func normalizeURL(serviceType, rawURL string) string {
@@ -101,7 +129,7 @@ func validateDiscordProviderURL(providerType, rawURL string) error {
 // supportsJSONTemplates returns true if the provider type can use JSON templates
 func supportsJSONTemplates(providerType string) bool {
 	switch strings.ToLower(providerType) {
-	case "webhook", "discord", "gotify", "slack", "generic", "telegram":
+	case "webhook", "discord", "gotify", "slack", "generic", "telegram", "pushover", "ntfy":
 		return true
 	default:
 		return false
@@ -110,7 +138,7 @@ func supportsJSONTemplates(providerType string) bool {
 
 func isSupportedNotificationProviderType(providerType string) bool {
 	switch strings.ToLower(strings.TrimSpace(providerType)) {
-	case "discord", "email", "gotify", "webhook", "telegram":
+	case "discord", "email", "gotify", "webhook", "telegram", "slack", "pushover", "ntfy":
 		return true
 	default:
 		return false
@@ -129,6 +157,12 @@ func (s *NotificationService) isDispatchEnabled(providerType string) bool {
 		return s.getFeatureFlagValue(notifications.FlagWebhookServiceEnabled, true)
 	case "telegram":
 		return s.getFeatureFlagValue(notifications.FlagTelegramServiceEnabled, true)
+	case "slack":
+		return s.getFeatureFlagValue(notifications.FlagSlackServiceEnabled, true)
+	case "pushover":
+		return s.getFeatureFlagValue(notifications.FlagPushoverServiceEnabled, true)
+	case "ntfy":
+		return s.getFeatureFlagValue(notifications.FlagNtfyServiceEnabled, true)
 	default:
 		return false
 	}
@@ -440,10 +474,21 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 			}
 		}
 	case "slack":
-		// Slack requires either 'text' or 'blocks'
 		if _, hasText := jsonPayload["text"]; !hasText {
 			if _, hasBlocks := jsonPayload["blocks"]; !hasBlocks {
-				return fmt.Errorf("slack payload requires 'text' or 'blocks' field")
+				if messageValue, hasMessage := jsonPayload["message"]; hasMessage {
+					jsonPayload["text"] = messageValue
+					normalizedBody, marshalErr := json.Marshal(jsonPayload)
+					if marshalErr != nil {
+						return fmt.Errorf("failed to normalize slack payload: %w", marshalErr)
+					}
+					body.Reset()
+					if _, writeErr := body.Write(normalizedBody); writeErr != nil {
+						return fmt.Errorf("failed to write normalized slack payload: %w", writeErr)
+					}
+				} else {
+					return fmt.Errorf("slack payload requires 'text' or 'blocks' field")
+				}
 			}
 		}
 	case "gotify":
@@ -468,9 +513,22 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 				return fmt.Errorf("telegram payload requires 'text' field")
 			}
 		}
+	case "pushover":
+		if _, hasMessage := jsonPayload["message"]; !hasMessage {
+			return fmt.Errorf("pushover payload requires 'message' field")
+		}
+		if priority, ok := jsonPayload["priority"]; ok {
+			if p, isFloat := priority.(float64); isFloat && p == 2 {
+				return fmt.Errorf("pushover emergency priority (2) requires retry and expire parameters; not yet supported")
+			}
+		}
+	case "ntfy":
+		if _, hasMessage := jsonPayload["message"]; !hasMessage {
+			return fmt.Errorf("ntfy payload must include a 'message' field")
+		}
 	}
 
-	if providerType == "gotify" || providerType == "webhook" || providerType == "telegram" {
+	if providerType == "gotify" || providerType == "webhook" || providerType == "telegram" || providerType == "slack" || providerType == "pushover" || providerType == "ntfy" {
 		headers := map[string]string{
 			"Content-Type": "application/json",
 			"User-Agent":   "Charon-Notify/1.0",
@@ -511,6 +569,58 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 			updatedBody, marshalErr := json.Marshal(jsonPayload)
 			if marshalErr != nil {
 				return fmt.Errorf("failed to marshal telegram payload with chat_id: %w", marshalErr)
+			}
+			body.Reset()
+			body.Write(updatedBody)
+		}
+
+		if providerType == "slack" {
+			decryptedWebhookURL := p.Token
+			if strings.TrimSpace(decryptedWebhookURL) == "" {
+				return fmt.Errorf("slack webhook URL is not configured")
+			}
+			if validateErr := s.validateSlackURL(decryptedWebhookURL); validateErr != nil {
+				return validateErr
+			}
+			dispatchURL = decryptedWebhookURL
+		}
+
+		if providerType == "ntfy" {
+			if strings.TrimSpace(p.Token) != "" {
+				headers["Authorization"] = "Bearer " + strings.TrimSpace(p.Token)
+			}
+		}
+
+		if providerType == "pushover" {
+			decryptedToken := p.Token
+			if strings.TrimSpace(decryptedToken) == "" {
+				return fmt.Errorf("pushover API token is not configured")
+			}
+			if strings.TrimSpace(p.URL) == "" {
+				return fmt.Errorf("pushover user key is not configured")
+			}
+
+			pushoverBase := s.pushoverAPIBaseURL
+			if pushoverBase == "" {
+				pushoverBase = "https://api.pushover.net"
+			}
+			dispatchURL = pushoverBase + "/1/messages.json"
+
+			parsedURL, parseErr := neturl.Parse(dispatchURL)
+			expectedHost := "api.pushover.net"
+			if parsedURL != nil && parsedURL.Hostname() != "" && pushoverBase != "https://api.pushover.net" {
+				expectedHost = parsedURL.Hostname()
+			}
+			if parseErr != nil || parsedURL.Hostname() != expectedHost {
+				return fmt.Errorf("pushover dispatch URL validation failed: invalid hostname")
+			}
+
+			jsonPayload["token"] = decryptedToken
+			jsonPayload["user"] = p.URL
+
+			updatedBody, marshalErr := json.Marshal(jsonPayload)
+			if marshalErr != nil {
+				return fmt.Errorf("failed to marshal pushover payload: %w", marshalErr)
 			}
 			body.Reset()
 			body.Write(updatedBody)
@@ -739,7 +849,17 @@ func (s *NotificationService) CreateProvider(provider *models.NotificationProvid
 		return err
 	}
 
-	if provider.Type != "gotify" && provider.Type != "telegram" {
+	if provider.Type == "slack" {
+		token := strings.TrimSpace(provider.Token)
+		if token == "" {
+			return fmt.Errorf("slack webhook URL is required")
+		}
+		if err := s.validateSlackURL(token); err != nil {
+			return err
+		}
+	}
+
+	if provider.Type != "gotify" && provider.Type != "telegram" && provider.Type != "slack" && provider.Type != "ntfy" && provider.Type != "pushover" {
 		provider.Token = ""
 	}
 
@@ -775,12 +895,18 @@ func (s *NotificationService) UpdateProvider(provider *models.NotificationProvid
 		return err
 	}
 
-	if provider.Type == "gotify" || provider.Type == "telegram" {
+	if provider.Type == "gotify" || provider.Type == "telegram" || provider.Type == "slack" || provider.Type == "ntfy" || provider.Type == "pushover" {
 		if strings.TrimSpace(provider.Token) == "" {
 			provider.Token = existing.Token
 		}
 	} else {
 		provider.Token = ""
+	}
+
+	if provider.Type == "slack" && provider.Token != existing.Token {
+		if err := s.validateSlackURL(strings.TrimSpace(provider.Token)); err != nil {
+			return err
+		}
 	}
 
 	// Validate custom template before saving

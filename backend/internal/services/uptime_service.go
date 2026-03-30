@@ -742,6 +742,10 @@ func (s *UptimeService) checkMonitor(monitor models.UptimeMonitor) {
 			security.WithAllowLocalhost(),
 			security.WithAllowHTTP(),
 			security.WithTimeout(3*time.Second),
+			// Admin-configured uptime monitors may target RFC 1918 private hosts.
+			// Link-local (169.254.x.x), cloud metadata, and all other restricted
+			// ranges remain blocked at both validation layers.
+			security.WithAllowRFC1918(),
 		)
 		if err != nil {
 			msg = fmt.Sprintf("security validation failed: %s", err.Error())
@@ -756,6 +760,11 @@ func (s *UptimeService) checkMonitor(monitor models.UptimeMonitor) {
 			// Uptime monitors are an explicit admin-configured feature and commonly
 			// target loopback in local/dev setups (and in unit tests).
 			network.WithAllowLocalhost(),
+			// Mirror security.WithAllowRFC1918() above so the dial-time SSRF guard
+			// (Layer 2) permits the same RFC 1918 address space as URL validation
+			// (Layer 1). Without this, safeDialer would re-block private IPs that
+			// already passed URL validation, defeating the dual-layer bypass.
+			network.WithAllowRFC1918(),
 		)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -784,6 +793,10 @@ func (s *UptimeService) checkMonitor(monitor models.UptimeMonitor) {
 			msg = err.Error()
 		}
 	case "tcp":
+		// TCP monitors dial the configured host:port directly without URL validation.
+		// RFC 1918 addresses are intentionally permitted: TCP monitors are only created
+		// for RemoteServer entries, which are admin-configured and whose target is
+		// constructed internally from trusted fields (not raw user input).
 		conn, err := net.DialTimeout("tcp", monitor.URL, 10*time.Second)
 		if err == nil {
 			if closeErr := conn.Close(); closeErr != nil {

@@ -5,6 +5,7 @@ This document explains how the new comprehensive debugging infrastructure helps 
 ## What Changed: Before vs. After
 
 ### BEFORE: Generic Failure Output
+
 ```
   ✗ [chromium] › tests/settings/account-settings.spec.ts › should validate certificate email format
     Timeout 30s exceeded, waiting for expect(locator).toBeDisabled()
@@ -12,6 +13,7 @@ This document explains how the new comprehensive debugging infrastructure helps 
 ```
 
 **Problem**: No information about:
+
 - What page was displayed when it failed
 - What network requests were in flight
 - What the actual button state was
@@ -22,6 +24,7 @@ This document explains how the new comprehensive debugging infrastructure helps 
 ### AFTER: Rich Debug Logging Output
 
 #### 1. **Test Step Logging** (From enhanced global-setup.ts)
+
 ```
 ✅ Global setup complete
 
@@ -37,6 +40,7 @@ This document explains how the new comprehensive debugging infrastructure helps 
 ```
 
 #### 2. **Network Activity Logging** (From network.ts interceptor)
+
 ```
 📡 Network Log (automatic)
 ────────────────────────────────────────────────────────────
@@ -52,6 +56,7 @@ Timestamp    │ Method │ URL                         │ Status │ Duration
 **Key Insight**: The 422 error on email update shows the API is rejecting the input, which explains why the button didn't disable—the form never validated successfully.
 
 #### 3. **Locator Matching Logs** (From debug-logger.ts)
+
 ```
 🎯 Locator Actions:
 ────────────────────────────────────────────────────────────
@@ -71,6 +76,7 @@ Timestamp    │ Method │ URL                         │ Status │ Duration
 **Key Insight**: The form wasn't visible in the DOM when the test tried to click the button.
 
 #### 4. **Assertion Logging** (From debug-logger.ts)
+
 ```
 ✓ Assert: "button is enabled" PASS          [15ms]
   └─ Expected: enabled=true
@@ -89,6 +95,7 @@ Timestamp    │ Method │ URL                         │ Status │ Duration
 **Key Insight**: The validation error exists but is hidden, so the button remains enabled. The test expected it to disable.
 
 #### 5. **Timing Analysis** (From debug reporter)
+
 ```
 📊 Test Timeline:
 ────────────────────────────────────────────────────────────
@@ -108,14 +115,17 @@ Timestamp    │ Method │ URL                         │ Status │ Duration
 ## How to Read the Debug Output in Playwright Report
 
 ### Step 1: Open the Report
+
 ```bash
 npx playwright show-report
 ```
 
 ### Step 2: Click Failed Test
+
 The test details page shows:
 
 **Console Logs Section**:
+
 ```
 [debug] 03:48:12.456: Step "Navigate to account settings"
 [debug]   └─ URL transitioned from / to /account
@@ -141,14 +151,18 @@ The test details page shows:
 ```
 
 ### Step 3: Check the Trace
+
 Click "Trace" tab:
+
 - **Timeline**: See each action with exact timing
 - **Network**: View all HTTP requests and responses
 - **DOM Snapshots**: Inspect page state at each step
 - **Console**: See browser console messages
 
 ### Step 4: Watch the Video
+
 The video shows:
+
 - What the user would have seen
 - Where the UI hung or stalled
 - If spinners/loading states appeared
@@ -157,9 +171,11 @@ The video shows:
 ## Failure Category Examples
 
 ### Category 1: Timeout Failures
+
 **Indicator**: `Timeout 30s exceeded, waiting for...`
 
 **Debug Output**:
+
 ```
 ⏱️  Operation Timeline:
   [03:48:14.000] ← Start waiting for locator
@@ -173,6 +189,7 @@ The video shows:
 **Diagnosis**: The network was slow (2.4s for a 50KB response). Test didn't wait long enough.
 
 **Fix**:
+
 ```javascript
 await page.waitForLoadState('networkidle'); // Wait for network before assertion
 await expect(locator).toBeVisible({timeout: 10000}); // Increase timeout
@@ -181,9 +198,11 @@ await expect(locator).toBeVisible({timeout: 10000}); // Increase timeout
 ---
 
 ### Category 2: Assertion Failures
+
 **Indicator**: `expect(locator).toBeDisabled() failed`
 
 **Debug Output**:
+
 ```
 ✋ Assertion failed: toBeDisabled()
   Expected: disabled=true
@@ -213,6 +232,7 @@ await expect(locator).toBeVisible({timeout: 10000}); // Increase timeout
 **Diagnosis**: The component's disable logic isn't working correctly.
 
 **Fix**:
+
 ```jsx
 // In React component:
 const isFormValid = !hasValidationErrors;
@@ -227,9 +247,11 @@ const isFormValid = !hasValidationErrors;
 ---
 
 ### Category 3: Locator Failures
+
 **Indicator**: `getByRole('button', {name: /save/i}): multiple elements found`
 
 **Debug Output**:
+
 ```
 🚨 Strict Mode Violation: Multiple elements matched
   Selector: getByRole('button', {name: /save/i})
@@ -255,6 +277,7 @@ const isFormValid = !hasValidationErrors;
 **Diagnosis**: Locator is too broad and matches multiple elements.
 
 **Fix**:
+
 ```javascript
 // ✅ Good: Scoped to dialog
 await page.getByRole('dialog').getByRole('button', {name: /save certificate/i}).click();
@@ -269,9 +292,11 @@ await page.getByRole('button', {name: /save/i}).click();
 ---
 
 ### Category 4: Network/API Failures
+
 **Indicator**: `API returned 422` or `POST /api/endpoint failed with 500`
 
 **Debug Output**:
+
 ```
 ❌ Network Error
   Request: POST /api/account/email
@@ -307,6 +332,7 @@ await page.getByRole('button', {name: /save/i}).click();
 **Diagnosis**: The API is working correctly, but the frontend error handling isn't working.
 
 **Fix**:
+
 ```javascript
 // In frontend error handler:
 try {
@@ -326,6 +352,7 @@ try {
 ## Real-World Example: The Certificate Email Test
 
 **Test Code** (simplified):
+
 ```javascript
 test('should validate certificate email format', async ({page}) => {
   await page.goto('/account');
@@ -344,6 +371,7 @@ test('should validate certificate email format', async ({page}) => {
 ```
 
 **Debug Output Sequence**:
+
 ```
 1️⃣  Navigate to /account
     ✅ Page loaded [1234ms]
@@ -399,6 +427,7 @@ test('should validate certificate email format', async ({page}) => {
 ```
 
 **How to Fix**:
+
 1. Check the `Account.tsx` form submission error handler
 2. Ensure API errors update form state: `setFormErrors(response.errors)`
 3. Ensure button disable logic: `disabled={Object.keys(formErrors).length > 0}`
@@ -433,6 +462,7 @@ other        │ ██░░░░░░░░░░░░░░░░░░ 2/
 ```
 
 **What this tells you**:
+
 - **36% Timeout**: Network is slow or test expectations unrealistic
 - **27% Assertion**: Component behavior wrong (disable logic, form state, etc.)
 - **18% Locator**: Selector strategy needs improvement

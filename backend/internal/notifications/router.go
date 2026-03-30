@@ -25,6 +25,12 @@ func (r *Router) ShouldUseNotify(providerType string, flags map[string]bool) boo
 		return flags[FlagWebhookServiceEnabled]
 	case "telegram":
 		return flags[FlagTelegramServiceEnabled]
+	case "slack":
+		return flags[FlagSlackServiceEnabled]
+	case "pushover":
+		return flags[FlagPushoverServiceEnabled]
+	case "ntfy":
+		return flags[FlagNtfyServiceEnabled]
 	default:
 		return false
 	}

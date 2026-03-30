@@ -120,6 +120,14 @@ type ValidationConfig struct {
 	MaxRedirects    int
 	Timeout         time.Duration
 	BlockPrivateIPs bool
+
+	// AllowRFC1918 permits addresses in the RFC 1918 private ranges
+	// (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16).
+	//
+	// SECURITY NOTE: Must only be set for admin-configured features such as uptime
+	// monitors. Link-local (169.254.x.x), loopback, cloud metadata, and all other
+	// restricted ranges remain blocked regardless of this flag.
+	AllowRFC1918 bool
 }
 
 // ValidationOption allows customizing validation behavior.
@@ -143,6 +151,15 @@ func WithTimeout(timeout time.Duration) ValidationOption {
 // WithMaxRedirects sets the maximum number of redirects to follow (default: 0).
 func WithMaxRedirects(maxRedirects int) ValidationOption {
 	return func(c *ValidationConfig) { c.MaxRedirects = maxRedirects }
+}
+
+// WithAllowRFC1918 permits addresses in the RFC 1918 private ranges
+// (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16).
+//
+// Use only for admin-configured features (e.g., uptime monitors targeting internal hosts).
+// All other SSRF protections remain active.
+func WithAllowRFC1918() ValidationOption {
+	return func(c *ValidationConfig) { c.AllowRFC1918 = true }
 }
 
 // ValidateExternalURL validates a URL for external HTTP requests with comprehensive SSRF protection.
@@ -272,9 +289,26 @@ func ValidateExternalURL(rawURL string, options ...ValidationOption) (string, er
 			if ip.To4() != nil && ip.To16() != nil && isIPv4MappedIPv6(ip) {
 				// Extract the IPv4 address from the mapped format
 				ipv4 := ip.To4()
-				if network.IsPrivateIP(ipv4) {
-					return "", fmt.Errorf("connection to private ip addresses is blocked for security (detected IPv4-mapped IPv6: %s)", ip.String())
+				// Allow RFC 1918 IPv4-mapped IPv6 only when the caller has explicitly opted in.
+				if config.AllowRFC1918 && network.IsRFC1918(ipv4) {
+					continue
 				}
+				if network.IsPrivateIP(ipv4) {
+					// Cloud metadata endpoint must produce the specific error even
+					// when the address arrives as an IPv4-mapped IPv6 value.
+					if ipv4.String() == "169.254.169.254" {
+						return "", fmt.Errorf("access to cloud metadata endpoints is blocked for security (detected: %s)", sanitizeIPForError(ipv4.String()))
+					}
+					return "", fmt.Errorf("connection to private ip addresses is blocked for security (detected: %s)", sanitizeIPForError(ipv4.String()))
+				}
+			}
+
+			// Allow RFC 1918 addresses only when the caller has explicitly opted in
+			// (e.g., admin-configured uptime monitors targeting internal hosts).
+			// Link-local (169.254.x.x), loopback, cloud metadata, and all other
+			// restricted ranges remain blocked regardless of this flag.
+			if config.AllowRFC1918 && network.IsRFC1918(ip) {
+				continue
 			}
 
 			// Check if IP is in private/reserved ranges using centralized network.IsPrivateIP

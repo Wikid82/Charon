@@ -409,6 +409,11 @@ test.describe('Telegram Notification Provider', () => {
     test('GET response should NOT expose bot token', async ({ page }) => {
       let apiResponseBody: Array<Record<string, unknown>> | null = null;
 
+      let resolveRouteBody: (data: Array<Record<string, unknown>>) => void;
+      const routeBodyPromise = new Promise<Array<Record<string, unknown>>>((resolve) => {
+        resolveRouteBody = resolve;
+      });
+
       await test.step('Mock provider list with has_token flag', async () => {
         await page.route('**/api/v1/notifications/providers', async (route, request) => {
           if (request.method() === 'GET') {
@@ -430,6 +435,7 @@ test.describe('Telegram Notification Provider', () => {
               contentType: 'application/json',
               body: JSON.stringify(body),
             });
+            resolveRouteBody!(body);
           } else {
             await route.continue();
           }
@@ -437,21 +443,16 @@ test.describe('Telegram Notification Provider', () => {
       });
 
       await test.step('Navigate to trigger GET', async () => {
-        // Register the response listener BEFORE reload to eliminate the race
-        // condition where Firefox processes the network response before the
-        // route callback assignment becomes visible to the test assertion.
-        // waitForLoadingComplete alone is insufficient because the spinner can
-        // disappear before the providers API response has been intercepted.
-        const responsePromise = page.waitForResponse(
-          (resp) =>
-            resp.url().includes('/api/v1/notifications/providers') &&
-            resp.request().method() === 'GET' &&
-            resp.status() === 200,
-          { timeout: 15000 }
-        );
         await page.reload();
-        const response = await responsePromise;
-        apiResponseBody = (await response.json()) as Array<Record<string, unknown>>;
+        apiResponseBody = await Promise.race([
+          routeBodyPromise,
+          new Promise<Array<Record<string, unknown>>>((_resolve, reject) =>
+            setTimeout(
+              () => reject(new Error('Timed out waiting for GET /api/v1/notifications/providers')),
+              15000
+            )
+          ),
+        ]);
         await waitForLoadingComplete(page);
       });
 

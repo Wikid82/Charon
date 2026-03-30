@@ -53,6 +53,7 @@ This document provides step-by-step procedures for manually verifying the Bug #1
    ```
 
    **Expected Output**:
+
    ```
    time="..." level=warning msg="Environment variable CHARON_SECURITY_CROWDSEC_API_KEY is set but invalid. Either remove it from docker-compose.yml or update it to match the auto-generated key. A new valid key will be generated and saved." masked_key=fake...345
    ```
@@ -82,11 +83,13 @@ This document provides step-by-step procedures for manually verifying the Bug #1
    ```
 
    **Expected Output**:
+
    ```
    time="..." level=info msg="CrowdSec bouncer authentication successful" masked_key="abcd...wxyz" source=file
    ```
 
 **Success Criteria**:
+
 - ✅ Warning logged about invalid env var
 - ✅ New key auto-generated and saved to `/app/data/crowdsec/bouncer_key`
 - ✅ Bouncer authenticates successfully with new key
@@ -119,6 +122,7 @@ This document provides step-by-step procedures for manually verifying the Bug #1
    ```
 
    **Expected Output**:
+
    ```
    time="..." level=info msg="LAPI not ready, retrying with backoff" attempt=1 error="connection refused" next_attempt_ms=500
    time="..." level=info msg="LAPI not ready, retrying with backoff" attempt=2 error="connection refused" next_attempt_ms=750
@@ -128,6 +132,7 @@ This document provides step-by-step procedures for manually verifying the Bug #1
 4. **Wait for LAPI to Start** (up to 30 seconds)
 
    Look for success message:
+
    ```
    time="..." level=info msg="CrowdSec bouncer authentication successful" masked_key="abcd...wxyz" source=file
    ```
@@ -142,6 +147,7 @@ This document provides step-by-step procedures for manually verifying the Bug #1
    **Expected**: HTTP 200 OK
 
 **Success Criteria**:
+
 - ✅ Logs show retry attempts with exponential backoff (500ms → 750ms → 1125ms → ...)
 - ✅ Connection succeeds after LAPI starts (within 30s max)
 - ✅ No immediate failure on first connection refused error
@@ -157,6 +163,7 @@ This document provides step-by-step procedures for manually verifying the Bug #1
 1. **Reproduce Pre-Fix Behavior** (for comparison - requires reverting to old code)
 
    With old code, setting invalid env var would cause:
+
    ```
    time="..." level=error msg="LAPI authentication failed" error="access forbidden (403)" key="[REDACTED]"
    ```
@@ -164,12 +171,14 @@ This document provides step-by-step procedures for manually verifying the Bug #1
 2. **Apply Fix and Repeat Scenario 1**
 
    With new code, same invalid env var should produce:
+
    ```
    time="..." level=warning msg="Environment variable CHARON_SECURITY_CROWDSEC_API_KEY is set but invalid..."
    time="..." level=info msg="CrowdSec bouncer authentication successful" masked_key="abcd...wxyz" source=file
    ```
 
 **Success Criteria**:
+
 - ✅ No "access forbidden" errors after auto-recovery
 - ✅ Bouncer connects successfully with auto-generated key
 
@@ -190,6 +199,7 @@ docker restart charon
 ```
 
 **Expected Log**:
+
 ```
 time="..." level=info msg="CrowdSec bouncer authentication successful" masked_key="vali...test" source=environment_variable
 ```
@@ -203,6 +213,7 @@ docker restart charon
 ```
 
 **Expected Log**:
+
 ```
 time="..." level=info msg="CrowdSec bouncer authentication successful" masked_key="abcd...wxyz" source=file
 ```
@@ -216,12 +227,14 @@ docker restart charon
 ```
 
 **Expected Log**:
+
 ```
 time="..." level=info msg="Registering new CrowdSec bouncer: caddy-bouncer"
 time="..." level=info msg="CrowdSec bouncer registration successful" masked_key="new-...123" source=auto_generated
 ```
 
 **Success Criteria**:
+
 - ✅ Logs clearly show `source=environment_variable`, `source=file`, or `source=auto_generated`
 - ✅ User can determine which key is active without reading code
 
@@ -240,6 +253,7 @@ time="..." level=info msg="CrowdSec bouncer registration successful" masked_key=
 **Cause**: CrowdSec process failed to start or crashed
 
 **Debug Steps**:
+
 1. Check LAPI process: `docker exec charon ps aux | grep crowdsec`
 2. Check LAPI logs: `docker exec charon cat /var/log/crowdsec/crowdsec.log`
 3. Verify config: `docker exec charon cat /etc/crowdsec/config.yaml`
@@ -249,6 +263,7 @@ time="..." level=info msg="CrowdSec bouncer registration successful" masked_key=
 **Cause**: Key not properly registered with LAPI
 
 **Resolution**:
+
 ```bash
 # List registered bouncers
 docker exec charon cscli bouncers list

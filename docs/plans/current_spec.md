@@ -1,372 +1,592 @@
-# Issue #825: User Cannot Login After Fresh Install
-
-**Date:** 2026-03-14
-**Status:** Root Cause Identified — Code Bug + Frontend Fragility
-**Issue:** Login API returns 200 but GET `/api/v1/auth/me` immediately returns 401
-**Previous Plan:** Archived as `docs/plans/telegram_remediation_spec.md`
-
----
+# Ntfy Notification Provider — Implementation Specification
 
 ## 1. Introduction
 
-A user reports that after a fresh install with remapped ports (`82:80`, `445:443`, `8080:8080`), accessing Charon via a separate external Caddy reverse proxy, the login succeeds (200) but the session validation (`/auth/me`) immediately fails (401).
+### Overview
+
+Add **Ntfy** (<https://ntfy.sh>) as a notification provider in Charon, following
+the same wrapper pattern used by Gotify, Telegram, Slack, and Pushover. Ntfy is
+an HTTP-based pub/sub notification service that supports self-hosted and
+cloud-hosted instances. Users publish messages by POSTing JSON to a topic URL,
+optionally with an auth token.
 
 ### Objectives
 
-1. Identify the root cause of the login→401 failure chain
-2. Determine whether this is a code bug or a user configuration issue
-3. Propose a targeted fix with minimal blast radius
+1. Users can create/edit/delete an Ntfy notification provider via the Management UI.
+2. Ntfy dispatches support all three template modes (minimal, detailed, custom).
+3. Ntfy respects the global notification engine kill-switch and its own per-provider feature flag.
+4. Security: auth tokens are stored securely (never exposed in API responses or logs).
+5. Full E2E and unit test coverage matching the existing provider test suite.
 
 ---
 
 ## 2. Research Findings
 
-### 2.1 Auth Login Flow
+### Existing Architecture
 
-**File:** `backend/internal/api/handlers/auth_handler.go` (lines 172-189)
+Charon's notification engine does **not** use a Go interface pattern. Instead, it
+routes on string type values (`"discord"`, `"gotify"`, `"webhook"`, etc.) across
+~15 switch/case + hardcoded lists in both backend and frontend.
 
-The `Login` handler:
-1. Validates email/password via `authService.Login()`
-2. Generates a JWT token (HS256, 24h expiry, includes `user_id`, `role`, `session_version`)
-3. Sets an `auth_token` HttpOnly cookie via `setSecureCookie()`
-4. Returns the token in the JSON response body: `{"token": "<jwt>"}`
+**Key code paths per provider type:**
 
-The frontend (`frontend/src/pages/Login.tsx`, lines 43-46):
-1. POSTs to `/auth/login` via the axios client (which has `withCredentials: true`)
-2. Extracts the token from the response body
-3. Calls `login(token)` on the AuthContext
+| Layer | Location | Mechanism |
+|-------|----------|-----------|
+| Model | `backend/internal/models/notification_provider.go` | Generic — no per-type changes needed |
+| Service — type allowlist | `notification_service.go:139` `isSupportedNotificationProviderType()` | `switch` on type string |
+| Service — flag routing | `notification_service.go:148` `isDispatchEnabled()` | `switch` → feature flag lookup |
+| Service — dispatch | `notification_service.go:381` `sendJSONPayload()` | Type-specific validation + URL / header construction |
+| Feature flags | `notifications/feature_flags.go` | Const strings for settings DB keys |
+| Router | `notifications/router.go:10` `ShouldUseNotify()` | `switch` on type → flag map lookup |
+| Handler — create validation | `notification_provider_handler.go:185` | Hardcoded `!=` chain |
+| Handler — update validation | `notification_provider_handler.go:245` | Hardcoded `!=` chain |
+| Handler — URL validation | `notification_provider_handler.go:372` | Slack special-case (optional URL) |
+| Frontend — type array | `api/notifications.ts:3` | `SUPPORTED_NOTIFICATION_PROVIDER_TYPES` const |
+| Frontend — sanitize | `api/notifications.ts` `sanitizeProviderForWriteAction()` | Token mapping per type |
+| Frontend — form | `pages/Notifications.tsx` | `<option>`, URL label, token field, placeholder, `supportsJSONTemplates()`, `normalizeProviderPayloadForSubmit()`, `useEffect` token cleanup |
+| Frontend — unit test mock | `pages/__tests__/Notifications.test.tsx` | Mock of `SUPPORTED_NOTIFICATION_PROVIDER_TYPES` |
+| i18n | `locales/{en,de,fr,zh,es}/translation.json` | `notificationProviders.*` keys |
 
-### 2.2 Frontend AuthContext Login Flow
+### Ntfy HTTP API Reference
 
-**File:** `frontend/src/context/AuthContext.tsx` (lines 84-110)
+Ntfy accepts a JSON POST to a topic URL:
 
-The `login()` function:
-1. Stores the token in `localStorage` as `charon_auth_token`
-2. Sets the `Authorization` header on the **axios** client via `setAuthToken(token)`
-3. Calls `fetchSessionUser()` to validate the session
+```
+POST https://ntfy.sh/my-topic
+Authorization: Bearer tk_abc123   # optional
+Content-Type: application/json
 
-**Critical finding — `fetchSessionUser()` uses raw `fetch`, NOT the axios client:**
+{
+  "topic": "my-topic",       // optional if encoded in URL
+  "message": "Hello!",       // required
+  "title": "Alert Title",    // optional
+  "priority": 3,             // optional (1-5, default 3)
+  "tags": ["warning"]        // optional
+}
+```
+
+This maps directly to the Gotify dispatch pattern: POST JSON to `p.URL` with an
+optional `Authorization: Bearer <token>` header.
+
+---
+
+## 3. Technical Specifications
+
+### 3.1 Provider Interface / Contract (Type Registration)
+
+Ntfy uses type string `"ntfy"`. Every switch/case and hardcoded type list must
+include this value. The following table is the exhaustive changeset:
+
+| # | File | Function / Location | Change |
+|---|------|---------------------|--------|
+| 1 | `backend/internal/services/notification_service.go` | `isSupportedNotificationProviderType()` ~L139 | Add `case "ntfy": return true` |
+| 2 | `backend/internal/services/notification_service.go` | `isDispatchEnabled()` ~L148 | Add `case "ntfy":` with `FlagNtfyServiceEnabled`, default `true` |
+| 3 | `backend/internal/services/notification_service.go` | `sendJSONPayload()` — validation block ~L460 | Add ntfy JSON validation: require `"message"` field |
+| 4 | `backend/internal/services/notification_service.go` | `sendJSONPayload()` — dispatch routing ~L530 | Add ntfy dispatch block (URL from `p.URL`, optional Bearer auth from `p.Token`) |
+| 5 | `backend/internal/services/notification_service.go` | `supportsJSONTemplates()` ~L131 | Add `case "ntfy": return true` — gates `SendExternal()` JSON dispatch path |
+| 6 | `backend/internal/services/notification_service.go` | `sendJSONPayload()` — outer gating condition ~L525 | Add `\|\| providerType == "ntfy"` to the if-chain that enters the dispatch block |
+| 7 | `backend/internal/services/notification_service.go` | `CreateProvider()` — token-clearing condition ~L851 | Add `&& provider.Type != "ntfy"` (and `&& provider.Type != "pushover"` — existing bug fix) to prevent token being silently cleared on creation |
+| 8 | `backend/internal/services/notification_service.go` | `UpdateProvider()` — token preservation ~L886 | Add `\|\| provider.Type == "ntfy"` (and `\|\| provider.Type == "pushover"` — existing bug fix) to preserve token on update when not re-entered |
+| 9 | `backend/internal/notifications/feature_flags.go` | Constants | Add `FlagNtfyServiceEnabled = "feature.notifications.service.ntfy.enabled"` |
+| 10 | `backend/internal/notifications/router.go` | `ShouldUseNotify()` | Add `case "ntfy": return flags[FlagNtfyServiceEnabled]` |
+| 11 | `backend/internal/api/handlers/notification_provider_handler.go` | `Create()` ~L185 | Add `&& providerType != "ntfy"` to validation chain |
+| 12 | `backend/internal/api/handlers/notification_provider_handler.go` | `Update()` ~L245 | Add `&& providerType != "ntfy"` to validation chain |
+| 13 | `backend/internal/api/handlers/notification_provider_handler.go` | `Update()` — token preservation ~L250 | Add `\|\| providerType == "ntfy"` to the condition that preserves existing token when update payload omits it |
+| 14 | `frontend/src/api/notifications.ts` | `SUPPORTED_NOTIFICATION_PROVIDER_TYPES` | Add `'ntfy'` to array |
+| 15 | `frontend/src/api/notifications.ts` | `sanitizeProviderForWriteAction()` | Add `'ntfy'` to token-bearing types |
+| 16 | `frontend/src/pages/Notifications.tsx` | `supportsJSONTemplates()` | Add `|| t === 'ntfy'` |
+| 17 | `frontend/src/pages/Notifications.tsx` | `normalizeProviderPayloadForSubmit()` | Add `'ntfy'` to token-bearing types |
+| 18 | `frontend/src/pages/Notifications.tsx` | `useEffect` token cleanup | Add `type !== 'ntfy'` to the cleanup condition |
+| 19 | `frontend/src/pages/Notifications.tsx` | `<select>` dropdown | Add `<option value="ntfy">Ntfy</option>` |
+| 20 | `frontend/src/pages/Notifications.tsx` | URL label ternary | Ntfy uses default URL/Webhook label — no special label needed, falls through to default |
+| 21 | `frontend/src/pages/Notifications.tsx` | Token field visibility | Add `isNtfy` to `(isGotify \|\| isTelegram \|\| isSlack \|\| isPushover \|\| isNtfy)` |
+| 22 | `frontend/src/pages/Notifications.tsx` | Token field label | Add `isNtfy ? t('notificationProviders.ntfyAccessToken') : ...` |
+| 23 | `frontend/src/pages/Notifications.tsx` | URL placeholder | Add ntfy case: `type === 'ntfy' ? 'https://ntfy.sh/my-topic'` |
+| 24 | `frontend/src/pages/Notifications.tsx` | URL validation `required` | Ntfy requires URL — no change (default requires URL) |
+| 25 | `frontend/src/pages/Notifications.tsx` | URL validation `validate` | Ntfy uses standard URL validation — no change (default validates URL) |
+| 26 | `frontend/src/pages/Notifications.tsx` | `isNtfy` const | Add `const isNtfy = type === 'ntfy';` near L151 |
+| 27 | `frontend/src/pages/__tests__/Notifications.test.tsx` | Mock array | Add `'ntfy'` to mock `SUPPORTED_NOTIFICATION_PROVIDER_TYPES` |
+| 28 | `tests/settings/notifications.spec.ts` | Provider type options assertion ~L297 | Change `toHaveCount(7)` → `toHaveCount(8)`, add `'Ntfy'` to `toHaveText()` array |
+
+### 3.2 Backend Implementation Details
+
+#### 3.2.1 Feature Flag
+
+**File:** `backend/internal/notifications/feature_flags.go`
+
+```go
+const FlagNtfyServiceEnabled = "feature.notifications.service.ntfy.enabled"
+```
+
+#### 3.2.2 Router
+
+**File:** `backend/internal/notifications/router.go`
+
+Add in `ShouldUseNotify()` switch:
+
+```go
+case "ntfy":
+    return flags[FlagNtfyServiceEnabled]
+```
+
+#### 3.2.3 Service — Type Registration
+
+**File:** `backend/internal/services/notification_service.go`
+
+In `isSupportedNotificationProviderType()`:
+
+```go
+case "ntfy":
+    return true
+```
+
+In `isDispatchEnabled()`:
+
+```go
+case "ntfy":
+    return getFeatureFlagValue(db, notifications.FlagNtfyServiceEnabled, true)
+```
+
+#### 3.2.4 Service — JSON Validation (sendJSONPayload)
+
+In the service-specific validation block (~L460), add before the default case:
+
+```go
+case "ntfy":
+    if _, ok := payload["message"]; !ok {
+        return fmt.Errorf("ntfy payload must include a 'message' field")
+    }
+```
+
+> **Note:** Ntfy `priority` (1–5) can be set via custom templates by including a
+> `"priority"` field in the JSON. No code change is needed — the validation only
+> requires `"message"`.
+
+#### 3.2.5 Service — supportsJSONTemplates + Outer Gating + Dispatch Routing
+
+**supportsJSONTemplates()** (~L131): Add `"ntfy"` so `SendExternal()` dispatches
+via the JSON path:
+
+```go
+case "ntfy":
+    return true
+```
+
+**Outer gating condition** (~L525): The dispatch block is entered only when the
+provider type matches an `if/else if` chain. The actual code uses `if` chains,
+**not** `switch/case`. Add ntfy:
+
+```go
+// Before (actual code structure — NOT switch/case):
+if providerType == "gotify" || providerType == "webhook" || providerType == "telegram" || providerType == "slack" || providerType == "pushover" {
+
+// After:
+if providerType == "gotify" || providerType == "webhook" || providerType == "telegram" || providerType == "slack" || providerType == "pushover" || providerType == "ntfy" {
+```
+
+**Dispatch routing** (~L540): Inside the dispatch block, add an ntfy branch
+using the same `if/else if` pattern as existing providers:
+
+```go
+// Actual code uses if/else if — NOT switch/case:
+} else if providerType == "ntfy" {
+    dispatchURL = p.URL
+    if strings.TrimSpace(p.Token) != "" {
+        headers["Authorization"] = "Bearer " + strings.TrimSpace(p.Token)
+    }
+```
+
+Then the existing `httpWrapper.Send(dispatchURL, headers, body)` call handles dispatch.
+
+#### 3.2.6 Service — CreateProvider / UpdateProvider Token Preservation
+
+**File:** `backend/internal/services/notification_service.go`
+
+**`CreateProvider()` (~L851)** — token-clearing condition currently omits both
+ntfy and pushover, silently clearing tokens on creation:
+
+```go
+// Before:
+if provider.Type != "gotify" && provider.Type != "telegram" && provider.Type != "slack" {
+    provider.Token = ""
+}
+
+// After (adds ntfy + fixes existing pushover bug):
+if provider.Type != "gotify" && provider.Type != "telegram" && provider.Type != "slack" && provider.Type != "pushover" && provider.Type != "ntfy" {
+    provider.Token = ""
+}
+```
+
+**`UpdateProvider()` (~L886)** — token preservation condition currently omits
+both ntfy and pushover, silently clearing tokens on update:
+
+```go
+// Before:
+if provider.Type == "gotify" || provider.Type == "telegram" || provider.Type == "slack" {
+    if strings.TrimSpace(provider.Token) == "" {
+        provider.Token = existing.Token
+    }
+} else {
+    provider.Token = ""
+}
+
+// After (adds ntfy + fixes existing pushover bug):
+if provider.Type == "gotify" || provider.Type == "telegram" || provider.Type == "slack" || provider.Type == "pushover" || provider.Type == "ntfy" {
+    if strings.TrimSpace(provider.Token) == "" {
+        provider.Token = existing.Token
+    }
+} else {
+    provider.Token = ""
+}
+```
+
+> **Bonus bugfix:** The `pushover` additions fix a pre-existing bug where
+> pushover tokens were silently cleared on create and update. This will be noted
+> in the commit message for Commit 3.
+
+#### 3.2.7 Handler — Type Validation + Token Preservation
+
+**File:** `backend/internal/api/handlers/notification_provider_handler.go`
+
+**`Create()` (~L185)** and **`Update()` (~L245)** type-validation chains:
+Add `&& providerType != "ntfy"` so ntfy passes the supported-type check.
+
+**`Update()` token preservation (~L250)**: The handler has its own token
+preservation condition that runs before calling the service. Add ntfy:
+
+```go
+// Before:
+if (providerType == "gotify" || providerType == "telegram" || providerType == "slack" || providerType == "pushover") && strings.TrimSpace(req.Token) == "" {
+    req.Token = existing.Token
+}
+
+// After:
+if (providerType == "gotify" || providerType == "telegram" || providerType == "slack" || providerType == "pushover" || providerType == "ntfy") && strings.TrimSpace(req.Token) == "" {
+    req.Token = existing.Token
+}
+```
+
+No URL validation special-case is needed for Ntfy (URL is required and follows
+standard http/https format).
+
+### 3.3 Frontend Implementation Details
+
+#### 3.3.1 API Client
+
+**File:** `frontend/src/api/notifications.ts`
 
 ```typescript
-const fetchSessionUser = useCallback(async (): Promise<User> => {
-    const response = await fetch('/api/v1/auth/me', {
-      method: 'GET',
-      credentials: 'include',
-      headers: { Accept: 'application/json' },
-    });
-    // ...
-}, []);
+export const SUPPORTED_NOTIFICATION_PROVIDER_TYPES = [
+  'discord', 'gotify', 'webhook', 'email', 'telegram', 'slack', 'pushover', 'ntfy'
+] as const;
 ```
 
-This means `fetchSessionUser()` does NOT include the `Authorization: Bearer <token>` header. It relies **exclusively** on the browser sending the `auth_token` cookie via `credentials: 'include'`.
+In `sanitizeProviderForWriteAction()`, add `'ntfy'` to the set of token-bearing
+types so that the token field is properly mapped on create/update.
 
-### 2.3 Cookie Secure Flag Logic
+#### 3.3.2 Notifications Page
 
-**File:** `backend/internal/api/handlers/auth_handler.go` (lines 132-163)
+**File:** `frontend/src/pages/Notifications.tsx`
 
-```go
-func setSecureCookie(c *gin.Context, name, value string, maxAge int) {
-    scheme := requestScheme(c)
-    secure := true                     // ← Defaults to true
-    sameSite := http.SameSiteStrictMode
+| Area | Change |
+|------|--------|
+| Type boolean | Add `const isNtfy = type === 'ntfy';` |
+| `<select>` | Add `<option value="ntfy">Ntfy</option>` after Pushover |
+| Token visibility | Change `(isGotify \|\| isTelegram \|\| isSlack \|\| isPushover)` to `(isGotify \|\| isTelegram \|\| isSlack \|\| isPushover \|\| isNtfy)` in 3 places: token field visibility, `normalizeProviderPayloadForSubmit()`, and `useEffect` token cleanup |
+| Token label | Add `isNtfy ? t('notificationProviders.ntfyAccessToken') : ...` in the ternary chain |
+| Token placeholder | Add ntfy case: `isNtfy ? t('notificationProviders.ntfyAccessTokenPlaceholder')` |
+| URL label | Consider using `t('notificationProviders.ntfyTopicUrl')` (`"Topic URL"`) for a more descriptive label when ntfy is selected, instead of the default `"URL / Webhook URL"` |
+| URL placeholder | Add `type === 'ntfy' ? 'https://ntfy.sh/my-topic'` in the ternary chain |
+| `supportsJSONTemplates()` | Add `|| t === 'ntfy'` |
 
-    if scheme != "https" {
-        sameSite = http.SameSiteLaxMode
-        if isLocalRequest(c) {         // ← Only sets secure=false for localhost/127.0.0.1
-            secure = false
-        }
-    }
-    // ...
-}
+#### 3.3.3 i18n Strings
+
+**Files:** `frontend/src/locales/{en,de,fr,zh,es}/translation.json`
+
+Add to the `notificationProviders` section (after `pushoverUserKeyHelp`):
+
+| Key | English Value |
+|-----|---------------|
+| `ntfy` | `"Ntfy"` |
+| `ntfyAccessToken` | `"Access Token (optional)"` |
+| `ntfyAccessTokenPlaceholder` | `"Enter your Ntfy access token"` |
+| `ntfyAccessTokenHelp` | `"Required for password-protected topics on self-hosted instances. Not needed for public ntfy.sh topics. The token is stored securely and separately."` |
+| `ntfyTopicUrl` | `"Topic URL"` |
+
+For non-English locales, the keys should be added with English fallback values
+(the community can translate later).
+
+#### 3.3.4 Unit Test Mock + E2E Assertion Update
+
+**File:** `frontend/src/pages/__tests__/Notifications.test.tsx`
+
+Update the mocked `SUPPORTED_NOTIFICATION_PROVIDER_TYPES` array to include `'ntfy'`.
+Update the test `'shows supported provider type options'` to expect 8 options instead of 7.
+
+**File:** `tests/settings/notifications.spec.ts`
+
+Update the E2E assertion at ~L297:
+- `toHaveCount(7)` → `toHaveCount(8)`
+- Add `'Ntfy'` to the `toHaveText()` array: `['Discord', 'Gotify', 'Generic Webhook', 'Email', 'Telegram', 'Slack', 'Pushover', 'Ntfy']`
+
+### 3.4 Database Migration
+
+**No schema changes required.** The existing `NotificationProvider` GORM model
+already has all the fields Ntfy needs:
+
+| Ntfy Concept | Model Field |
+|--------------|-------------|
+| Topic URL | `URL` |
+| Auth token | `Token` (json:"-") |
+| Has token indicator | `HasToken` (computed, gorm:"-") |
+
+GORM AutoMigrate handles migrations from model definitions. No migration file
+is needed.
+
+### 3.5 Data Flow Diagram
+
 ```
+User creates Ntfy provider via UI
+  -> POST /api/v1/notifications/providers { type: "ntfy", url: "https://ntfy.sh/alerts", token: "tk_..." }
+  -> Handler validates type is in allowed list
+  -> Service stores provider in SQLite (token encrypted at rest)
 
-**`isLocalHost()` only matches `localhost` and loopback IPs:**
-
-```go
-func isLocalHost(host string) bool {
-    if strings.EqualFold(host, "localhost") { return true }
-    if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() { return true }
-    return false
-}
+Event triggers notification dispatch:
+  -> SendExternal() filters enabled providers by event type preferences
+  -> isDispatchEnabled("ntfy") -> checks FlagNtfyServiceEnabled setting
+  -> sendJSONPayload() renders template -> validates payload has "message" field
+  -> Constructs dispatch: POST to p.URL with Authorization: Bearer <token> header
+  -> httpWrapper.Send(dispatchURL, headers, body) -> HTTP POST to Ntfy server
 ```
-
-This function does **NOT** match:
-- Private network IPs: `192.168.x.x`, `10.x.x.x`, `172.16.x.x`
-- Custom hostnames: `charon.local`, `myserver.home`
-- Any non-loopback IP address
-
-### 2.4 Auth Middleware (Protects `/auth/me`)
-
-**File:** `backend/internal/api/middleware/auth.go` (lines 12-45)
-
-The `AuthMiddleware` extracts tokens in priority order:
-1. `Authorization: Bearer <token>` header
-2. `auth_token` cookie (fallback)
-3. `?token=<token>` query parameter (deprecated fallback)
-
-If no token is found, it returns `401 {"error": "Authorization header required"}`.
-
-### 2.5 Route Registration
-
-**File:** `backend/internal/api/routes/routes.go` (lines 260-267)
-
-`/auth/me` is registered under the `protected` group which uses `authMiddleware`:
-```go
-protected.GET("/auth/me", authHandler.Me)
-```
-
-### 2.6 Database Migration & Seeding
-
-- `AutoMigrate` runs on startup for all models including `User`, `Setting`, `SecurityConfig`
-- The seed command (`backend/cmd/seed/main.go`) is a **separate CLI tool**, not run during normal startup
-- Fresh install uses the `/api/v1/setup` endpoint to create the first admin user
-- The setup handler creates the user and an ACME email setting in a transaction
-- **No missing migration or seeding is involved in this bug** — tables are auto-migrated, and setup creates the user correctly
-
-### 2.7 Trusted Proxy Configuration
-
-**File:** `backend/internal/server/server.go` (lines 14-17)
-
-```go
-_ = router.SetTrustedProxies(nil)
-```
-
-Gin's `SetTrustedProxies(nil)` disables trusting forwarded headers for `c.ClientIP()`. However, the `requestScheme()` function reads `X-Forwarded-Proto` directly from the request header, bypassing Gin's trust mechanism. This is intentional for scheme detection.
-
-### 2.8 Existing Test Confirmation
-
-**File:** `backend/internal/api/handlers/auth_handler_test.go` (lines 84-99)
-
-The test `TestSetSecureCookie_HTTP_Lax` explicitly asserts the current (buggy) behavior:
-```go
-// HTTP request from non-local IP 192.0.2.10
-req := httptest.NewRequest("POST", "http://192.0.2.10/login", http.NoBody)
-req.Header.Set("X-Forwarded-Proto", "http")
-// ...
-assert.True(t, c.Secure)  // ← Asserts Secure=true on HTTP!
-```
-
-Note: `192.0.2.10` is TEST-NET-1 (RFC 5737), a documentation address — NOT a private IP. This test is actually correct for public IPs and needs no change.
-
-### 2.9 CORS Configuration
-
-No CORS middleware was found in the backend. The frontend uses relative URLs (`baseURL: '/api/v1'`), so all API requests are same-origin. CORS is not a factor in this bug.
 
 ---
 
-## 3. Root Cause Analysis
+## 4. Implementation Plan
 
-### Primary Root Cause: `Secure` cookie flag set to `true` on non-HTTPS, non-local connections
+### Phase 1: Playwright E2E Tests (Test-First)
 
-When a user accesses Charon from a LAN IP (e.g., `192.168.1.50:8080`) over plain HTTP:
+Write E2E tests that define the expected UI/UX behavior for Ntfy before
+implementing the feature. Tests will initially fail and pass after implementation.
 
-| Step | Function | Value | Result |
-|------|----------|-------|--------|
-| 1 | `requestScheme(c)` | `"http"` | No X-Forwarded-Proto or TLS |
-| 2 | `secure` default | `true` | — |
-| 3 | `scheme != "https"` | `true` | Enters HTTP branch |
-| 4 | `isLocalRequest(c)` | `false` | Host is `192.168.1.50`, not `localhost`/`127.0.0.1` |
-| 5 | Final `secure` | `true` | **Cookie marked Secure on HTTP connection** |
+**Deliverables:**
 
-**Result:** The browser receives `Set-Cookie: auth_token=...; Secure; HttpOnly; Path=/; SameSite=Lax` over an HTTP connection. Per RFC 6265bis §5.4, browsers **reject** `Secure` cookies delivered over non-secure (HTTP) channels.
+| File | Description |
+|------|-------------|
+| `tests/settings/ntfy-notification-provider.spec.ts` | New file — form rendering, CRUD, token security, field toggling |
+| `tests/settings/notifications-payload.spec.ts` | Add Ntfy to payload contract validation matrix |
+| `tests/settings/notifications.spec.ts` | Update provider type dropdown assertions: `toHaveCount(7)` → `toHaveCount(8)`, add `'Ntfy'` to `toHaveText()` array |
 
-### Secondary Root Cause: `fetchSessionUser()` has no fallback to Bearer token
+**Test structure** (following telegram/pushover/slack pattern):
 
-Even though the JWT token is stored in `localStorage` and set on the axios client's `Authorization` header, `fetchSessionUser()` uses raw `fetch()` without the `Authorization` header. When the cookie is rejected, there is no fallback.
+1. Form Rendering
+   - Show token field when ntfy type selected
+   - Verify token label shows "Access Token (optional)"
+   - Verify URL placeholder shows "https://ntfy.sh/my-topic"
+   - Verify JSON template section is shown for ntfy
+   - Toggle fields when switching between ntfy and discord
+2. CRUD Operations
+   - Create ntfy provider with URL + token
+   - Create ntfy provider with URL only (no token)
+   - Edit ntfy provider (token field shows "Leave blank to keep")
+   - Delete ntfy provider
+3. Token Security
+   - Verify token field is `type="password"`
+   - Verify token is not exposed in API response row
+4. Payload Contract
+   - Valid ntfy payload with message field accepted
+   - Missing message field rejected
 
-### Failure Chain
+### Phase 2: Backend Implementation
 
-```
-Browser (HTTP to 192.168.x.x:8080)
-  → POST /auth/login → 200 + Set-Cookie: auth_token=...; Secure
-  → Browser REJECTS Secure cookie (connection is HTTP)
-  → Frontend stores token in localStorage, sets it on axios client
-  → fetchSessionUser() calls GET /auth/me via raw fetch (no Auth header, no cookie)
-  → Auth middleware: no token found → 401
-  → User sees login failure
-```
+**Deliverables:**
 
-### External Caddy Scenario (likely works, but fragile)
+| # | File | Changes |
+|---|------|---------|
+| 1 | `backend/internal/notifications/feature_flags.go` | Add `FlagNtfyServiceEnabled` constant |
+| 2 | `backend/internal/notifications/router.go` | Add `"ntfy"` case in `ShouldUseNotify()` |
+| 3 | `backend/internal/services/notification_service.go` | Add `"ntfy"` to `isSupportedNotificationProviderType()`, `isDispatchEnabled()`, `supportsJSONTemplates()`, outer gating condition, dispatch routing, `CreateProvider()` token chain, `UpdateProvider()` token chain. Fix pushover token-clearing bug in same conditions. |
+| 4 | `backend/internal/api/handlers/notification_provider_handler.go` | Add `"ntfy"` to Create/Update type validation + Update token preservation |
 
-When accessing via an external Caddy that terminates TLS:
-- If Caddy sends `X-Forwarded-Proto: https` → `scheme = "https"` → `secure = true`, `sameSite = Strict`
-- Browser sees HTTPS → accepts Secure cookie → `/auth/me` succeeds
-- **But:** If the user accesses _directly_ on port 8080 for any reason, it breaks
+**Backend Unit Tests:**
 
----
+| File | New Tests |
+|------|-----------|
+| `backend/internal/notifications/router_test.go` | `TestShouldUseNotify_Ntfy` — flag on/off |
+| `backend/internal/services/notification_service_test.go` | `TestIsSupportedNotificationProviderType_Ntfy`, `TestIsDispatchEnabled_Ntfy` |
+| `backend/internal/services/notification_service_json_test.go` | `TestSendJSONPayload_Ntfy_Valid`, `TestSendJSONPayload_Ntfy_MissingMessage`, `TestSendJSONPayload_Ntfy_WithToken`, `TestSendJSONPayload_Ntfy_WithoutToken` |
 
-## 4. Verdict
+### Phase 3: Frontend Implementation
 
-**This is a code bug, not a user configuration issue.**
+**Deliverables:**
 
-The `setSecureCookie` function has a logic gap: when the scheme is HTTP and the request is from a non-loopback private IP, it still sets `Secure: true`. This makes it impossible to authenticate over HTTP from any non-localhost address, which is a valid and common deployment scenario (LAN access, Docker port mapping without TLS).
+| # | File | Changes |
+|---|------|---------|
+| 1 | `frontend/src/api/notifications.ts` | Add `'ntfy'` to type array + sanitize function |
+| 2 | `frontend/src/pages/Notifications.tsx` | Add `isNtfy`, dropdown option, token field wiring, URL placeholder, `supportsJSONTemplates()`, `normalizeProviderPayloadForSubmit()`, `useEffect` cleanup |
+| 3 | `frontend/src/locales/en/translation.json` | Add `ntfy*` i18n keys |
+| 4 | `frontend/src/locales/de/translation.json` | Add `ntfy*` i18n keys (English fallback) |
+| 5 | `frontend/src/locales/fr/translation.json` | Add `ntfy*` i18n keys (English fallback) |
+| 6 | `frontend/src/locales/zh/translation.json` | Add `ntfy*` i18n keys (English fallback) |
+| 7 | `frontend/src/locales/es/translation.json` | Add `ntfy*` i18n keys (English fallback) |
+| 8 | `frontend/src/pages/__tests__/Notifications.test.tsx` | Update mock array + option count assertion |
 
-The secondary issue (frontend `fetchSessionUser` not sending a Bearer token) means there is no graceful fallback when the cookie is rejected — the user gets a hard 401 with no recovery path, even though the token is available in memory.
+### Phase 4: Integration and Testing
 
----
+1. Rebuild E2E Docker environment (`docker-rebuild-e2e`).
+2. Run full Playwright suite (Firefox, Chromium, WebKit).
+3. Run backend `go test ./...`.
+4. Run frontend `npm test`.
+5. Run GORM security scanner (changes touch service logic, not models — likely clean).
+6. Verify E2E coverage via Vite dev server mode.
 
-## 5. Technical Specification
+### Phase 5: Documentation and Deployment
 
-### 5.1 Backend Fix: Expand `isLocalHost` to include RFC 1918 private IPs
-
-**WHEN** the request scheme is HTTP,
-**AND** the request originates from a private network IP (RFC 1918/RFC 4193),
-**THE SYSTEM SHALL** set the `Secure` cookie flag to `false`.
-
-**File:** `backend/internal/api/handlers/auth_handler.go` (line 80)
-
-**Change:** Extend `isLocalHost` to also return `true` for RFC 1918 private IPs:
-
-```go
-func isLocalHost(host string) bool {
-    if strings.EqualFold(host, "localhost") {
-        return true
-    }
-
-    ip := net.ParseIP(host)
-    if ip == nil {
-        return false
-    }
-
-    if ip.IsLoopback() {
-        return true
-    }
-
-    if ip.IsPrivate() {
-        return true
-    }
-
-    return false
-}
-```
-
-`net.IP.IsPrivate()` (Go 1.17+) checks for:
-- `10.0.0.0/8`
-- `172.16.0.0/12`
-- `192.168.0.0/16`
-- `fc00::/7` (IPv6 ULA)
-
-This **does not** change behavior for public IPs or HTTPS — `Secure: true` is preserved for all HTTPS connections and for public HTTP connections.
-
-### 5.2 Frontend Fix: Add Bearer token to `fetchSessionUser`
-
-**File:** `frontend/src/context/AuthContext.tsx` (line 12)
-
-**Change:** Include the `Authorization` header in `fetchSessionUser` when a token is available in localStorage:
-
-```typescript
-const fetchSessionUser = useCallback(async (): Promise<User> => {
-    const headers: Record<string, string> = { Accept: 'application/json' };
-    const stored = localStorage.getItem('charon_auth_token');
-    if (stored) {
-        headers['Authorization'] = `Bearer ${stored}`;
-    }
-
-    const response = await fetch('/api/v1/auth/me', {
-        method: 'GET',
-        credentials: 'include',
-        headers,
-    });
-
-    if (!response.ok) {
-        throw new Error('Session validation failed');
-    }
-
-    return response.json() as Promise<User>;
-}, []);
-```
-
-This provides a belt-and-suspenders approach: the cookie is preferred (HttpOnly, auto-sent), but if the cookie is absent (rejected, cross-domain, etc.), the Bearer token from localStorage is used as a fallback.
-
-### 5.3 Test Updates
-
-**Existing test `TestSetSecureCookie_HTTP_Lax`:** Uses `192.0.2.10` (TEST-NET-1, RFC 5737) which is NOT a private IP → assertion unchanged (`Secure: true`).
-
-**New test cases needed:**
-
-| Test Name | Host | Scheme | Expected Secure | Expected SameSite |
-|-----------|------|--------|-----------------|--------------------|
-| `TestSetSecureCookie_HTTP_PrivateIP_Insecure` | `192.168.1.50` | `http` | `false` | `Lax` |
-| `TestSetSecureCookie_HTTP_10Network_Insecure` | `10.0.0.5` | `http` | `false` | `Lax` |
-| `TestSetSecureCookie_HTTP_172Network_Insecure` | `172.16.0.1` | `http` | `false` | `Lax` |
-| `TestSetSecureCookie_HTTPS_PrivateIP_Secure` | `192.168.1.50` | `https` | `true` | `Strict` |
-| `TestSetSecureCookie_HTTP_PublicIP_Secure` | `203.0.113.5` | `http` | `true` | `Lax` |
-
-**`isLocalHost` unit test additions:**
-
-| Input | Expected |
-|-------|----------|
-| `192.168.1.50` | `true` (new) |
-| `10.0.0.1` | `true` (new) |
-| `172.16.0.1` | `true` (new) |
-| `203.0.113.5` | `false` |
+1. Update `docs/features.md` — add Ntfy to supported notification providers list.
+2. Update `CHANGELOG.md` — add `feat(notifications): add Ntfy notification provider`.
 
 ---
 
-## 6. Implementation Plan
+## 5. Acceptance Criteria
 
-### Phase 1: Backend Cookie Fix
-
-1. Modify `isLocalHost` in `auth_handler.go` to include `ip.IsPrivate()`
-2. Verify existing test `TestSetSecureCookie_HTTP_Lax` is unchanged (TEST-NET IP)
-3. Add new test cases per table in §5.3
-4. Add `isLocalHost` unit tests for private IPs
-
-### Phase 2: Frontend `fetchSessionUser` Fix
-
-1. Modify `fetchSessionUser` in `AuthContext.tsx` to include `Authorization` header from localStorage
-2. Verify existing frontend tests still pass
-
-### Phase 3: E2E Validation
-
-1. Rebuild E2E Docker environment
-2. Run the login/auth Playwright tests to validate no regressions
+| # | Criterion | Validation Method |
+|---|-----------|-------------------|
+| AC-1 | User can select "Ntfy" from the provider type dropdown | E2E: `ntfy-notification-provider.spec.ts` form rendering tests |
+| AC-2 | Topic URL field is required with standard http/https validation | E2E: form validation tests |
+| AC-3 | Access Token field is shown as optional password field | E2E: token field visibility + type="password" check |
+| AC-4 | Token is never exposed in API responses (has_token indicator only) | E2E: token security tests |
+| AC-5 | JSON template section (minimal/detailed/custom) is available | E2E: template section visibility |
+| AC-6 | Ntfy provider can be created, edited, deleted | E2E: CRUD tests |
+| AC-7 | Test notification dispatches to Ntfy topic URL with correct headers | Backend unit test: sendJSONPayload ntfy dispatch |
+| AC-8 | Missing `message` field in payload is rejected | Backend unit test + E2E payload validation |
+| AC-9 | Feature flag `feature.notifications.service.ntfy.enabled` controls dispatch | Backend unit test: isDispatchEnabled + router |
+| AC-10 | All 5 locales have ntfy i18n keys | Manual verification |
+| AC-11 | No GORM security scanner CRITICAL/HIGH findings | GORM scanner `--check` |
 
 ---
 
-## 7. Acceptance Criteria
+## 6. Commit Slicing Strategy
 
-- [ ] `isLocalHost("192.168.1.50")` returns `true`
-- [ ] `isLocalHost("10.0.0.1")` returns `true`
-- [ ] `isLocalHost("172.16.0.1")` returns `true`
-- [ ] `isLocalHost("203.0.113.5")` returns `false` (public IP unchanged)
-- [ ] HTTP login from a private LAN IP sets `Secure: false` on `auth_token` cookie
-- [ ] HTTPS login from a private LAN IP still sets `Secure: true`
-- [ ] `fetchSessionUser()` sends `Authorization: Bearer <token>` when token is in localStorage
-- [ ] All existing auth handler tests pass
-- [ ] New test cases from §5.3 pass
-- [ ] E2E login tests pass
+### Decision: Single PR
+
+**Rationale:** Ntfy is a self-contained, additive feature that does not touch
+existing provider logic (only adds new cases to existing switch/case and if-chain
+blocks). The changeset is small (~16 files, <300 lines of implementation + ~430
+lines of tests) and stays within a single domain (notifications). A single PR is
+straightforward to review and rollback. One bonus bugfix is included: pushover
+token-clearing in `CreateProvider()`/`UpdateProvider()` is fixed in the same
+lines being modified for ntfy.
+
+**Trigger analysis:**
+- Scope: Small — one new provider, no schema changes, no new packages.
+- Risk: Low — all changes are additive `case`/`if` additions; the only behavior change to existing providers is fixing the pushover token-clearing bug (a correctness fix).
+- Cross-domain: No — backend + frontend are in the same PR (standard for features).
+- Review size: Moderate — well within single-PR comfort zone.
+
+### Ordered Commits
+
+| Commit | Scope | Files | Validation Gate |
+|--------|-------|-------|-----------------|
+| `1` | `test(e2e): add Ntfy notification provider E2E tests` | `tests/settings/ntfy-notification-provider.spec.ts`, `tests/settings/notifications-payload.spec.ts`, `tests/settings/notifications.spec.ts` | Tests compile (expected to fail until implementation) |
+| `2` | `feat(notifications): add Ntfy feature flag and router support` | `feature_flags.go`, `router.go`, `router_test.go` | `go test ./backend/internal/notifications/...` passes |
+| `3` | `fix(notifications): add Ntfy dispatch + fix pushover/ntfy token-clearing bug` | `notification_service.go`, `notification_service_json_test.go`, `notification_service_test.go` | `go test ./backend/internal/services/...` passes |
+| `4` | `feat(notifications): add Ntfy type validation to handlers` | `notification_provider_handler.go` | `go test ./backend/internal/api/handlers/...` passes |
+| `5` | `feat(notifications): add Ntfy frontend support` | `notifications.ts`, `Notifications.tsx`, `Notifications.test.tsx`, all 5 locale files | `npm test` passes; full Playwright suite passes |
+| `6` | `docs: add Ntfy to features and changelog` | `docs/features.md`, `CHANGELOG.md` | No tests needed |
+
+### Rollback
+
+Reverting the PR removes all Ntfy cases from switch/case blocks. No data
+migration reversal needed (model is unchanged). Any Ntfy providers created by
+users during the rollout window would remain in the database as orphan rows
+(type `"ntfy"` would be rejected by the handler validation, effectively
+disabling them).
 
 ---
 
-## 8. Commit Slicing Strategy
+## 7. Review Suggestions for Build / Config Files
 
-**Decision:** Single PR
+### `.gitignore`
 
-**Rationale:** Both changes are tightly coupled to the same authentication flow. The backend fix alone resolves the primary issue, and the frontend fix is a small defense-in-depth addition. Total change is ~20 lines of production code + ~60 lines of tests. Splitting would create unnecessary review overhead.
+No changes needed. The current `.gitignore` correctly covers all relevant
+artifact patterns. No Ntfy-specific files are introduced.
 
-### PR-1: Fix auth cookie Secure flag for private networks + frontend Bearer fallback
+### `codecov.yml`
 
-**Scope:**
-- `backend/internal/api/handlers/auth_handler.go` — Expand `isLocalHost` to include `ip.IsPrivate()`
-- `backend/internal/api/handlers/auth_handler_test.go` — Add new test cases, verify existing
-- `frontend/src/context/AuthContext.tsx` — Add Authorization header to `fetchSessionUser`
+No changes needed. The current `ignore` patterns correctly exclude test files,
+docs, and config. The 87% project coverage target and 1% threshold remain
+appropriate.
 
-**Validation Gates:**
-- `go test ./backend/internal/api/handlers/...` — all pass
-- `go test ./backend/internal/api/middleware/...` — all pass
-- E2E Playwright login suite — all pass
+### `.dockerignore`
 
-**Rollback:** Revert the single commit. No database changes, no API contract changes.
+No changes needed. The current `.dockerignore` mirrors `.gitignore` patterns
+appropriately. No new directories or file types are introduced.
+
+### `Dockerfile`
+
+No changes needed. The multi-stage build already compiles the full Go backend
+and React frontend — adding a new provider type requires no build-system changes.
+No new dependencies are introduced.
 
 ---
 
-## 9. Edge Cases & Risks
+## 8. Risk Assessment
 
-| Risk | Mitigation |
-|------|------------|
-| `net.IP.IsPrivate()` requires Go 1.17+ | Charon requires Go 1.21+, no risk |
-| Public HTTP deployments now get `Secure: true` (no change) | Intentional: public HTTP is insecure regardless |
-| localStorage token exposed to XSS | Existing risk (unchanged); primary auth remains HttpOnly cookie |
-| `isLocalHost` name now misleading (covers private IPs) | Consider renaming to `isPrivateOrLocalHost` in follow-up refactor |
-| External reverse proxy without X-Forwarded-Proto | Frontend Bearer fallback covers this case now |
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| Ntfy server unreachable | Low | Low | Standard HTTP timeout via `httpWrapper.Send()` (existing 10s timeout) |
+| Token leaked in logs | Low | High | Token field is `json:"-"` in model; dispatch uses `headers` map (not logged). Verify no debug logging of headers. |
+| SSRF via topic URL | Low | High | Ntfy matches the SSRF posture of Gotify and webhook (user-controlled URL), **not** Telegram (which pins to a hardcoded `api.telegram.org` base). `httpWrapper.Send()` applies the existing 10s timeout but no URL allowlist. Risk is **accepted** for parity with Gotify/webhook; a future hardening pass should apply `ValidateExternalURL` to all user-controlled URL providers. |
+| Breaking existing providers | Very Low | High | All changes are additive `case` blocks — no existing behavior modified. Full regression suite via Playwright. |
+
+---
+
+## 9. Appendix: File Inventory
+
+Complete list of files to create or modify:
+
+### New Files
+
+| File | Purpose |
+|------|---------|
+| `tests/settings/ntfy-notification-provider.spec.ts` | E2E test suite for Ntfy provider |
+
+### Modified Files — Backend
+
+| File | Lines Changed (est.) |
+|------|---------------------|
+| `backend/internal/notifications/feature_flags.go` | +1 |
+| `backend/internal/notifications/router.go` | +2 |
+| `backend/internal/notifications/router_test.go` | +15 |
+| `backend/internal/services/notification_service.go` | +18 |
+| `backend/internal/services/notification_service_test.go` | +20 |
+| `backend/internal/services/notification_service_json_test.go` | +60 |
+| `backend/internal/api/handlers/notification_provider_handler.go` | +3 |
+
+### Modified Files — Frontend
+
+| File | Lines Changed (est.) |
+|------|---------------------|
+| `frontend/src/api/notifications.ts` | +3 |
+| `frontend/src/pages/Notifications.tsx` | +15 |
+| `frontend/src/pages/__tests__/Notifications.test.tsx` | +3 |
+| `frontend/src/locales/en/translation.json` | +5 |
+| `frontend/src/locales/de/translation.json` | +5 |
+| `frontend/src/locales/fr/translation.json` | +5 |
+| `frontend/src/locales/zh/translation.json` | +5 |
+| `frontend/src/locales/es/translation.json` | +5 |
+
+### Modified Files — Tests
+
+| File | Lines Changed (est.) |
+|------|---------------------|
+| `tests/settings/notifications-payload.spec.ts` | +30 |
+| `tests/settings/notifications.spec.ts` | +2 |
+
+### Modified Files — Documentation
+
+| File | Lines Changed (est.) |
+|------|---------------------|
+| `docs/features.md` | +1 |
+| `CHANGELOG.md` | +1 |
+
+**Total estimated implementation:** ~195 lines (backend + frontend) + ~430 lines (tests)

@@ -126,6 +126,9 @@ jobs:
             echo "__CHARON_EOF__"
           } >> "$GITHUB_ENV"
 
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.13.0
+
       - name: Run Go tests with coverage
         working-directory: ${{ github.workspace }}
         env:
@@ -134,8 +137,16 @@ jobs:
           bash scripts/go-test-coverage.sh 2>&1 | tee backend/test-output.txt
           exit "${PIPESTATUS[0]}"
 
+      - name: Upload test output artifact
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: backend-test-output
+          path: backend/test-output.txt
+          retention-days: 7
+
       - name: Upload backend coverage to Codecov
-        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5
+        uses: codecov/codecov-action@1af58845a975a7985b0beb0cbe6fbbb71a41dbad # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./backend/coverage.txt
@@ -172,7 +183,7 @@ jobs:
           exit "${PIPESTATUS[0]}"
 
       - name: Upload frontend coverage to Codecov
-        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5
+        uses: codecov/codecov-action@1af58845a975a7985b0beb0cbe6fbbb71a41dbad # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           directory: ./frontend/coverage

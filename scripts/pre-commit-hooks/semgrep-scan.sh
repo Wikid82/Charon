@@ -15,17 +15,29 @@ fi
 
 cd "${REPO_ROOT}"
 
-# Default to p/golang for speed (~30s vs 60-180s for auto).
-# Override with: SEMGREP_CONFIG=auto git push
-readonly SEMGREP_CONFIG_VALUE="${SEMGREP_CONFIG:-p/golang}"
+# Default: full security ruleset covering Go backend, JS/TS/React frontend, secrets.
+# Override with: SEMGREP_CONFIG=auto git commit (runs all Semgrep rules, ~3-5 min)
+if [ -n "${SEMGREP_CONFIG:-}" ]; then
+  SEMGREP_CONFIGS=(--config "${SEMGREP_CONFIG}")
+  echo "Running Semgrep with override config: ${SEMGREP_CONFIG}"
+else
+  SEMGREP_CONFIGS=(
+    --config p/golang
+    --config p/javascript
+    --config p/typescript
+    --config p/react
+    --config p/secrets
+    --config p/dockerfile
+  )
+  echo "Running Semgrep with configs: p/golang, p/javascript, p/typescript, p/react, p/secrets, p/dockerfile"
+fi
 
-echo "Running Semgrep with config: ${SEMGREP_CONFIG_VALUE}"
 semgrep scan \
-  --config "${SEMGREP_CONFIG_VALUE}" \
+  "${SEMGREP_CONFIGS[@]}" \
   --severity ERROR \
   --severity WARNING \
   --error \
   --exclude "frontend/node_modules" \
   --exclude "frontend/coverage" \
   --exclude "frontend/dist" \
-  backend frontend/src scripts .github/workflows
+  Dockerfile backend frontend/src scripts .github/workflows

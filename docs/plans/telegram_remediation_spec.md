@@ -55,6 +55,7 @@ disabled={testMutation.isPending || (isNew && !isEmail)}
 **Why it was added:** The backend `Test` handler at `notification_provider_handler.go` (L333-336) requires a saved provider ID for all non-email types. For Gotify/Telegram, the server needs the stored token. For Discord/Webhook, the server still fetches the provider from DB. Without a saved provider, the backend returns `MISSING_PROVIDER_ID`.
 
 **Why it breaks tests:** Many existing E2E and unit tests click the test button from a **new (unsaved) provider form** using mocked endpoints. With the new guard:
+
 1. The `<button>` is `disabled` → browser ignores clicks → mocked routes never receive requests
 2. Even if not disabled, `handleTest()` returns early with a toast instead of calling `testMutation.mutate()`
 3. Tests that `waitForRequest` on `/providers/test` time out (60s default)
@@ -103,6 +104,7 @@ These tests open the "Add Provider" form (no `id`), click `provider-test-btn`, a
 | 2 | retry split distinguishes retryable and non-retryable failures | L410 | webhook | `provider-test-btn` disabled for new webhook form; `waitForResponse` times out |
 
 **Tests that should still pass:**
+
 - `valid payload flows for discord, gotify, and webhook` (L54) — uses `provider-save-btn`, not test button
 - `malformed payload scenarios` (L158) — API-level tests via `page.request.post`
 - `missing required fields block submit` (L192) — uses save button
@@ -119,6 +121,7 @@ These tests open the "Add Provider" form (no `id`), click `provider-test-btn`, a
 | 2 | should test telegram notification provider | L265 | Row-level Send Test button; possible accessible name mismatch in WebKit with `title` attribute |
 
 **Tests that should pass:**
+
 - Form rendering tests (L25, L65) — UI assertions only
 - Create telegram provider (L89) — mocked POST
 - Delete telegram provider (L324) — mocked DELETE + confirm dialog
@@ -265,6 +268,7 @@ it('disables test button when provider is new (unsaved) and not email type', asy
 **File:** `tests/settings/notifications.spec.ts`
 
 **Strategy:** For tests that click the test button from a new form, restructure the flow to:
+
 1. First **save** the provider (mocked create → returns id)
 2. Then **test** from the saved provider row's Send Test button (row buttons are not gated by `isNew`)
 
@@ -360,6 +364,7 @@ Same pattern: save first, then test from row.
 #### Fix 9: "should edit telegram notification provider and preserve token" (L159)
 
 **Problem:** Uses fragile keyboard navigation to reach the Edit button:
+
 ```typescript
 await sendTestButton.focus();
 await page.keyboard.press('Tab');
@@ -388,6 +393,7 @@ Or use a structural locator based on the edit icon class.
 **Probable issue:** The `getByRole('button', { name: /send test/i })` relies on `title` for accessible name. WebKit may not compute accessible name from `title` the same way.
 
 **Fix (source — preferred):** Add explicit `aria-label` to the row Send Test button in `Notifications.tsx` (L703):
+
 ```tsx
 <Button
   variant="secondary"
@@ -399,6 +405,7 @@ Or use a structural locator based on the edit icon class.
 ```
 
 **Fix (test — alternative):** Use structural locator:
+
 ```typescript
 const sendTestButton = providerRow.locator('button').first();
 ```
@@ -469,18 +476,21 @@ Consider adding `aria-label` attributes to all icon-only buttons in the provider
 **Rationale:** All fixes are tightly coupled to the Telegram feature PR and represent test adaptations to a correct behavioral change. No cross-domain changes. Small total diff.
 
 ### Commit 1: "fix(test): adapt notification tests to save-before-test guard"
+
 - **Scope:** All unit test and E2E test fixes (Phases 1-3)
 - **Files:** `Notifications.test.tsx`, `notifications.spec.ts`, `notifications-payload.spec.ts`, `telegram-notification-provider.spec.ts`
 - **Dependencies:** None
 - **Validation Gate:** All notification-related tests pass locally on at least one browser
 
 ### Commit 2: "feat(a11y): add aria-labels to notification provider row buttons"
+
 - **Scope:** Source code accessibility improvement (Phase 4)
 - **Files:** `Notifications.tsx`
 - **Dependencies:** Depends on Commit 1 (tests must pass first)
 - **Validation Gate:** Telegram spec tests pass consistently on WebKit
 
 ### Rollback
+
 - These are test-only changes (except the optional aria-label). Reverting either commit has zero production impact.
 - If tests still fail after fixes, the next step is to run with `--debug` and capture trace artifacts.
 
