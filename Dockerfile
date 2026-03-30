@@ -17,7 +17,7 @@ ARG ALPINE_IMAGE=alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e
 
 # ---- Shared CrowdSec Version ----
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
-ARG CROWDSEC_VERSION=1.7.6
+ARG CROWDSEC_VERSION=1.7.7
 # CrowdSec fallback tarball checksum (v${CROWDSEC_VERSION})
 ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0bfe5e38f863bd
 
@@ -43,9 +43,9 @@ ARG CADDY_CANDIDATE_VERSION=2.11.2
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
-ARG CADDY_SECURITY_VERSION=1.1.53
+ARG CADDY_SECURITY_VERSION=1.1.57
 # renovate: datasource=go depName=github.com/corazawaf/coraza-caddy
-ARG CORAZA_CADDY_VERSION=2.2.0
+ARG CORAZA_CADDY_VERSION=2.3.0
 ## When an official caddy image tag isn't available on the host, use a
 ## plain Alpine base image and overwrite its caddy binary with our
 ## xcaddy-built binary in the later COPY step. This avoids relying on
