@@ -55,7 +55,7 @@
     "@eslint/css": "^1.0.0",
     "@eslint/js": "^10.0.0",
     "@eslint/json": "^1.2.0",
-    "@eslint/markdown": "^7.5.1",
+    "@eslint/markdown": "^8.0.1",
     "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4.2.2",
     "@testing-library/jest-dom": "^6.9.1",
