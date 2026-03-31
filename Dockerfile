@@ -43,7 +43,7 @@ ARG CADDY_CANDIDATE_VERSION=2.11.2
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
-ARG CADDY_SECURITY_VERSION=1.1.57
+ARG CADDY_SECURITY_VERSION=1.1.58
 # renovate: datasource=go depName=github.com/corazawaf/coraza-caddy
 ARG CORAZA_CADDY_VERSION=2.3.0
 ## When an official caddy image tag isn't available on the host, use a
@@ -92,7 +92,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.14.0-alpine@sha256:7fddd9ddeae8196abf4a3ef2de34e11f7b1a722119f91f28ddf1e99dcafdf114 AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.14.1-alpine@sha256:01743339035a5c3c11a373cd7c83aeab6ed1457b55da6a69e014a95ac4e4700b AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
