@@ -364,7 +364,7 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # Fix available at v1.79.3. Pin here so the CrowdSec binary is patched immediately;
     # remove once CrowdSec ships a release built with grpc >= v1.79.3.
     # renovate: datasource=go depName=google.golang.org/grpc
-    go get google.golang.org/grpc@v1.79.3 && \
+    go get google.golang.org/grpc@v1.80.0 && \
     go mod tidy
 
 # Fix compatibility issues with expr-lang v1.17.7
