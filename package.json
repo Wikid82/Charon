@@ -20,9 +20,9 @@
   "devDependencies": {
     "@types/eslint-plugin-jsx-a11y": "^6.10.1",
     "@bgotink/playwright-coverage": "^0.3.2",
-    "@playwright/test": "^1.58.2",
-    "@types/node": "^25.5.0",
-    "dotenv": "^17.3.1",
+    "@playwright/test": "^1.59.1",
+    "@types/node": "^25.5.2",
+    "dotenv": "^17.4.0",
     "markdownlint-cli2": "^0.22.0",
     "prettier": "^3.8.1",
     "prettier-plugin-tailwindcss": "^0.7.2",
