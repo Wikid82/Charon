@@ -22,6 +22,9 @@ concurrency:
   group: security-pr-${{ github.event_name == 'workflow_run' && github.event.workflow_run.event || github.event_name }}-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   security-scan:
     name: Trivy Binary Scan
@@ -361,7 +364,7 @@ jobs:
 
       - name: Run Trivy filesystem scan (SARIF output)
         if: steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request'
-        # aquasecurity/trivy-action v0.33.1
+        # aquasecurity/trivy-action 0.35.0
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
         with:
           scan-type: 'fs'
@@ -393,7 +396,7 @@ jobs:
 
       - name: Run Trivy filesystem scan (fail on CRITICAL/HIGH)
         if: steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request'
-        # aquasecurity/trivy-action v0.33.1
+        # aquasecurity/trivy-action 0.35.0
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
         with:
           scan-type: 'fs'

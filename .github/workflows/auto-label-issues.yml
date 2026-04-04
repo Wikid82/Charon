@@ -8,6 +8,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.issue.number }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   auto-label:
     runs-on: ubuntu-latest
