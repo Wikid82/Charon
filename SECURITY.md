@@ -27,7 +27,7 @@ public disclosure.
 
 ## Known Vulnerabilities
 
-Last reviewed: 2026-03-24
+Last reviewed: 2026-04-04
 
 ### [HIGH] CVE-2026-2673 · OpenSSL TLS 1.3 Key Exchange Group Downgrade
 
@@ -73,6 +73,48 @@ available, update the pinned `ALPINE_IMAGE` digest in the Dockerfile, or add an 
 
 ---
 
+### [HIGH] CVE-2026-34040 · Docker AuthZ Plugin Bypass via Oversized Request Body
+
+| Field        | Value |
+|--------------|-------|
+| **ID**       | CVE-2026-34040 (GHSA-x744-4wpc-v9h2) |
+| **Severity** | High · 8.8 |
+| **Status**   | Awaiting Upstream |
+
+**What**
+Docker Engine AuthZ plugins can be bypassed when an API request body exceeds a
+certain size threshold. Charon uses the Docker client SDK only; this is a
+server-side vulnerability in the Docker daemon's authorization plugin handler.
+
+**Who**
+
+- Discovered by: Automated scan (govulncheck, Grype)
+- Reported: 2026-04-04
+- Affects: Docker Engine daemon operators; Charon application is not directly vulnerable
+
+**Where**
+
+- Component: `github.com/docker/docker` v28.5.2+incompatible (Docker client SDK)
+- Versions affected: Docker Engine < 29.3.1
+
+**When**
+
+- Discovered: 2026-04-04
+- Disclosed (if public): Public
+- Target fix: When moby/moby/v2 stabilizes or docker/docker import path is updated
+
+**How**
+The vulnerability requires an attacker to send oversized API request bodies to the
+Docker daemon. Charon uses the Docker client SDK for container management operations
+only and does not expose the Docker socket externally. The attack vector is limited
+to the Docker daemon host, not the Charon application.
+
+**Planned Remediation**
+Monitor moby/moby/v2 module stabilization. The `docker/docker` import path has no
+fix available. When a compatible module path exists, migrate the Docker SDK import.
+
+---
+
 ### [MEDIUM] CVE-2025-60876 · BusyBox wget HTTP Request Smuggling
 
 | Field        | Value |
@@ -113,13 +155,57 @@ Charon users is negligible since the vulnerable code path is not exercised.
 
 ---
 
-### [LOW] CVE-2026-26958 · edwards25519 MultiScalarMult Invalid Results
+### [MEDIUM] CVE-2026-33997 · Docker Off-by-One Plugin Privilege Validation
+
+| Field        | Value |
+|--------------|-------|
+| **ID**       | CVE-2026-33997 (GHSA-pxq6-2prw-chj9) |
+| **Severity** | Medium · 6.8 |
+| **Status**   | Awaiting Upstream |
+
+**What**
+An off-by-one error in Docker Engine's plugin privilege validation could allow
+a malicious plugin to escalate privileges. Charon uses the Docker client SDK
+for container management and does not install or manage Docker plugins.
+
+**Who**
+
+- Discovered by: Automated scan (govulncheck, Grype)
+- Reported: 2026-04-04
+- Affects: Docker Engine plugin operators; Charon application is not directly vulnerable
+
+**Where**
+
+- Component: `github.com/docker/docker` v28.5.2+incompatible (Docker client SDK)
+- Versions affected: Docker Engine < 29.3.1
+
+**When**
+
+- Discovered: 2026-04-04
+- Disclosed (if public): Public
+- Target fix: When moby/moby/v2 stabilizes or docker/docker import path is updated
+
+**How**
+The vulnerability is in Docker Engine's plugin privilege validation at the
+daemon level. Charon does not use Docker plugins — it only manages containers
+via the Docker client SDK. The attack requires a malicious Docker plugin to be
+installed on the host, which is outside Charon's operational scope.
+
+**Planned Remediation**
+Same as CVE-2026-34040: monitor moby/moby/v2 module stabilization. No fix
+available for the current `docker/docker` import path.
+
+---
+
+## Patched Vulnerabilities
+
+### ✅ [LOW] CVE-2026-26958 · edwards25519 MultiScalarMult Invalid Results
 
 | Field        | Value |
 |--------------|-------|
 | **ID**       | CVE-2026-26958 (GHSA-fw7p-63qq-7hpr) |
 | **Severity** | Low · 1.7 |
-| **Status**   | Awaiting Upstream |
+| **Patched**  | 2026-04-04 |
 
 **What**
 `filippo.io/edwards25519` v1.1.0 `MultiScalarMult` produces invalid results or undefined
@@ -130,8 +216,6 @@ CrowdSec to rebuild.
 
 - Discovered by: Automated scan (Grype)
 - Reported: 2026-03-24
-- Affects: CrowdSec Agent component within the container; not directly exposed through Charon's
-  primary application interface
 
 **Where**
 
@@ -141,20 +225,18 @@ CrowdSec to rebuild.
 **When**
 
 - Discovered: 2026-03-24
-- Disclosed (if public): Public
-- Target fix: When CrowdSec releases a build with updated dependency
+- Patched: 2026-04-04
+- Time to patch: 11 days
 
 **How**
 This is a rarely used advanced API within the edwards25519 library. CrowdSec does not directly
 expose MultiScalarMult to external input. EPSS score is 0.00018 (0.04 percentile).
 
-**Planned Remediation**
-Awaiting CrowdSec upstream release with updated dependency. No action available for Charon
-maintainers.
+**Resolution**
+Dependency no longer present in Charon's dependency tree. CrowdSec binaries no longer bundle
+affected version.
 
 ---
-
-## Patched Vulnerabilities
 
 ### ✅ [CRITICAL] CVE-2025-68121 · Go Stdlib Critical in CrowdSec Bundled Binaries
 
