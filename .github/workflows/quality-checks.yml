@@ -268,6 +268,12 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Verify lockfile integrity and audit dependencies
+        working-directory: frontend
+        run: |
+          npm ci --ignore-scripts
+          npm audit --audit-level=critical
+
       - name: Check if frontend was modified in PR
         id: check-frontend
         run: |

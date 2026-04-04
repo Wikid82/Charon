@@ -22,6 +22,9 @@ concurrency:
   group: security-pr-${{ github.event_name == 'workflow_run' && github.event.workflow_run.event || github.event_name }}-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   security-scan:
     name: Trivy Binary Scan
