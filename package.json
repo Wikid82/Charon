@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@typescript/analyze-trace": "^0.10.1",
-    "tldts": "^7.0.27",
+    "tldts": "^7.0.28",
     "type-check": "^0.4.0"
   },
   "overrides": {
