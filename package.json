@@ -15,7 +15,7 @@
     "type-check": "^0.4.0"
   },
   "overrides": {
-    "smol-toml": ">=1.6.1"
+    "smol-toml": "^1.6.1"
   },
   "devDependencies": {
     "@types/eslint-plugin-jsx-a11y": "^6.10.1",
