@@ -415,6 +415,80 @@ ignore:
     # 4. If no fix yet: Extend expiry by 30 days and update the review comment above
     # 5. If extended 3+ times: Open an issue to track moby/moby/v2 migration feasibility
 
+  # GHSA-78h2-9frx-2jm8: go-jose JWE decryption panic (DoS)
+  # Severity: HIGH
+  # Packages: github.com/go-jose/go-jose/v3 v3.0.4 and github.com/go-jose/go-jose/v4 v4.1.3
+  #           (embedded in /usr/bin/caddy)
+  # Status: Fix available in go-jose/v3 v3.0.5 and go-jose/v4 v4.1.4 — requires upstream Caddy rebuild
+  #
+  # Vulnerability Details:
+  # - JWE decryption can trigger a panic due to improper input validation, causing
+  #   a denial-of-service condition (runtime crash).
+  #
+  # Root Cause (Third-Party Binary):
+  # - Charon does not use go-jose directly. The library is compiled into the Caddy binary
+  #   shipped in the Docker image.
+  # - Fixes are available upstream (v3.0.5 and v4.1.4) but require a Caddy rebuild to pick up.
+  # - Fix path: once the upstream Caddy release includes the patched go-jose versions,
+  #   rebuild the Docker image and remove these suppressions.
+  #
+  # Risk Assessment: ACCEPTED (No direct use + fix requires upstream rebuild)
+  # - Charon does not import or call go-jose functions; the library is only present as a
+  #   transitive dependency inside the Caddy binary.
+  # - The attack vector requires crafted JWE input reaching Caddy's internal JWT handling,
+  #   which is limited to authenticated admin-API paths not exposed in Charon deployments.
+  #
+  # Mitigation (active while suppression is in effect):
+  # - Monitor Caddy releases: https://github.com/caddyserver/caddy/releases
+  # - Weekly CI security rebuild flags the moment a fixed image ships.
+  #
+  # Review:
+  # - Reviewed 2026-04-05 (initial suppression): fix available upstream but not yet in Caddy release.
+  #   Set 30-day review.
+  # - Next review: 2026-05-05. Remove suppression once Caddy ships with patched go-jose.
+  #
+  # Removal Criteria:
+  # - Caddy releases a version built with go-jose/v3 >= v3.0.5 and go-jose/v4 >= v4.1.4
+  # - Rebuild Docker image, run security-scan-docker-image, confirm finding is resolved
+  # - Remove both entries (v3 and v4) and any corresponding .trivyignore entries simultaneously
+  #
+  # References:
+  # - GHSA-78h2-9frx-2jm8: https://github.com/advisories/GHSA-78h2-9frx-2jm8
+  # - go-jose releases: https://github.com/go-jose/go-jose/releases
+  # - Caddy releases: https://github.com/caddyserver/caddy/releases
+  - vulnerability: GHSA-78h2-9frx-2jm8
+    package:
+      name: github.com/go-jose/go-jose/v3
+      version: "v3.0.4"
+      type: go-module
+    reason: |
+      HIGH — JWE decryption panic in go-jose v3.0.4 embedded in /usr/bin/caddy.
+      Fix available in v3.0.5 but requires upstream Caddy rebuild. Charon does not use go-jose
+      directly. Deferring to next Caddy release.
+    expiry: "2026-05-05"  # 30-day review: remove once Caddy ships with go-jose/v3 >= v3.0.5.
+
+    # Action items when this suppression expires:
+    # 1. Check Caddy releases: https://github.com/caddyserver/caddy/releases
+    # 2. Verify with: `go version -m /usr/bin/caddy | grep go-jose`
+    #    Expected: go-jose/v3 >= v3.0.5
+    # 3. If Caddy has updated:
+    #    a. Rebuild Docker image and run local security-scan-docker-image
+    #    b. Remove this entry, the v4 entry below, and any corresponding .trivyignore entries
+    # 4. If not yet updated: Extend expiry by 30 days and update the review comment above
+    # 5. If extended 3+ times: Open an upstream issue on caddyserver/caddy requesting go-jose update
+
+  # GHSA-78h2-9frx-2jm8 (go-jose/v4) — see full justification in the go-jose/v3 entry above
+  - vulnerability: GHSA-78h2-9frx-2jm8
+    package:
+      name: github.com/go-jose/go-jose/v4
+      version: "v4.1.3"
+      type: go-module
+    reason: |
+      HIGH — JWE decryption panic in go-jose v4.1.3 embedded in /usr/bin/caddy.
+      Fix available in v4.1.4 but requires upstream Caddy rebuild. Charon does not use go-jose
+      directly. Deferring to next Caddy release.
+    expiry: "2026-05-05"  # 30-day review: see go-jose/v3 entry above for action items.
+
 # Match exclusions (patterns to ignore during scanning)
 # Use sparingly - prefer specific CVE suppressions above
 match:
