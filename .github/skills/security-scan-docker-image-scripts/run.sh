@@ -139,7 +139,10 @@ log_info "This may take 30-60 seconds on first run (database download)"
 
 # Run Grype against the SBOM (generated from image, not filesystem)
 # This matches exactly what CI does in supply-chain-pr.yml
+# --config ensures .grype.yaml ignore rules are applied, separating
+# ignored matches from actionable ones in the JSON output
 if grype sbom:sbom.cyclonedx.json \
+    --config .grype.yaml \
     --output json \
     --file grype-results.json; then
     log_success "Vulnerability scan complete"
@@ -149,6 +152,7 @@ fi
 
 # Generate SARIF output for GitHub Security (matches CI)
 grype sbom:sbom.cyclonedx.json \
+    --config .grype.yaml \
     --output sarif \
     --file grype-results.sarif 2>/dev/null || true
 
