@@ -1005,3 +1005,44 @@ func TestLatestConfigApplyState_Helper(t *testing.T) {
 	require.Equal(t, true, state["available"])
 	require.Equal(t, "applied", state["status"])
 }
+
+// TestSecurityHandler_CreateDecision_StripsEnrichmentFields verifies that
+// clients cannot inject system-populated enrichment fields (Scenario, Country,
+// ExpiresAt) via the CreateDecision endpoint.
+func TestSecurityHandler_CreateDecision_StripsEnrichmentFields(t *testing.T) {
+	db := setupTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityAudit{}))
+
+	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.POST("/security/decisions", handler.CreateDecision)
+
+	payload := map[string]any{
+		"ip":         "10.0.0.1",
+		"action":     "block",
+		"details":    "test",
+		"scenario":   "injected-scenario",
+		"country":    "XX",
+		"expires_at": "2099-01-01T00:00:00Z",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/security/decisions", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// Verify the stored decision has empty enrichment fields
+	var stored models.SecurityDecision
+	require.NoError(t, db.First(&stored).Error)
+	assert.Empty(t, stored.Scenario, "Scenario should not be settable by client")
+	assert.Empty(t, stored.Country, "Country should not be settable by client")
+	assert.Nil(t, stored.ExpiresAt, "ExpiresAt should not be settable by client")
+	assert.Equal(t, "manual", stored.Source, "Source must be forced to manual")
+}

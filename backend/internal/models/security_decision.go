@@ -18,7 +18,7 @@ type SecurityDecision struct {
 	CreatedAt time.Time `json:"created_at" gorm:"index;compositeIndex:idx_sd_source_created,sort:desc;compositeIndex:idx_sd_source_scenario_created,sort:desc;compositeIndex:idx_sd_source_ip_created,sort:desc"`
 
 	// Dashboard enrichment fields (Issue #26, PR-1)
-	Scenario  string     `json:"scenario" gorm:"index;compositeIndex:idx_sd_source_scenario_created"`
-	Country   string     `json:"country" gorm:"index;size:2"`
+	Scenario  string     `json:"scenario,omitempty" gorm:"index;compositeIndex:idx_sd_source_scenario_created"`
+	Country   string     `json:"country,omitempty" gorm:"index;size:2"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty" gorm:"index"`
 }

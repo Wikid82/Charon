@@ -34,6 +34,17 @@ type WAFExclusion struct {
 	Description string `json:"description,omitempty"`
 }
 
+// CreateDecisionRequest is the client-facing DTO for manual decision creation.
+// Enrichment fields (Scenario, Country, ExpiresAt) are system-populated and
+// deliberately excluded to prevent clients from injecting arbitrary values.
+type CreateDecisionRequest struct {
+	IP      string `json:"ip" binding:"required"`
+	Action  string `json:"action" binding:"required"`
+	Host    string `json:"host,omitempty"`
+	RuleID  string `json:"rule_id,omitempty"`
+	Details string `json:"details,omitempty"`
+}
+
 // SecurityHandler handles security-related API requests.
 type SecurityHandler struct {
 	cfg          config.SecurityConfig
@@ -328,19 +339,19 @@ func (h *SecurityHandler) CreateDecision(c *gin.Context) {
 		return
 	}
 
-	var payload models.SecurityDecision
-	if err := c.ShouldBindJSON(&payload); err != nil {
+	var req CreateDecisionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
 		return
 	}
-	if payload.IP == "" || payload.Action == "" {
+	if req.IP == "" || req.Action == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "ip and action are required"})
 		return
 	}
 
 	// CRITICAL: Validate IP format to prevent SQL injection via IP field
 	// Must accept both single IPs and CIDR ranges
-	if !isValidIP(payload.IP) && !isValidCIDR(payload.IP) {
+	if !isValidIP(req.IP) && !isValidCIDR(req.IP) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid IP address format"})
 		return
 	}
@@ -348,16 +359,21 @@ func (h *SecurityHandler) CreateDecision(c *gin.Context) {
 	// CRITICAL: Validate action enum
 	// Only accept known action types to prevent injection via action field
 	validActions := []string{"block", "allow", "captcha"}
-	if !contains(validActions, payload.Action) {
+	if !contains(validActions, req.Action) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid action"})
 		return
 	}
 
-	// Sanitize details field (limit length, strip control characters)
-	payload.Details = sanitizeString(payload.Details, 1000)
-
-	// Populate source
-	payload.Source = "manual"
+	// Map DTO to model — enrichment fields (Scenario, Country, ExpiresAt)
+	// are intentionally excluded; they are system-populated only.
+	payload := models.SecurityDecision{
+		IP:      req.IP,
+		Action:  req.Action,
+		Host:    req.Host,
+		RuleID:  req.RuleID,
+		Details: sanitizeString(req.Details, 1000),
+		Source:  "manual",
+	}
 	if err := h.svc.LogDecision(&payload); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to log decision"})
 		return
