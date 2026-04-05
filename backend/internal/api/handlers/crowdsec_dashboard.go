@@ -610,7 +610,12 @@ func (h *CrowdsecHandler) ExportDecisions(c *gin.Context) {
 				sanitizeCSVField(d.Host),
 				sanitizeCSVField(d.Country),
 				d.CreatedAt.UTC().Format(time.RFC3339),
-				d.ExpiresAt.UTC().Format(time.RFC3339),
+				func() string {
+					if d.ExpiresAt != nil {
+						return d.ExpiresAt.UTC().Format(time.RFC3339)
+					}
+					return ""
+				}(),
 			})
 		}
 		w.Flush()

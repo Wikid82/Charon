@@ -2299,13 +2299,14 @@ func (h *CrowdsecHandler) BanIP(c *gin.Context) {
 	// Log to security_decisions for dashboard aggregation
 	if h.Security != nil {
 		parsedDur, _ := time.ParseDuration(duration)
+		expiry := time.Now().Add(parsedDur)
 		_ = h.Security.LogDecision(&models.SecurityDecision{
 			IP:        ip,
 			Action:    "block",
 			Source:    "crowdsec",
 			RuleID:    reason,
 			Scenario:  "manual",
-			ExpiresAt: time.Now().Add(parsedDur),
+			ExpiresAt: &expiry,
 		})
 	}
 	h.dashCache.Invalidate("dashboard")
