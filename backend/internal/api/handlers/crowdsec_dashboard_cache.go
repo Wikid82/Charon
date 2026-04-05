@@ -23,18 +23,26 @@ func newDashboardCache() *dashboardCache {
 }
 
 func (c *dashboardCache) Get(key string) (interface{}, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
+	c.mu.RLock()
 	entry, ok := c.entries[key]
 	if !ok {
+		c.mu.RUnlock()
 		return nil, false
 	}
-	if time.Now().After(entry.expiresAt) {
+	if time.Now().Before(entry.expiresAt) {
+		data := entry.data
+		c.mu.RUnlock()
+		return data, true
+	}
+	c.mu.RUnlock()
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok = c.entries[key]
+	if ok && time.Now().After(entry.expiresAt) {
 		delete(c.entries, key)
-		return nil, false
 	}
-	return entry.data, true
+	return nil, false
 }
 
 func (c *dashboardCache) Set(key string, data interface{}, ttl time.Duration) {
