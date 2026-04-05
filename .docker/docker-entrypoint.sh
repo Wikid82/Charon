@@ -310,10 +310,11 @@ ACQUIS_EOF
         echo "✗ WARNING: LAPI port configuration may be incorrect"
     fi
 
-    # Update hub index to ensure CrowdSec can start
-    if [ ! -f "/etc/crowdsec/hub/.index.json" ]; then
-        echo "Updating CrowdSec hub index..."
-        timeout 60s cscli hub update 2>/dev/null || echo "⚠️ Hub update timed out or failed, continuing..."
+    # Always refresh hub index on startup (stale index causes hash mismatch errors on collection install)
+    echo "Updating CrowdSec hub index..."
+    if ! timeout 60s cscli hub update 2>&1; then
+        echo "⚠️ Hub index update failed (network issue?). Collections may fail to install."
+        echo "   CrowdSec will still start with whatever index is cached."
     fi
 
     # Ensure local machine is registered (auto-heal for volume/config mismatch)
@@ -321,12 +322,11 @@ ACQUIS_EOF
     echo "Registering local machine..."
     cscli machines add -a --force 2>/dev/null || echo "Warning: Machine registration may have failed"
 
-    # Install hub items (parsers, scenarios, collections) if local mode enabled
-    if [ "$SECURITY_CROWDSEC_MODE" = "local" ]; then
-        echo "Installing CrowdSec hub items..."
-        if [ -x /usr/local/bin/install_hub_items.sh ]; then
-            /usr/local/bin/install_hub_items.sh 2>/dev/null || echo "Warning: Some hub items may not have installed"
-        fi
+    # Always ensure required collections are present (idempotent — already-installed items are skipped).
+    # Collections are just config files with zero runtime cost when CrowdSec is disabled.
+    echo "Ensuring CrowdSec hub items are installed..."
+    if [ -x /usr/local/bin/install_hub_items.sh ]; then
+        /usr/local/bin/install_hub_items.sh || echo "⚠️ Some hub items may not have installed. CrowdSec can still start."
     fi
 
     # Fix ownership AFTER cscli commands (they run as root and create root-owned files)
