@@ -281,7 +281,7 @@ jobs:
           echo "component_count=${COMPONENT_COUNT}" >> "$GITHUB_OUTPUT"
           echo "✅ SBOM generated with ${COMPONENT_COUNT} components"
 
-      # Scan for vulnerabilities using manual Grype installation (pinned to v0.107.1)
+      # Scan for vulnerabilities using manual Grype installation (pinned to v0.110.0)
       - name: Install Grype
         if: steps.set-target.outputs.image_name != ''
         run: |
@@ -292,8 +292,8 @@ jobs:
         id: grype-scan
         run: |
           echo "🔍 Scanning SBOM for vulnerabilities..."
-          grype sbom:sbom.cyclonedx.json -o json > grype-results.json
-          grype sbom:sbom.cyclonedx.json -o sarif > grype-results.sarif
+          grype sbom:sbom.cyclonedx.json --config .grype.yaml -o json > grype-results.json
+          grype sbom:sbom.cyclonedx.json --config .grype.yaml -o sarif > grype-results.sarif
 
       - name: Debug Output Files
         if: steps.set-target.outputs.image_name != ''
