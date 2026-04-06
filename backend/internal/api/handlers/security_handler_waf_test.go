@@ -25,7 +25,6 @@ import (
 
 // Tests for GetWAFExclusions handler
 func TestSecurityHandler_GetWAFExclusions_Empty(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -46,7 +45,6 @@ func TestSecurityHandler_GetWAFExclusions_Empty(t *testing.T) {
 }
 
 func TestSecurityHandler_GetWAFExclusions_WithExclusions(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -77,7 +75,6 @@ func TestSecurityHandler_GetWAFExclusions_WithExclusions(t *testing.T) {
 }
 
 func TestSecurityHandler_GetWAFExclusions_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -104,7 +101,6 @@ func TestSecurityHandler_GetWAFExclusions_InvalidJSON(t *testing.T) {
 
 // Tests for AddWAFExclusion handler
 func TestSecurityHandler_AddWAFExclusion_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}))
 
@@ -138,7 +134,6 @@ func TestSecurityHandler_AddWAFExclusion_Success(t *testing.T) {
 }
 
 func TestSecurityHandler_AddWAFExclusion_WithTarget(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}))
 
@@ -172,7 +167,6 @@ func TestSecurityHandler_AddWAFExclusion_WithTarget(t *testing.T) {
 }
 
 func TestSecurityHandler_AddWAFExclusion_ToExistingConfig(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}))
 
@@ -216,7 +210,6 @@ func TestSecurityHandler_AddWAFExclusion_ToExistingConfig(t *testing.T) {
 }
 
 func TestSecurityHandler_AddWAFExclusion_Duplicate(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}))
 
@@ -249,7 +242,6 @@ func TestSecurityHandler_AddWAFExclusion_Duplicate(t *testing.T) {
 }
 
 func TestSecurityHandler_AddWAFExclusion_DuplicateWithDifferentTarget(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}))
 
@@ -282,7 +274,6 @@ func TestSecurityHandler_AddWAFExclusion_DuplicateWithDifferentTarget(t *testing
 }
 
 func TestSecurityHandler_AddWAFExclusion_MissingRuleID(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -308,7 +299,6 @@ func TestSecurityHandler_AddWAFExclusion_MissingRuleID(t *testing.T) {
 }
 
 func TestSecurityHandler_AddWAFExclusion_InvalidRuleID(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -335,7 +325,6 @@ func TestSecurityHandler_AddWAFExclusion_InvalidRuleID(t *testing.T) {
 }
 
 func TestSecurityHandler_AddWAFExclusion_NegativeRuleID(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -361,7 +350,6 @@ func TestSecurityHandler_AddWAFExclusion_NegativeRuleID(t *testing.T) {
 }
 
 func TestSecurityHandler_AddWAFExclusion_InvalidPayload(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -383,7 +371,6 @@ func TestSecurityHandler_AddWAFExclusion_InvalidPayload(t *testing.T) {
 
 // Tests for DeleteWAFExclusion handler
 func TestSecurityHandler_DeleteWAFExclusion_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}))
 
@@ -423,7 +410,6 @@ func TestSecurityHandler_DeleteWAFExclusion_Success(t *testing.T) {
 }
 
 func TestSecurityHandler_DeleteWAFExclusion_WithTarget(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}))
 
@@ -463,7 +449,6 @@ func TestSecurityHandler_DeleteWAFExclusion_WithTarget(t *testing.T) {
 }
 
 func TestSecurityHandler_DeleteWAFExclusion_NotFound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -488,7 +473,6 @@ func TestSecurityHandler_DeleteWAFExclusion_NotFound(t *testing.T) {
 }
 
 func TestSecurityHandler_DeleteWAFExclusion_NoConfig(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -508,7 +492,6 @@ func TestSecurityHandler_DeleteWAFExclusion_NoConfig(t *testing.T) {
 }
 
 func TestSecurityHandler_DeleteWAFExclusion_InvalidRuleID(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -528,7 +511,6 @@ func TestSecurityHandler_DeleteWAFExclusion_InvalidRuleID(t *testing.T) {
 }
 
 func TestSecurityHandler_DeleteWAFExclusion_ZeroRuleID(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -548,7 +530,6 @@ func TestSecurityHandler_DeleteWAFExclusion_ZeroRuleID(t *testing.T) {
 }
 
 func TestSecurityHandler_DeleteWAFExclusion_NegativeRuleID(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -569,7 +550,6 @@ func TestSecurityHandler_DeleteWAFExclusion_NegativeRuleID(t *testing.T) {
 
 // Integration test: Full WAF exclusion workflow
 func TestSecurityHandler_WAFExclusion_FullWorkflow(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Create a temporary file-based SQLite database for complete isolation
 	// This avoids all the shared memory locking issues with in-memory databases
@@ -673,7 +653,6 @@ func TestSecurityHandler_WAFExclusion_FullWorkflow(t *testing.T) {
 
 // Test WAFDisabled field on ProxyHost
 func TestProxyHost_WAFDisabled_DefaultFalse(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}))
 
@@ -693,7 +672,6 @@ func TestProxyHost_WAFDisabled_DefaultFalse(t *testing.T) {
 }
 
 func TestProxyHost_WAFDisabled_SetTrue(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}))
 
@@ -715,7 +693,6 @@ func TestProxyHost_WAFDisabled_SetTrue(t *testing.T) {
 
 // Test WAFParanoiaLevel field on SecurityConfig
 func TestSecurityConfig_WAFParanoiaLevel_Default(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -733,7 +710,6 @@ func TestSecurityConfig_WAFParanoiaLevel_Default(t *testing.T) {
 }
 
 func TestSecurityConfig_WAFParanoiaLevel_CustomValue(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -752,7 +728,6 @@ func TestSecurityConfig_WAFParanoiaLevel_CustomValue(t *testing.T) {
 
 // Test WAFExclusions field on SecurityConfig
 func TestSecurityConfig_WAFExclusions_Empty(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -769,7 +744,6 @@ func TestSecurityConfig_WAFExclusions_Empty(t *testing.T) {
 }
 
 func TestSecurityConfig_WAFExclusions_JSONArray(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 

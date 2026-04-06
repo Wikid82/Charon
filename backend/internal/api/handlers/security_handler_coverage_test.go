@@ -21,7 +21,6 @@ import (
 
 // Tests for UpdateConfig handler to improve coverage (currently 46%)
 func TestSecurityHandler_UpdateConfig_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityRuleSet{}, &models.SecurityDecision{}, &models.SecurityAudit{}))
 
@@ -53,7 +52,6 @@ func TestSecurityHandler_UpdateConfig_Success(t *testing.T) {
 }
 
 func TestSecurityHandler_UpdateConfig_DefaultName(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityRuleSet{}, &models.SecurityDecision{}, &models.SecurityAudit{}))
 
@@ -80,7 +78,6 @@ func TestSecurityHandler_UpdateConfig_DefaultName(t *testing.T) {
 }
 
 func TestSecurityHandler_UpdateConfig_InvalidPayload(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -102,7 +99,6 @@ func TestSecurityHandler_UpdateConfig_InvalidPayload(t *testing.T) {
 
 // Tests for GetConfig handler
 func TestSecurityHandler_GetConfig_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -126,7 +122,6 @@ func TestSecurityHandler_GetConfig_Success(t *testing.T) {
 }
 
 func TestSecurityHandler_GetConfig_NotFound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -147,7 +142,6 @@ func TestSecurityHandler_GetConfig_NotFound(t *testing.T) {
 
 // Tests for ListDecisions handler
 func TestSecurityHandler_ListDecisions_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}))
 
@@ -172,7 +166,6 @@ func TestSecurityHandler_ListDecisions_Success(t *testing.T) {
 }
 
 func TestSecurityHandler_ListDecisions_WithLimit(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}))
 
@@ -199,7 +192,6 @@ func TestSecurityHandler_ListDecisions_WithLimit(t *testing.T) {
 
 // Tests for CreateDecision handler
 func TestSecurityHandler_CreateDecision_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityAudit{}))
 
@@ -228,7 +220,6 @@ func TestSecurityHandler_CreateDecision_Success(t *testing.T) {
 }
 
 func TestSecurityHandler_CreateDecision_MissingIP(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}))
 
@@ -254,7 +245,6 @@ func TestSecurityHandler_CreateDecision_MissingIP(t *testing.T) {
 }
 
 func TestSecurityHandler_CreateDecision_MissingAction(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}))
 
@@ -280,7 +270,6 @@ func TestSecurityHandler_CreateDecision_MissingAction(t *testing.T) {
 }
 
 func TestSecurityHandler_CreateDecision_InvalidPayload(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}))
 
@@ -302,7 +291,6 @@ func TestSecurityHandler_CreateDecision_InvalidPayload(t *testing.T) {
 
 // Tests for ListRuleSets handler
 func TestSecurityHandler_ListRuleSets_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityRuleSet{}))
 
@@ -328,7 +316,6 @@ func TestSecurityHandler_ListRuleSets_Success(t *testing.T) {
 
 // Tests for UpsertRuleSet handler
 func TestSecurityHandler_UpsertRuleSet_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityRuleSet{}, &models.SecurityAudit{}))
 
@@ -356,7 +343,6 @@ func TestSecurityHandler_UpsertRuleSet_Success(t *testing.T) {
 }
 
 func TestSecurityHandler_UpsertRuleSet_MissingName(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityRuleSet{}))
 
@@ -383,7 +369,6 @@ func TestSecurityHandler_UpsertRuleSet_MissingName(t *testing.T) {
 }
 
 func TestSecurityHandler_UpsertRuleSet_InvalidPayload(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityRuleSet{}))
 
@@ -405,7 +390,6 @@ func TestSecurityHandler_UpsertRuleSet_InvalidPayload(t *testing.T) {
 
 // Tests for DeleteRuleSet handler (currently 52%)
 func TestSecurityHandler_DeleteRuleSet_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityRuleSet{}, &models.SecurityAudit{}))
 
@@ -433,7 +417,6 @@ func TestSecurityHandler_DeleteRuleSet_Success(t *testing.T) {
 }
 
 func TestSecurityHandler_DeleteRuleSet_NotFound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityRuleSet{}))
 
@@ -453,7 +436,6 @@ func TestSecurityHandler_DeleteRuleSet_NotFound(t *testing.T) {
 }
 
 func TestSecurityHandler_DeleteRuleSet_InvalidID(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityRuleSet{}))
 
@@ -473,7 +455,6 @@ func TestSecurityHandler_DeleteRuleSet_InvalidID(t *testing.T) {
 }
 
 func TestSecurityHandler_DeleteRuleSet_EmptyID(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityRuleSet{}))
 
@@ -497,7 +478,6 @@ func TestSecurityHandler_DeleteRuleSet_EmptyID(t *testing.T) {
 
 // Tests for Enable handler
 func TestSecurityHandler_Enable_NoConfigNoWhitelist(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -515,7 +495,6 @@ func TestSecurityHandler_Enable_NoConfigNoWhitelist(t *testing.T) {
 }
 
 func TestSecurityHandler_Enable_WithWhitelist(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -537,7 +516,6 @@ func TestSecurityHandler_Enable_WithWhitelist(t *testing.T) {
 }
 
 func TestSecurityHandler_Enable_IPNotInWhitelist(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -559,7 +537,6 @@ func TestSecurityHandler_Enable_IPNotInWhitelist(t *testing.T) {
 }
 
 func TestSecurityHandler_Enable_WithValidBreakGlassToken(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -600,7 +577,6 @@ func TestSecurityHandler_Enable_WithValidBreakGlassToken(t *testing.T) {
 }
 
 func TestSecurityHandler_Enable_WithInvalidBreakGlassToken(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -625,7 +601,6 @@ func TestSecurityHandler_Enable_WithInvalidBreakGlassToken(t *testing.T) {
 
 // Tests for Disable handler (currently 44%)
 func TestSecurityHandler_Disable_FromLocalhost(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -654,7 +629,6 @@ func TestSecurityHandler_Disable_FromLocalhost(t *testing.T) {
 }
 
 func TestSecurityHandler_Disable_FromRemoteWithToken(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -695,7 +669,6 @@ func TestSecurityHandler_Disable_FromRemoteWithToken(t *testing.T) {
 }
 
 func TestSecurityHandler_Disable_FromRemoteNoToken(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -719,7 +692,6 @@ func TestSecurityHandler_Disable_FromRemoteNoToken(t *testing.T) {
 }
 
 func TestSecurityHandler_Disable_FromRemoteInvalidToken(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -747,7 +719,6 @@ func TestSecurityHandler_Disable_FromRemoteInvalidToken(t *testing.T) {
 
 // Tests for GenerateBreakGlass handler
 func TestSecurityHandler_GenerateBreakGlass_NoConfig(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -773,7 +744,6 @@ func TestSecurityHandler_GenerateBreakGlass_NoConfig(t *testing.T) {
 
 // Test Enable with IPv6 localhost
 func TestSecurityHandler_Disable_FromIPv6Localhost(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -798,7 +768,6 @@ func TestSecurityHandler_Disable_FromIPv6Localhost(t *testing.T) {
 
 // Test Enable with CIDR whitelist matching
 func TestSecurityHandler_Enable_WithCIDRWhitelist(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -821,7 +790,6 @@ func TestSecurityHandler_Enable_WithCIDRWhitelist(t *testing.T) {
 
 // Test Enable with exact IP in whitelist
 func TestSecurityHandler_Enable_WithExactIPWhitelist(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -843,7 +811,6 @@ func TestSecurityHandler_Enable_WithExactIPWhitelist(t *testing.T) {
 }
 
 func TestSecurityHandler_GetStatus_BackwardCompatibilityOverrides(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}, &models.CaddyConfig{}))
 
@@ -887,7 +854,6 @@ func TestSecurityHandler_GetStatus_BackwardCompatibilityOverrides(t *testing.T) 
 }
 
 func TestSecurityHandler_AddWAFExclusion_InvalidExistingJSONStillAdds(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}))
 	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", WAFExclusions: "{"}).Error)
@@ -910,7 +876,6 @@ func TestSecurityHandler_AddWAFExclusion_InvalidExistingJSONStillAdds(t *testing
 }
 
 func TestSecurityHandler_ToggleSecurityModule_SnapshotSettingsError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
 
@@ -935,7 +900,6 @@ func TestSecurityHandler_ToggleSecurityModule_SnapshotSettingsError(t *testing.T
 }
 
 func TestSecurityHandler_ToggleSecurityModule_SnapshotSecurityConfigError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
 	require.NoError(t, db.Exec("DROP TABLE security_configs").Error)
@@ -957,7 +921,6 @@ func TestSecurityHandler_ToggleSecurityModule_SnapshotSecurityConfigError(t *tes
 }
 
 func TestSecurityHandler_SnapshotAndRestoreHelpers(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
 
@@ -983,7 +946,6 @@ func TestSecurityHandler_SnapshotAndRestoreHelpers(t *testing.T) {
 }
 
 func TestSecurityHandler_DefaultSecurityConfigStateHelpers(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -1042,4 +1004,45 @@ func TestLatestConfigApplyState_Helper(t *testing.T) {
 	state = latestConfigApplyState(db)
 	require.Equal(t, true, state["available"])
 	require.Equal(t, "applied", state["status"])
+}
+
+// TestSecurityHandler_CreateDecision_StripsEnrichmentFields verifies that
+// clients cannot inject system-populated enrichment fields (Scenario, Country,
+// ExpiresAt) via the CreateDecision endpoint.
+func TestSecurityHandler_CreateDecision_StripsEnrichmentFields(t *testing.T) {
+	db := setupTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityAudit{}))
+
+	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.POST("/security/decisions", handler.CreateDecision)
+
+	payload := map[string]any{
+		"ip":         "10.0.0.1",
+		"action":     "block",
+		"details":    "test",
+		"scenario":   "injected-scenario",
+		"country":    "XX",
+		"expires_at": "2099-01-01T00:00:00Z",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/security/decisions", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// Verify the stored decision has empty enrichment fields
+	var stored models.SecurityDecision
+	require.NoError(t, db.First(&stored).Error)
+	assert.Empty(t, stored.Scenario, "Scenario should not be settable by client")
+	assert.Empty(t, stored.Country, "Country should not be settable by client")
+	assert.Nil(t, stored.ExpiresAt, "ExpiresAt should not be settable by client")
+	assert.Equal(t, "manual", stored.Source, "Source must be forced to manual")
 }

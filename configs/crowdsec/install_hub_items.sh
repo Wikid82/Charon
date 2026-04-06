@@ -7,42 +7,45 @@ set -e
 
 echo "Installing CrowdSec hub items for Charon..."
 
-# Update hub index first
-echo "Updating hub index..."
-cscli hub update 2>/dev/null || echo "Warning: Failed to update hub index"
+# Hub index update is handled by the entrypoint before this script is called.
+# Do not duplicate it here — a redundant update adds ~3s to startup for no benefit.
 
 # Install Caddy log parser (if available)
 # Note: crowdsecurity/caddy-logs may not exist yet - check hub
 if cscli parsers inspect crowdsecurity/caddy-logs >/dev/null 2>&1; then
     echo "Installing Caddy log parser..."
-    cscli parsers install crowdsecurity/caddy-logs --force 2>/dev/null || true
+    cscli parsers install crowdsecurity/caddy-logs --force || echo "⚠️ Failed to install crowdsecurity/caddy-logs"
 else
     echo "Caddy-specific parser not available, using HTTP parser..."
 fi
 
 # Install base HTTP parsers (always needed)
 echo "Installing base parsers..."
-cscli parsers install crowdsecurity/http-logs --force 2>/dev/null || true
-cscli parsers install crowdsecurity/syslog-logs --force 2>/dev/null || true
-cscli parsers install crowdsecurity/geoip-enrich --force 2>/dev/null || true
+cscli parsers install crowdsecurity/http-logs --force || echo "⚠️ Failed to install crowdsecurity/http-logs"
+cscli parsers install crowdsecurity/syslog-logs --force || echo "⚠️ Failed to install crowdsecurity/syslog-logs"
+cscli parsers install crowdsecurity/geoip-enrich --force || echo "⚠️ Failed to install crowdsecurity/geoip-enrich"
 
 # Install HTTP scenarios for attack detection
 echo "Installing HTTP scenarios..."
-cscli scenarios install crowdsecurity/http-probing --force 2>/dev/null || true
-cscli scenarios install crowdsecurity/http-sensitive-files --force 2>/dev/null || true
-cscli scenarios install crowdsecurity/http-backdoors-attempts --force 2>/dev/null || true
-cscli scenarios install crowdsecurity/http-path-traversal-probing --force 2>/dev/null || true
-cscli scenarios install crowdsecurity/http-xss-probing --force 2>/dev/null || true
-cscli scenarios install crowdsecurity/http-sqli-probing --force 2>/dev/null || true
-cscli scenarios install crowdsecurity/http-generic-bf --force 2>/dev/null || true
+cscli scenarios install crowdsecurity/http-probing --force || echo "⚠️ Failed to install crowdsecurity/http-probing"
+cscli scenarios install crowdsecurity/http-sensitive-files --force || echo "⚠️ Failed to install crowdsecurity/http-sensitive-files"
+cscli scenarios install crowdsecurity/http-backdoors-attempts --force || echo "⚠️ Failed to install crowdsecurity/http-backdoors-attempts"
+cscli scenarios install crowdsecurity/http-path-traversal-probing --force || echo "⚠️ Failed to install crowdsecurity/http-path-traversal-probing"
+cscli scenarios install crowdsecurity/http-xss-probing --force || echo "⚠️ Failed to install crowdsecurity/http-xss-probing"
+cscli scenarios install crowdsecurity/http-sqli-probing --force || echo "⚠️ Failed to install crowdsecurity/http-sqli-probing"
+cscli scenarios install crowdsecurity/http-generic-bf --force || echo "⚠️ Failed to install crowdsecurity/http-generic-bf"
 
 # Install CVE collection for known vulnerabilities
 echo "Installing CVE collection..."
-cscli collections install crowdsecurity/http-cve --force 2>/dev/null || true
+cscli collections install crowdsecurity/http-cve --force || echo "⚠️ Failed to install crowdsecurity/http-cve"
 
 # Install base HTTP collection (bundles common scenarios)
 echo "Installing base HTTP collection..."
-cscli collections install crowdsecurity/base-http-scenarios --force 2>/dev/null || true
+cscli collections install crowdsecurity/base-http-scenarios --force || echo "⚠️ Failed to install crowdsecurity/base-http-scenarios"
+
+# Install Caddy collection (parser + scenarios for Caddy access logs)
+echo "Installing Caddy collection..."
+cscli collections install crowdsecurity/caddy --force || echo "⚠️ Failed to install crowdsecurity/caddy"
 
 # Verify installation
 echo ""

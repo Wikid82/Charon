@@ -33,7 +33,6 @@ func createValidSQLiteDB(t *testing.T, dbPath string) error {
 // Use a real BackupService, but point it at tmpDir for isolation
 
 func TestBackupHandlerQuick(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	tmpDir := t.TempDir()
 	// Create a valid SQLite database for backup operations
 	dbPath := filepath.Join(tmpDir, "db.sqlite")

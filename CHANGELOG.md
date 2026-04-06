@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **CrowdSec Dashboard**: Visual analytics for CrowdSec security data within the Security section
+  - Summary cards showing total bans, active bans, unique IPs, and top scenario
+  - Interactive charts: ban timeline (area), top attacking IPs (bar), scenario breakdown (pie)
+  - Configurable time range selector (1h, 6h, 24h, 7d, 30d)
+  - Active decisions table with IP, scenario, duration, type, and time remaining
+  - Alerts feed with pagination sourced from CrowdSec LAPI
+  - CSV and JSON export for decisions data
+  - Server-side caching (30–60s TTL) for fast dashboard loads
+  - Full i18n support across all 5 locales (en, de, fr, es, zh)
+  - Keyboard navigable, screen-reader compatible (WCAG 2.2 AA)
+
 - **Notifications:** Added Ntfy notification provider with support for self-hosted and cloud instances, optional Bearer token authentication, and JSON template customization
 
 - **Certificate Deletion**: Clean up expired and unused certificates directly from the Certificates page

@@ -56,7 +56,6 @@ func setupAuditTestDB(t *testing.T) *gorm.DB {
 // =============================================================================
 
 func TestSecurityHandler_GetStatus_SQLInjection(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupAuditTestDB(t)
 
 	// Seed malicious setting keys that could be used in SQL injection
@@ -93,7 +92,6 @@ func TestSecurityHandler_GetStatus_SQLInjection(t *testing.T) {
 }
 
 func TestSecurityHandler_CreateDecision_SQLInjection(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupAuditTestDB(t)
 
 	cfg := config.SecurityConfig{}
@@ -140,7 +138,6 @@ func TestSecurityHandler_CreateDecision_SQLInjection(t *testing.T) {
 // =============================================================================
 
 func TestSecurityHandler_UpsertRuleSet_MassivePayload(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupAuditTestDB(t)
 
 	cfg := config.SecurityConfig{}
@@ -176,7 +173,6 @@ func TestSecurityHandler_UpsertRuleSet_MassivePayload(t *testing.T) {
 }
 
 func TestSecurityHandler_UpsertRuleSet_EmptyName(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupAuditTestDB(t)
 
 	cfg := config.SecurityConfig{}
@@ -208,7 +204,6 @@ func TestSecurityHandler_UpsertRuleSet_EmptyName(t *testing.T) {
 }
 
 func TestSecurityHandler_CreateDecision_EmptyFields(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupAuditTestDB(t)
 
 	cfg := config.SecurityConfig{}
@@ -250,7 +245,6 @@ func TestSecurityHandler_CreateDecision_EmptyFields(t *testing.T) {
 // =============================================================================
 
 func TestSecurityHandler_GetStatus_SettingsOverride(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupAuditTestDB(t)
 
 	// Create SecurityConfig with all security features enabled (DB priority)
@@ -308,7 +302,6 @@ func TestSecurityHandler_GetStatus_SettingsOverride(t *testing.T) {
 }
 
 func TestSecurityHandler_GetStatus_DisabledViaSettings(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupAuditTestDB(t)
 
 	// Seed settings that disable everything
@@ -356,7 +349,6 @@ func TestSecurityHandler_GetStatus_DisabledViaSettings(t *testing.T) {
 // =============================================================================
 
 func TestSecurityAudit_DeleteRuleSet_InvalidID(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupAuditTestDB(t)
 
 	cfg := config.SecurityConfig{}
@@ -401,7 +393,6 @@ func TestSecurityAudit_DeleteRuleSet_InvalidID(t *testing.T) {
 // =============================================================================
 
 func TestSecurityHandler_UpsertRuleSet_XSSInContent(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupAuditTestDB(t)
 
 	cfg := config.SecurityConfig{}
@@ -450,7 +441,6 @@ func TestSecurityHandler_UpsertRuleSet_XSSInContent(t *testing.T) {
 // =============================================================================
 
 func TestSecurityHandler_UpdateConfig_RateLimitBounds(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupAuditTestDB(t)
 
 	cfg := config.SecurityConfig{}
@@ -512,7 +502,6 @@ func TestSecurityHandler_UpdateConfig_RateLimitBounds(t *testing.T) {
 // =============================================================================
 
 func TestSecurityHandler_GetStatus_NilDB(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Handler with nil DB should not panic
 	cfg := config.SecurityConfig{CerberusEnabled: true}
@@ -537,7 +526,6 @@ func TestSecurityHandler_GetStatus_NilDB(t *testing.T) {
 // =============================================================================
 
 func TestSecurityHandler_Enable_WithoutWhitelist(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupAuditTestDB(t)
 
 	// Create config without whitelist
@@ -564,7 +552,6 @@ func TestSecurityHandler_Enable_WithoutWhitelist(t *testing.T) {
 }
 
 func TestSecurityHandler_Disable_RequiresToken(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupAuditTestDB(t)
 
 	// Create config with break-glass hash
@@ -592,7 +579,6 @@ func TestSecurityHandler_Disable_RequiresToken(t *testing.T) {
 // =============================================================================
 
 func TestSecurityHandler_GetStatus_CrowdSecModeValidation(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupAuditTestDB(t)
 
 	// Try to set invalid CrowdSec modes via settings

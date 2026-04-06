@@ -21,7 +21,6 @@ import (
 
 // TestHandleSecurityEvent_TimestampZero covers line 146
 func TestHandleSecurityEvent_TimestampZero(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	assert.NoError(t, err)
@@ -76,7 +75,6 @@ func (m *mockFailingService) SendViaProviders(ctx context.Context, event models.
 
 // TestHandleSecurityEvent_SendViaProvidersError covers lines 163-164
 func TestHandleSecurityEvent_SendViaProvidersError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	assert.NoError(t, err)

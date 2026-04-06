@@ -47,7 +47,6 @@ func TestReadAcquisitionConfig_ErrorsAndSuccess(t *testing.T) {
 }
 
 func TestCrowdsec_AcquisitionEndpoints_InvalidConfiguredPath(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("CHARON_CROWDSEC_ACQUIS_PATH", "relative/path.yaml")
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
@@ -68,7 +67,6 @@ func TestCrowdsec_AcquisitionEndpoints_InvalidConfiguredPath(t *testing.T) {
 }
 
 func TestCrowdsec_GetBouncerKey_NotConfigured(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("CROWDSEC_API_KEY", "")
 	t.Setenv("CROWDSEC_BOUNCER_API_KEY", "")
 	t.Setenv("CERBERUS_SECURITY_CROWDSEC_API_KEY", "")

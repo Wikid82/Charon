@@ -33,7 +33,6 @@ func TestUpdateHandler_Check(t *testing.T) {
 	h := NewUpdateHandler(svc)
 
 	// Setup Router
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/api/v1/update", h.Check)
 

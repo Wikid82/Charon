@@ -27,7 +27,6 @@ func TestDeprecatedGetSettings_HeadersSet(t *testing.T) {
 	service := services.NewEnhancedSecurityNotificationService(db)
 	handler := NewSecurityNotificationHandler(service)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/v1/notifications/settings/legacy/security", http.NoBody)
@@ -59,7 +58,6 @@ func TestHandleSecurityEvent_InvalidCIDRWarning(t *testing.T) {
 		invalidCIDRs,
 	)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
@@ -98,7 +96,6 @@ func TestHandleSecurityEvent_SeveritySet(t *testing.T) {
 		[]string{},
 	)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
@@ -159,7 +156,6 @@ func TestHandleSecurityEvent_DispatchError(t *testing.T) {
 		[]string{},
 	)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 

@@ -46,7 +46,6 @@ func makePresetTar(t *testing.T, files map[string]string) []byte {
 }
 
 func TestListPresetsIncludesCacheAndIndex(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	cache, err := crowdsec.NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
 	_, err = cache.Store(context.Background(), "crowdsecurity/demo", "etag1", "hub", "preview", []byte("archive"))
@@ -92,7 +91,6 @@ func TestListPresetsIncludesCacheAndIndex(t *testing.T) {
 }
 
 func TestPullPresetHandlerSuccess(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	cache, err := crowdsec.NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
 	dataDir := filepath.Join(t.TempDir(), "crowdsec")
@@ -132,7 +130,6 @@ func TestPullPresetHandlerSuccess(t *testing.T) {
 }
 
 func TestApplyPresetHandlerAudits(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.CrowdsecPresetEvent{}))
 
@@ -186,7 +183,6 @@ func TestApplyPresetHandlerAudits(t *testing.T) {
 }
 
 func TestPullPresetHandlerHubError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	cache, err := crowdsec.NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
 
@@ -213,7 +209,6 @@ func TestPullPresetHandlerHubError(t *testing.T) {
 }
 
 func TestPullPresetHandlerTimeout(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	cache, err := crowdsec.NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
 
@@ -241,7 +236,6 @@ func TestPullPresetHandlerTimeout(t *testing.T) {
 }
 
 func TestGetCachedPresetNotFound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	cache, err := crowdsec.NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
 
@@ -260,7 +254,6 @@ func TestGetCachedPresetNotFound(t *testing.T) {
 }
 
 func TestGetCachedPresetServiceUnavailable(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	h.Hub = &crowdsec.HubService{}
@@ -277,7 +270,6 @@ func TestGetCachedPresetServiceUnavailable(t *testing.T) {
 }
 
 func TestApplyPresetHandlerBackupFailure(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.CrowdsecPresetEvent{}))
 
@@ -325,7 +317,6 @@ func TestApplyPresetHandlerBackupFailure(t *testing.T) {
 }
 
 func TestListPresetsMergesCuratedAndHub(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	hub := crowdsec.NewHubService(nil, nil, t.TempDir())
 	hub.HubBaseURL = "http://hub.example"
@@ -375,7 +366,6 @@ func TestListPresetsMergesCuratedAndHub(t *testing.T) {
 }
 
 func TestGetCachedPresetSuccess(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 	cache, err := crowdsec.NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
@@ -403,7 +393,6 @@ func TestGetCachedPresetSuccess(t *testing.T) {
 }
 
 func TestGetCachedPresetSlugRequired(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 	cache, err := crowdsec.NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
@@ -424,7 +413,6 @@ func TestGetCachedPresetSlugRequired(t *testing.T) {
 }
 
 func TestGetCachedPresetPreviewError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 	cacheDir := t.TempDir()
 	cache, err := crowdsec.NewHubCache(cacheDir, time.Hour)
@@ -451,7 +439,6 @@ func TestGetCachedPresetPreviewError(t *testing.T) {
 }
 
 func TestPullCuratedPresetSkipsHub(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
 	// Setup handler with a hub service that would fail if called
@@ -489,7 +476,6 @@ func TestPullCuratedPresetSkipsHub(t *testing.T) {
 }
 
 func TestApplyCuratedPresetSkipsHub(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
 	db := OpenTestDB(t)

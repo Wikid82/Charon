@@ -16,7 +16,6 @@ import (
 // ============================================
 
 func TestUpdateAcquisitionConfigMissingContent(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -33,7 +32,6 @@ func TestUpdateAcquisitionConfigMissingContent(t *testing.T) {
 }
 
 func TestUpdateAcquisitionConfigInvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -49,7 +47,6 @@ func TestUpdateAcquisitionConfigInvalidJSON(t *testing.T) {
 }
 
 func TestGetLAPIDecisionsWithIPFilter(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	mockExec := &mockCommandExecutor{output: []byte(`[]`), err: nil}
 	h := &CrowdsecHandler{
 		CmdExec: mockExec,
@@ -68,7 +65,6 @@ func TestGetLAPIDecisionsWithIPFilter(t *testing.T) {
 }
 
 func TestGetLAPIDecisionsWithScopeFilter(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	mockExec := &mockCommandExecutor{output: []byte(`[]`), err: nil}
 	h := &CrowdsecHandler{
 		CmdExec: mockExec,
@@ -86,7 +82,6 @@ func TestGetLAPIDecisionsWithScopeFilter(t *testing.T) {
 }
 
 func TestGetLAPIDecisionsWithTypeFilter(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	mockExec := &mockCommandExecutor{output: []byte(`[]`), err: nil}
 	h := &CrowdsecHandler{
 		CmdExec: mockExec,
@@ -104,7 +99,6 @@ func TestGetLAPIDecisionsWithTypeFilter(t *testing.T) {
 }
 
 func TestGetLAPIDecisionsWithMultipleFilters(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	mockExec := &mockCommandExecutor{output: []byte(`[]`), err: nil}
 	h := &CrowdsecHandler{
 		CmdExec: mockExec,

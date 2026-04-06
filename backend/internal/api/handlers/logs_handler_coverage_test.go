@@ -17,7 +17,6 @@ import (
 )
 
 func TestLogsHandler_Read_FilterBySearch(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
@@ -50,7 +49,6 @@ func TestLogsHandler_Read_FilterBySearch(t *testing.T) {
 }
 
 func TestLogsHandler_Read_FilterByHost(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
@@ -80,7 +78,6 @@ func TestLogsHandler_Read_FilterByHost(t *testing.T) {
 }
 
 func TestLogsHandler_Read_FilterByLevel(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
@@ -110,7 +107,6 @@ func TestLogsHandler_Read_FilterByLevel(t *testing.T) {
 }
 
 func TestLogsHandler_Read_FilterByStatus(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
@@ -140,7 +136,6 @@ func TestLogsHandler_Read_FilterByStatus(t *testing.T) {
 }
 
 func TestLogsHandler_Read_SortAsc(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
@@ -170,7 +165,6 @@ func TestLogsHandler_Read_SortAsc(t *testing.T) {
 }
 
 func TestLogsHandler_List_DirectoryIsFile(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
@@ -197,7 +191,6 @@ func TestLogsHandler_List_DirectoryIsFile(t *testing.T) {
 }
 
 func TestLogsHandler_Download_TempFileError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")

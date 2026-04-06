@@ -76,7 +76,6 @@ func TestUserHandler_logUserAudit_NoOpBranches(t *testing.T) {
 
 func TestUserHandler_GetSetupStatus(t *testing.T) {
 	handler, db := setupUserHandler(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/setup", handler.GetSetupStatus)
 
@@ -97,7 +96,6 @@ func TestUserHandler_GetSetupStatus(t *testing.T) {
 
 func TestUserHandler_Setup(t *testing.T) {
 	handler, _ := setupUserHandler(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/setup", handler.Setup)
 
@@ -133,7 +131,6 @@ func TestUserHandler_Setup(t *testing.T) {
 
 func TestUserHandler_Setup_OneWayInvariant_ReentryRejectedAndSingleUser(t *testing.T) {
 	handler, db := setupUserHandler(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/setup", handler.Setup)
 
@@ -170,7 +167,6 @@ func TestUserHandler_Setup_OneWayInvariant_ReentryRejectedAndSingleUser(t *testi
 
 func TestUserHandler_Setup_ConcurrentAttemptInvariant(t *testing.T) {
 	handler, db := setupUserHandler(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/setup", handler.Setup)
 
@@ -230,7 +226,6 @@ func TestUserHandler_Setup_ConcurrentAttemptInvariant(t *testing.T) {
 
 func TestUserHandler_Setup_ResponseSecretEchoContract(t *testing.T) {
 	handler, _ := setupUserHandler(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/setup", handler.Setup)
 
@@ -279,7 +274,6 @@ func TestUserHandler_GetProfile_SecretEchoContract(t *testing.T) {
 	}
 	require.NoError(t, db.Create(user).Error)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("userID", user.ID)
@@ -321,7 +315,6 @@ func TestUserHandler_ListUsers_SecretEchoContract(t *testing.T) {
 	}
 	require.NoError(t, db.Create(user).Error)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -367,7 +360,6 @@ func TestUserHandler_RegenerateAPIKey(t *testing.T) {
 	user := &models.User{Email: "api@example.com"}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("userID", user.ID)
@@ -402,7 +394,6 @@ func TestUserHandler_GetProfile(t *testing.T) {
 	}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("userID", user.ID)
@@ -425,7 +416,6 @@ func TestUserHandler_GetProfile(t *testing.T) {
 
 func TestUserHandler_RegisterRoutes(t *testing.T) {
 	handler, _ := setupUserHandler(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	api := r.Group("/api")
 	handler.RegisterRoutes(api)
@@ -451,7 +441,6 @@ func TestUserHandler_RegisterRoutes(t *testing.T) {
 
 func TestUserHandler_Errors(t *testing.T) {
 	handler, db := setupUserHandler(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 
 	// Middleware to simulate missing userID
@@ -518,7 +507,6 @@ func TestUserHandler_UpdateProfile(t *testing.T) {
 	_ = user.SetPassword("password123")
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("userID", user.ID)
@@ -624,7 +612,6 @@ func TestUserHandler_UpdateProfile(t *testing.T) {
 
 func TestUserHandler_UpdateProfile_Errors(t *testing.T) {
 	handler, _ := setupUserHandler(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 
 	// 1. Unauthorized (no userID)
@@ -668,7 +655,6 @@ func setupUserHandlerWithProxyHosts(t *testing.T) (*UserHandler, *gorm.DB) {
 
 func TestUserHandler_ListUsers_NonAdmin(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "user")
@@ -692,7 +678,6 @@ func TestUserHandler_ListUsers_Admin(t *testing.T) {
 	db.Create(user1)
 	db.Create(user2)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -713,7 +698,6 @@ func TestUserHandler_ListUsers_Admin(t *testing.T) {
 
 func TestUserHandler_CreateUser_NonAdmin(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "user")
@@ -737,7 +721,6 @@ func TestUserHandler_CreateUser_NonAdmin(t *testing.T) {
 
 func TestUserHandler_CreateUser_Admin(t *testing.T) {
 	handler, db := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -767,7 +750,6 @@ func TestUserHandler_CreateUser_Admin(t *testing.T) {
 
 func TestUserHandler_CreateUser_InvalidJSON(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -789,7 +771,6 @@ func TestUserHandler_CreateUser_DuplicateEmail(t *testing.T) {
 	existing := &models.User{UUID: uuid.NewString(), Email: "existing@example.com", Name: "Existing"}
 	db.Create(existing)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -817,7 +798,6 @@ func TestUserHandler_CreateUser_WithPermittedHosts(t *testing.T) {
 	host := &models.ProxyHost{Name: "Host 1", DomainNames: "host1.example.com", Enabled: true}
 	db.Create(host)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -843,7 +823,6 @@ func TestUserHandler_CreateUser_WithPermittedHosts(t *testing.T) {
 
 func TestUserHandler_GetUser_NonAdmin(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "user")
@@ -860,7 +839,6 @@ func TestUserHandler_GetUser_NonAdmin(t *testing.T) {
 
 func TestUserHandler_GetUser_InvalidID(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -877,7 +855,6 @@ func TestUserHandler_GetUser_InvalidID(t *testing.T) {
 
 func TestUserHandler_GetUser_NotFound(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -898,7 +875,6 @@ func TestUserHandler_GetUser_Success(t *testing.T) {
 	user := &models.User{UUID: uuid.NewString(), Email: "getuser@example.com", Name: "Get User"}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -920,7 +896,6 @@ func TestUserHandler_UpdateUser_NonAdmin(t *testing.T) {
 	target := &models.User{UUID: uuid.NewString(), Email: "target@example.com", Name: "Target", APIKey: uuid.NewString(), Role: models.RoleUser}
 	db.Create(target)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "user")
@@ -941,7 +916,6 @@ func TestUserHandler_UpdateUser_NonAdmin(t *testing.T) {
 
 func TestUserHandler_UpdateUser_InvalidID(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -967,7 +941,6 @@ func TestUserHandler_UpdateUser_InvalidJSON(t *testing.T) {
 	user := &models.User{UUID: uuid.NewString(), Email: "toupdate@example.com", Name: "To Update", APIKey: uuid.NewString()}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -986,7 +959,6 @@ func TestUserHandler_UpdateUser_InvalidJSON(t *testing.T) {
 
 func TestUserHandler_UpdateUser_NotFound(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -1011,7 +983,6 @@ func TestUserHandler_UpdateUser_Success(t *testing.T) {
 	user := &models.User{UUID: uuid.NewString(), Email: "update@example.com", Name: "Original", Role: models.RoleUser}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -1048,7 +1019,6 @@ func TestUserHandler_UpdateUser_PasswordReset(t *testing.T) {
 	user.LockedUntil = &lockUntil
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -1078,7 +1048,6 @@ func TestUserHandler_UpdateUser_PasswordReset(t *testing.T) {
 
 func TestUserHandler_DeleteUser_NonAdmin(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "user")
@@ -1095,7 +1064,6 @@ func TestUserHandler_DeleteUser_NonAdmin(t *testing.T) {
 
 func TestUserHandler_DeleteUser_InvalidID(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -1112,7 +1080,6 @@ func TestUserHandler_DeleteUser_InvalidID(t *testing.T) {
 
 func TestUserHandler_DeleteUser_NotFound(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -1134,7 +1101,6 @@ func TestUserHandler_DeleteUser_Success(t *testing.T) {
 	user := &models.User{UUID: uuid.NewString(), Email: "delete@example.com", Name: "Delete Me"}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -1161,7 +1127,6 @@ func TestUserHandler_DeleteUser_CannotDeleteSelf(t *testing.T) {
 	user := &models.User{UUID: uuid.NewString(), Email: "self@example.com", Name: "Self"}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -1179,7 +1144,6 @@ func TestUserHandler_DeleteUser_CannotDeleteSelf(t *testing.T) {
 
 func TestUserHandler_UpdateUserPermissions_NonAdmin(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "user")
@@ -1199,7 +1163,6 @@ func TestUserHandler_UpdateUserPermissions_NonAdmin(t *testing.T) {
 
 func TestUserHandler_UpdateUserPermissions_InvalidID(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -1231,7 +1194,6 @@ func TestUserHandler_UpdateUserPermissions_InvalidJSON(t *testing.T) {
 	}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -1249,7 +1211,6 @@ func TestUserHandler_UpdateUserPermissions_InvalidJSON(t *testing.T) {
 
 func TestUserHandler_UpdateUserPermissions_NotFound(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -1281,7 +1242,6 @@ func TestUserHandler_UpdateUserPermissions_Success(t *testing.T) {
 	}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -1304,7 +1264,6 @@ func TestUserHandler_UpdateUserPermissions_Success(t *testing.T) {
 
 func TestUserHandler_ValidateInvite_MissingToken(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/invite/validate", handler.ValidateInvite)
 
@@ -1317,7 +1276,6 @@ func TestUserHandler_ValidateInvite_MissingToken(t *testing.T) {
 
 func TestUserHandler_ValidateInvite_InvalidToken(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/invite/validate", handler.ValidateInvite)
 
@@ -1342,7 +1300,6 @@ func TestUserHandler_ValidateInvite_ExpiredToken(t *testing.T) {
 	}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/invite/validate", handler.ValidateInvite)
 
@@ -1367,7 +1324,6 @@ func TestUserHandler_ValidateInvite_AlreadyAccepted(t *testing.T) {
 	}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/invite/validate", handler.ValidateInvite)
 
@@ -1392,7 +1348,6 @@ func TestUserHandler_ValidateInvite_Success(t *testing.T) {
 	}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/invite/validate", handler.ValidateInvite)
 
@@ -1409,7 +1364,6 @@ func TestUserHandler_ValidateInvite_Success(t *testing.T) {
 
 func TestUserHandler_AcceptInvite_InvalidJSON(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/invite/accept", handler.AcceptInvite)
 
@@ -1423,7 +1377,6 @@ func TestUserHandler_AcceptInvite_InvalidJSON(t *testing.T) {
 
 func TestUserHandler_AcceptInvite_InvalidToken(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/invite/accept", handler.AcceptInvite)
 
@@ -1455,7 +1408,6 @@ func TestUserHandler_AcceptInvite_Success(t *testing.T) {
 	}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/invite/accept", handler.AcceptInvite)
 
@@ -1498,7 +1450,6 @@ func TestGenerateSecureToken(t *testing.T) {
 
 func TestUserHandler_InviteUser_NonAdmin(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "user")
@@ -1519,7 +1470,6 @@ func TestUserHandler_InviteUser_NonAdmin(t *testing.T) {
 
 func TestUserHandler_InviteUser_InvalidJSON(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -1547,7 +1497,6 @@ func TestUserHandler_InviteUser_DuplicateEmail(t *testing.T) {
 	}
 	db.Create(existingUser)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -1578,7 +1527,6 @@ func TestUserHandler_InviteUser_Success(t *testing.T) {
 	}
 	db.Create(admin)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -1639,7 +1587,6 @@ func TestUserHandler_InviteUser_WithPermittedHosts(t *testing.T) {
 	}
 	db.Create(host)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -1696,7 +1643,6 @@ func TestUserHandler_InviteUser_WithSMTPConfigured(t *testing.T) {
 	// Reinitialize mail service to pick up new settings
 	handler.MailService = services.NewMailService(db)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -1757,7 +1703,6 @@ func TestUserHandler_InviteUser_WithSMTPAndConfiguredPublicURL_IncludesInviteURL
 
 	handler.MailService = services.NewMailService(db)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -1810,7 +1755,6 @@ func TestUserHandler_InviteUser_WithSMTPAndMalformedPublicURL_DoesNotExposeInvit
 
 	handler.MailService = services.NewMailService(db)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -1866,7 +1810,6 @@ func TestUserHandler_InviteUser_WithSMTPConfigured_DefaultAppName(t *testing.T) 
 	// Reinitialize mail service to pick up new settings
 	handler.MailService = services.NewMailService(db)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -1917,7 +1860,6 @@ func TestUserHandler_AcceptInvite_ExpiredToken(t *testing.T) {
 	}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/invite/accept", handler.AcceptInvite)
 
@@ -1949,7 +1891,6 @@ func TestUserHandler_AcceptInvite_AlreadyAccepted(t *testing.T) {
 	}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/invite/accept", handler.AcceptInvite)
 
@@ -1972,7 +1913,6 @@ func TestUserHandler_AcceptInvite_AlreadyAccepted(t *testing.T) {
 // PreviewInviteURL Tests
 func TestUserHandler_PreviewInviteURL_NonAdmin(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "user")
@@ -1993,7 +1933,6 @@ func TestUserHandler_PreviewInviteURL_NonAdmin(t *testing.T) {
 
 func TestUserHandler_PreviewInviteURL_InvalidJSON(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -2011,7 +1950,6 @@ func TestUserHandler_PreviewInviteURL_InvalidJSON(t *testing.T) {
 
 func TestUserHandler_PreviewInviteURL_Success_Unconfigured(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -2052,7 +1990,6 @@ func TestUserHandler_PreviewInviteURL_Success_Configured(t *testing.T) {
 	}
 	db.Create(publicURLSetting)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -2145,7 +2082,6 @@ func TestUserHandler_UpdateUser_EmailConflict(t *testing.T) {
 	db.Create(user1)
 	db.Create(user2)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -2172,7 +2108,6 @@ func TestUserHandler_UpdateUser_EmailConflict(t *testing.T) {
 
 func TestUserHandler_CreateUser_EmailNormalization(t *testing.T) {
 	handler, db := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -2212,7 +2147,6 @@ func TestUserHandler_InviteUser_EmailNormalization(t *testing.T) {
 	}
 	db.Create(admin)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -2241,7 +2175,6 @@ func TestUserHandler_InviteUser_EmailNormalization(t *testing.T) {
 
 func TestUserHandler_CreateUser_DefaultPermissionMode(t *testing.T) {
 	handler, db := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -2281,7 +2214,6 @@ func TestUserHandler_InviteUser_DefaultPermissionMode(t *testing.T) {
 	}
 	db.Create(admin)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -2310,7 +2242,6 @@ func TestUserHandler_InviteUser_DefaultPermissionMode(t *testing.T) {
 
 func TestUserHandler_CreateUser_DefaultRole(t *testing.T) {
 	handler, db := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -2350,7 +2281,6 @@ func TestUserHandler_InviteUser_DefaultRole(t *testing.T) {
 	}
 	db.Create(admin)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -2382,7 +2312,6 @@ func TestUserHandler_InviteUser_DefaultRole(t *testing.T) {
 // This prevents host header injection attacks (CodeQL go/email-injection remediation).
 func TestUserHandler_PreviewInviteURL_Unconfigured_DoesNotUseRequestHost(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -2417,7 +2346,6 @@ func TestUserHandler_PreviewInviteURL_Unconfigured_DoesNotUseRequestHost(t *test
 
 func TestUserHandler_CreateUser_EmptyPermittedHosts(t *testing.T) {
 	handler, db := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -2450,7 +2378,6 @@ func TestUserHandler_CreateUser_EmptyPermittedHosts(t *testing.T) {
 
 func TestUserHandler_CreateUser_NonExistentPermittedHosts(t *testing.T) {
 	handler, db := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -2484,7 +2411,6 @@ func TestUserHandler_CreateUser_NonExistentPermittedHosts(t *testing.T) {
 
 func TestResendInvite_NonAdmin(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "user")
@@ -2502,7 +2428,6 @@ func TestResendInvite_NonAdmin(t *testing.T) {
 
 func TestResendInvite_InvalidID(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -2520,7 +2445,6 @@ func TestResendInvite_InvalidID(t *testing.T) {
 
 func TestResendInvite_UserNotFound(t *testing.T) {
 	handler, _ := setupUserHandlerWithProxyHosts(t)
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -2550,7 +2474,6 @@ func TestResendInvite_UserNotPending(t *testing.T) {
 	}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -2583,7 +2506,6 @@ func TestResendInvite_Success(t *testing.T) {
 	}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -2628,7 +2550,6 @@ func TestResendInvite_WithExpiredInvite(t *testing.T) {
 	}
 	db.Create(user)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -2722,7 +2643,6 @@ func TestRedactInviteURL(t *testing.T) {
 // --- Passthrough rejection tests ---
 
 func setupPassthroughRouter(handler *UserHandler) *gin.Engine {
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", string(models.RolePassthrough))
@@ -2777,7 +2697,6 @@ func TestUserHandler_UpdateProfile_PassthroughRejected(t *testing.T) {
 func TestUserHandler_CreateUser_InvalidRole(t *testing.T) {
 	handler, _ := setupUserHandler(t)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -2803,7 +2722,6 @@ func TestUserHandler_CreateUser_InvalidRole(t *testing.T) {
 func TestUserHandler_InviteUser_InvalidRole(t *testing.T) {
 	handler, _ := setupUserHandler(t)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -2833,7 +2751,6 @@ func TestUserHandler_UpdateUser_MissingUserID(t *testing.T) {
 	user := models.User{UUID: uuid.NewString(), APIKey: uuid.NewString(), Email: "target@example.com", Role: models.RoleUser, Enabled: true}
 	require.NoError(t, db.Create(&user).Error)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	// No userID set in context
 	r.Use(func(c *gin.Context) {
@@ -2858,7 +2775,6 @@ func TestUserHandler_UpdateUser_InvalidSessionType(t *testing.T) {
 	user := models.User{UUID: uuid.NewString(), APIKey: uuid.NewString(), Email: "target2@example.com", Role: models.RoleUser, Enabled: true}
 	require.NoError(t, db.Create(&user).Error)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -2885,7 +2801,6 @@ func TestUserHandler_UpdateUser_NonAdminSelfRoleChange(t *testing.T) {
 	user := models.User{UUID: uuid.NewString(), APIKey: uuid.NewString(), Email: "self@example.com", Role: models.RoleUser, Enabled: true}
 	require.NoError(t, db.Create(&user).Error)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "user")    // non-admin
@@ -2912,7 +2827,6 @@ func TestUserHandler_UpdateUser_InvalidRole(t *testing.T) {
 	target := models.User{UUID: uuid.NewString(), APIKey: uuid.NewString(), Email: "target3@example.com", Role: models.RoleUser, Enabled: true}
 	require.NoError(t, db.Create(&target).Error)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -2939,7 +2853,6 @@ func TestUserHandler_UpdateUser_SelfDemotion(t *testing.T) {
 	admin := models.User{UUID: uuid.NewString(), APIKey: uuid.NewString(), Email: "admin@self.example.com", Role: models.RoleAdmin, Enabled: true}
 	require.NoError(t, db.Create(&admin).Error)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -2966,7 +2879,6 @@ func TestUserHandler_UpdateUser_SelfDisable(t *testing.T) {
 
 	disabled := false
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -2994,7 +2906,6 @@ func TestUserHandler_UpdateUser_LastAdminDemotion(t *testing.T) {
 	target := models.User{UUID: uuid.NewString(), APIKey: uuid.NewString(), Email: "last-admin@example.com", Role: models.RoleAdmin, Enabled: true}
 	require.NoError(t, db.Create(&target).Error)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -3021,7 +2932,6 @@ func TestUserHandler_UpdateUser_LastAdminDisable(t *testing.T) {
 
 	disabled := false
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -3055,7 +2965,6 @@ func TestUserHandler_UpdateUser_WithSessionInvalidation(t *testing.T) {
 
 	handler := NewUserHandler(db, authSvc)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -3091,7 +3000,6 @@ func TestUserHandler_UpdateUser_SessionInvalidationError(t *testing.T) {
 
 	handler := NewUserHandler(mainDB, authSvc)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("role", "admin")

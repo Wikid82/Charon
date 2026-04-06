@@ -31,7 +31,6 @@ func setupCredentialHandlerTest(t *testing.T) (*gin.Engine, *gorm.DB, *models.DN
 		_ = os.Unsetenv("CHARON_ENCRYPTION_KEY")
 	})
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	// Use test name for unique database with WAL mode to avoid locking issues

@@ -16,7 +16,6 @@ func TestCertificateHandler_List_DBError(t *testing.T) {
 	db := OpenTestDB(t)
 	// Don't migrate to cause error
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
@@ -33,7 +32,6 @@ func TestCertificateHandler_List_DBError(t *testing.T) {
 func TestCertificateHandler_Delete_InvalidID(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
@@ -50,7 +48,6 @@ func TestCertificateHandler_Delete_InvalidID(t *testing.T) {
 func TestCertificateHandler_Delete_NotFound(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
@@ -71,7 +68,6 @@ func TestCertificateHandler_Delete_NoBackupService(t *testing.T) {
 	cert := models.SSLCertificate{UUID: "test-cert-no-backup", Name: "no-backup-cert", Provider: "custom", Domains: "nobackup.example.com"}
 	db.Create(&cert)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
@@ -97,7 +93,6 @@ func TestCertificateHandler_Delete_CheckUsageDBError(t *testing.T) {
 	cert := models.SSLCertificate{UUID: "test-cert-db-err", Name: "db-error-cert", Provider: "custom", Domains: "dberr.example.com"}
 	db.Create(&cert)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
@@ -118,7 +113,6 @@ func TestCertificateHandler_List_WithCertificates(t *testing.T) {
 	db.Create(&models.SSLCertificate{UUID: "cert-1", Name: "Cert 1", Provider: "custom", Domains: "one.example.com"})
 	db.Create(&models.SSLCertificate{UUID: "cert-2", Name: "Cert 2", Provider: "custom", Domains: "two.example.com"})
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
@@ -139,7 +133,6 @@ func TestCertificateHandler_Delete_ZeroID(t *testing.T) {
 	// DELETE /api/certificates/0 should return 400 Bad Request
 	db := OpenTestDBWithMigrations(t)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
@@ -173,7 +166,6 @@ func TestCertificateHandler_DBSetupOrdering(t *testing.T) {
 		t.Fatalf("expected proxy_hosts table to exist before service initialization")
 	}
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 

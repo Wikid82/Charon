@@ -78,6 +78,24 @@ Protect your applications using behavior-based threat detection powered by a glo
 
 ---
 
+### 📊 CrowdSec Dashboard
+
+See your security posture at a glance. The CrowdSec Dashboard shows attack trends, active bans, top offenders, and scenario breakdowns—all from within Charon's Security section.
+
+**Highlights:**
+
+- **Summary Cards** — Total bans, active bans, unique IPs, and top scenario at a glance
+- **Interactive Charts** — Ban timeline, top attacking IPs, and attack type breakdown
+- **Alerts Feed** — Live view of CrowdSec alerts with pagination
+- **Time Range Selector** — Filter data by 1 hour, 6 hours, 24 hours, 7 days, or 30 days
+- **Export** — Download decisions as CSV or JSON for external analysis
+
+No SSH required. No CLI commands. Just open the Dashboard tab and see what's happening.
+
+→ [Learn More](features/crowdsec.md)
+
+---
+
 ### 🔐 Access Control Lists (ACLs)
 
 Define exactly who can access what. Block specific countries, allow only certain IP ranges, or require authentication for sensitive applications. Fine-grained rules give you complete control.

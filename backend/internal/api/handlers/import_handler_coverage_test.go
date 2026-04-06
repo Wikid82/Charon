@@ -101,7 +101,6 @@ func (m *MockImporterService) ValidateCaddyBinary() error {
 
 // TestUploadMulti_EmptyList covers the manual check for len(Files) == 0
 func TestUploadMulti_EmptyList(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db := setupImportCoverageTestDB(t)
 
@@ -135,7 +134,6 @@ func TestUploadMulti_EmptyList(t *testing.T) {
 // TestUploadMulti_FileServerDetected covers the logic where parsable routes trigger a warning
 // because they contain file_server but no valid reverse_proxy hosts
 func TestUploadMulti_FileServerDetected(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db := setupImportCoverageTestDB(t)
 	mockSvc := new(MockImporterService)
@@ -185,7 +183,6 @@ func TestUploadMulti_FileServerDetected(t *testing.T) {
 
 // TestUploadMulti_NoSitesParsed covers successfull parsing but 0 result hosts
 func TestUploadMulti_NoSitesParsed(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db := setupImportCoverageTestDB(t)
 	mockSvc := new(MockImporterService)
@@ -227,7 +224,6 @@ func TestUploadMulti_NoSitesParsed(t *testing.T) {
 }
 
 func TestUpload_ImportsDetectedNoImportableHosts(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db := setupImportCoverageTestDB(t)
 	mockSvc := new(MockImporterService)
@@ -263,7 +259,6 @@ func TestUpload_ImportsDetectedNoImportableHosts(t *testing.T) {
 }
 
 func TestUploadMulti_RequiresMainCaddyfile(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db := setupImportCoverageTestDB(t)
 	h := NewImportHandler(db, "caddy", t.TempDir(), "")
@@ -291,7 +286,6 @@ func TestUploadMulti_RequiresMainCaddyfile(t *testing.T) {
 }
 
 func TestUploadMulti_RejectsEmptyFileContent(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db := setupImportCoverageTestDB(t)
 	h := NewImportHandler(db, "caddy", t.TempDir(), "")
@@ -319,7 +313,6 @@ func TestUploadMulti_RejectsEmptyFileContent(t *testing.T) {
 }
 
 func TestCommitAndCancel_InvalidSessionUUID(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db := setupImportCoverageTestDB(t)
 	tmpImport := t.TempDir()
@@ -352,7 +345,6 @@ func TestCommitAndCancel_InvalidSessionUUID(t *testing.T) {
 }
 
 func TestCancel_RemovesTransientUpload(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db := setupImportCoverageTestDB(t)
 	tmpImport := t.TempDir()
@@ -381,7 +373,6 @@ func TestCancel_RemovesTransientUpload(t *testing.T) {
 }
 
 func TestUpload_ReadOnlyDBRespondsWithPermissionError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	roDB := setupReadOnlyImportDB(t)
 	mockSvc := new(MockImporterService)
@@ -414,7 +405,6 @@ func TestUpload_ReadOnlyDBRespondsWithPermissionError(t *testing.T) {
 }
 
 func TestUploadMulti_ReadOnlyDBRespondsWithPermissionError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	roDB := setupReadOnlyImportDB(t)
 	mockSvc := new(MockImporterService)
@@ -448,7 +438,6 @@ func TestUploadMulti_ReadOnlyDBRespondsWithPermissionError(t *testing.T) {
 }
 
 func TestCommit_ReadOnlyDBSaveRespondsWithPermissionError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	roDB := setupReadOnlyImportDB(t)
 	mockSvc := new(MockImporterService)
@@ -483,7 +472,6 @@ func TestCommit_ReadOnlyDBSaveRespondsWithPermissionError(t *testing.T) {
 }
 
 func TestCancel_ReadOnlyDBSaveRespondsWithPermissionError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "cancel_ro.db")

@@ -21,7 +21,6 @@ func setupUserCoverageDB(t *testing.T) *gorm.DB {
 }
 
 func TestUserHandler_GetSetupStatus_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
 	h := NewUserHandler(db, nil)
 
@@ -38,7 +37,6 @@ func TestUserHandler_GetSetupStatus_Error(t *testing.T) {
 }
 
 func TestUserHandler_Setup_CheckStatusError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
 	h := NewUserHandler(db, nil)
 
@@ -55,7 +53,6 @@ func TestUserHandler_Setup_CheckStatusError(t *testing.T) {
 }
 
 func TestUserHandler_Setup_AlreadyCompleted(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
 	h := NewUserHandler(db, nil)
 
@@ -74,7 +71,6 @@ func TestUserHandler_Setup_AlreadyCompleted(t *testing.T) {
 }
 
 func TestUserHandler_Setup_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
 	h := NewUserHandler(db, nil)
 
@@ -89,7 +85,6 @@ func TestUserHandler_Setup_InvalidJSON(t *testing.T) {
 }
 
 func TestUserHandler_RegenerateAPIKey_Unauthorized(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
 	h := NewUserHandler(db, nil)
 
@@ -103,7 +98,6 @@ func TestUserHandler_RegenerateAPIKey_Unauthorized(t *testing.T) {
 }
 
 func TestUserHandler_RegenerateAPIKey_DBError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
 	h := NewUserHandler(db, nil)
 
@@ -121,7 +115,6 @@ func TestUserHandler_RegenerateAPIKey_DBError(t *testing.T) {
 }
 
 func TestUserHandler_GetProfile_Unauthorized(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
 	h := NewUserHandler(db, nil)
 
@@ -135,7 +128,6 @@ func TestUserHandler_GetProfile_Unauthorized(t *testing.T) {
 }
 
 func TestUserHandler_GetProfile_NotFound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
 	h := NewUserHandler(db, nil)
 
@@ -150,7 +142,6 @@ func TestUserHandler_GetProfile_NotFound(t *testing.T) {
 }
 
 func TestUserHandler_UpdateProfile_Unauthorized(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
 	h := NewUserHandler(db, nil)
 
@@ -164,7 +155,6 @@ func TestUserHandler_UpdateProfile_Unauthorized(t *testing.T) {
 }
 
 func TestUserHandler_UpdateProfile_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
 	h := NewUserHandler(db, nil)
 
@@ -180,7 +170,6 @@ func TestUserHandler_UpdateProfile_InvalidJSON(t *testing.T) {
 }
 
 func TestUserHandler_UpdateProfile_UserNotFound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
 	h := NewUserHandler(db, nil)
 
@@ -201,7 +190,6 @@ func TestUserHandler_UpdateProfile_UserNotFound(t *testing.T) {
 }
 
 func TestUserHandler_UpdateProfile_EmailConflict(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
 	h := NewUserHandler(db, nil)
 
@@ -234,7 +222,6 @@ func TestUserHandler_UpdateProfile_EmailConflict(t *testing.T) {
 }
 
 func TestUserHandler_UpdateProfile_EmailChangeNoPassword(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
 	h := NewUserHandler(db, nil)
 
@@ -261,7 +248,6 @@ func TestUserHandler_UpdateProfile_EmailChangeNoPassword(t *testing.T) {
 }
 
 func TestUserHandler_UpdateProfile_WrongPassword(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupUserCoverageDB(t)
 	h := NewUserHandler(db, nil)
 

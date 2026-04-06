@@ -129,7 +129,6 @@ func Test_mapCrowdsecStatus(t *testing.T) {
 
 // Test actorFromContext helper function
 func Test_actorFromContext(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	t.Run("with userID in context", func(t *testing.T) {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -157,7 +156,6 @@ func Test_actorFromContext(t *testing.T) {
 
 // Test hubEndpoints helper function
 func Test_hubEndpoints(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	t.Run("nil Hub returns nil", func(t *testing.T) {
 		h := &CrowdsecHandler{Hub: nil}
@@ -193,7 +191,6 @@ func TestRealCommandExecutor_Execute(t *testing.T) {
 
 // Test isCerberusEnabled helper
 func Test_isCerberusEnabled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}))
 
@@ -243,7 +240,6 @@ func Test_isCerberusEnabled(t *testing.T) {
 
 // Test isConsoleEnrollmentEnabled helper
 func Test_isConsoleEnrollmentEnabled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}))
 
@@ -293,7 +289,6 @@ func Test_isConsoleEnrollmentEnabled(t *testing.T) {
 
 // Test CrowdsecHandler.ExportConfig
 func TestCrowdsecHandler_ExportConfig(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -320,7 +315,6 @@ func TestCrowdsecHandler_ExportConfig(t *testing.T) {
 
 // Test CrowdsecHandler.CheckLAPIHealth
 func TestCrowdsecHandler_CheckLAPIHealth(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -340,7 +334,6 @@ func TestCrowdsecHandler_CheckLAPIHealth(t *testing.T) {
 
 // Test CrowdsecHandler Console endpoints
 func TestCrowdsecHandler_ConsoleStatus(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}, &models.CrowdsecConsoleEnrollment{}))
 
@@ -362,7 +355,6 @@ func TestCrowdsecHandler_ConsoleStatus(t *testing.T) {
 }
 
 func TestCrowdsecHandler_ConsoleEnroll_Disabled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
 
@@ -385,7 +377,6 @@ func TestCrowdsecHandler_ConsoleEnroll_Disabled(t *testing.T) {
 }
 
 func TestCrowdsecHandler_DeleteConsoleEnrollment(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
 
@@ -405,7 +396,6 @@ func TestCrowdsecHandler_DeleteConsoleEnrollment(t *testing.T) {
 
 // Test CrowdsecHandler.BanIP and UnbanIP
 func TestCrowdsecHandler_BanIP(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
 
@@ -434,7 +424,6 @@ func TestCrowdsecHandler_BanIP(t *testing.T) {
 }
 
 func TestCrowdsecHandler_UnbanIP(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
 
@@ -460,7 +449,6 @@ func TestCrowdsecHandler_UnbanIP(t *testing.T) {
 
 // Test CrowdsecHandler.UpdateAcquisitionConfig
 func TestCrowdsecHandler_UpdateAcquisitionConfig(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
 
@@ -540,7 +528,6 @@ func Test_safeFloat64ToUint(t *testing.T) {
 
 // Test CrowdsecHandler_DiagnosticsConnectivity
 func TestCrowdsecHandler_DiagnosticsConnectivity(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}, &models.CrowdsecConsoleEnrollment{}))
 
@@ -569,7 +556,6 @@ func TestCrowdsecHandler_DiagnosticsConnectivity(t *testing.T) {
 
 // Test CrowdsecHandler_DiagnosticsConfig
 func TestCrowdsecHandler_DiagnosticsConfig(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
 
@@ -595,7 +581,6 @@ func TestCrowdsecHandler_DiagnosticsConfig(t *testing.T) {
 
 // Test CrowdsecHandler_ConsoleHeartbeat
 func TestCrowdsecHandler_ConsoleHeartbeat(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}, &models.CrowdsecConsoleEnrollment{}))
 
@@ -623,7 +608,6 @@ func TestCrowdsecHandler_ConsoleHeartbeat(t *testing.T) {
 
 // Test CrowdsecHandler_ConsoleHeartbeat_Disabled
 func TestCrowdsecHandler_ConsoleHeartbeat_Disabled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
 
