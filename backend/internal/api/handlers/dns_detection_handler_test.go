@@ -51,7 +51,6 @@ func TestNewDNSDetectionHandler(t *testing.T) {
 }
 
 func TestDetect_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	mockService := new(mockDNSDetectionService)
 	handler := NewDNSDetectionHandler(mockService)
@@ -177,7 +176,6 @@ func TestDetect_Success(t *testing.T) {
 }
 
 func TestDetect_ValidationErrors(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	mockService := new(mockDNSDetectionService)
 	handler := NewDNSDetectionHandler(mockService)
@@ -216,7 +214,6 @@ func TestDetect_ValidationErrors(t *testing.T) {
 }
 
 func TestDetect_ServiceError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	mockService := new(mockDNSDetectionService)
 	handler := NewDNSDetectionHandler(mockService)
@@ -246,7 +243,6 @@ func TestDetect_ServiceError(t *testing.T) {
 }
 
 func TestGetPatterns(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	mockService := new(mockDNSDetectionService)
 	handler := NewDNSDetectionHandler(mockService)
@@ -287,7 +283,6 @@ func TestGetPatterns(t *testing.T) {
 }
 
 func TestDetect_WildcardDomain(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	mockService := new(mockDNSDetectionService)
 	handler := NewDNSDetectionHandler(mockService)
@@ -327,7 +322,6 @@ func TestDetect_WildcardDomain(t *testing.T) {
 }
 
 func TestDetect_LowConfidence(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	mockService := new(mockDNSDetectionService)
 	handler := NewDNSDetectionHandler(mockService)
@@ -368,7 +362,6 @@ func TestDetect_LowConfidence(t *testing.T) {
 }
 
 func TestDetect_DNSLookupError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	mockService := new(mockDNSDetectionService)
 	handler := NewDNSDetectionHandler(mockService)
@@ -438,7 +431,6 @@ func TestDetectRequest_Binding(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gin.SetMode(gin.TestMode)
 			c, _ := gin.CreateTestContext(httptest.NewRecorder())
 			c.Request = httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(tt.body))
 			c.Request.Header.Set("Content-Type", "application/json")

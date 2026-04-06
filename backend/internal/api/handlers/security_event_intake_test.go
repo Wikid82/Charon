@@ -59,7 +59,6 @@ func TestSecurityEventIntakeAuthLocalhost(t *testing.T) {
 		managementCIDRs,
 	)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
@@ -100,7 +99,6 @@ func TestSecurityEventIntakeAuthManagementCIDR(t *testing.T) {
 		managementCIDRs,
 	)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
@@ -141,7 +139,6 @@ func TestSecurityEventIntakeAuthUnauthorizedIP(t *testing.T) {
 		managementCIDRs,
 	)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
@@ -187,7 +184,6 @@ func TestSecurityEventIntakeAuthInvalidIP(t *testing.T) {
 		managementCIDRs,
 	)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
@@ -246,7 +242,6 @@ func TestSecurityEventIntakeDispatchInvoked(t *testing.T) {
 		managementCIDRs,
 	)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
@@ -315,7 +310,6 @@ func TestSecurityEventIntakeR6Intact(t *testing.T) {
 	service := services.NewEnhancedSecurityNotificationService(db)
 	handler := NewSecurityNotificationHandler(service)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	// Add auth middleware that sets user context
@@ -386,7 +380,6 @@ func TestSecurityEventIntakeDiscordOnly(t *testing.T) {
 		managementCIDRs,
 	)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
@@ -431,7 +424,6 @@ func TestSecurityEventIntakeMalformedPayload(t *testing.T) {
 		managementCIDRs,
 	)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
@@ -466,7 +458,6 @@ func TestSecurityEventIntakeIPv6Localhost(t *testing.T) {
 		managementCIDRs,
 	)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 

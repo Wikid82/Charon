@@ -12,7 +12,6 @@ import (
 )
 
 func TestGetLAPIDecisions_FallbackToCscli(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	// Create handler with mock executor
@@ -40,7 +39,6 @@ func TestGetLAPIDecisions_FallbackToCscli(t *testing.T) {
 }
 
 func TestGetLAPIDecisions_EmptyResponse(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	// Create handler with mock executor that returns empty array
@@ -67,7 +65,6 @@ func TestGetLAPIDecisions_EmptyResponse(t *testing.T) {
 }
 
 func TestCheckLAPIHealth_Handler(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	handler := &CrowdsecHandler{

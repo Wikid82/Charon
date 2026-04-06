@@ -21,7 +21,6 @@ func (t *testCacheInvalidator) InvalidateCache() {
 }
 
 func TestSecurityHandler_ToggleSecurityModule_InvalidatesCache(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}))
 

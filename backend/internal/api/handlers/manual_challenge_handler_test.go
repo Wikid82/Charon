@@ -82,7 +82,6 @@ func (m *mockDNSProviderServiceForChallenge) Get(ctx context.Context, id uint) (
 }
 
 func setupChallengeTestRouter() *gin.Engine {
-	gin.SetMode(gin.TestMode)
 	return gin.New()
 }
 
@@ -507,7 +506,6 @@ func TestGetUserIDFromContext(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gin.SetMode(gin.TestMode)
 			c, _ := gin.CreateTestContext(httptest.NewRecorder())
 			if tt.value != nil {
 				c.Set("user_id", tt.value)

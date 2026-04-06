@@ -16,7 +16,6 @@ import (
 )
 
 func TestBackupHandlerSanitizesFilename(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	tmpDir := t.TempDir()
 	// prepare a fake "database"
 	dbPath := filepath.Join(tmpDir, "db.sqlite")

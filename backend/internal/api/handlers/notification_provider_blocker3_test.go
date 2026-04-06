@@ -17,7 +17,6 @@ import (
 
 // TestBlocker3_CreateProviderValidationWithSecurityEvents verifies supported/unsupported provider handling with security events enabled.
 func TestBlocker3_CreateProviderRejectsNonDiscordWithSecurityEvents(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Setup test database
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -89,7 +88,6 @@ func TestBlocker3_CreateProviderRejectsNonDiscordWithSecurityEvents(t *testing.T
 
 // TestBlocker3_CreateProviderAcceptsDiscordWithSecurityEvents tests that create accepts Discord providers with security events.
 func TestBlocker3_CreateProviderAcceptsDiscordWithSecurityEvents(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Setup test database
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -137,7 +135,6 @@ func TestBlocker3_CreateProviderAcceptsDiscordWithSecurityEvents(t *testing.T) {
 
 // TestBlocker3_CreateProviderAcceptsNonDiscordWithoutSecurityEvents verifies webhook create without security events remains accepted.
 func TestBlocker3_CreateProviderAcceptsNonDiscordWithoutSecurityEvents(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Setup test database
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -182,7 +179,6 @@ func TestBlocker3_CreateProviderAcceptsNonDiscordWithoutSecurityEvents(t *testin
 
 // TestBlocker3_UpdateProviderRejectsNonDiscordWithSecurityEvents verifies webhook update with security events is allowed in PR-1 scope.
 func TestBlocker3_UpdateProviderRejectsNonDiscordWithSecurityEvents(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Setup test database
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -238,7 +234,6 @@ func TestBlocker3_UpdateProviderRejectsNonDiscordWithSecurityEvents(t *testing.T
 
 // TestBlocker3_UpdateProviderAcceptsDiscordWithSecurityEvents tests that update accepts Discord providers with security events.
 func TestBlocker3_UpdateProviderAcceptsDiscordWithSecurityEvents(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Setup test database
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -295,7 +290,6 @@ func TestBlocker3_UpdateProviderAcceptsDiscordWithSecurityEvents(t *testing.T) {
 
 // TestBlocker3_MultipleSecurityEventsEnforcesDiscordOnly tests webhook remains accepted with security flags in PR-1 scope.
 func TestBlocker3_MultipleSecurityEventsEnforcesDiscordOnly(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Setup test database
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -352,7 +346,6 @@ func TestBlocker3_MultipleSecurityEventsEnforcesDiscordOnly(t *testing.T) {
 
 // TestBlocker3_UpdateProvider_DatabaseError tests database error handling when fetching existing provider (lines 137-139).
 func TestBlocker3_UpdateProvider_DatabaseError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Setup test database
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})

@@ -17,7 +17,6 @@ import (
 )
 
 func TestImportUploadSanitizesFilename(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	tmpDir := t.TempDir()
 	// set up in-memory DB for handler
 	db := OpenTestDB(t)

@@ -19,7 +19,6 @@ import (
 // Verifies that newly created monitors start in "pending" state, not "down"
 func TestUptimeMonitorInitialStatePending(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 
 	// Migrate UptimeMonitor model

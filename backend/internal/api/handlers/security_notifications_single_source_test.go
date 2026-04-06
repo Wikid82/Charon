@@ -60,7 +60,6 @@ func TestR2_ProviderSecurityEventsCrowdSecDecisions(t *testing.T) {
 	service := services.NewEnhancedSecurityNotificationService(db)
 	handler := NewSecurityNotificationHandler(service)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/v1/notifications/settings/security", http.NoBody)
@@ -103,7 +102,6 @@ func TestR2_ProviderSecurityEventsCrowdSecDecisionsORSemantics(t *testing.T) {
 	service := services.NewEnhancedSecurityNotificationService(db)
 	handler := NewSecurityNotificationHandler(service)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/v1/notifications/settings/security", http.NoBody)
@@ -127,7 +125,6 @@ func TestR6_LegacySecuritySettingsWrite410Gone(t *testing.T) {
 	service := services.NewEnhancedSecurityNotificationService(db)
 	handler := NewSecurityNotificationHandler(service)
 
-	gin.SetMode(gin.TestMode)
 
 	// Test canonical endpoint: PUT /api/v1/notifications/settings/security
 	t.Run("CanonicalEndpoint", func(t *testing.T) {
@@ -206,7 +203,6 @@ func TestR6_LegacyWrite410GoneNoMutation(t *testing.T) {
 	service := services.NewEnhancedSecurityNotificationService(db)
 	handler := NewSecurityNotificationHandler(service)
 
-	gin.SetMode(gin.TestMode)
 
 	// Attempt PUT to canonical endpoint
 	reqBody := map[string]interface{}{
@@ -241,7 +237,6 @@ func TestProviderCRUD_SecurityEventsIncludeCrowdSec(t *testing.T) {
 	service := services.NewNotificationService(db, nil)
 	handler := NewNotificationProviderHandler(service)
 
-	gin.SetMode(gin.TestMode)
 
 	// Test CREATE
 	t.Run("CreatePersistsCrowdSec", func(t *testing.T) {
@@ -329,7 +324,6 @@ func TestR2_CompatibilityGETIncludesCrowdSec(t *testing.T) {
 	service := services.NewEnhancedSecurityNotificationService(db)
 	handler := NewSecurityNotificationHandler(service)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/v1/notifications/settings/security", http.NoBody)

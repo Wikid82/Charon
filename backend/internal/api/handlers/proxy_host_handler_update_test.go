@@ -23,7 +23,6 @@ import (
 // Uses a dedicated in-memory SQLite database with all required models migrated.
 func setupUpdateTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
 
 	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
@@ -951,7 +950,6 @@ func TestProxyHostUpdate_SecurityHeaderProfileID_SetToNull(t *testing.T) {
 // (other than not found) during profile lookup returns a 500 Internal Server Error.
 func TestBulkUpdateSecurityHeaders_DBError_NonNotFound(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})

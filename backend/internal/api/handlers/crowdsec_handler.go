@@ -66,6 +66,12 @@ type CrowdsecHandler struct {
 	CaddyManager     *caddy.Manager // For config reload after bouncer registration
 	LAPIMaxWait      time.Duration  // For testing; 0 means 60s default
 	LAPIPollInterval time.Duration  // For testing; 0 means 500ms default
+	dashCache        *dashboardCache
+
+	// validateLAPIURL validates and parses a LAPI base URL.
+	// This field allows tests to inject a permissive validator for mock servers
+	// without mutating package-level state (which causes data races).
+	validateLAPIURL func(string) (*url.URL, error)
 
 	// registrationMutex protects concurrent bouncer registration attempts
 	registrationMutex sync.Mutex
@@ -83,6 +89,14 @@ const (
 	bouncerKeyFile = "/app/data/crowdsec/bouncer_key"
 	bouncerName    = "caddy-bouncer"
 )
+
+// resolveLAPIURLValidator returns the handler's validator or the default.
+func (h *CrowdsecHandler) resolveLAPIURLValidator(raw string) (*url.URL, error) {
+	if h.validateLAPIURL != nil {
+		return h.validateLAPIURL(raw)
+	}
+	return validateCrowdsecLAPIBaseURLDefault(raw)
+}
 
 func (h *CrowdsecHandler) bouncerKeyPath() string {
 	if h != nil && strings.TrimSpace(h.DataDir) != "" {
@@ -370,14 +384,16 @@ func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir
 		consoleSvc = crowdsec.NewConsoleEnrollmentService(db, &crowdsec.SecureCommandExecutor{}, dataDir, consoleSecret)
 	}
 	return &CrowdsecHandler{
-		DB:       db,
-		Executor: executor,
-		CmdExec:  &RealCommandExecutor{},
-		BinPath:  binPath,
-		DataDir:  dataDir,
-		Hub:      hubSvc,
-		Console:  consoleSvc,
-		Security: securitySvc,
+		DB:              db,
+		Executor:        executor,
+		CmdExec:         &RealCommandExecutor{},
+		BinPath:         binPath,
+		DataDir:         dataDir,
+		Hub:             hubSvc,
+		Console:         consoleSvc,
+		Security:        securitySvc,
+		dashCache:       newDashboardCache(),
+		validateLAPIURL: validateCrowdsecLAPIBaseURLDefault,
 	}
 }
 
@@ -1442,16 +1458,8 @@ const (
 	defaultCrowdsecLAPIPort = 8085
 )
 
-// validateCrowdsecLAPIBaseURLFunc is a variable holding the LAPI URL validation function.
-// This indirection allows tests to inject a permissive validator for mock servers.
-var validateCrowdsecLAPIBaseURLFunc = validateCrowdsecLAPIBaseURLDefault
-
 func validateCrowdsecLAPIBaseURLDefault(raw string) (*url.URL, error) {
 	return security.ValidateInternalServiceBaseURL(raw, defaultCrowdsecLAPIPort, security.InternalServiceHostAllowlist())
-}
-
-func validateCrowdsecLAPIBaseURL(raw string) (*url.URL, error) {
-	return validateCrowdsecLAPIBaseURLFunc(raw)
 }
 
 // GetLAPIDecisions queries CrowdSec LAPI directly for current decisions.
@@ -1471,7 +1479,7 @@ func (h *CrowdsecHandler) GetLAPIDecisions(c *gin.Context) {
 		}
 	}
 
-	baseURL, err := validateCrowdsecLAPIBaseURL(lapiURL)
+	baseURL, err := h.resolveLAPIURLValidator(lapiURL)
 	if err != nil {
 		logger.Log().WithError(err).WithField("lapi_url", lapiURL).Warn("Blocked CrowdSec LAPI URL by internal allowlist policy")
 		// Fallback to cscli-based method.
@@ -2142,7 +2150,7 @@ func (h *CrowdsecHandler) CheckLAPIHealth(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 
-	baseURL, err := validateCrowdsecLAPIBaseURL(lapiURL)
+	baseURL, err := h.resolveLAPIURLValidator(lapiURL)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"healthy": false, "error": "invalid LAPI URL (blocked by SSRF policy)", "lapi_url": lapiURL})
 		return
@@ -2287,6 +2295,21 @@ func (h *CrowdsecHandler) BanIP(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "banned", "ip": ip, "duration": duration})
+
+	// Log to security_decisions for dashboard aggregation
+	if h.Security != nil {
+		parsedDur, _ := time.ParseDuration(duration)
+		expiry := time.Now().Add(parsedDur)
+		_ = h.Security.LogDecision(&models.SecurityDecision{
+			IP:        ip,
+			Action:    "block",
+			Source:    "crowdsec",
+			RuleID:    reason,
+			Scenario:  "manual",
+			ExpiresAt: &expiry,
+		})
+	}
+	h.dashCache.Invalidate("dashboard")
 }
 
 // UnbanIP removes a ban for an IP address
@@ -2313,6 +2336,7 @@ func (h *CrowdsecHandler) UnbanIP(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "unbanned", "ip": ip})
+	h.dashCache.Invalidate("dashboard")
 }
 
 // RegisterBouncer registers a new bouncer or returns existing bouncer status.
@@ -2711,4 +2735,11 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	// Acquisition configuration endpoints
 	rg.GET("/admin/crowdsec/acquisition", h.GetAcquisitionConfig)
 	rg.PUT("/admin/crowdsec/acquisition", h.UpdateAcquisitionConfig)
+	// Dashboard aggregation endpoints (PR-1)
+	rg.GET("/admin/crowdsec/dashboard/summary", h.DashboardSummary)
+	rg.GET("/admin/crowdsec/dashboard/timeline", h.DashboardTimeline)
+	rg.GET("/admin/crowdsec/dashboard/top-ips", h.DashboardTopIPs)
+	rg.GET("/admin/crowdsec/dashboard/scenarios", h.DashboardScenarios)
+	rg.GET("/admin/crowdsec/alerts", h.ListAlerts)
+	rg.GET("/admin/crowdsec/decisions/export", h.ExportDecisions)
 }

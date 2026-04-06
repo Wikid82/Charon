@@ -29,7 +29,6 @@ func setupNotificationTestDB(t *testing.T) *gorm.DB {
 }
 
 func TestNotificationHandler_List(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationTestDB(t)
 
 	// Seed data
@@ -65,7 +64,6 @@ func TestNotificationHandler_List(t *testing.T) {
 }
 
 func TestNotificationHandler_MarkAsRead(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationTestDB(t)
 
 	// Seed data
@@ -89,7 +87,6 @@ func TestNotificationHandler_MarkAsRead(t *testing.T) {
 }
 
 func TestNotificationHandler_MarkAllAsRead(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationTestDB(t)
 
 	// Seed data
@@ -113,7 +110,6 @@ func TestNotificationHandler_MarkAllAsRead(t *testing.T) {
 }
 
 func TestNotificationHandler_MarkAllAsRead_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationTestDB(t)
 	service := services.NewNotificationService(db, nil)
 	handler := handlers.NewNotificationHandler(service)
@@ -132,7 +128,6 @@ func TestNotificationHandler_MarkAllAsRead_Error(t *testing.T) {
 }
 
 func TestNotificationHandler_DBError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupNotificationTestDB(t)
 	service := services.NewNotificationService(db, nil)
 	handler := handlers.NewNotificationHandler(service)

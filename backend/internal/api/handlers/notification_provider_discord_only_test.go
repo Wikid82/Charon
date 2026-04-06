@@ -18,7 +18,6 @@ import (
 
 // TestDiscordOnly_CreateRejectsNonDiscord verifies unsupported provider types are rejected while supported types are accepted.
 func TestDiscordOnly_CreateRejectsNonDiscord(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
@@ -81,7 +80,6 @@ func TestDiscordOnly_CreateRejectsNonDiscord(t *testing.T) {
 
 // TestDiscordOnly_CreateAcceptsDiscord tests that create accepts Discord providers.
 func TestDiscordOnly_CreateAcceptsDiscord(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
@@ -115,7 +113,6 @@ func TestDiscordOnly_CreateAcceptsDiscord(t *testing.T) {
 
 // TestDiscordOnly_UpdateRejectsTypeMutation tests that update blocks type mutation for deprecated providers.
 func TestDiscordOnly_UpdateRejectsTypeMutation(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
@@ -169,7 +166,6 @@ func TestDiscordOnly_UpdateRejectsTypeMutation(t *testing.T) {
 
 // TestDiscordOnly_UpdateRejectsEnable tests that update blocks enabling deprecated providers.
 func TestDiscordOnly_UpdateRejectsEnable(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
@@ -217,7 +213,6 @@ func TestDiscordOnly_UpdateRejectsEnable(t *testing.T) {
 
 // TestDiscordOnly_UpdateAllowsDisabledDeprecated tests that update allows updating disabled deprecated providers (except type/enable).
 func TestDiscordOnly_UpdateAllowsDisabledDeprecated(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
@@ -265,7 +260,6 @@ func TestDiscordOnly_UpdateAllowsDisabledDeprecated(t *testing.T) {
 
 // TestDiscordOnly_UpdateAcceptsDiscord tests that update accepts Discord provider updates.
 func TestDiscordOnly_UpdateAcceptsDiscord(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
@@ -313,7 +307,6 @@ func TestDiscordOnly_UpdateAcceptsDiscord(t *testing.T) {
 
 // TestDiscordOnly_DeleteAllowsDeprecated tests that delete works for deprecated providers.
 func TestDiscordOnly_DeleteAllowsDeprecated(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
@@ -405,7 +398,6 @@ func TestDiscordOnly_ErrorCodes(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			gin.SetMode(gin.TestMode)
 
 			db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 			require.NoError(t, err)

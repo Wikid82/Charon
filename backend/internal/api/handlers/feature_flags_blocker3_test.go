@@ -15,7 +15,6 @@ import (
 
 // TestBlocker3_SecurityProviderEventsFlagInResponse tests that the feature flag is included in GET response.
 func TestBlocker3_SecurityProviderEventsFlagInResponse(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Setup test database
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -50,7 +49,6 @@ func TestBlocker3_SecurityProviderEventsFlagInResponse(t *testing.T) {
 
 // TestBlocker3_SecurityProviderEventsFlagDefaultValue tests the default value of the flag.
 func TestBlocker3_SecurityProviderEventsFlagDefaultValue(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Setup test database
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -85,7 +83,6 @@ func TestBlocker3_SecurityProviderEventsFlagDefaultValue(t *testing.T) {
 
 // TestBlocker3_SecurityProviderEventsFlagCanBeEnabled tests that the flag can be enabled.
 func TestBlocker3_SecurityProviderEventsFlagCanBeEnabled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Setup test database
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})

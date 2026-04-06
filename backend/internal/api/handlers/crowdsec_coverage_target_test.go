@@ -22,7 +22,6 @@ import (
 
 // TestUpdateAcquisitionConfigSuccess tests successful config update
 func TestUpdateAcquisitionConfigSuccess(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	tmpDir := t.TempDir()
 
 	// Create fake acquis.yaml path in tmp
@@ -50,7 +49,6 @@ func TestUpdateAcquisitionConfigSuccess(t *testing.T) {
 
 // TestRegisterBouncerScriptPathError tests script not found
 func TestRegisterBouncerScriptPathError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -92,7 +90,6 @@ func (f *fakeExecWithOutput) Status(ctx context.Context, configDir string) (runn
 
 // TestGetLAPIDecisionsRequestError tests request creation error
 func TestGetLAPIDecisionsEmptyResponse(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -109,7 +106,6 @@ func TestGetLAPIDecisionsEmptyResponse(t *testing.T) {
 
 // TestGetLAPIDecisionsWithFilters tests query parameter handling
 func TestGetLAPIDecisionsIPQueryParam(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -124,7 +120,6 @@ func TestGetLAPIDecisionsIPQueryParam(t *testing.T) {
 
 // TestGetLAPIDecisionsScopeParam tests scope parameter
 func TestGetLAPIDecisionsScopeParam(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -139,7 +134,6 @@ func TestGetLAPIDecisionsScopeParam(t *testing.T) {
 
 // TestGetLAPIDecisionsTypeParam tests type parameter
 func TestGetLAPIDecisionsTypeParam(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -154,7 +148,6 @@ func TestGetLAPIDecisionsTypeParam(t *testing.T) {
 
 // TestGetLAPIDecisionsCombinedParams tests multiple query params
 func TestGetLAPIDecisionsCombinedParams(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -169,7 +162,6 @@ func TestGetLAPIDecisionsCombinedParams(t *testing.T) {
 
 // TestCheckLAPIHealthTimeout tests health check
 func TestCheckLAPIHealthRequest(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -223,7 +215,6 @@ func TestGetLAPIKeyAlternative(t *testing.T) {
 
 // TestStatusContextTimeout tests context handling
 func TestStatusRequest(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -238,7 +229,6 @@ func TestStatusRequest(t *testing.T) {
 
 // TestRegisterBouncerExecutionSuccess tests successful registration
 func TestRegisterBouncerFlow(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	tmpDir := t.TempDir()
 
 	// Create fake script
@@ -267,7 +257,6 @@ func TestRegisterBouncerFlow(t *testing.T) {
 
 // TestRegisterBouncerWithError tests execution error
 func TestRegisterBouncerExecutionFailure(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	tmpDir := t.TempDir()
 
 	// Create fake script
@@ -294,7 +283,6 @@ func TestRegisterBouncerExecutionFailure(t *testing.T) {
 
 // TestGetAcquisitionConfigFileError tests file read error
 func TestGetAcquisitionConfigNotPresent(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
