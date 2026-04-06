@@ -36,7 +36,6 @@ func createTestSQLiteDB(dbPath string) error {
 }
 
 func TestDBHealthHandler_Check_Healthy(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Create in-memory database
 	db, err := database.Connect("file::memory:?cache=shared")
@@ -65,7 +64,6 @@ func TestDBHealthHandler_Check_Healthy(t *testing.T) {
 }
 
 func TestDBHealthHandler_Check_WithBackupService(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Setup temp dirs for backup service
 	tmpDir := t.TempDir()
@@ -116,7 +114,6 @@ func TestDBHealthHandler_Check_WithBackupService(t *testing.T) {
 }
 
 func TestDBHealthHandler_Check_WALMode(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Create file-based database to test WAL mode
 	tmpDir := t.TempDir()
@@ -145,7 +142,6 @@ func TestDBHealthHandler_Check_WALMode(t *testing.T) {
 }
 
 func TestDBHealthHandler_ResponseJSONTags(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db, err := database.Connect("file::memory:?cache=shared")
 	require.NoError(t, err)
@@ -200,7 +196,6 @@ func TestNewDBHealthHandler(t *testing.T) {
 // Phase 1 & 3: Critical coverage tests
 
 func TestDBHealthHandler_Check_CorruptedDatabase(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Create a file-based database and corrupt it
 	tmpDir := t.TempDir()
@@ -252,7 +247,6 @@ func TestDBHealthHandler_Check_CorruptedDatabase(t *testing.T) {
 }
 
 func TestDBHealthHandler_Check_BackupServiceError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Create database
 	db, err := database.Connect("file::memory:?cache=shared")
@@ -294,7 +288,6 @@ func TestDBHealthHandler_Check_BackupServiceError(t *testing.T) {
 }
 
 func TestDBHealthHandler_Check_BackupTimeZero(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Create database
 	db, err := database.Connect("file::memory:?cache=shared")

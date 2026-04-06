@@ -16,7 +16,7 @@ sleep 1
 #
 # Steps:
 # 1. Build charon:local image if not present
-# 2. Start container with CERBERUS_SECURITY_CROWDSEC_MODE=local
+# 2. Start container with CrowdSec environment
 # 3. Wait for initialization (30 seconds)
 # 4. Check for fatal errors
 # 5. Check LAPI health
@@ -127,7 +127,7 @@ docker rm -f ${CONTAINER_NAME} 2>/dev/null || true
 # ============================================================================
 # Step 4: Start container with CrowdSec enabled
 # ============================================================================
-log_info "Starting Charon container with CERBERUS_SECURITY_CROWDSEC_MODE=local..."
+log_info "Starting Charon container with CrowdSec enabled..."
 
 docker run -d --name ${CONTAINER_NAME} \
     -p ${HTTP_PORT}:80 \
@@ -136,7 +136,6 @@ docker run -d --name ${CONTAINER_NAME} \
     -e CHARON_ENV=development \
     -e CHARON_DEBUG=1 \
     -e FEATURE_CERBERUS_ENABLED=true \
-    -e CERBERUS_SECURITY_CROWDSEC_MODE=local \
     -e CERBERUS_SECURITY_CROWDSEC_API_KEY=dummy-key \
     -v charon_crowdsec_startup_data:/app/data \
     -v caddy_crowdsec_startup_data:/data \

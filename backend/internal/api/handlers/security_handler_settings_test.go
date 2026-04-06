@@ -21,7 +21,6 @@ import (
 // reads WAF, Rate Limit, and CrowdSec enabled states from the settings table,
 // overriding the static config values.
 func TestSecurityHandler_GetStatus_RespectsSettingsTable(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
 		name          string
@@ -167,7 +166,6 @@ func TestSecurityHandler_GetStatus_RespectsSettingsTable(t *testing.T) {
 // TestSecurityHandler_GetStatus_WAFModeFromSettings verifies that WAF mode
 // is properly reflected when enabled via settings.
 func TestSecurityHandler_GetStatus_WAFModeFromSettings(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}))
 
@@ -200,7 +198,6 @@ func TestSecurityHandler_GetStatus_WAFModeFromSettings(t *testing.T) {
 // TestSecurityHandler_GetStatus_RateLimitModeFromSettings verifies that Rate Limit mode
 // is properly reflected when enabled via settings.
 func TestSecurityHandler_GetStatus_RateLimitModeFromSettings(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}))
 
@@ -234,7 +231,6 @@ func TestSecurityHandler_GetStatus_RateLimitModeFromSettings(t *testing.T) {
 }
 
 func TestSecurityHandler_GetStatus_IncludesLatestConfigApplyState(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.CaddyConfig{}))
 
@@ -261,7 +257,6 @@ func TestSecurityHandler_GetStatus_IncludesLatestConfigApplyState(t *testing.T) 
 }
 
 func TestSecurityHandler_PatchACL_RequiresAdminWhitelist(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", AdminWhitelist: "192.0.2.1/32"}).Error)
 
@@ -283,7 +278,6 @@ func TestSecurityHandler_PatchACL_RequiresAdminWhitelist(t *testing.T) {
 }
 
 func TestSecurityHandler_PatchACL_AllowsWhitelistedIP(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDBWithMigrations(t)
 	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", AdminWhitelist: "203.0.113.0/24"}).Error)
 
@@ -315,7 +309,6 @@ func TestSecurityHandler_PatchACL_AllowsWhitelistedIP(t *testing.T) {
 }
 
 func TestSecurityHandler_PatchACL_SetsACLAndCerberusSettings(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	dsn := "file:TestSecurityHandler_PatchACL_SetsACLAndCerberusSettings?mode=memory&cache=shared"
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
@@ -352,7 +345,6 @@ func TestSecurityHandler_PatchACL_SetsACLAndCerberusSettings(t *testing.T) {
 }
 
 func TestSecurityHandler_EnsureSecurityConfigEnabled_CreatesWhenMissing(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
 
@@ -368,7 +360,6 @@ func TestSecurityHandler_EnsureSecurityConfigEnabled_CreatesWhenMissing(t *testi
 }
 
 func TestSecurityHandler_PatchACL_AllowsEmergencyBypass(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
 	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", AdminWhitelist: "192.0.2.1/32"}).Error)

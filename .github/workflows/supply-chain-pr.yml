@@ -281,7 +281,7 @@ jobs:
           echo "component_count=${COMPONENT_COUNT}" >> "$GITHUB_OUTPUT"
           echo "✅ SBOM generated with ${COMPONENT_COUNT} components"
 
-      # Scan for vulnerabilities using manual Grype installation (pinned to v0.107.1)
+      # Scan for vulnerabilities using manual Grype installation (pinned to v0.110.0)
       - name: Install Grype
         if: steps.set-target.outputs.image_name != ''
         run: |
@@ -292,8 +292,8 @@ jobs:
         id: grype-scan
         run: |
           echo "🔍 Scanning SBOM for vulnerabilities..."
-          grype sbom:sbom.cyclonedx.json -o json > grype-results.json
-          grype sbom:sbom.cyclonedx.json -o sarif > grype-results.sarif
+          grype sbom:sbom.cyclonedx.json --config .grype.yaml -o json > grype-results.json
+          grype sbom:sbom.cyclonedx.json --config .grype.yaml -o sarif > grype-results.sarif
 
       - name: Debug Output Files
         if: steps.set-target.outputs.image_name != ''
@@ -362,7 +362,7 @@ jobs:
 
       - name: Upload SARIF to GitHub Security
         if: steps.check-artifact.outputs.artifact_found == 'true'
-        uses: github/codeql-action/upload-sarif@38697555549f1db7851b81482ff19f1fa5c4fedc # v4
+        uses: github/codeql-action/upload-sarif@c10b8064de6f491fea524254123dbe5e09572f13 # v4
         continue-on-error: true
         with:
           sarif_file: grype-results.sarif

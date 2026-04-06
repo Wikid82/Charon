@@ -31,7 +31,6 @@ func TestFinalBlocker1_DestinationAmbiguous_ZeroManagedProviders(t *testing.T) {
 	service := services.NewEnhancedSecurityNotificationService(db)
 	handler := NewSecurityNotificationHandler(service)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/v1/notifications/settings/security", http.NoBody)
@@ -67,7 +66,6 @@ func TestFinalBlocker1_DestinationAmbiguous_OneManagedProvider(t *testing.T) {
 	service := services.NewEnhancedSecurityNotificationService(db)
 	handler := NewSecurityNotificationHandler(service)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/v1/notifications/settings/security", http.NoBody)
@@ -112,7 +110,6 @@ func TestFinalBlocker1_DestinationAmbiguous_MultipleManagedProviders(t *testing.
 	service := services.NewEnhancedSecurityNotificationService(db)
 	handler := NewSecurityNotificationHandler(service)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/v1/notifications/settings/security", http.NoBody)
@@ -201,7 +198,6 @@ func TestFinalBlocker3_SupportedProviderTypes_WebhookDiscordSlackGotifyOnly(t *t
 	service := services.NewEnhancedSecurityNotificationService(db)
 	handler := NewSecurityNotificationHandler(service)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/v1/notifications/settings/security", http.NoBody)
@@ -240,7 +236,6 @@ func TestFinalBlocker3_SupportedProviderTypes_UnsupportedTypesIgnored(t *testing
 	service := services.NewEnhancedSecurityNotificationService(db)
 	handler := NewSecurityNotificationHandler(service)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/v1/notifications/settings/security", http.NoBody)
@@ -277,7 +272,6 @@ func TestBlocker2_GETReturnsSecurityFields(t *testing.T) {
 	service := services.NewEnhancedSecurityNotificationService(db)
 	handler := NewSecurityNotificationHandler(service)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/v1/notifications/settings/security", http.NoBody)
@@ -320,7 +314,6 @@ func TestBlocker2_GotifyTokenNeverExposed_Legacy(t *testing.T) {
 	service := services.NewEnhancedSecurityNotificationService(db)
 	handler := NewSecurityNotificationHandler(service)
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/v1/notifications/settings/security", http.NoBody)

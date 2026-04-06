@@ -87,7 +87,6 @@ func setupEmergencyTestDB(t *testing.T) *gorm.DB {
 }
 
 func setupEmergencyRouter(handler *EmergencyHandler) *gin.Engine {
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	_ = router.SetTrustedProxies(nil)
 	router.POST("/api/v1/emergency/security-reset", handler.SecurityReset)
@@ -385,7 +384,6 @@ func TestEmergencySecurityReset_MiddlewarePrevalidatedBypass(t *testing.T) {
 	db := setupEmergencyTestDB(t)
 	handler := NewEmergencyHandler(db)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.POST("/api/v1/emergency/security-reset", func(c *gin.Context) {
 		c.Set("emergency_bypass", true)
@@ -407,7 +405,6 @@ func TestEmergencySecurityReset_MiddlewareBypass_ResetFailure(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, stdDB.Close())
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.POST("/api/v1/emergency/security-reset", func(c *gin.Context) {
 		c.Set("emergency_bypass", true)
@@ -475,7 +472,6 @@ func TestGenerateToken_Success(t *testing.T) {
 	handler := NewEmergencyTokenHandler(tokenService)
 	defer handler.Close()
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.POST("/api/v1/emergency/token", func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -504,7 +500,6 @@ func TestGenerateToken_AdminRequired(t *testing.T) {
 	handler := NewEmergencyTokenHandler(tokenService)
 	defer handler.Close()
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.POST("/api/v1/emergency/token", func(c *gin.Context) {
 		// No role set - simulating non-admin user
@@ -527,7 +522,6 @@ func TestGenerateToken_InvalidExpirationDays(t *testing.T) {
 	handler := NewEmergencyTokenHandler(tokenService)
 	defer handler.Close()
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.POST("/api/v1/emergency/token", func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -554,7 +548,6 @@ func TestGetTokenStatus_Success(t *testing.T) {
 	// Generate a token first
 	_, _ = tokenService.Generate(services.GenerateRequest{ExpirationDays: 30})
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.GET("/api/v1/emergency/token/status", func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -581,7 +574,6 @@ func TestGetTokenStatus_AdminRequired(t *testing.T) {
 	handler := NewEmergencyTokenHandler(tokenService)
 	defer handler.Close()
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.GET("/api/v1/emergency/token/status", handler.GetTokenStatus)
 
@@ -602,7 +594,6 @@ func TestRevokeToken_Success(t *testing.T) {
 	// Generate a token first
 	_, _ = tokenService.Generate(services.GenerateRequest{ExpirationDays: 30})
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.DELETE("/api/v1/emergency/token", func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -624,7 +615,6 @@ func TestRevokeToken_AdminRequired(t *testing.T) {
 	handler := NewEmergencyTokenHandler(tokenService)
 	defer handler.Close()
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.DELETE("/api/v1/emergency/token", handler.RevokeToken)
 
@@ -645,7 +635,6 @@ func TestUpdateTokenExpiration_Success(t *testing.T) {
 	// Generate a token first
 	_, _ = tokenService.Generate(services.GenerateRequest{ExpirationDays: 30})
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.PATCH("/api/v1/emergency/token/expiration", func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -669,7 +658,6 @@ func TestUpdateTokenExpiration_AdminRequired(t *testing.T) {
 	handler := NewEmergencyTokenHandler(tokenService)
 	defer handler.Close()
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.PATCH("/api/v1/emergency/token/expiration", handler.UpdateTokenExpiration)
 
@@ -689,7 +677,6 @@ func TestUpdateTokenExpiration_InvalidDays(t *testing.T) {
 	handler := NewEmergencyTokenHandler(tokenService)
 	defer handler.Close()
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.PATCH("/api/v1/emergency/token/expiration", func(c *gin.Context) {
 		c.Set("role", "admin")

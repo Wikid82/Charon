@@ -51,7 +51,6 @@ func createTestSecurityService(t *testing.T, db *gorm.DB) *services.SecurityServ
 
 // TestCrowdsecHandler_Stop_Success tests the Stop handler with successful execution
 func TestCrowdsecHandler_Stop_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
 
@@ -97,7 +96,6 @@ func TestCrowdsecHandler_Stop_Success(t *testing.T) {
 
 // TestCrowdsecHandler_Stop_Error tests the Stop handler with an execution error
 func TestCrowdsecHandler_Stop_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
 
@@ -123,7 +121,6 @@ func TestCrowdsecHandler_Stop_Error(t *testing.T) {
 
 // TestCrowdsecHandler_Stop_NoSecurityConfig tests Stop when there's no existing SecurityConfig
 func TestCrowdsecHandler_Stop_NoSecurityConfig(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
 
@@ -152,10 +149,6 @@ func TestCrowdsecHandler_Stop_NoSecurityConfig(t *testing.T) {
 
 // TestGetLAPIDecisions_WithMockServer tests GetLAPIDecisions with a mock LAPI server
 func TestGetLAPIDecisions_WithMockServer(t *testing.T) {
-	// Use permissive validator for testing with mock server on random port
-	orig := validateCrowdsecLAPIBaseURLFunc
-	validateCrowdsecLAPIBaseURLFunc = permissiveLAPIURLValidator
-	defer func() { validateCrowdsecLAPIBaseURLFunc = orig }()
 
 	// Create a mock LAPI server
 	mockLAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -165,7 +158,6 @@ func TestGetLAPIDecisions_WithMockServer(t *testing.T) {
 	}))
 	defer mockLAPI.Close()
 
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -179,6 +171,7 @@ func TestGetLAPIDecisions_WithMockServer(t *testing.T) {
 		Security: secSvc,
 		CmdExec:  &mockCommandExecutor{},
 		DataDir:  t.TempDir(),
+		validateLAPIURL: permissiveLAPIURLValidator,
 	}
 
 	r := gin.New()
@@ -202,10 +195,6 @@ func TestGetLAPIDecisions_WithMockServer(t *testing.T) {
 
 // TestGetLAPIDecisions_Unauthorized tests GetLAPIDecisions when LAPI returns 401
 func TestGetLAPIDecisions_Unauthorized(t *testing.T) {
-	// Use permissive validator for testing with mock server on random port
-	orig := validateCrowdsecLAPIBaseURLFunc
-	validateCrowdsecLAPIBaseURLFunc = permissiveLAPIURLValidator
-	defer func() { validateCrowdsecLAPIBaseURLFunc = orig }()
 
 	// Create a mock LAPI server that returns 401
 	mockLAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -213,7 +202,6 @@ func TestGetLAPIDecisions_Unauthorized(t *testing.T) {
 	}))
 	defer mockLAPI.Close()
 
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -226,6 +214,7 @@ func TestGetLAPIDecisions_Unauthorized(t *testing.T) {
 		Security: secSvc,
 		CmdExec:  &mockCommandExecutor{},
 		DataDir:  t.TempDir(),
+		validateLAPIURL: permissiveLAPIURLValidator,
 	}
 
 	r := gin.New()
@@ -240,10 +229,6 @@ func TestGetLAPIDecisions_Unauthorized(t *testing.T) {
 
 // TestGetLAPIDecisions_NullResponse tests GetLAPIDecisions when LAPI returns null
 func TestGetLAPIDecisions_NullResponse(t *testing.T) {
-	// Use permissive validator for testing with mock server on random port
-	orig := validateCrowdsecLAPIBaseURLFunc
-	validateCrowdsecLAPIBaseURLFunc = permissiveLAPIURLValidator
-	defer func() { validateCrowdsecLAPIBaseURLFunc = orig }()
 
 	mockLAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -252,7 +237,6 @@ func TestGetLAPIDecisions_NullResponse(t *testing.T) {
 	}))
 	defer mockLAPI.Close()
 
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -265,6 +249,7 @@ func TestGetLAPIDecisions_NullResponse(t *testing.T) {
 		Security: secSvc,
 		CmdExec:  &mockCommandExecutor{},
 		DataDir:  t.TempDir(),
+		validateLAPIURL: permissiveLAPIURLValidator,
 	}
 
 	r := gin.New()
@@ -292,7 +277,6 @@ func TestGetLAPIDecisions_NonJSONContentType(t *testing.T) {
 	}))
 	defer mockLAPI.Close()
 
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -320,10 +304,6 @@ func TestGetLAPIDecisions_NonJSONContentType(t *testing.T) {
 
 // TestCheckLAPIHealth_WithMockServer tests CheckLAPIHealth with a healthy LAPI
 func TestCheckLAPIHealth_WithMockServer(t *testing.T) {
-	// Use permissive validator for testing with mock server on random port
-	orig := validateCrowdsecLAPIBaseURLFunc
-	validateCrowdsecLAPIBaseURLFunc = permissiveLAPIURLValidator
-	defer func() { validateCrowdsecLAPIBaseURLFunc = orig }()
 
 	mockLAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/health" {
@@ -335,7 +315,6 @@ func TestCheckLAPIHealth_WithMockServer(t *testing.T) {
 	}))
 	defer mockLAPI.Close()
 
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -348,6 +327,7 @@ func TestCheckLAPIHealth_WithMockServer(t *testing.T) {
 		Security: secSvc,
 		CmdExec:  &mockCommandExecutor{},
 		DataDir:  t.TempDir(),
+		validateLAPIURL: permissiveLAPIURLValidator,
 	}
 
 	r := gin.New()
@@ -368,10 +348,6 @@ func TestCheckLAPIHealth_WithMockServer(t *testing.T) {
 // TestCheckLAPIHealth_FallbackToDecisions tests the fallback to /v1/decisions endpoint
 // when the primary /health endpoint is unreachable
 func TestCheckLAPIHealth_FallbackToDecisions(t *testing.T) {
-	// Use permissive validator for testing with mock server on random port
-	orig := validateCrowdsecLAPIBaseURLFunc
-	validateCrowdsecLAPIBaseURLFunc = permissiveLAPIURLValidator
-	defer func() { validateCrowdsecLAPIBaseURLFunc = orig }()
 
 	// Create a mock server that only responds to /v1/decisions, not /health
 	mockLAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -385,7 +361,6 @@ func TestCheckLAPIHealth_FallbackToDecisions(t *testing.T) {
 	}))
 	defer mockLAPI.Close()
 
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
@@ -398,6 +373,7 @@ func TestCheckLAPIHealth_FallbackToDecisions(t *testing.T) {
 		Security: secSvc,
 		CmdExec:  &mockCommandExecutor{},
 		DataDir:  t.TempDir(),
+		validateLAPIURL: permissiveLAPIURLValidator,
 	}
 
 	r := gin.New()

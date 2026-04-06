@@ -40,7 +40,6 @@ func setupEncryptionTestDB(t *testing.T) *gorm.DB {
 }
 
 func setupEncryptionTestRouter(handler *EncryptionHandler, isAdmin bool) *gin.Engine {
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	// Mock admin middleware - matches production auth middleware key names
@@ -558,7 +557,6 @@ func TestEncryptionHandler_IntegrationFlow(t *testing.T) {
 
 // TestEncryptionHandler_HelperFunctions tests the isAdmin and getActorFromGinContext helpers
 func TestEncryptionHandler_HelperFunctions(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	t.Run("isAdmin with invalid role type", func(t *testing.T) {
 		router := gin.New()
@@ -787,7 +785,6 @@ func TestEncryptionHandler_RefreshKey_InvalidOldKey(t *testing.T) {
 
 // TestEncryptionHandler_GetActorFromGinContext_InvalidType tests getActorFromGinContext with invalid type
 func TestEncryptionHandler_GetActorFromGinContext_InvalidType(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	router := gin.New()
 	var capturedActor string
@@ -884,7 +881,6 @@ func TestEncryptionHandler_RotateWithPartialFailures(t *testing.T) {
 
 // TestEncryptionHandler_isAdmin_NoRoleSet tests isAdmin when no role is set
 func TestEncryptionHandler_isAdmin_NoRoleSet(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	router := gin.New()
 	// No middleware setting user_role
@@ -905,7 +901,6 @@ func TestEncryptionHandler_isAdmin_NoRoleSet(t *testing.T) {
 
 // TestEncryptionHandler_isAdmin_NonAdminRole tests isAdmin with non-admin role
 func TestEncryptionHandler_isAdmin_NonAdminRole(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {

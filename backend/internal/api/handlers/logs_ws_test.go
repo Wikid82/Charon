@@ -71,7 +71,6 @@ func TestUpgraderCheckOrigin(t *testing.T) {
 }
 
 func TestLogsWebSocketHandler_DeprecatedWrapperUpgradeFailure(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	charonlogger.Init(false, io.Discard)
 
 	r := gin.New()
@@ -85,7 +84,6 @@ func TestLogsWebSocketHandler_DeprecatedWrapperUpgradeFailure(t *testing.T) {
 }
 
 func TestLogsWSHandler_StreamWithFiltersAndTracker(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	charonlogger.Init(false, io.Discard)
 
 	tracker := services.NewWebSocketTracker()

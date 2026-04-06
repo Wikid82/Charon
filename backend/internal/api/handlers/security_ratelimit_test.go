@@ -14,7 +14,6 @@ import (
 )
 
 func TestSecurityHandler_GetRateLimitPresets(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	cfg := config.SecurityConfig{}
 	handler := NewSecurityHandler(cfg, nil, nil)
@@ -49,7 +48,6 @@ func TestSecurityHandler_GetRateLimitPresets(t *testing.T) {
 }
 
 func TestSecurityHandler_GetRateLimitPresets_StandardPreset(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	cfg := config.SecurityConfig{}
 	handler := NewSecurityHandler(cfg, nil, nil)
@@ -75,7 +73,6 @@ func TestSecurityHandler_GetRateLimitPresets_StandardPreset(t *testing.T) {
 }
 
 func TestSecurityHandler_GetRateLimitPresets_LoginPreset(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	cfg := config.SecurityConfig{}
 	handler := NewSecurityHandler(cfg, nil, nil)

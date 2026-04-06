@@ -28,7 +28,6 @@ func (m *mockCommandExecutor) Execute(ctx context.Context, name string, args ...
 }
 
 func TestListDecisions_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -67,7 +66,6 @@ func TestListDecisions_Success(t *testing.T) {
 }
 
 func TestListDecisions_EmptyList(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -98,7 +96,6 @@ func TestListDecisions_EmptyList(t *testing.T) {
 }
 
 func TestListDecisions_CscliError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -130,7 +127,6 @@ func TestListDecisions_CscliError(t *testing.T) {
 }
 
 func TestListDecisions_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -154,7 +150,6 @@ func TestListDecisions_InvalidJSON(t *testing.T) {
 }
 
 func TestBanIP_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -205,7 +200,6 @@ func TestBanIP_Success(t *testing.T) {
 }
 
 func TestBanIP_DefaultDuration(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -245,7 +239,6 @@ func TestBanIP_DefaultDuration(t *testing.T) {
 }
 
 func TestBanIP_MissingIP(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -268,7 +261,6 @@ func TestBanIP_MissingIP(t *testing.T) {
 }
 
 func TestBanIP_EmptyIP(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -293,7 +285,6 @@ func TestBanIP_EmptyIP(t *testing.T) {
 }
 
 func TestBanIP_CscliError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -323,7 +314,6 @@ func TestBanIP_CscliError(t *testing.T) {
 }
 
 func TestUnbanIP_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -357,7 +347,6 @@ func TestUnbanIP_Success(t *testing.T) {
 }
 
 func TestUnbanIP_CscliError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -381,7 +370,6 @@ func TestUnbanIP_CscliError(t *testing.T) {
 }
 
 func TestListDecisions_MultipleDecisions(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -430,7 +418,6 @@ func TestListDecisions_MultipleDecisions(t *testing.T) {
 }
 
 func TestBanIP_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 

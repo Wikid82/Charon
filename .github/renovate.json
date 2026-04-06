@@ -11,6 +11,7 @@
     "development"
 
   ],
+  "postUpdateOptions": ["npmDedupe"],
   "timezone": "America/New_York",
   "dependencyDashboard": true,
   "dependencyDashboardApproval": true,

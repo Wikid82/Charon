@@ -15,7 +15,6 @@ import (
 )
 
 func TestSecurityHandler_MutatorsRequireAdmin(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityRuleSet{}, &models.SecurityDecision{}, &models.SecurityAudit{}))
 

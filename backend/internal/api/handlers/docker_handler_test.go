@@ -41,7 +41,6 @@ func (f *fakeRemoteServerService) GetByUUID(uuidStr string) (*models.RemoteServe
 }
 
 func TestDockerHandler_ListContainers_InvalidHostRejected(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	dockerSvc := &fakeDockerService{}
@@ -60,7 +59,6 @@ func TestDockerHandler_ListContainers_InvalidHostRejected(t *testing.T) {
 }
 
 func TestDockerHandler_ListContainers_DockerUnavailableMappedTo503(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	dockerSvc := &fakeDockerService{err: services.NewDockerUnavailableError(errors.New("no docker socket"), "Local Docker socket is mounted but not accessible by current process")}
@@ -82,7 +80,6 @@ func TestDockerHandler_ListContainers_DockerUnavailableMappedTo503(t *testing.T)
 }
 
 func TestDockerHandler_ListContainers_ServerIDResolvesToTCPHost(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	dockerSvc := &fakeDockerService{ret: []services.DockerContainer{}}
@@ -103,7 +100,6 @@ func TestDockerHandler_ListContainers_ServerIDResolvesToTCPHost(t *testing.T) {
 }
 
 func TestDockerHandler_ListContainers_ServerIDNotFoundReturns404(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	dockerSvc := &fakeDockerService{}
@@ -125,7 +121,6 @@ func TestDockerHandler_ListContainers_ServerIDNotFoundReturns404(t *testing.T) {
 
 func TestDockerHandler_ListContainers_Local(t *testing.T) {
 	// Test local/default docker connection (empty host parameter)
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	dockerSvc := &fakeDockerService{
@@ -163,7 +158,6 @@ func TestDockerHandler_ListContainers_Local(t *testing.T) {
 
 func TestDockerHandler_ListContainers_RemoteServerSuccess(t *testing.T) {
 	// Test successful remote server connection via server_id
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	dockerSvc := &fakeDockerService{
@@ -203,7 +197,6 @@ func TestDockerHandler_ListContainers_RemoteServerSuccess(t *testing.T) {
 
 func TestDockerHandler_ListContainers_RemoteServerNotFound(t *testing.T) {
 	// Test server_id that doesn't exist in database
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	dockerSvc := &fakeDockerService{}
@@ -226,7 +219,6 @@ func TestDockerHandler_ListContainers_RemoteServerNotFound(t *testing.T) {
 
 func TestDockerHandler_ListContainers_InvalidHost(t *testing.T) {
 	// Test SSRF protection: reject arbitrary host values
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	dockerSvc := &fakeDockerService{}
@@ -289,7 +281,6 @@ func TestDockerHandler_ListContainers_DockerUnavailable(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gin.SetMode(gin.TestMode)
 			router := gin.New()
 
 			dockerSvc := &fakeDockerService{err: tt.err}
@@ -340,7 +331,6 @@ func TestDockerHandler_ListContainers_GenericError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gin.SetMode(gin.TestMode)
 			router := gin.New()
 
 			dockerSvc := &fakeDockerService{err: tt.err}
@@ -362,7 +352,6 @@ func TestDockerHandler_ListContainers_GenericError(t *testing.T) {
 }
 
 func TestDockerHandler_ListContainers_503FallbackDetailsWhenEmpty(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	dockerSvc := &fakeDockerService{err: services.NewDockerUnavailableError(errors.New("socket error"))}
@@ -382,7 +371,6 @@ func TestDockerHandler_ListContainers_503FallbackDetailsWhenEmpty(t *testing.T) 
 }
 
 func TestDockerHandler_ListContainers_503DetailsWithGroupGuidance(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	groupDetails := `Local Docker socket is mounted but not accessible by current process (uid=1000 gid=1000). Process groups (1000) do not include socket gid 988; run container with matching supplemental group (e.g., --group-add 988 or compose group_add: ["988"]).`
