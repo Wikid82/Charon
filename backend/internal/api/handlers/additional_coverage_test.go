@@ -27,7 +27,6 @@ func setupImportCoverageDB(t *testing.T) *gorm.DB {
 }
 
 func TestImportHandler_Commit_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportCoverageDB(t)
 
 	h := NewImportHandler(db, "", t.TempDir(), "")
@@ -44,7 +43,6 @@ func TestImportHandler_Commit_InvalidJSON(t *testing.T) {
 }
 
 func TestImportHandler_Commit_InvalidSessionUUID(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportCoverageDB(t)
 
 	h := NewImportHandler(db, "", t.TempDir(), "")
@@ -67,7 +65,6 @@ func TestImportHandler_Commit_InvalidSessionUUID(t *testing.T) {
 }
 
 func TestImportHandler_Commit_SessionNotFound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportCoverageDB(t)
 
 	h := NewImportHandler(db, "", t.TempDir(), "")
@@ -98,7 +95,6 @@ func setupRemoteServerCoverageDB2(t *testing.T) *gorm.DB {
 }
 
 func TestRemoteServerHandler_TestConnection_Unreachable(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupRemoteServerCoverageDB2(t)
 	svc := services.NewRemoteServerService(db)
 	h := NewRemoteServerHandler(svc, nil)
@@ -137,7 +133,6 @@ func setupSecurityCoverageDB3(t *testing.T) *gorm.DB {
 }
 
 func TestSecurityHandler_GetConfig_InternalError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSecurityCoverageDB3(t)
 
 	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
@@ -157,7 +152,6 @@ func TestSecurityHandler_GetConfig_InternalError(t *testing.T) {
 }
 
 func TestSecurityHandler_UpdateConfig_ApplyCaddyError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSecurityCoverageDB3(t)
 
 	// Create handler with nil caddy manager (ApplyConfig will be called but is nil)
@@ -181,7 +175,6 @@ func TestSecurityHandler_UpdateConfig_ApplyCaddyError(t *testing.T) {
 }
 
 func TestSecurityHandler_GenerateBreakGlass_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSecurityCoverageDB3(t)
 
 	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
@@ -201,7 +194,6 @@ func TestSecurityHandler_GenerateBreakGlass_Error(t *testing.T) {
 }
 
 func TestSecurityHandler_ListDecisions_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSecurityCoverageDB3(t)
 
 	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
@@ -220,7 +212,6 @@ func TestSecurityHandler_ListDecisions_Error(t *testing.T) {
 }
 
 func TestSecurityHandler_ListRuleSets_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSecurityCoverageDB3(t)
 
 	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
@@ -239,7 +230,6 @@ func TestSecurityHandler_ListRuleSets_Error(t *testing.T) {
 }
 
 func TestSecurityHandler_UpsertRuleSet_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSecurityCoverageDB3(t)
 
 	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
@@ -265,7 +255,6 @@ func TestSecurityHandler_UpsertRuleSet_Error(t *testing.T) {
 }
 
 func TestSecurityHandler_CreateDecision_LogError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSecurityCoverageDB3(t)
 
 	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
@@ -291,7 +280,6 @@ func TestSecurityHandler_CreateDecision_LogError(t *testing.T) {
 }
 
 func TestSecurityHandler_DeleteRuleSet_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSecurityCoverageDB3(t)
 
 	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
@@ -313,7 +301,6 @@ func TestSecurityHandler_DeleteRuleSet_Error(t *testing.T) {
 // CrowdSec ImportConfig additional coverage tests
 
 func TestCrowdsec_ImportConfig_EmptyUpload(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
 
@@ -344,7 +331,6 @@ func TestCrowdsec_ImportConfig_EmptyUpload(t *testing.T) {
 // Backup Handler additional coverage tests
 
 func TestBackupHandler_List_DBError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Use a non-writable temp dir to simulate errors
 	tmpDir := t.TempDir()
@@ -370,7 +356,6 @@ func TestBackupHandler_List_DBError(t *testing.T) {
 // ImportHandler UploadMulti coverage tests
 
 func TestImportHandler_UploadMulti_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportCoverageDB(t)
 
 	h := NewImportHandler(db, "", t.TempDir(), "")
@@ -387,7 +372,6 @@ func TestImportHandler_UploadMulti_InvalidJSON(t *testing.T) {
 }
 
 func TestImportHandler_UploadMulti_MissingCaddyfile(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportCoverageDB(t)
 
 	h := NewImportHandler(db, "", t.TempDir(), "")
@@ -411,7 +395,6 @@ func TestImportHandler_UploadMulti_MissingCaddyfile(t *testing.T) {
 }
 
 func TestImportHandler_UploadMulti_EmptyContent(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportCoverageDB(t)
 
 	h := NewImportHandler(db, "", t.TempDir(), "")
@@ -435,7 +418,6 @@ func TestImportHandler_UploadMulti_EmptyContent(t *testing.T) {
 }
 
 func TestImportHandler_UploadMulti_PathTraversal(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportCoverageDB(t)
 
 	h := NewImportHandler(db, "", t.TempDir(), "")
@@ -481,7 +463,6 @@ func setupLogsDownloadTest(t *testing.T) (h *LogsHandler, logsDir string) {
 }
 
 func TestLogsHandler_Download_PathTraversal(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	h, _ := setupLogsDownloadTest(t)
 
 	w := httptest.NewRecorder()
@@ -496,7 +477,6 @@ func TestLogsHandler_Download_PathTraversal(t *testing.T) {
 }
 
 func TestLogsHandler_Download_NotFound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	h, _ := setupLogsDownloadTest(t)
 
 	w := httptest.NewRecorder()
@@ -511,7 +491,6 @@ func TestLogsHandler_Download_NotFound(t *testing.T) {
 }
 
 func TestLogsHandler_Download_Success(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	h, logsDir := setupLogsDownloadTest(t)
 
 	// Create a log file to download
@@ -531,7 +510,6 @@ func TestLogsHandler_Download_Success(t *testing.T) {
 // Import Handler Upload error tests
 
 func TestImportHandler_Upload_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportCoverageDB(t)
 
 	h := NewImportHandler(db, "", t.TempDir(), "")
@@ -548,7 +526,6 @@ func TestImportHandler_Upload_InvalidJSON(t *testing.T) {
 }
 
 func TestImportHandler_Upload_EmptyContent(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportCoverageDB(t)
 
 	h := NewImportHandler(db, "", t.TempDir(), "")
@@ -571,7 +548,6 @@ func TestImportHandler_Upload_EmptyContent(t *testing.T) {
 // Additional Backup Handler tests
 
 func TestBackupHandler_List_ServiceError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Create a temp dir with invalid permission for backup dir
 	tmpDir := t.TempDir()
@@ -608,7 +584,6 @@ func TestBackupHandler_List_ServiceError(t *testing.T) {
 }
 
 func TestBackupHandler_Delete_PathTraversal(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
@@ -639,7 +614,6 @@ func TestBackupHandler_Delete_PathTraversal(t *testing.T) {
 }
 
 func TestBackupHandler_Delete_InternalError2(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
@@ -689,7 +663,6 @@ func TestBackupHandler_Delete_InternalError2(t *testing.T) {
 // Remote Server TestConnection error paths
 
 func TestRemoteServerHandler_TestConnection_NotFound2(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupRemoteServerCoverageDB2(t)
 	svc := services.NewRemoteServerService(db)
 	h := NewRemoteServerHandler(svc, nil)
@@ -704,7 +677,6 @@ func TestRemoteServerHandler_TestConnection_NotFound2(t *testing.T) {
 }
 
 func TestRemoteServerHandler_TestConnectionCustom_Unreachable2(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupRemoteServerCoverageDB2(t)
 	svc := services.NewRemoteServerService(db)
 	h := NewRemoteServerHandler(svc, nil)
@@ -735,7 +707,6 @@ func setupAuthCoverageDB(t *testing.T) *gorm.DB {
 }
 
 func TestAuthHandler_Register_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupAuthCoverageDB(t)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -755,7 +726,6 @@ func TestAuthHandler_Register_InvalidJSON(t *testing.T) {
 // Health handler coverage
 
 func TestHealthHandler_Basic(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -771,7 +741,6 @@ func TestHealthHandler_Basic(t *testing.T) {
 // Backup Create error coverage
 
 func TestBackupHandler_Create_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	// Use a path where database file doesn't exist
 	tmpDir := t.TempDir()
@@ -811,7 +780,6 @@ func setupSettingsCoverageDB(t *testing.T) *gorm.DB {
 }
 
 func TestSettingsHandler_GetSettings_Error(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsCoverageDB(t)
 
 	h := NewSettingsHandler(db)
@@ -830,7 +798,6 @@ func TestSettingsHandler_GetSettings_Error(t *testing.T) {
 }
 
 func TestSettingsHandler_UpdateSetting_InvalidJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupSettingsCoverageDB(t)
 
 	h := NewSettingsHandler(db)
@@ -849,7 +816,6 @@ func TestSettingsHandler_UpdateSetting_InvalidJSON(t *testing.T) {
 // Additional remote server TestConnection tests
 
 func TestRemoteServerHandler_TestConnection_Reachable(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupRemoteServerCoverageDB2(t)
 	svc := services.NewRemoteServerService(db)
 	h := NewRemoteServerHandler(svc, nil)
@@ -873,7 +839,6 @@ func TestRemoteServerHandler_TestConnection_Reachable(t *testing.T) {
 }
 
 func TestRemoteServerHandler_TestConnection_EmptyHost(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupRemoteServerCoverageDB2(t)
 	svc := services.NewRemoteServerService(db)
 	h := NewRemoteServerHandler(svc, nil)
@@ -900,7 +865,6 @@ func TestRemoteServerHandler_TestConnection_EmptyHost(t *testing.T) {
 // Additional UploadMulti test with valid Caddyfile content
 
 func TestImportHandler_UploadMulti_ValidCaddyfile(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportCoverageDB(t)
 
 	h := NewImportHandler(db, "", t.TempDir(), "")
@@ -925,7 +889,6 @@ func TestImportHandler_UploadMulti_ValidCaddyfile(t *testing.T) {
 }
 
 func TestImportHandler_UploadMulti_SubdirFile(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := setupImportCoverageDB(t)
 
 	h := NewImportHandler(db, "", t.TempDir(), "")

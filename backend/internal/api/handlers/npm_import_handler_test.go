@@ -39,7 +39,6 @@ func TestNPMImportHandler_RegisterRoutes(t *testing.T) {
 	db := setupNPMTestDB(t)
 	handler := NewNPMImportHandler(db)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	api := router.Group("/api/v1")
 	handler.RegisterRoutes(api)
@@ -59,7 +58,6 @@ func TestNPMImportHandler_Upload_ValidNPMExport(t *testing.T) {
 	db := setupNPMTestDB(t)
 	handler := NewNPMImportHandler(db)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	api := router.Group("/api/v1")
 	handler.RegisterRoutes(api)
@@ -121,7 +119,6 @@ func TestNPMImportHandler_Upload_EmptyExport(t *testing.T) {
 	db := setupNPMTestDB(t)
 	handler := NewNPMImportHandler(db)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	api := router.Group("/api/v1")
 	handler.RegisterRoutes(api)
@@ -146,7 +143,6 @@ func TestNPMImportHandler_Upload_InvalidJSON(t *testing.T) {
 	db := setupNPMTestDB(t)
 	handler := NewNPMImportHandler(db)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	api := router.Group("/api/v1")
 	handler.RegisterRoutes(api)
@@ -177,7 +173,6 @@ func TestNPMImportHandler_Upload_ConflictDetection(t *testing.T) {
 
 	handler := NewNPMImportHandler(db)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	api := router.Group("/api/v1")
 	handler.RegisterRoutes(api)
@@ -219,7 +214,6 @@ func TestNPMImportHandler_Commit_CreateNew(t *testing.T) {
 	db := setupNPMTestDB(t)
 	handler := NewNPMImportHandler(db)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	api := router.Group("/api/v1")
 	handler.RegisterRoutes(api)
@@ -288,7 +282,6 @@ func TestNPMImportHandler_Commit_SkipAction(t *testing.T) {
 	db := setupNPMTestDB(t)
 	handler := NewNPMImportHandler(db)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	api := router.Group("/api/v1")
 	handler.RegisterRoutes(api)
@@ -351,7 +344,6 @@ func TestNPMImportHandler_Commit_SessionNotFound(t *testing.T) {
 	db := setupNPMTestDB(t)
 	handler := NewNPMImportHandler(db)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	api := router.Group("/api/v1")
 	handler.RegisterRoutes(api)
@@ -382,7 +374,6 @@ func TestNPMImportHandler_Cancel(t *testing.T) {
 	db := setupNPMTestDB(t)
 	handler := NewNPMImportHandler(db)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	api := router.Group("/api/v1")
 	handler.RegisterRoutes(api)
@@ -457,7 +448,6 @@ func TestNPMImportHandler_Cancel_RequiresValidJSONBody(t *testing.T) {
 	db := setupNPMTestDB(t)
 	handler := NewNPMImportHandler(db)
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	api := router.Group("/api/v1")
 	handler.RegisterRoutes(api)

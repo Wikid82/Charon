@@ -25,7 +25,6 @@ func TestCertificateHandler_Delete_RequiresAuth(t *testing.T) {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	// Add a middleware that rejects all unauthenticated requests
 	r.Use(func(c *gin.Context) {
@@ -55,7 +54,6 @@ func TestCertificateHandler_List_RequiresAuth(t *testing.T) {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	// Add a middleware that rejects all unauthenticated requests
 	r.Use(func(c *gin.Context) {
@@ -85,7 +83,6 @@ func TestCertificateHandler_Upload_RequiresAuth(t *testing.T) {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	// Add a middleware that rejects all unauthenticated requests
 	r.Use(func(c *gin.Context) {
@@ -126,7 +123,6 @@ func TestCertificateHandler_Delete_DiskSpaceCheck(t *testing.T) {
 		t.Fatalf("failed to create cert: %v", err)
 	}
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
@@ -179,7 +175,6 @@ func TestCertificateHandler_Delete_NotificationRateLimiting(t *testing.T) {
 		t.Fatalf("failed to create cert2: %v", err)
 	}
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)

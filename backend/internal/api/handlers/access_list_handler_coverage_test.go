@@ -121,7 +121,6 @@ func TestAccessListHandler_List_DBError(t *testing.T) {
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	// Don't migrate the table to cause error
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	handler := NewAccessListHandler(db)
@@ -138,7 +137,6 @@ func TestAccessListHandler_Get_DBError(t *testing.T) {
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	// Don't migrate the table to cause error
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	handler := NewAccessListHandler(db)
@@ -157,7 +155,6 @@ func TestAccessListHandler_Delete_InternalError(t *testing.T) {
 	// Migrate AccessList but not ProxyHost to cause internal error on delete
 	_ = db.AutoMigrate(&models.AccessList{})
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	handler := NewAccessListHandler(db)
@@ -285,7 +282,6 @@ func TestAccessListHandler_TestIP_InternalError(t *testing.T) {
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	// Don't migrate - this causes a "no such table" error which is an internal error
 
-	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
 	handler := NewAccessListHandler(db)

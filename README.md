@@ -54,7 +54,7 @@ If you can use a website, you can run Charon.
 Charon includes security features that normally require multiple tools:
 
 - Web Application Firewall (WAF)
-- CrowdSec intrusion detection
+- CrowdSec intrusion detection with analytics dashboard
 - Access Control Lists (ACLs)
 - Rate limiting
 - Emergency recovery tools
@@ -148,7 +148,7 @@ Secure all your subdomains with a single *.example.com certificate. Supports 15+
 
 ### 🛡️ **Enterprise-Grade Security Built In**
 
-Web Application Firewall, rate limiting, geographic blocking, access control lists, and intrusion detection via CrowdSec. Protection that "just works."
+Web Application Firewall, rate limiting, geographic blocking, access control lists, and intrusion detection via CrowdSec—with a built-in analytics dashboard showing attack trends, top offenders, and ban history. Protection that "just works."
 
 ### 🔐 **Supply Chain Security**
 

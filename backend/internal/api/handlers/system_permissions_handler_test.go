@@ -47,7 +47,6 @@ func (stubPermissionChecker) Check(path, required string) util.PermissionCheck {
 }
 
 func TestSystemPermissionsHandler_GetPermissions_Admin(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	cfg := config.Config{
 		DatabasePath:   "/app/data/charon.db",
@@ -81,7 +80,6 @@ func TestSystemPermissionsHandler_GetPermissions_Admin(t *testing.T) {
 }
 
 func TestSystemPermissionsHandler_GetPermissions_NonAdmin(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	cfg := config.Config{}
 	h := NewSystemPermissionsHandler(cfg, nil, stubPermissionChecker{})
@@ -105,7 +103,6 @@ func TestSystemPermissionsHandler_RepairPermissions_NonRoot(t *testing.T) {
 		t.Skip("test requires non-root execution")
 	}
 
-	gin.SetMode(gin.TestMode)
 
 	cfg := config.Config{SingleContainer: true}
 	h := NewSystemPermissionsHandler(cfg, nil, stubPermissionChecker{})
@@ -213,7 +210,6 @@ func TestSystemPermissionsHandler_NewDefaultsCheckerToOSChecker(t *testing.T) {
 }
 
 func TestSystemPermissionsHandler_RepairPermissions_DisabledWhenNotSingleContainer(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	h := NewSystemPermissionsHandler(config.Config{SingleContainer: false}, nil, stubPermissionChecker{})
 
@@ -236,7 +232,6 @@ func TestSystemPermissionsHandler_RepairPermissions_InvalidJSON(t *testing.T) {
 		t.Skip("test requires root execution")
 	}
 
-	gin.SetMode(gin.TestMode)
 
 	root := t.TempDir()
 	dataDir := filepath.Join(root, "data")
@@ -269,7 +264,6 @@ func TestSystemPermissionsHandler_RepairPermissions_Success(t *testing.T) {
 		t.Skip("test requires root execution")
 	}
 
-	gin.SetMode(gin.TestMode)
 
 	root := t.TempDir()
 	dataDir := filepath.Join(root, "data")
@@ -310,7 +304,6 @@ func TestSystemPermissionsHandler_RepairPermissions_Success(t *testing.T) {
 }
 
 func TestSystemPermissionsHandler_RepairPermissions_NonAdmin(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	h := NewSystemPermissionsHandler(config.Config{SingleContainer: true}, nil, stubPermissionChecker{})
 
@@ -330,7 +323,6 @@ func TestSystemPermissionsHandler_RepairPermissions_InvalidJSONWhenRoot(t *testi
 		t.Skip("test requires root execution")
 	}
 
-	gin.SetMode(gin.TestMode)
 	root := t.TempDir()
 	dataDir := filepath.Join(root, "data")
 	require.NoError(t, os.MkdirAll(dataDir, 0o750))
@@ -395,7 +387,6 @@ func TestSystemPermissionsHandler_IsWithinAllowlist_AllRelErrorsReturnFalse(t *t
 }
 
 func TestSystemPermissionsHandler_LogAudit_PersistsAuditWithUserID(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
@@ -416,7 +407,6 @@ func TestSystemPermissionsHandler_LogAudit_PersistsAuditWithUserID(t *testing.T)
 }
 
 func TestSystemPermissionsHandler_LogAudit_PersistsAuditWithUnknownActor(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
@@ -536,7 +526,6 @@ func TestSystemPermissionsHandler_RepairPermissions_InvalidRequestBody_Root(t *t
 		t.Skip("test requires root execution")
 	}
 
-	gin.SetMode(gin.TestMode)
 
 	tmp := t.TempDir()
 	dataDir := filepath.Join(tmp, "data")

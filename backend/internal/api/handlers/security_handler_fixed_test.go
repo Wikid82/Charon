@@ -13,7 +13,6 @@ import (
 )
 
 func TestSecurityHandler_GetStatus_Fixed(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
 		name           string

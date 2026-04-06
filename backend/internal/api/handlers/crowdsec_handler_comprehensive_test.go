@@ -106,7 +106,6 @@ func TestMapCrowdsecStatus(t *testing.T) {
 
 // TestIsConsoleEnrollmentEnabled tests the isConsoleEnrollmentEnabled helper
 func TestIsConsoleEnrollmentEnabled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
 		name      string
@@ -191,7 +190,6 @@ func TestActorFromContext(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gin.SetMode(gin.TestMode)
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
 			tt.setupCtx(c)
@@ -204,7 +202,6 @@ func TestActorFromContext(t *testing.T) {
 
 // TestHubEndpoints tests the hubEndpoints helper
 func TestHubEndpoints(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()
 
@@ -233,7 +230,6 @@ func TestHubEndpoints(t *testing.T) {
 
 // TestGetCachedPreset tests the GetCachedPreset handler
 func TestGetCachedPreset(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()
 
@@ -264,7 +260,6 @@ func TestGetCachedPreset(t *testing.T) {
 
 // TestGetCachedPreset_NotFound tests GetCachedPreset with non-existent preset
 func TestGetCachedPreset_NotFound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()
 
@@ -293,7 +288,6 @@ func TestGetCachedPreset_NotFound(t *testing.T) {
 
 // TestGetLAPIDecisions tests the GetLAPIDecisions handler
 func TestGetLAPIDecisions(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()
 
@@ -313,7 +307,6 @@ func TestGetLAPIDecisions(t *testing.T) {
 
 // TestCheckLAPIHealth tests the CheckLAPIHealth handler
 func TestCheckLAPIHealth(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()
 
@@ -332,7 +325,6 @@ func TestCheckLAPIHealth(t *testing.T) {
 
 // TestListDecisions tests the ListDecisions handler
 func TestListDecisions(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()
 
@@ -351,7 +343,6 @@ func TestListDecisions(t *testing.T) {
 
 // TestBanIP tests the BanIP handler
 func TestBanIP(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()
 
@@ -373,7 +364,6 @@ func TestBanIP(t *testing.T) {
 
 // TestUnbanIP tests the UnbanIP handler
 func TestUnbanIP(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()
 
@@ -395,7 +385,6 @@ func TestUnbanIP(t *testing.T) {
 
 // TestGetAcquisitionConfig tests the GetAcquisitionConfig handler
 func TestGetAcquisitionConfig(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()
 	acquisPath := filepath.Join(tmpDir, "acquis.yaml")
@@ -417,7 +406,6 @@ func TestGetAcquisitionConfig(t *testing.T) {
 
 // TestUpdateAcquisitionConfig tests the UpdateAcquisitionConfig handler
 func TestUpdateAcquisitionConfig(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	tmpDir := t.TempDir()
 	acquisPath := filepath.Join(tmpDir, "acquis.yaml")

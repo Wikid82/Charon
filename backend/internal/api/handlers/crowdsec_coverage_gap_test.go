@@ -32,7 +32,6 @@ func (m *MockCommandExecutor) ExecuteWithEnv(ctx context.Context, name string, a
 
 // TestConsoleEnrollMissingKey covers the "enrollment_key required" branch
 func TestConsoleEnrollMissingKey(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	mockExec := new(MockCommandExecutor)
 
@@ -59,7 +58,6 @@ func TestConsoleEnrollMissingKey(t *testing.T) {
 
 // TestGetCachedPreset_ValidationAndMiss covers path param validation empty check (if any) and cache miss
 func TestGetCachedPreset_ValidationAndMiss(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	tmpDir := t.TempDir()
 	cache, _ := crowdsec.NewHubCache(tmpDir, time.Hour)
@@ -86,7 +84,6 @@ func TestGetCachedPreset_ValidationAndMiss(t *testing.T) {
 }
 
 func TestGetCachedPreset_SlugRequired(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	h := &CrowdsecHandler{}
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "1")
 
