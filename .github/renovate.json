@@ -232,8 +232,23 @@
       "datasourceTemplate": "github-releases",
       "versioningTemplate": "semver",
       "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "customType": "regex",
+      "description": "Track go-version in skill example workflows",
+      "managerFilePatterns": ["/^\\.github/skills/examples/.*\\.yml$/"],
+      "matchStrings": [
+        "go-version: [\"']?(?<currentValue>[\\d\\.]+)[\"']?"
+      ],
+      "depNameTemplate": "golang/go",
+      "datasourceTemplate": "golang-version",
+      "versioningTemplate": "semver"
     }
   ],
+
+  "github-actions": {
+    "fileMatch": ["^\\.github/skills/examples/.*\\.ya?ml$"]
+  },
 
   "packageRules": [
     {

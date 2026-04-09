@@ -1,159 +1,395 @@
-# CrowdSec Hub Bootstrapping on Container Startup
+# Nightly Build Vulnerability Remediation Plan
 
-## Problem Statement
+**Date**: 2026-04-09
+**Status**: Draft — Awaiting Approval
+**Scope**: Dependency security patches for 5 HIGH + 3 MEDIUM vulnerability groups
+**Target**: Single PR — all changes ship together
+**Archived**: Previous plan (CrowdSec Hub Bootstrapping) → `docs/plans/archive/crowdsec-hub-bootstrap-spec.md`
 
-After a container rebuild, CrowdSec has **zero collections installed** and a **stale hub index**. When users (or the backend) attempt to install collections, they encounter hash mismatch errors because the hub index bundled in the image at build time is outdated by the time the container runs.
+---
 
-The root cause is twofold:
+## 1. Problem Statement
 
-1. `cscli hub update` in the entrypoint only runs if `.index.json` is missing — not if it is stale.
-2. `install_hub_items.sh` (which does call `cscli hub update`) is gated behind `SECURITY_CROWDSEC_MODE=local`, an env var that is **deprecated** and no longer set by default. The entrypoint checks `$SECURITY_CROWDSEC_MODE`, but the backend reads `CERBERUS_SECURITY_CROWDSEC_MODE` / `CHARON_SECURITY_CROWDSEC_MODE` — a naming mismatch that means the entrypoint gate never opens.
+The Charon nightly build is failing container image vulnerability scans with **5 HIGH-severity** and **multiple MEDIUM-severity** findings. These vulnerabilities exist across three compiled binaries embedded in the container image:
 
-## Current State Analysis
+1. **Charon backend** (`/app/charon`) — Go binary built from `backend/go.mod`
+2. **Caddy** (`/usr/bin/caddy`) — Built via xcaddy in the Dockerfile Caddy builder stage
+3. **CrowdSec** (`/usr/local/bin/crowdsec`, `/usr/local/bin/cscli`) — Built from source in the Dockerfile CrowdSec builder stage
 
-### Dockerfile (build-time)
+Additionally, the **nightly branch** was synced from development before the Go 1.26.2 bump landed, so the nightly image was compiled with Go 1.26.1 (confirmed in `ci_failure.log` line 55: `GO_VERSION: 1.26.1`).
 
-| Aspect | What Happens |
-|---|---|
-| CrowdSec binaries | Built from source in `crowdsec-builder` stage, copied to `/usr/local/bin/{crowdsec,cscli}` |
-| Config template | Source config copied to `/etc/crowdsec.dist/` |
-| Hub index | **Not pre-populated** — no `cscli hub update` at build time |
-| Collections | **Not installed** at build time |
-| Symlink | `/etc/crowdsec` → `/app/data/crowdsec/config` created as root before `USER charon` |
-| Helper scripts | `install_hub_items.sh` and `register_bouncer.sh` copied to `/usr/local/bin/` |
+---
 
-### Entrypoint (`.docker/docker-entrypoint.sh`, runtime)
+## 2. Research Findings
 
-| Step | What Happens | Problem |
-|---|---|---|
-| Config init | Copies `/etc/crowdsec.dist/*` → `/app/data/crowdsec/config/` on first run | Works correctly |
-| Symlink verify | Confirms `/etc/crowdsec` → `/app/data/crowdsec/config` | Works correctly |
-| LAPI port fix | `sed` replaces `:8080` → `:8085` in config files | Works correctly |
-| Hub update (L313-315) | `cscli hub update` runs **only if** `/etc/crowdsec/hub/.index.json` does not exist | **Bug**: stale index is never refreshed |
-| Machine registration | `cscli machines add -a --force` | Works correctly |
-| Hub items install (L325-328) | Calls `install_hub_items.sh` **only if** `$SECURITY_CROWDSEC_MODE = "local"` | **Bug**: env var is deprecated, never set; wrong var name vs backend |
-| Ownership fix | `chown -R charon:charon` on CrowdSec dirs | Works correctly |
+### 2.1 Go Version Audit
 
-### `install_hub_items.sh` (when invoked)
+All files on `development` / `main` already reference **Go 1.26.2**:
 
-The script itself is well-structured — it calls `cscli hub update` then installs individual parsers, scenarios, and two collections (`crowdsecurity/http-cve`, `crowdsecurity/base-http-scenarios`). It does **not** install `crowdsecurity/caddy`.
+| File | Current Value | Status |
+|------|---------------|--------|
+| `backend/go.mod` | `go 1.26.2` | ✅ Current |
+| `go.work` | `go 1.26.2` | ✅ Current |
+| `Dockerfile` (`ARG GO_VERSION`) | `1.26.2` | ✅ Current |
+| `.github/workflows/nightly-build.yml` | `'1.26.2'` | ✅ Current |
+| `.github/workflows/codecov-upload.yml` | `'1.26.2'` | ✅ Current |
+| `.github/workflows/quality-checks.yml` | `'1.26.2'` | ✅ Current |
+| `.github/workflows/codeql.yml` | `'1.26.2'` | ✅ Current |
+| `.github/workflows/benchmark.yml` | `'1.26.2'` | ✅ Current |
+| `.github/workflows/release-goreleaser.yml` | `'1.26.2'` | ✅ Current |
+| `.github/workflows/e2e-tests-split.yml` | `'1.26.2'` | ✅ Current |
+| `.github/skills/examples/gorm-scanner-ci-workflow.yml` | `'1.26.1'` | ❌ **Stale** |
+| `scripts/install-go-1.26.0.sh` | `1.26.0` | ⚠️ Old install script (not used in CI/Docker builds) |
 
-### Backend (`crowdsec_startup.go`)
+**Root Cause of Go stdlib CVEs**: The nightly branch's last sync predated the 1.26.2 bump. The next nightly sync from development will propagate 1.26.2 automatically. The only file requiring a fix is the example workflow.
 
-`ReconcileCrowdSecOnStartup()` checks the database for CrowdSec mode and starts the process if needed. It does **not** call `cscli hub update` or install collections. The `HubService.runCSCLI()` method in `hub_sync.go` does call `cscli hub update` before individual item installs, but this is only triggered by explicit GUI actions (Pull/Apply), not at startup.
+### 2.2 Vulnerability Inventory
 
-## Proposed Changes
+#### HIGH Severity (must fix — merge-blocking)
 
-### File: `.docker/docker-entrypoint.sh`
+| # | CVE / GHSA | Package | Current | Fix | Binary | Dep Type |
+|---|-----------|---------|---------|-----|--------|----------|
+| 1 | CVE-2026-39883 | `go.opentelemetry.io/otel/sdk` | v1.40.0 | v1.43.0 | Caddy | Transitive (Caddy plugins → otelhttp → otel/sdk) |
+| 2 | CVE-2026-34986 | `github.com/go-jose/go-jose/v3` | v3.0.4 | **v3.0.5** | Caddy | Transitive (caddy-security → JWT/JOSE stack) |
+| 3 | CVE-2026-34986 | `github.com/go-jose/go-jose/v4` | v4.1.3 | **v4.1.4** | Caddy | Transitive (grpc v1.79.3 → go-jose/v4) |
+| 4 | CVE-2026-32286 | `github.com/jackc/pgproto3/v2` | v2.3.3 | pgx/v4 v4.18.3 ¹ | CrowdSec | Transitive (CrowdSec → pgx/v4 v4.18.2 → pgproto3/v2) |
 
-**Change 1: Always refresh the hub index**
+¹ pgproto3/v2 has **no patched release**. Fix requires upstream migration to pgx/v5 (uses pgproto3/v3). See §5 Risk Assessment.
 
-Replace the conditional hub update (current L313-315):
+#### MEDIUM Severity (fix in same pass)
 
-```sh
-# CURRENT (broken):
-if [ ! -f "/etc/crowdsec/hub/.index.json" ]; then
-    echo "Updating CrowdSec hub index..."
-    timeout 60s cscli hub update 2>/dev/null || echo "⚠️ Hub update timed out or failed, continuing..."
-fi
+| # | CVE / GHSA | Package(s) | Current | Fix | Binary | Dep Type |
+|---|-----------|------------|---------|-----|--------|----------|
+| 5 | GHSA-xmrv-pmrh-hhx2 | AWS SDK v2: `eventstream` v1.7.1, `cloudwatchlogs` v1.57.2, `kinesis` v1.40.1, `s3` v1.87.3 | See left | Bump all | CrowdSec | Direct deps of CrowdSec v1.7.7 |
+| 6 | CVE-2026-32281, -32288, -32289 | Go stdlib | 1.26.1 | **1.26.2** | All (nightly image) | Toolchain |
+| 7 | CVE-2026-39882 | OTel HTTP exporters: `otlploghttp` v0.16.0, `otlpmetrichttp` v1.40.0, `otlptracehttp` v1.40.0 | See left | Bump all | Caddy | Transitive (Caddy plugins → OTel exporters) |
+
+### 2.3 Dependency Chain Analysis
+
+#### Backend (`backend/go.mod`)
+
+```
+charon/backend (direct)
+  └─ docker/docker v28.5.2+incompatible (direct)
+       └─ otelhttp v0.68.0 (indirect)
+            └─ otel/sdk v1.43.0 (indirect) — already at latest
+  └─ grpc v1.79.3 (indirect)
+  └─ otlptracehttp v1.42.0 (indirect) ── CVE-2026-39882
 ```
 
-With an unconditional update:
+Backend resolved versions (verified via `go list -m -json`):
 
-```sh
-# NEW: Always refresh hub index on startup (stale index causes hash mismatch errors)
-echo "Updating CrowdSec hub index..."
-if ! timeout 60s cscli hub update 2>&1; then
-    echo "⚠️ Hub index update failed (network issue?). Collections may fail to install."
-    echo "   CrowdSec will still start with whatever index is cached."
-fi
+| Package | Version | Type |
+|---------|---------|------|
+| `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp` | v1.42.0 | indirect |
+| `google.golang.org/grpc` | v1.79.3 | indirect |
+| `go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp` | v0.68.0 | indirect |
+
+**Not present in backend**: go-jose/v3, go-jose/v4, otel/sdk, pgproto3/v2, AWS SDK, otlploghttp, otlpmetrichttp.
+
+#### CrowdSec Binary (Dockerfile `crowdsec-builder` stage)
+
+Source: CrowdSec v1.7.7 `go.mod` (verified via `git clone --depth 1 --branch v1.7.7`):
+
+```
+crowdsec v1.7.7
+  └─ pgx/v4 v4.18.2 (direct) → pgproto3/v2 v2.3.3 (indirect) ── CVE-2026-32286
+  └─ aws-sdk-go-v2/service/s3 v1.87.3 (direct) ── GHSA-xmrv-pmrh-hhx2
+  └─ aws-sdk-go-v2/service/cloudwatchlogs v1.57.2 (direct) ── GHSA-xmrv-pmrh-hhx2
+  └─ aws-sdk-go-v2/service/kinesis v1.40.1 (direct) ── GHSA-xmrv-pmrh-hhx2
+  └─ aws-sdk-go-v2/aws/protocol/eventstream v1.7.1 (indirect) ── GHSA-xmrv-pmrh-hhx2
+  └─ otel v1.39.0, otel/metric v1.39.0, otel/trace v1.39.0 (indirect)
 ```
 
-**Change 2: Always install required collections (remove env var gate)**
+Confirmed by Trivy image scan (`trivy-image-report.json`): pgproto3/v2 v2.3.3 flagged in `usr/local/bin/crowdsec` and `usr/local/bin/cscli`.
 
-Replace the conditional hub items install (current L322-328):
+#### Caddy Binary (Dockerfile `caddy-builder` stage)
 
-```sh
-# CURRENT (broken — env var never set):
-if [ "$SECURITY_CROWDSEC_MODE" = "local" ]; then
-    echo "Installing CrowdSec hub items..."
-    if [ -x /usr/local/bin/install_hub_items.sh ]; then
-        /usr/local/bin/install_hub_items.sh 2>/dev/null || echo "Warning: Some hub items may not have installed"
-    fi
-fi
+Built via xcaddy with plugins. go.mod is generated at build time. Vulnerable packages enter via:
+
+```
+xcaddy build (Caddy v2.11.2 + plugins)
+  └─ caddy-security v1.1.61 → go-jose/v3 (JWT auth stack) ── CVE-2026-34986
+  └─ grpc (patched to v1.79.3 in Dockerfile) → go-jose/v4 v4.1.3 ── CVE-2026-34986
+  └─ Caddy/plugins → otel/sdk v1.40.0 ── CVE-2026-39883
+  └─ Caddy/plugins → otlploghttp v0.16.0, otlpmetrichttp v1.40.0, otlptracehttp v1.40.0 ── CVE-2026-39882
 ```
 
-With unconditional execution:
+---
 
-```sh
-# NEW: Always ensure required collections are present.
-# This is idempotent — already-installed items are skipped by cscli.
-# Collections are needed regardless of whether CrowdSec is GUI-enabled,
-# because the user can enable CrowdSec at any time via the dashboard
-# and expects it to work immediately.
-echo "Ensuring CrowdSec hub items are installed..."
-if [ -x /usr/local/bin/install_hub_items.sh ]; then
-    /usr/local/bin/install_hub_items.sh || echo "⚠️ Some hub items may not have installed. CrowdSec can still start."
-fi
+## 3. Technical Specifications
+
+### 3.1 Backend go.mod Changes
+
+**File**: `backend/go.mod` (+ `backend/go.sum` auto-generated)
+
+```bash
+cd backend
+
+# Upgrade grpc to v1.80.0 (security patches for transitive deps)
+go get google.golang.org/grpc@v1.80.0
+
+# CVE-2026-39882: OTel HTTP exporter (backend only has otlptracehttp)
+go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.43.0
+
+go mod tidy
 ```
 
-### File: `configs/crowdsec/install_hub_items.sh`
+Expected `go.mod` diff:
+- `google.golang.org/grpc` v1.79.3 → v1.80.0
+- `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp` v1.42.0 → v1.43.0
 
-**Change 3: Add `crowdsecurity/caddy` collection**
+### 3.2 Dockerfile — Caddy Builder Stage Patches
 
-Add after the existing `crowdsecurity/base-http-scenarios` install:
+**File**: `Dockerfile`, within the caddy-builder `RUN bash -c '...'` block, in the **Stage 2: Apply security patches** section.
 
-```sh
-# Install Caddy collection (parser + scenarios for Caddy access logs)
-echo "Installing Caddy collection..."
-cscli collections install crowdsecurity/caddy --force 2>/dev/null || true
+Add after the existing `go get golang.org/x/net@v${XNET_VERSION};` line:
+
+```bash
+# CVE-2026-34986: go-jose JOSE/JWT validation bypass
+# Fix in v3.0.5 and v4.1.4. Pin here until caddy-security ships fix.
+# renovate: datasource=go depName=github.com/go-jose/go-jose/v3
+go get github.com/go-jose/go-jose/v3@v3.0.5; \
+# renovate: datasource=go depName=github.com/go-jose/go-jose/v4
+go get github.com/go-jose/go-jose/v4@v4.1.4; \
+# CVE-2026-39883: OTel SDK resource leak
+# Fix in v1.43.0. Pin here until Caddy ships with updated OTel.
+# renovate: datasource=go depName=go.opentelemetry.io/otel/sdk
+go get go.opentelemetry.io/otel/sdk@v1.43.0; \
+# CVE-2026-39882: OTel HTTP exporter request smuggling
+# renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp
+go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp@v0.19.0; \
+# renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp
+go get go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.43.0; \
+# renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp
+go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.43.0; \
 ```
 
-**Change 4: Remove redundant individual parser installs that are included in collections**
+Update existing grpc patch line from `v1.79.3` → `v1.80.0`:
 
-The `crowdsecurity/base-http-scenarios` collection already includes `crowdsecurity/http-logs` and several of the individually installed scenarios. The `crowdsecurity/caddy` collection includes `crowdsecurity/caddy-logs`. Keep the individual installs as fallbacks (they are idempotent), but add a comment noting the overlap. No lines need deletion — the `--force` flag and idempotency make this safe.
+```bash
+# Before:
+go get google.golang.org/grpc@v1.79.3; \
+# After:
+# CVE-2026-33186: gRPC-Go auth bypass (fixed in v1.79.3)
+# CVE-2026-34986: go-jose/v4 transitive fix (requires grpc >= v1.80.0)
+# renovate: datasource=go depName=google.golang.org/grpc
+go get google.golang.org/grpc@v1.80.0; \
+```
 
-### Summary of File Changes
+### 3.3 Dockerfile — CrowdSec Builder Stage Patches
 
-| File | Change | Lines |
-|---|---|---|
-| `.docker/docker-entrypoint.sh` | Unconditional `cscli hub update` | ~L313-315 |
-| `.docker/docker-entrypoint.sh` | Remove `SECURITY_CROWDSEC_MODE` gate on hub items install | ~L322-328 |
-| `configs/crowdsec/install_hub_items.sh` | Add `crowdsecurity/caddy` collection install | After L60 |
+**File**: `Dockerfile`, within the crowdsec-builder `RUN` block that patches dependencies.
 
-## Edge Cases
+Add after the existing `go get golang.org/x/net@v${XNET_VERSION}` line:
 
-| Scenario | Handling |
-|---|---|
-| **No network at startup** | `cscli hub update` fails with timeout. The `install_hub_items.sh` also fails. Entrypoint continues — CrowdSec starts with whatever is cached (or no collections). User can retry via GUI. |
-| **Hub CDN returns 5xx** | Same as no network — timeout + fallback. |
-| **Collections already installed** | `--force` flag makes `cscli collections install` idempotent. It updates to latest if newer version available. |
-| **First boot (no prior data volume)** | Config gets copied from `.dist`, hub update runs, collections install. Clean bootstrap path. |
-| **Existing data volume (upgrade)** | Config already exists (skips copy), hub update refreshes stale index, collections install/upgrade. |
-| **`install_hub_items.sh` missing/not executable** | `-x` check in entrypoint skips it with a log message. CrowdSec starts without collections. |
-| **CrowdSec disabled in GUI** | Collections are still installed (they are just config files). No process runs until user enables via GUI. Zero runtime cost. |
+```bash
+# CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
+# renovate: datasource=go depName=github.com/jackc/pgx/v4
+go get github.com/jackc/pgx/v4@v4.18.3 && \
+# GHSA-xmrv-pmrh-hhx2: AWS SDK v2 event stream injection
+# renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
+go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.8 && \
+# renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
+go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.68.0 && \
+# renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/kinesis
+go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.5 && \
+# renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/s3
+go get github.com/aws/aws-sdk-go-v2/service/s3@v1.99.0 && \
+```
 
-## Startup Time Impact
+CrowdSec grpc already at v1.80.0 — no change needed.
 
-- `cscli hub update`: ~2-5s (single HTTPS request to hub CDN)
-- `install_hub_items.sh`: ~10-15s (multiple `cscli` invocations, each checking/installing)
-- Total additional startup time: **~12-20s** (first boot) / **~5-10s** (subsequent boots, items cached)
+### 3.4 Example Workflow Fix
 
-This is acceptable for a container that runs long-lived.
+**File**: `.github/skills/examples/gorm-scanner-ci-workflow.yml` (line 28)
 
-## Acceptance Criteria
+```yaml
+# Before:
+          go-version: "1.26.1"
+# After:
+          go-version: "1.26.2"
+```
 
-1. After `docker compose up` with a fresh data volume, `cscli collections list` shows `crowdsecurity/caddy`, `crowdsecurity/base-http-scenarios`, and `crowdsecurity/http-cve` installed.
-2. After `docker compose up` with an existing data volume (stale index), hub index is refreshed and collections remain installed.
-3. If the container starts with no network, CrowdSec initialization logs warnings but does not crash or block startup.
-4. No env var (`SECURITY_CROWDSEC_MODE`) is required for collections to be installed.
-5. Startup time increase is < 30 seconds.
+### 3.5 Go Stdlib CVEs (nightly branch — no code change needed)
 
-## Commit Slicing Strategy
+The nightly workflow syncs `development → nightly` via `git merge --ff-only`. Since `development` already has Go 1.26.2 everywhere:
+- Dockerfile `ARG GO_VERSION=1.26.2` ✓
+- All CI workflows `GO_VERSION: '1.26.2'` ✓
+- `backend/go.mod` `go 1.26.2` ✓
 
-**Decision**: Single PR. Scope is small (3 files, ~15 lines changed), low risk, and all changes are tightly coupled.
+The next nightly run at 09:00 UTC will automatically propagate Go 1.26.2 to the nightly branch and rebuild the image.
 
-**PR-1**: CrowdSec hub bootstrapping fix
-- **Scope**: `.docker/docker-entrypoint.sh`, `configs/crowdsec/install_hub_items.sh`
-- **Validation**: Manual docker rebuild + verify collections with `cscli collections list`
-- **Rollback**: Revert PR; behavior returns to current (broken) state — no data loss risk
+---
+
+## 4. Implementation Plan
+
+### Phase 1: Playwright Tests (N/A)
+
+No UI/UX changes — this is a dependency-only update. Existing E2E tests validate runtime behavior.
+
+### Phase 2: Backend Implementation
+
+| Task | File(s) | Action |
+|------|---------|--------|
+| 2.1 | `backend/go.mod`, `backend/go.sum` | Run `go get` commands from §3.1 |
+| 2.2 | Verify build | `cd backend && go build ./cmd/api` |
+| 2.3 | Verify vet | `cd backend && go vet ./...` |
+| 2.4 | Verify tests | `cd backend && go test ./...` |
+| 2.5 | Verify vulns | `cd backend && govulncheck ./...` |
+
+### Phase 3: Dockerfile Implementation
+
+| Task | File(s) | Action |
+|------|---------|--------|
+| 3.1 | `Dockerfile` (caddy-builder, ~L258-280) | Add go-jose v3/v4, OTel SDK, OTel exporter patches per §3.2 |
+| 3.2 | `Dockerfile` (caddy-builder, ~L270) | Update grpc patch v1.79.3 → v1.80.0 |
+| 3.3 | `Dockerfile` (crowdsec-builder, ~L360-370) | Add pgx, AWS SDK patches per §3.3 |
+| 3.3a | CrowdSec binaries | After patching deps, run `go build` on CrowdSec binaries before full Docker build for faster compilation feedback |
+| 3.4 | `Dockerfile` | Verify `docker build .` completes successfully (amd64) |
+
+### Phase 4: CI / Misc Fixes
+
+| Task | File(s) | Action |
+|------|---------|--------|
+| 4.1 | `.github/skills/examples/gorm-scanner-ci-workflow.yml` | Bump Go version 1.26.1 → 1.26.2 |
+
+### Phase 5: Validation
+
+| Task | Validation |
+|------|------------|
+| 5.1 | `cd backend && go build ./cmd/api` — compiles cleanly |
+| 5.2 | `cd backend && go test ./...` — all tests pass |
+| 5.3 | `cd backend && go vet ./...` — no issues |
+| 5.4 | `cd backend && govulncheck ./...` — 0 findings |
+| 5.5 | `docker build -t charon:vuln-fix .` — image builds for amd64 |
+| 5.6 | Trivy scan on built image: `docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image --severity CRITICAL,HIGH charon:vuln-fix` — 0 HIGH (pgproto3/v2 excepted) |
+| 5.7 | Container health: `docker run -d -p 8080:8080 charon:vuln-fix && curl -f http://localhost:8080/health` |
+| 5.8 | E2E Playwright tests pass against rebuilt container |
+
+---
+
+## 5. Risk Assessment
+
+### Low Risk
+
+| Change | Risk | Rationale |
+|--------|------|-----------|
+| `go-jose/v3` v3.0.4 → v3.0.5 | Low | Security patch release only |
+| `go-jose/v4` v4.1.3 → v4.1.4 | Low | Security patch release only |
+| `otel/sdk` v1.40.0 → v1.43.0 (Caddy) | Low | Minor bumps, backwards compatible |
+| `otlptracehttp` v1.42.0 → v1.43.0 (backend) | Low | Minor bump |
+| OTel exporters (Caddy) | Low | Minor/patch bumps |
+| Go version example fix | None | Non-runtime file |
+
+### Medium Risk
+
+| Change | Risk | Mitigation |
+|--------|------|------------|
+| `grpc` v1.79.3 → v1.80.0 | Medium | Minor version bump. gRPC is indirect — Charon doesn't use gRPC directly. Run full test suite. Verify Caddy and CrowdSec still compile. |
+| AWS SDK major bumps (s3 v1.87→v1.99, cloudwatchlogs v1.57→v1.68, kinesis v1.40→v1.43) | Medium | CrowdSec build may fail if internal APIs changed between versions. Mitigate: run `go mod tidy` after patches and verify CrowdSec binaries compile. **Note:** AWS SDK Go v2 packages use independent semver within the `v1.x.x` line — these are minor version bumps, not major API breaks. |
+| `pgx/v4` v4.18.2 → v4.18.3 | Medium | Patch release should be safe. May not fully resolve pgproto3/v2 since no patched v2 exists. |
+
+### Known Limitation: pgproto3/v2 (CVE-2026-32286)
+
+The `pgproto3/v2` module has **no patched release** — the fix exists only in `pgproto3/v3` (used by `pgx/v5`). CrowdSec v1.7.7 uses `pgx/v4` which depends on `pgproto3/v2`. Remediation:
+
+1. Bump `pgx/v4` to v4.18.3 (latest v4 patch) — may transitively resolve the issue
+2. If scanner still flags pgproto3/v2 after the bump: document as **accepted risk with upstream tracking**
+3. Monitor CrowdSec releases for `pgx/v5` migration
+4. Consider upgrading `CROWDSEC_VERSION` ARG if a newer CrowdSec release ships with pgx/v5
+
+---
+
+## 6. Acceptance Criteria
+
+- [ ] `cd backend && go build ./cmd/api` succeeds with zero warnings
+- [ ] `cd backend && go test ./...` passes with zero failures
+- [ ] `cd backend && go vet ./...` reports zero issues
+- [ ] `cd backend && govulncheck ./...` reports zero findings
+- [ ] Docker image builds successfully for amd64
+- [ ] Trivy/Grype scan of built image shows 0 new HIGH findings (pgproto3/v2 excepted if upstream unpatched)
+- [ ] Container starts, health check passes on port 8080
+- [ ] Existing E2E Playwright tests pass against rebuilt container
+- [ ] No new compile errors in Caddy or CrowdSec builder stages
+- [ ] `backend/go.mod` shows updated versions for grpc, otlptracehttp
+
+---
+
+## 7. Commit Slicing Strategy
+
+### Decision: Single PR
+
+**Rationale**: All changes are dependency version bumps with no feature or behavioral changes. They address a single concern (security vulnerability remediation) and should be reviewed and merged atomically to avoid partial-fix states.
+
+**Trigger reasons for single PR**:
+- All changes are security patches — cannot ship partial fixes
+- Changes span backend + Dockerfile + CI config — logically coupled
+- No risk of one slice breaking another
+- Total diff is small (go.mod/go.sum + Dockerfile patch lines + 1 YAML fix)
+
+### PR-1: Nightly Build Vulnerability Remediation
+
+**Scope**: All changes in §3.1–§3.4
+
+**Files modified**:
+
+| File | Change Type |
+|------|-------------|
+| `backend/go.mod` | Dependency version bumps (grpc, otlptracehttp) |
+| `backend/go.sum` | Auto-generated checksum updates |
+| `Dockerfile` | Add `go get` patches in caddy-builder and crowdsec-builder stages |
+| `.github/skills/examples/gorm-scanner-ci-workflow.yml` | Go version 1.26.1 → 1.26.2 |
+
+**Dependencies**: None (standalone)
+
+**Validation gates**:
+1. `go build` / `go test` / `go vet` / `govulncheck` pass
+2. Docker image builds for amd64
+3. Trivy/Grype scan passes (0 new HIGH)
+4. E2E tests pass
+
+**Rollback**: Revert PR. All changes are version pins — reverting restores previous state with no data migration needed.
+
+### Post-merge Actions
+
+1. Nightly build will automatically sync development → nightly and rebuild the image with all patches
+2. Monitor next nightly scan for zero HIGH findings
+3. If pgproto3/v2 still flagged: open tracking issue for CrowdSec pgx/v5 upstream migration
+4. If any AWS SDK bump breaks CrowdSec compilation: pin to intermediate version and document
+
+---
+
+## 8. Commands Reference
+
+```bash
+# === Backend dependency upgrades ===
+cd /projects/Charon/backend
+
+go get google.golang.org/grpc@v1.80.0
+go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.43.0
+go mod tidy
+
+# === Validate backend ===
+go build ./cmd/api
+go test ./...
+go vet ./...
+govulncheck ./...
+
+# === Docker build (after Dockerfile edits) ===
+cd /projects/Charon
+docker build -t charon:vuln-fix .
+
+# === Scan built image ===
+docker run --rm \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  aquasec/trivy:latest image \
+  --severity CRITICAL,HIGH \
+  charon:vuln-fix
+
+# === Quick container health check ===
+docker run -d --name charon-vuln-test -p 8080:8080 charon:vuln-fix
+sleep 10
+curl -f http://localhost:8080/health
+docker stop charon-vuln-test && docker rm charon-vuln-test
+```
