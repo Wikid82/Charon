@@ -360,7 +360,44 @@ The `pgproto3/v2` module has **no patched release** — the fix exists only in `
 
 ---
 
-## 8. Commands Reference
+## 8. CI Failure Amendment: pgx/v4 Module Path Mismatch
+
+**Date**: 2026-04-09
+**Failure**: PR #921 `build-and-push` job, step `crowdsec-builder 7/11`
+**Error**: `go: github.com/jackc/pgx/v4@v5.9.1: invalid version: go.mod has non-.../v4 module path "github.com/jackc/pgx/v5" (and .../v4/go.mod does not exist) at revision v5.9.1`
+
+### Root Cause
+
+Dockerfile line 386 specifies `go get github.com/jackc/pgx/v4@v5.9.1`. This mixes the v4 module path with a v5 version tag. Go's semantic import versioning rejects this because tag `v5.9.1` declares module path `github.com/jackc/pgx/v5` in its go.mod.
+
+### Fix
+
+**Dockerfile line 386** — change:
+```dockerfile
+go get github.com/jackc/pgx/v4@v5.9.1 && \
+```
+to:
+```dockerfile
+go get github.com/jackc/pgx/v4@v4.18.3 && \
+```
+
+No changes needed to the Renovate annotation (line 385) or the CVE comment (line 384) — both are already correct.
+
+### Why v4.18.3
+
+- CrowdSec v1.7.7 uses `github.com/jackc/pgx/v4 v4.18.2` (direct dependency)
+- v4.18.3 is the latest and likely final v4 release
+- pgproto3/v2 is archived at v2.3.3 (July 2025) — no fix will be released in the v2 line
+- The CVE (pgproto3/v2 buffer overflow) can only be fully resolved by CrowdSec migrating to pgx/v5 upstream
+- Bumping pgx/v4 to v4.18.3 gets the latest v4 maintenance patch; the CVE remains an accepted risk per §5
+
+### Validation
+
+The same `docker build` that previously failed at step 7/11 should now pass through the CrowdSec dependency patching stage and proceed to compilation (steps 8-11).
+
+---
+
+## 9. Commands Reference
 
 ```bash
 # === Backend dependency upgrades ===
