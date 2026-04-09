@@ -383,7 +383,7 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     go get google.golang.org/grpc@v1.80.0 && \
     # CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
     # renovate: datasource=go depName=github.com/jackc/pgx/v4
-    go get github.com/jackc/pgx/v4@v5.9.1 && \
+    go get github.com/jackc/pgx/v4@v4.18.3 && \
     # GHSA-xmrv-pmrh-hhx2: AWS SDK v2 event stream injection
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
     go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.8 && \
