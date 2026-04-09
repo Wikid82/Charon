@@ -27,7 +27,7 @@ public disclosure.
 
 ## Known Vulnerabilities
 
-Last reviewed: 2026-04-04
+Last reviewed: 2026-04-09
 
 ### [HIGH] CVE-2026-2673 · OpenSSL TLS 1.3 Key Exchange Group Downgrade
 
@@ -194,6 +194,48 @@ installed on the host, which is outside Charon's operational scope.
 **Planned Remediation**
 Same as CVE-2026-34040: monitor moby/moby/v2 module stabilization. No fix
 available for the current `docker/docker` import path.
+
+---
+
+### [HIGH] CVE-2026-31790 · OpenSSL Vulnerability in Alpine Base Image
+
+| Field        | Value |
+|--------------|-------|
+| **ID**       | CVE-2026-31790 (affects `libcrypto3` and `libssl3`) |
+| **Severity** | High |
+| **Status**   | Awaiting Upstream |
+
+**What**
+An OpenSSL vulnerability in the Alpine base image system packages `libcrypto3` and `libssl3`.
+This is a pre-existing issue in the Alpine base image and was not introduced by Charon.
+
+**Who**
+
+- Discovered by: Automated scan (Grype)
+- Reported: 2026-04-09
+- Affects: Container runtime environment; does not affect Charon application code directly
+
+**Where**
+
+- Component: Alpine base image (`libcrypto3`, `libssl3`)
+- Versions affected: Current Alpine base image OpenSSL packages
+
+**When**
+
+- Discovered: 2026-04-09
+- Disclosed (if public): Public
+- Target fix: When Alpine Security publishes a patched OpenSSL APK
+
+**How**
+The vulnerability resides in Alpine's system OpenSSL library and affects TLS operations at
+the OS level. Charon's application code does not directly invoke these libraries. Practical
+exploitability depends on direct TLS usage through the system OpenSSL, which is limited to
+the container runtime environment.
+
+**Planned Remediation**
+Monitor <https://security.alpinelinux.org/> for a patched Alpine APK. No upstream fix
+available as of 2026-04-09. Once available, update the pinned `ALPINE_IMAGE` digest in the
+Dockerfile.
 
 ---
 
