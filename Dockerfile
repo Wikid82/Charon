@@ -10,7 +10,7 @@ ARG BUILD_DEBUG=0
 
 # ---- Pinned Toolchain Versions ----
 # renovate: datasource=docker depName=golang versioning=docker
-ARG GO_VERSION=1.26.1
+ARG GO_VERSION=1.26.2
 
 # renovate: datasource=docker depName=alpine versioning=docker
 ARG ALPINE_IMAGE=alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659
