@@ -25,7 +25,7 @@ ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0b
 # renovate: datasource=go depName=github.com/expr-lang/expr
 ARG EXPR_LANG_VERSION=1.17.8
 # renovate: datasource=go depName=golang.org/x/net
-ARG XNET_VERSION=0.52.0
+ARG XNET_VERSION=0.53.0
 # renovate: datasource=go depName=github.com/smallstep/certificates
 ARG SMALLSTEP_CERTIFICATES_VERSION=0.30.0
 # renovate: datasource=npm depName=npm
