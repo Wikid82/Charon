@@ -160,7 +160,7 @@ RUN set -eux; \
 # Note: xx-go install puts binaries in /go/bin/TARGETOS_TARGETARCH/dlv if cross-compiling.
 # We find it and move it to /go/bin/dlv so it's in a consistent location for the next stage.
 # renovate: datasource=go depName=github.com/go-delve/delve
-ARG DLV_VERSION=1.26.1
+ARG DLV_VERSION=1.26.2
 # hadolint ignore=DL3059,DL4006
 RUN CGO_ENABLED=0 xx-go install github.com/go-delve/delve/cmd/dlv@v${DLV_VERSION} && \
     DLV_PATH=$(find /go/bin -name dlv -type f | head -n 1) && \
@@ -345,7 +345,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         rm -rf /tmp/buildenv_* /tmp/caddy-initial'
 
 # ---- CrowdSec Builder ----
-# Build CrowdSec from source to ensure we use Go 1.26.1+ and avoid stdlib vulnerabilities
+# Build CrowdSec from source to ensure we use Go 1.26.2+ and avoid stdlib vulnerabilities
 # (CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729)
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS crowdsec-builder
 COPY --from=xx / /
@@ -516,7 +516,7 @@ COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 # Allow non-root to bind privileged ports (80/443) securely
 RUN setcap 'cap_net_bind_service=+ep' /usr/bin/caddy
 
-# Copy CrowdSec binaries from the crowdsec-builder stage (built with Go 1.26.1+)
+# Copy CrowdSec binaries from the crowdsec-builder stage (built with Go 1.26.2+)
 # This ensures we don't have stdlib vulnerabilities from older Go versions
 COPY --from=crowdsec-builder /crowdsec-out/crowdsec /usr/local/bin/crowdsec
 COPY --from=crowdsec-builder /crowdsec-out/cscli /usr/local/bin/cscli

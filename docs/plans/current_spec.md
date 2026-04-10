@@ -252,7 +252,7 @@ No UI/UX changes — this is a dependency-only update. Existing E2E tests valida
 
 | Task | File(s) | Action |
 |------|---------|--------|
-| 4.1 | `.github/skills/examples/gorm-scanner-ci-workflow.yml` | Bump Go version 1.26.1 → 1.26.2 |
+| 4.1 | `.github/skills/examples/gorm-scanner-ci-workflow.yml` | Bump Go version 1.26.2 → 1.26.2 |
 
 ### Phase 5: Validation
 
@@ -339,7 +339,7 @@ The `pgproto3/v2` module has **no patched release** — the fix exists only in `
 | `backend/go.mod` | Dependency version bumps (grpc, otlptracehttp) |
 | `backend/go.sum` | Auto-generated checksum updates |
 | `Dockerfile` | Add `go get` patches in caddy-builder and crowdsec-builder stages |
-| `.github/skills/examples/gorm-scanner-ci-workflow.yml` | Go version 1.26.1 → 1.26.2 |
+| `.github/skills/examples/gorm-scanner-ci-workflow.yml` | Go version 1.26.2 → 1.26.2 |
 
 **Dependencies**: None (standalone)
 
