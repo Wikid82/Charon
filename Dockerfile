@@ -10,7 +10,7 @@ ARG BUILD_DEBUG=0
 
 # ---- Pinned Toolchain Versions ----
 # renovate: datasource=docker depName=golang versioning=docker
-ARG GO_VERSION=1.26.1
+ARG GO_VERSION=1.26.2
 
 # renovate: datasource=docker depName=alpine versioning=docker
 ARG ALPINE_IMAGE=alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659
@@ -282,11 +282,27 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # renovate: datasource=go depName=github.com/hslatman/ipstore
         go get github.com/hslatman/ipstore@v0.4.0; \
         go get golang.org/x/net@v${XNET_VERSION}; \
-        # CVE-2026-33186 (GHSA-p77j-4mvh-x3m3): gRPC-Go auth bypass via missing leading slash
-        # Fix available at v1.79.3. Pin here so the Caddy binary is patched immediately;
-        # remove once Caddy ships a release built with grpc >= v1.79.3.
+        # CVE-2026-33186: gRPC-Go auth bypass (fixed in v1.79.3)
+        # CVE-2026-34986: go-jose/v4 transitive fix (requires grpc >= v1.80.0)
+        # Pin here so the Caddy binary is patched immediately;
+        # remove once Caddy ships a release built with grpc >= v1.80.0.
         # renovate: datasource=go depName=google.golang.org/grpc
-        go get google.golang.org/grpc@v1.79.3; \
+        go get google.golang.org/grpc@v1.80.0; \
+        # CVE-2026-34986: go-jose JOSE/JWT validation bypass
+        # renovate: datasource=go depName=github.com/go-jose/go-jose/v3
+        go get github.com/go-jose/go-jose/v3@v3.0.5; \
+        # renovate: datasource=go depName=github.com/go-jose/go-jose/v4
+        go get github.com/go-jose/go-jose/v4@v4.1.4; \
+        # CVE-2026-39883: OTel SDK resource leak
+        # renovate: datasource=go depName=go.opentelemetry.io/otel/sdk
+        go get go.opentelemetry.io/otel/sdk@v1.43.0; \
+        # CVE-2026-39882: OTel HTTP exporter request smuggling
+        # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp
+        go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp@v0.19.0; \
+        # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp
+        go get go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.43.0; \
+        # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp
+        go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.43.0; \
         # GHSA-479m-364c-43vc: goxmldsig XML signature validation bypass (loop variable capture)
         # Fix available at v1.6.0. Pin here so the Caddy binary is patched immediately;
         # remove once caddy-security ships a release built with goxmldsig >= v1.6.0.
@@ -365,6 +381,18 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # remove once CrowdSec ships a release built with grpc >= v1.79.3.
     # renovate: datasource=go depName=google.golang.org/grpc
     go get google.golang.org/grpc@v1.80.0 && \
+    # CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
+    # renovate: datasource=go depName=github.com/jackc/pgx/v4
+    go get github.com/jackc/pgx/v4@v4.18.3 && \
+    # GHSA-xmrv-pmrh-hhx2: AWS SDK v2 event stream injection
+    # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
+    go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.8 && \
+    # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
+    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.68.0 && \
+    # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/kinesis
+    go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.5 && \
+    # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/s3
+    go get github.com/aws/aws-sdk-go-v2/service/s3@v1.99.0 && \
     go mod tidy
 
 # Fix compatibility issues with expr-lang v1.17.7
