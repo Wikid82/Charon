@@ -81,6 +81,17 @@ GHSA-jqcq-xjh3-6g23
 # exp: 2026-05-21
 GHSA-x6gf-mpr2-68h6
 
+# CVE-2026-32286: pgproto3/v2 buffer overflow in DataRow handling (DoS)
+# Severity: HIGH (CVSS 7.5) — Package: github.com/jackc/pgproto3/v2 v2.3.3, embedded in CrowdSec binaries
+# pgproto3/v2 v2.3.3 is the final release — repository archived Jul 12, 2025. No fix will be released.
+# Fix exists only in pgproto3/v3 (used by pgx/v5). CrowdSec v1.7.7 (latest) still depends on pgx/v4 → pgproto3/v2.
+# Dockerfile already applies best-effort mitigation (pgx/v4@v4.18.3).
+# Charon uses SQLite; the PostgreSQL code path is not reachable in a standard deployment.
+# Review by: 2026-07-09
+# See also: .grype.yaml for full justification
+# exp: 2026-07-09
+CVE-2026-32286
+
 # CVE-2026-34040 / GHSA-x744-4wpc-v9h2: Docker AuthZ plugin bypass via oversized request body
 # Severity: HIGH (CVSS 8.8) — Package: github.com/docker/docker v28.5.2+incompatible
 # Incomplete fix for CVE-2024-41110. Fixed in moby/moby v29.3.1 but no fix for docker/docker import path.
