@@ -353,6 +353,77 @@ ignore:
     # 4. If not yet migrated: Extend expiry by 30 days and update the review comment above
     # 5. If extended 3+ times: Open an upstream issue on crowdsecurity/crowdsec requesting pgx/v5 migration
 
+  # CVE-2026-32286: pgproto3/v2 buffer overflow in DataRow handling (DoS)
+  # Severity: HIGH (CVSS 7.5)
+  # Package: github.com/jackc/pgproto3/v2 v2.3.3 (embedded in /usr/local/bin/crowdsec and /usr/local/bin/cscli)
+  # Status: NO fix in pgproto3/v2 (archived/EOL) — fix path requires CrowdSec to migrate to pgx/v5
+  #
+  # Vulnerability Details:
+  # - Buffer overflow in pgproto3/v2 DataRow handling allows a malicious or compromised PostgreSQL
+  #   server to trigger a denial of service via crafted protocol messages (CWE-120).
+  # - CVSSv3: AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H (CVSS 7.5)
+  #
+  # Root Cause (EOL Module + Third-Party Binary):
+  # - Same affected module as GHSA-jqcq-xjh3-6g23 and GHSA-x6gf-mpr2-68h6 — pgproto3/v2 v2.3.3
+  #   is the final release (repository archived Jul 12, 2025). No fix will be released.
+  # - Charon does not use pgproto3/v2 directly nor communicate with PostgreSQL. The package
+  #   is compiled into CrowdSec binaries for their internal database communication.
+  # - Fix exists only in pgproto3/v3 (used by pgx/v5). CrowdSec v1.7.7 (latest) still depends
+  #   on pgx/v4 → pgproto3/v2. Dockerfile already applies best-effort mitigation (pgx/v4@v4.18.3).
+  # - Fix path: once CrowdSec migrates to pgx/v5, rebuild the Docker image and remove this suppression.
+  #
+  # Risk Assessment: ACCEPTED (Non-exploitable in Charon context + no upstream fix path)
+  # - The vulnerability requires a malicious PostgreSQL server response. Charon uses SQLite
+  #   internally and does not run PostgreSQL. CrowdSec's database path is not exposed to
+  #   external traffic in a standard Charon deployment.
+  # - CrowdSec's PostgreSQL code path is not directly exposed to untrusted network input in
+  #   Charon's deployment.
+  #
+  # Mitigation (active while suppression is in effect):
+  # - Monitor CrowdSec releases for pgx/v5 migration:
+  #   https://github.com/crowdsecurity/crowdsec/releases
+  # - Weekly CI security rebuild flags the moment a fixed image ships.
+  #
+  # Review:
+  # - Reviewed 2026-04-10 (initial suppression): pgproto3/v2 is EOL; no fix exists or will exist.
+  #   Waiting on CrowdSec to migrate to pgx/v5. Set 90-day review.
+  # - Next review: 2026-07-09. Remove suppression once CrowdSec ships with pgx/v5.
+  #
+  # Removal Criteria:
+  # - Same as GHSA-jqcq-xjh3-6g23: CrowdSec releases a version with pgx/v5 replacing pgproto3/v2
+  # - Rebuild Docker image, run security-scan-docker-image, confirm all pgproto3/v2 advisories are resolved
+  # - Remove this entry, GHSA-jqcq-xjh3-6g23 entry, GHSA-x6gf-mpr2-68h6 entry, and all .trivyignore entries simultaneously
+  #
+  # References:
+  # - CVE-2026-32286: https://nvd.nist.gov/vuln/detail/CVE-2026-32286
+  # - pgproto3/v2 archive notice: https://github.com/jackc/pgproto3
+  # - pgx/v5 (replacement): https://github.com/jackc/pgx
+  # - CrowdSec releases: https://github.com/crowdsecurity/crowdsec/releases
+  - vulnerability: CVE-2026-32286
+    package:
+      name: github.com/jackc/pgproto3/v2
+      version: "v2.3.3"
+      type: go-module
+    reason: |
+      HIGH — Buffer overflow in pgproto3/v2 v2.3.3 DataRow handling, embedded in CrowdSec binaries.
+      pgproto3/v2 v2.3.3 is the final release (archived Jul 2025); no fix will be released.
+      Fix exists only in pgproto3/v3 (pgx/v5). CrowdSec v1.7.7 still depends on pgx/v4 → pgproto3/v2.
+      Charon uses SQLite, not PostgreSQL; this code path is not reachable in a standard deployment.
+      Risk accepted; no remediation until CrowdSec ships with pgx/v5.
+      Reviewed 2026-04-10: pgproto3/v2 EOL confirmed; CrowdSec has not migrated to pgx/v5 yet.
+    expiry: "2026-07-09"  # Reviewed 2026-04-10: no fix path until CrowdSec migrates to pgx/v5. 90-day expiry.
+
+    # Action items when this suppression expires:
+    # 1. Check CrowdSec releases for pgx/v5 migration:
+    #    https://github.com/crowdsecurity/crowdsec/releases
+    # 2. Verify with: `go version -m /path/to/crowdsec | grep pgproto3`
+    #    Expected: pgproto3/v3 (or no pgproto3 reference if fully replaced)
+    # 3. If CrowdSec has migrated:
+    #    a. Rebuild Docker image and run local security-scan-docker-image
+    #    b. Remove this entry, GHSA-jqcq-xjh3-6g23 entry, GHSA-x6gf-mpr2-68h6 entry, and all .trivyignore entries
+    # 4. If not yet migrated: Extend expiry by 30 days and update the review comment above
+    # 5. If extended 3+ times: Open an upstream issue on crowdsecurity/crowdsec requesting pgx/v5 migration
+
   # GHSA-x744-4wpc-v9h2 / CVE-2026-34040: Docker AuthZ plugin bypass via oversized request body
   # Severity: HIGH (CVSS 8.8)
   # CVSS Vector: CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H
