@@ -131,7 +131,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 ARG TARGETPLATFORM
 ARG TARGETARCH
 # hadolint ignore=DL3018
-RUN apk add --no-cache clang lld
+RUN apk add --no-cache git clang lld
 # hadolint ignore=DL3059
 # hadolint ignore=DL3018
 # Install musl (headers + runtime) and gcc for cross-compilation linker
