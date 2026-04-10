@@ -142,6 +142,64 @@ ignore:
       Risk accepted pending Alpine upstream patch. Documented in SECURITY.md.
     expiry: "2026-05-09"  # Reviewed 2026-04-09: see libcrypto3 entry above for action items.
 
+  # GHSA-69x3-g4r3-p962 / CVE-2026-25793: Nebula ECDSA Signature Malleability
+  # Severity: HIGH (CVSS 8.1)
+  # Package: github.com/slackhq/nebula v1.9.7 (embedded in /usr/bin/caddy via smallstep/certificates)
+  # Status: Fix exists in nebula v1.10.3 — smallstep/certificates cannot compile against v1.10+ APIs
+  #
+  # Vulnerability Details:
+  # - ECDSA signature malleability in nebula allows potential authentication bypass via
+  #   crafted certificate signatures (CWE-347).
+  # - CVSSv3: AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N (CVSS 8.1)
+  #
+  # Root Cause (Third-Party Binary + Upstream API Incompatibility):
+  # - Charon does not use nebula directly. The library is compiled into the Caddy binary
+  #   via the caddy-security plugin → smallstep/certificates dependency chain.
+  # - Nebula v1.10.3 patches the vulnerability but removes legacy APIs that
+  #   smallstep/certificates (through v0.30.2) depends on, causing compile failures.
+  # - Fix path: once smallstep/certificates releases a version compatible with nebula >= v1.10.3,
+  #   update the Dockerfile and remove this suppression.
+  #
+  # Risk Assessment: ACCEPTED (No direct use + upstream API incompatibility blocks fix)
+  # - Charon does not use Nebula VPN PKI by default. The vulnerable code path is only
+  #   reachable if Nebula-based certificate provisioning is explicitly configured.
+  # - The attack requires network access and a crafted certificate, which is not part of
+  #   standard Charon deployment.
+  #
+  # Mitigation (active while suppression is in effect):
+  # - Monitor smallstep/certificates releases: https://github.com/smallstep/certificates/releases
+  # - Monitor nebula releases: https://github.com/slackhq/nebula/releases
+  # - Weekly CI security rebuild flags the moment a compatible upstream ships.
+  #
+  # Review:
+  # - Reviewed 2026-02-19 (initial suppression in .trivyignore): certificates v0.27.5 pins nebula v1.9.x.
+  # - Re-evaluated 2026-04-10: nebula v1.10.3 has the fix but certificates (through v0.30.2)
+  #   uses legacy APIs removed in v1.10+. Still blocked. Set 30-day review.
+  # - Next review: 2026-05-10. Remove suppression once certificates ships with nebula >= v1.10.3.
+  #
+  # Removal Criteria:
+  # - smallstep/certificates releases a version compatible with nebula >= v1.10.3
+  # - Update Dockerfile nebula pin, rebuild, run security-scan-docker-image, confirm resolved
+  # - Remove this entry and the corresponding .trivyignore entry simultaneously
+  #
+  # References:
+  # - GHSA-69x3-g4r3-p962: https://github.com/advisories/GHSA-69x3-g4r3-p962
+  # - CVE-2026-25793: https://nvd.nist.gov/vuln/detail/CVE-2026-25793
+  # - Nebula releases: https://github.com/slackhq/nebula/releases
+  # - smallstep/certificates releases: https://github.com/smallstep/certificates/releases
+  - vulnerability: CVE-2026-25793
+    package:
+      name: github.com/slackhq/nebula
+      version: "v1.9.7"
+      type: go-module
+    reason: |
+      HIGH — ECDSA signature malleability in nebula v1.9.7 embedded in /usr/bin/caddy.
+      Fix exists in nebula v1.10.3 but smallstep/certificates (through v0.30.2) uses legacy APIs
+      removed in v1.10+, causing compile failures. Charon does not use Nebula VPN PKI by default.
+      Risk accepted; no remediation until smallstep/certificates ships with nebula >= v1.10.3.
+      Re-evaluated 2026-04-10: still blocked by upstream API incompatibility.
+    expiry: "2026-05-10"  # Re-evaluated 2026-04-10: certificates through v0.30.2 incompatible with nebula v1.10+.
+
   # GHSA-6g7g-w4f8-9c9x: buger/jsonparser Delete panic on malformed JSON (DoS)
   # Severity: HIGH (CVSS 7.5)
   # Package: github.com/buger/jsonparser v1.1.1 (embedded in /usr/local/bin/crowdsec and /usr/local/bin/cscli)
