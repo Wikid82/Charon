@@ -77,6 +77,71 @@ ignore:
       Risk accepted pending Alpine upstream patch.
     expiry: "2026-05-18"  # Extended 2026-04-04: see libcrypto3 entry above for action items.
 
+  # CVE-2026-31790: OpenSSL vulnerability in Alpine base image packages
+  # Severity: HIGH
+  # Packages: libcrypto3 3.5.5-r0 and libssl3 3.5.5-r0 (Alpine apk)
+  # Status: No upstream fix available — Alpine 3.23 still ships libcrypto3/libssl3 3.5.5-r0 as of 2026-04-09
+  #
+  # Root Cause (No Fix Available):
+  # - Alpine upstream has not published a patched libcrypto3/libssl3 for Alpine 3.23.
+  # - Checked: Alpine 3.23 still ships libcrypto3/libssl3 3.5.5-r0 as of 2026-04-09.
+  # - Fix path: once Alpine publishes a patched libcrypto3/libssl3, rebuild the Docker image
+  #   and remove this suppression.
+  #
+  # Risk Assessment: ACCEPTED (No upstream fix; documented in SECURITY.md)
+  # - Charon terminates TLS at the Caddy layer — the Go backend does not act as a raw TLS server.
+  # - Container-level isolation reduces the attack surface further.
+  #
+  # Mitigation (active while suppression is in effect):
+  # - Monitor Alpine security advisories: https://security.alpinelinux.org/vuln/CVE-2026-31790
+  # - Weekly CI security rebuild (security-weekly-rebuild.yml) flags any new CVEs in the full image.
+  #
+  # Review:
+  # - Reviewed 2026-04-09 (initial suppression): no upstream fix available. Set 30-day review.
+  # - Next review: 2026-05-09. Remove suppression immediately once upstream fixes.
+  #
+  # Removal Criteria:
+  # - Alpine publishes a patched version of libcrypto3 and libssl3
+  # - Rebuild Docker image and verify CVE-2026-31790 no longer appears in grype-results.json
+  # - Remove both these entries and the corresponding .trivyignore entry simultaneously
+  #
+  # References:
+  # - CVE-2026-31790: https://nvd.nist.gov/vuln/detail/CVE-2026-31790
+  # - Alpine security tracker: https://security.alpinelinux.org/vuln/CVE-2026-31790
+  - vulnerability: CVE-2026-31790
+    package:
+      name: libcrypto3
+      version: "3.5.5-r0"
+      type: apk
+    reason: |
+      HIGH — OpenSSL vulnerability in libcrypto3 3.5.5-r0 (Alpine base image).
+      No upstream fix: Alpine 3.23 still ships libcrypto3 3.5.5-r0 as of 2026-04-09. Charon
+      terminates TLS at the Caddy layer; the Go backend does not act as a raw TLS server.
+      Risk accepted pending Alpine upstream patch. Documented in SECURITY.md.
+    expiry: "2026-05-09"  # Reviewed 2026-04-09: no upstream fix available. Next review 2026-05-09.
+
+    # Action items when this suppression expires:
+    # 1. Check Alpine security tracker: https://security.alpinelinux.org/vuln/CVE-2026-31790
+    # 2. If a patched Alpine package is now available:
+    #    a. Rebuild Docker image without suppression
+    #    b. Run local security-scan-docker-image and confirm CVE is resolved
+    #    c. Remove this suppression entry, the libssl3 entry below, and the .trivyignore entry
+    # 3. If no fix yet: Extend expiry by 14–30 days and update the review comment above
+    # 4. If extended 3+ times: Open an issue to track the upstream status formally
+
+  # CVE-2026-31790 (libssl3) — see full justification in the libcrypto3 entry above
+  - vulnerability: CVE-2026-31790
+    package:
+      name: libssl3
+      version: "3.5.5-r0"
+      type: apk
+    reason: |
+      HIGH — OpenSSL vulnerability in libssl3 3.5.5-r0 (Alpine base image).
+      No upstream fix: Alpine 3.23 still ships libssl3 3.5.5-r0 as of 2026-04-09. Charon
+      terminates TLS at the Caddy layer; the Go backend does not act as a raw TLS server.
+      Risk accepted pending Alpine upstream patch. Documented in SECURITY.md.
+    expiry: "2026-05-09"  # Reviewed 2026-04-09: see libcrypto3 entry above for action items.
+
   # GHSA-6g7g-w4f8-9c9x: buger/jsonparser Delete panic on malformed JSON (DoS)
   # Severity: HIGH (CVSS 7.5)
   # Package: github.com/buger/jsonparser v1.1.1 (embedded in /usr/local/bin/crowdsec and /usr/local/bin/cscli)

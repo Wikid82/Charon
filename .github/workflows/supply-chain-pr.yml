@@ -285,7 +285,7 @@ jobs:
       - name: Install Grype
         if: steps.set-target.outputs.image_name != ''
         run: |
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.110.0
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.111.0
 
       - name: Scan for vulnerabilities
         if: steps.set-target.outputs.image_name != ''

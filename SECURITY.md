@@ -27,49 +27,47 @@ public disclosure.
 
 ## Known Vulnerabilities
 
-Last reviewed: 2026-04-04
+Last reviewed: 2026-04-09
 
-### [HIGH] CVE-2026-2673 · OpenSSL TLS 1.3 Key Exchange Group Downgrade
+### [HIGH] CVE-2026-31790 · OpenSSL Vulnerability in Alpine Base Image
 
 | Field        | Value |
 |--------------|-------|
-| **ID**       | CVE-2026-2673 (affects `libcrypto3` and `libssl3`) |
-| **Severity** | High · 7.5 |
+| **ID**       | CVE-2026-31790 (affects `libcrypto3` and `libssl3`) |
+| **Severity** | High · CVSS pending |
 | **Status**   | Awaiting Upstream |
 
 **What**
-An OpenSSL TLS 1.3 server may fail to negotiate the intended key exchange group when the
-configuration includes the `DEFAULT` keyword, potentially allowing downgrade to weaker cipher
-suites. Affects Alpine 3.23.3 packages `libcrypto3` and `libssl3` at version 3.5.5-r0.
+An OpenSSL vulnerability in the Alpine base image system packages `libcrypto3` and `libssl3`.
+This is a pre-existing issue in the Alpine base image and was not introduced by Charon.
 
 **Who**
 
 - Discovered by: Automated scan (Grype)
-- Reported: 2026-03-20
-- Affects: Container runtime environment; Caddy reverse proxy TLS negotiation could be affected
-  if default key group configuration is used
+- Reported: 2026-04-09
+- Affects: Container runtime environment; does not affect Charon application code directly
 
 **Where**
 
-- Component: Alpine 3.23.3 base image (`libcrypto3` 3.5.5-r0, `libssl3` 3.5.5-r0)
-- Versions affected: Alpine 3.23.3 prior to a patched `openssl` APK release
+- Component: Alpine base image (`libcrypto3`, `libssl3`)
+- Versions affected: Current Alpine base image OpenSSL packages
 
 **When**
 
-- Discovered: 2026-03-20
-- Disclosed (if public): 2026-03-13 (OpenSSL advisory)
-- Target fix: When Alpine Security publishes a patched `openssl` APK
+- Discovered: 2026-04-09
+- Disclosed (if public): Public
+- Target fix: When Alpine Security publishes a patched OpenSSL APK
 
 **How**
-When an OpenSSL TLS 1.3 server configuration uses the `DEFAULT` keyword for key exchange groups,
-the negotiation logic may select a weaker group than intended. Charon's Caddy TLS configuration
-does not use the `DEFAULT` keyword, which limits practical exploitability. The packages are
-present in the base image regardless of Caddy's configuration.
+The vulnerability resides in Alpine's system OpenSSL library and affects TLS operations at
+the OS level. Charon's application code does not directly invoke these libraries. Practical
+exploitability depends on direct TLS usage through the system OpenSSL, which is limited to
+the container runtime environment.
 
 **Planned Remediation**
-Monitor <https://security.alpinelinux.org/vuln/CVE-2026-2673> for a patched Alpine APK. Once
-available, update the pinned `ALPINE_IMAGE` digest in the Dockerfile, or add an explicit
-`RUN apk upgrade --no-cache libcrypto3 libssl3` to the runtime stage.
+Monitor <https://security.alpinelinux.org/> for a patched Alpine APK. No upstream fix
+available as of 2026-04-09. Once available, update the pinned `ALPINE_IMAGE` digest in the
+Dockerfile.
 
 ---
 
@@ -115,43 +113,47 @@ fix available. When a compatible module path exists, migrate the Docker SDK impo
 
 ---
 
-### [MEDIUM] CVE-2025-60876 · BusyBox wget HTTP Request Smuggling
+### [HIGH] CVE-2026-2673 · OpenSSL TLS 1.3 Key Exchange Group Downgrade
 
 | Field        | Value |
 |--------------|-------|
-| **ID**       | CVE-2025-60876 |
-| **Severity** | Medium · 6.5 |
+| **ID**       | CVE-2026-2673 (affects `libcrypto3` and `libssl3`) |
+| **Severity** | High · 7.5 |
 | **Status**   | Awaiting Upstream |
 
 **What**
-BusyBox wget through 1.37 accepts raw CR/LF and other C0 control bytes in the HTTP
-request-target, allowing request line splitting and header injection (CWE-284).
+An OpenSSL TLS 1.3 server may fail to negotiate the intended key exchange group when the
+configuration includes the `DEFAULT` keyword, potentially allowing downgrade to weaker cipher
+suites. Affects Alpine 3.23.3 packages `libcrypto3` and `libssl3` at version 3.5.5-r0.
 
 **Who**
 
 - Discovered by: Automated scan (Grype)
-- Reported: 2026-03-24
-- Affects: Container runtime environment; Charon does not invoke busybox wget in application logic
+- Reported: 2026-03-20
+- Affects: Container runtime environment; Caddy reverse proxy TLS negotiation could be affected
+  if default key group configuration is used
 
 **Where**
 
-- Component: Alpine 3.23.3 base image (`busybox` 1.37.0-r30)
-- Versions affected: All Charon images using Alpine 3.23.3 with busybox < patched version
+- Component: Alpine 3.23.3 base image (`libcrypto3` 3.5.5-r0, `libssl3` 3.5.5-r0)
+- Versions affected: Alpine 3.23.3 prior to a patched `openssl` APK release
 
 **When**
 
-- Discovered: 2026-03-24
-- Disclosed (if public): Not yet publicly disclosed with fix
-- Target fix: When Alpine Security publishes a patched busybox APK
+- Discovered: 2026-03-20
+- Disclosed (if public): 2026-03-13 (OpenSSL advisory)
+- Target fix: When Alpine Security publishes a patched `openssl` APK
 
 **How**
-The vulnerable wget applet would need to be manually invoked inside the container with
-attacker-controlled URLs. Charon's application logic does not use busybox wget. EPSS score is
-0.00064 (0.20 percentile), indicating extremely low exploitation probability.
+When an OpenSSL TLS 1.3 server configuration uses the `DEFAULT` keyword for key exchange groups,
+the negotiation logic may select a weaker group than intended. Charon's Caddy TLS configuration
+does not use the `DEFAULT` keyword, which limits practical exploitability. The packages are
+present in the base image regardless of Caddy's configuration.
 
 **Planned Remediation**
-Monitor Alpine 3.23 for a patched busybox APK. No immediate action required. Practical risk to
-Charon users is negligible since the vulnerable code path is not exercised.
+Monitor <https://security.alpinelinux.org/vuln/CVE-2026-2673> for a patched Alpine APK. Once
+available, update the pinned `ALPINE_IMAGE` digest in the Dockerfile, or add an explicit
+`RUN apk upgrade --no-cache libcrypto3 libssl3` to the runtime stage.
 
 ---
 
@@ -196,6 +198,44 @@ Same as CVE-2026-34040: monitor moby/moby/v2 module stabilization. No fix
 available for the current `docker/docker` import path.
 
 ---
+
+### [MEDIUM] CVE-2025-60876 · BusyBox wget HTTP Request Smuggling
+
+| Field        | Value |
+|--------------|-------|
+| **ID**       | CVE-2025-60876 |
+| **Severity** | Medium · 6.5 |
+| **Status**   | Awaiting Upstream |
+
+**What**
+BusyBox wget through 1.37 accepts raw CR/LF and other C0 control bytes in the HTTP
+request-target, allowing request line splitting and header injection (CWE-284).
+
+**Who**
+
+- Discovered by: Automated scan (Grype)
+- Reported: 2026-03-24
+- Affects: Container runtime environment; Charon does not invoke busybox wget in application logic
+
+**Where**
+
+- Component: Alpine 3.23.3 base image (`busybox` 1.37.0-r30)
+- Versions affected: All Charon images using Alpine 3.23.3 with busybox < patched version
+
+**When**
+
+- Discovered: 2026-03-24
+- Disclosed (if public): Not yet publicly disclosed with fix
+- Target fix: When Alpine Security publishes a patched busybox APK
+
+**How**
+The vulnerable wget applet would need to be manually invoked inside the container with
+attacker-controlled URLs. Charon's application logic does not use busybox wget. EPSS score is
+0.00064 (0.20 percentile), indicating extremely low exploitation probability.
+
+**Planned Remediation**
+Monitor Alpine 3.23 for a patched busybox APK. No immediate action required. Practical risk to
+Charon users is negligible since the vulnerable code path is not exercised.
 
 ## Patched Vulnerabilities
 
