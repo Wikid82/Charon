@@ -3,17 +3,12 @@ playwright/.auth/
 
 # GHSA-69x3-g4r3-p962 / CVE-2026-25793: Nebula ECDSA Signature Malleability
 # Severity: HIGH (CVSS 8.1) — Package: github.com/slackhq/nebula v1.9.7 in /usr/bin/caddy
-# Cannot upgrade: smallstep/certificates v0.27.5 (latest stable as of 2026-02-19) still pins nebula v1.9.x.
-# Charon does not use Nebula VPN PKI by default. Review by: 2026-03-05
+# Fix exists in nebula v1.10.3, but smallstep/certificates (through v0.30.2) uses legacy nebula
+# APIs removed in v1.10+, causing compile failures. Waiting on certificates upstream update.
+# Charon does not use Nebula VPN PKI by default. Review by: 2026-05-10
 # See also: .grype.yaml for full justification
+# exp: 2026-05-10
 CVE-2026-25793
-
-# CVE-2026-22184: zlib Global Buffer Overflow in untgz utility
-# Severity: CRITICAL (CVSS 9.8) — Package: zlib 1.3.1-r2 in Alpine base image
-# No upstream fix available: Alpine 3.23 (including edge) still ships zlib 1.3.1-r2.
-# Charon does not use untgz or process untrusted tar archives. Review by: 2026-03-14
-# See also: .grype.yaml for full justification
-CVE-2026-22184
 
 # CVE-2026-27171: zlib CPU spin via crc32_combine64 infinite loop (DoS)
 # Severity: MEDIUM (CVSS 5.5 NVD / 2.9 MITRE) — Package: zlib 1.3.1-r2 in Alpine base image
@@ -80,6 +75,17 @@ GHSA-jqcq-xjh3-6g23
 # See also: .grype.yaml for full justification
 # exp: 2026-05-21
 GHSA-x6gf-mpr2-68h6
+
+# CVE-2026-32286: pgproto3/v2 buffer overflow in DataRow handling (DoS)
+# Severity: HIGH (CVSS 7.5) — Package: github.com/jackc/pgproto3/v2 v2.3.3, embedded in CrowdSec binaries
+# pgproto3/v2 v2.3.3 is the final release — repository archived Jul 12, 2025. No fix will be released.
+# Fix exists only in pgproto3/v3 (used by pgx/v5). CrowdSec v1.7.7 (latest) still depends on pgx/v4 → pgproto3/v2.
+# Dockerfile already applies best-effort mitigation (pgx/v4@v4.18.3).
+# Charon uses SQLite; the PostgreSQL code path is not reachable in a standard deployment.
+# Review by: 2026-07-09
+# See also: .grype.yaml for full justification
+# exp: 2026-07-09
+CVE-2026-32286
 
 # CVE-2026-34040 / GHSA-x744-4wpc-v9h2: Docker AuthZ plugin bypass via oversized request body
 # Severity: HIGH (CVSS 8.8) — Package: github.com/docker/docker v28.5.2+incompatible
