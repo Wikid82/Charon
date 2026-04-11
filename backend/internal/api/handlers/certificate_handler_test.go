@@ -39,7 +39,7 @@ func setupCertTestRouter(t *testing.T, db *gorm.DB) *gin.Engine {
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 
-	svc := services.NewCertificateService("/tmp", db)
+	svc := services.NewCertificateService("/tmp", db, nil)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.DELETE("/api/certificates/:id", h.Delete)
 	return r
@@ -111,7 +111,7 @@ func TestDeleteCertificate_CreatesBackup(t *testing.T) {
 
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
-	svc := services.NewCertificateService("/tmp", db)
+	svc := services.NewCertificateService("/tmp", db, nil)
 
 	// Mock BackupService
 	backupCalled := false
@@ -164,7 +164,7 @@ func TestDeleteCertificate_BackupFailure(t *testing.T) {
 
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
-	svc := services.NewCertificateService("/tmp", db)
+	svc := services.NewCertificateService("/tmp", db, nil)
 
 	// Mock BackupService that fails
 	mockBackupService := &mockBackupService{
@@ -217,7 +217,7 @@ func TestDeleteCertificate_InUse_NoBackup(t *testing.T) {
 
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
-	svc := services.NewCertificateService("/tmp", db)
+	svc := services.NewCertificateService("/tmp", db, nil)
 
 	// Mock BackupService
 	backupCalled := false
@@ -295,7 +295,7 @@ func TestCertificateHandler_List(t *testing.T) {
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
 	r.Use(mockAuthMiddleware())
-	svc := services.NewCertificateService("/tmp", db)
+	svc := services.NewCertificateService("/tmp", db, nil)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.GET("/api/certificates", h.List)
 
@@ -321,7 +321,7 @@ func TestCertificateHandler_Upload_MissingName(t *testing.T) {
 
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
-	svc := services.NewCertificateService("/tmp", db)
+	svc := services.NewCertificateService("/tmp", db, nil)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.POST("/api/certificates", h.Upload)
 
@@ -348,7 +348,7 @@ func TestCertificateHandler_Upload_MissingCertFile(t *testing.T) {
 
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
-	svc := services.NewCertificateService("/tmp", db)
+	svc := services.NewCertificateService("/tmp", db, nil)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.POST("/api/certificates", h.Upload)
 
@@ -378,7 +378,7 @@ func TestCertificateHandler_Upload_MissingKeyFile(t *testing.T) {
 
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
-	svc := services.NewCertificateService("/tmp", db)
+	svc := services.NewCertificateService("/tmp", db, nil)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.POST("/api/certificates", h.Upload)
 
@@ -404,7 +404,7 @@ func TestCertificateHandler_Upload_MissingKeyFile_MultipartWithCert(t *testing.T
 
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
-	svc := services.NewCertificateService("/tmp", db)
+	svc := services.NewCertificateService("/tmp", db, nil)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.POST("/api/certificates", h.Upload)
 
@@ -447,7 +447,7 @@ func TestCertificateHandler_Upload_Success(t *testing.T) {
 	// Create a mock CertificateService that returns a created certificate
 	// Create a temporary services.CertificateService with a temp dir and DB
 	tmpDir := t.TempDir()
-	svc := services.NewCertificateService(tmpDir, db)
+	svc := services.NewCertificateService(tmpDir, db, nil)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.POST("/api/certificates", h.Upload)
 
@@ -519,7 +519,7 @@ func TestCertificateHandler_Upload_WithNotificationService(t *testing.T) {
 	r.Use(mockAuthMiddleware())
 
 	tmpDir := t.TempDir()
-	svc := services.NewCertificateService(tmpDir, db)
+	svc := services.NewCertificateService(tmpDir, db, nil)
 	ns := services.NewNotificationService(db, nil)
 	h := NewCertificateHandler(svc, nil, ns)
 	r.POST("/api/certificates", h.Upload)
@@ -555,7 +555,7 @@ func TestDeleteCertificate_InvalidID(t *testing.T) {
 
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
-	svc := services.NewCertificateService("/tmp", db)
+	svc := services.NewCertificateService("/tmp", db, nil)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.DELETE("/api/certificates/:id", h.Delete)
 
@@ -580,7 +580,7 @@ func TestDeleteCertificate_ZeroID(t *testing.T) {
 
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
-	svc := services.NewCertificateService("/tmp", db)
+	svc := services.NewCertificateService("/tmp", db, nil)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.DELETE("/api/certificates/:id", h.Delete)
 
@@ -611,7 +611,7 @@ func TestDeleteCertificate_LowDiskSpace(t *testing.T) {
 
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
-	svc := services.NewCertificateService("/tmp", db)
+	svc := services.NewCertificateService("/tmp", db, nil)
 
 	// Mock BackupService with low disk space
 	mockBackupService := &mockBackupService{
@@ -659,7 +659,7 @@ func TestDeleteCertificate_DiskSpaceCheckError(t *testing.T) {
 
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
-	svc := services.NewCertificateService("/tmp", db)
+	svc := services.NewCertificateService("/tmp", db, nil)
 
 	// Mock BackupService with space check error but backup succeeds
 	mockBackupService := &mockBackupService{
@@ -717,7 +717,7 @@ func TestDeleteCertificate_ExpiredLetsEncrypt_NotInUse(t *testing.T) {
 
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
-	svc := services.NewCertificateService("/tmp", db)
+	svc := services.NewCertificateService("/tmp", db, nil)
 
 	mockBS := &mockBackupService{
 		createFunc: func() (string, error) {
@@ -775,7 +775,7 @@ func TestDeleteCertificate_ValidLetsEncrypt_NotInUse(t *testing.T) {
 
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
-	svc := services.NewCertificateService("/tmp", db)
+	svc := services.NewCertificateService("/tmp", db, nil)
 
 	mockBS := &mockBackupService{
 		createFunc: func() (string, error) {
@@ -820,7 +820,7 @@ func TestDeleteCertificate_UsageCheckError(t *testing.T) {
 
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
-	svc := services.NewCertificateService("/tmp", db)
+	svc := services.NewCertificateService("/tmp", db, nil)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.DELETE("/api/certificates/:id", h.Delete)
 
@@ -857,7 +857,7 @@ func TestDeleteCertificate_NotificationRateLimit(t *testing.T) {
 
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
-	svc := services.NewCertificateService("/tmp", db)
+	svc := services.NewCertificateService("/tmp", db, nil)
 	ns := services.NewNotificationService(db, nil)
 
 	mockBackupService := &mockBackupService{

@@ -12,6 +12,7 @@ func TestNewRFC2136Provider(t *testing.T) {
 
 	if provider == nil {
 		t.Fatal("NewRFC2136Provider() returned nil")
+		return
 	}
 
 	if provider.propagationTimeout != RFC2136DefaultPropagationTimeout {

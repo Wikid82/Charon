@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
@@ -15,7 +16,7 @@ import (
 
 // GenerateConfig creates a Caddy JSON configuration from proxy hosts.
 // This is the core transformation layer from our database model to Caddy config.
-func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir, sslProvider string, acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig, dnsProviderConfigs []DNSProviderConfig) (*Config, error) {
+func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir, sslProvider string, acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig, dnsProviderConfigs []DNSProviderConfig, encSvc ...*crypto.EncryptionService) (*Config, error) {
 	// Define log file paths for Caddy access logs.
 	// When CrowdSec is enabled, we use /var/log/caddy/access.log which is the standard
 	// location that CrowdSec's acquis.yaml is configured to monitor.
@@ -427,16 +428,47 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	}
 
 	if len(customCerts) > 0 {
+		// Resolve encryption service from variadic parameter
+		var certEncSvc *crypto.EncryptionService
+		if len(encSvc) > 0 && encSvc[0] != nil {
+			certEncSvc = encSvc[0]
+		}
+
 		var loadPEM []LoadPEMConfig
 		for _, cert := range customCerts {
-			// Validate that custom cert has both certificate and key
-			if cert.Certificate == "" || cert.PrivateKey == "" {
-				logger.Log().WithField("cert", cert.Name).Warn("Custom certificate missing certificate or key, skipping")
+			// Determine private key: prefer encrypted, fall back to plaintext for migration
+			var keyPEM string
+			if cert.PrivateKeyEncrypted != "" && certEncSvc != nil {
+				decrypted, err := certEncSvc.Decrypt(cert.PrivateKeyEncrypted)
+				if err != nil {
+					logger.Log().WithField("cert", cert.Name).WithError(err).Warn("Failed to decrypt private key, skipping certificate")
+					continue
+				}
+				keyPEM = string(decrypted)
+			} else if cert.PrivateKeyEncrypted != "" {
+				logger.Log().WithField("cert", cert.Name).Warn("Certificate has encrypted key but no encryption service available, skipping")
+				continue
+			} else if cert.PrivateKey != "" {
+				keyPEM = cert.PrivateKey
+			} else {
+				logger.Log().WithField("cert", cert.Name).Warn("Custom certificate has no encrypted key, skipping")
 				continue
 			}
+
+			if cert.Certificate == "" {
+				logger.Log().WithField("cert", cert.Name).Warn("Custom certificate missing certificate PEM, skipping")
+				continue
+			}
+
+			// Concatenate chain with leaf certificate
+			fullCert := cert.Certificate
+			if cert.CertificateChain != "" {
+				fullCert = fullCert + "\n" + cert.CertificateChain
+			}
+
 			loadPEM = append(loadPEM, LoadPEMConfig{
-				Certificate: cert.Certificate,
-				Key:         cert.PrivateKey,
+				Certificate: fullCert,
+				Key:         keyPEM,
 				Tags:        []string{cert.UUID},
 			})
 		}
