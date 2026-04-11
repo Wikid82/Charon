@@ -917,8 +917,8 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               <SelectContent>
                 <SelectItem value="0">Auto-manage with Let's Encrypt (recommended)</SelectItem>
                 {certificates.map(cert => (
-                  <SelectItem key={cert.id || cert.domain} value={String(cert.id ?? 0)}>
-                    {(cert.name || cert.domain)}
+                  <SelectItem key={cert.id || cert.domains} value={String(cert.id ?? 0)}>
+                    {(cert.name || cert.domains)}
                     {cert.provider ? ` (${cert.provider})` : ''}
                   </SelectItem>
                 ))}

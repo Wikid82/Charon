@@ -17,12 +17,14 @@ describe('certificates API', () => {
   });
 
   const mockCert: Certificate = {
-    id: 1,
-    domain: 'example.com',
+    uuid: 'abc-123',
+    domains: 'example.com',
     issuer: 'Let\'s Encrypt',
     expires_at: '2023-01-01',
     status: 'valid',
     provider: 'letsencrypt',
+    has_key: true,
+    in_use: false,
   };
 
   it('getCertificates calls client.get', async () => {
@@ -47,7 +49,7 @@ describe('certificates API', () => {
 
   it('deleteCertificate calls client.delete', async () => {
     vi.mocked(client.delete).mockResolvedValue({ data: {} });
-    await deleteCertificate(1);
-    expect(client.delete).toHaveBeenCalledWith('/certificates/1');
+    await deleteCertificate('abc-123');
+    expect(client.delete).toHaveBeenCalledWith('/certificates/abc-123');
   });
 });

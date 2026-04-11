@@ -485,8 +485,8 @@ describe('ProxyHosts - Coverage enhancements', () => {
 
     vi.mocked(proxyHostsApi.getProxyHosts).mockResolvedValue([hostCustom, hostStaging, hostAuto, hostLets])
     vi.mocked(certificatesApi.getCertificates).mockResolvedValue([
-      { domain: 'staging.com', status: 'untrusted', provider: 'letsencrypt-staging', issuer: 'Let\'s Encrypt', expires_at: '2026-01-01' },
-      { domain: 'lets.com', status: 'valid', provider: 'letsencrypt', issuer: 'Let\'s Encrypt', expires_at: '2026-01-01' },
+      { uuid: 'cert-staging', domains: 'staging.com', status: 'untrusted', provider: 'letsencrypt-staging', issuer: 'Let\'s Encrypt', expires_at: '2026-01-01', has_key: false, in_use: true },
+      { uuid: 'cert-lets', domains: 'lets.com', status: 'valid', provider: 'letsencrypt', issuer: 'Let\'s Encrypt', expires_at: '2026-01-01', has_key: false, in_use: true },
     ])
     vi.mocked(accessListsApi.accessListsApi.list).mockResolvedValue([])
     vi.mocked(settingsApi.getSettings).mockResolvedValue({})
