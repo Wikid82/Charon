@@ -57,7 +57,7 @@ export default function ProxyHosts() {
   const [certCleanupData, setCertCleanupData] = useState<{
     hostUUIDs: string[]
     hostNames: string[]
-    certificates: Array<{ id: number; name: string; domain: string }>
+    certificates: Array<{ uuid: string; name: string; domain: string }>
     isBulk: boolean
   } | null>(null)
   const [selectedACLs, setSelectedACLs] = useState<Set<number>>(new Set())
@@ -103,7 +103,7 @@ export default function ProxyHosts() {
   const certStatusByDomain = useMemo(() => {
     const map: Record<string, { status: string; provider: string }> = {}
     for (const cert of certificates) {
-      const domains = cert.domain.split(',').map(d => d.trim().toLowerCase())
+      const domains = cert.domains.split(',').map(d => d.trim().toLowerCase())
       for (const domain of domains) {
         if (!map[domain]) {
           map[domain] = { status: cert.status, provider: cert.provider }
@@ -148,7 +148,7 @@ export default function ProxyHosts() {
     const host = hostToDelete
 
     // Check for orphaned certificates that would need cleanup
-    const orphanedCerts: Array<{ id: number; name: string; domain: string }> = []
+    const orphanedCerts: Array<{ uuid: string; name: string; domain: string }> = []
 
     if (host.certificate_id && host.certificate) {
       const cert = host.certificate
@@ -160,7 +160,7 @@ export default function ProxyHosts() {
         const isCustomOrStaging = cert.provider === 'custom' || cert.provider?.toLowerCase().includes('staging')
         if (isCustomOrStaging) {
           orphanedCerts.push({
-            id: cert.id!,
+            uuid: cert.uuid,
             name: cert.name || '',
             domain: cert.domains
           })
@@ -237,7 +237,7 @@ export default function ProxyHosts() {
 
           for (const cert of certCleanupData.certificates) {
             try {
-              await deleteCertificate(cert.id)
+              await deleteCertificate(cert.uuid)
               certsDeleted++
             } catch {
               certsFailed++
@@ -282,7 +282,7 @@ export default function ProxyHosts() {
         // Delete certificate if user confirmed
         if (deleteCerts && certCleanupData.certificates.length > 0) {
           try {
-            await deleteCertificate(certCleanupData.certificates[0].id)
+            await deleteCertificate(certCleanupData.certificates[0].uuid)
             toast.success('Proxy host and certificate deleted')
           } catch (err) {
             toast.error(`Proxy host deleted but failed to delete certificate: ${err instanceof Error ? err.message : 'Unknown error'}`)
@@ -329,7 +329,7 @@ export default function ProxyHosts() {
       toast.success(`Backup created: ${backup.filename}`)
 
       // Collect certificates to potentially delete
-      const certsToConsider: Map<number, { id: number; name: string; domain: string }> = new Map()
+      const certsToConsider: Map<string, { uuid: string; name: string; domain: string }> = new Map()
 
       for (const uuid of hostUUIDs) {
         const host = hosts.find(h => h.uuid === uuid)
@@ -343,9 +343,9 @@ export default function ProxyHosts() {
               h.certificate_id === host.certificate_id &&
               !hostUUIDs.includes(h.uuid)
             )
-            if (otherHosts.length === 0 && cert.id) {
-              certsToConsider.set(cert.id, {
-                id: cert.id,
+            if (otherHosts.length === 0 && cert.uuid) {
+              certsToConsider.set(cert.uuid, {
+                uuid: cert.uuid,
                 name: cert.name || '',
                 domain: cert.domains
               })

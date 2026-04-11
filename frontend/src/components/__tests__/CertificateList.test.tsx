@@ -3,16 +3,18 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-import { useCertificates } from '../../hooks/useCertificates'
-import { useProxyHosts } from '../../hooks/useProxyHosts'
+import { useCertificates, useDeleteCertificate, useBulkDeleteCertificates } from '../../hooks/useCertificates'
 import { createTestQueryClient } from '../../test/createTestQueryClient'
 import CertificateList, { isDeletable, isInUse } from '../CertificateList'
 
 import type { Certificate } from '../../api/certificates'
-import type { ProxyHost } from '../../api/proxyHosts'
 
 vi.mock('../../hooks/useCertificates', () => ({
   useCertificates: vi.fn(),
+  useCertificateDetail: vi.fn(() => ({ detail: null, isLoading: false })),
+  useDeleteCertificate: vi.fn(),
+  useBulkDeleteCertificates: vi.fn(),
+  useExportCertificate: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
 }))
 
 vi.mock('../../api/certificates', () => ({
@@ -30,10 +32,6 @@ vi.mock('react-i18next', () => ({
   }),
 }))
 
-vi.mock('../../hooks/useProxyHosts', () => ({
-  useProxyHosts: vi.fn(),
-}))
-
 vi.mock('../../utils/toast', () => ({
   toast: { success: vi.fn(), error: vi.fn(), loading: vi.fn(), dismiss: vi.fn() },
 }))
@@ -43,14 +41,26 @@ function renderWithClient(ui: React.ReactNode) {
   return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>)
 }
 
+const makeCert = (overrides: Partial<Certificate> = {}): Certificate => ({
+  uuid: 'cert-1',
+  domains: 'example.com',
+  issuer: 'Custom CA',
+  expires_at: '2026-03-01T00:00:00Z',
+  status: 'valid',
+  provider: 'custom',
+  has_key: true,
+  in_use: false,
+  ...overrides,
+})
+
 const createCertificatesValue = (overrides: Partial<ReturnType<typeof useCertificates>> = {}) => {
   const certificates: Certificate[] = [
-    { id: 1, name: 'CustomCert', domain: 'example.com', issuer: 'Custom CA', expires_at: '2026-03-01T00:00:00Z', status: 'expired', provider: 'custom' },
-    { id: 2, name: 'LE Staging', domain: 'staging.example.com', issuer: "Let's Encrypt Staging", expires_at: '2026-04-01T00:00:00Z', status: 'untrusted', provider: 'letsencrypt-staging' },
-    { id: 3, name: 'ActiveCert', domain: 'active.example.com', issuer: 'Custom CA', expires_at: '2026-02-01T00:00:00Z', status: 'valid', provider: 'custom' },
-    { id: 4, name: 'UnusedValidCert', domain: 'unused.example.com', issuer: 'Custom CA', expires_at: '2026-05-01T00:00:00Z', status: 'valid', provider: 'custom' },
-    { id: 5, name: 'ExpiredLE', domain: 'expired-le.example.com', issuer: "Let's Encrypt", expires_at: '2025-01-01T00:00:00Z', status: 'expired', provider: 'letsencrypt' },
-    { id: 6, name: 'ValidLE', domain: 'valid-le.example.com', issuer: "Let's Encrypt", expires_at: '2026-12-01T00:00:00Z', status: 'valid', provider: 'letsencrypt' },
+    makeCert({ uuid: 'cert-1', name: 'CustomCert', domains: 'example.com', status: 'expired', in_use: false }),
+    makeCert({ uuid: 'cert-2', name: 'LE Staging', domains: 'staging.example.com', issuer: "Let's Encrypt Staging", status: 'untrusted', provider: 'letsencrypt-staging', in_use: false }),
+    makeCert({ uuid: 'cert-3', name: 'ActiveCert', domains: 'active.example.com', status: 'valid', in_use: true }),
+    makeCert({ uuid: 'cert-4', name: 'UnusedValidCert', domains: 'unused.example.com', status: 'valid', in_use: false }),
+    makeCert({ uuid: 'cert-5', name: 'ExpiredLE', domains: 'expired-le.example.com', issuer: "Let's Encrypt", expires_at: '2025-01-01T00:00:00Z', status: 'expired', provider: 'letsencrypt', in_use: false }),
+    makeCert({ uuid: 'cert-6', name: 'ValidLE', domains: 'valid-le.example.com', issuer: "Let's Encrypt", expires_at: '2026-12-01T00:00:00Z', status: 'valid', provider: 'letsencrypt', in_use: false }),
   ]
 
   return {
@@ -62,126 +72,68 @@ const createCertificatesValue = (overrides: Partial<ReturnType<typeof useCertifi
   }
 }
 
-const createProxyHost = (overrides: Partial<ProxyHost> = {}): ProxyHost => ({
-  uuid: 'h1',
-  name: 'Host1',
-  domain_names: 'host1.example.com',
-  forward_scheme: 'http',
-  forward_host: '127.0.0.1',
-  forward_port: 80,
-  ssl_forced: false,
-  http2_support: true,
-  hsts_enabled: false,
-  hsts_subdomains: false,
-  block_exploits: false,
-  websocket_support: false,
-  application: 'none',
-  locations: [],
-  enabled: true,
-  created_at: '2026-02-01T00:00:00Z',
-  updated_at: '2026-02-01T00:00:00Z',
-  certificate_id: 3,
-  ...overrides,
-})
-
-const createProxyHostsValue = (overrides: Partial<ReturnType<typeof useProxyHosts>> = {}): ReturnType<typeof useProxyHosts> => ({
-  hosts: [
-    createProxyHost(),
-  ],
-  loading: false,
-  isFetching: false,
-  error: null,
-  createHost: vi.fn(),
-  updateHost: vi.fn(),
-  deleteHost: vi.fn(),
-  bulkUpdateACL: vi.fn(),
-  bulkUpdateSecurityHeaders: vi.fn(),
-  isCreating: false,
-  isUpdating: false,
-  isDeleting: false,
-  isBulkUpdating: false,
-  ...overrides,
-})
-
 const getRowNames = () =>
   screen
     .getAllByRole('row')
     .slice(1)
     .map(row => row.querySelectorAll('td')[1]?.textContent?.trim() ?? '')
 
+let deleteMutateFn: ReturnType<typeof vi.fn>
+let bulkDeleteMutateFn: ReturnType<typeof vi.fn>
+
 beforeEach(() => {
   vi.clearAllMocks()
+  deleteMutateFn = vi.fn()
+  bulkDeleteMutateFn = vi.fn()
   vi.mocked(useCertificates).mockReturnValue(createCertificatesValue())
-  vi.mocked(useProxyHosts).mockReturnValue(createProxyHostsValue())
+  vi.mocked(useDeleteCertificate).mockReturnValue({
+    mutate: deleteMutateFn,
+    isPending: false,
+  } as unknown as ReturnType<typeof useDeleteCertificate>)
+  vi.mocked(useBulkDeleteCertificates).mockReturnValue({
+    mutate: bulkDeleteMutateFn,
+    isPending: false,
+  } as unknown as ReturnType<typeof useBulkDeleteCertificates>)
 })
 
 describe('CertificateList', () => {
   describe('isDeletable', () => {
-    const noHosts: ProxyHost[] = []
-    const withHost = (certId: number): ProxyHost[] => [createProxyHost({ certificate_id: certId })]
-
     it('returns true for custom cert not in use', () => {
-      const cert: Certificate = { id: 1, name: 'C', domain: 'd', issuer: 'X', expires_at: '', status: 'valid', provider: 'custom' }
-      expect(isDeletable(cert, noHosts)).toBe(true)
+      expect(isDeletable(makeCert({ provider: 'custom', in_use: false }))).toBe(true)
     })
 
     it('returns true for staging cert not in use', () => {
-      const cert: Certificate = { id: 2, name: 'S', domain: 'd', issuer: 'X', expires_at: '', status: 'untrusted', provider: 'letsencrypt-staging' }
-      expect(isDeletable(cert, noHosts)).toBe(true)
+      expect(isDeletable(makeCert({ provider: 'letsencrypt-staging', in_use: false }))).toBe(true)
     })
 
     it('returns true for expired LE cert not in use', () => {
-      const cert: Certificate = { id: 3, name: 'E', domain: 'd', issuer: 'LE', expires_at: '', status: 'expired', provider: 'letsencrypt' }
-      expect(isDeletable(cert, noHosts)).toBe(true)
+      expect(isDeletable(makeCert({ provider: 'letsencrypt', status: 'expired', in_use: false }))).toBe(true)
     })
 
     it('returns false for valid LE cert not in use', () => {
-      const cert: Certificate = { id: 4, name: 'V', domain: 'd', issuer: 'LE', expires_at: '', status: 'valid', provider: 'letsencrypt' }
-      expect(isDeletable(cert, noHosts)).toBe(false)
+      expect(isDeletable(makeCert({ provider: 'letsencrypt', status: 'valid', in_use: false }))).toBe(false)
     })
 
     it('returns false for cert in use', () => {
-      const cert: Certificate = { id: 5, name: 'U', domain: 'd', issuer: 'X', expires_at: '', status: 'valid', provider: 'custom' }
-      expect(isDeletable(cert, withHost(5))).toBe(false)
-    })
-
-    it('returns false for cert without id', () => {
-      const cert: Certificate = { domain: 'd', issuer: 'X', expires_at: '', status: 'valid', provider: 'custom' }
-      expect(isDeletable(cert, noHosts)).toBe(false)
+      expect(isDeletable(makeCert({ provider: 'custom', in_use: true }))).toBe(false)
     })
 
     it('returns true for expiring LE cert not in use', () => {
-      const cert: Certificate = { id: 7, name: 'Exp', domain: 'd', issuer: 'LE', expires_at: '', status: 'expiring', provider: 'letsencrypt' }
-      expect(isDeletable(cert, noHosts)).toBe(true)
+      expect(isDeletable(makeCert({ provider: 'letsencrypt', status: 'expiring', in_use: false }))).toBe(true)
     })
 
     it('returns false for expiring LE cert that is in use', () => {
-      const cert: Certificate = { id: 7, name: 'Exp', domain: 'd', issuer: 'LE', expires_at: '', status: 'expiring', provider: 'letsencrypt' }
-      expect(isDeletable(cert, withHost(7))).toBe(false)
+      expect(isDeletable(makeCert({ provider: 'letsencrypt', status: 'expiring', in_use: true }))).toBe(false)
     })
   })
 
   describe('isInUse', () => {
-    it('returns true when host references cert by certificate_id', () => {
-      const cert: Certificate = { id: 10, domain: 'd', issuer: 'X', expires_at: '', status: 'valid', provider: 'custom' }
-      expect(isInUse(cert, [createProxyHost({ certificate_id: 10 })])).toBe(true)
+    it('returns true when cert.in_use is true', () => {
+      expect(isInUse(makeCert({ in_use: true }))).toBe(true)
     })
 
-    it('returns true when host references cert via certificate.id', () => {
-      const cert: Certificate = { id: 10, domain: 'd', issuer: 'X', expires_at: '', status: 'valid', provider: 'custom' }
-      const host = createProxyHost({ certificate_id: undefined, certificate: { id: 10, uuid: 'u', name: 'c', provider: 'custom', domains: 'd', expires_at: '' } })
-      expect(isInUse(cert, [host])).toBe(true)
-    })
-
-    it('returns false when no host references cert', () => {
-      const cert: Certificate = { id: 99, domain: 'd', issuer: 'X', expires_at: '', status: 'valid', provider: 'custom' }
-      expect(isInUse(cert, [createProxyHost({ certificate_id: 3 })])).toBe(false)
-    })
-
-    it('returns false when cert.id is undefined even if a host has certificate_id undefined', () => {
-      const cert: Certificate = { domain: 'd', issuer: 'X', expires_at: '', status: 'valid', provider: 'custom' }
-      const host = createProxyHost({ certificate_id: undefined })
-      expect(isInUse(cert, [host])).toBe(false)
+    it('returns false when cert.in_use is false', () => {
+      expect(isInUse(makeCert({ in_use: false }))).toBe(false)
     })
   })
 
@@ -215,7 +167,6 @@ describe('CertificateList', () => {
   })
 
   it('opens dialog and deletes cert on confirm', async () => {
-    const { deleteCertificate } = await import('../../api/certificates')
     const user = userEvent.setup()
 
     renderWithClient(<CertificateList />)
@@ -228,7 +179,7 @@ describe('CertificateList', () => {
     expect(within(dialog).getByText('certificates.deleteTitle')).toBeInTheDocument()
 
     await user.click(within(dialog).getByRole('button', { name: 'certificates.deleteButton' }))
-    await waitFor(() => expect(deleteCertificate).toHaveBeenCalledWith(1))
+    await waitFor(() => expect(deleteMutateFn).toHaveBeenCalledWith('cert-1', expect.any(Object)))
   })
 
   it('does not call createBackup on delete (server handles it)', async () => {
@@ -257,23 +208,6 @@ describe('CertificateList', () => {
     expect(await screen.findByText('Failed to load certificates')).toBeInTheDocument()
   })
 
-  it('shows error toast when delete mutation fails', async () => {
-    const { deleteCertificate } = await import('../../api/certificates')
-    const { toast } = await import('../../utils/toast')
-    vi.mocked(deleteCertificate).mockRejectedValueOnce(new Error('Network error'))
-    const user = userEvent.setup()
-
-    renderWithClient(<CertificateList />)
-    const rows = await screen.findAllByRole('row')
-    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
-    await user.click(within(customRow).getByRole('button', { name: 'certificates.deleteTitle' }))
-
-    const dialog = await screen.findByRole('dialog')
-    await user.click(within(dialog).getByRole('button', { name: 'certificates.deleteButton' }))
-
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('certificates.deleteFailed: Network error'))
-  })
-
   it('clicking disabled delete button for in-use cert does not open dialog', async () => {
     const user = userEvent.setup()
     renderWithClient(<CertificateList />)
@@ -299,7 +233,7 @@ describe('CertificateList', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 
-  it('renders enabled checkboxes for deletable not-in-use certs (ids 1, 2, 4, 5)', async () => {
+  it('renders enabled checkboxes for deletable not-in-use certs', async () => {
     renderWithClient(<CertificateList />)
     const rows = await screen.findAllByRole('row')
     for (const name of ['CustomCert', 'LE Staging', 'UnusedValidCert', 'ExpiredLE']) {
@@ -310,7 +244,7 @@ describe('CertificateList', () => {
     }
   })
 
-  it('renders disabled checkbox for in-use cert (id 3)', async () => {
+  it('renders disabled checkbox for in-use cert', async () => {
     renderWithClient(<CertificateList />)
     const rows = await screen.findAllByRole('row')
     const activeRow = rows.find(r => r.textContent?.includes('ActiveCert'))!
@@ -320,7 +254,7 @@ describe('CertificateList', () => {
     expect(rowCheckbox).toHaveAttribute('aria-disabled', 'true')
   })
 
-  it('renders no checkbox in valid production LE cert row (id 6)', async () => {
+  it('renders no checkbox in valid production LE cert row', async () => {
     renderWithClient(<CertificateList />)
     const rows = await screen.findAllByRole('row')
     const validLeRow = rows.find(r => r.textContent?.includes('ValidLE'))!
@@ -360,8 +294,7 @@ describe('CertificateList', () => {
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
   })
 
-  it('confirming in the bulk dialog calls deleteCertificate for each selected ID', async () => {
-    const { deleteCertificate } = await import('../../api/certificates')
+  it('confirming in the bulk dialog calls bulk delete for selected UUIDs', async () => {
     const user = userEvent.setup()
     renderWithClient(<CertificateList />)
     const rows = await screen.findAllByRole('row')
@@ -373,16 +306,17 @@ describe('CertificateList', () => {
     const dialog = await screen.findByRole('dialog')
     await user.click(within(dialog).getByRole('button', { name: /certificates\.bulkDeleteButton/i }))
     await waitFor(() => {
-      expect(deleteCertificate).toHaveBeenCalledWith(1)
-      expect(deleteCertificate).toHaveBeenCalledWith(2)
+      expect(bulkDeleteMutateFn).toHaveBeenCalledWith(
+        expect.arrayContaining(['cert-1', 'cert-2']),
+        expect.any(Object),
+      )
     })
   })
 
   it('shows partial failure toast when some bulk deletes fail', async () => {
-    const { deleteCertificate } = await import('../../api/certificates')
     const { toast } = await import('../../utils/toast')
-    vi.mocked(deleteCertificate).mockImplementation(async (id: number) => {
-      if (id === 2) throw new Error('network error')
+    bulkDeleteMutateFn.mockImplementation((_uuids: string[], { onSuccess }: { onSuccess: (data: { succeeded: number; failed: number }) => void }) => {
+      onSuccess({ succeeded: 1, failed: 1 })
     })
     const user = userEvent.setup()
     renderWithClient(<CertificateList />)
@@ -410,8 +344,8 @@ describe('CertificateList', () => {
 
   it('sorts certificates by name and expiry when headers are clicked', async () => {
     const certificates: Certificate[] = [
-      { id: 10, name: 'Zulu', domain: 'z.example.com', issuer: 'Custom CA', expires_at: '2026-03-01T00:00:00Z', status: 'valid', provider: 'custom' },
-      { id: 11, name: 'Alpha', domain: 'a.example.com', issuer: 'Custom CA', expires_at: '2026-01-01T00:00:00Z', status: 'valid', provider: 'custom' },
+      makeCert({ uuid: 'cert-z', name: 'Zulu', domains: 'z.example.com', expires_at: '2026-03-01T00:00:00Z' }),
+      makeCert({ uuid: 'cert-a', name: 'Alpha', domains: 'a.example.com', expires_at: '2026-01-01T00:00:00Z' }),
     ]
 
     const user = userEvent.setup()

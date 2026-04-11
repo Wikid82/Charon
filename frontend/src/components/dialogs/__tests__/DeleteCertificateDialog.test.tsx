@@ -14,13 +14,15 @@ vi.mock('react-i18next', () => ({
 }))
 
 const baseCert: Certificate = {
-  id: 1,
+  uuid: 'cert-1',
   name: 'Test Cert',
-  domain: 'test.example.com',
+  domains: 'test.example.com',
   issuer: 'Custom CA',
   expires_at: '2026-01-01T00:00:00Z',
   status: 'valid',
   provider: 'custom',
+  has_key: true,
+  in_use: false,
 }
 
 describe('DeleteCertificateDialog', () => {
