@@ -30,7 +30,7 @@ func TestCertificateHandler_Delete_RequiresAuth(t *testing.T) {
 	r.Use(func(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 	})
-	svc := services.NewCertificateService("/tmp", db)
+	svc := services.NewCertificateService("/tmp", db, nil)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.DELETE("/api/certificates/:id", h.Delete)
 
@@ -59,7 +59,7 @@ func TestCertificateHandler_List_RequiresAuth(t *testing.T) {
 	r.Use(func(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 	})
-	svc := services.NewCertificateService("/tmp", db)
+	svc := services.NewCertificateService("/tmp", db, nil)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.GET("/api/certificates", h.List)
 
@@ -88,7 +88,7 @@ func TestCertificateHandler_Upload_RequiresAuth(t *testing.T) {
 	r.Use(func(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 	})
-	svc := services.NewCertificateService("/tmp", db)
+	svc := services.NewCertificateService("/tmp", db, nil)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.POST("/api/certificates", h.Upload)
 
@@ -125,7 +125,7 @@ func TestCertificateHandler_Delete_DiskSpaceCheck(t *testing.T) {
 
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
-	svc := services.NewCertificateService("/tmp", db)
+	svc := services.NewCertificateService("/tmp", db, nil)
 
 	// Mock backup service that reports low disk space
 	mockBackup := &mockBackupService{
@@ -177,7 +177,7 @@ func TestCertificateHandler_Delete_NotificationRateLimiting(t *testing.T) {
 
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
-	svc := services.NewCertificateService("/tmp", db)
+	svc := services.NewCertificateService("/tmp", db, nil)
 
 	mockBackup := &mockBackupService{
 		createFunc: func() (string, error) {

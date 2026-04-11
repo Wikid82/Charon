@@ -33,6 +33,7 @@ type Config struct {
 	CaddyLogDir     string
 	CrowdSecLogDir  string
 	Debug           bool
+	CertExpiryWarningDays int
 	Security        SecurityConfig
 	Emergency       EmergencyConfig
 }
@@ -107,6 +108,20 @@ func Load() (Config, error) {
 		Security:        loadSecurityConfig(),
 		Emergency:       loadEmergencyConfig(),
 		Debug:           getEnvAny("false", "CHARON_DEBUG", "CPM_DEBUG") == "true",
+	}
+
+	// Certificate expiry warning days
+	if days := getEnvAny("30", "CHARON_CERT_EXPIRY_WARNING_DAYS"); days != "" {
+		if n, err := strconv.Atoi(days); err == nil && n > 0 {
+			cfg.CertExpiryWarningDays = n
+		}
+	}
+
+	// Certificate expiry warning days
+	if days := getEnvAny("30", "CHARON_CERT_EXPIRY_WARNING_DAYS"); days != "" {
+		if n, err := strconv.Atoi(days); err == nil && n > 0 {
+			cfg.CertExpiryWarningDays = n
+		}
 	}
 
 	// Set JWTSecret using os.Getenv directly so no string literal flows into the

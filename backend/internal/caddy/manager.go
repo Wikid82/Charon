@@ -73,6 +73,7 @@ type Manager struct {
 	frontendDir string
 	acmeStaging bool
 	securityCfg config.SecurityConfig
+	encSvc      *crypto.EncryptionService
 }
 
 // NewManager creates a configuration manager.
@@ -85,6 +86,11 @@ func NewManager(client CaddyClient, db *gorm.DB, configDir, frontendDir string, 
 		acmeStaging: acmeStaging,
 		securityCfg: securityCfg,
 	}
+}
+
+// SetEncryptionService configures the encryption service for decrypting private keys in Caddy config generation.
+func (m *Manager) SetEncryptionService(svc *crypto.EncryptionService) {
+	m.encSvc = svc
 }
 
 // ApplyConfig generates configuration from database, validates it, applies to Caddy with rollback on failure.
@@ -418,7 +424,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		}
 	}
 
-	generatedConfig, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, effectiveProvider, effectiveStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, &secCfg, dnsProviderConfigs)
+	generatedConfig, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, effectiveProvider, effectiveStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, &secCfg, dnsProviderConfigs, m.encSvc)
 	if err != nil {
 		return fmt.Errorf("generate config: %w", err)
 	}

@@ -1,432 +1,949 @@
-# Nightly Build Vulnerability Remediation Plan
+# Custom Certificate Upload & Management
 
-**Date**: 2026-04-09
+**Issue**: #22 — Custom Certificate Upload & Management
+**Date**: 2026-04-10
 **Status**: Draft — Awaiting Approval
-**Scope**: Dependency security patches for 5 HIGH + 3 MEDIUM vulnerability groups
-**Target**: Single PR — all changes ship together
-**Archived**: Previous plan (CrowdSec Hub Bootstrapping) → `docs/plans/archive/crowdsec-hub-bootstrap-spec.md`
+**Priority**: High
+**Milestone**: Beta
+**Labels**: high, beta, ssl
+**Archived**: Previous plan (Nightly Build Vulnerability Remediation) → `docs/plans/archive/nightly-vuln-remediation-spec.md`
 
 ---
 
-## 1. Problem Statement
+## 1. Executive Summary
 
-The Charon nightly build is failing container image vulnerability scans with **5 HIGH-severity** and **multiple MEDIUM-severity** findings. These vulnerabilities exist across three compiled binaries embedded in the container image:
+Charon currently supports automatic certificate provisioning via Let's Encrypt/ZeroSSL (ACME) and has a rudimentary custom certificate upload flow (basic PEM upload with name). This plan enhances the certificate management system to support:
 
-1. **Charon backend** (`/app/charon`) — Go binary built from `backend/go.mod`
-2. **Caddy** (`/usr/bin/caddy`) — Built via xcaddy in the Dockerfile Caddy builder stage
-3. **CrowdSec** (`/usr/local/bin/crowdsec`, `/usr/local/bin/cscli`) — Built from source in the Dockerfile CrowdSec builder stage
+- **Full certificate validation pipeline** (format, chain, expiry, key matching)
+- **Private key encryption at rest** using the existing `CHARON_ENCRYPTION_KEY` infrastructure
+- **Multiple certificate formats** (PEM, PFX/PKCS12, DER)
+- **Certificate chain/intermediate support**
+- **Certificate assignment to proxy hosts** via the UI
+- **Expiry warning notifications** using the existing notification infrastructure
+- **Certificate export** with format conversion
+- **Enhanced upload UI** with drag-and-drop, validation feedback, and chain preview
 
-Additionally, the **nightly branch** was synced from development before the Go 1.26.2 bump landed, so the nightly image was compiled with Go 1.26.1 (confirmed in `ci_failure.log` line 55: `GO_VERSION: 1.26.1`).
+### Why This Matters
 
----
-
-## 2. Research Findings
-
-### 2.1 Go Version Audit
-
-All files on `development` / `main` already reference **Go 1.26.2**:
-
-| File | Current Value | Status |
-|------|---------------|--------|
-| `backend/go.mod` | `go 1.26.2` | ✅ Current |
-| `go.work` | `go 1.26.2` | ✅ Current |
-| `Dockerfile` (`ARG GO_VERSION`) | `1.26.2` | ✅ Current |
-| `.github/workflows/nightly-build.yml` | `'1.26.2'` | ✅ Current |
-| `.github/workflows/codecov-upload.yml` | `'1.26.2'` | ✅ Current |
-| `.github/workflows/quality-checks.yml` | `'1.26.2'` | ✅ Current |
-| `.github/workflows/codeql.yml` | `'1.26.2'` | ✅ Current |
-| `.github/workflows/benchmark.yml` | `'1.26.2'` | ✅ Current |
-| `.github/workflows/release-goreleaser.yml` | `'1.26.2'` | ✅ Current |
-| `.github/workflows/e2e-tests-split.yml` | `'1.26.2'` | ✅ Current |
-| `.github/skills/examples/gorm-scanner-ci-workflow.yml` | `'1.26.1'` | ❌ **Stale** |
-| `scripts/install-go-1.26.0.sh` | `1.26.0` | ⚠️ Old install script (not used in CI/Docker builds) |
-
-**Root Cause of Go stdlib CVEs**: The nightly branch's last sync predated the 1.26.2 bump. The next nightly sync from development will propagate 1.26.2 automatically. The only file requiring a fix is the example workflow.
-
-### 2.2 Vulnerability Inventory
-
-#### HIGH Severity (must fix — merge-blocking)
-
-| # | CVE / GHSA | Package | Current | Fix | Binary | Dep Type |
-|---|-----------|---------|---------|-----|--------|----------|
-| 1 | CVE-2026-39883 | `go.opentelemetry.io/otel/sdk` | v1.40.0 | v1.43.0 | Caddy | Transitive (Caddy plugins → otelhttp → otel/sdk) |
-| 2 | CVE-2026-34986 | `github.com/go-jose/go-jose/v3` | v3.0.4 | **v3.0.5** | Caddy | Transitive (caddy-security → JWT/JOSE stack) |
-| 3 | CVE-2026-34986 | `github.com/go-jose/go-jose/v4` | v4.1.3 | **v4.1.4** | Caddy | Transitive (grpc v1.79.3 → go-jose/v4) |
-| 4 | CVE-2026-32286 | `github.com/jackc/pgproto3/v2` | v2.3.3 | pgx/v4 v4.18.3 ¹ | CrowdSec | Transitive (CrowdSec → pgx/v4 v4.18.2 → pgproto3/v2) |
-
-¹ pgproto3/v2 has **no patched release**. Fix requires upstream migration to pgx/v5 (uses pgproto3/v3). See §5 Risk Assessment.
-
-#### MEDIUM Severity (fix in same pass)
-
-| # | CVE / GHSA | Package(s) | Current | Fix | Binary | Dep Type |
-|---|-----------|------------|---------|-----|--------|----------|
-| 5 | GHSA-xmrv-pmrh-hhx2 | AWS SDK v2: `eventstream` v1.7.1, `cloudwatchlogs` v1.57.2, `kinesis` v1.40.1, `s3` v1.87.3 | See left | Bump all | CrowdSec | Direct deps of CrowdSec v1.7.7 |
-| 6 | CVE-2026-32281, -32288, -32289 | Go stdlib | 1.26.1 | **1.26.2** | All (nightly image) | Toolchain |
-| 7 | CVE-2026-39882 | OTel HTTP exporters: `otlploghttp` v0.16.0, `otlpmetrichttp` v1.40.0, `otlptracehttp` v1.40.0 | See left | Bump all | Caddy | Transitive (Caddy plugins → OTel exporters) |
-
-### 2.3 Dependency Chain Analysis
-
-#### Backend (`backend/go.mod`)
-
-```
-charon/backend (direct)
-  └─ docker/docker v28.5.2+incompatible (direct)
-       └─ otelhttp v0.68.0 (indirect)
-            └─ otel/sdk v1.43.0 (indirect) — already at latest
-  └─ grpc v1.79.3 (indirect)
-  └─ otlptracehttp v1.42.0 (indirect) ── CVE-2026-39882
-```
-
-Backend resolved versions (verified via `go list -m -json`):
-
-| Package | Version | Type |
-|---------|---------|------|
-| `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp` | v1.42.0 | indirect |
-| `google.golang.org/grpc` | v1.79.3 | indirect |
-| `go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp` | v0.68.0 | indirect |
-
-**Not present in backend**: go-jose/v3, go-jose/v4, otel/sdk, pgproto3/v2, AWS SDK, otlploghttp, otlpmetrichttp.
-
-#### CrowdSec Binary (Dockerfile `crowdsec-builder` stage)
-
-Source: CrowdSec v1.7.7 `go.mod` (verified via `git clone --depth 1 --branch v1.7.7`):
-
-```
-crowdsec v1.7.7
-  └─ pgx/v4 v4.18.2 (direct) → pgproto3/v2 v2.3.3 (indirect) ── CVE-2026-32286
-  └─ aws-sdk-go-v2/service/s3 v1.87.3 (direct) ── GHSA-xmrv-pmrh-hhx2
-  └─ aws-sdk-go-v2/service/cloudwatchlogs v1.57.2 (direct) ── GHSA-xmrv-pmrh-hhx2
-  └─ aws-sdk-go-v2/service/kinesis v1.40.1 (direct) ── GHSA-xmrv-pmrh-hhx2
-  └─ aws-sdk-go-v2/aws/protocol/eventstream v1.7.1 (indirect) ── GHSA-xmrv-pmrh-hhx2
-  └─ otel v1.39.0, otel/metric v1.39.0, otel/trace v1.39.0 (indirect)
-```
-
-Confirmed by Trivy image scan (`trivy-image-report.json`): pgproto3/v2 v2.3.3 flagged in `usr/local/bin/crowdsec` and `usr/local/bin/cscli`.
-
-#### Caddy Binary (Dockerfile `caddy-builder` stage)
-
-Built via xcaddy with plugins. go.mod is generated at build time. Vulnerable packages enter via:
-
-```
-xcaddy build (Caddy v2.11.2 + plugins)
-  └─ caddy-security v1.1.61 → go-jose/v3 (JWT auth stack) ── CVE-2026-34986
-  └─ grpc (patched to v1.79.3 in Dockerfile) → go-jose/v4 v4.1.3 ── CVE-2026-34986
-  └─ Caddy/plugins → otel/sdk v1.40.0 ── CVE-2026-39883
-  └─ Caddy/plugins → otlploghttp v0.16.0, otlpmetrichttp v1.40.0, otlptracehttp v1.40.0 ── CVE-2026-39882
-```
+Users who bring their own certificates (enterprise CAs, internal PKI, wildcard certs from commercial providers) need a secure, validated workflow for importing, managing, and assigning certificates. Currently, private keys are stored in plaintext in the database, there is no format validation beyond basic PEM decoding, and the UI lacks chain support and export capabilities.
 
 ---
 
-## 3. Technical Specifications
+## 2. Current State Analysis
 
-### 3.1 Backend go.mod Changes
+### 2.1 What Already Exists
 
-**File**: `backend/go.mod` (+ `backend/go.sum` auto-generated)
+| Component | Status | Location | Notes |
+|-----------|--------|----------|-------|
+| **SSLCertificate model** | Exists | `backend/internal/models/ssl_certificate.go` | Has `Certificate`, `PrivateKey` (plaintext), `Domains`, `ExpiresAt`, `Provider` |
+| **CertificateService** | Exists | `backend/internal/services/certificate_service.go` | `UploadCertificate()`, `ListCertificates()`, `DeleteCertificate()`, `IsCertificateInUse()`, disk sync for ACME |
+| **CertificateHandler** | Exists | `backend/internal/api/handlers/certificate_handler.go` | `List`, `Upload`, `Delete` endpoints |
+| **API routes** | Exists | `backend/internal/api/routes/routes.go:664-675` | `GET/POST/DELETE /api/v1/certificates` |
+| **Frontend API client** | Exists | `frontend/src/api/certificates.ts` | `getCertificates()`, `uploadCertificate()`, `deleteCertificate()` |
+| **Certificates page** | Exists | `frontend/src/pages/Certificates.tsx` | Upload dialog (name + 2 files), list view |
+| **CertificateList** | Exists | `frontend/src/components/CertificateList.tsx` | Table with sort, bulk delete, status display |
+| **useCertificates hook** | Exists | `frontend/src/hooks/useCertificates.ts` | React Query wrapper |
+| **Caddy TLS loading** | Exists | `backend/internal/caddy/config.go:418-453` | Custom certs loaded via `LoadPEM` in TLS app |
+| **Caddy types** | Exists | `backend/internal/caddy/types.go:239-266` | `TLSApp`, `CertificatesConfig`, `LoadPEMConfig` |
+| **Encryption service** | Exists | `backend/internal/crypto/encryption.go` | AES-256-GCM encrypt/decrypt with `CHARON_ENCRYPTION_KEY` |
+| **Key rotation** | Exists | `backend/internal/crypto/rotation_service.go` | Multi-version key rotation for DNS provider credentials |
+| **Notification service** | Exists | `backend/internal/services/notification_service.go` | `SendExternal()` with event types, `Create()` for in-app |
+| **ProxyHost.CertificateID** | Exists | `backend/internal/models/proxy_host.go` | FK to SSLCertificate, already used in update handler |
+| **Delete E2E tests** | Exists | `tests/certificate-delete.spec.ts`, `tests/certificate-bulk-delete.spec.ts` | Delete flow E2E coverage |
+| **Config tests** | Exists | `backend/internal/caddy/config_test.go:1480-1600` | Custom cert loading via Caddy tested |
 
-```bash
-cd backend
+### 2.2 Gaps to Address
 
-# Upgrade grpc to v1.80.0 (security patches for transitive deps)
-go get google.golang.org/grpc@v1.80.0
-
-# CVE-2026-39882: OTel HTTP exporter (backend only has otlptracehttp)
-go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.43.0
-
-go mod tidy
-```
-
-Expected `go.mod` diff:
-- `google.golang.org/grpc` v1.79.3 → v1.80.0
-- `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp` v1.42.0 → v1.43.0
-
-### 3.2 Dockerfile — Caddy Builder Stage Patches
-
-**File**: `Dockerfile`, within the caddy-builder `RUN bash -c '...'` block, in the **Stage 2: Apply security patches** section.
-
-Add after the existing `go get golang.org/x/net@v${XNET_VERSION};` line:
-
-```bash
-# CVE-2026-34986: go-jose JOSE/JWT validation bypass
-# Fix in v3.0.5 and v4.1.4. Pin here until caddy-security ships fix.
-# renovate: datasource=go depName=github.com/go-jose/go-jose/v3
-go get github.com/go-jose/go-jose/v3@v3.0.5; \
-# renovate: datasource=go depName=github.com/go-jose/go-jose/v4
-go get github.com/go-jose/go-jose/v4@v4.1.4; \
-# CVE-2026-39883: OTel SDK resource leak
-# Fix in v1.43.0. Pin here until Caddy ships with updated OTel.
-# renovate: datasource=go depName=go.opentelemetry.io/otel/sdk
-go get go.opentelemetry.io/otel/sdk@v1.43.0; \
-# CVE-2026-39882: OTel HTTP exporter request smuggling
-# renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp
-go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp@v0.19.0; \
-# renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp
-go get go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.43.0; \
-# renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp
-go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.43.0; \
-```
-
-Update existing grpc patch line from `v1.79.3` → `v1.80.0`:
-
-```bash
-# Before:
-go get google.golang.org/grpc@v1.79.3; \
-# After:
-# CVE-2026-33186: gRPC-Go auth bypass (fixed in v1.79.3)
-# CVE-2026-34986: go-jose/v4 transitive fix (requires grpc >= v1.80.0)
-# renovate: datasource=go depName=google.golang.org/grpc
-go get google.golang.org/grpc@v1.80.0; \
-```
-
-### 3.3 Dockerfile — CrowdSec Builder Stage Patches
-
-**File**: `Dockerfile`, within the crowdsec-builder `RUN` block that patches dependencies.
-
-Add after the existing `go get golang.org/x/net@v${XNET_VERSION}` line:
-
-```bash
-# CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
-# renovate: datasource=go depName=github.com/jackc/pgx/v4
-go get github.com/jackc/pgx/v4@v4.18.3 && \
-# GHSA-xmrv-pmrh-hhx2: AWS SDK v2 event stream injection
-# renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
-go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.8 && \
-# renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.68.0 && \
-# renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/kinesis
-go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.5 && \
-# renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/s3
-go get github.com/aws/aws-sdk-go-v2/service/s3@v1.99.0 && \
-```
-
-CrowdSec grpc already at v1.80.0 — no change needed.
-
-### 3.4 Example Workflow Fix
-
-**File**: `.github/skills/examples/gorm-scanner-ci-workflow.yml` (line 28)
-
-```yaml
-# Before:
-          go-version: "1.26.1"
-# After:
-          go-version: "1.26.2"
-```
-
-### 3.5 Go Stdlib CVEs (nightly branch — no code change needed)
-
-The nightly workflow syncs `development → nightly` via `git merge --ff-only`. Since `development` already has Go 1.26.2 everywhere:
-- Dockerfile `ARG GO_VERSION=1.26.2` ✓
-- All CI workflows `GO_VERSION: '1.26.2'` ✓
-- `backend/go.mod` `go 1.26.2` ✓
-
-The next nightly run at 09:00 UTC will automatically propagate Go 1.26.2 to the nightly branch and rebuild the image.
+| Gap | Severity | Description |
+|-----|----------|-------------|
+| **Private keys stored in plaintext** | CRITICAL | `PrivateKey` field in `SSLCertificate` is stored as raw PEM. Must encrypt at rest. |
+| **🔴 Active private key disclosure** | CRITICAL | The Upload handler (`certificate_handler.go:137`) returns the full `*SSLCertificate` struct via `c.JSON(http.StatusCreated, cert)`. Because the model has `json:"private_key"`, the raw PEM private key is sent to the client in every upload response. **This is an active vulnerability in production.** Commit 1 fixes this by changing the tag to `json:"-"`. |
+| **Unsafe file read pattern** | HIGH | `certificate_handler.go:109` uses `certSrc.Read(certBytes)` which may return partial reads. Must use `io.ReadAll(io.LimitReader(src, 1<<20))` for safe, bounded reads. Commit 2 (task 2.1) fixes this. |
+| **No certificate chain validation** | HIGH | Upload accepts any PEM without verifying chain or key-cert match. |
+| **No format conversion** | HIGH | Only PEM is accepted. PFX/DER users cannot upload. |
+| **No expiry warnings** | HIGH | No scheduled check or notification for upcoming certificate expiry. |
+| **No certificate export** | MEDIUM | Users cannot download certs they uploaded (for migration, backup). |
+| **No chain/intermediate storage** | MEDIUM | Model has single `Certificate` field; no dedicated chain field. |
+| **No certificate detail view** | MEDIUM | Frontend shows only list; no detail/expand view showing SANs, issuer chain, fingerprint. |
+| **`CertificateInfo` leaks numeric ID** | HIGH | `CertificateInfo.ID uint json:"id,omitempty"` in service — violates GORM security rules. |
+| **Delete uses numeric ID in URL** | HIGH | `DELETE /certificates/:id` uses numeric ID; should use UUID. |
 
 ---
 
-## 4. Implementation Plan
+## 3. Requirements (EARS Notation)
 
-### Phase 1: Playwright Tests (N/A)
+### 3.1 Certificate Upload
 
-No UI/UX changes — this is a dependency-only update. Existing E2E tests validate runtime behavior.
+| ID | Requirement |
+|----|-------------|
+| R-UP-01 | WHEN a user submits a certificate upload form with valid PEM, PFX, or DER files, THE SYSTEM SHALL parse and validate the certificate, encrypt the private key at rest, store the certificate in the database, and return the certificate metadata. |
+| R-UP-02 | WHEN a user uploads a PFX/PKCS12 file with a password, THE SYSTEM SHALL decrypt the PFX, extract the certificate chain and private key, convert to PEM, and store them. |
+| R-UP-03 | WHEN a user uploads a DER-encoded certificate, THE SYSTEM SHALL convert it to PEM format before storage. |
+| R-UP-04 | WHEN a certificate upload contains intermediate certificates, THE SYSTEM SHALL store the full chain in order (leaf then intermediate then root). |
+| R-UP-05 | IF a user uploads a certificate whose private key does not match the certificate's public key, THEN THE SYSTEM SHALL reject the upload with a descriptive error. |
+| R-UP-06 | IF a user uploads an expired certificate, THEN THE SYSTEM SHALL warn but still allow storage (with status "expired"). |
+| R-UP-07 | THE SYSTEM SHALL enforce a maximum upload size of 1MB per file to prevent abuse. |
+| R-UP-08 | IF a user uploads a file that is not a valid certificate or key format, THEN THE SYSTEM SHALL reject the upload with a descriptive error. |
 
-### Phase 2: Backend Implementation
+### 3.2 Certificate Validation
 
-| Task | File(s) | Action |
-|------|---------|--------|
-| 2.1 | `backend/go.mod`, `backend/go.sum` | Run `go get` commands from §3.1 |
-| 2.2 | Verify build | `cd backend && go build ./cmd/api` |
-| 2.3 | Verify vet | `cd backend && go vet ./...` |
-| 2.4 | Verify tests | `cd backend && go test ./...` |
-| 2.5 | Verify vulns | `cd backend && govulncheck ./...` |
+| ID | Requirement |
+|----|-------------|
+| R-VL-01 | WHEN a certificate is uploaded, THE SYSTEM SHALL verify the X.509 structure, extract the Common Name, SANs, issuer, serial number, and expiry date. |
+| R-VL-02 | WHEN a certificate chain is provided, THE SYSTEM SHALL verify that each certificate in the chain is signed by the next certificate (leaf then intermediate then root). |
+| R-VL-03 | WHEN a private key is uploaded, THE SYSTEM SHALL verify that the key matches the certificate's public key by comparing the public key modulus. |
 
-### Phase 3: Dockerfile Implementation
+### 3.3 Private Key Security
 
-| Task | File(s) | Action |
-|------|---------|--------|
-| 3.1 | `Dockerfile` (caddy-builder, ~L258-280) | Add go-jose v3/v4, OTel SDK, OTel exporter patches per §3.2 |
-| 3.2 | `Dockerfile` (caddy-builder, ~L270) | Update grpc patch v1.79.3 → v1.80.0 |
-| 3.3 | `Dockerfile` (crowdsec-builder, ~L360-370) | Add pgx, AWS SDK patches per §3.3 |
-| 3.3a | CrowdSec binaries | After patching deps, run `go build` on CrowdSec binaries before full Docker build for faster compilation feedback |
-| 3.4 | `Dockerfile` | Verify `docker build .` completes successfully (amd64) |
+| ID | Requirement |
+|----|-------------|
+| R-PK-01 | THE SYSTEM SHALL encrypt all custom certificate private keys at rest using AES-256-GCM via the existing `CHARON_ENCRYPTION_KEY`. |
+| R-PK-02 | THE SYSTEM SHALL decrypt private keys only when serving them to Caddy for TLS or when exporting. |
+| R-PK-03 | THE SYSTEM SHALL never return private key content in API list/get responses. |
+| R-PK-04 | WHEN `CHARON_ENCRYPTION_KEY` is rotated, THE SYSTEM SHALL re-encrypt all stored private keys during the rotation process. |
 
-### Phase 4: CI / Misc Fixes
+### 3.4 Certificate Assignment
 
-| Task | File(s) | Action |
-|------|---------|--------|
-| 4.1 | `.github/skills/examples/gorm-scanner-ci-workflow.yml` | Bump Go version 1.26.2 → 1.26.2 |
+| ID | Requirement |
+|----|-------------|
+| R-AS-01 | WHEN a user assigns a custom certificate to a proxy host, THE SYSTEM SHALL update the proxy host's `CertificateID` and reload Caddy configuration. |
+| R-AS-02 | WHEN a custom certificate is assigned to a proxy host, THE SYSTEM SHALL use `LoadPEM` in Caddy's TLS app to serve the certificate for that domain. |
+| R-AS-03 | THE SYSTEM SHALL prevent deletion of certificates that are assigned to one or more proxy hosts. |
 
-### Phase 5: Validation
+### 3.5 Expiry Warnings
 
-| Task | Validation |
-|------|------------|
-| 5.1 | `cd backend && go build ./cmd/api` — compiles cleanly |
-| 5.2 | `cd backend && go test ./...` — all tests pass |
-| 5.3 | `cd backend && go vet ./...` — no issues |
-| 5.4 | `cd backend && govulncheck ./...` — 0 findings |
-| 5.5 | `docker build -t charon:vuln-fix .` — image builds for amd64 |
-| 5.6 | Trivy scan on built image: `docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image --severity CRITICAL,HIGH charon:vuln-fix` — 0 HIGH (pgproto3/v2 excepted) |
-| 5.7 | Container health: `docker run -d -p 8080:8080 charon:vuln-fix && curl -f http://localhost:8080/health` |
-| 5.8 | E2E Playwright tests pass against rebuilt container |
+| ID | Requirement |
+|----|-------------|
+| R-EX-01 | THE SYSTEM SHALL check certificate expiry dates daily via a background scheduler. |
+| R-EX-02 | WHEN a custom certificate will expire within 30 days, THE SYSTEM SHALL create an in-app warning notification. |
+| R-EX-03 | WHEN a custom certificate will expire within 30 days AND external notification providers are configured, THE SYSTEM SHALL send an external notification (rate-limited to once per 24 hours per certificate). |
+| R-EX-04 | WHEN a custom certificate has expired, THE SYSTEM SHALL update its status to "expired" and send a critical notification. |
 
----
+### 3.6 Certificate Export
 
-## 5. Risk Assessment
+| ID | Requirement |
+|----|-------------|
+| R-EXP-01 | WHEN a user requests a certificate export, THE SYSTEM SHALL provide the certificate and chain in the requested format (PEM, PFX, DER). |
+| R-EXP-02 | WHEN exporting in PFX format, THE SYSTEM SHALL prompt for a password and encrypt the PFX bundle. |
+| R-EXP-03 | THE SYSTEM SHALL require authentication for all export operations. |
+| R-EXP-04 | THE SYSTEM SHALL never include the private key in export unless explicitly requested with re-authentication. |
 
-### Low Risk
+### 3.7 UI/UX
 
-| Change | Risk | Rationale |
-|--------|------|-----------|
-| `go-jose/v3` v3.0.4 → v3.0.5 | Low | Security patch release only |
-| `go-jose/v4` v4.1.3 → v4.1.4 | Low | Security patch release only |
-| `otel/sdk` v1.40.0 → v1.43.0 (Caddy) | Low | Minor bumps, backwards compatible |
-| `otlptracehttp` v1.42.0 → v1.43.0 (backend) | Low | Minor bump |
-| OTel exporters (Caddy) | Low | Minor/patch bumps |
-| Go version example fix | None | Non-runtime file |
-
-### Medium Risk
-
-| Change | Risk | Mitigation |
-|--------|------|------------|
-| `grpc` v1.79.3 → v1.80.0 | Medium | Minor version bump. gRPC is indirect — Charon doesn't use gRPC directly. Run full test suite. Verify Caddy and CrowdSec still compile. |
-| AWS SDK major bumps (s3 v1.87→v1.99, cloudwatchlogs v1.57→v1.68, kinesis v1.40→v1.43) | Medium | CrowdSec build may fail if internal APIs changed between versions. Mitigate: run `go mod tidy` after patches and verify CrowdSec binaries compile. **Note:** AWS SDK Go v2 packages use independent semver within the `v1.x.x` line — these are minor version bumps, not major API breaks. |
-| `pgx/v4` v4.18.2 → v4.18.3 | Medium | Patch release should be safe. May not fully resolve pgproto3/v2 since no patched v2 exists. |
-
-### Known Limitation: pgproto3/v2 (CVE-2026-32286)
-
-The `pgproto3/v2` module has **no patched release** — the fix exists only in `pgproto3/v3` (used by `pgx/v5`). CrowdSec v1.7.7 uses `pgx/v4` which depends on `pgproto3/v2`. Remediation:
-
-1. Bump `pgx/v4` to v4.18.3 (latest v4 patch) — may transitively resolve the issue
-2. If scanner still flags pgproto3/v2 after the bump: document as **accepted risk with upstream tracking**
-3. Monitor CrowdSec releases for `pgx/v5` migration
-4. Consider upgrading `CROWDSEC_VERSION` ARG if a newer CrowdSec release ships with pgx/v5
+| ID | Requirement |
+|----|-------------|
+| R-UI-01 | THE SYSTEM SHALL support drag-and-drop file upload for certificate and key files. |
+| R-UI-02 | WHEN a certificate is uploaded, THE SYSTEM SHALL display a preview showing: domains (CN + SANs), issuer, expiry date, chain depth, and key match status. |
+| R-UI-03 | THE SYSTEM SHALL display an expiry warning badge on certificates expiring within 30 days. |
+| R-UI-04 | THE SYSTEM SHALL provide a certificate detail view showing full metadata including fingerprint, serial number, issuer chain, and assigned hosts. |
 
 ---
 
-## 6. Acceptance Criteria
+## 4. Technical Architecture
 
-- [ ] `cd backend && go build ./cmd/api` succeeds with zero warnings
-- [ ] `cd backend && go test ./...` passes with zero failures
-- [ ] `cd backend && go vet ./...` reports zero issues
-- [ ] `cd backend && govulncheck ./...` reports zero findings
-- [ ] Docker image builds successfully for amd64
-- [ ] Trivy/Grype scan of built image shows 0 new HIGH findings (pgproto3/v2 excepted if upstream unpatched)
-- [ ] Container starts, health check passes on port 8080
-- [ ] Existing E2E Playwright tests pass against rebuilt container
-- [ ] No new compile errors in Caddy or CrowdSec builder stages
-- [ ] `backend/go.mod` shows updated versions for grpc, otlptracehttp
+### 4.1 Database Model Changes
 
----
+#### Modified: `SSLCertificate` (`backend/internal/models/ssl_certificate.go`)
 
-## 7. Commit Slicing Strategy
-
-### Decision: Single PR
-
-**Rationale**: All changes are dependency version bumps with no feature or behavioral changes. They address a single concern (security vulnerability remediation) and should be reviewed and merged atomically to avoid partial-fix states.
-
-**Trigger reasons for single PR**:
-- All changes are security patches — cannot ship partial fixes
-- Changes span backend + Dockerfile + CI config — logically coupled
-- No risk of one slice breaking another
-- Total diff is small (go.mod/go.sum + Dockerfile patch lines + 1 YAML fix)
-
-### PR-1: Nightly Build Vulnerability Remediation
-
-**Scope**: All changes in §3.1–§3.4
-
-**Files modified**:
-
-| File | Change Type |
-|------|-------------|
-| `backend/go.mod` | Dependency version bumps (grpc, otlptracehttp) |
-| `backend/go.sum` | Auto-generated checksum updates |
-| `Dockerfile` | Add `go get` patches in caddy-builder and crowdsec-builder stages |
-| `.github/skills/examples/gorm-scanner-ci-workflow.yml` | Go version 1.26.2 → 1.26.2 |
-
-**Dependencies**: None (standalone)
-
-**Validation gates**:
-1. `go build` / `go test` / `go vet` / `govulncheck` pass
-2. Docker image builds for amd64
-3. Trivy/Grype scan passes (0 new HIGH)
-4. E2E tests pass
-
-**Rollback**: Revert PR. All changes are version pins — reverting restores previous state with no data migration needed.
-
-### Post-merge Actions
-
-1. Nightly build will automatically sync development → nightly and rebuild the image with all patches
-2. Monitor next nightly scan for zero HIGH findings
-3. If pgproto3/v2 still flagged: open tracking issue for CrowdSec pgx/v5 upstream migration
-4. If any AWS SDK bump breaks CrowdSec compilation: pin to intermediate version and document
-
----
-
-## 8. CI Failure Amendment: pgx/v4 Module Path Mismatch
-
-**Date**: 2026-04-09
-**Failure**: PR #921 `build-and-push` job, step `crowdsec-builder 7/11`
-**Error**: `go: github.com/jackc/pgx/v4@v5.9.1: invalid version: go.mod has non-.../v4 module path "github.com/jackc/pgx/v5" (and .../v4/go.mod does not exist) at revision v5.9.1`
-
-### Root Cause
-
-Dockerfile line 386 specifies `go get github.com/jackc/pgx/v4@v5.9.1`. This mixes the v4 module path with a v5 version tag. Go's semantic import versioning rejects this because tag `v5.9.1` declares module path `github.com/jackc/pgx/v5` in its go.mod.
-
-### Fix
-
-**Dockerfile line 386** — change:
-```dockerfile
-go get github.com/jackc/pgx/v4@v5.9.1 && \
-```
-to:
-```dockerfile
-go get github.com/jackc/pgx/v4@v4.18.3 && \
+```go
+type SSLCertificate struct {
+    ID                    uint       `json:"-" gorm:"primaryKey"`
+    UUID                  string     `json:"uuid" gorm:"uniqueIndex"`
+    Name                  string     `json:"name" gorm:"index"`
+    Provider              string     `json:"provider" gorm:"index"`
+    Domains               string     `json:"domains" gorm:"index"`
+    CommonName            string     `json:"common_name"`                        // NEW
+    Certificate           string     `json:"-" gorm:"type:text"`                // CHANGED: hide from JSON
+    CertificateChain      string     `json:"-" gorm:"type:text"`                // NEW
+    PrivateKeyEncrypted   string     `json:"-" gorm:"column:private_key_enc;type:text"` // NEW
+    PrivateKey            string     `json:"-" gorm:"-"`                         // CHANGED: json:"-" fixes active private key disclosure (was json:"private_key"), gorm:"-" excludes from queries (column kept but values cleared)
+    KeyVersion            int        `json:"-" gorm:"default:1"`                 // NEW
+    Fingerprint           string     `json:"fingerprint"`                        // NEW
+    SerialNumber          string     `json:"serial_number"`                      // NEW
+    IssuerOrg             string     `json:"issuer_org"`                         // NEW
+    KeyType               string     `json:"key_type"`                           // NEW — see KeyType values below
+    ExpiresAt             *time.Time `json:"expires_at,omitempty" gorm:"index"`
+    NotBefore             *time.Time `json:"not_before,omitempty"`               // NEW
+    AutoRenew             bool       `json:"auto_renew" gorm:"default:false"`
+    CreatedAt             time.Time  `json:"created_at"`
+    UpdatedAt             time.Time  `json:"updated_at"`
+}
 ```
 
-No changes needed to the Renovate annotation (line 385) or the CVE comment (line 384) — both are already correct.
+**`KeyType` enum values**: `RSA-2048`, `RSA-4096`, `ECDSA-P256`, `ECDSA-P384`, `Ed25519`. Derived from the parsed private key at upload time.
 
-### Why v4.18.3
+**Migration strategy**: Add new columns with defaults. Migrate existing plaintext `PrivateKey` data to `PrivateKeyEncrypted` via a dedicated migration step. After migration, clear `private_key` values (set to empty string) but **do NOT drop the column** — SQLite < 3.35.0 does not support `ALTER TABLE DROP COLUMN`, and GORM's `DropColumn` has varying support. Add `gorm:"-"` tag to the `PrivateKey` field so GORM ignores it in all queries.
 
-- CrowdSec v1.7.7 uses `github.com/jackc/pgx/v4 v4.18.2` (direct dependency)
-- v4.18.3 is the latest and likely final v4 release
-- pgproto3/v2 is archived at v2.3.3 (July 2025) — no fix will be released in the v2 line
-- The CVE (pgproto3/v2 buffer overflow) can only be fully resolved by CrowdSec migrating to pgx/v5 upstream
-- Bumping pgx/v4 to v4.18.3 gets the latest v4 maintenance patch; the CVE remains an accepted risk per §5
+**Migration verification criteria**: No rows where `private_key != '' AND private_key_enc == ''`.
 
-### Validation
+**Follow-up task** (outside this feature's 4 PRs): Drop `private_key` column in a future release once all deployments are confirmed migrated and SQLite version requirements are established.
 
-The same `docker build` that previously failed at step 7/11 should now pass through the CrowdSec dependency patching stage and proceed to compilation (steps 8-11).
+#### Modified: `CertificateInfo` (`backend/internal/services/certificate_service.go`)
+
+```go
+type CertificateInfo struct {
+    UUID         string    `json:"uuid"`
+    Name         string    `json:"name,omitempty"`
+    CommonName   string    `json:"common_name,omitempty"`
+    Domains      string    `json:"domains"`
+    Issuer       string    `json:"issuer"`
+    IssuerOrg    string    `json:"issuer_org,omitempty"`
+    Fingerprint  string    `json:"fingerprint,omitempty"`
+    SerialNumber string    `json:"serial_number,omitempty"`
+    KeyType      string    `json:"key_type,omitempty"`
+    ExpiresAt    time.Time `json:"expires_at"`
+    NotBefore    time.Time `json:"not_before,omitempty"`
+    Status       string    `json:"status"`
+    Provider     string    `json:"provider"`
+    ChainDepth   int       `json:"chain_depth,omitempty"`
+    HasKey       bool      `json:"has_key"`
+    InUse        bool      `json:"in_use"`
+}
+```
+
+### 4.2 API Endpoints
+
+All endpoints under `/api/v1` require authentication (existing middleware).
+
+#### Existing (Modified)
+
+| Method | Path | Changes |
+|--------|------|---------|
+| `GET` | `/certificates` | Response uses `CertificateInfo` (UUID only, no numeric ID, new metadata fields) |
+| `POST` | `/certificates` | Accept PEM, PFX, DER; encrypt private key; validate chain; return `CertificateInfo` |
+| `DELETE` | `/certificates/:uuid` | CHANGED: Use UUID param instead of numeric ID |
+
+#### UUID-to-uint Resolution for Certificate Assignment
+
+The `ProxyHost.CertificateID` field is `*uint` — this **will not change** to UUID. It remains a numeric foreign key. When the certificate assignment endpoint receives a certificate UUID (from the UI/API), the handler **must resolve UUID → numeric ID** via a DB lookup (`SELECT id FROM ssl_certificates WHERE uuid = ?`) before setting `ProxyHost.CertificateID`. Implementers must NOT attempt to change the FK type to UUID.
+
+#### New Endpoints
+
+| Method | Path | Description | Request | Response |
+|--------|------|-------------|---------|----------|
+| `GET` | `/certificates/:uuid` | Get certificate detail | — | `CertificateDetail` (full metadata, chain info, assigned hosts) |
+| `POST` | `/certificates/:uuid/export` | Export certificate | JSON body (format, include_key, pfx_password, password) | Binary file download |
+| `PUT` | `/certificates/:uuid` | Update certificate metadata (name) | JSON body (name) | `CertificateInfo` |
+| `POST` | `/certificates/validate` | Validate certificate without storing | Multipart (same as upload) | `ValidationResult` |
+
+#### Request/Response Schemas
+
+**Upload Request** (`POST /certificates`) — Multipart form:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Display name |
+| `certificate_file` | file | Yes | Certificate file (.pem, .crt, .cer, .pfx, .p12, .der) |
+| `key_file` | file | Conditional | Private key file (required for PEM/DER; not needed for PFX) |
+| `chain_file` | file | No | Intermediate chain file (PEM) |
+| `pfx_password` | string | Conditional | Password for PFX decryption |
+
+**Upload Response** (`201 Created`):
+
+```json
+{
+  "uuid": "a1b2c3d4-...",
+  "name": "My Wildcard Cert",
+  "common_name": "*.example.com",
+  "domains": "*.example.com,example.com",
+  "issuer": "custom",
+  "issuer_org": "DigiCert Inc",
+  "fingerprint": "AB:CD:EF:...",
+  "serial_number": "03:A1:...",
+  "key_type": "RSA-2048",
+  "expires_at": "2027-04-10T00:00:00Z",
+  "not_before": "2026-04-10T00:00:00Z",
+  "status": "valid",
+  "provider": "custom",
+  "chain_depth": 2,
+  "has_key": true,
+  "in_use": false
+}
+```
+
+**Certificate Detail Response** (`GET /certificates/:uuid`):
+
+```json
+{
+  "uuid": "a1b2c3d4-...",
+  "name": "My Wildcard Cert",
+  "common_name": "*.example.com",
+  "domains": "*.example.com,example.com",
+  "issuer": "custom",
+  "issuer_org": "DigiCert Inc",
+  "fingerprint": "AB:CD:EF:...",
+  "serial_number": "03:A1:...",
+  "key_type": "RSA-2048",
+  "expires_at": "2027-04-10T00:00:00Z",
+  "not_before": "2026-04-10T00:00:00Z",
+  "status": "valid",
+  "provider": "custom",
+  "chain_depth": 2,
+  "has_key": true,
+  "in_use": true,
+  "assigned_hosts": [
+    {"uuid": "host-uuid-1", "name": "My App", "domain_names": "app.example.com"}
+  ],
+  "chain": [
+    {"subject": "*.example.com", "issuer": "DigiCert SHA2 Extended Validation Server CA", "expires_at": "2027-04-10T00:00:00Z"},
+    {"subject": "DigiCert SHA2 Extended Validation Server CA", "issuer": "DigiCert Global Root CA", "expires_at": "2031-11-10T00:00:00Z"}
+  ],
+  "auto_renew": false,
+  "created_at": "2026-04-10T12:00:00Z",
+  "updated_at": "2026-04-10T12:00:00Z"
+}
+```
+
+**Export Request** (`POST /certificates/:uuid/export`):
+
+```json
+{
+  "format": "pem",
+  "include_key": true,
+  "pfx_password": "optional-for-pfx",
+  "password": "current-user-password"
+}
+```
+
+**R-EXP-04 Re-authentication Design**: When `include_key: true` is set, the request body **must** include the `password` field containing the current user's password. The export handler validates the password against the authenticated user's stored credentials before decrypting and returning the private key. If the password is missing or incorrect, the endpoint returns `403 Forbidden`. This prevents key exfiltration via stolen session tokens.
+
+```json
+// Example: export without key (no password required)
+{
+  "format": "pem",
+  "include_key": false
+}
+
+// Example: export with key (password confirmation required)
+{
+  "format": "pem",
+  "include_key": true,
+  "password": "MyCurrentPassword123"
+}
+```
+
+**Validation Response** (`POST /certificates/validate`):
+
+```json
+{
+  "valid": true,
+  "common_name": "*.example.com",
+  "domains": ["*.example.com", "example.com"],
+  "issuer_org": "DigiCert Inc",
+  "expires_at": "2027-04-10T00:00:00Z",
+  "key_match": true,
+  "chain_valid": true,
+  "chain_depth": 2,
+  "warnings": ["Certificate expires in 365 days"],
+  "errors": []
+}
+```
+
+### 4.3 Service Layer Changes
+
+#### Modified: `CertificateService` (`backend/internal/services/certificate_service.go`)
+
+New/modified function signatures:
+
+```go
+// NewCertificateService — MODIFIED: add encryption service dependency
+func NewCertificateService(dataDir string, db *gorm.DB, encSvc *crypto.EncryptionService) *CertificateService
+
+// UploadCertificate — MODIFIED: accepts parsed content, validates, encrypts key
+func (s *CertificateService) UploadCertificate(name string, certPEM string, keyPEM string, chainPEM string) (*CertificateInfo, error)
+
+// GetCertificate — NEW: get single certificate detail by UUID
+func (s *CertificateService) GetCertificate(uuid string) (*CertificateDetail, error)
+
+// UpdateCertificate — NEW: update metadata (name)
+func (s *CertificateService) UpdateCertificate(uuid string, name string) (*CertificateInfo, error)
+
+// DeleteCertificate — MODIFIED: accept UUID instead of numeric ID
+func (s *CertificateService) DeleteCertificate(uuid string) error
+
+// IsCertificateInUse — MODIFIED: accept UUID instead of numeric ID
+func (s *CertificateService) IsCertificateInUse(uuid string) (bool, error)
+
+// ExportCertificate — NEW: export cert in requested format
+func (s *CertificateService) ExportCertificate(uuid string, format string, includeKey bool) ([]byte, string, error)
+
+// ValidateCertificate — NEW: validate without storing
+func (s *CertificateService) ValidateCertificate(certPEM string, keyPEM string, chainPEM string) (*ValidationResult, error)
+
+// GetDecryptedPrivateKey — NEW: internal only, decrypt key for Caddy/export
+func (s *CertificateService) GetDecryptedPrivateKey(cert *models.SSLCertificate) (string, error)
+
+// CheckExpiringCertificates — NEW: called by scheduler
+func (s *CertificateService) CheckExpiringCertificates() ([]CertificateInfo, error)
+
+// MigratePrivateKeys — NEW: one-time migration from plaintext to encrypted
+func (s *CertificateService) MigratePrivateKeys() error
+```
+
+#### New: `CertificateValidator` (`backend/internal/services/certificate_validator.go`)
+
+```go
+// ParseCertificateInput handles PEM, PFX, and DER input parsing
+func ParseCertificateInput(certData []byte, keyData []byte, chainData []byte, pfxPassword string) (*ParsedCertificate, error)
+
+// ValidateKeyMatch checks that the private key matches the certificate public key
+func ValidateKeyMatch(cert *x509.Certificate, key crypto.PrivateKey) error
+
+// ValidateChain verifies the certificate chain from leaf to root.
+// Uses x509.Certificate.Verify() with an intermediate cert pool to validate
+// the chain against system roots (or provided root certificates).
+func ValidateChain(leaf *x509.Certificate, intermediates []*x509.Certificate) error
+
+// DetectFormat determines the certificate format from file content
+func DetectFormat(data []byte) (string, error)
+
+// ConvertDERToPEM converts DER-encoded certificate to PEM
+func ConvertDERToPEM(derData []byte) (string, error)
+
+// ConvertPFXToPEM extracts cert, key, and chain from PFX/PKCS12
+func ConvertPFXToPEM(pfxData []byte, password string) (certPEM string, keyPEM string, chainPEM string, err error)
+
+// ConvertPEMToPFX bundles cert, key, chain into PFX
+func ConvertPEMToPFX(certPEM string, keyPEM string, chainPEM string, password string) ([]byte, error)
+
+// ConvertPEMToDER converts PEM certificate to DER
+func ConvertPEMToDER(certPEM string) ([]byte, error)
+
+// ExtractCertificateMetadata extracts fingerprint, serial, issuer, key type, etc.
+func ExtractCertificateMetadata(cert *x509.Certificate) *CertificateMetadata
+```
+
+### 4.4 Caddy Integration Changes
+
+#### Modified: Config Generation (`backend/internal/caddy/config.go`)
+
+The existing custom certificate loading logic (lines 418-453) needs modification to:
+
+1. **Decrypt private keys** before passing to Caddy's `LoadPEM`
+2. **Include certificate chain** in the `Certificate` field (full PEM chain)
+3. **Add TLS automation policy** with `skip` for custom cert domains (prevent ACME from trying to issue for those domains)
+
+Updated custom cert loading block:
+
+```go
+for _, cert := range customCerts {
+    if cert.Certificate == "" || cert.PrivateKeyEncrypted == "" {
+        logger.Log().WithField("cert", cert.Name).Warn("Custom certificate missing data, skipping")
+        continue
+    }
+
+    decryptedKey, err := encSvc.Decrypt(cert.PrivateKeyEncrypted)
+    if err != nil {
+        logger.Log().WithError(err).WithField("cert", cert.Name).Warn("Failed to decrypt custom cert key, skipping")
+        continue
+    }
+
+    fullCert := cert.Certificate
+    if cert.CertificateChain != "" {
+        fullCert = cert.Certificate + "\n" + cert.CertificateChain
+    }
+
+    loadPEM = append(loadPEM, LoadPEMConfig{
+        Certificate: fullCert,
+        Key:         string(decryptedKey),
+        Tags:        []string{cert.UUID},
+    })
+}
+```
+
+Additionally, add a TLS automation policy that skips ACME for custom cert domains:
+
+```go
+if len(customCertDomains) > 0 {
+    tlsPolicies = append(tlsPolicies, &AutomationPolicy{
+        Subjects:   customCertDomains,
+        IssuersRaw: nil,
+    })
+}
+```
+
+### 4.5 Encryption Strategy
+
+**Private Key Encryption at Rest**:
+
+1. On upload: `encSvc.Encrypt([]byte(keyPEM))` stores in `PrivateKeyEncrypted`
+2. On Caddy config generation: `encSvc.Decrypt(cert.PrivateKeyEncrypted)` passes decrypted PEM to Caddy
+3. On export: `encSvc.Decrypt(cert.PrivateKeyEncrypted)` converts to requested format
+4. `KeyVersion` tracks which encryption key version was used (for rotation via `RotationService`)
+
+**Migration**: Existing certificates with plaintext `PrivateKey` will be migrated to encrypted form during application startup if `CHARON_ENCRYPTION_KEY` is set. The migration:
+
+- Reads `private_key` column
+- Encrypts with current key
+- Writes to `private_key_enc` column
+- Sets `key_version = 1`
+- Clears `private_key` column
+- Logs migration progress
+
+### 4.6 Certificate Format Handling
+
+| Input Format | Detection | Processing |
+|-------------|-----------|------------|
+| **PEM** | Trial parse: `pem.Decode` succeeds | Direct parse via `pem.Decode` + `x509.ParseCertificate` |
+| **PFX/PKCS12** | Trial parse: if PEM fails, attempt `pkcs12.Decode` | `pkcs12.Decode(pfxData, password)` then extract cert, key, chain and store as PEM |
+| **DER** | Trial parse: if PEM and PFX fail, attempt `x509.ParseCertificate(raw)` | `x509.ParseCertificate(derBytes)` then convert to PEM for storage |
+
+**Detection strategy**: Use trial-parse (not magic bytes). Try PEM decode first → if that fails, try PFX/PKCS12 decode → if that also fails, try raw DER parse via `x509.ParseCertificate`. This is more reliable than magic byte sniffing, especially for DER which shares ASN.1 structure with PFX.
+
+**Dependencies**: Use `software.sslmate.com/src/go-pkcs12` for PFX handling (widely used, maintained).
+
+### 4.7 Expiry Warning Scheduler
+
+Add a background goroutine in `CertificateService` that runs daily:
+
+```go
+func (s *CertificateService) StartExpiryChecker(ctx context.Context, notificationSvc *NotificationService, warningDays int) {
+    // Startup delay: avoid notification bursts during frequent restarts
+    startupDelay := 5 * time.Minute
+    select {
+    case <-ctx.Done():
+        return
+    case <-time.After(startupDelay):
+    }
+
+    // Add random jitter (0-60 minutes) to stagger checks across instances/restarts
+    jitter := time.Duration(rand.Int63n(int64(60 * time.Minute)))
+    select {
+    case <-ctx.Done():
+        return
+    case <-time.After(jitter):
+    }
+
+    s.checkExpiry(notificationSvc, warningDays)
+
+    ticker := time.NewTicker(24 * time.Hour)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-ctx.Done():
+            return
+        case <-ticker.C:
+            s.checkExpiry(notificationSvc, warningDays)
+        }
+    }
+}
+```
+
+**Configuration**: `warningDays` is read from `CHARON_CERT_EXPIRY_WARNING_DAYS` environment variable at startup (default: `30`). The startup wiring reads the config value and passes it to `StartExpiryChecker`.
+
+The checker:
+
+1. Queries all custom certificates
+2. For certs expiring within `warningDays` days: create warning notification + send external notification (rate-limited per cert per 24h)
+3. For expired certs: update status to "expired" + send critical notification
 
 ---
 
-## 9. Commands Reference
+## 5. Frontend Design
 
-```bash
-# === Backend dependency upgrades ===
-cd /projects/Charon/backend
+### 5.1 New/Modified Components
 
-go get google.golang.org/grpc@v1.80.0
-go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.43.0
-go mod tidy
+| Component | Type | Path | Description |
+|-----------|------|------|-------------|
+| `CertificateUploadDialog` | Modified | `frontend/src/components/dialogs/CertificateUploadDialog.tsx` | Extract from `Certificates.tsx`; add drag-and-drop, format detection, chain file, PFX password, validation preview |
+| `CertificateDetailDialog` | New | `frontend/src/components/dialogs/CertificateDetailDialog.tsx` | Full metadata view, chain visualization, assigned hosts list, export button |
+| `CertificateExportDialog` | New | `frontend/src/components/dialogs/CertificateExportDialog.tsx` | Format selector (PEM/PFX/DER), include-key toggle, PFX password field |
+| `CertificateValidationPreview` | New | `frontend/src/components/CertificateValidationPreview.tsx` | Shows parsed cert info before upload confirmation |
+| `CertificateChainViewer` | New | `frontend/src/components/CertificateChainViewer.tsx` | Visual chain display (leaf then intermediate then root) |
+| `FileDropZone` | New | `frontend/src/components/ui/FileDropZone.tsx` | Reusable drag-and-drop file upload component |
+| `CertificateList` | Modified | `frontend/src/components/CertificateList.tsx` | Add detail view button, export button, expiry warning badges, use UUID for actions |
 
-# === Validate backend ===
-go build ./cmd/api
-go test ./...
-go vet ./...
-govulncheck ./...
+### 5.2 API Client Updates (`frontend/src/api/certificates.ts`)
 
-# === Docker build (after Dockerfile edits) ===
-cd /projects/Charon
-docker build -t charon:vuln-fix .
+```typescript
+export interface Certificate {
+  uuid: string
+  name?: string
+  common_name?: string
+  domains: string
+  issuer: string
+  issuer_org?: string
+  fingerprint?: string
+  serial_number?: string
+  key_type?: string
+  expires_at: string
+  not_before?: string
+  status: 'valid' | 'expiring' | 'expired' | 'untrusted'
+  provider: string
+  chain_depth?: number
+  has_key: boolean
+  in_use: boolean
+}
 
-# === Scan built image ===
-docker run --rm \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  aquasec/trivy:latest image \
-  --severity CRITICAL,HIGH \
-  charon:vuln-fix
+export interface CertificateDetail extends Certificate {
+  assigned_hosts: { uuid: string; name: string; domain_names: string }[]
+  chain: { subject: string; issuer: string; expires_at: string }[]
+  auto_renew: boolean
+  created_at: string
+  updated_at: string
+}
 
-# === Quick container health check ===
-docker run -d --name charon-vuln-test -p 8080:8080 charon:vuln-fix
-sleep 10
-curl -f http://localhost:8080/health
-docker stop charon-vuln-test && docker rm charon-vuln-test
+export interface ValidationResult {
+  valid: boolean
+  common_name: string
+  domains: string[]
+  issuer_org: string
+  expires_at: string
+  key_match: boolean
+  chain_valid: boolean
+  chain_depth: number
+  warnings: string[]
+  errors: string[]
+}
+
+export async function getCertificateDetail(uuid: string): Promise<CertificateDetail>
+export async function uploadCertificate(
+  name: string, certFile: File, keyFile?: File, chainFile?: File, pfxPassword?: string
+): Promise<Certificate>
+export async function updateCertificate(uuid: string, name: string): Promise<Certificate>
+export async function deleteCertificate(uuid: string): Promise<void>
+export async function exportCertificate(
+  uuid: string, format: string, includeKey: boolean, pfxPassword?: string
+): Promise<Blob>
+export async function validateCertificate(
+  certFile: File, keyFile?: File, chainFile?: File, pfxPassword?: string
+): Promise<ValidationResult>
 ```
+
+### 5.3 Hook Updates (`frontend/src/hooks/useCertificates.ts`)
+
+```typescript
+export function useCertificates(options?: UseCertificatesOptions)
+export function useCertificateDetail(uuid: string | null)
+export function useUploadCertificate()
+export function useUpdateCertificate()
+export function useDeleteCertificate()
+export function useExportCertificate()
+export function useValidateCertificate()
+```
+
+### 5.4 Upload Flow UX
+
+1. User clicks "Add Certificate"
+2. **Upload Dialog** opens with:
+   - Name input field
+   - File drop zones (certificate file, key file, optional chain file)
+   - Auto-format detection on file drop/select (show detected format badge: PEM/PFX/DER)
+   - If PFX detected: show password field, hide key file input
+   - "Validate" button calls `/certificates/validate` and shows `CertificateValidationPreview`
+3. Validation preview shows: CN, SANs, issuer, expiry, chain depth, key-match status, warnings
+4. User confirms and submits to `POST /certificates`
+5. On success: toast + refresh list + close dialog
+
+### 5.5 Expiry Warning Display
+
+- Certificates expiring in 30 days or less: yellow warning badge + tooltip with days remaining
+- Expired certificates: red expired badge
+- The existing `status` field already provides `"expiring"` and `"expired"` values — the UI enhancement adds visual prominence
+
+---
+
+## 6. Security Considerations
+
+### 6.1 Private Key Encryption
+
+- **🔴 ACTIVE VULNERABILITY FIX**: The current Upload handler (`certificate_handler.go:137`) returns `c.JSON(http.StatusCreated, cert)` where `cert` is the full `*SSLCertificate` struct. Because `PrivateKey` currently has `json:"private_key"`, the raw PEM private key is disclosed to the client in every upload response. **Commit 1 fixes this** by changing the tag to `json:"-"`, immediately closing this private key disclosure vulnerability.
+- All private keys encrypted at rest using AES-256-GCM
+- Encryption uses the same `CHARON_ENCRYPTION_KEY` and rotation infrastructure as DNS provider credentials
+- Keys are decrypted only in-memory when needed (Caddy reload, export)
+- The `PrivateKey` field is hidden from JSON serialization (`json:"-"`) and excluded from GORM queries (`gorm:"-"`)
+- The `PrivateKeyEncrypted` field is also hidden from JSON (`json:"-"`)
+
+### 6.2 File Upload Security
+
+- Maximum file size: 1MB per file (enforced in handler)
+- File content validated (must parse as valid certificate/key/PFX)
+- No path traversal risk: files are read into memory, never written to arbitrary paths
+- Content-Type and extension validation (`.pem`, `.crt`, `.cer`, `.key`, `.pfx`, `.p12`, `.der`)
+- PFX password is not stored; used only during parsing
+
+### 6.3 GORM Model Security
+
+- `SSLCertificate.ID` uses `json:"-"` (numeric ID hidden)
+- `SSLCertificate.Certificate` uses `json:"-"` (PEM content hidden from list)
+- `SSLCertificate.PrivateKey` uses `json:"-"` (transient, not persisted)
+- `SSLCertificate.PrivateKeyEncrypted` uses `json:"-"` (encrypted, hidden)
+- All API endpoints use UUID for identification
+- `CertificateInfo` no longer exposes numeric `ID`
+
+### 6.4 Export Security
+
+- Export endpoint requires authentication (existing middleware)
+- `include_key: true` requires **password re-confirmation** — the user must supply their current password in the request body; the handler validates it before decrypting the key (implements R-EXP-04)
+- PFX export requires a password (enforced)
+- Audit log entry for key exports (via notification service)
+
+---
+
+## 7. Implementation Phases (Tasks)
+
+### Phase 1: Backend Foundation — Model, Encryption, Validation (Commit 1)
+
+| # | Task | File(s) | Size | Description |
+|---|------|---------|------|-------------|
+| 1.1 | Add new fields to SSLCertificate model | `backend/internal/models/ssl_certificate.go` | S | Add `CommonName`, `CertificateChain`, `PrivateKeyEncrypted`, `KeyVersion`, `Fingerprint`, `SerialNumber`, `IssuerOrg`, `KeyType`, `NotBefore`. Hide sensitive fields from JSON. |
+| 1.2 | Update AutoMigrate | `backend/internal/api/routes/routes.go` | S | Already migrates `SSLCertificate`; GORM auto-adds new columns. |
+| 1.3 | Create certificate validator | `backend/internal/services/certificate_validator.go` | L | `ParseCertificateInput()`, `ValidateKeyMatch()`, `ValidateChain()`, `DetectFormat()`, format conversion functions. |
+| 1.4 | Add `go-pkcs12` dependency | `backend/go.mod` | S | `go get software.sslmate.com/src/go-pkcs12` |
+| 1.5 | Write private key migration function | `backend/internal/services/certificate_service.go` | M | `MigratePrivateKeys()` — encrypts existing plaintext keys. |
+| 1.6 | Modify `UploadCertificate()` | `backend/internal/services/certificate_service.go` | L | Full validation pipeline, encrypt key, store chain, extract metadata. |
+| 1.7 | Add `GetCertificate()` | `backend/internal/services/certificate_service.go` | M | Get single cert by UUID with full detail (assigned hosts, chain). |
+| 1.8 | Add `ValidateCertificate()` | `backend/internal/services/certificate_service.go` | M | Validate without storing. |
+| 1.9 | Modify `DeleteCertificate()` | `backend/internal/services/certificate_service.go` | S | Accept UUID instead of numeric ID. |
+| 1.10 | Add `ExportCertificate()` | `backend/internal/services/certificate_service.go` | M | Decrypt key, convert to requested format. |
+| 1.11 | Add `GetDecryptedPrivateKey()` | `backend/internal/services/certificate_service.go` | S | Internal decrypt helper. |
+| 1.12 | Update `CertificateInfo` | `backend/internal/services/certificate_service.go` | S | Remove numeric ID, add new metadata fields. |
+| 1.13 | Update `refreshCacheFromDB()` | `backend/internal/services/certificate_service.go` | M | Populate new fields (fingerprint, chain depth, has_key, in_use). |
+| 1.14 | Add constructor changes | `backend/internal/services/certificate_service.go` | S | Accept `*crypto.EncryptionService` in `NewCertificateService`. |
+| 1.15 | Unit tests for validator | `backend/internal/services/certificate_validator_test.go` | L | PEM/DER/PFX parsing, key match, chain validation, format detection. |
+| 1.16 | Unit tests for upload | `backend/internal/services/certificate_service_test.go` | L | Upload with encryption, migration, export. |
+| 1.17 | GORM security scan | — | S | Run `./scripts/scan-gorm-security.sh --check` on new model fields. |
+
+### Phase 2: Backend API — Handlers, Routes, Caddy (Commit 2)
+
+| # | Task | File(s) | Size | Description |
+|---|------|---------|------|-------------|
+| 2.1 | Update Upload handler | `backend/internal/api/handlers/certificate_handler.go` | L | Accept chain file, PFX password, detect format, call enhanced service. **Fix unsafe read**: replace `certSrc.Read(certBytes)` with `io.ReadAll(io.LimitReader(src, 1<<20))` for safe bounded reads (see Section 2.2 gaps). |
+| 2.2 | Add Get handler | `backend/internal/api/handlers/certificate_handler.go` | M | `GET /certificates/:uuid` calls `GetCertificate()`. |
+| 2.3 | Add Export handler | `backend/internal/api/handlers/certificate_handler.go` | M | `POST /certificates/:uuid/export` streams file download. |
+| 2.4 | Add Update handler | `backend/internal/api/handlers/certificate_handler.go` | S | `PUT /certificates/:uuid` updates name. |
+| 2.5 | Add Validate handler | `backend/internal/api/handlers/certificate_handler.go` | M | `POST /certificates/validate` validation-only endpoint. |
+| 2.6 | Modify Delete handler | `backend/internal/api/handlers/certificate_handler.go` | S | Use UUID param instead of numeric ID. |
+| 2.7 | Register new routes | `backend/internal/api/routes/routes.go` | S | Add new routes, pass encryption service. |
+| 2.8 | Update Caddy config generation | `backend/internal/caddy/config.go` | M | Decrypt keys, include chains, skip ACME for custom cert domains. |
+| 2.9 | Call migration on startup | `backend/internal/api/routes/routes.go` | S | Call `MigratePrivateKeys()` after service init. |
+| 2.10 | Handler unit tests | `backend/internal/api/handlers/certificate_handler_test.go` | L | Test all new endpoints. |
+| 2.11 | Caddy config tests | `backend/internal/caddy/config_test.go` | M | Update existing tests, add encrypted key test. |
+
+### Phase 3: Expiry Warnings & Notifications (within Commit 2)
+
+| # | Task | File(s) | Size | Description |
+|---|------|---------|------|-------------|
+| 3.1 | Add `CheckExpiringCertificates()` | `backend/internal/services/certificate_service.go` | M | Query custom certs expiring in 30 days or less. |
+| 3.2 | Add `StartExpiryChecker()` | `backend/internal/services/certificate_service.go` | M | Background goroutine, daily tick, rate-limited notifications. |
+| 3.3 | Wire scheduler on startup | `backend/internal/api/routes/routes.go` | S | Start goroutine with context from server. |
+| 3.4 | Unit tests for expiry checker | `backend/internal/services/certificate_service_test.go` | M | Mock time, verify notification calls. |
+
+### Phase 4: Frontend — Enhanced Upload, Detail, Export (Commit 3)
+
+| # | Task | File(s) | Size | Description |
+|---|------|---------|------|-------------|
+| 4.1 | Create `FileDropZone` component | `frontend/src/components/ui/FileDropZone.tsx` | M | Reusable drag-and-drop with format badge. |
+| 4.2 | Create `CertificateUploadDialog` | `frontend/src/components/dialogs/CertificateUploadDialog.tsx` | L | Full upload dialog with validation preview, chain, PFX. |
+| 4.3 | Create `CertificateValidationPreview` | `frontend/src/components/CertificateValidationPreview.tsx` | M | Parsed cert preview before upload. |
+| 4.4 | Create `CertificateDetailDialog` | `frontend/src/components/dialogs/CertificateDetailDialog.tsx` | L | Full metadata, chain, assigned hosts, export action. |
+| 4.5 | Create `CertificateChainViewer` | `frontend/src/components/CertificateChainViewer.tsx` | M | Visual chain display. |
+| 4.6 | Create `CertificateExportDialog` | `frontend/src/components/dialogs/CertificateExportDialog.tsx` | M | Format + key options. |
+| 4.7 | Update `CertificateList` | `frontend/src/components/CertificateList.tsx` | M | Add detail/export buttons, use UUID, expiry badges. |
+| 4.8 | Refactor `Certificates` page | `frontend/src/pages/Certificates.tsx` | M | Use new dialog components. |
+| 4.9 | Update API client | `frontend/src/api/certificates.ts` | M | New functions, updated types. |
+| 4.10 | Update hooks | `frontend/src/hooks/useCertificates.ts` | M | New hooks for detail, export, validate, update. |
+| 4.11 | Add translations | `frontend/src/locales/en/translation.json` (+ other locales) | S | New keys for chain, export, validation messages. |
+| 4.12 | Frontend unit tests | `frontend/src/components/__tests__/` | L | Tests for new components. |
+| 4.13 | Vitest coverage | — | M | Ensure 85% coverage on new code. |
+
+### Phase 5: E2E Tests & Hardening (Commit 4)
+
+| # | Task | File(s) | Size | Description |
+|---|------|---------|------|-------------|
+| 5.1 | E2E: Certificate upload flow | `tests/certificate-upload.spec.ts` | L | Upload PEM cert + key, validate preview, verify list. |
+| 5.2 | E2E: Certificate detail view | `tests/certificate-detail.spec.ts` | M | Open detail dialog, verify metadata, chain view. |
+| 5.3 | E2E: Certificate export | `tests/certificate-export.spec.ts` | M | Export PEM, verify download blob. |
+| 5.4 | E2E: Certificate assignment | `tests/certificate-assignment.spec.ts` | M | Assign cert to proxy host, verify Caddy reload. |
+| 5.5 | Update existing delete tests | `tests/certificate-delete.spec.ts` | S | Use UUID instead of numeric ID. |
+| 5.6 | CodeQL scans | — | S | Run Go + JS security scans. |
+| 5.7 | GORM security scan | — | S | Final scan on all model changes. |
+| 5.8 | Update documentation | `docs/features.md`, `CHANGELOG.md` | S | Document new capabilities. |
+
+---
+
+## 8. Commit Slicing Strategy
+
+### Decision: 1 PR with 5 logical commits
+
+**Rationale**: Single feature = single PR. Charon is a self-hosted tool where users track merged PRs to know when features are available. Merging partial PRs (e.g., backend-only) creates false confidence that a feature is complete, leading to user-filed issues and discussions asking why the feature is missing or broken. A single PR ensures the feature ships atomically — users see one merge and get the full capability.
+
+Each commit maps to an implementation phase; this keeps the diff reviewable by walking through commits sequentially while guaranteeing the feature is never partially deployed.
+
+### Commit Structure
+
+| Commit | Phase | Scope | Key Files |
+|--------|-------|-------|-----------|
+| **Commit 1** | Backend Foundation | Tasks 1.1–1.17 | `backend/internal/models/ssl_certificate.go`, `backend/internal/services/certificate_validator.go`, `backend/internal/services/certificate_service.go`, `backend/go.mod`, `backend/go.sum`, test files |
+| **Commit 2** | Backend API + Caddy + Expiry | Tasks 2.1–2.11, 3.1–3.4 | `backend/internal/api/handlers/certificate_handler.go`, `backend/internal/api/routes/routes.go`, `backend/internal/caddy/config.go`, test files |
+| **Commit 3** | Frontend | Tasks 4.1–4.13 | `frontend/src/` components, pages, API client, hooks, locales |
+| **Commit 4** | E2E Tests & Hardening | Tasks 5.1–5.7 | `tests/` E2E specs, CodeQL/GORM scans |
+| **Commit 5** | Documentation | Task 5.8 | `docs/features.md`, `CHANGELOG.md` |
+
+### Commit Descriptions
+
+#### Commit 1: Backend Foundation (Model + Validator + Encryption)
+- SSLCertificate model with all new fields and correct JSON tags
+- Certificate validator: PEM, DER, PFX parsing, key-cert match, chain validation
+- Private key encryption/decryption via `CHARON_ENCRYPTION_KEY`
+- Migration function for existing plaintext keys
+- Unit tests with 85% coverage on new code
+- GORM security scan clean
+
+#### Commit 2: Backend API (Handlers + Routes + Caddy + Expiry Checker)
+- Upload endpoint accepts PEM/PFX/DER with safe bounded reads
+- Get/Export/Validate/Update endpoints (UUID-based)
+- Delete uses UUID instead of numeric ID
+- Caddy loads encrypted custom certs with chain support
+- Expiry checker: background goroutine, daily tick, notifications for certs expiring within 30 days
+- Handler and Caddy config unit tests
+
+#### Commit 3: Frontend (Upload + Detail + Export + UI Enhancements)
+- Enhanced upload dialog with drag-and-drop, format detection, chain file, PFX password
+- Validation preview before upload
+- Certificate detail dialog with chain viewer
+- Export dialog with format selection and key password confirmation
+- List uses UUID for all operations, expiry warning badges
+- Vitest coverage at 85% on new components
+
+#### Commit 4: E2E Tests & Hardening
+- E2E tests covering upload, detail, export, assignment flows
+- Existing delete tests updated for UUID
+- CodeQL Go + JS scans clean (no HIGH/CRITICAL)
+- GORM security scan clean
+
+#### Commit 5: Documentation
+- `docs/features.md` updated with certificate management capabilities
+- `CHANGELOG.md` updated
+
+### PR-Level Validation Gates
+
+The PR is merged only when **all** of the following pass:
+
+- [ ] All backend unit tests pass with 85% coverage on new code
+- [ ] All frontend Vitest tests pass with 85% coverage on new code
+- [ ] All E2E tests pass (Firefox, Chromium, WebKit)
+- [ ] GORM security scan clean (`./scripts/scan-gorm-security.sh --check`)
+- [ ] CodeQL Go + JS scans: no HIGH/CRITICAL findings
+- [ ] staticcheck pass
+- [ ] TypeScript check pass
+- [ ] Local patch coverage report generated and reviewed
+- [ ] Documentation updated
+
+### Rollback
+
+Revert the single PR. All changes are additive (new columns, new endpoints, new components). Reverting removes the feature atomically with no partial state left in production.
+
+---
+
+## 9. Testing Strategy
+
+### 9.1 Backend Unit Tests
+
+| Test File | Coverage |
+|-----------|----------|
+| `backend/internal/services/certificate_validator_test.go` | PEM/DER/PFX parsing, key match (RSA + ECDSA), chain validation (valid/invalid/self-signed), format detection, error cases |
+| `backend/internal/services/certificate_service_test.go` | Upload (all formats), encryption/decryption, migration, list (with new fields), get detail, export (all formats), delete by UUID, expiry checker, cache invalidation |
+| `backend/internal/api/handlers/certificate_handler_test.go` | All endpoints: upload (multipart), get, export (file download), validate, update, delete; error cases (invalid format, missing key, expired cert) |
+| `backend/internal/caddy/config_test.go` | Custom cert with encrypted key, chain inclusion, ACME skip for custom cert domains |
+
+### 9.2 Frontend Unit Tests
+
+| Test File | Coverage |
+|-----------|----------|
+| `frontend/src/components/__tests__/FileDropZone.test.tsx` | Drag-and-drop, file selection, format detection badge |
+| `frontend/src/components/__tests__/CertificateUploadDialog.test.tsx` | Full upload flow, PFX mode toggle, validation preview |
+| `frontend/src/components/__tests__/CertificateDetailDialog.test.tsx` | Metadata display, chain viewer, export action |
+| `frontend/src/components/__tests__/CertificateExportDialog.test.tsx` | Format selection, key toggle, PFX password |
+| `frontend/src/components/__tests__/CertificateList.test.tsx` | Updated: UUID-based actions, expiry badges, detail button |
+| `frontend/src/hooks/__tests__/useCertificates.test.ts` | New hooks: detail, export, validate |
+
+### 9.3 E2E Playwright Tests
+
+| Spec File | Scenarios |
+|-----------|-----------|
+| `tests/certificate-upload.spec.ts` | Upload PEM cert + key, validate preview, verify list |
+| `tests/certificate-detail.spec.ts` | Open detail dialog, verify metadata, chain view |
+| `tests/certificate-export.spec.ts` | Export PEM, verify download blob |
+| `tests/certificate-assignment.spec.ts` | Assign cert to proxy host, verify Caddy reload |
+| `tests/certificate-delete.spec.ts` | Updated: UUID-based deletion |
+| `tests/certificate-bulk-delete.spec.ts` | Updated: UUID-based bulk deletion |
+
+#### Negative / Error Scenarios (Commit 4)
+
+| Spec File | Scenarios |
+|-----------|-----------|
+| `tests/certificate-upload-errors.spec.ts` | Mismatched key/cert upload (expect error), invalid file upload (non-cert file), expired cert upload (expect warning + accept), oversized file upload (expect 413) |
+| `tests/certificate-export-auth.spec.ts` | Export with `include_key: true` flow — verify password confirmation required, verify incorrect password rejected, verify export without key does not require password |
+
+### 9.4 Security Scans
+
+- GORM security scan (`./scripts/scan-gorm-security.sh --check`) — after Phase 1
+- CodeQL Go scan — after Phase 2
+- CodeQL JS scan — after Phase 3
+- Trivy container scan — after final build
+
+---
+
+## 10. Config/Infrastructure Changes
+
+### 10.1 No Changes Required
+
+| File | Reason |
+|------|--------|
+| `.gitignore` | Uploaded certificates stored in database, not on disk. Existing `/data/` ignore covers Caddy runtime data. |
+| `codecov.yml` | Existing configuration covers `backend/` and `frontend/src/`. |
+| `.dockerignore` | No new file types to ignore. |
+| `Dockerfile` | `go-pkcs12` dependency is a Go module pulled during build automatically. |
+
+### 10.2 Environment Variables
+
+| Variable | Status | Description |
+|----------|--------|-------------|
+| `CHARON_ENCRYPTION_KEY` | Existing | Required for private key encryption. Already used for DNS provider credentials. |
+| `CHARON_ENCRYPTION_KEY_NEXT` | Existing | Used during key rotation. Rotation service already handles re-encryption. |
+| `CHARON_CERT_EXPIRY_WARNING_DAYS` | New (optional) | Override default 30-day warning threshold. Default: `30`. Wired into `StartExpiryChecker()` at startup — see Section 4.7. |
+
+### 10.3 Database Migration
+
+GORM `AutoMigrate` handles additive column changes automatically. The private key migration from plaintext to encrypted is a one-time startup operation handled in code (see section 4.5).
+
+**Migration sequence**:
+
+1. GORM adds new columns (`common_name`, `certificate_chain`, `private_key_enc`, `key_version`, `fingerprint`, `serial_number`, `issuer_org`, `key_type`, `not_before`)
+2. `MigratePrivateKeys()` runs once: reads `private_key`, encrypts to `private_key_enc`, clears `private_key`
+3. Subsequent starts skip migration (checks if any rows have `private_key` non-empty and `private_key_enc` empty)
+
+---
+
+## 11. Risks and Mitigations
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| **Private key migration fails mid-way** | Low | High | Migration is transactional per-row. Idempotent — can be re-run. Original `private_key` column kept until migration verified complete. |
+| **`CHARON_ENCRYPTION_KEY` not set** | Medium | High | Graceful degradation: upload/export of custom certs disabled when key not set. Clear error message in UI. ACME certs unaffected. |
+| **PFX parsing edge cases** | Medium | Medium | Use well-maintained `go-pkcs12` library. Comprehensive test suite with real-world PFX files. Fall back to descriptive error messages. |
+| **Caddy reload failure with bad cert** | Low | High | Caddy config generation validates cert/key pairing before including in config. Caddy itself validates on load and reports errors. Rollback logic already exists in Caddy manager. |
+| **Breaking API change (numeric ID to UUID)** | Medium | Medium | Frontend and backend changes in separate PRs but deployed together. No external API consumers currently (self-hosted tool). Existing E2E tests catch regressions. |
+| **Performance impact of encryption/decryption** | Low | Low | AES-256-GCM is hardware-accelerated on modern CPUs. Only custom certs are encrypted (typically fewer than 10 per instance). Caddy config generation is not a hot path. |
+| **Large file upload DoS** | Low | Medium | 1MB file size limit enforced in handler. Gin's `MaxMultipartMemory` also provides protection. |
+
+---
+
+## 12. Acceptance Criteria (Definition of Done)
+
+- [ ] Can upload custom certificates in PEM, PFX, and DER formats
+- [ ] Certificate and key are validated before acceptance (format, key match, chain)
+- [ ] Private keys are encrypted at rest using `CHARON_ENCRYPTION_KEY`
+- [ ] Certificate detail view shows full metadata (CN, SANs, issuer, chain, fingerprint)
+- [ ] Certificates can be assigned to proxy hosts
+- [ ] Caddy serves custom certificates for assigned domains
+- [ ] Expiry warnings fire as in-app and external notifications at 30 days
+- [ ] Certificates can be exported in PEM, PFX, and DER formats
+- [ ] All API endpoints use UUID (no numeric ID exposure)
+- [ ] 85% test coverage on all new backend and frontend code
+- [ ] E2E tests pass for upload, detail, export, assignment flows
+- [ ] GORM security scan reports zero CRITICAL/HIGH findings
+- [ ] CodeQL scans report zero HIGH/CRITICAL findings
+- [ ] No plaintext private keys in database after migration

@@ -773,7 +773,7 @@ func TestRegister_CertificateRoutes(t *testing.T) {
 
 	// Certificate routes
 	assert.True(t, routeMap["/api/v1/certificates"])
-	assert.True(t, routeMap["/api/v1/certificates/:id"])
+	assert.True(t, routeMap["/api/v1/certificates/:uuid"])
 }
 
 // TestRegister_NilHandlers verifies registration behavior with minimal/nil components
