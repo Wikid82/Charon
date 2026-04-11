@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -367,7 +368,7 @@ func (h *CertificateHandler) Export(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "certificate not found"})
 			return
 		}
-		logger.Log().WithError(err).Error("failed to export certificate")
+		logger.Log().WithError(fmt.Errorf("%s", util.SanitizeForLog(err.Error()))).Error("failed to export certificate")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to export certificate"})
 		return
 	}
@@ -423,19 +424,21 @@ func (h *CertificateHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// UUID path - value isn't numeric, validate it looks like a UUID
-	if idStr == "" || idStr == "0" || len(idStr) < 32 {
+	// UUID path - parse to validate format and produce a canonical, safe string
+	parsedUUID, parseErr := uuid.Parse(idStr)
+	if parseErr != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
+	certUUID := parsedUUID.String()
 
-	inUse, err := h.service.IsCertificateInUseByUUID(idStr)
+	inUse, err := h.service.IsCertificateInUseByUUID(certUUID)
 	if err != nil {
 		if err == services.ErrCertNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "certificate not found"})
 			return
 		}
-		logger.Log().WithError(err).WithField("certificate_uuid", idStr).Error("failed to check certificate usage")
+		logger.Log().WithError(err).WithField("certificate_uuid", util.SanitizeForLog(certUUID)).Error("failed to check certificate usage")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check certificate usage"})
 		return
 	}
@@ -459,7 +462,7 @@ func (h *CertificateHandler) Delete(c *gin.Context) {
 		}
 	}
 
-	if err := h.service.DeleteCertificate(idStr); err != nil {
+	if err := h.service.DeleteCertificate(certUUID); err != nil {
 		if err == services.ErrCertInUse {
 			c.JSON(http.StatusConflict, gin.H{"error": "certificate is in use by one or more proxy hosts"})
 			return
@@ -468,12 +471,12 @@ func (h *CertificateHandler) Delete(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "certificate not found"})
 			return
 		}
-		logger.Log().WithError(err).WithField("certificate_uuid", idStr).Error("failed to delete certificate")
+		logger.Log().WithError(err).WithField("certificate_uuid", util.SanitizeForLog(certUUID)).Error("failed to delete certificate")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete certificate"})
 		return
 	}
 
-	h.sendDeleteNotification(c, idStr)
+	h.sendDeleteNotification(c, certUUID)
 	c.JSON(http.StatusOK, gin.H{"message": "certificate deleted"})
 }
 
@@ -482,11 +485,15 @@ func (h *CertificateHandler) sendDeleteNotification(c *gin.Context, certRef stri
 		return
 	}
 
+	// Re-validate to produce a CodeQL-safe value (breaks taint from user input).
+	// Callers already pass validated data; this is defense-in-depth.
+	safeRef := sanitizeCertRef(certRef)
+
 	h.notificationMu.Lock()
 	lastTime, exists := h.lastNotificationTime[certRef]
 	if exists && time.Since(lastTime) < 10*time.Second {
 		h.notificationMu.Unlock()
-		logger.Log().WithField("certificate_ref", certRef).Debug("notification rate limited")
+		logger.Log().WithField("certificate_ref", safeRef).Debug("notification rate limited")
 		return
 	}
 	h.lastNotificationTime[certRef] = time.Now()
@@ -495,10 +502,22 @@ func (h *CertificateHandler) sendDeleteNotification(c *gin.Context, certRef stri
 	h.notificationService.SendExternal(c.Request.Context(),
 		"cert",
 		"Certificate Deleted",
-		fmt.Sprintf("Certificate %s deleted", certRef),
+		fmt.Sprintf("Certificate %s deleted", safeRef),
 		map[string]any{
-			"Ref":    certRef,
+			"Ref":    safeRef,
 			"Action": "deleted",
 		},
 	)
+}
+
+// sanitizeCertRef re-validates a certificate reference (UUID or numeric ID)
+// and returns a safe string representation. Returns a placeholder if invalid.
+func sanitizeCertRef(ref string) string {
+	if parsed, err := uuid.Parse(ref); err == nil {
+		return parsed.String()
+	}
+	if n, err := strconv.ParseUint(ref, 10, 64); err == nil {
+		return strconv.FormatUint(n, 10)
+	}
+	return "[invalid-ref]"
 }

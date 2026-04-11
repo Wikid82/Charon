@@ -32,7 +32,7 @@ func TestCertificateHandler_Delete_RequiresAuth(t *testing.T) {
 	})
 	svc := services.NewCertificateService("/tmp", db, nil)
 	h := NewCertificateHandler(svc, nil, nil)
-	r.DELETE("/api/certificates/:id", h.Delete)
+	r.DELETE("/api/certificates/:uuid", h.Delete)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/1", http.NoBody)
 	w := httptest.NewRecorder()
@@ -135,7 +135,7 @@ func TestCertificateHandler_Delete_DiskSpaceCheck(t *testing.T) {
 	}
 
 	h := NewCertificateHandler(svc, mockBackup, nil)
-	r.DELETE("/api/certificates/:id", h.Delete)
+	r.DELETE("/api/certificates/:uuid", h.Delete)
 
 	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/certificates/%d", cert.ID), http.NoBody)
 	w := httptest.NewRecorder()
@@ -186,7 +186,7 @@ func TestCertificateHandler_Delete_NotificationRateLimiting(t *testing.T) {
 	}
 
 	h := NewCertificateHandler(svc, mockBackup, nil)
-	r.DELETE("/api/certificates/:id", h.Delete)
+	r.DELETE("/api/certificates/:uuid", h.Delete)
 
 	// Delete first cert
 	req1 := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/certificates/%d", cert1.ID), http.NoBody)

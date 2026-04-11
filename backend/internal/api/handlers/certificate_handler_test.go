@@ -41,7 +41,7 @@ func setupCertTestRouter(t *testing.T, db *gorm.DB) *gin.Engine {
 
 	svc := services.NewCertificateService("/tmp", db, nil)
 	h := NewCertificateHandler(svc, nil, nil)
-	r.DELETE("/api/certificates/:id", h.Delete)
+	r.DELETE("/api/certificates/:uuid", h.Delete)
 	return r
 }
 
@@ -123,7 +123,7 @@ func TestDeleteCertificate_CreatesBackup(t *testing.T) {
 	}
 
 	h := NewCertificateHandler(svc, mockBackupService, nil)
-	r.DELETE("/api/certificates/:id", h.Delete)
+	r.DELETE("/api/certificates/:uuid", h.Delete)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), http.NoBody)
 	w := httptest.NewRecorder()
@@ -174,7 +174,7 @@ func TestDeleteCertificate_BackupFailure(t *testing.T) {
 	}
 
 	h := NewCertificateHandler(svc, mockBackupService, nil)
-	r.DELETE("/api/certificates/:id", h.Delete)
+	r.DELETE("/api/certificates/:uuid", h.Delete)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), http.NoBody)
 	w := httptest.NewRecorder()
@@ -229,7 +229,7 @@ func TestDeleteCertificate_InUse_NoBackup(t *testing.T) {
 	}
 
 	h := NewCertificateHandler(svc, mockBackupService, nil)
-	r.DELETE("/api/certificates/:id", h.Delete)
+	r.DELETE("/api/certificates/:uuid", h.Delete)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), http.NoBody)
 	w := httptest.NewRecorder()
@@ -557,7 +557,7 @@ func TestDeleteCertificate_InvalidID(t *testing.T) {
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db, nil)
 	h := NewCertificateHandler(svc, nil, nil)
-	r.DELETE("/api/certificates/:id", h.Delete)
+	r.DELETE("/api/certificates/:uuid", h.Delete)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/invalid", http.NoBody)
 	w := httptest.NewRecorder()
@@ -582,7 +582,7 @@ func TestDeleteCertificate_ZeroID(t *testing.T) {
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db, nil)
 	h := NewCertificateHandler(svc, nil, nil)
-	r.DELETE("/api/certificates/:id", h.Delete)
+	r.DELETE("/api/certificates/:uuid", h.Delete)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/0", http.NoBody)
 	w := httptest.NewRecorder()
@@ -621,7 +621,7 @@ func TestDeleteCertificate_LowDiskSpace(t *testing.T) {
 	}
 
 	h := NewCertificateHandler(svc, mockBackupService, nil)
-	r.DELETE("/api/certificates/:id", h.Delete)
+	r.DELETE("/api/certificates/:uuid", h.Delete)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), http.NoBody)
 	w := httptest.NewRecorder()
@@ -672,7 +672,7 @@ func TestDeleteCertificate_DiskSpaceCheckError(t *testing.T) {
 	}
 
 	h := NewCertificateHandler(svc, mockBackupService, nil)
-	r.DELETE("/api/certificates/:id", h.Delete)
+	r.DELETE("/api/certificates/:uuid", h.Delete)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), http.NoBody)
 	w := httptest.NewRecorder()
@@ -726,7 +726,7 @@ func TestDeleteCertificate_ExpiredLetsEncrypt_NotInUse(t *testing.T) {
 	}
 
 	h := NewCertificateHandler(svc, mockBS, nil)
-	r.DELETE("/api/certificates/:id", h.Delete)
+	r.DELETE("/api/certificates/:uuid", h.Delete)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), http.NoBody)
 	w := httptest.NewRecorder()
@@ -784,7 +784,7 @@ func TestDeleteCertificate_ValidLetsEncrypt_NotInUse(t *testing.T) {
 	}
 
 	h := NewCertificateHandler(svc, mockBS, nil)
-	r.DELETE("/api/certificates/:id", h.Delete)
+	r.DELETE("/api/certificates/:uuid", h.Delete)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), http.NoBody)
 	w := httptest.NewRecorder()
@@ -822,7 +822,7 @@ func TestDeleteCertificate_UsageCheckError(t *testing.T) {
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db, nil)
 	h := NewCertificateHandler(svc, nil, nil)
-	r.DELETE("/api/certificates/:id", h.Delete)
+	r.DELETE("/api/certificates/:uuid", h.Delete)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), http.NoBody)
 	w := httptest.NewRecorder()
@@ -867,7 +867,7 @@ func TestDeleteCertificate_NotificationRateLimit(t *testing.T) {
 	}
 
 	h := NewCertificateHandler(svc, mockBackupService, ns)
-	r.DELETE("/api/certificates/:id", h.Delete)
+	r.DELETE("/api/certificates/:uuid", h.Delete)
 
 	// Delete first certificate
 	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert1.ID), http.NoBody)

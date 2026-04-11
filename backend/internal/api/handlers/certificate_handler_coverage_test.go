@@ -36,7 +36,7 @@ func TestCertificateHandler_Delete_InvalidID(t *testing.T) {
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db, nil)
 	h := NewCertificateHandler(svc, nil, nil)
-	r.DELETE("/api/certificates/:id", h.Delete)
+	r.DELETE("/api/certificates/:uuid", h.Delete)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/invalid", http.NoBody)
 	w := httptest.NewRecorder()
@@ -52,7 +52,7 @@ func TestCertificateHandler_Delete_NotFound(t *testing.T) {
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db, nil)
 	h := NewCertificateHandler(svc, nil, nil)
-	r.DELETE("/api/certificates/:id", h.Delete)
+	r.DELETE("/api/certificates/:uuid", h.Delete)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/9999", http.NoBody)
 	w := httptest.NewRecorder()
@@ -74,7 +74,7 @@ func TestCertificateHandler_Delete_NoBackupService(t *testing.T) {
 
 	// No backup service
 	h := NewCertificateHandler(svc, nil, nil)
-	r.DELETE("/api/certificates/:id", h.Delete)
+	r.DELETE("/api/certificates/:uuid", h.Delete)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), http.NoBody)
 	w := httptest.NewRecorder()
@@ -97,7 +97,7 @@ func TestCertificateHandler_Delete_CheckUsageDBError(t *testing.T) {
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db, nil)
 	h := NewCertificateHandler(svc, nil, nil)
-	r.DELETE("/api/certificates/:id", h.Delete)
+	r.DELETE("/api/certificates/:uuid", h.Delete)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), http.NoBody)
 	w := httptest.NewRecorder()
@@ -137,7 +137,7 @@ func TestCertificateHandler_Delete_ZeroID(t *testing.T) {
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db, nil)
 	h := NewCertificateHandler(svc, nil, nil)
-	r.DELETE("/api/certificates/:id", h.Delete)
+	r.DELETE("/api/certificates/:uuid", h.Delete)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/0", http.NoBody)
 	w := httptest.NewRecorder()
