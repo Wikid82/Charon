@@ -340,8 +340,11 @@ func ConvertPFXToPEM(pfxData []byte, password string) (certPEM string, keyPEM st
 // ConvertPEMToPFX bundles cert, key, chain into PFX.
 func ConvertPEMToPFX(certPEM string, keyPEM string, chainPEM string, password string) ([]byte, error) {
 	certs, err := parsePEMCertificates([]byte(certPEM))
-	if err != nil || len(certs) == 0 {
+	if err != nil {
 		return nil, fmt.Errorf("failed to parse cert PEM: %w", err)
+	}
+	if len(certs) == 0 {
+		return nil, fmt.Errorf("no certificates found in cert PEM")
 	}
 
 	key, err := parsePEMPrivateKey([]byte(keyPEM))
