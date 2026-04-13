@@ -15,7 +15,7 @@ concurrency:
 
 env:
   GOTOOLCHAIN: auto
-  GO_VERSION: '1.26.1'
+  GO_VERSION: '1.26.2'
 
 permissions:
   contents: read

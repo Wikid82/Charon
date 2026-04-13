@@ -232,8 +232,23 @@
       "datasourceTemplate": "github-releases",
       "versioningTemplate": "semver",
       "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "customType": "regex",
+      "description": "Track go-version in skill example workflows",
+      "managerFilePatterns": ["/^\\.github/skills/examples/.*\\.yml$/"],
+      "matchStrings": [
+        "go-version: [\"']?(?<currentValue>[\\d\\.]+)[\"']?"
+      ],
+      "depNameTemplate": "golang/go",
+      "datasourceTemplate": "golang-version",
+      "versioningTemplate": "semver"
     }
   ],
+
+  "github-actions": {
+    "fileMatch": ["^\\.github/skills/examples/.*\\.ya?ml$"]
+  },
 
   "packageRules": [
     {
@@ -276,6 +291,24 @@
       "matchManagers": ["dockerfile"],
       "matchPackageNames": ["caddy"],
       "allowedVersions": "<3.0.0"
+    },
+    {
+      "description": "Go: keep pgx within v4 (CrowdSec requires pgx/v4 module path)",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/jackc/pgx/v4"],
+      "allowedVersions": "<5.0.0"
+    },
+    {
+      "description": "Go: keep go-jose/v3 within v3 (v4 is a different Go module path)",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/go-jose/go-jose/v3"],
+      "allowedVersions": "<4.0.0"
+    },
+    {
+      "description": "Go: keep go-jose/v4 within v4 (v5 would be a different Go module path)",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/go-jose/go-jose/v4"],
+      "allowedVersions": "<5.0.0"
     },
     {
       "description": "Safety: Keep MAJOR updates separate and require manual review",

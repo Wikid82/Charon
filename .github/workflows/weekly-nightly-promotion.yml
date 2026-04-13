@@ -47,7 +47,7 @@ jobs:
     steps:
       - name: Check Nightly Workflow Status
         id: check
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             const skipCheck = '${{ inputs.skip_workflow_check }}' === 'true';
@@ -274,7 +274,7 @@ jobs:
       - name: Check for Existing PR
         id: existing-pr
         if: steps.check-diff.outputs.skipped != 'true'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             const { data: pulls } = await github.rest.pulls.list({
@@ -297,7 +297,7 @@ jobs:
       - name: Create Promotion PR
         id: create-pr
         if: steps.check-diff.outputs.skipped != 'true' && steps.existing-pr.outputs.exists != 'true'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             const fs = require('fs');
@@ -399,7 +399,7 @@ jobs:
 
       - name: Update Existing PR
         if: steps.check-diff.outputs.skipped != 'true' && steps.existing-pr.outputs.exists == 'true'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             const prNumber = ${{ steps.existing-pr.outputs.pr_number }};
@@ -425,7 +425,7 @@ jobs:
       contents: read
     steps:
       - name: Dispatch missing required workflows on nightly head
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             const owner = context.repo.owner;
@@ -483,7 +483,7 @@ jobs:
 
     steps:
       - name: Create Failure Issue
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             const isHealthy = '${{ needs.check-nightly-health.outputs.is_healthy }}';
