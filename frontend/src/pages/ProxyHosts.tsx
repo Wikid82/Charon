@@ -103,7 +103,7 @@ export default function ProxyHosts() {
   const certStatusByDomain = useMemo(() => {
     const map: Record<string, { status: string; provider: string }> = {}
     for (const cert of certificates) {
-      const domains = cert.domains.split(',').map(d => d.trim().toLowerCase())
+      const domains = (cert.domains || '').split(',').map(d => d.trim().toLowerCase()).filter(Boolean)
       for (const domain of domains) {
         if (!map[domain]) {
           map[domain] = { status: cert.status, provider: cert.provider }
