@@ -469,7 +469,7 @@ WORKDIR /app
 RUN apk add --no-cache \
     bash ca-certificates sqlite-libs sqlite tzdata gettext libcap libcap-utils \
     c-ares busybox-extras \
-    && apk upgrade --no-cache zlib libcrypto3 libssl3
+    && apk upgrade --no-cache zlib libcrypto3 libssl3 musl musl-utils
 
 # Copy gosu binary from gosu-builder (built with Go 1.26+ to avoid stdlib CVEs)
 COPY --from=gosu-builder /gosu-out/gosu /usr/sbin/gosu
