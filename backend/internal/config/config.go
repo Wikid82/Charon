@@ -110,15 +110,8 @@ func Load() (Config, error) {
 		Debug:           getEnvAny("false", "CHARON_DEBUG", "CPM_DEBUG") == "true",
 	}
 
-	// Certificate expiry warning days
-	if days := getEnvAny("30", "CHARON_CERT_EXPIRY_WARNING_DAYS"); days != "" {
-		if n, err := strconv.Atoi(days); err == nil && n > 0 {
-			cfg.CertExpiryWarningDays = n
-		}
-	}
-
-	// Certificate expiry warning days
-	if days := getEnvAny("30", "CHARON_CERT_EXPIRY_WARNING_DAYS"); days != "" {
+	cfg.CertExpiryWarningDays = 30
+	if days := getEnvAny("", "CHARON_CERT_EXPIRY_WARNING_DAYS"); days != "" {
 		if n, err := strconv.Atoi(days); err == nil && n > 0 {
 			cfg.CertExpiryWarningDays = n
 		}
