@@ -104,7 +104,7 @@ describe('CertificateDetailDialog', () => {
 
   it('displays common name', () => {
     renderDialog()
-    const matches = screen.getAllByText(/app\.example\.com/)
+    const matches = screen.getAllByText(/^app\.example\.com$/)
     expect(matches.length).toBeGreaterThanOrEqual(1)
   })
 
@@ -161,6 +161,7 @@ describe('CertificateDetailDialog', () => {
     vi.mocked(useCertificateDetail).mockReturnValue({
       detail: undefined as unknown as CertificateDetail,
       isLoading: true,
+      error: null,
     })
     renderDialog()
     expect(screen.getByTestId('certificate-detail-dialog')).toBeTruthy()
@@ -189,6 +190,7 @@ describe('CertificateDetailDialog', () => {
     vi.mocked(useCertificateDetail).mockReturnValue({
       detail: sparseDetail,
       isLoading: false,
+      error: null,
     })
     renderDialog()
     const dashes = screen.getAllByText('-')
@@ -204,6 +206,7 @@ describe('CertificateDetailDialog', () => {
     vi.mocked(useCertificateDetail).mockReturnValue({
       detail: noHostDetail,
       isLoading: false,
+      error: null,
     })
     renderDialog()
     expect(screen.getByText('certificates.noAssignedHosts')).toBeTruthy()
@@ -217,6 +220,7 @@ describe('CertificateDetailDialog', () => {
     vi.mocked(useCertificateDetail).mockReturnValue({
       detail: autoRenewDetail,
       isLoading: false,
+      error: null,
     })
     renderDialog()
     expect(screen.getByText('common.yes')).toBeTruthy()
@@ -231,6 +235,7 @@ describe('CertificateDetailDialog', () => {
     vi.mocked(useCertificateDetail).mockReturnValue({
       detail: noOrgDetail,
       isLoading: false,
+      error: null,
     })
     renderDialog()
     expect(screen.getByText('Fallback Issuer')).toBeTruthy()
@@ -240,6 +245,7 @@ describe('CertificateDetailDialog', () => {
     vi.mocked(useCertificateDetail).mockReturnValue({
       detail: undefined as unknown as CertificateDetail,
       isLoading: false,
+      error: null,
     })
     renderDialog(null)
     expect(screen.queryByText('My Cert')).toBeFalsy()
