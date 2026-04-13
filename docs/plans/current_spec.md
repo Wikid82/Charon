@@ -1252,3 +1252,124 @@ test('should reject empty friendly name', async ({ page }) => {
 | Other tests depend on `getAttribute('required')` pattern | Low | Grep for `getAttribute('required')` across all test files |
 | Disabled-button check is too permissive | Low | Tests still verify the submit guard logic is correct |
 | Key file optionality confuses users | Medium | UX already shows key file section only for non-PFX; label doesn't say "required" |
+
+---
+
+## Appendix A: CI Test Failure Fix Plan (PR #928)
+
+**Date**: 2026-04-13
+**Branch**: `feature/beta-release`
+**Trigger**: Two backend test failures blocking CI on PR #928.
+
+---
+
+### Failure 1: `TestCertificateHandler_Upload_MissingKeyFile_MultipartWithCert`
+
+**File**: `backend/internal/api/handlers/certificate_handler_test.go` line 396
+**Symptom**: Test expects a 400 response mentioning `key_file`, but receives `{"error":"failed to parse certificate input: failed to parse certificate PEM: failed to parse certificate: x509: malformed certificate"}`.
+
+#### Root Cause
+
+Two compounding issues:
+
+1. **Malformed test fixture**: The test sends a dummy cert (`-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----`) that is not a valid X.509 certificate. The `UploadCertificate` service method immediately calls `ParseCertificateInput()` → `parsePEMInput()` → `parsePEMCertificates()`, which fails on the malformed data before any key presence check runs.
+
+2. **Missing key_file validation**: The handler (line 127) treats `key_file` as optional and passes `keyPEM=""` to the service without complaint. The service's `UploadCertificate()` (line 434) calls `ParseCertificateInput()` which also treats a missing key as acceptable (PFX embeds keys). **There is no validation anywhere that requires `key_file` for PEM/DER uploads.** Even with a valid cert, this test would fail because the upload would succeed (201) instead of returning 400.
+
+#### Required Changes
+
+| # | File | Location | Change |
+|---|------|----------|--------|
+| 1a | `backend/internal/api/handlers/certificate_handler.go` | After line ~152 (after chain file read, before `h.service.UploadCertificate` call) | Add key_file validation for non-PFX formats. Use `services.DetectFormat(certBytes)` to detect format. If format is `FormatPEM` or `FormatDER`, require `keyPEM != ""`. Return `400 Bad Request` with `{"error":"key_file is required for PEM/DER certificate uploads"}`. |
+| 1b | `backend/internal/api/handlers/certificate_handler_test.go` | Line ~420 (the `part.Write` call) | Replace the malformed dummy cert with a valid self-signed certificate using the existing `generateSelfSignedCertPEM()` helper (already defined at line ~478 in the same file). Use only the cert portion; do not include the key file. |
+| 1c | `backend/internal/api/handlers/certificate_handler_test.go` | Line ~432 (the `key_file` assertion) | Update the expected error substring from `"key_file"` to `"key_file is required"` to match the new handler message. |
+
+**Handler change detail** (insert after chain file block, before `h.service.UploadCertificate`):
+
+```go
+// Require key_file for PEM/DER formats (PFX embeds the key)
+if keyPEM == "" {
+    format := services.DetectFormat(certBytes)
+    if format == services.FormatPEM || format == services.FormatDER {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "key_file is required for PEM/DER certificate uploads"})
+        return
+    }
+}
+```
+
+**Test change detail** (replace dummy cert with valid cert):
+
+```go
+certPEM, _, err := generateSelfSignedCertPEM()
+if err != nil {
+    t.Fatalf("failed to generate cert: %v", err)
+}
+part, createErr := writer.CreateFormFile("certificate_file", "cert.pem")
+if createErr != nil {
+    t.Fatalf("failed to create form file: %v", createErr)
+}
+_, _ = part.Write([]byte(certPEM))
+```
+
+---
+
+### Failure 2: `TestCertificateService_MigratePrivateKeys/migrates_plaintext_key`
+
+**File**: `backend/internal/services/certificate_service_coverage_test.go` line ~500
+**Symptom**: `duplicate column name: private_key` when executing `ALTER TABLE ssl_certificates ADD COLUMN private_key TEXT DEFAULT ''`.
+
+#### Root Cause
+
+Copy-paste / merge artifact. The "migrates plaintext key" subtest contains a **duplicate** `ALTER TABLE ADD COLUMN` block. The code at lines 496–497 executes the first ALTER TABLE (succeeds), then lines 499–501 repeat it verbatim (fails with "duplicate column name"). Line 499 also contains a corrupted comment: `// Insert cert with plaintext key using raw SQL{}))` — the `{}))` is leftover garbage from a bad merge.
+
+**Current code (lines 496–504):**
+```go
+require.NoError(t, db.Exec("ALTER TABLE ssl_certificates ADD COLUMN private_key TEXT DEFAULT ''").Error)
+
+// Insert cert with plaintext key using raw SQL{}))
+// MigratePrivateKeys uses raw SQL referencing private_key column (gorm:"-" tag)
+require.NoError(t, db.Exec("ALTER TABLE ssl_certificates ADD COLUMN private_key TEXT DEFAULT ''").Error)
+
+// Insert cert with plaintext key using raw SQL
+```
+
+The `PrivateKey` field in the model has `gorm:"-"`, so `AutoMigrate` does not create the `private_key` column, meaning the first ALTER TABLE is required. The second is spurious.
+
+#### Required Changes
+
+| # | File | Location | Change |
+|---|------|----------|--------|
+| 2a | `backend/internal/services/certificate_service_coverage_test.go` | Lines ~499–501 | Delete the three duplicate/corrupted lines (the corrupted comment, the duplicate `gorm:"-"` comment, and the duplicate ALTER TABLE statement). |
+
+**After fix, the block should read:**
+```go
+require.NoError(t, db.Exec("ALTER TABLE ssl_certificates ADD COLUMN private_key TEXT DEFAULT ''").Error)
+
+// Insert cert with plaintext key using raw SQL
+require.NoError(t, db.Exec(
+```
+
+---
+
+### Commit Slicing Strategy
+
+**Decision**: Single PR, single commit. Both fixes are small, scoped to test infrastructure + one handler validation guard, and have no cross-domain risk.
+
+#### Commit 1: `fix(tests): resolve CI failures in certificate upload handler and migration tests`
+
+| Aspect | Detail |
+|--------|--------|
+| **Scope** | 3 files — 1 handler source, 2 test files |
+| **Files** | `backend/internal/api/handlers/certificate_handler.go`, `backend/internal/api/handlers/certificate_handler_test.go`, `backend/internal/services/certificate_service_coverage_test.go` |
+| **Dependencies** | None — changes are self-contained |
+| **Validation gate** | `go test ./backend/internal/api/handlers/ -run TestCertificateHandler_Upload_MissingKeyFile_MultipartWithCert -v` and `go test ./backend/internal/services/ -run TestCertificateService_MigratePrivateKeys -v` must both pass |
+| **Regression check** | `go test ./backend/internal/api/handlers/ -run TestCertificateHandler_Upload` (all Upload tests) and `go test ./backend/internal/services/ -run TestCertificateService` (all service tests) |
+| **Rollback** | Standard `git revert` — no schema or migration changes |
+
+### Risk Assessment
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| key_file validation breaks PFX upload flow | Low | The guard explicitly excludes `FormatPFX` via `DetectFormat()` |
+| `generateSelfSignedCertPEM()` helper unavailable in test scope | None | Helper is already defined in the same test file (line ~478) |
+| Other tests rely on key_file being optional | Low | Grep for handler Upload tests to confirm no other test sends cert-only |
