@@ -61,7 +61,7 @@ func migrateViewerToPassthrough(db *gorm.DB) {
 }
 
 // Register wires up API routes and performs automatic migrations.
-func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
+func Register(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	// Caddy Manager - created early so it can be used by settings handlers for config reload
 	caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
 	caddyManager := caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
@@ -69,11 +69,11 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	// Cerberus middleware applies the optional security suite checks (WAF, ACL, CrowdSec)
 	cerb := cerberus.New(cfg.Security, db)
 
-	return RegisterWithDeps(router, db, cfg, caddyManager, cerb)
+	return RegisterWithDeps(ctx, router, db, cfg, caddyManager, cerb)
 }
 
 // RegisterWithDeps wires up API routes and performs automatic migrations with prebuilt dependencies.
-func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyManager *caddy.Manager, cerb *cerberus.Cerberus) error {
+func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg config.Config, caddyManager *caddy.Manager, cerb *cerberus.Cerberus) error {
 	// Emergency bypass must be registered FIRST.
 	// When a valid X-Emergency-Token is present from an authorized source,
 	// it sets an emergency context flag and strips the token header so downstream
@@ -705,7 +705,7 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		if cfg.CertExpiryWarningDays > 0 {
 			warningDays = cfg.CertExpiryWarningDays
 		}
-		go certService.StartExpiryChecker(context.Background(), notificationService, warningDays)
+		go certService.StartExpiryChecker(ctx, notificationService, warningDays)
 
 		// Proxy Hosts & Remote Servers
 		proxyHostHandler := handlers.NewProxyHostHandler(db, caddyManager, notificationService, uptimeService)

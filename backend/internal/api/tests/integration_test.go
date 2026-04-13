@@ -2,6 +2,7 @@
 package tests
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -33,7 +34,7 @@ func TestIntegration_WAF_BlockAndMonitor(t *testing.T) {
 		}
 		cfg.Security.WAFMode = mode
 		r := gin.New()
-		if err := routes.Register(r, db, cfg); err != nil {
+		if err := routes.Register(context.Background(), r, db, cfg); err != nil {
 			t.Fatalf("register: %v", err)
 		}
 		return r, db
