@@ -108,6 +108,7 @@ export function FileDropZone({
           disabled={disabled}
           className="sr-only"
           aria-required={required}
+          required={required}
           tabIndex={-1}
         />
 

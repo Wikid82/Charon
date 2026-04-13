@@ -947,3 +947,308 @@ GORM `AutoMigrate` handles additive column changes automatically. The private ke
 - [ ] GORM security scan reports zero CRITICAL/HIGH findings
 - [ ] CodeQL scans report zero HIGH/CRITICAL findings
 - [ ] No plaintext private keys in database after migration
+
+---
+
+## Root Cause Analysis: E2E Certificate Test Failures (PR #928)
+
+**Date**: 2026-06-24
+**Scope**: 4 failing tests in `tests/core/certificates.spec.ts`
+**Branch**: `feature/beta-release`
+
+### Failing Tests
+
+| # | Test Name | Line | Test Describe Block |
+|---|-----------|------|---------------------|
+| 1 | should validate required name field | L349 | Upload Dialog |
+| 2 | should require certificate file | L375 | Upload Dialog |
+| 3 | should require private key file | L400 | Upload Dialog |
+| 4 | should reject empty friendly name | L776 | Form Validation |
+
+---
+
+### Root Cause Summary
+
+There are **two layers** of failure. Layer 1 is the primary blocker in CI. Layer 2 contains test-logic defects that would surface even after Layer 1 is resolved.
+
+#### Layer 1: Infrastructure — Disabled Submit Button Blocks All Validation Tests
+
+**Classification**: Test Issue
+**Severity**: CRITICAL — blocks all 4 tests
+
+**Mechanism**:
+
+The `CertificateUploadDialog` submit button is governed by:
+
+```tsx
+// frontend/src/components/dialogs/CertificateUploadDialog.tsx
+const canSubmit = !!certFile && !!name.trim()
+
+<Button type="submit" disabled={!canSubmit} ...>
+```
+
+All 4 failing tests attempt to click the Upload button **without providing a certificate file** (and tests 1/4 also leave the name empty). When `canSubmit` is `false`, the button renders with `disabled` attribute.
+
+Playwright's `click()` performs actionability checks by default — it waits for the element to become **enabled** before clicking. On a disabled button, this waits until the default timeout (30s), then fails with a timeout error. The HTML5 form validation the tests expect to trigger **never fires** because the form is never submitted.
+
+**Affected Tests**: All 4.
+
+| Test | Name Empty | CertFile Null | canSubmit | Button State |
+|------|-----------|---------------|-----------|--------------|
+| 1 — validate required name | Yes | Yes | `false` | **Disabled** |
+| 2 — require certificate file | No | Yes | `false` | **Disabled** |
+| 3 — require private key file | N/A | N/A | N/A | **Disabled** |
+| 4 — reject empty name | Yes | Yes | `false` | **Disabled** |
+
+#### Layer 2a: `required` vs `aria-required` Attribute Mismatch
+
+**Classification**: Test Issue
+**Severity**: HIGH — tests 2 and 3 would fail even with a clickable button
+
+**Mechanism**:
+
+Tests 2 and 3 check for the native HTML `required` attribute on file inputs:
+
+```ts
+// tests/core/certificates.spec.ts L388
+const certFileInput = dialog.locator('#cert-file');
+const isRequired = await certFileInput.getAttribute('required');
+expect(isRequired !== null).toBeTruthy();
+```
+
+But `FileDropZone` only sets `aria-required`, **not** the native `required` attribute:
+
+```tsx
+// frontend/src/components/ui/FileDropZone.tsx L102-L113
+<input
+  ref={inputRef}
+  id={id}
+  type="file"
+  accept={accept}
+  className="sr-only"
+  aria-required={required}   // ← sets aria-required, NOT required
+  tabIndex={-1}
+/>
+```
+
+`getAttribute('required')` returns `null` → assertion `isRequired !== null` → `false` → test fails.
+
+#### Layer 2b: Key File Not Required
+
+**Classification**: Test Issue + Design Mismatch
+**Severity**: HIGH — test 3 asserts a requirement that doesn't exist
+
+**Mechanism**:
+
+Test 3 expects `#key-file` to have a `required` attribute, but the key file `FileDropZone` is intentionally **not required**:
+
+```tsx
+// frontend/src/components/dialogs/CertificateUploadDialog.tsx L153-L161
+<FileDropZone
+  id="key-file"
+  label={t('certificates.privateKeyFile')}
+  accept=".pem,.key"
+  file={keyFile}
+  onFileChange={(f) => { ... }}
+  // ← NO required prop
+/>
+```
+
+The backend also treats `key_file` as optional:
+
+```go
+// backend/internal/api/handlers/certificate_handler.go ~L80
+keyFileHeader, _ := c.FormFile("key_file") // optional
+```
+
+This is by design: PFX certificates bundle the private key, so a separate key file is not always needed. The test incorrectly assumes the key file is always required.
+
+#### Layer 2c: Always-True Assertion (Test 1)
+
+**Classification**: Test Issue (minor)
+**Severity**: LOW — the assertion is meaningless
+
+```ts
+// tests/core/certificates.spec.ts L365
+expect(isInvalid || true).toBeTruthy(); // always passes
+```
+
+The `|| true` makes this assertion vacuous. It should be:
+```ts
+expect(isInvalid).toBeTruthy();
+```
+
+---
+
+### Files Involved
+
+| File | Role | Issue |
+|------|------|-------|
+| [tests/core/certificates.spec.ts](tests/core/certificates.spec.ts) | E2E test file | All 4 failing tests |
+| [frontend/src/components/dialogs/CertificateUploadDialog.tsx](frontend/src/components/dialogs/CertificateUploadDialog.tsx) | Upload form | Disabled button prevents form submission; key file not required |
+| [frontend/src/components/ui/FileDropZone.tsx](frontend/src/components/ui/FileDropZone.tsx) | File input wrapper | Uses `aria-required` not `required` HTML attribute |
+| [frontend/src/components/ui/Input.tsx](frontend/src/components/ui/Input.tsx) | Text input | Passes `required` to native `<input>` via spread props (correct) |
+| [backend/internal/api/handlers/certificate_handler.go](backend/internal/api/handlers/certificate_handler.go) | Upload handler | `key_file` is optional — consistent with frontend |
+
+---
+
+### Remediation Plan
+
+**Approach**: Fix the tests to match the actual (correct) frontend/backend behavior.
+The frontend's disabled-button pattern and optional key file are correct design choices; the tests are wrong.
+
+#### Commit 1: Fix validation tests to work with disabled submit button
+
+**Scope**: `tests/core/certificates.spec.ts`
+
+**Changes for Test 1 ("should validate required name field", L349)**:
+- Remove the disabled-button click approach
+- Instead, verify that the submit button is disabled when name is empty
+- Test that the `required` attribute exists on the name `<input>` element
+- Remove the vacuous `|| true` assertion
+
+```ts
+test('should validate required name field', async ({ page }) => {
+  await test.step('Open upload dialog', async () => {
+    await getAddCertButton(page).click();
+    await waitForDialog(page);
+  });
+
+  await test.step('Verify submit is disabled with empty name', async () => {
+    const dialog = page.getByRole('dialog');
+    const nameInput = dialog.locator('#certificate-name');
+    const submitButton = dialog.getByTestId('upload-certificate-submit');
+
+    // Name input should have HTML5 required attribute
+    await expect(nameInput).toHaveAttribute('required', '');
+
+    // Submit button should be disabled when name is empty
+    await expect(submitButton).toBeDisabled();
+  });
+
+  await test.step('Close dialog', async () => {
+    await getCancelButton(page).click();
+  });
+});
+```
+
+**Changes for Test 2 ("should require certificate file", L375)**:
+- Replace `getAttribute('required')` with `getAttribute('aria-required')`
+- Verify submit button is disabled without a cert file
+- Remove the disabled-button click
+
+```ts
+test('should require certificate file', async ({ page }) => {
+  await test.step('Open upload dialog', async () => {
+    await getAddCertButton(page).click();
+    await waitForDialog(page);
+  });
+
+  await test.step('Verify cert file is required', async () => {
+    const dialog = page.getByRole('dialog');
+    const nameInput = dialog.locator('#certificate-name');
+    await nameInput.fill('Test Certificate');
+
+    // FileDropZone uses aria-required, not HTML required
+    const certFileInput = dialog.locator('#cert-file');
+    await expect(certFileInput).toHaveAttribute('aria-required', 'true');
+
+    // Submit should remain disabled without cert file
+    const submitButton = dialog.getByTestId('upload-certificate-submit');
+    await expect(submitButton).toBeDisabled();
+  });
+
+  await test.step('Close dialog', async () => {
+    await getCancelButton(page).click();
+  });
+});
+```
+
+**Changes for Test 3 ("should require private key file", L400)**:
+- The key file is intentionally optional — rewrite to test that it is optional and
+  only shown for non-PFX formats
+- OR remove this test entirely and replace with a test that validates the key file
+  is present but optional
+
+```ts
+test('should show optional private key file field', async ({ page }) => {
+  await test.step('Open upload dialog', async () => {
+    await getAddCertButton(page).click();
+    await waitForDialog(page);
+  });
+
+  await test.step('Verify private key field is visible but optional', async () => {
+    const dialog = page.getByRole('dialog');
+    const keyFileInput = dialog.locator('#key-file');
+    await expect(keyFileInput).toBeVisible();
+
+    // Key file is optional - should NOT have aria-required="true"
+    const ariaRequired = await keyFileInput.getAttribute('aria-required');
+    expect(ariaRequired).not.toBe('true');
+  });
+
+  await test.step('Close dialog', async () => {
+    await getCancelButton(page).click();
+  });
+});
+```
+
+**Changes for Test 4 ("should reject empty friendly name", L776)**:
+- Replace button click with submit-button disabled check
+
+```ts
+test('should reject empty friendly name', async ({ page }) => {
+  await test.step('Verify upload blocked with empty name', async () => {
+    await getAddCertButton(page).click();
+    await waitForDialog(page);
+
+    const dialog = page.getByRole('dialog');
+    const submitButton = dialog.getByTestId('upload-certificate-submit');
+
+    // Submit should be disabled with empty name
+    await expect(submitButton).toBeDisabled();
+
+    // Dialog should remain open
+    await expect(dialog).toBeVisible();
+
+    await getCancelButton(page).click();
+  });
+});
+```
+
+#### Commit 2: (Optional) Add `required` HTML attribute to FileDropZone for native validation
+
+**Scope**: `frontend/src/components/ui/FileDropZone.tsx`
+**Decision**: Consider adding the native `required` attribute alongside `aria-required` for defense-in-depth. This is a frontend enhancement, not a test fix.
+
+```tsx
+<input
+  ref={inputRef}
+  id={id}
+  type="file"
+  accept={accept}
+  className="sr-only"
+  aria-required={required}
+  required={required}          // ← ADD native required
+  tabIndex={-1}
+/>
+```
+
+**Impact**: Minimal — the hidden file input is `sr-only` and never focused by users directly. Adding `required` provides native HTML5 validation as a fallback if the form's JS validation is bypassed.
+
+---
+
+### Validation Gates
+
+- [ ] All 4 tests pass in Firefox (default E2E browser)
+- [ ] All 4 tests pass in Chromium
+- [ ] No regression in other certificate tests (upload, delete, export, list)
+- [ ] FileDropZone unit tests updated if Commit 2 is applied
+
+### Risk Assessment
+
+| Risk | Likelihood | Mitigation |
+|------|-----------|------------|
+| Other tests depend on `getAttribute('required')` pattern | Low | Grep for `getAttribute('required')` across all test files |
+| Disabled-button check is too permissive | Low | Tests still verify the submit guard logic is correct |
+| Key file optionality confuses users | Medium | UX already shows key file section only for non-PFX; label doesn't say "required" |

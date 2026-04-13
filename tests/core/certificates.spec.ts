@@ -349,22 +349,19 @@ test.describe('SSL Certificates - CRUD Operations', () => {
     test('should validate required name field', async ({ page }) => {
       await test.step('Open upload dialog', async () => {
         await getAddCertButton(page).click();
-        await waitForDialog(page); // Wait for dialog to be fully interactive
+        await waitForDialog(page);
       });
 
-      await test.step('Try to submit with empty name', async () => {
+      await test.step('Verify submit is disabled with empty name', async () => {
         const dialog = page.getByRole('dialog');
+        const nameInput = dialog.locator('#certificate-name');
         const uploadButton = dialog.getByRole('button', { name: /upload/i });
-        await uploadButton.click();
 
-        // Form should show validation error or prevent submission
-        const nameInput = dialog.locator('input').first();
-        const isInvalid = await nameInput.evaluate((el: HTMLInputElement) =>
-          el.validity.valid === false || el.getAttribute('aria-invalid') === 'true'
-        ).catch(() => false);
+        // Name input should have HTML5 required attribute
+        await expect(nameInput).toHaveAttribute('required', '');
 
-        // HTML5 validation should prevent submission
-        expect(isInvalid || true).toBeTruthy();
+        // Submit button should be disabled when name is empty
+        await expect(uploadButton).toBeDisabled();
       });
 
       await test.step('Close dialog', async () => {
@@ -375,21 +372,21 @@ test.describe('SSL Certificates - CRUD Operations', () => {
     test('should require certificate file', async ({ page }) => {
       await test.step('Open upload dialog', async () => {
         await getAddCertButton(page).click();
-        await waitForDialog(page); // Wait for dialog to be fully interactive
+        await waitForDialog(page);
       });
 
-      await test.step('Fill name but no certificate file', async () => {
+      await test.step('Verify cert file is required', async () => {
         const dialog = page.getByRole('dialog');
-        const nameInput = dialog.locator('input').first();
+        const nameInput = dialog.locator('#certificate-name');
         await nameInput.fill('Test Certificate');
 
-        const uploadButton = dialog.getByRole('button', { name: /upload/i });
-        await uploadButton.click();
-
-        // Should show validation error for missing file
+        // FileDropZone uses aria-required, not native HTML required
         const certFileInput = dialog.locator('#cert-file');
-        const isRequired = await certFileInput.getAttribute('required');
-        expect(isRequired !== null).toBeTruthy();
+        await expect(certFileInput).toHaveAttribute('aria-required', 'true');
+
+        // Submit should remain disabled without cert file
+        const uploadButton = dialog.getByRole('button', { name: /upload/i });
+        await expect(uploadButton).toBeDisabled();
       });
 
       await test.step('Close dialog', async () => {
@@ -397,17 +394,19 @@ test.describe('SSL Certificates - CRUD Operations', () => {
       });
     });
 
-    test('should require private key file', async ({ page }) => {
+    test('should show optional private key file field', async ({ page }) => {
       await test.step('Open upload dialog', async () => {
         await getAddCertButton(page).click();
-        await waitForDialog(page); // Wait for dialog to be fully interactive
+        await waitForDialog(page);
       });
 
-      await test.step('Verify private key is required', async () => {
+      await test.step('Verify private key field is visible but optional', async () => {
         const dialog = page.getByRole('dialog');
         const keyFileInput = dialog.locator('#key-file');
-        const isRequired = await keyFileInput.getAttribute('required');
-        expect(isRequired !== null).toBeTruthy();
+        await expect(keyFileInput).toBeVisible();
+
+        // Key file is optional (PFX bundles the key) — should NOT be aria-required
+        await expect(keyFileInput).not.toHaveAttribute('aria-required', 'true');
       });
 
       await test.step('Close dialog', async () => {
@@ -774,17 +773,23 @@ test.describe('SSL Certificates - CRUD Operations', () => {
 
   test.describe('Form Validation', () => {
     test('should reject empty friendly name', async ({ page }) => {
-      await test.step('Try to upload with empty name', async () => {
+      await test.step('Open upload dialog', async () => {
         await getAddCertButton(page).click();
-        await waitForDialog(page); // Wait for dialog to be fully interactive
+        await waitForDialog(page);
+      });
 
+      await test.step('Verify upload blocked with empty name', async () => {
         const dialog = page.getByRole('dialog');
         const uploadButton = dialog.getByRole('button', { name: /upload/i });
-        await uploadButton.click();
 
-        // Should not close dialog (validation error)
+        // Submit should be disabled with empty name
+        await expect(uploadButton).toBeDisabled();
+
+        // Dialog should remain open
         await expect(dialog).toBeVisible();
+      });
 
+      await test.step('Close dialog', async () => {
         await getCancelButton(page).click();
       });
     });
