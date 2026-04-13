@@ -15,7 +15,7 @@ on:
       default: "false"
 
 env:
-  GO_VERSION: '1.26.1'
+  GO_VERSION: '1.26.2'
   NODE_VERSION: '24.12.0'
   GOTOOLCHAIN: auto
   GHCR_REGISTRY: ghcr.io
@@ -89,7 +89,7 @@ jobs:
       contents: read
     steps:
       - name: Dispatch Missing Nightly Validation Workflows
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             const owner = context.repo.owner;
@@ -212,7 +212,7 @@ jobs:
 
       - name: Build and push Docker image
         id: build
-        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294  # v7.0.0
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f  # v7.1.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -285,7 +285,7 @@ jobs:
 
           echo "Primary SBOM generation failed or produced missing/invalid output; using deterministic Syft fallback"
 
-          SYFT_VERSION="v1.42.3"
+          SYFT_VERSION="v1.42.4"
           OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
           ARCH="$(uname -m)"
           case "$ARCH" in
@@ -328,7 +328,7 @@ jobs:
           ' sbom-nightly.json >/dev/null
 
       - name: Upload SBOM artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: sbom-nightly
           path: sbom-nightly.json
@@ -394,14 +394,28 @@ jobs:
             -p 8080:8080 \
             "${IMAGE_REF}"
 
-          # Wait for container to start
-          sleep 10
+          # Wait for container to become healthy
+          echo "⏳ Waiting for Charon to be healthy..."
+          MAX_ATTEMPTS=30
+          ATTEMPT=0
+          while [[ ${ATTEMPT} -lt ${MAX_ATTEMPTS} ]]; do
+            ATTEMPT=$((ATTEMPT + 1))
+            echo "Attempt ${ATTEMPT}/${MAX_ATTEMPTS}..."
+            if docker exec charon-nightly wget -qO- http://127.0.0.1:8080/health > /dev/null 2>&1; then
+              echo "✅ Charon is healthy!"
+              docker exec charon-nightly wget -qO- http://127.0.0.1:8080/health
+              break
+            fi
+            sleep 2
+          done
 
-          # Check container is running
-          docker ps | grep charon-nightly
-
-          # Basic health check
-          curl -f http://localhost:8080/health || exit 1
+          if [[ ${ATTEMPT} -ge ${MAX_ATTEMPTS} ]]; then
+            echo "❌ Health check failed after ${MAX_ATTEMPTS} attempts"
+            docker logs charon-nightly
+            docker stop charon-nightly
+            docker rm charon-nightly
+            exit 1
+          fi
 
           # Cleanup
           docker stop charon-nightly
