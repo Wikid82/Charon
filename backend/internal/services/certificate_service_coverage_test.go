@@ -495,10 +495,6 @@ func TestCertificateService_MigratePrivateKeys(t *testing.T) {
 		// MigratePrivateKeys uses raw SQL referencing private_key column (gorm:"-" tag)
 		require.NoError(t, db.Exec("ALTER TABLE ssl_certificates ADD COLUMN private_key TEXT DEFAULT ''").Error)
 
-		// Insert cert with plaintext key using raw SQL{}))
-		// MigratePrivateKeys uses raw SQL referencing private_key column (gorm:"-" tag)
-		require.NoError(t, db.Exec("ALTER TABLE ssl_certificates ADD COLUMN private_key TEXT DEFAULT ''").Error)
-
 		// Insert cert with plaintext key using raw SQL
 		require.NoError(t, db.Exec(
 			"INSERT INTO ssl_certificates (uuid, name, provider, domains, private_key) VALUES (?, ?, ?, ?, ?)",

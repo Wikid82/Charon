@@ -165,6 +165,15 @@ func (h *CertificateHandler) Upload(c *gin.Context) {
 		chainPEM = string(chainBytes)
 	}
 
+	// Require key_file for non-PFX formats (PFX embeds the private key)
+	if keyPEM == "" {
+		format := services.DetectFormat(certBytes)
+		if format != services.FormatPFX {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "key_file is required for PEM/DER certificate uploads"})
+			return
+		}
+	}
+
 	cert, err := h.service.UploadCertificate(name, certPEM, keyPEM, chainPEM)
 	if err != nil {
 		logger.Log().WithError(err).Error("failed to upload certificate")

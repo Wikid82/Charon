@@ -408,6 +408,11 @@ func TestCertificateHandler_Upload_MissingKeyFile_MultipartWithCert(t *testing.T
 	h := NewCertificateHandler(svc, nil, nil)
 	r.POST("/api/certificates", h.Upload)
 
+	certPEM, _, genErr := generateSelfSignedCertPEM()
+	if genErr != nil {
+		t.Fatalf("failed to generate self-signed cert: %v", genErr)
+	}
+
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	_ = writer.WriteField("name", "testcert")
@@ -415,7 +420,7 @@ func TestCertificateHandler_Upload_MissingKeyFile_MultipartWithCert(t *testing.T
 	if createErr != nil {
 		t.Fatalf("failed to create form file: %v", createErr)
 	}
-	_, _ = part.Write([]byte("-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----"))
+	_, _ = part.Write([]byte(certPEM))
 	_ = writer.Close()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/certificates", &body)
@@ -426,7 +431,7 @@ func TestCertificateHandler_Upload_MissingKeyFile_MultipartWithCert(t *testing.T
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 Bad Request, got %d, body=%s", w.Code, w.Body.String())
 	}
-	if !strings.Contains(w.Body.String(), "key_file") {
+	if !strings.Contains(w.Body.String(), "key_file is required") {
 		t.Fatalf("expected error message about key_file, got: %s", w.Body.String())
 	}
 }
