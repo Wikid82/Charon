@@ -360,7 +360,7 @@ func (h *CertificateHandler) Export(c *gin.Context) {
 		}
 	}
 
-	data, filename, err := h.service.ExportCertificate(certUUID, req.Format, req.IncludeKey)
+	data, filename, err := h.service.ExportCertificate(certUUID, req.Format, req.IncludeKey, req.PFXPassword)
 	if err != nil {
 		if err == services.ErrCertNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "certificate not found"})

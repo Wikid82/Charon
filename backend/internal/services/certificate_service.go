@@ -708,7 +708,7 @@ func (s *CertificateService) DeleteCertificate(certUUID string) error {
 
 // ExportCertificate exports a certificate in the requested format.
 // Returns the file data, suggested filename, and any error.
-func (s *CertificateService) ExportCertificate(certUUID string, format string, includeKey bool) ([]byte, string, error) {
+func (s *CertificateService) ExportCertificate(certUUID string, format string, includeKey bool, pfxPassword string) ([]byte, string, error) {
 	var cert models.SSLCertificate
 	if err := s.db.Where("uuid = ?", certUUID).First(&cert).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -752,7 +752,7 @@ func (s *CertificateService) ExportCertificate(certUUID string, format string, i
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to decrypt private key for PFX: %w", err)
 		}
-		pfxData, err := ConvertPEMToPFX(cert.Certificate, keyPEM, cert.CertificateChain, "")
+		pfxData, err := ConvertPEMToPFX(cert.Certificate, keyPEM, cert.CertificateChain, pfxPassword)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to create PFX: %w", err)
 		}

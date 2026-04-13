@@ -311,19 +311,19 @@ func TestCertificateService_ExportCertificate(t *testing.T) {
 	cert := seedCertWithKey(t, db, encSvc, "export-cert-1", "Export Cert", domain, expiry)
 
 	t.Run("not found", func(t *testing.T) {
-		_, _, err := cs.ExportCertificate("nonexistent", "pem", false)
+		_, _, err := cs.ExportCertificate("nonexistent", "pem", false, "")
 		assert.ErrorIs(t, err, ErrCertNotFound)
 	})
 
 	t.Run("pem without key", func(t *testing.T) {
-		data, filename, err := cs.ExportCertificate(cert.UUID, "pem", false)
+		data, filename, err := cs.ExportCertificate(cert.UUID, "pem", false, "")
 		require.NoError(t, err)
 		assert.Equal(t, "Export Cert.pem", filename)
 		assert.Contains(t, string(data), "BEGIN CERTIFICATE")
 	})
 
 	t.Run("pem with key", func(t *testing.T) {
-		data, filename, err := cs.ExportCertificate(cert.UUID, "pem", true)
+		data, filename, err := cs.ExportCertificate(cert.UUID, "pem", true, "")
 		require.NoError(t, err)
 		assert.Equal(t, "Export Cert.pem", filename)
 		assert.Contains(t, string(data), "BEGIN CERTIFICATE")
@@ -331,28 +331,28 @@ func TestCertificateService_ExportCertificate(t *testing.T) {
 	})
 
 	t.Run("der format", func(t *testing.T) {
-		data, filename, err := cs.ExportCertificate(cert.UUID, "der", false)
+		data, filename, err := cs.ExportCertificate(cert.UUID, "der", false, "")
 		require.NoError(t, err)
 		assert.Equal(t, "Export Cert.der", filename)
 		assert.NotEmpty(t, data)
 	})
 
 	t.Run("pfx format", func(t *testing.T) {
-		data, filename, err := cs.ExportCertificate(cert.UUID, "pfx", false)
+		data, filename, err := cs.ExportCertificate(cert.UUID, "pfx", false, "")
 		require.NoError(t, err)
 		assert.Equal(t, "Export Cert.pfx", filename)
 		assert.NotEmpty(t, data)
 	})
 
 	t.Run("unsupported format", func(t *testing.T) {
-		_, _, err := cs.ExportCertificate(cert.UUID, "jks", false)
+		_, _, err := cs.ExportCertificate(cert.UUID, "jks", false, "")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported export format")
 	})
 
 	t.Run("empty name uses fallback", func(t *testing.T) {
 		noNameCert := seedCertWithKey(t, db, encSvc, "export-noname", "", domain, expiry)
-		_, filename, err := cs.ExportCertificate(noNameCert.UUID, "pem", false)
+		_, filename, err := cs.ExportCertificate(noNameCert.UUID, "pem", false, "")
 		require.NoError(t, err)
 		assert.Equal(t, "certificate.pem", filename)
 	})
