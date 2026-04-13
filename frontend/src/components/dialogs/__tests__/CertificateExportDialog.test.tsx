@@ -175,8 +175,8 @@ describe('CertificateExportDialog', () => {
     const fakeBlob = new Blob(['cert-data'], { type: 'application/x-pem-file' })
     const revokeURL = vi.fn()
     const createURL = vi.fn(() => 'blob:http://localhost/fake')
-    global.URL.createObjectURL = createURL
-    global.URL.revokeObjectURL = revokeURL
+    globalThis.URL.createObjectURL = createURL
+    globalThis.URL.revokeObjectURL = revokeURL
 
     const appendSpy = vi.spyOn(document.body, 'appendChild')
     const removeSpy = vi.fn()
@@ -251,8 +251,8 @@ describe('CertificateExportDialog', () => {
 
   it('uses certificate name in download filename on success', async () => {
     const fakeBlob = new Blob(['data'])
-    global.URL.createObjectURL = vi.fn(() => 'blob:fake')
-    global.URL.revokeObjectURL = vi.fn()
+    globalThis.URL.createObjectURL = vi.fn(() => 'blob:fake')
+    globalThis.URL.revokeObjectURL = vi.fn()
 
     let capturedAnchor: HTMLAnchorElement | null = null
     exportMutateFn.mockImplementation(
