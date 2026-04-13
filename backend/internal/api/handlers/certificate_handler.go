@@ -293,7 +293,10 @@ func (h *CertificateHandler) Validate(c *gin.Context) {
 	result, err := h.service.ValidateCertificate(string(certBytes), keyPEM, chainPEM)
 	if err != nil {
 		logger.Log().WithError(err).Error("failed to validate certificate")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "validation failed"})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":  "validation failed",
+			"errors": []string{err.Error()},
+		})
 		return
 	}
 
