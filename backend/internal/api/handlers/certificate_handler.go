@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -120,7 +119,7 @@ func (h *CertificateHandler) Upload(c *gin.Context) {
 	}
 	certPEM := string(certBytes)
 
-	// Read private key file (optional for PFX)
+	// Read private key file (optional — format detection is content-based in the service)
 	var keyPEM string
 	keyFile, err := c.FormFile("key_file")
 	if err == nil {
@@ -141,10 +140,6 @@ func (h *CertificateHandler) Upload(c *gin.Context) {
 			return
 		}
 		keyPEM = string(keyBytes)
-	} else if !strings.HasSuffix(strings.ToLower(certFile.Filename), ".pfx") &&
-		!strings.HasSuffix(strings.ToLower(certFile.Filename), ".p12") {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "key_file is required for PEM certificates"})
-		return
 	}
 
 	// Read chain file (optional)
