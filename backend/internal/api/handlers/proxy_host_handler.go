@@ -248,6 +248,38 @@ func (h *ProxyHostHandler) resolveSecurityHeaderProfileReference(value any) (*ui
 	return &id, nil
 }
 
+func (h *ProxyHostHandler) resolveCertificateReference(value any) (*uint, error) {
+	if value == nil {
+		return nil, nil
+	}
+
+	parsedID, _, parseErr := parseNullableUintField(value, "certificate_id")
+	if parseErr == nil {
+		return parsedID, nil
+	}
+
+	uuidValue, isString := value.(string)
+	if !isString {
+		return nil, parseErr
+	}
+
+	trimmed := strings.TrimSpace(uuidValue)
+	if trimmed == "" {
+		return nil, nil
+	}
+
+	var cert models.SSLCertificate
+	if err := h.db.Select("id").Where("uuid = ?", trimmed).First(&cert).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("certificate not found")
+		}
+		return nil, fmt.Errorf("failed to resolve certificate")
+	}
+
+	id := cert.ID
+	return &id, nil
+}
+
 func parseForwardPortField(value any) (int, error) {
 	switch v := value.(type) {
 	case float64:
@@ -340,6 +372,15 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 			return
 		}
 		payload["security_header_profile_id"] = resolvedSecurityHeaderID
+	}
+
+	if rawCertRef, ok := payload["certificate_id"]; ok {
+		resolvedCertID, resolveErr := h.resolveCertificateReference(rawCertRef)
+		if resolveErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": resolveErr.Error()})
+			return
+		}
+		payload["certificate_id"] = resolvedCertID
 	}
 
 	payloadBytes, marshalErr := json.Marshal(payload)
@@ -523,12 +564,12 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 
 	// Nullable foreign keys
 	if v, ok := payload["certificate_id"]; ok {
-		parsedID, _, parseErr := parseNullableUintField(v, "certificate_id")
-		if parseErr != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": parseErr.Error()})
+		resolvedCertID, resolveErr := h.resolveCertificateReference(v)
+		if resolveErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": resolveErr.Error()})
 			return
 		}
-		host.CertificateID = parsedID
+		host.CertificateID = resolvedCertID
 	}
 	if v, ok := payload["access_list_id"]; ok {
 		resolvedAccessListID, resolveErr := h.resolveAccessListReference(v)
