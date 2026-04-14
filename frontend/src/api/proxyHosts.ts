@@ -9,7 +9,7 @@ export interface Location {
 }
 
 export interface Certificate {
-  id: number;
+  id?: number;
   uuid: string;
   name: string;
   provider: string;
@@ -40,7 +40,7 @@ export interface ProxyHost {
   advanced_config?: string;
   advanced_config_backup?: string;
   enabled: boolean;
-  certificate_id?: number | null;
+  certificate_id?: number | string | null;
   certificate?: Certificate | null;
   access_list_id?: number | string | null;
   access_list?: {
