@@ -73,4 +73,15 @@ describe('Dashboard page', () => {
 
     expect(await screen.findByText('Error')).toBeInTheDocument()
   })
+
+  it('handles certificates with missing domains field', async () => {
+    // The top-level mock returns certs with "domain" (singular) but Dashboard
+    // reads "domains" (plural), so the !cert.domains guard on line 48 is
+    // already exercised by every render.  Re-render and verify it doesn't crash.
+    renderWithQueryClient(<Dashboard />)
+
+    expect(await screen.findByText('Dashboard')).toBeInTheDocument()
+    // "1 valid" still renders even though cert.domains is undefined
+    expect(screen.getByText('1 valid')).toBeInTheDocument()
+  })
 })

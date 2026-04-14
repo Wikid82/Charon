@@ -361,4 +361,83 @@ describe('CertificateList', () => {
     await user.click(screen.getByText('Expires'))
     expect(getRowNames()).toEqual(['Zulu', 'Alpha'])
   })
+
+  it('shows success toast when single delete succeeds', async () => {
+    const { toast } = await import('../../utils/toast')
+    deleteMutateFn.mockImplementation((_uuid: string, { onSuccess }: { onSuccess: () => void }) => {
+      onSuccess()
+    })
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
+    await user.click(within(customRow).getByRole('button', { name: 'certificates.deleteTitle' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: 'certificates.deleteButton' }))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('certificates.deleteSuccess'))
+  })
+
+  it('shows error toast when single delete fails', async () => {
+    const { toast } = await import('../../utils/toast')
+    deleteMutateFn.mockImplementation((_uuid: string, { onError }: { onError: (e: Error) => void }) => {
+      onError(new Error('Network failure'))
+    })
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
+    await user.click(within(customRow).getByRole('button', { name: 'certificates.deleteTitle' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: 'certificates.deleteButton' }))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('certificates.deleteFailed: Network failure'))
+  })
+
+  it('shows success toast when all bulk deletes succeed', async () => {
+    const { toast } = await import('../../utils/toast')
+    bulkDeleteMutateFn.mockImplementation((_uuids: string[], { onSuccess }: { onSuccess: (data: { succeeded: number; failed: number }) => void }) => {
+      onSuccess({ succeeded: 2, failed: 0 })
+    })
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    await user.click(within(rows.find(r => r.textContent?.includes('CustomCert'))!).getByRole('checkbox'))
+    await user.click(within(rows.find(r => r.textContent?.includes('LE Staging'))!).getByRole('checkbox'))
+    await user.click(screen.getByRole('button', { name: /certificates\.bulkDeleteButton/i }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: /certificates\.bulkDeleteButton/i }))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('certificates.bulkDeleteSuccess'))
+  })
+
+  it('shows error toast when bulk delete fails entirely', async () => {
+    const { toast } = await import('../../utils/toast')
+    bulkDeleteMutateFn.mockImplementation((_uuids: string[], { onError }: { onError: () => void }) => {
+      onError()
+    })
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    await user.click(within(rows.find(r => r.textContent?.includes('CustomCert'))!).getByRole('checkbox'))
+    await user.click(screen.getByRole('button', { name: /certificates\.bulkDeleteButton/i }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: /certificates\.bulkDeleteButton/i }))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('certificates.bulkDeleteFailed'))
+  })
+
+  it('opens detail dialog when view button is clicked', async () => {
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
+    await user.click(within(customRow).getByTestId('view-cert-cert-1'))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('opens export dialog when export button is clicked', async () => {
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
+    await user.click(within(customRow).getByTestId('export-cert-cert-1'))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+  })
 })

@@ -310,4 +310,66 @@ describe('CertificateUploadDialog', () => {
       expect(screen.queryByTestId('certificate-validation-preview')).toBeFalsy()
     })
   })
+
+  it('resets validation when key file changes', async () => {
+    const mockResult = {
+      valid: true,
+      common_name: 'test.com',
+      domains: ['test.com'],
+      issuer_org: 'CA',
+      expires_at: '2026-01-01',
+      key_match: false,
+      chain_valid: false,
+      chain_depth: 0,
+      warnings: [],
+      errors: [],
+    }
+    validateMutateFn.mockImplementation((_params: unknown, opts: { onSuccess: (r: typeof mockResult) => void }) => {
+      opts.onSuccess(mockResult)
+    })
+
+    renderDialog()
+    const certInput = document.getElementById('cert-file') as HTMLInputElement
+    await userEvent.upload(certInput, createFile())
+    await userEvent.click(await screen.findByTestId('validate-certificate-btn'))
+    expect(await screen.findByTestId('certificate-validation-preview')).toBeTruthy()
+
+    const keyInput = document.getElementById('key-file') as HTMLInputElement
+    const keyFile = new File(['key-data'], 'private.key', { type: 'application/x-pem-file' })
+    await userEvent.upload(keyInput, keyFile)
+    await waitFor(() => {
+      expect(screen.queryByTestId('certificate-validation-preview')).toBeFalsy()
+    })
+  })
+
+  it('resets validation when chain file changes', async () => {
+    const mockResult = {
+      valid: true,
+      common_name: 'test.com',
+      domains: ['test.com'],
+      issuer_org: 'CA',
+      expires_at: '2026-01-01',
+      key_match: false,
+      chain_valid: false,
+      chain_depth: 0,
+      warnings: [],
+      errors: [],
+    }
+    validateMutateFn.mockImplementation((_params: unknown, opts: { onSuccess: (r: typeof mockResult) => void }) => {
+      opts.onSuccess(mockResult)
+    })
+
+    renderDialog()
+    const certInput = document.getElementById('cert-file') as HTMLInputElement
+    await userEvent.upload(certInput, createFile())
+    await userEvent.click(await screen.findByTestId('validate-certificate-btn'))
+    expect(await screen.findByTestId('certificate-validation-preview')).toBeTruthy()
+
+    const chainInput = document.getElementById('chain-file') as HTMLInputElement
+    const chainFile = new File(['chain-data'], 'chain.pem', { type: 'application/x-pem-file' })
+    await userEvent.upload(chainInput, chainFile)
+    await waitFor(() => {
+      expect(screen.queryByTestId('certificate-validation-preview')).toBeFalsy()
+    })
+  })
 })
