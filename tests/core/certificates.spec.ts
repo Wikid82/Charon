@@ -394,19 +394,118 @@ test.describe('SSL Certificates - CRUD Operations', () => {
       });
     });
 
-    test('should show optional private key file field', async ({ page }) => {
+    test('should show key file as optional when no cert is selected', async ({ page }) => {
       await test.step('Open upload dialog', async () => {
         await getAddCertButton(page).click();
         await waitForDialog(page);
       });
 
-      await test.step('Verify private key field is visible but optional', async () => {
+      await test.step('Verify key file is not aria-required by default', async () => {
         const dialog = page.getByRole('dialog');
         const keyFileInput = dialog.locator('#key-file');
         await expect(keyFileInput).toBeVisible();
-
-        // Key file is optional (PFX bundles the key) — should NOT be aria-required
+        // No cert selected — key file should not be required yet
         await expect(keyFileInput).not.toHaveAttribute('aria-required', 'true');
+      });
+
+      await test.step('Close dialog', async () => {
+        await getCancelButton(page).click();
+      });
+    });
+
+    test('should require key file when a PEM certificate is selected', async ({ page }) => {
+      await test.step('Open upload dialog', async () => {
+        await getAddCertButton(page).click();
+        await waitForDialog(page);
+      });
+
+      await test.step('Select a PEM cert file', async () => {
+        const dialog = page.getByRole('dialog');
+        const certFileInput = dialog.locator('#cert-file');
+        await certFileInput.setInputFiles({
+          name: 'server.pem',
+          mimeType: 'application/x-pem-file',
+          buffer: Buffer.from('-----BEGIN CERTIFICATE-----\nMIIFake\n-----END CERTIFICATE-----'),
+        });
+      });
+
+      await test.step('Verify key file becomes aria-required', async () => {
+        const dialog = page.getByRole('dialog');
+        const keyFileInput = dialog.locator('#key-file');
+        await expect(keyFileInput).toBeVisible();
+        await expect(keyFileInput).toHaveAttribute('aria-required', 'true');
+
+        // Submit should still be disabled — no key file provided yet
+        const uploadButton = dialog.getByRole('button', { name: /upload/i });
+        await expect(uploadButton).toBeDisabled();
+      });
+
+      await test.step('Close dialog', async () => {
+        await getCancelButton(page).click();
+      });
+    });
+
+    test('should hide key file input when a PFX certificate is selected', async ({ page }) => {
+      await test.step('Open upload dialog', async () => {
+        await getAddCertButton(page).click();
+        await waitForDialog(page);
+      });
+
+      await test.step('Select a PFX cert file', async () => {
+        const dialog = page.getByRole('dialog');
+        const certFileInput = dialog.locator('#cert-file');
+        await certFileInput.setInputFiles({
+          name: 'bundle.pfx',
+          mimeType: 'application/x-pkcs12',
+          buffer: Buffer.from('PFX'),
+        });
+      });
+
+      await test.step('Verify key file input is removed from DOM', async () => {
+        const dialog = page.getByRole('dialog');
+        const keyFileInput = dialog.locator('#key-file');
+        // PFX bundles the key — the key file section is unmounted entirely
+        await expect(keyFileInput).not.toBeAttached();
+      });
+
+      await test.step('Close dialog', async () => {
+        await getCancelButton(page).click();
+      });
+    });
+
+    test('should remove key file input when cert format changes from PEM to PFX', async ({ page }) => {
+      await test.step('Open upload dialog', async () => {
+        await getAddCertButton(page).click();
+        await waitForDialog(page);
+      });
+
+      await test.step('Select a PEM cert first', async () => {
+        const dialog = page.getByRole('dialog');
+        const certFileInput = dialog.locator('#cert-file');
+        await certFileInput.setInputFiles({
+          name: 'server.pem',
+          mimeType: 'application/x-pem-file',
+          buffer: Buffer.from('-----BEGIN CERTIFICATE-----\nMIIFake\n-----END CERTIFICATE-----'),
+        });
+        // Confirm key file becomes required
+        const keyFileInput = dialog.locator('#key-file');
+        await expect(keyFileInput).toHaveAttribute('aria-required', 'true');
+      });
+
+      await test.step('Switch to PFX cert', async () => {
+        const dialog = page.getByRole('dialog');
+        const certFileInput = dialog.locator('#cert-file');
+        await certFileInput.setInputFiles({
+          name: 'bundle.pfx',
+          mimeType: 'application/x-pkcs12',
+          buffer: Buffer.from('PFX'),
+        });
+      });
+
+      await test.step('Verify key file input is removed from DOM after format switch', async () => {
+        const dialog = page.getByRole('dialog');
+        const keyFileInput = dialog.locator('#key-file');
+        await expect(keyFileInput).not.toBeAttached();
       });
 
       await test.step('Close dialog', async () => {

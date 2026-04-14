@@ -145,6 +145,7 @@ export default function CertificateUploadDialog({
             <>
               <FileDropZone
                 id="key-file"
+                required={!!certFile}
                 label={t('certificates.privateKeyFile')}
                 accept=".pem,.key"
                 file={keyFile}

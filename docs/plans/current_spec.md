@@ -1373,3 +1373,436 @@ require.NoError(t, db.Exec(
 | key_file validation breaks PFX upload flow | Low | The guard explicitly excludes `FormatPFX` via `DetectFormat()` |
 | `generateSelfSignedCertPEM()` helper unavailable in test scope | None | Helper is already defined in the same test file (line ~478) |
 | Other tests rely on key_file being optional | Low | Grep for handler Upload tests to confirm no other test sends cert-only |
+
+---
+
+## Amendment: Conditional Key File `aria-required` (PR #928 Review Comment)
+
+**Source**: PR #928 review comment on `tests/core/certificates.spec.ts` lines 397–410.
+**Date**: 2026-04-14
+**Status**: Ready for implementation
+
+> This E2E assertion treats the private key upload as always-optional, but the backend enforces `key_file` for PEM/DER uploads (only PFX can omit it). Once the UI is corrected to block PEM uploads without a key, this test should also be updated to reflect the conditional requirement (e.g., key required unless a .pfx/.p12 cert file is selected).
+
+---
+
+### A.1 Research Findings
+
+#### A.1.1 Backend Enforcement (`backend/internal/api/handlers/certificate_handler.go`)
+
+The `Upload` handler at `POST /api/v1/certificates` (registered in `backend/internal/api/routes/routes.go`) reads `key_file` as an **optional** multipart field initially, then enforces it conditionally:
+
+```go
+// Require key_file for non-PFX formats (PFX embeds the private key)
+if keyPEM == "" {
+    format := services.DetectFormat(certBytes)
+    if format != services.FormatPFX {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "key_file is required for PEM/DER certificate uploads"})
+        return
+    }
+}
+```
+
+Format detection (`backend/internal/services/certificate_validator.go`, `DetectFormat`) is **content-based** (trial-parse: PEM headers → PFX magic bytes → DER ASN.1 parse), not extension-based. The constants are:
+
+| Constant | Value |
+|----------|-------|
+| `services.FormatPEM` | `"pem"` |
+| `services.FormatDER` | `"der"` |
+| `services.FormatPFX` | `"pfx"` |
+| `services.FormatUnknown` | `"unknown"` |
+
+Only `FormatPFX` bypasses the `key_file` requirement. All other formats (PEM, DER, Unknown) require it.
+
+#### A.1.2 Frontend Component (`frontend/src/components/dialogs/CertificateUploadDialog.tsx`)
+
+**State variables** (all in the `CertificateUploadDialog` function body):
+
+| Variable | Type | Purpose |
+|----------|------|---------|
+| `certFile` | `File \| null` | Selected certificate file |
+| `keyFile` | `File \| null` | Selected private key file |
+| `chainFile` | `File \| null` | Selected chain/intermediate file |
+| `name` | `string` | Friendly name text |
+| `validationResult` | `ValidationResult \| null` | Server validation preview |
+
+**Derived state** (computed directly, no `useMemo`):
+
+| Variable | Expression | Meaning |
+|----------|-----------|---------|
+| `certFormat` | `detectFormat(certFile)` | `'PFX/PKCS#12'`, `'PEM'`, `'DER'`, `'KEY'`, or `null` |
+| `isPfx` | `certFormat === 'PFX/PKCS#12'` | `true` when cert file has `.pfx` or `.p12` extension |
+| `needsKeyFile` | `!!certFile && !isPfx && !keyFile` | `true` when cert selected, not PFX, but no key file |
+| `canSubmit` | `!!certFile && !!name.trim() && !needsKeyFile` | Controls submit button disabled state |
+
+**The `detectFormat` function** (module-level, not exported):
+
+```ts
+function detectFormat(file: File | null): string | null {
+  if (!file) return null
+  const ext = file.name.toLowerCase().split('.').pop()
+  if (ext === 'pfx' || ext === 'p12') return 'PFX/PKCS#12'
+  if (ext === 'pem' || ext === 'crt' || ext === 'cer') return 'PEM'
+  if (ext === 'der') return 'DER'
+  if (ext === 'key') return 'KEY'
+  return null
+}
+```
+
+**JSX structure** (relevant fragment):
+
+```jsx
+{!isPfx && (
+  <>
+    <FileDropZone
+      id="key-file"
+      label={t('certificates.privateKeyFile')}
+      accept=".pem,.key"
+      file={keyFile}
+      onFileChange={(f) => {
+        setKeyFile(f)
+        setValidationResult(null)
+      }}
+      {/* ← required prop is ABSENT — this is the gap */}
+    />
+    <FileDropZone
+      id="chain-file"
+      ...
+    />
+  </>
+)}
+```
+
+The key-file `FileDropZone` is **conditionally rendered** — it is completely absent from the DOM when `isPfx === true`.
+
+#### A.1.3 `FileDropZone` Component (`frontend/src/components/ui/FileDropZone.tsx`)
+
+**Props interface**:
+
+```ts
+interface FileDropZoneProps {
+  id: string
+  label: string
+  accept?: string
+  file: File | null
+  onFileChange: (file: File | null) => void
+  disabled?: boolean
+  required?: boolean        // ← this prop exists
+  formatBadge?: string | null
+}
+```
+
+When `required={true}`, the component:
+1. Renders a `*` asterisk next to the label: `{required && <span className="text-error ml-0.5" aria-hidden="true">*</span>}`
+2. Sets `aria-required={required}` on the hidden `<input>` element: `<input ... aria-required={required} required={required} />`
+
+The `<input>` element carries the ID used in Playwright locators (`#key-file`, `#cert-file`). It is `className="sr-only"` (visually hidden) but present in the DOM and accessible to Playwright's `setInputFiles()`.
+
+#### A.1.4 The Gap
+
+The key-file `FileDropZone` is **never passed `required={true}`**. As a result:
+
+- `aria-required` is never `"true"` on `#key-file`
+- The `*` asterisk never appears next to the "Private Key File" label
+- Screen readers do not announce the field as required, even when a PEM/DER cert is selected
+- The submit button is already disabled via `canSubmit` when `needsKeyFile` is `true`, but there is no accessible signal that the key file itself is the blocker
+
+**The fix is a single-prop change** on the key-file `FileDropZone` in `CertificateUploadDialog.tsx`. No other frontend files require modification.
+
+#### A.1.5 Current Playwright Test (`tests/core/certificates.spec.ts`, lines 397–410)
+
+```ts
+test('should show optional private key file field', async ({ page }) => {
+  await test.step('Open upload dialog', async () => {
+    await getAddCertButton(page).click();
+    await waitForDialog(page);
+  });
+
+  await test.step('Verify private key field is visible but optional', async () => {
+    const dialog = page.getByRole('dialog');
+    const keyFileInput = dialog.locator('#key-file');
+    await expect(keyFileInput).toBeVisible();
+
+    // Key file is optional (PFX bundles the key) — should NOT be aria-required
+    await expect(keyFileInput).not.toHaveAttribute('aria-required', 'true');
+  });
+
+  await test.step('Close dialog', async () => {
+    await getCancelButton(page).click();
+  });
+});
+```
+
+This test only covers the **default state** (no cert file selected). After the frontend fix, this test will still pass because `required={!!certFile}` evaluates to `false` when `certFile` is null. However, it is incomplete: it does not verify the conditional behavior when a cert file is selected.
+
+---
+
+### A.2 Requirements (EARS Notation)
+
+| ID | Requirement |
+|----|-------------|
+| R-UI-KEY-01 | WHEN a user has not yet selected a certificate file, THE SYSTEM SHALL display the private key file input without `aria-required="true"`. |
+| R-UI-KEY-02 | WHEN a user selects a PEM, DER, CRT, or CER certificate file, THE SYSTEM SHALL mark the private key file input with `aria-required="true"` and display a `*` indicator next to its label. |
+| R-UI-KEY-03 | WHEN a user selects a PFX or P12 certificate file, THE SYSTEM SHALL hide the private key file input entirely (PFX bundles the private key). |
+| R-UI-KEY-04 | WHILE the private key file input has `aria-required="true"` and no key file has been selected, THE SYSTEM SHALL keep the Upload submit button disabled. |
+| R-UI-KEY-05 | THE SYSTEM SHALL ensure that assistive technology users receive the same conditional required-field signal as sighted users. |
+
+---
+
+### A.3 Phase 1: Frontend UI Fix
+
+#### A.3.1 Scope
+
+| Attribute | Value |
+|-----------|-------|
+| **File** | `frontend/src/components/dialogs/CertificateUploadDialog.tsx` |
+| **Function** | `CertificateUploadDialog` (default export) |
+| **Change type** | Single-prop addition to JSX |
+| **Risk** | Minimal — `FileDropZone` already handles `required` prop |
+
+#### A.3.2 Exact Change
+
+**Location**: Inside the `{!isPfx && <> ... </>}` block, on the key-file `FileDropZone` element.
+
+**Before**:
+
+```tsx
+<FileDropZone
+  id="key-file"
+  label={t('certificates.privateKeyFile')}
+  accept=".pem,.key"
+  file={keyFile}
+  onFileChange={(f) => {
+    setKeyFile(f)
+    setValidationResult(null)
+  }}
+/>
+```
+
+**After**:
+
+```tsx
+<FileDropZone
+  id="key-file"
+  label={t('certificates.privateKeyFile')}
+  accept=".pem,.key"
+  file={keyFile}
+  onFileChange={(f) => {
+    setKeyFile(f)
+    setValidationResult(null)
+  }}
+  required={!!certFile}
+/>
+```
+
+**Why `!!certFile` and not `!!certFile && !isPfx`**: The key-file `FileDropZone` is only rendered inside the `{!isPfx && ...}` guard, so `!isPfx` is always `true` within that block. Using just `!!certFile` is semantically complete and avoids redundancy. The expression evaluates to:
+
+| `certFile` | `isPfx` (outer guard) | Key-file rendered? | `required` value |
+|------------|----------------------|-------------------|-----------------|
+| `null` | `false` | Yes | `false` |
+| `.pem` file | `false` | Yes | `true` |
+| `.der` file | `false` | Yes | `true` |
+| `.pfx` file | `true` | **No** (not rendered) | N/A |
+| `.p12` file | `true` | **No** (not rendered) | N/A |
+
+#### A.3.3 Downstream Effects
+
+- `FileDropZone` with `required={true}` sets `aria-required="true"` on `<input id="key-file">` and renders `*` in the label — no other code changes needed.
+- `needsKeyFile` and `canSubmit` are already correctly computed; submit stays disabled when `needsKeyFile` is `true`.
+- The `needsKeyFile` error paragraph (`<p role="alert">`) already renders when `needsKeyFile` is `true` — this continues to work unchanged.
+- No backend changes are needed. The backend enforcement is already correct.
+
+---
+
+### A.4 Phase 2: Playwright Test Update
+
+#### A.4.1 Test File
+
+`tests/core/certificates.spec.ts` — inside the `'Upload Custom Certificate'` describe block.
+
+#### A.4.2 Replace the Existing Test
+
+Replace the single test `'should show optional private key file field'` (lines ~397–418) with the three tests below.
+
+**Test A — Default state (no cert file selected): key is visible but NOT required**
+
+```ts
+test('should show private key field as optional when no cert file is selected', async ({ page }) => {
+  await test.step('Open upload dialog', async () => {
+    await getAddCertButton(page).click();
+    await waitForDialog(page);
+  });
+
+  await test.step('Verify private key field is visible but not aria-required', async () => {
+    const dialog = page.getByRole('dialog');
+    const keyFileInput = dialog.locator('#key-file');
+    await expect(keyFileInput).toBeVisible();
+
+    // No cert file selected — key file is not yet required
+    await expect(keyFileInput).not.toHaveAttribute('aria-required', 'true');
+  });
+
+  await test.step('Close dialog', async () => {
+    await getCancelButton(page).click();
+  });
+});
+```
+
+**Rationale**: Preserves the original intent of the old test. When no cert is selected the field is optional/pending and must not carry `aria-required="true"`.
+
+---
+
+**Test B — PEM cert selected: key is `aria-required`**
+
+```ts
+test('should mark private key field as aria-required when a PEM cert file is selected', async ({ page }) => {
+  await test.step('Open upload dialog', async () => {
+    await getAddCertButton(page).click();
+    await waitForDialog(page);
+  });
+
+  await test.step('Select a PEM certificate file', async () => {
+    const dialog = page.getByRole('dialog');
+    const certInput = dialog.locator('#cert-file');
+
+    await certInput.setInputFiles({
+      name: 'cert.pem',
+      mimeType: 'application/x-pem-file',
+      buffer: Buffer.from('-----BEGIN CERTIFICATE-----\nMIIBpDCCAQ2gAwIBAgIUtest\n-----END CERTIFICATE-----\n'),
+    });
+  });
+
+  await test.step('Verify key file is now aria-required', async () => {
+    const dialog = page.getByRole('dialog');
+    const keyFileInput = dialog.locator('#key-file');
+
+    // PEM cert selected → key file becomes required
+    await expect(keyFileInput).toHaveAttribute('aria-required', 'true');
+
+    // Submit must remain disabled without a key file
+    const uploadButton = dialog.getByRole('button', { name: /upload/i });
+    await expect(uploadButton).toBeDisabled();
+  });
+
+  await test.step('Close dialog', async () => {
+    await getCancelButton(page).click();
+  });
+});
+```
+
+**Notes on `setInputFiles`**: The `#cert-file` `<input>` is `className="sr-only"` (positioned off-screen, not `display:none`), so Playwright can interact with it directly. The buffer content does not need to be a valid certificate — only the **filename extension** (`cert.pem`) is used by `detectFormat()` to determine `certFormat`. The `.crt` and `.cer` extensions should produce the same result and can be added as parameterised variants if desired.
+
+---
+
+**Test C — PFX cert selected: key field is hidden**
+
+```ts
+test('should hide private key field entirely when a PFX cert file is selected', async ({ page }) => {
+  await test.step('Open upload dialog', async () => {
+    await getAddCertButton(page).click();
+    await waitForDialog(page);
+  });
+
+  await test.step('Select a PFX certificate file', async () => {
+    const dialog = page.getByRole('dialog');
+    const certInput = dialog.locator('#cert-file');
+
+    await certInput.setInputFiles({
+      name: 'bundle.pfx',
+      mimeType: 'application/x-pkcs12',
+      buffer: Buffer.from('PFX placeholder'),
+    });
+  });
+
+  await test.step('Verify key file input is not in the DOM', async () => {
+    const dialog = page.getByRole('dialog');
+    const keyFileInput = dialog.locator('#key-file');
+
+    // PFX bundles the private key — key-file section is not rendered
+    await expect(keyFileInput).not.toBeVisible();
+
+    // PFX hint text should appear
+    const pfxHint = dialog.getByText(/pfx|pkcs.?12|bundles/i);
+    await expect(pfxHint).toBeVisible();
+  });
+
+  await test.step('Close dialog', async () => {
+    await getCancelButton(page).click();
+  });
+});
+```
+
+**Notes**: `not.toBeVisible()` is the correct assertion when `#key-file` is **not rendered** (as opposed to rendered-but-hidden). Playwright treats a non-existent element as not visible. If the `pfxDetected` i18n key produces text like "This PFX file bundles the private key", the regex `/pfx|pkcs.?12|bundles/i` will match; adjust the pattern to match the actual translation string if needed.
+
+---
+
+#### A.4.3 Additional Tests to Consider (Non-Blocking)
+
+| Test | Scenario | Value |
+|------|----------|-------|
+| `should clear aria-required when cert file is removed` | User selects `.pem` then clears it | Regression guard for reset path |
+| `should accept .crt and .cer as non-PFX cert files` | Parameterised over `['cert.crt', 'cert.cer', 'cert.der']` | Extension coverage |
+| `should accept .p12 as equivalent to .pfx` | Selects `bundle.p12` | P12 alias coverage |
+
+These are optional for the PR but recommended for completeness.
+
+---
+
+### A.5 Acceptance Criteria
+
+| ID | Criterion | Verification |
+|----|-----------|-------------|
+| AC-01 | `#key-file` input has `aria-required="true"` after a `.pem` cert file is selected | Playwright Test B passes |
+| AC-02 | `#key-file` input does NOT have `aria-required="true"` before any cert file is selected | Playwright Test A passes |
+| AC-03 | `#key-file` input is not in the DOM (not rendered) after a `.pfx` cert file is selected | Playwright Test C passes |
+| AC-04 | `*` asterisk appears next to "Private Key File" label when a non-PFX cert is selected | Visual inspection / accessibility snapshot |
+| AC-05 | Upload submit button remains disabled while `aria-required="true"` and no key file is provided | Verified in Playwright Test B step 3 |
+| AC-06 | Screen reader announces "Private Key File, required" after PEM cert is selected | Manual NVDA/VoiceOver test |
+| AC-07 | All existing certificate upload tests continue to pass | Full Playwright `certificates.spec.ts` run |
+| AC-08 | TypeScript compilation has no errors | `tsc --noEmit` in `frontend/` |
+
+---
+
+### A.6 Commit Slicing Strategy
+
+**Decision**: Single PR, two logically ordered commits. The frontend change and the test update are independent but sequenced for reviewer clarity — the test commit documents the expected behavior that the component commit implements.
+
+#### Commit 1: Frontend conditional key requirement
+
+| Aspect | Detail |
+|--------|--------|
+| **Message** | `fix(certificates): mark key file as aria-required for PEM/DER cert uploads` |
+| **Scope** | 1 file |
+| **File** | `frontend/src/components/dialogs/CertificateUploadDialog.tsx` |
+| **Change** | Add `required={!!certFile}` prop to the key-file `FileDropZone` element |
+| **Dependencies** | None — `FileDropZone` already supports the `required` prop |
+| **Validation gate** | `tsc --noEmit` in `frontend/` passes; `npm run lint` passes |
+| **Regression check** | Verify `#key-file` has no `aria-required` attr in default state; verify it has `aria-required="true"` after `setInputFiles` with a `.pem` file (manual browser check or existing Playwright run) |
+
+#### Commit 2: Playwright test update
+
+| Aspect | Detail |
+|--------|--------|
+| **Message** | `test(certificates): verify conditional aria-required on key file input` |
+| **Scope** | 1 file |
+| **File** | `tests/core/certificates.spec.ts` |
+| **Change** | Replace `'should show optional private key file field'` (lines ~397–418) with Tests A, B, and C defined in §A.4.2 |
+| **Dependencies** | Commit 1 must be merged first; Test B would fail against unpatched component |
+| **Validation gate** | `npx playwright test tests/core/certificates.spec.ts --project=firefox` — all tests in `'Upload Custom Certificate'` describe block pass |
+| **Regression check** | Full `certificates.spec.ts` run; no regressions in `'List View'` or `'Delete Certificate'` suites |
+| **Rollback** | `git revert` both commits — no schema or infra changes |
+
+#### Rollback Notes
+
+Both commits touch frontend source and test files only. No backend changes, no database migrations, no Docker image changes. A revert of both commits is sufficient to restore prior behavior.
+
+---
+
+### A.7 Risk Assessment
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| `setInputFiles` fails on `sr-only` hidden input | Low | Test B/C never run | Input is off-screen via `clip`/`position:absolute`, not `display:none` — Playwright handles this. Verify with `expect(input).toBeAttached()` if needed. |
+| `detectFormat` returns null for edge extensions | Low | `required` stays `false` (safe default) | Unknown extensions produce `certFormat = null`, `isPfx = false`, `required = !!certFile = true` — so unknown extensions default to requiring a key file, which matches backend behavior. |
+| PFX hint text translation key mismatch | Low | Test C flakiness on `pfxHint` assertion | Use a broader regex or locate by `data-testid` if needed. |
+| Existing test `'should show optional private key file field'` conflicts | None | N/A | It is fully replaced by Test A; rename ensures no duplicate test titles. |
