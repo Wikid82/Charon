@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
@@ -90,7 +90,7 @@ describe('CertificateUploadDialog', () => {
     renderDialog()
     const certInput = document.getElementById('cert-file') as HTMLInputElement
     const file = createFile()
-    fireEvent.change(certInput, { target: { files: [file] } })
+    await userEvent.upload(certInput, file)
     expect(await screen.findByTestId('validate-certificate-btn')).toBeTruthy()
   })
 
@@ -98,7 +98,7 @@ describe('CertificateUploadDialog', () => {
     renderDialog()
     const certInput = document.getElementById('cert-file') as HTMLInputElement
     const file = createFile()
-    fireEvent.change(certInput, { target: { files: [file] } })
+    await userEvent.upload(certInput, file)
 
     const validateBtn = await screen.findByTestId('validate-certificate-btn')
     await userEvent.click(validateBtn)
@@ -117,7 +117,9 @@ describe('CertificateUploadDialog', () => {
 
     const certInput = document.getElementById('cert-file') as HTMLInputElement
     const file = createFile()
-    fireEvent.change(certInput, { target: { files: [file] } })
+    await userEvent.upload(certInput, file)
+    // jsdom constraint validation doesn't recognise programmatic file uploads
+    certInput.required = false
 
     const submitBtn = screen.getByTestId('upload-certificate-submit')
     await userEvent.click(submitBtn)
@@ -141,7 +143,7 @@ describe('CertificateUploadDialog', () => {
     renderDialog()
     const certInput = document.getElementById('cert-file') as HTMLInputElement
     const file = new File(['pfx-content'], 'cert.pfx', { type: 'application/x-pkcs12' })
-    fireEvent.change(certInput, { target: { files: [file] } })
+    await userEvent.upload(certInput, file)
     expect(await screen.findByText('certificates.pfxDetected')).toBeTruthy()
   })
 
@@ -149,7 +151,7 @@ describe('CertificateUploadDialog', () => {
     renderDialog()
     const certInput = document.getElementById('cert-file') as HTMLInputElement
     const file = new File(['pfx-content'], 'cert.pfx', { type: 'application/x-pkcs12' })
-    fireEvent.change(certInput, { target: { files: [file] } })
+    await userEvent.upload(certInput, file)
 
     await waitFor(() => {
       expect(screen.queryByText('certificates.privateKeyFile')).toBeFalsy()
@@ -167,7 +169,8 @@ describe('CertificateUploadDialog', () => {
     await userEvent.type(nameInput, 'Cert')
 
     const certInput = document.getElementById('cert-file') as HTMLInputElement
-    fireEvent.change(certInput, { target: { files: [createFile()] } })
+    await userEvent.upload(certInput, createFile())
+    certInput.required = false
 
     await userEvent.click(screen.getByTestId('upload-certificate-submit'))
     expect(toast.success).toHaveBeenCalledWith('certificates.uploadSuccess')
@@ -183,7 +186,8 @@ describe('CertificateUploadDialog', () => {
     await userEvent.type(nameInput, 'Cert')
 
     const certInput = document.getElementById('cert-file') as HTMLInputElement
-    fireEvent.change(certInput, { target: { files: [createFile()] } })
+    await userEvent.upload(certInput, createFile())
+    certInput.required = false
 
     await userEvent.click(screen.getByTestId('upload-certificate-submit'))
     expect(toast.error).toHaveBeenCalled()
@@ -208,7 +212,7 @@ describe('CertificateUploadDialog', () => {
 
     renderDialog()
     const certInput = document.getElementById('cert-file') as HTMLInputElement
-    fireEvent.change(certInput, { target: { files: [createFile()] } })
+    await userEvent.upload(certInput, createFile())
 
     await userEvent.click(await screen.findByTestId('validate-certificate-btn'))
     expect(await screen.findByTestId('certificate-validation-preview')).toBeTruthy()
@@ -220,7 +224,7 @@ describe('CertificateUploadDialog', () => {
     })
     renderDialog()
     const certInput = document.getElementById('cert-file') as HTMLInputElement
-    fireEvent.change(certInput, { target: { files: [createFile()] } })
+    await userEvent.upload(certInput, createFile())
 
     await userEvent.click(await screen.findByTestId('validate-certificate-btn'))
     expect(toast.error).toHaveBeenCalledWith('Validation failed')
@@ -230,7 +234,7 @@ describe('CertificateUploadDialog', () => {
     renderDialog()
     const certInput = document.getElementById('cert-file') as HTMLInputElement
     const file = new File(['pkcs12'], 'bundle.p12', { type: 'application/x-pkcs12' })
-    fireEvent.change(certInput, { target: { files: [file] } })
+    await userEvent.upload(certInput, file)
     expect(await screen.findByText('certificates.pfxDetected')).toBeTruthy()
   })
 
@@ -238,7 +242,7 @@ describe('CertificateUploadDialog', () => {
     renderDialog()
     const certInput = document.getElementById('cert-file') as HTMLInputElement
     const file = new File(['cert'], 'my.crt', { type: 'application/x-x509' })
-    fireEvent.change(certInput, { target: { files: [file] } })
+    await userEvent.upload(certInput, file)
     // PEM does not hide key/chain zones
     expect(screen.getByText('certificates.privateKeyFile')).toBeTruthy()
   })
@@ -247,7 +251,7 @@ describe('CertificateUploadDialog', () => {
     renderDialog()
     const certInput = document.getElementById('cert-file') as HTMLInputElement
     const file = new File(['cert'], 'my.cer', { type: 'application/x-x509' })
-    fireEvent.change(certInput, { target: { files: [file] } })
+    await userEvent.upload(certInput, file)
     expect(screen.getByText('certificates.privateKeyFile')).toBeTruthy()
   })
 
@@ -255,7 +259,7 @@ describe('CertificateUploadDialog', () => {
     renderDialog()
     const certInput = document.getElementById('cert-file') as HTMLInputElement
     const file = new File(['der'], 'cert.der', { type: 'application/x-x509' })
-    fireEvent.change(certInput, { target: { files: [file] } })
+    await userEvent.upload(certInput, file)
     expect(screen.getByText('certificates.privateKeyFile')).toBeTruthy()
   })
 
@@ -263,7 +267,7 @@ describe('CertificateUploadDialog', () => {
     renderDialog()
     const certInput = document.getElementById('cert-file') as HTMLInputElement
     const file = new File(['key'], 'private.key', { type: 'application/x-pem-file' })
-    fireEvent.change(certInput, { target: { files: [file] } })
+    await userEvent.upload(certInput, file)
     expect(screen.getByText('certificates.privateKeyFile')).toBeTruthy()
   })
 
@@ -271,7 +275,7 @@ describe('CertificateUploadDialog', () => {
     renderDialog()
     const certInput = document.getElementById('cert-file') as HTMLInputElement
     const file = new File(['data'], 'cert.xyz', { type: 'application/octet-stream' })
-    fireEvent.change(certInput, { target: { files: [file] } })
+    await userEvent.upload(certInput, file)
     // Should still show key/chain zones (not PFX)
     expect(screen.getByText('certificates.privateKeyFile')).toBeTruthy()
   })
@@ -295,13 +299,13 @@ describe('CertificateUploadDialog', () => {
 
     renderDialog()
     const certInput = document.getElementById('cert-file') as HTMLInputElement
-    fireEvent.change(certInput, { target: { files: [createFile()] } })
+    await userEvent.upload(certInput, createFile())
     await userEvent.click(await screen.findByTestId('validate-certificate-btn'))
     expect(await screen.findByTestId('certificate-validation-preview')).toBeTruthy()
 
     // Change cert file — validation result should disappear
     const newFile = new File(['new-cert'], 'new.pem', { type: 'application/x-pem-file' })
-    fireEvent.change(certInput, { target: { files: [newFile] } })
+    await userEvent.upload(certInput, newFile)
     await waitFor(() => {
       expect(screen.queryByTestId('certificate-validation-preview')).toBeFalsy()
     })
