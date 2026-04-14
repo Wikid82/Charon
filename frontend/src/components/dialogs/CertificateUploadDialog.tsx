@@ -102,7 +102,8 @@ export default function CertificateUploadDialog({
   }
 
   const canValidate = !!certFile && !validateMutation.isPending
-  const canSubmit = !!certFile && !!name.trim()
+  const needsKeyFile = !!certFile && !isPfx && !keyFile
+  const canSubmit = !!certFile && !!name.trim() && !needsKeyFile
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -164,6 +165,12 @@ export default function CertificateUploadDialog({
                 }}
               />
             </>
+          )}
+
+          {needsKeyFile && (
+            <p role="alert" className="text-xs text-red-500">
+              {t('certificates.keyFileRequired')}
+            </p>
           )}
 
           {certFile && !validationResult && (

@@ -215,6 +215,7 @@
     "dropFileHere": "Drag and drop a file here, or click to browse",
     "formatDetected": "Detected: {{format}}",
     "pfxDetected": "PFX/PKCS#12 detected — key is embedded, no separate key file needed.",
+    "keyFileRequired": "A private key file is required for PEM/DER certificates.",
     "pfxPassword": "PFX Password (if protected)",
 
     "validate": "Validate",
