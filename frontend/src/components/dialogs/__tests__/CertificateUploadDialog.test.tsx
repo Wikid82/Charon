@@ -121,6 +121,10 @@ describe('CertificateUploadDialog', () => {
     // jsdom constraint validation doesn't recognise programmatic file uploads
     certInput.required = false
 
+    const keyInput = document.getElementById('key-file') as HTMLInputElement
+    await userEvent.upload(keyInput, new File(['key'], 'key.pem', { type: 'application/x-pem-file' }))
+    keyInput.required = false
+
     const submitBtn = screen.getByTestId('upload-certificate-submit')
     await userEvent.click(submitBtn)
 
@@ -172,6 +176,10 @@ describe('CertificateUploadDialog', () => {
     await userEvent.upload(certInput, createFile())
     certInput.required = false
 
+    const keyInput = document.getElementById('key-file') as HTMLInputElement
+    await userEvent.upload(keyInput, new File(['key'], 'key.pem', { type: 'application/x-pem-file' }))
+    keyInput.required = false
+
     await userEvent.click(screen.getByTestId('upload-certificate-submit'))
     expect(toast.success).toHaveBeenCalledWith('certificates.uploadSuccess')
   })
@@ -188,6 +196,10 @@ describe('CertificateUploadDialog', () => {
     const certInput = document.getElementById('cert-file') as HTMLInputElement
     await userEvent.upload(certInput, createFile())
     certInput.required = false
+
+    const keyInput = document.getElementById('key-file') as HTMLInputElement
+    await userEvent.upload(keyInput, new File(['key'], 'key.pem', { type: 'application/x-pem-file' }))
+    keyInput.required = false
 
     await userEvent.click(screen.getByTestId('upload-certificate-submit'))
     expect(toast.error).toHaveBeenCalled()
