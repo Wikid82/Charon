@@ -37,6 +37,8 @@ jobs:
         env:
           CURRENT_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
           CURRENT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHARON_TOKEN: ${{ secrets.CHARON_TOKEN }}
         with:
           script: |
             const currentBranch = process.env.CURRENT_BRANCH || context.ref.replace('refs/heads/', '');
@@ -133,7 +135,9 @@ jobs:
 
                 const sensitive = files.some(fn => configPaths.some(sp => fn.startsWith(sp) || fn.includes(sp)));
                 if (sensitive) {
-                  core.info(`${src} -> ${base} contains sensitive changes (${files.join(', ')}). Skipping automatic propagation.`);
+                  const preview = files.slice(0, 25).join(', ');
+                  const suffix = files.length > 25 ? ` …(+${files.length - 25} more)` : '';
+                  core.info(`${src} -> ${base} contains sensitive changes (${preview}${suffix}). Skipping automatic propagation.`);
                   return;
                 }
               } catch (error) {
@@ -203,6 +207,3 @@ jobs:
                 await createPR('development', targetBranch);
               }
             }
-            env:
-              GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              CHARON_TOKEN: ${{ secrets.CHARON_TOKEN }}
