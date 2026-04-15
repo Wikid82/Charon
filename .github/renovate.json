@@ -6,10 +6,9 @@
     ":separateMultipleMajorReleases",
     "helpers:pinGitHubActionDigests"
   ],
-  "baseBranches": [
+  "baseBranchPatterns": [
     "feature/beta-release",
     "development"
-
   ],
   "postUpdateOptions": ["npmDedupe"],
   "timezone": "America/New_York",
@@ -247,20 +246,24 @@
   ],
 
   "github-actions": {
-    "fileMatch": ["^\\.github/skills/examples/.*\\.ya?ml$"]
+    "managerFilePatterns": [
+      "/^\\.github/skills/examples/.*\\.ya?ml$/"
+    ]
   },
 
   "packageRules": [
     {
       "description": "THE MEGAZORD: Group ALL non-major updates (NPM, Docker, Go, Actions) into one PR",
-      "matchPackagePatterns": ["*"],
       "matchUpdateTypes": [
         "minor",
         "patch",
         "pin",
         "digest"
       ],
-      "groupName": "non-major-updates"
+      "groupName": "non-major-updates",
+      "matchPackageNames": [
+        "*"
+      ]
     },
         {
       "description": "Feature branches: Auto-merge non-major updates after proven stable",
