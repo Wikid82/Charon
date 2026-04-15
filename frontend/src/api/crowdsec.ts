@@ -156,4 +156,31 @@ export async function getCrowdsecKeyStatus(): Promise<CrowdSecKeyStatus> {
   return resp.data
 }
 
-export default { startCrowdsec, stopCrowdsec, statusCrowdsec, importCrowdsecConfig, exportCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, getCrowdsecKeyStatus }
+export interface CrowdSecWhitelistEntry {
+  uuid: string
+  ip_or_cidr: string
+  reason: string
+  created_at: string
+  updated_at: string
+}
+
+export interface AddWhitelistPayload {
+  ip_or_cidr: string
+  reason: string
+}
+
+export const listWhitelists = async (): Promise<CrowdSecWhitelistEntry[]> => {
+  const resp = await client.get<{ whitelist: CrowdSecWhitelistEntry[] }>('/admin/crowdsec/whitelist')
+  return resp.data.whitelist
+}
+
+export const addWhitelist = async (data: AddWhitelistPayload): Promise<CrowdSecWhitelistEntry> => {
+  const resp = await client.post<CrowdSecWhitelistEntry>('/admin/crowdsec/whitelist', data)
+  return resp.data
+}
+
+export const deleteWhitelist = async (uuid: string): Promise<void> => {
+  await client.delete(`/admin/crowdsec/whitelist/${uuid}`)
+}
+
+export default { startCrowdsec, stopCrowdsec, statusCrowdsec, importCrowdsecConfig, exportCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, getCrowdsecKeyStatus, listWhitelists, addWhitelist, deleteWhitelist }
