@@ -63,6 +63,7 @@ type CrowdsecHandler struct {
 	Hub              *crowdsec.HubService
 	Console          *crowdsec.ConsoleEnrollmentService
 	Security         *services.SecurityService
+	WhitelistSvc     *services.CrowdSecWhitelistService
 	CaddyManager     *caddy.Manager // For config reload after bouncer registration
 	LAPIMaxWait      time.Duration  // For testing; 0 means 60s default
 	LAPIPollInterval time.Duration  // For testing; 0 means 500ms default
@@ -392,6 +393,7 @@ func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir
 		Hub:             hubSvc,
 		Console:         consoleSvc,
 		Security:        securitySvc,
+		WhitelistSvc:    services.NewCrowdSecWhitelistService(db, dataDir),
 		dashCache:       newDashboardCache(),
 		validateLAPIURL: validateCrowdsecLAPIBaseURLDefault,
 	}
@@ -2700,6 +2702,75 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
+// ListWhitelists returns all CrowdSec IP/CIDR whitelist entries.
+func (h *CrowdsecHandler) ListWhitelists(c *gin.Context) {
+	entries, err := h.WhitelistSvc.List(c.Request.Context())
+	if err != nil {
+		logger.Log().WithError(err).Error("failed to list whitelist entries")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list whitelist entries"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"entries": entries})
+}
+
+// AddWhitelist adds a new IP or CIDR to the CrowdSec whitelist.
+func (h *CrowdsecHandler) AddWhitelist(c *gin.Context) {
+	var req struct {
+		IPOrCIDR string `json:"ip_or_cidr" binding:"required"`
+		Reason   string `json:"reason"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	entry, err := h.WhitelistSvc.Add(c.Request.Context(), req.IPOrCIDR, req.Reason)
+	if err != nil {
+		switch {
+		case errors.Is(err, services.ErrInvalidIPOrCIDR):
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid IP address or CIDR notation"})
+		case errors.Is(err, services.ErrDuplicateEntry):
+			c.JSON(http.StatusConflict, gin.H{"error": "entry already exists in whitelist"})
+		default:
+			logger.Log().WithError(err).Error("failed to add whitelist entry")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to add whitelist entry"})
+		}
+		return
+	}
+
+	if _, execErr := h.CmdExec.Execute(c.Request.Context(), "cscli", "hub", "reload"); execErr != nil {
+		logger.Log().WithError(execErr).Warn("cscli hub reload failed after whitelist add (non-fatal)")
+	}
+
+	c.JSON(http.StatusCreated, entry)
+}
+
+// DeleteWhitelist removes a whitelist entry by UUID.
+func (h *CrowdsecHandler) DeleteWhitelist(c *gin.Context) {
+	id := c.Param("uuid")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "uuid is required"})
+		return
+	}
+
+	if err := h.WhitelistSvc.Delete(c.Request.Context(), id); err != nil {
+		switch {
+		case errors.Is(err, services.ErrWhitelistNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "whitelist entry not found"})
+		default:
+			logger.Log().WithError(err).Error("failed to delete whitelist entry")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete whitelist entry"})
+		}
+		return
+	}
+
+	if _, execErr := h.CmdExec.Execute(c.Request.Context(), "cscli", "hub", "reload"); execErr != nil {
+		logger.Log().WithError(execErr).Warn("cscli hub reload failed after whitelist delete (non-fatal)")
+	}
+
+	c.Status(http.StatusNoContent)
+}
+
 // RegisterRoutes registers crowdsec admin routes under protected group
 func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/admin/crowdsec/start", h.Start)
@@ -2742,4 +2813,8 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/admin/crowdsec/dashboard/scenarios", h.DashboardScenarios)
 	rg.GET("/admin/crowdsec/alerts", h.ListAlerts)
 	rg.GET("/admin/crowdsec/decisions/export", h.ExportDecisions)
+	// Whitelist management endpoints (Issue #939)
+	rg.GET("/admin/crowdsec/whitelist", h.ListWhitelists)
+	rg.POST("/admin/crowdsec/whitelist", h.AddWhitelist)
+	rg.DELETE("/admin/crowdsec/whitelist/:uuid", h.DeleteWhitelist)
 }
