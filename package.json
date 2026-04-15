@@ -18,16 +18,17 @@
     "smol-toml": "^1.6.1"
   },
   "devDependencies": {
-    "@types/eslint-plugin-jsx-a11y": "^6.10.1",
     "@bgotink/playwright-coverage": "^0.3.2",
     "@playwright/test": "^1.59.1",
+    "@types/eslint-plugin-jsx-a11y": "^6.10.1",
     "@types/node": "^25.6.0",
-    "dotenv": "^17.4.1",
+    "dotenv": "^17.4.2",
     "markdownlint-cli2": "^0.22.0",
-    "prettier": "^3.8.2",
+    "prettier": "^3.8.3",
     "prettier-plugin-tailwindcss": "^0.7.2",
     "tar": "^7.5.13",
     "typescript": "^6.0.2",
-    "vite": "^8.0.8"
+    "vite": "^8.0.8",
+    "vitest": "^4.1.4"
   }
 }

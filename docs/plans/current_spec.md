@@ -1,432 +1,460 @@
-# Nightly Build Vulnerability Remediation Plan
+# Coverage Improvement Plan — Patch Coverage ≥ 90%
 
-**Date**: 2026-04-09
+**Date**: 2026-05-02
 **Status**: Draft — Awaiting Approval
-**Scope**: Dependency security patches for 5 HIGH + 3 MEDIUM vulnerability groups
-**Target**: Single PR — all changes ship together
-**Archived**: Previous plan (CrowdSec Hub Bootstrapping) → `docs/plans/archive/crowdsec-hub-bootstrap-spec.md`
+**Priority**: High
+**Archived Previous Plan**: Custom Certificate Upload & Management (Issue #22) → `docs/plans/archive/custom-cert-upload-management-spec-2026-05-02.md`
 
 ---
 
-## 1. Problem Statement
+## 1. Introduction
 
-The Charon nightly build is failing container image vulnerability scans with **5 HIGH-severity** and **multiple MEDIUM-severity** findings. These vulnerabilities exist across three compiled binaries embedded in the container image:
+This plan identifies exact uncovered branches across the six highest-gap backend source files and two frontend components, and specifies new test cases to close those gaps. The target is to raise overall patch coverage from **85.61% (206 missing lines)** to **≥ 90%**.
 
-1. **Charon backend** (`/app/charon`) — Go binary built from `backend/go.mod`
-2. **Caddy** (`/usr/bin/caddy`) — Built via xcaddy in the Dockerfile Caddy builder stage
-3. **CrowdSec** (`/usr/local/bin/crowdsec`, `/usr/local/bin/cscli`) — Built from source in the Dockerfile CrowdSec builder stage
-
-Additionally, the **nightly branch** was synced from development before the Go 1.26.2 bump landed, so the nightly image was compiled with Go 1.26.1 (confirmed in `ci_failure.log` line 55: `GO_VERSION: 1.26.1`).
+**Constraints**:
+- No source file modifications — test files only
+- Go tests placed in `*_patch_coverage_test.go` (same package as source)
+- Frontend tests extend existing `__tests__/*.test.tsx` files
+- Use testify (Go) and Vitest + React Testing Library (frontend)
 
 ---
 
 ## 2. Research Findings
 
-### 2.1 Go Version Audit
+### 2.1 Coverage Gap Summary
 
-All files on `development` / `main` already reference **Go 1.26.2**:
+| Package | File | Missing Lines | Current Coverage |
+|---|---|---|---|
+| `handlers` | `certificate_handler.go` | ~54 | 70.28% |
+| `services` | `certificate_service.go` | ~54 | 82.85% |
+| `services` | `certificate_validator.go` | ~18 | 88.68% |
+| `handlers` | `proxy_host_handler.go` | ~12 | 55.17% |
+| `config` | `config.go` | ~8 | ~92% |
+| `caddy` | `manager.go` | ~10 | ~88% |
+| Frontend | `CertificateList.tsx` | moderate | — |
+| Frontend | `CertificateUploadDialog.tsx` | moderate | — |
 
-| File | Current Value | Status |
-|------|---------------|--------|
-| `backend/go.mod` | `go 1.26.2` | ✅ Current |
-| `go.work` | `go 1.26.2` | ✅ Current |
-| `Dockerfile` (`ARG GO_VERSION`) | `1.26.2` | ✅ Current |
-| `.github/workflows/nightly-build.yml` | `'1.26.2'` | ✅ Current |
-| `.github/workflows/codecov-upload.yml` | `'1.26.2'` | ✅ Current |
-| `.github/workflows/quality-checks.yml` | `'1.26.2'` | ✅ Current |
-| `.github/workflows/codeql.yml` | `'1.26.2'` | ✅ Current |
-| `.github/workflows/benchmark.yml` | `'1.26.2'` | ✅ Current |
-| `.github/workflows/release-goreleaser.yml` | `'1.26.2'` | ✅ Current |
-| `.github/workflows/e2e-tests-split.yml` | `'1.26.2'` | ✅ Current |
-| `.github/skills/examples/gorm-scanner-ci-workflow.yml` | `'1.26.1'` | ❌ **Stale** |
-| `scripts/install-go-1.26.0.sh` | `1.26.0` | ⚠️ Old install script (not used in CI/Docker builds) |
+### 2.2 Test Infrastructure (Confirmed)
 
-**Root Cause of Go stdlib CVEs**: The nightly branch's last sync predated the 1.26.2 bump. The next nightly sync from development will propagate 1.26.2 automatically. The only file requiring a fix is the example workflow.
+- **In-memory DB**: `gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})`
+- **Mock auth**: `mockAuthMiddleware()` from `coverage_helpers_test.go`
+- **Mock backup service**: `&mockBackupService{createFunc: ..., availableSpaceFunc: ...}`
+- **Manager test hooks**: package-level `generateConfigFunc`, `validateConfigFunc`, `writeFileFunc` vars with `defer` restore pattern
+- **Frontend mocks**: `vi.mock('../../hooks/...', ...)` and `vi.mock('react-i18next', ...)`
 
-### 2.2 Vulnerability Inventory
+### 2.3 Existing Patch Test Files
 
-#### HIGH Severity (must fix — merge-blocking)
-
-| # | CVE / GHSA | Package | Current | Fix | Binary | Dep Type |
-|---|-----------|---------|---------|-----|--------|----------|
-| 1 | CVE-2026-39883 | `go.opentelemetry.io/otel/sdk` | v1.40.0 | v1.43.0 | Caddy | Transitive (Caddy plugins → otelhttp → otel/sdk) |
-| 2 | CVE-2026-34986 | `github.com/go-jose/go-jose/v3` | v3.0.4 | **v3.0.5** | Caddy | Transitive (caddy-security → JWT/JOSE stack) |
-| 3 | CVE-2026-34986 | `github.com/go-jose/go-jose/v4` | v4.1.3 | **v4.1.4** | Caddy | Transitive (grpc v1.79.3 → go-jose/v4) |
-| 4 | CVE-2026-32286 | `github.com/jackc/pgproto3/v2` | v2.3.3 | pgx/v4 v4.18.3 ¹ | CrowdSec | Transitive (CrowdSec → pgx/v4 v4.18.2 → pgproto3/v2) |
-
-¹ pgproto3/v2 has **no patched release**. Fix requires upstream migration to pgx/v5 (uses pgproto3/v3). See §5 Risk Assessment.
-
-#### MEDIUM Severity (fix in same pass)
-
-| # | CVE / GHSA | Package(s) | Current | Fix | Binary | Dep Type |
-|---|-----------|------------|---------|-----|--------|----------|
-| 5 | GHSA-xmrv-pmrh-hhx2 | AWS SDK v2: `eventstream` v1.7.1, `cloudwatchlogs` v1.57.2, `kinesis` v1.40.1, `s3` v1.87.3 | See left | Bump all | CrowdSec | Direct deps of CrowdSec v1.7.7 |
-| 6 | CVE-2026-32281, -32288, -32289 | Go stdlib | 1.26.1 | **1.26.2** | All (nightly image) | Toolchain |
-| 7 | CVE-2026-39882 | OTel HTTP exporters: `otlploghttp` v0.16.0, `otlpmetrichttp` v1.40.0, `otlptracehttp` v1.40.0 | See left | Bump all | Caddy | Transitive (Caddy plugins → OTel exporters) |
-
-### 2.3 Dependency Chain Analysis
-
-#### Backend (`backend/go.mod`)
-
-```
-charon/backend (direct)
-  └─ docker/docker v28.5.2+incompatible (direct)
-       └─ otelhttp v0.68.0 (indirect)
-            └─ otel/sdk v1.43.0 (indirect) — already at latest
-  └─ grpc v1.79.3 (indirect)
-  └─ otlptracehttp v1.42.0 (indirect) ── CVE-2026-39882
-```
-
-Backend resolved versions (verified via `go list -m -json`):
-
-| Package | Version | Type |
-|---------|---------|------|
-| `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp` | v1.42.0 | indirect |
-| `google.golang.org/grpc` | v1.79.3 | indirect |
-| `go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp` | v0.68.0 | indirect |
-
-**Not present in backend**: go-jose/v3, go-jose/v4, otel/sdk, pgproto3/v2, AWS SDK, otlploghttp, otlpmetrichttp.
-
-#### CrowdSec Binary (Dockerfile `crowdsec-builder` stage)
-
-Source: CrowdSec v1.7.7 `go.mod` (verified via `git clone --depth 1 --branch v1.7.7`):
-
-```
-crowdsec v1.7.7
-  └─ pgx/v4 v4.18.2 (direct) → pgproto3/v2 v2.3.3 (indirect) ── CVE-2026-32286
-  └─ aws-sdk-go-v2/service/s3 v1.87.3 (direct) ── GHSA-xmrv-pmrh-hhx2
-  └─ aws-sdk-go-v2/service/cloudwatchlogs v1.57.2 (direct) ── GHSA-xmrv-pmrh-hhx2
-  └─ aws-sdk-go-v2/service/kinesis v1.40.1 (direct) ── GHSA-xmrv-pmrh-hhx2
-  └─ aws-sdk-go-v2/aws/protocol/eventstream v1.7.1 (indirect) ── GHSA-xmrv-pmrh-hhx2
-  └─ otel v1.39.0, otel/metric v1.39.0, otel/trace v1.39.0 (indirect)
-```
-
-Confirmed by Trivy image scan (`trivy-image-report.json`): pgproto3/v2 v2.3.3 flagged in `usr/local/bin/crowdsec` and `usr/local/bin/cscli`.
-
-#### Caddy Binary (Dockerfile `caddy-builder` stage)
-
-Built via xcaddy with plugins. go.mod is generated at build time. Vulnerable packages enter via:
-
-```
-xcaddy build (Caddy v2.11.2 + plugins)
-  └─ caddy-security v1.1.61 → go-jose/v3 (JWT auth stack) ── CVE-2026-34986
-  └─ grpc (patched to v1.79.3 in Dockerfile) → go-jose/v4 v4.1.3 ── CVE-2026-34986
-  └─ Caddy/plugins → otel/sdk v1.40.0 ── CVE-2026-39883
-  └─ Caddy/plugins → otlploghttp v0.16.0, otlpmetrichttp v1.40.0, otlptracehttp v1.40.0 ── CVE-2026-39882
-```
+| File | Existing Tests |
+|---|---|
+| `certificate_handler_patch_coverage_test.go` | `TestDelete_UUID_WithBackup_Success`, `_NotFound`, `_InUse` |
+| `certificate_service_patch_coverage_test.go` | `TestExportCertificate_DER`, `_PFX`, `_P12`, `_UnsupportedFormat` |
+| `certificate_validator_extra_coverage_test.go` | ECDSA/Ed25519 key match, `ConvertDERToPEM` valid/invalid |
+| `manager_patch_coverage_test.go` | DNS provider encryption key paths |
+| `proxy_host_handler_test.go` | Full CRUD + BulkUpdateACL + BulkUpdateSecurityHeaders |
+| `proxy_host_handler_update_test.go` | Update edge cases, `ParseForwardPortField`, `ParseNullableUintField` |
 
 ---
 
-## 3. Technical Specifications
+## 3. Technical Specifications — Per-File Gap Analysis
 
-### 3.1 Backend go.mod Changes
+### 3.1 `certificate_handler.go` — Export Re-Auth Path (~18 lines)
 
-**File**: `backend/go.mod` (+ `backend/go.sum` auto-generated)
+The `Export` handler re-authenticates the user when `include_key=true`. All six guard branches are uncovered.
 
-```bash
-cd backend
+**Gap location**: Lines ~260–320 (password empty check, `user` context key extraction, `map[string]any` cast, `id` field lookup, DB user lookup, bcrypt check)
 
-# Upgrade grpc to v1.80.0 (security patches for transitive deps)
-go get google.golang.org/grpc@v1.80.0
+**New tests** (append to `certificate_handler_patch_coverage_test.go`):
 
-# CVE-2026-39882: OTel HTTP exporter (backend only has otlptracehttp)
-go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.43.0
+| Test Name | Scenario | Expected |
+|---|---|---|
+| `TestExport_IncludeKey_MissingPassword` | POST with `include_key=true`, no `password` field | 403 |
+| `TestExport_IncludeKey_NoUserContext` | No `"user"` key in gin context | 403 |
+| `TestExport_IncludeKey_InvalidClaimsType` | `"user"` set to a plain string | 403 |
+| `TestExport_IncludeKey_UserIDNotInClaims` | `user = map[string]any{}` with no `"id"` key | 403 |
+| `TestExport_IncludeKey_UserNotFoundInDB` | Valid claims, no matching user row | 403 |
+| `TestExport_IncludeKey_WrongPassword` | User in DB, wrong plaintext password submitted | 403 |
 
-go mod tidy
-```
+### 3.2 `certificate_handler.go` — Export Service Errors (~4 lines)
 
-Expected `go.mod` diff:
-- `google.golang.org/grpc` v1.79.3 → v1.80.0
-- `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp` v1.42.0 → v1.43.0
+**Gap location**: After `ExportCertificate` call — ErrCertNotFound and generic error branches
 
-### 3.2 Dockerfile — Caddy Builder Stage Patches
+| Test Name | Scenario | Expected |
+|---|---|---|
+| `TestExport_CertNotFound` | Unknown UUID | 404 |
+| `TestExport_ServiceError` | Service returns non-not-found error | 500 |
 
-**File**: `Dockerfile`, within the caddy-builder `RUN bash -c '...'` block, in the **Stage 2: Apply security patches** section.
+### 3.3 `certificate_handler.go` — Delete Numeric-ID Error Paths (~12 lines)
 
-Add after the existing `go get golang.org/x/net@v${XNET_VERSION};` line:
+**Gap location**: `IsCertificateInUse` error, disk space check, backup error, `DeleteCertificateByID` returning `ErrCertInUse` or generic error
 
-```bash
-# CVE-2026-34986: go-jose JOSE/JWT validation bypass
-# Fix in v3.0.5 and v4.1.4. Pin here until caddy-security ships fix.
-# renovate: datasource=go depName=github.com/go-jose/go-jose/v3
-go get github.com/go-jose/go-jose/v3@v3.0.5; \
-# renovate: datasource=go depName=github.com/go-jose/go-jose/v4
-go get github.com/go-jose/go-jose/v4@v4.1.4; \
-# CVE-2026-39883: OTel SDK resource leak
-# Fix in v1.43.0. Pin here until Caddy ships with updated OTel.
-# renovate: datasource=go depName=go.opentelemetry.io/otel/sdk
-go get go.opentelemetry.io/otel/sdk@v1.43.0; \
-# CVE-2026-39882: OTel HTTP exporter request smuggling
-# renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp
-go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp@v0.19.0; \
-# renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp
-go get go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.43.0; \
-# renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp
-go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.43.0; \
-```
+| Test Name | Scenario | Expected |
+|---|---|---|
+| `TestDelete_NumericID_UsageCheckError` | `IsCertificateInUse` returns error | 500 |
+| `TestDelete_NumericID_LowDiskSpace` | `availableSpaceFunc` returns 0 | 507 |
+| `TestDelete_NumericID_BackupError` | `createFunc` returns error | 500 |
+| `TestDelete_NumericID_CertInUse_FromService` | `DeleteCertificateByID` → `ErrCertInUse` | 409 |
+| `TestDelete_NumericID_DeleteError` | `DeleteCertificateByID` → generic error | 500 |
 
-Update existing grpc patch line from `v1.79.3` → `v1.80.0`:
+### 3.4 `certificate_handler.go` — Delete UUID Additional Error Paths (~8 lines)
 
-```bash
-# Before:
-go get google.golang.org/grpc@v1.79.3; \
-# After:
-# CVE-2026-33186: gRPC-Go auth bypass (fixed in v1.79.3)
-# CVE-2026-34986: go-jose/v4 transitive fix (requires grpc >= v1.80.0)
-# renovate: datasource=go depName=google.golang.org/grpc
-go get google.golang.org/grpc@v1.80.0; \
-```
+| Test Name | Scenario | Expected |
+|---|---|---|
+| `TestDelete_UUID_UsageCheckInternalError` | `IsCertificateInUseByUUID` returns non-ErrCertNotFound error | 500 |
+| `TestDelete_UUID_LowDiskSpace` | `availableSpaceFunc` returns 0 | 507 |
+| `TestDelete_UUID_BackupCreationError` | `createFunc` returns error | 500 |
+| `TestDelete_UUID_CertInUse_FromService` | `DeleteCertificate` → `ErrCertInUse` | 409 |
 
-### 3.3 Dockerfile — CrowdSec Builder Stage Patches
+### 3.5 `certificate_handler.go` — Upload/Validate File Open Errors (~8 lines)
 
-**File**: `Dockerfile`, within the crowdsec-builder `RUN` block that patches dependencies.
+**Gap location**: `file.Open()` calls on multipart key and chain form files returning errors
 
-Add after the existing `go get golang.org/x/net@v${XNET_VERSION}` line:
+| Test Name | Scenario | Expected |
+|---|---|---|
+| `TestUpload_KeyFile_OpenError` | Valid cert file, malformed key multipart entry | 500 |
+| `TestUpload_ChainFile_OpenError` | Valid cert+key, malformed chain multipart entry | 500 |
+| `TestValidate_KeyFile_OpenError` | Valid cert, malformed key multipart entry | 500 |
+| `TestValidate_ChainFile_OpenError` | Valid cert+key, malformed chain multipart entry | 500 |
 
-```bash
-# CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
-# renovate: datasource=go depName=github.com/jackc/pgx/v4
-go get github.com/jackc/pgx/v4@v4.18.3 && \
-# GHSA-xmrv-pmrh-hhx2: AWS SDK v2 event stream injection
-# renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
-go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.8 && \
-# renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.68.0 && \
-# renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/kinesis
-go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.5 && \
-# renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/s3
-go get github.com/aws/aws-sdk-go-v2/service/s3@v1.99.0 && \
-```
+### 3.6 `certificate_handler.go` — `sendDeleteNotification` Rate-Limit (~2 lines)
 
-CrowdSec grpc already at v1.80.0 — no change needed.
+| Test Name | Scenario | Expected |
+|---|---|---|
+| `TestSendDeleteNotification_RateLimit` | Call `sendDeleteNotification` twice within 10-second window | Second call is a no-op |
 
-### 3.4 Example Workflow Fix
+---
 
-**File**: `.github/skills/examples/gorm-scanner-ci-workflow.yml` (line 28)
+### 3.7 `certificate_service.go` — `SyncFromDisk` Branches (~14 lines)
 
-```yaml
-# Before:
-          go-version: "1.26.1"
-# After:
-          go-version: "1.26.2"
-```
+| Test Name | Scenario | Expected |
+|---|---|---|
+| `TestSyncFromDisk_StagingToProductionUpgrade` | DB has staging cert, disk has production cert for same domain | DB cert updated to production provider |
+| `TestSyncFromDisk_ExpiryOnlyUpdate` | Disk cert content matches DB cert, only expiry changed | Only `expires_at` column updated |
+| `TestSyncFromDisk_CertRootStatPermissionError` | `os.Chmod(certRoot, 0)` before sync; add skip guard `if os.Getuid() == 0 { t.Skip("chmod permission test cannot run as root") }` | No panic; logs error; function completes |
 
-### 3.5 Go Stdlib CVEs (nightly branch — no code change needed)
+### 3.8 `certificate_service.go` — `ListCertificates` Background Goroutine (~4 lines)
 
-The nightly workflow syncs `development → nightly` via `git merge --ff-only`. Since `development` already has Go 1.26.2 everywhere:
-- Dockerfile `ARG GO_VERSION=1.26.2` ✓
-- All CI workflows `GO_VERSION: '1.26.2'` ✓
-- `backend/go.mod` `go 1.26.2` ✓
+**Gap location**: `initialized=true` && TTL expired path → spawns background goroutine
 
-The next nightly run at 09:00 UTC will automatically propagate Go 1.26.2 to the nightly branch and rebuild the image.
+| Test Name | Scenario | Expected |
+|---|---|---|
+| `TestListCertificates_StaleCache_TriggersBackgroundSync` | `initialized=true`, `lastScan` = 10 min ago | Returns cached list without blocking; background sync completes |
+
+*Use `require.Eventually(t, func() bool { return svc.lastScan.After(before) }, 2*time.Second, 10*time.Millisecond, "background sync did not update lastScan")` after the call — avoids flaky fixed sleeps.*
+
+### 3.9 `certificate_service.go` — `GetDecryptedPrivateKey` Nil encSvc and Decrypt Failure (~4 lines)
+
+| Test Name | Scenario | Expected |
+|---|---|---|
+| `TestGetDecryptedPrivateKey_NoEncSvc` | Service with `nil` encSvc, cert has non-empty `PrivateKeyEncrypted` | Returns error |
+| `TestGetDecryptedPrivateKey_DecryptFails` | encSvc configured, corrupted ciphertext in DB | Returns wrapped error |
+
+### 3.10 `certificate_service.go` — `MigratePrivateKeys` Branches (~6 lines)
+
+| Test Name | Scenario | Expected |
+|---|---|---|
+| `TestMigratePrivateKeys_NoEncSvc` | `encSvc == nil` | Returns nil; logs warning |
+| `TestMigratePrivateKeys_WithRows` | DB has cert with `private_key` populated, valid encSvc | Row migrated: `private_key` cleared, `private_key_enc` set |
+
+### 3.11 `certificate_service.go` — `UpdateCertificate` Errors (~4 lines)
+
+| Test Name | Scenario | Expected |
+|---|---|---|
+| `TestUpdateCertificate_NotFound` | Non-existent UUID | Returns `ErrCertNotFound` |
+| `TestUpdateCertificate_DBSaveError` | Valid UUID, DB closed before Save | Returns wrapped error |
+
+### 3.12 `certificate_service.go` — `DeleteCertificate` ACME File Cleanup (~8 lines)
+
+**Gap location**: `cert.Provider == "letsencrypt"` branch → Walk certRoot and remove `.crt`/`.key`/`.json` files
+
+| Test Name | Scenario | Expected |
+|---|---|---|
+| `TestDeleteCertificate_LetsEncryptProvider_FileCleanup` | Create temp `.crt` matching cert domain, delete cert | `.crt` removed from disk |
+| `TestDeleteCertificate_StagingProvider_FileCleanup` | Provider = `"letsencrypt-staging"` | Same cleanup behavior triggered |
+
+### 3.13 `certificate_service.go` — `CheckExpiringCertificates` (~8 lines)
+
+**Implementation** (lines ~966–1020): queries `provider = 'custom'` certs expiring before `threshold`, iterates and sends notification for certs with `daysLeft <= warningDays`.
+
+| Test Name | Scenario | Expected |
+|---|---|---|
+| `TestCheckExpiringCertificates_ExpiresInRange` | Custom cert `expires_at = now+5d`, warningDays=30 | Returns slice with 1 cert |
+| `TestCheckExpiringCertificates_AlreadyExpired` | Custom cert `expires_at = yesterday` | Result contains cert with negative days |
+| `TestCheckExpiringCertificates_DBError` | DB closed before query | Returns error |
+
+---
+
+### 3.14 `certificate_validator.go` — `DetectFormat` Password-Protected PFX (~2 lines)
+
+**Gap location**: PFX where `pkcs12.DecodeAll("")` fails but first byte is `0x30` (ASN.1 SEQUENCE), DER parse also fails → returns `FormatPFX`
+
+**New file**: `certificate_validator_patch_coverage_test.go`
+
+| Test Name | Scenario | Expected |
+|---|---|---|
+| `TestDetectFormat_PasswordProtectedPFX` | Generate PFX with non-empty password, call `DetectFormat` | Returns `FormatPFX` |
+
+### 3.15 `certificate_validator.go` — `parsePEMPrivateKey` Additional Block Types (~4 lines)
+
+| Test Name | Scenario | Expected |
+|---|---|---|
+| `TestParsePEMPrivateKey_PKCS1RSA` | PEM block type `"RSA PRIVATE KEY"` (x509.MarshalPKCS1PrivateKey) | Returns RSA key |
+| `TestParsePEMPrivateKey_EC` | PEM block type `"EC PRIVATE KEY"` (x509.MarshalECPrivateKey) | Returns ECDSA key |
+
+### 3.16 `certificate_validator.go` — `detectKeyType` P-384 and Unknown Curves (~4 lines)
+
+| Test Name | Scenario | Expected |
+|---|---|---|
+| `TestDetectKeyType_ECDSAP384` | P-384 ECDSA key | Returns `"ECDSA-P384"` |
+| `TestDetectKeyType_ECDSAUnknownCurve` | ECDSA key with custom/unknown curve (e.g. P-224) | Returns `"ECDSA"` |
+
+### 3.17 `certificate_validator.go` — `ConvertPEMToPFX` Empty Chain (~2 lines)
+
+| Test Name | Scenario | Expected |
+|---|---|---|
+| `TestConvertPEMToPFX_EmptyChain` | Valid cert+key PEM, empty chain string | Returns PFX bytes without error |
+
+### 3.18 `certificate_validator.go` — `ConvertPEMToDER` Non-Certificate Block (~2 lines)
+
+| Test Name | Scenario | Expected |
+|---|---|---|
+| `TestConvertPEMToDER_NonCertBlock` | PEM block type `"PRIVATE KEY"` | Returns nil data and error |
+
+### 3.19 `certificate_validator.go` — `formatSerial` Nil BigInt (~2 lines)
+
+| Test Name | Scenario | Expected |
+|---|---|---|
+| `TestFormatSerial_Nil` | `formatSerial(nil)` | Returns `""` |
+
+---
+
+### 3.20 `proxy_host_handler.go` — `generateForwardHostWarnings` Private IP (~2 lines)
+
+**Gap location**: `net.ParseIP(forwardHost) != nil && network.IsPrivateIP(ip)` branch (non-Docker private IP)
+
+**New file**: `proxy_host_handler_patch_coverage_test.go`
+
+| Test Name | Scenario | Expected |
+|---|---|---|
+| `TestGenerateForwardHostWarnings_PrivateIP` | forwardHost = `"192.168.1.100"` (RFC-1918, non-Docker) | Returns warning with field `"forward_host"` |
+
+### 3.21 `proxy_host_handler.go` — `BulkUpdateSecurityHeaders` Edge Cases (~4 lines)
+
+| Test Name | Scenario | Expected |
+|---|---|---|
+| `TestBulkUpdateSecurityHeaders_AllFail_Rollback` | All UUIDs not found → `updated == 0` at end | 400, transaction rolled back |
+| `TestBulkUpdateSecurityHeaders_ProfileDB_NonNotFoundError` | Profile lookup returns wrapped DB error | 500 |
+
+---
+
+### 3.22 Frontend: `CertificateList.tsx` — Untested Branches
+
+**File**: `frontend/src/components/__tests__/CertificateList.test.tsx`
+
+| Gap | New Test |
+|---|---|
+| `bulkDeleteMutation` success | `'calls bulkDeleteMutation.mutate with selected UUIDs on confirm'` |
+| `bulkDeleteMutation` error | `'shows error toast on bulk delete failure'` |
+| Sort direction toggle | `'toggles sort direction when same column clicked twice'` |
+| `selectedIds` reconciliation | `'reconciles selectedIds when certificate list shrinks'` |
+| Export dialog open | `'opens export dialog when export button clicked'` |
+
+### 3.23 Frontend: `CertificateUploadDialog.tsx` — Untested Branches
+
+**File**: `frontend/src/components/dialogs/__tests__/CertificateUploadDialog.test.tsx`
+
+| Gap | New Test |
+|---|---|
+| PFX hides key/chain zones | `'hides key and chain file inputs when PFX file selected'` |
+| Upload success closes dialog | `'calls onOpenChange(false) on successful upload'` |
+| Upload error shows toast | `'shows error toast when upload mutation fails'` |
+| Validate result shown | `'displays validation result after validate clicked'` |
 
 ---
 
 ## 4. Implementation Plan
 
-### Phase 1: Playwright Tests (N/A)
+### Phase 1: Playwright Smoke Tests (Acceptance Gating)
 
-No UI/UX changes — this is a dependency-only update. Existing E2E tests validate runtime behavior.
+Add smoke coverage to confirm certificate export and delete flows reach the backend.
 
-### Phase 2: Backend Implementation
+**File**: `tests/certificate-coverage-smoke.spec.ts`
 
-| Task | File(s) | Action |
-|------|---------|--------|
-| 2.1 | `backend/go.mod`, `backend/go.sum` | Run `go get` commands from §3.1 |
-| 2.2 | Verify build | `cd backend && go build ./cmd/api` |
-| 2.3 | Verify vet | `cd backend && go vet ./...` |
-| 2.4 | Verify tests | `cd backend && go test ./...` |
-| 2.5 | Verify vulns | `cd backend && govulncheck ./...` |
+```typescript
+import { test, expect } from '@playwright/test'
 
-### Phase 3: Dockerfile Implementation
+test.describe('Certificate Coverage Smoke', () => {
+  test('export dialog opens when export button clicked', async ({ page }) => {
+    await page.goto('/')
+    // navigate to Certificates, click export on a cert
+    // assert dialog visible
+  })
 
-| Task | File(s) | Action |
-|------|---------|--------|
-| 3.1 | `Dockerfile` (caddy-builder, ~L258-280) | Add go-jose v3/v4, OTel SDK, OTel exporter patches per §3.2 |
-| 3.2 | `Dockerfile` (caddy-builder, ~L270) | Update grpc patch v1.79.3 → v1.80.0 |
-| 3.3 | `Dockerfile` (crowdsec-builder, ~L360-370) | Add pgx, AWS SDK patches per §3.3 |
-| 3.3a | CrowdSec binaries | After patching deps, run `go build` on CrowdSec binaries before full Docker build for faster compilation feedback |
-| 3.4 | `Dockerfile` | Verify `docker build .` completes successfully (amd64) |
+  test('delete dialog opens for deletable certificate', async ({ page }) => {
+    await page.goto('/')
+    // assert delete confirmation dialog appears
+  })
+})
+```
 
-### Phase 4: CI / Misc Fixes
+### Phase 2: Backend — Handler Tests
 
-| Task | File(s) | Action |
-|------|---------|--------|
-| 4.1 | `.github/skills/examples/gorm-scanner-ci-workflow.yml` | Bump Go version 1.26.1 → 1.26.2 |
+**File**: `backend/internal/api/handlers/certificate_handler_patch_coverage_test.go`
+**Action**: Append all tests from sections 3.1–3.6.
 
-### Phase 5: Validation
+Setup pattern for handler tests:
 
-| Task | Validation |
-|------|------------|
-| 5.1 | `cd backend && go build ./cmd/api` — compiles cleanly |
-| 5.2 | `cd backend && go test ./...` — all tests pass |
-| 5.3 | `cd backend && go vet ./...` — no issues |
-| 5.4 | `cd backend && govulncheck ./...` — 0 findings |
-| 5.5 | `docker build -t charon:vuln-fix .` — image builds for amd64 |
-| 5.6 | Trivy scan on built image: `docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image --severity CRITICAL,HIGH charon:vuln-fix` — 0 HIGH (pgproto3/v2 excepted) |
-| 5.7 | Container health: `docker run -d -p 8080:8080 charon:vuln-fix && curl -f http://localhost:8080/health` |
-| 5.8 | E2E Playwright tests pass against rebuilt container |
+```go
+func setupCertHandlerTest(t *testing.T) (*gin.Engine, *CertificateHandler, *gorm.DB) {
+    t.Helper()
+    db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+    require.NoError(t, err)
+    require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.User{}, &models.ProxyHost{}))
+    tmpDir := t.TempDir()
+    certSvc := services.NewCertificateService(tmpDir, db, nil)
+    backup := &mockBackupService{
+        availableSpaceFunc: func() (int64, error) { return 1 << 30, nil },
+        createFunc:         func(string) (string, error) { return "/tmp/backup.db", nil },
+    }
+    h := NewCertificateHandler(certSvc, backup, nil)
+    h.SetDB(db)
+    r := gin.New()
+    r.Use(mockAuthMiddleware())
+    h.RegisterRoutes(r.Group("/api"))
+    return r, h, db
+}
+```
+
+For `TestExport_IncludeKey_*` tests: inject user into gin context directly using a custom middleware wrapper that sets `"user"` (type `map[string]any`, field `"id"`) to the desired value.
+
+### Phase 3: Backend — Service Tests
+
+**File**: `backend/internal/services/certificate_service_patch_coverage_test.go`
+**Action**: Append all tests from sections 3.7–3.13.
+
+Setup pattern:
+
+```go
+func newTestSvc(t *testing.T) (*CertificateService, *gorm.DB, string) {
+    t.Helper()
+    db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+    require.NoError(t, err)
+    require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
+    tmpDir := t.TempDir()
+    return NewCertificateService(tmpDir, db, nil), db, tmpDir
+}
+```
+
+For `TestMigratePrivateKeys_WithRows`: use `db.Exec("INSERT INTO ssl_certificates (..., private_key) VALUES (...)` raw SQL to bypass GORM's `gorm:"-"` tag.
+
+### Phase 4: Backend — Validator Tests
+
+**File**: `backend/internal/services/certificate_validator_patch_coverage_test.go` (new)
+
+Key helpers needed:
+
+```go
+// generatePKCS1RSAKeyPEM returns an RSA key in PKCS#1 "RSA PRIVATE KEY" PEM format.
+func generatePKCS1RSAKeyPEM(t *testing.T) []byte {
+    key, err := rsa.GenerateKey(rand.Reader, 2048)
+    require.NoError(t, err)
+    return pem.EncodeToMemory(&pem.Block{
+        Type:  "RSA PRIVATE KEY",
+        Bytes: x509.MarshalPKCS1PrivateKey(key),
+    })
+}
+
+// generateECKeyPEM returns an EC key in "EC PRIVATE KEY" (SEC1) PEM format.
+func generateECKeyPEM(t *testing.T, curve elliptic.Curve) []byte {
+    key, err := ecdsa.GenerateKey(curve, rand.Reader)
+    require.NoError(t, err)
+    b, err := x509.MarshalECPrivateKey(key)
+    require.NoError(t, err)
+    return pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: b})
+}
+```
+
+### Phase 5: Backend — Proxy Host Handler Tests
+
+**File**: `backend/internal/api/handlers/proxy_host_handler_patch_coverage_test.go` (new)
+
+Setup pattern mirrors existing `proxy_host_handler_test.go` — use in-memory SQLite, `mockAuthMiddleware`, and `mockCaddyManager` (already available via test hook vars).
+
+### Phase 6: Frontend Tests
+
+**Files**:
+- `frontend/src/components/__tests__/CertificateList.test.tsx`
+- `frontend/src/components/dialogs/__tests__/CertificateUploadDialog.test.tsx`
+
+Use existing mock structure; add new `it(...)` blocks inside existing `describe` blocks.
+
+Frontend bulk delete success test pattern:
+
+```typescript
+it('calls bulkDeleteMutation.mutate with selected UUIDs on confirm', async () => {
+    const bulkDeleteFn = vi.fn()
+    mockUseBulkDeleteCertificates.mockReturnValue({
+        mutate: bulkDeleteFn,
+        isPending: false,
+    })
+    render(<CertificateList />)
+    // select checkboxes, click bulk delete, confirm dialog
+    expect(bulkDeleteFn).toHaveBeenCalledWith(['uuid-1', 'uuid-2'])
+})
+```
+
+### Phase 7: Validation
+
+1. `cd /projects/Charon && bash scripts/go-test-coverage.sh`
+2. `cd /projects/Charon && bash scripts/frontend-test-coverage.sh`
+3. `bash scripts/local-patch-report.sh` → verify `test-results/local-patch-report.md` shows ≥ 90%
+4. `bash scripts/scan-gorm-security.sh --check` → zero CRITICAL/HIGH
 
 ---
 
-## 5. Risk Assessment
+## 5. Commit Slicing Strategy
 
-### Low Risk
+**Decision**: One PR with 5 ordered, independently-reviewable commits.
 
-| Change | Risk | Rationale |
-|--------|------|-----------|
-| `go-jose/v3` v3.0.4 → v3.0.5 | Low | Security patch release only |
-| `go-jose/v4` v4.1.3 → v4.1.4 | Low | Security patch release only |
-| `otel/sdk` v1.40.0 → v1.43.0 (Caddy) | Low | Minor bumps, backwards compatible |
-| `otlptracehttp` v1.42.0 → v1.43.0 (backend) | Low | Minor bump |
-| OTel exporters (Caddy) | Low | Minor/patch bumps |
-| Go version example fix | None | Non-runtime file |
+**Rationale**: Four packages touched across two build systems (Go + Node). Atomic commits allow targeted revert if a mock approach proves brittle for a specific file, without rolling back unrelated coverage gains.
 
-### Medium Risk
+| # | Scope | Files | Dependencies | Validation Gate |
+|---|---|---|---|---|
+| **Commit 1** | Handler re-auth + delete + file-open errors | `certificate_handler_patch_coverage_test.go` (extend) | None | `go test ./backend/internal/api/handlers/...` |
+| **Commit 2** | Service SyncFromDisk, ListCerts, GetDecryptedKey, Migrate, Update, Delete, CheckExpiring | `certificate_service_patch_coverage_test.go` (extend) | None | `go test ./backend/internal/services/...` |
+| **Commit 3** | Validator DetectFormat, parsePEMPrivateKey, detectKeyType, ConvertPEMToPFX/DER, formatSerial | `certificate_validator_patch_coverage_test.go` (new) | Commit 2 not required (separate file) | `go test ./backend/internal/services/...` |
+| **Commit 4** | Proxy host warnings + BulkUpdateSecurityHeaders edge cases | `proxy_host_handler_patch_coverage_test.go` (new) | None | `go test ./backend/internal/api/handlers/...` |
+| **Commit 5** | Frontend CertificateList + CertificateUploadDialog | `CertificateList.test.tsx`, `CertificateUploadDialog.test.tsx` (extend) | None | `npm run test` |
 
-| Change | Risk | Mitigation |
-|--------|------|------------|
-| `grpc` v1.79.3 → v1.80.0 | Medium | Minor version bump. gRPC is indirect — Charon doesn't use gRPC directly. Run full test suite. Verify Caddy and CrowdSec still compile. |
-| AWS SDK major bumps (s3 v1.87→v1.99, cloudwatchlogs v1.57→v1.68, kinesis v1.40→v1.43) | Medium | CrowdSec build may fail if internal APIs changed between versions. Mitigate: run `go mod tidy` after patches and verify CrowdSec binaries compile. **Note:** AWS SDK Go v2 packages use independent semver within the `v1.x.x` line — these are minor version bumps, not major API breaks. |
-| `pgx/v4` v4.18.2 → v4.18.3 | Medium | Patch release should be safe. May not fully resolve pgproto3/v2 since no patched v2 exists. |
+**Rollback**: Any commit is safe to revert independently — all changes are additive test-only files.
 
-### Known Limitation: pgproto3/v2 (CVE-2026-32286)
-
-The `pgproto3/v2` module has **no patched release** — the fix exists only in `pgproto3/v3` (used by `pgx/v5`). CrowdSec v1.7.7 uses `pgx/v4` which depends on `pgproto3/v2`. Remediation:
-
-1. Bump `pgx/v4` to v4.18.3 (latest v4 patch) — may transitively resolve the issue
-2. If scanner still flags pgproto3/v2 after the bump: document as **accepted risk with upstream tracking**
-3. Monitor CrowdSec releases for `pgx/v5` migration
-4. Consider upgrading `CROWDSEC_VERSION` ARG if a newer CrowdSec release ships with pgx/v5
+**Contingency**: If the `Export` handler's re-auth tests require gin context injection that the current router wiring doesn't support cleanly, use a sub-router with a custom test middleware that pre-populates `"user"` (`map[string]any{"id": uint(1)}`) with the specific value under test, bypassing `mockAuthMiddleware` for those cases only.
 
 ---
 
 ## 6. Acceptance Criteria
 
-- [ ] `cd backend && go build ./cmd/api` succeeds with zero warnings
-- [ ] `cd backend && go test ./...` passes with zero failures
-- [ ] `cd backend && go vet ./...` reports zero issues
-- [ ] `cd backend && govulncheck ./...` reports zero findings
-- [ ] Docker image builds successfully for amd64
-- [ ] Trivy/Grype scan of built image shows 0 new HIGH findings (pgproto3/v2 excepted if upstream unpatched)
-- [ ] Container starts, health check passes on port 8080
-- [ ] Existing E2E Playwright tests pass against rebuilt container
-- [ ] No new compile errors in Caddy or CrowdSec builder stages
-- [ ] `backend/go.mod` shows updated versions for grpc, otlptracehttp
+- [ ] `go test -race ./backend/...` — all tests pass, no data races
+- [ ] Backend patch coverage ≥ 90% for all modified Go files per `test-results/local-patch-report.md`
+- [ ] `npm run test` — all Vitest tests pass
+- [ ] Frontend patch coverage ≥ 90% for `CertificateList.tsx` and `CertificateUploadDialog.tsx`
+- [ ] GORM security scan: zero CRITICAL/HIGH findings
+- [ ] No new `//nolint` or `//nosec` directives introduced
+- [ ] No source file modifications — test files only
+- [ ] All new Go test names follow `TestFunctionName_Scenario` convention
+- [ ] Previous spec archived to `docs/plans/archive/`
 
 ---
 
-## 7. Commit Slicing Strategy
+## 7. Estimated Coverage Impact
 
-### Decision: Single PR
+| File | Current | Estimated After | Lines Recovered |
+|---|---|---|---|
+| `certificate_handler.go` | 70.28% | ~85% | ~42 lines |
+| `certificate_service.go` | 82.85% | ~92% | ~44 lines |
+| `certificate_validator.go` | 88.68% | ~96% | ~18 lines |
+| `proxy_host_handler.go` | 55.17% | ~60% | ~8 lines |
+| `CertificateList.tsx` | moderate | high | ~15 lines |
+| `CertificateUploadDialog.tsx` | moderate | high | ~12 lines |
+| **Overall patch** | **85.61%** | **≥ 90%** | **~139 lines** |
 
-**Rationale**: All changes are dependency version bumps with no feature or behavioral changes. They address a single concern (security vulnerability remediation) and should be reviewed and merged atomically to avoid partial-fix states.
-
-**Trigger reasons for single PR**:
-- All changes are security patches — cannot ship partial fixes
-- Changes span backend + Dockerfile + CI config — logically coupled
-- No risk of one slice breaking another
-- Total diff is small (go.mod/go.sum + Dockerfile patch lines + 1 YAML fix)
-
-### PR-1: Nightly Build Vulnerability Remediation
-
-**Scope**: All changes in §3.1–§3.4
-
-**Files modified**:
-
-| File | Change Type |
-|------|-------------|
-| `backend/go.mod` | Dependency version bumps (grpc, otlptracehttp) |
-| `backend/go.sum` | Auto-generated checksum updates |
-| `Dockerfile` | Add `go get` patches in caddy-builder and crowdsec-builder stages |
-| `.github/skills/examples/gorm-scanner-ci-workflow.yml` | Go version 1.26.1 → 1.26.2 |
-
-**Dependencies**: None (standalone)
-
-**Validation gates**:
-1. `go build` / `go test` / `go vet` / `govulncheck` pass
-2. Docker image builds for amd64
-3. Trivy/Grype scan passes (0 new HIGH)
-4. E2E tests pass
-
-**Rollback**: Revert PR. All changes are version pins — reverting restores previous state with no data migration needed.
-
-### Post-merge Actions
-
-1. Nightly build will automatically sync development → nightly and rebuild the image with all patches
-2. Monitor next nightly scan for zero HIGH findings
-3. If pgproto3/v2 still flagged: open tracking issue for CrowdSec pgx/v5 upstream migration
-4. If any AWS SDK bump breaks CrowdSec compilation: pin to intermediate version and document
-
----
-
-## 8. CI Failure Amendment: pgx/v4 Module Path Mismatch
-
-**Date**: 2026-04-09
-**Failure**: PR #921 `build-and-push` job, step `crowdsec-builder 7/11`
-**Error**: `go: github.com/jackc/pgx/v4@v5.9.1: invalid version: go.mod has non-.../v4 module path "github.com/jackc/pgx/v5" (and .../v4/go.mod does not exist) at revision v5.9.1`
-
-### Root Cause
-
-Dockerfile line 386 specifies `go get github.com/jackc/pgx/v4@v5.9.1`. This mixes the v4 module path with a v5 version tag. Go's semantic import versioning rejects this because tag `v5.9.1` declares module path `github.com/jackc/pgx/v5` in its go.mod.
-
-### Fix
-
-**Dockerfile line 386** — change:
-```dockerfile
-go get github.com/jackc/pgx/v4@v5.9.1 && \
-```
-to:
-```dockerfile
-go get github.com/jackc/pgx/v4@v4.18.3 && \
-```
-
-No changes needed to the Renovate annotation (line 385) or the CVE comment (line 384) — both are already correct.
-
-### Why v4.18.3
-
-- CrowdSec v1.7.7 uses `github.com/jackc/pgx/v4 v4.18.2` (direct dependency)
-- v4.18.3 is the latest and likely final v4 release
-- pgproto3/v2 is archived at v2.3.3 (July 2025) — no fix will be released in the v2 line
-- The CVE (pgproto3/v2 buffer overflow) can only be fully resolved by CrowdSec migrating to pgx/v5 upstream
-- Bumping pgx/v4 to v4.18.3 gets the latest v4 maintenance patch; the CVE remains an accepted risk per §5
-
-### Validation
-
-The same `docker build` that previously failed at step 7/11 should now pass through the CrowdSec dependency patching stage and proceed to compilation (steps 8-11).
-
----
-
-## 9. Commands Reference
-
-```bash
-# === Backend dependency upgrades ===
-cd /projects/Charon/backend
-
-go get google.golang.org/grpc@v1.80.0
-go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.43.0
-go mod tidy
-
-# === Validate backend ===
-go build ./cmd/api
-go test ./...
-go vet ./...
-govulncheck ./...
-
-# === Docker build (after Dockerfile edits) ===
-cd /projects/Charon
-docker build -t charon:vuln-fix .
-
-# === Scan built image ===
-docker run --rm \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  aquasec/trivy:latest image \
-  --severity CRITICAL,HIGH \
-  charon:vuln-fix
-
-# === Quick container health check ===
-docker run -d --name charon-vuln-test -p 8080:8080 charon:vuln-fix
-sleep 10
-curl -f http://localhost:8080/health
-docker stop charon-vuln-test && docker rm charon-vuln-test
-```
+> **Note**: Proxy host handler remains below 90% after this plan because the `Create`/`Update`/`Delete` handler paths require full Caddy manager mock integration. A follow-up plan should address these with a dedicated `mockCaddyManager` interface.

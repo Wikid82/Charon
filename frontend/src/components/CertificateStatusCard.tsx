@@ -25,9 +25,9 @@ export default function CertificateStatusCard({ certificates, hosts, isLoading }
     const domains = new Set<string>()
     for (const cert of certificates) {
       // Handle missing or undefined domain field
-      if (!cert.domain) continue
-      // Certificate domain field can be comma-separated
-      for (const d of cert.domain.split(',')) {
+      if (!cert.domains) continue
+      // Certificate domains field can be comma-separated
+      for (const d of cert.domains.split(',')) {
         const trimmed = d.trim().toLowerCase()
         if (trimmed) domains.add(trimmed)
       }

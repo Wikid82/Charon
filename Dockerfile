@@ -43,9 +43,9 @@ ARG CADDY_CANDIDATE_VERSION=2.11.2
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
-ARG CADDY_SECURITY_VERSION=1.1.61
+ARG CADDY_SECURITY_VERSION=1.1.62
 # renovate: datasource=go depName=github.com/corazawaf/coraza-caddy
-ARG CORAZA_CADDY_VERSION=2.4.0
+ARG CORAZA_CADDY_VERSION=2.5.0
 ## When an official caddy image tag isn't available on the host, use a
 ## plain Alpine base image and overwrite its caddy binary with our
 ## xcaddy-built binary in the later COPY step. This avoids relying on
@@ -131,7 +131,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 ARG TARGETPLATFORM
 ARG TARGETARCH
 # hadolint ignore=DL3018
-RUN apk add --no-cache clang lld
+RUN apk add --no-cache git clang lld
 # hadolint ignore=DL3059
 # hadolint ignore=DL3018
 # Install musl (headers + runtime) and gcc for cross-compilation linker
@@ -345,7 +345,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         rm -rf /tmp/buildenv_* /tmp/caddy-initial'
 
 # ---- CrowdSec Builder ----
-# Build CrowdSec from source to ensure we use Go 1.26.1+ and avoid stdlib vulnerabilities
+# Build CrowdSec from source to ensure we use Go 1.26.2+ and avoid stdlib vulnerabilities
 # (CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729)
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS crowdsec-builder
 COPY --from=xx / /
@@ -469,7 +469,7 @@ WORKDIR /app
 RUN apk add --no-cache \
     bash ca-certificates sqlite-libs sqlite tzdata gettext libcap libcap-utils \
     c-ares busybox-extras \
-    && apk upgrade --no-cache zlib
+    && apk upgrade --no-cache zlib libcrypto3 libssl3 musl musl-utils
 
 # Copy gosu binary from gosu-builder (built with Go 1.26+ to avoid stdlib CVEs)
 COPY --from=gosu-builder /gosu-out/gosu /usr/sbin/gosu
@@ -516,7 +516,7 @@ COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 # Allow non-root to bind privileged ports (80/443) securely
 RUN setcap 'cap_net_bind_service=+ep' /usr/bin/caddy
 
-# Copy CrowdSec binaries from the crowdsec-builder stage (built with Go 1.26.1+)
+# Copy CrowdSec binaries from the crowdsec-builder stage (built with Go 1.26.2+)
 # This ensures we don't have stdlib vulnerabilities from older Go versions
 COPY --from=crowdsec-builder /crowdsec-out/crowdsec /usr/local/bin/crowdsec
 COPY --from=crowdsec-builder /crowdsec-out/cscli /usr/local/bin/cscli

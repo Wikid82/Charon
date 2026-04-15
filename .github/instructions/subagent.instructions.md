@@ -23,21 +23,21 @@ runSubagent({
 
 - Validate: `plan_file` exists and contains a `Handoff Contract` JSON.
 - Kickoff: call `Planning` to create the plan if not present.
-- Decide: check if work should be split into multiple PRs (size, risk, cross-domain impact).
+- Decide: check how to organize work into logical commits within a single PR (size, risk, cross-domain impact).
 - Run: execute `Backend Dev` then `Frontend Dev` sequentially.
 - Parallel: run `QA and Security`, `DevOps` and `Doc Writer` in parallel for CI / QA checks and documentation.
 - Return: a JSON summary with `subagent_results`, `overall_status`, and aggregated artifacts.
 
 2.1) Multi-Commit Slicing Protocol
 
-- If a task is large or high-risk, split into PR slices and execute in order.
-- Each slice must have:
+- All work for a single feature ships as one PR with ordered logical commits.
+- Each commit must have:
   - Scope boundary (what is included/excluded)
-  - Dependency on previous slices
-  - Validation gates (tests/scans required for that slice)
-  - Explicit rollback notes
-- Do not start the next slice until the current slice is complete and verified.
-- Keep each slice independently reviewable and deployable.
+  - Dependency on previous commits
+  - Validation gates (tests/scans required for that commit)
+  - Explicit rollback notes for the PR as a whole
+- Do not start the next commit until the current commit is complete and verified.
+- Keep each commit independently reviewable within the PR.
 
 3) Return Contract that all subagents must return
 
@@ -55,7 +55,7 @@ runSubagent({
 
 - On a subagent failure, the Management agent must capture `tests.output` and decide to retry (1 retry maximum), or request a revert/rollback.
 - Clearly mark the `status` as `failed`, and include `errors` and `failing_tests` in the `summary`.
-- For multi-PR execution, mark failed slice as blocked and stop downstream slices until resolved.
+- For multi-commit execution, mark failed commit as blocked and stop downstream commits until resolved.
 
 5) Example: Run a full Feature Implementation
 
