@@ -384,4 +384,26 @@ describe('CertificateUploadDialog', () => {
       expect(screen.queryByTestId('certificate-validation-preview')).toBeFalsy()
     })
   })
+
+  it('shows KEY format badge when .key file is uploaded', async () => {
+    const user = userEvent.setup({ applyAccept: false })
+    renderDialog()
+    const certInput = document.getElementById('cert-file') as HTMLInputElement
+    const file = new File(['key-data'], 'server.key', { type: 'application/x-pem-file' })
+    await user.upload(certInput, file)
+    expect(await screen.findByText('KEY')).toBeTruthy()
+  })
+
+  it('shows no format badge for unknown file extension', async () => {
+    const user = userEvent.setup({ applyAccept: false })
+    renderDialog()
+    const certInput = document.getElementById('cert-file') as HTMLInputElement
+    const file = new File(['data'], 'cert.bin', { type: 'application/octet-stream' })
+    await user.upload(certInput, file)
+    await screen.findByText('cert.bin')
+    expect(screen.queryByText('KEY')).toBeNull()
+    expect(screen.queryByText('DER')).toBeNull()
+    expect(screen.queryByText('PFX/PKCS#12')).toBeNull()
+    expect(screen.queryByText('PEM')).toBeNull()
+  })
 })

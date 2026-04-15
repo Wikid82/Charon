@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"mime/multipart"
 	"net/http"
@@ -337,5 +338,370 @@ func TestGet_DBError(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	// Should be 500 since the table doesn't exist
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// --- Export handler: re-auth and service error paths ---
+
+func TestExport_IncludeKey_MissingPassword(t *testing.T) {
+	tmpDir := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}, &models.User{}))
+	svc := services.NewCertificateService(tmpDir, db, nil)
+	h := NewCertificateHandler(svc, nil, nil)
+	h.SetDB(db)
+
+	r := gin.New()
+	r.Use(mockAuthMiddleware())
+	r.POST("/api/certificates/:uuid/export", h.Export)
+
+	body := bytes.NewBufferString(`{"format":"pem","include_key":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/certificates/"+uuid.New().String()+"/export", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestExport_IncludeKey_NoUserContext(t *testing.T) {
+	tmpDir := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}, &models.User{}))
+	svc := services.NewCertificateService(tmpDir, db, nil)
+	h := NewCertificateHandler(svc, nil, nil)
+	h.SetDB(db)
+
+	r := gin.New() // no middleware — "user" key absent
+	r.POST("/api/certificates/:uuid/export", h.Export)
+
+	body := bytes.NewBufferString(`{"format":"pem","include_key":true,"password":"somepass"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/certificates/"+uuid.New().String()+"/export", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestExport_IncludeKey_InvalidClaimsType(t *testing.T) {
+	tmpDir := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}, &models.User{}))
+	svc := services.NewCertificateService(tmpDir, db, nil)
+	h := NewCertificateHandler(svc, nil, nil)
+	h.SetDB(db)
+
+	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("user", "not-a-map"); c.Next() })
+	r.POST("/api/certificates/:uuid/export", h.Export)
+
+	body := bytes.NewBufferString(`{"format":"pem","include_key":true,"password":"somepass"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/certificates/"+uuid.New().String()+"/export", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestExport_IncludeKey_UserIDNotInClaims(t *testing.T) {
+	tmpDir := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}, &models.User{}))
+	svc := services.NewCertificateService(tmpDir, db, nil)
+	h := NewCertificateHandler(svc, nil, nil)
+	h.SetDB(db)
+
+	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("user", map[string]any{}); c.Next() }) // no "id" key
+	r.POST("/api/certificates/:uuid/export", h.Export)
+
+	body := bytes.NewBufferString(`{"format":"pem","include_key":true,"password":"somepass"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/certificates/"+uuid.New().String()+"/export", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestExport_IncludeKey_UserNotFoundInDB(t *testing.T) {
+	tmpDir := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}, &models.User{}))
+	svc := services.NewCertificateService(tmpDir, db, nil)
+	h := NewCertificateHandler(svc, nil, nil)
+	h.SetDB(db)
+
+	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("user", map[string]any{"id": float64(9999)}); c.Next() })
+	r.POST("/api/certificates/:uuid/export", h.Export)
+
+	body := bytes.NewBufferString(`{"format":"pem","include_key":true,"password":"somepass"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/certificates/"+uuid.New().String()+"/export", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestExport_IncludeKey_WrongPassword(t *testing.T) {
+	tmpDir := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}, &models.User{}))
+
+	u := &models.User{UUID: uuid.New().String(), Email: "export@example.com", Name: "Export User"}
+	require.NoError(t, u.SetPassword("correctpass"))
+	require.NoError(t, db.Create(u).Error)
+
+	svc := services.NewCertificateService(tmpDir, db, nil)
+	h := NewCertificateHandler(svc, nil, nil)
+	h.SetDB(db)
+
+	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("user", map[string]any{"id": float64(u.ID)}); c.Next() })
+	r.POST("/api/certificates/:uuid/export", h.Export)
+
+	body := bytes.NewBufferString(`{"format":"pem","include_key":true,"password":"wrongpass"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/certificates/"+uuid.New().String()+"/export", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestExport_CertNotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
+	svc := services.NewCertificateService(tmpDir, db, nil)
+	h := NewCertificateHandler(svc, nil, nil)
+
+	r := gin.New()
+	r.Use(mockAuthMiddleware())
+	r.POST("/api/certificates/:uuid/export", h.Export)
+
+	body := bytes.NewBufferString(`{"format":"pem"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/certificates/"+uuid.New().String()+"/export", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestExport_ServiceError(t *testing.T) {
+	tmpDir := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
+
+	certUUID := uuid.New().String()
+	cert := models.SSLCertificate{UUID: certUUID, Name: "test", Domains: "test.example.com", Provider: "custom"}
+	require.NoError(t, db.Create(&cert).Error)
+
+	svc := services.NewCertificateService(tmpDir, db, nil)
+	h := NewCertificateHandler(svc, nil, nil)
+
+	r := gin.New()
+	r.Use(mockAuthMiddleware())
+	r.POST("/api/certificates/:uuid/export", h.Export)
+
+	body := bytes.NewBufferString(`{"format":"unsupported_xyz"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/certificates/"+certUUID+"/export", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// --- Delete numeric ID paths ---
+
+func TestDelete_NumericID_UsageCheckError(t *testing.T) {
+	tmpDir := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{})) // no ProxyHost → IsCertificateInUse fails
+
+	svc := services.NewCertificateService(tmpDir, db, nil)
+	h := NewCertificateHandler(svc, nil, nil)
+
+	r := gin.New()
+	r.Use(mockAuthMiddleware())
+	r.DELETE("/api/certificates/:uuid", h.Delete)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/1", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestDelete_NumericID_LowDiskSpace(t *testing.T) {
+	tmpDir := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
+
+	cert := models.SSLCertificate{UUID: uuid.New().String(), Name: "low-space", Domains: "lowspace.example.com", Provider: "custom"}
+	require.NoError(t, db.Create(&cert).Error)
+
+	svc := services.NewCertificateService(tmpDir, db, nil)
+	backup := &mockBackupService{
+		availableSpaceFunc: func() (int64, error) { return 1024, nil }, // < 100 MB
+		createFunc:         func() (string, error) { return "", nil },
+	}
+	h := NewCertificateHandler(svc, backup, nil)
+
+	r := gin.New()
+	r.Use(mockAuthMiddleware())
+	r.DELETE("/api/certificates/:uuid", h.Delete)
+
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/certificates/%d", cert.ID), http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInsufficientStorage, w.Code)
+}
+
+func TestDelete_NumericID_BackupError(t *testing.T) {
+	tmpDir := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
+
+	cert := models.SSLCertificate{UUID: uuid.New().String(), Name: "backup-err", Domains: "backuperr.example.com", Provider: "custom"}
+	require.NoError(t, db.Create(&cert).Error)
+
+	svc := services.NewCertificateService(tmpDir, db, nil)
+	backup := &mockBackupService{
+		availableSpaceFunc: func() (int64, error) { return 1 << 30, nil }, // 1 GB — plenty
+		createFunc:         func() (string, error) { return "", fmt.Errorf("backup create failed") },
+	}
+	h := NewCertificateHandler(svc, backup, nil)
+
+	r := gin.New()
+	r.Use(mockAuthMiddleware())
+	r.DELETE("/api/certificates/:uuid", h.Delete)
+
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/certificates/%d", cert.ID), http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestDelete_NumericID_DeleteError(t *testing.T) {
+	tmpDir := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.ProxyHost{})) // no SSLCertificate → DeleteCertificateByID fails
+
+	svc := services.NewCertificateService(tmpDir, db, nil)
+	h := NewCertificateHandler(svc, nil, nil)
+
+	r := gin.New()
+	r.Use(mockAuthMiddleware())
+	r.DELETE("/api/certificates/:uuid", h.Delete)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/42", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// --- Delete UUID: internal usage-check error ---
+
+func TestDelete_UUID_UsageCheckInternalError(t *testing.T) {
+	tmpDir := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{})) // no ProxyHost → IsCertificateInUse fails
+
+	certUUID := uuid.New().String()
+	cert := models.SSLCertificate{UUID: certUUID, Name: "uuid-err", Domains: "uuiderr.example.com", Provider: "custom"}
+	require.NoError(t, db.Create(&cert).Error)
+
+	svc := services.NewCertificateService(tmpDir, db, nil)
+	h := NewCertificateHandler(svc, nil, nil)
+
+	r := gin.New()
+	r.Use(mockAuthMiddleware())
+	r.DELETE("/api/certificates/:uuid", h.Delete)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+certUUID, http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// --- sendDeleteNotification: rate limit ---
+
+func TestSendDeleteNotification_RateLimit(t *testing.T) {
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
+
+	ns := services.NewNotificationService(db, nil)
+	svc := services.NewCertificateService(t.TempDir(), db, nil)
+	h := NewCertificateHandler(svc, nil, ns)
+
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	ctx.Request = httptest.NewRequest(http.MethodDelete, "/", http.NoBody)
+
+	certRef := uuid.New().String()
+	h.sendDeleteNotification(ctx, certRef) // first call — sets timestamp
+	h.sendDeleteNotification(ctx, certRef) // second call — hits rate limit branch
+}
+
+// --- Update: empty UUID param (lines 207-209) ---
+
+func TestUpdate_EmptyUUID(t *testing.T) {
+	svc := services.NewCertificateService(t.TempDir(), nil, nil)
+	h := NewCertificateHandler(svc, nil, nil)
+
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	ctx.Request = httptest.NewRequest(http.MethodPut, "/api/certificates/", bytes.NewBufferString(`{"name":"test"}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	// No Params set — c.Param("uuid") returns ""
+	h.Update(ctx)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// --- Update: DB error (non-ErrCertNotFound) → lines 223-225 ---
+
+func TestUpdate_DBError(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	require.NoError(t, err)
+	// Deliberately no AutoMigrate → ssl_certificates table absent → "no such table" error
+
+	svc := services.NewCertificateService(t.TempDir(), db, nil)
+	h := NewCertificateHandler(svc, nil, nil)
+
+	r := gin.New()
+	r.Use(mockAuthMiddleware())
+	r.PUT("/api/certificates/:uuid", h.Update)
+
+	body, _ := json.Marshal(map[string]string{"name": "new-name"})
+	req := httptest.NewRequest(http.MethodPut, "/api/certificates/"+uuid.New().String(), bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }

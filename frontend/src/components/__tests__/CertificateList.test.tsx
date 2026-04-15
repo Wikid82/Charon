@@ -440,4 +440,40 @@ describe('CertificateList', () => {
     await user.click(within(customRow).getByTestId('export-cert-cert-1'))
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
   })
+
+  it('deselects a row checkbox by clicking it a second time', async () => {
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
+    const checkbox = within(customRow).getByRole('checkbox')
+    await user.click(checkbox)
+    expect(screen.getByRole('status')).toBeInTheDocument()
+    await user.click(checkbox)
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument())
+  })
+
+  it('closes detail dialog via the dialog close button', async () => {
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
+    await user.click(within(customRow).getByTestId('view-cert-cert-1'))
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Close' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('closes export dialog via the cancel button', async () => {
+    const user = userEvent.setup()
+    renderWithClient(<CertificateList />)
+    const rows = await screen.findAllByRole('row')
+    const customRow = rows.find(r => r.textContent?.includes('CustomCert'))!
+    await user.click(within(customRow).getByTestId('export-cert-cert-1'))
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'common.cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
 })
