@@ -314,3 +314,5 @@ validation-evidence/**
 .github/agents/# Tools Configuration.md
 docs/reports/codecove_patch_report.md
 vuln-results.json
+test_output.txt
+coverage_results.txt

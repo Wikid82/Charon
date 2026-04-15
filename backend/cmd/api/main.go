@@ -255,7 +255,11 @@ func main() {
 	cerb := cerberus.New(cfg.Security, db)
 
 	// Pass config to routes for auth service and certificate service
-	if err := routes.RegisterWithDeps(router, db, cfg, caddyManager, cerb); err != nil {
+	// Lifecycle context cancelled on shutdown to stop background goroutines
+	appCtx, appCancel := context.WithCancel(context.Background())
+	defer appCancel()
+
+	if err := routes.RegisterWithDeps(appCtx, router, db, cfg, caddyManager, cerb); err != nil {
 		log.Fatalf("register routes: %v", err)
 	}
 
@@ -290,6 +294,9 @@ func main() {
 	// Wait for interrupt signal
 	sig := <-quit
 	logger.Log().Infof("Received signal %v, initiating graceful shutdown...", sig)
+
+	// Cancel the app-wide context to stop background goroutines (e.g. cert expiry checker)
+	appCancel()
 
 	// Graceful shutdown with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

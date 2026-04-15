@@ -1,6 +1,7 @@
 package routes_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -20,7 +21,7 @@ func TestEndpointInventory_FrontendCanonicalSaveImportContractsExistInBackend(t 
 	require.NoError(t, err)
 
 	router := gin.New()
-	require.NoError(t, routes.Register(router, db, config.Config{JWTSecret: "test-secret"}))
+	require.NoError(t, routes.Register(context.Background(), router, db, config.Config{JWTSecret: "test-secret"}))
 	routes.RegisterImportHandler(router, db, config.Config{JWTSecret: "test-secret"}, "echo", "/tmp", "/import/Caddyfile")
 
 	assertStrictMethodPathMatrix(t, router.Routes(), backendImportSaveInventoryCanonical(), "backend canonical save/import inventory")
@@ -33,7 +34,7 @@ func TestEndpointInventory_FrontendParityMatchesCurrentContract(t *testing.T) {
 	require.NoError(t, err)
 
 	router := gin.New()
-	require.NoError(t, routes.Register(router, db, config.Config{JWTSecret: "test-secret"}))
+	require.NoError(t, routes.Register(context.Background(), router, db, config.Config{JWTSecret: "test-secret"}))
 	routes.RegisterImportHandler(router, db, config.Config{JWTSecret: "test-secret"}, "echo", "/tmp", "/import/Caddyfile")
 
 	assertStrictMethodPathMatrix(t, router.Routes(), frontendObservedImportSaveInventory(), "frontend observed save/import inventory")
@@ -46,7 +47,7 @@ func TestEndpointInventory_FrontendParityDetectsActualMismatch(t *testing.T) {
 	require.NoError(t, err)
 
 	router := gin.New()
-	require.NoError(t, routes.Register(router, db, config.Config{JWTSecret: "test-secret"}))
+	require.NoError(t, routes.Register(context.Background(), router, db, config.Config{JWTSecret: "test-secret"}))
 	routes.RegisterImportHandler(router, db, config.Config{JWTSecret: "test-secret"}, "echo", "/tmp", "/import/Caddyfile")
 
 	contractWithMismatch := append([]endpointInventoryEntry{}, frontendObservedImportSaveInventory()...)

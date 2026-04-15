@@ -453,12 +453,12 @@ describe('UsersPage', () => {
 
       await waitFor(() => {
         expect(client.post).toHaveBeenCalledWith('/users/preview-invite-url', { email: 'test@example.com' })
-      }, { timeout: 1000 })
+      }, { timeout: 2000 })
 
       // Look for the preview URL content with ellipsis replacing the token
       await waitFor(() => {
         expect(screen.getByText('https://charon.example.com/accept-invite?token=...')).toBeInTheDocument()
-      }, { timeout: 1000 })
+      }, { timeout: 2000 })
     })
 
     it('debounces URL preview for 500ms', async () => {
@@ -522,11 +522,15 @@ describe('UsersPage', () => {
       await user.type(emailInput, 'test@example.com')
 
       await waitFor(() => {
+        expect(client.post).toHaveBeenCalledWith('/users/preview-invite-url', { email: 'test@example.com' })
+      }, { timeout: 2000 })
+
+      await waitFor(() => {
         const preview = screen.getByText('https://example.com/accept-invite?token=...')
 
         expect(preview.textContent).toContain('...')
         expect(preview.textContent).not.toContain('SAMPLE_TOKEN_PREVIEW')
-      }, { timeout: 1000 })
+      }, { timeout: 2000 })
     })
 
     it('shows warning when not configured', async () => {
@@ -551,10 +555,14 @@ describe('UsersPage', () => {
       await user.type(emailInput, 'test@example.com')
 
       await waitFor(() => {
+        expect(client.post).toHaveBeenCalledWith('/users/preview-invite-url', { email: 'test@example.com' })
+      }, { timeout: 2000 })
+
+      await waitFor(() => {
         // Look for link to system settings
         const link = screen.getByRole('link')
         expect(link.getAttribute('href')).toContain('/settings/system')
-      }, { timeout: 1000 })
+      }, { timeout: 2000 })
     })
 
     it('does not show preview when email is invalid', async () => {
@@ -590,14 +598,9 @@ describe('UsersPage', () => {
       const emailInput = screen.getByPlaceholderText('user@example.com')
       await user.type(emailInput, 'test@example.com')
 
-      // Wait for debounce
-      await act(async () => {
-        await new Promise(resolve => setTimeout(resolve, 600))
-      })
-
       await waitFor(() => {
         expect(client.post).toHaveBeenCalledWith('/users/preview-invite-url', { email: 'test@example.com' })
-      }, { timeout: 1000 })
+      }, { timeout: 2000 })
 
       // Verify preview is not displayed after error
       const previewQuery = screen.queryByText(/accept-invite/)

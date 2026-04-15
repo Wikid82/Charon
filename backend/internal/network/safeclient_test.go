@@ -179,6 +179,7 @@ func TestNewSafeHTTPClient_DefaultOptions(t *testing.T) {
 	client := NewSafeHTTPClient()
 	if client == nil {
 		t.Fatal("NewSafeHTTPClient() returned nil")
+		return
 	}
 	if client.Timeout != 10*time.Second {
 		t.Errorf("expected default timeout of 10s, got %v", client.Timeout)
@@ -190,6 +191,7 @@ func TestNewSafeHTTPClient_WithTimeout(t *testing.T) {
 	client := NewSafeHTTPClient(WithTimeout(10 * time.Second))
 	if client == nil {
 		t.Fatal("NewSafeHTTPClient() returned nil")
+		return
 	}
 	if client.Timeout != 10*time.Second {
 		t.Errorf("expected timeout of 10s, got %v", client.Timeout)
@@ -848,6 +850,7 @@ func TestClientOptions_AllFunctionalOptions(t *testing.T) {
 
 	if client == nil {
 		t.Fatal("NewSafeHTTPClient() returned nil with all options")
+		return
 	}
 	if client.Timeout != 15*time.Second {
 		t.Errorf("expected timeout of 15s, got %v", client.Timeout)

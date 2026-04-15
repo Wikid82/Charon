@@ -45,7 +45,7 @@ export default function DeleteCertificateDialog({
         <DialogHeader>
           <DialogTitle>{t('certificates.deleteTitle')}</DialogTitle>
           <DialogDescription>
-            {certificate.name || certificate.domain}
+            {certificate.name || certificate.domains}
           </DialogDescription>
         </DialogHeader>
 
@@ -59,7 +59,7 @@ export default function DeleteCertificateDialog({
 
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
             <dt className="text-gray-500">{t('certificates.domain')}</dt>
-            <dd className="text-white">{certificate.domain}</dd>
+            <dd className="text-white">{certificate.domains}</dd>
             <dt className="text-gray-500">{t('certificates.status')}</dt>
             <dd className="text-white capitalize">{certificate.status}</dd>
             <dt className="text-gray-500">{t('certificates.provider')}</dt>

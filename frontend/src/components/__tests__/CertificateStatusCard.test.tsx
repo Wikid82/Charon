@@ -8,13 +8,15 @@ import type { Certificate } from '../../api/certificates'
 import type { ProxyHost } from '../../api/proxyHosts'
 
 const mockCert: Certificate = {
-  id: 1,
+  uuid: 'cert-1',
   name: 'Test Cert',
-  domain: 'example.com',
+  domains: 'example.com',
   issuer: "Let's Encrypt",
   expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
   status: 'valid',
   provider: 'letsencrypt',
+  has_key: true,
+  in_use: false,
 }
 
 const mockHost: ProxyHost = {
@@ -42,13 +44,15 @@ const mockHost: ProxyHost = {
 // Helper to create a certificate with a specific domain
 function mockCertWithDomain(domain: string, status: 'valid' | 'expiring' | 'expired' | 'untrusted' = 'valid'): Certificate {
   return {
-    id: Math.floor(Math.random() * 10000),
+    uuid: `cert-${Math.random().toString(36).slice(2, 8)}`,
     name: domain,
-    domain: domain,
+    domains: domain,
     issuer: "Let's Encrypt",
     expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
     status,
     provider: 'letsencrypt',
+    has_key: true,
+    in_use: false,
   }
 }
 
@@ -58,7 +62,7 @@ function renderWithRouter(ui: React.ReactNode) {
 
 describe('CertificateStatusCard', () => {
   it('shows total certificate count', () => {
-    const certs: Certificate[] = [mockCert, { ...mockCert, id: 2 }, { ...mockCert, id: 3 }]
+    const certs: Certificate[] = [mockCert, { ...mockCert, uuid: 'cert-2' }, { ...mockCert, uuid: 'cert-3' }]
     renderWithRouter(<CertificateStatusCard certificates={certs} hosts={[]} />)
 
     expect(screen.getByText('3')).toBeInTheDocument()
@@ -68,8 +72,8 @@ describe('CertificateStatusCard', () => {
   it('shows valid certificate count', () => {
     const certs: Certificate[] = [
       { ...mockCert, status: 'valid' },
-      { ...mockCert, id: 2, status: 'valid' },
-      { ...mockCert, id: 3, status: 'expired' },
+      { ...mockCert, uuid: 'cert-2', status: 'valid' },
+      { ...mockCert, uuid: 'cert-3', status: 'expired' },
     ]
     renderWithRouter(<CertificateStatusCard certificates={certs} hosts={[]} />)
 
@@ -79,7 +83,7 @@ describe('CertificateStatusCard', () => {
   it('shows expiring count when certificates are expiring', () => {
     const certs: Certificate[] = [
       { ...mockCert, status: 'expiring' },
-      { ...mockCert, id: 2, status: 'valid' },
+      { ...mockCert, uuid: 'cert-2', status: 'valid' },
     ]
     renderWithRouter(<CertificateStatusCard certificates={certs} hosts={[]} />)
 
@@ -96,7 +100,7 @@ describe('CertificateStatusCard', () => {
   it('shows staging count for untrusted certificates', () => {
     const certs: Certificate[] = [
       { ...mockCert, status: 'untrusted' },
-      { ...mockCert, id: 2, status: 'untrusted' },
+      { ...mockCert, uuid: 'cert-2', status: 'untrusted' },
     ]
     renderWithRouter(<CertificateStatusCard certificates={certs} hosts={[]} />)
 
@@ -206,7 +210,7 @@ describe('CertificateStatusCard - Domain Matching', () => {
   it('handles comma-separated certificate domains', () => {
     const certs: Certificate[] = [{
       ...mockCertWithDomain('example.com'),
-      domain: 'example.com, www.example.com'
+      domains: 'example.com, www.example.com'
     }]
     const hosts: ProxyHost[] = [
       { ...mockHost, domain_names: 'www.example.com', ssl_forced: true, certificate_id: null, enabled: true }
@@ -295,7 +299,7 @@ describe('CertificateStatusCard - Domain Matching', () => {
   it('handles whitespace in certificate domains', () => {
     const certs: Certificate[] = [{
       ...mockCertWithDomain('example.com'),
-      domain: '  example.com  '
+      domains: '  example.com  '
     }]
     const hosts: ProxyHost[] = [
       { ...mockHost, domain_names: 'example.com', ssl_forced: true, certificate_id: null, enabled: true }

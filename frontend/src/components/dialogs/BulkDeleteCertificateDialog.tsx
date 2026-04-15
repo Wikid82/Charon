@@ -64,10 +64,10 @@ export default function BulkDeleteCertificateDialog({
           >
             {certificates.map((cert) => (
               <li
-                key={cert.id ?? cert.domain}
+                key={cert.uuid}
                 className="flex items-center justify-between px-4 py-2"
               >
-                <span className="text-sm text-white">{cert.name || cert.domain}</span>
+                <span className="text-sm text-white">{cert.name || cert.domains}</span>
                 <span className="text-xs text-gray-500">{providerLabel(cert, t)}</span>
               </li>
             ))}

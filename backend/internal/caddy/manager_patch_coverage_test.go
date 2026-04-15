@@ -57,7 +57,7 @@ func TestManagerApplyConfig_DNSProviders_NoKey_SkipsDecryption(t *testing.T) {
 		generateConfigFunc = origGen
 		validateConfigFunc = origVal
 	}()
-	generateConfigFunc = func(_ []models.ProxyHost, _ string, _ string, _ string, _ string, _ bool, _ bool, _ bool, _ bool, _ bool, _ string, _ []models.SecurityRuleSet, _ map[string]string, _ []models.SecurityDecision, _ *models.SecurityConfig, dnsProviderConfigs []DNSProviderConfig) (*Config, error) {
+	generateConfigFunc = func(_ []models.ProxyHost, _ string, _ string, _ string, _ string, _ bool, _ bool, _ bool, _ bool, _ bool, _ string, _ []models.SecurityRuleSet, _ map[string]string, _ []models.SecurityDecision, _ *models.SecurityConfig, dnsProviderConfigs []DNSProviderConfig, _ ...*crypto.EncryptionService) (*Config, error) {
 		capturedLen = len(dnsProviderConfigs)
 		return &Config{}, nil
 	}
@@ -111,7 +111,7 @@ func TestManagerApplyConfig_DNSProviders_UsesFallbackEnvKeys(t *testing.T) {
 		generateConfigFunc = origGen
 		validateConfigFunc = origVal
 	}()
-	generateConfigFunc = func(_ []models.ProxyHost, _ string, _ string, _ string, _ string, _ bool, _ bool, _ bool, _ bool, _ bool, _ string, _ []models.SecurityRuleSet, _ map[string]string, _ []models.SecurityDecision, _ *models.SecurityConfig, dnsProviderConfigs []DNSProviderConfig) (*Config, error) {
+	generateConfigFunc = func(_ []models.ProxyHost, _ string, _ string, _ string, _ string, _ bool, _ bool, _ bool, _ bool, _ bool, _ string, _ []models.SecurityRuleSet, _ map[string]string, _ []models.SecurityDecision, _ *models.SecurityConfig, dnsProviderConfigs []DNSProviderConfig, _ ...*crypto.EncryptionService) (*Config, error) {
 		captured = append([]DNSProviderConfig(nil), dnsProviderConfigs...)
 		return &Config{}, nil
 	}
@@ -175,7 +175,7 @@ func TestManagerApplyConfig_DNSProviders_SkipsDecryptOrJSONFailures(t *testing.T
 		generateConfigFunc = origGen
 		validateConfigFunc = origVal
 	}()
-	generateConfigFunc = func(_ []models.ProxyHost, _ string, _ string, _ string, _ string, _ bool, _ bool, _ bool, _ bool, _ bool, _ string, _ []models.SecurityRuleSet, _ map[string]string, _ []models.SecurityDecision, _ *models.SecurityConfig, dnsProviderConfigs []DNSProviderConfig) (*Config, error) {
+	generateConfigFunc = func(_ []models.ProxyHost, _ string, _ string, _ string, _ string, _ bool, _ bool, _ bool, _ bool, _ bool, _ string, _ []models.SecurityRuleSet, _ map[string]string, _ []models.SecurityDecision, _ *models.SecurityConfig, dnsProviderConfigs []DNSProviderConfig, _ ...*crypto.EncryptionService) (*Config, error) {
 		captured = append([]DNSProviderConfig(nil), dnsProviderConfigs...)
 		return &Config{}, nil
 	}

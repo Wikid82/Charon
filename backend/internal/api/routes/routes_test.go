@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -41,7 +42,7 @@ func TestRegister(t *testing.T) {
 		JWTSecret: "test-secret",
 	}
 
-	err = Register(router, db, cfg)
+	err = Register(context.Background(), router, db, cfg)
 	assert.NoError(t, err)
 
 	// Verify some routes are registered
@@ -70,7 +71,7 @@ func TestRegister_WithDevelopmentEnvironment(t *testing.T) {
 		Environment: "development",
 	}
 
-	err = Register(router, db, cfg)
+	err = Register(context.Background(), router, db, cfg)
 	assert.NoError(t, err)
 }
 
@@ -86,7 +87,7 @@ func TestRegister_WithProductionEnvironment(t *testing.T) {
 		Environment: "production",
 	}
 
-	err = Register(router, db, cfg)
+	err = Register(context.Background(), router, db, cfg)
 	assert.NoError(t, err)
 }
 
@@ -107,7 +108,7 @@ func TestRegister_AutoMigrateFailure(t *testing.T) {
 		JWTSecret: "test-secret",
 	}
 
-	err = Register(router, db, cfg)
+	err = Register(context.Background(), router, db, cfg)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "auto migrate")
 }
@@ -148,7 +149,7 @@ func TestRegister_RoutesRegistration(t *testing.T) {
 		JWTSecret: "test-secret",
 	}
 
-	err = Register(router, db, cfg)
+	err = Register(context.Background(), router, db, cfg)
 	require.NoError(t, err)
 
 	routes := router.Routes()
@@ -181,7 +182,7 @@ func TestRegister_ProxyHostsRequireAuth(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-hosts", strings.NewReader(`{}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -200,7 +201,7 @@ func TestRegister_StateChangingRoutesDenyByDefaultWithExplicitAllowlist(t *testi
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	mutatingMethods := map[string]bool{
 		http.MethodPost:   true,
@@ -264,7 +265,7 @@ func TestRegister_DNSProviders_NotRegisteredWhenEncryptionKeyMissing(t *testing.
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret", EncryptionKey: ""}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	for _, r := range router.Routes() {
 		assert.NotContains(t, r.Path, "/api/v1/dns-providers")
@@ -279,7 +280,7 @@ func TestRegister_DNSProviders_NotRegisteredWhenEncryptionKeyInvalid(t *testing.
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret", EncryptionKey: "not-base64"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	for _, r := range router.Routes() {
 		assert.NotContains(t, r.Path, "/api/v1/dns-providers")
@@ -295,7 +296,7 @@ func TestRegister_DNSProviders_RegisteredWhenEncryptionKeyValid(t *testing.T) {
 
 	// 32-byte all-zero key in base64
 	cfg := config.Config{JWTSecret: "test-secret", EncryptionKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	paths := make(map[string]bool)
 	for _, r := range router.Routes() {
@@ -317,7 +318,7 @@ func TestRegister_AllRoutesRegistered(t *testing.T) {
 		JWTSecret:     "test-secret",
 		EncryptionKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
 	}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	routes := router.Routes()
 	routeMap := make(map[string][]string) // path -> methods
@@ -384,7 +385,7 @@ func TestRegister_MiddlewareApplied(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	// Test that security headers middleware is applied
 	w := httptest.NewRecorder()
@@ -413,7 +414,7 @@ func TestRegister_AuthenticatedRoutes(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	// Test that protected routes require authentication
 	protectedPaths := []struct {
@@ -449,7 +450,7 @@ func TestRegister_StateChangingRoutesRequireAuthentication(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	stateChangingPaths := []struct {
 		method string
@@ -488,7 +489,7 @@ func TestRegister_AdminRoutes(t *testing.T) {
 		JWTSecret:     "test-secret",
 		EncryptionKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
 	}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	// Admin routes should exist and require auth
 	adminPaths := []string{
@@ -513,7 +514,7 @@ func TestRegister_PublicRoutes(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	// Public routes should be accessible without auth (route exists, not 404)
 	publicPaths := []struct {
@@ -545,7 +546,7 @@ func TestRegister_HealthEndpoint(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
@@ -563,7 +564,7 @@ func TestRegister_MetricsEndpoint(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
@@ -582,7 +583,7 @@ func TestRegister_DBHealthEndpoint(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/health/db", nil)
@@ -600,7 +601,7 @@ func TestRegister_LoginEndpoint(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	// Test login endpoint exists and accepts POST
 	body := `{"username": "test", "password": "test"}`
@@ -621,7 +622,7 @@ func TestRegister_SetupEndpoint(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	// GET /setup should return setup status
 	w := httptest.NewRecorder()
@@ -646,7 +647,7 @@ func TestRegister_WithEncryptionRoutes(t *testing.T) {
 		JWTSecret:     "test-secret",
 		EncryptionKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
 	}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	// Check if encryption routes are registered (may depend on env)
 	routes := router.Routes()
@@ -668,7 +669,7 @@ func TestRegister_UptimeCheckEndpoint(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	// Uptime check route should exist and require auth
 	w := httptest.NewRecorder()
@@ -687,7 +688,7 @@ func TestRegister_CrowdSecRoutes(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	// CrowdSec routes should exist
 	routes := router.Routes()
@@ -713,7 +714,7 @@ func TestRegister_SecurityRoutes(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	routes := router.Routes()
 	routeMap := make(map[string]bool)
@@ -740,7 +741,7 @@ func TestRegister_AccessListRoutes(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	routes := router.Routes()
 	routeMap := make(map[string]bool)
@@ -763,7 +764,7 @@ func TestRegister_CertificateRoutes(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	routes := router.Routes()
 	routeMap := make(map[string]bool)
@@ -773,7 +774,7 @@ func TestRegister_CertificateRoutes(t *testing.T) {
 
 	// Certificate routes
 	assert.True(t, routeMap["/api/v1/certificates"])
-	assert.True(t, routeMap["/api/v1/certificates/:id"])
+	assert.True(t, routeMap["/api/v1/certificates/:uuid"])
 }
 
 // TestRegister_NilHandlers verifies registration behavior with minimal/nil components
@@ -792,7 +793,7 @@ func TestRegister_NilHandlers(t *testing.T) {
 		EncryptionKey: "", // No encryption key - DNS providers won't be registered
 	}
 
-	err = Register(router, db, cfg)
+	err = Register(context.Background(), router, db, cfg)
 	assert.NoError(t, err)
 
 	// Verify that routes still work without DNS provider features
@@ -823,7 +824,7 @@ func TestRegister_MiddlewareOrder(t *testing.T) {
 		Environment: "development",
 	}
 
-	err = Register(router, db, cfg)
+	err = Register(context.Background(), router, db, cfg)
 	require.NoError(t, err)
 
 	// Test that security headers are applied (they should come first)
@@ -848,7 +849,7 @@ func TestRegister_GzipCompression(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	// Request with Accept-Encoding: gzip
 	w := httptest.NewRecorder()
@@ -875,7 +876,7 @@ func TestRegister_CerberusMiddleware(t *testing.T) {
 		},
 	}
 
-	err = Register(router, db, cfg)
+	err = Register(context.Background(), router, db, cfg)
 	require.NoError(t, err)
 
 	// API routes should have Cerberus middleware applied
@@ -896,7 +897,7 @@ func TestRegister_FeatureFlagsEndpoint(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	// Feature flags should require auth
 	w := httptest.NewRecorder()
@@ -915,7 +916,7 @@ func TestRegister_WebSocketRoutes(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	routes := router.Routes()
 	routeMap := make(map[string]bool)
@@ -939,7 +940,7 @@ func TestRegister_NotificationRoutes(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	routes := router.Routes()
 	routeMap := make(map[string]bool)
@@ -967,7 +968,7 @@ func TestRegister_DomainRoutes(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	routes := router.Routes()
 	routeMap := make(map[string]bool)
@@ -989,7 +990,7 @@ func TestRegister_VerifyAuthEndpoint(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	// Verify endpoint is public (for Caddy forward auth)
 	w := httptest.NewRecorder()
@@ -1009,7 +1010,7 @@ func TestRegister_SMTPRoutes(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	routes := router.Routes()
 	routeMap := make(map[string]bool)
@@ -1064,7 +1065,7 @@ func TestRegister_EncryptionRoutesWithValidKey(t *testing.T) {
 		JWTSecret:     "test-secret",
 		EncryptionKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
 	}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	routes := router.Routes()
 	routeMap := make(map[string]bool)
@@ -1091,7 +1092,7 @@ func TestRegister_WAFExclusionRoutes(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	routes := router.Routes()
 	routeMap := make(map[string]bool)
@@ -1113,7 +1114,7 @@ func TestRegister_BreakGlassRoute(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	routes := router.Routes()
 	routeMap := make(map[string]bool)
@@ -1134,7 +1135,7 @@ func TestRegister_RateLimitPresetsRoute(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	routes := router.Routes()
 	routeMap := make(map[string]bool)
@@ -1166,7 +1167,7 @@ func TestEmergencyEndpoint_BypassACL(t *testing.T) {
 			CerberusEnabled: true,
 		},
 	}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	// Note: We don't need to create ACL settings here because the emergency endpoint
 	// bypass happens at middleware level before Cerberus checks
@@ -1210,7 +1211,7 @@ func TestEmergencyBypass_MiddlewareOrder(t *testing.T) {
 			ManagementCIDRs: []string{"127.0.0.0/8"},
 		},
 	}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	// Request with emergency token should set bypass flag
 	w := httptest.NewRecorder()
@@ -1239,7 +1240,7 @@ func TestEmergencyBypass_InvalidToken(t *testing.T) {
 			CerberusEnabled: true,
 		},
 	}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	// Request with WRONG emergency token
 	w := httptest.NewRecorder()
@@ -1271,7 +1272,7 @@ func TestEmergencyBypass_UnauthorizedIP(t *testing.T) {
 			ManagementCIDRs: []string{"192.168.1.0/24"},
 		},
 	}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	// Request from public IP (not in management network)
 	w := httptest.NewRecorder()
@@ -1295,7 +1296,7 @@ func TestRegister_CreatesAccessLogFileForLogWatcher(t *testing.T) {
 	t.Setenv("CHARON_CADDY_ACCESS_LOG", logFilePath)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	require.NoError(t, Register(router, db, cfg))
+	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	_, statErr := os.Stat(logFilePath)
 	assert.NoError(t, statErr)
@@ -1341,7 +1342,7 @@ func TestRegister_CleansLetsEncryptCertAssignments(t *testing.T) {
 	require.NoError(t, db.Create(&host).Error)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
-	err = Register(router, db, cfg)
+	err = Register(context.Background(), router, db, cfg)
 	require.NoError(t, err)
 
 	var reloaded models.ProxyHost
