@@ -164,3 +164,16 @@ func TestCrowdSecWhitelistService_List_AfterAdd(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, entries, 3)
 }
+
+func TestAdd_ValidIPv6_Success(t *testing.T) {
+	t.Parallel()
+	svc := services.NewCrowdSecWhitelistService(openWhitelistTestDB(t), "")
+	entry, err := svc.Add(context.Background(), "2001:db8::1", "ipv6 test")
+	require.NoError(t, err)
+	assert.Equal(t, "2001:db8::1", entry.IPOrCIDR)
+
+	entries, err := svc.List(context.Background())
+	require.NoError(t, err)
+	assert.Len(t, entries, 1)
+	assert.Equal(t, "2001:db8::1", entries[0].IPOrCIDR)
+}
