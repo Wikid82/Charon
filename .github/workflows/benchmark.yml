@@ -52,7 +52,7 @@ jobs:
         # This avoids gh-pages branch errors and permission issues on fork PRs
         if: github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main'
         # Security: Pinned to full SHA for supply chain security
-        uses: benchmark-action/github-action-benchmark@4e0b38bc48375986542b13c0d8976b7b80c60c00 # v1
+        uses: benchmark-action/github-action-benchmark@a60cea5bc7b49e15c1f58f411161f99e0df48372 # v1.22.0
         with:
           name: Go Benchmark
           tool: 'go'
