@@ -2710,7 +2710,7 @@ func (h *CrowdsecHandler) ListWhitelists(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list whitelist entries"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"entries": entries})
+	c.JSON(http.StatusOK, gin.H{"whitelist": entries})
 }
 
 // AddWhitelist adds a new IP or CIDR to the CrowdSec whitelist.
