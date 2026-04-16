@@ -577,6 +577,7 @@ graph LR
 - Global threat intelligence (crowd-sourced IP reputation)
 - Automatic IP banning with configurable duration
 - Decision management API (view, create, delete bans)
+- IP whitelist management: operators add/remove IPs and CIDRs via the management UI; entries are persisted in SQLite and regenerated into a `crowdsecurity/whitelists` parser YAML on every mutating operation and at startup
 
 **Modes:**
 
