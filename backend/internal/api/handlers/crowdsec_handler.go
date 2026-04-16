@@ -384,7 +384,7 @@ func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir
 		securitySvc = services.NewSecurityService(db)
 		consoleSvc = crowdsec.NewConsoleEnrollmentService(db, &crowdsec.SecureCommandExecutor{}, dataDir, consoleSecret)
 	}
-	return &CrowdsecHandler{
+	h := &CrowdsecHandler{
 		DB:              db,
 		Executor:        executor,
 		CmdExec:         &RealCommandExecutor{},
@@ -393,10 +393,13 @@ func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir
 		Hub:             hubSvc,
 		Console:         consoleSvc,
 		Security:        securitySvc,
-		WhitelistSvc:    services.NewCrowdSecWhitelistService(db, dataDir),
 		dashCache:       newDashboardCache(),
 		validateLAPIURL: validateCrowdsecLAPIBaseURLDefault,
 	}
+	if db != nil {
+		h.WhitelistSvc = services.NewCrowdSecWhitelistService(db, dataDir)
+	}
+	return h
 }
 
 // isCerberusEnabled returns true when Cerberus is enabled via DB or env flag.
@@ -2720,7 +2723,7 @@ func (h *CrowdsecHandler) AddWhitelist(c *gin.Context) {
 		Reason   string `json:"reason"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ip_or_cidr is required"})
 		return
 	}
 
