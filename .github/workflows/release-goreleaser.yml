@@ -67,7 +67,7 @@ jobs:
 
       - name: Install Cross-Compilation Tools (Zig)
         # Security: Pinned to full SHA for supply chain security
-        uses: goto-bus-stop/setup-zig@abea47f85e598557f500fa1fd2ab7464fcb39406 # v2
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
           version: 0.13.0
 
