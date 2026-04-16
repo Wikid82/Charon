@@ -54,7 +54,7 @@ func TestListWhitelists_Empty(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]interface{}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	entries, ok := resp["entries"].([]interface{})
+	entries, ok := resp["whitelist"].([]interface{})
 	assert.True(t, ok)
 	assert.Empty(t, entries)
 }
@@ -154,6 +154,22 @@ func TestListWhitelists_AfterAdd(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]interface{}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	entries := resp["entries"].([]interface{})
+	entries := resp["whitelist"].([]interface{})
 	assert.Len(t, entries, 1)
+}
+
+func TestAddWhitelist_400_MissingField(t *testing.T) {
+	t.Parallel()
+	_, r, _ := setupWhitelistHandler(t)
+
+	body := `{}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/whitelist", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "ip_or_cidr is required", resp["error"])
 }
