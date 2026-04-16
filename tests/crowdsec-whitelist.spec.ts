@@ -4,7 +4,6 @@ import {
   withSecurityEnabled,
   captureSecurityState,
   setSecurityModuleEnabled,
-  getSecurityStatus,
 } from './utils/security-helpers';
 import { getStorageStateAuthHeaders } from './utils/api-helpers';
 import { STORAGE_STATE } from './constants';
@@ -302,7 +301,7 @@ test.describe('CrowdSec IP Whitelist Management', () => {
 
         await test.step('Click the delete button for the entry', async () => {
           const deleteBtn = page.getByRole('button', {
-            name: new RegExp(`Remove whitelist entry for ${testIP.replace(/\./g, '\\.')}`, 'i'),
+            name: new RegExp(`Remove whitelist entry for ${testIP.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i'),
           });
           await expect(deleteBtn).toBeVisible();
           await deleteBtn.click();
@@ -366,7 +365,7 @@ test.describe('CrowdSec IP Whitelist Management', () => {
 
         await test.step('Open the delete modal', async () => {
           const deleteBtn = page.getByRole('button', {
-            name: new RegExp(`Remove whitelist entry for ${testIP.replace(/\./g, '\\.')}`, 'i'),
+            name: new RegExp(`Remove whitelist entry for ${testIP.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i'),
           });
           await deleteBtn.click();
           await expect(page.getByRole('dialog')).toBeVisible();
