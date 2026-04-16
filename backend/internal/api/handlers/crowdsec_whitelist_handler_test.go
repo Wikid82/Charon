@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -172,4 +173,95 @@ func TestAddWhitelist_400_MissingField(t *testing.T) {
 	var resp map[string]interface{}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, "ip_or_cidr is required", resp["error"])
+}
+
+func TestListWhitelists_DBError(t *testing.T) {
+	t.Parallel()
+	_, r, db := setupWhitelistHandler(t)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	_ = sqlDB.Close()
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/whitelist", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "failed to list whitelist entries", resp["error"])
+}
+
+func TestAddWhitelist_DBError(t *testing.T) {
+	t.Parallel()
+	_, r, db := setupWhitelistHandler(t)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	_ = sqlDB.Close()
+
+	body := `{"ip_or_cidr":"1.2.3.4","reason":"test"}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/whitelist", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "failed to add whitelist entry", resp["error"])
+}
+
+func TestAddWhitelist_ReloadFailure(t *testing.T) {
+	t.Parallel()
+	h, r, _ := setupWhitelistHandler(t)
+	mock := &mockCmdExecWhitelist{reloadErr: errors.New("cscli failed")}
+	h.CmdExec = mock
+
+	body := `{"ip_or_cidr":"3.3.3.3","reason":"reload test"}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/whitelist", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	assert.True(t, mock.reloadCalled)
+}
+
+func TestDeleteWhitelist_DBError(t *testing.T) {
+	t.Parallel()
+	_, r, db := setupWhitelistHandler(t)
+	svc := services.NewCrowdSecWhitelistService(db, "")
+	entry, err := svc.Add(t.Context(), "4.4.4.4", "will close db")
+	require.NoError(t, err)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	_ = sqlDB.Close()
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/whitelist/"+entry.UUID, nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "failed to delete whitelist entry", resp["error"])
+}
+
+func TestDeleteWhitelist_ReloadFailure(t *testing.T) {
+	t.Parallel()
+	h, r, db := setupWhitelistHandler(t)
+	mock := &mockCmdExecWhitelist{reloadErr: errors.New("cscli failed")}
+	h.CmdExec = mock
+
+	svc := services.NewCrowdSecWhitelistService(db, "")
+	entry, err := svc.Add(t.Context(), "5.5.5.5", "reload test")
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/whitelist/"+entry.UUID, nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+	assert.True(t, mock.reloadCalled)
 }

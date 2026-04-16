@@ -177,3 +177,126 @@ func TestAdd_ValidIPv6_Success(t *testing.T) {
 	assert.Len(t, entries, 1)
 	assert.Equal(t, "2001:db8::1", entries[0].IPOrCIDR)
 }
+
+func TestCrowdSecWhitelistService_List_DBError(t *testing.T) {
+	t.Parallel()
+	db := openWhitelistTestDB(t)
+	svc := services.NewCrowdSecWhitelistService(db, "")
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	_ = sqlDB.Close()
+
+	_, err = svc.List(context.Background())
+	assert.Error(t, err)
+}
+
+func TestCrowdSecWhitelistService_Add_DBCreateError(t *testing.T) {
+	t.Parallel()
+	db := openWhitelistTestDB(t)
+	svc := services.NewCrowdSecWhitelistService(db, "")
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	_ = sqlDB.Close()
+
+	_, err = svc.Add(context.Background(), "1.2.3.4", "test")
+	assert.Error(t, err)
+	assert.NotErrorIs(t, err, services.ErrInvalidIPOrCIDR)
+	assert.NotErrorIs(t, err, services.ErrDuplicateEntry)
+}
+
+func TestCrowdSecWhitelistService_Delete_DBError(t *testing.T) {
+	t.Parallel()
+	db := openWhitelistTestDB(t)
+	svc := services.NewCrowdSecWhitelistService(db, "")
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	_ = sqlDB.Close()
+
+	err = svc.Delete(context.Background(), "some-uuid")
+	assert.Error(t, err)
+	assert.NotErrorIs(t, err, services.ErrWhitelistNotFound)
+}
+
+func TestCrowdSecWhitelistService_WriteYAML_DBError(t *testing.T) {
+	t.Parallel()
+	db := openWhitelistTestDB(t)
+	tmpDir := t.TempDir()
+	svc := services.NewCrowdSecWhitelistService(db, tmpDir)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	_ = sqlDB.Close()
+
+	err = svc.WriteYAML(context.Background())
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "query entries")
+}
+
+func TestCrowdSecWhitelistService_WriteYAML_MkdirError(t *testing.T) {
+	t.Parallel()
+	db := openWhitelistTestDB(t)
+	// Use a path under /dev/null which cannot have subdirectories
+	svc := services.NewCrowdSecWhitelistService(db, "/dev/null/impossible")
+
+	err := svc.WriteYAML(context.Background())
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "create dir")
+}
+
+func TestCrowdSecWhitelistService_WriteYAML_WriteFileError(t *testing.T) {
+	t.Parallel()
+	db := openWhitelistTestDB(t)
+	tmpDir := t.TempDir()
+	svc := services.NewCrowdSecWhitelistService(db, tmpDir)
+
+	// Create a directory where the .tmp file would be written, causing WriteFile to fail
+	dir := filepath.Join(tmpDir, "config", "parsers", "s02-enrich")
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	tmpTarget := filepath.Join(dir, "charon-whitelist.yaml.tmp")
+	require.NoError(t, os.MkdirAll(tmpTarget, 0o750))
+
+	err := svc.WriteYAML(context.Background())
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "write temp")
+}
+
+func TestCrowdSecWhitelistService_Add_WriteYAMLWarning(t *testing.T) {
+	t.Parallel()
+	db := openWhitelistTestDB(t)
+	// dataDir that will cause MkdirAll to fail inside WriteYAML (non-fatal)
+	svc := services.NewCrowdSecWhitelistService(db, "/dev/null/impossible")
+
+	entry, err := svc.Add(context.Background(), "2.2.2.2", "yaml warn test")
+	require.NoError(t, err)
+	assert.Equal(t, "2.2.2.2", entry.IPOrCIDR)
+}
+
+func TestCrowdSecWhitelistService_Delete_WriteYAMLWarning(t *testing.T) {
+	t.Parallel()
+	db := openWhitelistTestDB(t)
+	// First add with empty dataDir so it succeeds
+	svcAdd := services.NewCrowdSecWhitelistService(db, "")
+	entry, err := svcAdd.Add(context.Background(), "3.3.3.3", "to delete")
+	require.NoError(t, err)
+
+	// Now create a service with a broken dataDir and delete
+	svcDel := services.NewCrowdSecWhitelistService(db, "/dev/null/impossible")
+	err = svcDel.Delete(context.Background(), entry.UUID)
+	require.NoError(t, err)
+}
+
+func TestCrowdSecWhitelistService_WriteYAML_RenameError(t *testing.T) {
+	t.Parallel()
+	db := openWhitelistTestDB(t)
+	tmpDir := t.TempDir()
+	svc := services.NewCrowdSecWhitelistService(db, tmpDir)
+
+	// Create target as a directory so rename (atomic replace) fails
+	dir := filepath.Join(tmpDir, "config", "parsers", "s02-enrich")
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	target := filepath.Join(dir, "charon-whitelist.yaml")
+	require.NoError(t, os.MkdirAll(target, 0o750))
+
+	err := svc.WriteYAML(context.Background())
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "rename")
+}
