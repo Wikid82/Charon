@@ -92,7 +92,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.14.1-alpine@sha256:8510330d3eb72c804231a834b1a8ebb55cb3796c3e4431297a24d246b8add4d5 AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.15.0-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -386,13 +386,13 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     go get github.com/jackc/pgx/v4@v4.18.3 && \
     # GHSA-xmrv-pmrh-hhx2: AWS SDK v2 event stream injection
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
-    go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.8 && \
+    go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.9 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.68.0 && \
+    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.69.1 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/kinesis
-    go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.5 && \
+    go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.6 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/s3
-    go get github.com/aws/aws-sdk-go-v2/service/s3@v1.99.0 && \
+    go get github.com/aws/aws-sdk-go-v2/service/s3@v1.99.1 && \
     go mod tidy
 
 # Fix compatibility issues with expr-lang v1.17.7
