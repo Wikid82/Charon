@@ -265,3 +265,20 @@ func TestDeleteWhitelist_ReloadFailure(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, w.Code)
 	assert.True(t, mock.reloadCalled)
 }
+
+func TestDeleteWhitelist_EmptyUUID(t *testing.T) {
+	t.Parallel()
+	h, _, _ := setupWhitelistHandler(t)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/whitelist/", nil)
+	c.Params = gin.Params{{Key: "uuid", Value: ""}}
+
+	h.DeleteWhitelist(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "uuid is required", resp["error"])
+}
