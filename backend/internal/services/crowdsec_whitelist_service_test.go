@@ -300,3 +300,10 @@ func TestCrowdSecWhitelistService_WriteYAML_RenameError(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "rename")
 }
+
+func TestCrowdSecWhitelistService_Add_InvalidCIDR(t *testing.T) {
+	t.Parallel()
+	svc := services.NewCrowdSecWhitelistService(openWhitelistTestDB(t), "")
+	_, err := svc.Add(context.Background(), "not-an-ip/24", "invalid cidr with slash")
+	assert.ErrorIs(t, err, services.ErrInvalidIPOrCIDR)
+}
