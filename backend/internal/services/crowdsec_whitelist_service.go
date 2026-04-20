@@ -149,10 +149,12 @@ func normalizeIPOrCIDR(raw string) (string, error) {
 		_ = ip
 		return network.String(), nil
 	}
-	if net.ParseIP(raw) == nil {
+	ip := net.ParseIP(raw)
+	if ip == nil {
 		return "", fmt.Errorf("invalid IP: %q", raw)
 	}
-	return raw, nil
+
+	return ip.String(), nil
 }
 
 // buildWhitelistYAML constructs the YAML content for the CrowdSec whitelist parser.
