@@ -1,5 +1,5 @@
 import { test } from '../fixtures/a11y';
-import { waitForLoadingComplete } from '../utils/wait-helpers';
+import { waitForLoadingComplete, waitForTableLoad } from '../utils/wait-helpers';
 import { expectNoA11yViolations } from '../utils/a11y-helpers';
 import { getBaselinedRuleIds } from './a11y-baseline';
 
@@ -30,6 +30,7 @@ test.describe('Accessibility: Settings', () => {
     await test.step('Navigate to users', async () => {
       await page.goto('/settings/users');
       await waitForLoadingComplete(page);
+      await waitForTableLoad(page);
     });
 
     await test.step('Run axe accessibility scan', async () => {
