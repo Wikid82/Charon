@@ -447,18 +447,23 @@ describe('UsersPage', () => {
       const user = userEvent.setup()
       expect(await screen.findByText('Invite User')).toBeInTheDocument()
       await user.click(screen.getByRole('button', { name: /Invite User/i }))
+      expect(await screen.findByPlaceholderText('user@example.com')).toBeInTheDocument()
 
-      const emailInput = screen.getByPlaceholderText('user@example.com')
-      await user.type(emailInput, 'test@example.com')
+      vi.useFakeTimers()
 
-      await waitFor(() => {
+      try {
+        const emailInput = screen.getByPlaceholderText('user@example.com')
+        fireEvent.change(emailInput, { target: { value: 'test@example.com' } })
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(550)
+        })
+
         expect(client.post).toHaveBeenCalledWith('/users/preview-invite-url', { email: 'test@example.com' })
-      }, { timeout: 2000 })
-
-      // Look for the preview URL content with ellipsis replacing the token
-      await waitFor(() => {
         expect(screen.getByText('https://charon.example.com/accept-invite?token=...')).toBeInTheDocument()
-      }, { timeout: 2000 })
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('debounces URL preview for 500ms', async () => {
