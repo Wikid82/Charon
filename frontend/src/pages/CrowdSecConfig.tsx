@@ -1556,7 +1556,12 @@ export default function CrowdSecConfig() {
           aria-modal="true"
           aria-labelledby="whitelist-delete-modal-title"
         >
-          <div className="absolute inset-0 bg-black/60" onClick={() => setConfirmDeleteWhitelist(null)} role="button" tabIndex={-1} aria-label={t('common.close')} />
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white"
+            onClick={() => setConfirmDeleteWhitelist(null)}
+            aria-label={t('common.close')}
+          />
           <div
             className="relative z-10 bg-gray-900 rounded-lg border border-gray-700 p-6 max-w-md w-full mx-4 shadow-xl"
             onKeyDown={(e) => {
