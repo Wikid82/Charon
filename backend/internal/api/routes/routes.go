@@ -61,7 +61,7 @@ func migrateViewerToPassthrough(db *gorm.DB) {
 }
 
 // Register wires up API routes and performs automatic migrations.
-func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
+func Register(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	// Caddy Manager - created early so it can be used by settings handlers for config reload
 	caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
 	caddyManager := caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
@@ -69,11 +69,11 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	// Cerberus middleware applies the optional security suite checks (WAF, ACL, CrowdSec)
 	cerb := cerberus.New(cfg.Security, db)
 
-	return RegisterWithDeps(router, db, cfg, caddyManager, cerb)
+	return RegisterWithDeps(ctx, router, db, cfg, caddyManager, cerb)
 }
 
 // RegisterWithDeps wires up API routes and performs automatic migrations with prebuilt dependencies.
-func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyManager *caddy.Manager, cerb *cerberus.Cerberus) error {
+func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg config.Config, caddyManager *caddy.Manager, cerb *cerberus.Cerberus) error {
 	// Emergency bypass must be registered FIRST.
 	// When a valid X-Emergency-Token is present from an authorized source,
 	// it sets an emergency context flag and strips the token header so downstream
@@ -152,6 +152,14 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
 		caddyManager = caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
 	}
+
+	// Wire encryption service to Caddy manager for decrypting certificate private keys
+	if cfg.EncryptionKey != "" {
+		if svc, err := crypto.NewEncryptionService(cfg.EncryptionKey); err == nil {
+			caddyManager.SetEncryptionService(svc)
+		}
+	}
+
 	if cerb == nil {
 		cerb = cerberus.New(cfg.Security, db)
 	}
@@ -666,11 +674,38 @@ func RegisterWithDeps(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyM
 		// where ACME and certificates are stored (e.g. <CaddyConfigDir>/data).
 		caddyDataDir := cfg.CaddyConfigDir + "/data"
 		logger.Log().WithField("caddy_data_dir", caddyDataDir).Info("Using Caddy data directory for certificates scan")
-		certService := services.NewCertificateService(caddyDataDir, db)
+		var certEncSvc *crypto.EncryptionService
+		if cfg.EncryptionKey != "" {
+			svc, err := crypto.NewEncryptionService(cfg.EncryptionKey)
+			if err != nil {
+				logger.Log().WithError(err).Warn("Failed to initialize encryption service for certificate key storage")
+			} else {
+				certEncSvc = svc
+			}
+		}
+		certService := services.NewCertificateService(caddyDataDir, db, certEncSvc)
 		certHandler := handlers.NewCertificateHandler(certService, backupService, notificationService)
+		certHandler.SetDB(db)
+
+		// Migrate unencrypted private keys
+		if err := certService.MigratePrivateKeys(); err != nil {
+			logger.Log().WithError(err).Warn("Failed to migrate certificate private keys")
+		}
+
 		management.GET("/certificates", certHandler.List)
 		management.POST("/certificates", certHandler.Upload)
-		management.DELETE("/certificates/:id", certHandler.Delete)
+		management.POST("/certificates/validate", certHandler.Validate)
+		management.GET("/certificates/:uuid", certHandler.Get)
+		management.PUT("/certificates/:uuid", certHandler.Update)
+		management.POST("/certificates/:uuid/export", certHandler.Export)
+		management.DELETE("/certificates/:uuid", certHandler.Delete)
+
+		// Start certificate expiry checker
+		warningDays := 30
+		if cfg.CertExpiryWarningDays > 0 {
+			warningDays = cfg.CertExpiryWarningDays
+		}
+		go certService.StartExpiryChecker(ctx, notificationService, warningDays)
 
 		// Proxy Hosts & Remote Servers
 		proxyHostHandler := handlers.NewProxyHostHandler(db, caddyManager, notificationService, uptimeService)

@@ -129,7 +129,7 @@ describe('ProxyHosts - Certificate Cleanup Prompts', () => {
 
     await waitFor(() => {
       expect(proxyHostsApi.deleteProxyHost).toHaveBeenCalledWith('h1')
-      expect(certificatesApi.deleteCertificate).toHaveBeenCalledWith(1)
+      expect(certificatesApi.deleteCertificate).toHaveBeenCalledWith('cert-1')
     })
   })
 
@@ -303,7 +303,7 @@ describe('ProxyHosts - Certificate Cleanup Prompts', () => {
 
     await waitFor(() => {
       expect(proxyHostsApi.deleteProxyHost).toHaveBeenCalledWith('h1')
-      expect(certificatesApi.deleteCertificate).toHaveBeenCalledWith(1)
+      expect(certificatesApi.deleteCertificate).toHaveBeenCalledWith('cert-1')
     })
 
     // Toast should show error about certificate but host was deleted
@@ -366,7 +366,7 @@ describe('ProxyHosts - Certificate Cleanup Prompts', () => {
 
     await waitFor(() => {
       expect(proxyHostsApi.deleteProxyHost).toHaveBeenCalledWith('h1')
-      expect(certificatesApi.deleteCertificate).toHaveBeenCalledWith(1)
+      expect(certificatesApi.deleteCertificate).toHaveBeenCalledWith('cert-1')
     })
     expect(proxyHostsApi.deleteProxyHost).toHaveBeenCalledWith('h2')
   })

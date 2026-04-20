@@ -27,6 +27,7 @@ func TestNewInternalServiceHTTPClient(t *testing.T) {
 			client := NewInternalServiceHTTPClient(tt.timeout)
 			if client == nil {
 				t.Fatal("NewInternalServiceHTTPClient() returned nil")
+				return
 			}
 			if client.Timeout != tt.timeout {
 				t.Errorf("expected timeout %v, got %v", tt.timeout, client.Timeout)

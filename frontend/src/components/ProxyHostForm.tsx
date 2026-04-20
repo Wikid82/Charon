@@ -123,7 +123,7 @@ function buildInitialFormData(host?: ProxyHost): Partial<ProxyHost> & {
     application: (host?.application || 'none') as ApplicationPreset,
     advanced_config: host?.advanced_config || '',
     enabled: host?.enabled ?? true,
-    certificate_id: host?.certificate_id,
+    certificate_id: host?.certificate?.uuid ?? host?.certificate_id,
     access_list_id: host?.access_list?.uuid ?? host?.access_list_id,
     security_header_profile_id: host?.security_header_profile?.uuid ?? host?.security_header_profile_id,
     dns_provider_id: host?.dns_provider_id || null,
@@ -249,9 +249,10 @@ function getEntityToken(entity: { id?: number; uuid?: string }): string | null {
 }
 
 export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFormProps) {
-  type ProxyHostFormState = Omit<Partial<ProxyHost>, 'access_list_id' | 'security_header_profile_id'> & {
+  type ProxyHostFormState = Omit<Partial<ProxyHost>, 'access_list_id' | 'security_header_profile_id' | 'certificate_id'> & {
     access_list_id?: number | string | null
     security_header_profile_id?: number | string | null
+    certificate_id?: number | string | null
     addUptime?: boolean
     uptimeInterval?: number
     uptimeMaxRetries?: number
@@ -562,6 +563,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
         ...payloadWithoutUptime,
         access_list_id: normalizeAccessListReference(payloadWithoutUptime.access_list_id),
         security_header_profile_id: normalizeSecurityHeaderReference(payloadWithoutUptime.security_header_profile_id),
+        certificate_id: normalizeAccessListReference(payloadWithoutUptime.certificate_id),
       }
 
       const res = await onSubmit(submitPayload)
@@ -910,18 +912,25 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
             <label className="block text-sm font-medium text-gray-300 mb-2">
               SSL Certificate
             </label>
-            <Select value={String(formData.certificate_id || 0)} onValueChange={e => setFormData(prev => ({ ...prev, certificate_id: parseInt(e) || null }))}>
+            <Select
+              value={resolveSelectToken(formData.certificate_id as number | string | null | undefined)}
+              onValueChange={token => setFormData(prev => ({ ...prev, certificate_id: resolveTokenToFormValue(token) }))}
+            >
               <SelectTrigger className="w-full bg-gray-900 border-gray-700 text-white" aria-label="SSL Certificate">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="0">Auto-manage with Let's Encrypt (recommended)</SelectItem>
-                {certificates.map(cert => (
-                  <SelectItem key={cert.id || cert.domain} value={String(cert.id ?? 0)}>
-                    {(cert.name || cert.domain)}
-                    {cert.provider ? ` (${cert.provider})` : ''}
-                  </SelectItem>
-                ))}
+                <SelectItem value="none">Auto-manage with Let's Encrypt (recommended)</SelectItem>
+                {certificates.map(cert => {
+                  const token = getEntityToken(cert)
+                  if (!token) return null
+                  return (
+                    <SelectItem key={cert.uuid} value={token}>
+                      {cert.name || cert.domains}
+                      {cert.provider ? ` (${cert.provider})` : ''}
+                    </SelectItem>
+                  )
+                })}
               </SelectContent>
             </Select>
             <p className="text-xs text-gray-500 mt-1">

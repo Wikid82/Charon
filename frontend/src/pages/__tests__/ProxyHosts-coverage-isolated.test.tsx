@@ -72,7 +72,7 @@ describe('ProxyHosts page - coverage targets (isolated)', () => {
     vi.doMock('../../hooks/useCertificates', () => ({
       useCertificates: vi.fn(() => ({
         certificates: [
-          { id: 1, name: 'StagingCert', domain: 'staging.example.com', status: 'untrusted', provider: 'letsencrypt-staging' }
+          { id: 1, name: 'StagingCert', domains: 'staging.example.com', status: 'untrusted', provider: 'letsencrypt-staging' }
         ],
         isLoading: false,
         error: null,

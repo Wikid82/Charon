@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -34,7 +35,10 @@ func TestRegister_NotifyOnlyProviderMigrationErrorReturns(t *testing.T) {
 
 	cfg := config.Config{JWTSecret: "test-secret"}
 
-	err = Register(router, db, cfg)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	err = Register(ctx, router, db, cfg)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "notify-only provider migration")
 }
@@ -61,7 +65,10 @@ func TestRegister_LegacyMigrationErrorIsNonFatal(t *testing.T) {
 
 	cfg := config.Config{JWTSecret: "test-secret"}
 
-	err = Register(router, db, cfg)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	err = Register(ctx, router, db, cfg)
 	require.NoError(t, err)
 
 	hasHealth := false
@@ -96,7 +103,10 @@ func TestRegister_UptimeFeatureFlagDefaultErrorIsNonFatal(t *testing.T) {
 
 	cfg := config.Config{JWTSecret: "test-secret"}
 
-	err = Register(router, db, cfg)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	err = Register(ctx, router, db, cfg)
 	require.NoError(t, err)
 }
 
@@ -122,6 +132,9 @@ func TestRegister_SecurityHeaderPresetInitErrorIsNonFatal(t *testing.T) {
 
 	cfg := config.Config{JWTSecret: "test-secret"}
 
-	err = Register(router, db, cfg)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	err = Register(ctx, router, db, cfg)
 	require.NoError(t, err)
 }

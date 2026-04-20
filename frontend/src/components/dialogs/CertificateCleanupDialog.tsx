@@ -3,7 +3,7 @@ import { AlertTriangle } from 'lucide-react'
 interface CertificateCleanupDialogProps {
   onConfirm: (deleteCerts: boolean) => void
   onCancel: () => void
-  certificates: Array<{ id: number; name: string; domain: string }>
+  certificates: Array<{ uuid: string; name: string; domain: string }>
   hostNames: string[]
   isBulk?: boolean
 }
@@ -82,7 +82,7 @@ export default function CertificateCleanupDialog({
                   </p>
                   <ul className="mt-2 space-y-1">
                     {certificates.map((cert) => (
-                      <li key={cert.id} className="text-xs text-gray-300 flex items-center gap-2">
+                      <li key={cert.uuid} className="text-xs text-gray-300 flex items-center gap-2">
                         <span className="text-orange-400">→</span>
                         <span className="font-medium">{cert.name || cert.domain}</span>
                         <span className="text-gray-500">({cert.domain})</span>

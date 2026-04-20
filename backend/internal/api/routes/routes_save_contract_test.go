@@ -1,6 +1,7 @@
 package routes_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -19,7 +20,7 @@ func TestRegister_StrictSaveRouteMatrixUsedByImportWorkflows(t *testing.T) {
 	require.NoError(t, err)
 
 	router := gin.New()
-	require.NoError(t, routes.Register(router, db, config.Config{JWTSecret: "test-secret"}))
+	require.NoError(t, routes.Register(context.Background(), router, db, config.Config{JWTSecret: "test-secret"}))
 
 	assertStrictMethodPathMatrix(t, router.Routes(), saveRouteMatrixForImportWorkflows(), "save")
 }
