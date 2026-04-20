@@ -303,6 +303,19 @@ ACQUIS_EOF
     # Also handle case where it might be without trailing slash
     sed -i 's|log_dir: /var/log$|log_dir: /var/log/crowdsec|g' "$CS_CONFIG_DIR/config.yaml"
 
+    # Redirect CrowdSec LAPI database to persistent volume
+    # Default path /var/lib/crowdsec/data/crowdsec.db is ephemeral (not volume-mounted),
+    # so it is destroyed on every container rebuild. The bouncer API key (stored on the
+    # persistent volume at /app/data/crowdsec/) survives rebuilds but the LAPI database
+    # that validates it does not — causing perpetual key rejection.
+    # Redirecting db_path to the volume-mounted CS_DATA_DIR fixes this.
+    sed -i "s|db_path: /var/lib/crowdsec/data/crowdsec.db|db_path: ${CS_DATA_DIR}/crowdsec.db|g" "$CS_CONFIG_DIR/config.yaml"
+    if grep -q "db_path:.*${CS_DATA_DIR}" "$CS_CONFIG_DIR/config.yaml"; then
+        echo "✓ CrowdSec LAPI database redirected to persistent volume: ${CS_DATA_DIR}/crowdsec.db"
+    else
+        echo "⚠️  WARNING: Could not verify LAPI db_path redirect — bouncer keys may not survive rebuilds"
+    fi
+
     # Verify LAPI configuration was applied correctly
     if grep -q "listen_uri:.*:8085" "$CS_CONFIG_DIR/config.yaml"; then
         echo "✓ CrowdSec LAPI configured for port 8085"

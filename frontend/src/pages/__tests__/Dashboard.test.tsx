@@ -27,7 +27,7 @@ vi.mock('../../hooks/useRemoteServers', () => ({
 vi.mock('../../hooks/useCertificates', () => ({
   useCertificates: () => ({
     certificates: [
-      { id: 1, status: 'valid', domain: 'test.com' },
+      { id: 1, status: 'valid', domain: 'test.com', domains: 'test.com,www.test.com' },
       { id: 2, status: 'expired', domain: 'expired.com' },
     ],
     isLoading: false,
@@ -84,4 +84,5 @@ describe('Dashboard page', () => {
     // "1 valid" still renders even though cert.domains is undefined
     expect(screen.getByText('1 valid')).toBeInTheDocument()
   })
+
 })
