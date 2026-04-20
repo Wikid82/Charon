@@ -980,6 +980,7 @@ jobs:
             --project=chromium \
             --shard=${{ matrix.shard }}/${{ matrix.total-shards }} \
             --output=playwright-output/chromium-shard-${{ matrix.shard }} \
+            tests/a11y \
             tests/core \
             tests/dns-provider-crud.spec.ts \
             tests/dns-provider-types.spec.ts \
@@ -1225,6 +1226,7 @@ jobs:
             --project=firefox \
             --shard=${{ matrix.shard }}/${{ matrix.total-shards }} \
             --output=playwright-output/firefox-shard-${{ matrix.shard }} \
+            tests/a11y \
             tests/core \
             tests/dns-provider-crud.spec.ts \
             tests/dns-provider-types.spec.ts \
@@ -1470,6 +1472,7 @@ jobs:
             --project=webkit \
             --shard=${{ matrix.shard }}/${{ matrix.total-shards }} \
             --output=playwright-output/webkit-shard-${{ matrix.shard }} \
+            tests/a11y \
             tests/core \
             tests/dns-provider-crud.spec.ts \
             tests/dns-provider-types.spec.ts \
