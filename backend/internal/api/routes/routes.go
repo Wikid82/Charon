@@ -122,6 +122,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		&models.DNSProviderCredential{}, // Multi-credential support (Phase 3)
 		&models.Plugin{},                // Phase 5: DNS provider plugins
 		&models.ManualChallenge{},       // Phase 1: Manual DNS challenges
+		&models.CrowdSecWhitelist{},     // Issue #939: CrowdSec IP whitelist management
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}

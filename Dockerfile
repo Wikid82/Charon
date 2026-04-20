@@ -13,7 +13,7 @@ ARG BUILD_DEBUG=0
 ARG GO_VERSION=1.26.2
 
 # renovate: datasource=docker depName=alpine versioning=docker
-ARG ALPINE_IMAGE=alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659
+ARG ALPINE_IMAGE=alpine:3.23.4@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
 
 # ---- Shared CrowdSec Version ----
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
@@ -92,7 +92,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.14.1-alpine@sha256:8510330d3eb72c804231a834b1a8ebb55cb3796c3e4431297a24d246b8add4d5 AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.15.0-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -386,13 +386,13 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     go get github.com/jackc/pgx/v4@v4.18.3 && \
     # GHSA-xmrv-pmrh-hhx2: AWS SDK v2 event stream injection
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
-    go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.8 && \
+    go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.9 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.68.0 && \
+    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.69.1 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/kinesis
-    go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.5 && \
+    go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.6 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/s3
-    go get github.com/aws/aws-sdk-go-v2/service/s3@v1.99.0 && \
+    go get github.com/aws/aws-sdk-go-v2/service/s3@v1.99.1 && \
     go mod tidy
 
 # Fix compatibility issues with expr-lang v1.17.7

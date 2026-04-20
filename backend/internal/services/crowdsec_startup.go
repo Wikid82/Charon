@@ -197,6 +197,12 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 		"data_dir": dataDir,
 	}).Info("CrowdSec reconciliation: starting CrowdSec (mode=local, not currently running)")
 
+	// Regenerate whitelist YAML before starting so CrowdSec loads the current entries.
+	whitelistSvc := NewCrowdSecWhitelistService(db, dataDir)
+	if writeErr := whitelistSvc.WriteYAML(context.Background()); writeErr != nil {
+		logger.Log().WithError(writeErr).Warn("CrowdSec reconciliation: failed to write whitelist YAML on startup (non-fatal)")
+	}
+
 	startCtx, startCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer startCancel()
 
