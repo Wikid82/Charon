@@ -31,6 +31,14 @@ func newTestCertificateService(dataDir string, db *gorm.DB) *CertificateService 
 	}
 }
 
+// certDBID looks up the numeric DB primary key for a certificate by UUID.
+func certDBID(t *testing.T, db *gorm.DB, uuid string) uint {
+	t.Helper()
+	var cert models.SSLCertificate
+	require.NoError(t, db.Where("uuid = ?", uuid).First(&cert).Error)
+	return cert.ID
+}
+
 func TestNewCertificateService(t *testing.T) {
 	tmpDir := t.TempDir()
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
@@ -43,7 +51,7 @@ func TestNewCertificateService(t *testing.T) {
 	require.NoError(t, os.MkdirAll(certDir, 0o750)) // #nosec G301 -- test directory
 
 	// Test service creation
-	svc := NewCertificateService(tmpDir, db)
+	svc := NewCertificateService(tmpDir, db, nil)
 	assert.NotNil(t, svc)
 	assert.Equal(t, tmpDir, svc.dataDir)
 	assert.Equal(t, db, svc.db)
@@ -54,6 +62,11 @@ func TestNewCertificateService(t *testing.T) {
 }
 
 func generateTestCert(t *testing.T, domain string, expiry time.Time) []byte {
+	certPEM, _ := generateTestCertAndKey(t, domain, expiry)
+	return certPEM
+}
+
+func generateTestCertAndKey(t *testing.T, domain string, expiry time.Time) ([]byte, []byte) {
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatalf("Failed to generate private key: %v", err)
@@ -77,7 +90,9 @@ func generateTestCert(t *testing.T, domain string, expiry time.Time) []byte {
 		t.Fatalf("Failed to create certificate: %v", err)
 	}
 
-	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
+	return certPEM, keyPEM
 }
 
 func TestCertificateService_GetCertificateInfo(t *testing.T) {
@@ -123,7 +138,7 @@ func TestCertificateService_GetCertificateInfo(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, certs, 1)
 	if len(certs) > 0 {
-		assert.Equal(t, domain, certs[0].Domain)
+		assert.Equal(t, domain, certs[0].Domains)
 		assert.Equal(t, "valid", certs[0].Status)
 		// Check expiry within a margin
 		assert.WithinDuration(t, expiry, certs[0].ExpiresAt, time.Second)
@@ -153,7 +168,7 @@ func TestCertificateService_GetCertificateInfo(t *testing.T) {
 	// Find the expired one
 	var foundExpired bool
 	for _, c := range certs {
-		if c.Domain == expiredDomain {
+		if c.Domains == expiredDomain {
 			assert.Equal(t, "expired", c.Status)
 			foundExpired = true
 		}
@@ -174,11 +189,10 @@ func TestCertificateService_UploadAndDelete(t *testing.T) {
 	// Generate Cert
 	domain := "custom.example.com"
 	expiry := time.Now().Add(24 * time.Hour)
-	certPEM := generateTestCert(t, domain, expiry)
-	keyPEM := []byte("FAKE PRIVATE KEY")
+	certPEM, keyPEM := generateTestCertAndKey(t, domain, expiry)
 
 	// Test Upload
-	cert, err := cs.UploadCertificate("My Custom Cert", string(certPEM), string(keyPEM))
+	cert, err := cs.UploadCertificate("My Custom Cert", string(certPEM), string(keyPEM), "")
 	require.NoError(t, err)
 	assert.NotNil(t, cert)
 	assert.Equal(t, "My Custom Cert", cert.Name)
@@ -190,7 +204,7 @@ func TestCertificateService_UploadAndDelete(t *testing.T) {
 	require.NoError(t, err)
 	var found bool
 	for _, c := range certs {
-		if c.ID == cert.ID {
+		if c.UUID == cert.UUID {
 			found = true
 			assert.Equal(t, "custom", c.Provider)
 			break
@@ -199,7 +213,7 @@ func TestCertificateService_UploadAndDelete(t *testing.T) {
 	assert.True(t, found)
 
 	// Test Delete
-	err = cs.DeleteCertificate(cert.ID)
+	err = cs.DeleteCertificate(cert.UUID)
 	require.NoError(t, err)
 
 	// Verify it's gone
@@ -207,7 +221,7 @@ func TestCertificateService_UploadAndDelete(t *testing.T) {
 	require.NoError(t, err)
 	found = false
 	for _, c := range certs {
-		if c.ID == cert.ID {
+		if c.UUID == cert.UUID {
 			found = true
 			break
 		}
@@ -248,7 +262,7 @@ func TestCertificateService_Persistence(t *testing.T) {
 	// Verify it's in the returned list
 	var foundInList bool
 	for _, c := range certs {
-		if c.Domain == domain {
+		if c.Domains == domain {
 			foundInList = true
 			assert.Equal(t, "letsencrypt", c.Provider)
 			break
@@ -264,7 +278,7 @@ func TestCertificateService_Persistence(t *testing.T) {
 	assert.Equal(t, string(certPEM), dbCert.Certificate)
 
 	// 4. Delete the certificate via Service (which should delete the file)
-	err = cs.DeleteCertificate(dbCert.ID)
+	err = cs.DeleteCertificate(dbCert.UUID)
 	require.NoError(t, err)
 
 	// Verify file is gone
@@ -278,7 +292,7 @@ func TestCertificateService_Persistence(t *testing.T) {
 	// Verify it's NOT in the returned list
 	foundInList = false
 	for _, c := range certs {
-		if c.Domain == domain {
+		if c.Domains == domain {
 			foundInList = true
 			break
 		}
@@ -301,14 +315,14 @@ func TestCertificateService_UploadCertificate_Errors(t *testing.T) {
 	cs := newTestCertificateService(tmpDir, db)
 
 	t.Run("invalid PEM format", func(t *testing.T) {
-		cert, err := cs.UploadCertificate("Invalid", "not-a-valid-pem", "also-not-valid")
+		cert, err := cs.UploadCertificate("Invalid", "not-a-valid-pem", "also-not-valid", "")
 		assert.Error(t, err)
 		assert.Nil(t, cert)
-		assert.Contains(t, err.Error(), "invalid certificate PEM")
+		assert.Contains(t, err.Error(), "unrecognized certificate format")
 	})
 
 	t.Run("empty certificate", func(t *testing.T) {
-		cert, err := cs.UploadCertificate("Empty", "", "some-key")
+		cert, err := cs.UploadCertificate("Empty", "", "some-key", "")
 		assert.Error(t, err)
 		assert.Nil(t, cert)
 	})
@@ -318,19 +332,18 @@ func TestCertificateService_UploadCertificate_Errors(t *testing.T) {
 		expiry := time.Now().Add(24 * time.Hour)
 		certPEM := generateTestCert(t, domain, expiry)
 
-		cert, err := cs.UploadCertificate("No Key", string(certPEM), "")
+		cert, err := cs.UploadCertificate("No Key", string(certPEM), "", "")
 		assert.NoError(t, err) // Uploading without key is allowed
 		assert.NotNil(t, cert)
-		assert.Equal(t, "", cert.PrivateKey)
+		assert.False(t, cert.HasKey)
 	})
 
 	t.Run("valid certificate with name", func(t *testing.T) {
 		domain := "valid.com"
 		expiry := time.Now().Add(24 * time.Hour)
-		certPEM := generateTestCert(t, domain, expiry)
-		keyPEM := []byte("FAKE PRIVATE KEY")
+		certPEM, keyPEM := generateTestCertAndKey(t, domain, expiry)
 
-		cert, err := cs.UploadCertificate("Valid Cert", string(certPEM), string(keyPEM))
+		cert, err := cs.UploadCertificate("Valid Cert", string(certPEM), string(keyPEM), "")
 		assert.NoError(t, err)
 		assert.NotNil(t, cert)
 		assert.Equal(t, "Valid Cert", cert.Name)
@@ -341,10 +354,9 @@ func TestCertificateService_UploadCertificate_Errors(t *testing.T) {
 	t.Run("expired certificate can be uploaded", func(t *testing.T) {
 		domain := "expired-upload.com"
 		expiry := time.Now().Add(-24 * time.Hour) // Already expired
-		certPEM := generateTestCert(t, domain, expiry)
-		keyPEM := []byte("FAKE PRIVATE KEY")
+		certPEM, keyPEM := generateTestCertAndKey(t, domain, expiry)
 
-		cert, err := cs.UploadCertificate("Expired Upload", string(certPEM), string(keyPEM))
+		cert, err := cs.UploadCertificate("Expired Upload", string(certPEM), string(keyPEM), "")
 		// Should still upload successfully, but status will be expired
 		assert.NoError(t, err)
 		assert.NotNil(t, cert)
@@ -430,7 +442,7 @@ func TestCertificateService_ListCertificates_EdgeCases(t *testing.T) {
 		domain2 := "custom.example.com"
 		expiry2 := time.Now().Add(48 * time.Hour)
 		certPEM2 := generateTestCert(t, domain2, expiry2)
-		_, err = cs.UploadCertificate("Custom", string(certPEM2), "FAKE KEY")
+		_, err = cs.UploadCertificate("Custom", string(certPEM2), "", "")
 		require.NoError(t, err)
 
 		certs, err := cs.ListCertificates()
@@ -457,19 +469,21 @@ func TestCertificateService_DeleteCertificate_Errors(t *testing.T) {
 	cs := newTestCertificateService(tmpDir, db)
 
 	t.Run("delete non-existent certificate", func(t *testing.T) {
-		// IsCertificateInUse will succeed (not in use), then First will fail
-		err := cs.DeleteCertificate(99999)
+		// DeleteCertificate takes UUID string; non-existent UUID returns error
+		err := cs.DeleteCertificate("non-existent-uuid")
 		assert.Error(t, err)
-		assert.Equal(t, gorm.ErrRecordNotFound, err)
 	})
 
 	t.Run("delete certificate in use returns ErrCertInUse", func(t *testing.T) {
 		// Create certificate
 		domain := "in-use.com"
 		expiry := time.Now().Add(24 * time.Hour)
-		certPEM := generateTestCert(t, domain, expiry)
-		cert, err := cs.UploadCertificate("In Use", string(certPEM), "FAKE KEY")
+		certPEM, keyPEM := generateTestCertAndKey(t, domain, expiry)
+		cert, err := cs.UploadCertificate("In Use", string(certPEM), string(keyPEM), "")
 		require.NoError(t, err)
+
+		// Look up numeric ID for FK
+		dbID := certDBID(t, db, cert.UUID)
 
 		// Create proxy host using this certificate
 		ph := models.ProxyHost{
@@ -478,18 +492,18 @@ func TestCertificateService_DeleteCertificate_Errors(t *testing.T) {
 			DomainNames:   "in-use.com",
 			ForwardHost:   "localhost",
 			ForwardPort:   8080,
-			CertificateID: &cert.ID,
+			CertificateID: &dbID,
 		}
 		require.NoError(t, db.Create(&ph).Error)
 
 		// Attempt to delete certificate - should fail with ErrCertInUse
-		err = cs.DeleteCertificate(cert.ID)
+		err = cs.DeleteCertificate(cert.UUID)
 		assert.Error(t, err)
 		assert.Equal(t, ErrCertInUse, err)
 
 		// Verify certificate still exists
 		var dbCert models.SSLCertificate
-		err = db.First(&dbCert, "id = ?", cert.ID).Error
+		err = db.First(&dbCert, "id = ?", dbID).Error
 		assert.NoError(t, err)
 	})
 
@@ -497,21 +511,24 @@ func TestCertificateService_DeleteCertificate_Errors(t *testing.T) {
 		// Create and upload cert
 		domain := "to-delete.com"
 		expiry := time.Now().Add(24 * time.Hour)
-		certPEM := generateTestCert(t, domain, expiry)
-		cert, err := cs.UploadCertificate("To Delete", string(certPEM), "FAKE KEY")
+		certPEM, keyPEM := generateTestCertAndKey(t, domain, expiry)
+		cert, err := cs.UploadCertificate("To Delete", string(certPEM), string(keyPEM), "")
 		require.NoError(t, err)
+
+		// Look up numeric ID for verification
+		dbID := certDBID(t, db, cert.UUID)
 
 		// Manually remove the file (custom certs stored by numeric ID)
 		certPath := filepath.Join(tmpDir, "certificates", "custom", "cert.crt")
 		_ = os.Remove(certPath)
 
 		// Delete should still work (DB cleanup)
-		err = cs.DeleteCertificate(cert.ID)
+		err = cs.DeleteCertificate(cert.UUID)
 		assert.NoError(t, err)
 
 		// Verify DB record is gone
 		var dbCert models.SSLCertificate
-		err = db.First(&dbCert, "id = ?", cert.ID).Error
+		err = db.First(&dbCert, "id = ?", dbID).Error
 		assert.Error(t, err)
 	})
 }
@@ -781,9 +798,8 @@ func TestCertificateService_CertificateWithSANs(t *testing.T) {
 		domain := "san.example.com"
 		expiry := time.Now().Add(24 * time.Hour)
 		certPEM := generateTestCertWithSANs(t, domain, []string{"san.example.com", "www.san.example.com", "api.san.example.com"}, expiry)
-		keyPEM := []byte("FAKE PRIVATE KEY")
 
-		cert, err := cs.UploadCertificate("SAN Cert", string(certPEM), string(keyPEM))
+		cert, err := cs.UploadCertificate("SAN Cert", string(certPEM), "", "")
 		require.NoError(t, err)
 		assert.NotNil(t, cert)
 		// Should have joined SANs
@@ -807,10 +823,11 @@ func TestCertificateService_IsCertificateInUse(t *testing.T) {
 		domain := "unused.com"
 		expiry := time.Now().Add(24 * time.Hour)
 		certPEM := generateTestCert(t, domain, expiry)
-		cert, err := cs.UploadCertificate("Unused", string(certPEM), "FAKE KEY")
+		cert, err := cs.UploadCertificate("Unused", string(certPEM), "", "")
 		require.NoError(t, err)
 
-		inUse, err := cs.IsCertificateInUse(cert.ID)
+		dbID := certDBID(t, db, cert.UUID)
+		inUse, err := cs.IsCertificateInUse(dbID)
 		assert.NoError(t, err)
 		assert.False(t, inUse)
 	})
@@ -820,8 +837,10 @@ func TestCertificateService_IsCertificateInUse(t *testing.T) {
 		domain := "used.com"
 		expiry := time.Now().Add(24 * time.Hour)
 		certPEM := generateTestCert(t, domain, expiry)
-		cert, err := cs.UploadCertificate("Used", string(certPEM), "FAKE KEY")
+		cert, err := cs.UploadCertificate("Used", string(certPEM), "", "")
 		require.NoError(t, err)
+
+		dbID := certDBID(t, db, cert.UUID)
 
 		// Create proxy host using this certificate
 		ph := models.ProxyHost{
@@ -830,11 +849,11 @@ func TestCertificateService_IsCertificateInUse(t *testing.T) {
 			DomainNames:   "used.com",
 			ForwardHost:   "localhost",
 			ForwardPort:   8080,
-			CertificateID: &cert.ID,
+			CertificateID: &dbID,
 		}
 		require.NoError(t, db.Create(&ph).Error)
 
-		inUse, err := cs.IsCertificateInUse(cert.ID)
+		inUse, err := cs.IsCertificateInUse(dbID)
 		assert.NoError(t, err)
 		assert.True(t, inUse)
 	})
@@ -844,8 +863,10 @@ func TestCertificateService_IsCertificateInUse(t *testing.T) {
 		domain := "shared.com"
 		expiry := time.Now().Add(24 * time.Hour)
 		certPEM := generateTestCert(t, domain, expiry)
-		cert, err := cs.UploadCertificate("Shared", string(certPEM), "FAKE KEY")
+		cert, err := cs.UploadCertificate("Shared", string(certPEM), "", "")
 		require.NoError(t, err)
+
+		dbID := certDBID(t, db, cert.UUID)
 
 		// Create multiple proxy hosts using this certificate
 		for i := 1; i <= 3; i++ {
@@ -855,12 +876,12 @@ func TestCertificateService_IsCertificateInUse(t *testing.T) {
 				DomainNames:   fmt.Sprintf("host%d.shared.com", i),
 				ForwardHost:   "localhost",
 				ForwardPort:   8080 + i,
-				CertificateID: &cert.ID,
+				CertificateID: &dbID,
 			}
 			require.NoError(t, db.Create(&ph).Error)
 		}
 
-		inUse, err := cs.IsCertificateInUse(cert.ID)
+		inUse, err := cs.IsCertificateInUse(dbID)
 		assert.NoError(t, err)
 		assert.True(t, inUse)
 	})
@@ -876,8 +897,10 @@ func TestCertificateService_IsCertificateInUse(t *testing.T) {
 		domain := "freed.com"
 		expiry := time.Now().Add(24 * time.Hour)
 		certPEM := generateTestCert(t, domain, expiry)
-		cert, err := cs.UploadCertificate("Freed", string(certPEM), "FAKE KEY")
+		cert, err := cs.UploadCertificate("Freed", string(certPEM), "", "")
 		require.NoError(t, err)
+
+		dbID := certDBID(t, db, cert.UUID)
 
 		// Create proxy host using this certificate
 		ph := models.ProxyHost{
@@ -886,12 +909,12 @@ func TestCertificateService_IsCertificateInUse(t *testing.T) {
 			DomainNames:   "freed.com",
 			ForwardHost:   "localhost",
 			ForwardPort:   8080,
-			CertificateID: &cert.ID,
+			CertificateID: &dbID,
 		}
 		require.NoError(t, db.Create(&ph).Error)
 
 		// Verify in use
-		inUse, err := cs.IsCertificateInUse(cert.ID)
+		inUse, err := cs.IsCertificateInUse(dbID)
 		assert.NoError(t, err)
 		assert.True(t, inUse)
 
@@ -899,12 +922,12 @@ func TestCertificateService_IsCertificateInUse(t *testing.T) {
 		require.NoError(t, db.Delete(&ph).Error)
 
 		// Verify no longer in use
-		inUse, err = cs.IsCertificateInUse(cert.ID)
+		inUse, err = cs.IsCertificateInUse(dbID)
 		assert.NoError(t, err)
 		assert.False(t, inUse)
 
 		// Now deletion should succeed
-		err = cs.DeleteCertificate(cert.ID)
+		err = cs.DeleteCertificate(cert.UUID)
 		assert.NoError(t, err)
 	})
 }
@@ -922,10 +945,9 @@ func TestCertificateService_CacheBehavior(t *testing.T) {
 		// Create a cert
 		domain := "cache.example.com"
 		expiry := time.Now().Add(24 * time.Hour)
-		certPEM := generateTestCert(t, domain, expiry)
-		keyPEM := []byte("FAKE PRIVATE KEY")
+		certPEM, keyPEM := generateTestCertAndKey(t, domain, expiry)
 
-		cert, err := cs.UploadCertificate("Cache Test", string(certPEM), string(keyPEM))
+		cert, err := cs.UploadCertificate("Cache Test", string(certPEM), string(keyPEM), "")
 		require.NoError(t, err)
 		require.NotNil(t, cert)
 
@@ -940,7 +962,7 @@ func TestCertificateService_CacheBehavior(t *testing.T) {
 		require.Len(t, certs2, 1)
 
 		// Both should return the same cert
-		assert.Equal(t, certs1[0].ID, certs2[0].ID)
+		assert.Equal(t, certs1[0].UUID, certs2[0].UUID)
 	})
 
 	t.Run("invalidate cache forces resync", func(t *testing.T) {
@@ -954,7 +976,7 @@ func TestCertificateService_CacheBehavior(t *testing.T) {
 
 		// Create a cert via upload (auto-invalidates)
 		certPEM := generateTestCert(t, "invalidate.example.com", time.Now().Add(24*time.Hour))
-		_, err = cs.UploadCertificate("Invalidate Test", string(certPEM), "")
+		_, err = cs.UploadCertificate("Invalidate Test", string(certPEM), "", "")
 		require.NoError(t, err)
 
 		// Get list (should have 1)
@@ -1012,7 +1034,7 @@ func TestCertificateService_CacheBehavior(t *testing.T) {
 		certs, err := cs.ListCertificates()
 		require.NoError(t, err)
 		require.Len(t, certs, 1)
-		assert.Equal(t, "db.example.com", certs[0].Domain)
+		assert.Equal(t, "db.example.com", certs[0].Domains)
 	})
 }
 
@@ -1032,7 +1054,7 @@ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 -----END CERTIFICATE-----`
 
-		cert, err := cs.UploadCertificate("Corrupted", corruptedPEM, "")
+		cert, err := cs.UploadCertificate("Corrupted", corruptedPEM, "", "")
 		assert.Error(t, err)
 		assert.Nil(t, cert)
 		assert.Contains(t, err.Error(), "failed to parse certificate")
@@ -1047,7 +1069,7 @@ A7qVvdqxevEuUkW4K+2KdMXmnQbG9Aa7k7eBjK1S+0LYmVjPKlJGNXHDGuy5Fw/d
 hI6GH4twrbDJCR2Bwy/XWXgqgGRzAgMBAAECgYBYWVtLze8R+KrZdHj0hLjZEPnl
 -----END PRIVATE KEY-----`
 
-		cert, err := cs.UploadCertificate("Wrong Type", wrongTypePEM, "")
+		cert, err := cs.UploadCertificate("Wrong Type", wrongTypePEM, "", "")
 		assert.Error(t, err)
 		assert.Nil(t, cert)
 		assert.Contains(t, err.Error(), "failed to parse certificate")
@@ -1070,7 +1092,7 @@ hI6GH4twrbDJCR2Bwy/XWXgqgGRzAgMBAAECgYBYWVtLze8R+KrZdHj0hLjZEPnl
 		require.NoError(t, err)
 		certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
 
-		cert, err := cs.UploadCertificate("Empty Subject", string(certPEM), "")
+		cert, err := cs.UploadCertificate("Empty Subject", string(certPEM), "", "")
 		assert.NoError(t, err) // Upload succeeds
 		assert.NotNil(t, cert)
 		assert.Equal(t, "", cert.Domains) // Empty domains field
@@ -1165,7 +1187,7 @@ func TestCertificateService_SyncFromDisk_ErrorHandling(t *testing.T) {
 		certs, err := cs.ListCertificates()
 		assert.NoError(t, err)
 		assert.Len(t, certs, 1)
-		assert.Equal(t, validDomain, certs[0].Domain)
+		assert.Equal(t, validDomain, certs[0].Domains)
 	})
 }
 
@@ -1233,7 +1255,7 @@ func TestCertificateService_RefreshCacheFromDB_EdgeCases(t *testing.T) {
 		require.Len(t, certs, 1)
 		// Should use proxy host name
 		assert.Equal(t, "Matched Proxy", certs[0].Name)
-		assert.Contains(t, certs[0].Domain, "www.example.com")
+		assert.Contains(t, certs[0].Domains, "www.example.com")
 	})
 }
 

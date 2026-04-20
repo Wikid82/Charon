@@ -7,20 +7,22 @@ import BulkDeleteCertificateDialog from '../../dialogs/BulkDeleteCertificateDial
 import type { Certificate } from '../../../api/certificates'
 
 const makeCert = (overrides: Partial<Certificate>): Certificate => ({
-  id: 1,
+  uuid: 'cert-1',
   name: 'Test Cert',
-  domain: 'test.example.com',
+  domains: 'test.example.com',
   issuer: 'Custom CA',
   expires_at: '2026-01-01T00:00:00Z',
   status: 'valid',
   provider: 'custom',
+  has_key: true,
+  in_use: false,
   ...overrides,
 })
 
 const certs: Certificate[] = [
-  makeCert({ id: 1, name: 'Cert One', domain: 'one.example.com' }),
-  makeCert({ id: 2, name: 'Cert Two', domain: 'two.example.com', provider: 'letsencrypt-staging', status: 'untrusted' }),
-  makeCert({ id: 3, name: 'Cert Three', domain: 'three.example.com', provider: 'letsencrypt', status: 'expired' }),
+  makeCert({ uuid: 'cert-1', name: 'Cert One', domains: 'one.example.com' }),
+  makeCert({ uuid: 'cert-2', name: 'Cert Two', domains: 'two.example.com', provider: 'letsencrypt-staging', status: 'untrusted' }),
+  makeCert({ uuid: 'cert-3', name: 'Cert Three', domains: 'three.example.com', provider: 'letsencrypt', status: 'expired' }),
 ]
 
 describe('BulkDeleteCertificateDialog', () => {
@@ -121,7 +123,7 @@ describe('BulkDeleteCertificateDialog', () => {
   })
 
   it('renders "Expiring LE" label for a letsencrypt cert with status expiring', () => {
-    const expiringCert = makeCert({ id: 4, name: 'Expiring Cert', domain: 'expiring.example.com', provider: 'letsencrypt', status: 'expiring' })
+    const expiringCert = makeCert({ uuid: 'cert-4', name: 'Expiring Cert', domains: 'expiring.example.com', provider: 'letsencrypt', status: 'expiring' })
     render(
       <BulkDeleteCertificateDialog
         certificates={[expiringCert]}

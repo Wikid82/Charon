@@ -190,12 +190,15 @@ describe('ProxyHosts page extra tests', () => {
         certificates: [
           {
             id: 1,
+            uuid: 'cert-le-1',
             name: 'LE',
-            domain: 'valid.example.com',
+            domains: 'valid.example.com',
             issuer: 'letsencrypt',
             expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
             status: 'valid',
             provider: 'letsencrypt',
+            has_key: false,
+            in_use: true,
           },
         ],
       }),

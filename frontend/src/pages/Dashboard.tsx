@@ -44,8 +44,8 @@ export default function Dashboard() {
     const certifiedDomains = new Set<string>()
     for (const cert of certificates) {
       // Handle missing or undefined domain field
-      if (!cert.domain) continue
-      for (const d of cert.domain.split(',')) {
+      if (!cert.domains) continue
+      for (const d of cert.domains.split(',')) {
         const trimmed = d.trim().toLowerCase()
         if (trimmed) certifiedDomains.add(trimmed)
       }
