@@ -73,6 +73,7 @@ const securityTranslations: Record<string, string> = {
   'security.waf': 'WAF',
   'security.rate': 'Rate',
   'security.crowdsec': 'CrowdSec',
+  'security.crowdsec.title': 'CrowdSec',
   'security.crowdsecDescription': 'IP Reputation',
   'security.crowdsecProtects': 'Blocks known attackers, botnets, and malicious IPs',
   'security.crowdsecDisabledDescription': 'Enable to block known malicious IPs',
