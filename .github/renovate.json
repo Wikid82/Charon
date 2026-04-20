@@ -324,6 +324,12 @@
       "matchDatasources": ["go"],
       "matchPackageNames": ["github.com/oschwald/geoip2-golang/v2"],
       "sourceUrl": "https://github.com/oschwald/geoip2-golang"
+    },
+    {
+      "description": "Fix Renovate lookup for google/uuid",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/google/uuid"],
+      "sourceUrl": "https://github.com/google/uuid"
     }
   ]
 }

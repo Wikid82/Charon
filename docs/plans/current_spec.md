@@ -1,460 +1,897 @@
-# Coverage Improvement Plan — Patch Coverage ≥ 90%
+# CrowdSec IP Whitelist Management — Implementation Plan
 
-**Date**: 2026-05-02
+**Issue**: [#939 — CrowdSec IP Whitelist Management](https://github.com/owner/Charon/issues/939)
+**Date**: 2026-05-20
 **Status**: Draft — Awaiting Approval
 **Priority**: High
-**Archived Previous Plan**: Custom Certificate Upload & Management (Issue #22) → `docs/plans/archive/custom-cert-upload-management-spec-2026-05-02.md`
+**Archived Previous Plan**: Coverage Improvement Plan (patch coverage ≥ 90%) → `docs/plans/archive/patch-coverage-improvement-plan-2026-05-02.md`
 
 ---
 
 ## 1. Introduction
 
-This plan identifies exact uncovered branches across the six highest-gap backend source files and two frontend components, and specifies new test cases to close those gaps. The target is to raise overall patch coverage from **85.61% (206 missing lines)** to **≥ 90%**.
+### 1.1 Overview
 
-**Constraints**:
-- No source file modifications — test files only
-- Go tests placed in `*_patch_coverage_test.go` (same package as source)
-- Frontend tests extend existing `__tests__/*.test.tsx` files
-- Use testify (Go) and Vitest + React Testing Library (frontend)
+CrowdSec enforces IP ban decisions by default. Operators need a way to permanently exempt known-good IPs (uptime monitors, internal subnets, VPN exits, partners) from ever being banned. CrowdSec handles this through its `whitelists` parser, which intercepts alert evaluation and suppresses bans for matching IPs/CIDRs before decisions are even written.
+
+This feature gives Charon operators a first-class UI for managing those whitelist entries: add an IP or CIDR, give it a reason, and have Charon persist it in the database, render the required YAML parser file into the CrowdSec config tree, and signal CrowdSec to reload—all without manual file editing.
+
+### 1.2 Objectives
+
+- Allow operators to add, view, and remove CrowdSec whitelist entries (IPs and CIDRs) through the Charon management UI.
+- Persist entries in SQLite so they survive container restarts.
+- Generate a `crowdsecurity/whitelists`-compatible YAML parser file on every mutating operation and on startup.
+- Automatically install the `crowdsecurity/whitelists` hub parser so CrowdSec can process the file.
+- Show the Whitelist tab only when CrowdSec is in `local` mode, consistent with other CrowdSec-only tabs.
 
 ---
 
 ## 2. Research Findings
 
-### 2.1 Coverage Gap Summary
+### 2.1 Existing CrowdSec Architecture
 
-| Package | File | Missing Lines | Current Coverage |
+| Component | Location | Notes |
+|---|---|---|
+| Hub parser installer | `configs/crowdsec/install_hub_items.sh` | Run at container start; uses `cscli parsers install --force` |
+| CrowdSec handler | `backend/internal/api/handlers/crowdsec_handler.go` | ~2750 LOC; `RegisterRoutes` at L2704 |
+| Route registration | `backend/internal/api/routes/routes.go` | `crowdsecHandler.RegisterRoutes(management)` at ~L620 |
+| CrowdSec startup | `backend/internal/services/crowdsec_startup.go` | `ReconcileCrowdSecOnStartup()` runs before process start |
+| Security config | `backend/internal/models/security_config.go` | `CrowdSecMode`, `CrowdSecConfigDir` (via `cfg.Security.CrowdSecConfigDir`) |
+| IP/CIDR helper | `backend/internal/security/whitelist.go` | `IsIPInCIDRList()` using `net.ParseIP` / `net.ParseCIDR` |
+| AutoMigrate | `routes.go` ~L95–125 | `&models.ManualChallenge{}` is currently the last entry |
+
+### 2.2 Gap Analysis
+
+- `crowdsecurity/whitelists` hub parser is **not** installed by `install_hub_items.sh` — the YAML file would be ignored by CrowdSec without it.
+- No `CrowdSecWhitelist` model exists in `backend/internal/models/`.
+- No whitelist service, handler methods, or API routes exist.
+- No frontend tab, API client functions, or TanStack Query hooks exist.
+- No E2E test spec covers whitelist management.
+
+### 2.3 Relevant Patterns
+
+**Model pattern** (from `access_list.go` + `security_config.go`):
+```go
+type Model struct {
+    ID        uint      `json:"-" gorm:"primaryKey"`
+    UUID      string    `json:"uuid" gorm:"uniqueIndex;not null"`
+    // domain fields
+    CreatedAt time.Time `json:"created_at"`
+    UpdatedAt time.Time `json:"updated_at"`
+}
+```
+
+**Service pattern** (from `access_list_service.go`):
+```go
+var ErrXxxNotFound = errors.New("xxx not found")
+
+type XxxService struct { db *gorm.DB }
+
+func NewXxxService(db *gorm.DB) *XxxService { return &XxxService{db: db} }
+```
+
+**Handler error response pattern** (from `crowdsec_handler.go`):
+```go
+c.JSON(http.StatusBadRequest, gin.H{"error": "..."})
+c.JSON(http.StatusNotFound, gin.H{"error": "..."})
+c.JSON(http.StatusInternalServerError, gin.H{"error": "..."})
+```
+
+**Frontend API client pattern** (from `frontend/src/api/crowdsec.ts`):
+```typescript
+export const listXxx = async (): Promise<XxxEntry[]> => {
+  const resp = await client.get<XxxEntry[]>('/admin/crowdsec/xxx')
+  return resp.data
+}
+```
+
+**Frontend mutation pattern** (from `CrowdSecConfig.tsx`):
+```typescript
+const mutation = useMutation({
+  mutationFn: (data) => apiCall(data),
+  onSuccess: () => {
+    toast.success('...')
+    queryClient.invalidateQueries({ queryKey: ['crowdsec-whitelist'] })
+  },
+  onError: (err) => toast.error(err instanceof Error ? err.message : '...'),
+})
+```
+
+### 2.4 CrowdSec Whitelist YAML Format
+
+CrowdSec's `crowdsecurity/whitelists` parser expects the following YAML structure at a path under the `parsers/s02-enrich/` directory:
+
+```yaml
+name: charon-whitelist
+description: "Charon-managed IP/CIDR whitelist"
+filter: "evt.Meta.service == 'http'"
+whitelist:
+  reason: "Charon managed whitelist"
+  ip:
+    - "1.2.3.4"
+  cidr:
+    - "10.0.0.0/8"
+    - "192.168.0.0/16"
+```
+
+For an empty whitelist, both `ip` and `cidr` must be present as empty lists (not omitted) to produce valid YAML that CrowdSec can parse without error.
+
+---
+
+## 3. Technical Specifications
+
+### 3.1 Database Schema
+
+**New model**: `backend/internal/models/crowdsec_whitelist.go`
+
+```go
+package models
+
+import "time"
+
+// CrowdSecWhitelist represents a single IP or CIDR exempted from CrowdSec banning.
+type CrowdSecWhitelist struct {
+    ID        uint      `json:"-"          gorm:"primaryKey"`
+    UUID      string    `json:"uuid"       gorm:"uniqueIndex;not null"`
+    IPOrCIDR  string    `json:"ip_or_cidr" gorm:"not null;uniqueIndex"`
+    Reason    string    `json:"reason"     gorm:"not null;default:''"`
+    CreatedAt time.Time `json:"created_at"`
+    UpdatedAt time.Time `json:"updated_at"`
+}
+```
+
+**AutoMigrate registration** (`backend/internal/api/routes/routes.go`, append after `&models.ManualChallenge{}`):
+```go
+&models.CrowdSecWhitelist{},
+```
+
+### 3.2 API Design
+
+All new endpoints live under the existing `/api/v1` prefix and are registered inside `CrowdsecHandler.RegisterRoutes(rg *gin.RouterGroup)`, following the same `rg.METHOD("/admin/crowdsec/...")` naming pattern as every other CrowdSec endpoint.
+
+#### Endpoint Table
+
+| Method | Path | Auth | Description |
 |---|---|---|---|
-| `handlers` | `certificate_handler.go` | ~54 | 70.28% |
-| `services` | `certificate_service.go` | ~54 | 82.85% |
-| `services` | `certificate_validator.go` | ~18 | 88.68% |
-| `handlers` | `proxy_host_handler.go` | ~12 | 55.17% |
-| `config` | `config.go` | ~8 | ~92% |
-| `caddy` | `manager.go` | ~10 | ~88% |
-| Frontend | `CertificateList.tsx` | moderate | — |
-| Frontend | `CertificateUploadDialog.tsx` | moderate | — |
-
-### 2.2 Test Infrastructure (Confirmed)
-
-- **In-memory DB**: `gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})`
-- **Mock auth**: `mockAuthMiddleware()` from `coverage_helpers_test.go`
-- **Mock backup service**: `&mockBackupService{createFunc: ..., availableSpaceFunc: ...}`
-- **Manager test hooks**: package-level `generateConfigFunc`, `validateConfigFunc`, `writeFileFunc` vars with `defer` restore pattern
-- **Frontend mocks**: `vi.mock('../../hooks/...', ...)` and `vi.mock('react-i18next', ...)`
-
-### 2.3 Existing Patch Test Files
-
-| File | Existing Tests |
-|---|---|
-| `certificate_handler_patch_coverage_test.go` | `TestDelete_UUID_WithBackup_Success`, `_NotFound`, `_InUse` |
-| `certificate_service_patch_coverage_test.go` | `TestExportCertificate_DER`, `_PFX`, `_P12`, `_UnsupportedFormat` |
-| `certificate_validator_extra_coverage_test.go` | ECDSA/Ed25519 key match, `ConvertDERToPEM` valid/invalid |
-| `manager_patch_coverage_test.go` | DNS provider encryption key paths |
-| `proxy_host_handler_test.go` | Full CRUD + BulkUpdateACL + BulkUpdateSecurityHeaders |
-| `proxy_host_handler_update_test.go` | Update edge cases, `ParseForwardPortField`, `ParseNullableUintField` |
-
----
-
-## 3. Technical Specifications — Per-File Gap Analysis
-
-### 3.1 `certificate_handler.go` — Export Re-Auth Path (~18 lines)
-
-The `Export` handler re-authenticates the user when `include_key=true`. All six guard branches are uncovered.
-
-**Gap location**: Lines ~260–320 (password empty check, `user` context key extraction, `map[string]any` cast, `id` field lookup, DB user lookup, bcrypt check)
-
-**New tests** (append to `certificate_handler_patch_coverage_test.go`):
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestExport_IncludeKey_MissingPassword` | POST with `include_key=true`, no `password` field | 403 |
-| `TestExport_IncludeKey_NoUserContext` | No `"user"` key in gin context | 403 |
-| `TestExport_IncludeKey_InvalidClaimsType` | `"user"` set to a plain string | 403 |
-| `TestExport_IncludeKey_UserIDNotInClaims` | `user = map[string]any{}` with no `"id"` key | 403 |
-| `TestExport_IncludeKey_UserNotFoundInDB` | Valid claims, no matching user row | 403 |
-| `TestExport_IncludeKey_WrongPassword` | User in DB, wrong plaintext password submitted | 403 |
-
-### 3.2 `certificate_handler.go` — Export Service Errors (~4 lines)
-
-**Gap location**: After `ExportCertificate` call — ErrCertNotFound and generic error branches
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestExport_CertNotFound` | Unknown UUID | 404 |
-| `TestExport_ServiceError` | Service returns non-not-found error | 500 |
-
-### 3.3 `certificate_handler.go` — Delete Numeric-ID Error Paths (~12 lines)
-
-**Gap location**: `IsCertificateInUse` error, disk space check, backup error, `DeleteCertificateByID` returning `ErrCertInUse` or generic error
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestDelete_NumericID_UsageCheckError` | `IsCertificateInUse` returns error | 500 |
-| `TestDelete_NumericID_LowDiskSpace` | `availableSpaceFunc` returns 0 | 507 |
-| `TestDelete_NumericID_BackupError` | `createFunc` returns error | 500 |
-| `TestDelete_NumericID_CertInUse_FromService` | `DeleteCertificateByID` → `ErrCertInUse` | 409 |
-| `TestDelete_NumericID_DeleteError` | `DeleteCertificateByID` → generic error | 500 |
-
-### 3.4 `certificate_handler.go` — Delete UUID Additional Error Paths (~8 lines)
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestDelete_UUID_UsageCheckInternalError` | `IsCertificateInUseByUUID` returns non-ErrCertNotFound error | 500 |
-| `TestDelete_UUID_LowDiskSpace` | `availableSpaceFunc` returns 0 | 507 |
-| `TestDelete_UUID_BackupCreationError` | `createFunc` returns error | 500 |
-| `TestDelete_UUID_CertInUse_FromService` | `DeleteCertificate` → `ErrCertInUse` | 409 |
-
-### 3.5 `certificate_handler.go` — Upload/Validate File Open Errors (~8 lines)
-
-**Gap location**: `file.Open()` calls on multipart key and chain form files returning errors
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestUpload_KeyFile_OpenError` | Valid cert file, malformed key multipart entry | 500 |
-| `TestUpload_ChainFile_OpenError` | Valid cert+key, malformed chain multipart entry | 500 |
-| `TestValidate_KeyFile_OpenError` | Valid cert, malformed key multipart entry | 500 |
-| `TestValidate_ChainFile_OpenError` | Valid cert+key, malformed chain multipart entry | 500 |
-
-### 3.6 `certificate_handler.go` — `sendDeleteNotification` Rate-Limit (~2 lines)
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestSendDeleteNotification_RateLimit` | Call `sendDeleteNotification` twice within 10-second window | Second call is a no-op |
-
----
-
-### 3.7 `certificate_service.go` — `SyncFromDisk` Branches (~14 lines)
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestSyncFromDisk_StagingToProductionUpgrade` | DB has staging cert, disk has production cert for same domain | DB cert updated to production provider |
-| `TestSyncFromDisk_ExpiryOnlyUpdate` | Disk cert content matches DB cert, only expiry changed | Only `expires_at` column updated |
-| `TestSyncFromDisk_CertRootStatPermissionError` | `os.Chmod(certRoot, 0)` before sync; add skip guard `if os.Getuid() == 0 { t.Skip("chmod permission test cannot run as root") }` | No panic; logs error; function completes |
-
-### 3.8 `certificate_service.go` — `ListCertificates` Background Goroutine (~4 lines)
-
-**Gap location**: `initialized=true` && TTL expired path → spawns background goroutine
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestListCertificates_StaleCache_TriggersBackgroundSync` | `initialized=true`, `lastScan` = 10 min ago | Returns cached list without blocking; background sync completes |
-
-*Use `require.Eventually(t, func() bool { return svc.lastScan.After(before) }, 2*time.Second, 10*time.Millisecond, "background sync did not update lastScan")` after the call — avoids flaky fixed sleeps.*
-
-### 3.9 `certificate_service.go` — `GetDecryptedPrivateKey` Nil encSvc and Decrypt Failure (~4 lines)
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestGetDecryptedPrivateKey_NoEncSvc` | Service with `nil` encSvc, cert has non-empty `PrivateKeyEncrypted` | Returns error |
-| `TestGetDecryptedPrivateKey_DecryptFails` | encSvc configured, corrupted ciphertext in DB | Returns wrapped error |
-
-### 3.10 `certificate_service.go` — `MigratePrivateKeys` Branches (~6 lines)
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestMigratePrivateKeys_NoEncSvc` | `encSvc == nil` | Returns nil; logs warning |
-| `TestMigratePrivateKeys_WithRows` | DB has cert with `private_key` populated, valid encSvc | Row migrated: `private_key` cleared, `private_key_enc` set |
-
-### 3.11 `certificate_service.go` — `UpdateCertificate` Errors (~4 lines)
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestUpdateCertificate_NotFound` | Non-existent UUID | Returns `ErrCertNotFound` |
-| `TestUpdateCertificate_DBSaveError` | Valid UUID, DB closed before Save | Returns wrapped error |
-
-### 3.12 `certificate_service.go` — `DeleteCertificate` ACME File Cleanup (~8 lines)
-
-**Gap location**: `cert.Provider == "letsencrypt"` branch → Walk certRoot and remove `.crt`/`.key`/`.json` files
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestDeleteCertificate_LetsEncryptProvider_FileCleanup` | Create temp `.crt` matching cert domain, delete cert | `.crt` removed from disk |
-| `TestDeleteCertificate_StagingProvider_FileCleanup` | Provider = `"letsencrypt-staging"` | Same cleanup behavior triggered |
-
-### 3.13 `certificate_service.go` — `CheckExpiringCertificates` (~8 lines)
-
-**Implementation** (lines ~966–1020): queries `provider = 'custom'` certs expiring before `threshold`, iterates and sends notification for certs with `daysLeft <= warningDays`.
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestCheckExpiringCertificates_ExpiresInRange` | Custom cert `expires_at = now+5d`, warningDays=30 | Returns slice with 1 cert |
-| `TestCheckExpiringCertificates_AlreadyExpired` | Custom cert `expires_at = yesterday` | Result contains cert with negative days |
-| `TestCheckExpiringCertificates_DBError` | DB closed before query | Returns error |
-
----
-
-### 3.14 `certificate_validator.go` — `DetectFormat` Password-Protected PFX (~2 lines)
-
-**Gap location**: PFX where `pkcs12.DecodeAll("")` fails but first byte is `0x30` (ASN.1 SEQUENCE), DER parse also fails → returns `FormatPFX`
-
-**New file**: `certificate_validator_patch_coverage_test.go`
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestDetectFormat_PasswordProtectedPFX` | Generate PFX with non-empty password, call `DetectFormat` | Returns `FormatPFX` |
-
-### 3.15 `certificate_validator.go` — `parsePEMPrivateKey` Additional Block Types (~4 lines)
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestParsePEMPrivateKey_PKCS1RSA` | PEM block type `"RSA PRIVATE KEY"` (x509.MarshalPKCS1PrivateKey) | Returns RSA key |
-| `TestParsePEMPrivateKey_EC` | PEM block type `"EC PRIVATE KEY"` (x509.MarshalECPrivateKey) | Returns ECDSA key |
-
-### 3.16 `certificate_validator.go` — `detectKeyType` P-384 and Unknown Curves (~4 lines)
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestDetectKeyType_ECDSAP384` | P-384 ECDSA key | Returns `"ECDSA-P384"` |
-| `TestDetectKeyType_ECDSAUnknownCurve` | ECDSA key with custom/unknown curve (e.g. P-224) | Returns `"ECDSA"` |
-
-### 3.17 `certificate_validator.go` — `ConvertPEMToPFX` Empty Chain (~2 lines)
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestConvertPEMToPFX_EmptyChain` | Valid cert+key PEM, empty chain string | Returns PFX bytes without error |
-
-### 3.18 `certificate_validator.go` — `ConvertPEMToDER` Non-Certificate Block (~2 lines)
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestConvertPEMToDER_NonCertBlock` | PEM block type `"PRIVATE KEY"` | Returns nil data and error |
-
-### 3.19 `certificate_validator.go` — `formatSerial` Nil BigInt (~2 lines)
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestFormatSerial_Nil` | `formatSerial(nil)` | Returns `""` |
-
----
-
-### 3.20 `proxy_host_handler.go` — `generateForwardHostWarnings` Private IP (~2 lines)
-
-**Gap location**: `net.ParseIP(forwardHost) != nil && network.IsPrivateIP(ip)` branch (non-Docker private IP)
-
-**New file**: `proxy_host_handler_patch_coverage_test.go`
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestGenerateForwardHostWarnings_PrivateIP` | forwardHost = `"192.168.1.100"` (RFC-1918, non-Docker) | Returns warning with field `"forward_host"` |
-
-### 3.21 `proxy_host_handler.go` — `BulkUpdateSecurityHeaders` Edge Cases (~4 lines)
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestBulkUpdateSecurityHeaders_AllFail_Rollback` | All UUIDs not found → `updated == 0` at end | 400, transaction rolled back |
-| `TestBulkUpdateSecurityHeaders_ProfileDB_NonNotFoundError` | Profile lookup returns wrapped DB error | 500 |
-
----
-
-### 3.22 Frontend: `CertificateList.tsx` — Untested Branches
-
-**File**: `frontend/src/components/__tests__/CertificateList.test.tsx`
-
-| Gap | New Test |
-|---|---|
-| `bulkDeleteMutation` success | `'calls bulkDeleteMutation.mutate with selected UUIDs on confirm'` |
-| `bulkDeleteMutation` error | `'shows error toast on bulk delete failure'` |
-| Sort direction toggle | `'toggles sort direction when same column clicked twice'` |
-| `selectedIds` reconciliation | `'reconciles selectedIds when certificate list shrinks'` |
-| Export dialog open | `'opens export dialog when export button clicked'` |
-
-### 3.23 Frontend: `CertificateUploadDialog.tsx` — Untested Branches
-
-**File**: `frontend/src/components/dialogs/__tests__/CertificateUploadDialog.test.tsx`
-
-| Gap | New Test |
-|---|---|
-| PFX hides key/chain zones | `'hides key and chain file inputs when PFX file selected'` |
-| Upload success closes dialog | `'calls onOpenChange(false) on successful upload'` |
-| Upload error shows toast | `'shows error toast when upload mutation fails'` |
-| Validate result shown | `'displays validation result after validate clicked'` |
+| `GET` | `/api/v1/admin/crowdsec/whitelist` | Management | List all whitelist entries |
+| `POST` | `/api/v1/admin/crowdsec/whitelist` | Management | Add a new entry |
+| `DELETE` | `/api/v1/admin/crowdsec/whitelist/:uuid` | Management | Remove an entry by UUID |
+
+#### `GET /admin/crowdsec/whitelist`
+
+**Response 200**:
+```json
+{
+  "whitelist": [
+    {
+      "uuid": "a1b2c3d4-...",
+      "ip_or_cidr": "10.0.0.0/8",
+      "reason": "Internal subnet",
+      "created_at": "2026-05-20T12:00:00Z",
+      "updated_at": "2026-05-20T12:00:00Z"
+    }
+  ]
+}
+```
+
+#### `POST /admin/crowdsec/whitelist`
+
+**Request body**:
+```json
+{ "ip_or_cidr": "10.0.0.0/8", "reason": "Internal subnet" }
+```
+
+**Response 201**:
+```json
+{
+  "uuid": "a1b2c3d4-...",
+  "ip_or_cidr": "10.0.0.0/8",
+  "reason": "Internal subnet",
+  "created_at": "...",
+  "updated_at": "..."
+}
+```
+
+**Error responses**:
+- `400` — missing/invalid `ip_or_cidr` field, unparseable IP/CIDR
+- `409` — duplicate entry (same `ip_or_cidr` already exists)
+- `500` — database or YAML write failure
+
+#### `DELETE /admin/crowdsec/whitelist/:uuid`
+
+**Response 204** — no body
+
+**Error responses**:
+- `404` — entry not found
+- `500` — database or YAML write failure
+
+### 3.3 Service Design
+
+**New file**: `backend/internal/services/crowdsec_whitelist_service.go`
+
+```go
+package services
+
+import (
+    "context"
+    "errors"
+    "net"
+    "os"
+    "path/filepath"
+    "text/template"
+
+    "github.com/google/uuid"
+    "gorm.io/gorm"
+
+    "github.com/yourusername/charon/backend/internal/models"
+    "github.com/yourusername/charon/backend/internal/logger"
+)
+
+var (
+    ErrWhitelistNotFound = errors.New("whitelist entry not found")
+    ErrInvalidIPOrCIDR   = errors.New("invalid IP address or CIDR notation")
+    ErrDuplicateEntry    = errors.New("whitelist entry already exists")
+)
+
+type CrowdSecWhitelistService struct {
+    db      *gorm.DB
+    dataDir string
+}
+
+func NewCrowdSecWhitelistService(db *gorm.DB, dataDir string) *CrowdSecWhitelistService {
+    return &CrowdSecWhitelistService{db: db, dataDir: dataDir}
+}
+
+// List returns all whitelist entries ordered by creation time.
+func (s *CrowdSecWhitelistService) List(ctx context.Context) ([]models.CrowdSecWhitelist, error) { ... }
+
+// Add validates, persists, and regenerates the YAML file.
+func (s *CrowdSecWhitelistService) Add(ctx context.Context, ipOrCIDR, reason string) (*models.CrowdSecWhitelist, error) { ... }
+
+// Delete removes an entry by UUID and regenerates the YAML file.
+func (s *CrowdSecWhitelistService) Delete(ctx context.Context, uuid string) error { ... }
+
+// WriteYAML renders all current entries to <dataDir>/parsers/s02-enrich/charon-whitelist.yaml
+func (s *CrowdSecWhitelistService) WriteYAML(ctx context.Context) error { ... }
+```
+
+**Validation logic** in `Add()`:
+1. Trim whitespace from `ipOrCIDR`.
+2. Attempt `net.ParseIP(ipOrCIDR)` — if non-nil, it's a bare IP ✓
+3. Attempt `net.ParseCIDR(ipOrCIDR)` — if `err == nil`, it's a valid CIDR ✓; normalize host bits immediately: `ipOrCIDR = network.String()` (e.g., `"10.0.0.1/8"` → `"10.0.0.0/8"`).
+4. If both fail → return `ErrInvalidIPOrCIDR`
+5. Attempt DB insert; if GORM unique constraint error → return `ErrDuplicateEntry`
+6. On success → call `WriteYAML(ctx)` (non-fatal on YAML error: log + return original entry)
+
+> **Note**: `Add()` and `Delete()` do **not** call `cscli hub reload`. Reload is the caller's responsibility (handled in `CrowdsecHandler.AddWhitelist` and `DeleteWhitelist` via `h.CmdExec`).
+
+**CIDR normalization snippet** (step 3):
+```go
+if ip, network, err := net.ParseCIDR(ipOrCIDR); err == nil {
+    _ = ip
+    ipOrCIDR = network.String() // normalizes "10.0.0.1/8" → "10.0.0.0/8"
+}
+```
+
+**YAML generation** in `WriteYAML()`:
+
+Guard: if `s.dataDir == ""`, return `nil` immediately (no-op — used in unit tests that don't need file I/O).
+
+```go
+const whitelistTmpl = `name: charon-whitelist
+description: "Charon-managed IP/CIDR whitelist"
+filter: "evt.Meta.service == 'http'"
+whitelist:
+  reason: "Charon managed whitelist"
+  ip:
+{{- range .IPs}}
+    - "{{.}}"
+{{- end}}
+{{- if not .IPs}}
+    []
+{{- end}}
+  cidr:
+{{- range .CIDRs}}
+    - "{{.}}"
+{{- end}}
+{{- if not .CIDRs}}
+    []
+{{- end}}
+`
+```
+
+Target file path: `<dataDir>/config/parsers/s02-enrich/charon-whitelist.yaml`
+
+Directory created with `os.MkdirAll(..., 0o750)` if absent.
+
+File written atomically: render to `<path>.tmp` → `os.Rename(tmp, path)`.
+
+### 3.4 Handler Design
+
+**Additions to `CrowdsecHandler` struct**:
+```go
+type CrowdsecHandler struct {
+    // ... existing fields ...
+    WhitelistSvc *services.CrowdSecWhitelistService  // NEW
+}
+```
+
+**`NewCrowdsecHandler` constructor** — initialize `WhitelistSvc`:
+```go
+h := &CrowdsecHandler{
+    // ... existing assignments ...
+}
+if db != nil {
+    h.WhitelistSvc = services.NewCrowdSecWhitelistService(db, dataDir)
+}
+return h
+```
+
+**Three new methods on `CrowdsecHandler`**:
+
+```go
+// ListWhitelists handles GET /admin/crowdsec/whitelist
+func (h *CrowdsecHandler) ListWhitelists(c *gin.Context) {
+    entries, err := h.WhitelistSvc.List(c.Request.Context())
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list whitelist entries"})
+        return
+    }
+    c.JSON(http.StatusOK, gin.H{"whitelist": entries})
+}
+
+// AddWhitelist handles POST /admin/crowdsec/whitelist
+func (h *CrowdsecHandler) AddWhitelist(c *gin.Context) {
+    var req struct {
+        IPOrCIDR string `json:"ip_or_cidr" binding:"required"`
+        Reason   string `json:"reason"`
+    }
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "ip_or_cidr is required"})
+        return
+    }
+    entry, err := h.WhitelistSvc.Add(c.Request.Context(), req.IPOrCIDR, req.Reason)
+    if errors.Is(err, services.ErrInvalidIPOrCIDR) {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+    if errors.Is(err, services.ErrDuplicateEntry) {
+        c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+        return
+    }
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to add whitelist entry"})
+        return
+    }
+    // Reload CrowdSec so the new entry takes effect immediately (non-fatal).
+    if reloadErr := h.CmdExec.Execute("cscli", "hub", "reload"); reloadErr != nil {
+        logger.Log().WithError(reloadErr).Warn("failed to reload CrowdSec after whitelist add (non-fatal)")
+    }
+    c.JSON(http.StatusCreated, entry)
+}
+
+// DeleteWhitelist handles DELETE /admin/crowdsec/whitelist/:uuid
+func (h *CrowdsecHandler) DeleteWhitelist(c *gin.Context) {
+    id := strings.TrimSpace(c.Param("uuid"))
+    if id == "" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "uuid required"})
+        return
+    }
+    err := h.WhitelistSvc.Delete(c.Request.Context(), id)
+    if errors.Is(err, services.ErrWhitelistNotFound) {
+        c.JSON(http.StatusNotFound, gin.H{"error": "whitelist entry not found"})
+        return
+    }
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete whitelist entry"})
+        return
+    }
+    // Reload CrowdSec so the removed entry is no longer exempt (non-fatal).
+    if reloadErr := h.CmdExec.Execute("cscli", "hub", "reload"); reloadErr != nil {
+        logger.Log().WithError(reloadErr).Warn("failed to reload CrowdSec after whitelist delete (non-fatal)")
+    }
+    c.Status(http.StatusNoContent)
+}
+```
+
+**Route registration** (append inside `RegisterRoutes`, after existing decision/bouncer routes):
+```go
+// Whitelist management
+rg.GET("/admin/crowdsec/whitelist", h.ListWhitelists)
+rg.POST("/admin/crowdsec/whitelist", h.AddWhitelist)
+rg.DELETE("/admin/crowdsec/whitelist/:uuid", h.DeleteWhitelist)
+```
+
+### 3.5 Startup Integration
+
+**File**: `backend/internal/services/crowdsec_startup.go`
+
+In `ReconcileCrowdSecOnStartup()`, before the CrowdSec process is started:
+
+```go
+// Regenerate whitelist YAML to ensure it reflects the current DB state.
+whitelistSvc := NewCrowdSecWhitelistService(db, dataDir)
+if err := whitelistSvc.WriteYAML(ctx); err != nil {
+    logger.Log().WithError(err).Warn("failed to write CrowdSec whitelist YAML on startup (non-fatal)")
+}
+```
+
+This is **non-fatal**: if the DB has no entries, WriteYAML still writes an empty whitelist file, which is valid.
+
+### 3.6 Hub Parser Installation
+
+**File**: `configs/crowdsec/install_hub_items.sh`
+
+Add after the existing `cscli parsers install` lines:
+
+```bash
+cscli parsers install crowdsecurity/whitelists --force || echo "⚠️ Failed to install crowdsecurity/whitelists"
+```
+
+### 3.7 Frontend Design
+
+#### API Client (`frontend/src/api/crowdsec.ts`)
+
+Append the following types and functions:
+
+```typescript
+export interface CrowdSecWhitelistEntry {
+  uuid: string
+  ip_or_cidr: string
+  reason: string
+  created_at: string
+  updated_at: string
+}
+
+export interface AddWhitelistPayload {
+  ip_or_cidr: string
+  reason: string
+}
+
+export const listWhitelists = async (): Promise<CrowdSecWhitelistEntry[]> => {
+  const resp = await client.get<{ whitelist: CrowdSecWhitelistEntry[] }>('/admin/crowdsec/whitelist')
+  return resp.data.whitelist
+}
+
+export const addWhitelist = async (data: AddWhitelistPayload): Promise<CrowdSecWhitelistEntry> => {
+  const resp = await client.post<CrowdSecWhitelistEntry>('/admin/crowdsec/whitelist', data)
+  return resp.data
+}
+
+export const deleteWhitelist = async (uuid: string): Promise<void> => {
+  await client.delete(`/admin/crowdsec/whitelist/${uuid}`)
+}
+```
+
+#### TanStack Query Hooks (`frontend/src/hooks/useCrowdSecWhitelist.ts`)
+
+```typescript
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { listWhitelists, addWhitelist, deleteWhitelist, AddWhitelistPayload } from '../api/crowdsec'
+import { toast } from 'sonner'
+
+export const useWhitelistEntries = () =>
+  useQuery({
+    queryKey: ['crowdsec-whitelist'],
+    queryFn: listWhitelists,
+  })
+
+export const useAddWhitelist = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: AddWhitelistPayload) => addWhitelist(data),
+    onSuccess: () => {
+      toast.success('Whitelist entry added')
+      queryClient.invalidateQueries({ queryKey: ['crowdsec-whitelist'] })
+    },
+    onError: (err: unknown) => {
+      toast.error(err instanceof Error ? err.message : 'Failed to add whitelist entry')
+    },
+  })
+}
+
+export const useDeleteWhitelist = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (uuid: string) => deleteWhitelist(uuid),
+    onSuccess: () => {
+      toast.success('Whitelist entry removed')
+      queryClient.invalidateQueries({ queryKey: ['crowdsec-whitelist'] })
+    },
+    onError: (err: unknown) => {
+      toast.error(err instanceof Error ? err.message : 'Failed to remove whitelist entry')
+    },
+  })
+}
+```
+
+#### CrowdSecConfig.tsx Changes
+
+The `CrowdSecConfig.tsx` page uses a tab navigation pattern. The new "Whitelist" tab:
+
+1. **Visibility**: Only render the tab when `isLocalMode === true` (same guard as Decisions tab).
+2. **Tab value**: `"whitelist"` — append to the existing tab list.
+3. **Tab panel content** (isolated component or inline JSX):
+   - **Add entry form**: `ip_or_cidr` text input + `reason` text input + "Add" button (disabled while `addMutation.isPending`). Validation error shown inline when backend returns 400/409.
+   - **Quick-add current IP**: A secondary "Add My IP" button that calls `GET /api/v1/system/my-ip` (existing endpoint) and pre-fills the `ip_or_cidr` field with the returned IP.
+   - **Entries table**: Columns — IP/CIDR, Reason, Added, Actions. Each row has a delete button with a confirmation dialog (matching the ban/unban modal pattern used for Decisions).
+   - **Empty state**: "No whitelist entries" message when the list is empty.
+   - **Loading state**: Skeleton rows while `useWhitelistEntries` is fetching.
+
+**Imports added to `CrowdSecConfig.tsx`**:
+```typescript
+import { useWhitelistEntries, useAddWhitelist, useDeleteWhitelist } from '../hooks/useCrowdSecWhitelist'
+```
+
+### 3.8 Data Flow Diagram
+
+```
+Operator adds IP in UI
+        │
+        ▼
+POST /api/v1/admin/crowdsec/whitelist
+        │
+        ▼
+CrowdsecHandler.AddWhitelist()
+        │
+        ▼
+CrowdSecWhitelistService.Add()
+   ├── Validate IP/CIDR (net.ParseIP / net.ParseCIDR)
+   ├── Normalize CIDR host bits (network.String())
+   ├── Insert into SQLite (models.CrowdSecWhitelist)
+   └── WriteYAML() → <dataDir>/config/parsers/s02-enrich/charon-whitelist.yaml
+        │
+        ▼
+h.CmdExec.Execute("cscli", "hub", "reload") [non-fatal on error]
+        │
+        ▼
+Return 201 to frontend
+        │
+        ▼
+invalidateQueries(['crowdsec-whitelist'])
+        │
+        ▼
+Table re-fetches and shows new entry
+```
+
+```
+Container restart
+        │
+        ▼
+ReconcileCrowdSecOnStartup()
+        │
+        ▼
+CrowdSecWhitelistService.WriteYAML()
+   └── Reads all DB entries → renders YAML
+        │
+        ▼
+CrowdSec process starts
+        │
+        ▼
+CrowdSec loads parsers/s02-enrich/charon-whitelist.yaml
+   └── crowdsecurity/whitelists parser activates
+        │
+        ▼
+IPs/CIDRs in file are exempt from all ban decisions
+```
+
+### 3.9 Error Handling Matrix
+
+| Scenario | Service Error | HTTP Status | Frontend Behavior |
+|---|---|---|---|
+| Blank `ip_or_cidr` | — | 400 | Inline validation (required field) |
+| Malformed IP/CIDR | `ErrInvalidIPOrCIDR` | 400 | Toast: "Invalid IP address or CIDR notation" |
+| Duplicate entry | `ErrDuplicateEntry` | 409 | Toast: "This IP/CIDR is already whitelisted" |
+| DB unavailable | generic error | 500 | Toast: "Failed to add whitelist entry" |
+| UUID not found on DELETE | `ErrWhitelistNotFound` | 404 | Toast: "Whitelist entry not found" |
+| YAML write failure | logged, non-fatal | 201 (Add still succeeds) | No user-facing error; log warning |
+| CrowdSec reload failure | logged, non-fatal | 201/204 (operation still succeeds) | No user-facing error; log warning |
+
+### 3.10 Security Considerations
+
+- **Input validation**: All `ip_or_cidr` values are validated server-side with `net.ParseIP` / `net.ParseCIDR` before persisting. Arbitrary strings are rejected.
+- **Path traversal**: `WriteYAML` constructs the output path via `filepath.Join(s.dataDir, "config", "parsers", "s02-enrich", "charon-whitelist.yaml")`. `dataDir` is set at startup—not user-supplied at request time.
+- **Privilege**: All three endpoints require management-level access (same as all other CrowdSec endpoints).
+- **YAML injection**: Values are rendered through Go's `text/template` with explicit quoting of each entry; no raw string concatenation.
+- **Log safety**: IPs are logged using the same structured field pattern used in existing CrowdSec handler methods (e.g., `logger.Log().WithField("ip", entry.IPOrCIDR).Info(...)`).
 
 ---
 
 ## 4. Implementation Plan
 
-### Phase 1: Playwright Smoke Tests (Acceptance Gating)
+### Phase 1 — Hub Parser Installation (Groundwork)
 
-Add smoke coverage to confirm certificate export and delete flows reach the backend.
+**Files Changed**:
+- `configs/crowdsec/install_hub_items.sh`
 
-**File**: `tests/certificate-coverage-smoke.spec.ts`
+**Task 1.1**: Add `cscli parsers install crowdsecurity/whitelists --force` after the last parser install line (currently `crowdsecurity/syslog-logs`).
+
+**Acceptance**: File change is syntactically valid bash; `shellcheck` passes.
+
+---
+
+### Phase 2 — Database Model
+
+**Files Changed**:
+- `backend/internal/models/crowdsec_whitelist.go` _(new file)_
+- `backend/internal/api/routes/routes.go` _(append to AutoMigrate call)_
+
+**Task 2.1**: Create `crowdsec_whitelist.go` with the `CrowdSecWhitelist` struct per §3.1.
+
+**Task 2.2**: Append `&models.CrowdSecWhitelist{}` to the `db.AutoMigrate(...)` call in `routes.go`.
+
+**Validation Gate**: `go build ./backend/...` passes; GORM generates `crowdsec_whitelists` table on next startup.
+
+---
+
+### Phase 3 — Whitelist Service
+
+**Files Changed**:
+- `backend/internal/services/crowdsec_whitelist_service.go` _(new file)_
+
+**Task 3.1**: Implement `CrowdSecWhitelistService` with `List`, `Add`, `Delete`, `WriteYAML` per §3.3.
+
+**Task 3.2**: Implement IP/CIDR validation in `Add()`:
+- `net.ParseIP(ipOrCIDR) != nil` → valid bare IP
+- `net.ParseCIDR(ipOrCIDR)` returns no error → valid CIDR
+- Both fail → `ErrInvalidIPOrCIDR`
+
+**Task 3.3**: Implement `WriteYAML()`:
+- Query all entries from DB.
+- Partition into `ips` (bare IPs) and `cidrs` (CIDR notation) slices.
+- Render template per §2.4.
+- Atomic write: temp file → `os.Rename`.
+- Create directory (`os.MkdirAll`) if not present.
+
+**Validation Gate**: `go test ./backend/internal/services/... -run TestCrowdSecWhitelist` passes.
+
+---
+
+### Phase 4 — API Endpoints
+
+**Files Changed**:
+- `backend/internal/api/handlers/crowdsec_handler.go`
+
+**Task 4.1**: Add `WhitelistSvc *services.CrowdSecWhitelistService` field to `CrowdsecHandler` struct.
+
+**Task 4.2**: Initialize `WhitelistSvc` in `NewCrowdsecHandler()` when `db != nil`.
+
+**Task 4.3**: Implement `ListWhitelists`, `AddWhitelist`, `DeleteWhitelist` methods per §3.4.
+
+**Task 4.4**: Register three routes in `RegisterRoutes()` per §3.4.
+
+**Task 4.5**: In `AddWhitelist` and `DeleteWhitelist`, after the service call returns without error, call `h.CmdExec.Execute("cscli", "hub", "reload")`. Log a warning on failure; do not change the HTTP response status (reload failure is non-fatal).
+
+**Validation Gate**: `go test ./backend/internal/api/handlers/... -run TestWhitelist` passes; `make lint-fast` clean.
+
+---
+
+### Phase 5 — Startup Integration
+
+**Files Changed**:
+- `backend/internal/services/crowdsec_startup.go`
+
+**Task 5.1**: In `ReconcileCrowdSecOnStartup()`, after the DB and config are loaded but before calling `h.Executor.Start()`, instantiate `CrowdSecWhitelistService` and call `WriteYAML(ctx)`. Log warning on error; do not abort startup.
+
+**Validation Gate**: `go test ./backend/internal/services/... -run TestReconcile` passes; existing reconcile tests still pass.
+
+---
+
+### Phase 6 — Frontend API + Hooks
+
+**Files Changed**:
+- `frontend/src/api/crowdsec.ts`
+- `frontend/src/hooks/useCrowdSecWhitelist.ts` _(new file)_
+
+**Task 6.1**: Add `CrowdSecWhitelistEntry`, `AddWhitelistPayload` types and `listWhitelists`, `addWhitelist`, `deleteWhitelist` functions to `crowdsec.ts` per §3.7.
+
+**Task 6.2**: Create `useCrowdSecWhitelist.ts` with `useWhitelistEntries`, `useAddWhitelist`, `useDeleteWhitelist` hooks per §3.7.
+
+**Validation Gate**: `pnpm test` (Vitest) passes; TypeScript compilation clean.
+
+---
+
+### Phase 7 — Frontend UI
+
+**Files Changed**:
+- `frontend/src/pages/CrowdSecConfig.tsx`
+
+**Task 7.1**: Import the three hooks from `useCrowdSecWhitelist.ts`.
+
+**Task 7.2**: Add `"whitelist"` to the tab list (visible only when `isLocalMode === true`).
+
+**Task 7.3**: Implement the Whitelist tab panel:
+- Add-entry form with IP/CIDR + Reason inputs.
+- "Add My IP" button: `GET /api/v1/system/my-ip` → pre-fill `ip_or_cidr`.
+- Entries table with UUID key, IP/CIDR, Reason, created date, delete button.
+- Delete confirmation dialog (reuse existing modal pattern).
+
+**Task 7.4**: Wire mutation errors to inline form validation messages (400/409 responses).
+
+**Validation Gate**: `pnpm test` passes; TypeScript clean; `make lint-fast` clean.
+
+---
+
+### Phase 8 — Tests
+
+**Files Changed**:
+- `backend/internal/services/crowdsec_whitelist_service_test.go` _(new file)_
+- `backend/internal/api/handlers/crowdsec_whitelist_handler_test.go` _(new file)_
+- `tests/crowdsec-whitelist.spec.ts` _(new file)_
+
+**Task 8.1 — Service unit tests**:
+
+| Test | Scenario |
+|---|---|
+| `TestAdd_ValidIP_Success` | Bare IPv4 inserted; YAML file created |
+| `TestAdd_ValidIPv6_Success` | Bare IPv6 inserted |
+| `TestAdd_ValidCIDR_Success` | CIDR range inserted |
+| `TestAdd_CIDRNormalization` | `"10.0.0.1/8"` stored as `"10.0.0.0/8"` |
+| `TestAdd_InvalidIPOrCIDR_Error` | Returns `ErrInvalidIPOrCIDR` |
+| `TestAdd_DuplicateEntry_Error` | Second identical insert returns `ErrDuplicateEntry` |
+| `TestDelete_Success` | Entry removed; YAML regenerated |
+| `TestDelete_NotFound_Error` | Returns `ErrWhitelistNotFound` |
+| `TestList_Empty` | Returns empty slice |
+| `TestList_Populated` | Returns all entries ordered by `created_at` |
+| `TestWriteYAML_EmptyList` | Writes valid YAML with empty `ip: []` and `cidr: []` |
+| `TestWriteYAML_MixedEntries` | IPs in `ip:` block; CIDRs in `cidr:` block |
+| `TestWriteYAML_EmptyDataDir_NoOp` | `dataDir == ""` → returns `nil`, no file written |
+
+**Task 8.2 — Handler unit tests** (using in-memory SQLite + `mockAuthMiddleware`):
+
+| Test | Scenario |
+|---|---|
+| `TestListWhitelists_200` | Returns 200 with entries array |
+| `TestAddWhitelist_201` | Valid payload → 201 |
+| `TestAddWhitelist_400_MissingField` | Empty body → 400 |
+| `TestAddWhitelist_400_InvalidIP` | Malformed IP → 400 |
+| `TestAddWhitelist_409_Duplicate` | Duplicate → 409 |
+| `TestDeleteWhitelist_204` | Valid UUID → 204 |
+| `TestDeleteWhitelist_404` | Unknown UUID → 404 |
+
+**Task 8.3 — E2E Playwright tests** (`tests/crowdsec-whitelist.spec.ts`):
 
 ```typescript
 import { test, expect } from '@playwright/test'
 
-test.describe('Certificate Coverage Smoke', () => {
-  test('export dialog opens when export button clicked', async ({ page }) => {
-    await page.goto('/')
-    // navigate to Certificates, click export on a cert
-    // assert dialog visible
+test.describe('CrowdSec Whitelist Management', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('http://localhost:8080')
+    await page.getByRole('link', { name: 'Security' }).click()
+    await page.getByRole('tab', { name: 'CrowdSec' }).click()
+    await page.getByRole('tab', { name: 'Whitelist' }).click()
   })
 
-  test('delete dialog opens for deletable certificate', async ({ page }) => {
-    await page.goto('/')
-    // assert delete confirmation dialog appears
+  test('Whitelist tab only visible in local mode', async ({ page }) => {
+    await page.goto('http://localhost:8080')
+    await page.getByRole('link', { name: 'Security' }).click()
+    await page.getByRole('tab', { name: 'CrowdSec' }).click()
+    // When CrowdSec is not in local mode, the Whitelist tab must not exist
+    await expect(page.getByRole('tab', { name: 'Whitelist' })).toBeHidden()
+  })
+
+  test('displays empty state when no entries exist', async ({ page }) => {
+    await expect(page.getByText('No whitelist entries')).toBeVisible()
+  })
+
+  test('adds a valid IP address', async ({ page }) => {
+    await page.getByRole('textbox', { name: 'IP or CIDR' }).fill('203.0.113.5')
+    await page.getByRole('textbox', { name: 'Reason' }).fill('Uptime monitor')
+    await page.getByRole('button', { name: 'Add' }).click()
+    await expect(page.getByText('Whitelist entry added')).toBeVisible()
+    await expect(page.getByRole('cell', { name: '203.0.113.5' })).toBeVisible()
+  })
+
+  test('adds a valid CIDR range', async ({ page }) => {
+    await page.getByRole('textbox', { name: 'IP or CIDR' }).fill('10.0.0.0/8')
+    await page.getByRole('textbox', { name: 'Reason' }).fill('Internal subnet')
+    await page.getByRole('button', { name: 'Add' }).click()
+    await expect(page.getByText('Whitelist entry added')).toBeVisible()
+    await expect(page.getByRole('cell', { name: '10.0.0.0/8' })).toBeVisible()
+  })
+
+  test('"Add My IP" button pre-fills the detected client IP', async ({ page }) => {
+    await page.getByRole('button', { name: 'Add My IP' }).click()
+    const ipField = page.getByRole('textbox', { name: 'IP or CIDR' })
+    const value = await ipField.inputValue()
+    // Value must be a non-empty valid IP
+    expect(value).toMatch(/^[\d.]+$|^[0-9a-fA-F:]+$/)
+  })
+
+  test('shows validation error for invalid input', async ({ page }) => {
+    await page.getByRole('textbox', { name: 'IP or CIDR' }).fill('not-an-ip')
+    await page.getByRole('button', { name: 'Add' }).click()
+    await expect(page.getByText('Invalid IP address or CIDR notation')).toBeVisible()
+  })
+
+  test('removes an entry via delete confirmation', async ({ page }) => {
+    // Seed an entry first
+    await page.getByRole('textbox', { name: 'IP or CIDR' }).fill('198.51.100.1')
+    await page.getByRole('button', { name: 'Add' }).click()
+    await expect(page.getByRole('cell', { name: '198.51.100.1' })).toBeVisible()
+
+    // Delete it
+    await page.getByRole('row', { name: /198\.51\.100\.1/ }).getByRole('button', { name: 'Delete' }).click()
+    await page.getByRole('button', { name: 'Confirm' }).click()
+    await expect(page.getByText('Whitelist entry removed')).toBeVisible()
+    await expect(page.getByRole('cell', { name: '198.51.100.1' })).toBeHidden()
   })
 })
 ```
 
-### Phase 2: Backend — Handler Tests
+---
 
-**File**: `backend/internal/api/handlers/certificate_handler_patch_coverage_test.go`
-**Action**: Append all tests from sections 3.1–3.6.
+### Phase 9 — Documentation
 
-Setup pattern for handler tests:
+**Files Changed**:
+- `ARCHITECTURE.md`
+- `docs/features/crowdsec-whitelist.md` _(new file, optional for this PR)_
 
-```go
-func setupCertHandlerTest(t *testing.T) (*gin.Engine, *CertificateHandler, *gorm.DB) {
-    t.Helper()
-    db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
-    require.NoError(t, err)
-    require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.User{}, &models.ProxyHost{}))
-    tmpDir := t.TempDir()
-    certSvc := services.NewCertificateService(tmpDir, db, nil)
-    backup := &mockBackupService{
-        availableSpaceFunc: func() (int64, error) { return 1 << 30, nil },
-        createFunc:         func(string) (string, error) { return "/tmp/backup.db", nil },
-    }
-    h := NewCertificateHandler(certSvc, backup, nil)
-    h.SetDB(db)
-    r := gin.New()
-    r.Use(mockAuthMiddleware())
-    h.RegisterRoutes(r.Group("/api"))
-    return r, h, db
-}
-```
-
-For `TestExport_IncludeKey_*` tests: inject user into gin context directly using a custom middleware wrapper that sets `"user"` (type `map[string]any`, field `"id"`) to the desired value.
-
-### Phase 3: Backend — Service Tests
-
-**File**: `backend/internal/services/certificate_service_patch_coverage_test.go`
-**Action**: Append all tests from sections 3.7–3.13.
-
-Setup pattern:
-
-```go
-func newTestSvc(t *testing.T) (*CertificateService, *gorm.DB, string) {
-    t.Helper()
-    db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
-    require.NoError(t, err)
-    require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
-    tmpDir := t.TempDir()
-    return NewCertificateService(tmpDir, db, nil), db, tmpDir
-}
-```
-
-For `TestMigratePrivateKeys_WithRows`: use `db.Exec("INSERT INTO ssl_certificates (..., private_key) VALUES (...)` raw SQL to bypass GORM's `gorm:"-"` tag.
-
-### Phase 4: Backend — Validator Tests
-
-**File**: `backend/internal/services/certificate_validator_patch_coverage_test.go` (new)
-
-Key helpers needed:
-
-```go
-// generatePKCS1RSAKeyPEM returns an RSA key in PKCS#1 "RSA PRIVATE KEY" PEM format.
-func generatePKCS1RSAKeyPEM(t *testing.T) []byte {
-    key, err := rsa.GenerateKey(rand.Reader, 2048)
-    require.NoError(t, err)
-    return pem.EncodeToMemory(&pem.Block{
-        Type:  "RSA PRIVATE KEY",
-        Bytes: x509.MarshalPKCS1PrivateKey(key),
-    })
-}
-
-// generateECKeyPEM returns an EC key in "EC PRIVATE KEY" (SEC1) PEM format.
-func generateECKeyPEM(t *testing.T, curve elliptic.Curve) []byte {
-    key, err := ecdsa.GenerateKey(curve, rand.Reader)
-    require.NoError(t, err)
-    b, err := x509.MarshalECPrivateKey(key)
-    require.NoError(t, err)
-    return pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: b})
-}
-```
-
-### Phase 5: Backend — Proxy Host Handler Tests
-
-**File**: `backend/internal/api/handlers/proxy_host_handler_patch_coverage_test.go` (new)
-
-Setup pattern mirrors existing `proxy_host_handler_test.go` — use in-memory SQLite, `mockAuthMiddleware`, and `mockCaddyManager` (already available via test hook vars).
-
-### Phase 6: Frontend Tests
-
-**Files**:
-- `frontend/src/components/__tests__/CertificateList.test.tsx`
-- `frontend/src/components/dialogs/__tests__/CertificateUploadDialog.test.tsx`
-
-Use existing mock structure; add new `it(...)` blocks inside existing `describe` blocks.
-
-Frontend bulk delete success test pattern:
-
-```typescript
-it('calls bulkDeleteMutation.mutate with selected UUIDs on confirm', async () => {
-    const bulkDeleteFn = vi.fn()
-    mockUseBulkDeleteCertificates.mockReturnValue({
-        mutate: bulkDeleteFn,
-        isPending: false,
-    })
-    render(<CertificateList />)
-    // select checkboxes, click bulk delete, confirm dialog
-    expect(bulkDeleteFn).toHaveBeenCalledWith(['uuid-1', 'uuid-2'])
-})
-```
-
-### Phase 7: Validation
-
-1. `cd /projects/Charon && bash scripts/go-test-coverage.sh`
-2. `cd /projects/Charon && bash scripts/frontend-test-coverage.sh`
-3. `bash scripts/local-patch-report.sh` → verify `test-results/local-patch-report.md` shows ≥ 90%
-4. `bash scripts/scan-gorm-security.sh --check` → zero CRITICAL/HIGH
+**Task 9.1**: Update the CrowdSec row in the Cerberus security components table in `ARCHITECTURE.md` to mention whitelist management.
 
 ---
 
-## 5. Commit Slicing Strategy
+## 5. Acceptance Criteria
 
-**Decision**: One PR with 5 ordered, independently-reviewable commits.
+### Functional
 
-**Rationale**: Four packages touched across two build systems (Go + Node). Atomic commits allow targeted revert if a mock approach proves brittle for a specific file, without rolling back unrelated coverage gains.
+- [ ] Operator can add a bare IPv4 address (e.g., `203.0.113.5`) to the whitelist.
+- [ ] Operator can add a bare IPv6 address (e.g., `2001:db8::1`) to the whitelist.
+- [ ] Operator can add a CIDR range (e.g., `10.0.0.0/8`) to the whitelist.
+- [ ] Adding an invalid IP/CIDR (e.g., `not-an-ip`) returns a 400 error with a clear message.
+- [ ] Adding a duplicate entry returns a 409 conflict error.
+- [ ] Operator can delete an entry; it disappears from the list.
+- [ ] The Whitelist tab is only visible when CrowdSec is in `local` mode.
+- [ ] After adding or deleting an entry, the whitelist YAML file is regenerated in `<dataDir>/config/parsers/s02-enrich/charon-whitelist.yaml`.
+- [ ] Adding or removing a whitelist entry triggers `cscli hub reload` via `h.CmdExec` so changes take effect immediately without a container restart.
+- [ ] On container restart, the YAML file is regenerated from DB entries before CrowdSec starts.
+- [ ] **Admin IP protection**: The "Add My IP" button pre-fills the operator's current IP in the `ip_or_cidr` field; a Playwright E2E test verifies the button correctly pre-fills the detected client IP.
 
-| # | Scope | Files | Dependencies | Validation Gate |
-|---|---|---|---|---|
-| **Commit 1** | Handler re-auth + delete + file-open errors | `certificate_handler_patch_coverage_test.go` (extend) | None | `go test ./backend/internal/api/handlers/...` |
-| **Commit 2** | Service SyncFromDisk, ListCerts, GetDecryptedKey, Migrate, Update, Delete, CheckExpiring | `certificate_service_patch_coverage_test.go` (extend) | None | `go test ./backend/internal/services/...` |
-| **Commit 3** | Validator DetectFormat, parsePEMPrivateKey, detectKeyType, ConvertPEMToPFX/DER, formatSerial | `certificate_validator_patch_coverage_test.go` (new) | Commit 2 not required (separate file) | `go test ./backend/internal/services/...` |
-| **Commit 4** | Proxy host warnings + BulkUpdateSecurityHeaders edge cases | `proxy_host_handler_patch_coverage_test.go` (new) | None | `go test ./backend/internal/api/handlers/...` |
-| **Commit 5** | Frontend CertificateList + CertificateUploadDialog | `CertificateList.test.tsx`, `CertificateUploadDialog.test.tsx` (extend) | None | `npm run test` |
+### Technical
 
-**Rollback**: Any commit is safe to revert independently — all changes are additive test-only files.
-
-**Contingency**: If the `Export` handler's re-auth tests require gin context injection that the current router wiring doesn't support cleanly, use a sub-router with a custom test middleware that pre-populates `"user"` (`map[string]any{"id": uint(1)}`) with the specific value under test, bypassing `mockAuthMiddleware` for those cases only.
-
----
-
-## 6. Acceptance Criteria
-
-- [ ] `go test -race ./backend/...` — all tests pass, no data races
-- [ ] Backend patch coverage ≥ 90% for all modified Go files per `test-results/local-patch-report.md`
-- [ ] `npm run test` — all Vitest tests pass
-- [ ] Frontend patch coverage ≥ 90% for `CertificateList.tsx` and `CertificateUploadDialog.tsx`
-- [ ] GORM security scan: zero CRITICAL/HIGH findings
-- [ ] No new `//nolint` or `//nosec` directives introduced
-- [ ] No source file modifications — test files only
-- [ ] All new Go test names follow `TestFunctionName_Scenario` convention
-- [ ] Previous spec archived to `docs/plans/archive/`
+- [ ] `go test ./backend/...` passes — no regressions.
+- [ ] `pnpm test` (Vitest) passes.
+- [ ] `make lint-fast` clean — no new lint findings.
+- [ ] GORM Security Scanner returns zero CRITICAL/HIGH findings.
+- [ ] Playwright E2E suite passes (Firefox, `--project=firefox`).
+- [ ] `crowdsecurity/whitelists` parser is installed by `install_hub_items.sh`.
 
 ---
 
-## 7. Estimated Coverage Impact
+## 6. Commit Slicing Strategy
 
-| File | Current | Estimated After | Lines Recovered |
-|---|---|---|---|
-| `certificate_handler.go` | 70.28% | ~85% | ~42 lines |
-| `certificate_service.go` | 82.85% | ~92% | ~44 lines |
-| `certificate_validator.go` | 88.68% | ~96% | ~18 lines |
-| `proxy_host_handler.go` | 55.17% | ~60% | ~8 lines |
-| `CertificateList.tsx` | moderate | high | ~15 lines |
-| `CertificateUploadDialog.tsx` | moderate | high | ~12 lines |
-| **Overall patch** | **85.61%** | **≥ 90%** | **~139 lines** |
+**Decision**: Single PR with ordered logical commits. No scope overlap between commits; each commit leaves the codebase in a compilable state.
 
-> **Note**: Proxy host handler remains below 90% after this plan because the `Create`/`Update`/`Delete` handler paths require full Caddy manager mock integration. A follow-up plan should address these with a dedicated `mockCaddyManager` interface.
+**Trigger reasons**: Cross-domain change (infra script + model + service + handler + startup + frontend) benefits from ordered commits for surgical rollback and focused review.
+
+| # | Type | Commit Message | Files | Depends On | Validation Gate |
+|---|---|---|---|---|---|
+| 1 | `chore` | `install crowdsecurity/whitelists parser by default` | `configs/crowdsec/install_hub_items.sh` | — | `shellcheck` |
+| 2 | `feat` | `add CrowdSecWhitelist model and automigrate registration` | `backend/internal/models/crowdsec_whitelist.go`, `backend/internal/api/routes/routes.go` | #1 | `go build ./backend/...` |
+| 3 | `feat` | `add CrowdSecWhitelistService with YAML generation` | `backend/internal/services/crowdsec_whitelist_service.go` | #2 | `go test ./backend/internal/services/...` |
+| 4 | `feat` | `add whitelist API endpoints to CrowdsecHandler` | `backend/internal/api/handlers/crowdsec_handler.go` | #3 | `go test ./backend/...` + `make lint-fast` |
+| 5 | `feat` | `regenerate whitelist YAML on CrowdSec startup reconcile` | `backend/internal/services/crowdsec_startup.go` | #3 | `go test ./backend/internal/services/...` |
+| 6 | `feat` | `add whitelist API client functions and TanStack hooks` | `frontend/src/api/crowdsec.ts`, `frontend/src/hooks/useCrowdSecWhitelist.ts` | #4 | `pnpm test` |
+| 7 | `feat` | `add Whitelist tab to CrowdSecConfig UI` | `frontend/src/pages/CrowdSecConfig.tsx` | #6 | `pnpm test` + `make lint-fast` |
+| 8 | `test` | `add whitelist service and handler unit tests` | `*_test.go` files | #4 | `go test ./backend/...` |
+| 9 | `test` | `add E2E tests for CrowdSec whitelist management` | `tests/crowdsec-whitelist.spec.ts` | #7 | Playwright Firefox |
+| 10 | `docs` | `update architecture docs for CrowdSec whitelist feature` | `ARCHITECTURE.md` | #7 | `make lint-fast` |
+
+**Rollback notes**:
+- Commits 1–3 are pure additions (no existing code modified except the `AutoMigrate` list append in commit 2 and `install_hub_items.sh` in commit 1). Reverting them is safe.
+- Commit 4 modifies `crowdsec_handler.go` by adding fields and methods without altering existing ones; reverting is mechanical.
+- Commit 5 modifies `crowdsec_startup.go` — the added block is isolated in a clearly marked section; revert is a 5-line removal.
+- Commits 6–7 are frontend-only; reverting has no backend impact.
+
+---
+
+## 7. Open Questions / Risks
+
+| Risk | Likelihood | Mitigation |
+|---|---|---|
+| CrowdSec does not hot-reload parser files — requires `cscli reload` or process restart | Resolved | `cscli hub reload` is called via `h.CmdExec.Execute(...)` in `AddWhitelist` and `DeleteWhitelist` after each successful `WriteYAML()`. Failure is non-fatal; logged as a warning. |
+| `crowdsecurity/whitelists` parser path may differ across CrowdSec versions | Low | Use `<dataDir>/config/parsers/s02-enrich/` which is the canonical path; add a note to verify on version upgrades |
+| Large whitelist files could cause CrowdSec performance issues | Very Low | Reasonable for typical use; document a soft limit recommendation (< 500 entries) in the UI |
+| `dataDir` empty string in tests | Resolved | Guard added to `WriteYAML`: `if s.dataDir == "" { return nil }` — no-op when `dataDir` is unset |
+| `CROWDSEC_TRUSTED_IPS` env var seeding | — | **Follow-up / future enhancement** (not in scope for this PR): if `CROWDSEC_TRUSTED_IPS` is set at runtime, parse comma-separated IPs and include them as read-only seed entries in the generated YAML (separate from DB-managed entries). Document in a follow-up issue. |
+

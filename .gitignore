@@ -316,6 +316,5 @@ docs/reports/codecove_patch_report.md
 vuln-results.json
 test_output.txt
 coverage_results.txt
-new-results.json
-.gitignore
 final-results.json
+new-results.json
