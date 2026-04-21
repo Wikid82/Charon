@@ -318,3 +318,6 @@ test_output.txt
 coverage_results.txt
 final-results.json
 new-results.json
+scan_output.json
+coverage_output.txt
+frontend/lint_output.txt
