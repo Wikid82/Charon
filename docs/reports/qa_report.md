@@ -1,283 +1,174 @@
-# QA Audit Report — Nightly Build Vulnerability Remediation
+# QA/Security DoD Audit Report — Issue #929
 
-**Date**: 2026-04-09
-**Scope**: Dependency-only update — no feature or UI changes
-**Image Under Test**: `charon:vuln-fix` (built 2026-04-09 14:53 UTC, 632MB)
-**Branch**: Current working tree (pre-PR)
+Date: 2026-04-20
+Repository: /projects/Charon
+Branch: feature/beta-release
+Scope assessed: tests/a11y/a11y-baseline.ts, tests/a11y/dns-providers.a11y.spec.ts, tests/a11y/README.md
 
----
+## Final Recommendation
 
-## Gate Results Summary
+FAIL
 
-| # | Gate | Status | Details |
-|---|------|--------|---------|
-| 1 | E2E Playwright (Firefox 4/4 shards + Chromium spot check) | PASS | 19 passed, 20 skipped (security suite), 0 failed |
-| 2 | Backend Tests + Coverage | PASS | All tests pass, 88.2% statements / 88.4% lines (gate: 87%) |
-| 3 | Frontend Tests + Coverage | PASS | 791 passed, 41 skipped, 89.38% stmts / 90.13% lines (gate: 87%) |
-| 4 | Local Patch Coverage Report | PASS | 0 changed lines (dependency-only), 100% patch coverage |
-| 5 | Frontend Type Check (tsc --noEmit) | PASS | Zero TypeScript errors |
-| 6 | Pre-commit Hooks (lefthook) | PASS | All hooks passed (shellcheck, actionlint, dockerfile-check, YAML, EOF/whitespace) |
-| 7a | Trivy Filesystem Scan (CRITICAL/HIGH) | PASS | 0 vulnerabilities in source |
-| 7b | govulncheck (backend) | INFO | 2 findings — both `docker/docker` v28.5.2 with no upstream fix (pre-existing, documented in SECURITY.md) |
-| 7c | Docker Image Scan (Grype) | PASS | 0 CRITICAL, 2 HIGH (both unfixed Alpine OpenSSL), all target CVEs resolved |
-| 8 | Linting (make lint-fast) | PASS | 0 issues |
-| 9 | GORM Security Scan (--check) | PASS | 0 CRITICAL, 0 HIGH, 2 INFO suggestions |
+Reason: The Trivy filesystem gate reports one HIGH vulnerability (CVE-2026-34040) and is still outstanding.
 
-**Overall Status: PASS**
+## Gate Summary
+
+| # | DoD Gate | Status | Notes |
+|---|---|---|---|
+| 1 | Playwright E2E first | PASS (with flake observed) | Initial run had 1 timeout failure; targeted rerun passed fully |
+| 2 | GORM security scan (conditional) | N/A | Not triggered; touched files are a11y tests/docs only, no backend model/DB scope |
+| 3a | Backend coverage task/script | PASS | 92.8% coverage vs 85% minimum |
+| 3b | Frontend coverage task/script | PASS | 90.4% lines vs 87% configured minimum |
+| 4 | Local patch coverage report after coverage artifacts | PASS | Required artifacts generated; report indicates 0 changed lines / 100% patch coverage |
+| 5 | Frontend type check | PASS | No TypeScript errors |
+| 6 | Pre-commit hooks (fast set) | PASS | Lefthook pre-commit checks passed |
+| 7a | Trivy filesystem scan | FAIL | 1 HIGH finding (CVE-2026-34040) |
+| 7b | Docker image scan (mandatory) | PASS | Grype image scan shows Medium-only findings, no High/Critical |
+| 7c | CodeQL Go + JS (CI-aligned) | PASS | 0 error-level findings |
+| 8 | Linting and required quality checks | PASS | lint-fast passed, frontend lint passed (warnings only), backend/frontend build passed |
+
+## Detailed Evidence
+
+### 1) Playwright E2E first
+
+Environment rebuild decision:
+- Rebuild skipped because charon-e2e container was already healthy and health endpoint returned HTTP 200.
+
+Execution evidence:
+- Command: PLAYWRIGHT_HTML_OPEN=never npx playwright test tests/a11y --project=firefox
+- Result: 27 passed, 1 failed
+- Failure evidence: tests/a11y/security.a11y.spec.ts timed out at makeAxeBuilder().analyze() with test timeout 90000ms.
+
+Revalidation:
+- Command: PLAYWRIGHT_HTML_OPEN=never npx playwright test tests/a11y/security.a11y.spec.ts --project=firefox
+- Result: 9 passed, 0 failed
+- Disposition: treated as flaky timeout, currently passing.
+
+Artifacts:
+- playwright-report/
+- test-results/
+
+### 2) GORM scan (conditional)
+
+Trigger check:
+- Changed files are under tests/a11y and docs only.
+- No changes under backend/internal/models, GORM services, or migrations.
+
+Disposition:
+- Gate not applicable for this scope.
+
+### 3) Coverage tests
+
+Backend coverage:
+- Command: .github/skills/scripts/skill-runner.sh test-backend-coverage
+- Result: PASS
+- Coverage: 92.8% (minimum required 85%)
+- Artifact: backend/coverage.txt
+
+Frontend coverage:
+- Command: .github/skills/scripts/skill-runner.sh test-frontend-coverage
+- Result: PASS
+- Summary: 182 test files passed, 5 skipped; 2163 tests passed, 90 skipped
+- Coverage: Statements 89.51%, Branches 82.09%, Functions 87.18%, Lines 90.4%
+- Gate evaluation: PASS (lines 90.4% vs minimum 87%)
+- Artifacts:
+   - frontend/coverage/lcov.info
+   - frontend/coverage/coverage-summary.json
+   - frontend/coverage/index.html
 
----
+### 4) Local patch coverage report (post-coverage)
 
-## Vulnerability Remediation Verification
+Execution:
+- Command: bash scripts/local-patch-report.sh
+- Result: PASS
 
-### Target CVEs — All Resolved
+Required artifacts confirmed:
+- test-results/local-patch-report.md
+- test-results/local-patch-report.json
 
-All CVEs identified in the spec (`docs/plans/current_spec.md`) were verified as absent from the `charon:vuln-fix` image:
+Report outcome:
+- 0 changed lines, 100% patch coverage, no files below 90% patch threshold.
 
-| CVE / GHSA | Package | Was | Now | Status |
-|-----------|---------|-----|-----|--------|
-| CVE-2026-39883 | otel/sdk | v1.40.0 | v1.43.0 | Resolved |
-| CVE-2026-34986 | go-jose/v3 | v3.0.4 | v3.0.5 | Resolved |
-| CVE-2026-34986 | go-jose/v4 | v4.1.3 | v4.1.4 | Resolved |
-| CVE-2026-32286 | pgproto3/v2 | v2.3.3 | Not detected | Resolved |
-| GHSA-xmrv-pmrh-hhx2 | AWS SDK v2 (multiple) | various | Patched | Resolved |
-| CVE-2026-39882 | OTel HTTP exporters | v1.40.0–v1.42.0 | v1.43.0 | Resolved |
-| CVE-2026-32281/32288/32289 | Go stdlib | 1.26.1 | 1.26.2 | Resolved (via Dockerfile ARG) |
+### 5) Frontend type check
 
-### Remaining Vulnerabilities in Docker Image (Pre-existing, Unfixed Upstream)
+Execution:
+- Command: cd frontend && npm run type-check
+- Result: PASS
 
-| Severity | CVE | Package | Version | Status |
-|----------|-----|---------|---------|--------|
-| HIGH | CVE-2026-31790 | libcrypto3, libssl3 | 3.5.5-r0 | Awaiting Alpine patch |
-| Medium | CVE-2025-60876 | busybox | 1.37.0-r30 | Awaiting Alpine patch |
-| Medium | GHSA-6jwv-w5xf-7j27 | go.etcd.io/bbolt | v1.4.3 | CrowdSec transitive dep |
-| Unknown | CVE-2026-28387/28388/28389/28390/31789 | libcrypto3, libssl3 | 3.5.5-r0 | Awaiting Alpine NVD scoring + patch |
+### 6) Pre-commit hooks (fast set)
 
-**Note**: CVE-2026-31790 (HIGH, OpenSSL) is a **new finding** not previously documented in SECURITY.md. It affects the Alpine 3.23.3 base image and has no fix available. It is **not introduced by this PR** — it would be present in any image built on Alpine 3.23.3. Recommend adding to SECURITY.md known vulnerabilities section.
-
-### govulncheck Findings (Backend Source — Pre-existing)
-
-| ID | Module | Fixed In | Notes |
-|----|--------|----------|-------|
-| GO-2026-4887 (CVE-2026-34040) | docker/docker v28.5.2 | N/A | Already in SECURITY.md |
-| GO-2026-4883 (CVE-2026-33997) | docker/docker v28.5.2 | N/A | Already in SECURITY.md |
-
----
-
-## Coverage Details
-
-### Backend (Go)
-
-- Statement coverage: **88.2%**
-- Line coverage: **88.4%**
-- Gate threshold: 87% — **PASSED**
-
-### Frontend (React/TypeScript)
-
-- Statements: **89.38%**
-- Branches: **81.86%**
-- Functions: **86.71%**
-- Lines: **90.13%**
-- Gate threshold: 87% — **PASSED**
-
-### Patch Coverage
-
-- Changed source lines: **0** (dependency-only update)
-- Patch coverage: **100%**
-
----
-
-## E2E Test Details
-
-Tests executed against `charon:vuln-fix` container on `http://127.0.0.1:8080`:
-
-| Browser | Shards | Passed | Skipped | Failed |
-|---------|--------|--------|---------|--------|
-| Firefox | 4/4 | 11 | 20 | 0 |
-| Chromium | 1/4 (spot) | 8 | 0 | 0 |
-
-Skipped tests are from the security suite (separate project configuration). No test failures observed. The full 3-browser suite will run in CI.
-
----
-
-## GORM Scanner Details
-
-- Scanned: 43 Go files (2401 lines)
-- CRITICAL: 0
-- HIGH: 0
-- MEDIUM: 0
-- INFO: 2 (missing indexes on `UserPermittedHost` foreign keys — pre-existing, non-blocking)
-
----
-
-## Recommendations
-
-1. **Add CVE-2026-31790 to SECURITY.md** — New HIGH OpenSSL vulnerability in Alpine base image. No fix available. Monitor Alpine security advisories.
-2. **Monitor docker/docker module migration** — 2 govulncheck findings with no upstream fix. Track moby/moby/v2 stabilization.
-3. **Monitor bbolt GHSA-6jwv-w5xf-7j27** — Medium severity in CrowdSec transitive dependency. Track CrowdSec updates.
-4. **Full CI E2E suite** — Local validation passed on Firefox + Chromium spot check. The complete 3-browser suite should run in CI pipeline.
-
----
-
-## Conclusion
-
-All audit gates **PASS**. The dependency-only changes successfully remediate all 5 HIGH and 3 MEDIUM vulnerability groups identified in the spec. No regressions detected in tests, type safety, linting, or security scans. The remaining HIGH finding (CVE-2026-31790) is a pre-existing Alpine base image issue unrelated to this PR.
-
-**Verdict: Clear to merge.**
-# QA Security Audit Report
-
-| Field       | Value                          |
-|-------------|--------------------------------|
-| **Date**    | 2026-03-24                     |
-| **Image**   | `charon:local` (Alpine 3.23.3) |
-| **Go**      | 1.26.1                         |
-| **Grype**   | 0.110.0                        |
-| **Trivy**   | 0.69.1                         |
-| **CodeQL**  | Latest (SARIF v2.1.0)          |
-
----
-
-## Executive Summary
-
-The current `charon:local` image built on 2026-03-24 shows a significantly improved
-security posture compared to the CI baseline. Three previously tracked SECURITY.md
-vulnerabilities are now **resolved** due to Go 1.26.1 compilation and Alpine package
-updates. Two new medium/low findings emerged. No CRITICAL or HIGH active
-vulnerabilities remain in the unignored scan results.
-
-| Category               | Critical | High | Medium | Low | Total |
-|------------------------|----------|------|--------|-----|-------|
-| **Active (unignored)** | 0        | 0    | 4      | 2   | 6     |
-| **Ignored (documented)**| 0       | 4    | 0      | 0   | 4     |
-| **Resolved since last audit** | 1 | 4    | 1      | 0   | 6     |
-
----
-
-## Scans Executed
-
-| # | Scan                          | Tool      | Result               |
-|---|-------------------------------|-----------|----------------------|
-| 1 | Trivy Filesystem              | Trivy     | 0 findings (no lang-specific files detected) |
-| 2 | Docker Image (SBOM + Grype)   | Syft/Grype| 6 active, 8 ignored  |
-| 3 | Trivy Image Report            | Trivy     | 1 HIGH (stale Feb 25 report; resolved in current build) |
-| 4 | CodeQL Go                     | CodeQL    | 1 finding (false positive — see below) |
-| 5 | CodeQL JavaScript             | CodeQL    | 0 findings           |
-| 6 | GORM Security Scanner         | Custom    | PASSED (0 issues, 2 info) |
-| 7 | Lefthook / Pre-commit         | Lefthook  | Configured (project uses `lefthook.yml`, not `.pre-commit-config.yaml`) |
-
----
-
-## Active Findings (Unignored)
-
-### CVE-2025-60876 — BusyBox wget HTTP Request Smuggling
-
-| Field            | Value |
-|------------------|-------|
-| **Severity**     | Medium (CVSS 6.5) |
-| **Package**      | `busybox` 1.37.0-r30 (Alpine APK) |
-| **Affected**     | `busybox`, `busybox-binsh`, `busybox-extras`, `ssl_client` (4 matches) |
-| **Fix Available** | No |
-| **Classification** | AWAITING UPSTREAM |
-| **EPSS**         | 0.00064 (0.20 percentile) |
-
-**Description**: BusyBox wget through 1.37 accepts raw CR/LF and other C0 control bytes
-in the HTTP request-target, allowing request line splitting and header injection (CWE-284).
-
-**Risk Assessment**: Low practical risk. Charon does not invoke `busybox wget` in its
-application logic. The vulnerable `wget` applet would need to be manually invoked inside
-the container with attacker-controlled URLs.
-
-**Remediation**: Monitor Alpine 3.23 for a patched `busybox` APK. No action required
-until upstream ships a fix.
-
----
-
-### CVE-2026-26958 / GHSA-fw7p-63qq-7hpr — edwards25519 MultiScalarMult Invalid Results
-
-| Field            | Value |
-|------------------|-------|
-| **Severity**     | Low (CVSS 1.7) |
-| **Package**      | `filippo.io/edwards25519` v1.1.0 |
-| **Location**     | CrowdSec binaries (`/usr/local/bin/crowdsec`, `/usr/local/bin/cscli`) |
-| **Fix Available** | v1.1.1 |
-| **Classification** | AWAITING UPSTREAM |
-| **EPSS**         | 0.00018 (0.04 percentile) |
-
-**Description**: `MultiScalarMult` produces invalid results or undefined behavior if
-the receiver is not the identity point. This is a rarely used, advanced API.
-
-**Risk Assessment**: Minimal. CrowdSec does not directly expose edwards25519
-`MultiScalarMult` to external input. The fix exists at v1.1.1 but requires CrowdSec
-to rebuild with the updated dependency.
-
-**Remediation**: Awaiting CrowdSec upstream release with updated dependency. No
-action available for Charon maintainers.
-
----
-
-## Ignored Findings (Documented with Justification)
-
-These findings are suppressed in the Grype configuration with documented risk
-acceptance rationale. All are in third-party binaries bundled in the container;
-none are in Charon's own code.
-
-### CVE-2026-2673 — OpenSSL TLS 1.3 Key Exchange Group Downgrade
-
-| Field            | Value |
-|------------------|-------|
-| **Severity**     | High (CVSS 7.5) |
-| **Package**      | `libcrypto3` / `libssl3` 3.5.5-r0 |
-| **Matches**      | 2 (libcrypto3, libssl3) |
-| **Classification** | ALREADY DOCUMENTED · AWAITING UPSTREAM |
-
-Charon terminates TLS at the Caddy layer; the Go backend does not act as a raw
-TLS 1.3 server. Alpine 3.23 still ships 3.5.5-r0. Risk accepted pending Alpine patch.
-
----
-
-### GHSA-6g7g-w4f8-9c9x — DoS in buger/jsonparser (CrowdSec)
-
-| Field            | Value |
-|------------------|-------|
-| **Severity**     | High (CVSS 7.5) |
-| **Package**      | `github.com/buger/jsonparser` v1.1.1 |
-| **Matches**      | 2 (crowdsec, cscli binaries) |
-| **Fix Available** | v1.1.2 |
-| **Classification** | ALREADY DOCUMENTED · AWAITING UPSTREAM |
-
-Charon does not use this package directly. The vector requires reaching CrowdSec's
-internal JSON processing pipeline. Risk accepted pending CrowdSec upstream fix.
-
----
-
-### GHSA-jqcq-xjh3-6g23 / GHSA-x6gf-mpr2-68h6 / CVE-2026-4427 — DoS in pgproto3/v2 (CrowdSec)
-
-| Field            | Value |
-|------------------|-------|
-| **Severity**     | High (CVSS 7.5) |
-| **Package**      | `github.com/jackc/pgproto3/v2` v2.3.3 |
-| **Matches**      | 4 (2 GHSAs × 2 binaries) |
-| **Fix Available** | No (v2 is archived/EOL) |
-| **Classification** | ALREADY DOCUMENTED · AWAITING UPSTREAM |
-
-pgproto3/v2 is archived with no fix planned. CrowdSec must migrate to pgx/v5.
-Charon uses SQLite, not PostgreSQL; this code path is unreachable in standard
-deployment.
-
----
-
-## Resolved Findings (Since Last SECURITY.md Update)
-
-The following vulnerabilities documented in SECURITY.md are no longer detected in the
-current image build. **SECURITY.md should be updated to move these to "Patched
-Vulnerabilities".**
-
-### CVE-2025-68121 — Go Stdlib Critical in CrowdSec (RESOLVED)
-
-| Field            | Value |
-|------------------|-------|
-| **Previous Severity** | Critical |
-| **Resolution**   | CrowdSec binaries now compiled with Go 1.26.1 (was Go 1.25.6) |
-| **Verified**     | Not detected in Grype scan of current image |
+Execution:
+- Command: lefthook run pre-commit
+- Result: PASS
+- Passing hooks include check-yaml, actionlint, end-of-file-fixer, trailing-whitespace, dockerfile-check, shellcheck.
+
+### 7) Security scans
+
+7a. Trivy filesystem scan:
+- Command: .github/skills/scripts/skill-runner.sh security-scan-trivy
+- Result: FAIL (exit code 2)
+- Finding:
+   - CVE-2026-34040 (HIGH)
+   - Package: github.com/docker/docker
+   - Installed: v28.5.2+incompatible
+   - Fixed: 29.3.1
+- Disposition: Outstanding blocker.
+
+7b. Docker image scan (mandatory):
+- Command: .github/skills/scripts/skill-runner.sh security-scan-docker-image
+- Validation command: jq severity counts from grype-results.json
+- Result: PASS
+- Severity counts: {"Medium": 4}
+- High/Critical list: none
+
+Artifacts:
+- sbom-generated.json
+- sbom.cyclonedx.json
+- grype-results.json
+- grype-results.sarif
+
+7c. CodeQL (CI-aligned Go + JS):
+- Command: .github/skills/scripts/skill-runner.sh security-scan-codeql all summary
+- Result: PASS (exit code 0)
+
+SARIF summary:
+- codeql-results-go.sarif: 0 errors, 1 warning, 0 notes
+- codeql-results-javascript.sarif: 0 errors, 0 warnings, 0 notes
+- codeql-results-js.sarif: 0 errors, 0 warnings, 0 notes
+
+Error-level findings:
+- None
+
+### 8) Linting and required quality checks
+
+Fast lint:
+- Command: make -C /projects/Charon lint-fast
+- Result: PASS (0 issues)
+
+Frontend lint:
+- Command: cd frontend && npm run lint
+- Result: PASS with warnings
+- Summary: 0 errors, 937 warnings
+
+Build checks:
+- Command: cd /projects/Charon/backend && go build ./...
+- Result: PASS
+- Command: cd /projects/Charon/frontend && npm run build
+- Result: PASS
+
+## Additional Security Validation
+
+Gotify token exposure check:
+- Command: rg -n --hidden -S "token=|gotify.*token|\?token=" test-results docs/reports *.json *.sarif
+- Result: no matches in scanned QA/security artifacts.
+
+## Blockers
+
+1. Trivy filesystem scan reports HIGH CVE-2026-34040 in github.com/docker/docker v28.5.2+incompatible.
+
+## Decision
+
+Overall DoD decision for Issue #929: FAIL until the Trivy HIGH finding is remediated or explicitly accepted per project security policy.
 
 ---
 
