@@ -321,3 +321,5 @@ new-results.json
 scan_output.json
 coverage_output.txt
 frontend/lint_output.txt
+lefthook_out.txt
+backend/test_out.txt
