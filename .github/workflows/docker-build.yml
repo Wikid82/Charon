@@ -541,7 +541,7 @@ jobs:
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
-          version: 'v0.69.3'
+          version: 'v0.70.0'
         continue-on-error: true
 
       - name: Run Trivy vulnerability scanner (SARIF)
@@ -553,7 +553,7 @@ jobs:
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
-          version: 'v0.69.3'
+          version: 'v0.70.0'
         continue-on-error: true
 
       - name: Check Trivy SARIF exists
@@ -701,7 +701,7 @@ jobs:
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
-          version: 'v0.69.3'
+          version: 'v0.70.0'
 
       - name: Run Trivy scan on PR image (SARIF - blocking)
         id: trivy-scan
@@ -712,7 +712,7 @@ jobs:
           output: 'trivy-pr-results.sarif'
           severity: 'CRITICAL,HIGH'
           exit-code: '1'  # Intended to block, but continued on error for now
-          version: 'v0.69.3'
+          version: 'v0.70.0'
         continue-on-error: true
 
       - name: Check Trivy PR SARIF exists
