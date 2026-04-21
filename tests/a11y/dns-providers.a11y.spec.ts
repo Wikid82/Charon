@@ -10,6 +10,14 @@ test.describe('Accessibility: DNS Providers', () => {
     await test.step('Navigate to DNS providers', async () => {
       await page.goto('/dns/providers');
       await waitForLoadingComplete(page);
+      await page.getByRole('heading', { name: 'DNS Management', level: 1 }).waitFor({
+        state: 'visible',
+        timeout: 10000,
+      });
+      await page.getByRole('button', { name: 'Add DNS Provider' }).waitFor({
+        state: 'visible',
+        timeout: 10000,
+      });
     });
 
     await test.step('Run axe accessibility scan', async () => {
