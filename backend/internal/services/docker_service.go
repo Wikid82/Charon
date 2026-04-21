@@ -13,8 +13,7 @@ import (
 	"syscall"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/client"
 )
 
 type DockerUnavailableError struct {
@@ -86,7 +85,7 @@ func NewDockerService() *DockerService {
 		logger.Log().WithFields(map[string]any{"docker_host_env": envHost, "local_host": localHost}).Info("ignoring non-unix DOCKER_HOST for local docker mode")
 	}
 
-	cli, err := client.NewClientWithOpts(client.WithHost(localHost), client.WithAPIVersionNegotiation())
+	cli, err := client.New(client.WithHost(localHost))
 	if err != nil {
 		logger.Log().WithError(err).Warn("Failed to initialize Docker client - Docker features will be unavailable")
 		unavailableErr := NewDockerUnavailableError(err, buildLocalDockerUnavailableDetails(err, localHost))
@@ -115,7 +114,7 @@ func (s *DockerService) ListContainers(ctx context.Context, host string) ([]Dock
 	if host == "" || host == "local" {
 		cli = s.client
 	} else {
-		cli, err = client.NewClientWithOpts(client.WithHost(host), client.WithAPIVersionNegotiation())
+		cli, err = client.New(client.WithHost(host))
 		if err != nil {
 			return nil, fmt.Errorf("failed to create remote client: %w", err)
 		}
@@ -126,7 +125,7 @@ func (s *DockerService) ListContainers(ctx context.Context, host string) ([]Dock
 		}()
 	}
 
-	containers, err := cli.ContainerList(ctx, container.ListOptions{All: false})
+	containers, err := cli.ContainerList(ctx, client.ContainerListOptions{All: false})
 	if err != nil {
 		if isDockerConnectivityError(err) {
 			if host == "" || host == "local" {
@@ -138,14 +137,16 @@ func (s *DockerService) ListContainers(ctx context.Context, host string) ([]Dock
 	}
 
 	var result []DockerContainer
-	for _, c := range containers {
+	for _, c := range containers.Items {
 		// Get the first network's IP address if available
 		networkName := ""
 		ipAddress := ""
 		if c.NetworkSettings != nil && len(c.NetworkSettings.Networks) > 0 {
 			for name, net := range c.NetworkSettings.Networks {
 				networkName = name
-				ipAddress = net.IPAddress
+				if net != nil && net.IPAddress.IsValid() {
+					ipAddress = net.IPAddress.String()
+				}
 				break // Just take the first one for now
 			}
 		}
@@ -166,11 +167,16 @@ func (s *DockerService) ListContainers(ctx context.Context, host string) ([]Dock
 			})
 		}
 
+		shortID := c.ID
+		if len(shortID) > 12 {
+			shortID = shortID[:12]
+		}
+
 		result = append(result, DockerContainer{
-			ID:      c.ID[:12], // Short ID
+			ID:      shortID,
 			Names:   names,
 			Image:   c.Image,
-			State:   c.State,
+			State:   string(c.State),
 			Status:  c.Status,
 			Network: networkName,
 			IP:      ipAddress,
