@@ -240,7 +240,7 @@ export default defineConfig({
       testDir: './tests',
       testMatch: [
         /security-enforcement\/.*\.spec\.(ts|js)/,
-        /security\/.*\.spec\.(ts|js)/,
+        /^tests\/security\/.*\.spec\.(ts|js)/,
       ],
       dependencies: ['setup', 'security-shard-setup'],
       teardown: 'security-teardown',
@@ -275,7 +275,7 @@ export default defineConfig({
         '**/node_modules/**',
         '**/backend/**',
         '**/security-enforcement/**',
-        '**/security/**',
+        '**/tests/security/**',
       ],
     },
 
@@ -292,7 +292,7 @@ export default defineConfig({
         '**/node_modules/**',
         '**/backend/**',
         '**/security-enforcement/**',
-        '**/security/**',
+        '**/tests/security/**',
       ],
     },
 
@@ -309,7 +309,7 @@ export default defineConfig({
         '**/node_modules/**',
         '**/backend/**',
         '**/security-enforcement/**',
-        '**/security/**',
+        '**/tests/security/**',
       ],
     },
 
