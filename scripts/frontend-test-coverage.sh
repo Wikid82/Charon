@@ -21,8 +21,9 @@ cd "$FRONTEND_DIR"
 # Ensure dependencies are installed for CI runs
 npm ci --silent
 
-# Ensure coverage output directory exists
+# Ensure coverage output directories exist
 mkdir -p "$CANONICAL_COVERAGE_DIR"
+mkdir -p "$RUN_COVERAGE_DIR"
 
 cleanup() {
     rm -rf "$RUN_COVERAGE_DIR"
