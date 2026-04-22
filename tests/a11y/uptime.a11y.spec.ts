@@ -4,7 +4,6 @@ import { expectNoA11yViolations } from '../utils/a11y-helpers';
 import { getBaselinedRuleIds } from './a11y-baseline';
 
 test.describe('Accessibility: Uptime', () => {
-  test.describe.configure({ mode: 'parallel' });
 
   test('uptime page has no critical a11y violations', async ({ page, makeAxeBuilder }) => {
     await test.step('Navigate to uptime', async () => {

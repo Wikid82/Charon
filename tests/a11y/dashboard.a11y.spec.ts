@@ -4,7 +4,6 @@ import { expectNoA11yViolations } from '../utils/a11y-helpers';
 import { getBaselinedRuleIds } from './a11y-baseline';
 
 test.describe('Accessibility: Dashboard', () => {
-  test.describe.configure({ mode: 'parallel' });
 
   test('dashboard has no critical a11y violations', async ({ page, makeAxeBuilder }) => {
     await test.step('Navigate to dashboard', async () => {

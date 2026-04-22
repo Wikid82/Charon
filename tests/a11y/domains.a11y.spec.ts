@@ -9,7 +9,6 @@ const domainRoutes = [
 ] as const;
 
 test.describe('Accessibility: Domains & Remote Servers', () => {
-  test.describe.configure({ mode: 'parallel' });
 
   for (const { route, name } of domainRoutes) {
     test(`${name} page has no critical a11y violations`, async ({ page, makeAxeBuilder }) => {

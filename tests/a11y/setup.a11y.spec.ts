@@ -6,7 +6,6 @@ import { getBaselinedRuleIds } from './a11y-baseline';
 test.use({ storageState: { cookies: [], origins: [] } });
 
 test.describe('Accessibility: Setup', () => {
-  test.describe.configure({ mode: 'parallel' });
 
   test('setup page has no critical a11y violations', async ({ page, makeAxeBuilder }) => {
     await test.step('Navigate to setup page', async () => {
