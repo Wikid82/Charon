@@ -54,7 +54,6 @@ async function waitForRouteReady(page: any, route: string): Promise<void> {
 }
 
 test.describe('Accessibility: Security', () => {
-  test.describe.configure({ mode: 'parallel' });
 
   for (const { route, name } of securityRoutes) {
     test(`${name} page has no critical a11y violations`, async ({ page, makeAxeBuilder }) => {

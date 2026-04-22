@@ -9,7 +9,6 @@ const notificationRoutes = [
 ] as const;
 
 test.describe('Accessibility: Notifications', () => {
-  test.describe.configure({ mode: 'parallel' });
 
   for (const { route, name } of notificationRoutes) {
     test(`${name} page has no critical a11y violations`, async ({ page, makeAxeBuilder }) => {

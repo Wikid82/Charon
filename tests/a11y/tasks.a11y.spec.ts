@@ -13,7 +13,6 @@ const taskRoutes = [
 ] as const;
 
 test.describe('Accessibility: Tasks', () => {
-  test.describe.configure({ mode: 'parallel' });
 
   for (const { route, name } of taskRoutes) {
     test(`${name} page has no critical a11y violations`, async ({ page, makeAxeBuilder }) => {
