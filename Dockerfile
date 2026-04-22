@@ -392,7 +392,7 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/kinesis
     go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.6 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/s3
-    go get github.com/aws/aws-sdk-go-v2/service/s3@v1.99.1 && \
+    go get github.com/aws/aws-sdk-go-v2/service/s3@v1.100.0 && \
     go mod tidy
 
 # Fix compatibility issues with expr-lang v1.17.7
