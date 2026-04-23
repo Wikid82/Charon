@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -348,6 +351,115 @@ func TestBuildLocalDockerUnavailableDetails_NonUnixHost(t *testing.T) {
 	details := buildLocalDockerUnavailableDetails(err, "tcp://192.168.1.1:2375")
 	assert.Contains(t, details, "Cannot connect")
 	assert.Contains(t, details, "tcp://192.168.1.1:2375")
+}
+
+// ===== Container loop coverage via mock Docker HTTP transport =====
+
+// newContainerListClient starts a local HTTP test server that serves
+// containerJSON for any request path, then builds a moby client pointing at it.
+// This lets unit tests exercise the container-mapping loop without a real daemon.
+func newContainerListClient(t *testing.T, containerJSON string) *client.Client {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, containerJSON)
+	}))
+	t.Cleanup(server.Close)
+	cli, err := client.New(
+		client.WithHost("tcp://"+server.Listener.Addr().String()),
+		client.WithAPIVersion("1.43"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cli.Close() })
+	return cli
+}
+
+func TestListContainers_ContainerMappingEdgeCases(t *testing.T) {
+	// Exercises all container-loop branches introduced by the moby client migration:
+	//   • ID > 12 chars  → truncated to first 12 characters
+	//   • non-nil network endpoint with a valid IP → IP populated
+	//   • ID exactly 12 chars → NOT truncated
+	//   • nil NetworkSettings → empty network name and IP
+	//   • non-nil NetworkSettings but nil endpoint value → nil-guard fires, no panic
+	//   • non-nil endpoint with zero IPAddress → IPAddress.IsValid()==false, IP stays empty
+	const containerJSON = `[
+		{
+			"Id":    "abc123def456789",
+			"Names": ["/web"],
+			"Image": "nginx:latest",
+			"State": "running",
+			"Status": "Up 1 second",
+			"NetworkSettings": {
+				"Networks": {"bridge": {"IPAddress": "172.17.0.2"}}
+			}
+		},
+		{
+			"Id":    "abc123def456",
+			"Names": ["/exactly12"],
+			"Image": "alpine:latest",
+			"State": "running",
+			"Status": "Up 2 seconds",
+			"NetworkSettings": null
+		},
+		{
+			"Id":    "abc",
+			"Names": ["/nullendpoint"],
+			"Image": "ubuntu:latest",
+			"State": "exited",
+			"Status": "Exited (0)",
+			"NetworkSettings": {"Networks": {"bridge": null}}
+		},
+		{
+			"Id":    "xyz098",
+			"Names": ["/noip"],
+			"Image": "redis:latest",
+			"State": "running",
+			"Status": "Up 3 seconds",
+			"NetworkSettings": {"Networks": {"host": {}}}
+		}
+	]`
+
+	svc := &DockerService{
+		client:    newContainerListClient(t, containerJSON),
+		initErr:   nil,
+		localHost: "tcp://localhost:2375",
+	}
+	containers, err := svc.ListContainers(context.Background(), "")
+	require.NoError(t, err)
+	require.Len(t, containers, 4)
+
+	// Container 0: ID longer than 12 chars → truncated; valid IP populated.
+	assert.Equal(t, "abc123def456", containers[0].ID, "ID longer than 12 chars must be truncated to 12")
+	assert.Equal(t, "172.17.0.2", containers[0].IP)
+	assert.Equal(t, "bridge", containers[0].Network)
+	assert.Equal(t, "running", containers[0].State)
+	assert.Equal(t, "web", containers[0].Names[0], "leading slash must be stripped")
+
+	// Container 1: ID exactly 12 chars → not truncated; nil NetworkSettings.
+	assert.Equal(t, "abc123def456", containers[1].ID, "12-char ID must not be modified")
+	assert.Equal(t, "", containers[1].IP)
+	assert.Equal(t, "", containers[1].Network)
+
+	// Container 2: NetworkSettings present but endpoint value is nil → no panic; IP empty.
+	assert.Equal(t, "abc", containers[2].ID)
+	assert.Equal(t, "bridge", containers[2].Network, "network name must be populated even when endpoint is nil")
+	assert.Equal(t, "", containers[2].IP, "IP must be empty when endpoint is nil")
+
+	// Container 3: endpoint present but IPAddress is zero → IsValid()==false, IP empty.
+	assert.Equal(t, "xyz098", containers[3].ID)
+	assert.Equal(t, "host", containers[3].Network)
+	assert.Equal(t, "", containers[3].IP, "IP must be empty when IPAddress is the zero value")
+}
+
+func TestNewDockerService_IgnoresNonUnixDockerHost(t *testing.T) {
+	// When DOCKER_HOST is set to a non-unix scheme, NewDockerService must
+	// emit a log entry and ignore it, using the resolved local host instead.
+	t.Setenv("DOCKER_HOST", "tcp://docker-proxy:2375")
+	svc := NewDockerService()
+	require.NotNil(t, svc)
+	assert.NotEqual(t, "tcp://docker-proxy:2375", svc.localHost,
+		"localHost must be the resolved socket path, not the non-unix DOCKER_HOST value")
 }
 
 func TestBuildLocalDockerUnavailableDetails_EPERMWithStatFail(t *testing.T) {
