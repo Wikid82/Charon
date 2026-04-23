@@ -462,6 +462,32 @@ func TestNewDockerService_IgnoresNonUnixDockerHost(t *testing.T) {
 		"localHost must be the resolved socket path, not the non-unix DOCKER_HOST value")
 }
 
+func TestListContainers_NonConnectivityAPIError(t *testing.T) {
+	// When the Docker daemon returns an HTTP error that is NOT a connectivity
+	// error, ListContainers must return a "failed to list containers" error.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, `{"message":"internal daemon error"}`)
+	}))
+	t.Cleanup(server.Close)
+	cli, err := client.New(
+		client.WithHost("tcp://"+server.Listener.Addr().String()),
+		client.WithAPIVersion("1.43"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cli.Close() })
+
+	svc := &DockerService{
+		client:    cli,
+		initErr:   nil,
+		localHost: "tcp://" + server.Listener.Addr().String(),
+	}
+	_, listErr := svc.ListContainers(context.Background(), "")
+	require.Error(t, listErr)
+	assert.Contains(t, listErr.Error(), "failed to list containers")
+}
+
 func TestBuildLocalDockerUnavailableDetails_EPERMWithStatFail(t *testing.T) {
 	err := &net.OpError{Op: "dial", Net: "unix", Err: syscall.EPERM}
 	details := buildLocalDockerUnavailableDetails(err, "unix:///tmp/nonexistent-eperm.sock")
