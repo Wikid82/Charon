@@ -11,6 +11,11 @@ test.describe('Accessibility: Login', () => {
     await test.step('Navigate to login page', async () => {
       await page.goto('/login');
       await waitForLoadingComplete(page);
+      // Wait for the login form to be fully rendered (setup status check complete).
+      // This prevents the analyze() page.evaluate() from running while React is
+      // still processing the setup status response, which can stall the JS engine
+      // when the test runs after other authenticated tests in the same browser process.
+      await page.getByRole('button', { name: 'Sign In' }).waitFor({ state: 'visible', timeout: 20000 });
     });
 
     await test.step('Run axe accessibility scan', async () => {
