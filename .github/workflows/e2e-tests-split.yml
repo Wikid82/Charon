@@ -286,7 +286,7 @@ jobs:
       - name: Wait for service health
         run: |
           echo "⏳ Waiting for Charon to be healthy..."
-          MAX_ATTEMPTS=30
+          MAX_ATTEMPTS=60
           ATTEMPT=0
           while [[ ${ATTEMPT} -lt ${MAX_ATTEMPTS} ]]; do
             ATTEMPT=$((ATTEMPT + 1))
@@ -488,7 +488,7 @@ jobs:
       - name: Wait for service health
         run: |
           echo "⏳ Waiting for Charon to be healthy..."
-          MAX_ATTEMPTS=30
+          MAX_ATTEMPTS=60
           ATTEMPT=0
           while [[ ${ATTEMPT} -lt ${MAX_ATTEMPTS} ]]; do
             ATTEMPT=$((ATTEMPT + 1))
@@ -698,7 +698,7 @@ jobs:
       - name: Wait for service health
         run: |
           echo "⏳ Waiting for Charon to be healthy..."
-          MAX_ATTEMPTS=30
+          MAX_ATTEMPTS=60
           ATTEMPT=0
           while [[ ${ATTEMPT} -lt ${MAX_ATTEMPTS} ]]; do
             ATTEMPT=$((ATTEMPT + 1))
@@ -935,7 +935,7 @@ jobs:
       - name: Wait for service health
         run: |
           echo "⏳ Waiting for Charon to be healthy..."
-          MAX_ATTEMPTS=30
+          MAX_ATTEMPTS=60
           ATTEMPT=0
           while [[ ${ATTEMPT} -lt ${MAX_ATTEMPTS} ]]; do
             ATTEMPT=$((ATTEMPT + 1))
@@ -1173,7 +1173,7 @@ jobs:
       - name: Wait for service health
         run: |
           echo "⏳ Waiting for Charon to be healthy..."
-          MAX_ATTEMPTS=30
+          MAX_ATTEMPTS=60
           ATTEMPT=0
           while [[ ${ATTEMPT} -lt ${MAX_ATTEMPTS} ]]; do
             ATTEMPT=$((ATTEMPT + 1))
@@ -1419,7 +1419,7 @@ jobs:
       - name: Wait for service health
         run: |
           echo "⏳ Waiting for Charon to be healthy..."
-          MAX_ATTEMPTS=30
+          MAX_ATTEMPTS=60
           ATTEMPT=0
           while [[ ${ATTEMPT} -lt ${MAX_ATTEMPTS} ]]; do
             ATTEMPT=$((ATTEMPT + 1))
