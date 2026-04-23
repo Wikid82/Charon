@@ -160,7 +160,7 @@ RUN set -eux; \
 # Note: xx-go install puts binaries in /go/bin/TARGETOS_TARGETARCH/dlv if cross-compiling.
 # We find it and move it to /go/bin/dlv so it's in a consistent location for the next stage.
 # renovate: datasource=go depName=github.com/go-delve/delve
-ARG DLV_VERSION=1.26.1
+ARG DLV_VERSION=1.26.2
 # hadolint ignore=DL3059,DL4006
 RUN CGO_ENABLED=0 xx-go install github.com/go-delve/delve/cmd/dlv@v${DLV_VERSION} && \
     DLV_PATH=$(find /go/bin -name dlv -type f | head -n 1) && \
@@ -392,7 +392,7 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/kinesis
     go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.6 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/s3
-    go get github.com/aws/aws-sdk-go-v2/service/s3@v1.99.1 && \
+    go get github.com/aws/aws-sdk-go-v2/service/s3@v1.100.0 && \
     go mod tidy
 
 # Fix compatibility issues with expr-lang v1.17.7

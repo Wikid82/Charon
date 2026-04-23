@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -12,6 +15,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -349,9 +353,237 @@ func TestBuildLocalDockerUnavailableDetails_NonUnixHost(t *testing.T) {
 	assert.Contains(t, details, "tcp://192.168.1.1:2375")
 }
 
+// ===== Container loop coverage via mock Docker HTTP transport =====
+
+// newContainerListClient starts a local HTTP test server that serves
+// containerJSON for any request path, then builds a moby client pointing at it.
+// This lets unit tests exercise the container-mapping loop without a real daemon.
+func newContainerListClient(t *testing.T, containerJSON string) *client.Client {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, containerJSON)
+	}))
+	t.Cleanup(server.Close)
+	cli, err := client.New(
+		client.WithHost("tcp://"+server.Listener.Addr().String()),
+		client.WithAPIVersion("1.43"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cli.Close() })
+	return cli
+}
+
+func TestListContainers_ContainerMappingEdgeCases(t *testing.T) {
+	// Exercises all container-loop branches introduced by the moby client migration:
+	//   • ID > 12 chars  → truncated to first 12 characters
+	//   • non-nil network endpoint with a valid IP → IP populated
+	//   • ID exactly 12 chars → NOT truncated
+	//   • nil NetworkSettings → empty network name and IP
+	//   • non-nil NetworkSettings but nil endpoint value → nil-guard fires, no panic
+	//   • non-nil endpoint with zero IPAddress → IPAddress.IsValid()==false, IP stays empty
+	const containerJSON = `[
+		{
+			"Id":    "abc123def456789",
+			"Names": ["/web"],
+			"Image": "nginx:latest",
+			"State": "running",
+			"Status": "Up 1 second",
+			"NetworkSettings": {
+				"Networks": {"bridge": {"IPAddress": "172.17.0.2"}}
+			}
+		},
+		{
+			"Id":    "abc123def456",
+			"Names": ["/exactly12"],
+			"Image": "alpine:latest",
+			"State": "running",
+			"Status": "Up 2 seconds",
+			"NetworkSettings": null
+		},
+		{
+			"Id":    "abc",
+			"Names": ["/nullendpoint"],
+			"Image": "ubuntu:latest",
+			"State": "exited",
+			"Status": "Exited (0)",
+			"NetworkSettings": {"Networks": {"bridge": null}}
+		},
+		{
+			"Id":    "xyz098",
+			"Names": ["/noip"],
+			"Image": "redis:latest",
+			"State": "running",
+			"Status": "Up 3 seconds",
+			"NetworkSettings": {"Networks": {"host": {}}}
+		}
+	]`
+
+	svc := &DockerService{
+		client:    newContainerListClient(t, containerJSON),
+		initErr:   nil,
+		localHost: "tcp://localhost:2375",
+	}
+	containers, err := svc.ListContainers(context.Background(), "")
+	require.NoError(t, err)
+	require.Len(t, containers, 4)
+
+	// Container 0: ID longer than 12 chars → truncated; valid IP populated.
+	assert.Equal(t, "abc123def456", containers[0].ID, "ID longer than 12 chars must be truncated to 12")
+	assert.Equal(t, "172.17.0.2", containers[0].IP)
+	assert.Equal(t, "bridge", containers[0].Network)
+	assert.Equal(t, "running", containers[0].State)
+	assert.Equal(t, "web", containers[0].Names[0], "leading slash must be stripped")
+
+	// Container 1: ID exactly 12 chars → not truncated; nil NetworkSettings.
+	assert.Equal(t, "abc123def456", containers[1].ID, "12-char ID must not be modified")
+	assert.Equal(t, "", containers[1].IP)
+	assert.Equal(t, "", containers[1].Network)
+
+	// Container 2: NetworkSettings present but endpoint value is nil → no panic; IP empty.
+	assert.Equal(t, "abc", containers[2].ID)
+	assert.Equal(t, "bridge", containers[2].Network, "network name must be populated even when endpoint is nil")
+	assert.Equal(t, "", containers[2].IP, "IP must be empty when endpoint is nil")
+
+	// Container 3: endpoint present but IPAddress is zero → IsValid()==false, IP empty.
+	assert.Equal(t, "xyz098", containers[3].ID)
+	assert.Equal(t, "host", containers[3].Network)
+	assert.Equal(t, "", containers[3].IP, "IP must be empty when IPAddress is the zero value")
+}
+
+func TestNewDockerService_IgnoresNonUnixDockerHost(t *testing.T) {
+	// When DOCKER_HOST is set to a non-unix scheme, NewDockerService must
+	// emit a log entry and ignore it, using the resolved local host instead.
+	t.Setenv("DOCKER_HOST", "tcp://docker-proxy:2375")
+	svc := NewDockerService()
+	require.NotNil(t, svc)
+	assert.NotEqual(t, "tcp://docker-proxy:2375", svc.localHost,
+		"localHost must be the resolved socket path, not the non-unix DOCKER_HOST value")
+}
+
+func TestListContainers_NonConnectivityAPIError(t *testing.T) {
+	// When the Docker daemon returns an HTTP error that is NOT a connectivity
+	// error, ListContainers must return a "failed to list containers" error.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, `{"message":"internal daemon error"}`)
+	}))
+	t.Cleanup(server.Close)
+	cli, err := client.New(
+		client.WithHost("tcp://"+server.Listener.Addr().String()),
+		client.WithAPIVersion("1.43"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cli.Close() })
+
+	svc := &DockerService{
+		client:    cli,
+		initErr:   nil,
+		localHost: "tcp://" + server.Listener.Addr().String(),
+	}
+	_, listErr := svc.ListContainers(context.Background(), "")
+	require.Error(t, listErr)
+	assert.Contains(t, listErr.Error(), "failed to list containers")
+}
+
 func TestBuildLocalDockerUnavailableDetails_EPERMWithStatFail(t *testing.T) {
 	err := &net.OpError{Op: "dial", Net: "unix", Err: syscall.EPERM}
 	details := buildLocalDockerUnavailableDetails(err, "unix:///tmp/nonexistent-eperm.sock")
 	assert.Contains(t, details, "not accessible")
 	assert.Contains(t, details, "could not be stat")
+}
+
+// ===== Patch coverage: docker_service.go error-path tests =====
+
+func TestNewDockerServiceFromLocalHost_ClientInitError(t *testing.T) {
+	// A host string without "://" is rejected by moby's ParseHostURL, causing
+	// client.New to return an error. This exercises the previously-untested
+	// error path in newDockerServiceFromLocalHost.
+	svc := newDockerServiceFromLocalHost("no-colon-scheme")
+	require.NotNil(t, svc)
+	assert.Nil(t, svc.client)
+	assert.NotNil(t, svc.initErr)
+	var unavailErr *DockerUnavailableError
+	assert.ErrorAs(t, svc.initErr, &unavailErr)
+}
+
+func TestDockerService_ListContainers_InitErrIsDockerUnavailableError(t *testing.T) {
+	// When initErr is already a *DockerUnavailableError, ListContainers must
+	// return it directly (without re-wrapping) so the original details are preserved.
+	unavailErr := NewDockerUnavailableError(errors.New("socket not found"), "mount the socket")
+	svc := &DockerService{
+		client:    nil,
+		initErr:   unavailErr,
+		localHost: "unix:///var/run/docker.sock",
+	}
+	_, err := svc.ListContainers(context.Background(), "")
+	require.Error(t, err)
+	var gotUnavail *DockerUnavailableError
+	require.ErrorAs(t, err, &gotUnavail)
+	assert.Equal(t, unavailErr, gotUnavail, "original DockerUnavailableError must be returned as-is")
+}
+
+func TestDockerService_ListContainers_InitErrIsGenericError(t *testing.T) {
+	// When initErr is some other error type, ListContainers must wrap it in a
+	// DockerUnavailableError before returning.
+	genericErr := errors.New("unexpected init failure")
+	svc := &DockerService{
+		client:    nil,
+		initErr:   genericErr,
+		localHost: "unix:///var/run/docker.sock",
+	}
+	_, err := svc.ListContainers(context.Background(), "")
+	require.Error(t, err)
+	var gotUnavail *DockerUnavailableError
+	assert.ErrorAs(t, err, &gotUnavail, "generic initErr must be wrapped in DockerUnavailableError")
+}
+
+func TestDockerService_ListContainers_RemoteClientCreationError(t *testing.T) {
+	// When the caller provides a remote host string that cannot be parsed by
+	// the moby client (no "://" separator), ListContainers must return an error
+	// containing "failed to create remote client".
+	svc := &DockerService{
+		client:    nil,
+		initErr:   nil,
+		localHost: "unix:///var/run/docker.sock",
+	}
+	_, err := svc.ListContainers(context.Background(), "no-scheme-host")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to create remote client")
+}
+
+func TestDockerService_ListContainers_LocalConnectivityError(t *testing.T) {
+	// A client pointing to a non-existent unix socket initialises without error
+	// (moby client is lazy) but fails at ContainerList time with ENOENT.
+	// For an empty/local host, ListContainers must return a DockerUnavailableError.
+	cli, err := client.New(client.WithHost("unix:///tmp/charon-unit-test-no-docker.sock"))
+	require.NoError(t, err, "client.New must succeed for a non-existent socket path (lazy init)")
+	defer func() { _ = cli.Close() }()
+
+	svc := &DockerService{
+		client:    cli,
+		initErr:   nil,
+		localHost: "unix:///tmp/charon-unit-test-no-docker.sock",
+	}
+	_, err = svc.ListContainers(context.Background(), "")
+	require.Error(t, err)
+	var unavailErr *DockerUnavailableError
+	assert.ErrorAs(t, err, &unavailErr)
+}
+
+func TestDockerService_ListContainers_RemoteConnectivityError(t *testing.T) {
+	// When a valid unix scheme but non-existent socket is provided as a remote
+	// host, ContainerList fails with a connectivity error. For remote hosts,
+	// ListContainers must return a DockerUnavailableError (no socket-specific details).
+	svc := &DockerService{
+		client:    nil,
+		initErr:   nil,
+		localHost: "unix:///var/run/docker.sock",
+	}
+	_, err := svc.ListContainers(context.Background(), "unix:///tmp/charon-unit-test-remote-no-docker.sock")
+	require.Error(t, err)
+	var unavailErr *DockerUnavailableError
+	assert.ErrorAs(t, err, &unavailErr)
 }
