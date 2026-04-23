@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -354,4 +355,97 @@ func TestBuildLocalDockerUnavailableDetails_EPERMWithStatFail(t *testing.T) {
 	details := buildLocalDockerUnavailableDetails(err, "unix:///tmp/nonexistent-eperm.sock")
 	assert.Contains(t, details, "not accessible")
 	assert.Contains(t, details, "could not be stat")
+}
+
+// ===== Patch coverage: docker_service.go error-path tests =====
+
+func TestNewDockerServiceFromLocalHost_ClientInitError(t *testing.T) {
+	// A host string without "://" is rejected by moby's ParseHostURL, causing
+	// client.New to return an error. This exercises the previously-untested
+	// error path in newDockerServiceFromLocalHost.
+	svc := newDockerServiceFromLocalHost("no-colon-scheme")
+	require.NotNil(t, svc)
+	assert.Nil(t, svc.client)
+	assert.NotNil(t, svc.initErr)
+	var unavailErr *DockerUnavailableError
+	assert.ErrorAs(t, svc.initErr, &unavailErr)
+}
+
+func TestDockerService_ListContainers_InitErrIsDockerUnavailableError(t *testing.T) {
+	// When initErr is already a *DockerUnavailableError, ListContainers must
+	// return it directly (without re-wrapping) so the original details are preserved.
+	unavailErr := NewDockerUnavailableError(errors.New("socket not found"), "mount the socket")
+	svc := &DockerService{
+		client:    nil,
+		initErr:   unavailErr,
+		localHost: "unix:///var/run/docker.sock",
+	}
+	_, err := svc.ListContainers(context.Background(), "")
+	require.Error(t, err)
+	var gotUnavail *DockerUnavailableError
+	require.ErrorAs(t, err, &gotUnavail)
+	assert.Equal(t, unavailErr, gotUnavail, "original DockerUnavailableError must be returned as-is")
+}
+
+func TestDockerService_ListContainers_InitErrIsGenericError(t *testing.T) {
+	// When initErr is some other error type, ListContainers must wrap it in a
+	// DockerUnavailableError before returning.
+	genericErr := errors.New("unexpected init failure")
+	svc := &DockerService{
+		client:    nil,
+		initErr:   genericErr,
+		localHost: "unix:///var/run/docker.sock",
+	}
+	_, err := svc.ListContainers(context.Background(), "")
+	require.Error(t, err)
+	var gotUnavail *DockerUnavailableError
+	assert.ErrorAs(t, err, &gotUnavail, "generic initErr must be wrapped in DockerUnavailableError")
+}
+
+func TestDockerService_ListContainers_RemoteClientCreationError(t *testing.T) {
+	// When the caller provides a remote host string that cannot be parsed by
+	// the moby client (no "://" separator), ListContainers must return an error
+	// containing "failed to create remote client".
+	svc := &DockerService{
+		client:    nil,
+		initErr:   nil,
+		localHost: "unix:///var/run/docker.sock",
+	}
+	_, err := svc.ListContainers(context.Background(), "no-scheme-host")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to create remote client")
+}
+
+func TestDockerService_ListContainers_LocalConnectivityError(t *testing.T) {
+	// A client pointing to a non-existent unix socket initialises without error
+	// (moby client is lazy) but fails at ContainerList time with ENOENT.
+	// For an empty/local host, ListContainers must return a DockerUnavailableError.
+	cli, err := client.New(client.WithHost("unix:///tmp/charon-unit-test-no-docker.sock"))
+	require.NoError(t, err, "client.New must succeed for a non-existent socket path (lazy init)")
+	defer func() { _ = cli.Close() }()
+
+	svc := &DockerService{
+		client:    cli,
+		initErr:   nil,
+		localHost: "unix:///tmp/charon-unit-test-no-docker.sock",
+	}
+	_, err = svc.ListContainers(context.Background(), "")
+	require.Error(t, err)
+	var unavailErr *DockerUnavailableError
+	assert.ErrorAs(t, err, &unavailErr)
+}
+
+func TestDockerService_ListContainers_RemoteConnectivityError(t *testing.T) {
+	// When a valid unix scheme but non-existent socket is provided as a remote
+	// host, ContainerList fails with a connectivity error. For remote hosts,
+	// ListContainers must return a DockerUnavailableError (no socket-specific details).
+	svc := &DockerService{
+		client:    nil,
+		initErr:   nil,
+		localHost: "unix:///var/run/docker.sock",
+	}
+	_, err := svc.ListContainers(context.Background(), "unix:///tmp/charon-unit-test-remote-no-docker.sock")
+	require.Error(t, err)
+	var unavailErr *DockerUnavailableError
+	assert.ErrorAs(t, err, &unavailErr)
 }
