@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Accessibility Testing**: Integrated `@axe-core/playwright` for automated WCAG 2.0/2.1/2.2 AA accessibility testing across all application pages (Issue #929)
+  - Added 12 accessibility test specs: login, dashboard, proxy hosts, certificates, DNS providers, settings, security, uptime, tasks, domains, notifications, and setup pages
+  - Tests target WCAG 2.0 Level A/AA and WCAG 2.2 Level AA rule sets via axe-core
+  - Known violations baselined in `tests/a11y/a11y-baseline.ts` with per-entry expiry dates for tracked remediation
+  - Authenticated tests share a logged-in auth fixture; login page runs unauthenticated to test the pre-auth state
+  - Canvas elements excluded from scanning to prevent false positives from chart libraries (CrowdSec dashboard, Uptime monitors)
+  - Accessibility tests run in CI across Chromium, Firefox, and WebKit browsers via the non-security test shards
+
 - **CrowdSec Dashboard**: Visual analytics for CrowdSec security data within the Security section
   - Summary cards showing total bans, active bans, unique IPs, and top scenario
   - Interactive charts: ban timeline (area), top attacking IPs (bar), scenario breakdown (pie)
@@ -48,6 +56,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Change: Removed direct Push/PR triggers; now waits for 'Docker Build' via `workflow_run`
 
 ### Security
+
+- **CVE-2026-34040**: Remediated high-severity vulnerability by migrating from `github.com/docker/docker` to `github.com/moby/moby/client v0.4.1`
+  - Affected component: Docker client SDK used for container management features
+  - Resolution: Updated `go.mod` to reference the actively maintained `moby/moby` module
 
 - **Supply Chain**: Enhanced PR verification workflow stability and accuracy
   - **Vulnerability Reporting**: Eliminated false negatives ("0 vulnerabilities") by enforcing strict failure conditions

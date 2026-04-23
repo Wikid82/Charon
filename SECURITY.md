@@ -27,7 +27,7 @@ public disclosure.
 
 ## Known Vulnerabilities
 
-Last reviewed: 2026-04-09
+Last reviewed: 2026-04-21
 
 ### [HIGH] CVE-2026-31790 · OpenSSL Vulnerability in Alpine Base Image
 
@@ -68,48 +68,6 @@ the container runtime environment.
 Monitor <https://security.alpinelinux.org/> for a patched Alpine APK. No upstream fix
 available as of 2026-04-09. Once available, update the pinned `ALPINE_IMAGE` digest in the
 Dockerfile.
-
----
-
-### [HIGH] CVE-2026-34040 · Docker AuthZ Plugin Bypass via Oversized Request Body
-
-| Field        | Value |
-|--------------|-------|
-| **ID**       | CVE-2026-34040 (GHSA-x744-4wpc-v9h2) |
-| **Severity** | High · 8.8 |
-| **Status**   | Awaiting Upstream |
-
-**What**
-Docker Engine AuthZ plugins can be bypassed when an API request body exceeds a
-certain size threshold. Charon uses the Docker client SDK only; this is a
-server-side vulnerability in the Docker daemon's authorization plugin handler.
-
-**Who**
-
-- Discovered by: Automated scan (govulncheck, Grype)
-- Reported: 2026-04-04
-- Affects: Docker Engine daemon operators; Charon application is not directly vulnerable
-
-**Where**
-
-- Component: `github.com/docker/docker` v28.5.2+incompatible (Docker client SDK)
-- Versions affected: Docker Engine < 29.3.1
-
-**When**
-
-- Discovered: 2026-04-04
-- Disclosed (if public): Public
-- Target fix: When moby/moby/v2 stabilizes or docker/docker import path is updated
-
-**How**
-The vulnerability requires an attacker to send oversized API request bodies to the
-Docker daemon. Charon uses the Docker client SDK for container management operations
-only and does not expose the Docker socket externally. The attack vector is limited
-to the Docker daemon host, not the Charon application.
-
-**Planned Remediation**
-Monitor moby/moby/v2 module stabilization. The `docker/docker` import path has no
-fix available. When a compatible module path exists, migrate the Docker SDK import.
 
 ---
 
@@ -194,8 +152,8 @@ via the Docker client SDK. The attack requires a malicious Docker plugin to be
 installed on the host, which is outside Charon's operational scope.
 
 **Planned Remediation**
-Same as CVE-2026-34040: monitor moby/moby/v2 module stabilization. No fix
-available for the current `docker/docker` import path.
+Monitor Moby advisory updates and verify scanner results against current modular
+Moby dependency paths.
 
 ---
 
@@ -238,6 +196,49 @@ Monitor Alpine 3.23 for a patched busybox APK. No immediate action required. Pra
 Charon users is negligible since the vulnerable code path is not exercised.
 
 ## Patched Vulnerabilities
+
+### ✅ [HIGH] CVE-2026-34040 · Docker AuthZ Plugin Bypass via Oversized Request Body
+
+| Field        | Value |
+|--------------|-------|
+| **ID**       | CVE-2026-34040 (GHSA-x744-4wpc-v9h2) |
+| **Severity** | High · 8.8 |
+| **Patched**  | 2026-04-21 |
+
+**What**
+Docker Engine AuthZ plugins can be bypassed when an API request body exceeds a
+certain size threshold. The previous Charon backend dependency path was
+`github.com/docker/docker`.
+
+**Who**
+
+- Discovered by: Automated scan (govulncheck, Grype)
+- Reported: 2026-04-04
+
+**Where**
+
+- Previous component: `github.com/docker/docker` v28.5.2+incompatible (Docker client SDK)
+- Remediated component path: `github.com/moby/moby/client` with `github.com/moby/moby/api`
+
+**When**
+
+- Discovered: 2026-04-04
+- Patched: 2026-04-21
+- Time to patch: 17 days
+
+**How**
+The backend Docker service imports and module dependencies were migrated away from
+the vulnerable monolith package path to modular Moby dependencies.
+
+**Resolution**
+Validation evidence after remediation:
+
+- Backend: `go mod tidy`, `go test ./...`, and `go build ./cmd/api` passed.
+- Trivy gate output did not include `CVE-2026-34040` or `GHSA-x744-4wpc-v9h2`.
+- Docker image scan gate reported `0 Critical` and `0 High`, and did not include
+  `CVE-2026-34040` or `GHSA-x744-4wpc-v9h2`.
+
+---
 
 ### ✅ [LOW] CVE-2026-26958 · edwards25519 MultiScalarMult Invalid Results
 

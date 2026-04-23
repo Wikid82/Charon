@@ -323,23 +323,32 @@ ACQUIS_EOF
         echo "✗ WARNING: LAPI port configuration may be incorrect"
     fi
 
-    # Always refresh hub index on startup (stale index causes hash mismatch errors on collection install)
-    echo "Updating CrowdSec hub index..."
-    if ! timeout 60s cscli hub update 2>&1; then
-        echo "⚠️ Hub index update failed (network issue?). Collections may fail to install."
-        echo "   CrowdSec will still start with whatever index is cached."
-    fi
-
-    # Ensure local machine is registered (auto-heal for volume/config mismatch)
-    # We force registration because we just restored configuration (and likely credentials)
+    # Machine registration is fast (local DB write) and required for LAPI auth.
+    # Always run regardless of environment.
     echo "Registering local machine..."
     cscli machines add -a --force 2>/dev/null || echo "Warning: Machine registration may have failed"
 
-    # Always ensure required collections are present (idempotent — already-installed items are skipped).
-    # Collections are just config files with zero runtime cost when CrowdSec is disabled.
-    echo "Ensuring CrowdSec hub items are installed..."
-    if [ -x /usr/local/bin/install_hub_items.sh ]; then
-        /usr/local/bin/install_hub_items.sh || echo "⚠️ Some hub items may not have installed. CrowdSec can still start."
+    # Hub index update and hub item downloads are internet-bound operations (30–120 s).
+    # Skip them when CHARON_SECURITY_TESTS_ENABLED=false (non-security CI shards) so the
+    # container starts within the health-check window.
+    # Production and security-test environments leave this variable unset or true, which
+    # preserves the existing behaviour.
+    if [ "${CHARON_SECURITY_TESTS_ENABLED}" = "false" ]; then
+        echo "⚡ Skipping CrowdSec hub initialization (CHARON_SECURITY_TESTS_ENABLED=false)"
+    else
+        # Always refresh hub index on startup (stale index causes hash mismatch errors on collection install)
+        echo "Updating CrowdSec hub index..."
+        if ! timeout 60s cscli hub update 2>&1; then
+            echo "⚠️ Hub index update failed (network issue?). Collections may fail to install."
+            echo "   CrowdSec will still start with whatever index is cached."
+        fi
+
+        # Always ensure required collections are present (idempotent — already-installed items are skipped).
+        # Collections are just config files with zero runtime cost when CrowdSec is disabled.
+        echo "Ensuring CrowdSec hub items are installed..."
+        if [ -x /usr/local/bin/install_hub_items.sh ]; then
+            /usr/local/bin/install_hub_items.sh || echo "⚠️ Some hub items may not have installed. CrowdSec can still start."
+        fi
     fi
 
     # Fix ownership AFTER cscli commands (they run as root and create root-owned files)
