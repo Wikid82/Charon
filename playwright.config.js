@@ -240,7 +240,7 @@ export default defineConfig({
       testDir: './tests',
       testMatch: [
         /security-enforcement\/.*\.spec\.(ts|js)/,
-        /^tests\/security\/.*\.spec\.(ts|js)/,
+        /tests\/security\/.*\.spec\.(ts|js)/,
       ],
       dependencies: ['setup', 'security-shard-setup'],
       teardown: 'security-teardown',
