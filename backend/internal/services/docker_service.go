@@ -74,17 +74,10 @@ type DockerService struct {
 	localHost string
 }
 
-// NewDockerService creates a new Docker service instance.
-// If Docker client initialization fails, it returns a stub service that will return
-// DockerUnavailableError for all operations. This allows routes to be registered
-// and provide helpful error messages to users.
-func NewDockerService() *DockerService {
-	envHost := strings.TrimSpace(os.Getenv("DOCKER_HOST"))
-	localHost := resolveLocalDockerHost()
-	if envHost != "" && !strings.HasPrefix(envHost, "unix://") {
-		logger.Log().WithFields(map[string]any{"docker_host_env": envHost, "local_host": localHost}).Info("ignoring non-unix DOCKER_HOST for local docker mode")
-	}
-
+// newDockerServiceFromLocalHost creates a DockerService from an already-resolved
+// local host string. Factored out of NewDockerService for testability — callers
+// can pass an unparseable host string to exercise the error path.
+func newDockerServiceFromLocalHost(localHost string) *DockerService {
 	cli, err := client.New(client.WithHost(localHost))
 	if err != nil {
 		logger.Log().WithError(err).Warn("Failed to initialize Docker client - Docker features will be unavailable")
@@ -96,6 +89,19 @@ func NewDockerService() *DockerService {
 		}
 	}
 	return &DockerService{client: cli, initErr: nil, localHost: localHost}
+}
+
+// NewDockerService creates a new Docker service instance.
+// If Docker client initialization fails, it returns a stub service that will return
+// DockerUnavailableError for all operations. This allows routes to be registered
+// and provide helpful error messages to users.
+func NewDockerService() *DockerService {
+	envHost := strings.TrimSpace(os.Getenv("DOCKER_HOST"))
+	localHost := resolveLocalDockerHost()
+	if envHost != "" && !strings.HasPrefix(envHost, "unix://") {
+		logger.Log().WithFields(map[string]any{"docker_host_env": envHost, "local_host": localHost}).Info("ignoring non-unix DOCKER_HOST for local docker mode")
+	}
+	return newDockerServiceFromLocalHost(localHost)
 }
 
 func (s *DockerService) ListContainers(ctx context.Context, host string) ([]DockerContainer, error) {
