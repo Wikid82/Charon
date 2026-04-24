@@ -64,7 +64,7 @@ func TestValidateInternalServiceBaseURL(t *testing.T) {
 			expectedPort: 2019,
 			want:         "http://[::1]:2019",
 		},
-		{
+		{ //nolint:gosec // test verifies rejection of embedded credentials in URL
 			name:         "Reject userinfo",
 			raw:          "http://user:pass@localhost:2019",
 			expectedPort: 2019,

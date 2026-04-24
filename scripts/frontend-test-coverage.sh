@@ -13,22 +13,34 @@ sleep 1
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FRONTEND_DIR="$ROOT_DIR/frontend"
 MIN_COVERAGE="${CHARON_MIN_COVERAGE:-${CPM_MIN_COVERAGE:-87}}"
+CANONICAL_COVERAGE_DIR="coverage"
+RUN_COVERAGE_DIR="coverage/.run-${PPID}-$$-$(date +%s)"
 
 cd "$FRONTEND_DIR"
 
 # Ensure dependencies are installed for CI runs
 npm ci --silent
 
-# Ensure coverage output directories exist to avoid intermittent ENOENT errors
-mkdir -p coverage/.tmp
+# Ensure coverage output directories exist
+mkdir -p "$CANONICAL_COVERAGE_DIR"
+mkdir -p "$RUN_COVERAGE_DIR"
 
-# Run tests with coverage and json-summary reporter (force istanbul provider)
-# Using istanbul ensures json-summary and coverage-summary artifacts are produced
-# so that downstream checks can parse them reliably.
-npm run test:coverage -- --run
+cleanup() {
+    rm -rf "$RUN_COVERAGE_DIR"
+}
 
-SUMMARY_FILE="coverage/coverage-summary.json"
-LCOV_FILE="coverage/lcov.info"
+trap cleanup EXIT
+
+# Run tests with coverage in an isolated per-run reports directory to avoid
+# collisions when multiple coverage processes execute against the same workspace.
+VITEST_COVERAGE_REPORTS_DIR="$RUN_COVERAGE_DIR" npm run test:coverage -- --run
+
+# Publish stable artifacts to the canonical coverage directory used by DoD checks.
+cp "$RUN_COVERAGE_DIR/coverage-summary.json" "$CANONICAL_COVERAGE_DIR/coverage-summary.json"
+cp "$RUN_COVERAGE_DIR/lcov.info" "$CANONICAL_COVERAGE_DIR/lcov.info"
+
+SUMMARY_FILE="$CANONICAL_COVERAGE_DIR/coverage-summary.json"
+LCOV_FILE="$CANONICAL_COVERAGE_DIR/lcov.info"
 
 if [ ! -f "$SUMMARY_FILE" ]; then
     echo "Error: Coverage summary file not found at $SUMMARY_FILE"

@@ -535,25 +535,25 @@ jobs:
 
       - name: Run Trivy scan (table output)
         if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
-          version: 'v0.69.3'
+          version: 'v0.70.0'
         continue-on-error: true
 
       - name: Run Trivy vulnerability scanner (SARIF)
         if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         id: trivy
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
-          version: 'v0.69.3'
+          version: 'v0.70.0'
         continue-on-error: true
 
       - name: Check Trivy SARIF exists
@@ -695,24 +695,24 @@ jobs:
           echo "✅ Image freshness validated"
 
       - name: Run Trivy scan on PR image (table output)
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ steps.pr-image.outputs.image_ref }}
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
-          version: 'v0.69.3'
+          version: 'v0.70.0'
 
       - name: Run Trivy scan on PR image (SARIF - blocking)
         id: trivy-scan
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ steps.pr-image.outputs.image_ref }}
           format: 'sarif'
           output: 'trivy-pr-results.sarif'
           severity: 'CRITICAL,HIGH'
           exit-code: '1'  # Intended to block, but continued on error for now
-          version: 'v0.69.3'
+          version: 'v0.70.0'
         continue-on-error: true
 
       - name: Check Trivy PR SARIF exists

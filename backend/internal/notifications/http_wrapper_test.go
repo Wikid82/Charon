@@ -180,7 +180,7 @@ func TestHTTPWrapperSendSuccessWithValidatedDestination(t *testing.T) {
 func TestHTTPWrapperSendRejectsUserInfoInDestinationURL(t *testing.T) {
 	wrapper := NewNotifyHTTPWrapper()
 
-	_, err := wrapper.Send(context.Background(), HTTPWrapperRequest{
+	_, err := wrapper.Send(context.Background(), HTTPWrapperRequest{ //nolint:gosec // test verifies rejection of credentials in URL
 		URL:  "https://user:pass@example.com/hook",
 		Body: []byte(`{"message":"hello"}`),
 	})
