@@ -108,7 +108,7 @@ func TestDNSProviderService_Create(t *testing.T) {
 			req: CreateDNSProviderRequest{
 				Name:         "Test Route53",
 				ProviderType: "route53",
-				Credentials: map[string]string{
+				Credentials: map[string]string{ //nolint:gosec // test fixture uses AWS documentation example keys
 					"access_key_id":     "AKIAIOSFODNN7EXAMPLE",
 					"secret_access_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
 					"region":            "us-east-1",
@@ -637,7 +637,7 @@ func TestDNSProviderService_TestFailure(t *testing.T) {
 	ctx := context.Background()
 
 	// Create provider with invalid credentials structure (will fail decryption in real scenario)
-	provider := &models.DNSProvider{
+	provider := &models.DNSProvider{ //nolint:gosec // test fixture with intentionally invalid encrypted data
 		UUID:                 "test-uuid",
 		Name:                 "Test",
 		ProviderType:         "cloudflare",

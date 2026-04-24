@@ -72,8 +72,12 @@ mkdir -p /app/data/caddy 2>/dev/null || true
 mkdir -p /app/data/crowdsec 2>/dev/null || true
 mkdir -p /app/data/geoip 2>/dev/null || true
 
-# Fix ownership for directories created as root
+# Fix ownership for the data volume and required subdirectories when running as root.
+# This handles rootless Docker environments where the host volume may be owned by the
+# host user (mapped to container UID 0), making it inaccessible to the charon user.
 if is_root; then
+    chown charon:charon /app/data 2>/dev/null || true
+    chown charon:charon /config 2>/dev/null || true
     chown -R charon:charon /app/data/caddy 2>/dev/null || true
     chown -R charon:charon /app/data/crowdsec 2>/dev/null || true
     chown -R charon:charon /app/data/geoip 2>/dev/null || true
