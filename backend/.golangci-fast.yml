@@ -31,3 +31,8 @@ linters:
         - G501  # Blacklisted import crypto/md5
         - G502  # Blacklisted import crypto/des
         - G503  # Blacklisted import crypto/rc4
+  exclusions:
+    rules:
+      - path: "_test\\.go"
+        linters:
+          - gosec

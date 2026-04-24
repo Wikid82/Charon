@@ -226,7 +226,7 @@ func TestManager_GetCredentialForDomain_DecryptionFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create a provider with invalid encrypted data
-	provider := models.DNSProvider{
+	provider := models.DNSProvider{ //nolint:gosec // test fixture with intentionally invalid data
 		ID:                   1,
 		ProviderType:         "cloudflare",
 		UseMultiCredentials:  false,

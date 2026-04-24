@@ -151,6 +151,8 @@ docker run -d \
 
 **Why is this needed?** The Docker socket is owned by a specific group on your host machine. Adding that group lets Charon read the socket without running as root—keeping your setup secure.
 
+> **Security Note:** The `:ro` flag on the socket mount prevents the socket file from being deleted, but does not restrict what the Docker API can do. If you want to reduce the trust surface, consider using a Docker socket proxy instead — see [Docker Auto-Discovery](features/docker-integration.md#limiting-socket-access-with-a-proxy) for setup instructions.
+
 ---
 
 ## Step 1.5: Database Migrations (If Upgrading)

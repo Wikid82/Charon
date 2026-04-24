@@ -4,21 +4,36 @@
                 {
             "label": "Docker Compose Up",
             "type": "shell",
-            "command": "docker compose -f /root/docker/containers/charon/docker-compose.yml up -d && echo 'Charon running at http://localhost:8787'",
+            "command": "docker compose -f /home/jeremy/docker/containers/charon/docker-compose.yml up -d && echo 'Charon running at http://localhost:8787'",
+            "options": {
+                "env": {
+                    "DOCKER_HOST": "unix:///run/user/1001/docker.sock"
+                }
+            },
             "group": "build",
             "problemMatcher": []
         },
         {
             "label": "Build & Run: Local Docker Image",
             "type": "shell",
-            "command": "docker build -t charon:local . && docker compose -f /root/docker/containers/charon/docker-compose.yml up -d && echo 'Charon running at http://localhost:8787'",
+            "command": "docker build -t charon:local . && docker compose -f /home/jeremy/docker/containers/charon/docker-compose.yml up -d && echo 'Charon running at http://localhost:8787'",
+            "options": {
+                "env": {
+                    "DOCKER_HOST": "unix:///run/user/1001/docker.sock"
+                }
+            },
             "group": "build",
             "problemMatcher": []
         },
         {
             "label": "Build & Run: Local Docker Image No-Cache",
             "type": "shell",
-            "command": "docker build --no-cache -t charon:local . && docker compose -f /root/docker/containers/charon/docker-compose.yml up -d && echo 'Charon running at http://localhost:8787'",
+            "command": "docker build --no-cache -t charon:local . && docker compose -f /home/jeremy/docker/containers/charon/docker-compose.yml up -d && echo 'Charon running at http://localhost:8787'",
+            "options": {
+                "env": {
+                    "DOCKER_HOST": "unix:///run/user/1001/docker.sock"
+                }
+            },
             "group": "build",
             "problemMatcher": []
         },
