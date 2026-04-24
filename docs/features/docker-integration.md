@@ -139,12 +139,49 @@ Override the auto-detected port:
 | Connection refused | Remote Docker not configured | Enable TCP API on Docker host |
 | Container not proxied | Container not running | Start the container |
 | Wrong IP resolved | Multi-network container | Specify network in advanced settings |
+| Socket proxy not reachable | DOCKER_HOST misconfigured | Verify socket-proxy container is on the same network and DOCKER_HOST matches the service name |
 
 ## Security Considerations
 
-- **Socket Access**: Docker socket provides root-equivalent access. Mount read-only.
+- **Socket Access**: The Docker socket grants broad system access — the `:ro` flag prevents deleting the socket file, but does **not** restrict which Docker API calls can be made. If you don't need container auto-discovery, skip the socket mount entirely. For production, use a socket proxy (see below).
 - **Remote Connections**: Always use TLS for remote Docker hosts.
 - **Network Isolation**: Use Docker networks to segment container communication.
+
+### Limiting Socket Access with a Proxy
+
+A Docker socket proxy sits between Charon and the Docker daemon, filtering API calls so only the endpoints Charon actually needs are reachable. Charon only uses `GET /containers/*` to list containers, so you can lock everything else down.
+
+**Recommended proxy:** `lscr.io/linuxserver/socket-proxy`
+
+```yaml
+services:
+  socket-proxy:
+    image: lscr.io/linuxserver/socket-proxy:latest
+    container_name: socket-proxy
+    restart: unless-stopped
+    environment:
+      - CONTAINERS=1   # Allow container listing (required by Charon)
+      - POST=0         # Deny all write operations
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - proxy-internal
+
+  charon:
+    image: ghcr.io/wikid82/charon:latest
+    environment:
+      - DOCKER_HOST=tcp://socket-proxy:2375
+    # No docker.sock volume needed!
+    networks:
+      - proxy-internal
+      - ...
+
+networks:
+  proxy-internal:
+    internal: true
+```
+
+With this setup, Charon talks to the proxy instead of the raw Docker socket. The proxy only answers container listing requests — everything else is blocked.
 
 ## Related
 

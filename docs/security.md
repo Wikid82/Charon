@@ -1387,6 +1387,9 @@ services:
 
       # Docker socket for container discovery (read-only)
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Note: :ro prevents file deletion but does not restrict Docker API access.
+      # For production hardening, replace with a socket proxy scoped to CONTAINERS only.
+      # See docs/features/docker-integration.md — "Limiting Socket Access with a Proxy".
 
       # Optional: Import existing Caddyfile (read-only)
       # - ./my-existing-Caddyfile:/import/Caddyfile:ro
@@ -1428,6 +1431,12 @@ volumes:
 - Automatically cleared on container restart
 - Prevents logs and temporary files from filling disk space
 - Size limits prevent memory exhaustion attacks
+
+**Docker Socket (Container Discovery):**
+
+- Mounting the raw Docker socket grants broad system access regardless of the `:ro` flag
+- For production hardening, replace the socket mount with a socket proxy scoped to container listing only
+- See [Docker Auto-Discovery](features/docker-integration.md#limiting-socket-access-with-a-proxy) for the recommended setup
 
 #### What About the `caddy_data` Volume?
 
