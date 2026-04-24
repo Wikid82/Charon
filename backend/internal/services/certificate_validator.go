@@ -260,7 +260,7 @@ func ValidateKeyMatch(cert *x509.Certificate, key crypto.PrivateKey) error {
 		if !ok {
 			return fmt.Errorf("key type mismatch: certificate has ECDSA public key but private key is not ECDSA")
 		}
-		if pub.X.Cmp(privKey.X) != 0 || pub.Y.Cmp(privKey.Y) != 0 {
+		if !pub.Equal(&privKey.PublicKey) {
 			return fmt.Errorf("ECDSA key mismatch: certificate and private key points differ")
 		}
 	case ed25519.PublicKey:

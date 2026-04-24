@@ -943,7 +943,7 @@ func TestGenerateConfig_WithSecurityDecisions(t *testing.T) {
 
 func TestBuildRateLimitHandler_BypassList(t *testing.T) {
 	// Verify bypass list creates subroute structure
-	secCfg := &models.SecurityConfig{
+	secCfg := &models.SecurityConfig{ //nolint:gosec // test fixture with non-sensitive network ranges
 		RateLimitRequests:   100,
 		RateLimitWindowSec:  60,
 		RateLimitBurst:      20,

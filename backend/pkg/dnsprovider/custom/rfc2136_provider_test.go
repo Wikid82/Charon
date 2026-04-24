@@ -296,7 +296,7 @@ func TestRFC2136Provider_ValidateCredentials(t *testing.T) {
 		},
 		{
 			name: "invalid base64 secret",
-			creds: map[string]string{
+			creds: map[string]string{ //nolint:gosec // test fixture with intentionally invalid base64
 				"nameserver":      "ns1.example.com",
 				"tsig_key_name":   "acme-key",
 				"tsig_key_secret": "not-valid-base64!!!",

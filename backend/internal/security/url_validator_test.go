@@ -86,7 +86,7 @@ func TestValidateExternalURL_BasicValidation(t *testing.T) {
 			shouldFail:  true,
 			errContains: "unsupported scheme: data",
 		},
-		{
+		{ //nolint:gosec // test verifies rejection of embedded credentials in URL
 			name:        "URL with credentials",
 			url:         "https://user:pass@example.com",
 			options:     nil,
