@@ -144,7 +144,7 @@ func (s *EmergencyTokenService) Generate(req GenerateRequest) (*GenerateResponse
 // Returns the token record if valid, error otherwise
 func (s *EmergencyTokenService) Validate(token string) (*models.EmergencyToken, error) {
 	// Check for empty/whitespace token
-	if token == "" || len(strings.TrimSpace(token)) == 0 {
+	if token == "" || strings.TrimSpace(token) == "" {
 		return nil, fmt.Errorf("token is empty")
 	}
 
@@ -184,7 +184,7 @@ func (s *EmergencyTokenService) Validate(token string) (*models.EmergencyToken, 
 	}
 
 	// Fallback to environment variable for backward compatibility
-	if envToken == "" || len(strings.TrimSpace(envToken)) == 0 {
+	if envToken == "" || strings.TrimSpace(envToken) == "" {
 		return nil, fmt.Errorf("no token configured")
 	}
 
