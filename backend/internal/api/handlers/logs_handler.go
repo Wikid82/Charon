@@ -93,8 +93,9 @@ func (h *LogsHandler) Download(c *gin.Context) {
 		}
 	}()
 
-	// #nosec G304 -- path is validated via LogService.GetLogPath
-	srcFile, err := os.Open(path) // nosemgrep: go.gin.path-traversal.gin-path-traversal-taint.gin-path-traversal-taint
+	// #nosec G304 -- path is validated via LogService.GetLogPath which enforces
+	// filepath.Base equality check and path prefix validation.
+	srcFile, err := os.Open(path) //nolint:gosec // nosemgrep: go.gin.path-traversal.gin-path-traversal-taint.gin-path-traversal-taint
 	if err != nil {
 		if err := tmpFile.Close(); err != nil {
 			logger.Log().WithError(err).Warn("failed to close temp file")

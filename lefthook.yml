@@ -104,6 +104,11 @@ pre-commit:
       glob: "frontend/**/*.{ts,tsx,js,jsx}"
       run: cd frontend && npm run lint
 
+    semgrep:
+      glob: "{**/*.{go,ts,tsx,js,jsx,sh,yml,yaml,json},Dockerfile*}"
+      exclude: 'frontend/(coverage|dist|node_modules|\.vite)/'
+      run: scripts/pre-commit-hooks/semgrep-scan.sh {staged_files}
+
 
 # ============================================================
 # MANUAL: security-full
