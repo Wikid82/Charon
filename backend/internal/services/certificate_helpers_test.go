@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func generateSelfSignedCertPEM() (string, string, error) {
+func generateSelfSignedCertPEM() (certPEM, keyPEM string, err error) {
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return "", "", err
@@ -31,8 +31,8 @@ func generateSelfSignedCertPEM() (string, string, error) {
 		return "", "", err
 	}
 
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
-	return string(certPEM), string(keyPEM), nil
+	certPEM = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes}))
+	keyPEM = string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)}))
+	return certPEM, keyPEM, nil
 }
 
