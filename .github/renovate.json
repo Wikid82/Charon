@@ -7,7 +7,6 @@
     "helpers:pinGitHubActionDigests"
   ],
   "baseBranchPatterns": [
-    "feature/beta-release",
     "development"
   ],
   "postUpdateOptions": ["npmDedupe"],
@@ -265,18 +264,11 @@
         "*"
       ]
     },
-        {
-      "description": "Feature branches: Auto-merge non-major updates after proven stable",
-      "matchBaseBranches": ["feature/**"],
-      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
-      "automerge": false
-    },
     {
       "description": "Development branch: Auto-merge non-major updates after proven stable",
       "matchBaseBranches": ["development"],
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
-      "automerge": false,
-      "minimumReleaseAge": "14 days"
+      "automerge": false
     },
     {
       "description": "Preserve your custom Caddy patch labels but allow them to group into a single PR",
