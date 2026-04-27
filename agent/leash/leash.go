@@ -176,7 +176,7 @@ func (l *Leash) handleStream(ctx context.Context, stream *yamux.Stream) {
 // handleDockerStream proxies the stream to the local Docker socket through the Muzzle filter.
 func (l *Leash) handleDockerStream(stream *yamux.Stream) {
 	if err := l.filter.ServeProxy(l.dockerSock, stream, stream); err != nil {
-		l.log.WithError(err).Debug("leash: docker proxy stream closed")
+		l.log.WithField("error", sanitizeLogField(err.Error())).Debug("leash: docker proxy stream closed")
 	}
 }
 
