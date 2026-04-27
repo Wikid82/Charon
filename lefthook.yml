@@ -53,7 +53,7 @@ pre-commit:
 
     check-yaml:
       glob: "*.{yaml,yml}"
-      run: python3 -c "import sys,yaml; [yaml.safe_load(open(f)) for f in sys.argv[1:]]" {all_files}
+      run: python3 -c "import sys,yaml; [yaml.safe_load(open(f)) for f in sys.argv[1:]]" {staged_files}
 
     # --- Blocking security/commit guards (always run) ---
     check-lfs-large-files:
@@ -69,7 +69,7 @@ pre-commit:
     shellcheck:
       glob: "*.sh"
       exclude: "frontend/(coverage|dist|node_modules|\\.vite)/|test-results|codeql-agent-results"
-      run: shellcheck --severity=error {all_files}
+      run: shellcheck --severity=error {staged_files}
 
     actionlint:
       glob: ".github/workflows/*.{yaml,yml}"
@@ -77,7 +77,7 @@ pre-commit:
 
     dockerfile-check:
       glob: "Dockerfile*"
-      run: tools/dockerfile_check.sh {all_files}
+      run: tools/dockerfile_check.sh {staged_files}
 
     # --- Go ---
     go-vet:
