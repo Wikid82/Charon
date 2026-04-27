@@ -384,6 +384,12 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
     # renovate: datasource=go depName=github.com/jackc/pgx/v4
     go get github.com/jackc/pgx/v4@v4.18.3 && \
+    # CVE-2026-29181 (GHSA-mh2q-q3fh-2475): OpenTelemetry-Go baggage header multi-value DoS
+    # go.opentelemetry.io/otel >= 1.36.0 and <= 1.40.0 is vulnerable; fix available at v1.41.0.
+    # Pin here so the CrowdSec binary is patched immediately;
+    # remove once CrowdSec ships a release built with go.opentelemetry.io/otel >= v1.41.0.
+    # renovate: datasource=go depName=go.opentelemetry.io/otel
+    go get go.opentelemetry.io/otel@v1.43.0 && \
     # GHSA-xmrv-pmrh-hhx2: AWS SDK v2 event stream injection
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
     go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.9 && \
@@ -486,7 +492,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=62049119bd084e19fff4689bebe258f18a5f27a386e6d26ba5180941b613fc2b
+ARG GEOLITE2_COUNTRY_SHA256=c880cbc7e6b1a9b1a96d530c34996480d6d809d2c89a6bd73a5072e4fffbc01c
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \

@@ -1393,7 +1393,7 @@ func buildWAFDirectives(secCfg *models.SecurityConfig, ruleset *models.SecurityR
 	if secCfg != nil && secCfg.WAFMode == "monitor" {
 		engine = "DetectionOnly"
 	}
-	directives.WriteString(fmt.Sprintf("SecRuleEngine %s\n", engine))
+	fmt.Fprintf(&directives, "SecRuleEngine %s\n", engine)
 
 	// Enable request body inspection, disable response body for performance
 	directives.WriteString("SecRequestBodyAccess On\n")
@@ -1404,10 +1404,10 @@ func buildWAFDirectives(secCfg *models.SecurityConfig, ruleset *models.SecurityR
 	if secCfg != nil && secCfg.WAFParanoiaLevel >= 1 && secCfg.WAFParanoiaLevel <= 4 {
 		paranoiaLevel = secCfg.WAFParanoiaLevel
 	}
-	directives.WriteString(fmt.Sprintf("SecAction \"id:900000,phase:1,nolog,pass,t:none,setvar:tx.paranoia_level=%d\"\n", paranoiaLevel))
+	fmt.Fprintf(&directives, "SecAction \"id:900000,phase:1,nolog,pass,t:none,setvar:tx.paranoia_level=%d\"\n", paranoiaLevel)
 
 	// Include the ruleset file
-	directives.WriteString(fmt.Sprintf("Include %s\n", rulesetPath))
+	fmt.Fprintf(&directives, "Include %s\n", rulesetPath)
 
 	// Process exclusions from SecurityConfig
 	if secCfg != nil && secCfg.WAFExclusions != "" {
@@ -1415,10 +1415,10 @@ func buildWAFDirectives(secCfg *models.SecurityConfig, ruleset *models.SecurityR
 		for _, excl := range exclusions {
 			if excl.Target != "" {
 				// Use SecRuleUpdateTargetById to exclude specific targets
-				directives.WriteString(fmt.Sprintf("SecRuleUpdateTargetById %d \"!%s\"\n", excl.RuleID, excl.Target))
+				fmt.Fprintf(&directives, "SecRuleUpdateTargetById %d \"!%s\"\n", excl.RuleID, excl.Target)
 			} else {
 				// Remove the rule entirely
-				directives.WriteString(fmt.Sprintf("SecRuleRemoveById %d\n", excl.RuleID))
+				fmt.Fprintf(&directives, "SecRuleRemoveById %d\n", excl.RuleID)
 			}
 		}
 	}
