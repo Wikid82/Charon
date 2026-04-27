@@ -384,6 +384,12 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
     # renovate: datasource=go depName=github.com/jackc/pgx/v4
     go get github.com/jackc/pgx/v4@v4.18.3 && \
+    # CVE-2026-29181 (GHSA-mh2q-q3fh-2475): OpenTelemetry-Go baggage header multi-value DoS
+    # go.opentelemetry.io/otel >= 1.36.0 and <= 1.40.0 is vulnerable; fix available at v1.41.0.
+    # Pin here so the CrowdSec binary is patched immediately;
+    # remove once CrowdSec ships a release built with go.opentelemetry.io/otel >= v1.41.0.
+    # renovate: datasource=go depName=go.opentelemetry.io/otel
+    go get go.opentelemetry.io/otel@v1.41.0 && \
     # GHSA-xmrv-pmrh-hhx2: AWS SDK v2 event stream injection
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
     go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.9 && \
