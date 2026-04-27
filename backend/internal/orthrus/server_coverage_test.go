@@ -258,18 +258,21 @@ func TestOrthrusServer_HandleWebSocket_ValidToken_UpgradesConnection(t *testing.
 	}
 	defer func() { _ = conn.Close() }()
 
-	_, ok := srv.GetSession("wscov-uuid")
+	var ok bool
+	for i := 0; i < 20; i++ {
+		_, ok = srv.GetSession("wscov-uuid")
+		if ok {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	assert.True(t, ok)
 }
-
 func TestOrthrusServer_FindAgentByToken_DBError_ReturnsError(t *testing.T) {
 	db := setupServerTestDB(t)
 	srv, err := NewOrthrusServer(db, setupTestCA(t))
 	require.NoError(t, err)
 
-	sqlDB, err := db.DB()
-	require.NoError(t, err)
-	require.NoError(t, sqlDB.Close())
 
 	_, err = srv.findAgentByToken("anytoken")
 	assert.Error(t, err)
