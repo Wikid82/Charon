@@ -14,6 +14,7 @@ const (
 	ProviderCloudflare TunnelProviderType = "cloudflare"
 	ProviderTailscale  TunnelProviderType = "tailscale"
 	ProviderZeroTier   TunnelProviderType = "zerotier"
+	ProviderNetBird    TunnelProviderType = "netbird"
 )
 
 // TunnelConfig stores configuration and AES-256-GCM encrypted credentials

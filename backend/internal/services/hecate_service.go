@@ -5,6 +5,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/hecate"
+	"github.com/Wikid82/charon/backend/internal/hecate/providers/netbird"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"gorm.io/gorm"
 )
@@ -17,8 +18,9 @@ type HecateService struct {
 	mgr    *hecate.TunnelManager
 }
 
-// NewHecateService creates a HecateService.
+// NewHecateService creates a HecateService and registers all supported provider factories.
 func NewHecateService(db *gorm.DB, encSvc *crypto.EncryptionService, mgr *hecate.TunnelManager) *HecateService {
+	mgr.RegisterFactory(models.ProviderNetBird, netbird.Factory)
 	return &HecateService{db: db, encSvc: encSvc, mgr: mgr}
 }
 
