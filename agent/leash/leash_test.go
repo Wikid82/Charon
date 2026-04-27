@@ -1,4 +1,3 @@
-package leash
 package leash_test
 
 import (
