@@ -85,6 +85,13 @@ func (p *CloudflareTunnelProvider) GetAddress() string {
 	return p.address
 }
 
+// GetClient returns the underlying CloudflareClient for API calls.
+func (p *CloudflareTunnelProvider) GetClient() *CloudflareClient {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.client
+}
+
 // Start validates the cloudflared binary is available, then launches it as a subprocess.
 // stdout and stderr are captured to the internal ring buffer.
 func (p *CloudflareTunnelProvider) Start(ctx context.Context) error {
