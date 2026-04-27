@@ -234,6 +234,19 @@ func (m *TunnelManager) GetStatus() []TunnelStatus {
 	return statuses
 }
 
+// GetProviderByType returns the first active provider matching the given type.
+func (m *TunnelManager) GetProviderByType(providerType models.TunnelProviderType) (TunnelProvider, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	typeStr := string(providerType)
+	for _, ps := range m.state {
+		if ps.provider == typeStr {
+			return ps.instance, true
+		}
+	}
+	return nil, false
+}
+
 // GetLogBuffer returns the ring buffer for the tunnel identified by uuid.
 func (m *TunnelManager) GetLogBuffer(uuid string) (*RingBuffer, error) {
 	m.mu.RLock()
