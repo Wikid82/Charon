@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 // sanitizePath strips newlines and carriage returns from a path string to
@@ -44,7 +45,7 @@ func NewMuzzle(next http.Handler) *Muzzle {
 // are forwarded; all others receive 403 Forbidden.
 func (m *Muzzle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		logger.Log().WithField("method", r.Method).WithField("path", sanitizePath(r.URL.Path)).
+		logger.Log().WithField("method", util.SanitizeForLog(r.Method)).WithField("path", sanitizePath(r.URL.Path)).
 			Warn("orthrus: muzzle blocked non-GET Docker request")
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
@@ -56,7 +57,7 @@ func (m *Muzzle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logger.Log().WithField("method", r.Method).WithField("path", sanitizePath(r.URL.Path)).
+	logger.Log().WithField("method", util.SanitizeForLog(r.Method)).WithField("path", sanitizePath(r.URL.Path)).
 		Warn("orthrus: muzzle blocked disallowed Docker path")
 	http.Error(w, "Forbidden", http.StatusForbidden)
 }

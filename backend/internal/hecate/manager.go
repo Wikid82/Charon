@@ -9,6 +9,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/util"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -159,8 +160,8 @@ func (m *TunnelManager) StartTunnel(uuid string) error {
 
 	if !hasFactory {
 		logger.Log().WithFields(logrus.Fields{
-			"uuid":     uuid,
-			"provider": string(cfg.Provider),
+			"uuid":     util.SanitizeForLog(uuid),
+			"provider": util.SanitizeForLog(string(cfg.Provider)),
 		}).Warn("hecate: no factory registered for provider type, skipping")
 		return nil
 	}
@@ -294,7 +295,7 @@ func (m *TunnelManager) runWatcher(ctx context.Context, uuid string) {
 		attempt++
 
 		logger.Log().WithFields(logrus.Fields{
-			"uuid":  uuid,
+			"uuid":  util.SanitizeForLog(uuid),
 			"state": string(state),
 			"delay": delay.String(),
 		}).Warn("hecate: tunnel in error/stopped state, scheduling restart")
@@ -314,7 +315,7 @@ func (m *TunnelManager) runWatcher(ctx context.Context, uuid string) {
 
 		if err := ps2.instance.Start(ctx); err != nil {
 			logger.Log().WithFields(logrus.Fields{
-				"uuid":  uuid,
+				"uuid":  util.SanitizeForLog(uuid),
 				"error": err.Error(),
 			}).Error("hecate: failed to restart tunnel")
 		}

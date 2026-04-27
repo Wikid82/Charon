@@ -9,6 +9,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/util"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
@@ -75,12 +76,12 @@ func (s *OrthrusServer) HandleWebSocket(c *gin.Context) {
 		"status":    models.OrthrusStatusOnline,
 		"last_seen": &now,
 	}).Error; err != nil {
-		logger.Log().WithField("uuid", agent.UUID).WithError(err).Warn("orthrus: update agent status failed")
+		logger.Log().WithField("uuid", util.SanitizeForLog(agent.UUID)).WithError(err).Warn("orthrus: update agent status failed")
 	}
 
 	logger.Log().WithFields(logrus.Fields{
-		"uuid": agent.UUID,
-		"name": agent.Name,
+		"uuid": util.SanitizeForLog(agent.UUID),
+		"name": util.SanitizeForLog(agent.Name),
 	}).Info("orthrus: agent connected")
 
 	go s.watchHeartbeat(agent.UUID, session)
