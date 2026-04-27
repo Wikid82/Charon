@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -204,12 +205,20 @@ func (l *Leash) handlePortForward(stream *yamux.Stream) {
 
 	conn, err := net.Dial("tcp", targetAddr)
 	if err != nil {
-		l.log.WithError(err).WithField("target", targetAddr).Error("leash: port forward: dial failed")
+		l.log.WithError(err).WithField("target", sanitizeLogField(targetAddr)).Error("leash: port forward: dial failed")
 		return
 	}
 	defer conn.Close()
 
 	proxyBidirectional(stream, conn)
+}
+
+// sanitizeLogField strips newline and carriage-return characters from a string before
+// it is written to a log entry, preventing CWE-117 log injection.
+func sanitizeLogField(s string) string {
+	s = strings.ReplaceAll(s, "\n", `\n`)
+	s = strings.ReplaceAll(s, "\r", `\r`)
+	return s
 }
 
 // proxyBidirectional copies data between two io.ReadWriters until either side closes.
