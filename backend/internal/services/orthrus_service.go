@@ -2,7 +2,6 @@ package services
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 
@@ -47,9 +46,13 @@ func (s *OrthrusService) Provision(name string) (models.OrthrusAgent, string, er
 	}
 	plainKey := authKeyPrefix + hex.EncodeToString(rawBytes)
 
-	// Pre-hash with SHA-256 so bcrypt never sees >72 bytes (bcrypt limit).
-	keySum := sha256.Sum256([]byte(plainKey))
-	hash, err := bcrypt.GenerateFromPassword(keySum[:], bcryptCost)
+	// Truncate to bcrypt's 72-byte input limit so the full key is compared;
+	// bcrypt is the sole password hashing primitive — no pre-hash step needed.
+	keyBytes := []byte(plainKey)
+	if len(keyBytes) >= 72 {
+		keyBytes = keyBytes[:71]
+	}
+	hash, err := bcrypt.GenerateFromPassword(keyBytes, bcryptCost)
 	if err != nil {
 		return models.OrthrusAgent{}, "", fmt.Errorf("orthrus: hash auth key: %w", err)
 	}
