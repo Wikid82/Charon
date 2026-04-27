@@ -183,27 +183,5 @@ jobs:
                 core.info('Push originated from development (excluded). Skipping propagation back to development.');
               }
             } else if (currentBranch === 'development') {
-              // Development -> Feature/Hotfix branches (The Pittsburgh Model)
-              // We propagate changes from dev DOWN to features/hotfixes so they stay up to date.
-
-              const branches = await github.paginate(github.rest.repos.listBranches, {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-              });
-
-              // Filter for feature/* and hotfix/* branches using regex
-              // AND exclude the branch that just got merged in (if any)
-              const targetBranches = branches
-                .map(b => b.name)
-                .filter(name => {
-                  const isTargetType = /^feature\/|^hotfix\//.test(name);
-                  const isExcluded = (name === excludedBranch);
-                  return isTargetType && !isExcluded;
-                });
-
-              core.info(`Found ${targetBranches.length} target branches (excluding '${excludedBranch || 'none'}'): ${targetBranches.join(', ')}`);
-
-              for (const targetBranch of targetBranches) {
-                await createPR('development', targetBranch);
-              }
+              core.info('Push to development detected. No downstream propagation configured.');
             }
