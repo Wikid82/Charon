@@ -102,7 +102,7 @@ func TestSendJSONPayload_UsesStoredHostnameURLWithoutHostMutation(t *testing.T) 
 	webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
 		observedURLHost = req.URL.Host
 		observedRequestHost = req.Host
-		return client.Do(req) //nolint:gosec // G704: test uses a controlled mock server URL
+		return client.Do(req)
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -483,7 +483,7 @@ func TestTestProvider_UsesJSONForSupportedServices(t *testing.T) {
 	}()
 	validateDiscordProviderURLFunc = func(providerType, rawURL string) error { return nil }
 	webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
-		return client.Do(req) //nolint:gosec // G704: test-controlled httptest server, not user input
+		return client.Do(req)
 	}
 
 	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
@@ -518,7 +518,7 @@ func TestSendJSONPayload_Telegram_ValidPayload(t *testing.T) {
 	svc := NewNotificationService(db, nil)
 	svc.telegramAPIBaseURL = server.URL
 
-	provider := models.NotificationProvider{ //nolint:gosec // G101: test credential
+	provider := models.NotificationProvider{
 		Type:     "telegram",
 		URL:      "123456789",
 		Token:    "bot-test-token",
@@ -552,7 +552,7 @@ func TestSendJSONPayload_Telegram_AutoMapMessageToText(t *testing.T) {
 	svc := NewNotificationService(db, nil)
 	svc.telegramAPIBaseURL = server.URL
 
-	provider := models.NotificationProvider{ //nolint:gosec // G101: test credential
+	provider := models.NotificationProvider{
 		Type:     "telegram",
 		URL:      "123456789",
 		Token:    "bot-test-token",
@@ -577,7 +577,7 @@ func TestSendJSONPayload_Telegram_MissingTextAndMessage(t *testing.T) {
 
 	svc := NewNotificationService(db, nil)
 
-	provider := models.NotificationProvider{ //nolint:gosec // G101: test credential
+	provider := models.NotificationProvider{
 		Type:     "telegram",
 		URL:      "123456789",
 		Token:    "bot-test-token",
@@ -611,7 +611,7 @@ func TestSendJSONPayload_Telegram_SSRFValidation(t *testing.T) {
 
 	// Path traversal in token: Go's net/http transport cleans the URL path,
 	// so "/../../../evil.com/x" does not escape the server host.
-	provider := models.NotificationProvider{ //nolint:gosec // G101: test credential
+	provider := models.NotificationProvider{
 		Type:     "telegram",
 		URL:      "123456789",
 		Token:    "test-token/../../../evil.com/x",

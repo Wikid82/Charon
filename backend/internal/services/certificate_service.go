@@ -132,7 +132,7 @@ func (s *CertificateService) SyncFromDisk() error {
 
 			if !info.IsDir() && strings.HasSuffix(info.Name(), ".crt") {
 				// #nosec G304 -- path is controlled by filepath.Walk starting from certRoot
-				certData, err := os.ReadFile(path) //nolint:gosec // G122: Walk is within application-controlled certRoot
+				certData, err := os.ReadFile(path)
 				if err != nil {
 					logger.Log().WithField("path", util.SanitizeForLog(path)).WithError(err).Error("CertificateService: failed to read cert file")
 					return nil
@@ -678,18 +678,18 @@ func (s *CertificateService) DeleteCertificate(certUUID string) error {
 			if err == nil && !info.IsDir() && strings.HasSuffix(info.Name(), ".crt") {
 				if info.Name() == cert.Domains+".crt" {
 					logger.Log().WithField("path", path).Info("CertificateService: deleting ACME cert file")
-					if err := os.Remove(path); err != nil { //nolint:gosec // G122: Walk is within application-controlled certRoot
+					if err := os.Remove(path); err != nil {
 						logger.Log().WithError(err).Error("CertificateService: failed to delete cert file")
 					}
 					keyPath := strings.TrimSuffix(path, ".crt") + ".key"
 					if _, err := os.Stat(keyPath); err == nil {
-						if err := os.Remove(keyPath); err != nil { //nolint:gosec // G122: Walk is within application-controlled certRoot
+						if err := os.Remove(keyPath); err != nil {
 							logger.Log().WithError(err).Warn("Failed to remove key file")
 						}
 					}
 					jsonPath := strings.TrimSuffix(path, ".crt") + ".json"
 					if _, err := os.Stat(jsonPath); err == nil {
-						if err := os.Remove(jsonPath); err != nil { //nolint:gosec // G122: Walk is within application-controlled certRoot
+						if err := os.Remove(jsonPath); err != nil {
 							logger.Log().WithError(err).Warn("Failed to remove JSON file")
 						}
 					}
@@ -708,7 +708,7 @@ func (s *CertificateService) DeleteCertificate(certUUID string) error {
 
 // ExportCertificate exports a certificate in the requested format.
 // Returns the file data, suggested filename, and any error.
-func (s *CertificateService) ExportCertificate(certUUID, format string, includeKey bool, pfxPassword string) (data []byte, filename string, err error) {
+func (s *CertificateService) ExportCertificate(certUUID string, format string, includeKey bool, pfxPassword string) ([]byte, string, error) {
 	var cert models.SSLCertificate
 	if err := s.db.Where("uuid = ?", certUUID).First(&cert).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -835,7 +835,7 @@ func (s *CertificateService) DeleteCertificateByID(id uint) error {
 }
 
 // UpdateCertificate updates certificate metadata (name only) by UUID.
-func (s *CertificateService) UpdateCertificate(certUUID, name string) (*CertificateInfo, error) {
+func (s *CertificateService) UpdateCertificate(certUUID string, name string) (*CertificateInfo, error) {
 	var cert models.SSLCertificate
 	if err := s.db.Where("uuid = ?", certUUID).First(&cert).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {

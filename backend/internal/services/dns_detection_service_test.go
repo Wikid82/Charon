@@ -451,7 +451,7 @@ func TestConcurrentCacheAccess(t *testing.T) {
 
 	for i := 0; i < goroutines; i++ {
 		go func(id int) {
-			domain := strings.ReplaceAll("test-DOMAIN-ID.com", "ID", string(rune(id))) //nolint:gosec // G115: test ID values fit safely in rune range
+			domain := strings.ReplaceAll("test-DOMAIN-ID.com", "ID", string(rune(id)))
 			result := &DetectionResult{
 				Domain:   domain,
 				Detected: true,

@@ -408,14 +408,14 @@ func testKeyAgainstLAPIStartup(apiKey string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody) //nolint:gosec // G704: endpoint from env config, not user input
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return false
 	}
 	req.Header.Set("X-Api-Key", apiKey)
 
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req) //nolint:gosec // G704: request built from trusted config endpoint
+	resp, err := client.Do(req)
 	if err != nil {
 		return false
 	}
@@ -439,7 +439,7 @@ func maskAPIKeyStartup(key string) string {
 type simpleCommandExecutor struct{}
 
 func (e *simpleCommandExecutor) Execute(ctx context.Context, name string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: command is from internal allowlist, not user input
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = os.Environ()
 	return cmd.CombinedOutput()
 }

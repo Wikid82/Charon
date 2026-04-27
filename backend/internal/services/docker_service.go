@@ -255,7 +255,7 @@ func resolveLocalDockerHost() string {
 	if strings.HasPrefix(envHost, "unix://") {
 		socketPath := socketPathFromDockerHost(envHost)
 		if socketPath != "" {
-			if _, err := os.Stat(socketPath); err == nil { //nolint:gosec // G703: path from application config, not user input
+			if _, err := os.Stat(socketPath); err == nil {
 				return envHost
 			}
 		}
@@ -351,7 +351,7 @@ func extractErrno(err error) (syscall.Errno, bool) {
 	return 0, false
 }
 
-func localSocketStatSummary(socketPath string) (summary string, gid int) {
+func localSocketStatSummary(socketPath string) (string, int) {
 	info, statErr := os.Stat(socketPath)
 	if statErr != nil {
 		return fmt.Sprintf("Socket path %s could not be stat'ed: %v.", socketPath, statErr), -1

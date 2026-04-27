@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
@@ -1752,39 +1751,4 @@ func dedupeDomains(domains []string) []string {
 		}
 	}
 	return result
-}
-
-// OrthrusAddrResolver resolves the live proxy address for an Orthrus agent.
-// This interface breaks the import cycle between caddy and orthrus packages.
-type OrthrusAddrResolver interface {
-	GetProxyAddr(agentUUID string) (string, bool)
-}
-
-// resolveOrthrusHosts replaces ForwardHost values prefixed with "orthrus:<uuid>"
-// with the live host/port provided by the Orthrus session manager.
-func resolveOrthrusHosts(hosts []models.ProxyHost, server OrthrusAddrResolver) []models.ProxyHost {
-	if server == nil {
-		return hosts
-	}
-	const prefix = "orthrus:"
-	out := make([]models.ProxyHost, len(hosts))
-	copy(out, hosts)
-	for i, h := range out {
-		if !strings.HasPrefix(h.ForwardHost, prefix) {
-			continue
-		}
-		agentUUID := strings.TrimPrefix(h.ForwardHost, prefix)
-		addr, ok := server.GetProxyAddr(agentUUID)
-		if !ok {
-			continue
-		}
-		parts := strings.SplitN(addr, ":", 2)
-		if len(parts) == 2 {
-			if port, convErr := strconv.Atoi(parts[1]); convErr == nil {
-				out[i].ForwardHost = parts[0]
-				out[i].ForwardPort = port
-			}
-		}
-	}
-	return out
 }

@@ -124,7 +124,7 @@ func TestGeoIPService_Integration(t *testing.T) {
 
 	var dbPath string
 	for _, p := range possiblePaths {
-		if _, err := os.Stat(p); err == nil { //nolint:gosec // G703: test path from controlled location
+		if _, err := os.Stat(p); err == nil {
 			dbPath = p
 			break
 		}

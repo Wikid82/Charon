@@ -205,7 +205,7 @@ func (s *dnsDetectionService) GetNameserverPatterns() map[string]string {
 
 // matchNameservers matches nameserver hosts against known patterns.
 // Returns the provider type and confidence level.
-func (s *dnsDetectionService) matchNameservers(nameservers []string) (providerType, confidence string) {
+func (s *dnsDetectionService) matchNameservers(nameservers []string) (string, string) {
 	if len(nameservers) == 0 {
 		return "", "none"
 	}
@@ -217,10 +217,10 @@ func (s *dnsDetectionService) matchNameservers(nameservers []string) (providerTy
 	// Check each nameserver against all patterns
 	for _, ns := range nameservers {
 		nsLower := strings.ToLower(ns)
-		for pattern, pType := range BuiltInNameservers {
+		for pattern, providerType := range BuiltInNameservers {
 			patternLower := strings.ToLower(pattern)
 			if strings.Contains(nsLower, patternLower) {
-				matchCounts[pType]++
+				matchCounts[providerType]++
 				totalMatches++
 				break // Count each nameserver only once per provider
 			}
@@ -245,6 +245,7 @@ func (s *dnsDetectionService) matchNameservers(nameservers []string) (providerTy
 	// Calculate confidence based on match percentage
 	matchPercentage := float64(maxMatches) / float64(len(nameservers))
 
+	var confidence string
 	switch {
 	case matchPercentage >= 0.8: // 80%+ nameservers matched
 		confidence = "high"

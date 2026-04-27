@@ -242,20 +242,6 @@
       "depNameTemplate": "golang/go",
       "datasourceTemplate": "golang-version",
       "versioningTemplate": "semver"
-    },
-    {
-      "customType": "regex",
-      "description": "Track golangci-lint version in quality checks workflow",
-      "managerFilePatterns": [
-        "/^\\.github/workflows/quality-checks\\.yml$/"
-      ],
-      "matchStrings": [
-        "# renovate: datasource=github-releases depName=golangci/golangci-lint\\n\\s+version: v(?<currentValue>[^\\s]+)"
-      ],
-      "depNameTemplate": "golangci/golangci-lint",
-      "datasourceTemplate": "github-releases",
-      "versioningTemplate": "semver",
-      "extractVersionTemplate": "^v(?<version>.*)"
     }
   ],
 

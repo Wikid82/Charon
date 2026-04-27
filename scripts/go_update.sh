@@ -1,30 +1,16 @@
 #!/bin/bash
 
-# This script updates Go module dependencies for all modules in the project.
+# This script updates Go module dependencies for the project.
 
-set -euo pipefail
+cd /projects/Charon/backend || exit
 
-MODULES=(
-    "/projects/Charon/backend"
-    "/projects/Charon/agent"
-)
+echo "Updating Go module dependencies..."
 
-for MODULE in "${MODULES[@]}"; do
-    echo "============================================================================"
-    echo "Updating: $MODULE"
-    echo "============================================================================"
+go get -u ./...
+go mod tidy
+go mod verify
+go vet ./...
+go list -m -u all
+go build ./...
 
-    cd "$MODULE" || exit 1
-
-    go get -u ./...
-    go mod tidy
-    go mod verify
-    go vet ./...
-    go list -m -u all
-    go build ./...
-
-    echo "Done: $MODULE"
-done
-
-echo ""
-echo "All Go module dependencies updated successfully."
+echo "Go module dependencies updated successfully."

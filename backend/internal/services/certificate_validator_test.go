@@ -19,7 +19,7 @@ import (
 
 // --- helpers ---
 
-func makeRSACertAndKey(t *testing.T, cn string, expiry time.Time) (cert *x509.Certificate, priv *rsa.PrivateKey, certPEM, keyPEM []byte) {
+func makeRSACertAndKey(t *testing.T, cn string, expiry time.Time) (*x509.Certificate, *rsa.PrivateKey, []byte, []byte) {
 	t.Helper()
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
@@ -34,15 +34,15 @@ func makeRSACertAndKey(t *testing.T, cn string, expiry time.Time) (cert *x509.Ce
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
 	require.NoError(t, err)
-	cert, err = x509.ParseCertificate(der)
+	cert, err := x509.ParseCertificate(der)
 	require.NoError(t, err)
 
-	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
 	return cert, priv, certPEM, keyPEM
 }
 
-func makeECDSACertAndKey(t *testing.T, cn string) (cert *x509.Certificate, priv *ecdsa.PrivateKey, certPEM, keyPEM []byte) {
+func makeECDSACertAndKey(t *testing.T, cn string) (*x509.Certificate, *ecdsa.PrivateKey, []byte, []byte) {
 	t.Helper()
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
@@ -56,17 +56,17 @@ func makeECDSACertAndKey(t *testing.T, cn string) (cert *x509.Certificate, priv 
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
 	require.NoError(t, err)
-	cert, err = x509.ParseCertificate(der)
+	cert, err := x509.ParseCertificate(der)
 	require.NoError(t, err)
 
-	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 	keyDER, err := x509.MarshalECPrivateKey(priv)
 	require.NoError(t, err)
-	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 	return cert, priv, certPEM, keyPEM
 }
 
-func makeEd25519CertAndKey(t *testing.T, cn string) (cert *x509.Certificate, priv ed25519.PrivateKey, certPEM, keyPEM []byte) {
+func makeEd25519CertAndKey(t *testing.T, cn string) (*x509.Certificate, ed25519.PrivateKey, []byte, []byte) {
 	t.Helper()
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -80,13 +80,13 @@ func makeEd25519CertAndKey(t *testing.T, cn string) (cert *x509.Certificate, pri
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, pub, priv)
 	require.NoError(t, err)
-	cert, err = x509.ParseCertificate(der)
+	cert, err := x509.ParseCertificate(der)
 	require.NoError(t, err)
 
-	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 	keyDER, err := x509.MarshalPKCS8PrivateKey(priv)
 	require.NoError(t, err)
-	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
 	return cert, priv, certPEM, keyPEM
 }
 

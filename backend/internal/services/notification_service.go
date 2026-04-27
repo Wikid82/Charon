@@ -193,13 +193,13 @@ func (s *NotificationService) Create(nType models.NotificationType, title, messa
 }
 
 func (s *NotificationService) List(unreadOnly bool) ([]models.Notification, error) {
-	var notifList []models.Notification
+	var notifications []models.Notification
 	query := s.DB.Order("created_at desc")
 	if unreadOnly {
 		query = query.Where("read = ?", false)
 	}
-	result := query.Find(&notifList)
-	return notifList, result.Error
+	result := query.Find(&notifications)
+	return notifications, result.Error
 }
 
 func (s *NotificationService) MarkAsRead(id string) error {

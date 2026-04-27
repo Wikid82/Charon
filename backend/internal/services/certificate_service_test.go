@@ -66,7 +66,7 @@ func generateTestCert(t *testing.T, domain string, expiry time.Time) []byte {
 	return certPEM
 }
 
-func generateTestCertAndKey(t *testing.T, domain string, expiry time.Time) (certPEM, keyPEM []byte) {
+func generateTestCertAndKey(t *testing.T, domain string, expiry time.Time) ([]byte, []byte) {
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatalf("Failed to generate private key: %v", err)
@@ -90,8 +90,8 @@ func generateTestCertAndKey(t *testing.T, domain string, expiry time.Time) (cert
 		t.Fatalf("Failed to create certificate: %v", err)
 	}
 
-	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
-	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
 	return certPEM, keyPEM
 }
 

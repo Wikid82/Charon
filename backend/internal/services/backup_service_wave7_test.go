@@ -2,6 +2,7 @@ package services
 
 import (
 	"archive/zip"
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,7 +15,7 @@ func writeLargeZipEntry(t *testing.T, writer *zip.Writer, name string, sizeBytes
 	entry, err := writer.Create(name)
 	require.NoError(t, err)
 
-	chunk := make([]byte, 1024*1024)
+	chunk := bytes.Repeat([]byte{0}, 1024*1024)
 	remaining := sizeBytes
 	for remaining > 0 {
 		toWrite := int64(len(chunk))

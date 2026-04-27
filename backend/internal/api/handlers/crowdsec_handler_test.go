@@ -2622,7 +2622,7 @@ func TestCrowdsecHandler_GetAcquisitionConfig_FileNotFound(t *testing.T) {
 
 	// Handler uses hardcoded path /etc/crowdsec/acquis.yaml
 	// In test environment, this file likely doesn't exist
-	require.True(t, w.Code == http.StatusOK || w.Code == http.StatusNotFound || w.Code == http.StatusInternalServerError,
+	require.True(t, w.Code == http.StatusOK || w.Code == http.StatusNotFound,
 		"Expected 200 or 404, got %d", w.Code)
 
 	if w.Code == http.StatusNotFound {
@@ -2646,7 +2646,7 @@ func TestCrowdsecHandler_GetAcquisitionConfig_ParseError(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	// Handler returns raw file content without parsing, so parse errors don't occur in handler
-	require.True(t, w.Code == http.StatusOK || w.Code == http.StatusNotFound || w.Code == http.StatusInternalServerError,
+	require.True(t, w.Code == http.StatusOK || w.Code == http.StatusNotFound,
 		"Expected 200 or 404, got %d", w.Code)
 }
 

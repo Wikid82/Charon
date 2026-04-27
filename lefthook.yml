@@ -73,7 +73,7 @@ pre-commit:
 
     actionlint:
       glob: ".github/workflows/*.{yaml,yml}"
-      run: actionlint {staged_files}
+      run: actionlint {all_files}
 
     dockerfile-check:
       glob: "Dockerfile*"

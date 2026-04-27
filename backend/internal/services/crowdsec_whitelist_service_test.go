@@ -124,7 +124,7 @@ func TestCrowdSecWhitelistService_WriteYAML_CreatesFile(t *testing.T) {
 	require.NoError(t, err)
 
 	yamlPath := filepath.Join(tmpDir, "config", "parsers", "s02-enrich", "charon-whitelist.yaml")
-	content, err := os.ReadFile(yamlPath) //nolint:gosec // G304: path built from controlled tmpDir
+	content, err := os.ReadFile(yamlPath)
 	require.NoError(t, err)
 
 	s := string(content)
@@ -142,7 +142,7 @@ func TestCrowdSecWhitelistService_WriteYAML_EmptyLists(t *testing.T) {
 	require.NoError(t, err)
 
 	yamlPath := filepath.Join(tmpDir, "config", "parsers", "s02-enrich", "charon-whitelist.yaml")
-	content, err := os.ReadFile(yamlPath) //nolint:gosec // G304: path built from controlled tmpDir
+	content, err := os.ReadFile(yamlPath)
 	require.NoError(t, err)
 
 	s := string(content)

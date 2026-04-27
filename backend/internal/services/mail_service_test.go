@@ -852,7 +852,7 @@ func initTestCA(t *testing.T) {
 	initializeTestCAForSuite()
 }
 
-func newTestTLSConfigShared(t *testing.T) (cfg *tls.Config, caPEM []byte) {
+func newTestTLSConfigShared(t *testing.T) (*tls.Config, []byte) {
 	t.Helper()
 
 	// Ensure shared CA is initialized
@@ -1130,7 +1130,7 @@ func TestSanitizeAndNormalizeHTMLBody_HTMLEscaping(t *testing.T) {
 	assert.Contains(t, result, "&lt;script&gt;")
 }
 
-func newTestTLSConfig(t *testing.T) (cfg *tls.Config, caPEM []byte) {
+func newTestTLSConfig(t *testing.T) (*tls.Config, []byte) {
 	t.Helper()
 
 	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -1150,7 +1150,7 @@ func newTestTLSConfig(t *testing.T) (cfg *tls.Config, caPEM []byte) {
 
 	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
 	require.NoError(t, err)
-	caPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})
 
 	leafKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
@@ -1188,7 +1188,7 @@ func trustTestCertificate(t *testing.T, _ []byte) {
 	initTestCA(t) // Ensure CA is initialized (already done by TestMain, but safe to call)
 }
 
-func startMockSMTPServer(t *testing.T, tlsConf *tls.Config, supportStartTLS, requireAuth bool) (addr string, stop func()) {
+func startMockSMTPServer(t *testing.T, tlsConf *tls.Config, supportStartTLS bool, requireAuth bool) (string, func()) {
 	t.Helper()
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -1255,7 +1255,7 @@ func startMockSMTPServer(t *testing.T, tlsConf *tls.Config, supportStartTLS, req
 	return listener.Addr().String(), cleanup
 }
 
-func startMockSSLSMTPServer(t *testing.T, tlsConf *tls.Config, requireAuth bool) (addr string, stop func()) {
+func startMockSSLSMTPServer(t *testing.T, tlsConf *tls.Config, requireAuth bool) (string, func()) {
 	t.Helper()
 
 	listener, err := tls.Listen("tcp", "127.0.0.1:0", tlsConf)
@@ -1322,7 +1322,7 @@ func startMockSSLSMTPServer(t *testing.T, tlsConf *tls.Config, requireAuth bool)
 	return listener.Addr().String(), cleanup
 }
 
-func handleSMTPConn(conn net.Conn, tlsConf *tls.Config, supportStartTLS, requireAuth bool) {
+func handleSMTPConn(conn net.Conn, tlsConf *tls.Config, supportStartTLS bool, requireAuth bool) {
 	reader := bufio.NewReader(conn)
 	writer := bufio.NewWriter(conn)
 
