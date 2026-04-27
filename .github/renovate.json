@@ -23,6 +23,7 @@
     ".docker/**"
   ],
 
+  "minimumReleaseAge": null,
   "rebaseWhen": "auto",
 
   "vulnerabilityAlerts": {
