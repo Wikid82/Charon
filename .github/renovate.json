@@ -292,19 +292,22 @@
       "description": "Go: keep pgx within v4 (CrowdSec requires pgx/v4 module path)",
       "matchDatasources": ["go"],
       "matchPackageNames": ["github.com/jackc/pgx/v4"],
-      "allowedVersions": "<5.0.0"
+      "allowedVersions": "<5.0.0",
+      "sourceUrl": "https://github.com/jackc/pgx"
     },
     {
       "description": "Go: keep go-jose/v3 within v3 (v4 is a different Go module path)",
       "matchDatasources": ["go"],
       "matchPackageNames": ["github.com/go-jose/go-jose/v3"],
-      "allowedVersions": "<4.0.0"
+      "allowedVersions": "<4.0.0",
+      "sourceUrl": "https://github.com/go-jose/go-jose"
     },
     {
       "description": "Go: keep go-jose/v4 within v4 (v5 would be a different Go module path)",
       "matchDatasources": ["go"],
       "matchPackageNames": ["github.com/go-jose/go-jose/v4"],
-      "allowedVersions": "<5.0.0"
+      "allowedVersions": "<5.0.0",
+      "sourceUrl": "https://github.com/go-jose/go-jose"
     },
     {
       "description": "Safety: Keep MAJOR updates separate and require manual review",
@@ -329,6 +332,42 @@
       "matchDatasources": ["go"],
       "matchPackageNames": ["github.com/golang-jwt/jwt/v5"],
       "sourceUrl": "https://github.com/golang-jwt/jwt"
+    },
+    {
+      "description": "Fix Renovate lookup for robfig/cron v3 module path",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/robfig/cron/v3"],
+      "sourceUrl": "https://github.com/robfig/cron"
+    },
+    {
+      "description": "Fix Renovate lookup for oschwald/maxminddb-golang v2 module path",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/oschwald/maxminddb-golang/v2"],
+      "sourceUrl": "https://github.com/oschwald/maxminddb-golang"
+    },
+    {
+      "description": "Fix Renovate lookup for cespare/xxhash v2 module path",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/cespare/xxhash/v2"],
+      "sourceUrl": "https://github.com/cespare/xxhash"
+    },
+    {
+      "description": "Fix Renovate lookup for klauspost/cpuid v2 module path",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/klauspost/cpuid/v2"],
+      "sourceUrl": "https://github.com/klauspost/cpuid"
+    },
+    {
+      "description": "Fix Renovate lookup for pelletier/go-toml v2 module path",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/pelletier/go-toml/v2"],
+      "sourceUrl": "https://github.com/pelletier/go-toml"
+    },
+    {
+      "description": "Fix Renovate lookup for go-playground/validator v10 module path",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/go-playground/validator/v10"],
+      "sourceUrl": "https://github.com/go-playground/validator"
     }
   ]
 }
