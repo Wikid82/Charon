@@ -1,7 +1,6 @@
 package orthrus
 
 import (
-	"crypto/sha256"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -136,8 +135,7 @@ func TestOrthrusServer_FindAgentByToken_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	token := "ch_orthrus_testtoken123" //nolint:gosec // G101: test credential
-	tokenSum := sha256.Sum256([]byte(token))
-	hash, err := bcrypt.GenerateFromPassword(tokenSum[:], bcrypt.MinCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(token), bcrypt.MinCost)
 	require.NoError(t, err)
 
 	agent := &models.OrthrusAgent{
@@ -232,8 +230,7 @@ func TestOrthrusServer_HandleWebSocket_ValidToken_UpgradesConnection(t *testing.
 	srv.heartbeatTimeout = 50 * time.Millisecond
 
 	token := "ch_orthrus_wscov789" //nolint:gosec // G101: test credential
-	tokenSum := sha256.Sum256([]byte(token))
-	hash, err := bcrypt.GenerateFromPassword(tokenSum[:], bcrypt.MinCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(token), bcrypt.MinCost)
 	require.NoError(t, err)
 
 	agent := &models.OrthrusAgent{

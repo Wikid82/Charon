@@ -1,7 +1,6 @@
 package orthrus
 
 import (
-	"crypto/sha256"
 	"fmt"
 	"net/http"
 	"strings"
@@ -159,9 +158,12 @@ func (s *OrthrusServer) findAgentByToken(token string) (*models.OrthrusAgent, er
 	}
 
 	for i := range agents {
-		// Pre-hash with SHA-256 before bcrypt comparison (matching Provision).
-		tokenSum := sha256.Sum256([]byte(token))
-		if err := bcrypt.CompareHashAndPassword([]byte(agents[i].AuthKeyHash), tokenSum[:]); err == nil {
+		// Truncate to match Provision's bcrypt input (≤71 bytes).
+		tokenBytes := []byte(token)
+		if len(tokenBytes) >= 72 {
+			tokenBytes = tokenBytes[:71]
+		}
+		if err := bcrypt.CompareHashAndPassword([]byte(agents[i].AuthKeyHash), tokenBytes); err == nil {
 			return &agents[i], nil
 		}
 	}

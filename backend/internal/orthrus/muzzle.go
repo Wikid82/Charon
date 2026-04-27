@@ -3,9 +3,18 @@ package orthrus
 import (
 	"net/http"
 	"regexp"
+	"strings"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 )
+
+// sanitizePath strips newlines and carriage returns from a path string to
+// prevent log injection (CWE-117).
+func sanitizePath(p string) string {
+	p = strings.ReplaceAll(p, "\n", `\n`)
+	p = strings.ReplaceAll(p, "\r", `\r`)
+	return p
+}
 
 // versionPrefixRe strips the Docker API version prefix from a request path,
 // e.g. /v1.44/containers/json → /containers/json.
@@ -35,7 +44,7 @@ func NewMuzzle(next http.Handler) *Muzzle {
 // are forwarded; all others receive 403 Forbidden.
 func (m *Muzzle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		logger.Log().WithField("method", r.Method).WithField("path", r.URL.Path).
+		logger.Log().WithField("method", r.Method).WithField("path", sanitizePath(r.URL.Path)).
 			Warn("orthrus: muzzle blocked non-GET Docker request")
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
@@ -47,7 +56,7 @@ func (m *Muzzle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logger.Log().WithField("method", r.Method).WithField("path", r.URL.Path).
+	logger.Log().WithField("method", r.Method).WithField("path", sanitizePath(r.URL.Path)).
 		Warn("orthrus: muzzle blocked disallowed Docker path")
 	http.Error(w, "Forbidden", http.StatusForbidden)
 }
