@@ -32,6 +32,13 @@ else
   echo "Running Semgrep with configs: p/golang, p/javascript, p/typescript, p/react, p/secrets, p/dockerfile"
 fi
 
+# Use staged files passed by lefthook if provided; fall back to full scan.
+if [ "$#" -gt 0 ]; then
+  TARGETS=("$@")
+else
+  TARGETS=(Dockerfile backend frontend/src scripts .github/workflows)
+fi
+
 semgrep scan \
   "${SEMGREP_CONFIGS[@]}" \
   --severity ERROR \
@@ -40,4 +47,4 @@ semgrep scan \
   --exclude "frontend/node_modules" \
   --exclude "frontend/coverage" \
   --exclude "frontend/dist" \
-  Dockerfile backend frontend/src scripts .github/workflows
+  "${TARGETS[@]}"

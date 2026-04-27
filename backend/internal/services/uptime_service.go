@@ -667,16 +667,16 @@ func (s *UptimeService) sendHostDownNotification(host *models.UptimeHost, downMo
 	title := fmt.Sprintf("🔴 Host %s is DOWN (%d services affected)", host.Name, len(downMonitors))
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Host: %s (%s)\n", host.Name, host.Host))
-	sb.WriteString(fmt.Sprintf("Time: %s\n", time.Now().Format(time.RFC1123)))
-	sb.WriteString(fmt.Sprintf("Services affected: %d\n\n", len(downMonitors)))
+	fmt.Fprintf(&sb, "Host: %s (%s)\n", host.Name, host.Host)
+	fmt.Fprintf(&sb, "Time: %s\n", time.Now().Format(time.RFC1123))
+	fmt.Fprintf(&sb, "Services affected: %d\n\n", len(downMonitors))
 
 	sb.WriteString("Impacted services:\n")
 	for _, m := range downMonitors {
 		if m.PreviousUptime != "" {
-			sb.WriteString(fmt.Sprintf("• %s (was up %s)\n", m.Name, m.PreviousUptime))
+			fmt.Fprintf(&sb, "• %s (was up %s)\n", m.Name, m.PreviousUptime)
 		} else {
-			sb.WriteString(fmt.Sprintf("• %s\n", m.Name))
+			fmt.Fprintf(&sb, "• %s\n", m.Name)
 		}
 	}
 
@@ -963,26 +963,26 @@ func (s *UptimeService) flushPendingNotification(hostID string) {
 		// Single service down
 		m := pending.downMonitors[0]
 		title = fmt.Sprintf("🔴 %s is DOWN", m.Name)
-		sb.WriteString(fmt.Sprintf("Service: %s\n", m.Name))
+		fmt.Fprintf(&sb, "Service: %s\n", m.Name)
 		sb.WriteString("Status: DOWN\n")
-		sb.WriteString(fmt.Sprintf("Time: %s\n", time.Now().Format(time.RFC1123)))
+		fmt.Fprintf(&sb, "Time: %s\n", time.Now().Format(time.RFC1123))
 		if m.PreviousUptime != "" {
-			sb.WriteString(fmt.Sprintf("Previous Uptime: %s\n", m.PreviousUptime))
+			fmt.Fprintf(&sb, "Previous Uptime: %s\n", m.PreviousUptime)
 		}
-		sb.WriteString(fmt.Sprintf("Reason: %s\n", m.Message))
+		fmt.Fprintf(&sb, "Reason: %s\n", m.Message)
 	} else {
 		// Multiple services down
 		title = fmt.Sprintf("🔴 %d Services DOWN on %s", len(pending.downMonitors), pending.hostName)
-		sb.WriteString(fmt.Sprintf("Host: %s\n", pending.hostName))
-		sb.WriteString(fmt.Sprintf("Time: %s\n", time.Now().Format(time.RFC1123)))
-		sb.WriteString(fmt.Sprintf("Services affected: %d\n\n", len(pending.downMonitors)))
+		fmt.Fprintf(&sb, "Host: %s\n", pending.hostName)
+		fmt.Fprintf(&sb, "Time: %s\n", time.Now().Format(time.RFC1123))
+		fmt.Fprintf(&sb, "Services affected: %d\n\n", len(pending.downMonitors))
 
 		sb.WriteString("Impacted services:\n")
 		for _, m := range pending.downMonitors {
 			if m.PreviousUptime != "" {
-				sb.WriteString(fmt.Sprintf("• %s - %s (was up %s)\n", m.Name, m.Message, m.PreviousUptime))
+				fmt.Fprintf(&sb, "• %s - %s (was up %s)\n", m.Name, m.Message, m.PreviousUptime)
 			} else {
-				sb.WriteString(fmt.Sprintf("• %s - %s\n", m.Name, m.Message))
+				fmt.Fprintf(&sb, "• %s - %s\n", m.Name, m.Message)
 			}
 		}
 	}
@@ -1012,11 +1012,11 @@ func (s *UptimeService) sendRecoveryNotification(monitor models.UptimeMonitor, d
 	title := fmt.Sprintf("🟢 %s is UP", monitor.Name)
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Service: %s\n", monitor.Name))
+	fmt.Fprintf(&sb, "Service: %s\n", monitor.Name)
 	sb.WriteString("Status: UP\n")
-	sb.WriteString(fmt.Sprintf("Time: %s\n", time.Now().Format(time.RFC1123)))
+	fmt.Fprintf(&sb, "Time: %s\n", time.Now().Format(time.RFC1123))
 	if downtime != "" {
-		sb.WriteString(fmt.Sprintf("Downtime: %s\n", downtime))
+		fmt.Fprintf(&sb, "Downtime: %s\n", downtime)
 	}
 
 	_, _ = s.NotificationService.Create(

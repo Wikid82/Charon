@@ -12,8 +12,8 @@ lint_major_version() {
 }
 
 install_v2_linter() {
-    echo "🔧 Installing golangci-lint v2 with current Go toolchain..."
-    go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+    echo "🔧 Installing golangci-lint v2 with current Go toolchain..." >&2
+    go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest >&2
 }
 
 resolve_v2_linter() {
@@ -59,5 +59,7 @@ echo "Using golangci-lint: $GOLANGCI_LINT"
 echo "Version: $($GOLANGCI_LINT version)"
 
 # Change to backend directory and run golangci-lint
+# --new-from-rev HEAD: only report issues in lines changed since the last commit,
+# preventing pre-existing issues in unrelated files from blocking commits.
 cd "$(dirname "$0")/../../backend" || exit 1
-exec "$GOLANGCI_LINT" run --config .golangci-fast.yml ./...
+exec "$GOLANGCI_LINT" run --config .golangci-fast.yml --new-from-rev HEAD ./...
