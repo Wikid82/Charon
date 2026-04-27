@@ -22,6 +22,7 @@ require (
 	golang.org/x/text v0.36.0
 	golang.org/x/time v0.15.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
+	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.1
 	software.sslmate.com/src/go-pkcs12 v0.7.1
@@ -90,7 +91,6 @@ require (
 	golang.org/x/arch v0.26.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	modernc.org/libc v1.72.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
