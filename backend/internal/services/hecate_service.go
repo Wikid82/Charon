@@ -132,3 +132,8 @@ func (s *HecateService) RotateCredentials(uuid, plainCredentials string) error {
 func (s *HecateService) GetStatus() []hecate.TunnelStatus {
 	return s.mgr.GetStatus()
 }
+
+// GetManager returns the underlying TunnelManager for provider-level access.
+func (s *HecateService) GetManager() *hecate.TunnelManager {
+	return s.mgr
+}
