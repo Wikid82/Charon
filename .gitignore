@@ -323,3 +323,4 @@ coverage_output.txt
 frontend/lint_output.txt
 lefthook_out.txt
 backend/test_out.txt
+backend/cf_coverage.txt
