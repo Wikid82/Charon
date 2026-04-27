@@ -7,7 +7,6 @@
     "helpers:pinGitHubActionDigests"
   ],
   "baseBranchPatterns": [
-    "feature/beta-release",
     "development"
   ],
   "postUpdateOptions": ["npmDedupe"],
@@ -24,6 +23,7 @@
     ".docker/**"
   ],
 
+  "minimumReleaseAge": null,
   "rebaseWhen": "auto",
 
   "vulnerabilityAlerts": {
@@ -242,6 +242,20 @@
       "depNameTemplate": "golang/go",
       "datasourceTemplate": "golang-version",
       "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track golangci-lint version in quality checks workflow",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/quality-checks\\.yml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=github-releases depName=golangci/golangci-lint\\n\\s+version: v(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "golangci/golangci-lint",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v(?<version>.*)"
     }
   ],
 
@@ -265,18 +279,11 @@
         "*"
       ]
     },
-        {
-      "description": "Feature branches: Auto-merge non-major updates after proven stable",
-      "matchBaseBranches": ["feature/**"],
-      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
-      "automerge": false
-    },
     {
       "description": "Development branch: Auto-merge non-major updates after proven stable",
       "matchBaseBranches": ["development"],
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
-      "automerge": false,
-      "minimumReleaseAge": "14 days"
+      "automerge": false
     },
     {
       "description": "Preserve your custom Caddy patch labels but allow them to group into a single PR",
