@@ -469,7 +469,11 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 				orthrusCA, caErr := orthrus.NewInternalCA(dataRoot)
 				var orthrusServer *orthrus.OrthrusServer
 				if caErr == nil {
-					orthrusServer, _ = orthrus.NewOrthrusServer(db, orthrusCA)
+					var serverErr error
+					orthrusServer, serverErr = orthrus.NewOrthrusServer(db, orthrusCA)
+					if serverErr != nil {
+						logger.Log().WithError(serverErr).Warn("Orthrus server initialization failed — agent tunnel feature unavailable")
+					}
 				} else {
 					logger.Log().WithError(caErr).Warn("Orthrus CA initialization failed — agent tunnel feature unavailable")
 				}
