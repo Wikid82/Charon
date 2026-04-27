@@ -323,6 +323,12 @@
       "matchDatasources": ["go"],
       "matchPackageNames": ["github.com/google/uuid"],
       "sourceUrl": "https://github.com/google/uuid"
+    },
+    {
+      "description": "Fix Renovate lookup for golang-jwt/jwt v5 module path",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/golang-jwt/jwt/v5"],
+      "sourceUrl": "https://github.com/golang-jwt/jwt"
     }
   ]
 }
