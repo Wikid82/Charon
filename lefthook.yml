@@ -84,6 +84,10 @@ pre-commit:
       glob: "*.go"
       run: cd backend && go vet ./...
 
+    go-lint-fix:
+      glob: "*.go"
+      run: scripts/pre-commit-hooks/golangci-lint-fix.sh
+
     golangci-lint-fast:
       glob: "*.go"
       run: scripts/pre-commit-hooks/golangci-lint-fast.sh
