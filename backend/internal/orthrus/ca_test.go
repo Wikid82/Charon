@@ -7,6 +7,8 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -93,5 +95,87 @@ func TestInternalCA_SignCSR_InvalidPEM_ReturnsError(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = ca.SignCSR([]byte("not-a-pem"), 24*time.Hour)
+	assert.Error(t, err)
+}
+
+func TestNewInternalCA_CorruptKeyFile(t *testing.T) {
+	dir := t.TempDir()
+	keyDir := filepath.Join(dir, "keys")
+	require.NoError(t, os.MkdirAll(keyDir, 0o700))
+
+	require.NoError(t, os.WriteFile(filepath.Join(keyDir, "hecate-ca.key"), []byte("not-valid-pem"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(keyDir, "hecate-ca.crt"), []byte("cert-placeholder"), 0o644))
+
+	_, err := NewInternalCA(dir)
+	assert.Error(t, err)
+}
+
+func TestNewInternalCA_CorruptCertFile(t *testing.T) {
+	dir := t.TempDir()
+
+	_, err := NewInternalCA(dir)
+	require.NoError(t, err)
+
+	certPath := filepath.Join(dir, "keys", "hecate-ca.crt")
+	require.NoError(t, os.WriteFile(certPath, []byte("not-valid-pem"), 0o644))
+
+	_, err = NewInternalCA(dir)
+	assert.Error(t, err)
+}
+
+func TestNewInternalCA_UnreadableKeyFile(t *testing.T) {
+	dir := t.TempDir()
+	keyDir := filepath.Join(dir, "keys")
+	require.NoError(t, os.MkdirAll(keyDir, 0o700))
+
+	keyPath := filepath.Join(keyDir, "hecate-ca.key")
+	certPath := filepath.Join(keyDir, "hecate-ca.crt")
+	require.NoError(t, os.WriteFile(keyPath, []byte("key-content"), 0o000))
+	require.NoError(t, os.WriteFile(certPath, []byte("cert-content"), 0o644))
+
+	_, err := NewInternalCA(dir)
+	assert.Error(t, err)
+}
+
+func TestNewInternalCA_UnreadableCertFile(t *testing.T) {
+	dir := t.TempDir()
+
+	_, err := NewInternalCA(dir)
+	require.NoError(t, err)
+
+	certPath := filepath.Join(dir, "keys", "hecate-ca.crt")
+	require.NoError(t, os.Chmod(certPath, 0o000))
+
+	_, err = NewInternalCA(dir)
+	assert.Error(t, err)
+}
+
+func TestNewInternalCA_ReadOnlyDataRoot(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0o555))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	_, err := NewInternalCA(dir)
+	assert.Error(t, err)
+}
+
+func TestNewInternalCA_ReadOnlyKeysDir(t *testing.T) {
+	dir := t.TempDir()
+	keysDir := filepath.Join(dir, "keys")
+	require.NoError(t, os.MkdirAll(keysDir, 0o555))
+
+	_, err := NewInternalCA(dir)
+	assert.Error(t, err)
+}
+
+func TestNewInternalCA_ReadOnlyCertPath(t *testing.T) {
+	dir := t.TempDir()
+	keysDir := filepath.Join(dir, "keys")
+	require.NoError(t, os.MkdirAll(keysDir, 0o700))
+
+	certPath := filepath.Join(keysDir, "hecate-ca.crt")
+	require.NoError(t, os.WriteFile(certPath, []byte("placeholder"), 0o000))
+
+	_, err := NewInternalCA(dir)
 	assert.Error(t, err)
 }
