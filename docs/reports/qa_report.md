@@ -1,8 +1,8 @@
 # QA Security Audit — Hecate Tunnel & Pathway Manager
 
 **Branch**: `feature/hecate`
-**HEAD Commit**: `772a6945` — _feat(audit): add QA security audit report for Hecate Tunnel & Pathway Manager_
-**Audit Date**: 2026-04-28
+**HEAD Commit**: `7e25764a` — _feat(tests): add tests for GetProviderByType method in TunnelManager_
+**Audit Date**: 2026-04-28 (updated)
 **Auditor**: QA Security Agent
 **Scope**: Full branch audit — all Hecate Tunnel Manager and Orthrus feature files plus baseline project health
 
@@ -13,9 +13,9 @@
 | # | Check | Status | Notes |
 |---|-------|--------|-------|
 | 1 | Pre-commit hooks | ⚠️ SKIPPED | No staged files; all individual checks passed separately |
-| 2 | TypeScript type check | ⚠️ WARN | 3 errors in **test files only** — zero production type errors |
+| 2 | TypeScript type check | ✅ PASS | Zero type errors in production and test files |
 | 3 | Frontend lint (ESLint) | ✅ PASS | 0 errors; warnings are pre-existing and project-wide |
-| 4 | Go backend lint (golangci-lint) | ⚠️ WARN | 67 issues (44 gocritic, 20 gosec, 3 bodyclose); 3 in new test files, all others pre-existing |
+| 4 | Go backend lint (golangci-lint) | ⚠️ WARN | 82 issues (50 gocritic, 31 gosec, 1 bodyclose); all test-file or pre-existing; exit 0 |
 | 5 | Trivy filesystem scan | ✅ PASS | 0 CRITICAL, 0 HIGH CVEs in production dependencies |
 | 6 | Docker image security scan | ⚠️ WARN | 0 CRITICAL, 4 HIGH in crowdsec/cscli binaries; no fix available; pre-existing |
 | 7 | GORM security scanner | ✅ PASS | 0 CRITICAL, 0 HIGH — clean |
@@ -23,15 +23,15 @@
 | 9 | Semgrep | ✅ PASS | 4 findings — all in documentation `.md` files, not production code |
 | 10 | Hardcoded secrets scan | ✅ PASS | 1 match is a deliberate default fallback string, not a credential |
 | 11 | Console / debug statements | ⚠️ WARN | 21 instances; majority are intentional WebSocket lifecycle logs |
-| — | Patch coverage (backend) | ✅ PASS | 85.6% — above 85% threshold |
+| — | Patch coverage (backend) | ✅ PASS | 89.3% — above 85% threshold |
 | — | Patch coverage (frontend) | ✅ PASS | 94.8% — above 85% threshold |
-| — | Patch coverage (overall) | ⚠️ WARN | 86.8% — below 90% overall threshold |
+| — | Patch coverage (overall) | ✅ PASS | 90.0% — meets 90% overall threshold |
 
 ### Overall Recommendation
 
-> **APPROVED TO MERGE WITH WARNINGS**
+> **APPROVED TO MERGE**
 >
-> No blocking CRITICAL or HIGH security issues were found in production code. The TypeScript errors are in test files and must be fixed before the next CI run. Patch coverage is slightly below the overall threshold at 86.8%; backend and frontend individually pass. Docker image vulnerabilities are pre-existing in third-party CrowdSec binaries with no available fix.
+> No blocking CRITICAL or HIGH security issues were found in production code. TypeScript is fully clean (0 errors). All patch coverage thresholds pass including the 90% overall threshold (90.0%). Docker image vulnerabilities are pre-existing in third-party CrowdSec binaries with no available fix.
 
 ---
 
@@ -59,16 +59,10 @@ All hooks were skipped because no files were staged. Every check covered by the 
 ### Step 2 — TypeScript Type Safety
 
 **Command**: `tsc --noEmit`
-**Exit code**: 2 (errors present)
-**Result**: ⚠️ WARN — **zero production code errors; 3 errors in test files only**
+**Exit code**: 0
+**Result**: ✅ PASS — **zero type errors in production and test files**
 
-| File | Line | Error | Impact |
-|------|------|-------|--------|
-| `src/components/__tests__/RemoteServerForm.test.tsx` | 253 | `TS2352`: Type assertion on `useOrthrusHook.useAgentList` mock return value is too narrow; missing 21+ fields from `UseQueryResult` | Test-only; no runtime impact |
-| `src/components/hecate/__tests__/CloudflareTunnelWizard.test.tsx` | 3 | `TS6133`: `afterEach` imported but never used | Test-only; no runtime impact |
-| `src/components/hecate/__tests__/CloudflareTunnelWizard.test.tsx` | 291 | `TS6133`: `fn` parameter declared but never read in `setInterval` spy | Test-only; no runtime impact |
-
-**Verdict**: These errors reside exclusively in `*.test.tsx` files. Production sources are type-safe. The mock assertion error in `RemoteServerForm.test.tsx` should be fixed by casting via `unknown` first (e.g., `as unknown as UseQueryResult<...>`). The unused imports should be removed.
+All three previously reported test-file errors (`TS2352` in `RemoteServerForm.test.tsx`, two `TS6133` in `CloudflareTunnelWizard.test.tsx`) have been resolved in the latest commits. TypeScript compilation is fully clean.
 
 ---
 
@@ -95,23 +89,24 @@ All warnings above are pre-existing. None are in the new `hecate/` component dir
 ### Step 4 — Go Backend Lint (golangci-lint)
 
 **Command**: `golangci-lint run ./...`
-**Result**: ⚠️ WARN — 67 issues total; 3 in new feature test files; remainder pre-existing
+**Result**: ⚠️ WARN — 82 issues total; all test-file or pre-existing; exit 0
 
 **Summary by linter**:
 
 | Linter | Issues | In New Feature Files | Notes |
 |--------|--------|----------------------|-------|
-| gocritic | 44 | 0 | All pre-existing |
-| gosec | 20 | 0 (production) | All pre-existing in production files |
-| bodyclose | 3 | 2 | Both in `hecate_handler_test.go` (test-only) |
+| gocritic | 50 | 0 | All pre-existing |
+| gosec | 31 | test files only | Production findings all pre-existing; new: G306/G302/G301 in `ca_test.go` (intentional test fixture permissions) |
+| bodyclose | 1 | 1 | In `hecate_handler_test.go` (test-only) |
 
 **New feature file findings** (test files only):
 
 | File | Line | Rule | Severity | Issue |
 |------|------|------|----------|-------|
 | `internal/api/handlers/hecate_handler_test.go` | 875 | bodyclose | LOW | Response body not closed in test helper |
-| `internal/api/handlers/hecate_handler_test.go` | 1187 | bodyclose | LOW | Response body not closed in test helper |
-| `internal/api/handlers/hecate_handler_test.go` | 1206 | G104 gosec | LOW | Unhandled error in test |
+| `internal/orthrus/ca_test.go` | 107, 120, 134 | G306 gosec | LOW | `WriteFile` with 0o644 — intentional test fixture simulating permission scenarios |
+| `internal/orthrus/ca_test.go` | 155, 156 | G302 gosec | LOW | `os.Chmod 0o555` — intentional test fixture |
+| `internal/orthrus/ca_test.go` | 165 | G301 gosec | LOW | `os.MkdirAll 0o555` — intentional test fixture |
 
 **Notable pre-existing production gosec findings** (not introduced by this PR):
 
@@ -251,28 +246,33 @@ Remaining matches were test fixtures and UI validation strings — no real secre
 
 ## 3. Coverage Summary
 
-From `test-results/local-patch-report.md` (generated 2026-04-28T05:28:05Z):
+From `test-results/local-patch-report.md` (generated 2026-04-28T13:04:36Z — updated after new test commits):
 
 | Scope | Changed Lines | Covered Lines | Patch Coverage | Threshold | Status |
 |-------|--------------|---------------|----------------|-----------|--------|
-| Backend | 2,029 | 1,737 | **85.6%** | 85% | ✅ PASS |
+| Backend | 2,044 | 1,826 | **89.3%** | 85% | ✅ PASS |
 | Frontend | 288 | 273 | **94.8%** | 85% | ✅ PASS |
-| **Overall** | **2,317** | **2,010** | **86.8%** | 90% | ⚠️ WARN |
+| **Overall** | **2,332** | **2,099** | **90.0%** | 90% | ✅ PASS |
+
+**Coverage improvement**: The 5 new test commits (`feat(tests): ...`) added targeted tests that pushed overall patch coverage from 86.8% to exactly 90.0%, satisfying the overall threshold.
 
 ### Files Below 90% Patch Coverage (informational)
 
 | File | Patch Coverage | Uncovered Lines | Notes |
 |------|----------------|----------------|-------|
-| `models/orthrus_agent.go` | 0.0% | 5 | GORM model struct — lines 39-43 (unexported helpers) |
-| `models/tunnel_config.go` | 0.0% | 5 | GORM model struct — lines 39-43 (unexported helpers) |
-| `services/crowdsec_startup.go` | 0.0% | 3 | Pre-existing service |
-| `services/dns_provider_service.go` | 0.0% | 2 | Pre-existing service |
-| `hecate/manager.go` | 80.7% | 42 | Error branches in tunnel lifecycle |
-| `hecate/providers/tailscale/api_client.go` | 81.0% | 11 | HTTP error paths |
-| `services/hecate_service.go` | 81.4% | 16 | Service error branches |
-| `api/handlers/hecate_handler.go` | 85.5% | 43 | Non-critical HTTP error paths |
+| `services/crowdsec_startup.go` | 0.0% | 3 | Pre-existing service; lines 411, 418, 442 |
+| `services/dns_provider_service.go` | 0.0% | 2 | Pre-existing service; lines 177, 179 |
+| `services/plugin_loader.go` | 11.1% | 8 | Pre-existing service |
+| `frontend/src/components/RemoteServerForm.tsx` | 79.2% | 5 | Connection type UI branch paths |
+| `hecate/providers/tailscale/api_client.go` | 81.0% | 11 | HTTP client error paths |
+| `api/routes/routes.go` | 82.1% | 7 | Conditional route registration |
+| `api/handlers/hecate_ws_handler.go` | 84.4% | 10 | WebSocket upgrade error paths |
+| `orthrus/session.go` | 84.6% | 12 | Session lifecycle error branches |
+| `hecate/manager.go` | 84.9% | 33 | Tunnel restart error branches (lines 285–322) |
+| `hecate/providers/zerotier/api_client.go` | 85.4% | 13 | HTTP error paths |
+| `api/handlers/hecate_handler.go` | 85.5% | 43 | Error response branches |
 
-The backend individually passes at 85.6%. The overall threshold miss (86.8% vs 90%) reflects the breadth of the feature (2,300+ changed lines across 20+ new files). This is acceptable for a Phase 4–6 feature merge given the individual component thresholds both pass.
+All backend and frontend individual thresholds (85%) pass. The overall 90.0% threshold is now met.
 
 ---
 
@@ -286,13 +286,15 @@ The backend individually passes at 85.6%. The overall threshold miss (86.8% vs 9
 
 | # | Item | Severity | Recommended Action |
 |---|------|----------|--------------------|
-| W1 | TypeScript errors in 3 test files | WARN | Fix mock type assertions and remove unused imports before next CI run |
-| W2 | Patch coverage 86.8% vs 90% threshold | WARN | Acceptable for large feature; add coverage for model helpers and service error branches in follow-up |
+| W1 | ~~TypeScript errors in 3 test files~~ | ~~WARN~~ | ✅ **RESOLVED** — all 3 errors fixed in latest test commits |
+| W2 | ~~Patch coverage 86.8% vs 90% threshold~~ | ~~WARN~~ | ✅ **RESOLVED** — coverage now 90.0% (meets threshold) |
 | W3 | Docker image 4 HIGH CVEs (crowdsec/cscli, no fix) | WARN | Monitor CrowdSec releases; refresh image scan at merge |
 | W4 | CodeQL `go/weak-sensitive-data-hashing` false positive | INFO | Submit suppression comment or CodeQL query filter for `orthrus_service.go:51` |
 | W5 | 21 `console.*` statements in production frontend | WARN | Gate WebSocket lifecycle logs behind debug env flag post-1.0 |
 | W6 | `crowdsec_console_enroll.go` hardcoded default fallback | WARN | Document in operator guide that production deployments must set the encryption secret |
-| W7 | golangci-lint `bodyclose` in 2 test helpers | LOW | Close response body in test cleanup (`defer resp.Body.Close()`) |
+| W7 | golangci-lint `bodyclose` in 1 test helper | LOW | Close response body in test cleanup (`defer resp.Body.Close()`) |
+| W8 | `go-ntlmssp v0.1.0` Medium CVE (GHSA-pjcq-xvwq-hhpj) | LOW | Upgrade to v0.1.1 in backend/go.mod; pre-existing, not Hecate-introduced |
+| W9 | `ca_test.go` gosec G306/G302/G301 — test fixture permissions | LOW | Add `//nolint:gosec` with explanation to intentional permission test cases |
 
 ---
 
@@ -331,27 +333,28 @@ The backend individually passes at 85.6%. The overall threshold miss (86.8% vs 9
 ```
 ╔══════════════════════════════════════════════════════════════════╗
 ║                                                                  ║
-║   RECOMMENDATION:  APPROVED TO MERGE WITH WARNINGS              ║
+║   RECOMMENDATION:  APPROVED TO MERGE                            ║
 ║                                                                  ║
-║   No blocking security or quality issues found in production     ║
-║   code. The 3 TypeScript errors are test-file-only and must      ║
-║   be resolved in a follow-up commit. All security-critical       ║
-║   features (credential encryption, auth key hashing, access      ║
-║   control gating) are correctly implemented.                     ║
+║   No blocking security or quality issues found. TypeScript is    ║
+║   clean (0 errors). All patch coverage thresholds pass including ║
+║   the 90% overall threshold. All security-critical features      ║
+║   (credential encryption, auth key hashing, access control       ║
+║   gating) are correctly implemented.                             ║
 ║                                                                  ║
 ╚══════════════════════════════════════════════════════════════════╝
 ```
 
 ### Pre-merge Requirements (MUST)
-1. Fix 3 TypeScript test file errors (`RemoteServerForm.test.tsx`, `CloudflareTunnelWizard.test.tsx`)
-2. Close response bodies in 2 `hecate_handler_test.go` test helpers (`defer resp.Body.Close()`)
+1. Close response body in `hecate_handler_test.go` test helper (`defer resp.Body.Close()`)
 
 ### Post-merge Improvements (SHOULD)
-1. Suppress CodeQL false positive for `go/weak-sensitive-data-hashing` in `orthrus_service.go`
-2. Add targeted unit tests for model helper lines and service error branches (coverage gap W2)
-3. Gate WebSocket lifecycle `console.log` calls behind a `VITE_DEBUG_WS` env flag
-4. Refresh Docker image scan in CI at merge time (current report is from 2026-03-24)
+1. Upgrade `github.com/Azure/go-ntlmssp` to v0.1.1 to resolve Medium CVE (GHSA-pjcq-xvwq-hhpj)
+2. Add `//nolint:gosec` with explanatory comments to intentional permission test cases in `ca_test.go`
+3. Fix HTTP 500 → 404 in `hecate_handler.go` (tracked as Commit 18 in spec)
+4. Suppress CodeQL false positive for `go/weak-sensitive-data-hashing` in `orthrus_service.go`
+5. Gate WebSocket lifecycle `console.log` calls behind a `VITE_DEBUG_WS` env flag
+6. Refresh Docker image scan in CI at merge time (current report is from 2026-03-24)
 
 ---
 
-*Report generated by QA Security Agent — 2026-04-28*
+*Report generated by QA Security Agent — 2026-04-28 (updated for HEAD `7e25764a`)*
