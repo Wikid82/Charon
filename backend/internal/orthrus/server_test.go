@@ -1,8 +1,13 @@
 package orthrus
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"testing"
+
+	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -96,4 +101,91 @@ func TestOrthrusServer_FindAgentByToken_NoAgents(t *testing.T) {
 
 	_, err = srv.findAgentByToken("ch_orthrus_sometoken")
 	assert.Error(t, err)
+}
+
+func TestOrthrusServer_FindAgentByToken_DBError(t *testing.T) {
+	db := setupServerTestDB(t)
+	srv, err := NewOrthrusServer(db, setupTestCA(t))
+	require.NoError(t, err)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	_ = sqlDB.Close()
+
+	_, err = srv.findAgentByToken("ch_orthrus_anytoken")
+	assert.Error(t, err)
+}
+
+func TestOrthrusServer_FindAgentByToken_LongToken(t *testing.T) {
+	db := setupServerTestDB(t)
+	srv, err := NewOrthrusServer(db, setupTestCA(t))
+	require.NoError(t, err)
+
+	longToken := "ch_orthrus_" + string(make([]byte, 72))
+	hash, err := bcrypt.GenerateFromPassword([]byte("some-other-token"), bcrypt.MinCost)
+	require.NoError(t, err)
+
+	agent := &models.OrthrusAgent{
+		UUID:        "uuid-long",
+		Name:        "long-token-agent",
+		AuthKeyHash: string(hash),
+		Status:      models.OrthrusStatusPending,
+	}
+	require.NoError(t, db.Create(agent).Error)
+
+	_, err = srv.findAgentByToken(longToken)
+	assert.Error(t, err)
+}
+
+func TestOrthrusServer_FindAgentByToken_MatchingToken(t *testing.T) {
+	db := setupServerTestDB(t)
+	srv, err := NewOrthrusServer(db, setupTestCA(t))
+	require.NoError(t, err)
+
+	plainKey := "ch_orthrus_testtoken"
+	hash, err := bcrypt.GenerateFromPassword([]byte(plainKey), bcrypt.MinCost)
+	require.NoError(t, err)
+
+	agent := &models.OrthrusAgent{
+		UUID:        "uuid-match",
+		Name:        "match-agent",
+		AuthKeyHash: string(hash),
+		Status:      models.OrthrusStatusPending,
+	}
+	require.NoError(t, db.Create(agent).Error)
+
+	found, err := srv.findAgentByToken(plainKey)
+	require.NoError(t, err)
+	assert.Equal(t, "uuid-match", found.UUID)
+}
+
+func TestOrthrusServer_HandleWebSocket_EmptyToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupServerTestDB(t)
+	srv, err := NewOrthrusServer(db, setupTestCA(t))
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/orthrus/ws", http.NoBody)
+	// No Authorization header → extractBearer returns "" → 401
+	srv.HandleWebSocket(c)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestOrthrusServer_HandleWebSocket_InvalidToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupServerTestDB(t)
+	srv, err := NewOrthrusServer(db, setupTestCA(t))
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/orthrus/ws", http.NoBody)
+	c.Request.Header.Set("Authorization", "Bearer no-matching-agent-token")
+	// findAgentByToken returns error (no agents) → 401
+	srv.HandleWebSocket(c)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
