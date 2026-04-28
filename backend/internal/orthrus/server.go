@@ -1,6 +1,7 @@
 package orthrus
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -29,15 +30,27 @@ type OrthrusServer struct {
 	ca               *InternalCA
 	sessions         sync.Map // agentUUID → *AgentSession
 	heartbeatTimeout time.Duration
+	ctx              context.Context
+	cancel           context.CancelFunc
+	wg               sync.WaitGroup
 }
 
 // NewOrthrusServer creates an OrthrusServer with the given database and internal CA.
 func NewOrthrusServer(db *gorm.DB, ca *InternalCA) (*OrthrusServer, error) {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &OrthrusServer{
 		db:               db,
 		ca:               ca,
 		heartbeatTimeout: 10 * time.Second,
+		ctx:              ctx,
+		cancel:           cancel,
 	}, nil
+}
+
+// Stop cancels the server context and waits for all background goroutines to exit.
+func (s *OrthrusServer) Stop() {
+	s.cancel()
+	s.wg.Wait()
 }
 
 // HandleWebSocket is the Gin handler for GET /api/v1/ws/orthrus/connect.
@@ -84,7 +97,11 @@ func (s *OrthrusServer) HandleWebSocket(c *gin.Context) {
 		"name": util.SanitizeForLog(agent.Name),
 	}).Info("orthrus: agent connected")
 
-	go s.watchHeartbeat(agent.UUID, session)
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.watchHeartbeat(agent.UUID, session)
+	}()
 }
 
 // GetProxyAddr returns the proxy listener address for a connected agent.
@@ -131,11 +148,16 @@ func (s *OrthrusServer) watchHeartbeat(agentUUID string, sess *AgentSession) {
 	ticker := time.NewTicker(s.heartbeatTimeout)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		if !sess.IsAlive() {
-			s.markOffline(agentUUID)
-			s.sessions.Delete(agentUUID)
+	for {
+		select {
+		case <-s.ctx.Done():
 			return
+		case <-ticker.C:
+			if !sess.IsAlive() {
+				s.markOffline(agentUUID)
+				s.sessions.Delete(agentUUID)
+				return
+			}
 		}
 	}
 }
