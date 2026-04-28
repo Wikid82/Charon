@@ -13,6 +13,8 @@ export interface RemoteServer {
   last_check?: string;
   created_at: string;
   updated_at: string;
+  connection_type?: 'direct' | 'orthrus' | 'cloudflare';
+  orthrus_agent_uuid?: string;
 }
 
 /**
