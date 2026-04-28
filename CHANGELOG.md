@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Hecate Tunnel & Pathway Manager**: Connect remote servers behind NAT/firewalls without opening inbound ports, with pluggable connection types managed from the Remote Servers page (Issue #368)
+  - Connection types: Direct (host/port), Orthrus Agent (self-hosted), Cloudflare Tunnel, Tailscale, ZeroTier, NetBird
+  - Tunnel lifecycle management: create, start, stop, delete, rotate credentials
+  - Real-time tunnel log streaming to browser via WebSocket
+  - Orthrus agent provisioning with one-time auth key display and multi-method install wizard (Docker Compose, systemd, Tarball, Homebrew, Kubernetes)
+  - `TunnelStatusBadge` component on the Remote Servers page showing live connection state
+  - Orthrus agent binary published as `ghcr.io/wikid82/charon-orthrus-agent` (~2.4 MB, scratch-based)
+  - CI workflow for automated Orthrus agent image publishing
+  - E2E Playwright test coverage for tunnel manager and agent install wizard
+
 - **Accessibility Testing**: Integrated `@axe-core/playwright` for automated WCAG 2.0/2.1/2.2 AA accessibility testing across all application pages (Issue #929)
   - Added 12 accessibility test specs: login, dashboard, proxy hosts, certificates, DNS providers, settings, security, uptime, tasks, domains, notifications, and setup pages
   - Tests target WCAG 2.0 Level A/AA and WCAG 2.2 Level AA rule sets via axe-core
