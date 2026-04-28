@@ -247,6 +247,7 @@ func TestOrthrusServer_HandleWebSocket_ValidToken_UpgradesConnection(t *testing.
 
 	ts := httptest.NewServer(router)
 	t.Cleanup(ts.Close)
+	t.Cleanup(srv.Stop) // must run before DB/TempDir cleanups to drain watchHeartbeat goroutine
 
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws"
 	header := http.Header{"Authorization": []string{"Bearer " + token}}
