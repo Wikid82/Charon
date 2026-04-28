@@ -539,7 +539,14 @@
     "gridView": "Rasteransicht",
     "listView": "Listenansicht",
     "deleteConfirm": "Sind Sie sicher, dass Sie \"{{name}}\" löschen möchten? Diese Aktion kann nicht rückgängig gemacht werden.",
-    "deleting": "Wird gelöscht..."
+    "deleting": "Wird gelöscht...",
+    "columnConnection": "Verbindung",
+    "connectionType": "Verbindungstyp",
+    "connectionTypeDirect": "Direkt",
+    "connectionTypeOrthrus": "Orthrus-Agent",
+    "connectionTypeCloudflare": "Cloudflare-Tunnel",
+    "orthrusAgentUUID": "Orthrus-Agent-UUID",
+    "enabled": "Aktiviert"
   },
   "notificationProviders": {
     "title": "Benachrichtigungsanbieter",
@@ -1128,5 +1135,74 @@
     "title": "Willkommen",
     "description": "Ihr Konto hat Passthrough-Zugriff. Sie können Ihre zugewiesenen Dienste direkt erreichen — keine Verwaltungsoberfläche verfügbar.",
     "noAccessToManagement": "Sie haben keinen Zugriff auf die Verwaltungsoberfläche."
+  },
+  "hecate": {
+    "stateConnected": "Verbunden",
+    "stateConnecting": "Verbindung wird hergestellt",
+    "stateError": "Fehler",
+    "stateStopped": "Gestoppt",
+    "tunnelStatus": "Tunnelstatus: {{state}}",
+    "viewLogs": "Tunnelprotokolle anzeigen",
+    "viewLogsFor": "Tunnelprotokolle für {{name}} anzeigen",
+    "wizard": {
+      "title": "Orthrus-Agent installieren",
+      "description": "Folgen Sie den Schritten, um den Orthrus-Agent auf Ihrem Server zu installieren.",
+      "authKeyLabel": "Authentifizierungsschlüssel",
+      "authKeyWarning": "Dieser Schlüssel wird nur einmal angezeigt. Kopieren Sie ihn, bevor Sie diesen Dialog schließen.",
+      "authKeyValue": "Wert des Authentifizierungsschlüssels",
+      "copyAuthKey": "Authentifizierungsschlüssel kopieren",
+      "copied": "Kopiert!",
+      "copySnippet": "Snippet kopieren",
+      "troubleshooting": "Fehlerbehebung",
+      "troubleshootingHint1": "Stellen Sie sicher, dass der Orthrus-Agent-Dienst läuft und Charon erreichen kann.",
+      "troubleshootingHint2": "Überprüfen Sie, ob der Authentifizierungsschlüssel korrekt kopiert wurde.",
+      "troubleshootingHint3": "Vergewissern Sie sich, dass die Ports in Ihrer Firewall geöffnet sind.",
+      "done": "Fertig"
+    },
+    "logs": {
+      "title": "Tunnelprotokolle — {{name}}",
+      "description": "Live-Protokollstream für Tunnel {{name}}",
+      "pause": "Pausieren",
+      "resume": "Fortsetzen",
+      "clear": "Löschen",
+      "noLogs": "Noch keine Protokollausgabe.",
+      "lineCount": "{{count}} Zeilen",
+      "reconnecting": "Verbindung wird wiederhergestellt..."
+    },
+    "cloudflare": {
+      "wizardTitle": "Cloudflare-Tunnel-Einrichtung",
+      "wizardDescription": "Konfigurieren Sie einen Cloudflare-Tunnel für Ihren Server.",
+      "configureHint": "Cloudflare-Tunnel erstellt eine ausgehende Verbindung – keine eingehenden Firewall-Regeln erforderlich.",
+      "step1": "Installieren Sie cloudflared auf Ihrem Server.",
+      "step2": "Authentifizieren Sie cloudflared mit Ihrem Cloudflare-Konto.",
+      "step3": "Erstellen Sie einen Tunnel und kopieren Sie die Tunnel-ID hierher.",
+      "docsLink": "Cloudflare-Tunnel-Dokumentation",
+      "continue": "Weiter",
+      "step1Title": "Token eingeben",
+      "tokenLabel": "Cloudflare-Tunnel-Token",
+      "tokenHelp": "Finden Sie diesen in Ihrem Cloudflare Zero Trust-Dashboard unter Netzwerke → Tunnel → Ihr Tunnel → Konfigurieren → Token",
+      "showToken": "Token anzeigen",
+      "hideToken": "Token ausblenden",
+      "step2Title": "Bestätigen",
+      "step3Title": "Wird aktiviert"
+    },
+    "installWizard": {
+      "tabs": {
+        "dockerCompose": "Docker Compose",
+        "systemd": "Systemd",
+        "tarball": "Tarball",
+        "kubernetes": "Kubernetes",
+        "homebrew": "Homebrew"
+      }
+    },
+    "form": {
+      "selectAgent": "Agent auswählen...",
+      "provisionAgent": "Neuen Agent bereitstellen"
+    },
+    "tailscale": {
+      "pickerTitle": "Tailscale-Gerät auswählen",
+      "pickerDescription": "Wählen Sie das Tailscale-Gerät, über das der Datenverkehr geleitet werden soll.",
+      "noDevices": "Keine Tailscale-Geräte gefunden. Stellen Sie sicher, dass Ihr API-Schlüssel konfiguriert ist."
+    }
   }
 }

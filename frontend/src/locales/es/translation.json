@@ -539,7 +539,14 @@
     "gridView": "Vista en cuadrícula",
     "listView": "Vista en lista",
     "deleteConfirm": "¿Estás seguro de que quieres eliminar \"{{name}}\"? Esta acción no se puede deshacer.",
-    "deleting": "Eliminando..."
+    "deleting": "Eliminando...",
+    "columnConnection": "Connection",
+    "connectionType": "Connection Type",
+    "connectionTypeDirect": "Direct",
+    "connectionTypeOrthrus": "Orthrus Agent",
+    "connectionTypeCloudflare": "Cloudflare Tunnel",
+    "orthrusAgentUUID": "Orthrus Agent UUID",
+    "enabled": "Enabled"
   },
   "notificationProviders": {
     "title": "Proveedores de Notificaciones",
@@ -883,7 +890,8 @@
       "keepaliveCountError": "Ingrese un número entero entre 1 y 1000.",
       "keepaliveValidationFailed": "La configuración de keepalive contiene valores no válidos.",
       "languageHelper": "Selecciona tu idioma preferido. Los cambios surten efecto inmediatamente."
-    },    "applicationUrl": {
+    },
+    "applicationUrl": {
       "title": "URL de aplicación",
       "description": "Configure la URL pública utilizada para enlaces y correos electrónicos de cara al usuario.",
       "label": "URL de aplicación",
@@ -894,7 +902,8 @@
       "testButton": "Probar URL",
       "testSuccess": "URL abierta exitosamente",
       "testFailed": "Error al abrir URL"
-    },    "systemStatus": {
+    },
+    "systemStatus": {
       "title": "Estado del Sistema",
       "service": "Servicio",
       "version": "Versión",
@@ -1128,5 +1137,74 @@
     "title": "Bienvenido",
     "description": "Su cuenta tiene acceso passthrough. Puede acceder a sus servicios asignados directamente — no hay interfaz de gestión disponible.",
     "noAccessToManagement": "No tiene acceso a la interfaz de gestión."
+  },
+  "hecate": {
+    "stateConnected": "Connected",
+    "stateConnecting": "Connecting",
+    "stateError": "Error",
+    "stateStopped": "Stopped",
+    "tunnelStatus": "Tunnel status: {{state}}",
+    "viewLogs": "View Tunnel Logs",
+    "viewLogsFor": "View tunnel logs for {{name}}",
+    "wizard": {
+      "title": "Install Orthrus Agent",
+      "description": "Follow the steps below to install the Orthrus agent on your server.",
+      "authKeyLabel": "Authentication Key",
+      "authKeyWarning": "This key is shown only once. Copy it before closing this dialog.",
+      "authKeyValue": "Authentication key value",
+      "copyAuthKey": "Copy authentication key",
+      "copied": "Copied!",
+      "copySnippet": "Copy snippet",
+      "troubleshooting": "Troubleshooting",
+      "troubleshootingHint1": "Ensure the Orthrus agent service is running and can reach Charon.",
+      "troubleshootingHint2": "Check that the authentication key was copied correctly.",
+      "troubleshootingHint3": "Verify that ports are open in your firewall.",
+      "done": "Done"
+    },
+    "logs": {
+      "title": "Tunnel Logs — {{name}}",
+      "description": "Live log stream for tunnel {{name}}",
+      "pause": "Pause",
+      "resume": "Resume",
+      "clear": "Clear",
+      "noLogs": "No log output yet.",
+      "lineCount": "{{count}} lines",
+      "reconnecting": "Reconectando..."
+    },
+    "cloudflare": {
+      "wizardTitle": "Cloudflare Tunnel Setup",
+      "wizardDescription": "Configure a Cloudflare Tunnel to connect your server.",
+      "configureHint": "Cloudflare Tunnel creates an outbound-only connection — no inbound firewall rules needed.",
+      "step1": "Install cloudflared on your server.",
+      "step2": "Authenticate cloudflared with your Cloudflare account.",
+      "step3": "Create a tunnel and copy the tunnel ID here.",
+      "docsLink": "Cloudflare Tunnel documentation",
+      "continue": "Continue",
+      "step1Title": "Ingresar token",
+      "tokenLabel": "Token de Cloudflare Tunnel",
+      "tokenHelp": "Encúentrelo en su panel de Cloudflare Zero Trust en Redes → Túneles → su túnel → Configurar → Token",
+      "showToken": "Mostrar token",
+      "hideToken": "Ocultar token",
+      "step2Title": "Confirmar",
+      "step3Title": "Activando"
+    },
+    "installWizard": {
+      "tabs": {
+        "dockerCompose": "Docker Compose",
+        "systemd": "Systemd",
+        "tarball": "Tarball",
+        "kubernetes": "Kubernetes",
+        "homebrew": "Homebrew"
+      }
+    },
+    "form": {
+      "selectAgent": "Seleccionar un agente...",
+      "provisionAgent": "Provisionar nuevo agente"
+    },
+    "tailscale": {
+      "pickerTitle": "Select Tailscale Device",
+      "pickerDescription": "Choose the Tailscale device to route traffic through.",
+      "noDevices": "No Tailscale devices found. Ensure your API key is configured."
+    }
   }
 }
