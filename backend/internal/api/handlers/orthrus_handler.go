@@ -100,6 +100,11 @@ func (h *OrthrusHandler) GetInstallSnippets(c *gin.Context) {
 
 	charonURL := c.GetHeader("X-Charon-URL")
 	if charonURL == "" {
+		// NOTE: TLS detection via c.Request.TLS is unreliable when Charon runs behind a
+		// reverse proxy (e.g., Caddy) that terminates TLS and strips or rewrites headers.
+		// The X-Charon-URL header allows callers to pass the correct public URL explicitly;
+		// if absent, we fall back to heuristic detection. Users deploying behind a proxy
+		// should set the X-Charon-URL header from the frontend (window.location.origin).
 		scheme := "https"
 		if c.Request.TLS == nil {
 			scheme = "http"

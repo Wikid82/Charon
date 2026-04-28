@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	cfprovider "github.com/Wikid82/charon/backend/internal/hecate/providers/cloudflare"
 	nbprovider "github.com/Wikid82/charon/backend/internal/hecate/providers/netbird"
@@ -127,6 +129,10 @@ func (h *HecateHandler) Update(c *gin.Context) {
 	}
 
 	if err := h.svc.Update(uuid, cfg, req.Credentials); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "tunnel not found"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -137,6 +143,10 @@ func (h *HecateHandler) Update(c *gin.Context) {
 func (h *HecateHandler) Delete(c *gin.Context) {
 	uuid := c.Param("uuid")
 	if err := h.svc.Delete(uuid); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "tunnel not found"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -147,6 +157,10 @@ func (h *HecateHandler) Delete(c *gin.Context) {
 func (h *HecateHandler) Start(c *gin.Context) {
 	uuid := c.Param("uuid")
 	if err := h.svc.GetManager().StartTunnel(uuid); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "tunnel not found"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -157,6 +171,10 @@ func (h *HecateHandler) Start(c *gin.Context) {
 func (h *HecateHandler) Stop(c *gin.Context) {
 	uuid := c.Param("uuid")
 	if err := h.svc.GetManager().StopTunnel(uuid); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "tunnel not found"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -177,6 +195,10 @@ func (h *HecateHandler) RotateCredentials(c *gin.Context) {
 		return
 	}
 	if err := h.svc.RotateCredentials(uuid, req.Credentials); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "tunnel not found"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
