@@ -1,6 +1,8 @@
 package services_test
 
 import (
+	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -145,4 +147,141 @@ func TestHecateService_Update(t *testing.T) {
 	got, err := svc.Get(cfg.UUID)
 	require.NoError(t, err)
 	assert.Equal(t, "update-test-renamed", got.Name)
+}
+
+// ---- Mock providers for service coverage tests ----
+
+type svcNopProvider struct{}
+
+func (p *svcNopProvider) Name() string                  { return "nop" }
+func (p *svcNopProvider) Status() hecate.TunnelState    { return hecate.TunnelStateConnected }
+func (p *svcNopProvider) Start(_ context.Context) error { return nil }
+func (p *svcNopProvider) Stop() error                   { return nil }
+func (p *svcNopProvider) GetAddress() string            { return "" }
+
+type svcErrStopProvider struct{}
+
+func (p *svcErrStopProvider) Name() string                  { return "errstop" }
+func (p *svcErrStopProvider) Status() hecate.TunnelState    { return hecate.TunnelStateConnected }
+func (p *svcErrStopProvider) Start(_ context.Context) error { return nil }
+func (p *svcErrStopProvider) Stop() error                   { return fmt.Errorf("intentional stop error") }
+func (p *svcErrStopProvider) GetAddress() string            { return "" }
+
+// startSvcTunnel creates a tunnel in the DB via the service and starts it in the manager.
+func startSvcTunnel(t *testing.T, svc *services.HecateService, mgr *hecate.TunnelManager, provider models.TunnelProviderType, factory hecate.ProviderFactory) string {
+	t.Helper()
+	mgr.RegisterFactory(provider, factory)
+	cfg := &models.TunnelConfig{Name: "svc-running", Provider: provider}
+	require.NoError(t, svc.Create(cfg, `{}`))
+	require.NoError(t, mgr.StartTunnel(cfg.UUID))
+	return cfg.UUID
+}
+
+// ---- Coverage tests ----
+
+func TestHecateService_GetManager(t *testing.T) {
+	db, encSvc, mgr := setupHecateTestDB(t)
+	svc := services.NewHecateService(db, encSvc, mgr)
+
+	got := svc.GetManager()
+	require.NotNil(t, got)
+}
+
+func TestHecateService_Create_ActiveTunnel_StartSuccess(t *testing.T) {
+	db, encSvc, mgr := setupHecateTestDB(t)
+	svc := services.NewHecateService(db, encSvc, mgr)
+
+	mgr.RegisterFactory(models.ProviderCloudflare, func(_ *models.TunnelConfig, _ string) (hecate.TunnelProvider, error) {
+		return &svcNopProvider{}, nil
+	})
+
+	cfg := &models.TunnelConfig{
+		Name:     "active-tunnel",
+		Provider: models.ProviderCloudflare,
+		IsActive: true,
+	}
+	err := svc.Create(cfg, `{}`)
+	require.NoError(t, err)
+	assert.NotEmpty(t, cfg.UUID)
+}
+
+func TestHecateService_Create_ActiveTunnel_StartError(t *testing.T) {
+	db, encSvc, mgr := setupHecateTestDB(t)
+	svc := services.NewHecateService(db, encSvc, mgr)
+
+	mgr.RegisterFactory(models.ProviderCloudflare, func(_ *models.TunnelConfig, _ string) (hecate.TunnelProvider, error) {
+		return nil, fmt.Errorf("factory error")
+	})
+
+	cfg := &models.TunnelConfig{
+		Name:     "fail-active",
+		Provider: models.ProviderCloudflare,
+		IsActive: true,
+	}
+	err := svc.Create(cfg, `{}`)
+	assert.Error(t, err)
+}
+
+func TestHecateService_List_DBError(t *testing.T) {
+	db, encSvc, mgr := setupHecateTestDB(t)
+	svc := services.NewHecateService(db, encSvc, mgr)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	_, err = svc.List()
+	assert.Error(t, err)
+}
+
+func TestHecateService_Delete_StopError(t *testing.T) {
+	db, encSvc, mgr := setupHecateTestDB(t)
+	svc := services.NewHecateService(db, encSvc, mgr)
+
+	errFactory := hecate.ProviderFactory(func(_ *models.TunnelConfig, _ string) (hecate.TunnelProvider, error) {
+		return &svcErrStopProvider{}, nil
+	})
+	tunnelUUID := startSvcTunnel(t, svc, mgr, models.ProviderCloudflare, errFactory)
+
+	err := svc.Delete(tunnelUUID)
+	assert.Error(t, err)
+}
+
+func TestHecateService_Delete_DBError(t *testing.T) {
+	db, encSvc, mgr := setupHecateTestDB(t)
+	svc := services.NewHecateService(db, encSvc, mgr)
+
+	cfg := &models.TunnelConfig{Name: "del-db-err", Provider: models.ProviderCloudflare}
+	require.NoError(t, svc.Create(cfg, `{}`))
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	err = svc.Delete(cfg.UUID)
+	assert.Error(t, err)
+}
+
+func TestHecateService_RotateCredentials_StopError(t *testing.T) {
+	db, encSvc, mgr := setupHecateTestDB(t)
+	svc := services.NewHecateService(db, encSvc, mgr)
+
+	errFactory := hecate.ProviderFactory(func(_ *models.TunnelConfig, _ string) (hecate.TunnelProvider, error) {
+		return &svcErrStopProvider{}, nil
+	})
+	tunnelUUID := startSvcTunnel(t, svc, mgr, models.ProviderCloudflare, errFactory)
+
+	err := svc.RotateCredentials(tunnelUUID, `{"token":"new"}`)
+	assert.Error(t, err)
+}
+
+func TestHecateService_Update_GetError(t *testing.T) {
+	db, encSvc, mgr := setupHecateTestDB(t)
+	svc := services.NewHecateService(db, encSvc, mgr)
+
+	err := svc.Update("nonexistent-uuid", &models.TunnelConfig{
+		Name:     "x",
+		Provider: models.ProviderCloudflare,
+	}, nil)
+	assert.Error(t, err)
 }
