@@ -84,6 +84,7 @@ func (m *TunnelManager) RegisterProvider(uuid string, p TunnelProvider) {
 	m.state[uuid] = &tunnelState{
 		uuid:     uuid,
 		name:     p.Name(),
+		provider: p.Name(),
 		instance: p,
 		buffer:   NewRingBuffer(1000),
 		cancel:   cancelFn,
