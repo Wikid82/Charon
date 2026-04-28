@@ -11,6 +11,16 @@ vi.mock('../../api/remoteServers', () => ({
   testCustomRemoteServerConnection: vi.fn(() => Promise.resolve({ address: 'localhost:8080', reachable: true })),
 }))
 
+vi.mock('../../hooks/useOrthrus', () => ({
+  useAgentList: vi.fn(() => ({ data: [] })),
+  useProvisionAgent: vi.fn(() => ({
+    mutateAsync: vi.fn(() => Promise.resolve({ agent: { uuid: 'agent-uuid', name: 'agent' }, auth_key: 'auth-key' })),
+  })),
+  useOrthrus: vi.fn(() => ({
+    getInstallSnippets: vi.fn(() => Promise.resolve({})),
+  })),
+}))
+
 describe('RemoteServerForm', () => {
   const mockOnSubmit = vi.fn(() => Promise.resolve())
   const mockOnCancel = vi.fn()
