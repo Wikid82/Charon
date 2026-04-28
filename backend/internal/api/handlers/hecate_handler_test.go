@@ -192,6 +192,23 @@ func TestHecateHandler_Get_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
+// TestHecateHandler_Get_DBError verifies 500 when the DB is unavailable.
+func TestHecateHandler_Get_DBError(t *testing.T) {
+	h, _, db := newHecateTestSetupWithDB(t)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/management/hecate/tunnels/some-uuid", http.NoBody)
+	c.Params = gin.Params{{Key: "uuid", Value: "some-uuid"}}
+
+	h.Get(c)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
 // TestHecateHandler_Update_Success verifies an existing config is updated.
 func TestHecateHandler_Update_Success(t *testing.T) {
 	h, _ := newHecateTestSetup(t)
@@ -873,8 +890,10 @@ func TestHecateWSHandler_StreamLogs_UpgradeAndStream(t *testing.T) {
 
 	wsURL := toWebSocketURL(srv.URL) + "/ws/tunnels/" + tunnelUUID + "/logs"
 	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 	require.NoError(t, err)
-	defer resp.Body.Close()
 	require.Equal(t, http.StatusSwitchingProtocols, resp.StatusCode)
 
 	waitFor(t, 2*time.Second, func() bool {
