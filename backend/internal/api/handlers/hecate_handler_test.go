@@ -874,6 +874,7 @@ func TestHecateWSHandler_StreamLogs_UpgradeAndStream(t *testing.T) {
 	wsURL := toWebSocketURL(srv.URL) + "/ws/tunnels/" + tunnelUUID + "/logs"
 	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	require.NoError(t, err)
+	defer resp.Body.Close()
 	require.Equal(t, http.StatusSwitchingProtocols, resp.StatusCode)
 
 	waitFor(t, 2*time.Second, func() bool {
@@ -1186,6 +1187,7 @@ func TestHecateWSHandler_StreamLogs_SubClose(t *testing.T) {
 	wsURL := toWebSocketURL(srv.URL) + "/ws/tunnels/" + tunnelUUID + "/logs"
 	conn, resp, dialErr := websocket.DefaultDialer.Dial(wsURL, nil)
 	require.NoError(t, dialErr)
+	defer resp.Body.Close()
 	require.Equal(t, http.StatusSwitchingProtocols, resp.StatusCode)
 	t.Cleanup(func() { _ = conn.Close() })
 
