@@ -77,6 +77,11 @@ func (c *TailscaleClient) ForceRefresh(ctx context.Context) ([]TailscaleDevice, 
 	return c.fetchAndCache(ctx)
 }
 
+// SetBaseURL overrides the default API base URL. Use only in tests.
+func (c *TailscaleClient) SetBaseURL(url string) {
+	c.baseURL = url
+}
+
 func (c *TailscaleClient) fetchAndCache(ctx context.Context) ([]TailscaleDevice, error) {
 	url := fmt.Sprintf("%s/tailnet/%s/devices", c.baseURL, c.tailnet)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
