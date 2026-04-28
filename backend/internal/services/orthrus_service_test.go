@@ -148,3 +148,76 @@ func TestOrthrusService_GetInstallSnippets(t *testing.T) {
 	assert.Contains(t, snippets.DockerCompose, "https://charon.example.com")
 	assert.Contains(t, snippets.DockerCompose, "snippet-agent")
 }
+
+func TestOrthrusService_List_DBError(t *testing.T) {
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	_ = sqlDB.Close()
+
+	_, err = svc.List()
+	assert.Error(t, err)
+}
+
+func TestOrthrusService_Provision_DBError(t *testing.T) {
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	_ = sqlDB.Close()
+
+	_, _, err = svc.Provision("error-agent")
+	assert.Error(t, err)
+}
+
+func TestOrthrusService_Delete_DBError(t *testing.T) {
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+
+	agent, _, err := svc.Provision("to-delete")
+	require.NoError(t, err)
+
+	sqlDB, sqlErr := db.DB()
+	require.NoError(t, sqlErr)
+	_ = sqlDB.Close()
+
+	err = svc.Delete(agent.UUID)
+	assert.Error(t, err)
+}
+
+func TestOrthrusService_Revoke_Success(t *testing.T) {
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+
+	agent, _, err := svc.Provision("revoke-me")
+	require.NoError(t, err)
+
+	err = svc.Revoke(agent.UUID)
+	assert.NoError(t, err)
+}
+
+func TestOrthrusService_Revoke_DBError(t *testing.T) {
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+
+	agent, _, err := svc.Provision("revoke-dberror")
+	require.NoError(t, err)
+
+	sqlDB, sqlErr := db.DB()
+	require.NoError(t, sqlErr)
+	_ = sqlDB.Close()
+
+	err = svc.Revoke(agent.UUID)
+	assert.Error(t, err)
+}
+
+func TestOrthrusService_GetInstallSnippets_NotFound(t *testing.T) {
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+
+	_, err := svc.GetInstallSnippets("nonexistent-uuid", "https://charon.example.com")
+	assert.Error(t, err)
+}

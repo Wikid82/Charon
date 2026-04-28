@@ -285,3 +285,40 @@ func TestHecateService_Update_GetError(t *testing.T) {
 	}, nil)
 	assert.Error(t, err)
 }
+
+func TestHecateService_Create_DBError(t *testing.T) {
+	db, encSvc, mgr := setupHecateTestDB(t)
+	svc := services.NewHecateService(db, encSvc, mgr)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	_ = sqlDB.Close()
+
+	cfg := &models.TunnelConfig{Name: "err-tunnel", Provider: models.ProviderNetBird}
+	err = svc.Create(cfg, `{}`)
+	assert.Error(t, err)
+}
+
+func TestHecateService_RotateCredentials_NotFound(t *testing.T) {
+	db, encSvc, mgr := setupHecateTestDB(t)
+	svc := services.NewHecateService(db, encSvc, mgr)
+
+	err := svc.RotateCredentials("nonexistent-uuid", `{"token":"new"}`)
+	assert.Error(t, err)
+}
+
+func TestHecateService_RotateCredentials_StartError(t *testing.T) {
+	db, encSvc, mgr := setupHecateTestDB(t)
+	svc := services.NewHecateService(db, encSvc, mgr)
+
+	errStartFactory := hecate.ProviderFactory(func(_ *models.TunnelConfig, _ string) (hecate.TunnelProvider, error) {
+		return nil, fmt.Errorf("intentional start factory error")
+	})
+	mgr.RegisterFactory(models.ProviderZeroTier, errStartFactory)
+
+	cfg := &models.TunnelConfig{Name: "zerotier-tunnel", Provider: models.ProviderZeroTier}
+	require.NoError(t, svc.Create(cfg, `{}`))
+
+	err := svc.RotateCredentials(cfg.UUID, `{"token":"new"}`)
+	assert.Error(t, err)
+}
