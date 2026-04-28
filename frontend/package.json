@@ -33,14 +33,14 @@
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-tabs": "^1.1.13",
     "@radix-ui/react-tooltip": "^1.2.8",
-    "@tanstack/react-query": "^5.100.5",
+    "@tanstack/react-query": "^5.100.6",
     "axios": "1.15.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "i18next": "^26.0.8",
     "i18next-browser-languagedetector": "^8.2.1",
-    "lucide-react": "^1.11.0",
+    "lucide-react": "^1.12.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-hook-form": "^7.74.0",
@@ -49,7 +49,7 @@
     "react-router-dom": "^7.14.2",
     "recharts": "^3.8.1",
     "tailwind-merge": "^3.5.0",
-    "tldts": "^7.0.28"
+    "tldts": "^7.0.29"
   },
   "devDependencies": {
     "@eslint/css": "^1.1.0",
