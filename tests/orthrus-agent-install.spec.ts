@@ -8,7 +8,7 @@ const ORTHRUS_AGENTS_API = '**/api/v1/orthrus/agents';
 const ORTHRUS_AGENT_SNIPPETS_API = '**/api/v1/orthrus/agents/*/snippets';
 
 const MOCK_AGENT_UUID = 'dddddddd-0000-0000-0000-000000000099';
-const MOCK_AUTH_KEY = 'oth_test_key_abcdef1234567890abcdef';
+const MOCK_AUTH_KEY = 'ch_orthrus_test_key_abcdef1234567890abcdef';
 const MOCK_AGENT_NAME = 'My Test Orthrus Agent';
 
 const MOCK_SNIPPETS = {
@@ -251,7 +251,7 @@ test.describe('Orthrus Agent Install Wizard', () => {
   });
 
   test.describe('Snippet Content Validation', () => {
-    test('snippets contain the actual auth key value (backend substitutes placeholder before returning)', async ({ page }) => {
+    test('snippets displayed in UI contain the auth key (frontend substitutes <AUTH_KEY> placeholder client-side on copy)', async ({ page }) => {
       const dialog = await openOrthrusWizard(page);
 
       await test.step('Check Docker Compose tab snippet contains auth key value', async () => {
