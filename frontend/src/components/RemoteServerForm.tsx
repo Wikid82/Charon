@@ -1,7 +1,13 @@
 import { Loader2, Check, X, CircleHelp } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 
+import { type InstallSnippets } from '../api/orthrus'
 import { type RemoteServer, testCustomRemoteServerConnection } from '../api/remoteServers'
+import { useAgentList, useProvisionAgent, useOrthrus } from '../hooks/useOrthrus'
+import { CloudflareTunnelWizard } from './hecate/CloudflareTunnelWizard'
+import { ConnectionTypeSelector, type ConnectionType } from './hecate/ConnectionTypeSelector'
+import { OrthrusInstallWizard } from './hecate/OrthrusInstallWizard'
 
 interface Props {
   server?: RemoteServer
@@ -10,6 +16,7 @@ interface Props {
 }
 
 export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) {
+  const { t } = useTranslation()
   const [formData, setFormData] = useState({
     name: server?.name || '',
     provider: server?.provider || 'generic',
@@ -17,11 +24,25 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
     port: server?.port ?? 22,
     username: server?.username || '',
     enabled: server?.enabled ?? true,
+    connection_type: (server?.connection_type ?? 'direct') as ConnectionType,
+    orthrus_agent_uuid: server?.orthrus_agent_uuid ?? '',
   })
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
+  const [provisionWizardOpen, setProvisionWizardOpen] = useState(false)
+  const [cfWizardOpen, setCfWizardOpen] = useState(false)
+  const [wizardData, setWizardData] = useState<{
+    agentName: string
+    agentUUID: string
+    authKey: string
+    snippets: InstallSnippets
+  } | null>(null)
+
+  const { data: agents = [] } = useAgentList()
+  const { mutateAsync: doProvision } = useProvisionAgent()
+  const { getInstallSnippets } = useOrthrus()
 
   useEffect(() => {
     setFormData({
@@ -31,6 +52,8 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
       port: server?.port ?? 22,
       username: server?.username || '',
       enabled: server?.enabled ?? true,
+      connection_type: (server?.connection_type ?? 'direct') as ConnectionType,
+      orthrus_agent_uuid: server?.orthrus_agent_uuid ?? '',
     })
   }, [server])
 
@@ -69,7 +92,14 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
   return (
     <>
       {/* Layer 1: Background overlay (z-40) */}
-      <div className="fixed inset-0 bg-black/50 z-40" onClick={onCancel} />
+      <div
+        className="fixed inset-0 bg-black/50 z-40"
+        onClick={onCancel}
+        onKeyDown={(e) => e.key === 'Escape' && onCancel()}
+        role="button"
+        tabIndex={-1}
+        aria-label={t('common.cancel')}
+      />
 
       {/* Layer 2: Form container (z-50, pointer-events-none) */}
       <div className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-50">
@@ -90,8 +120,9 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Name</label>
+            <label className="block text-sm font-medium text-gray-300 mb-2" htmlFor="name">Name</label>
             <input
+              id="name"
               type="text"
               required
               value={formData.name}
@@ -101,30 +132,113 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Provider</label>
-              <select
-                value={formData.provider}
-                onChange={e => {
-                  const newProvider = e.target.value;
-                  setFormData({
-                    ...formData,
-                    provider: newProvider,
-                    // Set default port for Docker
-                    port: newProvider === 'docker' ? 2375 : (newProvider === 'generic' ? 22 : formData.port)
-                  })
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2" htmlFor="provider">
+              {t('remoteServers.columnProvider')}
+            </label>
+            <select
+              id="provider"
+              value={formData.provider}
+              onChange={e => {
+                const newProvider = e.target.value;
+                setFormData({
+                  ...formData,
+                  provider: newProvider,
+                  port: newProvider === 'docker' ? 2375 : (newProvider === 'generic' ? 22 : formData.port)
+                })
+              }}
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="generic">Generic</option>
+              <option value="docker">Docker</option>
+              <option value="kubernetes">Kubernetes</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2" htmlFor="connection-type">
+              {t('remoteServers.connectionType')}
+            </label>
+            <ConnectionTypeSelector
+              id="connection-type"
+              value={formData.connection_type}
+              onChange={type => setFormData({ ...formData, connection_type: type, orthrus_agent_uuid: '' })}
+            />
+          </div>
+
+          {formData.connection_type === 'orthrus' && (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2" htmlFor="orthrus-agent-select">
+                  {t('hecate.form.selectAgent')}
+                </label>
+                <select
+                  id="orthrus-agent-select"
+                  value={formData.orthrus_agent_uuid}
+                  onChange={e => setFormData({ ...formData, orthrus_agent_uuid: e.target.value })}
+                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">{t('hecate.form.selectAgent')}</option>
+                  {agents.map(agent => (
+                    <option key={agent.uuid} value={agent.uuid}>{agent.name}</option>
+                  ))}
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const result = await doProvision({ name: formData.name || 'agent' })
+                    const snippets = await getInstallSnippets(result.agent.uuid)
+                    setWizardData({
+                      agentName: result.agent.name,
+                      agentUUID: result.agent.uuid,
+                      authKey: result.auth_key,
+                      snippets,
+                    })
+                    setProvisionWizardOpen(true)
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Failed to provision agent')
+                  }
                 }}
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="text-sm text-blue-400 hover:text-blue-300 underline focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
               >
-                <option value="generic">Generic</option>
-                <option value="docker">Docker</option>
-                <option value="kubernetes">Kubernetes</option>
-              </select>
+                {t('hecate.form.provisionAgent')}
+              </button>
+              {provisionWizardOpen && wizardData && (
+                <OrthrusInstallWizard
+                  agentName={wizardData.agentName}
+                  agentUUID={wizardData.agentUUID}
+                  authKey={wizardData.authKey}
+                  snippets={wizardData.snippets}
+                  open={provisionWizardOpen}
+                  onClose={() => {
+                    setProvisionWizardOpen(false)
+                    setFormData(prev => ({ ...prev, orthrus_agent_uuid: wizardData.agentUUID }))
+                  }}
+                />
+              )}
             </div>
+          )}
+
+          {formData.connection_type === 'cloudflare' && cfWizardOpen && (
+            <CloudflareTunnelWizard
+              serverName={formData.name}
+              onSuccess={(uuid) => {
+                setCfWizardOpen(false)
+                setFormData(prev => ({ ...prev, orthrus_agent_uuid: uuid }))
+              }}
+              onCancel={() => setCfWizardOpen(false)}
+            />
+          )}
+
+          {formData.connection_type === 'direct' && (
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Host</label>
+              <label className="block text-sm font-medium text-gray-300 mb-2" htmlFor="host">
+                {t('remoteServers.host')}
+              </label>
               <input
+                id="host"
                 type="text"
                 required
                 value={formData.host}
@@ -133,12 +247,16 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
-          </div>
+          )}
 
+          {formData.connection_type === 'direct' && (
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Port</label>
+              <label className="block text-sm font-medium text-gray-300 mb-2" htmlFor="port">
+                {t('remoteServers.port')}
+              </label>
               <input
+                id="port"
                 type="number"
                 min={1}
                 max={65535}
@@ -152,8 +270,11 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
             </div>
             {formData.provider !== 'docker' && (
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">Username</label>
+                <label className="block text-sm font-medium text-gray-300 mb-2" htmlFor="username">
+                  {t('remoteServers.user')}
+                </label>
                 <input
+                  id="username"
                   type="text"
                   value={formData.username}
                   onChange={e => setFormData({ ...formData, username: e.target.value })}
@@ -162,6 +283,7 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
               </div>
             )}
           </div>
+          )}
 
           <label className="flex items-center gap-3">
             <input
@@ -170,7 +292,7 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
               onChange={e => setFormData({ ...formData, enabled: e.target.checked })}
               className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
             />
-            <span className="text-sm text-gray-300">Enabled</span>
+            <span className="text-sm text-gray-300">{t('remoteServers.enabled', 'Enabled')}</span>
           </label>
 
           <div className="flex gap-3 justify-end pt-4 border-t border-gray-800">
