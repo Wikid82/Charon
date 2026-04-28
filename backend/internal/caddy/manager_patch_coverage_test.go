@@ -277,3 +277,19 @@ func TestManagerApplyConfig_InvalidKeepaliveSettingsFallbackToDefaults(t *testin
 	require.False(t, bytes.Contains(loadBody, []byte(`"keepalive_idle"`)))
 	require.False(t, bytes.Contains(loadBody, []byte(`"keepalive_count"`)))
 }
+func TestManager_SetOrthrusServer(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	m := NewManager(nil, db, t.TempDir(), "", false, config.SecurityConfig{})
+	resolver := &mockOrthrusResolver{sessions: map[string]string{}}
+	m.SetOrthrusServer(resolver)
+}
+
+func TestManager_SetEncryptionService(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	m := NewManager(nil, db, t.TempDir(), "", false, config.SecurityConfig{})
+	key, err := crypto.NewEncryptionService("MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+	require.NoError(t, err)
+	m.SetEncryptionService(key)
+}
