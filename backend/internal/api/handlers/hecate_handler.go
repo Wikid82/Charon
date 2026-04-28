@@ -64,7 +64,7 @@ func (h *HecateHandler) List(c *gin.Context) {
 // createRequest is the payload for creating a new tunnel configuration.
 type createRequest struct {
 	Name        string                    `json:"name" binding:"required"`
-	Provider    models.TunnelProviderType `json:"provider" binding:"required"`
+	Provider    models.TunnelProviderType `json:"provider" binding:"required,oneof=cloudflare tailscale zerotier netbird"`
 	Credentials string                    `json:"credentials" binding:"required"`
 	Config      string                    `json:"configuration"`
 	IsActive    bool                      `json:"is_active"`
@@ -97,7 +97,11 @@ func (h *HecateHandler) Get(c *gin.Context) {
 	uuid := c.Param("uuid")
 	cfg, err := h.svc.Get(uuid)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "tunnel not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, cfg)
@@ -106,7 +110,7 @@ func (h *HecateHandler) Get(c *gin.Context) {
 // updateRequest is the payload for updating an existing tunnel configuration.
 type updateRequest struct {
 	Name        string                    `json:"name" binding:"required"`
-	Provider    models.TunnelProviderType `json:"provider" binding:"required"`
+	Provider    models.TunnelProviderType `json:"provider" binding:"required,oneof=cloudflare tailscale zerotier netbird"`
 	Credentials *string                   `json:"credentials"`
 	Config      string                    `json:"configuration"`
 	IsActive    bool                      `json:"is_active"`
