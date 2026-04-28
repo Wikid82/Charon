@@ -275,3 +275,26 @@ func TestEncKeyValid(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, b, 32)
 }
+
+func TestTunnelManager_GetProviderByType_Found(t *testing.T) {
+	db, encSvc := setupManagerTestDB(t)
+	mgr := NewTunnelManager(db, encSvc)
+	defer func() { _ = mgr.Stop() }()
+
+	p := newMockProvider("cloudflare")
+	mgr.RegisterProvider("uuid-cf", p)
+
+	got, ok := mgr.GetProviderByType(models.ProviderCloudflare)
+	assert.True(t, ok)
+	assert.Equal(t, p, got)
+}
+
+func TestTunnelManager_GetProviderByType_NotFound(t *testing.T) {
+	db, encSvc := setupManagerTestDB(t)
+	mgr := NewTunnelManager(db, encSvc)
+	defer func() { _ = mgr.Stop() }()
+
+	got, ok := mgr.GetProviderByType(models.ProviderTailscale)
+	assert.False(t, ok)
+	assert.Nil(t, got)
+}
