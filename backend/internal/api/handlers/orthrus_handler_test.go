@@ -385,3 +385,59 @@ func TestOrthrusHandler_RegisterRoutes(t *testing.T) {
 	assert.True(t, paths["POST /management/orthrus/agents/:uuid/revoke"])
 	assert.True(t, paths["GET /management/orthrus/agents/:uuid/snippets"])
 }
+
+func TestOrthrusHandler_List_InternalError(t *testing.T) {
+	h, db := newOrthrusTestSetup(t)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	_ = sqlDB.Close()
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/management/orthrus/agents", http.NoBody)
+	h.List(c)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestOrthrusHandler_Provision_InternalError(t *testing.T) {
+	h, db := newOrthrusTestSetup(t)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	_ = sqlDB.Close()
+
+	body, _ := json.Marshal(map[string]string{"name": "agent-x"})
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/management/orthrus/agents", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	h.Provision(c)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestOrthrusHandler_Delete_InternalError(t *testing.T) {
+	h, db := newOrthrusTestSetup(t)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	_ = sqlDB.Close()
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodDelete, "/management/orthrus/agents/uuid-x", http.NoBody)
+	c.Params = gin.Params{{Key: "uuid", Value: "uuid-x"}}
+	h.Delete(c)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestOrthrusHandler_Revoke_InternalError(t *testing.T) {
+	h, db := newOrthrusTestSetup(t)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	_ = sqlDB.Close()
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/management/orthrus/agents/uuid-x/revoke", http.NoBody)
+	c.Params = gin.Params{{Key: "uuid", Value: "uuid-x"}}
+	h.Revoke(c)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
