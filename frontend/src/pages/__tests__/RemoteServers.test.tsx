@@ -13,8 +13,8 @@ vi.mock('../../hooks/useHecate', () => ({
 }))
 
 vi.mock('../../components/hecate/TunnelLogViewer', () => ({
-  TunnelLogViewer: ({ open, serverName }: { open: boolean; serverName: string; serverUUID: string; onClose: () => void }) =>
-    open ? <div data-testid="tunnel-log-viewer">{serverName}</div> : null,
+  TunnelLogViewer: ({ open, serverName, onClose }: { open: boolean; serverName: string; serverUUID: string; onClose: () => void }) =>
+    open ? <div data-testid="tunnel-log-viewer"><button onClick={onClose}>Close Viewer</button>{serverName}</div> : null,
 }))
 
 vi.mock('../../components/RemoteServerForm', () => ({
@@ -312,5 +312,39 @@ describe('RemoteServers', () => {
     // badges render "cloudflare". Use getAllByText to handle the multiple matches.
     const cloudflareElements = screen.getAllByText('cloudflare')
     expect(cloudflareElements.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('opens TunnelLogViewer from list view View Logs button', async () => {
+    render(<RemoteServers />)
+
+    // Switch to list view
+    const listViewBtn = screen.getByTitle(/list/i)
+    await userEvent.click(listViewBtn)
+
+    // View Logs button is in the list view DataTable
+    const viewLogsBtn = screen.getByRole('button', { name: /tunnel logs.*My Server/i })
+    await userEvent.click(viewLogsBtn)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('tunnel-log-viewer')).toBeInTheDocument()
+    })
+  })
+
+  it('closes TunnelLogViewer when onClose is called', async () => {
+    render(<RemoteServers />)
+
+    // Open the viewer via the View Logs button
+    await userEvent.click(screen.getByRole('button', { name: /tunnel logs.*My Server/i }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('tunnel-log-viewer')).toBeInTheDocument()
+    })
+
+    // Close via the mock's Close Viewer button (calls onClose -> setLogsServer(null))
+    await userEvent.click(screen.getByRole('button', { name: /close viewer/i }))
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('tunnel-log-viewer')).not.toBeInTheDocument()
+    })
   })
 })

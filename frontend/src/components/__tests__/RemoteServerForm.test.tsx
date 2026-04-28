@@ -1,8 +1,9 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, afterEach } from 'vitest'
 
 import * as remoteServersApi from '../../api/remoteServers'
+import * as useOrthrusHook from '../../hooks/useOrthrus'
 import RemoteServerForm from '../RemoteServerForm'
 
 // Mock the API
@@ -19,6 +20,17 @@ vi.mock('../../hooks/useOrthrus', () => ({
   useOrthrus: vi.fn(() => ({
     getInstallSnippets: vi.fn(() => Promise.resolve({})),
   })),
+}))
+
+// Lightweight mock for child dialogs to avoid complex render trees
+vi.mock('../hecate/OrthrusInstallWizard', () => ({
+  OrthrusInstallWizard: ({ open, onClose }: { open: boolean; onClose: () => void }) =>
+    open ? <div data-testid="orthrus-install-wizard"><button onClick={onClose}>CloseWizard</button></div> : null,
+}))
+
+vi.mock('../hecate/CloudflareTunnelWizard', () => ({
+  CloudflareTunnelWizard: ({ onCancel }: { onCancel: () => void }) =>
+    <div data-testid="cloudflare-tunnel-wizard"><button onClick={onCancel}>CancelWizard</button></div>,
 }))
 
 describe('RemoteServerForm', () => {
@@ -207,5 +219,151 @@ describe('RemoteServerForm', () => {
     await waitFor(() => {
       expect(screen.getByText('Connection failed')).toBeInTheDocument()
     })
+  })
+
+  it('calls onCancel when Escape key is pressed on the overlay', () => {
+    render(
+      <RemoteServerForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    // Background overlay has role="button", tabIndex={-1}, and aria-label="Cancel"
+    const overlay = screen.getAllByRole('button', { name: /cancel/i })
+      .find(el => el.getAttribute('tabindex') === '-1')
+    expect(overlay).toBeTruthy()
+
+    fireEvent.keyDown(overlay!, { key: 'Escape' })
+
+    expect(mockOnCancel).toHaveBeenCalled()
+  })
+
+  it('changes connection type to orthrus and shows agent section', async () => {
+    render(
+      <RemoteServerForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    const connectionTypeSelect = screen.getByRole('combobox', { name: /connection type/i })
+    await userEvent.selectOptions(connectionTypeSelect, 'orthrus')
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/select an agent/i)).toBeInTheDocument()
+    })
+  })
+
+  it('selects an orthrus agent from the dropdown', async () => {
+    vi.mocked(useOrthrusHook.useAgentList).mockReturnValue({
+      data: [
+        { uuid: 'agent-1', name: 'Agent One', status: 'online', capabilities: '[]', last_heartbeat: null, last_seen: null, created_at: '', updated_at: '' },
+      ],
+    } as unknown as ReturnType<typeof useOrthrusHook.useAgentList>)
+
+    render(
+      <RemoteServerForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    const connectionTypeSelect = screen.getByRole('combobox', { name: /connection type/i })
+    await userEvent.selectOptions(connectionTypeSelect, 'orthrus')
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/select an agent/i)).toBeInTheDocument()
+    })
+
+    await userEvent.selectOptions(screen.getByLabelText(/select an agent/i), 'Agent One')
+    expect(screen.getByDisplayValue('Agent One')).toBeInTheDocument()
+  })
+
+  it('provision agent button triggers provision flow and opens wizard', async () => {
+    render(
+      <RemoteServerForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    const connectionTypeSelect = screen.getByRole('combobox', { name: /connection type/i })
+    await userEvent.selectOptions(connectionTypeSelect, 'orthrus')
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /provision new agent/i })).toBeInTheDocument()
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: /provision new agent/i }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('orthrus-install-wizard')).toBeInTheDocument()
+    })
+  })
+
+  it('shows error when provision agent fails', async () => {
+    vi.mocked(useOrthrusHook.useProvisionAgent).mockReturnValue({
+      mutateAsync: vi.fn().mockRejectedValue(new Error('Provision failed')),
+    } as unknown as ReturnType<typeof useOrthrusHook.useProvisionAgent>)
+
+    render(
+      <RemoteServerForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    const connectionTypeSelect = screen.getByRole('combobox', { name: /connection type/i })
+    await userEvent.selectOptions(connectionTypeSelect, 'orthrus')
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /provision new agent/i })).toBeInTheDocument()
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: /provision new agent/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Provision failed')).toBeInTheDocument()
+    })
+  })
+
+  it('test connection failure with non-reachable result shows error', async () => {
+    vi.mocked(remoteServersApi.testCustomRemoteServerConnection).mockResolvedValueOnce({
+      reachable: false,
+      error: 'Timeout',
+      address: '',
+    })
+
+    const mockServer = {
+      uuid: '123',
+      name: 'Test Server',
+      provider: 'docker',
+      host: 'localhost',
+      port: 5000,
+      enabled: true,
+      reachable: true,
+      created_at: '2025-11-18T10:00:00Z',
+      updated_at: '2025-11-18T10:00:00Z',
+    }
+
+    render(
+      <RemoteServerForm server={mockServer} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    await userEvent.click(screen.getByText('Test Connection'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Connection failed.*Timeout/)).toBeInTheDocument()
+    })
+  })
+
+  it('renders orthrus section when server has orthrus connection type', () => {
+    const mockServer = {
+      uuid: '123',
+      name: 'Orthrus Server',
+      provider: 'generic',
+      host: '',
+      port: 22,
+      username: '',
+      enabled: true,
+      reachable: false,
+      connection_type: 'orthrus' as const,
+      orthrus_agent_uuid: 'existing-agent',
+      created_at: '2025-01-01T00:00:00Z',
+      updated_at: '2025-01-01T00:00:00Z',
+    }
+
+    render(
+      <RemoteServerForm server={mockServer} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    expect(screen.getByLabelText(/select an agent/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /provision new agent/i })).toBeInTheDocument()
   })
 })
