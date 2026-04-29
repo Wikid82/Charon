@@ -149,12 +149,12 @@ func (l *Leash) connect(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("leash: accept stream: %w", err)
 		}
-		go l.handleStream(ctx, stream)
+		go l.handleStream(stream)
 	}
 }
 
 // handleStream reads the leading type byte from a yamux stream and dispatches accordingly.
-func (l *Leash) handleStream(ctx context.Context, stream *yamux.Stream) {
+func (l *Leash) handleStream(stream *yamux.Stream) {
 	defer stream.Close()
 
 	typeBuf := make([]byte, 1)
