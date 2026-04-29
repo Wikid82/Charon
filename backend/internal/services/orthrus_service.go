@@ -128,6 +128,8 @@ func (s *OrthrusService) GetInstallSnippets(uuid, charonURL string) (*orthrus.In
       - CHARON_URL=%s
       - AGENT_NAME=%s
       - AUTH_KEY=<AUTH_KEY>
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     restart: unless-stopped
 `, charonURL, name),
 
@@ -177,6 +179,14 @@ spec:
               value: "%s"
             - name: AUTH_KEY
               value: "<AUTH_KEY>"
+          volumeMounts:
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+              readOnly: true
+      volumes:
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
 `, charonURL, name),
 	}, nil
 }
