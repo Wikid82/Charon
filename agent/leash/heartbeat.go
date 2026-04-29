@@ -36,7 +36,19 @@ func (h *heartbeat) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_, err := h.session.Ping()
+			pingErr := make(chan error, 1)
+			go func() {
+				_, err := h.session.Ping()
+				pingErr <- err
+			}()
+
+			var err error
+			select {
+			case err = <-pingErr:
+			case <-time.After(heartbeatTimeout):
+				err = context.DeadlineExceeded
+			}
+
 			if err != nil {
 				failures++
 				h.log.WithError(err).WithField("failures", failures).Warn("leash: heartbeat ping failed")
