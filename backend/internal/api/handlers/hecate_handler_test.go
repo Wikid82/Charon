@@ -896,13 +896,13 @@ func TestHecateWSHandler_StreamLogs_UpgradeAndStream(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusSwitchingProtocols, resp.StatusCode)
 
-	waitFor(t, 2*time.Second, func() bool {
+	waitFor(t, func() bool {
 		return tracker.GetCount() == 1
 	})
 
 	require.NoError(t, conn.Close())
 
-	waitFor(t, 2*time.Second, func() bool {
+	waitFor(t, func() bool {
 		return tracker.GetCount() == 0
 	})
 }
@@ -1214,7 +1214,7 @@ func TestHecateWSHandler_StreamLogs_SubClose(t *testing.T) {
 	buf.Write("live line")
 
 	// Give the handler goroutine a moment to process the live line.
-	waitFor(t, 2*time.Second, func() bool {
+	waitFor(t, func() bool {
 		_, _, readErr := conn.ReadMessage()
 		return readErr == nil
 	})
@@ -1223,7 +1223,7 @@ func TestHecateWSHandler_StreamLogs_SubClose(t *testing.T) {
 	buf.Close()
 
 	// Wait for the WS connection to be terminated by the handler.
-	waitFor(t, 2*time.Second, func() bool {
+	waitFor(t, func() bool {
 		conn.SetReadDeadline(time.Now().Add(50 * time.Millisecond)) //nolint:errcheck
 		_, _, readErr := conn.ReadMessage()
 		return readErr != nil

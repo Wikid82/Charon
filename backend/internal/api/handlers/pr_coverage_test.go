@@ -554,7 +554,7 @@ func TestIsAdmin_NonAdminRole(t *testing.T) {
 // Credential Handler - Additional Coverage Tests
 // =============================================================================
 
-func setupCredentialHandlerTestWithCtx(t *testing.T) (*gin.Engine, *gorm.DB, *models.DNSProvider, context.Context) {
+func setupCredentialHandlerTestWithCtx(t *testing.T) (*gin.Engine, *gorm.DB, *models.DNSProvider) {
 	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="))
 	t.Cleanup(func() { require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY")) })
 
@@ -605,11 +605,11 @@ func setupCredentialHandlerTestWithCtx(t *testing.T) (*gin.Engine, *gorm.DB, *mo
 	router.POST("/api/v1/dns-providers/:id/credentials/:cred_id/test", credHandler.Test)
 	router.POST("/api/v1/dns-providers/:id/enable-multi-credentials", credHandler.EnableMultiCredentials)
 
-	return router, db, provider, context.Background()
+	return router, db, provider
 }
 
 func TestCredentialHandler_Update_InvalidProviderType(t *testing.T) {
-	router, db, _, _ := setupCredentialHandlerTestWithCtx(t)
+	router, db, _ := setupCredentialHandlerTestWithCtx(t)
 
 	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 	encryptor, _ := crypto.NewEncryptionService(testKey)
@@ -713,7 +713,7 @@ func TestSettingsHandler_MaskPasswordForTestFunction(t *testing.T) {
 // =============================================================================
 
 func TestCredentialHandler_Update_NotFoundError(t *testing.T) {
-	router, _, provider, _ := setupCredentialHandlerTestWithCtx(t)
+	router, _, provider := setupCredentialHandlerTestWithCtx(t)
 
 	updateBody := `{"label":"Updated","credentials":{"api_token":"new-token"}}`
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/9999", provider.ID)
@@ -727,7 +727,7 @@ func TestCredentialHandler_Update_NotFoundError(t *testing.T) {
 }
 
 func TestCredentialHandler_Update_MalformedJSON(t *testing.T) {
-	router, _, provider, _ := setupCredentialHandlerTestWithCtx(t)
+	router, _, provider := setupCredentialHandlerTestWithCtx(t)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/1", provider.ID)
 	req, _ := http.NewRequest("PUT", url, strings.NewReader("invalid json"))
@@ -739,7 +739,7 @@ func TestCredentialHandler_Update_MalformedJSON(t *testing.T) {
 }
 
 func TestCredentialHandler_Update_BadCredentialID(t *testing.T) {
-	router, _, provider, _ := setupCredentialHandlerTestWithCtx(t)
+	router, _, provider := setupCredentialHandlerTestWithCtx(t)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/invalid", provider.ID)
 	req, _ := http.NewRequest("PUT", url, strings.NewReader(`{}`))
@@ -752,7 +752,7 @@ func TestCredentialHandler_Update_BadCredentialID(t *testing.T) {
 }
 
 func TestCredentialHandler_Delete_NotFoundError(t *testing.T) {
-	router, _, provider, _ := setupCredentialHandlerTestWithCtx(t)
+	router, _, provider := setupCredentialHandlerTestWithCtx(t)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/9999", provider.ID)
 	req, _ := http.NewRequest("DELETE", url, nil)
@@ -763,7 +763,7 @@ func TestCredentialHandler_Delete_NotFoundError(t *testing.T) {
 }
 
 func TestCredentialHandler_Delete_BadCredentialID(t *testing.T) {
-	router, _, provider, _ := setupCredentialHandlerTestWithCtx(t)
+	router, _, provider := setupCredentialHandlerTestWithCtx(t)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/invalid", provider.ID)
 	req, _ := http.NewRequest("DELETE", url, nil)
@@ -774,7 +774,7 @@ func TestCredentialHandler_Delete_BadCredentialID(t *testing.T) {
 }
 
 func TestCredentialHandler_Test_BadCredentialID(t *testing.T) {
-	router, _, provider, _ := setupCredentialHandlerTestWithCtx(t)
+	router, _, provider := setupCredentialHandlerTestWithCtx(t)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/invalid/test", provider.ID)
 	req, _ := http.NewRequest("POST", url, nil)
@@ -785,7 +785,7 @@ func TestCredentialHandler_Test_BadCredentialID(t *testing.T) {
 }
 
 func TestCredentialHandler_EnableMultiCredentials_BadProviderID(t *testing.T) {
-	router, _, _, _ := setupCredentialHandlerTestWithCtx(t)
+	router, _, _ := setupCredentialHandlerTestWithCtx(t)
 
 	req, _ := http.NewRequest("POST", "/api/v1/dns-providers/invalid/enable-multi-credentials", nil)
 	w := httptest.NewRecorder()

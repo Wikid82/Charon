@@ -852,7 +852,7 @@ func initTestCA(t *testing.T) {
 	initializeTestCAForSuite()
 }
 
-func newTestTLSConfigShared(t *testing.T) (cfg *tls.Config, caPEM []byte) {
+func newTestTLSConfigShared(t *testing.T) *tls.Config {
 	t.Helper()
 
 	// Ensure shared CA is initialized
@@ -885,7 +885,7 @@ func newTestTLSConfigShared(t *testing.T) (cfg *tls.Config, caPEM []byte) {
 	cert, err := tls.X509KeyPair(leafCertPEM, leafKeyPEM)
 	require.NoError(t, err)
 
-	return &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}, testCAPEM
+	return &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
 }
 
 func TestMailService_GetSMTPConfig_DBError(t *testing.T) {
@@ -986,7 +986,7 @@ func TestMailService_sendSTARTTLS_DialFailure(t *testing.T) {
 func TestMailService_TestConnection_StartTLSSuccessWithAuth(t *testing.T) {
 	t.Parallel()
 
-	tlsConf, _ := newTestTLSConfigShared(t)
+	tlsConf := newTestTLSConfigShared(t)
 	trustTestCertificate(t, nil)
 	addr, cleanup := startMockSMTPServer(t, tlsConf, true, true)
 	defer cleanup()
@@ -1037,7 +1037,7 @@ func TestMailService_TestConnection_NoneSuccess(t *testing.T) {
 func TestMailService_SendEmail_STARTTLSSuccess(t *testing.T) {
 	t.Parallel()
 
-	tlsConf, _ := newTestTLSConfigShared(t)
+	tlsConf := newTestTLSConfigShared(t)
 	trustTestCertificate(t, nil)
 	addr, cleanup := startMockSMTPServer(t, tlsConf, true, true)
 	defer cleanup()
@@ -1066,7 +1066,7 @@ func TestMailService_SendEmail_STARTTLSSuccess(t *testing.T) {
 func TestMailService_SendEmail_SSLSuccess(t *testing.T) {
 	t.Parallel()
 
-	tlsConf, _ := newTestTLSConfigShared(t)
+	tlsConf := newTestTLSConfigShared(t)
 	trustTestCertificate(t, nil)
 	addr, cleanup := startMockSSLSMTPServer(t, tlsConf, true)
 	defer cleanup()

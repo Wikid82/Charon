@@ -102,7 +102,7 @@ func TestParseDERInput(t *testing.T) {
 	})
 
 	t.Run("DER cert with DER EC key", func(t *testing.T) {
-		ecCert, ecPriv, _, _ := makeECDSACertAndKey(t, "ec-der.test")
+		ecCert, ecPriv := makeECDSACertAndKey(t, "ec-der.test")
 		ecDERKey, err := x509.MarshalECPrivateKey(ecPriv)
 		require.NoError(t, err)
 		parsed, err := parseDERInput(ecCert.Raw, ecDERKey)
@@ -129,9 +129,9 @@ func TestParsePEMInput_ChainBuilding(t *testing.T) {
 	t.Run("cert with intermediates in cert data", func(t *testing.T) {
 		_, _, certPEM1, _ := makeRSACertAndKey(t, "leaf.test", time.Now().Add(time.Hour))
 		_, _, certPEM2, _ := makeRSACertAndKey(t, "intermediate.test", time.Now().Add(time.Hour))
-		combined := append(certPEM1, certPEM2...)
+		certPEM1 = append(certPEM1, certPEM2...)
 
-		parsed, err := parsePEMInput(combined, nil, nil)
+		parsed, err := parsePEMInput(certPEM1, nil, nil)
 		require.NoError(t, err)
 		assert.NotNil(t, parsed.Leaf)
 		assert.Len(t, parsed.Intermediates, 1)

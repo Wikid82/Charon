@@ -19,6 +19,8 @@ import (
 
 // newTestZTClient creates a ZeroTierClient pointing to a test HTTP server,
 // bypassing SSRF validation (the server uses a loopback address).
+//
+//nolint:unparam // *httptest.Server returned for future test variants
 func newTestZTClient(t *testing.T, handler http.HandlerFunc) (*ZeroTierClient, *httptest.Server) {
 	t.Helper()
 	srv := httptest.NewServer(handler)
@@ -150,6 +152,7 @@ func TestIsPrivateIP_Ranges(t *testing.T) {
 
 // --- Provider Tests ---
 
+//nolint:unparam // controllerURL kept for future test variants
 func validZTCredsJSON(controllerURL string) string {
 	if controllerURL == "" {
 		return `{"api_token":"zt-test-token"}`

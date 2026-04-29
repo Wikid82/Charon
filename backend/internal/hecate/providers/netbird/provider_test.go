@@ -20,6 +20,7 @@ import (
 
 // --- Helpers ---
 
+//nolint:unparam // *httptest.Server returned for future test variants
 func newTestNBClient(t *testing.T, handler http.HandlerFunc) (*NetBirdClient, *httptest.Server) {
 	t.Helper()
 	srv := httptest.NewServer(handler)
@@ -34,6 +35,7 @@ func nbPeersResponse(peers []NetBirdPeer) string {
 	return string(b)
 }
 
+//nolint:unparam // managementURL kept for future test variants
 func validNBCredsJSON(managementURL string) string {
 	if managementURL == "" {
 		return `{"access_token":"nb-test-token"}`

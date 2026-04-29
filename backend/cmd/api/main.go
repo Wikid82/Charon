@@ -260,7 +260,8 @@ func main() {
 	defer appCancel()
 
 	if err := routes.RegisterWithDeps(appCtx, router, db, cfg, caddyManager, cerb); err != nil {
-		log.Fatalf("register routes: %v", err)
+		appCancel()
+		log.Fatalf("register routes: %v", err) //nolint:gocritic // exitAfterDefer: appCancel called explicitly above
 	}
 
 	// Register import handler with config dependencies

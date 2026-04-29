@@ -107,12 +107,12 @@ func TestRingBuffer_ConcurrentWrites(t *testing.T) {
 
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
 			for j := 0; j < writesPerWorker; j++ {
 				rb.Write("line")
 			}
-		}(i)
+		}()
 	}
 	wg.Wait()
 

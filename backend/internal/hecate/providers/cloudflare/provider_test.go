@@ -20,6 +20,7 @@ import (
 
 // --- API Client Tests ---
 
+//nolint:unparam // *httptest.Server returned for future test variants
 func newTestClient(t *testing.T, handler http.HandlerFunc) (*CloudflareClient, *httptest.Server) {
 	t.Helper()
 	srv := httptest.NewServer(handler)
