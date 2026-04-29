@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/orthrus"
@@ -119,6 +120,23 @@ func (s *OrthrusService) Revoke(uuid string) error {
 	return nil
 }
 
+// wsURL converts an http/https base URL to the canonical Orthrus WebSocket
+// endpoint URL (wss://host/api/v1/ws/orthrus/connect). If the input already
+// uses a ws/wss scheme it is returned unchanged (path appended if missing).
+func wsURL(base string) string {
+	switch {
+	case strings.HasPrefix(base, "https://"):
+		base = "wss://" + strings.TrimPrefix(base, "https://")
+	case strings.HasPrefix(base, "http://"):
+		base = "ws://" + strings.TrimPrefix(base, "http://")
+	}
+	base = strings.TrimRight(base, "/")
+	if !strings.HasSuffix(base, "/api/v1/ws/orthrus/connect") {
+		base += "/api/v1/ws/orthrus/connect"
+	}
+	return base
+}
+
 // GetInstallSnippets returns platform-specific install templates for an agent.
 // The placeholder "<AUTH_KEY>" is used in place of the actual key, which is
 // only provided once at Provision time.
@@ -130,6 +148,7 @@ func (s *OrthrusService) GetInstallSnippets(uuid, charonURL string) (*orthrus.In
 
 	name := agent.Name
 	agentUUID := agent.UUID
+	serverURL := wsURL(charonURL)
 
 	return &orthrus.InstallSnippets{
 		DockerCompose: fmt.Sprintf(`services:
@@ -142,7 +161,7 @@ func (s *OrthrusService) GetInstallSnippets(uuid, charonURL string) (*orthrus.In
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     restart: unless-stopped
-`, name, charonURL, agentUUID),
+`, name, serverURL, agentUUID),
 
 		Systemd: fmt.Sprintf(`[Unit]
 Description=Charon Orthrus Agent (%s)
@@ -157,15 +176,15 @@ Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
-`, name, charonURL, agentUUID),
+`, name, serverURL, agentUUID),
 
 		Tarball: fmt.Sprintf(`curl -fsSL https://github.com/Wikid82/charon/releases/latest/download/charon-agent-linux-amd64.tar.gz | tar xz
 ORTHRUS_SERVER_URL=%s ORTHRUS_AGENT_ID=%s ORTHRUS_AUTH_KEY=<AUTH_KEY> ./charon-agent
-`, charonURL, agentUUID),
+`, serverURL, agentUUID),
 
 		Homebrew: fmt.Sprintf(`brew install wikid82/tap/charon-agent
 ORTHRUS_SERVER_URL=%s ORTHRUS_AGENT_ID=%s ORTHRUS_AUTH_KEY=<AUTH_KEY> charon-agent
-`, charonURL, agentUUID),
+`, serverURL, agentUUID),
 
 		KubernetesDaemonSet: fmt.Sprintf(`apiVersion: apps/v1
 kind: DaemonSet
@@ -198,6 +217,6 @@ spec:
         - name: docker-sock
           hostPath:
             path: /var/run/docker.sock
-`, charonURL, agentUUID),
+`, serverURL, agentUUID),
 	}, nil
 }
