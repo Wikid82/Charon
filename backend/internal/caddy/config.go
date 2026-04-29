@@ -439,19 +439,20 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		for _, cert := range customCerts {
 			// Determine private key: prefer encrypted, fall back to plaintext for migration
 			var keyPEM string
-			if cert.PrivateKeyEncrypted != "" && certEncSvc != nil {
+			switch {
+			case cert.PrivateKeyEncrypted != "" && certEncSvc != nil:
 				decrypted, err := certEncSvc.Decrypt(cert.PrivateKeyEncrypted)
 				if err != nil {
 					logger.Log().WithField("cert", cert.Name).WithError(err).Warn("Failed to decrypt private key, skipping certificate")
 					continue
 				}
 				keyPEM = string(decrypted)
-			} else if cert.PrivateKeyEncrypted != "" {
+			case cert.PrivateKeyEncrypted != "":
 				logger.Log().WithField("cert", cert.Name).Warn("Certificate has encrypted key but no encryption service available, skipping")
 				continue
-			} else if cert.PrivateKey != "" {
+			case cert.PrivateKey != "":
 				keyPEM = cert.PrivateKey
-			} else {
+			default:
 				logger.Log().WithField("cert", cert.Name).Warn("Custom certificate has no encrypted key, skipping")
 				continue
 			}
@@ -614,18 +615,18 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		// CrowdSec handler (placeholder) — first in pipeline. The handler builder
 		// now consumes the runtime flag so we can rely on the computed value
 		// rather than requiring a persisted SecurityConfig row to be present.
-		if csH, err := buildCrowdSecHandler(&host, secCfg, crowdsecEnabled); err == nil && csH != nil {
+		if csH := buildCrowdSecHandler(&host, secCfg, crowdsecEnabled); csH != nil {
 			securityHandlers = append(securityHandlers, csH)
 		}
 
 		// WAF handler (placeholder) — add according to runtime flag
-		if wafH, err := buildWAFHandler(&host, rulesets, rulesetPaths, secCfg, wafEnabled); err == nil && wafH != nil {
+		if wafH := buildWAFHandler(&host, rulesets, rulesetPaths, secCfg, wafEnabled); wafH != nil {
 			securityHandlers = append(securityHandlers, wafH)
 		}
 
 		// Rate Limit handler (placeholder)
 		if rateLimitEnabled {
-			if rlH, err := buildRateLimitHandler(&host, secCfg); err == nil && rlH != nil {
+			if rlH := buildRateLimitHandler(&host, secCfg); rlH != nil {
 				securityHandlers = append(securityHandlers, rlH)
 			}
 		}
@@ -641,7 +642,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		}
 
 		// Add Security Headers handler
-		if secHeadersHandler, err := buildSecurityHeadersHandler(&host); err == nil && secHeadersHandler != nil {
+		if secHeadersHandler := buildSecurityHeadersHandler(&host); secHeadersHandler != nil {
 			handlers = append(handlers, secHeadersHandler)
 		}
 
@@ -1170,14 +1171,14 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 // The app-level configuration (apps.crowdsec) is populated in GenerateConfig(),
 // so the handler only needs to reference the module name.
 // Reference: https://github.com/hslatman/caddy-crowdsec-bouncer
-func buildCrowdSecHandler(_ *models.ProxyHost, _ *models.SecurityConfig, crowdsecEnabled bool) (Handler, error) {
+func buildCrowdSecHandler(_ *models.ProxyHost, _ *models.SecurityConfig, crowdsecEnabled bool) Handler {
 	// Only add a handler when the computed runtime flag indicates CrowdSec is enabled.
 	if !crowdsecEnabled {
-		return nil, nil
+		return nil
 	}
 
 	// Return minimal handler - all config is at app-level
-	return Handler{"handler": "crowdsec"}, nil
+	return Handler{"handler": "crowdsec"}
 }
 
 // getCrowdSecAPIKey retrieves the CrowdSec bouncer API key.
@@ -1268,18 +1269,18 @@ func getAccessLogPath(storageDir string, crowdsecEnabled bool) string {
 // - Paranoia level via SecAction
 // - Rule exclusions via SecRuleRemoveById
 // - Include statements for ruleset files
-func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, secCfg *models.SecurityConfig, wafEnabled bool) (Handler, error) {
+func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, secCfg *models.SecurityConfig, wafEnabled bool) Handler {
 	// Early exit if WAF is disabled globally
 	if !wafEnabled {
-		return nil, nil
+		return nil
 	}
 	if secCfg != nil && secCfg.WAFMode == "disabled" {
-		return nil, nil
+		return nil
 	}
 
 	// Check per-host WAF toggle - if host has WAF disabled, skip
 	if host != nil && host.WAFDisabled {
-		return nil, nil
+		return nil
 	}
 
 	// If the host provided an advanced_config containing a 'ruleset_name', prefer that value
@@ -1342,7 +1343,7 @@ func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, 
 
 	// Bug fix: Don't return a WAF handler without directives - it creates a no-op WAF
 	if directives == "" {
-		return nil, nil
+		return nil
 	}
 
 	h := Handler{
@@ -1350,7 +1351,7 @@ func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, 
 		"directives": directives,
 	}
 
-	return h, nil
+	return h
 }
 
 // buildWAFDirectives constructs the ModSecurity directive string for Coraza.
@@ -1460,12 +1461,12 @@ func parseWAFExclusions(exclusionsJSON string) []WAFExclusion {
 //
 // If RateLimitBypassList is configured, the rate limiter is wrapped in a subroute
 // that skips rate limiting for IPs matching the bypass CIDRs.
-func buildRateLimitHandler(_ *models.ProxyHost, secCfg *models.SecurityConfig) (Handler, error) {
+func buildRateLimitHandler(_ *models.ProxyHost, secCfg *models.SecurityConfig) Handler {
 	if secCfg == nil {
-		return nil, nil
+		return nil
 	}
 	if secCfg.RateLimitRequests <= 0 || secCfg.RateLimitWindowSec <= 0 {
-		return nil, nil
+		return nil
 	}
 
 	// Build the base rate_limit handler using caddy-ratelimit format
@@ -1485,7 +1486,7 @@ func buildRateLimitHandler(_ *models.ProxyHost, secCfg *models.SecurityConfig) (
 
 	// If no bypass list, return the plain rate_limit handler
 	if len(bypassCIDRs) == 0 {
-		return rateLimitHandler, nil
+		return rateLimitHandler
 	}
 
 	// Wrap in a subroute that skips rate limiting for bypass IPs
@@ -1514,7 +1515,7 @@ func buildRateLimitHandler(_ *models.ProxyHost, secCfg *models.SecurityConfig) (
 				},
 			},
 		},
-	}, nil
+	}
 }
 
 // parseBypassCIDRs parses a comma-separated list of CIDRs and returns valid ones.
@@ -1555,9 +1556,9 @@ func parseBypassCIDRs(bypassList string) []string {
 
 // buildSecurityHeadersHandler creates a headers handler for security headers
 // based on the profile configuration or host-level settings
-func buildSecurityHeadersHandler(host *models.ProxyHost) (Handler, error) {
+func buildSecurityHeadersHandler(host *models.ProxyHost) Handler {
 	if host == nil {
-		return nil, nil
+		return nil
 	}
 
 	// Use profile if configured
@@ -1567,7 +1568,7 @@ func buildSecurityHeadersHandler(host *models.ProxyHost) (Handler, error) {
 		cfg = host.SecurityHeaderProfile
 	case !host.SecurityHeadersEnabled:
 		// No profile and headers disabled - skip
-		return nil, nil
+		return nil
 	default:
 		// Use default secure headers
 		cfg = getDefaultSecurityHeaderProfile()
@@ -1644,7 +1645,7 @@ func buildSecurityHeadersHandler(host *models.ProxyHost) (Handler, error) {
 	}
 
 	if len(responseHeaders) == 0 {
-		return nil, nil
+		return nil
 	}
 
 	return Handler{
@@ -1652,7 +1653,7 @@ func buildSecurityHeadersHandler(host *models.ProxyHost) (Handler, error) {
 		"response": map[string]any{
 			"set": responseHeaders,
 		},
-	}, nil
+	}
 }
 
 // buildCSPString converts JSON CSP directives to a CSP string

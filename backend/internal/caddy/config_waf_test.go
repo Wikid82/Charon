@@ -98,8 +98,7 @@ func TestBuildWAFHandler_RulesetSelectionPriority(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			handler, err := buildWAFHandler(tc.host, tc.rulesets, tc.rulesetPaths, tc.secCfg, tc.wafEnabled)
-			require.NoError(t, err)
+			handler := buildWAFHandler(tc.host, tc.rulesets, tc.rulesetPaths, tc.secCfg, tc.wafEnabled)
 
 			if tc.expectedInclude == "" {
 				require.Nil(t, handler)
@@ -165,8 +164,7 @@ func TestBuildWAFHandler_NoDirectivesReturnsNil(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			handler, err := buildWAFHandler(tc.host, tc.rulesets, tc.rulesetPaths, tc.secCfg, tc.wafEnabled)
-			require.NoError(t, err)
+			handler := buildWAFHandler(tc.host, tc.rulesets, tc.rulesetPaths, tc.secCfg, tc.wafEnabled)
 			require.Nil(t, handler, "Handler should be nil when no directives can be set")
 		})
 	}
@@ -197,8 +195,7 @@ func TestBuildWAFHandler_DisabledModes(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			handler, err := buildWAFHandler(host, rulesets, rulesetPaths, tc.secCfg, tc.wafEnabled)
-			require.NoError(t, err)
+			handler := buildWAFHandler(host, rulesets, rulesetPaths, tc.secCfg, tc.wafEnabled)
 			require.Nil(t, handler)
 		})
 	}
@@ -213,8 +210,7 @@ func TestBuildWAFHandler_HandlerStructure(t *testing.T) {
 	}
 	secCfg := &models.SecurityConfig{WAFMode: "block", WAFRulesSource: "integration-xss"}
 
-	handler, err := buildWAFHandler(host, rulesets, rulesetPaths, secCfg, true)
-	require.NoError(t, err)
+	handler := buildWAFHandler(host, rulesets, rulesetPaths, secCfg, true)
 	require.NotNil(t, handler)
 
 	// Verify handler type
@@ -286,8 +282,7 @@ func TestBuildWAFHandler_AdvancedConfigParsing(t *testing.T) {
 				UUID:           "test-host",
 				AdvancedConfig: tc.advancedConfig,
 			}
-			handler, err := buildWAFHandler(host, rulesets, rulesetPaths, secCfg, true)
-			require.NoError(t, err)
+			handler := buildWAFHandler(host, rulesets, rulesetPaths, secCfg, true)
 			require.NotNil(t, handler)
 			directives := handler["directives"].(string)
 			require.Contains(t, directives, tc.expectedInclude)

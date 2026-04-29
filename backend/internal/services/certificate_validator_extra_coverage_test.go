@@ -20,12 +20,12 @@ import (
 // --- ValidateKeyMatch ECDSA ---
 
 func TestValidateKeyMatch_ECDSA_Success(t *testing.T) {
-	cert, _, _, _ := makeECDSACertAndKey(t, "ecdsa-match.test")
+	cert, _ := makeECDSACertAndKey(t, "ecdsa-match.test")
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
 
 	// Use the actual key that signed the cert
-	ecCert, ecKey, _, _ := makeECDSACertAndKey(t, "ecdsa-ok.test")
+	ecCert, ecKey := makeECDSACertAndKey(t, "ecdsa-ok.test")
 	err = ValidateKeyMatch(ecCert, ecKey)
 	assert.NoError(t, err)
 
@@ -36,7 +36,7 @@ func TestValidateKeyMatch_ECDSA_Success(t *testing.T) {
 }
 
 func TestValidateKeyMatch_ECDSA_WrongKeyType(t *testing.T) {
-	cert, _, _, _ := makeECDSACertAndKey(t, "ecdsa-wrong.test")
+	cert, _ := makeECDSACertAndKey(t, "ecdsa-wrong.test")
 	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 
@@ -48,13 +48,13 @@ func TestValidateKeyMatch_ECDSA_WrongKeyType(t *testing.T) {
 // --- ValidateKeyMatch Ed25519 ---
 
 func TestValidateKeyMatch_Ed25519_Success(t *testing.T) {
-	cert, priv, _, _ := makeEd25519CertAndKey(t, "ed25519-ok.test")
+	cert, priv := makeEd25519CertAndKey(t, "ed25519-ok.test")
 	err := ValidateKeyMatch(cert, priv)
 	assert.NoError(t, err)
 }
 
 func TestValidateKeyMatch_Ed25519_Mismatch(t *testing.T) {
-	cert, _, _, _ := makeEd25519CertAndKey(t, "ed25519-mismatch.test")
+	cert, _ := makeEd25519CertAndKey(t, "ed25519-mismatch.test")
 	_, otherPriv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 
@@ -64,7 +64,7 @@ func TestValidateKeyMatch_Ed25519_Mismatch(t *testing.T) {
 }
 
 func TestValidateKeyMatch_Ed25519_WrongKeyType(t *testing.T) {
-	cert, _, _, _ := makeEd25519CertAndKey(t, "ed25519-wrong.test")
+	cert, _ := makeEd25519CertAndKey(t, "ed25519-wrong.test")
 	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 
@@ -200,7 +200,7 @@ func TestExtractCertificateMetadata_WithSANs(t *testing.T) {
 // --- detectKeyType ---
 
 func TestDetectKeyType_Ed25519(t *testing.T) {
-	cert, _, _, _ := makeEd25519CertAndKey(t, "ed25519-type.test")
+	cert, _ := makeEd25519CertAndKey(t, "ed25519-type.test")
 	assert.Equal(t, "Ed25519", detectKeyType(cert))
 }
 
@@ -211,7 +211,7 @@ func TestDetectKeyType_RSA(t *testing.T) {
 }
 
 func TestDetectKeyType_ECDSA_P256(t *testing.T) {
-	cert, _, _, _ := makeECDSACertAndKey(t, "p256-type.test")
+	cert, _ := makeECDSACertAndKey(t, "p256-type.test")
 	assert.Equal(t, "ECDSA-P256", detectKeyType(cert))
 }
 

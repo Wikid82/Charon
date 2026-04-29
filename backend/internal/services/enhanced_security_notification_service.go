@@ -384,7 +384,8 @@ func (s *EnhancedSecurityNotificationService) MigrateFromLegacyConfig() error {
 		var provider models.NotificationProvider
 		err := tx.Where("managed_legacy_security = ?", true).First(&provider).Error
 
-		if err == gorm.ErrRecordNotFound {
+		switch {
+		case err == gorm.ErrRecordNotFound:
 			// Create new managed provider
 			provider = models.NotificationProvider{
 				Name:                        "Migrated Security Notifications (Legacy)",
@@ -399,9 +400,9 @@ func (s *EnhancedSecurityNotificationService) MigrateFromLegacyConfig() error {
 			if createErr := tx.Create(&provider).Error; createErr != nil {
 				return fmt.Errorf("create managed provider: %w", createErr)
 			}
-		} else if err != nil {
+		case err != nil:
 			return fmt.Errorf("query managed provider: %w", err)
-		} else {
+		default:
 			// Update existing managed provider
 			provider.NotifySecurityWAFBlocks = legacyConfig.NotifyWAFBlocks
 			provider.NotifySecurityACLDenies = legacyConfig.NotifyACLDenies

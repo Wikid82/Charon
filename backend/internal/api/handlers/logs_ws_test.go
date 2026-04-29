@@ -21,16 +21,16 @@ func toWebSocketURL(httpURL string) string {
 	return "ws" + strings.TrimPrefix(httpURL, "http")
 }
 
-func waitFor(t *testing.T, timeout time.Duration, condition func() bool) {
+func waitFor(t *testing.T, condition func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
+	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if condition() {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("condition not met within %s", timeout)
+	t.Fatalf("condition not met within %s", 2*time.Second)
 }
 
 func TestUpgraderCheckOrigin(t *testing.T) {
@@ -99,7 +99,7 @@ func TestLogsWSHandler_StreamWithFiltersAndTracker(t *testing.T) {
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	require.NoError(t, err)
 
-	waitFor(t, 2*time.Second, func() bool {
+	waitFor(t, func() bool {
 		return tracker.GetCount() == 1
 	})
 
@@ -122,7 +122,7 @@ func TestLogsWSHandler_StreamWithFiltersAndTracker(t *testing.T) {
 
 	require.NoError(t, conn.Close())
 
-	waitFor(t, 2*time.Second, func() bool {
+	waitFor(t, func() bool {
 		return tracker.GetCount() == 0
 	})
 }

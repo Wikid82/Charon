@@ -18,6 +18,7 @@ import (
 
 // --- API Client Tests ---
 
+//nolint:unparam // *httptest.Server returned for future test variants
 func newTestTSClient(t *testing.T, handler http.HandlerFunc) (*TailscaleClient, *httptest.Server) {
 	t.Helper()
 	srv := httptest.NewServer(handler)
