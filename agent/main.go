@@ -63,7 +63,10 @@ func main() {
 		log.WithError(err).Fatal("orthrus: invalid server URL")
 	}
 
-	agentName := *agentID
+	agentName := os.Getenv("ORTHRUS_AGENT_ID")
+	if agentName == "" {
+		agentName = *agentID
+	}
 	if agentName == "" {
 		agentName = "unknown"
 	}
