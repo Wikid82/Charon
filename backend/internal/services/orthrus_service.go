@@ -123,7 +123,7 @@ func (s *OrthrusService) GetInstallSnippets(uuid, charonURL string) (*orthrus.In
 	return &orthrus.InstallSnippets{
 		DockerCompose: fmt.Sprintf(`services:
   orthrus-agent:
-    image: ghcr.io/wikid82/charon-agent:latest
+    image: wikid82/orthrus:latest
     environment:
       - CHARON_URL=%s
       - AGENT_NAME=%s
@@ -169,7 +169,7 @@ spec:
     spec:
       containers:
         - name: agent
-          image: ghcr.io/wikid82/charon-agent:latest
+          image: wikid82/orthrus:latest
           env:
             - name: CHARON_URL
               value: "%s"
