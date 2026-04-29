@@ -23,6 +23,7 @@ func (h *OrthrusHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/orthrus/agents", h.List)
 	rg.POST("/orthrus/agents", h.Provision)
 	rg.GET("/orthrus/agents/:uuid", h.Get)
+	rg.PATCH("/orthrus/agents/:uuid", h.Rename)
 	rg.DELETE("/orthrus/agents/:uuid", h.Delete)
 	rg.POST("/orthrus/agents/:uuid/revoke", h.Revoke)
 	rg.GET("/orthrus/agents/:uuid/snippets", h.GetInstallSnippets)
@@ -67,6 +68,27 @@ func (h *OrthrusHandler) Get(c *gin.Context) {
 	agent, err := h.svc.Get(uuid)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, agent)
+}
+
+// renameRequest is the payload for renaming an agent.
+type renameRequest struct {
+	Name string `json:"name" binding:"required"`
+}
+
+// Rename updates the display name of an Orthrus agent.
+func (h *OrthrusHandler) Rename(c *gin.Context) {
+	uuid := c.Param("uuid")
+	var req renameRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	agent, err := h.svc.Rename(uuid, req.Name)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, agent)

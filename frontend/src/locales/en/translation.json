@@ -1611,12 +1611,37 @@
     },
     "form": {
       "selectAgent": "Select an agent...",
-      "provisionAgent": "Provision New Agent"
+      "provisionAgent": "Provision New Agent",
+      "manageAgents": "Manage agents ({{count}})",
+      "hideAgentManager": "Hide agent manager"
     },
     "tailscale": {
       "pickerTitle": "Select Tailscale Device",
       "pickerDescription": "Choose the Tailscale device to route traffic through.",
       "noDevices": "No Tailscale devices found. Ensure your API key is configured."
+    },
+    "agentManager": {
+      "tableLabel": "Orthrus agents",
+      "colName": "Name",
+      "colUUID": "UUID",
+      "colStatus": "Status",
+      "colLastSeen": "Last Seen",
+      "colActions": "Actions",
+      "editNameLabel": "Rename agent {{name}}",
+      "renameInputLabel": "New name for {{name}}",
+      "confirmRename": "Save name",
+      "cancelRename": "Cancel rename",
+      "deleteLabel": "Delete agent {{name}}",
+      "deleteTitle": "Delete Agent",
+      "deleteDescription": "Are you sure you want to delete agent \"{{name}}\"? This cannot be undone.",
+      "deleteConfirm": "Delete",
+      "noAgents": "No agents registered yet.",
+      "neverSeen": "Never",
+      "status": {
+        "online": "Online",
+        "offline": "Offline",
+        "pending": "Pending"
+      }
     }
   }
 }
