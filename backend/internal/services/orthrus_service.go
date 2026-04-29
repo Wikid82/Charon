@@ -129,42 +129,43 @@ func (s *OrthrusService) GetInstallSnippets(uuid, charonURL string) (*orthrus.In
 	}
 
 	name := agent.Name
+	agentUUID := agent.UUID
 
 	return &orthrus.InstallSnippets{
 		DockerCompose: fmt.Sprintf(`services:
   orthrus-agent:
     image: wikid82/orthrus:latest
     environment:
-      - CHARON_URL=%s
-      - AGENT_NAME=%s
-      - AUTH_KEY=<AUTH_KEY>
+      - ORTHRUS_SERVER_URL=%s
+      - ORTHRUS_AGENT_ID=%s
+      - ORTHRUS_AUTH_KEY=<AUTH_KEY>
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     restart: unless-stopped
-`, charonURL, name),
+`, charonURL, agentUUID),
 
 		Systemd: fmt.Sprintf(`[Unit]
 Description=Charon Orthrus Agent (%s)
 After=network.target
 
 [Service]
-ExecStart=/usr/local/bin/charon-agent \
-  --server %s \
-  --name %s \
-  --key <AUTH_KEY>
+Environment="ORTHRUS_SERVER_URL=%s"
+Environment="ORTHRUS_AGENT_ID=%s"
+Environment="ORTHRUS_AUTH_KEY=<AUTH_KEY>"
+ExecStart=/usr/local/bin/charon-agent
 Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
-`, name, charonURL, name),
+`, name, charonURL, agentUUID),
 
 		Tarball: fmt.Sprintf(`curl -fsSL https://github.com/Wikid82/charon/releases/latest/download/charon-agent-linux-amd64.tar.gz | tar xz
-./charon-agent --server %s --name %s --key <AUTH_KEY>
-`, charonURL, name),
+ORTHRUS_SERVER_URL=%s ORTHRUS_AGENT_ID=%s ORTHRUS_AUTH_KEY=<AUTH_KEY> ./charon-agent
+`, charonURL, agentUUID),
 
 		Homebrew: fmt.Sprintf(`brew install wikid82/tap/charon-agent
-charon-agent --server %s --name %s --key <AUTH_KEY>
-`, charonURL, name),
+ORTHRUS_SERVER_URL=%s ORTHRUS_AGENT_ID=%s ORTHRUS_AUTH_KEY=<AUTH_KEY> charon-agent
+`, charonURL, agentUUID),
 
 		KubernetesDaemonSet: fmt.Sprintf(`apiVersion: apps/v1
 kind: DaemonSet
@@ -183,11 +184,11 @@ spec:
         - name: agent
           image: wikid82/orthrus:latest
           env:
-            - name: CHARON_URL
+            - name: ORTHRUS_SERVER_URL
               value: "%s"
-            - name: AGENT_NAME
+            - name: ORTHRUS_AGENT_ID
               value: "%s"
-            - name: AUTH_KEY
+            - name: ORTHRUS_AUTH_KEY
               value: "<AUTH_KEY>"
           volumeMounts:
             - name: docker-sock
@@ -197,6 +198,6 @@ spec:
         - name: docker-sock
           hostPath:
             path: /var/run/docker.sock
-`, charonURL, name),
+`, charonURL, agentUUID),
 	}, nil
 }
