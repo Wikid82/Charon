@@ -92,7 +92,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.16.0-alpine@sha256:3ee44d8e67c486a2a7d71f26d5c9c7c8aba0c8f6eb08b09a9a2e5b7e8f8f6c5d AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.15.0-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -109,6 +109,11 @@ ARG NPM_VERSION
 RUN apk upgrade --no-cache && \
     npm install -g npm@${NPM_VERSION} --no-fund --no-audit && \
     npm cache clean --force
+
+# Patch CVE-2026-33671: picomatch ReDoS (fixed in 4.0.4) — bundled in Node.js 24.15.0 npm toolchain.
+# Remove when a patched Node.js 24 image is available.
+# hadolint ignore=DL3059
+RUN npm install -g picomatch@4.0.4 --no-fund --no-audit
 
 RUN npm ci
 
