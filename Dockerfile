@@ -110,6 +110,11 @@ RUN apk upgrade --no-cache && \
     npm install -g npm@${NPM_VERSION} --no-fund --no-audit && \
     npm cache clean --force
 
+# Patch CVE-2026-33671: picomatch ReDoS (fixed in 4.0.4) — bundled in Node.js 24.15.0 npm toolchain.
+# Remove when a patched Node.js 24 image is available.
+# hadolint ignore=DL3059
+RUN npm install -g picomatch@4.0.4 --no-fund --no-audit
+
 RUN npm ci
 
 # Copy frontend source and build
