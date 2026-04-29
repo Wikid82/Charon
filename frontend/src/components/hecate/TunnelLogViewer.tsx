@@ -58,6 +58,7 @@ export const TunnelLogViewer = ({
   const [reconnecting, setReconnecting] = useState(false);
   const [reconnectCount, setReconnectCount] = useState(0);
   const pausedRef = useRef(false);
+  const receivedErrorRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
   const counterRef = useRef(0);
@@ -72,7 +73,12 @@ export const TunnelLogViewer = ({
   useEffect(() => {
     if (!open) return;
 
+    receivedErrorRef.current = false;
+
     const ws = connectTunnelLogs(serverUUID, (raw: string) => {
+      if (raw.startsWith('error:')) {
+        receivedErrorRef.current = true;
+      }
       if (pausedRef.current) return;
       const id = ++counterRef.current;
       const line: LogLine = {
@@ -88,7 +94,7 @@ export const TunnelLogViewer = ({
     });
 
     ws.onclose = () => {
-      if (!pausedRef.current && open) {
+      if (!pausedRef.current && open && !receivedErrorRef.current) {
         setReconnecting(true);
         reconnectTimerRef.current = window.setTimeout(() => {
           setReconnecting(false);
