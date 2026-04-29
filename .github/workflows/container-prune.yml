@@ -25,9 +25,13 @@ permissions:
 jobs:
   prune-ghcr:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [charon, orthrus]
     env:
       OWNER: ${{ github.repository_owner }}
-      IMAGE_NAME: charon
+      IMAGE_NAME: ${{ matrix.image }}
       KEEP_DAYS: ${{ github.event.inputs.keep_days || '30' }}
       KEEP_LAST_N: ${{ github.event.inputs.keep_last_n || '30' }}
       DRY_RUN: ${{ github.event_name == 'pull_request' && 'true' || github.event.inputs.dry_run || 'false' }}
@@ -47,14 +51,21 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           chmod +x scripts/prune-ghcr.sh
-          ./scripts/prune-ghcr.sh 2>&1 | tee prune-ghcr-${{ github.run_id }}.log
+          ./scripts/prune-ghcr.sh 2>&1 | tee prune-ghcr-${{ matrix.image }}-${{ github.run_id }}.log
+
+      - name: Namespace summary file
+        if: always()
+        run: |
+          if [ -f prune-summary-ghcr.env ]; then
+            mv prune-summary-ghcr.env prune-summary-ghcr-${{ matrix.image }}.env
+          fi
 
       - name: Summarize GHCR results
         if: always()
         run: |
           set -euo pipefail
-          SUMMARY_FILE=prune-summary-ghcr.env
-          LOG_FILE=prune-ghcr-${{ github.run_id }}.log
+          SUMMARY_FILE=prune-summary-ghcr-${{ matrix.image }}.env
+          LOG_FILE=prune-ghcr-${{ matrix.image }}-${{ github.run_id }}.log
 
           human() {
             local bytes=${1:-0}
@@ -72,7 +83,7 @@ jobs:
             TOTAL_DELETED_BYTES=$(grep -E '^TOTAL_DELETED_BYTES=' "$SUMMARY_FILE" | cut -d= -f2 || echo 0)
 
             {
-              echo "## GHCR prune summary"
+              echo "## GHCR prune summary — ${{ matrix.image }}"
               echo "- candidates: ${TOTAL_CANDIDATES} (≈ $(human "${TOTAL_CANDIDATES_BYTES}"))"
               echo "- deleted: ${TOTAL_DELETED} (≈ $(human "${TOTAL_DELETED_BYTES}"))"
             } >> "$GITHUB_STEP_SUMMARY"
@@ -81,7 +92,7 @@ jobs:
             deleted_count=$(grep -cE 'deleting |DRY RUN: would delete' "$LOG_FILE" || true)
 
             {
-              echo "## GHCR prune summary"
+              echo "## GHCR prune summary — ${{ matrix.image }}"
               echo "- deleted (approx): ${deleted_count} (≈ $(human "${deleted_bytes}"))"
             } >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -90,16 +101,20 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: prune-ghcr-log-${{ github.run_id }}
+          name: prune-ghcr-${{ matrix.image }}-log-${{ github.run_id }}
           path: |
-            prune-ghcr-${{ github.run_id }}.log
-            prune-summary-ghcr.env
+            prune-ghcr-${{ matrix.image }}-${{ github.run_id }}.log
+            prune-summary-ghcr-${{ matrix.image }}.env
 
   prune-dockerhub:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [charon, orthrus]
     env:
       OWNER: ${{ github.repository_owner }}
-      IMAGE_NAME: charon
+      IMAGE_NAME: ${{ matrix.image }}
       KEEP_DAYS: ${{ github.event.inputs.keep_days || '30' }}
       KEEP_LAST_N: ${{ github.event.inputs.keep_last_n || '30' }}
       DRY_RUN: ${{ github.event_name == 'pull_request' && 'true' || github.event.inputs.dry_run || 'false' }}
@@ -118,14 +133,21 @@ jobs:
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           chmod +x scripts/prune-dockerhub.sh
-          ./scripts/prune-dockerhub.sh 2>&1 | tee prune-dockerhub-${{ github.run_id }}.log
+          ./scripts/prune-dockerhub.sh 2>&1 | tee prune-dockerhub-${{ matrix.image }}-${{ github.run_id }}.log
+
+      - name: Namespace summary file
+        if: always()
+        run: |
+          if [ -f prune-summary-dockerhub.env ]; then
+            mv prune-summary-dockerhub.env prune-summary-dockerhub-${{ matrix.image }}.env
+          fi
 
       - name: Summarize Docker Hub results
         if: always()
         run: |
           set -euo pipefail
-          SUMMARY_FILE=prune-summary-dockerhub.env
-          LOG_FILE=prune-dockerhub-${{ github.run_id }}.log
+          SUMMARY_FILE=prune-summary-dockerhub-${{ matrix.image }}.env
+          LOG_FILE=prune-dockerhub-${{ matrix.image }}-${{ github.run_id }}.log
 
           human() {
             local bytes=${1:-0}
@@ -143,7 +165,7 @@ jobs:
             TOTAL_DELETED_BYTES=$(grep -E '^TOTAL_DELETED_BYTES=' "$SUMMARY_FILE" | cut -d= -f2 || echo 0)
 
             {
-              echo "## Docker Hub prune summary"
+              echo "## Docker Hub prune summary — ${{ matrix.image }}"
               echo "- candidates: ${TOTAL_CANDIDATES} (≈ $(human "${TOTAL_CANDIDATES_BYTES}"))"
               echo "- deleted: ${TOTAL_DELETED} (≈ $(human "${TOTAL_DELETED_BYTES}"))"
             } >> "$GITHUB_STEP_SUMMARY"
@@ -152,7 +174,7 @@ jobs:
             deleted_count=$(grep -cE 'deleting |DRY RUN: would delete' "$LOG_FILE" || true)
 
             {
-              echo "## Docker Hub prune summary"
+              echo "## Docker Hub prune summary — ${{ matrix.image }}"
               echo "- deleted (approx): ${deleted_count} (≈ $(human "${deleted_bytes}"))"
             } >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -161,10 +183,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: prune-dockerhub-log-${{ github.run_id }}
+          name: prune-dockerhub-${{ matrix.image }}-log-${{ github.run_id }}
           path: |
-            prune-dockerhub-${{ github.run_id }}.log
-            prune-summary-dockerhub.env
+            prune-dockerhub-${{ matrix.image }}-${{ github.run_id }}.log
+            prune-summary-dockerhub-${{ matrix.image }}.env
 
   summarize:
     runs-on: ubuntu-latest
@@ -190,35 +212,51 @@ jobs:
             awk -v b="$bytes" 'BEGIN { split("B KiB MiB GiB TiB",u," "); i=0; x=b; while(x>1024){x/=1024;i++} printf "%0.2f %s", x, u[i+1] }'
           }
 
-          GHCR_CANDIDATES=0 GHCR_CANDIDATES_BYTES=0 GHCR_DELETED=0 GHCR_DELETED_BYTES=0
-          if [ -f prune-summary-ghcr.env ]; then
-            GHCR_CANDIDATES=$(grep -E '^TOTAL_CANDIDATES=' prune-summary-ghcr.env | cut -d= -f2 || echo 0)
-            GHCR_CANDIDATES_BYTES=$(grep -E '^TOTAL_CANDIDATES_BYTES=' prune-summary-ghcr.env | cut -d= -f2 || echo 0)
-            GHCR_DELETED=$(grep -E '^TOTAL_DELETED=' prune-summary-ghcr.env | cut -d= -f2 || echo 0)
-            GHCR_DELETED_BYTES=$(grep -E '^TOTAL_DELETED_BYTES=' prune-summary-ghcr.env | cut -d= -f2 || echo 0)
-          fi
+          read_field() {
+            local file="$1" field="$2"
+            if [ -f "$file" ]; then
+              grep -E "^${field}=" "$file" | cut -d= -f2 | head -n1
+            else
+              echo 0
+            fi
+          }
 
-          HUB_CANDIDATES=0 HUB_CANDIDATES_BYTES=0 HUB_DELETED=0 HUB_DELETED_BYTES=0
-          if [ -f prune-summary-dockerhub.env ]; then
-            HUB_CANDIDATES=$(grep -E '^TOTAL_CANDIDATES=' prune-summary-dockerhub.env | cut -d= -f2 || echo 0)
-            HUB_CANDIDATES_BYTES=$(grep -E '^TOTAL_CANDIDATES_BYTES=' prune-summary-dockerhub.env | cut -d= -f2 || echo 0)
-            HUB_DELETED=$(grep -E '^TOTAL_DELETED=' prune-summary-dockerhub.env | cut -d= -f2 || echo 0)
-            HUB_DELETED_BYTES=$(grep -E '^TOTAL_DELETED_BYTES=' prune-summary-dockerhub.env | cut -d= -f2 || echo 0)
-          fi
-
-          TOTAL_CANDIDATES=$((GHCR_CANDIDATES + HUB_CANDIDATES))
-          TOTAL_CANDIDATES_BYTES=$((GHCR_CANDIDATES_BYTES + HUB_CANDIDATES_BYTES))
-          TOTAL_DELETED=$((GHCR_DELETED + HUB_DELETED))
-          TOTAL_DELETED_BYTES=$((GHCR_DELETED_BYTES + HUB_DELETED_BYTES))
+          TOTAL_CANDIDATES=0
+          TOTAL_CANDIDATES_BYTES=0
+          TOTAL_DELETED=0
+          TOTAL_DELETED_BYTES=0
 
           {
             echo "## Combined container prune summary"
             echo ""
-            echo "| Registry | Candidates | Deleted | Space Reclaimed |"
-            echo "|----------|------------|---------|-----------------|"
-            echo "| GHCR | ${GHCR_CANDIDATES} | ${GHCR_DELETED} | $(human "${GHCR_DELETED_BYTES}") |"
-            echo "| Docker Hub | ${HUB_CANDIDATES} | ${HUB_DELETED} | $(human "${HUB_DELETED_BYTES}") |"
-            echo "| **Total** | **${TOTAL_CANDIDATES}** | **${TOTAL_DELETED}** | **$(human "${TOTAL_DELETED_BYTES}")** |"
+            echo "| Registry | Image | Candidates | Deleted | Space Reclaimed |"
+            echo "|----------|-------|------------|---------|-----------------|"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          for registry in ghcr dockerhub; do
+            for image in charon orthrus; do
+              file="prune-summary-${registry}-${image}.env"
+              cands=$(read_field "$file" TOTAL_CANDIDATES)
+              cands_b=$(read_field "$file" TOTAL_CANDIDATES_BYTES)
+              dels=$(read_field "$file" TOTAL_DELETED)
+              dels_b=$(read_field "$file" TOTAL_DELETED_BYTES)
+
+              cands=${cands:-0}; cands_b=${cands_b:-0}; dels=${dels:-0}; dels_b=${dels_b:-0}
+
+              TOTAL_CANDIDATES=$((TOTAL_CANDIDATES + cands))
+              TOTAL_CANDIDATES_BYTES=$((TOTAL_CANDIDATES_BYTES + cands_b))
+              TOTAL_DELETED=$((TOTAL_DELETED + dels))
+              TOTAL_DELETED_BYTES=$((TOTAL_DELETED_BYTES + dels_b))
+
+              registry_label="GHCR"
+              [ "$registry" = "dockerhub" ] && registry_label="Docker Hub"
+
+              echo "| ${registry_label} | ${image} | ${cands} | ${dels} | $(human "${dels_b}") |" >> "$GITHUB_STEP_SUMMARY"
+            done
+          done
+
+          {
+            echo "| **Total** | — | **${TOTAL_CANDIDATES}** | **${TOTAL_DELETED}** | **$(human "${TOTAL_DELETED_BYTES}")** |"
           } >> "$GITHUB_STEP_SUMMARY"
 
           printf 'PRUNE_SUMMARY: candidates=%s candidates_bytes=%s deleted=%s deleted_bytes=%s\n' \
