@@ -92,7 +92,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.15.0-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.16.0-alpine@sha256:3ee44d8e67c486a2a7d71f26d5c9c7c8aba0c8f6eb08b09a9a2e5b7e8f8f6c5d AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
