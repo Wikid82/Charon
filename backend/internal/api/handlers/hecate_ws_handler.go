@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -28,8 +29,14 @@ func NewHecateWSHandler(svc *services.HecateService, tracker *services.WebSocket
 func (h *HecateWSHandler) StreamLogs(c *gin.Context) {
 	tunnelUUID := c.Param("uuid")
 
-	// Upgrade before any rejection so browsers receive a proper WS close frame
-	// instead of an HTTP 404 (which browsers report as a connection-refused error).
+	// Validate the tunnel exists before upgrading so non-WS clients (and tests)
+	// receive a proper HTTP 404 rather than a WebSocket close frame.
+	buf, err := h.svc.GetManager().GetLogBuffer(tunnelUUID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tunnel not found"})
+		return
+	}
+
 	conn, upgradeErr := upgrader.Upgrade(c.Writer, c.Request, nil) // nosemgrep: go.gorilla.security.audit.websocket-missing-origin-check.websocket-missing-origin-check
 	if upgradeErr != nil {
 		logger.Log().WithError(upgradeErr).Error("hecate ws: upgrade failed")
@@ -40,17 +47,6 @@ func (h *HecateWSHandler) StreamLogs(c *gin.Context) {
 			logger.Log().WithError(closeErr).Debug("hecate ws: close error")
 		}
 	}()
-
-	buf, err := h.svc.GetManager().GetLogBuffer(tunnelUUID)
-	if err != nil {
-		_ = conn.WriteMessage(websocket.TextMessage, []byte("error: "+err.Error()))
-		_ = conn.WriteControl(
-			websocket.CloseMessage,
-			websocket.FormatCloseMessage(websocket.CloseNormalClosure, "tunnel not found"),
-			time.Now().Add(time.Second),
-		)
-		return
-	}
 
 	subscriberID := uuid.New().String()
 	if h.tracker != nil {
