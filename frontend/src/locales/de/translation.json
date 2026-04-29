@@ -1197,12 +1197,37 @@
     },
     "form": {
       "selectAgent": "Agent auswählen...",
-      "provisionAgent": "Neuen Agent bereitstellen"
+      "provisionAgent": "Neuen Agent bereitstellen",
+      "manageAgents": "Agenten verwalten ({{count}})",
+      "hideAgentManager": "Agentenverwaltung ausblenden"
     },
     "tailscale": {
       "pickerTitle": "Tailscale-Gerät auswählen",
       "pickerDescription": "Wählen Sie das Tailscale-Gerät, über das der Datenverkehr geleitet werden soll.",
       "noDevices": "Keine Tailscale-Geräte gefunden. Stellen Sie sicher, dass Ihr API-Schlüssel konfiguriert ist."
+    },
+    "agentManager": {
+      "tableLabel": "Orthrus-Agenten",
+      "colName": "Name",
+      "colUUID": "UUID",
+      "colStatus": "Status",
+      "colLastSeen": "Zuletzt gesehen",
+      "colActions": "Aktionen",
+      "editNameLabel": "Agenten {{name}} umbenennen",
+      "renameInputLabel": "Neuer Name für {{name}}",
+      "confirmRename": "Namen speichern",
+      "cancelRename": "Umbenennen abbrechen",
+      "deleteLabel": "Agenten {{name}} löschen",
+      "deleteTitle": "Agenten löschen",
+      "deleteDescription": "Soll Agent „{{name}}\" wirklich gelöscht werden? Dies kann nicht rückgängig gemacht werden.",
+      "deleteConfirm": "Löschen",
+      "noAgents": "Noch keine Agenten registriert.",
+      "neverSeen": "Nie",
+      "status": {
+        "online": "Online",
+        "offline": "Offline",
+        "pending": "Ausstehend"
+      }
     }
   }
 }

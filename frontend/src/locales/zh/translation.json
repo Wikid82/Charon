@@ -1199,12 +1199,37 @@
     },
     "form": {
       "selectAgent": "选择代理...",
-      "provisionAgent": "配置新代理"
+      "provisionAgent": "配置新代理",
+      "manageAgents": "管理代理 ({{count}})",
+      "hideAgentManager": "隐藏代理管理"
     },
     "tailscale": {
       "pickerTitle": "Select Tailscale Device",
       "pickerDescription": "Choose the Tailscale device to route traffic through.",
       "noDevices": "No Tailscale devices found. Ensure your API key is configured."
+    },
+    "agentManager": {
+      "tableLabel": "Orthrus 代理",
+      "colName": "名称",
+      "colUUID": "UUID",
+      "colStatus": "状态",
+      "colLastSeen": "最后在线",
+      "colActions": "操作",
+      "editNameLabel": "重命名代理 {{name}}",
+      "renameInputLabel": "{{name}} 的新名称",
+      "confirmRename": "保存名称",
+      "cancelRename": "取消重命名",
+      "deleteLabel": "删除代理 {{name}}",
+      "deleteTitle": "删除代理",
+      "deleteDescription": "确定要删除代理\"{{name}}\"吗？此操作无法撤销。",
+      "deleteConfirm": "删除",
+      "noAgents": "尚未注册任何代理。",
+      "neverSeen": "从未",
+      "status": {
+        "online": "在线",
+        "offline": "离线",
+        "pending": "待连接"
+      }
     }
   }
 }

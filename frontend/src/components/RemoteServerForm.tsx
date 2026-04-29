@@ -7,6 +7,7 @@ import { type RemoteServer, testCustomRemoteServerConnection } from '../api/remo
 import { useAgentList, useProvisionAgent, useOrthrus } from '../hooks/useOrthrus'
 import { CloudflareTunnelWizard } from './hecate/CloudflareTunnelWizard'
 import { ConnectionTypeSelector, type ConnectionType } from './hecate/ConnectionTypeSelector'
+import { OrthrusAgentManager } from './hecate/OrthrusAgentManager'
 import { OrthrusInstallWizard } from './hecate/OrthrusInstallWizard'
 
 interface Props {
@@ -33,6 +34,7 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
   const [provisionWizardOpen, setProvisionWizardOpen] = useState(false)
   const [cfWizardOpen, setCfWizardOpen] = useState(false)
+  const [showAgentManager, setShowAgentManager] = useState(false)
   const [wizardData, setWizardData] = useState<{
     agentName: string
     agentUUID: string
@@ -205,6 +207,18 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
               >
                 {t('hecate.form.provisionAgent')}
               </button>
+              {agents.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAgentManager(prev => !prev)}
+                  className="text-sm text-gray-400 hover:text-gray-300 underline focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
+                >
+                  {showAgentManager ? t('hecate.form.hideAgentManager') : t('hecate.form.manageAgents', { count: agents.length })}
+                </button>
+              )}
+              {showAgentManager && agents.length > 0 && (
+                <OrthrusAgentManager agents={agents} />
+              )}
               {provisionWizardOpen && wizardData && (
                 <OrthrusInstallWizard
                   agentName={wizardData.agentName}

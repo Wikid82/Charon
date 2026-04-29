@@ -79,6 +79,16 @@ func (s *OrthrusService) Get(uuid string) (*models.OrthrusAgent, error) {
 	return &agent, nil
 }
 
+// Rename updates the display name of an agent.
+func (s *OrthrusService) Rename(uuid, newName string) (*models.OrthrusAgent, error) {
+	if err := s.db.Model(&models.OrthrusAgent{}).
+		Where("uuid = ?", uuid).
+		Update("name", newName).Error; err != nil {
+		return nil, fmt.Errorf("orthrus: rename agent %s: %w", uuid, err)
+	}
+	return s.Get(uuid)
+}
+
 // Delete removes an agent from the database (does not revoke/disconnect first).
 func (s *OrthrusService) Delete(uuid string) error {
 	if err := s.db.Where("uuid = ?", uuid).Delete(&models.OrthrusAgent{}).Error; err != nil {

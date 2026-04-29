@@ -53,6 +53,11 @@ export const deleteAgent = async (uuid: string): Promise<void> => {
   await client.delete(`/orthrus/agents/${uuid}`);
 };
 
+export const renameAgent = async (uuid: string, name: string): Promise<OrthrusAgent> => {
+  const { data } = await client.patch<OrthrusAgent>(`/orthrus/agents/${uuid}`, { name });
+  return data;
+};
+
 export const revokeAgent = async (uuid: string): Promise<{ message: string }> => {
   const { data } = await client.post<{ message: string }>(`/orthrus/agents/${uuid}/revoke`);
   return data;

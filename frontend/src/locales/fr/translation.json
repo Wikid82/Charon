@@ -1199,12 +1199,37 @@
     },
     "form": {
       "selectAgent": "Sélectionner un agent...",
-      "provisionAgent": "Provisionner un nouvel agent"
+      "provisionAgent": "Provisionner un nouvel agent",
+      "manageAgents": "Gérer les agents ({{count}})",
+      "hideAgentManager": "Masquer la gestion des agents"
     },
     "tailscale": {
       "pickerTitle": "Select Tailscale Device",
       "pickerDescription": "Choose the Tailscale device to route traffic through.",
       "noDevices": "No Tailscale devices found. Ensure your API key is configured."
+    },
+    "agentManager": {
+      "tableLabel": "Agents Orthrus",
+      "colName": "Nom",
+      "colUUID": "UUID",
+      "colStatus": "Statut",
+      "colLastSeen": "Dernière activité",
+      "colActions": "Actions",
+      "editNameLabel": "Renommer l'agent {{name}}",
+      "renameInputLabel": "Nouveau nom pour {{name}}",
+      "confirmRename": "Enregistrer le nom",
+      "cancelRename": "Annuler le changement de nom",
+      "deleteLabel": "Supprimer l'agent {{name}}",
+      "deleteTitle": "Supprimer l'agent",
+      "deleteDescription": "Voulez-vous vraiment supprimer l'agent « {{name}} » ? Cette action est irréversible.",
+      "deleteConfirm": "Supprimer",
+      "noAgents": "Aucun agent enregistré.",
+      "neverSeen": "Jamais",
+      "status": {
+        "online": "En ligne",
+        "offline": "Hors ligne",
+        "pending": "En attente"
+      }
     }
   }
 }

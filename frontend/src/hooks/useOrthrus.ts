@@ -5,6 +5,7 @@ import {
   getInstallSnippets,
   listAgents,
   provisionAgent,
+  renameAgent,
   revokeAgent,
   type OrthrusAgent,
   type ProvisionAgentRequest,
@@ -22,6 +23,26 @@ export const useProvisionAgent = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (req: ProvisionAgentRequest) => provisionAgent(req),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
+    },
+  });
+};
+
+export const useRenameAgent = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ uuid, name }: { uuid: string; name: string }) => renameAgent(uuid, name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
+    },
+  });
+};
+
+export const useDeleteAgent = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (uuid: string) => deleteAgent(uuid),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
     },
