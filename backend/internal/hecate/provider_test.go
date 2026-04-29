@@ -39,5 +39,9 @@ func TestTunnelStatus_Fields(t *testing.T) {
 		LastError:     "",
 	}
 	assert.Equal(t, "abc", s.UUID)
+	assert.Equal(t, "my-tunnel", s.Name)
+	assert.Equal(t, "cloudflare", s.Provider)
 	assert.Equal(t, TunnelStateConnected, s.State)
+	assert.Equal(t, int64(120), s.UptimeSeconds)
+	assert.Equal(t, "", s.LastError)
 }
