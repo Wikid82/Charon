@@ -47,9 +47,18 @@ func NewOrthrusServer(db *gorm.DB, ca *InternalCA) (*OrthrusServer, error) {
 	}, nil
 }
 
-// Stop cancels the server context and waits for all background goroutines to exit.
+// Stop cancels the server context, closes all active agent sessions, and waits
+// for all background goroutines to exit. Closing sessions explicitly ensures
+// yamux's internal goroutines terminate promptly regardless of the underlying
+// transport state, which prevents flaky TempDir cleanup failures in tests.
 func (s *OrthrusServer) Stop() {
 	s.cancel()
+	s.sessions.Range(func(key, value any) bool {
+		sess := value.(*AgentSession)
+		_ = sess.Close()
+		s.sessions.Delete(key)
+		return true
+	})
 	s.wg.Wait()
 }
 
