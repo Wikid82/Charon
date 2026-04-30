@@ -9,6 +9,12 @@ coverage:
       default:
         target: 87%
         threshold: 1%
+    patch:
+      default:
+        # Patch coverage is a quality signal, not a merge gate.
+        # Per testing.instructions.md, patch coverage is informational only.
+        informational: true
+        target: 90%
 
 # Fail CI if Codecov upload/report indicates a problem
 require_ci_to_pass: yes
