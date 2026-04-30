@@ -1,14 +1,29 @@
-import { Loader2, Check, X, CircleHelp } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { Check, CircleHelp, Loader2, X } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 
-import { type InstallSnippets } from '../api/orthrus'
+import {
+  listTailscaleDevices,
+  type NetBirdPeer,
+  type TailscaleDevice,
+  type ZeroTierMember,
+  type ZeroTierNetwork,
+} from '../api/hecate'
 import { type RemoteServer, testCustomRemoteServerConnection } from '../api/remoteServers'
-import { useAgentList, useProvisionAgent, useOrthrus } from '../hooks/useOrthrus'
-import { CloudflareTunnelWizard } from './hecate/CloudflareTunnelWizard'
-import { ConnectionTypeSelector, type ConnectionType } from './hecate/ConnectionTypeSelector'
-import { OrthrusAgentManager } from './hecate/OrthrusAgentManager'
-import { OrthrusInstallWizard } from './hecate/OrthrusInstallWizard'
+import { useHecate } from '../hooks/useHecate'
+import { useAgentList } from '../hooks/useOrthrus'
+import {
+  ConnectionTypeSelector,
+  type ConnectionMode,
+  type ConnectionType,
+  type HecateProvider,
+} from './hecate/ConnectionTypeSelector'
+import { NetBirdPeerPicker } from './hecate/NetBirdPeerPicker'
+import { TailscaleDevicePicker } from './hecate/TailscaleDevicePicker'
+import { TunnelStatusBadge } from './hecate/TunnelStatusBadge'
+import { ZeroTierMemberPicker } from './hecate/ZeroTierMemberPicker'
 
 interface Props {
   server?: RemoteServer
@@ -18,6 +33,12 @@ interface Props {
 
 export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) {
   const { t } = useTranslation()
+
+  const resolveConnectionMode = (): ConnectionMode => {
+    if (!server?.connection_type || server.connection_type === 'direct') return 'direct'
+    return 'agent'
+  }
+
   const [formData, setFormData] = useState({
     name: server?.name || '',
     provider: server?.provider || 'generic',
@@ -25,26 +46,30 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
     port: server?.port ?? 22,
     username: server?.username || '',
     enabled: server?.enabled ?? true,
+    connection_mode: resolveConnectionMode() as ConnectionMode,
     connection_type: (server?.connection_type ?? 'direct') as ConnectionType,
     orthrus_agent_uuid: server?.orthrus_agent_uuid ?? '',
+    hecate_tunnel_uuid: server?.hecate_tunnel_uuid ?? '',
+    selected_device_name: '',
+    selected_device_address: '',
   })
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
-  const [provisionWizardOpen, setProvisionWizardOpen] = useState(false)
-  const [cfWizardOpen, setCfWizardOpen] = useState(false)
-  const [showAgentManager, setShowAgentManager] = useState(false)
-  const [wizardData, setWizardData] = useState<{
-    agentName: string
-    agentUUID: string
-    authKey: string
-    snippets: InstallSnippets
-  } | null>(null)
+  const [showTailscalePicker, setShowTailscalePicker] = useState(false)
+  const [showNetBirdPicker, setShowNetBirdPicker] = useState(false)
+  const [showZeroTierPicker, setShowZeroTierPicker] = useState(false)
 
+  const { tunnels, getStatus } = useHecate()
   const { data: agents = [] } = useAgentList()
-  const { mutateAsync: doProvision } = useProvisionAgent()
-  const { getInstallSnippets } = useOrthrus()
+
+  const { data: tailscaleDevices = [] } = useQuery({
+    queryKey: ['hecate', 'tailscale', 'devices'],
+    queryFn: listTailscaleDevices,
+    enabled: formData.connection_type === 'tailscale',
+    staleTime: 60_000,
+  })
 
   useEffect(() => {
     setFormData({
@@ -54,9 +79,14 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
       port: server?.port ?? 22,
       username: server?.username || '',
       enabled: server?.enabled ?? true,
+      connection_mode: resolveConnectionMode(),
       connection_type: (server?.connection_type ?? 'direct') as ConnectionType,
       orthrus_agent_uuid: server?.orthrus_agent_uuid ?? '',
+      hecate_tunnel_uuid: server?.hecate_tunnel_uuid ?? '',
+      selected_device_name: '',
+      selected_device_address: '',
     })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [server])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -64,7 +94,22 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
     setLoading(true)
     setError(null)
     try {
-      await onSubmit(formData)
+      const payload: Partial<RemoteServer> = {
+        name: formData.name,
+        provider: formData.provider,
+        enabled: formData.enabled,
+        connection_type: formData.connection_type,
+        orthrus_agent_uuid: formData.orthrus_agent_uuid || undefined,
+        hecate_tunnel_uuid: formData.hecate_tunnel_uuid || undefined,
+      }
+      if (formData.connection_mode === 'direct') {
+        payload.host = formData.host
+        payload.port = formData.port
+        payload.username = formData.username
+      } else if (['tailscale', 'netbird', 'zerotier'].includes(formData.connection_type)) {
+        payload.host = formData.selected_device_address
+      }
+      await onSubmit(payload)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save server')
     } finally {
@@ -90,6 +135,10 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
       setError('Connection failed')
     }
   }
+
+  const selectedTunnel = tunnels.find(t => t.uuid === formData.hecate_tunnel_uuid)
+  const selectedAgent = agents.find(a => a.uuid === formData.orthrus_agent_uuid)
+  const tunnelStatus = selectedTunnel ? getStatus(formData.hecate_tunnel_uuid) : undefined
 
   return (
     <>
@@ -158,95 +207,196 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2" htmlFor="connection-type">
+            <label className="block text-sm font-medium text-gray-300 mb-2">
               {t('remoteServers.connectionType')}
             </label>
             <ConnectionTypeSelector
-              id="connection-type"
-              value={formData.connection_type}
-              onChange={type => setFormData({ ...formData, connection_type: type, orthrus_agent_uuid: '' })}
+              mode={formData.connection_mode}
+              onModeChange={mode => {
+                if (mode === 'direct') {
+                  setFormData(prev => ({
+                    ...prev,
+                    connection_mode: 'direct',
+                    connection_type: 'direct',
+                    hecate_tunnel_uuid: '',
+                    orthrus_agent_uuid: '',
+                    selected_device_name: '',
+                    selected_device_address: '',
+                  }))
+                } else {
+                  setFormData(prev => ({ ...prev, connection_mode: 'agent' }))
+                }
+              }}
+              selectedTunnelUUID={formData.hecate_tunnel_uuid || null}
+              selectedAgentUUID={formData.orthrus_agent_uuid || null}
+              onTunnelSelect={(uuid, provider) =>
+                setFormData(prev => ({
+                  ...prev,
+                  connection_type: provider as HecateProvider,
+                  hecate_tunnel_uuid: uuid,
+                  orthrus_agent_uuid: '',
+                  selected_device_name: '',
+                  selected_device_address: '',
+                }))
+              }
+              onAgentSelect={uuid =>
+                setFormData(prev => ({
+                  ...prev,
+                  connection_type: 'orthrus',
+                  orthrus_agent_uuid: uuid,
+                  hecate_tunnel_uuid: '',
+                  selected_device_name: '',
+                  selected_device_address: '',
+                }))
+              }
+              disabled={loading}
             />
           </div>
 
-          {formData.connection_type === 'orthrus' && (
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2" htmlFor="orthrus-agent-select">
-                  {t('hecate.form.selectAgent')}
-                </label>
-                <select
-                  id="orthrus-agent-select"
-                  value={formData.orthrus_agent_uuid}
-                  onChange={e => setFormData({ ...formData, orthrus_agent_uuid: e.target.value })}
-                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">{t('hecate.form.selectAgent')}</option>
-                  {agents.map(agent => (
-                    <option key={agent.uuid} value={agent.uuid}>{agent.name}</option>
-                  ))}
-                </select>
-              </div>
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    const result = await doProvision({ name: formData.name || 'agent' })
-                    const snippets = await getInstallSnippets(result.agent.uuid)
-                    setWizardData({
-                      agentName: result.agent.name,
-                      agentUUID: result.agent.uuid,
-                      authKey: result.auth_key,
-                      snippets,
-                    })
-                    setProvisionWizardOpen(true)
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : 'Failed to provision agent')
-                  }
-                }}
-                className="text-sm text-blue-400 hover:text-blue-300 underline focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
-              >
-                {t('hecate.form.provisionAgent')}
-              </button>
-              {agents.length > 0 && (
+          {/* Tier 3: Device pickers for specific providers */}
+          {formData.connection_mode === 'agent' && formData.connection_type === 'tailscale' && (
+            <div className="space-y-2">
+              {formData.selected_device_name ? (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-gray-300">{t('hecate.form.mode.selectedDevice')}:</span>
+                  <span className="font-medium text-white">{formData.selected_device_name}</span>
+                  <span className="text-gray-500">{formData.selected_device_address}</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowTailscalePicker(true)}
+                    className="text-blue-400 hover:text-blue-300 underline text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
+                  >
+                    {t('hecate.form.mode.changeDevice')}
+                  </button>
+                </div>
+              ) : (
                 <button
                   type="button"
-                  onClick={() => setShowAgentManager(prev => !prev)}
-                  className="text-sm text-gray-400 hover:text-gray-300 underline focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
+                  onClick={() => setShowTailscalePicker(true)}
+                  className="text-sm text-blue-400 hover:text-blue-300 underline focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
                 >
-                  {showAgentManager ? t('hecate.form.hideAgentManager') : t('hecate.form.manageAgents', { count: agents.length })}
+                  {t('hecate.form.mode.selectDevice')}
                 </button>
               )}
-              {showAgentManager && agents.length > 0 && (
-                <OrthrusAgentManager agents={agents} />
-              )}
-              {provisionWizardOpen && wizardData && (
-                <OrthrusInstallWizard
-                  agentName={wizardData.agentName}
-                  agentUUID={wizardData.agentUUID}
-                  authKey={wizardData.authKey}
-                  snippets={wizardData.snippets}
-                  open={provisionWizardOpen}
-                  onClose={() => {
-                    setProvisionWizardOpen(false)
-                    setFormData(prev => ({ ...prev, orthrus_agent_uuid: wizardData.agentUUID }))
-                  }}
-                />
-              )}
+              <TailscaleDevicePicker
+                devices={tailscaleDevices}
+                open={showTailscalePicker}
+                onClose={() => setShowTailscalePicker(false)}
+                onSelect={(device: TailscaleDevice) => {
+                  setFormData(prev => ({
+                    ...prev,
+                    selected_device_name: device.hostname,
+                    selected_device_address: device.addresses[0] ?? '',
+                  }))
+                  setShowTailscalePicker(false)
+                }}
+                selectedId={formData.selected_device_name}
+              />
             </div>
           )}
 
-          {formData.connection_type === 'cloudflare' && cfWizardOpen && (
-            <CloudflareTunnelWizard
-              serverName={formData.name}
-              onSuccess={(uuid) => {
-                setCfWizardOpen(false)
-                setFormData(prev => ({ ...prev, orthrus_agent_uuid: uuid }))
-              }}
-              onCancel={() => setCfWizardOpen(false)}
-            />
+          {formData.connection_mode === 'agent' && formData.connection_type === 'netbird' && (
+            <div className="space-y-2">
+              {formData.selected_device_name ? (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-gray-300">{t('hecate.form.mode.selectedDevice')}:</span>
+                  <span className="font-medium text-white">{formData.selected_device_name}</span>
+                  <span className="text-gray-500">{formData.selected_device_address}</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowNetBirdPicker(true)}
+                    className="text-blue-400 hover:text-blue-300 underline text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
+                  >
+                    {t('hecate.form.mode.changeDevice')}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowNetBirdPicker(true)}
+                  className="text-sm text-blue-400 hover:text-blue-300 underline focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
+                >
+                  {t('hecate.form.mode.selectPeer')}
+                </button>
+              )}
+              <NetBirdPeerPicker
+                open={showNetBirdPicker}
+                onClose={() => setShowNetBirdPicker(false)}
+                onSelect={(peer: NetBirdPeer) => {
+                  setFormData(prev => ({
+                    ...prev,
+                    selected_device_name: peer.name,
+                    selected_device_address: peer.ip,
+                  }))
+                  setShowNetBirdPicker(false)
+                }}
+                selectedId={formData.selected_device_name}
+              />
+            </div>
           )}
 
-          {formData.connection_type === 'direct' && (
+          {formData.connection_mode === 'agent' && formData.connection_type === 'zerotier' && (
+            <div className="space-y-2">
+              {formData.selected_device_name ? (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-gray-300">{t('hecate.form.mode.selectedDevice')}:</span>
+                  <span className="font-medium text-white">{formData.selected_device_name}</span>
+                  <span className="text-gray-500">{formData.selected_device_address}</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowZeroTierPicker(true)}
+                    className="text-blue-400 hover:text-blue-300 underline text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
+                  >
+                    {t('hecate.form.mode.changeDevice')}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowZeroTierPicker(true)}
+                  className="text-sm text-blue-400 hover:text-blue-300 underline focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
+                >
+                  {t('hecate.form.mode.selectMember')}
+                </button>
+              )}
+              <ZeroTierMemberPicker
+                open={showZeroTierPicker}
+                onClose={() => setShowZeroTierPicker(false)}
+                onSelect={(member: ZeroTierMember, _network: ZeroTierNetwork) => {
+                  setFormData(prev => ({
+                    ...prev,
+                    selected_device_name: member.name,
+                    selected_device_address: member.ip_assignments[0] ?? member.node_id,
+                  }))
+                  setShowZeroTierPicker(false)
+                }}
+                selectedId={formData.selected_device_name}
+              />
+            </div>
+          )}
+
+          {/* Agent info panels */}
+          {formData.connection_mode === 'agent' && formData.connection_type === 'orthrus' && selectedAgent && (
+            <div className="text-sm text-gray-300 space-y-1 p-3 bg-gray-800 rounded-lg">
+              <p>
+                {t('hecate.form.selectAgent')}: <span className="font-medium text-white">{selectedAgent.name}</span>
+              </p>
+              <Link to="/hecate" className="text-blue-400 hover:text-blue-300 underline text-xs">
+                {t('hecate.form.manageAgents', { count: agents.length })}
+              </Link>
+            </div>
+          )}
+
+          {formData.connection_mode === 'agent' && formData.connection_type === 'cloudflare' && selectedTunnel && (
+            <div className="text-sm text-gray-300 space-y-1 p-3 bg-gray-800 rounded-lg">
+              <div className="flex items-center gap-2">
+                <span>{selectedTunnel.name}</span>
+                {tunnelStatus && <TunnelStatusBadge state={tunnelStatus.state} showLabel />}
+              </div>
+            </div>
+          )}
+
+          {formData.connection_mode === 'direct' && (
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2" htmlFor="host">
                 {t('remoteServers.host')}
@@ -263,7 +413,7 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
             </div>
           )}
 
-          {formData.connection_type === 'direct' && (
+          {formData.connection_mode === 'direct' && (
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2" htmlFor="port">
@@ -313,7 +463,7 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
             <button
               type="button"
               onClick={handleTestConnection}
-              disabled={testStatus === 'testing' || !formData.host || !formData.port}
+              disabled={testStatus === 'testing' || formData.connection_mode !== 'direct' || !formData.host || !formData.port}
               className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 mr-auto ${
                 testStatus === 'success' ? 'bg-green-600 text-white' :
                 testStatus === 'error' ? 'bg-red-600 text-white' :

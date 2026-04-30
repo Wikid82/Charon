@@ -103,7 +103,7 @@ export default function RemoteServers() {
         if (!server.connection_type || server.connection_type === 'direct') {
           return <Badge variant="outline" size="sm">{t('remoteServers.connectionTypeDirect')}</Badge>
         }
-        const status = getStatus(server.uuid)
+        const status = getStatus(server.hecate_tunnel_uuid ?? server.uuid)
         return status ? <TunnelStatusBadge state={status.state} /> : (
           <Badge variant="outline" size="sm">{server.connection_type}</Badge>
         )
@@ -252,7 +252,7 @@ export default function RemoteServers() {
                     <div className="flex items-center gap-2">
                       <Badge variant="outline" size="sm">{server.provider}</Badge>
                       {server.connection_type && server.connection_type !== 'direct' && (() => {
-                        const status = getStatus(server.uuid);
+                        const status = getStatus(server.hecate_tunnel_uuid ?? server.uuid);
                         return status
                           ? <TunnelStatusBadge state={status.state} showLabel={false} />
                           : <Badge variant="outline" size="sm">{server.connection_type}</Badge>;

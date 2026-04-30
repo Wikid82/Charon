@@ -14,6 +14,7 @@ import { AuthProvider } from './context/AuthContext'
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const ProxyHosts = lazy(() => import('./pages/ProxyHosts'))
 const RemoteServers = lazy(() => import('./pages/RemoteServers'))
+const Hecate = lazy(() => import('./pages/Hecate'))
 const DNS = lazy(() => import('./pages/DNS'))
 const ImportCaddy = lazy(() => import('./pages/ImportCaddy'))
 const ImportCrowdSec = lazy(() => import('./pages/ImportCrowdSec'))
@@ -71,6 +72,7 @@ export default function App() {
               <Route index element={<Dashboard />} />
               <Route path="proxy-hosts" element={<ProxyHosts />} />
               <Route path="remote-servers" element={<RemoteServers />} />
+              <Route path="hecate" element={<Hecate />} />
               <Route path="domains" element={<Domains />} />
               <Route path="certificates" element={<Certificates />} />
 

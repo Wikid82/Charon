@@ -1,1002 +1,1010 @@
-# Hecate: Tunnel & Pathway Manager — Full Specification
+# Hecate Provider Integration in Remote Server Setup
 
-**Feature Branch:** `feature/hecate`
-**GitHub Issue:** #368
-**Primary PR:** #983
-**Status:** PRs 1–5 Complete. PR 6 (Frontend) and PR 7 (E2E Tests) remain.
-**Last Updated:** 2026-04-27
+**Branch**: `feature/hecate`
+**Date**: 2026-04-30
+**Status**: Ready for implementation
 
 ---
 
-## 1. Introduction
+## 1. Summary
 
-### 1.1 Overview
+This spec covers two tightly related deliverables that together form the complete Hecate frontend experience:
 
-**Hecate** is the internal subsystem within Charon responsible for managing third-party tunneling services and reverse-proxy agents. Named after the Greek goddess of pathways, it allows Charon to route traffic to remote servers—through encrypted tunnels—without requiring open inbound ports on the target host.
+1. **Hecate management page** (`/hecate`) — a full CRUD interface for creating and managing Hecate tunnel providers (Cloudflare, Tailscale, NetBird, ZeroTier) and Orthrus agents. This page must exist before users can select a provider in Remote Server setup.
 
-**Orthrus** is the companion lightweight Go agent that runs on remote servers. It connects outbound to Charon using a yamux-multiplexed WebSocket ("The Leash"), securely proxying the Docker socket and TCP ports back to Charon with an HTTP allowlist filter ("The Muzzle").
+2. **Remote Server form restructure** — the "Connection Type" flat dropdown is replaced with a two-tier UI: a radio group selecting **Agent** or **Direct** (Tier 1), then a provider/device picker (Tier 2/3) shown only when Agent is selected.
 
-### 1.2 Goals
+No existing pages or features are removed. The changes are purely additive and restructuring.
 
-- Allow users to add remote servers that are behind NAT/firewalls (Orthrus Agent connection type).
-- Allow users to configure managed external tunnel providers (Cloudflare, Tailscale, ZeroTier, NetBird).
-- Expose real-time tunnel log streaming via WebSocket.
-- Provide a polished install wizard for deploying Orthrus agents.
-- Integrate tunnel status indicators into the Remote Servers page.
+### What changes and why
 
-### 1.3 Design Principles
-
-- Hecate has **no separate page**. All UI is embedded in the existing **Remote Servers** page and form.
-- Credentials (`EncryptedCredentials`, `AuthKeyHash`) are **never** sent to the frontend.
-- Auth keys are shown **exactly once** at provision time and never again.
+| Area | Before | After | Reason |
+|---|---|---|---|
+| Remote Server form | Flat 3-option select: Direct / Orthrus Agent / Cloudflare Tunnel | Radio Agent/Direct + provider dropdown + device picker | Supports 5 providers; flat select does not scale |
+| `ConnectionTypeSelector` | Single `<NativeSelect>` with 3 hard-coded options | Two-tier compound component (radio + dynamic dropdown) | New interface required |
+| Hecate page | Does not exist | New `/hecate` route with tunnel CRUD + Orthrus section | Users need a place to configure providers before selecting them |
+| Backend model | `connection_type`: direct/orthrus/cloudflare only; no `hecate_tunnel_uuid` field | 3 new connection types; new nullable `hecate_tunnel_uuid` column | Tailscale/NetBird/ZeroTier connections must reference their tunnel config |
+| Navigation | No Hecate entry | "Hecate" nav item after Remote Servers | Users must be able to navigate to the management page |
 
 ---
 
-## 2. Completed Work (PRs 1–5)
+## 2. Data Model Assessment
 
-### PR 1 — Backend Foundation: Models & Migration
+### Current state
 
-| File | Description |
-|------|-------------|
-| `backend/internal/models/tunnel_config.go` | `TunnelConfig` GORM model with AES-256-GCM encrypted credentials |
-| `backend/internal/models/orthrus_agent.go` | `OrthrusAgent` GORM model with bcrypt-hashed auth key |
-| `backend/internal/models/remote_server.go` | Extended `RemoteServer` with `connection_type` and `orthrus_agent_uuid` fields |
-| DB migration | Auto-migrate creates `tunnel_configs` and `orthrus_agents` tables |
-
-**Key types:**
+`backend/internal/models/remote_server.go`:
 
 ```go
-// TunnelProviderType values
-const (
-    ProviderCloudflare TunnelProviderType = "cloudflare"
-    ProviderTailscale  TunnelProviderType = "tailscale"
-    ProviderZeroTier   TunnelProviderType = "zerotier"
-    ProviderNetBird    TunnelProviderType = "netbird"
-)
+type ConnectionType string
 
-// ConnectionType values on RemoteServer
 const (
     ConnectionTypeDirect     ConnectionType = "direct"
     ConnectionTypeOrthrus    ConnectionType = "orthrus"
     ConnectionTypeCloudflare ConnectionType = "cloudflare"
 )
-```
 
-### PR 2 — Backend Core: `internal/hecate` + `internal/orthrus`
-
-- `internal/hecate`: `TunnelManager`, `TunnelProvider` interface, `RingBuffer` (1000-line circular log buffer), exponential backoff restart policy.
-- `internal/orthrus`: `OrthrusServer` (manages incoming agent WebSocket sessions), internal CA, `GetProxyAddr()` for Caddy upstream injection.
-- `internal/orthrus/muzzle`: HTTP allowlist filter for Docker socket proxying.
-
-### PR 3 — Provider Implementations
-
-| Provider | Package | Key Type |
-|----------|---------|----------|
-| Cloudflare | `internal/hecate/providers/cloudflare` | `CloudflareTunnelProvider`, `CloudflareClient` |
-| Tailscale | `internal/hecate/providers/tailscale` | `TailscaleProvider`, `TailscaleClient` |
-| ZeroTier | `internal/hecate/providers/zerotier` | `ZeroTierProvider`, `ZeroTierClient` |
-| NetBird | `internal/hecate/providers/netbird` | `NetBirdProvider`, `NetBirdClient` |
-
-### PR 4 — API Handlers & Routes
-
-All endpoints wired and tested (85.3% coverage):
-
-**Hecate REST** (management group — requires auth + `RequireManagementAccess`):
-
-| Method | Path | Handler |
-|--------|------|---------|
-| GET | `/hecate/status` | `GetStatus` |
-| GET | `/hecate/tunnels` | `List` |
-| POST | `/hecate/tunnels` | `Create` |
-| GET | `/hecate/tunnels/:uuid` | `Get` |
-| PUT | `/hecate/tunnels/:uuid` | `Update` |
-| DELETE | `/hecate/tunnels/:uuid` | `Delete` |
-| POST | `/hecate/tunnels/:uuid/start` | `Start` |
-| POST | `/hecate/tunnels/:uuid/stop` | `Stop` |
-| POST | `/hecate/tunnels/:uuid/rotate-credentials` | `RotateCredentials` |
-| GET | `/hecate/cloudflare/tunnels` | `ListCloudflareTunnels` |
-| GET | `/hecate/tunnels/:uuid/config/cloudflared` | `GetCloudflaredConfig` |
-| GET | `/hecate/tailscale/devices` | `ListTailscaleDevices` |
-| POST | `/hecate/tailscale/sync` | `SyncTailscale` |
-| GET | `/hecate/zerotier/networks` | `ListZeroTierNetworks` |
-| GET | `/hecate/zerotier/networks/:network_id/members` | `ListZeroTierMembers` |
-| GET | `/hecate/netbird/peers` | `ListNetBirdPeers` |
-| POST | `/hecate/netbird/sync` | `SyncNetBird` |
-| GET (WS) | `/ws/hecate/logs/:uuid` | `StreamLogs` |
-
-**Orthrus REST** (management group):
-
-| Method | Path | Handler |
-|--------|------|---------|
-| GET | `/orthrus/agents` | `List` |
-| POST | `/orthrus/agents` | `Provision` → returns `{ agent, auth_key }` |
-| GET | `/orthrus/agents/:uuid` | `Get` |
-| DELETE | `/orthrus/agents/:uuid` | `Delete` |
-| POST | `/orthrus/agents/:uuid/revoke` | `Revoke` |
-| GET | `/orthrus/agents/:uuid/snippets` | `GetInstallSnippets` |
-| GET (WS) | `/ws/orthrus/connect` | Agent WebSocket (`api` group, bearer token auth) |
-
-**Known issue (Supervisor non-blocking):** `hecate_handler.go` returns HTTP 500 for not-found instead of 404. Fix in Commit 18.
-
-### PR 5 — Orthrus Agent Binary
-
-- `agent/` — standalone Go module (`github.com/Wikid82/charon/agent`)
-- yamux over WebSocket reverse tunnel to Charon
-- Docker image: `ghcr.io/wikid82/charon-orthrus-agent` (~2.4 MB, from scratch)
-- Configuration via environment variables: `ORTHRUS_NAME`, `CHARON_LINK`, `AUTH_KEY`, `ORTHRUS_MODE`
-- mTLS enrollment: on first connect, generates keypair, sends CSR, receives signed cert from Charon CA
-
----
-
-## 3. PR 6 — Frontend Implementation
-
-### 3.1 File Map
-
-```
-frontend/src/
-├── api/
-│   ├── hecate.ts              # NEW — Hecate REST API client
-│   └── orthrus.ts             # NEW — Orthrus REST API client
-├── hooks/
-│   ├── useHecate.ts           # NEW — TanStack Query hooks for Hecate
-│   └── useOrthrus.ts          # NEW — TanStack Query hooks for Orthrus
-├── components/
-│   └── hecate/                # NEW directory
-│       ├── TunnelStatusBadge.tsx
-│       ├── TunnelLogViewer.tsx
-│       ├── OrthrusInstallWizard.tsx
-│       ├── ConnectionTypeSelector.tsx
-│       ├── CloudflareTunnelWizard.tsx
-│       └── TailscaleDevicePicker.tsx
-├── components/
-│   └── RemoteServerForm.tsx   # MODIFIED — add connection type field
-└── pages/
-    └── RemoteServers.tsx      # MODIFIED — integrate TunnelStatusBadge
-```
-
-### 3.2 TypeScript Interfaces
-
-#### `frontend/src/api/hecate.ts` — Types
-
-```typescript
-export type TunnelProvider = 'cloudflare' | 'tailscale' | 'zerotier' | 'netbird';
-export type TunnelState = 'connected' | 'connecting' | 'error' | 'stopped';
-
-export interface TunnelConfig {
-  uuid: string;
-  name: string;
-  provider: TunnelProvider;
-  configuration: string;   // provider-specific JSON blob
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-  // NOTE: credentials are NEVER returned; only sent on create/update
-}
-
-export interface TunnelStatus {
-  uuid: string;
-  name: string;
-  provider: TunnelProvider;
-  state: TunnelState;
-  uptime_seconds: number;
-  last_error: string;
-}
-
-export interface CreateTunnelRequest {
-  name: string;
-  provider: TunnelProvider;
-  credentials: string;
-  configuration?: string;
-  is_active?: boolean;
-}
-
-export interface UpdateTunnelRequest {
-  name: string;
-  provider: TunnelProvider;
-  credentials?: string;      // omit to keep existing credentials
-  configuration?: string;
-  is_active?: boolean;
-}
-
-export interface CloudflareTunnel {
-  id: string;
-  name: string;
-  status: string;
-  created_at: string;
-}
-
-export interface TailscaleDevice {
-  id: string;
-  hostname: string;
-  addresses: string[];
-  os: string;
-  last_seen: string;
-  online: boolean;
-}
-
-export interface ZeroTierNetwork {
-  id: string;
-  name: string;
-  description: string;
-  private: boolean;
-  total_member_count: number;
-}
-
-export interface ZeroTierMember {
-  node_id: string;
-  name: string;
-  description: string;
-  ip_assignments: string[];
-  authorized: boolean;
-  online: boolean;
-}
-
-export interface NetBirdPeer {
-  id: string;
-  name: string;
-  ip: string;
-  os: string;
-  connection_state: string;
-  last_seen: string;
-  online: boolean;
+type RemoteServer struct {
+    ...
+    ConnectionType   ConnectionType `json:"connection_type" gorm:"default:\'direct\';index"`
+    OrthrusAgentUUID *string        `json:"orthrus_agent_uuid,omitempty" gorm:"index"`
+    // NO hecate_tunnel_uuid field
 }
 ```
 
-#### `frontend/src/api/hecate.ts` — Functions
-
-```typescript
-import client from './client';
-
-// Tunnel CRUD
-export const getTunnelStatus = (): Promise<TunnelStatus[]>
-export const listTunnels = (): Promise<TunnelConfig[]>
-export const createTunnel = (req: CreateTunnelRequest): Promise<TunnelConfig>
-export const getTunnel = (uuid: string): Promise<TunnelConfig>
-export const updateTunnel = (uuid: string, req: UpdateTunnelRequest): Promise<{ message: string }>
-export const deleteTunnel = (uuid: string): Promise<void>
-export const startTunnel = (uuid: string): Promise<{ message: string }>
-export const stopTunnel = (uuid: string): Promise<{ message: string }>
-export const rotateCredentials = (uuid: string, credentials: string): Promise<{ message: string }>
-
-// Cloudflare
-export const listCloudflareTunnels = (): Promise<CloudflareTunnel[]>
-export const getCloudflaredConfig = (uuid: string): Promise<string>  // returns YAML text
-
-// Tailscale
-export const listTailscaleDevices = (): Promise<TailscaleDevice[]>
-export const syncTailscale = (): Promise<TailscaleDevice[]>
-
-// ZeroTier
-export const listZeroTierNetworks = (): Promise<ZeroTierNetwork[]>
-export const listZeroTierMembers = (networkId: string): Promise<ZeroTierMember[]>
-
-// NetBird
-export const listNetBirdPeers = (): Promise<NetBirdPeer[]>
-export const syncNetBird = (): Promise<NetBirdPeer[]>
-
-// WebSocket — returns WebSocket instance; caller manages lifecycle
-export const connectTunnelLogs = (uuid: string, onMessage: (line: string) => void): WebSocket
-```
-
-`connectTunnelLogs` mirrors the `connectLiveLogs` pattern in `frontend/src/api/logs.ts`:
-construct a `wss://` or `ws://` URL from `window.location`, open the WebSocket, call `onMessage` for each `message` event, return the WebSocket instance for caller cleanup.
-
-#### `frontend/src/api/orthrus.ts` — Types
-
-```typescript
-export type OrthrusStatus = 'online' | 'offline' | 'pending';
-
-export interface OrthrusAgent {
-  uuid: string;
-  name: string;
-  status: OrthrusStatus;
-  capabilities: string;         // JSON array string e.g. '["docker","tcp:5432"]'
-  agent_cert_pem?: string;
-  last_heartbeat?: string;
-  last_seen?: string;
-  created_at: string;
-  updated_at: string;
-  // auth_key_hash is NEVER returned
-}
-
-export interface ProvisionAgentRequest {
-  name: string;
-}
-
-export interface ProvisionAgentResponse {
-  agent: OrthrusAgent;
-  auth_key: string;             // Shown ONCE — user must copy immediately
-}
-
-export interface InstallSnippets {
-  docker_compose: string;
-  systemd: string;
-  tarball: string;
-  homebrew: string;
-  kubernetes_daemon_set: string;
-}
-```
-
-#### `frontend/src/api/orthrus.ts` — Functions
-
-```typescript
-import client from './client';
-
-export const listAgents = (): Promise<OrthrusAgent[]>
-export const provisionAgent = (req: ProvisionAgentRequest): Promise<ProvisionAgentResponse>
-export const getAgent = (uuid: string): Promise<OrthrusAgent>
-export const deleteAgent = (uuid: string): Promise<void>
-export const revokeAgent = (uuid: string): Promise<{ message: string }>
-export const getInstallSnippets = (uuid: string): Promise<InstallSnippets>
-```
-
-`getInstallSnippets` must pass `X-Charon-URL: window.location.origin` header so the backend resolves the correct public URL regardless of TLS termination.
-
-### 3.3 Hook Specifications
-
-#### `frontend/src/hooks/useHecate.ts`
-
-Follows the `useRemoteServers.ts` pattern — TanStack Query v5 with `useQuery` + `useMutation` + `useQueryClient`.
-
-```typescript
-export const TUNNELS_QUERY_KEY = ['hecate', 'tunnels'];
-export const STATUS_QUERY_KEY = ['hecate', 'status'];
-
-export function useHecate() {
-  // tunnels: TunnelConfig[]
-  // status: TunnelStatus[]
-  // loading: boolean
-  // error: string | null
-  // createTunnel(req: CreateTunnelRequest): Promise<TunnelConfig>
-  // updateTunnel(uuid, req): Promise<void>
-  // deleteTunnel(uuid): Promise<void>
-  // startTunnel(uuid): Promise<void>
-  // stopTunnel(uuid): Promise<void>
-  // rotateCredentials(uuid, credentials): Promise<void>
-  // isCreating, isUpdating, isDeleting: boolean
-}
-```
-
-`status` polling: `refetchInterval: 10_000` (10 s) while any tunnel `state === 'connecting'`.
-
-#### `frontend/src/hooks/useOrthrus.ts`
-
-```typescript
-export const AGENTS_QUERY_KEY = ['orthrus', 'agents'];
-
-export function useOrthrus() {
-  // agents: OrthrusAgent[]
-  // loading: boolean
-  // error: string | null
-  // provisionAgent(name: string): Promise<ProvisionAgentResponse>
-  // deleteAgent(uuid): Promise<void>
-  // revokeAgent(uuid): Promise<void>
-  // getSnippets(uuid): Promise<InstallSnippets>
-  // isProvisioning, isDeleting, isRevoking: boolean
-}
-```
-
-### 3.4 Component Specifications
-
----
-
-#### `TunnelStatusBadge.tsx`
-
-**File:** `frontend/src/components/hecate/TunnelStatusBadge.tsx`
-
-**Props:**
-
-```typescript
-interface TunnelStatusBadgeProps {
-  state: TunnelState;
-  showLabel?: boolean;   // default: true
-  className?: string;
-}
-```
-
-**State → Visual Mapping:**
-
-| `state` | Icon (lucide) | Badge classes | Label |
-|---------|--------------|---------------|-------|
-| `connected` | `CheckCircle2` | `bg-green-900/30 text-green-400 border-green-700` | "Connected" |
-| `connecting` | `Loader2` (animate-spin) | `bg-yellow-900/30 text-yellow-300 border-yellow-600` | "Starting" |
-| `error` | `AlertCircle` | `bg-red-900/30 text-red-400 border-red-700` | "Error" |
-| `stopped` | `Circle` | `bg-gray-800 text-gray-400 border-gray-700` | "Stopped" |
-
-**Accessibility:**
-- Must not use color alone — icon + label always present.
-- Wrapper: `role="status"` and `aria-label="Tunnel status: {state}"`.
-- Use `aria-live="polite"` when embedded in a live-updating context.
-- Wrap the existing `Badge` UI component rather than inventing a new styled element.
-
-**WCAG contrast:** All color combinations must meet ≥ 4.5:1 ratio on the application's dark background. Verify with a contrast checker before finalizing.
-
----
-
-#### `ConnectionTypeSelector.tsx`
-
-**File:** `frontend/src/components/hecate/ConnectionTypeSelector.tsx`
-
-**Props:**
-
-```typescript
-type ConnectionType = 'direct' | 'orthrus' | 'cloudflare';
-
-interface ConnectionTypeSelectorProps {
-  value: ConnectionType;
-  onChange: (type: ConnectionType) => void;
-  disabled?: boolean;
-  id?: string;
-  'aria-label'?: string;
-}
-```
-
-**Options:**
-
-| Value | Label | Description |
-|-------|-------|-------------|
-| `direct` | Direct / Manual | Server reachable via host + port |
-| `orthrus` | Orthrus Agent | Server behind NAT; agent connects outbound |
-| `cloudflare` | Cloudflare Tunnel | Expose via Cloudflare edge network |
-
-Render as `<NativeSelect>` (existing `frontend/src/components/ui/NativeSelect.tsx`) for keyboard/screen-reader compatibility.
-
----
-
-#### `OrthrusInstallWizard.tsx`
-
-**File:** `frontend/src/components/hecate/OrthrusInstallWizard.tsx`
-
-**Props:**
-
-```typescript
-interface OrthrusInstallWizardProps {
-  agent: OrthrusAgent;
-  authKey: string;               // one-time plaintext key — displayed once
-  snippets: InstallSnippets | null;
-  loadingSnippets: boolean;
-  onClose: () => void;
-}
-```
-
-**Tabs** (use `Tabs`, `TabsList`, `TabsTrigger`, `TabsContent` from `frontend/src/components/ui/Tabs.tsx`):
-
-| Tab | Content source |
-|-----|---------------|
-| Docker Compose | `snippets.docker_compose` |
-| systemd | `snippets.systemd` |
-| Binary | `snippets.tarball` |
-| Homebrew | `snippets.homebrew` |
-| Kubernetes | `snippets.kubernetes_daemon_set` |
-
-**AUTH_KEY display requirements:**
-- Monospace `<input readOnly>` with `aria-label="Authentication key"`.
-- `aria-describedby` points to the warning message element.
-- Warning banner: "This key will not be shown again. Copy it before closing."
-- "Copy Key" button → `navigator.clipboard.writeText(authKey)` on user gesture.
-- After copy: show "Copied!" for 3 s, then revert.
-
-**Snippet requirements:**
-- `<pre>` block with "Copy" button (top-right per tab).
-- All snippets use `<AUTH_KEY>` placeholder; show info notice: "Replace `<AUTH_KEY>` with the key shown above."
-
-**Troubleshooting:** `<details>` collapsed by default; reveals:
-```
-journalctl -u orthrus -f
-systemctl status orthrus
-docker logs orthrus-agent -f
-```
-
-**Accessibility:**
-- Wraps in `Dialog` / `DialogContent` from `frontend/src/components/ui/Dialog.tsx`.
-- Dialog: `role="dialog"`, `aria-modal="true"`, `aria-labelledby`.
-- Tabs: roving tabindex, `ArrowLeft`/`ArrowRight` between tabs per APG tabs pattern.
-
----
-
-#### `CloudflareTunnelWizard.tsx`
-
-**File:** `frontend/src/components/hecate/CloudflareTunnelWizard.tsx`
-
-**Props:**
-
-```typescript
-interface CloudflareTunnelWizardProps {
-  onSuccess: (tunnel: TunnelConfig) => void;
-  onCancel: () => void;
-}
-```
-
-**Step 1 — Token Input:**
-- `<input type="password">` with show/hide toggle.
-- Label: "Cloudflare Tunnel Token"
-- Help text: "Find your token in the Cloudflare Zero Trust dashboard under Tunnels." (associated via `aria-describedby`).
-
-**Step 2 — Confirmation:**
-- Call `POST /hecate/tunnels` with `provider: 'cloudflare'`.
-- Show resolved tunnel name on success.
-
-**Step 3 — Live Status:**
-- Poll `GET /hecate/status` every 3 s via `refetchInterval`.
-- Show `TunnelStatusBadge` for the new tunnel.
-- "Done" button enabled when `state === 'connected'`.
-
----
-
-#### `TailscaleDevicePicker.tsx`
-
-**File:** `frontend/src/components/hecate/TailscaleDevicePicker.tsx`
-
-**Props:**
-
-```typescript
-interface TailscaleDevicePickerProps {
-  value: string;
-  onChange: (deviceId: string, device: TailscaleDevice) => void;
-  disabled?: boolean;
-  id?: string;
-}
-```
-
-**Behavior:**
-- Fetch `GET /hecate/tailscale/devices` via `useQuery`.
-- Render as `<NativeSelect>` with `${device.hostname} (${device.addresses[0]})`.
-- Offline devices: `disabled` option attribute + "(offline)" suffix.
-- "Refresh" icon button → `POST /hecate/tailscale/sync` then invalidate query.
-
----
-
-#### `TunnelLogViewer.tsx`
-
-**File:** `frontend/src/components/hecate/TunnelLogViewer.tsx`
-
-**Props:**
-
-```typescript
-interface TunnelLogViewerProps {
-  tunnelUuid: string;
-  maxLines?: number;             // default: 500
-  className?: string;
-}
-```
-
-**Behavior:**
-- Open WebSocket via `connectTunnelLogs(tunnelUuid, ...)` on mount.
-- Buffer up to `maxLines` lines; drop oldest at capacity.
-- Scrollable `<div>` with `role="log"`, `aria-live="polite"`, `aria-label="Tunnel log output"`.
-- Auto-scroll to bottom unless user has scrolled up.
-- Pause/Resume toggle: pauses DOM updates; buffer continues filling. `aria-pressed` state on button.
-- Clear button: clears display buffer. `aria-label="Clear log output"`.
-- Line coloring:
-  - `error` / `ERR` in line → `text-red-400`
-  - `warn` / `WARN` in line → `text-yellow-400`
-  - otherwise → `text-gray-300`
-- On WS `close`/`error`: show "Reconnecting…" badge; reconnect after 3 s backoff.
-- `useEffect` cleanup: close WebSocket and remove event listeners on unmount.
-
----
-
-### 3.5 `RemoteServerForm.tsx` Modifications
-
-**File:** `frontend/src/components/RemoteServerForm.tsx`
-
-**Changes:**
-
-1. Add `connection_type: 'direct'` and `orthrus_agent_uuid: undefined` to `formData` state.
-2. Render `<ConnectionTypeSelector>` between `provider` and `host` fields.
-3. Conditional field rendering:
-   - `direct` → show `host` + `port` (unchanged).
-   - `orthrus` → hide `host`/`port`; show `<NativeSelect>` populated from `useOrthrus().agents` for agent selection + "Provision New Agent" button opening `OrthrusInstallWizard`.
-   - `cloudflare` → hide `host`/`port`; show `<CloudflareTunnelWizard>` inline or in a dialog.
-4. Include `connection_type` and `orthrus_agent_uuid` in `handleSubmit` payload.
-
-**Updated `RemoteServer` interface in `frontend/src/api/remoteServers.ts`:**
+`frontend/src/api/remoteServers.ts`:
 
 ```typescript
 export interface RemoteServer {
-  uuid: string;
-  name: string;
-  provider: string;
-  host: string;
-  port: number;
-  username?: string;
-  enabled: boolean;
-  reachable: boolean;
-  last_check?: string;
-  created_at: string;
-  updated_at: string;
-  // Hecate fields
+  ...
   connection_type?: 'direct' | 'orthrus' | 'cloudflare';
   orthrus_agent_uuid?: string;
+  // NO hecate_tunnel_uuid field
 }
 ```
 
----
+### Required backend changes
 
-### 3.6 `RemoteServers.tsx` Page Modifications
+> **Note**: Two backend changes are required to support Tailscale, NetBird, and ZeroTier as distinct connection types.
 
-**File:** `frontend/src/pages/RemoteServers.tsx`
+**Why the changes are needed**:
+1. There are no `ConnectionType` enum values for `tailscale`, `netbird`, or `zerotier`. Without them, the form cannot save which type of connection is configured, and the edit form cannot pre-populate the correct picker.
+2. There is no column to store which `TunnelConfig` UUID a Tailscale/NetBird/ZeroTier Remote Server is using. Without it, connection status cannot be shown in the server list and the provider cannot be re-selected when editing.
 
-**Changes:**
+Both changes are backwards-compatible. GORM `AutoMigrate` will add the new nullable column without data loss. No manual migration script is required.
 
-1. Import `TunnelStatusBadge` from `../components/hecate/TunnelStatusBadge`.
-2. Import `useHecate` from `../hooks/useHecate`.
-3. Call `const { status } = useHecate()` at component level.
-4. Helper `getTunnelState(server: RemoteServer): TunnelState | undefined` — look up server in `status` by UUID.
-5. Add "Connection" column to the table:
+**Change 1 — `backend/internal/models/remote_server.go`**:
+
+```go
+type ConnectionType string
+
+const (
+    ConnectionTypeDirect     ConnectionType = "direct"
+    ConnectionTypeOrthrus    ConnectionType = "orthrus"
+    ConnectionTypeCloudflare ConnectionType = "cloudflare"
+    ConnectionTypeTailscale  ConnectionType = "tailscale"  // NEW
+    ConnectionTypeNetBird    ConnectionType = "netbird"    // NEW
+    ConnectionTypeZeroTier   ConnectionType = "zerotier"   // NEW
+)
+
+type RemoteServer struct {
+    ...
+    ConnectionType   ConnectionType `json:"connection_type" gorm:"default:\'direct\';index"`
+    OrthrusAgentUUID *string        `json:"orthrus_agent_uuid,omitempty" gorm:"index"`
+    HecateTunnelUUID *string        `json:"hecate_tunnel_uuid,omitempty" gorm:"index"` // NEW
+}
+```
+
+**Change 2 — `frontend/src/api/remoteServers.ts`**:
 
 ```typescript
-{
-  key: 'connection_type',
-  header: t('remoteServers.columnConnection'),
-  cell: (server) => {
-    if (!server.connection_type || server.connection_type === 'direct') {
-      return <Badge variant="outline" size="sm">Direct</Badge>;
-    }
-    const state = getTunnelState(server);
-    return state
-      ? <TunnelStatusBadge state={state} />
-      : <Badge variant="outline" size="sm">{server.connection_type}</Badge>;
-  },
+export interface RemoteServer {
+  ...
+  connection_type?: 'direct' | 'orthrus' | 'cloudflare' | 'tailscale' | 'netbird' | 'zerotier';
+  orthrus_agent_uuid?: string;
+  hecate_tunnel_uuid?: string; // NEW
 }
 ```
 
-6. In card/grid view: include `TunnelStatusBadge` for non-direct servers.
-7. "View Logs" icon button on each non-direct row — opens dialog containing `<TunnelLogViewer tunnelUuid={server.uuid} />`.
+### Semantic mapping
+
+| Tier 2 provider selected | `connection_type` stored | Reference field used |
+|---|---|---|
+| Orthrus agent | `orthrus` | `orthrus_agent_uuid` |
+| Cloudflare tunnel | `cloudflare` | `hecate_tunnel_uuid` |
+| Tailscale tunnel | `tailscale` | `hecate_tunnel_uuid` + `host` (device IP) |
+| NetBird tunnel | `netbird` | `hecate_tunnel_uuid` + `host` (peer IP) |
+| ZeroTier tunnel | `zerotier` | `hecate_tunnel_uuid` + `host` (member IP) |
+| (Direct) | `direct` | `host` + `port` |
+
+For Tailscale/NetBird/ZeroTier: after picking a device/peer/member, `host` is auto-filled with the VPN IP and Caddy routes to it directly. The `hecate_tunnel_uuid` is stored so the form can re-open the correct picker on edit, and the server list can show the tunnel live status.
+
+For Cloudflare: `host` is left blank. The cloudflared daemon on the remote server handles routing. `hecate_tunnel_uuid` identifies which `TunnelConfig` holds the credentials.
 
 ---
 
-### 3.7 i18n Keys
+## 3. Component Changes
 
-Add to all locale files under `frontend/src/locales/*/translation.json`:
+### 3.1 `frontend/src/components/hecate/ConnectionTypeSelector.tsx`
 
-```json
-{
-  "hecate": {
-    "tunnels": "Tunnels",
-    "tunnel": "Tunnel",
-    "status": {
-      "connected": "Connected",
-      "connecting": "Starting",
-      "error": "Error",
-      "stopped": "Stopped"
-    },
-    "provider": {
-      "cloudflare": "Cloudflare",
-      "tailscale": "Tailscale",
-      "zerotier": "ZeroTier",
-      "netbird": "NetBird"
-    },
-    "connectionType": {
-      "direct": "Direct",
-      "orthrus": "Orthrus Agent",
-      "cloudflare": "Cloudflare Tunnel"
-    },
-    "logViewer": {
-      "title": "Tunnel Logs",
-      "pause": "Pause",
-      "resume": "Resume",
-      "clear": "Clear",
-      "reconnecting": "Reconnecting…",
-      "ariaLabel": "Tunnel log output"
-    },
-    "installWizard": {
-      "title": "Install Orthrus Agent",
-      "authKeyLabel": "Authentication key",
-      "authKeyWarning": "This key will not be shown again. Copy it before closing.",
-      "copyKey": "Copy Key",
-      "copied": "Copied!",
-      "snippetPlaceholder": "Replace <AUTH_KEY> with the key shown above.",
-      "tabs": {
-        "dockerCompose": "Docker Compose",
-        "systemd": "systemd",
-        "tarball": "Binary",
-        "homebrew": "Homebrew",
-        "kubernetes": "Kubernetes"
-      },
-      "troubleshootingTitle": "Troubleshooting",
-      "done": "Done",
-      "close": "Close"
-    }
-  },
-  "remoteServers": {
-    "columnConnection": "Connection"
+**Current interface** (to be replaced):
+
+```typescript
+export type ConnectionType = 'direct' | 'orthrus' | 'cloudflare';
+
+interface ConnectionTypeSelectorProps {
+  value: ConnectionType;
+  onChange: (value: ConnectionType) => void;
+  id?: string;
+  disabled?: boolean;
+}
+```
+
+The component renders a single `<NativeSelect>` with 3 hard-coded `<option>` elements.
+
+**New interface**:
+
+```typescript
+export type ConnectionMode = 'direct' | 'agent';
+
+export type ConnectionType =
+  | 'direct'
+  | 'orthrus'
+  | 'cloudflare'
+  | 'tailscale'
+  | 'netbird'
+  | 'zerotier';
+
+export type HecateProvider = Exclude<ConnectionType, 'direct'>;
+
+export interface ConnectionTypeSelectorProps {
+  mode: ConnectionMode;
+  onModeChange: (mode: ConnectionMode) => void;
+  selectedTunnelUUID: string | null;
+  selectedAgentUUID: string | null;
+  onTunnelSelect: (tunnelUUID: string, provider: HecateProvider) => void;
+  onAgentSelect: (agentUUID: string) => void;
+  disabled?: boolean;
+}
+```
+
+**What the component renders**:
+
+- **Tier 1**: A `<fieldset>` with `<legend>` containing two `<input type="radio">` elements for Direct and Agent.
+- **Tier 2** (only when `mode === 'agent'`): A labeled `<NativeSelect>` or `<select>` populated by calling `useHecate()` and `useAgentList()` internally. Options are grouped using `<optgroup>` by provider. Orthrus agents use value prefix `orthrus:${agent.uuid}` to distinguish from tunnel UUIDs.
+
+**Option groups** (only rendered when the group has at least one option):
+
+```
+<optgroup label="Cloudflare">  — TunnelConfig entries with provider=cloudflare
+<optgroup label="Tailscale">   — TunnelConfig entries with provider=tailscale
+<optgroup label="NetBird">     — TunnelConfig entries with provider=netbird
+<optgroup label="ZeroTier">    — TunnelConfig entries with provider=zerotier
+<optgroup label="Orthrus">     — OrthrusAgent entries
+```
+
+**Empty state**: When `tunnels.length === 0` and `agents.length === 0`, show inline note:
+"No providers configured. [Go to Hecate to add one.](/hecate)" — rendered below the select, with `aria-live="polite"`.
+
+**Option value decoding** in `onChange`:
+
+```typescript
+const handleProviderChange = (value: string) => {
+  if (value.startsWith('orthrus:')) {
+    onAgentSelect(value.replace('orthrus:', ''))
+  } else {
+    const tunnel = tunnels.find(t => t.uuid === value)
+    if (tunnel) onTunnelSelect(value, tunnel.provider as HecateProvider)
   }
 }
 ```
 
 ---
 
-## 4. Backend Polish (Commit 18)
+### 3.2 `frontend/src/components/RemoteServerForm.tsx`
 
-### 4.1 Fix Not-Found Response in `hecate_handler.go`
+See Section 5 for the complete restructure. Summary:
 
-**File:** `backend/internal/api/handlers/hecate_handler.go`
+- Extend `formData` to include `connection_mode`, `hecate_tunnel_uuid`, `selected_device_name`, `selected_device_address`
+- Replace old `ConnectionTypeSelector` call with new compound component
+- Add Tier 3 device pickers (`TailscaleDevicePicker`, `NetBirdPeerPicker`, `ZeroTierMemberPicker`) rendered conditionally
+- Remove `CloudflareTunnelWizard` from form (Cloudflare tunnels are created on the Hecate page)
+- Remove inline agent provisioning ("Provision New Agent", "Manage Agents" buttons) — move to Hecate page
+- "Test Connection" button: only enabled when `connection_type === 'direct'` and host is non-empty
 
-Apply to `Get`, `Delete`, `Update`, `Start`, `Stop`, `RotateCredentials`:
+---
 
-```go
-import (
-    "errors"
-    "gorm.io/gorm"
-)
+### 3.3 `frontend/src/pages/RemoteServers.tsx`
 
-if err != nil {
-    if errors.Is(err, gorm.ErrRecordNotFound) {
-        c.JSON(http.StatusNotFound, gin.H{"error": "tunnel not found"})
-        return
+**Changes** (minimal):
+
+1. **Connection type column**: handle all 6 values including `tailscale`, `netbird`, `zerotier`.
+2. **TunnelStatusBadge lookup**: change `getStatus(server.uuid)` to `getStatus(server.hecate_tunnel_uuid ?? server.uuid)` so the badge shows the correct tunnel state for Hecate-backed connections.
+
+---
+
+### 3.4 `frontend/src/App.tsx`
+
+Add lazy import (in alphabetical order with other pages):
+
+```typescript
+const Hecate = lazy(() => import('./pages/Hecate'))
+```
+
+Add route inside the authenticated/layout group, after `remote-servers`:
+
+```typescript
+<Route path="hecate" element={<Hecate />} />
+```
+
+---
+
+### 3.5 `frontend/src/components/Layout.tsx`
+
+Add nav item immediately after the `remote-servers` entry:
+
+```typescript
+{ name: t('navigation.hecate'), path: '/hecate', icon: '🔗' },
+```
+
+No feature flag is needed. The page handles the empty state gracefully.
+
+---
+
+### 3.6 `frontend/src/locales/en/translation.json`
+
+**Under `navigation`** — add:
+
+```json
+"hecate": "Hecate"
+```
+
+**Under `hecate`** — add two new sub-objects `page` and `form.mode`:
+
+```json
+"page": {
+  "title": "Hecate",
+  "description": "Manage network tunnel providers for Agent-mode connections",
+  "addProvider": "Add Provider",
+  "editProvider": "Edit Provider",
+  "deleteProvider": "Delete Provider",
+  "start": "Start",
+  "stop": "Stop",
+  "rotateCredentials": "Rotate Credentials",
+  "viewLogs": "View Logs",
+  "provisionAgent": "Provision New Agent",
+  "confirmDeleteTitle": "Delete Provider",
+  "confirmDeleteDescription": "Are you sure you want to delete \"{{name}}\"? Remote Servers using this provider will lose their connection.",
+  "confirmDeleteButton": "Delete",
+  "rotateTitle": "Rotate Credentials",
+  "rotateDescription": "Enter new credentials for {{name}}. The old credentials will be replaced immediately.",
+  "rotateButton": "Rotate",
+  "orthrusSection": "Orthrus Agents",
+  "tunnelSection": "Tunnel Providers",
+  "columns": {
+    "name": "Name",
+    "provider": "Provider",
+    "status": "Status",
+    "active": "Active",
+    "created": "Created",
+    "actions": "Actions"
+  },
+  "emptyState": {
+    "title": "No providers configured",
+    "description": "Add a Cloudflare, Tailscale, NetBird, or ZeroTier provider to enable Agent-mode connections for Remote Servers."
+  },
+  "credentials": {
+    "editHint": "Leave any field blank to keep the existing credential.",
+    "showField": "Show {{field}}",
+    "hideField": "Hide {{field}}",
+    "cloudflare": {
+      "apiToken": "API Token",
+      "apiTokenHelp": "Create at dash.cloudflare.com → My Profile → API Tokens",
+      "accountId": "Account ID",
+      "accountIdHelp": "Found in the sidebar of your Cloudflare dashboard",
+      "tunnelToken": "Tunnel Token",
+      "tunnelTokenHelp": "Zero Trust → Networks → Tunnels → your tunnel → Configure → Token"
+    },
+    "tailscale": {
+      "apiKey": "API Key",
+      "apiKeyHelp": "tailscale.com/admin/settings/keys → Generate access token",
+      "tailnet": "Tailnet",
+      "tailnetHelp": "Your organization name or email domain (e.g., example.com)"
+    },
+    "netbird": {
+      "accessToken": "Access Token",
+      "accessTokenHelp": "NetBird Management Console → Settings → Personal Access Tokens",
+      "managementUrl": "Management URL (optional)",
+      "managementUrlHelp": "Default: app.netbird.io — override for self-hosted NetBird"
+    },
+    "zerotier": {
+      "apiToken": "API Token",
+      "apiTokenHelp": "my.zerotier.com/account → New Token",
+      "controllerUrl": "Controller URL (optional)",
+      "controllerUrlHelp": "Default: api.zerotier.com — override for self-hosted ZeroTier"
     }
-    c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-    return
+  }
+},
+"form": {
+  "mode": {
+    "label": "Connection mode",
+    "direct": "Direct",
+    "agent": "Agent",
+    "directDescription": "Connect via IP or hostname",
+    "agentDescription": "Route traffic through a Hecate network provider",
+    "provider": "Provider",
+    "selectProvider": "Select a provider...",
+    "noProviders": "No providers configured.",
+    "goToHecate": "Go to Hecate to add one.",
+    "selectedDevice": "Routing via {{name}} ({{address}})",
+    "changeDevice": "Change",
+    "selectDevice": "Select device",
+    "selectPeer": "Select peer",
+    "selectMember": "Select member"
+  }
 }
 ```
 
-### 4.2 Add TLS Proxy Comment to `orthrus_handler.go`
-
-**File:** `backend/internal/api/handlers/orthrus_handler.go`
-
-Add above the scheme-detection block in `GetInstallSnippets`:
-
-```go
-// TLS detection via c.Request.TLS is unreliable when Charon runs behind a
-// reverse proxy (e.g., Caddy) that terminates TLS. The X-Charon-URL header
-// allows callers to pass the correct public URL explicitly; if absent, we
-// fall back to heuristic detection. Users deploying behind a proxy should
-// set the X-Charon-URL header from the frontend (window.location.origin).
-```
+> The existing `hecate.form.selectAgent`, `hecate.form.provisionAgent`, and related keys remain in the file for now (they are referenced by code that is being removed, so they become dead keys). Remove them in a separate cleanup commit after this PR lands.
 
 ---
 
-## 5. PR 7 — E2E Playwright Tests
+## 4. New Components
 
-### 5.1 Test Files
+### 4.1 `frontend/src/pages/Hecate.tsx` (NEW)
 
-| File | Coverage |
-|------|---------|
-| `tests/hecate-tunnel-manager.spec.ts` | Tunnel CRUD, status display, log viewer |
-| `tests/orthrus-agent-install.spec.ts` | Install wizard tabs, AUTH_KEY copy, snippets |
+**Type**: Page component (no props)
+**Route**: `/hecate`
 
-Both files:
-- Import `test`, `expect` from `./fixtures/test`
-- Call `await waitForAPIHealth(request)` in `beforeEach`
-- Use `getByRole` locators
-- Group interactions with `test.step()`
+**Purpose**: Standalone management page for all Hecate tunnel providers. Users configure at least one provider here before using Agent mode in Remote Server setup.
 
-### 5.2 `tests/hecate-tunnel-manager.spec.ts`
+**Hooks**: `useHecate()`, `useAgentList()`, `useProvisionAgent()`
+
+**Local state**:
 
 ```typescript
-test.describe('Hecate Tunnel Manager', () => {
-  test.beforeEach(async ({ request }) => {
-    await waitForAPIHealth(request);
-  });
-
-  test.describe('Remote Servers page — connection column', () => {
-    test('shows Direct badge for connection_type=direct', async ({ page }) => { ... });
-    test('shows TunnelStatusBadge for connection_type=orthrus', async ({ page }) => { ... });
-    test('tunnel status badge uses text + icon, not color alone', async ({ page }) => { ... });
-  });
-
-  test.describe('Add Server — Connection Type selection', () => {
-    test('shows host/port fields when Direct is selected', async ({ page }) => { ... });
-    test('shows agent selector and Provision button when Orthrus is selected', async ({ page }) => { ... });
-    test('hides host/port when Orthrus is selected', async ({ page }) => { ... });
-    test('shows CloudflareTunnelWizard when Cloudflare is selected', async ({ page }) => { ... });
-  });
-
-  test.describe('Tunnel CRUD', () => {
-    test('creates a Cloudflare tunnel and shows it in status list', async ({ page }) => { ... });
-    test('deletes a tunnel and removes it from status list', async ({ page }) => { ... });
-    test('start/stop changes badge state', async ({ page }) => { ... });
-  });
-
-  test.describe('TunnelLogViewer', () => {
-    test('opens log viewer from View Logs button', async ({ page }) => { ... });
-    test('log viewer has role=log and aria-live=polite', async ({ page }) => { ... });
-    test('pause/resume button has aria-pressed state', async ({ page }) => { ... });
-    test('clear button clears displayed log lines', async ({ page }) => { ... });
-  });
-});
+const [showForm, setShowForm] = useState(false)
+const [editingTunnel, setEditingTunnel] = useState<TunnelConfig | null>(null)
+const [deleteConfirm, setDeleteConfirm] = useState<TunnelConfig | null>(null)
+const [isDeleting, setIsDeleting] = useState(false)
+const [logsOpen, setLogsOpen] = useState(false)
+const [logsTarget, setLogsTarget] = useState<TunnelConfig | null>(null)
+const [rotateOpen, setRotateOpen] = useState(false)
+const [rotateTarget, setRotateTarget] = useState<TunnelConfig | null>(null)
+const [provisionWizardOpen, setProvisionWizardOpen] = useState(false)
 ```
 
-**Detailed scenario — "TunnelStatusBadge for orthrus servers":**
+**Page structure outline**:
 
-1. Navigate to `/remote-servers`.
-2. Create/mock a server with `connection_type: 'orthrus'` via API.
-3. Expect ARIA snapshot match on the Connection cell:
-   ```
-   - status "Tunnel status: offline"
-   ```
-4. Verify badge has both icon (`svg`) and visible text content.
+```
+<PageShell title="Hecate" description="..." action={<Button>Add Provider</Button>}>
 
-**Detailed scenario — "badge uses text + icon not color alone":**
+  <section aria-label="Tunnel Providers">
+    <h2>Tunnel Providers</h2>
+    {loading ? <SkeletonTable /> : tunnels.length === 0 ? <EmptyState /> : <DataTable />}
+  </section>
 
-1. For every visible `TunnelStatusBadge`:
-   - `expect(badge).not.toBeEmpty()` — has text content.
-   - `expect(badge).toHaveAccessibleName()` — has accessible name.
+  <section aria-label="Orthrus Agents">
+    <h2>Orthrus Agents</h2>
+    <OrthrusAgentManager agents={agents} />
+    <Button>Provision New Agent</Button>
+  </section>
 
-### 5.3 `tests/orthrus-agent-install.spec.ts`
+  <!-- Modals -->
+  <HecateTunnelForm open={showForm} tunnel={editingTunnel ?? undefined} onClose={...} />
+  <TunnelLogViewer open={logsOpen} tunnelUUID={logsTarget?.uuid} onClose={...} />
+  <Dialog open={deleteConfirm !== null}> ... confirm dialog ... </Dialog>
+  <OrthrusInstallWizard open={provisionWizardOpen} ... />
+
+</PageShell>
+```
+
+**DataTable columns** for tunnel providers:
+
+| Key | Header | Cell |
+|---|---|---|
+| `name` | Name | `<span className="font-medium">{tunnel.name}</span>` |
+| `provider` | Provider | `<Badge variant="outline">{tunnel.provider}</Badge>` |
+| `status` | Status | `<TunnelStatusBadge state={getStatus(tunnel.uuid)?.state ?? 'stopped'} />` |
+| `is_active` | Active | active/inactive badge |
+| `created_at` | Created | formatted date |
+| `actions` | Actions | Start/Stop, Logs, Edit, Rotate Credentials, Delete |
+
+**Action buttons per row**:
+- **Start**: `startTunnel(uuid)` — shown when `state !== 'connected'`
+- **Stop**: `stopTunnel(uuid)` — shown when `state === 'connected'`
+- **View Logs**: opens `<TunnelLogViewer>`
+- **Edit**: opens `<HecateTunnelForm>` with tunnel
+- **Rotate Credentials**: opens rotate dialog
+- **Delete**: opens confirm dialog → `deleteTunnel(uuid)`
+
+---
+
+### 4.2 `frontend/src/components/hecate/HecateTunnelForm.tsx` (NEW)
+
+**Purpose**: Modal dialog for creating or editing a `TunnelConfig`. Renders provider-aware credential fields.
+
+**Props**:
 
 ```typescript
-test.describe('Orthrus Agent Install Wizard', () => {
-  test.beforeEach(async ({ request }) => {
-    await waitForAPIHealth(request);
-  });
+interface HecateTunnelFormProps {
+  tunnel?: TunnelConfig;  // undefined = create mode
+  open: boolean;
+  onClose: () => void;
+}
+```
 
-  test.describe('Wizard tabs', () => {
-    test('wizard shows all five install tabs', async ({ page }) => {
-      // Open Add Server, select Orthrus, click Provision New Agent
-      // Expected ARIA snapshot:
-      // - dialog "Install Orthrus Agent":
-      //   - tablist:
-      //     - tab "Docker Compose"
-      //     - tab "systemd"
-      //     - tab "Binary"
-      //     - tab "Homebrew"
-      //     - tab "Kubernetes"
-    });
-    test('switching tabs shows different content', async ({ page }) => { ... });
-    test('tabs are keyboard navigable with arrow keys', async ({ page }) => {
-      // Focus tablist, press ArrowRight, expect next tab focused
-      // Press Enter to activate, expect panel content to change
-    });
-  });
+**Local state**: `name`, `provider`, `isActive`, `creds` (per-provider credential fields), `showSecrets` (map), `loading`, `error`, `fieldErrors`
 
-  test.describe('AUTH_KEY display', () => {
-    test('displays AUTH_KEY in a read-only input', async ({ page }) => { ... });
-    test('AUTH_KEY has aria-label="Authentication key"', async ({ page }) => { ... });
-    test('one-time warning message is visible', async ({ page }) => { ... });
-    test('copy button copies key to clipboard', async ({ page, context }) => {
-      await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-      // Click copy, read clipboard, assert matches displayed key
-    });
-    test('copy button shows "Copied!" feedback for 3s', async ({ page }) => { ... });
-  });
+**Credential fields per provider**:
 
-  test.describe('Snippet validation', () => {
-    test('Docker Compose snippet contains ORTHRUS_NAME placeholder', async ({ page }) => { ... });
-    test('systemd snippet contains AUTH_KEY placeholder', async ({ page }) => { ... });
-    test('<AUTH_KEY> placeholder info notice is visible', async ({ page }) => { ... });
-    test('each tab has a functional copy button', async ({ page, context }) => { ... });
-  });
+| Provider | Required fields | Optional fields |
+|---|---|---|
+| `cloudflare` | `api_token`, `account_id`, `tunnel_token` | — |
+| `tailscale` | `api_key`, `tailnet` | — |
+| `netbird` | `access_token` | `management_url` |
+| `zerotier` | `api_token` | `controller_url` |
 
-  test.describe('Troubleshooting panel', () => {
-    test('collapsed by default', async ({ page }) => {
-      await expect(page.getByRole('group', { name: /troubleshooting/i })).toHaveAttribute('open', { visible: false });
-    });
-    test('expanding shows journalctl command', async ({ page }) => { ... });
-  });
+All token fields: `type="password"` with show/hide toggle button (`Eye`/`EyeOff` icon). Toggle `aria-label` uses `t('hecate.page.credentials.showField', { field: '...' })`.
 
-  test.describe('Accessibility', () => {
-    test('dialog has role=dialog and aria-modal=true', async ({ page }) => { ... });
-    test('dialog has accessible label', async ({ page }) => { ... });
-    test('first interactive element receives focus on open', async ({ page }) => { ... });
-    test('focus returns to trigger on close', async ({ page }) => { ... });
-    test('Escape key closes the wizard', async ({ page }) => { ... });
-  });
-});
+**Edit mode**: Provider `<select>` is disabled (cannot switch provider on edit — that would require new credentials and is destructive). All credential fields are empty; placeholder: `"Leave blank to keep existing credential"`. On submit, credentials are only included in the payload if at least one field is non-empty.
+
+**Submit logic**:
+- Create: build `credentials` JSON from active provider fields, call `createTunnel({ name, provider, credentials, is_active })`
+- Edit: conditionally include `credentials` only when non-empty, call `updateTunnel({ uuid, req: { name, provider, credentials?, is_active } })`
+
+**`buildCredentialsJSON(provider, creds)`** — internal helper mapping flat `creds` state to the JSON string expected by the backend.
+
+---
+
+### 4.3 `frontend/src/components/hecate/NetBirdPeerPicker.tsx` (NEW)
+
+Mirrors `TailscaleDevicePicker` structure exactly.
+
+**Props**:
+
+```typescript
+interface NetBirdPeerPickerProps {
+  open: boolean;
+  onClose: () => void;
+  onSelect: (peer: NetBirdPeer) => void;
+  selectedId?: string;
+}
+```
+
+**Data**: Calls `listNetBirdPeers()` from `api/hecate.ts` via `useQuery`. Uses global NetBird credentials configured in the Hecate service (no per-call tunnel UUID required).
+
+**List item**: name, IP, OS, online/offline badge. `role="option"`, `aria-selected={peer.id === selectedId}`.
+
+**Empty state**: "No NetBird peers found. Ensure your access token is configured."
+
+---
+
+### 4.4 `frontend/src/components/hecate/ZeroTierMemberPicker.tsx` (NEW)
+
+Two-step dialog: network → member.
+
+**Props**:
+
+```typescript
+interface ZeroTierMemberPickerProps {
+  open: boolean;
+  onClose: () => void;
+  onSelect: (member: ZeroTierMember, networkId: string) => void;
+  selectedNodeId?: string;
+}
+```
+
+**Internal state**: `step: 'network' | 'member'`, `selectedNetwork: ZeroTierNetwork | null`
+
+**Step 1 — Network picker**: Query `listZeroTierNetworks()`. Renders list of networks (name, ID, member count). Clicking a network advances to step 2.
+
+**Step 2 — Member picker**: Query `listZeroTierMembers(selectedNetwork.id)` (enabled only when `step === 'member'`). Back button returns to step 1. Clicking a member calls `onSelect(member, selectedNetwork.id)` and `onClose()`.
+
+**Dialog title**: "Select ZeroTier Network" (step 1) / "Select ZeroTier Member — {network.name}" (step 2).
+
+---
+
+## 5. RemoteServerForm Restructure
+
+### Current UI flow
+
+```
+[Name]
+[Provider]
+[ConnectionTypeSelector] — flat select: Direct / Orthrus Agent / Cloudflare Tunnel
+
+→ if 'orthrus': agent dropdown + Provision button + Manage Agents + OrthrusAgentManager
+→ if 'cloudflare': CloudflareTunnelWizard (inline)
+→ if 'direct': [Host] [Port] [Username]
+
+[Enabled]
+[Test Connection | Cancel | Save]
+```
+
+### New UI flow
+
+```
+[Name]
+[Provider]
+
+┌─ Connection mode (fieldset) ──────────────────────────────────┐
+│ ○ Direct   Connect via IP or hostname                         │
+│ ● Agent    Route traffic through a Hecate network provider    │
+└───────────────────────────────────────────────────────────────┘
+
+  (if Agent)
+  [Provider select — optgroups: Cloudflare / Tailscale / NetBird / ZeroTier / Orthrus]
+  [if no providers: "No providers. Go to Hecate →"]
+
+  (if Tailscale selected)    [Select Tailscale Device] → TailscaleDevicePicker
+                             OR "Routing via server.local (100.64.1.2) [Change]"
+  (if NetBird selected)      [Select NetBird Peer] → NetBirdPeerPicker
+  (if ZeroTier selected)     [Select ZeroTier Member] → ZeroTierMemberPicker
+  (if Cloudflare selected)   ℹ️ "Traffic routed through Cloudflare Tunnel: {name}"
+  (if Orthrus selected)      Agent: {name} [status badge]
+                             "Manage agents →" link to /hecate
+
+  (if Direct)
+  [Host]
+  [Port] [Username]
+
+[Enabled]
+[Test Connection (Direct + host filled only) | Cancel | Save]
+```
+
+### Updated `formData` shape
+
+```typescript
+interface FormData {
+  name: string;
+  provider: string;
+  host: string;
+  port: number;
+  username: string;
+  enabled: boolean;
+  connection_mode: 'direct' | 'agent';    // UI state only; not submitted
+  connection_type: ConnectionType;         // what is stored in DB
+  orthrus_agent_uuid: string;
+  hecate_tunnel_uuid: string;
+  selected_device_name: string;           // display only
+  selected_device_address: string;        // display only
+}
+```
+
+**Initialisation helper**:
+
+```typescript
+function deriveConnectionMode(ct?: string): 'direct' | 'agent' {
+  return ct && ct !== 'direct' ? 'agent' : 'direct'
+}
+```
+
+### Submit payload construction
+
+```typescript
+const payload: Partial<RemoteServer> = {
+  name: formData.name,
+  provider: formData.provider,
+  enabled: formData.enabled,
+  connection_type: formData.connection_type,
+}
+
+if (formData.connection_type === 'direct') {
+  payload.host = formData.host
+  payload.port = formData.port
+  payload.username = formData.username
+} else if (formData.connection_type === 'orthrus') {
+  payload.orthrus_agent_uuid = formData.orthrus_agent_uuid
+} else {
+  // cloudflare, tailscale, netbird, zerotier
+  payload.hecate_tunnel_uuid = formData.hecate_tunnel_uuid
+  if (formData.host) {
+    payload.host = formData.host
+    payload.port = formData.port
+  }
+}
+```
+
+### Validation on submit
+
+- Agent mode: `connection_type` must not be `'direct'`; provider dropdown must have a selection
+- Tailscale/NetBird/ZeroTier: `host` must be non-empty (device must be picked)
+- Orthrus: `orthrus_agent_uuid` must be non-empty
+- Direct: `host` must be non-empty
+
+### Inline Orthrus section (simplified)
+
+Replace the current inline agent provisioning block with:
+
+```tsx
+{formData.connection_type === 'orthrus' && (
+  <div>
+    <label htmlFor="orthrus-agent-select">{t('hecate.form.selectAgent')}</label>
+    <select id="orthrus-agent-select"
+      value={formData.orthrus_agent_uuid}
+      onChange={e => setFormData({ ...formData, orthrus_agent_uuid: e.target.value })}>
+      <option value="">{t('hecate.form.selectAgent')}</option>
+      {agents.map(a => <option key={a.uuid} value={a.uuid}>{a.name}</option>)}
+    </select>
+    <p className="text-sm text-content-muted">
+      Need a new agent?{' '}
+      <Link to="/hecate">Go to the Hecate page</Link>
+    </p>
+  </div>
+)}
+```
+
+### Picker dialog state
+
+```typescript
+const [tailscalePickerOpen, setTailscalePickerOpen] = useState(false)
+const [netbirdPickerOpen, setNetbirdPickerOpen] = useState(false)
+const [zerotierPickerOpen, setZerotierPickerOpen] = useState(false)
+```
+
+Tailscale device data is fetched with:
+
+```typescript
+const { data: tailscaleDevices = [] } = useQuery({
+  queryKey: ['hecate', 'tailscale', 'devices'],
+  queryFn: listTailscaleDevices,
+  enabled: formData.connection_type === 'tailscale',
+  staleTime: 60_000,
+})
+```
+
+NetBirdPeerPicker and ZeroTierMemberPicker fetch their own data internally.
+
+### Removed from RemoteServerForm
+
+- `CloudflareTunnelWizard` (moved to Hecate page)
+- `OrthrusAgentManager` inline display
+- `OrthrusInstallWizard` inline trigger
+- "Provision New Agent" button
+- "Manage Agents" / "Hide agent manager" button
+
+---
+
+## 6. Accessibility
+
+### Radio group (Tier 1)
+
+Use native `<input type="radio">` elements inside a `<fieldset>` with `<legend>`. This provides correct radiogroup semantics across all assistive technologies without ARIA overrides.
+
+```html
+<fieldset>
+  <legend class="text-sm font-medium">Connection mode</legend>
+  <label>
+    <input type="radio" name="connection-mode" value="direct" />
+    <span><strong>Direct</strong></span>
+    <span class="text-sm text-content-muted">Connect via IP or hostname</span>
+  </label>
+  <label>
+    <input type="radio" name="connection-mode" value="agent" />
+    <span><strong>Agent</strong></span>
+    <span class="text-sm text-content-muted">Route traffic through a Hecate network provider</span>
+  </label>
+</fieldset>
+```
+
+**Keyboard**: Tab enters the radio group. Arrow keys switch between options. Standard browser behaviour — no custom key handling needed.
+
+### Provider dropdown (Tier 2)
+
+```html
+<label for="hecate-provider-select">Provider</label>
+<select id="hecate-provider-select"
+        aria-required="true"
+        aria-describedby="hecate-provider-hint">
+  ...
+</select>
+<p id="hecate-provider-hint" aria-live="polite" class="text-sm text-content-muted">
+  {noProviders && "No providers configured. Go to Hecate to add one."}
+</p>
+```
+
+`aria-live="polite"` announces the "no providers" note when Agent mode is selected.
+
+### Device pickers (Tier 3)
+
+Apply the `TailscaleDevicePicker` pattern: `role="listbox"` on the list container, `role="option"` and `aria-selected` on each item. `NetBirdPeerPicker` and `ZeroTierMemberPicker` must follow this pattern.
+
+### `HecateTunnelForm` dialog
+
+- `<Dialog>` provides `role="dialog"`, `aria-modal="true"`, focus trap, Escape-to-close
+- Required fields: `aria-required="true"`; `aria-invalid="true"` when in error state
+- Error messages: unique `id="field-name-error"` + `aria-describedby="field-name-error"` on the associated input
+- Password toggle: `aria-label` uses `showField`/`hideField` i18n keys; updates dynamically
+
+### Error focus management
+
+On form submit with validation errors, focus the first field with an error:
+
+```typescript
+document.getElementById(firstErrorFieldId)?.focus()
+```
+
+This matches the pattern used in `ProxyHostForm.tsx`.
+
+### Colour contrast
+
+All new text uses existing design tokens (`text-content-primary`, `text-content-secondary`, `text-content-muted`) which already meet WCAG AA contrast requirements.
+
+---
+
+## 7. Testing
+
+### 7.1 Tests to fully rewrite
+
+**`frontend/src/components/hecate/__tests__/ConnectionTypeSelector.test.tsx`**
+
+The component's prop interface changes completely. Full rewrite:
+
+```
+ConnectionTypeSelector — two-tier
+  Tier 1 radio group
+    renders "Direct" and "Agent" radio buttons
+    "Direct" radio is checked when mode="direct"
+    "Agent" radio is checked when mode="agent"
+    clicking Agent radio calls onModeChange('agent')
+    clicking Direct radio calls onModeChange('direct')
+    Arrow key navigation between radio options (userEvent)
+
+  Tier 2 provider dropdown
+    not rendered when mode="direct"
+    rendered when mode="agent"
+    renders optgroup for each provider with available tunnels
+    renders Orthrus optgroup with agents
+    does not render empty optgroups
+    selecting a Cloudflare tunnel calls onTunnelSelect(uuid, 'cloudflare')
+    selecting a Tailscale tunnel calls onTunnelSelect(uuid, 'tailscale')
+    selecting an Orthrus agent calls onAgentSelect(agentUUID)
+    shows "No providers" hint when tunnels=[] and agents=[]
+    hint contains link with href="/hecate"
+    hint not shown when tunnels or agents exist
+
+  Disabled state
+    both radios disabled when disabled=true
+    provider dropdown disabled when disabled=true
+
+Mock: vi.mock('hooks/useHecate') and vi.mock('hooks/useOrthrus') with canned data
+```
+
+### 7.2 New test files
+
+**`frontend/src/pages/__tests__/Hecate.test.tsx`**
+
+```
+Hecate page
+  Layout
+    renders "Hecate" page title
+    renders "Add Provider" button
+    renders "Orthrus Agents" section heading
+    page has exactly one h1 element
+
+  Empty state
+    shows EmptyState when tunnels=[]
+    EmptyState has "Add Provider" action
+
+  Tunnel table
+    renders DataTable when tunnels exist
+    shows name, provider badge, status badge per row
+    Start button calls startTunnel(uuid) when state !== 'connected'
+    Stop button calls stopTunnel(uuid) when state === 'connected'
+    Edit button opens HecateTunnelForm with tunnel data
+    View Logs button opens TunnelLogViewer
+    Delete button opens confirm dialog
+    Confirm delete calls deleteTunnel(uuid) and closes dialog
+    Cancel delete closes dialog without calling deleteTunnel
+
+  Orthrus section
+    renders OrthrusAgentManager
+    Provision button triggers provision flow
+
+  Accessibility
+    Delete confirm dialog has role="dialog" and aria-modal="true"
+```
+
+Mock: `useHecate`, `useAgentList`, `useProvisionAgent`.
+
+**`frontend/src/components/hecate/__tests__/HecateTunnelForm.test.tsx`**
+
+```
+HecateTunnelForm
+  Create mode
+    renders name, provider select, credentials section
+    cloudflare: shows api_token, account_id, tunnel_token
+    tailscale: shows api_key, tailnet
+    netbird: shows access_token; optional management_url
+    zerotier: shows api_token; optional controller_url
+    changing provider select switches credential fields
+    show/hide toggle changes input type password ↔ text
+    show/hide toggle aria-label updates correctly
+    submitting with empty name shows name error
+    submitting with empty required credential shows error
+    successful submit calls createTunnel with correct JSON credentials
+    Escape key calls onClose
+
+  Edit mode (tunnel prop provided)
+    name field pre-filled with tunnel.name
+    provider select is disabled
+    credential fields are empty (not pre-filled for security)
+    fields show "Leave blank to keep existing credential" placeholder
+    submitting without filling credentials calls updateTunnel without credentials key
+    submitting with a credential field filled includes credentials in payload
+    successful update calls onClose
+```
+
+**`frontend/src/components/hecate/__tests__/NetBirdPeerPicker.test.tsx`**
+
+```
+NetBirdPeerPicker
+  renders dialog with correct title
+  shows skeleton/loading while fetching
+  renders peer list with name, IP, OS, online badge
+  online peer shows success badge
+  offline peer shows secondary badge
+  clicking a peer calls onSelect with peer data and calls onClose
+  shows empty state when no peers returned
+  selected peer has aria-selected="true"
+  not rendered when open=false
+```
+
+**`frontend/src/components/hecate/__tests__/ZeroTierMemberPicker.test.tsx`**
+
+```
+ZeroTierMemberPicker
+  Step 1 — network selection
+    renders "Select ZeroTier Network" in dialog title
+    lists networks with name, ID, member count
+    clicking a network advances to step 2
+    shows empty state when no networks found
+
+  Step 2 — member selection
+    shows network name in dialog title
+    lists members with name, node ID, IP, authorized/online badges
+    clicking a member calls onSelect(member, networkId) and onClose
+    Back button returns to step 1
+    shows empty state when no members in network
+```
+
+### 7.3 Tests unchanged (must still pass)
+
+- `CloudflareTunnelWizard.test.tsx` — component interface unchanged
+- `TunnelStatusBadge.test.tsx` — no changes
+- `TunnelLogViewer.test.tsx` — no changes
+- `OrthrusInstallWizard.test.tsx` — no changes
+
+If any `RemoteServerForm` tests exist, update them to reflect the new `formData` shape and removed inline provisioning.
+
+### 7.4 Playwright E2E tests (new)
+
+**`tests/hecate.spec.ts`**:
+
+```
+Hecate page — add provider
+  Navigate to /hecate
+  See "No providers configured" empty state
+  Click "Add Provider" → form dialog opens
+  Select Tailscale from provider select
+  Tailscale credential fields visible
+  Fill name, api_key, tailnet → submit
+  Dialog closes, table row appears with "tailscale" badge
+
+Hecate page — delete provider
+  Click Delete on a row → confirm dialog with warning
+  Click "Delete" → row removed
+
+Remote Server form — Agent mode
+  Open Remote Server "Add" form
+  "Direct" radio selected by default; Host/Port visible
+  Select "Agent" radio → Host/Port hidden; Provider dropdown visible
+  Select a Tailscale provider → "Select Tailscale Device" button visible
 ```
 
 ---
 
-## 6. Commit Slicing Strategy
+## 8. Commit Slicing Strategy
 
-### Decision
+**Decision**: Single PR on `feature/hecate` with 3 ordered, independently buildable commits.
 
-All remaining work ships in **PR #983** via 8 ordered logical commits.
-
-### Commit Table
-
-| # | Scope | Commit Message | Files | Validation Gate |
-|---|-------|---------------|-------|----------------|
-| 18 | Backend polish | `fix(hecate): return 404 for not-found tunnels and document TLS proxy caveat` | `hecate_handler.go`, `orthrus_handler.go` | `go test ./internal/api/handlers/...` green |
-| 19 | API clients + hooks | `feat(frontend): add Hecate and Orthrus API clients and TanStack Query hooks` | `api/hecate.ts`, `api/orthrus.ts`, `hooks/useHecate.ts`, `hooks/useOrthrus.ts` | `npm run build` TypeScript zero errors; vitest passes |
-| 20 | Status components | `feat(hecate): add TunnelStatusBadge and ConnectionTypeSelector` | `components/hecate/TunnelStatusBadge.tsx`, `components/hecate/ConnectionTypeSelector.tsx`, i18n keys | Vitest; WCAG contrast verified |
-| 21 | Install wizard | `feat(hecate): add OrthrusInstallWizard, CloudflareTunnelWizard, TailscaleDevicePicker` | `components/hecate/OrthrusInstallWizard.tsx`, `components/hecate/CloudflareTunnelWizard.tsx`, `components/hecate/TailscaleDevicePicker.tsx`, i18n keys | Vitest; wizard renders all 5 tabs |
-| 22 | Form + page integration | `feat(hecate): integrate connection type into RemoteServerForm and RemoteServers page` | `components/RemoteServerForm.tsx`, `pages/RemoteServers.tsx`, `api/remoteServers.ts`, i18n keys | Vitest; form fields conditional on connection type; Connection column visible |
-| 23 | Log viewer | `feat(hecate): add TunnelLogViewer real-time WebSocket streaming component` | `components/hecate/TunnelLogViewer.tsx`, i18n keys | Vitest (mock WebSocket); `role="log"` present; pause/resume works |
-| 24 | E2E — tunnel manager | `test(e2e): add Playwright tests for hecate-tunnel-manager` | `tests/hecate-tunnel-manager.spec.ts` | `npx playwright test tests/hecate-tunnel-manager.spec.ts --project=firefox` green |
-| 25 | E2E — install wizard | `test(e2e): add Playwright tests for orthrus-agent-install wizard` | `tests/orthrus-agent-install.spec.ts` | `npx playwright test tests/orthrus-agent-install.spec.ts --project=firefox` green |
-
-### Dependency Order
-
-```
-Commit 18 (backend)
-    └── Commit 19 (API clients + hooks)
-            ├── Commit 20 (TunnelStatusBadge, ConnectionTypeSelector)
-            │       └── Commit 21 (OrthrusInstallWizard, CloudflareTunnelWizard, TailscaleDevicePicker)
-            │               └── Commit 22 (RemoteServerForm + RemoteServers integration)
-            │                       └── Commit 23 (TunnelLogViewer)
-            │                               ├── Commit 24 (E2E: tunnel manager)
-            │                               └── Commit 25 (E2E: install wizard)
-```
-
-### Rollback Notes
-
-- Commits 24–25 are test-only; reverting either does not affect functionality.
-- Commit 22 is the integration point. If it needs rework, Commits 20, 21, 23 remain independently usable.
-- Commit 18 is backend-only and can be cherry-picked to `main` independently if needed.
+**Rationale**:
+- Commit 0 (backend model) is a prerequisite for Commit 2 but not Commit 1, isolating backend risk.
+- Commit 1 (Hecate page) delivers independent value — users can manage providers before the form restructure ships.
+- Commit 2 (form restructure) is reviewable in isolation.
+- All three commits compile, build, and pass tests individually.
 
 ---
 
-## 7. Acceptance Criteria (Definition of Done)
+### Commit 0 — Backend model extension + frontend type update
 
-### Commit 18 — Backend Polish
+**Scope**: Backend model + frontend API types only
+**Files**:
+- `backend/internal/models/remote_server.go` — add `HecateTunnelUUID *string` field + 3 new `ConnectionType` constants
+- `frontend/src/api/remoteServers.ts` — extend `RemoteServer` interface + `connection_type` union
 
-- [ ] `GET /api/v1/hecate/tunnels/:uuid` returns `404 {"error":"tunnel not found"}` for missing UUID.
-- [ ] `DELETE /api/v1/hecate/tunnels/:uuid` returns `404` for missing UUID.
-- [ ] `Start`, `Stop`, `Update`, `RotateCredentials` return `404` for missing UUID.
-- [ ] TLS proxy caveat comment present in `GetInstallSnippets`.
-- [ ] `go test ./internal/api/handlers/...` passes at ≥ 85% coverage.
-
-### Commit 19 — API Clients + Hooks
-
-- [ ] All API functions use shared `client` (Axios) instance from `./client`.
-- [ ] `connectTunnelLogs` constructs WebSocket URL from `window.location` (handles `wss://` and `ws://`).
-- [ ] `getInstallSnippets` sends `X-Charon-URL: window.location.origin`.
-- [ ] TypeScript compiles with zero errors (`npm run build`).
-- [ ] Vitest coverage ≥ 85% for each new file.
-
-### Commits 20–23 — Components
-
-- [ ] `TunnelStatusBadge`: 4 states render icon + text. WCAG contrast ≥ 4.5:1. `role="status"` + `aria-label` present.
-- [ ] `ConnectionTypeSelector`: Keyboard-navigable. WCAG compliant. Correct `aria-label`.
-- [ ] `OrthrusInstallWizard`: All 5 tabs present and keyboard-navigable. AUTH_KEY read-only with `aria-label`. One-time warning visible. Copy button works. `<AUTH_KEY>` placeholder in all snippets. Dialog `role="dialog"` + `aria-modal="true"`.
-- [ ] `TunnelLogViewer`: `role="log"`, `aria-live="polite"`. Pause/Resume has `aria-pressed`. WebSocket closes on unmount (no leak). Line coloring applied.
-- [ ] `RemoteServerForm`: Shows agent selector for `orthrus`, hides host/port. Shows CloudflareWizard for `cloudflare`. Payload includes `connection_type` and `orthrus_agent_uuid`.
-- [ ] `RemoteServers`: Connection column in table and card view. View Logs button for non-direct servers.
-- [ ] Zero hardcoded English strings in JSX — all use `t('hecate.*')` keys.
-
-### Commits 24–25 — E2E Tests
-
-- [ ] `npx playwright test tests/hecate-tunnel-manager.spec.ts --project=firefox` passes.
-- [ ] `npx playwright test tests/orthrus-agent-install.spec.ts --project=firefox` passes.
-- [ ] ARIA snapshot assertions match rendered output.
-- [ ] Keyboard navigation tests pass for tabs (ArrowLeft/ArrowRight, Enter).
-- [ ] No `test.skip()` in any test.
+**Validation gate**:
+- `cd backend && go build ./...` compiles without errors
+- `cd backend && go test ./internal/models/...` passes
+- `cd frontend && npx tsc --noEmit` passes
 
 ---
 
-## 8. Security Considerations
+### Commit 1 — Hecate standalone page + route + nav item
 
-- `auth_key` is returned **exactly once** in `POST /orthrus/agents` response. No other endpoint returns it.
-- `EncryptedCredentials` and `AuthKeyHash` are `json:"-"` in GORM models — they cannot appear in any API response.
-- `connectTunnelLogs` reuses the session cookie path — no separate auth token needed for WS upgrade.
-- Install snippet `<AUTH_KEY>` placeholder is an inert string; no real key is embedded in the snippet response.
-- `navigator.clipboard.writeText` is only called on explicit user gesture (button click).
+**Scope**: New page, new form component, new route, new nav item
+**Files**:
+- `frontend/src/pages/Hecate.tsx` (new)
+- `frontend/src/components/hecate/HecateTunnelForm.tsx` (new)
+- `frontend/src/App.tsx` — add lazy import + route
+- `frontend/src/components/Layout.tsx` — insert nav item
+- `frontend/src/locales/en/translation.json` — `navigation.hecate` + `hecate.page.*` keys
+- `frontend/src/pages/__tests__/Hecate.test.tsx` (new)
+- `frontend/src/components/hecate/__tests__/HecateTunnelForm.test.tsx` (new)
 
----
-
-## 9. Research Findings & Architecture References
-
-### API Client Pattern
-
-All files in `frontend/src/api/` import the shared `client` from `./client` (Axios instance, `baseURL: '/api/v1'`, `withCredentials: true`, 30 s timeout). New `hecate.ts` and `orthrus.ts` must follow this pattern.
-
-### WebSocket Pattern
-
-`connectLiveLogs` in `frontend/src/api/logs.ts` is the template for `connectTunnelLogs`. Uses `new WebSocket(...)` directly (not Axios). Resolves URL from `window.location` to support both `wss://` and `ws://`.
-
-### Hooks Pattern
-
-`frontend/src/hooks/useRemoteServers.ts` is the template for `useHecate` and `useOrthrus`. TanStack Query v5 (`@tanstack/react-query`): `useQuery` + `useMutation` + `useQueryClient`. Mutations invalidate the relevant query key on success.
-
-### Tabs Pattern
-
-`frontend/src/components/ui/Tabs.tsx` wraps `@radix-ui/react-tabs`. Exports `Tabs`, `TabsList`, `TabsTrigger`, `TabsContent`. Do not create custom tab implementations.
-
-### Dialog Pattern
-
-`frontend/src/components/ui/Dialog.tsx` wraps `@radix-ui/react-dialog`. `OrthrusInstallWizard` must render inside `Dialog`/`DialogContent` for correct ARIA semantics and focus management.
-
-### Playwright Test Pattern
-
-All spec files import from `./fixtures/test` (not directly from `@playwright/test`). Template: `dns-provider-crud.spec.ts`.
-- `waitForAPIHealth(request)` in `beforeEach`
-- `waitForDialog`, `waitForLoadingComplete`, `waitForAPIResponse` from `./utils/wait-helpers`
-- `getToastLocator` from `./utils/ui-helpers`
-- Prefer `page.getByRole(...)` locators
-- Group with `test.step(...)`
+**Dependencies**: Commit 0
+**Validation gate**:
+- `npx vitest run src/pages/__tests__/Hecate.test.tsx src/components/hecate/__tests__/HecateTunnelForm.test.tsx` — all pass
+- All previously passing tests still pass
+- `/hecate` route renders in dev server without errors
+- `npm run build` succeeds
 
 ---
 
-*End of specification.*
+### Commit 2 — RemoteServerForm Agent/Direct restructure + new device pickers
+
+**Scope**: Restructured form, redesigned ConnectionTypeSelector, 2 new picker components, test rewrites
+**Files**:
+- `frontend/src/components/RemoteServerForm.tsx` — two-tier UI, remove inline provisioning
+- `frontend/src/components/hecate/ConnectionTypeSelector.tsx` — complete redesign
+- `frontend/src/components/hecate/NetBirdPeerPicker.tsx` (new)
+- `frontend/src/components/hecate/ZeroTierMemberPicker.tsx` (new)
+- `frontend/src/locales/en/translation.json` — `hecate.form.mode.*` keys
+- `frontend/src/pages/RemoteServers.tsx` — status badge lookup + new connection type display
+- `frontend/src/components/hecate/__tests__/ConnectionTypeSelector.test.tsx` — full rewrite
+- `frontend/src/components/hecate/__tests__/NetBirdPeerPicker.test.tsx` (new)
+- `frontend/src/components/hecate/__tests__/ZeroTierMemberPicker.test.tsx` (new)
+
+**Dependencies**: Commit 0, Commit 1 (for the `/hecate` link in no-providers hint)
+**Validation gate**:
+- `npx vitest run` — all tests pass
+- Remote Server form shows Agent/Direct radio group
+- Selecting Agent shows provider dropdown
+- Selecting Tailscale + a device auto-fills `host`
+- Selecting Direct shows host/port/username fields
+- All existing Hecate component tests still pass
+- `npm run build` succeeds
+
+---
+
+### Rollback plan
+
+**Backend**: GORM `AutoMigrate` does **not** drop columns automatically. If the PR is reverted, the `hecate_tunnel_uuid` column remains in existing databases. A manual `ALTER TABLE remote_servers DROP COLUMN hecate_tunnel_uuid` is needed if the column must be removed from production. Document this in the PR description.
+
+**Frontend**: Revert the branch. No client-side state migration involved.
+
+**Orthrus provisioning**: The inline "Provision New Agent" workflow returns to `RemoteServerForm` on revert. No data loss.
+
+---
+
+## Appendix A — Files Changed Summary
+
+| File | Change | Commit |
+|---|---|---|
+| `backend/internal/models/remote_server.go` | Edit | 0 |
+| `frontend/src/api/remoteServers.ts` | Edit | 0 |
+| `frontend/src/pages/Hecate.tsx` | New | 1 |
+| `frontend/src/components/hecate/HecateTunnelForm.tsx` | New | 1 |
+| `frontend/src/App.tsx` | Edit | 1 |
+| `frontend/src/components/Layout.tsx` | Edit | 1 |
+| `frontend/src/locales/en/translation.json` | Edit | 1 + 2 |
+| `frontend/src/pages/__tests__/Hecate.test.tsx` | New | 1 |
+| `frontend/src/components/hecate/__tests__/HecateTunnelForm.test.tsx` | New | 1 |
+| `frontend/src/components/RemoteServerForm.tsx` | Edit | 2 |
+| `frontend/src/components/hecate/ConnectionTypeSelector.tsx` | Edit (redesign) | 2 |
+| `frontend/src/components/hecate/NetBirdPeerPicker.tsx` | New | 2 |
+| `frontend/src/components/hecate/ZeroTierMemberPicker.tsx` | New | 2 |
+| `frontend/src/pages/RemoteServers.tsx` | Edit (minor) | 2 |
+| `frontend/src/components/hecate/__tests__/ConnectionTypeSelector.test.tsx` | Edit (rewrite) | 2 |
+| `frontend/src/components/hecate/__tests__/NetBirdPeerPicker.test.tsx` | New | 2 |
+| `frontend/src/components/hecate/__tests__/ZeroTierMemberPicker.test.tsx` | New | 2 |

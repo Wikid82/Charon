@@ -347,4 +347,66 @@ describe('RemoteServers', () => {
       expect(screen.queryByTestId('tunnel-log-viewer')).not.toBeInTheDocument()
     })
   })
+
+  it('calls getStatus with hecate_tunnel_uuid, not server uuid (Fix 4b)', () => {
+    const getStatusMock = vi.fn().mockReturnValue(undefined)
+
+    vi.mocked(hecateHook.useHecate).mockReturnValue({
+      tunnels: [],
+      statuses: [],
+      loadingTunnels: false,
+      loadingStatus: false,
+      error: null,
+      tunnelsError: null,
+      statusError: null,
+      getStatus: getStatusMock,
+      createTunnel: vi.fn(),
+      updateTunnel: vi.fn(),
+      deleteTunnel: vi.fn(),
+      startTunnel: vi.fn(),
+      stopTunnel: vi.fn(),
+      rotateCredentials: vi.fn(),
+      isCreating: false,
+      isUpdating: false,
+      isDeleting: false,
+      isStarting: false,
+      isStopping: false,
+      isRotating: false,
+    })
+
+    const serverWithHecate = {
+      uuid: 'server-uuid-456',
+      name: 'Hecate Server',
+      provider: 'cloudflare',
+      host: '',
+      port: 22,
+      username: '',
+      enabled: true,
+      reachable: true,
+      connection_type: 'cloudflare' as const,
+      hecate_tunnel_uuid: 'tunnel-uuid-123',
+      created_at: '2025-01-01T00:00:00Z',
+      updated_at: '2025-01-01T00:00:00Z',
+    }
+
+    vi.mocked(remoteServersHook.useRemoteServers).mockReturnValue({
+      servers: [serverWithHecate],
+      loading: false,
+      isFetching: false,
+      error: null,
+      createServer: vi.fn(),
+      updateServer: vi.fn(),
+      deleteServer: vi.fn(),
+      testConnection: vi.fn(),
+      isCreating: false,
+      isUpdating: false,
+      isDeleting: false,
+      isTestingConnection: false,
+    })
+
+    render(<RemoteServers />)
+
+    expect(getStatusMock).toHaveBeenCalledWith('tunnel-uuid-123')
+    expect(getStatusMock).not.toHaveBeenCalledWith('server-uuid-456')
+  })
 })
