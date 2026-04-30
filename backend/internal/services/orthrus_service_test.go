@@ -140,13 +140,72 @@ func TestOrthrusService_GetInstallSnippets(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, snippets)
 
+	const expectedWSURL = "wss://charon.example.com/api/v1/ws/orthrus/connect"
+
 	assert.Contains(t, snippets.DockerCompose, "<AUTH_KEY>")
 	assert.Contains(t, snippets.Systemd, "<AUTH_KEY>")
 	assert.Contains(t, snippets.Tarball, "<AUTH_KEY>")
 	assert.Contains(t, snippets.Homebrew, "<AUTH_KEY>")
 	assert.Contains(t, snippets.KubernetesDaemonSet, "<AUTH_KEY>")
-	assert.Contains(t, snippets.DockerCompose, "https://charon.example.com")
+
+	assert.Contains(t, snippets.DockerCompose, expectedWSURL, "Docker Compose snippet must use wss:// URL")
+	assert.Contains(t, snippets.Systemd, expectedWSURL, "systemd snippet must use wss:// URL")
+	assert.Contains(t, snippets.Tarball, expectedWSURL, "tarball snippet must use wss:// URL")
+	assert.Contains(t, snippets.Homebrew, expectedWSURL, "homebrew snippet must use wss:// URL")
+	assert.Contains(t, snippets.KubernetesDaemonSet, expectedWSURL, "Kubernetes snippet must use wss:// URL")
 	assert.Contains(t, snippets.DockerCompose, "snippet-agent")
+}
+
+func TestOrthrusService_GetInstallSnippets_URLConversions(t *testing.T) {
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+
+	agent, _, err := svc.Provision("url-test-agent")
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		inputURL    string
+		expectedURL string
+	}{
+		{
+			name:        "https converts to wss with path",
+			inputURL:    "https://charon.example.com",
+			expectedURL: "wss://charon.example.com/api/v1/ws/orthrus/connect",
+		},
+		{
+			name:        "https with trailing slash converts to wss with path",
+			inputURL:    "https://charon.example.com/",
+			expectedURL: "wss://charon.example.com/api/v1/ws/orthrus/connect",
+		},
+		{
+			name:        "http converts to ws with path",
+			inputURL:    "http://localhost:8080",
+			expectedURL: "ws://localhost:8080/api/v1/ws/orthrus/connect",
+		},
+		{
+			name:        "wss already correct is kept as-is",
+			inputURL:    "wss://charon.example.com/api/v1/ws/orthrus/connect",
+			expectedURL: "wss://charon.example.com/api/v1/ws/orthrus/connect",
+		},
+		{
+			name:        "wss without path gets path appended",
+			inputURL:    "ws://localhost:8080",
+			expectedURL: "ws://localhost:8080/api/v1/ws/orthrus/connect",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			snippets, err := svc.GetInstallSnippets(agent.UUID, tc.inputURL)
+			require.NoError(t, err)
+			assert.Contains(t, snippets.DockerCompose, tc.expectedURL)
+			assert.Contains(t, snippets.Systemd, tc.expectedURL)
+			assert.Contains(t, snippets.Tarball, tc.expectedURL)
+			assert.Contains(t, snippets.Homebrew, tc.expectedURL)
+			assert.Contains(t, snippets.KubernetesDaemonSet, tc.expectedURL)
+		})
+	}
 }
 
 func TestOrthrusService_List_DBError(t *testing.T) {
