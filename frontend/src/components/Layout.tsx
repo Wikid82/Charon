@@ -63,6 +63,7 @@ export default function Layout({ children }: LayoutProps) {
     { name: t('navigation.dashboard'), path: '/', icon: '📊' },
     { name: t('navigation.proxyHosts'), path: '/proxy-hosts', icon: '🌐' },
     { name: t('navigation.remoteServers'), path: '/remote-servers', icon: '🖥️' },
+    { name: t('navigation.hecate'), path: '/hecate', icon: '🔗' },
     { name: t('navigation.domains'), path: '/domains', icon: '🌍' },
     { name: t('navigation.certificates'), path: '/certificates', icon: '🔒' },
     { name: t('navigation.dns'), path: '/dns', icon: '☁️', children: [

@@ -81,7 +81,8 @@
     "collapseSidebar": "Collapse sidebar",
     "encryption": "Encryption",
     "admin": "Admin",
-    "plugins": "Plugins"
+    "plugins": "Plugins",
+    "hecate": "Hecate"
   },
   "settings": {
     "title": "Settings",
@@ -672,6 +673,9 @@
     "connectionTypeDirect": "Direct",
     "connectionTypeOrthrus": "Orthrus Agent",
     "connectionTypeCloudflare": "Cloudflare Tunnel",
+    "connectionTypeTailscale": "Tailscale",
+    "connectionTypeNetbird": "NetBird",
+    "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
     "enabled": "Enabled"
   },
@@ -1551,7 +1555,91 @@
     "noAccessToManagement": "You do not have access to the management interface."
   },
   "hecate": {
-    "stateConnected": "Connected",
+    "page": {
+      "title": "Hecate",
+      "description": "Manage network tunnel providers for Agent-mode connections",
+      "addProvider": "Add Provider",
+      "editProvider": "Edit Provider",
+      "deleteProvider": "Delete Provider",
+      "start": "Start",
+      "stop": "Stop",
+      "rotateCredentials": "Rotate Credentials",
+      "viewLogs": "View Logs",
+      "provisionAgent": "Provision New Agent",
+      "confirmDeleteTitle": "Delete Provider",
+      "confirmDeleteDescription": "Are you sure you want to delete \"{{name}}\"? Remote Servers using this provider will lose their connection.",
+      "confirmDeleteButton": "Delete",
+      "rotateTitle": "Rotate Credentials",
+      "rotateDescription": "Enter new credentials for {{name}}. The old credentials will be replaced immediately.",
+      "rotateButton": "Rotate",
+      "orthrusSection": "Orthrus Agents",
+      "tunnelSection": "Tunnel Providers",
+      "columns": {
+        "name": "Name",
+        "provider": "Provider",
+        "status": "Status",
+        "active": "Active",
+        "created": "Created",
+        "actions": "Actions"
+      },
+      "emptyState": {
+        "title": "No providers configured",
+        "description": "Add a Cloudflare, Tailscale, NetBird, or ZeroTier provider to enable Agent-mode connections for Remote Servers."
+      },
+      "credentials": {
+        "editHint": "Leave any field blank to keep the existing credential.",
+        "showField": "Show {{field}}",
+        "hideField": "Hide {{field}}",
+        "cloudflare": {
+          "apiToken": "API Token",
+          "apiTokenHelp": "Your Cloudflare API token with DNS:Edit and Zone:Read permissions.",
+          "accountId": "Account ID",
+          "accountIdHelp": "Your Cloudflare account ID, found in the dashboard URL.",
+          "tunnelToken": "Tunnel Token",
+          "tunnelTokenHelp": "Optional: pre-created tunnel token from Cloudflare Zero Trust."
+        },
+        "tailscale": {
+          "apiKey": "API Key",
+          "apiKeyHelp": "Your Tailscale API key from the admin console.",
+          "tailnet": "Tailnet",
+          "tailnetHelp": "Your Tailscale network name (e.g. example.com or example@gmail.com)."
+        },
+        "netbird": {
+          "accessToken": "Access Token",
+          "accessTokenHelp": "Your NetBird personal access token or service account token.",
+          "managementUrl": "Management URL (optional)",
+          "managementUrlHelp": "Custom NetBird management server URL. Leave blank for cloud."
+        },
+        "zerotier": {
+          "apiToken": "API Token",
+          "apiTokenHelp": "Your ZeroTier Central API token.",
+          "controllerUrl": "Controller URL (optional)",
+          "controllerUrlHelp": "Custom ZeroTier controller URL. Leave blank for ZeroTier Central."
+        }
+      }
+    },
+    "form": {
+      "mode": {
+        "label": "Connection mode",
+        "direct": "Direct",
+        "agent": "Agent",
+        "directDescription": "Connect via IP or hostname",
+        "agentDescription": "Route traffic through a Hecate network provider",
+        "provider": "Provider",
+        "selectProvider": "Select a provider...",
+        "noProviders": "No providers configured.",
+        "goToHecate": "Go to Hecate to add one.",
+        "selectedDevice": "Routing via {{name}} ({{address}})",
+        "changeDevice": "Change",
+        "selectDevice": "Select device",
+        "selectPeer": "Select peer",
+        "selectMember": "Select member"
+      },
+      "selectAgent": "Select an agent...",
+      "provisionAgent": "Provision New Agent",
+      "manageAgents": "Manage agents ({{count}})",
+      "hideAgentManager": "Hide agent manager"
+    },
     "stateConnecting": "Connecting",
     "stateError": "Error",
     "stateStopped": "Stopped",
@@ -1608,12 +1696,6 @@
         "kubernetes": "Kubernetes",
         "homebrew": "Homebrew"
       }
-    },
-    "form": {
-      "selectAgent": "Select an agent...",
-      "provisionAgent": "Provision New Agent",
-      "manageAgents": "Manage agents ({{count}})",
-      "hideAgentManager": "Hide agent manager"
     },
     "tailscale": {
       "pickerTitle": "Select Tailscale Device",

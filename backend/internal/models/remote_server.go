@@ -11,6 +11,9 @@ const (
 	ConnectionTypeDirect     ConnectionType = "direct"
 	ConnectionTypeOrthrus    ConnectionType = "orthrus"
 	ConnectionTypeCloudflare ConnectionType = "cloudflare"
+	ConnectionTypeTailscale  ConnectionType = "tailscale"
+	ConnectionTypeNetBird    ConnectionType = "netbird"
+	ConnectionTypeZeroTier   ConnectionType = "zerotier"
 )
 
 // RemoteServer represents a known backend server that can be selected
@@ -36,6 +39,10 @@ type RemoteServer struct {
 	// OrthrusAgentUUID links this server to a registered Orthrus agent.
 	// Only populated when ConnectionType == "orthrus".
 	OrthrusAgentUUID *string `json:"orthrus_agent_uuid,omitempty" gorm:"index"`
+
+	// HecateTunnelUUID links this server to a Hecate tunnel config.
+	// Only populated when ConnectionType is "tailscale", "netbird", or "zerotier".
+	HecateTunnelUUID *string `json:"hecate_tunnel_uuid,omitempty" gorm:"index"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
