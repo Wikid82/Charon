@@ -4,11 +4,12 @@ import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import * as api from '../../api/orthrus'
-import { useOrthrus, useAgentList, useProvisionAgent, AGENTS_QUERY_KEY } from '../useOrthrus'
+import { useOrthrus, useAgentList, useProvisionAgent, useRenameAgent, useDeleteAgent, AGENTS_QUERY_KEY } from '../useOrthrus'
 
 vi.mock('../../api/orthrus', () => ({
   listAgents: vi.fn(),
   provisionAgent: vi.fn(),
+  renameAgent: vi.fn(),
   deleteAgent: vi.fn(),
   revokeAgent: vi.fn(),
   getInstallSnippets: vi.fn(),
@@ -50,6 +51,40 @@ describe('useAgentList', () => {
 
     expect(result.current.data).toEqual([mockAgent])
     expect(api.listAgents).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('useRenameAgent', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('calls renameAgent with uuid and name', async () => {
+    vi.mocked(api.renameAgent).mockResolvedValue(mockAgent)
+    vi.mocked(api.listAgents).mockResolvedValue([mockAgent])
+
+    const { result } = renderHook(() => useRenameAgent(), { wrapper: createWrapper() })
+
+    await act(async () => {
+      await result.current.mutateAsync({ uuid: 'agent-1', name: 'Renamed Agent' })
+    })
+
+    expect(api.renameAgent).toHaveBeenCalledWith('agent-1', 'Renamed Agent')
+  })
+})
+
+describe('useDeleteAgent', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('calls deleteAgent with uuid', async () => {
+    vi.mocked(api.deleteAgent).mockResolvedValue()
+    vi.mocked(api.listAgents).mockResolvedValue([])
+
+    const { result } = renderHook(() => useDeleteAgent(), { wrapper: createWrapper() })
+
+    await act(async () => {
+      await result.current.mutateAsync('agent-1')
+    })
+
+    expect(api.deleteAgent).toHaveBeenCalledWith('agent-1')
   })
 })
 

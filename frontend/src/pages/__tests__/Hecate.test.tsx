@@ -1,8 +1,6 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-
-import Hecate from '../Hecate'
 
 vi.mock('../../hooks/useHecate', () => ({ useHecate: vi.fn() }))
 vi.mock('../../hooks/useOrthrus', () => ({
@@ -32,6 +30,7 @@ vi.mock('../../components/hecate/OrthrusInstallWizard', () => ({
 
 import { useHecate } from '../../hooks/useHecate'
 import { useAgentList, useProvisionAgent, useOrthrus } from '../../hooks/useOrthrus'
+import Hecate from '../Hecate'
 
 const mockTunnel = {
   uuid: 'tunnel-1',
@@ -68,7 +67,7 @@ describe('Hecate page', () => {
       error: null,
       tunnelsError: null,
       statusError: null,
-      getStatus: vi.fn().mockReturnValue(undefined),
+      getStatus: vi.fn().mockReturnValue(null),
       createTunnel: vi.fn(),
       updateTunnel: vi.fn(),
       deleteTunnel: vi.fn(),
@@ -136,5 +135,252 @@ describe('Hecate page', () => {
     } as unknown as ReturnType<typeof useHecate>)
 
     renderHecate()
+
+    expect(screen.getByText('Hecate')).toBeInTheDocument()
+  })
+
+  it('shows error alert when error is returned', () => {
+    vi.mocked(useHecate).mockReturnValue({
+      tunnels: [],
+      statuses: [],
+      loadingTunnels: false,
+      loadingStatus: false,
+      error: 'Load failed',
+      tunnelsError: null,
+      statusError: null,
+      getStatus: vi.fn().mockReturnValue(null),
+      createTunnel: vi.fn(),
+      updateTunnel: vi.fn(),
+      deleteTunnel: vi.fn(),
+      startTunnel: vi.fn(),
+      stopTunnel: vi.fn(),
+      rotateCredentials: vi.fn(),
+      isCreating: false,
+      isUpdating: false,
+      isDeleting: false,
+      isStarting: false,
+      isStopping: false,
+      isRotating: false,
+    })
+
+    renderHecate()
+
+    expect(screen.getByText(/load failed/i)).toBeInTheDocument()
+  })
+
+  it('shows empty state when no tunnels', () => {
+    vi.mocked(useHecate).mockReturnValue({
+      tunnels: [],
+      statuses: [],
+      loadingTunnels: false,
+      loadingStatus: false,
+      error: null,
+      tunnelsError: null,
+      statusError: null,
+      getStatus: vi.fn().mockReturnValue(null),
+      createTunnel: vi.fn(),
+      updateTunnel: vi.fn(),
+      deleteTunnel: vi.fn(),
+      startTunnel: vi.fn(),
+      stopTunnel: vi.fn(),
+      rotateCredentials: vi.fn(),
+      isCreating: false,
+      isUpdating: false,
+      isDeleting: false,
+      isStarting: false,
+      isStopping: false,
+      isRotating: false,
+    })
+
+    renderHecate()
+
+    expect(screen.getByText(/no providers configured/i)).toBeInTheDocument()
+  })
+
+  it('renders provider badge for tunnel', () => {
+    renderHecate()
+    expect(screen.getByText('cloudflare')).toBeInTheDocument()
+  })
+
+  it('shows delete confirmation dialog when delete button clicked', async () => {
+    renderHecate()
+
+    const deleteBtn = await screen.findByRole('button', { name: /delete provider test tunnel/i })
+    fireEvent.click(deleteBtn)
+
+    expect(await screen.findByText(/are you sure/i)).toBeInTheDocument()
+  })
+
+  it('calls deleteTunnel on confirm', async () => {
+    const mockDelete = vi.fn(() => Promise.resolve())
+    vi.mocked(useHecate).mockReturnValue({
+      tunnels: [mockTunnel],
+      statuses: [],
+      loadingTunnels: false,
+      loadingStatus: false,
+      error: null,
+      tunnelsError: null,
+      statusError: null,
+      getStatus: vi.fn().mockReturnValue(null),
+      createTunnel: vi.fn(),
+      updateTunnel: vi.fn(),
+      deleteTunnel: mockDelete as unknown as ReturnType<typeof useHecate>['deleteTunnel'],
+      startTunnel: vi.fn() as unknown as ReturnType<typeof useHecate>['startTunnel'],
+      stopTunnel: vi.fn() as unknown as ReturnType<typeof useHecate>['stopTunnel'],
+      rotateCredentials: vi.fn() as unknown as ReturnType<typeof useHecate>['rotateCredentials'],
+      isCreating: false,
+      isUpdating: false,
+      isDeleting: false,
+      isStarting: false,
+      isStopping: false,
+      isRotating: false,
+    })
+
+    renderHecate()
+
+    const deleteBtn = screen.getByRole('button', { name: /delete provider test tunnel/i })
+    fireEvent.click(deleteBtn)
+
+    const confirmBtn = await screen.findByRole('button', { name: /^delete$/i })
+    fireEvent.click(confirmBtn)
+
+    await waitFor(() => {
+      expect(mockDelete).toHaveBeenCalledWith('tunnel-1')
+    })
+  })
+
+  it('calls startTunnel when start button clicked', async () => {
+    const mockStart = vi.fn(() => Promise.resolve())
+    vi.mocked(useHecate).mockReturnValue({
+      tunnels: [mockTunnel],
+      statuses: [],
+      loadingTunnels: false,
+      loadingStatus: false,
+      error: null,
+      tunnelsError: null,
+      statusError: null,
+      getStatus: vi.fn().mockReturnValue({ state: 'disconnected' }),
+      createTunnel: vi.fn(),
+      updateTunnel: vi.fn(),
+      deleteTunnel: vi.fn(),
+      startTunnel: mockStart as unknown as ReturnType<typeof useHecate>['startTunnel'],
+      stopTunnel: vi.fn() as unknown as ReturnType<typeof useHecate>['stopTunnel'],
+      rotateCredentials: vi.fn() as unknown as ReturnType<typeof useHecate>['rotateCredentials'],
+      isCreating: false,
+      isUpdating: false,
+      isDeleting: false,
+      isStarting: false,
+      isStopping: false,
+      isRotating: false,
+    })
+
+    renderHecate()
+
+    const startBtn = screen.getByRole('button', { name: /start test tunnel/i })
+    fireEvent.click(startBtn)
+
+    await waitFor(() => {
+      expect(mockStart).toHaveBeenCalledWith('tunnel-1')
+    })
+  })
+
+  it('calls stopTunnel when stop button clicked on connected tunnel', async () => {
+    const mockStop = vi.fn(() => Promise.resolve())
+    vi.mocked(useHecate).mockReturnValue({
+      tunnels: [mockTunnel],
+      statuses: [],
+      loadingTunnels: false,
+      loadingStatus: false,
+      error: null,
+      tunnelsError: null,
+      statusError: null,
+      getStatus: vi.fn().mockReturnValue({ state: 'connected' }),
+      createTunnel: vi.fn(),
+      updateTunnel: vi.fn(),
+      deleteTunnel: vi.fn(),
+      startTunnel: vi.fn() as unknown as ReturnType<typeof useHecate>['startTunnel'],
+      stopTunnel: mockStop as unknown as ReturnType<typeof useHecate>['stopTunnel'],
+      rotateCredentials: vi.fn() as unknown as ReturnType<typeof useHecate>['rotateCredentials'],
+      isCreating: false,
+      isUpdating: false,
+      isDeleting: false,
+      isStarting: false,
+      isStopping: false,
+      isRotating: false,
+    })
+
+    renderHecate()
+
+    const stopBtn = screen.getByRole('button', { name: /stop test tunnel/i })
+    fireEvent.click(stopBtn)
+
+    await waitFor(() => {
+      expect(mockStop).toHaveBeenCalledWith('tunnel-1')
+    })
+  })
+
+  it('shows rotate credentials dialog', async () => {
+    renderHecate()
+
+    const rotateBtn = screen.getByRole('button', { name: /rotate credentials test tunnel/i })
+    fireEvent.click(rotateBtn)
+
+    expect(await screen.findByRole('textbox', { name: /rotate credentials/i })).toBeInTheDocument()
+  })
+
+  it('opens provision agent dialog on button click', async () => {
+    renderHecate()
+
+    const provisionBtn = screen.getByRole('button', { name: /provision new agent/i })
+    fireEvent.click(provisionBtn)
+
+    expect(await screen.findByRole('textbox', { name: /^name/i })).toBeInTheDocument()
+  })
+
+  it('opens log viewer when view logs button clicked', async () => {
+    renderHecate()
+
+    const logsBtn = screen.getByRole('button', { name: /view logs test tunnel/i })
+    fireEvent.click(logsBtn)
+
+    expect(await screen.findByTestId('log-viewer')).toBeInTheDocument()
+  })
+
+  it('opens edit tunnel form when edit button clicked', async () => {
+    renderHecate()
+
+    const editBtn = screen.getByRole('button', { name: /^edit test tunnel$/i })
+    fireEvent.click(editBtn)
+
+    expect(await screen.findByTestId('tunnel-form')).toBeInTheDocument()
+  })
+
+  it('renders status badge when tunnel has status', () => {
+    vi.mocked(useHecate).mockReturnValue({
+      tunnels: [mockTunnel],
+      statuses: [],
+      loadingTunnels: false,
+      loadingStatus: false,
+      error: null,
+      tunnelsError: null,
+      statusError: null,
+      getStatus: vi.fn().mockReturnValue({ state: 'connected' }),
+      createTunnel: vi.fn(),
+      updateTunnel: vi.fn(),
+      deleteTunnel: vi.fn(),
+      startTunnel: vi.fn(),
+      stopTunnel: vi.fn(),
+      rotateCredentials: vi.fn(),
+      isCreating: false,
+      isUpdating: false,
+      isDeleting: false,
+      isStarting: false,
+      isStopping: false,
+      isRotating: false,
+    })
+
+    renderHecate()
+
+    expect(screen.getByText('connected')).toBeInTheDocument()
   })
 })
