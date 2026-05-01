@@ -18,7 +18,7 @@ vi.mock('../../hooks/useHecate', () => ({
   useHecate: vi.fn(() => ({
     tunnels: [],
     isLoading: false,
-    getStatus: vi.fn(() => undefined),
+    getStatus: vi.fn(),
   })),
 }))
 
@@ -251,7 +251,7 @@ describe('RemoteServerForm', () => {
     await userEvent.click(agentRadio)
 
     await waitFor(() => {
-      expect(document.getElementById('cts-provider')).toBeInTheDocument()
+      expect(screen.getAllByRole('combobox', { name: 'Provider' })).toHaveLength(2)
     })
   })
 
@@ -267,10 +267,10 @@ describe('RemoteServerForm', () => {
     await userEvent.click(screen.getByRole('radio', { name: /agent/i }))
 
     await waitFor(() => {
-      expect(document.getElementById('cts-provider')).toBeInTheDocument()
+      expect(screen.getAllByRole('combobox', { name: 'Provider' })).toHaveLength(2)
     })
 
-    await userEvent.selectOptions(document.getElementById('cts-provider') as HTMLElement, 'orthrus:agent-1')
+    await userEvent.selectOptions(screen.getAllByRole('combobox', { name: 'Provider' }).at(-1)!, 'orthrus:agent-1')
     expect(screen.getAllByText('Agent One').length).toBeGreaterThan(0)
   })
 
@@ -286,10 +286,10 @@ describe('RemoteServerForm', () => {
     await userEvent.click(screen.getByRole('radio', { name: /agent/i }))
 
     await waitFor(() => {
-      expect(document.getElementById('cts-provider')).toBeInTheDocument()
+      expect(screen.getAllByRole('combobox', { name: 'Provider' })).toHaveLength(2)
     })
 
-    await userEvent.selectOptions(document.getElementById('cts-provider') as HTMLElement, 'orthrus:agent-1')
+    await userEvent.selectOptions(screen.getAllByRole('combobox', { name: 'Provider' }).at(-1)!, 'orthrus:agent-1')
 
     expect(screen.queryByLabelText(/select an agent/i)).not.toBeInTheDocument()
     expect(screen.getAllByText('Agent One').length).toBeGreaterThan(0)
@@ -342,6 +342,121 @@ describe('RemoteServerForm', () => {
     renderForm({ server: mockServer })
 
     expect(screen.getByRole('radio', { name: /agent/i })).toBeChecked()
-    expect(document.getElementById('cts-provider')).toBeInTheDocument()
+    expect(screen.getAllByRole('combobox', { name: 'Provider' })).toHaveLength(2)
+  })
+
+  it('renders address source section when orthrus agent is selected', async () => {
+    vi.mocked(useOrthrusHook.useAgentList).mockReturnValue({
+      data: [
+        { uuid: 'agent-1', name: 'My Agent', status: 'online', capabilities: '[]', last_heartbeat: null, last_seen: null, created_at: '', updated_at: '' },
+      ],
+    } as unknown as ReturnType<typeof useOrthrusHook.useAgentList>)
+
+    const mockServer = {
+      uuid: 'abc',
+      name: 'Orthrus Server',
+      provider: 'generic',
+      host: '',
+      port: 22,
+      username: '',
+      enabled: true,
+      reachable: false,
+      connection_type: 'orthrus' as const,
+      orthrus_agent_uuid: 'agent-1',
+      created_at: '2025-01-01T00:00:00Z',
+      updated_at: '2025-01-01T00:00:00Z',
+    }
+
+    renderForm({ server: mockServer })
+
+    await waitFor(() => {
+      expect(screen.getByText('Address Source')).toBeInTheDocument()
+    })
+  })
+
+  it('submits manual host for orthrus connection', async () => {
+    vi.mocked(useOrthrusHook.useAgentList).mockReturnValue({
+      data: [
+        { uuid: 'agent-1', name: 'My Agent', status: 'online', capabilities: '[]', last_heartbeat: null, last_seen: null, created_at: '', updated_at: '' },
+      ],
+    } as unknown as ReturnType<typeof useOrthrusHook.useAgentList>)
+
+    const mockServer = {
+      uuid: 'abc',
+      name: 'Orthrus Server',
+      provider: 'generic',
+      host: '',
+      port: 22,
+      username: '',
+      enabled: true,
+      reachable: false,
+      connection_type: 'orthrus' as const,
+      orthrus_agent_uuid: 'agent-1',
+      created_at: '2025-01-01T00:00:00Z',
+      updated_at: '2025-01-01T00:00:00Z',
+    }
+
+    renderForm({ server: mockServer })
+
+    await waitFor(() => {
+      expect(screen.getByText('Address Source')).toBeInTheDocument()
+    })
+
+    const manualRadio = screen.getByRole('radio', { name: /manual ip/i })
+    await userEvent.click(manualRadio)
+
+    const hostInput = screen.getByLabelText(/host \(ip or hostname\)/i)
+    await userEvent.clear(hostInput)
+    await userEvent.type(hostInput, '10.0.0.5')
+
+    await userEvent.click(screen.getByText('Update'))
+
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({ host: '10.0.0.5' })
+      )
+    })
+  })
+
+  it('does not show address source without orthrus agent selected', () => {
+    renderForm()
+
+    expect(screen.queryByText('Address Source')).not.toBeInTheDocument()
+  })
+
+  it('switching to direct mode hides address source', async () => {
+    vi.mocked(useOrthrusHook.useAgentList).mockReturnValue({
+      data: [
+        { uuid: 'agent-1', name: 'My Agent', status: 'online', capabilities: '[]', last_heartbeat: null, last_seen: null, created_at: '', updated_at: '' },
+      ],
+    } as unknown as ReturnType<typeof useOrthrusHook.useAgentList>)
+
+    const mockServer = {
+      uuid: 'abc',
+      name: 'Orthrus Server',
+      provider: 'generic',
+      host: '',
+      port: 22,
+      username: '',
+      enabled: true,
+      reachable: false,
+      connection_type: 'orthrus' as const,
+      orthrus_agent_uuid: 'agent-1',
+      created_at: '2025-01-01T00:00:00Z',
+      updated_at: '2025-01-01T00:00:00Z',
+    }
+
+    renderForm({ server: mockServer })
+
+    await waitFor(() => {
+      expect(screen.getByText('Address Source')).toBeInTheDocument()
+    })
+
+    const directRadio = screen.getByRole('radio', { name: /direct/i })
+    await userEvent.click(directRadio)
+
+    await waitFor(() => {
+      expect(screen.queryByText('Address Source')).not.toBeInTheDocument()
+    })
   })
 })

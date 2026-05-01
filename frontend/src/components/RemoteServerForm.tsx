@@ -52,6 +52,7 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
     hecate_tunnel_uuid: server?.hecate_tunnel_uuid ?? '',
     selected_device_name: '',
     selected_device_address: '',
+    orthrus_ip_mode: '' as '' | 'tailscale' | 'netbird' | 'zerotier' | 'manual',
   })
 
   const [loading, setLoading] = useState(false)
@@ -67,7 +68,7 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
   const { data: tailscaleDevices = [] } = useQuery({
     queryKey: ['hecate', 'tailscale', 'devices'],
     queryFn: listTailscaleDevices,
-    enabled: formData.connection_type === 'tailscale',
+    enabled: formData.connection_type === 'tailscale' || (formData.connection_type === 'orthrus' && formData.orthrus_ip_mode === 'tailscale'),
     staleTime: 60_000,
   })
 
@@ -85,7 +86,9 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
       hecate_tunnel_uuid: server?.hecate_tunnel_uuid ?? '',
       selected_device_name: '',
       selected_device_address: '',
+      orthrus_ip_mode: '' as '' | 'tailscale' | 'netbird' | 'zerotier' | 'manual',
     })
+  // eslint-disable-next-line react-compiler/react-compiler
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [server])
 
@@ -106,6 +109,8 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
         payload.host = formData.host
         payload.port = formData.port
         payload.username = formData.username
+      } else if (formData.connection_type === 'orthrus') {
+        payload.host = formData.orthrus_ip_mode === 'manual' ? formData.host : formData.selected_device_address
       } else if (['tailscale', 'netbird', 'zerotier'].includes(formData.connection_type)) {
         payload.host = formData.selected_device_address
       }
@@ -222,6 +227,7 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
                     orthrus_agent_uuid: '',
                     selected_device_name: '',
                     selected_device_address: '',
+                    orthrus_ip_mode: '' as '' | 'tailscale' | 'netbird' | 'zerotier' | 'manual',
                   }))
                 } else {
                   setFormData(prev => ({ ...prev, connection_mode: 'agent' }))
@@ -247,6 +253,7 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
                   hecate_tunnel_uuid: '',
                   selected_device_name: '',
                   selected_device_address: '',
+                  orthrus_ip_mode: '' as '' | 'tailscale' | 'netbird' | 'zerotier' | 'manual',
                 }))
               }
               disabled={loading}
@@ -384,6 +391,139 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
               <Link to="/hecate" className="text-blue-400 hover:text-blue-300 underline text-xs">
                 {t('hecate.form.manageAgents', { count: agents.length })}
               </Link>
+            </div>
+          )}
+
+          {/* Address source for Orthrus — how to reach this server via the tunnel */}
+          {formData.connection_mode === 'agent' && formData.connection_type === 'orthrus' && formData.orthrus_agent_uuid && (
+            <div className="space-y-3">
+              <fieldset>
+                <legend className="block text-sm font-medium text-gray-300 mb-2">
+                  Address Source
+                </legend>
+                <div className="space-y-2">
+                  {(['tailscale', 'netbird', 'zerotier', 'manual'] as const).map(mode => (
+                    <label key={mode} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="orthrus-ip-mode"
+                        value={mode}
+                        checked={formData.orthrus_ip_mode === mode}
+                        onChange={() => setFormData(prev => ({
+                          ...prev,
+                          orthrus_ip_mode: mode,
+                          selected_device_name: '',
+                          selected_device_address: '',
+                        }))}
+                        className="w-4 h-4"
+                      />
+                      <span className="text-sm text-gray-300 capitalize">{mode === 'manual' ? 'Manual IP / Hostname' : mode.charAt(0).toUpperCase() + mode.slice(1)}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              {formData.orthrus_ip_mode === 'manual' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2" htmlFor="orthrus-host">
+                    Host (IP or Hostname)
+                  </label>
+                  <input
+                    id="orthrus-host"
+                    type="text"
+                    required
+                    value={formData.host}
+                    onChange={e => setFormData({ ...formData, host: e.target.value })}
+                    placeholder="192.168.1.100"
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              )}
+
+              {formData.orthrus_ip_mode === 'tailscale' && (
+                <div className="space-y-2">
+                  {formData.selected_device_name ? (
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-gray-300">Selected:</span>
+                      <span className="font-medium text-white">{formData.selected_device_name}</span>
+                      <span className="text-gray-500">{formData.selected_device_address}</span>
+                      <button type="button" onClick={() => setShowTailscalePicker(true)} className="text-blue-400 hover:text-blue-300 underline text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 rounded">
+                        Change
+                      </button>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => setShowTailscalePicker(true)} className="text-sm text-blue-400 hover:text-blue-300 underline focus:outline-none focus:ring-2 focus:ring-blue-500 rounded">
+                      {t('hecate.form.mode.selectDevice')}
+                    </button>
+                  )}
+                  <TailscaleDevicePicker
+                    devices={tailscaleDevices}
+                    open={showTailscalePicker}
+                    onClose={() => setShowTailscalePicker(false)}
+                    onSelect={(device: TailscaleDevice) => {
+                      setFormData(prev => ({ ...prev, selected_device_name: device.hostname, selected_device_address: device.addresses[0] ?? '' }))
+                      setShowTailscalePicker(false)
+                    }}
+                    selectedId={formData.selected_device_name}
+                  />
+                </div>
+              )}
+
+              {formData.orthrus_ip_mode === 'netbird' && (
+                <div className="space-y-2">
+                  {formData.selected_device_name ? (
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-gray-300">Selected:</span>
+                      <span className="font-medium text-white">{formData.selected_device_name}</span>
+                      <span className="text-gray-500">{formData.selected_device_address}</span>
+                      <button type="button" onClick={() => setShowNetBirdPicker(true)} className="text-blue-400 hover:text-blue-300 underline text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 rounded">
+                        Change
+                      </button>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => setShowNetBirdPicker(true)} className="text-sm text-blue-400 hover:text-blue-300 underline focus:outline-none focus:ring-2 focus:ring-blue-500 rounded">
+                      {t('hecate.form.mode.selectPeer')}
+                    </button>
+                  )}
+                  <NetBirdPeerPicker
+                    open={showNetBirdPicker}
+                    onClose={() => setShowNetBirdPicker(false)}
+                    onSelect={(peer: NetBirdPeer) => {
+                      setFormData(prev => ({ ...prev, selected_device_name: peer.name, selected_device_address: peer.ip }))
+                      setShowNetBirdPicker(false)
+                    }}
+                    selectedId={formData.selected_device_name}
+                  />
+                </div>
+              )}
+
+              {formData.orthrus_ip_mode === 'zerotier' && (
+                <div className="space-y-2">
+                  {formData.selected_device_name ? (
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-gray-300">Selected:</span>
+                      <span className="font-medium text-white">{formData.selected_device_name}</span>
+                      <span className="text-gray-500">{formData.selected_device_address}</span>
+                      <button type="button" onClick={() => setShowZeroTierPicker(true)} className="text-blue-400 hover:text-blue-300 underline text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 rounded">
+                        Change
+                      </button>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => setShowZeroTierPicker(true)} className="text-sm text-blue-400 hover:text-blue-300 underline focus:outline-none focus:ring-2 focus:ring-blue-500 rounded">
+                      {t('hecate.form.mode.selectMember')}
+                    </button>
+                  )}
+                  <ZeroTierMemberPicker
+                    open={showZeroTierPicker}
+                    onClose={() => setShowZeroTierPicker(false)}
+                    onSelect={(member: ZeroTierMember, _network: ZeroTierNetwork) => {
+                      setFormData(prev => ({ ...prev, selected_device_name: member.name, selected_device_address: member.ip_assignments[0] ?? member.node_id }))
+                      setShowZeroTierPicker(false)
+                    }}
+                    selectedId={formData.selected_device_name}
+                  />
+                </div>
+              )}
             </div>
           )}
 
