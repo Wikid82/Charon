@@ -53,7 +53,7 @@ pre-commit:
 
     check-yaml:
       glob: "*.{yaml,yml}"
-      run: python3 -c "import sys,yaml; [yaml.safe_load(open(f)) for f in sys.argv[1:]]" {all_files}
+      run: python3 -c "import sys,yaml; [yaml.safe_load(open(f)) for f in sys.argv[1:]]" {staged_files}
 
     # --- Blocking security/commit guards (always run) ---
     check-lfs-large-files:
@@ -69,15 +69,15 @@ pre-commit:
     shellcheck:
       glob: "*.sh"
       exclude: "frontend/(coverage|dist|node_modules|\\.vite)/|test-results|codeql-agent-results"
-      run: shellcheck --severity=error {all_files}
+      run: shellcheck --severity=error {staged_files}
 
     actionlint:
       glob: ".github/workflows/*.{yaml,yml}"
-      run: actionlint {all_files}
+      run: actionlint {staged_files}
 
     dockerfile-check:
       glob: "Dockerfile*"
-      run: tools/dockerfile_check.sh {all_files}
+      run: tools/dockerfile_check.sh {staged_files}
 
     # --- Go ---
     go-vet:
@@ -98,11 +98,11 @@ pre-commit:
     # Remove overrides when plugins declare ESLint v10 support natively.
     frontend-type-check:
       glob: "frontend/**/*.{ts,tsx}"
-      run: cd frontend && npx tsc --noEmit
+      run: cd frontend && /usr/share/nodejs/corepack/shims/npx tsc --noEmit
 
     frontend-lint:
       glob: "frontend/**/*.{ts,tsx,js,jsx}"
-      run: cd frontend && npm run lint
+      run: cd frontend && /usr/share/nodejs/corepack/shims/npm run lint
 
     semgrep:
       glob: "{**/*.{go,ts,tsx,js,jsx,sh,yml,yaml,json},Dockerfile*}"
