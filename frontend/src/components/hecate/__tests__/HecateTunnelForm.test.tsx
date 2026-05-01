@@ -109,8 +109,17 @@ describe('HecateTunnelForm', () => {
     fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
 
     await waitFor(() => {
-      expect(mockCreate).toHaveBeenCalled()
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          credentials: expect.stringContaining('"api_token"'),
+        }),
+      )
     })
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        credentials: expect.stringContaining('"account_id"'),
+      }),
+    )
   })
 
   it('shows error message when createTunnel throws', async () => {
