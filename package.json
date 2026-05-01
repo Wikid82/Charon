@@ -18,7 +18,7 @@
     "smol-toml": "^1.6.1"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.11.2",
+    "@axe-core/playwright": "^4.11.3",
     "@bgotink/playwright-coverage": "^0.3.2",
     "@playwright/test": "^1.59.1",
     "@types/eslint-plugin-jsx-a11y": "^6.10.1",

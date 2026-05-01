@@ -98,11 +98,11 @@ pre-commit:
     # Remove overrides when plugins declare ESLint v10 support natively.
     frontend-type-check:
       glob: "frontend/**/*.{ts,tsx}"
-      run: cd frontend && node_modules/.bin/tsc --noEmit
+      run: cd frontend && /usr/share/nodejs/corepack/shims/npx tsc --noEmit
 
     frontend-lint:
       glob: "frontend/**/*.{ts,tsx,js,jsx}"
-      run: cd frontend && node_modules/.bin/eslint . --report-unused-disable-directives
+      run: cd frontend && /usr/share/nodejs/corepack/shims/npm run lint
 
     semgrep:
       glob: "{**/*.{go,ts,tsx,js,jsx,sh,yml,yaml,json},Dockerfile*}"
