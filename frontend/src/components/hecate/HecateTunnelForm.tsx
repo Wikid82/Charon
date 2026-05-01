@@ -44,12 +44,24 @@ const defaultCreds: CredentialState = {
   zerotier: { apiToken: '', controllerUrl: '' },
 }
 
+const CRED_KEY_MAP: Record<string, string> = {
+  apiKey: 'api_key',
+  apiToken: 'api_token',
+  accountId: 'account_id',
+  tunnelToken: 'tunnel_token',
+  accessToken: 'access_token',
+  managementUrl: 'management_url',
+  controllerUrl: 'controller_url',
+}
+
 function buildCredentialsJSON(
   _provider: TunnelProvider,
   creds: CredentialState[TunnelProvider],
 ): string {
   const filtered = Object.fromEntries(
-    Object.entries(creds as Record<string, string>).filter(([, v]) => v !== ''),
+    Object.entries(creds as Record<string, string>)
+      .filter(([, v]) => v !== '')
+      .map(([k, v]) => [CRED_KEY_MAP[k] ?? k, v]),
   )
   return JSON.stringify(filtered)
 }
