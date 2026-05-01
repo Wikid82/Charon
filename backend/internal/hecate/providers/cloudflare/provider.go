@@ -16,10 +16,27 @@ import (
 )
 
 // cfCredentials holds the decrypted JSON credentials for the Cloudflare provider.
+// Both snake_case (current) and camelCase (legacy) keys are accepted to support
+// credentials stored before the frontend key-mapping fix.
 type cfCredentials struct {
-	APIToken    string `json:"api_token"`
-	AccountID   string `json:"account_id"`
-	TunnelToken string `json:"tunnel_token"`
+	APIToken       string `json:"api_token"`
+	APITokenAlt    string `json:"apiToken"`
+	AccountID      string `json:"account_id"`
+	AccountIDAlt   string `json:"accountId"`
+	TunnelToken    string `json:"tunnel_token"`
+	TunnelTokenAlt string `json:"tunnelToken"`
+}
+
+func (c *cfCredentials) resolve() {
+	if c.APIToken == "" && c.APITokenAlt != "" {
+		c.APIToken = c.APITokenAlt
+	}
+	if c.AccountID == "" && c.AccountIDAlt != "" {
+		c.AccountID = c.AccountIDAlt
+	}
+	if c.TunnelToken == "" && c.TunnelTokenAlt != "" {
+		c.TunnelToken = c.TunnelTokenAlt
+	}
 }
 
 // CloudflareTunnelProvider implements hecate.TunnelProvider using the cloudflared binary.
@@ -45,6 +62,7 @@ func NewCloudflareProvider(cfg *models.TunnelConfig, credentials string) (*Cloud
 	if err := json.Unmarshal([]byte(credentials), &creds); err != nil {
 		return nil, fmt.Errorf("cloudflare: parse credentials: %w", err)
 	}
+	creds.resolve()
 	if creds.TunnelToken == "" {
 		return nil, fmt.Errorf("cloudflare: tunnel_token is required in credentials")
 	}

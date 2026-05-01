@@ -11,9 +11,22 @@ import (
 )
 
 // ztCredentials holds the decrypted JSON credentials for the ZeroTier provider.
+// Both snake_case (current) and camelCase (legacy) keys are accepted to support
+// credentials stored before the frontend key-mapping fix.
 type ztCredentials struct {
-	APIToken      string `json:"api_token"`
-	ControllerURL string `json:"controller_url"`
+	APIToken         string `json:"api_token"`
+	APITokenAlt      string `json:"apiToken"`
+	ControllerURL    string `json:"controller_url"`
+	ControllerURLAlt string `json:"controllerUrl"`
+}
+
+func (c *ztCredentials) resolve() {
+	if c.APIToken == "" && c.APITokenAlt != "" {
+		c.APIToken = c.APITokenAlt
+	}
+	if c.ControllerURL == "" && c.ControllerURLAlt != "" {
+		c.ControllerURL = c.ControllerURLAlt
+	}
 }
 
 // ZeroTierProvider implements hecate.TunnelProvider for ZeroTier network discovery.
@@ -38,6 +51,7 @@ func NewZeroTierProvider(cfg *models.TunnelConfig, credentials string) (*ZeroTie
 	if err := json.Unmarshal([]byte(credentials), &creds); err != nil {
 		return nil, fmt.Errorf("zerotier: parse credentials: %w", err)
 	}
+	creds.resolve()
 	if creds.APIToken == "" {
 		return nil, fmt.Errorf("zerotier: api_token is required in credentials")
 	}

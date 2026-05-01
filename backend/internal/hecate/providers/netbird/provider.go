@@ -11,9 +11,22 @@ import (
 )
 
 // credentials holds the decrypted JSON credentials for the NetBird provider.
+// Both snake_case (current) and camelCase (legacy) keys are accepted to support
+// credentials stored before the frontend key-mapping fix.
 type credentials struct {
-	AccessToken   string `json:"access_token"`
-	ManagementURL string `json:"management_url"`
+	AccessToken      string `json:"access_token"`
+	AccessTokenAlt   string `json:"accessToken"`
+	ManagementURL    string `json:"management_url"`
+	ManagementURLAlt string `json:"managementUrl"`
+}
+
+func (c *credentials) resolve() {
+	if c.AccessToken == "" && c.AccessTokenAlt != "" {
+		c.AccessToken = c.AccessTokenAlt
+	}
+	if c.ManagementURL == "" && c.ManagementURLAlt != "" {
+		c.ManagementURL = c.ManagementURLAlt
+	}
 }
 
 // NetBirdProvider implements hecate.TunnelProvider for NetBird network discovery.
@@ -38,6 +51,7 @@ func NewNetBirdProvider(cfg *models.TunnelConfig, credentialsJSON string) (*NetB
 	if err := json.Unmarshal([]byte(credentialsJSON), &creds); err != nil {
 		return nil, fmt.Errorf("netbird: parse credentials: %w", err)
 	}
+	creds.resolve()
 	if creds.AccessToken == "" {
 		return nil, fmt.Errorf("netbird: access_token is required in credentials")
 	}
