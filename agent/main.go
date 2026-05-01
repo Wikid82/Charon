@@ -96,8 +96,9 @@ func main() {
 	log.Info("orthrus agent stopped")
 }
 
-// validateServerURL rejects non-WebSocket schemes and insecure ws:// connections
-// to non-localhost hosts. Allows ws://localhost and ws://127.0.0.1 for local testing.
+// validateServerURL rejects non-WebSocket schemes. ws:// is permitted for all
+// hosts to support deployments where Charon sits behind a TLS-terminating proxy
+// and the agent connects over a trusted local/overlay network (e.g. Tailscale).
 func validateServerURL(rawURL string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -107,16 +108,15 @@ func validateServerURL(rawURL string) error {
 	scheme := strings.ToLower(u.Scheme)
 	host := strings.ToLower(u.Hostname())
 
-	isLocalhost := host == "localhost" || host == "127.0.0.1" || host == "::1"
-
 	switch scheme {
 	case "wss":
 		return nil
 	case "ws":
-		if isLocalhost {
-			return nil
+		isLocalhost := host == "localhost" || host == "127.0.0.1" || host == "::1"
+		if !isLocalhost {
+			logrus.StandardLogger().Warn("orthrus: ws:// connection is unencrypted; consider deploying Charon behind a TLS-terminating proxy")
 		}
-		return fmt.Errorf("insecure ws:// scheme is only allowed for localhost; use wss:// for %q", host)
+		return nil
 	case "http", "https":
 		return fmt.Errorf("expected WebSocket scheme wss:// (got %q); use wss:// instead of %s://", rawURL, scheme)
 	default:
