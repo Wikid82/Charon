@@ -539,7 +539,8 @@ describe('UsersPage', () => {
         const preview = screen.getByText('https://example.com/accept-invite?token=...')
         expect(preview.textContent).toContain('...')
         expect(preview.textContent).not.toContain('SAMPLE_TOKEN_PREVIEW')
-      } finally {
+      }
+      finally {
         vi.useRealTimers()
       }
     })
@@ -629,7 +630,8 @@ describe('UsersPage', () => {
         // Verify preview is not displayed after error
         const previewQuery = screen.queryByText(/accept-invite/)
         expect(previewQuery).toBeNull()
-      } finally {
+      }
+      finally {
         vi.useRealTimers()
       }
     })

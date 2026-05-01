@@ -52,7 +52,7 @@
     "tldts": "^7.0.29"
   },
   "devDependencies": {
-    "@eslint/css": "^1.1.0",
+    "@eslint/css": "^1.2.0",
     "@eslint/js": "^10.0.0",
     "@eslint/json": "^1.2.0",
     "@eslint/markdown": "^8.0.1",
@@ -88,9 +88,9 @@
     "eslint-plugin-testing-library": "^7.16.2",
     "eslint-plugin-unicorn": "^64.0.0",
     "eslint-plugin-unused-imports": "^4.4.1",
-    "jsdom": "29.1.0",
+    "jsdom": "29.1.1",
     "knip": "^6.9.0",
-    "postcss": "^8.5.12",
+    "postcss": "^8.5.13",
     "tailwindcss": "^4.2.4",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.1",
