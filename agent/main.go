@@ -62,6 +62,7 @@ func main() {
 	if err := validateServerURL(svrURL); err != nil {
 		log.WithError(err).Fatal("orthrus: invalid server URL")
 	}
+	svrURL = normalizeServerURL(svrURL)
 
 	agentName := os.Getenv("ORTHRUS_AGENT_ID")
 	if agentName == "" {
@@ -94,6 +95,24 @@ func main() {
 		log.WithError(err).Fatal("orthrus agent exited with error")
 	}
 	log.Info("orthrus agent stopped")
+}
+
+const orthrusConnectPath = "/api/v1/ws/orthrus/connect"
+
+// normalizeServerURL ensures the URL has the canonical Orthrus WebSocket path.
+// Users often provide just the base URL (e.g. ws://host:port); this function
+// appends the connect path when the URL has no path set.
+func normalizeServerURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	if u.Path == "" || u.Path == "/" {
+		u.Path = orthrusConnectPath
+		logrus.StandardLogger().WithField("normalized_url", u.String()).
+			Warn("orthrus: server URL had no path; appended canonical connect path")
+	}
+	return u.String()
 }
 
 // validateServerURL rejects non-WebSocket schemes. ws:// is permitted for all
