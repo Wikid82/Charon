@@ -95,13 +95,14 @@ jobs:
         uses: github/codeql-action/autobuild@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4
 
       - name: Perform CodeQL Analysis
+        id: codeql_analyze
         uses: github/codeql-action/analyze@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4
         with:
           category: "/language:${{ matrix.language }}"
           output: sarif-results/${{ matrix.language }}
 
       - name: Check CodeQL Results
-        if: always()
+        if: always() && steps.codeql_analyze.conclusion != 'skipped'
         run: |
           set -euo pipefail
           SARIF_DIR="sarif-results/${{ matrix.language }}"
@@ -194,7 +195,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Fail on High-Severity Findings
-        if: always()
+        if: always() && steps.codeql_analyze.conclusion != 'skipped'
         run: |
           set -euo pipefail
           SARIF_DIR="sarif-results/${{ matrix.language }}"
