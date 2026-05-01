@@ -11,9 +11,18 @@ import (
 )
 
 // tsCredentials holds the decrypted JSON credentials for the Tailscale provider.
+// Both snake_case (current) and camelCase (legacy) keys are accepted to support
+// credentials stored before the frontend key-mapping fix.
 type tsCredentials struct {
-	APIKey  string `json:"api_key"`
-	Tailnet string `json:"tailnet"`
+	APIKey    string `json:"api_key"`
+	APIKeyAlt string `json:"apiKey"`
+	Tailnet   string `json:"tailnet"`
+}
+
+func (c *tsCredentials) resolve() {
+	if c.APIKey == "" && c.APIKeyAlt != "" {
+		c.APIKey = c.APIKeyAlt
+	}
 }
 
 // TailscaleProvider implements hecate.TunnelProvider for Tailscale network discovery.
@@ -34,6 +43,7 @@ func NewTailscaleProvider(cfg *models.TunnelConfig, credentials string) (*Tailsc
 	if err := json.Unmarshal([]byte(credentials), &creds); err != nil {
 		return nil, fmt.Errorf("tailscale: parse credentials: %w", err)
 	}
+	creds.resolve()
 	if creds.APIKey == "" {
 		return nil, fmt.Errorf("tailscale: api_key is required in credentials")
 	}
