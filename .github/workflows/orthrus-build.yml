@@ -134,6 +134,7 @@ jobs:
             type=semver,pattern={{major}}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=dev,enable=${{ github.ref == 'refs/heads/development' }}
+            type=raw,value=beta,enable=${{ github.event_name == 'pull_request' && github.base_ref == 'development' }}
             type=raw,value=${{ steps.branch-tags.outputs.pr_feature_branch_sha_tag }},enable=${{ github.event_name == 'pull_request' && steps.branch-tags.outputs.pr_feature_branch_sha_tag != '' }}
             type=raw,value=${{ steps.branch-tags.outputs.feature_branch_tag }},enable=${{ github.event_name != 'pull_request' && startsWith(github.ref, 'refs/heads/feature/') && steps.branch-tags.outputs.feature_branch_tag != '' }}
             type=raw,value=${{ steps.branch-tags.outputs.branch_sha_tag }},enable=${{ github.event_name != 'pull_request' && steps.branch-tags.outputs.branch_sha_tag != '' }}
