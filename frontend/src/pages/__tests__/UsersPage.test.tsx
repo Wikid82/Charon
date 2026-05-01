@@ -563,18 +563,24 @@ describe('UsersPage', () => {
       expect(await screen.findByText('Invite User')).toBeInTheDocument()
       await user.click(screen.getByRole('button', { name: /Invite User/i }))
 
-      const emailInput = screen.getByPlaceholderText('user@example.com')
-      await user.type(emailInput, 'test@example.com')
+      vi.useFakeTimers()
 
-      await waitFor(() => {
+      try {
+        const emailInput = screen.getByPlaceholderText('user@example.com')
+        fireEvent.change(emailInput, { target: { value: 'test@example.com' } })
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(550)
+        })
+
         expect(client.post).toHaveBeenCalledWith('/users/preview-invite-url', { email: 'test@example.com' })
-      }, { timeout: 2000 })
 
-      await waitFor(() => {
         // Look for link to system settings
         const link = screen.getByRole('link')
         expect(link.getAttribute('href')).toContain('/settings/system')
-      }, { timeout: 2000 })
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('does not show preview when email is invalid', async () => {
