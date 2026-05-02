@@ -1,5 +1,6 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import { NetBirdPeerPicker } from '../NetBirdPeerPicker'
@@ -59,5 +60,53 @@ describe('NetBirdPeerPicker', () => {
     renderPicker()
 
     expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  // --- Additional coverage ---
+
+  it('shows empty message when no peers exist (line 54)', async () => {
+    vi.mocked(listNetBirdPeers).mockResolvedValue([])
+    renderPicker()
+
+    await waitFor(() => {
+      expect(screen.getByText(/No Tailscale devices found/i)).toBeInTheDocument()
+    })
+  })
+
+  it('renders peer list items', async () => {
+    renderPicker()
+
+    await waitFor(() => {
+      expect(screen.getByText('Server A')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('Server B')).toBeInTheDocument()
+    expect(screen.getByText('100.64.0.1')).toBeInTheDocument()
+  })
+
+  it('calls onSelect and onClose when a peer button is clicked (lines 64-65)', async () => {
+    const onClose = vi.fn()
+    const onSelect = vi.fn()
+    renderPicker({ onClose, onSelect })
+
+    await waitFor(() => {
+      expect(screen.getByText('Server A')).toBeInTheDocument()
+    })
+
+    await userEvent.click(screen.getByRole('option', { name: /Server A/i }))
+
+    expect(onSelect).toHaveBeenCalledWith(mockPeers[0])
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('marks the selected peer with aria-selected=true', async () => {
+    renderPicker({ selectedId: 'peer-1' })
+
+    await waitFor(() => {
+      expect(screen.getByText('Server A')).toBeInTheDocument()
+    })
+
+    expect(screen.getByRole('option', { name: /Server A/i })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('option', { name: /Server B/i })).toHaveAttribute('aria-selected', 'false')
   })
 })
