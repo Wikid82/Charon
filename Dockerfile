@@ -110,6 +110,11 @@ RUN apk upgrade --no-cache && \
     npm install -g npm@${NPM_VERSION} --no-fund --no-audit && \
     npm cache clean --force
 
+# Patch CVE-2026-33671: picomatch ReDoS (fixed in 4.0.4) — bundled in Node.js 24.15.0 npm toolchain.
+# Remove when a patched Node.js 24 image is available.
+# hadolint ignore=DL3059
+RUN npm install -g picomatch@4.0.4 --no-fund --no-audit
+
 RUN npm ci
 
 # Copy frontend source and build
@@ -160,7 +165,7 @@ RUN set -eux; \
 # Note: xx-go install puts binaries in /go/bin/TARGETOS_TARGETARCH/dlv if cross-compiling.
 # We find it and move it to /go/bin/dlv so it's in a consistent location for the next stage.
 # renovate: datasource=go depName=github.com/go-delve/delve
-ARG DLV_VERSION=1.26.2
+ARG DLV_VERSION=1.26.3
 # hadolint ignore=DL3059,DL4006
 RUN CGO_ENABLED=0 xx-go install github.com/go-delve/delve/cmd/dlv@v${DLV_VERSION} && \
     DLV_PATH=$(find /go/bin -name dlv -type f | head -n 1) && \
@@ -392,13 +397,12 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     go get go.opentelemetry.io/otel@v1.43.0 && \
     # GHSA-xmrv-pmrh-hhx2: AWS SDK v2 event stream injection
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
-    go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.9 && \
+    go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.10 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.69.1 && \
-    # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/kinesis
-    go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.6 && \
+    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.72.0 && \
+    go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/s3
-    go get github.com/aws/aws-sdk-go-v2/service/s3@v1.100.0 && \
+    go get github.com/aws/aws-sdk-go-v2/service/s3@v1.100.1 && \
     go mod tidy
 
 # Fix compatibility issues with expr-lang v1.17.7
