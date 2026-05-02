@@ -4,6 +4,11 @@ import { useMediaQuery } from '../useMediaQuery'
 
 describe('useMediaQuery', () => {
   beforeEach(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      configurable: true,
+      value: vi.fn(),
+    })
     vi.restoreAllMocks()
   })
 
