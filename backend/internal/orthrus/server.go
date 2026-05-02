@@ -37,7 +37,7 @@ type OrthrusServer struct {
 
 // NewOrthrusServer creates an OrthrusServer with the given database and internal CA.
 func NewOrthrusServer(db *gorm.DB, ca *InternalCA) (*OrthrusServer, error) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel ownership transferred to struct; Stop() is responsible for calling it
 	return &OrthrusServer{
 		db:               db,
 		ca:               ca,

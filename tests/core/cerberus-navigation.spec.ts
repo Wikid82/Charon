@@ -24,13 +24,34 @@ test.describe('Cerberus Navigation', () => {
       await page.goto('/');
       await waitForLoadingComplete(page);
     }
+
+    // Enable the Cerberus feature flag so the nav item is visible.
+    // Defaults to false in the backend; must be explicitly enabled for navigation tests.
+    // Uses page.evaluate (browser context) to include both cookie auth AND Bearer token.
+    await page.evaluate(async () => {
+      const token = localStorage.getItem('charon_auth_token');
+      const resp = await fetch('/api/v1/feature-flags', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ 'feature.cerberus.enabled': true }),
+      });
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => '');
+        throw new Error(`Feature flags update failed (${resp.status}): ${text}`);
+      }
+    });
+    await page.reload();
+    await waitForLoadingComplete(page);
   });
 
   test('sidebar renders a nav item labelled "Cerberus"', async ({ page }) => {
     await test.step('Verify "Cerberus" nav item is visible', async () => {
       const cerberusNav = page
-        .getByRole('link', { name: /^cerberus$/i })
-        .or(page.getByRole('button', { name: /^cerberus$/i }))
+        .getByRole('link', { name: /cerberus/i })
+        .or(page.getByRole('button', { name: /cerberus/i }))
         .first();
 
       await expect(cerberusNav).toBeVisible();
@@ -38,13 +59,23 @@ test.describe('Cerberus Navigation', () => {
   });
 
   test('clicking "Cerberus" navigates to a page under /security/', async ({ page }) => {
-    await test.step('Click the Cerberus nav item', async () => {
-      const cerberusNav = page
-        .getByRole('link', { name: /^cerberus$/i })
-        .or(page.getByRole('button', { name: /^cerberus$/i }))
+    await test.step('Expand the Cerberus group', async () => {
+      const cerberusGroup = page
+        .getByRole('button', { name: /cerberus/i })
+        .or(page.getByRole('link', { name: /cerberus/i }))
         .first();
 
-      await cerberusNav.click();
+      const isExpanded = await cerberusGroup.getAttribute('aria-expanded');
+      if (isExpanded !== 'true') {
+        await cerberusGroup.click();
+        await waitForLoadingComplete(page);
+      }
+    });
+
+    await test.step('Click the first child link under Cerberus', async () => {
+      // Cerberus is a collapsible group; navigate via the Dashboard child link
+      const dashboardLink = page.getByRole('link', { name: /^dashboard$/i }).first();
+      await dashboardLink.click();
       await waitForLoadingComplete(page);
     });
 
