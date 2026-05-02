@@ -83,7 +83,10 @@
     "encryption": "Encryption",
     "admin": "Admin",
     "plugins": "Plugins",
-    "hecate": "Hecate"
+    "hecate": "Hecate",
+    "tunnels": "Tunnels",
+    "providers": "Providers",
+    "agent": "Agent"
   },
   "settings": {
     "title": "Settings",
@@ -1703,6 +1706,9 @@
       "pickerDescription": "Choose the Tailscale device to route traffic through.",
       "noDevices": "No Tailscale devices found. Ensure your API key is configured."
     },
+    "tunnels": { "title": "Tunnels", "description": "Manage tunnel connections" },
+    "providers": { "title": "Providers", "description": "Configure provider credentials" },
+    "agent": { "title": "Agent", "description": "Manage Orthrus agents" },
     "agentManager": {
       "tableLabel": "Orthrus agents",
       "colName": "Name",

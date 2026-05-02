@@ -21,6 +21,7 @@ import { Label } from '../ui/Label'
 
 interface Props {
   tunnel?: TunnelConfig
+  initialProvider?: TunnelProvider
   open: boolean
   onClose: () => void
 }
@@ -66,14 +67,14 @@ function buildCredentialsJSON(
   return JSON.stringify(filtered)
 }
 
-export function HecateTunnelForm({ tunnel, open, onClose }: Props) {
+export function HecateTunnelForm({ tunnel, initialProvider, open, onClose }: Props) {
   const { t } = useTranslation()
   const { createTunnel, updateTunnel, isCreating, isUpdating } = useHecate()
 
   const isEdit = !!tunnel
 
   const [name, setName] = useState(tunnel?.name ?? '')
-  const [provider, setProvider] = useState<TunnelProvider>(tunnel?.provider ?? 'cloudflare')
+  const [provider, setProvider] = useState<TunnelProvider>(tunnel?.provider ?? initialProvider ?? 'cloudflare')
   const [isActive, setIsActive] = useState(tunnel?.is_active ?? true)
   const [creds, setCreds] = useState<CredentialState>({ ...defaultCreds })
   const [showFields, setShowFields] = useState<Record<string, boolean>>({})

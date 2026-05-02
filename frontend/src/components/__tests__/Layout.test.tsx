@@ -95,11 +95,17 @@ describe('Layout', () => {
 
     expect(await screen.findByText('Dashboard')).toBeInTheDocument()
     expect(await screen.findByText('Proxy Hosts')).toBeInTheDocument()
-    expect(await screen.findByText('Remote Servers')).toBeInTheDocument()
     expect(await screen.findByText('Domains')).toBeInTheDocument()
     expect(await screen.findByText('Certificates')).toBeInTheDocument()
     expect(await screen.findByText('DNS')).toBeInTheDocument()
     expect(await screen.findByText('Settings')).toBeInTheDocument()
+
+    // Expand Hecate to see nested items
+    await user.click(await screen.findByRole('button', { name: /hecate/i }))
+    expect(await screen.findByText('Remote Servers')).toBeInTheDocument()
+    expect(await screen.findByText('Tunnels')).toBeInTheDocument()
+    expect(await screen.findByText('Providers')).toBeInTheDocument()
+    expect(await screen.findByText('Agent')).toBeInTheDocument()
 
     // Expand DNS to see nested items
     await user.click(await screen.findByRole('button', { name: /dns/i }))
@@ -337,9 +343,13 @@ describe('Layout', () => {
       await waitFor(() => {
         expect(screen.getByText('Dashboard')).toBeInTheDocument()
         expect(screen.getByText('Proxy Hosts')).toBeInTheDocument()
-        expect(screen.getByText('Remote Servers')).toBeInTheDocument()
         expect(screen.getByText('Certificates')).toBeInTheDocument()
       })
+
+      // Remote Servers is now nested under Hecate — expand to verify
+      const hecateBtn = await screen.findByRole('button', { name: /hecate/i })
+      await userEvent.setup().click(hecateBtn)
+      expect(await screen.findByText('Remote Servers')).toBeInTheDocument()
     })
   })
 })

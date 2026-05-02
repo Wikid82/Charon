@@ -62,8 +62,17 @@ export default function Layout({ children }: LayoutProps) {
   const navigation: NavItem[] = [
     { name: t('navigation.dashboard'), path: '/', icon: '📊' },
     { name: t('navigation.proxyHosts'), path: '/proxy-hosts', icon: '🌐' },
-    { name: t('navigation.remoteServers'), path: '/remote-servers', icon: '🖥️' },
-    { name: t('navigation.hecate'), path: '/hecate', icon: '🔗' },
+    {
+      name: t('navigation.hecate'),
+      path: '/hecate',
+      icon: '🔗',
+      children: [
+        { name: t('navigation.remoteServers'), path: '/hecate/remote-servers', icon: '🖥️' },
+        { name: t('navigation.tunnels'),       path: '/hecate/tunnels',         icon: '🌐' },
+        { name: t('navigation.providers'),     path: '/hecate/providers',       icon: '🔑' },
+        { name: t('navigation.agent'),         path: '/hecate/agent',           icon: '🤖' },
+      ],
+    },
     { name: t('navigation.domains'), path: '/domains', icon: '🌍' },
     { name: t('navigation.certificates'), path: '/certificates', icon: '🔒' },
     { name: t('navigation.dns'), path: '/dns', icon: '☁️', children: [
