@@ -107,7 +107,7 @@ describe('HecateTunnels', () => {
     const user = userEvent.setup()
     renderComponent()
     // The header action button is the first one when on empty state
-    const addBtns = await screen.findAllByText('hecate.page.addProvider')
+    const addBtns = await screen.findAllByText('hecate.page.addTunnel')
     await user.click(addBtns[0])
     expect(await screen.findByTestId('tunnel-form')).toBeInTheDocument()
   })
@@ -130,7 +130,7 @@ describe('HecateTunnels', () => {
     })
     renderComponent()
 
-    const deleteBtn = await screen.findByTitle('hecate.page.deleteProvider')
+    const deleteBtn = await screen.findByTitle('hecate.page.deleteTunnel')
     await user.click(deleteBtn)
 
     await waitFor(() => {

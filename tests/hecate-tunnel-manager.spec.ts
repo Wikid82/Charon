@@ -50,7 +50,7 @@ test.describe('Hecate Tunnel Manager', () => {
         route.fulfill({ json: [] });
       });
 
-      await page.goto('/remote-servers');
+      await page.goto('/hecate/remote-servers');
       await waitForLoadingComplete(page);
 
       await test.step('Verify Direct badge in connection column', async () => {
@@ -74,7 +74,7 @@ test.describe('Hecate Tunnel Manager', () => {
         route.fulfill({ json: [TUNNEL_STATUS_STOPPED] });
       });
 
-      await page.goto('/remote-servers');
+      await page.goto('/hecate/remote-servers');
       await waitForLoadingComplete(page);
 
       await test.step('Verify tunnel status badge is present', async () => {
@@ -97,7 +97,7 @@ test.describe('Hecate Tunnel Manager', () => {
         route.fulfill({ json: [TUNNEL_STATUS_CONNECTED] });
       });
 
-      await page.goto('/remote-servers');
+      await page.goto('/hecate/remote-servers');
       await waitForLoadingComplete(page);
 
       await test.step('Verify tunnel status badge shows connected state', async () => {
@@ -116,7 +116,7 @@ test.describe('Hecate Tunnel Manager', () => {
         route.fulfill({ json: [TUNNEL_STATUS_STOPPED] });
       });
 
-      await page.goto('/remote-servers');
+      await page.goto('/hecate/remote-servers');
       await waitForLoadingComplete(page);
 
       await test.step('Verify View Tunnel Logs button is present for non-direct server', async () => {
@@ -135,7 +135,7 @@ test.describe('Hecate Tunnel Manager', () => {
         route.fulfill({ json: [] });
       });
 
-      await page.goto('/remote-servers');
+      await page.goto('/hecate/remote-servers');
       await waitForLoadingComplete(page);
 
       await test.step('Verify connection type fallback badge is shown', async () => {
@@ -159,7 +159,7 @@ test.describe('Hecate Tunnel Manager', () => {
     });
 
     test('should open Add Server form when Add Server button is clicked', async ({ page }) => {
-      await page.goto('/remote-servers');
+      await page.goto('/hecate/remote-servers');
       await waitForLoadingComplete(page);
 
       await test.step('Click Add Server button', async () => {
@@ -182,7 +182,7 @@ test.describe('Hecate Tunnel Manager', () => {
     });
 
     test('should show host and port fields for direct connection type', async ({ page }) => {
-      await page.goto('/remote-servers');
+      await page.goto('/hecate/remote-servers');
       await waitForLoadingComplete(page);
 
       await test.step('Open Add Server form', async () => {
@@ -206,7 +206,7 @@ test.describe('Hecate Tunnel Manager', () => {
         route.fulfill({ json: [] });
       });
 
-      await page.goto('/remote-servers');
+      await page.goto('/hecate/remote-servers');
       await waitForLoadingComplete(page);
 
       await test.step('Open Add Server form', async () => {
@@ -232,7 +232,7 @@ test.describe('Hecate Tunnel Manager', () => {
     });
 
     test('should show cloudflare wizard when cloudflare connection type is selected', async ({ page }) => {
-      await page.goto('/remote-servers');
+      await page.goto('/hecate/remote-servers');
       await waitForLoadingComplete(page);
 
       await test.step('Open Add Server form', async () => {
@@ -255,7 +255,7 @@ test.describe('Hecate Tunnel Manager', () => {
     });
 
     test('Connection Type selector accessibility snapshot', async ({ page }) => {
-      await page.goto('/remote-servers');
+      await page.goto('/hecate/remote-servers');
       await waitForLoadingComplete(page);
 
       await test.step('Open Add Server form', async () => {
@@ -285,7 +285,7 @@ test.describe('Hecate Tunnel Manager', () => {
         route.fulfill({ json: [TUNNEL_STATUS_STOPPED] });
       });
 
-      await page.goto('/remote-servers');
+      await page.goto('/hecate/remote-servers');
       await waitForLoadingComplete(page);
 
       await test.step('Click View Tunnel Logs button', async () => {
@@ -331,7 +331,7 @@ test.describe('Hecate Tunnel Manager', () => {
         route.fulfill({ json: [TUNNEL_STATUS_STOPPED] });
       });
 
-      await page.goto('/remote-servers');
+      await page.goto('/hecate/remote-servers');
       await waitForLoadingComplete(page);
 
       await test.step('Open log viewer', async () => {
@@ -370,7 +370,7 @@ test.describe('Hecate Tunnel Manager', () => {
         route.fulfill({ json: [] });
       });
 
-      await page.goto('/remote-servers');
+      await page.goto('/hecate/remote-servers');
       await waitForLoadingComplete(page);
 
       await test.step('Verify page has main landmark', async () => {
@@ -391,7 +391,7 @@ test.describe('Hecate Tunnel Manager', () => {
         route.fulfill({ json: [TUNNEL_STATUS_STOPPED] });
       });
 
-      await page.goto('/remote-servers');
+      await page.goto('/hecate/remote-servers');
       await waitForLoadingComplete(page);
 
       await test.step('Verify direct badge is present', async () => {

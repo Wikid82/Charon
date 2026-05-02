@@ -222,8 +222,8 @@ export default function HecateTunnels() {
               size="sm"
               onClick={e => { e.stopPropagation(); setDeleteTarget(tunnel) }}
               disabled={isDeleting}
-              title={t('hecate.page.deleteProvider')}
-              aria-label={`${t('hecate.page.deleteProvider')} ${tunnel.name}`}
+              title={t('hecate.page.deleteTunnel')}
+              aria-label={`${t('hecate.page.deleteTunnel')} ${tunnel.name}`}
             >
               <Trash2 className="h-4 w-4 text-error" />
             </Button>
@@ -236,7 +236,7 @@ export default function HecateTunnels() {
   const headerActions = (
     <Button onClick={handleAddTunnel}>
       <Plus className="w-4 h-4 mr-2" />
-      {t('hecate.page.addProvider')}
+      {t('hecate.page.addTunnel')}
     </Button>
   )
 
@@ -259,7 +259,7 @@ export default function HecateTunnels() {
           icon={<KeyRound className="h-12 w-12" />}
           title={t('hecate.page.emptyState.title')}
           description={t('hecate.page.emptyState.description')}
-          action={{ label: t('hecate.page.addProvider'), onClick: handleAddTunnel }}
+          action={{ label: t('hecate.page.addTunnel'), onClick: handleAddTunnel }}
         />
       ) : (
         <DataTable
