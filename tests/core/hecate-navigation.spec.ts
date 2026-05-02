@@ -30,8 +30,8 @@ test.describe('Hecate Navigation', () => {
   test('sidebar has a collapsible "Hecate" group', async ({ page }) => {
     await test.step('Verify the Hecate group trigger is visible', async () => {
       const hecateGroup = page
-        .getByRole('button', { name: /^hecate$/i })
-        .or(page.getByRole('link', { name: /^hecate$/i }))
+        .getByRole('button', { name: /hecate/i })
+        .or(page.getByRole('link', { name: /hecate/i }))
         .first();
 
       await expect(hecateGroup).toBeVisible();
@@ -41,8 +41,8 @@ test.describe('Hecate Navigation', () => {
   test('expanding the Hecate group reveals all 4 sub-items', async ({ page }) => {
     await test.step('Expand the Hecate group', async () => {
       const hecateGroup = page
-        .getByRole('button', { name: /^hecate$/i })
-        .or(page.getByRole('link', { name: /^hecate$/i }))
+        .getByRole('button', { name: /hecate/i })
+        .or(page.getByRole('link', { name: /hecate/i }))
         .first();
 
       const isExpanded = await hecateGroup.getAttribute('aria-expanded');
@@ -54,19 +54,19 @@ test.describe('Hecate Navigation', () => {
 
     await test.step('Verify all 4 Hecate sub-items are visible', async () => {
       await expect(
-        page.getByRole('link', { name: /^tunnels$/i }).or(page.getByRole('button', { name: /^tunnels$/i })).first()
+        page.getByRole('link', { name: /tunnels/i }).or(page.getByRole('button', { name: /tunnels/i })).first()
       ).toBeVisible();
 
       await expect(
-        page.getByRole('link', { name: /^providers$/i }).or(page.getByRole('button', { name: /^providers$/i })).first()
+        page.getByRole('link', { name: /providers/i }).or(page.getByRole('button', { name: /providers/i })).first()
       ).toBeVisible();
 
       await expect(
-        page.getByRole('link', { name: /^agent$/i }).or(page.getByRole('button', { name: /^agent$/i })).first()
+        page.getByRole('link', { name: /agent/i }).or(page.getByRole('button', { name: /agent/i })).first()
       ).toBeVisible();
 
       await expect(
-        page.getByRole('link', { name: /^remote servers$/i }).or(page.getByRole('button', { name: /^remote servers$/i })).first()
+        page.getByRole('link', { name: /remote servers/i }).or(page.getByRole('button', { name: /remote servers/i })).first()
       ).toBeVisible();
     });
   });
@@ -74,8 +74,8 @@ test.describe('Hecate Navigation', () => {
   test('clicking "Tunnels" navigates to /hecate/tunnels', async ({ page }) => {
     await test.step('Expand Hecate group and click Tunnels', async () => {
       const hecateGroup = page
-        .getByRole('button', { name: /^hecate$/i })
-        .or(page.getByRole('link', { name: /^hecate$/i }))
+        .getByRole('button', { name: /hecate/i })
+        .or(page.getByRole('link', { name: /hecate/i }))
         .first();
 
       const isExpanded = await hecateGroup.getAttribute('aria-expanded');
@@ -84,7 +84,7 @@ test.describe('Hecate Navigation', () => {
         await waitForLoadingComplete(page);
       }
 
-      const tunnelsLink = page.getByRole('link', { name: /^tunnels$/i }).first();
+      const tunnelsLink = page.getByRole('link', { name: /tunnels/i }).first();
       await tunnelsLink.click();
       await waitForLoadingComplete(page);
     });
@@ -97,8 +97,8 @@ test.describe('Hecate Navigation', () => {
   test('clicking "Providers" navigates to /hecate/providers', async ({ page }) => {
     await test.step('Expand Hecate group and click Providers', async () => {
       const hecateGroup = page
-        .getByRole('button', { name: /^hecate$/i })
-        .or(page.getByRole('link', { name: /^hecate$/i }))
+        .getByRole('button', { name: /hecate/i })
+        .or(page.getByRole('link', { name: /hecate/i }))
         .first();
 
       const isExpanded = await hecateGroup.getAttribute('aria-expanded');
@@ -107,7 +107,7 @@ test.describe('Hecate Navigation', () => {
         await waitForLoadingComplete(page);
       }
 
-      const providersLink = page.getByRole('link', { name: /^providers$/i }).first();
+      const providersLink = page.getByRole('link', { name: /providers/i }).first();
       await providersLink.click();
       await waitForLoadingComplete(page);
     });
@@ -120,8 +120,8 @@ test.describe('Hecate Navigation', () => {
   test('clicking "Agent" navigates to /hecate/agent', async ({ page }) => {
     await test.step('Expand Hecate group and click Agent', async () => {
       const hecateGroup = page
-        .getByRole('button', { name: /^hecate$/i })
-        .or(page.getByRole('link', { name: /^hecate$/i }))
+        .getByRole('button', { name: /hecate/i })
+        .or(page.getByRole('link', { name: /hecate/i }))
         .first();
 
       const isExpanded = await hecateGroup.getAttribute('aria-expanded');
@@ -130,7 +130,7 @@ test.describe('Hecate Navigation', () => {
         await waitForLoadingComplete(page);
       }
 
-      const agentLink = page.getByRole('link', { name: /^agent$/i }).first();
+      const agentLink = page.getByRole('link', { name: /agent/i }).first();
       await agentLink.click();
       await waitForLoadingComplete(page);
     });
@@ -143,8 +143,8 @@ test.describe('Hecate Navigation', () => {
   test('clicking "Remote Servers" navigates to /hecate/remote-servers', async ({ page }) => {
     await test.step('Expand Hecate group and click Remote Servers', async () => {
       const hecateGroup = page
-        .getByRole('button', { name: /^hecate$/i })
-        .or(page.getByRole('link', { name: /^hecate$/i }))
+        .getByRole('button', { name: /hecate/i })
+        .or(page.getByRole('link', { name: /hecate/i }))
         .first();
 
       const isExpanded = await hecateGroup.getAttribute('aria-expanded');
@@ -153,7 +153,7 @@ test.describe('Hecate Navigation', () => {
         await waitForLoadingComplete(page);
       }
 
-      const remoteServersLink = page.getByRole('link', { name: /^remote servers$/i }).first();
+      const remoteServersLink = page.getByRole('link', { name: /remote servers/i }).first();
       await remoteServersLink.click();
       await waitForLoadingComplete(page);
     });
