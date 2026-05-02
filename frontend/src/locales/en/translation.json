@@ -1565,6 +1565,8 @@
       "addProvider": "Add Provider",
       "editProvider": "Edit Provider",
       "deleteProvider": "Delete Provider",
+      "addTunnel": "Add Tunnel",
+      "deleteTunnel": "Delete Tunnel",
       "start": "Start",
       "stop": "Stop",
       "rotateCredentials": "Rotate Credentials",

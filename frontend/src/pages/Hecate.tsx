@@ -1,3 +1,8 @@
+/**
+ * @deprecated Replaced by HecateTunnels.tsx and HecateAgent.tsx.
+ * Kept for reference only. Will be deleted once feature/hecate is confirmed stable in production.
+ * Do not add new routes or functionality to this component.
+ */
 import {
   KeyRound,
   Pencil,
