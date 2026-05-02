@@ -107,7 +107,7 @@ describe('Layout', () => {
     expect(await screen.findByText('Plugins')).toBeInTheDocument()
 
     // Expand Security to see nested items
-    await user.click(await screen.findByRole('button', { name: /security/i }))
+    await user.click(await screen.findByRole('button', { name: /cerberus/i }))
     expect(await screen.findByText('Access Lists')).toBeInTheDocument()
     expect(await screen.findByText('Rate Limiting')).toBeInTheDocument()
 
@@ -202,7 +202,7 @@ describe('Layout', () => {
   })
 
   describe('Feature Flags - Conditional Sidebar Items', () => {
-    it('displays Security nav item when Cerberus is enabled', async () => {
+    it('displays Cerberus nav item when Cerberus is enabled', async () => {
       vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
         'feature.cerberus.enabled': true,
         'feature.uptime.enabled': true,
@@ -215,11 +215,11 @@ describe('Layout', () => {
       )
 
       await waitFor(() => {
-        expect(screen.getByText('Security')).toBeInTheDocument()
+        expect(screen.getByText('Cerberus')).toBeInTheDocument()
       })
     })
 
-    it('hides Security nav item when Cerberus is disabled', async () => {
+    it('hides Cerberus nav item when Cerberus is disabled', async () => {
       vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
         'feature.cerberus.enabled': false,
         'feature.uptime.enabled': true,
@@ -232,7 +232,7 @@ describe('Layout', () => {
       )
 
       await waitFor(() => {
-        expect(screen.queryByText('Security')).not.toBeInTheDocument()
+        expect(screen.queryByText('Cerberus')).not.toBeInTheDocument()
       })
     })
 
@@ -270,7 +270,7 @@ describe('Layout', () => {
       })
     })
 
-    it('shows Security and Uptime when both features are enabled', async () => {
+    it('shows Cerberus and Uptime when both features are enabled', async () => {
       vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
         'feature.cerberus.enabled': true,
         'feature.uptime.enabled': true,
@@ -283,12 +283,12 @@ describe('Layout', () => {
       )
 
       await waitFor(() => {
-        expect(screen.getByText('Security')).toBeInTheDocument()
+        expect(screen.getByText('Cerberus')).toBeInTheDocument()
         expect(screen.getByText('Uptime')).toBeInTheDocument()
       })
     })
 
-    it('hides both Security and Uptime when both features are disabled', async () => {
+    it('hides both Cerberus and Uptime when both features are disabled', async () => {
       vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
         'feature.cerberus.enabled': false,
         'feature.uptime.enabled': false,
@@ -301,12 +301,12 @@ describe('Layout', () => {
       )
 
       await waitFor(() => {
-        expect(screen.queryByText('Security')).not.toBeInTheDocument()
+        expect(screen.queryByText('Cerberus')).not.toBeInTheDocument()
         expect(screen.queryByText('Uptime')).not.toBeInTheDocument()
       })
     })
 
-    it('defaults to showing Security and Uptime when feature flags are loading', async () => {
+    it('defaults to showing Cerberus and Uptime when feature flags are loading', async () => {
       vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({})
 
       renderWithProviders(
@@ -317,7 +317,7 @@ describe('Layout', () => {
 
       // When flags are undefined, items should be visible by default (conservative approach)
       await waitFor(() => {
-        expect(screen.getByText('Security')).toBeInTheDocument()
+        expect(screen.getByText('Cerberus')).toBeInTheDocument()
         expect(screen.getByText('Uptime')).toBeInTheDocument()
       })
     })

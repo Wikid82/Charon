@@ -59,6 +59,7 @@
     "dns": "DNS",
     "dnsProviders": "DNS Providers",
     "security": "Security",
+    "cerberus": "Cerberus",
     "accessLists": "Access Lists",
     "crowdsec": "CrowdSec",
     "rateLimiting": "Rate Limiting",

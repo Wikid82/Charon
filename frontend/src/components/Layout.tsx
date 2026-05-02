@@ -71,7 +71,7 @@ export default function Layout({ children }: LayoutProps) {
       { name: t('navigation.plugins'), path: '/dns/plugins', icon: '🔌' },
     ] },
     { name: t('navigation.uptime'), path: '/uptime', icon: '📈' },
-    { name: t('navigation.security'), path: '/security', icon: '🛡️', children: [
+    { name: t('navigation.cerberus'), path: '/security', icon: '🛡️', children: [
       { name: t('navigation.dashboard'), path: '/security', icon: '🛡️' },
       { name: t('navigation.crowdsec'), path: '/security/crowdsec', icon: '🛡️' },
       { name: t('navigation.accessLists'), path: '/security/access-lists', icon: '🔒' },
@@ -116,7 +116,7 @@ export default function Layout({ children }: LayoutProps) {
     // Optional Features Logic
     // Default to visible (true) if flags are loading or undefined
     if (item.name === t('navigation.uptime')) return featureFlags?.['feature.uptime.enabled'] !== false
-    if (item.name === t('navigation.security')) return featureFlags?.['feature.cerberus.enabled'] !== false
+    if (item.name === t('navigation.cerberus')) return featureFlags?.['feature.cerberus.enabled'] !== false
     return true
   })
 
