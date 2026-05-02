@@ -52,7 +52,7 @@ jobs:
         run: bash scripts/ci/check-codeql-parity.sh
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4
+        uses: github/codeql-action/init@e46ed2cbd01164d986452f91f178727624ae40d7 # v4
         with:
           languages: ${{ matrix.language }}
           queries: security-and-quality
@@ -92,16 +92,17 @@ jobs:
         run: mkdir -p sarif-results
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4
+        uses: github/codeql-action/autobuild@e46ed2cbd01164d986452f91f178727624ae40d7 # v4
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4
+        id: codeql_analyze
+        uses: github/codeql-action/analyze@e46ed2cbd01164d986452f91f178727624ae40d7 # v4
         with:
           category: "/language:${{ matrix.language }}"
           output: sarif-results/${{ matrix.language }}
 
       - name: Check CodeQL Results
-        if: always()
+        if: always() && steps.codeql_analyze.conclusion != 'skipped'
         run: |
           set -euo pipefail
           SARIF_DIR="sarif-results/${{ matrix.language }}"
@@ -194,7 +195,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Fail on High-Severity Findings
-        if: always()
+        if: always() && steps.codeql_analyze.conclusion != 'skipped'
         run: |
           set -euo pipefail
           SARIF_DIR="sarif-results/${{ matrix.language }}"

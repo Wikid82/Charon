@@ -11,14 +11,14 @@
   },
   "dependencies": {
     "@typescript/analyze-trace": "^0.10.1",
-    "tldts": "^7.0.28",
+    "tldts": "^7.0.29",
     "type-check": "^0.4.0"
   },
   "overrides": {
     "smol-toml": "^1.6.1"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.11.2",
+    "@axe-core/playwright": "^4.11.3",
     "@bgotink/playwright-coverage": "^0.3.2",
     "@playwright/test": "^1.59.1",
     "@types/eslint-plugin-jsx-a11y": "^6.10.1",
@@ -26,7 +26,7 @@
     "dotenv": "^17.4.2",
     "markdownlint-cli2": "^0.22.1",
     "prettier": "^3.8.3",
-    "prettier-plugin-tailwindcss": "^0.7.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
     "tar": "^7.5.13",
     "typescript": "^6.0.3",
     "vite": "^8.0.10",
