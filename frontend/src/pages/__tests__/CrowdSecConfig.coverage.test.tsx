@@ -190,7 +190,7 @@ describe('CrowdSecConfig coverage', () => {
   it('shows info banner directing to Security Dashboard', async () => {
     await renderPage()
     expect(screen.getByText(/CrowdSec is controlled via the toggle on the/i)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Security/i })).toHaveAttribute('href', '/security')
+    expect(screen.getByRole('link', { name: /Cerberus/i })).toHaveAttribute('href', '/security')
   })
 
   it('guards import without a file and shows error on import failure', async () => {
