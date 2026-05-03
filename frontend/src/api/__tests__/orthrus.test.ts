@@ -8,12 +8,15 @@ import {
   deleteAgent,
   revokeAgent,
   getInstallSnippets,
+  patchAgent,
+  renameAgent,
 } from '../orthrus'
 
 vi.mock('../client', () => ({
   default: {
     get: vi.fn(),
     post: vi.fn(),
+    patch: vi.fn(),
     delete: vi.fn(),
   },
 }))
@@ -104,6 +107,47 @@ describe('orthrus API', () => {
 
       expect(client.post).toHaveBeenCalledWith('/orthrus/agents/agent-uuid/revoke')
       expect(result.message).toBe('revoked')
+    })
+  })
+
+  describe('renameAgent', () => {
+    it('delegates to patchAgent with only name field', async () => {
+      vi.mocked(client.patch).mockResolvedValue({ data: mockAgent })
+
+      const result = await renameAgent('agent-uuid', 'new-name')
+
+      expect(client.patch).toHaveBeenCalledWith('/orthrus/agents/agent-uuid', { name: 'new-name' })
+      expect(result).toEqual(mockAgent)
+    })
+  })
+
+  describe('patchAgent', () => {
+    it('sends correct partial payload with provider fields', async () => {
+      const patchedAgent = {
+        ...mockAgent,
+        hecate_tunnel_uuid: 'tun-123',
+        device_id: 'dev-abc',
+        resolved_address: '100.64.0.5',
+      }
+      vi.mocked(client.patch).mockResolvedValue({ data: patchedAgent })
+
+      const result = await patchAgent('agent-uuid', {
+        hecate_tunnel_uuid: 'tun-123',
+        device_id: 'dev-abc',
+        resolved_address: '100.64.0.5',
+      })
+
+      expect(client.patch).toHaveBeenCalledWith('/orthrus/agents/agent-uuid', {
+        hecate_tunnel_uuid: 'tun-123',
+        device_id: 'dev-abc',
+        resolved_address: '100.64.0.5',
+      })
+      expect(result).toEqual(patchedAgent)
+    })
+
+    it('propagates errors', async () => {
+      vi.mocked(client.patch).mockRejectedValue(new Error('patch failed'))
+      await expect(patchAgent('agent-uuid', { name: 'x' })).rejects.toThrow('patch failed')
     })
   })
 

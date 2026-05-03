@@ -280,3 +280,92 @@ func TestOrthrusService_GetInstallSnippets_NotFound(t *testing.T) {
 	_, err := svc.GetInstallSnippets("nonexistent-uuid", "https://charon.example.com")
 	assert.Error(t, err)
 }
+
+func TestOrthrusService_Patch_NameOnly(t *testing.T) {
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+
+	agent, _, err := svc.Provision("original-name")
+	require.NoError(t, err)
+
+	newName := "updated-name"
+	got, err := svc.Patch(agent.UUID, &newName, nil, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "updated-name", got.Name)
+	assert.Equal(t, agent.UUID, got.UUID)
+}
+
+func TestOrthrusService_Patch_ProviderFields(t *testing.T) {
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+
+	agent, _, err := svc.Provision("provider-agent")
+	require.NoError(t, err)
+
+	tunnelUUID := "tunnel-uuid-123"
+	deviceID := "device-id-456"
+	resolved := "10.0.0.1"
+
+	got, err := svc.Patch(agent.UUID, nil, &tunnelUUID, &deviceID, &resolved)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "provider-agent", got.Name)
+	require.NotNil(t, got.HecateTunnelUUID)
+	assert.Equal(t, tunnelUUID, *got.HecateTunnelUUID)
+	require.NotNil(t, got.DeviceID)
+	assert.Equal(t, deviceID, *got.DeviceID)
+	require.NotNil(t, got.ResolvedAddress)
+	assert.Equal(t, resolved, *got.ResolvedAddress)
+}
+
+func TestOrthrusService_Patch_BlankName(t *testing.T) {
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+
+	agent, _, err := svc.Provision("valid-name")
+	require.NoError(t, err)
+
+	blank := "   "
+	_, err = svc.Patch(agent.UUID, &blank, nil, nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot be blank")
+}
+
+func TestOrthrusService_Patch_EmptyUpdate(t *testing.T) {
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+
+	agent, _, err := svc.Provision("no-change-agent")
+	require.NoError(t, err)
+
+	got, err := svc.Patch(agent.UUID, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "no-change-agent", got.Name)
+	assert.Equal(t, agent.UUID, got.UUID)
+}
+
+func TestOrthrusService_Patch_UnknownUUID(t *testing.T) {
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+
+	newName := "irrelevant"
+	_, err := svc.Patch("00000000-0000-0000-0000-000000000000", &newName, nil, nil, nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
+}
+
+func TestOrthrusService_Rename_DelegatesToPatch(t *testing.T) {
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+
+	agent, _, err := svc.Provision("rename-before")
+	require.NoError(t, err)
+
+	got, err := svc.Rename(agent.UUID, "rename-after")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "rename-after", got.Name)
+	assert.Equal(t, agent.UUID, got.UUID)
+}

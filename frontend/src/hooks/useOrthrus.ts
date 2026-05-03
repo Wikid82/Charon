@@ -4,10 +4,12 @@ import {
   deleteAgent,
   getInstallSnippets,
   listAgents,
+  patchAgent,
   provisionAgent,
   renameAgent,
   revokeAgent,
   type OrthrusAgent,
+  type PatchAgentRequest,
   type ProvisionAgentRequest,
 } from '../api/orthrus';
 
@@ -33,6 +35,17 @@ export const useRenameAgent = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ uuid, name }: { uuid: string; name: string }) => renameAgent(uuid, name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
+    },
+  });
+};
+
+export const usePatchAgent = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ uuid, req }: { uuid: string; req: PatchAgentRequest }) =>
+      patchAgent(uuid, req),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
     },

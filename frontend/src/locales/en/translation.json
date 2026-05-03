@@ -1628,9 +1628,13 @@
       "mode": {
         "label": "Connection mode",
         "direct": "Direct",
-        "agent": "Agent",
+        "agent": {
+          "label": "Agent",
+          "noProviderWarning": "This agent has no provider assigned — connectivity address unavailable.",
+          "noProviderLink": "Assign one on the Agent page."
+        },
         "directDescription": "Connect via IP or hostname",
-        "agentDescription": "Route traffic through a Hecate network provider",
+        "agentDescription": "Route via a self-hosted Orthrus agent",
         "provider": "Provider",
         "selectProvider": "Select a provider...",
         "noProviders": "No providers configured.",
@@ -1639,7 +1643,13 @@
         "changeDevice": "Change",
         "selectDevice": "Select device",
         "selectPeer": "Select peer",
-        "selectMember": "Select member"
+        "selectMember": "Select member",
+        "providerDescription": "Route via a configured network provider (Tailscale, NetBird, etc.)",
+        "selectAgent": "Select an agent"
+      },
+      "provider": {
+        "cloudflareTunnelHostname": "Tunnel Hostname",
+        "cloudflareTunnelHint": "Enter the public hostname configured for this Cloudflare tunnel (e.g. app.example.com)"
       },
       "selectAgent": "Select an agent...",
       "provisionAgent": "Provision New Agent",
@@ -1709,13 +1719,23 @@
       "noDevices": "No Tailscale devices found. Ensure your API key is configured."
     },
     "tunnels": { "title": "Tunnels", "description": "Manage tunnel connections" },
-    "providers": { "title": "Providers", "description": "Configure provider credentials" },
+    "providers": {
+      "title": "Providers",
+      "description": "Configure provider credentials",
+      "editTunnel": "Edit {{name}}",
+      "noTunnels": "No tunnels configured.",
+      "tunnelList": "Configured tunnels",
+      "addTunnel": "New {{provider}} tunnel",
+      "tunnelCount_one": "{{count}} tunnel",
+      "tunnelCount_other": "{{count}} tunnels"
+    },
     "agent": { "title": "Agent", "description": "Manage Orthrus agents" },
     "agentManager": {
       "tableLabel": "Orthrus agents",
       "colName": "Name",
       "colUUID": "UUID",
       "colStatus": "Status",
+      "colProvider": "Provider",
       "colLastSeen": "Last Seen",
       "colActions": "Actions",
       "editNameLabel": "Rename agent {{name}}",
@@ -1732,7 +1752,14 @@
         "online": "Online",
         "offline": "Offline",
         "pending": "Pending"
-      }
+      },
+      "noProviderAssigned": "No provider assigned",
+      "assignProvider": "Assign provider to {{name}}",
+      "assignProviderTitle": "Assign Provider — {{name}}",
+      "providerTunnel": "Provider Tunnel",
+      "deviceId": "Device / Peer ID",
+      "resolvedAddress": "Resolved Address",
+      "saveProviderAssignment": "Save Assignment"
     }
   }
 }

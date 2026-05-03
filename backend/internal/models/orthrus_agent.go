@@ -30,6 +30,19 @@ type OrthrusAgent struct {
 	// PEM-encoded certificate issued by Charon's internal CA (not sensitive).
 	AgentCertPEM string `json:"agent_cert_pem,omitempty" gorm:"type:text"`
 
+	// HecateTunnelUUID is the TunnelConfig assigned to THIS AGENT for its own outbound
+	// connectivity. Distinct from RemoteServer.HecateTunnelUUID which governs how a
+	// RemoteServer is reached by Charon.
+	HecateTunnelUUID *string `json:"hecate_tunnel_uuid,omitempty" gorm:"index"`
+
+	// DeviceID is the provider-specific peer/device/member identifier within the
+	// assigned tunnel (e.g. Tailscale node ID, NetBird peer ID). Empty for Cloudflare.
+	DeviceID *string `json:"device_id,omitempty"`
+
+	// ResolvedAddress is the cached connectivity address for this agent,
+	// set by Charon at assignment time, used as upstream host in Remote Servers.
+	ResolvedAddress *string `json:"resolved_address,omitempty"`
+
 	LastHeartbeat *time.Time `json:"last_heartbeat,omitempty"`
 	LastSeen      *time.Time `json:"last_seen,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`

@@ -80,14 +80,37 @@ func (s *OrthrusService) Get(uuid string) (*models.OrthrusAgent, error) {
 	return &agent, nil
 }
 
-// Rename updates the display name of an agent.
-func (s *OrthrusService) Rename(uuid, newName string) (*models.OrthrusAgent, error) {
-	if err := s.db.Model(&models.OrthrusAgent{}).
-		Where("uuid = ?", uuid).
-		Update("name", newName).Error; err != nil {
-		return nil, fmt.Errorf("orthrus: rename agent %s: %w", uuid, err)
+// Patch applies a partial update to an agent. Only non-nil fields are written.
+func (s *OrthrusService) Patch(uuid string, name, hecateTunnelUUID, deviceID, resolvedAddress *string) (*models.OrthrusAgent, error) {
+	updates := map[string]interface{}{}
+	if name != nil {
+		trimmed := strings.TrimSpace(*name)
+		if trimmed == "" {
+			return nil, fmt.Errorf("orthrus: agent name cannot be blank")
+		}
+		updates["name"] = trimmed
+	}
+	if hecateTunnelUUID != nil {
+		updates["hecate_tunnel_uuid"] = *hecateTunnelUUID
+	}
+	if deviceID != nil {
+		updates["device_id"] = *deviceID
+	}
+	if resolvedAddress != nil {
+		updates["resolved_address"] = *resolvedAddress
+	}
+	if len(updates) == 0 {
+		return s.Get(uuid)
+	}
+	if err := s.db.Model(&models.OrthrusAgent{}).Where("uuid = ?", uuid).Updates(updates).Error; err != nil {
+		return nil, fmt.Errorf("orthrus: patch agent %s: %w", uuid, err)
 	}
 	return s.Get(uuid)
+}
+
+// Rename updates the display name of an agent (backward-compat wrapper around Patch).
+func (s *OrthrusService) Rename(uuid, newName string) (*models.OrthrusAgent, error) {
+	return s.Patch(uuid, &newName, nil, nil, nil)
 }
 
 // Delete removes an agent from the database (does not revoke/disconnect first).

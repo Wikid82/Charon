@@ -203,15 +203,23 @@ Supports both local Docker installations and remote Docker servers, perfect for 
 
 ---
 
-### � Hecate Tunnel & Pathway Manager
+### 🔀 Hecate Tunnel & Pathway Manager
 
-Connect remote servers that sit behind firewalls or NAT routers—no open inbound ports required. Choose how each remote server reaches Charon from a set of pluggable connection types, all managed from the existing Remote Servers page.
+Connect remote servers that sit behind firewalls or NAT routers—no open inbound ports required. Choose how each remote server reaches Charon from three simple connection modes, all managed from the Remote Servers page.
 
-**Connection Types:**
+**Connection Modes:**
 
-- **Direct** — Classic host and port
-- **Orthrus Agent** — A lightweight agent you install on the remote server; it calls out to Charon, so no port-forwarding is needed
-- **Cloudflare Tunnel, Tailscale, ZeroTier, NetBird** — Use your existing mesh network or tunnel provider
+- **Direct** — Type in a hostname or IP address manually
+- **Agent** — Pick an Orthrus agent; Charon figures out the address automatically based on the agent's network assignment
+- **Provider** — Pick a VPN/tunnel network and a specific device on it directly, without needing an agent
+
+**Provider Management:**
+
+Each tunnel provider (Tailscale, Cloudflare, NetBird, ZeroTier) shows its configured tunnels directly on the provider card. Click the settings icon next to any tunnel to edit it without leaving the page.
+
+**Orthrus Agent + Provider Assignment:**
+
+Each Orthrus agent can be assigned a provider tunnel and a specific device (or public hostname for Cloudflare). Once assigned, Charon remembers the address—so when you add a Remote Server using that agent, the connection details fill in automatically.
 
 A step-by-step install wizard walks you through deploying the Orthrus agent (Docker Compose, systemd, Kubernetes, or standalone binary). Each remote server shows a live status badge so you can see connection health at a glance.
 

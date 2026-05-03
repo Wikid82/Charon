@@ -12,6 +12,17 @@ export interface OrthrusAgent {
   last_seen?: string;
   created_at: string;
   updated_at: string;
+  // Provider assignment — set via Assign Provider dialog
+  hecate_tunnel_uuid?: string;
+  device_id?: string;
+  resolved_address?: string;
+}
+
+export interface PatchAgentRequest {
+  name?: string;
+  hecate_tunnel_uuid?: string;
+  device_id?: string;
+  resolved_address?: string;
 }
 
 export interface ProvisionAgentRequest {
@@ -53,8 +64,11 @@ export const deleteAgent = async (uuid: string): Promise<void> => {
   await client.delete(`/orthrus/agents/${uuid}`);
 };
 
-export const renameAgent = async (uuid: string, name: string): Promise<OrthrusAgent> => {
-  const { data } = await client.patch<OrthrusAgent>(`/orthrus/agents/${uuid}`, { name });
+export const renameAgent = async (uuid: string, name: string): Promise<OrthrusAgent> =>
+  patchAgent(uuid, { name });
+
+export const patchAgent = async (uuid: string, req: PatchAgentRequest): Promise<OrthrusAgent> => {
+  const { data } = await client.patch<OrthrusAgent>(`/orthrus/agents/${uuid}`, req);
   return data;
 };
 
