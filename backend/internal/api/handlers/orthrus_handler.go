@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/services"
 )
@@ -23,7 +25,7 @@ func (h *OrthrusHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/orthrus/agents", h.List)
 	rg.POST("/orthrus/agents", h.Provision)
 	rg.GET("/orthrus/agents/:uuid", h.Get)
-	rg.PATCH("/orthrus/agents/:uuid", h.Rename)
+	rg.PATCH("/orthrus/agents/:uuid", h.Patch)
 	rg.DELETE("/orthrus/agents/:uuid", h.Delete)
 	rg.POST("/orthrus/agents/:uuid/revoke", h.Revoke)
 	rg.GET("/orthrus/agents/:uuid/snippets", h.GetInstallSnippets)
@@ -73,22 +75,29 @@ func (h *OrthrusHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, agent)
 }
 
-// renameRequest is the payload for renaming an agent.
-type renameRequest struct {
-	Name string `json:"name" binding:"required"`
+// patchAgentRequest is the payload for partially updating an agent.
+type patchAgentRequest struct {
+	Name             *string `json:"name"`
+	HecateTunnelUUID *string `json:"hecate_tunnel_uuid"`
+	DeviceID         *string `json:"device_id"`
+	ResolvedAddress  *string `json:"resolved_address"`
 }
 
-// Rename updates the display name of an Orthrus agent.
-func (h *OrthrusHandler) Rename(c *gin.Context) {
+// Patch applies a partial update to an Orthrus agent.
+func (h *OrthrusHandler) Patch(c *gin.Context) {
 	uuid := c.Param("uuid")
-	var req renameRequest
+	var req patchAgentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	agent, err := h.svc.Rename(uuid, req.Name)
+	agent, err := h.svc.Patch(uuid, req.Name, req.HecateTunnelUUID, req.DeviceID, req.ResolvedAddress)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
 		return
 	}
 	c.JSON(http.StatusOK, agent)

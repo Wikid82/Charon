@@ -294,7 +294,6 @@ func TestOrthrusHandler_GetInstallSnippets_Success(t *testing.T) {
 func TestOrthrusHandler_GetInstallSnippets_FallbackURL(t *testing.T) {
 	h, _ := newOrthrusTestSetup(t)
 
-	// Provision
 	wProv := httptest.NewRecorder()
 	cProv, _ := gin.CreateTestContext(wProv)
 	cProv.Request = httptest.NewRequest(http.MethodPost, "/management/orthrus/agents",
@@ -307,7 +306,6 @@ func TestOrthrusHandler_GetInstallSnippets_FallbackURL(t *testing.T) {
 	require.NoError(t, json.Unmarshal(wProv.Body.Bytes(), &provisioned))
 	agentUUID := provisioned["agent"].(map[string]any)["uuid"].(string)
 
-	// GetInstallSnippets without X-Charon-URL header — should use Host
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodGet, "/management/orthrus/agents/"+agentUUID+"/snippets", http.NoBody)
@@ -317,6 +315,117 @@ func TestOrthrusHandler_GetInstallSnippets_FallbackURL(t *testing.T) {
 	h.GetInstallSnippets(c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestOrthrusHandler_PatchAgent_NameOnly(t *testing.T) {
+	h, _ := newOrthrusTestSetup(t)
+
+	wProv := httptest.NewRecorder()
+	cProv, _ := gin.CreateTestContext(wProv)
+	cProv.Request = httptest.NewRequest(http.MethodPost, "/management/orthrus/agents",
+		bytes.NewBufferString(`{"name":"original-name"}`))
+	cProv.Request.Header.Set("Content-Type", "application/json")
+	h.Provision(cProv)
+	require.Equal(t, http.StatusCreated, wProv.Code)
+
+	var provisioned map[string]any
+	require.NoError(t, json.Unmarshal(wProv.Body.Bytes(), &provisioned))
+	agentUUID := provisioned["agent"].(map[string]any)["uuid"].(string)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPatch, "/management/orthrus/agents/"+agentUUID,
+		bytes.NewBufferString(`{"name":"new-name"}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{{Key: "uuid", Value: agentUUID}}
+
+	h.Patch(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	assert.Equal(t, "new-name", result["name"])
+	assert.Equal(t, agentUUID, result["uuid"])
+}
+
+func TestOrthrusHandler_PatchAgent_TunnelFields(t *testing.T) {
+	h, _ := newOrthrusTestSetup(t)
+
+	wProv := httptest.NewRecorder()
+	cProv, _ := gin.CreateTestContext(wProv)
+	cProv.Request = httptest.NewRequest(http.MethodPost, "/management/orthrus/agents",
+		bytes.NewBufferString(`{"name":"tunnel-agent"}`))
+	cProv.Request.Header.Set("Content-Type", "application/json")
+	h.Provision(cProv)
+	require.Equal(t, http.StatusCreated, wProv.Code)
+
+	var provisioned map[string]any
+	require.NoError(t, json.Unmarshal(wProv.Body.Bytes(), &provisioned))
+	agentUUID := provisioned["agent"].(map[string]any)["uuid"].(string)
+
+	body := `{"hecate_tunnel_uuid":"tunnel-x","device_id":"peer-y","resolved_address":"10.0.0.1:8080"}`
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPatch, "/management/orthrus/agents/"+agentUUID,
+		bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{{Key: "uuid", Value: agentUUID}}
+
+	h.Patch(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	assert.Equal(t, "tunnel-x", result["hecate_tunnel_uuid"])
+	assert.Equal(t, "peer-y", result["device_id"])
+	assert.Equal(t, "10.0.0.1:8080", result["resolved_address"])
+	assert.Equal(t, "tunnel-agent", result["name"])
+}
+
+func TestOrthrusHandler_PatchAgent_EmptyBody(t *testing.T) {
+	h, _ := newOrthrusTestSetup(t)
+
+	wProv := httptest.NewRecorder()
+	cProv, _ := gin.CreateTestContext(wProv)
+	cProv.Request = httptest.NewRequest(http.MethodPost, "/management/orthrus/agents",
+		bytes.NewBufferString(`{"name":"unchanged-agent"}`))
+	cProv.Request.Header.Set("Content-Type", "application/json")
+	h.Provision(cProv)
+	require.Equal(t, http.StatusCreated, wProv.Code)
+
+	var provisioned map[string]any
+	require.NoError(t, json.Unmarshal(wProv.Body.Bytes(), &provisioned))
+	agentUUID := provisioned["agent"].(map[string]any)["uuid"].(string)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPatch, "/management/orthrus/agents/"+agentUUID,
+		bytes.NewBufferString(`{}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{{Key: "uuid", Value: agentUUID}}
+
+	h.Patch(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	assert.Equal(t, "unchanged-agent", result["name"])
+	assert.Equal(t, agentUUID, result["uuid"])
+}
+
+func TestOrthrusHandler_PatchAgent_UnknownUUID(t *testing.T) {
+	h, _ := newOrthrusTestSetup(t)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPatch, "/management/orthrus/agents/nonexistent",
+		bytes.NewBufferString(`{"name":"any-name"}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{{Key: "uuid", Value: "nonexistent-uuid"}}
+
+	h.Patch(c)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestOrthrusHandler_GetInstallSnippets_NotFound(t *testing.T) {
@@ -381,6 +490,7 @@ func TestOrthrusHandler_RegisterRoutes(t *testing.T) {
 	assert.True(t, paths["GET /management/orthrus/agents"])
 	assert.True(t, paths["POST /management/orthrus/agents"])
 	assert.True(t, paths["GET /management/orthrus/agents/:uuid"])
+	assert.True(t, paths["PATCH /management/orthrus/agents/:uuid"])
 	assert.True(t, paths["DELETE /management/orthrus/agents/:uuid"])
 	assert.True(t, paths["POST /management/orthrus/agents/:uuid/revoke"])
 	assert.True(t, paths["GET /management/orthrus/agents/:uuid/snippets"])

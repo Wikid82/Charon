@@ -1,9 +1,10 @@
-import { Check, Pencil, Trash2, X } from 'lucide-react';
+import { Check, Link2, Pencil, Trash2, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { type OrthrusAgent } from '../../api/orthrus';
 import { useDeleteAgent, useRenameAgent } from '../../hooks/useOrthrus';
+import { AgentProviderAssignDialog } from './AgentProviderAssignDialog';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import {
@@ -33,9 +34,10 @@ const statusVariant = (status: OrthrusAgent['status']): 'success' | 'warning' | 
 interface AgentRowProps {
   agent: OrthrusAgent;
   onDelete: (uuid: string, name: string) => void;
+  onAssignProvider: (agent: OrthrusAgent) => void;
 }
 
-const AgentRow = ({ agent, onDelete }: AgentRowProps) => {
+const AgentRow = ({ agent, onDelete, onAssignProvider }: AgentRowProps) => {
   const { t } = useTranslation();
   const { mutate: rename, isPending: isRenaming } = useRenameAgent();
   const [editing, setEditing] = useState(false);
@@ -135,6 +137,19 @@ const AgentRow = ({ agent, onDelete }: AgentRowProps) => {
         </Badge>
       </td>
 
+      {/* Provider */}
+      <td className="py-3 px-4 text-xs text-content-secondary">
+        {agent.hecate_tunnel_uuid ? (
+          <span className="text-content-primary font-mono">
+            {agent.resolved_address ?? agent.device_id ?? '—'}
+          </span>
+        ) : (
+          <span className="text-content-muted italic">
+            {t('hecate.agentManager.noProviderAssigned')}
+          </span>
+        )}
+      </td>
+
       {/* Last seen */}
       <td className="py-3 px-4 text-xs text-content-secondary">
         {agent.last_seen
@@ -144,15 +159,26 @@ const AgentRow = ({ agent, onDelete }: AgentRowProps) => {
 
       {/* Actions */}
       <td className="py-3 px-4">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 w-7 p-0 text-content-tertiary hover:text-destructive"
-          onClick={() => onDelete(agent.uuid, agent.name)}
-          aria-label={t('hecate.agentManager.deleteLabel', { name: agent.name })}
-        >
-          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0 text-content-tertiary hover:text-brand-500"
+            onClick={() => onAssignProvider(agent)}
+            aria-label={t('hecate.agentManager.assignProvider', { name: agent.name })}
+          >
+            <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0 text-content-tertiary hover:text-destructive"
+            onClick={() => onDelete(agent.uuid, agent.name)}
+            aria-label={t('hecate.agentManager.deleteLabel', { name: agent.name })}
+          >
+            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+          </Button>
+        </div>
       </td>
     </tr>
   );
@@ -162,6 +188,7 @@ export const OrthrusAgentManager = ({ agents }: OrthrusAgentManagerProps) => {
   const { t } = useTranslation();
   const { mutate: deleteAgent, isPending: isDeleting } = useDeleteAgent();
   const [confirmDelete, setConfirmDelete] = useState<{ uuid: string; name: string } | null>(null);
+  const [assignProviderAgent, setAssignProviderAgent] = useState<OrthrusAgent | null>(null);
 
   const handleDeleteRequest = (uuid: string, name: string) => {
     setConfirmDelete({ uuid, name });
@@ -198,6 +225,9 @@ export const OrthrusAgentManager = ({ agents }: OrthrusAgentManagerProps) => {
                 {t('hecate.agentManager.colStatus')}
               </th>
               <th scope="col" className="py-2.5 px-4 text-left text-xs font-medium text-content-secondary">
+                {t('hecate.agentManager.colProvider')}
+              </th>
+              <th scope="col" className="py-2.5 px-4 text-left text-xs font-medium text-content-secondary">
                 {t('hecate.agentManager.colLastSeen')}
               </th>
               <th scope="col" className="py-2.5 px-4 text-left text-xs font-medium text-content-secondary sr-only">
@@ -207,7 +237,12 @@ export const OrthrusAgentManager = ({ agents }: OrthrusAgentManagerProps) => {
           </thead>
           <tbody>
             {agents.map((agent) => (
-              <AgentRow key={agent.uuid} agent={agent} onDelete={handleDeleteRequest} />
+              <AgentRow
+                key={agent.uuid}
+                agent={agent}
+                onDelete={handleDeleteRequest}
+                onAssignProvider={setAssignProviderAgent}
+              />
             ))}
           </tbody>
         </table>
@@ -232,6 +267,14 @@ export const OrthrusAgentManager = ({ agents }: OrthrusAgentManagerProps) => {
           </div>
         </DialogContent>
       </Dialog>
+      {/* Assign Provider dialog */}
+      {assignProviderAgent && (
+        <AgentProviderAssignDialog
+          agent={assignProviderAgent}
+          open={!!assignProviderAgent}
+          onClose={() => setAssignProviderAgent(null)}
+        />
+      )}
     </>
   );
 };

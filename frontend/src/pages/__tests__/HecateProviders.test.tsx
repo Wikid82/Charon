@@ -10,18 +10,24 @@ vi.mock('../../hooks/useHecate', () => ({
   useHecate: vi.fn(),
 }))
 
+vi.mock('../../components/hecate/TunnelStatusBadge', () => ({
+  TunnelStatusBadge: ({ state }: { state: string }) => <span data-testid="tunnel-status">{state}</span>,
+}))
+
 vi.mock('../../components/hecate/HecateTunnelForm', () => ({
   HecateTunnelForm: ({
     open,
     onClose,
     initialProvider,
+    tunnel,
   }: {
     open: boolean
     onClose: () => void
     initialProvider?: string
+    tunnel?: { uuid: string; name: string }
   }) =>
     open ? (
-      <div data-testid="tunnel-form" data-provider={initialProvider}>
+      <div data-testid="tunnel-form" data-provider={initialProvider} data-tunnel-uuid={tunnel?.uuid}>
         <button onClick={onClose}>Close Form</button>
       </div>
     ) : null,
@@ -127,5 +133,43 @@ describe('HecateProviders', () => {
       const form = screen.getByTestId('tunnel-form')
       expect(form).toHaveAttribute('data-provider', 'cloudflare')
     })
+  })
+
+  it('shows tunnel names inline in each provider card', async () => {
+    mockUseHecate.mockReturnValue({
+      ...baseMockHecate,
+      tunnels: [
+        { uuid: 'cf-1', name: 'CF Alpha', provider: 'cloudflare' as const, is_active: true, configuration: '', created_at: '', updated_at: '' },
+        { uuid: 'ts-1', name: 'TS Beta', provider: 'tailscale' as const, is_active: true, configuration: '', created_at: '', updated_at: '' },
+      ],
+    })
+    renderComponent()
+    expect(await screen.findByText('CF Alpha')).toBeInTheDocument()
+    expect(await screen.findByText('TS Beta')).toBeInTheDocument()
+  })
+
+  it('opens edit form with the correct tunnel when settings button is clicked', async () => {
+    const user = userEvent.setup()
+    mockUseHecate.mockReturnValue({
+      ...baseMockHecate,
+      tunnels: [
+        { uuid: 'edit-u1', name: 'My CF Tunnel', provider: 'cloudflare' as const, is_active: true, configuration: '', created_at: '', updated_at: '' },
+      ],
+    })
+    renderComponent()
+
+    const settingsBtn = await screen.findByRole('button', { name: 'hecate.providers.editTunnel' })
+    await user.click(settingsBtn)
+
+    await waitFor(() => {
+      const form = screen.getByTestId('tunnel-form')
+      expect(form).toHaveAttribute('data-tunnel-uuid', 'edit-u1')
+    })
+  })
+
+  it('shows empty state when a provider has no tunnels', async () => {
+    renderComponent()
+    const emptyMessages = await screen.findAllByText('hecate.providers.noTunnels')
+    expect(emptyMessages).toHaveLength(4)
   })
 })
