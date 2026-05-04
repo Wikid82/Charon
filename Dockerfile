@@ -385,7 +385,7 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # Fix available at v1.79.3. Pin here so the CrowdSec binary is patched immediately;
     # remove once CrowdSec ships a release built with grpc >= v1.79.3.
     # renovate: datasource=go depName=google.golang.org/grpc
-    go get google.golang.org/grpc@v1.80.0 && \
+    go get google.golang.org/grpc@v1.81.0 && \
     # CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
     # renovate: datasource=go depName=github.com/jackc/pgx/v4
     go get github.com/jackc/pgx/v4@v4.18.3 && \
@@ -399,7 +399,7 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
     go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.10 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.72.0 && \
+    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.73.0 && \
     go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/s3
     go get github.com/aws/aws-sdk-go-v2/service/s3@v1.100.1 && \
