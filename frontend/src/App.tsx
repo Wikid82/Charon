@@ -52,25 +52,26 @@ export default function App() {
   return (
     <AuthProvider>
       <Router>
-        <Suspense fallback={<LoadingOverlay message="Loading application..." />}>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/setup" element={<Setup />} />
-            <Route path="/accept-invite" element={<AcceptInvite />} />
-            <Route path="/passthrough" element={
-              <RequireAuth>
+        <Routes>
+          <Route path="/login" element={<Suspense fallback={<LoadingOverlay message="Loading..." />}><Login /></Suspense>} />
+          <Route path="/setup" element={<Suspense fallback={<LoadingOverlay message="Loading..." />}><Setup /></Suspense>} />
+          <Route path="/accept-invite" element={<Suspense fallback={<LoadingOverlay message="Loading..." />}><AcceptInvite /></Suspense>} />
+          <Route path="/passthrough" element={
+            <RequireAuth>
+              <Suspense fallback={<LoadingOverlay message="Loading..." />}>
                 <PassthroughLanding />
+              </Suspense>
+            </RequireAuth>
+          } />
+          <Route path="/" element={
+            <SetupGuard>
+              <RequireAuth>
+                <Layout>
+                  <Outlet />
+                </Layout>
               </RequireAuth>
-            } />
-            <Route path="/" element={
-              <SetupGuard>
-                <RequireAuth>
-                  <Layout>
-                    <Outlet />
-                  </Layout>
-                </RequireAuth>
-              </SetupGuard>
-            }>
+            </SetupGuard>
+          }>
               <Route index element={<Dashboard />} />
               <Route path="proxy-hosts" element={<ProxyHosts />} />
               <Route path="domains" element={<Domains />} />
@@ -142,7 +143,6 @@ export default function App() {
 
             </Route>
           </Routes>
-        </Suspense>
         <ToastContainer />
         <Toaster
           position="bottom-right"

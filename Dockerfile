@@ -385,7 +385,7 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # Fix available at v1.79.3. Pin here so the CrowdSec binary is patched immediately;
     # remove once CrowdSec ships a release built with grpc >= v1.79.3.
     # renovate: datasource=go depName=google.golang.org/grpc
-    go get google.golang.org/grpc@v1.80.0 && \
+    go get google.golang.org/grpc@v1.81.0 && \
     # CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
     # renovate: datasource=go depName=github.com/jackc/pgx/v4
     go get github.com/jackc/pgx/v4@v4.18.3 && \
@@ -399,7 +399,7 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
     go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.10 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.71.1 && \
+    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.73.0 && \
     go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/s3
     go get github.com/aws/aws-sdk-go-v2/service/s3@v1.100.1 && \
@@ -496,7 +496,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=c880cbc7e6b1a9b1a96d530c34996480d6d809d2c89a6bd73a5072e4fffbc01c
+ARG GEOLITE2_COUNTRY_SHA256=c173df28ef52c70db07c835fd78f04c46bf0938f6097b39c6454b07cd144859d
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
