@@ -7,9 +7,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import * as featureFlagsApi from '../../api/featureFlags'
 import { ThemeProvider } from '../../context/ThemeContext'
+import * as useMediaQueryModule from '../../hooks/useMediaQuery'
 import Layout from '../Layout'
 
 const mockLogout = vi.fn()
+
+vi.mock('../../hooks/useMediaQuery', () => ({
+  useMediaQuery: vi.fn().mockReturnValue(false),
+}))
 
 // Mock AuthContext
 vi.mock('../../hooks/useAuth', () => ({
@@ -161,6 +166,8 @@ describe('Layout', () => {
   })
 
   it('toggles sidebar on mobile', async () => {
+    vi.mocked(useMediaQueryModule.useMediaQuery).mockReturnValue(true)
+
     renderWithProviders(
       <Layout>
         <div>Test Content</div>

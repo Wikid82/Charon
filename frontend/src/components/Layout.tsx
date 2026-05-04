@@ -1,8 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { Menu, ChevronDown, ChevronRight } from 'lucide-react'
-import { type ReactNode, useState, useEffect } from 'react'
+import { type ReactNode, useState, useEffect, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation } from 'react-router-dom'
+
+import { useMediaQuery } from '../hooks/useMediaQuery'
 
 import NotificationCenter from './NotificationCenter'
 import SystemStatus from './SystemStatus'
@@ -34,6 +36,7 @@ export default function Layout({ children }: LayoutProps) {
   })
   const [expandedMenus, setExpandedMenus] = useState<string[]>([])
   const { logout, user } = useAuth()
+  const isMobile = useMediaQuery('(max-width: 1023px)')
 
   useEffect(() => {
     localStorage.setItem('sidebarCollapsed', JSON.stringify(isCollapsed))
@@ -139,7 +142,7 @@ export default function Layout({ children }: LayoutProps) {
         {t('accessibility.skipToContent')}
       </a>
       {/* Mobile Header */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white dark:bg-dark-sidebar border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-4 z-40">
+      {isMobile && <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white dark:bg-dark-sidebar border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-4 z-40">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)} data-testid="mobile-menu-toggle">
             <Menu className="w-5 h-5" />
@@ -150,7 +153,7 @@ export default function Layout({ children }: LayoutProps) {
           <NotificationCenter />
           <ThemeToggle />
         </div>
-      </div>
+      </div>}
 
       {/* Sidebar */}
       <aside className={`
@@ -161,9 +164,9 @@ export default function Layout({ children }: LayoutProps) {
       `}>
         <div className={`h-20 flex items-center justify-center border-b border-gray-200 dark:border-gray-800`}>
            {isCollapsed ? (
-             <img src="/logo.png" alt="Charon" className="h-12 w-auto" />
+             <img src="/logo.png" alt="Charon" className="h-12 w-auto" fetchPriority="high" decoding="async" />
            ) : (
-             <img src="/banner.png" alt="Charon" className="h-14 w-auto max-w-[200px] object-contain" />
+             <img src="/banner.png" alt="Charon" className="h-14 w-auto max-w-[200px] object-contain" fetchPriority="high" decoding="async" />
            )}
         </div>
 
@@ -386,7 +389,9 @@ export default function Layout({ children }: LayoutProps) {
         </header>
         <div className="flex-1 overflow-y-auto">
           <div className="p-4 lg:p-8 max-w-7xl mx-auto w-full">
-            {children}
+            <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-pulse text-gray-400">Loading...</div></div>}>
+              {children}
+            </Suspense>
           </div>
         </div>
       </main>
