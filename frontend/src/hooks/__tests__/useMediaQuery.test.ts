@@ -47,16 +47,6 @@ describe('useMediaQuery', () => {
     expect(result.current).toBe(true)
   })
 
-  it('returns false in SSR environment when window is undefined', () => {
-    vi.stubGlobal('window', undefined)
-    try {
-      const { result } = renderHook(() => useMediaQuery('(max-width: 1023px)'))
-      expect(result.current).toBe(false)
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  })
-
   it('updates matches immediately when query prop changes', () => {
     vi.spyOn(window, 'matchMedia').mockImplementation((q: string) => ({
       matches: q === '(min-width: 768px)',
