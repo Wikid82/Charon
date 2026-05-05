@@ -23,7 +23,7 @@ fi
 echo "Installing base parsers..."
 cscli parsers install crowdsecurity/http-logs --force || echo "⚠️ Failed to install crowdsecurity/http-logs"
 cscli parsers install crowdsecurity/syslog-logs --force || echo "⚠️ Failed to install crowdsecurity/syslog-logs"
-cscli parsers install crowdsecurity/geoip-enrich --force || echo "⚠️ Failed to install crowdsecurity/geoip-enrich"
+timeout 60 cscli parsers install crowdsecurity/geoip-enrich --force || echo "⚠️ Failed or timed out installing crowdsecurity/geoip-enrich (GeoLite2-City.mmdb download may be slow)"
 cscli parsers install crowdsecurity/whitelists --force || echo "⚠️  Failed to install crowdsecurity/whitelists"
 
 # Install HTTP scenarios for attack detection
