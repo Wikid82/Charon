@@ -382,6 +382,18 @@
       "matchDatasources": ["go"],
       "matchPackageNames": ["github.com/go-playground/validator/v10"],
       "sourceUrl": "https://github.com/go-playground/validator"
+    },
+    {
+      "description": "Fix Renovate lookup for gorm.io/gorm (vanity domain maps to go-gorm/gorm)",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["gorm.io/gorm"],
+      "sourceUrl": "https://github.com/go-gorm/gorm"
+    },
+    {
+      "description": "Fix Renovate lookup for gorm.io/driver/sqlite (vanity domain maps to go-gorm/sqlite)",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["gorm.io/driver/sqlite"],
+      "sourceUrl": "https://github.com/go-gorm/sqlite"
     }
   ]
 }
