@@ -112,8 +112,10 @@ describe('HecateProviders', () => {
     const user = userEvent.setup()
     renderComponent()
 
-    const netbirdBtn = await screen.findByRole('button', { name: /new netbird tunnel/i })
-    await user.click(netbirdBtn)
+    // All 4 provider add-buttons share the same aria-label key (mock returns raw key without interpolation)
+    // Order: Cloudflare[0], Tailscale[1], NetBird[2], ZeroTier[3]
+    const addBtns = await screen.findAllByRole('button', { name: 'hecate.providers.addTunnel' })
+    await user.click(addBtns[2]) // NetBird is the 3rd provider card
 
     await waitFor(() => {
       const form = screen.getByTestId('tunnel-form')
@@ -126,8 +128,10 @@ describe('HecateProviders', () => {
     const user = userEvent.setup()
     renderComponent()
 
-    const cloudflareBtn = await screen.findByRole('button', { name: /new cloudflare tunnel/i })
-    await user.click(cloudflareBtn)
+    // All 4 provider add-buttons share the same aria-label key (mock returns raw key without interpolation)
+    // Order: Cloudflare[0], Tailscale[1], NetBird[2], ZeroTier[3]
+    const addBtns = await screen.findAllByRole('button', { name: 'hecate.providers.addTunnel' })
+    await user.click(addBtns[0]) // Cloudflare is the 1st provider card
 
     await waitFor(() => {
       const form = screen.getByTestId('tunnel-form')
