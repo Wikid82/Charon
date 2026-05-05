@@ -173,11 +173,12 @@ test.describe('Hecate Tunnel Manager', () => {
         await expect(formHeading).toBeVisible({ timeout: 5000 });
       });
 
-      await test.step('Verify Connection Type selector is present', async () => {
-        const connectionTypeSelect = page.locator('#connection-type').or(
-          page.getByRole('combobox', { name: /connection type/i })
-        );
-        await expect(connectionTypeSelect).toBeVisible();
+      await test.step('Verify connection mode radio group is present', async () => {
+        const directRadio = page.getByRole('radio', { name: /direct/i });
+        await expect(directRadio).toBeVisible();
+        await expect(page.getByRole('radio', { name: /agent/i })).toBeVisible();
+        await expect(page.getByRole('radio', { name: /provider/i })).toBeVisible();
+        await expect(directRadio).toBeChecked();
       });
     });
 
@@ -201,7 +202,7 @@ test.describe('Hecate Tunnel Manager', () => {
       });
     });
 
-    test('should show orthrus agent section when orthrus connection type is selected', async ({ page }) => {
+    test('should show agent dropdown when Agent radio is selected', async ({ page }) => {
       await page.route(ORTHRUS_AGENTS_API, (route) => {
         route.fulfill({ json: [] });
       });
@@ -210,67 +211,65 @@ test.describe('Hecate Tunnel Manager', () => {
       await waitForLoadingComplete(page);
 
       await test.step('Open Add Server form', async () => {
-        const addButton = page.getByRole('button', { name: /add server/i }).first();
-        await addButton.click();
+        await page.getByRole('button', { name: /add server/i }).first().click();
         await expect(page.getByRole('heading', { name: /add remote server/i })).toBeVisible({ timeout: 5000 });
       });
 
-      await test.step('Change connection type to Orthrus Agent', async () => {
-        const connectionTypeSelect = page.locator('#connection-type');
-        await connectionTypeSelect.selectOption('orthrus');
+      await test.step('Select Agent radio', async () => {
+        await page.getByRole('radio', { name: /^agent/i }).click();
+        await expect(page.getByRole('radio', { name: /^agent/i })).toBeChecked();
       });
 
-      await test.step('Verify Provision New Agent button appears', async () => {
-        const provisionButton = page.getByRole('button', { name: /provision.*agent/i });
-        await expect(provisionButton).toBeVisible({ timeout: 5000 });
+      await test.step('Verify agent select dropdown appears', async () => {
+        const agentSelect = page.locator('#cts-agent');
+        await expect(agentSelect).toBeVisible({ timeout: 5000 });
       });
 
-      await test.step('Verify host/port fields are hidden for orthrus type', async () => {
-        const hostInput = page.getByRole('textbox', { name: /^host$/i });
-        await expect(hostInput).toHaveCount(0);
+      await test.step('Verify host/port fields are hidden for agent mode', async () => {
+        await expect(page.getByRole('textbox', { name: /^host$/i })).toHaveCount(0);
       });
     });
 
-    test('should show cloudflare wizard when cloudflare connection type is selected', async ({ page }) => {
+    test('should show provider picker when Provider radio is selected', async ({ page }) => {
       await page.goto('/hecate/remote-servers');
       await waitForLoadingComplete(page);
 
       await test.step('Open Add Server form', async () => {
-        const addButton = page.getByRole('button', { name: /add server/i }).first();
-        await addButton.click();
+        await page.getByRole('button', { name: /add server/i }).first().click();
         await expect(page.getByRole('heading', { name: /add remote server/i })).toBeVisible({ timeout: 5000 });
       });
 
-      await test.step('Change connection type to Cloudflare Tunnel', async () => {
-        const connectionTypeSelect = page.locator('#connection-type');
-        await connectionTypeSelect.selectOption('cloudflare');
+      await test.step('Select Provider radio', async () => {
+        await page.getByRole('radio', { name: /^provider/i }).click();
+        await expect(page.getByRole('radio', { name: /^provider/i })).toBeChecked();
       });
 
-      await test.step('Verify cloudflare wizard content appears', async () => {
-        // CloudflareTunnelWizard is rendered when cloudflare is selected
-        // Just verify host/port fields are gone and some cloudflare-related content is shown
-        const hostInput = page.getByRole('textbox', { name: /^host$/i });
-        await expect(hostInput).toHaveCount(0);
+      await test.step('Verify host/port fields are hidden for provider mode', async () => {
+        await expect(page.getByRole('textbox', { name: /^host$/i })).toHaveCount(0);
+        await expect(page.getByRole('spinbutton', { name: /port/i })).toHaveCount(0);
       });
     });
 
-    test('Connection Type selector accessibility snapshot', async ({ page }) => {
+    test('Connection mode radio group accessibility snapshot', async ({ page }) => {
       await page.goto('/hecate/remote-servers');
       await waitForLoadingComplete(page);
 
       await test.step('Open Add Server form', async () => {
-        const addButton = page.getByRole('button', { name: /add server/i }).first();
-        await addButton.click();
+        await page.getByRole('button', { name: /add server/i }).first().click();
         await expect(page.getByRole('heading', { name: /add remote server/i })).toBeVisible({ timeout: 5000 });
       });
 
-      await test.step('Verify connection type selector accessibility', async () => {
-        const connectionTypeSelect = page.locator('#connection-type');
-        await expect(connectionTypeSelect).toMatchAriaSnapshot(`
-          - combobox "Connection Type":
-            - option "Direct"
-            - option "Orthrus Agent"
-            - option "Cloudflare Tunnel"
+      await test.step('Verify connection mode fieldset accessibility', async () => {
+        const fieldset = page.locator('fieldset').filter({ has: page.getByRole('radio', { name: /direct/i }) });
+        await expect(fieldset).toMatchAriaSnapshot(`
+          - group "Connection mode":
+            - text: Connection mode
+            - radio "Direct — Connect via IP or hostname" [checked]
+            - text: Direct — Connect via IP or hostname
+            - radio "Agent — Route via a self-hosted Orthrus agent"
+            - text: Agent — Route via a self-hosted Orthrus agent
+            - radio "Provider — Route via a configured network provider (Tailscale, NetBird, etc.)"
+            - text: Provider — Route via a configured network provider (Tailscale, NetBird, etc.)
         `);
       });
     });

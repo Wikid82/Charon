@@ -10,6 +10,7 @@ import {
   type ConnectionType,
   type HecateProvider,
 } from './hecate/ConnectionTypeSelector'
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from './ui/Tooltip'
 
 interface Props {
   server?: RemoteServer
@@ -46,6 +47,12 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
 
   const { data: agents = [] } = useAgentList()
+
+  const selectedAgent = agents.find(a => a.uuid === formData.orthrus_agent_uuid)
+  const agentHasNoProvider =
+    formData.connection_mode === 'agent' &&
+    Boolean(formData.orthrus_agent_uuid) &&
+    !selectedAgent?.resolved_address
 
   useEffect(() => {
     setFormData({
@@ -251,6 +258,15 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
               }
               disabled={loading}
             />
+            {formData.connection_mode === 'provider' && formData.resolved_address && (
+              <p
+                role="status"
+                aria-live="polite"
+                className="mt-2 text-xs text-content-secondary"
+              >
+                {t('hecate.form.mode.resolvedAddressPreview', { address: formData.resolved_address })}
+              </p>
+            )}
           </div>
 
           {formData.connection_mode === 'direct' && (
@@ -341,13 +357,27 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
             >
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-6 py-2 bg-blue-active hover:bg-blue-hover text-white rounded-lg font-medium transition-colors disabled:opacity-50"
-            >
-              {loading ? 'Saving...' : (server ? 'Update' : 'Create')}
-            </button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className={agentHasNoProvider ? 'cursor-not-allowed' : undefined}>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="px-6 py-2 bg-blue-active hover:bg-blue-hover text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+                      aria-describedby={agentHasNoProvider ? 'submit-no-provider-warning' : undefined}
+                    >
+                      {loading ? 'Saving...' : (server ? 'Update' : 'Create')}
+                    </button>
+                  </span>
+                </TooltipTrigger>
+                {agentHasNoProvider && (
+                  <TooltipContent id="submit-no-provider-warning" role="tooltip">
+                    {t('hecate.form.mode.agent.saveWithNoProviderTooltip')}
+                  </TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
           </div>
         </form>
         </div>

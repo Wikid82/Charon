@@ -1631,7 +1631,8 @@
         "agent": {
           "label": "Agent",
           "noProviderWarning": "This agent has no provider assigned — connectivity address unavailable.",
-          "noProviderLink": "Assign one on the Agent page."
+          "noProviderLink": "Assign one on the Agent page.",
+          "saveWithNoProviderTooltip": "This agent has no provider assigned — the server won't be reachable until one is assigned."
         },
         "directDescription": "Connect via IP or hostname",
         "agentDescription": "Route via a self-hosted Orthrus agent",
@@ -1645,7 +1646,8 @@
         "selectPeer": "Select peer",
         "selectMember": "Select member",
         "providerDescription": "Route via a configured network provider (Tailscale, NetBird, etc.)",
-        "selectAgent": "Select an agent"
+        "selectAgent": "Select an agent",
+        "resolvedAddressPreview": "Will connect to: {{address}}"
       },
       "provider": {
         "cloudflareTunnelHostname": "Tunnel Hostname",
@@ -1759,7 +1761,8 @@
       "providerTunnel": "Provider Tunnel",
       "deviceId": "Device / Peer ID",
       "resolvedAddress": "Resolved Address",
-      "saveProviderAssignment": "Save Assignment"
+      "saveProviderAssignment": "Save Assignment",
+      "removeProviderAssignment": "Remove Provider"
     }
   }
 }
