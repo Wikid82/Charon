@@ -35,18 +35,27 @@ docker run -d --name charon-debug --cap-add=SYS_PTRACE --security-opt seccomp=un
   -v charon_data:/app/data -v caddy_data:/data -v caddy_config:/config -v /var/run/docker.sock:/var/run/docker.sock:ro charon:local
 
 echo "Waiting for Charon API to be ready..."
-for i in {1..30}; do
+API_READY=false
+for i in {1..120}; do
   if curl -s -f http://localhost:8080/api/v1/ >/dev/null 2>&1; then
+    API_READY=true
     break
   fi
   echo -n '.'
   sleep 1
 done
+echo ""
+
+if [ "${API_READY}" != "true" ]; then
+  echo "ERROR: Charon API did not become ready after 120 seconds"
+  echo "Container may still be initializing CrowdSec hub items (geoip-enrich mmdb download can be slow)"
+  exit 1
+fi
 
 echo "Registering admin user and logging in..."
 TMP_COOKIE=$(mktemp)
 curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123","name":"Integration Tester"}' http://localhost:8080/api/v1/auth/register >/dev/null || true
-curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123"}' -c ${TMP_COOKIE} http://localhost:8080/api/v1/auth/login >/dev/null
+curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123"}' -c ${TMP_COOKIE} http://localhost:8080/api/v1/auth/login >/dev/null || true
 
 # Check hub availability first
 echo "Checking CrowdSec Hub availability..."
