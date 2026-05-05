@@ -487,7 +487,9 @@ WORKDIR /app
 RUN apk add --no-cache \
     bash ca-certificates sqlite-libs sqlite tzdata gettext libcap libcap-utils \
     c-ares busybox-extras \
-    && apk upgrade --no-cache zlib libcrypto3 libssl3 musl musl-utils
+    && apk upgrade --no-cache zlib libcrypto3 libssl3 musl musl-utils \
+    # CVE-2026-34743: xz-libs DoS via buffer overflow in index decoding (fixed in 5.8.3-r0)
+    xz-libs
 
 # Copy gosu binary from gosu-builder (built with Go 1.26+ to avoid stdlib CVEs)
 COPY --from=gosu-builder /gosu-out/gosu /usr/sbin/gosu
