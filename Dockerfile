@@ -317,6 +317,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Fix available at v0.30.0. Pin here so the Caddy binary is patched immediately;
         # remove once caddy-security ships a release built with smallstep/certificates >= v0.30.0.
         go get github.com/smallstep/certificates@v${SMALLSTEP_CERTIFICATES_VERSION}; \
+        # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
+        # Affects /usr/bin/caddy (transitive dependency). Fix available at v0.1.1.
+        # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
+        go get github.com/Azure/go-ntlmssp@v0.1.1; \
         if [ "${CADDY_PATCH_SCENARIO}" = "A" ]; then \
             # Rollback scenario: keep explicit nebula pin if upstream compatibility regresses.
             # NOTE: smallstep/certificates (pulled by caddy-security stack) currently
@@ -403,6 +407,10 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/s3
     go get github.com/aws/aws-sdk-go-v2/service/s3@v1.100.1 && \
+    # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
+    # Affects /usr/local/bin/cscli (transitive dependency). Fix available at v0.1.1.
+    # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
+    go get github.com/Azure/go-ntlmssp@v0.1.1 && \
     go mod tidy
 
 # Fix compatibility issues with expr-lang v1.17.7
@@ -479,7 +487,9 @@ WORKDIR /app
 RUN apk add --no-cache \
     bash ca-certificates sqlite-libs sqlite tzdata gettext libcap libcap-utils \
     c-ares busybox-extras \
-    && apk upgrade --no-cache zlib libcrypto3 libssl3 musl musl-utils
+    && apk upgrade --no-cache zlib libcrypto3 libssl3 musl musl-utils \
+    # CVE-2026-34743: xz-libs DoS via buffer overflow in index decoding (fixed in 5.8.3-r0)
+    xz-libs
 
 # Copy gosu binary from gosu-builder (built with Go 1.26+ to avoid stdlib CVEs)
 COPY --from=gosu-builder /gosu-out/gosu /usr/sbin/gosu
