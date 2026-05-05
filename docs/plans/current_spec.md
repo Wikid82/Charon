@@ -1216,3 +1216,742 @@ cd /projects/Charon/frontend && node node_modules/.bin/vitest run --reporter=ver
 - Removing deprecated `connection_type` enum values from the database
 - Changes to Caddy config generation (existing `hecate_tunnel_uuid` handling stays as-is)
 - Support for assigning multiple providers to a single agent
+
+---
+
+## Phase 4: UX Enhancements & Test Gap Closure
+
+**Scope**: Targeted follow-up to the Hecate provider/agent redesign. Fixes broken E2E tests caused by the `<select>` → radio-button redesign, adds a missing unit test file for `OrthrusAgentManager`, fills gaps in `AgentProviderAssignDialog` tests, and delivers four small UX improvements.
+
+**Files affected**:
+
+| File | Change type |
+|---|---|
+| `tests/hecate-tunnel-manager.spec.ts` | Fix broken selectors |
+| `frontend/src/components/hecate/__tests__/OrthrusAgentManager.test.tsx` | New file |
+| `frontend/src/components/hecate/__tests__/AgentProviderAssignDialog.test.tsx` | Add missing cases |
+| `frontend/src/components/hecate/AgentProviderAssignDialog.tsx` | Add Remove Provider button |
+| `frontend/src/components/RemoteServerForm.tsx` | Show resolved address preview |
+| `frontend/src/components/hecate/ConnectionTypeSelector.tsx` | Tooltip on save when agent has no provider |
+| `frontend/src/pages/HecateProviders.tsx` | Skeleton for loading tunnel count |
+| `frontend/src/locales/en/translation.json` | New i18n keys |
+
+---
+
+### A. Fix Stale E2E Tests (`tests/hecate-tunnel-manager.spec.ts`)
+
+#### A.1 Root Cause
+
+Four tests inside the `Add Server Form - Connection Type Selector` describe block reference the **old** `<select id="connection-type">` implementation that was replaced by three radio buttons rendered by `ConnectionTypeSelector.tsx`. These tests will fail with "Element not found" or type-mismatch errors at runtime.
+
+#### A.2 Broken Tests Identified
+
+| Line range | Test title | Broken step | Broken selector/call |
+|---|---|---|---|
+| ~173–196 | "should open Add Server form when Add Server button is clicked" | "Verify Connection Type selector is present" | `page.locator('#connection-type').or(page.getByRole('combobox', { name: /connection type/i }))` — neither exists |
+| ~207–232 | "should show orthrus agent section when orthrus connection type is selected" | "Change connection type to Orthrus Agent" | `page.locator('#connection-type').selectOption('orthrus')` — `selectOption` on a non-existent select |
+| ~234–253 | "should show cloudflare wizard when cloudflare connection type is selected" | "Change connection type to Cloudflare Tunnel" | `page.locator('#connection-type').selectOption('cloudflare')` — same |
+| ~255–281 | "Connection Type selector accessibility snapshot" | "Verify connection type selector accessibility" | `matchAriaSnapshot` asserting `combobox "Connection Type"` with options `Direct / Orthrus Agent / Cloudflare Tunnel` — no such combobox exists |
+
+#### A.3 New DOM Structure (from `ConnectionTypeSelector.tsx`)
+
+```
+<fieldset>
+  <legend>Connection mode</legend>        ← t('hecate.form.mode.label')
+  <label>
+    <input type="radio" name="connection-mode" value="direct" />
+    Direct                                ← t('hecate.form.mode.direct')
+  </label>
+  <label>
+    <input type="radio" name="connection-mode" value="agent" />
+    Agent                                 ← t('hecate.form.mode.agent.label')
+  </label>
+  <label>
+    <input type="radio" name="connection-mode" value="provider" />
+    Provider                              ← t('hecate.form.mode.provider')
+  </label>
+</fieldset>
+```
+
+When `mode === 'agent'`:
+```
+<select id="cts-agent"> … </select>      ← agent dropdown
+```
+
+When `mode === 'provider'`:
+```
+<div data-testid="provider-device-picker" />  ← ProviderDevicePicker (mocked in unit tests)
+```
+
+#### A.4 Replacement Spec
+
+**File**: `tests/hecate-tunnel-manager.spec.ts`
+
+---
+
+**Test: "should open Add Server form — verify connection mode radios present"**
+
+Replace the broken step "Verify Connection Type selector is present" with:
+
+```typescript
+await test.step('Verify connection mode radio group is present', async () => {
+  const directRadio = page.getByRole('radio', { name: /direct/i });
+  await expect(directRadio).toBeVisible();
+  await expect(page.getByRole('radio', { name: /agent/i })).toBeVisible();
+  await expect(page.getByRole('radio', { name: /provider/i })).toBeVisible();
+  // Direct mode is selected by default
+  await expect(directRadio).toBeChecked();
+});
+```
+
+---
+
+**Test: "should show agent section when Agent radio is selected"**
+
+Replace the entire `#connection-type.selectOption('orthrus')` flow:
+
+```typescript
+test('should show agent dropdown when Agent radio is selected', async ({ page }) => {
+  await page.route(ORTHRUS_AGENTS_API, (route) => {
+    route.fulfill({ json: [] });
+  });
+
+  await page.goto('/hecate/remote-servers');
+  await waitForLoadingComplete(page);
+
+  await test.step('Open Add Server form', async () => {
+    await page.getByRole('button', { name: /add server/i }).first().click();
+    await expect(page.getByRole('heading', { name: /add remote server/i })).toBeVisible({ timeout: 5000 });
+  });
+
+  await test.step('Select Agent radio', async () => {
+    await page.getByRole('radio', { name: /^agent$/i }).click();
+    await expect(page.getByRole('radio', { name: /^agent$/i })).toBeChecked();
+  });
+
+  await test.step('Verify agent select dropdown appears', async () => {
+    const agentSelect = page.locator('#cts-agent');
+    await expect(agentSelect).toBeVisible({ timeout: 5000 });
+  });
+
+  await test.step('Verify host/port fields are hidden for agent mode', async () => {
+    await expect(page.getByRole('textbox', { name: /^host$/i })).toHaveCount(0);
+  });
+});
+```
+
+---
+
+**Test: "should show provider picker when Provider radio is selected"**
+
+Replace the broken Cloudflare test. Note: in the new design there is no "cloudflare" radio — instead "Provider" mode loads `ProviderDevicePicker`. The test should verify the picker area appears and host/port are hidden:
+
+```typescript
+test('should show provider picker when Provider radio is selected', async ({ page }) => {
+  await page.route(HECATE_TUNNELS_API, (route) => {
+    route.fulfill({ json: [] });
+  });
+
+  await page.goto('/hecate/remote-servers');
+  await waitForLoadingComplete(page);
+
+  await test.step('Open Add Server form', async () => {
+    await page.getByRole('button', { name: /add server/i }).first().click();
+    await expect(page.getByRole('heading', { name: /add remote server/i })).toBeVisible({ timeout: 5000 });
+  });
+
+  await test.step('Select Provider radio', async () => {
+    await page.getByRole('radio', { name: /^provider$/i }).click();
+    await expect(page.getByRole('radio', { name: /^provider$/i })).toBeChecked();
+  });
+
+  await test.step('Verify host/port fields are hidden for provider mode', async () => {
+    await expect(page.getByRole('textbox', { name: /^host$/i })).toHaveCount(0);
+    await expect(page.getByRole('spinbutton', { name: /port/i })).toHaveCount(0);
+  });
+});
+```
+
+---
+
+**Test: "Connection Type selector accessibility snapshot"**
+
+Replace the old combobox aria snapshot:
+
+```typescript
+test('Connection mode radio group accessibility snapshot', async ({ page }) => {
+  await page.goto('/hecate/remote-servers');
+  await waitForLoadingComplete(page);
+
+  await test.step('Open Add Server form', async () => {
+    await page.getByRole('button', { name: /add server/i }).first().click();
+    await expect(page.getByRole('heading', { name: /add remote server/i })).toBeVisible({ timeout: 5000 });
+  });
+
+  await test.step('Verify connection mode fieldset accessibility', async () => {
+    const fieldset = page.locator('fieldset').filter({ has: page.getByRole('radio', { name: /direct/i }) });
+    await expect(fieldset).toMatchAriaSnapshot(`
+      - group "Connection mode":
+        - radio "Direct" [checked]
+        - radio "Agent"
+        - radio "Provider"
+    `);
+  });
+});
+```
+
+> **Note on aria snapshot text**: Radio labels include the description suffix appended by the `<span>` next to each label (e.g. "— Connect via IP or hostname"). Run the test once with `--update-snapshots` to capture the exact text if descriptions appear in the snapshot.
+
+#### A.5 Tests That Are Unaffected
+
+The following tests do **not** touch `#connection-type` or `selectOption` and remain correct as-is:
+
+- All "Connection Column - Direct Server" tests
+- All "Connection Column - Orthrus/Tunnel Server" tests (use `ORTHRUS_SERVER` fixture with `connection_type: 'orthrus'`, not the form)
+- All "TunnelLogViewer" tests
+- All "Page Accessibility" tests
+
+---
+
+### B. New Unit Test File: `OrthrusAgentManager`
+
+**File to create**: `frontend/src/components/hecate/__tests__/OrthrusAgentManager.test.tsx`
+
+#### B.1 Component Overview (`OrthrusAgentManager.tsx`)
+
+- Renders a `<table>` with columns: **Name** (inline-editable), **UUID**, **Status**, **Provider**, **Last Seen**, **Actions**
+- The **Provider** cell (`AgentRow`):
+  - If `agent.hecate_tunnel_uuid` is truthy: shows `agent.resolved_address ?? agent.device_id ?? '—'` in `font-mono text-content-primary`
+  - Otherwise: shows `t('hecate.agentManager.noProviderAssigned')` = `"No provider assigned"` in italic muted text
+- The **Actions** cell contains two buttons per row:
+  - `Link2` icon button — `aria-label = t('hecate.agentManager.assignProvider', { name })` = `"Assign provider to {name}"`; calls `onAssignProvider(agent)` → sets `assignProviderAgent` state → mounts `<AgentProviderAssignDialog>`
+  - `Trash2` icon button — `aria-label = t('hecate.agentManager.deleteLabel', { name })` = `"Delete agent {name}"`; calls `handleDeleteRequest(uuid, name)` → sets `confirmDelete` state → mounts a confirm `<Dialog>`
+- When `agents.length === 0`: renders empty-state paragraph with `t('hecate.agentManager.noAgents')` = `"No agents registered yet."`
+- Inline name editing: click name text → Input appears → Enter/tick commits; Escape/X cancels
+
+#### B.2 Mock Setup Pattern
+
+Follow the pattern from `RemoteServerForm.test.tsx`:
+
+```typescript
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+import { OrthrusAgentManager } from '../OrthrusAgentManager'
+
+const mockDelete = vi.fn()
+const mockRename = vi.fn()
+
+vi.mock('../../../hooks/useOrthrus', () => ({
+  useDeleteAgent: () => ({ mutate: mockDelete, isPending: false }),
+  useRenameAgent: () => ({ mutate: mockRename, isPending: false }),
+}))
+
+vi.mock('../AgentProviderAssignDialog', () => ({
+  AgentProviderAssignDialog: ({ open, onClose, agent }: {
+    open: boolean; onClose: () => void; agent: { name: string }
+  }) =>
+    open ? (
+      <div data-testid="assign-dialog" aria-label={`assign-dialog-${agent.name}`}>
+        <button onClick={onClose}>CloseAssign</button>
+      </div>
+    ) : null,
+}))
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, opts?: Record<string, string>) =>
+      opts?.name ? `${key}:${opts.name}` : key,
+  }),
+}))
+
+function renderManager(agents: Parameters<typeof OrthrusAgentManager>[0]['agents']) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <MemoryRouter>
+      <QueryClientProvider client={qc}>
+        <OrthrusAgentManager agents={agents} />
+      </QueryClientProvider>
+    </MemoryRouter>
+  )
+}
+```
+
+#### B.3 Test Cases
+
+**Fixture data**:
+
+```typescript
+const agentWithProvider = {
+  uuid: 'agent-1',
+  name: 'Prod Agent',
+  status: 'online' as const,
+  capabilities: '["proxy"]',
+  hecate_tunnel_uuid: 'ts-uuid',
+  resolved_address: '100.72.3.4',
+  device_id: 'ts-device-1',
+  created_at: '2025-01-01T00:00:00Z',
+  updated_at: '2025-01-01T00:00:00Z',
+}
+
+const agentWithoutProvider = {
+  uuid: 'agent-2',
+  name: 'Dev Agent',
+  status: 'offline' as const,
+  capabilities: '[]',
+  hecate_tunnel_uuid: undefined,
+  resolved_address: undefined,
+  device_id: undefined,
+  created_at: '2025-01-01T00:00:00Z',
+  updated_at: '2025-01-01T00:00:00Z',
+}
+```
+
+| # | Test description | Arrange | Act | Assert |
+|---|---|---|---|---|
+| 1 | Renders table with all column headers | `renderManager([agentWithProvider])` | — | `screen.getByRole('columnheader', { name: /hecate.agentManager.colName/i })` and same for UUID, Status, Provider, Last Seen |
+| 2 | Shows `resolved_address` in Provider cell when agent has one | `renderManager([agentWithProvider])` | — | `screen.getByText('100.72.3.4')` is in the document |
+| 3 | Shows fallback `device_id` when no `resolved_address` | agent with `hecate_tunnel_uuid` set but `resolved_address: undefined`, `device_id: 'abc'` | — | `screen.getByText('abc')` |
+| 4 | Shows `—` when tunnel assigned but neither address nor device_id | agent with only `hecate_tunnel_uuid` set | — | `screen.getByText('—')` |
+| 5 | Shows "No provider assigned" italic text when no tunnel | `renderManager([agentWithoutProvider])` | — | `screen.getByText('hecate.agentManager.noProviderAssigned')` |
+| 6 | Clicking Link2 button opens AgentProviderAssignDialog | `renderManager([agentWithProvider])` | `fireEvent.click(screen.getByRole('button', { name: /hecate.agentManager.assignProvider:Prod Agent/i }))` | `screen.getByTestId('assign-dialog')` is in the document |
+| 7 | Closing dialog via callback clears assignment state | same | click button then click CloseAssign | `screen.queryByTestId('assign-dialog')` is null |
+| 8 | Clicking delete button opens confirm dialog | `renderManager([agentWithProvider])` | `fireEvent.click(screen.getByRole('button', { name: /hecate.agentManager.deleteLabel:Prod Agent/i }))` | `screen.getByRole('dialog')` is visible; contains agent name |
+| 9 | Confirming delete calls `deleteAgent` mutation | same | open confirm dialog → click confirm button | `mockDelete` called with `'agent-1'` |
+| 10 | Inline rename: clicking name opens input | `renderManager([agentWithProvider])` | `fireEvent.click(screen.getByRole('button', { name: /hecate.agentManager.editNameLabel:Prod Agent/i }))` | `screen.getByRole('textbox', { name: /hecate.agentManager.renameInputLabel:Prod Agent/i })` is visible |
+| 11 | Inline rename: pressing Enter calls rename mutation | same → click name button → change input | `fireEvent.keyDown(input, { key: 'Enter' })` | `mockRename` called with `{ uuid: 'agent-1', name: 'New Name' }` |
+| 12 | Inline rename: pressing Escape cancels without calling mutation | same → click name button | `fireEvent.keyDown(input, { key: 'Escape' })` | `mockRename` not called; input no longer in DOM |
+| 13 | Empty state renders when no agents passed | `renderManager([])` | — | `screen.getByText('hecate.agentManager.noAgents')` is visible; `screen.queryByRole('table')` is null |
+
+---
+
+### C. Missing `AgentProviderAssignDialog` Test Cases
+
+**File**: `frontend/src/components/hecate/__tests__/AgentProviderAssignDialog.test.tsx`
+
+Append the following cases to the existing `describe('AgentProviderAssignDialog', ...)` block. The existing mock setup (`mockPatch`, `mockTunnels`, `vi.mock` calls) remains unchanged.
+
+#### C.1 Cancel Button
+
+```typescript
+it('clicking Cancel closes dialog without calling patchAgent', () => {
+  const onClose = vi.fn()
+  render(
+    <AgentProviderAssignDialog agent={baseAgent} open onClose={onClose} />
+  )
+
+  fireEvent.click(screen.getByRole('button', { name: /common.cancel/i }))
+
+  expect(onClose).toHaveBeenCalledOnce()
+  expect(mockPatch).not.toHaveBeenCalled()
+})
+```
+
+#### C.2 Remove Provider Button (after D1 is implemented)
+
+This test is forward-declared and will be enabled once the Remove Provider button exists in `AgentProviderAssignDialog`:
+
+```typescript
+it('clicking Remove Provider calls patchAgent with null fields', async () => {
+  const onClose = vi.fn()
+  const agentWithProvider = {
+    ...baseAgent,
+    hecate_tunnel_uuid: 'cf-uuid',
+    device_id: 'dev-1',
+    resolved_address: 'app.example.com',
+  }
+
+  render(
+    <AgentProviderAssignDialog agent={agentWithProvider} open onClose={onClose} />
+  )
+
+  fireEvent.click(
+    screen.getByRole('button', { name: /hecate.agentManager.removeProviderAssignment/i })
+  )
+
+  expect(mockPatch).toHaveBeenCalledWith(
+    {
+      uuid: 'agent-1',
+      req: {
+        hecate_tunnel_uuid: null,
+        device_id: null,
+        resolved_address: null,
+      },
+    },
+    expect.objectContaining({ onSuccess: expect.any(Function) }),
+  )
+})
+```
+
+#### C.3 Pre-populated Values
+
+```typescript
+it('opens with tunnel pre-selected when agent already has hecate_tunnel_uuid', () => {
+  const agentWithProvider = {
+    ...baseAgent,
+    hecate_tunnel_uuid: 'cf-uuid',
+    device_id: undefined,
+    resolved_address: 'app.example.com',
+  }
+
+  render(
+    <AgentProviderAssignDialog agent={agentWithProvider} open onClose={() => undefined} />
+  )
+
+  const combobox = screen.getByRole('combobox')
+  expect(combobox).toHaveValue('cf-uuid')
+})
+
+it('opens with resolved address pre-filled when agent has resolved_address', async () => {
+  const agentWithProvider = {
+    ...baseAgent,
+    hecate_tunnel_uuid: 'cf-uuid',
+    resolved_address: 'app.example.com',
+  }
+
+  render(
+    <AgentProviderAssignDialog agent={agentWithProvider} open onClose={() => undefined} />
+  )
+
+  fireEvent.change(screen.getByRole('combobox'), { target: { value: 'cf-uuid' } })
+
+  const hostnameInput = await screen.findByRole('textbox', { name: /cloudflareTunnelHostname/i })
+  expect(hostnameInput).toHaveValue('app.example.com')
+})
+```
+
+#### C.4 Save Disabled State
+
+```typescript
+it('Save button is disabled when no tunnel is selected', () => {
+  render(
+    <AgentProviderAssignDialog agent={baseAgent} open onClose={() => undefined} />
+  )
+
+  const saveButton = screen.getByRole('button', { name: /saveProviderAssignment/i })
+  expect(saveButton).toBeDisabled()
+})
+
+it('Save button is enabled after a tunnel is selected', async () => {
+  render(
+    <AgentProviderAssignDialog agent={baseAgent} open onClose={() => undefined} />
+  )
+
+  fireEvent.change(screen.getByRole('combobox'), { target: { value: 'cf-uuid' } })
+
+  const saveButton = screen.getByRole('button', { name: /saveProviderAssignment/i })
+  await waitFor(() => expect(saveButton).not.toBeDisabled())
+})
+```
+
+#### C.5 Tailscale Device Picker Flow
+
+```typescript
+it('shows TailscaleDevicePicker when Tailscale tunnel selected and Select device clicked', async () => {
+  render(
+    <AgentProviderAssignDialog agent={baseAgent} open onClose={() => undefined} />
+  )
+
+  fireEvent.change(screen.getByRole('combobox'), { target: { value: 'ts-uuid' } })
+
+  await waitFor(() => {
+    expect(
+      screen.getByRole('button', { name: /hecate.form.mode.selectDevice/i })
+    ).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: /hecate.form.mode.selectDevice/i }))
+
+  // TailscaleDevicePicker renders (mocked via useQuery returning [])
+  // Verify the picker container is present; actual content depends on TailscaleDevicePicker internals
+  // In CI, useQuery is mocked to return [] so the picker renders empty list
+  await waitFor(() => {
+    expect(screen.getByText(/hecate.tailscale.noDevices/i)).toBeInTheDocument()
+  })
+})
+```
+
+> **Note**: `useQuery` in the existing mock setup is `vi.fn().mockReturnValue({ data: [] })`. For Tailscale, `listTailscaleDevices` is called with `enabled: pickerOpen && provider === 'tailscale'`. After clicking "Select device", `pickerOpen` becomes `true`, triggering the query. The mock returns `[]`, so `TailscaleDevicePicker` receives an empty `devices` array and renders `t('hecate.tailscale.noDevices')`.
+
+#### C.6 ZeroTier Member Picker Flow
+
+```typescript
+it('shows ZeroTierMemberPicker when ZeroTier tunnel selected and Select device clicked', async () => {
+  const mockTunnelsWithZT = [
+    ...mockTunnels,
+    { uuid: 'zt-uuid', name: 'ZT Tunnel', provider: 'zerotier' },
+  ]
+  // Re-render with extended mocks that include a ZeroTier tunnel
+  // (requires a local override of the useHecate mock for this test)
+
+  render(
+    <AgentProviderAssignDialog agent={baseAgent} open onClose={() => undefined} />
+  )
+
+  // The ZeroTier tunnel must be in the mockTunnels list — add 'zt-uuid' to the
+  // top-level mockTunnels fixture or use a scoped override
+  fireEvent.change(screen.getByRole('combobox'), { target: { value: 'zt-uuid' } })
+
+  await waitFor(() => {
+    expect(
+      screen.getByRole('button', { name: /hecate.form.mode.selectMember/i })
+    ).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: /hecate.form.mode.selectMember/i }))
+
+  // ZeroTierMemberPicker should appear; verify its open state via a heading or landmark
+  // Exact aria depends on ZeroTierMemberPicker internals — at minimum dialog should be visible
+  await waitFor(() => {
+    expect(screen.getAllByRole('dialog')).toHaveLength(2) // outer AgentProviderAssignDialog + picker dialog
+  })
+})
+```
+
+> **Implementation note on ZT mock**: Add `{ uuid: 'zt-uuid', name: 'ZT Tunnel', provider: 'zerotier' }` to the top-level `mockTunnels` array so it's available across tests, or use `vi.mocked(useHecate).mockReturnValueOnce(...)` for this specific test.
+
+---
+
+### D. UX Enhancements
+
+---
+
+#### D1. "Remove Provider" Button in `AgentProviderAssignDialog`
+
+**File**: `frontend/src/components/hecate/AgentProviderAssignDialog.tsx`
+
+**Trigger**: shown only when `agent.hecate_tunnel_uuid` is non-null (agent already has a provider assigned).
+
+**What it does**: calls `patch` with all provider fields as `null`, then calls `onClose` on success.
+
+**Where in the layout**: Add as the leftmost button inside `<DialogFooter>`, before Cancel. Use destructive styling to signal irreversibility.
+
+**Implementation spec**:
+
+```tsx
+// Add handler inside AgentProviderAssignDialog:
+const handleRemove = () => {
+  patch(
+    {
+      uuid: agent.uuid,
+      req: {
+        hecate_tunnel_uuid: null,
+        device_id: null,
+        resolved_address: null,
+      },
+    },
+    { onSuccess: onClose },
+  )
+}
+
+// In <DialogFooter>, before the Cancel button:
+{agent.hecate_tunnel_uuid && (
+  <button
+    type="button"
+    onClick={handleRemove}
+    disabled={isPending}
+    aria-label={t('hecate.agentManager.removeProviderAssignment')}
+    className="px-4 py-2 rounded text-sm text-destructive hover:text-destructive-hover border border-destructive/40 hover:border-destructive focus:outline-none focus:ring-2 focus:ring-destructive disabled:opacity-50 mr-auto"
+  >
+    {t('hecate.agentManager.removeProviderAssignment')}
+  </button>
+)}
+```
+
+**i18n key to add** in `frontend/src/locales/en/translation.json` under `hecate.agentManager`:
+
+```json
+"removeProviderAssignment": "Remove Provider"
+```
+
+**Accessibility**:
+- `type="button"` — prevents accidental form submission
+- `disabled={isPending}` — prevents double-fire while mutation is in flight
+- `aria-label` matches the visible label (satisfies WCAG 2.5.3 Label in Name)
+- Destructive border/text color ensures 3:1 contrast ratio against the surface background
+
+---
+
+#### D2. Show Resolved Host Preview Before Save (`RemoteServerForm`)
+
+**File**: `frontend/src/components/RemoteServerForm.tsx`
+
+**Problem**: After the user selects a tunnel + device in Provider mode, `formData.resolved_address` is populated via `onDeviceSelect` callback (from `ProviderDevicePicker`), but nothing is displayed to the user before they click Create/Save.
+
+**Where to render**: Below the `<ConnectionTypeSelector>` block, inside the same `<div>` wrapping the `<label>` "Connection Type" and the `<ConnectionTypeSelector>` component.
+
+**Condition**: `formData.connection_mode === 'provider' && formData.resolved_address.length > 0`
+
+**Implementation spec**:
+
+```tsx
+// After the closing /> of <ConnectionTypeSelector ... /> and within the same enclosing div:
+{formData.connection_mode === 'provider' && formData.resolved_address && (
+  <p
+    role="status"
+    aria-live="polite"
+    className="mt-2 text-xs text-content-secondary"
+  >
+    {t('hecate.form.mode.resolvedAddressPreview', { address: formData.resolved_address })}
+  </p>
+)}
+```
+
+**i18n key to add** under `hecate.form.mode`:
+
+```json
+"resolvedAddressPreview": "Will connect to: {{address}}"
+```
+
+**Accessibility**:
+- `role="status"` + `aria-live="polite"` — screen readers announce when the preview appears after device selection, without interrupting the user
+- The value is read-only (no input) — matches "information" semantics, not "field" semantics
+
+---
+
+#### D3. Tooltip on Save Button When Agent Has No Provider (`ConnectionTypeSelector` / `RemoteServerForm`)
+
+**Problem**: When Agent mode is selected and the chosen agent has no `resolved_address`, a small amber warning is shown inside `ConnectionTypeSelector`, but the Create/Save button in `RemoteServerForm` remains fully enabled with no indication that submitting will create an unreachable server.
+
+**Approach**: Wrap the Create/Save button in a `<Tooltip>` (from `frontend/src/components/ui/Tooltip.tsx`) that becomes active only when `agentHasNoProvider` is true (derived in `RemoteServerForm` from the same logic as `ConnectionTypeSelector`).
+
+**Files**:
+- `frontend/src/components/RemoteServerForm.tsx` — tooltip logic
+- `frontend/src/locales/en/translation.json` — one new key
+
+**Implementation spec in `RemoteServerForm.tsx`**:
+
+```tsx
+// Import Tooltip from the UI library
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/Tooltip'
+
+// Derive agentHasNoProvider in the component body (after agents list is loaded):
+const selectedAgent = agents.find(a => a.uuid === formData.orthrus_agent_uuid)
+const agentHasNoProvider =
+  formData.connection_mode === 'agent' &&
+  Boolean(formData.orthrus_agent_uuid) &&
+  !selectedAgent?.resolved_address
+
+// Wrap the existing submit button:
+<Tooltip>
+  <TooltipTrigger asChild>
+    {/* span wrapper needed because disabled buttons don't fire mouse events */}
+    <span className={agentHasNoProvider ? 'cursor-not-allowed' : undefined}>
+      <button
+        type="submit"
+        disabled={loading}
+        className="px-6 py-2 bg-blue-active hover:bg-blue-hover text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+        aria-describedby={agentHasNoProvider ? 'submit-no-provider-warning' : undefined}
+      >
+        {loading ? 'Saving...' : (server ? 'Update' : 'Create')}
+      </button>
+    </span>
+  </TooltipTrigger>
+  {agentHasNoProvider && (
+    <TooltipContent id="submit-no-provider-warning" role="tooltip">
+      {t('hecate.form.mode.agent.saveWithNoProviderTooltip')}
+    </TooltipContent>
+  )}
+</Tooltip>
+```
+
+**i18n key to add** under `hecate.form.mode.agent`:
+
+```json
+"saveWithNoProviderTooltip": "This agent has no provider assigned — the server won't be reachable until one is assigned."
+```
+
+**Accessibility**:
+- `aria-describedby` links the tooltip text to the button so screen readers announce the warning when the button is focused
+- Tooltip is only rendered when `agentHasNoProvider`, so screen readers are not burdened when the warning is irrelevant
+- Button remains enabled (do not disable it) — WCAG 3.3.1 requires error messages to be perceivable; disabling without explanation would be worse
+- `role="tooltip"` on `TooltipContent` satisfies the ARIA tooltip role contract
+
+> **Note on `Tooltip` import**: Check `frontend/src/components/ui/Tooltip.tsx` exports to confirm the exact named exports (`Tooltip`, `TooltipTrigger`, `TooltipContent`). Adjust if the component uses different export names.
+
+---
+
+#### D4. Loading Skeleton for Tunnel Count in `HecateProviders`
+
+**File**: `frontend/src/pages/HecateProviders.tsx`
+
+**Problem**: `useHecate()` returns `loadingTunnels` (renamed from `isLoading` — note: the hook actually returns `loadingTunnels`, not `isLoading`). During initial load, `tunnels` is `[]`, so `count = 0` is displayed before the real count arrives, causing a visible flicker from "0 tunnels" → "3 tunnels".
+
+**Fix**: When `loadingTunnels` is true, render a `<Skeleton>` in place of the tunnel count string.
+
+**Implementation spec**:
+
+```tsx
+// Import Skeleton:
+import { Skeleton } from '../components/ui/Skeleton'
+
+// In the component, destructure loadingTunnels:
+const { tunnels, getStatus, loadingTunnels } = useHecate()
+
+// In the card render, replace the tunnel count <p>:
+<p className="text-sm text-content-secondary">
+  {loadingTunnels ? (
+    <Skeleton
+      variant="text"
+      className="w-16 h-4 inline-block"
+      aria-label={t('common.loading')}   // see note below
+    />
+  ) : count === 1
+    ? t('hecate.providers.tunnelCount_one', { count, defaultValue: '{{count}} tunnel' })
+    : t('hecate.providers.tunnelCount_other', { count, defaultValue: '{{count}} tunnels' })
+  }
+</p>
+```
+
+**i18n**: No new key needed if `common.loading` already exists. If not, add:
+
+```json
+// Under "common" (only if not already present):
+"loading": "Loading..."
+```
+
+Verify by searching `frontend/src/locales/en/translation.json` for `"common"` → `"loading"` before adding.
+
+**Accessibility**: The `<Skeleton>` element renders as a `<div>` with `aria-hidden` omitted by default. Adding `aria-label={t('common.loading')}` ensures screen readers announce the loading state rather than silently receiving nothing. The `animate-pulse` class does not cause a WCAG 2.3.1 violation (flash rate is below 3 Hz).
+
+---
+
+### E. i18n Keys Summary
+
+All new keys to add to `frontend/src/locales/en/translation.json`:
+
+| Key path | Value |
+|---|---|
+| `hecate.agentManager.removeProviderAssignment` | `"Remove Provider"` |
+| `hecate.form.mode.resolvedAddressPreview` | `"Will connect to: {{address}}"` |
+| `hecate.form.mode.agent.saveWithNoProviderTooltip` | `"This agent has no provider assigned — the server won't be reachable until one is assigned."` |
+| `common.loading` | `"Loading..."` (only if not already present) |
+
+---
+
+### F. Commit Slicing Strategy
+
+**PR structure**: Single PR with 3 ordered logical commits. All work fits in one PR because it is additive (tests + small UX tweaks) with no schema or API changes.
+
+| Commit | Scope | Files | Dependencies | Validation Gate |
+|---|---|---|---|---|
+| **Commit 1** | `test(e2e): fix stale connection-type selectors` | `tests/hecate-tunnel-manager.spec.ts` | None — isolated spec file | `npx playwright test tests/hecate-tunnel-manager.spec.ts --project=firefox` passes with 0 failures |
+| **Commit 2** | `test(frontend): add OrthrusAgentManager unit tests and fill AgentProviderAssignDialog gaps` | `frontend/src/components/hecate/__tests__/OrthrusAgentManager.test.tsx` (new), `frontend/src/components/hecate/__tests__/AgentProviderAssignDialog.test.tsx` | Commit 1 (independent — can land separately) | `vitest run src/components/hecate/__tests__/` passes |
+| **Commit 3** | `feat(hecate): UX polish — remove provider button, resolved host preview, save tooltip, loading skeleton` | `AgentProviderAssignDialog.tsx`, `RemoteServerForm.tsx`, `ConnectionTypeSelector.tsx`, `HecateProviders.tsx`, `translation.json` | Commit 2 (tests for D1 depend on the component changes in this commit) | `vitest run` full suite passes; `playwright test --project=firefox` passes; no new a11y violations |
+
+**Rollback note**: If Commit 3 introduces a regression, it can be reverted independently without affecting the test commits. The Remove Provider button (D1) is guarded by `agent.hecate_tunnel_uuid && (...)` so it is invisible unless the agent already has a provider — no surface-area risk for new installs.
+
+---
+
+### G. Acceptance Criteria
+
+- [ ] `npx playwright test tests/hecate-tunnel-manager.spec.ts` — 0 failures, all 4 previously-broken tests now pass with radio-button selectors
+- [ ] `vitest run frontend/src/components/hecate/__tests__/OrthrusAgentManager.test.tsx` — 13 test cases pass
+- [ ] `vitest run frontend/src/components/hecate/__tests__/AgentProviderAssignDialog.test.tsx` — all existing + 8 new cases pass
+- [ ] Remove Provider button is visible in `AgentProviderAssignDialog` only when `agent.hecate_tunnel_uuid` is non-null
+- [ ] Clicking Remove Provider calls `PATCH /orthrus/agents/:uuid` with `{ hecate_tunnel_uuid: null, device_id: null, resolved_address: null }`
+- [ ] Provider mode in `RemoteServerForm` shows "Will connect to: \<address\>" after device selection
+- [ ] Save button in `RemoteServerForm` shows tooltip text when agent mode is selected with an agent that has no provider
+- [ ] `HecateProviders` tunnel count renders a skeleton (not "0 tunnels") during initial load
