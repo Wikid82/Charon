@@ -585,6 +585,7 @@ jobs:
           image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: cyclonedx-json
           output-file: sbom.cyclonedx.json
+          syft-version: v1.44.0
 
       # Create verifiable attestation for the SBOM
       - name: Attest SBOM
