@@ -2,6 +2,9 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { NetBirdPeerPicker } from './NetBirdPeerPicker';
+import { TailscaleDevicePicker } from './TailscaleDevicePicker';
+import { ZeroTierMemberPicker } from './ZeroTierMemberPicker';
 import { listTailscaleDevices, type TunnelProvider } from '../../api/hecate';
 import { type OrthrusAgent } from '../../api/orthrus';
 import { useHecate } from '../../hooks/useHecate';
@@ -13,9 +16,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/Dialog';
-import { NetBirdPeerPicker } from './NetBirdPeerPicker';
-import { TailscaleDevicePicker } from './TailscaleDevicePicker';
-import { ZeroTierMemberPicker } from './ZeroTierMemberPicker';
 
 interface AgentProviderAssignDialogProps {
   agent: OrthrusAgent;
@@ -61,6 +61,20 @@ export function AgentProviderAssignDialog({
           hecate_tunnel_uuid: selectedTunnelUUID || undefined,
           device_id: deviceId || undefined,
           resolved_address: resolvedAddress || undefined,
+        },
+      },
+      { onSuccess: onClose },
+    );
+  };
+
+  const handleRemove = () => {
+    patch(
+      {
+        uuid: agent.uuid,
+        req: {
+          hecate_tunnel_uuid: null,
+          device_id: null,
+          resolved_address: null,
         },
       },
       { onSuccess: onClose },
@@ -178,6 +192,16 @@ export function AgentProviderAssignDialog({
         </div>
 
         <DialogFooter>
+          {agent.hecate_tunnel_uuid && (
+            <button
+              type="button"
+              onClick={handleRemove}
+              disabled={isPending}
+                className="px-4 py-2 rounded text-sm text-error hover:text-error border border-error/40 hover:border-error focus:outline-none focus:ring-2 focus:ring-error disabled:opacity-50 mr-auto"
+            >
+              {t('hecate.agentManager.removeProviderAssignment')}
+            </button>
+          )}
           <button
             type="button"
             onClick={onClose}

@@ -7,6 +7,7 @@ import { HecateTunnelForm } from '../components/hecate/HecateTunnelForm'
 import { TunnelStatusBadge } from '../components/hecate/TunnelStatusBadge'
 import { PageShell } from '../components/layout/PageShell'
 import { Button } from '../components/ui'
+import { Skeleton } from '../components/ui/Skeleton'
 import { useHecate } from '../hooks/useHecate'
 
 const PROVIDERS: { id: TunnelProvider; label: string; icon: string }[] = [
@@ -18,7 +19,7 @@ const PROVIDERS: { id: TunnelProvider; label: string; icon: string }[] = [
 
 export default function HecateProviders() {
   const { t } = useTranslation()
-  const { tunnels, getStatus } = useHecate()
+  const { tunnels, getStatus, loadingTunnels } = useHecate()
 
   const [formOpen, setFormOpen] = useState(false)
   const [selectedProvider, setSelectedProvider] = useState<TunnelProvider>('cloudflare')
@@ -55,7 +56,14 @@ export default function HecateProviders() {
                 <div>
                   <h2 className="text-base font-semibold text-content-primary">{p.label}</h2>
                   <p className="text-sm text-content-secondary">
-                    {count === 1
+                    {loadingTunnels ? (
+                      <Skeleton
+                        variant="text"
+                        className="w-16 h-4 inline-block"
+                        role="img"
+                        aria-label={t('common.loading')}
+                      />
+                    ) : count === 1
                       ? t('hecate.providers.tunnelCount_one', { count, defaultValue: '{{count}} tunnel' })
                       : t('hecate.providers.tunnelCount_other', { count, defaultValue: '{{count}} tunnels' })}
                   </p>

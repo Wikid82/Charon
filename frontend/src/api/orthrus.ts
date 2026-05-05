@@ -20,9 +20,9 @@ export interface OrthrusAgent {
 
 export interface PatchAgentRequest {
   name?: string;
-  hecate_tunnel_uuid?: string;
-  device_id?: string;
-  resolved_address?: string;
+  hecate_tunnel_uuid?: string | null;
+  device_id?: string | null;
+  resolved_address?: string | null;
 }
 
 export interface ProvisionAgentRequest {
