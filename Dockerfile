@@ -391,7 +391,7 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # renovate: datasource=go depName=google.golang.org/grpc
     go get google.golang.org/grpc@v1.81.0 && \
     # CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
-    # renovate: datasource=go depName=github.com/jackc/pgx/v4
+    # renovate: datasource=github-tags depName=jackc/pgx
     go get github.com/jackc/pgx/v4@v4.18.3 && \
     # CVE-2026-29181 (GHSA-mh2q-q3fh-2475): OpenTelemetry-Go baggage header multi-value DoS
     # go.opentelemetry.io/otel >= 1.36.0 and <= 1.40.0 is vulnerable; fix available at v1.41.0.
