@@ -38,7 +38,7 @@ docker run -d --name charon-debug --network containers_default -p 80:80 -p 443:4
 echo "Waiting for Charon API to be ready..."
 API_READY=false
 for i in {1..120}; do
-  if curl -s -f http://localhost:8080/api/v1/ >/dev/null 2>&1; then
+  if curl -s -f http://localhost:8080/api/v1/health >/dev/null 2>&1; then
     API_READY=true
     break
   fi
