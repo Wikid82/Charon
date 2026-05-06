@@ -11,15 +11,13 @@ import (
 
 func TestBuildCrowdSecHandler_Disabled(t *testing.T) {
 	// When crowdsecEnabled is false, should return nil
-	h, err := buildCrowdSecHandler(nil, nil, false)
-	require.NoError(t, err)
+	h := buildCrowdSecHandler(nil, nil, false)
 	assert.Nil(t, h)
 }
 
 func TestBuildCrowdSecHandler_EnabledWithoutConfig(t *testing.T) {
 	// When crowdsecEnabled is true, should return minimal handler
-	h, err := buildCrowdSecHandler(nil, nil, true)
-	require.NoError(t, err)
+	h := buildCrowdSecHandler(nil, nil, true)
 	require.NotNil(t, h)
 
 	assert.Equal(t, "crowdsec", h["handler"])
@@ -33,8 +31,7 @@ func TestBuildCrowdSecHandler_EnabledWithEmptyAPIURL(t *testing.T) {
 	secCfg := &models.SecurityConfig{
 		CrowdSecAPIURL: "",
 	}
-	h, err := buildCrowdSecHandler(nil, secCfg, true)
-	require.NoError(t, err)
+	h := buildCrowdSecHandler(nil, secCfg, true)
 	require.NotNil(t, h)
 
 	assert.Equal(t, "crowdsec", h["handler"])
@@ -48,8 +45,7 @@ func TestBuildCrowdSecHandler_EnabledWithCustomAPIURL(t *testing.T) {
 	secCfg := &models.SecurityConfig{
 		CrowdSecAPIURL: "http://crowdsec-lapi:8081",
 	}
-	h, err := buildCrowdSecHandler(nil, secCfg, true)
-	require.NoError(t, err)
+	h := buildCrowdSecHandler(nil, secCfg, true)
 	require.NotNil(t, h)
 
 	assert.Equal(t, "crowdsec", h["handler"])
@@ -62,8 +58,7 @@ func TestBuildCrowdSecHandler_JSONFormat(t *testing.T) {
 	secCfg := &models.SecurityConfig{
 		CrowdSecAPIURL: "http://localhost:8080",
 	}
-	h, err := buildCrowdSecHandler(nil, secCfg, true)
-	require.NoError(t, err)
+	h := buildCrowdSecHandler(nil, secCfg, true)
 	require.NotNil(t, h)
 
 	// Marshal to JSON and verify structure
@@ -89,8 +84,7 @@ func TestBuildCrowdSecHandler_WithHost(t *testing.T) {
 		CrowdSecAPIURL: "http://custom-crowdsec:8080",
 	}
 
-	h, err := buildCrowdSecHandler(host, secCfg, true)
-	require.NoError(t, err)
+	h := buildCrowdSecHandler(host, secCfg, true)
 	require.NotNil(t, h)
 
 	assert.Equal(t, "crowdsec", h["handler"])

@@ -166,11 +166,12 @@ func (h *CrowdsecHandler) DashboardSummary(c *gin.Context) {
 	// Formula: round((current - previous) / previous * 100, 1)
 	// Special cases: no previous data → 0; no current data → -100%.
 	var trend float64
-	if previousCount == 0 {
+	switch {
+	case previousCount == 0:
 		trend = 0.0
-	} else if totalDecisions == 0 && previousCount > 0 {
+	case totalDecisions == 0 && previousCount > 0:
 		trend = -100.0
-	} else {
+	default:
 		trend = math.Round(float64(totalDecisions-previousCount)/float64(previousCount)*1000) / 10
 	}
 
@@ -478,7 +479,8 @@ func (h *CrowdsecHandler) fetchLAPIAlerts(ctx context.Context, since time.Time, 
 
 	baseURL, err := h.resolveLAPIURLValidator(lapiURL)
 	if err != nil {
-		return h.fetchAlertsCscli(ctx, scenario, limit)
+		alerts, total = h.fetchAlertsCscli(ctx, scenario, limit)
+		return alerts, total, "cscli"
 	}
 
 	q := url.Values{}
@@ -499,7 +501,8 @@ func (h *CrowdsecHandler) fetchLAPIAlerts(ctx context.Context, since time.Time, 
 
 	req, reqErr := http.NewRequestWithContext(reqCtx, http.MethodGet, reqURL, http.NoBody)
 	if reqErr != nil {
-		return h.fetchAlertsCscli(ctx, scenario, limit)
+		alerts, total = h.fetchAlertsCscli(ctx, scenario, limit)
+		return alerts, total, "cscli"
 	}
 	if apiKey != "" {
 		req.Header.Set("X-Api-Key", apiKey)
@@ -509,17 +512,20 @@ func (h *CrowdsecHandler) fetchLAPIAlerts(ctx context.Context, since time.Time, 
 	client := network.NewInternalServiceHTTPClient(10 * time.Second)
 	resp, doErr := client.Do(req)
 	if doErr != nil {
-		return h.fetchAlertsCscli(ctx, scenario, limit)
+		alerts, total = h.fetchAlertsCscli(ctx, scenario, limit)
+		return alerts, total, "cscli"
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return h.fetchAlertsCscli(ctx, scenario, limit)
+		alerts, total = h.fetchAlertsCscli(ctx, scenario, limit)
+		return alerts, total, "cscli"
 	}
 
 	var rawAlerts []interface{}
 	if decErr := json.NewDecoder(resp.Body).Decode(&rawAlerts); decErr != nil {
-		return h.fetchAlertsCscli(ctx, scenario, limit)
+		alerts, total = h.fetchAlertsCscli(ctx, scenario, limit)
+		return alerts, total, "cscli"
 	}
 
 	// Capture full count before slicing for correct pagination semantics
@@ -540,7 +546,7 @@ func (h *CrowdsecHandler) fetchLAPIAlerts(ctx context.Context, since time.Time, 
 }
 
 // fetchAlertsCscli falls back to using cscli to list alerts.
-func (h *CrowdsecHandler) fetchAlertsCscli(ctx context.Context, scenario string, limit int) (alerts []interface{}, total int, source string) {
+func (h *CrowdsecHandler) fetchAlertsCscli(ctx context.Context, scenario string, limit int) (alerts []interface{}, total int) {
 	args := []string{"alerts", "list", "-o", "json"}
 	if scenario != "" {
 		args = append(args, "-s", scenario)
@@ -550,13 +556,13 @@ func (h *CrowdsecHandler) fetchAlertsCscli(ctx context.Context, scenario string,
 	output, err := h.CmdExec.Execute(ctx, "cscli", args...)
 	if err != nil {
 		logger.Log().WithError(err).Warn("Failed to list alerts via cscli")
-		return []interface{}{}, 0, "cscli"
+		return []interface{}{}, 0
 	}
 
 	if jErr := json.Unmarshal(output, &alerts); jErr != nil {
-		return []interface{}{}, 0, "cscli"
+		return []interface{}{}, 0
 	}
-	return alerts, len(alerts), "cscli"
+	return alerts, len(alerts)
 }
 
 // ExportDecisions exports decisions as downloadable CSV or JSON.

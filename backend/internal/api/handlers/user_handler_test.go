@@ -1437,13 +1437,13 @@ func TestUserHandler_AcceptInvite_Success(t *testing.T) {
 }
 
 func TestGenerateSecureToken(t *testing.T) {
-	token, err := generateSecureToken(32)
+	token, err := generateSecureToken()
 	assert.NoError(t, err)
 	assert.Len(t, token, 64) // 32 bytes = 64 hex chars
 	assert.Regexp(t, "^[a-f0-9]+$", token)
 
 	// Ensure uniqueness
-	token2, err := generateSecureToken(32)
+	token2, err := generateSecureToken()
 	assert.NoError(t, err)
 	assert.NotEqual(t, token, token2)
 }

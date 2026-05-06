@@ -47,6 +47,7 @@ env:
   TRIGGER_HEAD_REF: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.head_ref }}
   TRIGGER_PR_NUMBER: ${{ github.event_name == 'workflow_run' && join(github.event.workflow_run.pull_requests.*.number, '') || format('{0}', github.event.pull_request.number) }}
   TRIGGER_ACTOR: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.actor.login || github.actor }}
+  TRIGGER_BASE_REF: ${{ github.event_name == 'workflow_run' && '' || github.base_ref }}
 
 jobs:
   build-and-push:
@@ -215,6 +216,7 @@ jobs:
             type=raw,value=latest,enable=${{ env.TRIGGER_REF == 'refs/heads/main' }}
             type=raw,value=dev,enable=${{ env.TRIGGER_REF == 'refs/heads/development' }}
             type=raw,value=nightly,enable=${{ env.TRIGGER_REF == 'refs/heads/nightly' }}
+            type=raw,value=beta,enable=${{ env.TRIGGER_EVENT == 'pull_request' && env.TRIGGER_BASE_REF == 'development' }}
             type=raw,value=${{ steps.branch-tags.outputs.pr_feature_branch_sha_tag }},enable=${{ env.TRIGGER_EVENT == 'pull_request' && steps.branch-tags.outputs.pr_feature_branch_sha_tag != '' }}
             type=raw,value=${{ steps.branch-tags.outputs.feature_branch_tag }},enable=${{ env.TRIGGER_EVENT != 'pull_request' && startsWith(env.TRIGGER_REF, 'refs/heads/feature/') && steps.branch-tags.outputs.feature_branch_tag != '' }}
             type=raw,value=${{ steps.branch-tags.outputs.branch_sha_tag }},enable=${{ env.TRIGGER_EVENT != 'pull_request' && steps.branch-tags.outputs.branch_sha_tag != '' }}

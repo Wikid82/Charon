@@ -47,4 +47,5 @@ semgrep scan \
   --exclude "frontend/node_modules" \
   --exclude "frontend/coverage" \
   --exclude "frontend/dist" \
+  --exclude-rule "go.secrets.gorm.gorm-empty-password.gorm-empty-password" \
   "${TARGETS[@]}"

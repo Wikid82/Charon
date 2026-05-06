@@ -14,6 +14,9 @@ import { AuthProvider } from './context/AuthContext'
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const ProxyHosts = lazy(() => import('./pages/ProxyHosts'))
 const RemoteServers = lazy(() => import('./pages/RemoteServers'))
+const HecateTunnels   = lazy(() => import('./pages/HecateTunnels'))
+const HecateAgent     = lazy(() => import('./pages/HecateAgent'))
+const HecateProviders = lazy(() => import('./pages/HecateProviders'))
 const DNS = lazy(() => import('./pages/DNS'))
 const ImportCaddy = lazy(() => import('./pages/ImportCaddy'))
 const ImportCrowdSec = lazy(() => import('./pages/ImportCrowdSec'))
@@ -71,8 +74,19 @@ export default function App() {
           }>
               <Route index element={<Dashboard />} />
               <Route path="proxy-hosts" element={<ProxyHosts />} />
-              <Route path="remote-servers" element={<RemoteServers />} />
               <Route path="domains" element={<Domains />} />
+
+              {/* Hecate Routes */}
+              <Route path="hecate">
+                <Route index element={<Navigate to="/hecate/tunnels" replace />} />
+                <Route path="tunnels"        element={<HecateTunnels />} />
+                <Route path="remote-servers" element={<RemoteServers />} />
+                <Route path="providers"      element={<HecateProviders />} />
+                <Route path="agent"          element={<HecateAgent />} />
+              </Route>
+
+              {/* Legacy redirect for old Remote Servers bookmarks */}
+              <Route path="remote-servers" element={<Navigate to="/hecate/remote-servers" replace />} />
               <Route path="certificates" element={<Certificates />} />
 
               {/* DNS Routes */}

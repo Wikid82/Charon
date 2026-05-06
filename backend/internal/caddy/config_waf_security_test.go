@@ -44,8 +44,7 @@ func TestBuildWAFHandler_PathTraversalAttack(t *testing.T) {
 			}
 			secCfg := &models.SecurityConfig{WAFMode: "block", WAFRulesSource: tc.rulesetName}
 
-			handler, err := buildWAFHandler(host, rulesets, rulesetPaths, secCfg, true)
-			require.NoError(t, err)
+			handler := buildWAFHandler(host, rulesets, rulesetPaths, secCfg, true)
 			// Handler should be nil since no matching path exists for malicious names
 			require.Nil(t, handler, tc.description)
 		})
@@ -72,8 +71,7 @@ func TestBuildWAFHandler_SQLInjectionInRulesetName(t *testing.T) {
 			}
 			secCfg := &models.SecurityConfig{WAFMode: "block", WAFRulesSource: pattern}
 
-			handler, err := buildWAFHandler(host, rulesets, rulesetPaths, secCfg, true)
-			require.NoError(t, err)
+			handler := buildWAFHandler(host, rulesets, rulesetPaths, secCfg, true)
 			// Should return nil since the malicious name has no corresponding path
 			require.Nil(t, handler, "SQL injection pattern should not produce valid handler")
 		})
@@ -101,8 +99,7 @@ func TestBuildWAFHandler_XSSInAdvancedConfig(t *testing.T) {
 			}
 			secCfg := &models.SecurityConfig{WAFMode: "block"}
 
-			handler, err := buildWAFHandler(host, rulesets, rulesetPaths, secCfg, true)
-			require.NoError(t, err)
+			handler := buildWAFHandler(host, rulesets, rulesetPaths, secCfg, true)
 			// Should fall back to owasp-crs since XSS pattern won't match any ruleset
 			require.NotNil(t, handler)
 			directives := handler["directives"].(string)
@@ -127,8 +124,7 @@ func TestBuildWAFHandler_HugePayload(t *testing.T) {
 	secCfg := &models.SecurityConfig{WAFMode: "block"}
 
 	// Should not panic or crash
-	handler, err := buildWAFHandler(host, rulesets, rulesetPaths, secCfg, true)
-	require.NoError(t, err)
+	handler := buildWAFHandler(host, rulesets, rulesetPaths, secCfg, true)
 	// Falls back to owasp-crs since huge name has no path
 	require.NotNil(t, handler)
 	directives := handler["directives"].(string)
@@ -172,8 +168,7 @@ func TestBuildWAFHandler_EmptyAndWhitespaceInputs(t *testing.T) {
 			}
 			secCfg := &models.SecurityConfig{WAFMode: "block", WAFRulesSource: tc.wafRulesSource}
 
-			handler, err := buildWAFHandler(host, rulesets, rulesetPaths, secCfg, true)
-			require.NoError(t, err)
+			handler := buildWAFHandler(host, rulesets, rulesetPaths, secCfg, true)
 
 			if tc.expectNil {
 				require.Nil(t, handler)
@@ -203,8 +198,7 @@ func TestBuildWAFHandler_ConcurrentRulesetSelection(t *testing.T) {
 
 	// Run 100 times to verify determinism
 	for i := 0; i < 100; i++ {
-		handler, err := buildWAFHandler(host, rulesets, rulesetPaths, secCfg, true)
-		require.NoError(t, err)
+		handler := buildWAFHandler(host, rulesets, rulesetPaths, secCfg, true)
 		require.NotNil(t, handler)
 		directives := handler["directives"].(string)
 		require.Contains(t, directives, "ruleset-b", "Selection should always pick WAFRulesSource")
@@ -220,8 +214,7 @@ func TestBuildWAFHandler_NilSecCfg(t *testing.T) {
 	}
 
 	// nil secCfg should not panic, should fall back to owasp-crs
-	handler, err := buildWAFHandler(host, rulesets, rulesetPaths, nil, true)
-	require.NoError(t, err)
+	handler := buildWAFHandler(host, rulesets, rulesetPaths, nil, true)
 	require.NotNil(t, handler)
 	directives := handler["directives"].(string)
 	require.Contains(t, directives, "owasp-crs")
@@ -236,8 +229,7 @@ func TestBuildWAFHandler_NilHost(t *testing.T) {
 	secCfg := &models.SecurityConfig{WAFMode: "block"}
 
 	// nil host should not panic
-	handler, err := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg, true)
-	require.NoError(t, err)
+	handler := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg, true)
 	require.NotNil(t, handler)
 	directives := handler["directives"].(string)
 	require.Contains(t, directives, "owasp-crs")
@@ -266,8 +258,7 @@ func TestBuildWAFHandler_SpecialCharactersInRulesetName(t *testing.T) {
 			}
 			secCfg := &models.SecurityConfig{WAFMode: "block", WAFRulesSource: tc.name}
 
-			handler, err := buildWAFHandler(host, rulesets, rulesetPaths, secCfg, true)
-			require.NoError(t, err)
+			handler := buildWAFHandler(host, rulesets, rulesetPaths, secCfg, true)
 			require.NotNil(t, handler)
 			directives := handler["directives"].(string)
 			require.Contains(t, directives, tc.safeName)

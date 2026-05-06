@@ -64,9 +64,8 @@ func TestGenerateForwardHostWarnings_DockerBridgeIP(t *testing.T) {
 }
 
 func TestParseNullableUintField_DefaultType(t *testing.T) {
-	id, exists, err := parseNullableUintField(true, "test_field")
+	id, err := parseNullableUintField(true, "test_field")
 	assert.Nil(t, id)
-	assert.True(t, exists)
 	assert.Error(t, err)
 }
 

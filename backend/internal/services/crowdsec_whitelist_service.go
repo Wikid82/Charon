@@ -126,7 +126,7 @@ func (s *CrowdSecWhitelistService) WriteYAML(ctx context.Context) error {
 	target := filepath.Join(dir, "charon-whitelist.yaml")
 	tmp := target + ".tmp"
 
-	if err := os.WriteFile(tmp, content, 0o640); err != nil {
+	if err := os.WriteFile(tmp, content, 0o640); err != nil { //nolint:gosec // G306: 0640 grants group-read for CrowdSec config files
 		return fmt.Errorf("write whitelist yaml: write temp: %w", err)
 	}
 

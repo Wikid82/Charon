@@ -13,6 +13,9 @@ export interface RemoteServer {
   last_check?: string;
   created_at: string;
   updated_at: string;
+  connection_type?: 'direct' | 'orthrus' | 'cloudflare' | 'tailscale' | 'netbird' | 'zerotier';
+  orthrus_agent_uuid?: string;
+  hecate_tunnel_uuid?: string;
 }
 
 /**

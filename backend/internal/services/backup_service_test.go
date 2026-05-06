@@ -1613,7 +1613,7 @@ func TestBackupService_RestoreBackup_ReplacesStagedRestoreSnapshot(t *testing.T)
 	require.NoError(t, os.MkdirAll(dataDir, 0o700))
 	require.NoError(t, os.MkdirAll(backupDir, 0o700))
 
-	createBackupZipWithDB := func(name string, content []byte) string {
+	createBackupZipWithDB := func(name string, content []byte) {
 		path := filepath.Join(backupDir, name)
 		zipFile, err := os.Create(path) //nolint:gosec
 		require.NoError(t, err)
@@ -1624,7 +1624,6 @@ func TestBackupService_RestoreBackup_ReplacesStagedRestoreSnapshot(t *testing.T)
 		require.NoError(t, err)
 		require.NoError(t, writer.Close())
 		require.NoError(t, zipFile.Close())
-		return path
 	}
 
 	createBackupZipWithDB("backup-one.zip", []byte("one"))

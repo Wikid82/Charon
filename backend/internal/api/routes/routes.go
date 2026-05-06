@@ -20,9 +20,15 @@ import (
 	"github.com/Wikid82/charon/backend/internal/cerberus"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/hecate"
+	cfprovider "github.com/Wikid82/charon/backend/internal/hecate/providers/cloudflare"
+	nbprovider "github.com/Wikid82/charon/backend/internal/hecate/providers/netbird"
+	tsprovider "github.com/Wikid82/charon/backend/internal/hecate/providers/tailscale"
+	ztprovider "github.com/Wikid82/charon/backend/internal/hecate/providers/zerotier"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/metrics"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/orthrus"
 	"github.com/Wikid82/charon/backend/internal/services"
 
 	// Import custom DNS providers to register them
@@ -123,6 +129,8 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		&models.Plugin{},                // Phase 5: DNS provider plugins
 		&models.ManualChallenge{},       // Phase 1: Manual DNS challenges
 		&models.CrowdSecWhitelist{},     // Issue #939: CrowdSec IP whitelist management
+		&models.TunnelConfig{},          // Issue #368: Hecate tunnel provider configs
+		&models.OrthrusAgent{},          // Issue #369: Orthrus reverse-proxy agent registry
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -447,6 +455,45 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 				manualChallengeService := services.NewManualChallengeService(db)
 				manualChallengeHandler := handlers.NewManualChallengeHandler(manualChallengeService, dnsProviderService)
 				manualChallengeHandler.RegisterRoutes(management)
+
+				// Hecate Tunnel & Pathway Manager
+				tunnelMgr := hecate.NewTunnelManager(db, encryptionService)
+				tunnelMgr.RegisterFactory(models.ProviderCloudflare, cfprovider.Factory)
+				tunnelMgr.RegisterFactory(models.ProviderTailscale, tsprovider.Factory)
+				tunnelMgr.RegisterFactory(models.ProviderZeroTier, ztprovider.Factory)
+				tunnelMgr.RegisterFactory(models.ProviderNetBird, nbprovider.Factory)
+				if startErr := tunnelMgr.Start(ctx); startErr != nil {
+					logger.Log().WithError(startErr).Warn("Hecate TunnelManager failed to start")
+				}
+
+				orthrusCA, caErr := orthrus.NewInternalCA(dataRoot)
+				var orthrusServer *orthrus.OrthrusServer
+				if caErr == nil {
+					var serverErr error
+					orthrusServer, serverErr = orthrus.NewOrthrusServer(db, orthrusCA)
+					if serverErr != nil {
+						logger.Log().WithError(serverErr).Warn("Orthrus server initialization failed — agent tunnel feature unavailable")
+					}
+				} else {
+					logger.Log().WithError(caErr).Warn("Orthrus CA initialization failed — agent tunnel feature unavailable")
+				}
+
+				hecateSvc := services.NewHecateService(db, encryptionService, tunnelMgr)
+				orthrsuSvc := services.NewOrthrusService(db, orthrusServer)
+
+				hecateHandler := handlers.NewHecateHandler(hecateSvc)
+				hecateHandler.RegisterRoutes(management)
+
+				orthrusHandler := handlers.NewOrthrusHandler(orthrsuSvc)
+				orthrusHandler.RegisterRoutes(management)
+
+				hecateWSHandler := handlers.NewHecateWSHandler(hecateSvc, wsTracker)
+				management.GET("/ws/hecate/logs/:uuid", hecateWSHandler.StreamLogs)
+
+				if orthrusServer != nil {
+					api.GET("/ws/orthrus/connect", orthrusServer.HandleWebSocket)
+					caddyManager.SetOrthrusServer(orthrusServer)
+				}
 			}
 		} else {
 			logger.Log().Warn("CHARON_ENCRYPTION_KEY not set - DNS provider and plugin features will be unavailable")

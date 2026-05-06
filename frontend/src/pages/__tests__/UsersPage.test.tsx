@@ -562,6 +562,7 @@ describe('UsersPage', () => {
       const user = userEvent.setup()
       expect(await screen.findByText('Invite User')).toBeInTheDocument()
       await user.click(screen.getByRole('button', { name: /Invite User/i }))
+      expect(await screen.findByPlaceholderText('user@example.com')).toBeInTheDocument()
 
       vi.useFakeTimers()
 
