@@ -37,7 +37,7 @@ docker run -d --name charon-debug --cap-add=SYS_PTRACE --security-opt seccomp=un
 echo "Waiting for Charon API to be ready..."
 API_READY=false
 for i in {1..120}; do
-  if curl -s -f http://localhost:8080/api/v1/ >/dev/null 2>&1; then
+  if curl -s -f http://localhost:8080/api/v1/health >/dev/null 2>&1; then
     API_READY=true
     break
   fi
