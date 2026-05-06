@@ -65,7 +65,17 @@ export default function Layout({ children }: LayoutProps) {
   const navigation: NavItem[] = [
     { name: t('navigation.dashboard'), path: '/', icon: '📊' },
     { name: t('navigation.proxyHosts'), path: '/proxy-hosts', icon: '🌐' },
-    { name: t('navigation.remoteServers'), path: '/remote-servers', icon: '🖥️' },
+    {
+      name: t('navigation.hecate'),
+      path: '/hecate',
+      icon: '🔗',
+      children: [
+        { name: t('navigation.remoteServers'), path: '/hecate/remote-servers', icon: '🖥️' },
+        { name: t('navigation.tunnels'),       path: '/hecate/tunnels',         icon: '🌐' },
+        { name: t('navigation.providers'),     path: '/hecate/providers',       icon: '🔑' },
+        { name: t('navigation.agent'),         path: '/hecate/agent',           icon: '🤖' },
+      ],
+    },
     { name: t('navigation.domains'), path: '/domains', icon: '🌍' },
     { name: t('navigation.certificates'), path: '/certificates', icon: '🔒' },
     { name: t('navigation.dns'), path: '/dns', icon: '☁️', children: [
@@ -73,7 +83,7 @@ export default function Layout({ children }: LayoutProps) {
       { name: t('navigation.plugins'), path: '/dns/plugins', icon: '🔌' },
     ] },
     { name: t('navigation.uptime'), path: '/uptime', icon: '📈' },
-    { name: t('navigation.security'), path: '/security', icon: '🛡️', children: [
+    { name: t('navigation.cerberus'), path: '/security', icon: '🛡️', children: [
       { name: t('navigation.dashboard'), path: '/security', icon: '🛡️' },
       { name: t('navigation.crowdsec'), path: '/security/crowdsec', icon: '🛡️' },
       { name: t('navigation.accessLists'), path: '/security/access-lists', icon: '🔒' },
@@ -118,7 +128,7 @@ export default function Layout({ children }: LayoutProps) {
     // Optional Features Logic
     // Default to visible (true) if flags are loading or undefined
     if (item.name === t('navigation.uptime')) return featureFlags?.['feature.uptime.enabled'] !== false
-    if (item.name === t('navigation.security')) return featureFlags?.['feature.cerberus.enabled'] !== false
+    if (item.name === t('navigation.cerberus')) return featureFlags?.['feature.cerberus.enabled'] !== false
     return true
   })
 

@@ -39,7 +39,7 @@ func TestCrowdsecWave5_GetLAPIDecisions_Unauthorized(t *testing.T) {
 	require.NoError(t, db.Create(&models.SecurityConfig{UUID: "default", CrowdSecAPIURL: server.URL}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
-	h.validateLAPIURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
+	h.validateLAPIURL = url.Parse
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -67,7 +67,7 @@ func TestCrowdsecWave5_GetLAPIDecisions_NonJSONContentTypeFallsBack(t *testing.T
 	require.NoError(t, db.Create(&models.SecurityConfig{UUID: "default", CrowdSecAPIURL: server.URL}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
-	h.validateLAPIURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
+	h.validateLAPIURL = url.Parse
 	h.CmdExec = &mockCmdExecutor{output: []byte("[]"), err: nil}
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -90,7 +90,7 @@ func TestCrowdsecWave5_GetBouncerInfo_And_GetBouncerKey_FileSource(t *testing.T)
 	tmpDir := t.TempDir()
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
-	h.validateLAPIURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
+	h.validateLAPIURL = url.Parse
 	keyPath := h.bouncerKeyPath()
 	require.NoError(t, os.MkdirAll(filepath.Dir(keyPath), 0o750))
 	require.NoError(t, os.WriteFile(keyPath, []byte("abcdefghijklmnop1234567890"), 0o600))

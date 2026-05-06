@@ -1,3 +1,6 @@
 go 1.26.2
 
-use ./backend
+use (
+	./backend
+	./agent
+)

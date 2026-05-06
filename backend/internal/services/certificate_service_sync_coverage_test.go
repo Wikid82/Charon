@@ -19,13 +19,13 @@ import (
 func TestSyncFromDisk_StagingToProductionUpgrade(t *testing.T) {
 	tmpDir := t.TempDir()
 	certRoot := filepath.Join(tmpDir, "certificates")
-	require.NoError(t, os.MkdirAll(certRoot, 0755))
+	require.NoError(t, os.MkdirAll(certRoot, 0o755)) //nolint:gosec // G301: 0755 standard for test directories
 
 	domain := "staging-upgrade.example.com"
 	certPEM, _ := generateTestCertAndKey(t, domain, time.Now().Add(24*time.Hour))
 
 	certFile := filepath.Join(certRoot, domain+".crt")
-	require.NoError(t, os.WriteFile(certFile, certPEM, 0600))
+	require.NoError(t, os.WriteFile(certFile, certPEM, 0o600))
 
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
@@ -52,13 +52,13 @@ func TestSyncFromDisk_StagingToProductionUpgrade(t *testing.T) {
 func TestSyncFromDisk_ExpiryOnlyUpdate(t *testing.T) {
 	tmpDir := t.TempDir()
 	certRoot := filepath.Join(tmpDir, "certificates")
-	require.NoError(t, os.MkdirAll(certRoot, 0755))
+	require.NoError(t, os.MkdirAll(certRoot, 0o755)) //nolint:gosec // G301: 0755 standard for test directories
 
 	domain := "expiry-only.example.com"
 	certPEM, _ := generateTestCertAndKey(t, domain, time.Now().Add(24*time.Hour))
 
 	certFile := filepath.Join(certRoot, domain+".crt")
-	require.NoError(t, os.WriteFile(certFile, certPEM, 0600))
+	require.NoError(t, os.WriteFile(certFile, certPEM, 0o600))
 
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
@@ -90,7 +90,7 @@ func TestSyncFromDisk_CertRootStatPermissionError(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	certRoot := filepath.Join(tmpDir, "certificates")
-	require.NoError(t, os.MkdirAll(certRoot, 0755))
+	require.NoError(t, os.MkdirAll(certRoot, 0o755)) //nolint:gosec // G301: 0755 standard for test directories
 
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
@@ -99,7 +99,7 @@ func TestSyncFromDisk_CertRootStatPermissionError(t *testing.T) {
 
 	// Restrict parent dir so os.Stat(certRoot) fails with permission error
 	require.NoError(t, os.Chmod(tmpDir, 0))
-	defer func() { _ = os.Chmod(tmpDir, 0755) }()
+	defer func() { _ = os.Chmod(tmpDir, 0o755) }() //nolint:gosec // G302: restoring test directory state
 
 	svc := newTestCertificateService(tmpDir, db)
 	err = svc.SyncFromDisk()
@@ -158,7 +158,7 @@ func TestGetDecryptedPrivateKey_DecryptFails(t *testing.T) {
 func TestDeleteCertificate_LetsEncryptProvider_FileCleanup(t *testing.T) {
 	tmpDir := t.TempDir()
 	certRoot := filepath.Join(tmpDir, "certificates")
-	require.NoError(t, os.MkdirAll(certRoot, 0755))
+	require.NoError(t, os.MkdirAll(certRoot, 0o755)) //nolint:gosec // G301: 0755 standard for test directories
 
 	domain := "le-cleanup.example.com"
 	certFile := filepath.Join(certRoot, domain+".crt")
@@ -166,9 +166,9 @@ func TestDeleteCertificate_LetsEncryptProvider_FileCleanup(t *testing.T) {
 	jsonFile := filepath.Join(certRoot, domain+".json")
 
 	certPEM, _ := generateTestCertAndKey(t, domain, time.Now().Add(24*time.Hour))
-	require.NoError(t, os.WriteFile(certFile, certPEM, 0600))
-	require.NoError(t, os.WriteFile(keyFile, []byte("key"), 0600))
-	require.NoError(t, os.WriteFile(jsonFile, []byte("{}"), 0600))
+	require.NoError(t, os.WriteFile(certFile, certPEM, 0o600))
+	require.NoError(t, os.WriteFile(keyFile, []byte("key"), 0o600))
+	require.NoError(t, os.WriteFile(jsonFile, []byte("{}"), 0o600))
 
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
@@ -195,13 +195,13 @@ func TestDeleteCertificate_LetsEncryptProvider_FileCleanup(t *testing.T) {
 func TestDeleteCertificate_StagingProvider_FileCleanup(t *testing.T) {
 	tmpDir := t.TempDir()
 	certRoot := filepath.Join(tmpDir, "certificates")
-	require.NoError(t, os.MkdirAll(certRoot, 0755))
+	require.NoError(t, os.MkdirAll(certRoot, 0o755)) //nolint:gosec // G301: 0755 standard for test directories
 
 	domain := "le-staging-cleanup.example.com"
 	certFile := filepath.Join(certRoot, domain+".crt")
 
 	certPEM, _ := generateTestCertAndKey(t, domain, time.Now().Add(24*time.Hour))
-	require.NoError(t, os.WriteFile(certFile, certPEM, 0600))
+	require.NoError(t, os.WriteFile(certFile, certPEM, 0o600))
 
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})

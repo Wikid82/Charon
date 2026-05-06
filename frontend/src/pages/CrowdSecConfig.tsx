@@ -615,7 +615,7 @@ export default function CrowdSecConfig() {
       <div className="bg-blue-900/20 border border-blue-700 rounded-lg p-4 mb-4">
         <p className="text-sm text-blue-200">
           <strong>{t('crowdsecConfig.note')}:</strong> {t('crowdsecConfig.noteText')}{' '}
-          <Link to="/security" className="text-blue-400 hover:text-blue-300 underline">{t('navigation.security')}</Link>.
+          <Link to="/security" className="text-blue-400 hover:text-blue-300 underline">{t('navigation.cerberus')}</Link>.
         </p>
       </div>
 

@@ -472,8 +472,8 @@ type InviteUserRequest struct {
 }
 
 // generateSecureToken creates a cryptographically secure random token.
-func generateSecureToken(length int) (string, error) {
-	bytes := make([]byte, length)
+func generateSecureToken() (string, error) {
+	bytes := make([]byte, 32)
 	if _, err := rand.Read(bytes); err != nil {
 		return "", err
 	}
@@ -517,7 +517,7 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 	}
 
 	// Generate invite token
-	inviteToken, err := generateSecureToken(32)
+	inviteToken, err := generateSecureToken()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate invite token"})
 		return
@@ -989,7 +989,7 @@ func (h *UserHandler) ResendInvite(c *gin.Context) {
 	}
 
 	// Generate new invite token
-	inviteToken, err := generateSecureToken(32)
+	inviteToken, err := generateSecureToken()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate invite token"})
 		return

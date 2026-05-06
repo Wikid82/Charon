@@ -104,7 +104,7 @@ func checkpointSQLiteDatabase(dbPath string) error {
 	return nil
 }
 
-func createSQLiteSnapshot(dbPath string) (string, func(), error) {
+func createSQLiteSnapshot(dbPath string) (snapshotPath string, cleanup func(), err error) {
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return "", nil, fmt.Errorf("open sqlite database for snapshot: %w", err)
@@ -128,7 +128,7 @@ func createSQLiteSnapshot(dbPath string) (string, func(), error) {
 		return "", nil, fmt.Errorf("vacuum into sqlite snapshot: %w", err)
 	}
 
-	cleanup := func() {
+	cleanup = func() {
 		_ = os.Remove(tmpPath)
 	}
 

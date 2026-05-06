@@ -539,7 +539,14 @@
     "gridView": "网格视图",
     "listView": "列表视图",
     "deleteConfirm": "您确定要删除 \"{{name}}\" 吗？此操作无法撤销。",
-    "deleting": "删除中..."
+    "deleting": "删除中...",
+    "columnConnection": "Connection",
+    "connectionType": "Connection Type",
+    "connectionTypeDirect": "Direct",
+    "connectionTypeOrthrus": "Orthrus Agent",
+    "connectionTypeCloudflare": "Cloudflare Tunnel",
+    "orthrusAgentUUID": "Orthrus Agent UUID",
+    "enabled": "Enabled"
   },
   "notificationProviders": {
     "title": "通知提供商",
@@ -1130,5 +1137,99 @@
     "title": "欢迎",
     "description": "您的账户拥有 Passthrough 访问权限。您可以直接访问分配给您的服务 — 无管理界面可用。",
     "noAccessToManagement": "您无权访问管理界面。"
+  },
+  "hecate": {
+    "stateConnected": "Connected",
+    "stateConnecting": "Connecting",
+    "stateError": "Error",
+    "stateStopped": "Stopped",
+    "tunnelStatus": "Tunnel status: {{state}}",
+    "viewLogs": "View Tunnel Logs",
+    "viewLogsFor": "View tunnel logs for {{name}}",
+    "wizard": {
+      "title": "Install Orthrus Agent",
+      "description": "Follow the steps below to install the Orthrus agent on your server.",
+      "authKeyLabel": "Authentication Key",
+      "authKeyWarning": "This key is shown only once. Copy it before closing this dialog.",
+      "authKeyValue": "Authentication key value",
+      "copyAuthKey": "Copy authentication key",
+      "copied": "Copied!",
+      "copySnippet": "Copy snippet",
+      "troubleshooting": "Troubleshooting",
+      "troubleshootingHint1": "Ensure the Orthrus agent service is running and can reach Charon.",
+      "troubleshootingHint2": "Check that the authentication key was copied correctly.",
+      "troubleshootingHint3": "Verify that ports are open in your firewall.",
+      "done": "Done"
+    },
+    "logs": {
+      "title": "Tunnel Logs — {{name}}",
+      "description": "Live log stream for tunnel {{name}}",
+      "pause": "Pause",
+      "resume": "Resume",
+      "clear": "Clear",
+      "noLogs": "No log output yet.",
+      "lineCount": "{{count}} lines",
+      "reconnecting": "重新连接中..."
+    },
+    "cloudflare": {
+      "wizardTitle": "Cloudflare Tunnel Setup",
+      "wizardDescription": "Configure a Cloudflare Tunnel to connect your server.",
+      "configureHint": "Cloudflare Tunnel creates an outbound-only connection — no inbound firewall rules needed.",
+      "step1": "Install cloudflared on your server.",
+      "step2": "Authenticate cloudflared with your Cloudflare account.",
+      "step3": "Create a tunnel and copy the tunnel ID here.",
+      "docsLink": "Cloudflare Tunnel documentation",
+      "continue": "Continue",
+      "step1Title": "输入令牌",
+      "tokenLabel": "Cloudflare 隆道令牌",
+      "tokenHelp": "在 Cloudflare Zero Trust 控制台的网络 → 隆道 → 您的隆道 → 配置 → 令牌中找到",
+      "showToken": "显示令牌",
+      "hideToken": "隐藏令牌",
+      "step2Title": "确认",
+      "step3Title": "正在激活"
+    },
+    "installWizard": {
+      "tabs": {
+        "dockerCompose": "Docker Compose",
+        "systemd": "Systemd",
+        "tarball": "Tarball",
+        "kubernetes": "Kubernetes",
+        "homebrew": "Homebrew"
+      }
+    },
+    "form": {
+      "selectAgent": "选择代理...",
+      "provisionAgent": "配置新代理",
+      "manageAgents": "管理代理 ({{count}})",
+      "hideAgentManager": "隐藏代理管理"
+    },
+    "tailscale": {
+      "pickerTitle": "Select Tailscale Device",
+      "pickerDescription": "Choose the Tailscale device to route traffic through.",
+      "noDevices": "No Tailscale devices found. Ensure your API key is configured."
+    },
+    "agentManager": {
+      "tableLabel": "Orthrus 代理",
+      "colName": "名称",
+      "colUUID": "UUID",
+      "colStatus": "状态",
+      "colLastSeen": "最后在线",
+      "colActions": "操作",
+      "editNameLabel": "重命名代理 {{name}}",
+      "renameInputLabel": "{{name}} 的新名称",
+      "confirmRename": "保存名称",
+      "cancelRename": "取消重命名",
+      "deleteLabel": "删除代理 {{name}}",
+      "deleteTitle": "删除代理",
+      "deleteDescription": "确定要删除代理\"{{name}}\"吗？此操作无法撤销。",
+      "deleteConfirm": "删除",
+      "noAgents": "尚未注册任何代理。",
+      "neverSeen": "从未",
+      "status": {
+        "online": "在线",
+        "offline": "离线",
+        "pending": "待连接"
+      }
+    }
   }
 }

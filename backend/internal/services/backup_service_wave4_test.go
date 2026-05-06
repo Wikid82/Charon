@@ -51,7 +51,7 @@ func backupSQLContains(tx *gorm.DB, fragment string) bool {
 	return strings.Contains(strings.ToLower(tx.Statement.SQL.String()), strings.ToLower(fragment))
 }
 
-func setupRehydrateDBPair(t *testing.T) (*gorm.DB, string, string) {
+func setupRehydrateDBPair(t *testing.T) (db *gorm.DB, activeDataDir, restoreDBPath string) {
 	t.Helper()
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
@@ -62,7 +62,7 @@ func setupRehydrateDBPair(t *testing.T) (*gorm.DB, string, string) {
 	require.NoError(t, err)
 	require.NoError(t, activeDB.Exec(`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)`).Error)
 
-	restoreDBPath := filepath.Join(tmpDir, "restore.db")
+	restoreDBPath = filepath.Join(tmpDir, "restore.db")
 	restoreDB, err := gorm.Open(sqlite.Open(restoreDBPath), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, restoreDB.Exec(`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)`).Error)

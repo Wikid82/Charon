@@ -85,6 +85,7 @@ func setupChallengeTestRouter() *gin.Engine {
 	return gin.New()
 }
 
+//nolint:unparam // userID kept for future test variants
 func setUserID(c *gin.Context, userID uint) {
 	c.Set("user_id", userID)
 }

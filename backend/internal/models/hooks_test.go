@@ -13,7 +13,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("failed to open in-memory db: %v", err)
 	}
-	if err := db.AutoMigrate(&NotificationTemplate{}, &UptimeHost{}, &UptimeNotificationEvent{}); err != nil {
+	if err := db.AutoMigrate(&NotificationTemplate{}, &UptimeHost{}, &UptimeNotificationEvent{}, &OrthrusAgent{}, &TunnelConfig{}); err != nil {
 		t.Fatalf("auto migrate failed: %v", err)
 	}
 	return db
@@ -59,5 +59,67 @@ func TestUptimeNotificationEvent_BeforeCreate(t *testing.T) {
 	}
 	if e.ID == "" {
 		t.Fatalf("expected ID to be populated by BeforeCreate")
+	}
+}
+
+func TestOrthrusAgent_BeforeCreate_SetsUUID(t *testing.T) {
+	db := setupTestDB(t)
+	agent := &OrthrusAgent{
+		Name:        "hook-test-agent",
+		AuthKeyHash: "somehash",
+		Status:      OrthrusStatusPending,
+	}
+	if err := db.Create(agent).Error; err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	if agent.UUID == "" {
+		t.Fatalf("expected UUID to be populated by BeforeCreate")
+	}
+}
+
+func TestOrthrusAgent_BeforeCreate_PreservesUUID(t *testing.T) {
+	db := setupTestDB(t)
+	agent := &OrthrusAgent{
+		UUID:        "preset-uuid",
+		Name:        "preset-agent",
+		AuthKeyHash: "somehash",
+		Status:      OrthrusStatusPending,
+	}
+	if err := db.Create(agent).Error; err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	if agent.UUID != "preset-uuid" {
+		t.Fatalf("expected UUID to remain 'preset-uuid', got %q", agent.UUID)
+	}
+}
+
+func TestTunnelConfig_BeforeCreate_SetsUUID(t *testing.T) {
+	db := setupTestDB(t)
+	cfg := &TunnelConfig{
+		Name:                 "hook-test-tunnel",
+		Provider:             ProviderNetBird,
+		EncryptedCredentials: "encrypted",
+	}
+	if err := db.Create(cfg).Error; err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	if cfg.UUID == "" {
+		t.Fatalf("expected UUID to be populated by BeforeCreate")
+	}
+}
+
+func TestTunnelConfig_BeforeCreate_PreservesUUID(t *testing.T) {
+	db := setupTestDB(t)
+	cfg := &TunnelConfig{
+		UUID:                 "preset-tunnel-uuid",
+		Name:                 "preset-tunnel",
+		Provider:             ProviderNetBird,
+		EncryptedCredentials: "encrypted",
+	}
+	if err := db.Create(cfg).Error; err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	if cfg.UUID != "preset-tunnel-uuid" {
+		t.Fatalf("expected UUID to remain 'preset-tunnel-uuid', got %q", cfg.UUID)
 	}
 }
