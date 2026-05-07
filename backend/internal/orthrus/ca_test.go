@@ -163,6 +163,7 @@ func TestNewInternalCA_ReadOnlyKeysDir(t *testing.T) {
 	dir := t.TempDir()
 	keysDir := filepath.Join(dir, "keys")
 	require.NoError(t, os.MkdirAll(keysDir, 0o555))
+	t.Cleanup(func() { _ = os.Chmod(keysDir, 0o700) })
 
 	_, err := NewInternalCA(dir)
 	assert.Error(t, err)
