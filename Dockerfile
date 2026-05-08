@@ -10,7 +10,7 @@ ARG BUILD_DEBUG=0
 
 # ---- Pinned Toolchain Versions ----
 # renovate: datasource=docker depName=golang versioning=docker
-ARG GO_VERSION=1.26.2
+ARG GO_VERSION=1.26.3
 
 # renovate: datasource=docker depName=alpine versioning=docker
 ARG ALPINE_IMAGE=alpine:3.23.4@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
@@ -354,7 +354,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         rm -rf /tmp/buildenv_* /tmp/caddy-initial'
 
 # ---- CrowdSec Builder ----
-# Build CrowdSec from source to ensure we use Go 1.26.2+ and avoid stdlib vulnerabilities
+# Build CrowdSec from source to ensure we use Go 1.26.3+ and avoid stdlib vulnerabilities
 # (CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729)
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS crowdsec-builder
 COPY --from=xx / /
@@ -536,7 +536,7 @@ COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 # Allow non-root to bind privileged ports (80/443) securely
 RUN setcap 'cap_net_bind_service=+ep' /usr/bin/caddy
 
-# Copy CrowdSec binaries from the crowdsec-builder stage (built with Go 1.26.2+)
+# Copy CrowdSec binaries from the crowdsec-builder stage (built with Go 1.26.3+)
 # This ensures we don't have stdlib vulnerabilities from older Go versions
 COPY --from=crowdsec-builder /crowdsec-out/crowdsec /usr/local/bin/crowdsec
 COPY --from=crowdsec-builder /crowdsec-out/cscli /usr/local/bin/cscli
