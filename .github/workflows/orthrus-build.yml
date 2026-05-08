@@ -31,7 +31,7 @@ env:
   GHCR_REGISTRY: ghcr.io
   DOCKERHUB_REGISTRY: docker.io
   IMAGE_NAME: wikid82/orthrus
-  GO_VERSION: '1.26.2'
+  GO_VERSION: '1.26.3'
 
 permissions:
   contents: read
