@@ -174,9 +174,9 @@ func (s *dnsProviderService) Get(ctx context.Context, id uint) (*models.DNSProvi
 }
 
 // GetByUUID retrieves a DNS provider by UUID.
-func (s *dnsProviderService) GetByUUID(ctx context.Context, uuid string) (*models.DNSProvider, error) {
+func (s *dnsProviderService) GetByUUID(ctx context.Context, providerUUID string) (*models.DNSProvider, error) {
 	var provider models.DNSProvider
-	err := s.db.WithContext(ctx).Where("uuid = ?", uuid).First(&provider).Error
+	err := s.db.WithContext(ctx).Where("uuid = ?", providerUUID).First(&provider).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrDNSProviderNotFound

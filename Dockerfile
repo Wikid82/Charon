@@ -10,7 +10,7 @@ ARG BUILD_DEBUG=0
 
 # ---- Pinned Toolchain Versions ----
 # renovate: datasource=docker depName=golang versioning=docker
-ARG GO_VERSION=1.26.2
+ARG GO_VERSION=1.26.3
 
 # renovate: datasource=docker depName=alpine versioning=docker
 ARG ALPINE_IMAGE=alpine:3.23.4@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
@@ -25,7 +25,7 @@ ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0b
 # renovate: datasource=go depName=github.com/expr-lang/expr
 ARG EXPR_LANG_VERSION=1.17.8
 # renovate: datasource=go depName=golang.org/x/net
-ARG XNET_VERSION=0.53.0
+ARG XNET_VERSION=0.54.0
 # renovate: datasource=go depName=github.com/smallstep/certificates
 ARG SMALLSTEP_CERTIFICATES_VERSION=0.30.0
 # renovate: datasource=npm depName=npm
@@ -317,6 +317,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Fix available at v0.30.0. Pin here so the Caddy binary is patched immediately;
         # remove once caddy-security ships a release built with smallstep/certificates >= v0.30.0.
         go get github.com/smallstep/certificates@v${SMALLSTEP_CERTIFICATES_VERSION}; \
+        # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
+        # Affects /usr/bin/caddy (transitive dependency). Fix available at v0.1.1.
+        # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
+        go get github.com/Azure/go-ntlmssp@v0.1.1; \
         if [ "${CADDY_PATCH_SCENARIO}" = "A" ]; then \
             # Rollback scenario: keep explicit nebula pin if upstream compatibility regresses.
             # NOTE: smallstep/certificates (pulled by caddy-security stack) currently
@@ -350,7 +354,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         rm -rf /tmp/buildenv_* /tmp/caddy-initial'
 
 # ---- CrowdSec Builder ----
-# Build CrowdSec from source to ensure we use Go 1.26.2+ and avoid stdlib vulnerabilities
+# Build CrowdSec from source to ensure we use Go 1.26.3+ and avoid stdlib vulnerabilities
 # (CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729)
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS crowdsec-builder
 COPY --from=xx / /
@@ -385,9 +389,9 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # Fix available at v1.79.3. Pin here so the CrowdSec binary is patched immediately;
     # remove once CrowdSec ships a release built with grpc >= v1.79.3.
     # renovate: datasource=go depName=google.golang.org/grpc
-    go get google.golang.org/grpc@v1.80.0 && \
+    go get google.golang.org/grpc@v1.81.0 && \
     # CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
-    # renovate: datasource=go depName=github.com/jackc/pgx/v4
+    # renovate: datasource=github-tags depName=jackc/pgx
     go get github.com/jackc/pgx/v4@v4.18.3 && \
     # CVE-2026-29181 (GHSA-mh2q-q3fh-2475): OpenTelemetry-Go baggage header multi-value DoS
     # go.opentelemetry.io/otel >= 1.36.0 and <= 1.40.0 is vulnerable; fix available at v1.41.0.
@@ -399,10 +403,14 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
     go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.10 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.72.0 && \
+    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.73.0 && \
     go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/s3
-    go get github.com/aws/aws-sdk-go-v2/service/s3@v1.100.1 && \
+    go get github.com/aws/aws-sdk-go-v2/service/s3@v1.101.0 && \
+    # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
+    # Affects /usr/local/bin/cscli (transitive dependency). Fix available at v0.1.1.
+    # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
+    go get github.com/Azure/go-ntlmssp@v0.1.1 && \
     go mod tidy
 
 # Fix compatibility issues with expr-lang v1.17.7
@@ -479,7 +487,9 @@ WORKDIR /app
 RUN apk add --no-cache \
     bash ca-certificates sqlite-libs sqlite tzdata gettext libcap libcap-utils \
     c-ares busybox-extras \
-    && apk upgrade --no-cache zlib libcrypto3 libssl3 musl musl-utils
+    && apk upgrade --no-cache zlib libcrypto3 libssl3 musl musl-utils \
+    # CVE-2026-34743: xz-libs DoS via buffer overflow in index decoding (fixed in 5.8.3-r0)
+    xz-libs
 
 # Copy gosu binary from gosu-builder (built with Go 1.26+ to avoid stdlib CVEs)
 COPY --from=gosu-builder /gosu-out/gosu /usr/sbin/gosu
@@ -496,7 +506,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=c880cbc7e6b1a9b1a96d530c34996480d6d809d2c89a6bd73a5072e4fffbc01c
+ARG GEOLITE2_COUNTRY_SHA256=c173df28ef52c70db07c835fd78f04c46bf0938f6097b39c6454b07cd144859d
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
@@ -526,7 +536,7 @@ COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 # Allow non-root to bind privileged ports (80/443) securely
 RUN setcap 'cap_net_bind_service=+ep' /usr/bin/caddy
 
-# Copy CrowdSec binaries from the crowdsec-builder stage (built with Go 1.26.2+)
+# Copy CrowdSec binaries from the crowdsec-builder stage (built with Go 1.26.3+)
 # This ensures we don't have stdlib vulnerabilities from older Go versions
 COPY --from=crowdsec-builder /crowdsec-out/crowdsec /usr/local/bin/crowdsec
 COPY --from=crowdsec-builder /crowdsec-out/cscli /usr/local/bin/cscli

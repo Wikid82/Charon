@@ -214,7 +214,7 @@ func TestValidate_RouteOrdering(t *testing.T) {
 									Path: []string{"/emergency/*"},
 								}},
 								Handle: []Handler{
-									Handler{
+									{
 										"handler": "static_response",
 										"body":    "Emergency bypass",
 									},

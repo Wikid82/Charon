@@ -17,7 +17,7 @@ import (
 )
 
 // setupDashboardHandler creates a CrowdsecHandler with an in-memory DB seeded with decisions.
-func setupDashboardHandler(t *testing.T) (*CrowdsecHandler, *gin.Engine) {
+func setupDashboardHandler(t *testing.T) *gin.Engine {
 	t.Helper()
 
 	db := OpenTestDB(t)
@@ -37,7 +37,7 @@ func setupDashboardHandler(t *testing.T) (*CrowdsecHandler, *gin.Engine) {
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
-	return h, r
+	return r
 }
 
 // seedDashboardData inserts representative records for testing.
@@ -101,7 +101,7 @@ func TestParseTimeRange_DefaultEmpty(t *testing.T) {
 
 func TestDashboardSummary_OK(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/dashboard/summary?range=24h", http.NoBody)
@@ -134,7 +134,7 @@ func TestDashboardSummary_OK(t *testing.T) {
 
 func TestDashboardSummary_InvalidRange(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/dashboard/summary?range=99z", http.NoBody)
@@ -145,7 +145,7 @@ func TestDashboardSummary_InvalidRange(t *testing.T) {
 
 func TestDashboardSummary_Cached(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	// First call populates cache
 	w1 := httptest.NewRecorder()
@@ -162,7 +162,7 @@ func TestDashboardSummary_Cached(t *testing.T) {
 
 func TestDashboardTimeline_OK(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/dashboard/timeline?range=24h", http.NoBody)
@@ -181,7 +181,7 @@ func TestDashboardTimeline_OK(t *testing.T) {
 
 func TestDashboardTimeline_CustomInterval(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/dashboard/timeline?range=6h&interval=15m", http.NoBody)
@@ -196,7 +196,7 @@ func TestDashboardTimeline_CustomInterval(t *testing.T) {
 
 func TestDashboardTimeline_InvalidInterval(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/dashboard/timeline?interval=99m", http.NoBody)
@@ -207,7 +207,7 @@ func TestDashboardTimeline_InvalidInterval(t *testing.T) {
 
 func TestDashboardTopIPs_OK(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/dashboard/top-ips?range=24h&limit=3", http.NoBody)
@@ -230,7 +230,7 @@ func TestDashboardTopIPs_OK(t *testing.T) {
 
 func TestDashboardTopIPs_LimitCap(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	// Limit > 50 should be capped
 	w := httptest.NewRecorder()
@@ -242,7 +242,7 @@ func TestDashboardTopIPs_LimitCap(t *testing.T) {
 
 func TestDashboardScenarios_OK(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/dashboard/scenarios?range=24h", http.NoBody)
@@ -271,7 +271,7 @@ func TestDashboardScenarios_OK(t *testing.T) {
 
 func TestListAlerts_OK(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/alerts?range=24h", http.NoBody)
@@ -290,7 +290,7 @@ func TestListAlerts_OK(t *testing.T) {
 
 func TestListAlerts_InvalidRange(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/alerts?range=invalid", http.NoBody)
@@ -301,7 +301,7 @@ func TestListAlerts_InvalidRange(t *testing.T) {
 
 func TestExportDecisions_CSV(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/decisions/export?format=csv&range=24h", http.NoBody)
@@ -315,7 +315,7 @@ func TestExportDecisions_CSV(t *testing.T) {
 
 func TestExportDecisions_JSON(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/decisions/export?format=json&range=24h", http.NoBody)
@@ -331,7 +331,7 @@ func TestExportDecisions_JSON(t *testing.T) {
 
 func TestExportDecisions_InvalidFormat(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/decisions/export?format=xml", http.NoBody)
@@ -342,7 +342,7 @@ func TestExportDecisions_InvalidFormat(t *testing.T) {
 
 func TestExportDecisions_InvalidSource(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/decisions/export?source=evil", http.NoBody)
@@ -469,7 +469,7 @@ func TestDashboardSummary_DecisionsTrend(t *testing.T) {
 
 func TestExportDecisions_SourceFilter(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/decisions/export?format=json&range=7d&source=waf", http.NoBody)
@@ -549,7 +549,7 @@ func TestValidInterval_AllBranches(t *testing.T) {
 
 func TestDashboardSummary_EmptyRange(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/dashboard/summary", http.NoBody)
@@ -563,7 +563,7 @@ func TestDashboardSummary_EmptyRange(t *testing.T) {
 
 func TestDashboardSummary_7dRange(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/dashboard/summary?range=7d", http.NoBody)
@@ -623,7 +623,7 @@ func TestDashboardSummary_TrendNegative100(t *testing.T) {
 
 func TestDashboardTimeline_Cached(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	// First call populates cache
 	w1 := httptest.NewRecorder()
@@ -640,7 +640,7 @@ func TestDashboardTimeline_Cached(t *testing.T) {
 
 func TestDashboardTimeline_InvalidRange(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/dashboard/timeline?range=99z&interval=1h", http.NoBody)
@@ -651,7 +651,7 @@ func TestDashboardTimeline_InvalidRange(t *testing.T) {
 
 func TestDashboardTimeline_AllRangeIntervals(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	ranges := []struct {
 		rangeStr string
@@ -684,7 +684,7 @@ func TestDashboardTimeline_AllRangeIntervals(t *testing.T) {
 
 func TestDashboardTopIPs_InvalidRange(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/dashboard/top-ips?range=bad", http.NoBody)
@@ -695,7 +695,7 @@ func TestDashboardTopIPs_InvalidRange(t *testing.T) {
 
 func TestDashboardTopIPs_BadLimit(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/dashboard/top-ips?limit=abc", http.NoBody)
@@ -706,7 +706,7 @@ func TestDashboardTopIPs_BadLimit(t *testing.T) {
 
 func TestDashboardTopIPs_NegativeLimit(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/dashboard/top-ips?limit=-5", http.NoBody)
@@ -717,7 +717,7 @@ func TestDashboardTopIPs_NegativeLimit(t *testing.T) {
 
 func TestDashboardTopIPs_Cached(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w1 := httptest.NewRecorder()
 	req1 := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/dashboard/top-ips?range=24h&limit=10", http.NoBody)
@@ -736,7 +736,7 @@ func TestDashboardTopIPs_Cached(t *testing.T) {
 
 func TestDashboardScenarios_InvalidRange(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/dashboard/scenarios?range=bad", http.NoBody)
@@ -747,7 +747,7 @@ func TestDashboardScenarios_InvalidRange(t *testing.T) {
 
 func TestDashboardScenarios_Cached(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w1 := httptest.NewRecorder()
 	req1 := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/dashboard/scenarios?range=24h", http.NoBody)
@@ -766,7 +766,7 @@ func TestDashboardScenarios_Cached(t *testing.T) {
 
 func TestListAlerts_BadLimit(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/alerts?limit=abc", http.NoBody)
@@ -777,7 +777,7 @@ func TestListAlerts_BadLimit(t *testing.T) {
 
 func TestListAlerts_LimitCap(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/alerts?limit=999", http.NoBody)
@@ -788,7 +788,7 @@ func TestListAlerts_LimitCap(t *testing.T) {
 
 func TestListAlerts_NegativeLimit(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/alerts?limit=-1", http.NoBody)
@@ -799,7 +799,7 @@ func TestListAlerts_NegativeLimit(t *testing.T) {
 
 func TestListAlerts_BadOffset(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/alerts?offset=abc", http.NoBody)
@@ -810,7 +810,7 @@ func TestListAlerts_BadOffset(t *testing.T) {
 
 func TestListAlerts_NegativeOffset(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/alerts?offset=-5", http.NoBody)
@@ -821,7 +821,7 @@ func TestListAlerts_NegativeOffset(t *testing.T) {
 
 func TestListAlerts_Cached(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w1 := httptest.NewRecorder()
 	req1 := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/alerts?range=24h", http.NoBody)
@@ -836,7 +836,7 @@ func TestListAlerts_Cached(t *testing.T) {
 
 func TestListAlerts_ScenarioFilter(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/alerts?scenario=crowdsecurity/http-probing", http.NoBody)
@@ -854,7 +854,7 @@ func TestListAlerts_ScenarioFilter(t *testing.T) {
 
 func TestExportDecisions_InvalidRange(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/decisions/export?range=bad", http.NoBody)
@@ -865,7 +865,7 @@ func TestExportDecisions_InvalidRange(t *testing.T) {
 
 func TestExportDecisions_EmptyRange(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/decisions/export?format=json", http.NoBody)
@@ -876,7 +876,7 @@ func TestExportDecisions_EmptyRange(t *testing.T) {
 
 func TestExportDecisions_CSVWithSourceFilter(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/decisions/export?format=csv&source=crowdsec&range=7d", http.NoBody)
@@ -892,7 +892,7 @@ func TestExportDecisions_CSVWithSourceFilter(t *testing.T) {
 
 func TestExportDecisions_AllSources(t *testing.T) {
 	t.Parallel()
-	_, r := setupDashboardHandler(t)
+	r := setupDashboardHandler(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/decisions/export?format=json&source=all&range=7d", http.NoBody)
@@ -928,7 +928,7 @@ func TestDashboardSummary_ActiveDecisions_LAPIReachable(t *testing.T) {
 	}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
-	h.validateLAPIURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
+	h.validateLAPIURL = url.Parse
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -965,7 +965,7 @@ func TestDashboardSummary_ActiveDecisions_LAPIBadStatus(t *testing.T) {
 	}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
-	h.validateLAPIURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
+	h.validateLAPIURL = url.Parse
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -997,7 +997,7 @@ func TestDashboardSummary_ActiveDecisions_LAPIBadJSON(t *testing.T) {
 	}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
-	h.validateLAPIURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
+	h.validateLAPIURL = url.Parse
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -1029,7 +1029,7 @@ func TestListAlerts_LAPISuccess(t *testing.T) {
 	}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
-	h.validateLAPIURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
+	h.validateLAPIURL = url.Parse
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -1062,7 +1062,7 @@ func TestListAlerts_LAPISuccessWithOffset(t *testing.T) {
 	}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
-	h.validateLAPIURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
+	h.validateLAPIURL = url.Parse
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -1097,7 +1097,7 @@ func TestListAlerts_LAPISuccessWithLargeOffset(t *testing.T) {
 	}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
-	h.validateLAPIURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
+	h.validateLAPIURL = url.Parse
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -1134,7 +1134,7 @@ func TestListAlerts_LAPISuccessWithLimitSlicing(t *testing.T) {
 	}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
-	h.validateLAPIURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
+	h.validateLAPIURL = url.Parse
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -1169,7 +1169,7 @@ func TestListAlerts_LAPIBadJSON(t *testing.T) {
 	}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
-	h.validateLAPIURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
+	h.validateLAPIURL = url.Parse
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -1201,7 +1201,7 @@ func TestListAlerts_LAPIBadStatus(t *testing.T) {
 	}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
-	h.validateLAPIURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
+	h.validateLAPIURL = url.Parse
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -1235,7 +1235,7 @@ func TestListAlerts_LAPIWithScenarioFilter(t *testing.T) {
 	}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
-	h.validateLAPIURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
+	h.validateLAPIURL = url.Parse
 
 	r := gin.New()
 	g := r.Group("/api/v1")

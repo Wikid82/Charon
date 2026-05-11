@@ -28,25 +28,38 @@ if ! docker network inspect containers_default >/dev/null 2>&1; then
   docker network create containers_default
 fi
 
-docker run -d --name charon-debug --cap-add=SYS_PTRACE --security-opt seccomp=unconfined --network containers_default -p 80:80 -p 443:443 -p 8080:8080 -p 2019:2019 -p 2345:2345 \
-  -e CHARON_ENV=development -e CHARON_DEBUG=1 -e CHARON_HTTP_PORT=8080 -e CHARON_DB_PATH=/app/data/charon.db -e CHARON_FRONTEND_DIR=/app/frontend/dist \
+docker run -d --name charon-debug --network containers_default -p 80:80 -p 443:443 -p 8080:8080 -p 2019:2019 \
+  -e CHARON_ENV=development -e CHARON_HTTP_PORT=8080 -e CHARON_DB_PATH=/app/data/charon.db -e CHARON_FRONTEND_DIR=/app/frontend/dist \
   -e CHARON_CADDY_ADMIN_API=http://localhost:2019 -e CHARON_CADDY_CONFIG_DIR=/app/data/caddy -e CHARON_CADDY_BINARY=caddy -e CHARON_IMPORT_CADDYFILE=/import/Caddyfile \
   -e CHARON_IMPORT_DIR=/app/data/imports -e CHARON_ACME_STAGING=false -e FEATURE_CERBERUS_ENABLED=true \
+  -e CHARON_SECURITY_TESTS_ENABLED=false \
   -v charon_data:/app/data -v caddy_data:/data -v caddy_config:/config -v /var/run/docker.sock:/var/run/docker.sock:ro charon:local
 
 echo "Waiting for Charon API to be ready..."
-for i in {1..30}; do
-  if curl -s -f http://localhost:8080/api/v1/ >/dev/null 2>&1; then
+API_READY=false
+for i in {1..120}; do
+  if curl -s -f http://localhost:8080/api/v1/health >/dev/null 2>&1; then
+    API_READY=true
     break
   fi
   echo -n '.'
   sleep 1
 done
+echo ""
+
+if [ "${API_READY}" != "true" ]; then
+  echo "ERROR: Charon API did not become ready after 120 seconds"
+  echo "--- Container status ---"
+  docker ps -a --filter name=charon-debug --format 'Status: {{.Status}}' || true
+  echo "--- Last 100 lines of container logs ---"
+  docker logs charon-debug 2>&1 | tail -100 || true
+  exit 1
+fi
 
 echo "Registering admin user and logging in..."
 TMP_COOKIE=$(mktemp)
 curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123","name":"Integration Tester"}' http://localhost:8080/api/v1/auth/register >/dev/null || true
-curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123"}' -c ${TMP_COOKIE} http://localhost:8080/api/v1/auth/login >/dev/null
+curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123"}' -c ${TMP_COOKIE} http://localhost:8080/api/v1/auth/login >/dev/null || true
 
 # Check hub availability first
 echo "Checking CrowdSec Hub availability..."

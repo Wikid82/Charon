@@ -15,7 +15,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/services"
 )
 
-func setupLogsTest(t *testing.T) (*gin.Engine, *services.LogService, string) {
+func setupLogsTest(t *testing.T) (*gin.Engine, string) {
 	t.Helper()
 
 	// Create temp directories
@@ -64,11 +64,11 @@ func setupLogsTest(t *testing.T) (*gin.Engine, *services.LogService, string) {
 	logs.GET("/:filename", h.Read)
 	logs.GET("/:filename/download", h.Download)
 
-	return r, svc, tmpDir
+	return r, tmpDir
 }
 
 func TestLogsLifecycle(t *testing.T) {
-	router, _, tmpDir := setupLogsTest(t)
+	router, tmpDir := setupLogsTest(t)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// 1. List logs
@@ -145,7 +145,7 @@ func TestLogsLifecycle(t *testing.T) {
 }
 
 func TestLogsHandler_PathTraversal(t *testing.T) {
-	_, _, tmpDir := setupLogsTest(t)
+	_, tmpDir := setupLogsTest(t)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Manually invoke handler to bypass Gin router cleaning

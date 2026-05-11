@@ -1,7 +1,9 @@
-import { Plus, Pencil, Trash2, Server, LayoutGrid, LayoutList } from 'lucide-react'
+import { Plus, Pencil, Trash2, Server, LayoutGrid, LayoutList, ScrollText } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { TunnelLogViewer } from '../components/hecate/TunnelLogViewer'
+import { TunnelStatusBadge } from '../components/hecate/TunnelStatusBadge'
 import { PageShell } from '../components/layout/PageShell'
 import RemoteServerForm from '../components/RemoteServerForm'
 import {
@@ -20,6 +22,7 @@ import {
   Card,
   type Column,
 } from '../components/ui'
+import { useHecate } from '../hooks/useHecate'
 import { useRemoteServers } from '../hooks/useRemoteServers'
 
 import type { RemoteServer } from '../api/remoteServers'
@@ -28,11 +31,13 @@ import type { RemoteServer } from '../api/remoteServers'
 export default function RemoteServers() {
   const { t } = useTranslation()
   const { servers, loading, error, createServer, updateServer, deleteServer } = useRemoteServers()
+  const { getStatus } = useHecate()
   const [showForm, setShowForm] = useState(false)
   const [editingServer, setEditingServer] = useState<RemoteServer | undefined>()
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [deleteConfirm, setDeleteConfirm] = useState<RemoteServer | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [logsServer, setLogsServer] = useState<RemoteServer | null>(null)
 
   const handleAdd = () => {
     setEditingServer(undefined)
@@ -92,6 +97,19 @@ export default function RemoteServers() {
       ),
     },
     {
+      key: 'connection_type',
+      header: t('remoteServers.columnConnection'),
+      cell: (server) => {
+        if (!server.connection_type || server.connection_type === 'direct') {
+          return <Badge variant="outline" size="sm">{t('remoteServers.connectionTypeDirect')}</Badge>
+        }
+        const status = getStatus(server.hecate_tunnel_uuid ?? server.uuid)
+        return status ? <TunnelStatusBadge state={status.state} /> : (
+          <Badge variant="outline" size="sm">{server.connection_type}</Badge>
+        )
+      },
+    },
+    {
       key: 'status',
       header: t('common.status'),
       sortable: true,
@@ -128,6 +146,20 @@ export default function RemoteServers() {
           >
             <Trash2 className="h-4 w-4 text-error" />
           </Button>
+          {server.connection_type && server.connection_type !== 'direct' && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation()
+                setLogsServer(server)
+              }}
+              title={t('hecate.viewLogs')}
+              aria-label={t('hecate.viewLogsFor', { name: server.name })}
+            >
+              <ScrollText className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       ),
     },
@@ -217,7 +249,15 @@ export default function RemoteServers() {
                 <div className="flex items-start justify-between mb-4">
                   <div>
                     <h3 className="text-lg font-semibold text-content-primary mb-1">{server.name}</h3>
-                    <Badge variant="outline" size="sm">{server.provider}</Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" size="sm">{server.provider}</Badge>
+                      {server.connection_type && server.connection_type !== 'direct' && (() => {
+                        const status = getStatus(server.hecate_tunnel_uuid ?? server.uuid);
+                        return status
+                          ? <TunnelStatusBadge state={status.state} showLabel={false} />
+                          : <Badge variant="outline" size="sm">{server.connection_type}</Badge>;
+                      })()}
+                    </div>
                   </div>
                   <Badge variant={server.enabled ? 'success' : 'default'} size="sm">
                     {server.enabled ? t('common.enabled') : t('common.disabled')}
@@ -250,6 +290,17 @@ export default function RemoteServers() {
                   <Pencil className="w-4 h-4 mr-2" />
                   {t('common.edit')}
                 </Button>
+                {server.connection_type && server.connection_type !== 'direct' && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setLogsServer(server)}
+                    title={t('hecate.viewLogs')}
+                    aria-label={t('hecate.viewLogsFor', { name: server.name })}
+                  >
+                    <ScrollText className="w-4 h-4" />
+                  </Button>
+                )}
                 <Button
                   variant="danger"
                   size="sm"
@@ -315,6 +366,16 @@ export default function RemoteServers() {
             setShowForm(false)
             setEditingServer(undefined)
           }}
+        />
+      )}
+
+      {/* Tunnel Log Viewer */}
+      {logsServer && (
+        <TunnelLogViewer
+          serverName={logsServer.name}
+          serverUUID={logsServer.uuid}
+          open={true}
+          onClose={() => setLogsServer(null)}
         />
       )}
     </PageShell>

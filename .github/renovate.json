@@ -66,6 +66,19 @@
     },
     {
       "customType": "regex",
+      "description": "Track Go major-version module patches in Dockerfile via github-tags (workaround: Renovate go datasource cannot resolve /vN paths from custom managers)",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=github-tags\\s+depName=(?<depName>[^\\s]+)\\s*\\n\\s*go get [^@]+@v(?<currentValue>[^\\s|]+)"
+      ],
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
       "description": "Track Alpine base image digest in Dockerfile for security updates",
       "managerFilePatterns": ["/^Dockerfile$/"],
       "matchStrings": [
@@ -303,11 +316,17 @@
       "allowedVersions": "<3.0.0"
     },
     {
-      "description": "Go: keep pgx within v4 (CrowdSec requires pgx/v4 module path)",
+      "description": "Go: keep pgx within v4 (CrowdSec requires pgx/v4 module path) - applies to go.mod lookups",
       "matchDatasources": ["go"],
       "matchPackageNames": ["github.com/jackc/pgx/v4"],
       "allowedVersions": "<5.0.0",
       "sourceUrl": "https://github.com/jackc/pgx"
+    },
+    {
+      "description": "jackc/pgx via github-tags: constrain to v4.x.x patch releases (Dockerfile CVE pin)",
+      "matchDatasources": ["github-tags"],
+      "matchPackageNames": ["jackc/pgx"],
+      "allowedVersions": ">=4.0.0 <5.0.0"
     },
     {
       "description": "Go: keep go-jose/v3 within v3 (v4 is a different Go module path)",
@@ -382,6 +401,18 @@
       "matchDatasources": ["go"],
       "matchPackageNames": ["github.com/go-playground/validator/v10"],
       "sourceUrl": "https://github.com/go-playground/validator"
+    },
+    {
+      "description": "Fix Renovate lookup for gorm.io/gorm (vanity domain maps to go-gorm/gorm)",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["gorm.io/gorm"],
+      "sourceUrl": "https://github.com/go-gorm/gorm"
+    },
+    {
+      "description": "Fix Renovate lookup for gorm.io/driver/sqlite (vanity domain maps to go-gorm/sqlite)",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["gorm.io/driver/sqlite"],
+      "sourceUrl": "https://github.com/go-gorm/sqlite"
     }
   ]
 }

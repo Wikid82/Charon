@@ -1,7 +1,7 @@
 import { screen, waitFor, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { act } from 'react'
-import { vi, describe, it, expect, beforeEach } from 'vitest'
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 
 import client from '../../api/client'
 import * as proxyHostsApi from '../../api/proxyHosts'
@@ -263,7 +263,7 @@ describe('UsersPage', () => {
       expect(screen.getByPlaceholderText('user@example.com')).toBeTruthy()
     })
 
-    await user.type(screen.getByPlaceholderText('user@example.com'), 'new@example.com')
+      fireEvent.change(screen.getByPlaceholderText('user@example.com'), { target: { value: 'new@example.com' } })
     await user.click(screen.getByRole('button', { name: /^Send Invite$/i }))
 
     await waitFor(() => {
@@ -364,7 +364,7 @@ describe('UsersPage', () => {
     const user = userEvent.setup()
     expect(await screen.findByText('Invite User')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Invite User/i }))
-    await user.type(screen.getByPlaceholderText('user@example.com'), 'manual@example.com')
+      fireEvent.change(screen.getByPlaceholderText('user@example.com'), { target: { value: 'manual@example.com' } })
     await user.click(screen.getByRole('button', { name: /^Send Invite$/i }))
 
     await waitFor(() => {
@@ -562,6 +562,7 @@ describe('UsersPage', () => {
       const user = userEvent.setup()
       expect(await screen.findByText('Invite User')).toBeInTheDocument()
       await user.click(screen.getByRole('button', { name: /Invite User/i }))
+      expect(await screen.findByPlaceholderText('user@example.com')).toBeInTheDocument()
 
       vi.useFakeTimers()
 

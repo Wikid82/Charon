@@ -22,6 +22,8 @@ import (
 
 // createTestArchive creates a test archive with specified files.
 // Returns the archive path.
+//
+//nolint:unparam // compressed kept for future test variants
 func createTestArchive(t *testing.T, format string, files map[string]string, compressed bool) string {
 	t.Helper()
 	tmpDir := t.TempDir()

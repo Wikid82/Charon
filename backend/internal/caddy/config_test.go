@@ -352,8 +352,7 @@ func TestBuildACLHandler_AdminWhitelistParsing(t *testing.T) {
 
 func TestBuildRateLimitHandler_Disabled(t *testing.T) {
 	// Test nil secCfg returns nil handler
-	h, err := buildRateLimitHandler(nil, nil)
-	require.NoError(t, err)
+	h := buildRateLimitHandler(nil, nil)
 	require.Nil(t, h)
 }
 
@@ -363,8 +362,7 @@ func TestBuildRateLimitHandler_InvalidValues(t *testing.T) {
 		RateLimitRequests:  0,
 		RateLimitWindowSec: 60,
 	}
-	h, err := buildRateLimitHandler(nil, secCfg)
-	require.NoError(t, err)
+	h := buildRateLimitHandler(nil, secCfg)
 	require.Nil(t, h)
 
 	// Test zero window returns nil handler
@@ -372,8 +370,7 @@ func TestBuildRateLimitHandler_InvalidValues(t *testing.T) {
 		RateLimitRequests:  100,
 		RateLimitWindowSec: 0,
 	}
-	h, err = buildRateLimitHandler(nil, secCfg2)
-	require.NoError(t, err)
+	h = buildRateLimitHandler(nil, secCfg2)
 	require.Nil(t, h)
 
 	// Test negative values returns nil handler
@@ -381,8 +378,7 @@ func TestBuildRateLimitHandler_InvalidValues(t *testing.T) {
 		RateLimitRequests:  -1,
 		RateLimitWindowSec: 60,
 	}
-	h, err = buildRateLimitHandler(nil, secCfg3)
-	require.NoError(t, err)
+	h = buildRateLimitHandler(nil, secCfg3)
 	require.Nil(t, h)
 }
 
@@ -393,8 +389,7 @@ func TestBuildRateLimitHandler_ValidConfig(t *testing.T) {
 		RateLimitWindowSec: 60,
 		RateLimitBurst:     25,
 	}
-	h, err := buildRateLimitHandler(nil, secCfg)
-	require.NoError(t, err)
+	h := buildRateLimitHandler(nil, secCfg)
 	require.NotNil(t, h)
 
 	// Verify handler type
@@ -421,8 +416,7 @@ func TestBuildRateLimitHandler_JSONFormat(t *testing.T) {
 		RateLimitWindowSec: 10,
 		RateLimitBurst:     5,
 	}
-	h, err := buildRateLimitHandler(nil, secCfg)
-	require.NoError(t, err)
+	h := buildRateLimitHandler(nil, secCfg)
 	require.NotNil(t, h)
 
 	// Marshal to JSON and verify structure
@@ -491,8 +485,7 @@ func TestBuildRateLimitHandler_UsesBurst(t *testing.T) {
 		RateLimitWindowSec: 60,
 		RateLimitBurst:     50,
 	}
-	h, err := buildRateLimitHandler(nil, secCfg)
-	require.NoError(t, err)
+	h := buildRateLimitHandler(nil, secCfg)
 	require.NotNil(t, h)
 
 	// Handler should be a plain rate_limit (no bypass list)
@@ -515,8 +508,7 @@ func TestBuildRateLimitHandler_DefaultBurst(t *testing.T) {
 		RateLimitWindowSec: 60,
 		RateLimitBurst:     0, // Not set
 	}
-	h, err := buildRateLimitHandler(nil, secCfg)
-	require.NoError(t, err)
+	h := buildRateLimitHandler(nil, secCfg)
 	require.NotNil(t, h)
 
 	rateLimits, ok := h["rate_limits"].(map[string]any)
@@ -534,8 +526,7 @@ func TestBuildRateLimitHandler_DefaultBurst(t *testing.T) {
 		RateLimitWindowSec: 60,
 		RateLimitBurst:     0,
 	}
-	h2, err := buildRateLimitHandler(nil, secCfg2)
-	require.NoError(t, err)
+	h2 := buildRateLimitHandler(nil, secCfg2)
 	require.NotNil(t, h2)
 
 	rateLimits2, ok := h2["rate_limits"].(map[string]any)
@@ -683,8 +674,7 @@ func TestBuildSecurityHeadersHandler_CompleteProfile(t *testing.T) {
 		SecurityHeaderProfile: profile,
 	}
 
-	h, err := buildSecurityHeadersHandler(host)
-	require.NoError(t, err)
+	h := buildSecurityHeadersHandler(host)
 	require.NotNil(t, h)
 	require.Equal(t, "headers", h["handler"])
 
@@ -949,8 +939,7 @@ func TestBuildRateLimitHandler_BypassList(t *testing.T) {
 		RateLimitBurst:      20,
 		RateLimitBypassList: "10.0.0.0/8, 192.168.1.0/24",
 	}
-	h, err := buildRateLimitHandler(nil, secCfg)
-	require.NoError(t, err)
+	h := buildRateLimitHandler(nil, secCfg)
 	require.NotNil(t, h)
 
 	// Handler should be a subroute when bypass list is configured
@@ -976,8 +965,7 @@ func TestBuildRateLimitHandler_BypassList_PlainIPs(t *testing.T) {
 		RateLimitBurst:      20,
 		RateLimitBypassList: "10.0.0.1, 192.168.1.1",
 	}
-	h, err := buildRateLimitHandler(nil, secCfg)
-	require.NoError(t, err)
+	h := buildRateLimitHandler(nil, secCfg)
 	require.NotNil(t, h)
 
 	require.Equal(t, "subroute", h["handler"])
@@ -999,8 +987,7 @@ func TestBuildRateLimitHandler_BypassList_InvalidEntries(t *testing.T) {
 		RateLimitBurst:      20,
 		RateLimitBypassList: "invalid, 10.0.0.0/8, also-invalid",
 	}
-	h, err := buildRateLimitHandler(nil, secCfg)
-	require.NoError(t, err)
+	h := buildRateLimitHandler(nil, secCfg)
 	require.NotNil(t, h)
 
 	require.Equal(t, "subroute", h["handler"])
@@ -1023,8 +1010,7 @@ func TestBuildRateLimitHandler_BypassList_Empty(t *testing.T) {
 		RateLimitBurst:      20,
 		RateLimitBypassList: "",
 	}
-	h, err := buildRateLimitHandler(nil, secCfg)
-	require.NoError(t, err)
+	h := buildRateLimitHandler(nil, secCfg)
 	require.NotNil(t, h)
 
 	// Should be plain rate_limit, not subroute
@@ -1039,8 +1025,7 @@ func TestBuildRateLimitHandler_BypassList_AllInvalid(t *testing.T) {
 		RateLimitBurst:      20,
 		RateLimitBypassList: "invalid, also-invalid, not-an-ip",
 	}
-	h, err := buildRateLimitHandler(nil, secCfg)
-	require.NoError(t, err)
+	h := buildRateLimitHandler(nil, secCfg)
 	require.NotNil(t, h)
 
 	// Should be plain rate_limit since no valid CIDRs
@@ -1108,8 +1093,7 @@ func TestBuildWAFHandler_ParanoiaLevel(t *testing.T) {
 				WAFRulesSource:   "owasp-crs",
 			}
 
-			h, err := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg, true)
-			require.NoError(t, err)
+			h := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg, true)
 			require.NotNil(t, h)
 			require.Equal(t, "waf", h["handler"])
 
@@ -1138,8 +1122,7 @@ func TestBuildWAFHandler_Exclusions(t *testing.T) {
 		WAFExclusions:  exclusionsJSON,
 	}
 
-	h, err := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg, true)
-	require.NoError(t, err)
+	h := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg, true)
 	require.NotNil(t, h)
 
 	directives := h["directives"].(string)
@@ -1164,8 +1147,7 @@ func TestBuildWAFHandler_ExclusionsWithTarget(t *testing.T) {
 		WAFExclusions:  exclusionsJSON,
 	}
 
-	h, err := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg, true)
-	require.NoError(t, err)
+	h := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg, true)
 	require.NotNil(t, h)
 
 	directives := h["directives"].(string)
@@ -1192,8 +1174,7 @@ func TestBuildWAFHandler_PerHostDisabled(t *testing.T) {
 		WAFDisabled: true,
 	}
 
-	h, err := buildWAFHandler(host, rulesets, rulesetPaths, secCfg, true)
-	require.NoError(t, err)
+	h := buildWAFHandler(host, rulesets, rulesetPaths, secCfg, true)
 	require.Nil(t, h, "WAF handler should be nil when host.WAFDisabled is true")
 
 	// Host with WAF enabled (default)
@@ -1202,8 +1183,7 @@ func TestBuildWAFHandler_PerHostDisabled(t *testing.T) {
 		WAFDisabled: false,
 	}
 
-	h2, err := buildWAFHandler(host2, rulesets, rulesetPaths, secCfg, true)
-	require.NoError(t, err)
+	h2 := buildWAFHandler(host2, rulesets, rulesetPaths, secCfg, true)
 	require.NotNil(t, h2, "WAF handler should not be nil when host.WAFDisabled is false")
 }
 
@@ -1222,8 +1202,7 @@ func TestBuildWAFHandler_MonitorMode(t *testing.T) {
 		WAFRulesSource: "owasp-crs",
 	}
 
-	h, err := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg, true)
-	require.NoError(t, err)
+	h := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg, true)
 	require.NotNil(t, h)
 
 	directives := h["directives"].(string)
@@ -1236,8 +1215,7 @@ func TestBuildWAFHandler_MonitorMode(t *testing.T) {
 		WAFRulesSource: "owasp-crs",
 	}
 
-	h2, err := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg2, true)
-	require.NoError(t, err)
+	h2 := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg2, true)
 	require.NotNil(t, h2)
 
 	directives2 := h2["directives"].(string)
@@ -1260,8 +1238,7 @@ func TestBuildWAFHandler_GlobalDisabled(t *testing.T) {
 		WAFRulesSource: "owasp-crs",
 	}
 
-	h, err := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg, false)
-	require.NoError(t, err)
+	h := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg, false)
 	require.Nil(t, h)
 
 	// WAF disabled via SecurityConfig.WAFMode
@@ -1270,8 +1247,7 @@ func TestBuildWAFHandler_GlobalDisabled(t *testing.T) {
 		WAFRulesSource: "owasp-crs",
 	}
 
-	h2, err := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg2, true)
-	require.NoError(t, err)
+	h2 := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg2, true)
 	require.Nil(t, h2)
 }
 
@@ -1283,8 +1259,7 @@ func TestBuildWAFHandler_NoRuleset(t *testing.T) {
 		WAFMode: "block",
 	}
 
-	h, err := buildWAFHandler(nil, nil, nil, secCfg, true)
-	require.NoError(t, err)
+	h := buildWAFHandler(nil, nil, nil, secCfg, true)
 	require.Nil(t, h, "WAF handler should be nil when no ruleset is available")
 }
 
@@ -1675,8 +1650,7 @@ func TestBuildSecurityHeadersHandler_DefaultProfile(t *testing.T) {
 		SecurityHeaderProfile:  nil, // Use default
 	}
 
-	h, err := buildSecurityHeadersHandler(host)
-	require.NoError(t, err)
+	h := buildSecurityHeadersHandler(host)
 	require.NotNil(t, h)
 
 	response := h["response"].(map[string]any)
@@ -1831,4 +1805,51 @@ func TestGetCrowdSecAPIKey(t *testing.T) {
 	_ = os.Setenv("CROWDSEC_BOUNCER_API_KEY", "bouncer-key")
 	result = getCrowdSecAPIKey()
 	require.Equal(t, "bouncer-key", result)
+}
+
+type mockOrthrusResolver struct {
+	sessions map[string]string
+}
+
+func (m *mockOrthrusResolver) GetProxyAddr(uuid string) (string, bool) {
+	addr, ok := m.sessions[uuid]
+	return addr, ok
+}
+
+func TestResolveOrthrusHosts(t *testing.T) {
+	t.Run("nil_server_passthrough", func(t *testing.T) {
+		hosts := []models.ProxyHost{{ForwardHost: "orthrus:uuid-1", ForwardPort: 0}}
+		result := resolveOrthrusHosts(hosts, nil)
+		require.Equal(t, hosts, result)
+	})
+
+	t.Run("active_session_resolves_host_and_port", func(t *testing.T) {
+		resolver := &mockOrthrusResolver{sessions: map[string]string{"uuid-1": "10.0.0.5:8080"}}
+		hosts := []models.ProxyHost{{ForwardHost: "orthrus:uuid-1", ForwardPort: 0}}
+		result := resolveOrthrusHosts(hosts, resolver)
+		require.Equal(t, "10.0.0.5", result[0].ForwardHost)
+		require.Equal(t, 8080, result[0].ForwardPort)
+	})
+
+	t.Run("unknown_uuid_passthrough", func(t *testing.T) {
+		resolver := &mockOrthrusResolver{sessions: map[string]string{}}
+		hosts := []models.ProxyHost{{ForwardHost: "orthrus:uuid-missing", ForwardPort: 0}}
+		result := resolveOrthrusHosts(hosts, resolver)
+		require.Equal(t, "orthrus:uuid-missing", result[0].ForwardHost)
+	})
+
+	t.Run("non_orthrus_host_unchanged", func(t *testing.T) {
+		resolver := &mockOrthrusResolver{sessions: map[string]string{"uuid-1": "10.0.0.5:9000"}}
+		hosts := []models.ProxyHost{{ForwardHost: "example.com", ForwardPort: 443}}
+		result := resolveOrthrusHosts(hosts, resolver)
+		require.Equal(t, "example.com", result[0].ForwardHost)
+		require.Equal(t, 443, result[0].ForwardPort)
+	})
+
+	t.Run("original_slice_not_mutated", func(t *testing.T) {
+		resolver := &mockOrthrusResolver{sessions: map[string]string{"uuid-1": "10.0.0.5:7070"}}
+		hosts := []models.ProxyHost{{ForwardHost: "orthrus:uuid-1", ForwardPort: 0}}
+		_ = resolveOrthrusHosts(hosts, resolver)
+		require.Equal(t, "orthrus:uuid-1", hosts[0].ForwardHost)
+	})
 }
