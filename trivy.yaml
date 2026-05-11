@@ -1,0 +1,11 @@
+# Trivy configuration file
+# https://aquasecurity.github.io/trivy/latest/docs/references/configuration/
+
+scan:
+  # Limit scanners to vuln + secret for binary/filesystem scans.
+  # Misconfig (IaC) scanning is not applicable to the extracted Go binary
+  # and produces "No config files were detected" noise. IaC scanning is
+  # covered by the Docker image scans in nightly/weekly workflows.
+  scanners:
+    - vuln
+    - secret
