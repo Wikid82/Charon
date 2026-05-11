@@ -19,7 +19,7 @@ import (
 
 // --- helpers ---
 
-func makeRSACertAndKey(t *testing.T, cn string, expiry time.Time) (*x509.Certificate, *rsa.PrivateKey, []byte, []byte) {
+func makeRSACertAndKey(t *testing.T, cn string, expiry time.Time) (cert *x509.Certificate, priv *rsa.PrivateKey, certPEM, keyPEM []byte) {
 	t.Helper()
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
@@ -34,15 +34,15 @@ func makeRSACertAndKey(t *testing.T, cn string, expiry time.Time) (*x509.Certifi
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
 	require.NoError(t, err)
-	cert, err := x509.ParseCertificate(der)
+	cert, err = x509.ParseCertificate(der)
 	require.NoError(t, err)
 
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
+	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
 	return cert, priv, certPEM, keyPEM
 }
 
-func makeECDSACertAndKey(t *testing.T, cn string) (*x509.Certificate, *ecdsa.PrivateKey, []byte, []byte) {
+func makeECDSACertAndKey(t *testing.T, cn string) (cert *x509.Certificate, priv *ecdsa.PrivateKey) {
 	t.Helper()
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
@@ -56,17 +56,13 @@ func makeECDSACertAndKey(t *testing.T, cn string) (*x509.Certificate, *ecdsa.Pri
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
 	require.NoError(t, err)
-	cert, err := x509.ParseCertificate(der)
+	cert, err = x509.ParseCertificate(der)
 	require.NoError(t, err)
 
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-	keyDER, err := x509.MarshalECPrivateKey(priv)
-	require.NoError(t, err)
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
-	return cert, priv, certPEM, keyPEM
+	return cert, priv
 }
 
-func makeEd25519CertAndKey(t *testing.T, cn string) (*x509.Certificate, ed25519.PrivateKey, []byte, []byte) {
+func makeEd25519CertAndKey(t *testing.T, cn string) (cert *x509.Certificate, priv ed25519.PrivateKey) {
 	t.Helper()
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -80,14 +76,10 @@ func makeEd25519CertAndKey(t *testing.T, cn string) (*x509.Certificate, ed25519.
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, pub, priv)
 	require.NoError(t, err)
-	cert, err := x509.ParseCertificate(der)
+	cert, err = x509.ParseCertificate(der)
 	require.NoError(t, err)
 
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-	keyDER, err := x509.MarshalPKCS8PrivateKey(priv)
-	require.NoError(t, err)
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
-	return cert, priv, certPEM, keyPEM
+	return cert, priv
 }
 
 // --- DetectFormat ---
@@ -178,30 +170,30 @@ func TestValidateKeyMatch(t *testing.T) {
 	})
 
 	t.Run("ECDSA matching", func(t *testing.T) {
-		cert, priv, _, _ := makeECDSACertAndKey(t, "ecdsa.test")
+		cert, priv := makeECDSACertAndKey(t, "ecdsa.test")
 		assert.NoError(t, ValidateKeyMatch(cert, priv))
 	})
 
 	t.Run("ECDSA mismatched", func(t *testing.T) {
-		cert, _, _, _ := makeECDSACertAndKey(t, "ec1.test")
-		_, other, _, _ := makeECDSACertAndKey(t, "ec2.test")
+		cert, _ := makeECDSACertAndKey(t, "ec1.test")
+		_, other := makeECDSACertAndKey(t, "ec2.test")
 		assert.Error(t, ValidateKeyMatch(cert, other))
 	})
 
 	t.Run("Ed25519 matching", func(t *testing.T) {
-		cert, priv, _, _ := makeEd25519CertAndKey(t, "ed.test")
+		cert, priv := makeEd25519CertAndKey(t, "ed.test")
 		assert.NoError(t, ValidateKeyMatch(cert, priv))
 	})
 
 	t.Run("Ed25519 mismatched", func(t *testing.T) {
-		cert, _, _, _ := makeEd25519CertAndKey(t, "ed1.test")
-		_, other, _, _ := makeEd25519CertAndKey(t, "ed2.test")
+		cert, _ := makeEd25519CertAndKey(t, "ed1.test")
+		_, other := makeEd25519CertAndKey(t, "ed2.test")
 		assert.Error(t, ValidateKeyMatch(cert, other))
 	})
 
 	t.Run("type mismatch RSA cert with ECDSA key", func(t *testing.T) {
 		cert, _, _, _ := makeRSACertAndKey(t, "rsa.test", time.Now().Add(time.Hour))
-		_, ecKey, _, _ := makeECDSACertAndKey(t, "ec.test")
+		_, ecKey := makeECDSACertAndKey(t, "ec.test")
 		err := ValidateKeyMatch(cert, ecKey)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "type mismatch")
@@ -290,14 +282,14 @@ func TestExtractCertificateMetadata(t *testing.T) {
 	})
 
 	t.Run("ECDSA cert metadata", func(t *testing.T) {
-		cert, _, _, _ := makeECDSACertAndKey(t, "ec-meta.test")
+		cert, _ := makeECDSACertAndKey(t, "ec-meta.test")
 		m := ExtractCertificateMetadata(cert)
 		require.NotNil(t, m)
 		assert.Contains(t, m.KeyType, "ECDSA")
 	})
 
 	t.Run("Ed25519 cert metadata", func(t *testing.T) {
-		cert, _, _, _ := makeEd25519CertAndKey(t, "ed-meta.test")
+		cert, _ := makeEd25519CertAndKey(t, "ed-meta.test")
 		m := ExtractCertificateMetadata(cert)
 		require.NotNil(t, m)
 		assert.Equal(t, "Ed25519", m.KeyType)
@@ -375,13 +367,13 @@ func TestDetectKeyType(t *testing.T) {
 	})
 
 	t.Run("ECDSA-P256 key type", func(t *testing.T) {
-		cert, _, _, _ := makeECDSACertAndKey(t, "ec.test")
+		cert, _ := makeECDSACertAndKey(t, "ec.test")
 		kt := detectKeyType(cert)
 		assert.Equal(t, "ECDSA-P256", kt)
 	})
 
 	t.Run("Ed25519 key type", func(t *testing.T) {
-		cert, _, _, _ := makeEd25519CertAndKey(t, "ed.test")
+		cert, _ := makeEd25519CertAndKey(t, "ed.test")
 		kt := detectKeyType(cert)
 		assert.Equal(t, "Ed25519", kt)
 	})

@@ -852,12 +852,10 @@ func TestSendWebhook_SSRFValidation(t *testing.T) {
 			err := service.sendWebhook(context.Background(), tc.webhookURL, event)
 			if tc.shouldFail {
 				assert.Error(t, err, tc.description)
-			} else {
+			} else if err != nil {
 				// May fail with network error but should pass SSRF validation
 				// We're testing the validation step, not the actual HTTP call
-				if err != nil {
-					assert.NotContains(t, err.Error(), "ssrf validation failed", tc.description)
-				}
+				assert.NotContains(t, err.Error(), "ssrf validation failed", tc.description)
 			}
 		})
 	}

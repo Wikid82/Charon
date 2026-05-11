@@ -268,7 +268,7 @@ describe('CrowdSecConfig', () => {
     renderWithProviders(<CrowdSecConfig />)
     expect(await screen.findByText('CrowdSec Configuration')).toBeInTheDocument()
     expect(screen.getByText(/CrowdSec is controlled via the toggle on the/i)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Security/i })).toHaveAttribute('href', '/security')
+    expect(screen.getByRole('link', { name: /Cerberus/i })).toHaveAttribute('href', '/security')
   })
 
   it('renders preset preview and applies with backup when backend apply is unavailable', async () => {

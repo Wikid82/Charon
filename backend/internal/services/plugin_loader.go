@@ -204,7 +204,7 @@ func (s *PluginLoaderService) verifyDirectoryPermissions(dir string) error {
 	// On Unix-like systems, check that directory is not world-writable
 	if runtime.GOOS != "windows" {
 		mode := info.Mode().Perm()
-		if mode&0002 != 0 { // Check if world-writable bit is set
+		if mode&0o002 != 0 { // Check if world-writable bit is set
 			return fmt.Errorf("directory is world-writable (mode: %o) - this is a security risk", mode)
 		}
 	}
@@ -218,8 +218,8 @@ func (s *PluginLoaderService) updatePluginStatus(filePath, status, errorMsg stri
 		return
 	}
 
-	var plugin models.Plugin
-	result := s.db.Where("file_path = ?", filePath).First(&plugin)
+	var pluginRecord models.Plugin
+	result := s.db.Where("file_path = ?", filePath).First(&pluginRecord)
 	if result.Error != nil {
 		// Plugin not in database yet, skip
 		return
@@ -235,7 +235,7 @@ func (s *PluginLoaderService) updatePluginStatus(filePath, status, errorMsg stri
 		updates["loaded_at"] = &now
 	}
 
-	s.db.Model(&plugin).Updates(updates)
+	s.db.Model(&pluginRecord).Updates(updates)
 }
 
 // updatePluginRecord creates or updates a plugin record in the database.
@@ -244,12 +244,12 @@ func (s *PluginLoaderService) updatePluginRecord(filePath string, meta dnsprovid
 		return
 	}
 
-	var plugin models.Plugin
-	result := s.db.Where("file_path = ?", filePath).First(&plugin)
+	var pluginRecord models.Plugin
+	result := s.db.Where("file_path = ?", filePath).First(&pluginRecord)
 
 	if result.Error != nil {
 		// Create new record
-		plugin = models.Plugin{
+		pluginRecord = models.Plugin{
 			UUID:     generateUUID(),
 			Name:     meta.Name,
 			Type:     meta.Type,
@@ -261,7 +261,7 @@ func (s *PluginLoaderService) updatePluginRecord(filePath string, meta dnsprovid
 			Author:   meta.Author,
 			LoadedAt: loadedAt,
 		}
-		s.db.Create(&plugin)
+		s.db.Create(&pluginRecord)
 	} else {
 		// Update existing record
 		updates := map[string]interface{}{
@@ -273,7 +273,7 @@ func (s *PluginLoaderService) updatePluginRecord(filePath string, meta dnsprovid
 			"author":    meta.Author,
 			"loaded_at": loadedAt,
 		}
-		s.db.Model(&plugin).Updates(updates)
+		s.db.Model(&pluginRecord).Updates(updates)
 	}
 }
 

@@ -121,7 +121,7 @@ func TestDiscordOnly_SendViaProvidersFiltersNonDiscord(t *testing.T) {
 
 	// Track dispatch calls
 	dispatchCalls := make(map[string]int)
-	originalDispatch := func(ctx context.Context, provider models.NotificationProvider, event models.SecurityEvent) error {
+	originalDispatch := func(_ context.Context, provider models.NotificationProvider, _ models.SecurityEvent) error {
 		dispatchCalls[provider.ID]++
 		// Simulate the actual dispatchToProvider logic
 		if provider.Type != "discord" {

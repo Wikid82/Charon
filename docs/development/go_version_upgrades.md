@@ -251,13 +251,13 @@ Go releases **two major versions per year**:
 - February (e.g., Go 1.26.0)
 - August (e.g., Go 1.27.0)
 
-Plus occasional patch releases (e.g., Go 1.26.2) for security fixes.
+Plus occasional patch releases (e.g., Go 1.26.3) for security fixes.
 
 **Bottom line:** Expect to run `./scripts/rebuild-go-tools.sh` 2-3 times per year.
 
 ### Do I need to rebuild tools for patch releases?
 
-**Usually no**, but it doesn't hurt. Patch releases (like 1.26.0 → 1.26.2) rarely break tool compatibility.
+**Usually no**, but it doesn't hurt. Patch releases (like 1.26.0 → 1.26.3) rarely break tool compatibility.
 
 **Rebuild if:**
 

@@ -203,7 +203,31 @@ Supports both local Docker installations and remote Docker servers, perfect for 
 
 ---
 
-### 📥 Caddyfile Import
+### 🔀 Hecate Tunnel & Pathway Manager
+
+Connect remote servers that sit behind firewalls or NAT routers—no open inbound ports required. Choose how each remote server reaches Charon from three simple connection modes, all managed from the Remote Servers page.
+
+**Connection Modes:**
+
+- **Direct** — Type in a hostname or IP address manually
+- **Agent** — Pick an Orthrus agent; Charon figures out the address automatically based on the agent's network assignment
+- **Provider** — Pick a VPN/tunnel network and a specific device on it directly, without needing an agent
+
+**Provider Management:**
+
+Each tunnel provider (Tailscale, Cloudflare, NetBird, ZeroTier) shows its configured tunnels directly on the provider card. Click the settings icon next to any tunnel to edit it without leaving the page.
+
+**Orthrus Agent + Provider Assignment:**
+
+Each Orthrus agent can be assigned a provider tunnel and a specific device (or public hostname for Cloudflare). Once assigned, Charon remembers the address—so when you add a Remote Server using that agent, the connection details fill in automatically.
+
+A step-by-step install wizard walks you through deploying the Orthrus agent (Docker Compose, systemd, Kubernetes, or standalone binary). Each remote server shows a live status badge so you can see connection health at a glance.
+
+→ [Learn More](features/hecate.md)
+
+---
+
+### �📥 Caddyfile Import
 
 Migrating from another Caddy setup? Import your existing Caddyfile configurations with one click. Your existing work transfers seamlessly—no need to start from scratch.
 

@@ -59,6 +59,7 @@
     "dns": "DNS",
     "dnsProviders": "DNS Providers",
     "security": "Security",
+    "cerberus": "Cerberus",
     "accessLists": "Access Lists",
     "crowdsec": "CrowdSec",
     "rateLimiting": "Rate Limiting",
@@ -81,7 +82,11 @@
     "collapseSidebar": "Collapse sidebar",
     "encryption": "Encryption",
     "admin": "Admin",
-    "plugins": "Plugins"
+    "plugins": "Plugins",
+    "hecate": "Hecate",
+    "tunnels": "Tunnels",
+    "providers": "Providers",
+    "agent": "Agent"
   },
   "settings": {
     "title": "Settings",
@@ -208,7 +213,6 @@
     "providerCustom": "Custom",
     "providerExpiredLE": "Expired LE",
     "providerExpiringLE": "Expiring LE",
-
     "certificateFile": "Certificate File",
     "privateKeyFile": "Private Key File",
     "chainFile": "Chain File (Optional)",
@@ -217,7 +221,6 @@
     "pfxDetected": "PFX/PKCS#12 detected — key is embedded, no separate key file needed.",
     "keyFileRequired": "A private key file is required for PEM/DER certificates.",
     "pfxPassword": "PFX Password (if protected)",
-
     "validate": "Validate",
     "validating": "Validating...",
     "validationPreview": "Validation Preview",
@@ -232,7 +235,6 @@
     "validCertificate": "Valid certificate",
     "invalidCertificate": "Certificate has errors",
     "uploadAndSave": "Upload & Save",
-
     "detailTitle": "Certificate Details",
     "fingerprint": "Fingerprint",
     "serialNumber": "Serial Number",
@@ -248,7 +250,6 @@
     "chainLeaf": "Leaf",
     "chainIntermediate": "Intermediate",
     "chainRoot": "Root",
-
     "exportTitle": "Export Certificate",
     "exportFormat": "Format",
     "exportFormatPem": "PEM",
@@ -261,12 +262,10 @@
     "exportButton": "Export",
     "exportSuccess": "Certificate exported",
     "exportFailed": "Failed to export certificate",
-
     "expiresInDays": "Expires in {{days}} days",
     "expiredAgo": "Expired {{days}} days ago",
     "viewDetails": "View details",
     "export": "Export",
-
     "updateName": "Rename Certificate",
     "updateSuccess": "Certificate renamed",
     "updateFailed": "Failed to rename certificate"
@@ -672,7 +671,17 @@
     "gridView": "Grid view",
     "listView": "List view",
     "deleteConfirm": "Are you sure you want to delete \"{{name}}\"? This action cannot be undone.",
-    "deleting": "Deleting..."
+    "deleting": "Deleting...",
+    "columnConnection": "Connection",
+    "connectionType": "Connection Type",
+    "connectionTypeDirect": "Direct",
+    "connectionTypeOrthrus": "Orthrus Agent",
+    "connectionTypeCloudflare": "Cloudflare Tunnel",
+    "connectionTypeTailscale": "Tailscale",
+    "connectionTypeNetbird": "NetBird",
+    "connectionTypeZeroTier": "ZeroTier",
+    "orthrusAgentUUID": "Orthrus Agent UUID",
+    "enabled": "Enabled"
   },
   "notificationProviders": {
     "title": "Notification Providers",
@@ -746,7 +755,7 @@
     "emailRecipientsHelp": "Comma-separated email addresses.",
     "recipients": "Recipients",
     "recipientsHelp": "Comma-separated email addresses (max 20)",
-    "emailSmtpNotice": "Email notifications are sent via the configured SMTP server. Ensure SMTP is configured in Settings \u2192 SMTP.",
+    "emailSmtpNotice": "Email notifications are sent via the configured SMTP server. Ensure SMTP is configured in Settings → SMTP.",
     "slack": "Slack",
     "slackWebhookUrl": "Webhook URL",
     "slackWebhookUrlPlaceholder": "https://hooks.slack.com/services/T.../B.../xxx",
@@ -1548,5 +1557,212 @@
     "title": "Welcome",
     "description": "Your account has passthrough access. You can reach your assigned services directly — no management interface is available.",
     "noAccessToManagement": "You do not have access to the management interface."
+  },
+  "hecate": {
+    "page": {
+      "title": "Hecate",
+      "description": "Manage network tunnel providers for Agent-mode connections",
+      "addProvider": "Add Provider",
+      "editProvider": "Edit Provider",
+      "deleteProvider": "Delete Provider",
+      "addTunnel": "Add Tunnel",
+      "deleteTunnel": "Delete Tunnel",
+      "start": "Start",
+      "stop": "Stop",
+      "rotateCredentials": "Rotate Credentials",
+      "viewLogs": "View Logs",
+      "provisionAgent": "Provision New Agent",
+      "confirmDeleteTitle": "Delete Provider",
+      "confirmDeleteDescription": "Are you sure you want to delete \"{{name}}\"? Remote Servers using this provider will lose their connection.",
+      "confirmDeleteButton": "Delete",
+      "rotateTitle": "Rotate Credentials",
+      "rotateDescription": "Enter new credentials for {{name}}. The old credentials will be replaced immediately.",
+      "rotateButton": "Rotate",
+      "orthrusSection": "Orthrus Agents",
+      "tunnelSection": "Tunnel Providers",
+      "columns": {
+        "name": "Name",
+        "provider": "Provider",
+        "status": "Status",
+        "active": "Active",
+        "created": "Created",
+        "actions": "Actions"
+      },
+      "emptyState": {
+        "title": "No providers configured",
+        "description": "Add a Cloudflare, Tailscale, NetBird, or ZeroTier provider to enable Agent-mode connections for Remote Servers."
+      },
+      "credentials": {
+        "editHint": "Leave any field blank to keep the existing credential.",
+        "showField": "Show {{field}}",
+        "hideField": "Hide {{field}}",
+        "cloudflare": {
+          "apiToken": "API Token",
+          "apiTokenHelp": "Your Cloudflare API token with DNS:Edit and Zone:Read permissions.",
+          "accountId": "Account ID",
+          "accountIdHelp": "Your Cloudflare account ID, found in the dashboard URL.",
+          "tunnelToken": "Tunnel Token",
+          "tunnelTokenHelp": "Optional: pre-created tunnel token from Cloudflare Zero Trust."
+        },
+        "tailscale": {
+          "apiKey": "API Key",
+          "apiKeyHelp": "Your Tailscale API key from the admin console.",
+          "tailnet": "Tailnet",
+          "tailnetHelp": "Your Tailscale network name (e.g. example.com or example@gmail.com)."
+        },
+        "netbird": {
+          "accessToken": "Access Token",
+          "accessTokenHelp": "Your NetBird personal access token or service account token.",
+          "managementUrl": "Management URL (optional)",
+          "managementUrlHelp": "Custom NetBird management server URL. Leave blank for cloud."
+        },
+        "zerotier": {
+          "apiToken": "API Token",
+          "apiTokenHelp": "Your ZeroTier Central API token.",
+          "controllerUrl": "Controller URL (optional)",
+          "controllerUrlHelp": "Custom ZeroTier controller URL. Leave blank for ZeroTier Central."
+        }
+      }
+    },
+    "form": {
+      "mode": {
+        "label": "Connection mode",
+        "direct": "Direct",
+        "agent": {
+          "label": "Agent",
+          "noProviderWarning": "This agent has no provider assigned — connectivity address unavailable.",
+          "noProviderLink": "Assign one on the Agent page.",
+          "saveWithNoProviderTooltip": "This agent has no provider assigned — the server won't be reachable until one is assigned."
+        },
+        "directDescription": "Connect via IP or hostname",
+        "agentDescription": "Route via a self-hosted Orthrus agent",
+        "provider": "Provider",
+        "selectProvider": "Select a provider...",
+        "noProviders": "No providers configured.",
+        "goToHecate": "Go to Hecate to add one.",
+        "selectedDevice": "Routing via {{name}} ({{address}})",
+        "changeDevice": "Change",
+        "selectDevice": "Select device",
+        "selectPeer": "Select peer",
+        "selectMember": "Select member",
+        "providerDescription": "Route via a configured network provider (Tailscale, NetBird, etc.)",
+        "selectAgent": "Select an agent",
+        "resolvedAddressPreview": "Will connect to: {{address}}"
+      },
+      "provider": {
+        "cloudflareTunnelHostname": "Tunnel Hostname",
+        "cloudflareTunnelHint": "Enter the public hostname configured for this Cloudflare tunnel (e.g. app.example.com)"
+      },
+      "selectAgent": "Select an agent...",
+      "provisionAgent": "Provision New Agent",
+      "manageAgents": "Manage agents ({{count}})",
+      "hideAgentManager": "Hide agent manager"
+    },
+    "stateConnecting": "Connecting",
+    "stateError": "Error",
+    "stateStopped": "Stopped",
+    "tunnelStatus": "Tunnel status: {{state}}",
+    "viewLogs": "View Tunnel Logs",
+    "viewLogsFor": "View tunnel logs for {{name}}",
+    "wizard": {
+      "title": "Install Orthrus Agent",
+      "description": "Follow the steps below to install the Orthrus agent on your server.",
+      "authKeyLabel": "Authentication Key",
+      "authKeyWarning": "This key is shown only once. Copy it before closing this dialog.",
+      "authKeyValue": "Authentication key value",
+      "copyAuthKey": "Copy authentication key",
+      "copied": "Copied!",
+      "copySnippet": "Copy snippet",
+      "troubleshooting": "Troubleshooting",
+      "troubleshootingHint1": "Ensure the Orthrus agent service is running and can reach Charon.",
+      "troubleshootingHint2": "Check that the authentication key was copied correctly.",
+      "troubleshootingHint3": "Verify that ports are open in your firewall.",
+      "done": "Done"
+    },
+    "logs": {
+      "title": "Tunnel Logs — {{name}}",
+      "description": "Live log stream for tunnel {{name}}",
+      "pause": "Pause",
+      "resume": "Resume",
+      "clear": "Clear",
+      "noLogs": "No log output yet.",
+      "lineCount": "{{count}} lines",
+      "reconnecting": "Reconnecting..."
+    },
+    "cloudflare": {
+      "wizardTitle": "Cloudflare Tunnel Setup",
+      "wizardDescription": "Configure a Cloudflare Tunnel to connect your server.",
+      "configureHint": "Cloudflare Tunnel creates an outbound-only connection — no inbound firewall rules needed.",
+      "step1": "Install cloudflared on your server.",
+      "step2": "Authenticate cloudflared with your Cloudflare account.",
+      "step3": "Create a tunnel and copy the tunnel ID here.",
+      "docsLink": "Cloudflare Tunnel documentation",
+      "continue": "Continue",
+      "step1Title": "Enter Token",
+      "tokenLabel": "Cloudflare Tunnel Token",
+      "tokenHelp": "Find this in your Cloudflare Zero Trust dashboard under Networks → Tunnels → your tunnel → Configure → Token",
+      "showToken": "Show token",
+      "hideToken": "Hide token",
+      "step2Title": "Confirm",
+      "step3Title": "Activating"
+    },
+    "installWizard": {
+      "tabs": {
+        "dockerCompose": "Docker Compose",
+        "systemd": "Systemd",
+        "tarball": "Tarball",
+        "kubernetes": "Kubernetes",
+        "homebrew": "Homebrew"
+      }
+    },
+    "tailscale": {
+      "pickerTitle": "Select Tailscale Device",
+      "pickerDescription": "Choose the Tailscale device to route traffic through.",
+      "noDevices": "No Tailscale devices found. Ensure your API key is configured."
+    },
+    "tunnels": { "title": "Tunnels", "description": "Manage tunnel connections" },
+    "providers": {
+      "title": "Providers",
+      "description": "Configure provider credentials",
+      "editTunnel": "Edit {{name}}",
+      "noTunnels": "No tunnels configured.",
+      "tunnelList": "Configured tunnels",
+      "addTunnel": "New {{provider}} tunnel",
+      "tunnelCount_one": "{{count}} tunnel",
+      "tunnelCount_other": "{{count}} tunnels"
+    },
+    "agent": { "title": "Agent", "description": "Manage Orthrus agents" },
+    "agentManager": {
+      "tableLabel": "Orthrus agents",
+      "colName": "Name",
+      "colUUID": "UUID",
+      "colStatus": "Status",
+      "colProvider": "Provider",
+      "colLastSeen": "Last Seen",
+      "colActions": "Actions",
+      "editNameLabel": "Rename agent {{name}}",
+      "renameInputLabel": "New name for {{name}}",
+      "confirmRename": "Save name",
+      "cancelRename": "Cancel rename",
+      "deleteLabel": "Delete agent {{name}}",
+      "deleteTitle": "Delete Agent",
+      "deleteDescription": "Are you sure you want to delete agent \"{{name}}\"? This cannot be undone.",
+      "deleteConfirm": "Delete",
+      "noAgents": "No agents registered yet.",
+      "neverSeen": "Never",
+      "status": {
+        "online": "Online",
+        "offline": "Offline",
+        "pending": "Pending"
+      },
+      "noProviderAssigned": "No provider assigned",
+      "assignProvider": "Assign provider to {{name}}",
+      "assignProviderTitle": "Assign Provider — {{name}}",
+      "providerTunnel": "Provider Tunnel",
+      "deviceId": "Device / Peer ID",
+      "resolvedAddress": "Resolved Address",
+      "saveProviderAssignment": "Save Assignment",
+      "removeProviderAssignment": "Remove Provider"
+    }
   }
 }

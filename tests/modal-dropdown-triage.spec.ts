@@ -273,7 +273,7 @@ test.describe('Modal Dropdown Z-Index Triage', () => {
     let addServerModalVisible = false
 
     await test.step('Navigate to Remote Servers page', async () => {
-      await page.goto(`${baseURL}/remote-servers`)
+      await page.goto(`${baseURL}/hecate/remote-servers`)
       await page.waitForLoadState('domcontentloaded')
       await page.waitForURL(/remote-servers|login/i)
     })

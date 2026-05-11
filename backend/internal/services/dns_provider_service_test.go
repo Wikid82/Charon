@@ -659,6 +659,7 @@ func TestDNSProviderService_GetDecryptedCredentialsError(t *testing.T) {
 	ctx := context.Background()
 
 	// Create provider with invalid encrypted data
+	//nolint:gosec // G101: test credential
 	provider := &models.DNSProvider{
 		UUID:                 "test-uuid",
 		Name:                 "Test",
