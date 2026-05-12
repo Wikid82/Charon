@@ -40,8 +40,8 @@ jobs:
       - name: Run WAF integration tests
         id: waf-test
         run: |
-          chmod +x scripts/coraza_integration.sh
-          scripts/coraza_integration.sh 2>&1 | tee waf-test-output.txt
+          chmod +x scripts/waf_integration.sh
+          scripts/waf_integration.sh 2>&1 | tee waf-test-output.txt
           exit "${PIPESTATUS[0]}"
 
       - name: Dump Debug Info on Failure
@@ -53,25 +53,25 @@ jobs:
 
             echo "### Container Status"
             echo '```'
-            docker ps -a --filter "name=charon" --filter "name=coraza" 2>&1 || true
+            docker ps -a --filter "name=charon" --filter "name=waf" 2>&1 || true
             echo '```'
             echo ""
 
             echo "### Caddy Admin Config"
             echo '```json'
-            curl -s http://localhost:2019/config 2>/dev/null | head -200 || echo "Could not retrieve Caddy config"
+            curl -s http://localhost:2119/config/ 2>/dev/null | head -200 || echo "Could not retrieve Caddy config"
             echo '```'
             echo ""
 
             echo "### Charon Container Logs (last 100 lines)"
             echo '```'
-            docker logs charon-debug 2>&1 | tail -100 || echo "No container logs available"
+            docker logs charon-waf-test 2>&1 | tail -100 || echo "No container logs available"
             echo '```'
             echo ""
 
             echo "### WAF Ruleset Files"
             echo '```'
-            docker exec charon-debug sh -c 'ls -la /app/data/caddy/coraza/rulesets/ 2>/dev/null && echo "---" && cat /app/data/caddy/coraza/rulesets/*.conf 2>/dev/null' || echo "No ruleset files found"
+            docker exec charon-waf-test sh -c 'ls -la /app/data/caddy/coraza/rulesets/ 2>/dev/null && echo "---" && cat /app/data/caddy/coraza/rulesets/*.conf 2>/dev/null' || echo "No ruleset files found"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -100,6 +100,6 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker rm -f charon-debug || true
-          docker rm -f coraza-backend || true
+          docker rm -f charon-waf-test || true
+          docker rm -f waf-backend || true
           docker network rm containers_default || true
