@@ -362,6 +362,8 @@ function CredentialForm({
     const zones = value.split(',').map((z) => z.trim())
     for (const zone of zones) {
       // Basic domain validation
+      // Runs client-side only; ReDoS risk is confined to the user's own browser session
+      // eslint-disable-next-line security/detect-unsafe-regex
       if (zone && !/^(\*\.)?[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/.test(zone)) {
         setErrors((prev) => ({
           ...prev,
