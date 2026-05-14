@@ -496,4 +496,227 @@ Commit 6 revert returns the CI failure but affects no production behaviour.
 
 ---
 
+## Commit 7 — Fix Cloudflare provider stdout capture race condition
+
+**Branch addition**: `fix/ci-eslint-backend-test` (same PR)
+**CI failure**: `TestStart_CapturesStdoutOutput` — 1.01 s timeout, ring buffer empty
+**PR**: <https://github.com/Wikid82/Charon/actions/runs/25817001017/job/75848015026?pr=1013>
+
+---
+
+### 7.1 Root Cause Analysis
+
+#### Failing test
+
+**File**: `backend/internal/hecate/providers/cloudflare/coverage_test.go`
+**Test**: `TestStart_CapturesStdoutOutput` (~line 113)
+**Error** (line 143):
+```
+Error: Should NOT be empty, but was []
+Messages: stdout scanner goroutine must have written output to the ring buffer
+```
+
+The test starts the `echo` binary via `p.Start()`, waits for the process to exit via `<-done`,
+polls `p.buf.ReadAll()` for up to 1 second, then asserts it is non-empty. It consistently returns
+empty on CI.
+
+#### The race
+
+`Start()` launches three goroutines in this order:
+
+| Goroutine | Role |
+|---|---|
+| stdout scanner | `bufio.Scanner` reads `stdoutPipe`; calls `p.buf.Write(s.Text())` for each line |
+| stderr scanner | same but for `stderrPipe` |
+| monitor | calls `cmd.Wait()`; in its **deferred** cleanup calls `p.buf.Close()` then `close(p.done)` |
+
+The critical ordering defect in the monitor goroutine's deferred function
+(`backend/internal/hecate/providers/cloudflare/provider.go`, lines ~175–184):
+
+```go
+// BEFORE (buggy)
+go func() {
+    defer func() {
+        p.mu.Lock()
+        p.cmd = nil
+        if p.state != hecate.TunnelStateStopped {
+            p.state = hecate.TunnelStateError
+        }
+        p.mu.Unlock()
+        p.buf.Close()   // ← (1) closes the buffer
+        close(p.done)   // ← (2) signals test
+    }()
+    _ = cmd.Wait()
+}()
+```
+
+Once `cmd.Wait()` returns (process exited), the monitor deferred function runs and calls
+`p.buf.Close()`. This sets `rb.closed = true` inside `RingBuffer`
+(`backend/internal/hecate/ring_buffer.go`, line ~95).
+
+Concurrently, the stdout scanner goroutine may not yet have been scheduled. When it eventually
+runs and calls `p.buf.Write(s.Text())`, the guard at `ring_buffer.go` line ~31 fires:
+
+```go
+func (rb *RingBuffer) Write(line string) {
+    rb.mu.Lock()
+    defer rb.mu.Unlock()
+    if rb.closed {
+        return  // ← silently drops the write
+    }
+    // ...
+}
+```
+
+The write is silently dropped. The ring buffer remains empty. The test's 1-second polling loop
+exhausts without finding any data. `ReadAll()` returns `nil` and the assertion fails.
+
+#### Why it is non-deterministic
+
+The race window is the interval between `cmd.Wait()` returning and the scanner goroutine calling
+`p.buf.Write()`. On a lightly-loaded machine the Go scheduler tends to run the scanner goroutines
+first because they are I/O-bound and already have data waiting in the pipe. On a loaded CI runner
+the monitor goroutine is more likely to win the scheduler lottery, close the buffer, and leave the
+scanner goroutine with nowhere to write.
+
+`echo` exits in < 1 ms; the entire race window is sub-millisecond — too short for `time.Sleep`-
+based workarounds but reliably closed by a `sync.WaitGroup`.
+
+---
+
+### 7.2 File Locations and Exact Lines
+
+| File | Lines of interest |
+|---|---|
+| `backend/internal/hecate/providers/cloudflare/provider.go` | ~153–185 (`Start()` goroutine block) |
+| `backend/internal/hecate/ring_buffer.go` | ~29–31 (`Write` closed guard), ~93–101 (`Close`) |
+| `backend/internal/hecate/providers/cloudflare/coverage_test.go` | ~113–143 (`TestStart_CapturesStdoutOutput`) |
+
+---
+
+### 7.3 Fix Specification
+
+**Single change**: add a `sync.WaitGroup` (`scanWg`) that tracks both scanner goroutines.
+The monitor goroutine calls `scanWg.Wait()` inside its deferred function, **before**
+`p.buf.Close()`, so the buffer is never closed until all writes have completed.
+
+No changes to the test or `RingBuffer` are required.
+
+#### Before (`provider.go` — Start(), goroutine block)
+
+```go
+// Stream stdout to the ring buffer.
+go func() {
+    s := bufio.NewScanner(stdoutPipe)
+    for s.Scan() {
+        p.buf.Write(s.Text())
+    }
+}()
+
+// Stream stderr to the ring buffer.
+go func() {
+    s := bufio.NewScanner(stderrPipe)
+    for s.Scan() {
+        p.buf.Write(s.Text())
+    }
+}()
+
+// Monitor process exit and update state accordingly.
+go func() {
+    defer func() {
+        p.mu.Lock()
+        p.cmd = nil
+        if p.state != hecate.TunnelStateStopped {
+            p.state = hecate.TunnelStateError
+        }
+        p.mu.Unlock()
+        p.buf.Close()
+        close(p.done)
+    }()
+    _ = cmd.Wait()
+}()
+```
+
+#### After (`provider.go` — Start(), goroutine block)
+
+```go
+var scanWg sync.WaitGroup
+
+// Stream stdout to the ring buffer.
+scanWg.Add(1)
+go func() {
+    defer scanWg.Done()
+    s := bufio.NewScanner(stdoutPipe)
+    for s.Scan() {
+        p.buf.Write(s.Text())
+    }
+}()
+
+// Stream stderr to the ring buffer.
+scanWg.Add(1)
+go func() {
+    defer scanWg.Done()
+    s := bufio.NewScanner(stderrPipe)
+    for s.Scan() {
+        p.buf.Write(s.Text())
+    }
+}()
+
+// Monitor process exit and update state accordingly.
+go func() {
+    defer func() {
+        p.mu.Lock()
+        p.cmd = nil
+        if p.state != hecate.TunnelStateStopped {
+            p.state = hecate.TunnelStateError
+        }
+        p.mu.Unlock()
+        scanWg.Wait() // drain scanner goroutines before closing the buffer
+        p.buf.Close()
+        close(p.done)
+    }()
+    _ = cmd.Wait()
+}()
+```
+
+**Why this is safe:**
+- `cmd.Wait()` returns only after the process exits and the pipe write-ends are closed by the OS.
+  At that point `s.Scan()` will return `false` (EOF) on the next iteration, so both scanner
+  goroutines will reach `scanWg.Done()` promptly.
+- `scanWg.Wait()` blocks for at most the time it takes the scanner goroutines to drain the pipe
+  buffer — microseconds in practice.
+- `p.buf.Close()` and `close(p.done)` are still called in the same relative order; only
+  `scanWg.Wait()` is inserted between the state unlock and `p.buf.Close()`.
+- `sync` is already imported in `provider.go` (used by `sync.RWMutex`); no new import is needed.
+
+---
+
+### 7.4 Commit Details
+
+| Field | Value |
+|---|---|
+| **Commit message** | `fix(hecate/cloudflare): drain scanner goroutines before closing ring buffer` |
+| **Files changed** | `backend/internal/hecate/providers/cloudflare/provider.go` |
+| **Lines changed** | ~6 lines added (WaitGroup declaration + 2×Add + 2×Done + 1×Wait) |
+| **Dependencies** | None; Commits 1-6 are independent |
+
+### 7.5 Validation Gate
+
+```bash
+# Target test — must pass deterministically
+go test ./backend/internal/hecate/providers/cloudflare/... \
+    -v -count=5 -race -run TestStart_CapturesStdoutOutput
+
+# Full cloudflare package — must pass
+go test -race -count=1 ./backend/internal/hecate/providers/cloudflare/...
+
+# Coverage gate — must not regress
+bash scripts/go-test-coverage.sh
+```
+
+`-count=5` runs the test five times in a single invocation to exercise the scheduler across
+multiple scheduling decisions, providing high confidence the race is closed.
+
+---
+
 *Plan written by GitHub Copilot in Planning mode. Ready for implementation agent handoff.*
