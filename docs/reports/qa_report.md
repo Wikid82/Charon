@@ -1,14 +1,132 @@
-# QA & Security Audit — Hecate Provider Integration
+# QA & Security Audit — CI Fix Implementation
 
 | Field       | Value                                         |
 |-------------|-----------------------------------------------|
-| Date        | 2026-04-30                                    |
-| Branch      | `feature/hecate`                              |
-| HEAD commit | `26fc4a1a`                                    |
+| Date        | 2026-05-13                                    |
+| Branch      | `development`                                 |
+| HEAD commit | `6b4c5d50`                                    |
 | Auditor     | QA Security Agent                             |
-| Verdict     | ✅ **PASS**                                   |
+| Verdict     | ✅ **APPROVED**                               |
 
 ---
+
+## Summary
+
+Full QA and security audit performed after the CI fix implementation. All 8 checks
+passed. No blocking issues found. One Trivy HIGH finding reviewed and confirmed as
+an expected local development artifact (not committed to VCS).
+
+---
+
+## Check Results
+
+| # | Check                          | Result      | Notes                                  |
+|---|--------------------------------|-------------|----------------------------------------|
+| 1 | Frontend Tests + Coverage      | ✅ PASS      | 481 pass, 1 skip; coverage 89.33%      |
+| 2 | TypeScript Type Check          | ✅ PASS      | 0 errors                               |
+| 3 | Frontend ESLint                | ✅ PASS      | 0 errors, 994 warnings (exit 0)        |
+| 4 | Backend Tests + Coverage       | ✅ PASS      | All tests pass; coverage 88.5%/88.6%   |
+| 5 | Backend Lint (golangci-lint)   | ✅ PASS      | 0 issues                               |
+| 6 | Pre-commit Hooks (lefthook)    | ✅ PASS      | All applicable hooks pass              |
+| 7 | Race Condition Verification    | ✅ PASS      | 5/5 runs with `-race` flag pass        |
+| 8 | Trivy Security Scan            | ✅ PASS*     | 1 HIGH finding reviewed (see below)    |
+| - | GORM Security Scan             | ⏭ SKIP      | No model/DB files changed              |
+
+---
+
+## Coverage
+
+| Layer    | Statement | Line  | Threshold | Status  |
+|----------|-----------|-------|-----------|---------|
+| Frontend | 89.33%    | —     | 87%       | ✅ PASS |
+| Backend  | 88.5%     | 88.6% | 87%       | ✅ PASS |
+
+---
+
+## Security Findings
+
+### Trivy Scan
+
+**Scanners**: `vuln`, `secret`
+**Severity filter**: HIGH, CRITICAL
+
+| Severity | Type   | Target                                          | Rule                  | Status        |
+|----------|--------|-------------------------------------------------|-----------------------|---------------|
+| HIGH     | Secret | `backend/internal/api/routes/keys/hecate-ca.key` | AsymmetricPrivateKey | ✅ REVIEWED   |
+
+**Vulnerability findings**: 0 (Go modules, npm packages all clean)
+
+#### Trivy HIGH Finding — `hecate-ca.key`
+
+Trivy flagged a local EC private key file (`backend/internal/api/routes/keys/hecate-ca.key`)
+as HIGH severity (AsymmetricPrivateKey).
+
+**Investigation result**: This is an **expected local development artifact**. The finding
+does **not** represent a committed secret.
+
+- `.gitignore` line 146 contains the pattern `*.key`, which excludes all `.key` files
+  from version control. `git check-ignore` confirms the file is ignored.
+- `git ls-files backend/internal/api/routes/keys/` shows only `hecate-ca.crt` is tracked;
+  the `.key` file is **not** in the repository.
+- The key is the Hecate CA private key, generated locally by the Orthrus CA module
+  (`backend/internal/orthrus/ca.go`). It is generated on first use and stored locally
+  by design — it is never committed.
+- The companion certificate (`hecate-ca.crt`) is tracked (it is a public artifact).
+
+**Conclusion**: Not a committed secret. Gitignore coverage is correct. No remediation
+required.
+
+---
+
+## CI Fixes Audited
+
+The following files were created or modified as part of the CI fix implementation
+covered by this audit:
+
+| File                                                                 | Change                              |
+|----------------------------------------------------------------------|-------------------------------------|
+| `frontend/package.json`                                              | Removed duplicate devDependencies   |
+| `frontend/src/utils/certificateUtils.ts`                             | New utility extracted from component|
+| `frontend/src/components/CertificateList.tsx`                        | Import path + exports updated        |
+| `frontend/src/components/__tests__/CertificateList.test.tsx`         | Import path updated                  |
+| `frontend/src/components/CSPBuilder.tsx`                             | `<label>` → `<span>` (HTML fix)     |
+| `frontend/src/components/AccessListSelector.tsx`                     | `<label>` → `<span>` (HTML fix)     |
+| `frontend/src/components/AccessListForm.tsx`                         | `<label>` → `<span>` (HTML fix)     |
+| `frontend/src/components/CredentialManager.tsx`                      | eslint-disable comment added         |
+| `frontend/src/api/__tests__/logs-websocket.test.ts`                  | `.skip` → `.todo` (2 tests)          |
+| `backend/internal/api/handlers/security_handler.go`                  | `Close()` method added               |
+| `backend/internal/api/handlers/security_handler_audit_test.go`       | Test isolation via `t.Cleanup`       |
+| `backend/internal/hecate/providers/cloudflare/provider.go`           | WaitGroup race condition fixed       |
+
+---
+
+## Notable Observations
+
+- **ESLint warnings (994)**: All warnings, zero errors. Pre-existing state; not introduced
+  by the CI fix implementation. No action required for this audit.
+- **Low-coverage files** (informational, not blocking):
+  - `src/api/crowdsecDashboard.ts` — 0%
+  - `src/pages/HecateAgent.tsx` — 44.44%
+  - `src/pages/HecateTunnels.tsx` — 49.30%
+  - `src/hooks/useFocusTrap.ts` — 47.83%
+- **Race condition fix verified**: `TestStart_CapturesStdoutOutput` with `-race -count=5`
+  passed 5/5 runs after the WaitGroup fix in `cloudflare/provider.go`.
+- **`security_handler.go` resource cleanup**: `Close()` method and `t.Cleanup` in
+  all 15 test functions eliminates goroutine/handler leaks in tests.
+
+---
+
+## Verdict
+
+**✅ APPROVED**
+
+All 8 checks pass. Coverage is above the 87% threshold for both frontend and backend.
+The single Trivy HIGH finding is a local development artifact correctly excluded from
+VCS by `.gitignore`. No blocking issues found.
+
+---
+
+<!-- Previous report archived below — Hecate Provider Integration (2026-04-30) -->
 
 ## Gate Results
 
