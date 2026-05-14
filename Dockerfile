@@ -107,7 +107,8 @@ ENV VITE_APP_VERSION=${VERSION}
 ARG NPM_VERSION
 # hadolint ignore=DL3017
 RUN apk upgrade --no-cache && \
-    npm install -g npm@${NPM_VERSION} --no-fund --no-audit && \
+    npm install -g npm@${NPM_VERSION} --no-fund --no-audit \
+        --fetch-retries=5 --fetch-retry-mintimeout=10000 && \
     npm cache clean --force
 
 # Patch CVE-2026-33671: picomatch ReDoS (fixed in 4.0.4) — bundled in Node.js 24.15.0 npm toolchain.
