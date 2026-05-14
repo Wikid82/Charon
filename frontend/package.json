@@ -46,7 +46,7 @@
     "react-hook-form": "^7.75.0",
     "react-hot-toast": "^2.6.0",
     "react-i18next": "^17.0.7",
-    "react-router-dom": "^7.15.0",
+    "react-router-dom": "^7.15.1",
     "recharts": "^3.8.1",
     "tailwind-merge": "^3.6.0",
     "tldts": "^7.0.30"
@@ -62,7 +62,7 @@
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "@types/eslint-plugin-jsx-a11y": "^6.10.1",
-    "@types/node": "^25.7.0",
+    "@types/node": "^25.8.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@typescript-eslint/eslint-plugin": "^8.59.3",
@@ -94,7 +94,7 @@
     "tailwindcss": "^4.3.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.3",
-    "vite": "^8.0.12",
+    "vite": "^8.0.13",
     "vitest": "^4.1.6",
     "zod-validation-error": "^5.0.0"
   },
@@ -110,7 +110,7 @@
       "eslint": "^10.3.0"
     },
     "@vitejs/plugin-react": {
-      "vite": "8.0.12"
+      "vite": "8.0.13"
     }
   }
 }
