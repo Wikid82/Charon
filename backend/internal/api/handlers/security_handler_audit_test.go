@@ -6,16 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -24,30 +21,16 @@ import (
 // setupAuditTestDB creates an in-memory SQLite database for security audit tests
 func setupAuditTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := filepath.Join(t.TempDir(), "security_handler_audit_test.db") + "?_busy_timeout=5000&_journal_mode=WAL"
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Silent),
-	})
-	require.NoError(t, err)
-
-	sqlDB, err := db.DB()
-	require.NoError(t, err)
-	sqlDB.SetMaxOpenConns(1)
-	sqlDB.SetMaxIdleConns(1)
-
-	t.Cleanup(func() {
-		if sqlDB != nil {
-			_ = sqlDB.Close()
-		}
-	})
-
-	require.NoError(t, db.AutoMigrate(
-		&models.SecurityConfig{},
+	db := OpenTestDB(t)
+	if err := db.AutoMigrate(
 		&models.SecurityRuleSet{},
+		&models.SecurityConfig{},
 		&models.SecurityDecision{},
 		&models.SecurityAudit{},
 		&models.Setting{},
-	))
+	); err != nil {
+		t.Fatalf("setupAuditTestDB migrate: %v", err)
+	}
 	return db
 }
 
@@ -74,6 +57,7 @@ func TestSecurityHandler_GetStatus_SQLInjection(t *testing.T) {
 
 	cfg := config.SecurityConfig{CerberusEnabled: false}
 	h := NewSecurityHandler(cfg, db, nil)
+	t.Cleanup(func() { h.Close() })
 
 	router := gin.New()
 	router.GET("/api/v1/security/status", h.GetStatus)
@@ -96,6 +80,7 @@ func TestSecurityHandler_CreateDecision_SQLInjection(t *testing.T) {
 
 	cfg := config.SecurityConfig{}
 	h := NewSecurityHandler(cfg, db, nil)
+	t.Cleanup(func() { h.Close() })
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
@@ -142,6 +127,7 @@ func TestSecurityHandler_UpsertRuleSet_MassivePayload(t *testing.T) {
 
 	cfg := config.SecurityConfig{}
 	h := NewSecurityHandler(cfg, db, nil)
+	t.Cleanup(func() { h.Close() })
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
@@ -177,6 +163,7 @@ func TestSecurityHandler_UpsertRuleSet_EmptyName(t *testing.T) {
 
 	cfg := config.SecurityConfig{}
 	h := NewSecurityHandler(cfg, db, nil)
+	t.Cleanup(func() { h.Close() })
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
@@ -208,6 +195,7 @@ func TestSecurityHandler_CreateDecision_EmptyFields(t *testing.T) {
 
 	cfg := config.SecurityConfig{}
 	h := NewSecurityHandler(cfg, db, nil)
+	t.Cleanup(func() { h.Close() })
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
@@ -278,6 +266,7 @@ func TestSecurityHandler_GetStatus_SettingsOverride(t *testing.T) {
 		ACLMode:         "enabled", // ACL comes from static config only
 	}
 	h := NewSecurityHandler(cfg, db, nil)
+	t.Cleanup(func() { h.Close() })
 
 	router := gin.New()
 	router.GET("/api/v1/security/status", h.GetStatus)
@@ -323,6 +312,7 @@ func TestSecurityHandler_GetStatus_DisabledViaSettings(t *testing.T) {
 		CrowdSecMode:    "local",
 	}
 	h := NewSecurityHandler(cfg, db, nil)
+	t.Cleanup(func() { h.Close() })
 
 	router := gin.New()
 	router.GET("/api/v1/security/status", h.GetStatus)
@@ -353,6 +343,7 @@ func TestSecurityAudit_DeleteRuleSet_InvalidID(t *testing.T) {
 
 	cfg := config.SecurityConfig{}
 	h := NewSecurityHandler(cfg, db, nil)
+	t.Cleanup(func() { h.Close() })
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
@@ -397,6 +388,7 @@ func TestSecurityHandler_UpsertRuleSet_XSSInContent(t *testing.T) {
 
 	cfg := config.SecurityConfig{}
 	h := NewSecurityHandler(cfg, db, nil)
+	t.Cleanup(func() { h.Close() })
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
@@ -420,6 +412,7 @@ func TestSecurityHandler_UpsertRuleSet_XSSInContent(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	// Accept that content is stored (backend stores as-is, frontend must sanitize)
+	t.Logf("UpsertRuleSet response body: %s", w.Body.String())
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// Verify it's stored and returned as JSON (not rendered as HTML)
@@ -445,6 +438,7 @@ func TestSecurityHandler_UpdateConfig_RateLimitBounds(t *testing.T) {
 
 	cfg := config.SecurityConfig{}
 	h := NewSecurityHandler(cfg, db, nil)
+	t.Cleanup(func() { h.Close() })
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
@@ -506,6 +500,7 @@ func TestSecurityHandler_GetStatus_NilDB(t *testing.T) {
 	// Handler with nil DB should not panic
 	cfg := config.SecurityConfig{CerberusEnabled: true}
 	h := NewSecurityHandler(cfg, nil, nil)
+	t.Cleanup(func() { h.Close() })
 
 	router := gin.New()
 	router.GET("/api/v1/security/status", h.GetStatus)
@@ -534,6 +529,7 @@ func TestSecurityHandler_Enable_WithoutWhitelist(t *testing.T) {
 
 	cfg := config.SecurityConfig{}
 	h := NewSecurityHandler(cfg, db, nil)
+	t.Cleanup(func() { h.Close() })
 
 	router := gin.New()
 	router.POST("/api/v1/security/enable", h.Enable)
@@ -560,6 +556,7 @@ func TestSecurityHandler_Disable_RequiresToken(t *testing.T) {
 
 	cfg := config.SecurityConfig{}
 	h := NewSecurityHandler(cfg, db, nil)
+	t.Cleanup(func() { h.Close() })
 
 	router := gin.New()
 	router.POST("/api/v1/security/disable", h.Disable)
@@ -595,6 +592,7 @@ func TestSecurityHandler_GetStatus_CrowdSecModeValidation(t *testing.T) {
 
 			cfg := config.SecurityConfig{}
 			h := NewSecurityHandler(cfg, db, nil)
+			t.Cleanup(func() { h.Close() })
 
 			router := gin.New()
 			router.GET("/api/v1/security/status", h.GetStatus)
