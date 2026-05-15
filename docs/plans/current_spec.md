@@ -1,722 +1,1073 @@
-# CI Fix — ESLint + Backend Test Failures
+# Proxy Groups for Better Organization — Implementation Specification
 
-**Branch**: `fix/ci-eslint-backend-test`
-**PR**: Targets `development`
-**Date**: 2026-05-29
-
----
-
-> **Archived**: The previous spec (CI Fix — Vitest `invites a new user` Failure) has been
-> superseded. This document covers the active CI failures.
+**Feature**: Issue #254 — Proxy Groups
+**Branch**: `feature/proxy_groups`
+**Status**: Planning
+**Complexity**: Medium
 
 ---
 
-## 1. Introduction
+## 1. Executive Summary
 
-### Overview
+Proxy Groups allows users to organize their proxy hosts into named, color-coded groups (folders). A group is a lightweight container that holds zero or more proxy hosts. Groups appear in the Proxy Hosts page as collapsible sections, letting users manage large sets of hosts without losing them in a flat list.
 
-Multiple CI jobs in `quality-checks.yml` are failing. The failures split across two domains:
+**Goals:**
+- Create, rename, recolor, and delete groups via the UI
+- Assign proxy hosts to groups (one group per host, optional)
+- Display hosts grouped on the Proxy Hosts page (ungrouped hosts shown last)
+- Full CRUD API for groups
+- Bulk-assign hosts to a group (multi-select in table → assign to group)
 
-1. **Frontend ESLint** — Blocking job; 7 distinct lint violations across 5 source files and 1
-   test file.
-2. **Backend test suite** — Blocking job (via `scripts/go-test-coverage.sh`);
-   `TestSecurityHandler_UpsertRuleSet_XSSInContent` fails when the full handler package test suite
-   runs in parallel.
-
-Backend **lint** violations exist but are configured with `continue-on-error: true` and are
-therefore non-blocking. They are explicitly excluded from this plan.
-
-### Objectives
-
-- Restore all CI jobs to green in a single PR composed of 6 ordered, reviewable commits.
-- No feature changes; this is a pure fix/refactor to make the test suite and linter pass.
+**Non-Goals (explicitly out of scope):**
+- Nested/hierarchical groups
+- Group-level enable/disable toggle (hosts retain individual control)
+- Group-level certificate or access list assignment
+- Sorting/reordering groups beyond alphabetical (future)
+- Tags or multi-group membership
 
 ---
 
 ## 2. Research Findings
 
-### 2.1 CI Workflow
+### 2.1 Backend Architecture
 
-**File**: `.github/workflows/quality-checks.yml`
+**Module**: `github.com/Wikid82/charon/backend`
 
-| Job | Script / Command | Blocking? |
-|-----|-----------------|-----------|
-| Backend tests + coverage | `scripts/go-test-coverage.sh` | **Yes** |
-| Backend lint | `golangci/golangci-lint-action@v9.2.0` with `continue-on-error: true` | No |
-| Frontend ESLint | `npm run lint` | **Yes** |
-| Frontend type-check | `npm run type-check` | Yes |
-| Frontend unit tests | `scripts/frontend-test-coverage.sh` | Yes |
+**GORM Pattern** (confirmed from `models/domain.go`, `models/access_list.go`):
+- Internal `ID uint` hidden with `json:"-"`
+- External `UUID string` with `json:"uuid" gorm:"uniqueIndex;not null"`
+- `BeforeCreate` hook for UUID generation
+- No soft delete for this type of model (same pattern as AccessList)
 
-`scripts/go-test-coverage.sh` captures `GO_TEST_STATUS` from the test run, applies the coverage
-gate, and at the end bubbles up any non-zero test exit code (script lines 290-295). A single
-failing test therefore causes the job to exit non-zero.
+**Routes Registration** (`backend/internal/api/routes/routes.go`):
+- AutoMigrate list at ~line 110 — needs `&models.ProxyGroup{}` added
+- Handler registration pattern at ~line 760-762 (after ProxyHostHandler):
+  ```go
+  proxyHostHandler := handlers.NewProxyHostHandler(db, caddyManager, notificationService, uptimeService)
+  proxyHostHandler.RegisterRoutes(management)
+  ```
+- Complex handlers use `RegisterRoutes(management *gin.RouterGroup)` pattern
 
-### 2.2 Frontend ESLint — Root Causes
-
-**ESLint plugins in use** (`frontend/eslint.config.js`):
-`jsx-a11y`, `security`, `react-refresh`, `@vitest/eslint-plugin` (aliased as `vitest`)
-
-#### Failure 1 — Duplicate devDependencies
-
-`frontend/package.json` contains three devDependency keys that each appear twice:
-
-| Duplicate key | Affected lines |
-|---|---|
-| `@typescript-eslint/eslint-plugin` | first occurrence + second set ~lines 74-76 |
-| `@typescript-eslint/parser` | same |
-| `@typescript-eslint/utils` | same |
-
-npm treats a duplicate key as a parse-time error that prevents consistent lock-file resolution,
-causing the ESLint run to fail with a dependency error.
-
-#### Failure 2 — Unsafe regex (`security/detect-unsafe-regex`)
-
-**File**: `frontend/src/components/CredentialManager.tsx`
-
-`validateZoneFilter` uses a regex with nested quantifiers. The rule flags it as a potential ReDoS
-vector. The regex is intentional; the risk is acceptable for this context.
-
-**Fix**: Add an inline `// eslint-disable-next-line security/detect-unsafe-regex` with a
-justification comment immediately before the regex literal.
-
-#### Failure 3 — Non-component exports (`react-refresh/only-export-components`)
-
-**File**: `frontend/src/components/CertificateList.tsx` — lines 20 and 24
-
-```tsx
-export function isInUse(cert: Certificate): boolean { ... }    // line 20
-export function isDeletable(cert: Certificate): boolean { ... } // line 24
-```
-
-`react-refresh` requires component files export **only React components**. Exporting plain utility
-functions breaks HMR and triggers this rule.
-
-**Known import sites** (must be updated after move):
-- `frontend/src/components/__tests__/CertificateList.test.tsx` line 8
-
-**Fix**: Move both functions to a new `frontend/src/utils/certificateUtils.ts`; update all import
-sites; keep internal calls in `CertificateList.tsx` via the new import.
-
-#### Failure 4 — Label on non-labelable elements (`jsx-a11y/label-has-associated-control`)
-
-5 violations across 3 files:
-
-| File | Line | Element | Problem |
-|---|---|---|---|
-| `frontend/src/components/CSPBuilder.tsx` | ~326 | `<label>` wrapping `<pre>` | `<pre>` is not a labelable element |
-| `frontend/src/components/AccessListSelector.tsx` | ~128 | `<label>` with no `htmlFor` before custom `<Select>` | custom component not natively labelable |
-| `frontend/src/components/AccessListForm.tsx` | ~385 | `<label id="access-list-enabled-label">` | no `htmlFor`; paired with `<Switch aria-labelledby="...">` |
-| `frontend/src/components/AccessListForm.tsx` | ~401 | `<label id="access-list-local-network-label">` | same pattern |
-| `frontend/src/components/AccessListForm.tsx` | ~422 | `<label>` | no `id`, no `htmlFor` |
-
-**Fix for AccessListForm lines 385 & 401**: Replace `<label id="...">` → `<span id="...">` to
-preserve the `id` referenced by `aria-labelledby` on the paired `<Switch>` components.
-
-**Fix for all others**: Replace `<label>` → `<span>` (no `id` or `aria-*` changes needed).
-
-> **Accessibility note**: `<span id="...">` with `aria-labelledby` on the control is the
-> WCAG 2.2-compliant approach when the control is a custom component that does not expose a native
-> labelable element.
-
-#### Failure 5 — Skipped tests (`vitest/prefer-todo` / `vitest/no-disabled-tests`)
-
-**File**: `frontend/src/api/__tests__/logs-websocket.test.ts` — lines 134 and 151
-
-Both use `it.skip('description', () => { ... })` with full test bodies. The rule requires either
-a passing test or `it.todo('description')` (no body) for placeholder tests.
-
-**Fix**: Replace both with `it.todo('description')` and remove the test bodies.
-
-### 2.3 Backend Test Failure — Root Cause
-
-#### Failing test
-
-**File**: `backend/internal/api/handlers/security_handler_audit_test.go`
-**Test**: `TestSecurityHandler_UpsertRuleSet_XSSInContent` (line ~395)
-
-**Observed failures** (full suite run only; passes in isolation):
-```
-Error: Not equal:
-    expected: 200
-    actual  : 500
-Error: "{\"error\":\"failed to list rule sets\"}" does not contain "\\u003cscript\\u003e"
-```
-
-Documented as pre-existing failure PE-001 in
-`docs/reports/qa_report_import_save_regression.md`.
-
-#### Code path to failure
-
-1. `UpsertRuleSet` handler (lines 401-435 of `security_handler.go`) calls
-   `h.svc.UpsertRuleSet(&payload)`. On any error it returns HTTP 500.
-2. `UpsertRuleSet` service method (lines 413-455 of `security_service.go`) executes
-   `s.db.Where("name = ?", r.Name).First(&existing)`. If this returns **any error other than**
-   `ErrRecordNotFound`, it returns that error immediately. Under SQLite busy-lock conditions the
-   query returns `SQLITE_BUSY`, which is returned to the handler, causing HTTP 500.
-3. The subsequent GET `ListRuleSets` call also fails (DB connection in a broken state), producing
-   the `"failed to list rule sets"` response.
-
-#### Why parallel tests cause locking
-
-`setupAuditTestDB` creates a **file-based** SQLite database:
+**ProxyHost FK Pattern** (confirmed from `models/uptime.go`, `models/proxy_host.go`):
 ```go
-dsn := filepath.Join(t.TempDir(), "security_handler_audit_test.db") +
-    "?_busy_timeout=5000&_journal_mode=WAL"
-db.SetMaxOpenConns(1)
-db.SetMaxIdleConns(1)
+ProxyGroupID *uint        `json:"proxy_group_id,omitempty" gorm:"index"`
+ProxyGroup   *ProxyGroup  `json:"proxy_group,omitempty" gorm:"foreignKey:ProxyGroupID"`
 ```
 
-Many other handler test files use `t.Parallel()` (confirmed: `auth_handler_test.go`,
-`proxy_host_handler_test.go`, `proxy_host_handler_update_test.go`). These tests execute
-concurrently with the audit tests in a full package run.
+**ProxyHostService.List** (`services/proxyhost_service.go` line 237):
+```go
+s.db.Preload("Locations").Preload("Certificate").Preload("AccessList").Preload("SecurityHeaderProfile").Order("updated_at desc").Find(&hosts)
+```
+Must add `Preload("ProxyGroup")`.
 
-`NewSecurityHandler` calls `services.NewSecurityService(db)` which immediately starts a
-`processAuditEvents()` background goroutine. Because `SecurityHandler.svc` is an **unexported
-field**, callers cannot invoke `svc.Close()` directly. All 14 `NewSecurityHandler` call sites in
-`security_handler_audit_test.go` register **no cleanup** for the service goroutine — unlike
-`security_service_test.go` which always registers `t.Cleanup(func() { svc.Close() })`.
+**ProxyHostService.GetByUUID** (line 228):
+```go
+s.db.Preload("Locations").Preload("Certificate").Preload("AccessList").Preload("SecurityHeaderProfile").Where("uuid = ?", uuidStr).First(&host)
+```
+Must add `Preload("ProxyGroup")`.
 
-Under parallel load: accumulated open goroutines each holding WAL-mode file-based SQLite
-connections cause `SQLITE_BUSY` errors despite the 5-second busy-timeout.
+**No existing proxy group code** — zero references in backend or frontend confirmed via search.
 
-#### Fix strategy (two complementary changes)
+### 2.2 Frontend Architecture
 
-**A — Add `Close()` to `SecurityHandler` + register cleanup at all 14 call sites**
+**React Query pattern** (`hooks/useProxyHosts.ts`):
+```ts
+const query = useQuery({ queryKey: QUERY_KEY, queryFn: getProxyHosts });
+const mutation = useMutation({ mutationFn: ..., onSuccess: () => queryClient.invalidateQueries(...) });
+```
 
-Stops goroutine accumulation. An exported `Close()` method is required because `svc` is
-unexported.
+**API client pattern** (`api/accessLists.ts`):
+```ts
+export const accessListsApi = {
+  async list(): Promise<AccessList[]> { ... },
+  async get(uuid: string): Promise<AccessList> { ... },
+  async create(data: CreateRequest): Promise<AccessList> { ... },
+  async update(uuid: string, data: Partial<CreateRequest>): Promise<AccessList> { ... },
+  async delete(uuid: string): Promise<void> { ... },
+};
+```
 
-**B — Convert `setupAuditTestDB` from file-based to in-memory SQLite**
+**Routing** (`App.tsx`): No new top-level route needed — proxy groups are managed from within the Proxy Hosts page via modals.
 
-`OpenTestDB(t)` (defined in `testdb.go`) creates a uniquely-named in-memory SQLite with
-`mode=memory&cache=shared` and auto-registered cleanup. This eliminates WAL file-lock as a
-failure vector, matching the pattern used by all working handler tests.
+**Navigation** (`components/Layout.tsx`): No nav change needed — groups are a sub-feature of Proxy Hosts.
 
-Both changes together provide defense in depth: goroutine lifecycle is clean AND the DB is not
-susceptible to file-locking under concurrent load.
+**UI Components available**: `Dialog`, `Button`, `Badge`, `Input`, `Textarea`, `DataTable`, `EmptyState`, `Card`
 
 ---
 
-## 3. Technical Specifications
+## 3. Database Schema Changes
 
-### 3.1 Files Modified / Created
+### 3.1 New Table: `proxy_groups`
 
-| File | Action | Commit |
-|---|---|---|
-| `frontend/package.json` | Remove 3 duplicate devDependency keys | 1 |
-| `frontend/src/components/CredentialManager.tsx` | Add inline eslint-disable comment | 2 |
-| `frontend/src/utils/certificateUtils.ts` | **New file** — export `isInUse`, `isDeletable` | 3 |
-| `frontend/src/components/CertificateList.tsx` | Remove exports; add import from utils | 3 |
-| `frontend/src/components/__tests__/CertificateList.test.tsx` | Update import path | 3 |
-| `frontend/src/components/CSPBuilder.tsx` | 1× `<label>` → `<span>` | 4 |
-| `frontend/src/components/AccessListSelector.tsx` | 1× `<label>` → `<span>` | 4 |
-| `frontend/src/components/AccessListForm.tsx` | 3× `<label>` → `<span>` (2 preserve `id`) | 4 |
-| `frontend/src/api/__tests__/logs-websocket.test.ts` | 2× `it.skip` → `it.todo` | 5 |
-| `backend/internal/api/handlers/security_handler.go` | Add exported `Close()` method | 6 |
-| `backend/internal/api/handlers/security_handler_audit_test.go` | Add cleanup; convert to in-memory DB | 6 |
+| Column        | Type     | Constraints              | Notes                      |
+|--------------|----------|--------------------------|----------------------------|
+| `id`         | INTEGER  | PRIMARY KEY AUTOINCREMENT | Internal, never serialized |
+| `uuid`       | TEXT     | UNIQUE NOT NULL           | External identifier        |
+| `name`       | TEXT     | NOT NULL, INDEX           | Display name               |
+| `description`| TEXT     |                           | Optional                   |
+| `color`      | TEXT     | DEFAULT `#6366f1`         | Hex color for badge        |
+| `created_at` | DATETIME |                           |                            |
+| `updated_at` | DATETIME |                           |                            |
 
-### 3.2 Detailed Change Specifications
+### 3.2 Modified Table: `proxy_hosts`
 
-#### Commit 1 — `frontend/package.json`
+Add one new nullable column:
 
-Remove the **second** occurrence of these three devDependency keys (approximately lines 74-76):
-```
-"@typescript-eslint/eslint-plugin": "...",
-"@typescript-eslint/parser": "...",
-"@typescript-eslint/utils": "...",
-```
+| Column           | Type    | Constraints               | Notes               |
+|-----------------|---------|---------------------------|---------------------|
+| `proxy_group_id` | INTEGER | INDEX, FK → proxy_groups(id) | NULL = ungrouped |
 
-After the change, each key appears exactly once in `devDependencies`.
+GORM `foreignKey:ProxyGroupID` wires the association. SQLite `ON DELETE SET NULL` is **not** used via GORM tag — the `ProxyGroupService.Delete` method explicitly clears host associations before deleting the group for consistent cross-database behavior.
 
-**Validation**: `cd frontend && npm install --dry-run` must complete without duplicate key
-warnings.
+---
 
-#### Commit 2 — `CredentialManager.tsx`
+## 4. Backend Implementation Plan
 
-Locate `validateZoneFilter` and the regex literal it contains. Add two lines immediately before
-the regex:
-
-```ts
-// eslint-disable-next-line security/detect-unsafe-regex
-// Runs client-side only; ReDoS risk is confined to the user's own browser session
-```
-
-**Validation**: `npm run lint` on the file shows no `security/detect-unsafe-regex` errors.
-
-#### Commit 3 — Extract certificate utilities
-
-**New file**: `frontend/src/utils/certificateUtils.ts`
-
-```ts
-import { type Certificate } from '../api/certificates'
-
-export function isInUse(cert: Certificate): boolean {
-  return cert.in_use
-}
-
-export function isDeletable(cert: Certificate): boolean {
-  if (cert.in_use) return false
-  return (
-    cert.provider === 'custom' ||
-    cert.provider === 'letsencrypt-staging' ||
-    cert.status === 'expired' ||
-    cert.status === 'expiring'
-  )
-}
-```
-
-**`frontend/src/components/CertificateList.tsx`** changes:
-- Remove the two `export function` declarations at lines 20-31.
-- Add to the import block: `import { isInUse, isDeletable } from '../utils/certificateUtils'`
-- Internal call sites (lines 103, 225, 226) are unchanged — they reference the same function
-  names now satisfied by the import.
-
-**`frontend/src/components/__tests__/CertificateList.test.tsx`** line 8:
-```ts
-// Before:
-import CertificateList, { isDeletable, isInUse } from '../CertificateList'
-
-// After:
-import CertificateList from '../CertificateList'
-import { isDeletable, isInUse } from '../../utils/certificateUtils'
-```
-
-**Validation**: `npm run lint` — no `react-refresh/only-export-components` errors.
-`npm run test -- CertificateList` — all existing tests pass.
-
-#### Commit 4 — Replace `<label>` on non-labelable elements
-
-| File | Change |
-|---|---|
-| `CSPBuilder.tsx` ~line 326 | `<label` → `<span` and `</label>` → `</span>` |
-| `AccessListSelector.tsx` ~line 128 | `<label` → `<span` and `</label>` → `</span>` |
-| `AccessListForm.tsx` ~line 385 | `<label id="access-list-enabled-label">` → `<span id="access-list-enabled-label">` and `</label>` → `</span>` |
-| `AccessListForm.tsx` ~line 401 | `<label id="access-list-local-network-label">` → `<span id="access-list-local-network-label">` and `</label>` → `</span>` |
-| `AccessListForm.tsx` ~line 422 | `<label` → `<span` and `</label>` → `</span>` |
-
-**Critical constraint for lines 385 & 401**: The `id` attribute **must be preserved** — `<Switch>`
-components reference it via `aria-labelledby`. Removing the `id` would break the programmatic
-label association for screen readers.
-
-**Validation**: `npm run lint` — no `jsx-a11y/label-has-associated-control` errors.
-
-#### Commit 5 — `logs-websocket.test.ts`
-
-Replace both `it.skip(...)` blocks at lines 134 and 151 with `it.todo(...)`, removing the
-callback bodies entirely:
-
-```ts
-// Before:
-// These tests are skipped because ...
-it.skip('should do X', () => {
-  // ... test body ...
-})
-
-// After:
-// These tests are skipped because ...
-it.todo('should do X')
-```
-
-Apply to both occurrences. **Preserve the explanatory comment** that appears immediately above
-each `it.skip` call — it must remain above the resulting `it.todo` line.
-
-**Test bodies are deleted outright** — do not preserve them as commented-out code. The prior
-implementations are retained in git history and can be recovered from there if needed.
-
-**Validation**: `npm run lint` — no disabled-test rule violations. `npm run test` shows both as
-`todo`.
-
-#### Commit 6 — Backend test fix
-
-##### Part A: Add `Close()` to `security_handler.go`
-
-After `NewSecurityHandler` (or `NewSecurityHandlerWithDeps`), add:
+### 4.1 New File: `backend/internal/models/proxy_group.go`
 
 ```go
-// Close stops the background audit goroutine. Required for test cleanup.
-func (h *SecurityHandler) Close() {
-	h.svc.Close()
+package models
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+)
+
+type ProxyGroup struct {
+	ID          uint      `json:"-" gorm:"primaryKey"`
+	UUID        string    `json:"uuid" gorm:"uniqueIndex;not null"`
+	Name        string    `json:"name" gorm:"not null;index"`
+	Description string    `json:"description" gorm:"type:text"`
+	Color       string    `json:"color" gorm:"default:#6366f1"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
-```
 
-`svc` is unexported; this method is the only way for test code to call `svc.Close()`.
-
-##### Part B1: Replace `setupAuditTestDB` in `security_handler_audit_test.go`
-
-Replace the entire function body with:
-
-```go
-func setupAuditTestDB(t *testing.T) *gorm.DB {
-	t.Helper()
-	db := OpenTestDB(t)
-	if err := db.AutoMigrate(
-		&models.SecurityRuleSet{},
-		&models.SecurityConfig{},
-		&models.SecurityDecision{},   // ← required, not AccessListRule
-		&models.SecurityAudit{},
-		&models.Setting{},
-	); err != nil {
-		t.Fatalf("setupAuditTestDB migrate: %v", err)
+func (g *ProxyGroup) BeforeCreate(tx *gorm.DB) (err error) {
+	if g.UUID == "" {
+		g.UUID = uuid.New().String()
 	}
-	return db
+	return
 }
 ```
 
-`OpenTestDB(t)` creates a uniquely-named in-memory SQLite with auto-registered cleanup. This
-eliminates WAL file-locking entirely.
+**Notes:**
+- No `gorm.DeletedAt` — groups are hard-deleted (same as AccessList model)
+- Color defaults to indigo (`#6366f1`) matching the project's design system
+- No `ProxyHosts []ProxyHost` back-reference to avoid N+1 on group list
 
-> The model list (`SecurityRuleSet`, `SecurityConfig`, `SecurityDecision`, `SecurityAudit`,
-> `Setting`) must match this specification exactly. `SecurityDecision` is required because
-> `TestSecurityHandler_CreateDecision_SQLInjection` and
-> `TestSecurityHandler_CreateDecision_EmptyFields` both query the `security_decisions` table.
-> `AccessListRule` is **not** in this list.
+### 4.2 Modify: `backend/internal/models/proxy_host.go`
 
-##### Part B2: Add `t.Cleanup(func() { h.Close() })` at all 14 call sites
+Add after the `DNSProvider *DNSProvider` field, before the next section:
 
-Every `h := NewSecurityHandler(cfg, db, nil)` call must be immediately followed by:
 ```go
-t.Cleanup(func() { h.Close() })
+ProxyGroupID *uint        `json:"proxy_group_id,omitempty" gorm:"index"`
+ProxyGroup   *ProxyGroup  `json:"proxy_group,omitempty" gorm:"foreignKey:ProxyGroupID"`
 ```
 
-The 14 call site line numbers (approximate — verify before applying):
-`76, 98, 144, 179, 210, 280, 325, 355, 399, 447, 508, 536, 562, 597`
+### 4.3 New File: `backend/internal/services/proxy_group_service.go`
 
-##### Part B3: Add diagnostic logging to the failing test
-
-In `TestSecurityHandler_UpsertRuleSet_XSSInContent`, immediately before the first
-`assert.Equal(t, http.StatusOK, w.Code)`, add:
 ```go
-t.Logf("UpsertRuleSet response body: %s", w.Body.String())
+package services
+
+import (
+	"errors"
+	"fmt"
+
+	"gorm.io/gorm"
+
+	"github.com/Wikid82/charon/backend/internal/models"
+)
+
+var (
+	ErrProxyGroupNotFound  = errors.New("proxy group not found")
+	ErrProxyGroupNameEmpty = errors.New("proxy group name cannot be empty")
+)
+
+type ProxyGroupService struct {
+	db *gorm.DB
+}
+
+func NewProxyGroupService(db *gorm.DB) *ProxyGroupService {
+	return &ProxyGroupService{db: db}
+}
+
+func (s *ProxyGroupService) Create(group *models.ProxyGroup) error {
+	if group.Name == "" {
+		return ErrProxyGroupNameEmpty
+	}
+	return s.db.Create(group).Error
+}
+
+func (s *ProxyGroupService) List() ([]models.ProxyGroup, error) {
+	var groups []models.ProxyGroup
+	if err := s.db.Order("name asc").Find(&groups).Error; err != nil {
+		return nil, err
+	}
+	return groups, nil
+}
+
+func (s *ProxyGroupService) GetByUUID(uuidStr string) (*models.ProxyGroup, error) {
+	var group models.ProxyGroup
+	result := s.db.Where("uuid = ?", uuidStr).Limit(1).Find(&group)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, ErrProxyGroupNotFound
+	}
+	return &group, nil
+}
+
+func (s *ProxyGroupService) Update(group *models.ProxyGroup) error {
+	return s.db.Save(group).Error
+}
+
+// Delete removes a group and unassigns all its proxy hosts (sets proxy_group_id = NULL).
+// Hosts are not deleted. Both operations are wrapped in a transaction for atomicity.
+func (s *ProxyGroupService) Delete(id uint) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.ProxyHost{}).
+			Where("proxy_group_id = ?", id).
+			Update("proxy_group_id", nil).Error; err != nil {
+			return fmt.Errorf("failed to unassign proxy hosts: %w", err)
+		}
+		return tx.Delete(&models.ProxyGroup{}, id).Error
+	})
+}
+
+// GetHostCount returns the number of proxy hosts assigned to a group.
+func (s *ProxyGroupService) GetHostCount(id uint) (int64, error) {
+	var count int64
+	err := s.db.Model(&models.ProxyHost{}).Where("proxy_group_id = ?", id).Count(&count).Error
+	return count, err
+}
 ```
 
-This surfaces the real GORM error message if the test regresses in future.
+### 4.4 New File: `backend/internal/api/handlers/proxy_group_handler.go`
 
-**Validation**:
+```go
+package handlers
+
+import (
+	"net/http"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+
+	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
+)
+
+type ProxyGroupHandler struct {
+	service *services.ProxyGroupService
+	db      *gorm.DB
+}
+
+func NewProxyGroupHandler(db *gorm.DB) *ProxyGroupHandler {
+	return &ProxyGroupHandler{
+		service: services.NewProxyGroupService(db),
+		db:      db,
+	}
+}
+
+func (h *ProxyGroupHandler) RegisterRoutes(router *gin.RouterGroup) {
+	router.GET("/proxy-groups", h.List)
+	router.POST("/proxy-groups", h.Create)
+	router.GET("/proxy-groups/:uuid", h.Get)
+	router.PUT("/proxy-groups/:uuid", h.Update)
+	router.DELETE("/proxy-groups/:uuid", h.Delete)
+}
+
+func (h *ProxyGroupHandler) List(c *gin.Context) {
+	groups, err := h.service.List()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, groups)
+}
+
+func (h *ProxyGroupHandler) Create(c *gin.Context) {
+	var payload struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Color       string `json:"color"`
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	group := models.ProxyGroup{
+		Name:        strings.TrimSpace(payload.Name),
+		Description: payload.Description,
+		Color:       payload.Color,
+	}
+	if group.Color == "" {
+		group.Color = "#6366f1"
+	}
+	if err := h.service.Create(&group); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, group)
+}
+
+func (h *ProxyGroupHandler) Get(c *gin.Context) {
+	group, err := h.service.GetByUUID(c.Param("uuid"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "proxy group not found"})
+		return
+	}
+	count, _ := h.service.GetHostCount(group.ID)
+	c.JSON(http.StatusOK, gin.H{
+		"uuid":        group.UUID,
+		"name":        group.Name,
+		"description": group.Description,
+		"color":       group.Color,
+		"host_count":  count,
+		"created_at":  group.CreatedAt,
+		"updated_at":  group.UpdatedAt,
+	})
+}
+
+func (h *ProxyGroupHandler) Update(c *gin.Context) {
+	group, err := h.service.GetByUUID(c.Param("uuid"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "proxy group not found"})
+		return
+	}
+	var payload struct {
+		Name        *string `json:"name"`
+		Description *string `json:"description"`
+		Color       *string `json:"color"`
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if payload.Name != nil {
+		trimmed := strings.TrimSpace(*payload.Name)
+		if trimmed == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "name cannot be empty"})
+			return
+		}
+		group.Name = trimmed
+	}
+	if payload.Description != nil {
+		group.Description = *payload.Description
+	}
+	if payload.Color != nil {
+		group.Color = *payload.Color
+	}
+	if err := h.service.Update(group); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, group)
+}
+
+func (h *ProxyGroupHandler) Delete(c *gin.Context) {
+	group, err := h.service.GetByUUID(c.Param("uuid"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "proxy group not found"})
+		return
+	}
+	if err := h.service.Delete(group.ID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+```
+
+### 4.5 Modify: `backend/internal/api/handlers/proxy_host_handler.go`
+
+**`ProxyHostResponse` struct** — add after `SecurityHeaderProfile` fields:
+```go
+ProxyGroup   *models.ProxyGroup  `json:"proxy_group,omitempty"`
+```
+
+> **Note**: Internal numeric IDs are never exposed in response bodies per GORM security scanner policy.
+
+**`NewProxyHostResponse` function** — add to the return literal:
+```go
+ProxyGroup:   host.ProxyGroup,
+```
+
+**New private method** `resolveProxyGroupReference`:
+```go
+func (h *ProxyHostHandler) resolveProxyGroupReference(value any) (*uint, error) {
+	if value == nil {
+		return nil, nil
+	}
+	parsedID, parseErr := parseNullableUintField(value, "proxy_group_id")
+	if parseErr == nil {
+		return parsedID, nil
+	}
+	uuidValue, isString := value.(string)
+	if !isString {
+		return nil, parseErr
+	}
+	trimmed := strings.TrimSpace(uuidValue)
+	if trimmed == "" {
+		return nil, nil
+	}
+	var pg models.ProxyGroup
+	if err := h.db.Select("id").Where("uuid = ?", trimmed).First(&pg).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("proxy group not found")
+		}
+		return nil, fmt.Errorf("failed to resolve proxy group")
+	}
+	id := pg.ID
+	return &id, nil
+}
+```
+
+**`Create` handler** — add FK resolution before the `json.Unmarshal` block (after existing `resolveAccessListReference`, etc.):
+```go
+if rawGroupRef, ok := payload["proxy_group_id"]; ok {
+	resolvedGroupID, resolveErr := h.resolveProxyGroupReference(rawGroupRef)
+	if resolveErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": resolveErr.Error()})
+		return
+	}
+	payload["proxy_group_id"] = resolvedGroupID
+}
+```
+
+**`Update` handler** — add to the payload field processing block (after the existing access_list_id block):
+```go
+if rawGroupRef, ok := payload["proxy_group_id"]; ok {
+	resolvedGroupID, resolveErr := h.resolveProxyGroupReference(rawGroupRef)
+	if resolveErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": resolveErr.Error()})
+		return
+	}
+	host.ProxyGroupID = resolvedGroupID
+}
+```
+
+### 4.6 Modify: `backend/internal/services/proxyhost_service.go`
+
+**`List` method** (line ~239) — add `Preload("ProxyGroup")`:
+```go
+if err := s.db.Preload("Locations").Preload("Certificate").Preload("AccessList").
+	Preload("SecurityHeaderProfile").Preload("ProxyGroup").
+	Order("updated_at desc").Find(&hosts).Error; err != nil {
+```
+
+**`GetByUUID` method** (line ~229) — add `Preload("ProxyGroup")`:
+```go
+if err := s.db.Preload("Locations").Preload("Certificate").Preload("AccessList").
+	Preload("SecurityHeaderProfile").Preload("ProxyGroup").
+	Where("uuid = ?", uuidStr).First(&host).Error; err != nil {
+```
+
+### 4.7 Modify: `backend/internal/api/routes/routes.go`
+
+**AutoMigrate list** — insert `&models.ProxyGroup{}` before `&models.ProxyHost{}` so the FK constraint resolves correctly:
+```go
+// Within the db.AutoMigrate(...) call, add:
+&models.ProxyGroup{},
+// ProxyHost must come after ProxyGroup due to FK dependency
+&models.ProxyHost{},  // (already exists)
+```
+
+**Handler registration** — add after `proxyHostHandler.RegisterRoutes(management)`:
+```go
+proxyGroupHandler := handlers.NewProxyGroupHandler(db)
+proxyGroupHandler.RegisterRoutes(management)
+```
+
+---
+
+## 5. API Contract
+
+All endpoints are under the authenticated `management` router group → `/api/v1/`.
+
+### `GET /api/v1/proxy-groups`
+
+**Description**: List all proxy groups, ordered alphabetically by name.
+
+**Response `200 OK`**:
+```json
+[
+  {
+    "uuid": "3f2a1b4c-...",
+    "name": "Production",
+    "description": "Production services",
+    "color": "#6366f1",
+    "created_at": "2025-01-01T00:00:00Z",
+    "updated_at": "2025-01-01T00:00:00Z"
+  }
+]
+```
+
+> **`host_count` is NOT returned by the list endpoint.** Frontend computes host counts client-side from the proxies list using the `groupedHosts.byGroupUUID[uuid].length` memo pattern. The detail endpoint (`GET /proxy-groups/:uuid`) optionally includes it via `GetHostCount`.
+
+> **Optional enhancement**: compute counts server-side via subquery:
+> ```go
+> // Optional enhancement: compute counts server-side
+> s.db.Select("proxy_groups.*, COUNT(ph.id) as host_count").
+>     Joins("LEFT JOIN proxy_hosts ph ON ph.proxy_group_id = proxy_groups.id").
+>     Group("proxy_groups.id").
+>     Find(&groups)
+> ```
+
+### `POST /api/v1/proxy-groups`
+
+**Request Body**:
+```json
+{
+  "name": "Production",
+  "description": "Production-facing services",
+  "color": "#ef4444"
+}
+```
+
+| Field         | Type   | Required | Notes                  |
+|--------------|--------|----------|------------------------|
+| `name`       | string | Yes      | Non-empty after trim   |
+| `description`| string | No       | Defaults to `""`       |
+| `color`      | string | No       | Defaults to `#6366f1`  |
+
+**Response `201 Created`**: Full ProxyGroup object.
+**Response `400 Bad Request`**: `{ "error": "proxy group name cannot be empty" }`
+
+### `GET /api/v1/proxy-groups/:uuid`
+
+**Response `200 OK`**:
+```json
+{
+  "uuid": "3f2a1b4c-...",
+  "name": "Production",
+  "description": "Production services",
+  "color": "#6366f1",
+  "host_count": 5,
+  "created_at": "2025-01-01T00:00:00Z",
+  "updated_at": "2025-01-01T00:00:00Z"
+}
+```
+
+**Response `404 Not Found`**: `{ "error": "proxy group not found" }`
+
+### `PUT /api/v1/proxy-groups/:uuid`
+
+Partial update — only provided fields are mutated.
+
+**Request Body** (all optional):
+```json
+{ "name": "Staging", "description": "Staging environment", "color": "#f59e0b" }
+```
+
+**Response `200 OK`**: Updated ProxyGroup object.
+
+### `DELETE /api/v1/proxy-groups/:uuid`
+
+**Description**: Delete a group. Assigned proxy hosts have `proxy_group_id` set to `NULL` (hosts are not deleted).
+
+**Response `204 No Content`**: Empty.
+
+### Proxy Host Group Assignment
+
+Hosts are assigned/unassigned via the existing `PUT /api/v1/proxy-hosts/:uuid` endpoint:
+
+```json
+{ "proxy_group_id": "3f2a1b4c-..." }
+```
+
+Accepts `null` (unassign), a numeric ID, or a UUID string.
+
+The proxy host response now includes:
+```json
+{
+  "proxy_group": {
+    "uuid": "3f2a1b4c-...",
+    "name": "Production",
+    "color": "#6366f1"
+  }
+}
+```
+
+---
+
+## 6. Frontend Implementation Plan
+
+### 6.1 New File: `frontend/src/api/proxyGroups.ts`
+
+```typescript
+import client from './client';
+
+export interface ProxyGroup {
+  uuid: string;
+  name: string;
+  description: string;
+  color: string;
+  host_count?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateProxyGroupRequest {
+  name: string;
+  description?: string;
+  color?: string;
+}
+
+export const proxyGroupsApi = {
+  async list(): Promise<ProxyGroup[]> {
+    const response = await client.get<ProxyGroup[]>('/proxy-groups');
+    return response.data;
+  },
+
+  async get(uuid: string): Promise<ProxyGroup> {
+    const response = await client.get<ProxyGroup>(`/proxy-groups/${uuid}`);
+    return response.data;
+  },
+
+  async create(data: CreateProxyGroupRequest): Promise<ProxyGroup> {
+    const response = await client.post<ProxyGroup>('/proxy-groups', data);
+    return response.data;
+  },
+
+  async update(uuid: string, data: Partial<CreateProxyGroupRequest>): Promise<ProxyGroup> {
+    const response = await client.put<ProxyGroup>(`/proxy-groups/${uuid}`, data);
+    return response.data;
+  },
+
+  async delete(uuid: string): Promise<void> {
+    await client.delete(`/proxy-groups/${uuid}`);
+  },
+};
+```
+
+### 6.2 New File: `frontend/src/hooks/useProxyGroups.ts`
+
+Export the following named hooks (multi-hook pattern, same as `useAccessLists.ts`):
+
+```typescript
+export const PROXY_GROUPS_QUERY_KEY = ['proxy-groups'];
+
+export function useProxyGroups(): UseQueryResult<ProxyGroup[]>
+export function useCreateProxyGroup(): UseMutationResult<...>
+export function useUpdateProxyGroup(): UseMutationResult<...>
+export function useDeleteProxyGroup(): UseMutationResult<...>
+```
+
+- `useCreateProxyGroup`: on success → `toast.success('Group created')` + invalidate `PROXY_GROUPS_QUERY_KEY`; on error → `toast.error(\`Failed to create group: ${error.message}\`)`
+- `useUpdateProxyGroup`: mutation fn takes `{ uuid: string; data: Partial<CreateProxyGroupRequest> }` → `toast.success('Group updated')`; on error → `toast.error(\`Failed to update group: ${error.message}\`)`
+- `useDeleteProxyGroup`: on success → `toast.success('Group deleted — hosts moved to Ungrouped')` + invalidate both `PROXY_GROUPS_QUERY_KEY` and `['proxy-hosts']`; on error → `toast.error(\`Failed to delete group: ${error.message}\`)`
+
+### 6.3 Modify: `frontend/src/api/proxyHosts.ts`
+
+Add to the `ProxyHost` interface:
+```typescript
+proxy_group_id?: number | string | null;
+proxy_group?: {
+  uuid: string;
+  name: string;
+  color: string;
+} | null;
+```
+
+### 6.4 New File: `frontend/src/components/ProxyGroupBadge.tsx`
+
+```typescript
+interface ProxyGroupBadgeProps {
+  group: { name: string; color: string };
+  className?: string;
+}
+```
+
+Renders a colored circle dot followed by the group name. Uses inline `style={{ backgroundColor: group.color }}` for the dot. Falls back to `—` when group is undefined (caller decides).
+
+### 6.5 New File: `frontend/src/components/ProxyGroupForm.tsx`
+
+Create/edit dialog for a proxy group.
+
+**Props**:
+```typescript
+interface ProxyGroupFormProps {
+  open: boolean;
+  onClose: () => void;
+  group?: ProxyGroup; // undefined = create mode
+}
+```
+
+**Fields**:
+- `name` — `Input` (required, validates non-empty)
+- `description` — `Textarea` (optional)
+- `color` — 8 preset color swatches (clickable circles) + hex text input
+
+**Color presets**: `['#6366f1', '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#6b7280']`
+
+**Behavior**:
+- Create mode: calls `useCreateProxyGroup().mutateAsync(data)` then `onClose()`
+- Edit mode: calls `useUpdateProxyGroup().mutateAsync({ uuid: group.uuid, data })` then `onClose()`
+- Submit button disabled when `name.trim() === ''`
+- Uses `Dialog`, `Input`, `Textarea`, `Button` from `components/ui`
+
+### 6.6 Modify: `frontend/src/pages/ProxyHosts.tsx`
+
+**New imports**:
+```typescript
+import { useProxyGroups, useDeleteProxyGroup, useUpdateProxyGroup } from '../hooks/useProxyGroups';
+import ProxyGroupForm from '../components/ProxyGroupForm';
+import ProxyGroupBadge from '../components/ProxyGroupBadge';
+```
+
+**New state**:
+```typescript
+const [showGroupForm, setShowGroupForm] = useState(false);
+const [editingGroup, setEditingGroup] = useState<ProxyGroup | undefined>();
+const [groupToDelete, setGroupToDelete] = useState<ProxyGroup | null>(null);
+const [showAssignGroupModal, setShowAssignGroupModal] = useState(false);
+const [assignTargetGroupUUID, setAssignTargetGroupUUID] = useState<string | null>(null);
+```
+
+**New data hooks**:
+```typescript
+const { data: groups = [] } = useProxyGroups();
+const deleteGroupMutation = useDeleteProxyGroup();
+const updateProxyHostMutation = /* existing update from useProxyHosts */;
+```
+
+**Grouped hosts memo** (replaces or supplements `sortedHosts`):
+```typescript
+const groupedHosts = useMemo(() => {
+  const byGroupUUID: Record<string, ProxyHost[]> = {};
+  const ungrouped: ProxyHost[] = [];
+  for (const host of sortedHosts) {
+    if (host.proxy_group?.uuid) {
+      if (!byGroupUUID[host.proxy_group.uuid]) byGroupUUID[host.proxy_group.uuid] = [];
+      byGroupUUID[host.proxy_group.uuid].push(host);
+    } else {
+      ungrouped.push(host);
+    }
+  }
+  return { byGroupUUID, ungrouped };
+}, [sortedHosts]);
+```
+
+**Page header addition** — "Manage Groups" button (next to "Add Proxy Host" button):
+```tsx
+<Button variant="outline" onClick={() => { setEditingGroup(undefined); setShowGroupForm(true); }}>
+  {t('proxyGroups.manageGroups')}
+</Button>
+```
+
+**Table column addition** — `Group` column in the DataTable column definitions:
+```typescript
+{
+  key: 'proxy_group',
+  header: t('proxyGroups.group'),
+  render: (host: ProxyHost) =>
+    host.proxy_group
+      ? <ProxyGroupBadge group={host.proxy_group} />
+      : <span className="text-muted-foreground text-sm">—</span>,
+}
+```
+
+**Grouped rendering** — replace the flat `sortedHosts` table with grouped sections:
+- For each group in `groups`: render a section header (`<Card>` with group color swatch, name, host count, edit/delete icon buttons) followed by a `DataTable` scoped to `groupedHosts.byGroupUUID[group.uuid] ?? []`
+- After all named groups: render an "Ungrouped" section with `groupedHosts.ungrouped`
+- If `groups.length === 0`: render the existing flat table (no regression for users with no groups)
+
+**Bulk assign** — when `selectedHosts.length > 0`, show "Assign to Group" in bulk actions bar:
+- Opens a `Dialog` with a radio list of groups + "None (Ungrouped)"
+- On confirm: loops over `selectedHosts`, calls `updateHost(uuid, { proxy_group_id: assignTargetGroupUUID ?? null })`
+- Uses existing `applyProgress` / loading pattern if available, otherwise sequential mutations
+
+**Dialogs to add**:
+1. `ProxyGroupForm` (create/edit) — controlled by `showGroupForm` + `editingGroup`
+2. Delete group confirmation — `groupToDelete` drives a `Dialog` that calls `deleteGroupMutation.mutate(groupToDelete.uuid)`
+3. Assign to group modal — `showAssignGroupModal`
+
+### 6.7 i18n Keys
+
+Add to all locale files (`frontend/src/locales/en/translation.json`, `frontend/src/locales/es/translation.json`, `frontend/src/locales/fr/translation.json`, `frontend/src/locales/de/translation.json`, `frontend/src/locales/zh/translation.json`):
+
+```json
+{
+  "proxyGroups": {
+    "group": "Group",
+    "manageGroups": "Manage Groups",
+    "createGroup": "Create Group",
+    "editGroup": "Edit Group",
+    "deleteGroup": "Delete Group",
+    "deleteGroupConfirm": "Delete this group? All hosts will be moved to Ungrouped.",
+    "groupName": "Group Name",
+    "groupDescription": "Description",
+    "groupColor": "Color",
+    "noGroups": "No groups yet",
+    "ungrouped": "Ungrouped",
+    "assignToGroup": "Assign to Group",
+    "hostCount_one": "{{count}} host",
+    "hostCount_other": "{{count}} hosts"
+  }
+}
+```
+
+---
+
+## 7. Testing Strategy
+
+### Phase 1 — Playwright E2E Tests (write before implementation)
+
+**File**: `tests/proxy-groups.spec.ts`
+
+Imports:
+```typescript
+import { test, expect } from './fixtures/test';
+import { waitForAPIHealth } from './utils/api-helpers';
+import { getToastLocator } from './utils/ui-helpers';
+import { waitForAPIResponse, waitForDialog, waitForLoadingComplete } from './utils/wait-helpers';
+```
+
+Test scenarios:
+```
+test.describe('Proxy Groups', () => {
+  test.beforeEach(async ({ page }) => {
+    await waitForAPIHealth(page);
+    await page.goto('/proxy-hosts');
+    await waitForLoadingComplete(page);
+  });
+
+  test.describe('Group Management', () => {
+    test('should create a proxy group with name and color')
+    test('should display created group as a section header on Proxy Hosts page')
+    test('should edit a group name and color')
+    test('should delete a group — hosts become ungrouped')
+    test('should prevent creating a group with empty name — submit disabled')
+  })
+
+  test.describe('Host Assignment', () => {
+    test('should assign a proxy host to a group via host edit form')
+    test('should unassign a proxy host from a group')
+    test('should bulk-assign selected hosts to a group')
+    test('should display host under correct group section')
+  })
+
+  test.describe('Grouped Display', () => {
+    test('should show group header with correct name, color, and host count')
+    test('should show ungrouped section for unassigned hosts')
+    test('should show flat list when no groups exist')
+  })
+})
+```
+
+Use role-based locators: `getByRole('button', { name: /manage groups/i })`, `getByRole('heading', { name: groupName })`.
+
+### Phase 2 — Backend Unit Tests
+
+**`backend/internal/services/proxy_group_service_test.go`**:
+- `TestProxyGroupService_Create` — happy path, UUID assigned
+- `TestProxyGroupService_Create_EmptyName` — returns `ErrProxyGroupNameEmpty`
+- `TestProxyGroupService_List` — returns sorted by name
+- `TestProxyGroupService_GetByUUID` — found and not found
+- `TestProxyGroupService_Update` — patches Name/Description/Color
+- `TestProxyGroupService_Delete_ClearsHostAssignments` — host `proxy_group_id` set to NULL, group deleted
+- `TestProxyGroupService_GetHostCount` — correct count
+
+**`backend/internal/api/handlers/proxy_group_handler_test.go`**:
+- `TestProxyGroupHandler_List_Empty`
+- `TestProxyGroupHandler_List_WithGroups`
+- `TestProxyGroupHandler_Create_Valid`
+- `TestProxyGroupHandler_Create_EmptyName_400`
+- `TestProxyGroupHandler_Get_Found`
+- `TestProxyGroupHandler_Get_NotFound_404`
+- `TestProxyGroupHandler_Update_PartialFields`
+- `TestProxyGroupHandler_Update_EmptyName_400`
+- `TestProxyGroupHandler_Delete_204`
+- `TestProxyGroupHandler_Delete_NotFound_404`
+
+**`backend/internal/services/proxyhost_service_group_test.go`**:
+- `TestProxyHostService_List_PreloadsGroup`
+- `TestProxyHostService_GetByUUID_PreloadsGroup`
+
+Follow `access_list_service_test.go` pattern: in-memory SQLite (`gorm.Open(sqlite.Open(":memory:"))`), table-driven cases.
+
+### Phase 3 — Frontend Unit Tests
+
+**`frontend/src/components/__tests__/ProxyGroupForm.test.tsx`**:
+- Renders create form when no `group` prop
+- Renders edit form with pre-filled values when `group` prop provided
+- Disables submit when name is empty
+- Calls create mutation on submit in create mode
+- Calls update mutation on submit in edit mode
+
+**`frontend/src/components/__tests__/ProxyGroupBadge.test.tsx`**:
+- Renders group name
+- Renders color dot with correct background color
+
+### GORM Security Scanner (mandatory gate)
+
+After implementing models, run:
 ```bash
-# Isolated run must pass
-go test -v -count=1 -run TestSecurityHandler_UpsertRuleSet_XSSInContent ./backend/internal/api/handlers/
-
-# Full package with race detector must pass
-go test -race -count=1 ./backend/internal/api/handlers/
-
-# Coverage gate must pass
-bash scripts/go-test-coverage.sh
+./scripts/scan-gorm-security.sh --check
 ```
 
----
-
-## 4. Implementation Plan
-
-### Phase 1 — Playwright Tests
-
-No UI/UX behaviour changes are introduced. Playwright E2E tests are not required for this plan.
-Changes are limited to build config, utility extraction, HTML element type changes (visually
-identical), and test-only changes. A smoke run of the standard suite is optional.
-
-### Phase 2 — Backend Implementation (Commit 6)
-
-1. Edit `security_handler.go` — add `Close()` method.
-2. Edit `security_handler_audit_test.go`:
-   a. Replace `setupAuditTestDB` body.
-   b. Add `t.Cleanup` at all 14 call sites.
-   c. Add `t.Logf` diagnostic.
-3. Run: `go test -race -count=1 ./backend/internal/api/handlers/` — confirm exit 0.
-4. Run: `bash scripts/go-test-coverage.sh` — confirm coverage gate passes.
-
-### Phase 3 — Frontend Implementation (Commits 1-5)
-
-Execute commits 1-5 in order. After each commit, run `npm run lint` to verify no new errors.
-After all five: run `npm run type-check` and `npm run test` to confirm no regressions.
-
-### Phase 4 — Integration Verification
-
-Final checklist before opening PR:
-- [ ] `go test -race ./backend/...` exits 0
-- [ ] `bash scripts/go-test-coverage.sh` exits 0
-- [ ] `npm run lint` exits 0 (zero errors)
-- [ ] `npm run type-check` exits 0
-- [ ] `npm run test` exits 0
-
-### Phase 5 — Documentation
-
-No documentation changes required.
+Expected: `proxy_group.go` passes all checks (no `json:"id"` exposure, no DTO embedding in response structs).
 
 ---
 
-## 5. Acceptance Criteria
+## 8. Commit Slicing Strategy
 
-| # | Criterion | Verification |
-|---|---|---|
-| AC-1 | `TestSecurityHandler_UpsertRuleSet_XSSInContent` passes in full package run | `go test -race -count=1 ./backend/internal/api/handlers/` exits 0 |
-| AC-2 | `scripts/go-test-coverage.sh` exits 0 | Coverage gate and test status both pass |
-| AC-3 | `npm run lint` exits 0 | No ESLint errors; `react-refresh`, `jsx-a11y`, `security`, `vitest` rules all pass |
-| AC-4 | `npm run type-check` exits 0 | No TypeScript errors after utility extraction |
-| AC-5 | All existing Vitest tests continue to pass | `npm run test` exits 0; `CertificateList.test.tsx` passes |
-| AC-6 | `<Switch>` components retain ARIA labels | `aria-labelledby` on Switch components resolves to matching `id` on adjacent `<span>` |
-| AC-7 | No backend lint regressions | Backend lint (non-blocking) gains no new CRITICAL/HIGH findings |
+**Decision**: Single PR with 6 ordered commits. One feature = one PR.
+
+**Rationale**: Commits are strongly ordered by dependency (model → service → handler → routes → frontend types → frontend UI). Each commit is individually testable. The backend/frontend split allows parallel code review.
 
 ---
 
-## 6. Commit Slicing Strategy
+### Commit 1 — `feat(models): add ProxyGroup model and ProxyHost FK`
 
-**Decision**: Single PR with 6 ordered logical commits.
+**Scope**: Backend model layer
+**Files**:
+- `backend/internal/models/proxy_group.go` ← **new**
+- `backend/internal/models/proxy_host.go` ← add `ProxyGroupID *uint` + `ProxyGroup *ProxyGroup`
 
-**Trigger reasons**: Cross-domain changes (frontend/backend); logical independence of each fix;
-reviewability of each concern in isolation.
-
-### Commit Order
-
-| # | Commit message | Files | Dependencies | Validation gate |
-|---|---|---|---|---|
-| 1 | `fix(frontend): remove duplicate devDependencies from package.json` | `frontend/package.json` | None | `npm install` no warnings |
-| 2 | `fix(frontend): suppress unsafe-regex lint in zone filter validation` | `CredentialManager.tsx` | None | `npm run lint` clean on file |
-| 3 | `refactor(frontend): extract certificate utility functions to utils module` | `certificateUtils.ts` (new), `CertificateList.tsx`, `CertificateList.test.tsx` | None | `npm run lint` + `npm run test -- CertificateList` |
-| 4 | `fix(frontend/a11y): replace label with span for non-labelable controls` | `CSPBuilder.tsx`, `AccessListSelector.tsx`, `AccessListForm.tsx` | None | `npm run lint` clean on all 3 |
-| 5 | `fix(tests): convert skipped tests to todo in logs-websocket` | `logs-websocket.test.ts` | None | `npm run lint` clean on file |
-| 6 | `fix(backend/test): resolve UpsertRuleSet XSS test isolation failure` | `security_handler.go`, `security_handler_audit_test.go` | None | `go test -race ./backend/internal/api/handlers/` exits 0 |
-
-Commits 1-6 are fully independent and may be cherry-picked or reordered safely.
-
-### Rollback Notes
-
-Each commit is self-contained. Reverting any one commit has no cross-domain impact.
-Commit 6 revert returns the CI failure but affects no production behaviour.
+**Dependencies**: None
+**Validation gate**: `go build ./...` passes; GORM scanner passes with zero CRITICAL/HIGH
+**Rollback**: Revert 2 files
 
 ---
 
-## 7. Risk Register
+### Commit 2 — `feat(services): add ProxyGroupService and update ProxyHostService preloads`
+
+**Scope**: Service layer
+**Files**:
+- `backend/internal/services/proxy_group_service.go` ← **new**
+- `backend/internal/services/proxyhost_service.go` ← add `Preload("ProxyGroup")` in `List` and `GetByUUID`
+
+**Dependencies**: Commit 1
+**Validation gate**: `go test ./backend/internal/services/...` (all existing tests pass)
+**Rollback**: Delete `proxy_group_service.go`; revert preload lines in `proxyhost_service.go`
+
+---
+
+### Commit 3 — `feat(handlers): add ProxyGroupHandler and update ProxyHostHandler`
+
+**Scope**: Handler layer + routes registration
+**Files**:
+- `backend/internal/api/handlers/proxy_group_handler.go` ← **new**
+- `backend/internal/api/handlers/proxy_host_handler.go` ← add response fields + `resolveProxyGroupReference` + Update/Create FK handling
+- `backend/internal/api/routes/routes.go` ← add `ProxyGroup` to AutoMigrate + register handler
+
+**AutoMigrate change** (exact lines in `backend/internal/api/routes/routes.go`):
+```go
+// backend/internal/api/routes/routes.go — AutoMigrate block
+db.AutoMigrate(
+    &models.ProxyGroup{},  // NEW — must precede ProxyHost (FK dependency)
+    &models.ProxyHost{},
+    // ... existing models
+)
+```
+
+**Dependencies**: Commits 1 + 2
+**Validation gate**: `go build ./...`; Docker E2E container rebuilds and health check passes; existing E2E proxy-host tests still pass
+**Rollback**: Revert 3 files
+
+---
+
+### Commit 4 — `test(backend): proxy group service and handler unit tests`
+
+**Scope**: Backend test files only
+**Files**:
+- `backend/internal/services/proxy_group_service_test.go` ← **new**
+- `backend/internal/api/handlers/proxy_group_handler_test.go` ← **new**
+- `backend/internal/services/proxyhost_service_group_test.go` ← **new**
+
+**Dependencies**: Commit 3
+**Validation gate**: `go test ./backend/internal/...` all pass; line coverage ≥ 85% for new service and handler files
+**Rollback**: Delete test files (no functional regression)
+
+---
+
+### Commit 5 — `feat(frontend): proxy group API client, hooks, and type updates`
+
+**Scope**: Frontend new files + ProxyHost type extension
+**Files**:
+- `frontend/src/api/proxyGroups.ts` ← **new**
+- `frontend/src/hooks/useProxyGroups.ts` ← **new**
+- `frontend/src/components/ProxyGroupForm.tsx` ← **new**
+- `frontend/src/components/ProxyGroupBadge.tsx` ← **new**
+- `frontend/src/api/proxyHosts.ts` ← add `proxy_group_id` + `proxy_group` to `ProxyHost` interface
+
+**Dependencies**: Commit 3 (API endpoints must exist)
+**Validation gate**: `npm run build` passes; `npm run lint` clean
+**Rollback**: Delete new files; revert 2 lines in `proxyHosts.ts`
+
+---
+
+### Commit 6 — `feat(ui): integrate proxy groups into ProxyHosts page`
+
+**Scope**: Page integration + i18n
+**Files**:
+- `frontend/src/pages/ProxyHosts.tsx` ← grouped display, manage groups button, assign modal, Group column
+- `frontend/src/locales/en/translation.json` (and `es`, `fr`, `de`, `zh` equivalents) ← add `proxyGroups.*` keys
+
+**Dependencies**: Commit 5
+**Validation gate**: All Playwright E2E tests pass (Firefox, Chromium, WebKit); existing proxy-hosts tests pass; new `proxy-groups.spec.ts` passes
+**Rollback**: Revert `ProxyHosts.tsx` and i18n changes
+
+---
+
+### Contingency Notes
+
+- **SQLite FK constraint during AutoMigrate**: `ProxyGroup` is registered before `ProxyHost` to ensure the FK resolves. If ordering causes a regression, SQLite's deferred FK enforcement makes this a non-issue in practice, but the ordering is correct.
+- **Bulk assign performance**: If >20 hosts selected, consider adding a `PUT /api/v1/proxy-hosts/bulk-update-group` endpoint (same shape as existing `bulk-update-acl`) in a follow-up PR. For v1, sequential mutations are acceptable.
+- **Color validation**: No server-side hex validation for v1. The frontend color picker enforces valid hex. If invalid values appear in the database, the UI renders them as-is (no crash risk).
+- **Groups with no hosts**: Rendered as empty section with a "No hosts in this group" placeholder. Not hidden to allow users to manage the group structure independently.
+
+---
+
+## 9. Acceptance Criteria / Definition of Done
+
+### Functional
+
+- [ ] User can create a proxy group with name, optional description, and optional color
+- [ ] User can edit a group's name, description, or color
+- [ ] User can delete a group; all affected proxy hosts become ungrouped (not deleted)
+- [ ] User can assign a single proxy host to a group via the host edit form
+- [ ] User can unassign a proxy host from a group (set to ungrouped)
+- [ ] User can bulk-assign multiple selected hosts to a group
+- [ ] Proxy Hosts page displays hosts in grouped sections with group header (name + color + host count)
+- [ ] Ungrouped hosts appear in an "Ungrouped" section
+- [ ] All existing proxy host functionality is unaffected (Caddy config, SSL, enable/disable)
+
+### Technical
+
+- [ ] `proxy_groups` table created by GORM AutoMigrate on server start
+- [ ] `proxy_hosts.proxy_group_id` column created by GORM AutoMigrate on server start
+- [ ] All API endpoints return correct HTTP status codes
+- [ ] GORM security scanner: zero CRITICAL/HIGH findings for `proxy_group.go`
+- [ ] Go unit test coverage ≥ 85% for new files (via local patch report)
+- [ ] TypeScript builds without errors (`npm run build`)
+- [ ] No ESLint errors (`npm run lint`)
+- [ ] No existing Playwright E2E tests regress
+- [ ] New Playwright E2E tests in `proxy-groups.spec.ts` pass in Firefox, Chromium, WebKit
+- [ ] `go build ./...` passes on clean checkout
+- [ ] `golangci-lint run` passes
+
+### Documentation
+
+- [ ] i18n keys added for all new UI text (English locale minimum)
+- [ ] Plan archived to `docs/implementation/proxy_groups_COMPLETE.md` on merge
+
+---
+
+## 10. Risk Register
 
 | Risk | Likelihood | Impact | Mitigation |
-|---|---|---|---|
-| `AccessListForm` `<Switch>` `aria-labelledby` broken after label → span | Low | Medium | Spec explicitly preserves `id` on converted `<span>` elements |
-| `CertificateList.test.tsx` import path wrong after utility extraction | Low | Low | Test suite catches immediately; path is `../../utils/certificateUtils` |
-| `setupAuditTestDB` model list wrong | Low | High | Spec now explicitly requires `SecurityDecision` (not `AccessListRule`); required by `TestSecurityHandler_CreateDecision_*` tests |
-| One or more of the 14 `t.Cleanup` call sites missed | Low | Low | In-memory DB (B1) already eliminates the locking failure; goroutine cleanup is defence-in-depth |
-| `it.todo` removal of test body causes compile error | None | — | `it.todo` takes only a string argument; no compilation issues |
-
----
-
-## Commit 7 — Fix Cloudflare provider stdout capture race condition
-
-**Branch addition**: `fix/ci-eslint-backend-test` (same PR)
-**CI failure**: `TestStart_CapturesStdoutOutput` — 1.01 s timeout, ring buffer empty
-**PR**: <https://github.com/Wikid82/Charon/actions/runs/25817001017/job/75848015026?pr=1013>
-
----
-
-### 7.1 Root Cause Analysis
-
-#### Failing test
-
-**File**: `backend/internal/hecate/providers/cloudflare/coverage_test.go`
-**Test**: `TestStart_CapturesStdoutOutput` (~line 113)
-**Error** (line 143):
-```
-Error: Should NOT be empty, but was []
-Messages: stdout scanner goroutine must have written output to the ring buffer
-```
-
-The test starts the `echo` binary via `p.Start()`, waits for the process to exit via `<-done`,
-polls `p.buf.ReadAll()` for up to 1 second, then asserts it is non-empty. It consistently returns
-empty on CI.
-
-#### The race
-
-`Start()` launches three goroutines in this order:
-
-| Goroutine | Role |
-|---|---|
-| stdout scanner | `bufio.Scanner` reads `stdoutPipe`; calls `p.buf.Write(s.Text())` for each line |
-| stderr scanner | same but for `stderrPipe` |
-| monitor | calls `cmd.Wait()`; in its **deferred** cleanup calls `p.buf.Close()` then `close(p.done)` |
-
-The critical ordering defect in the monitor goroutine's deferred function
-(`backend/internal/hecate/providers/cloudflare/provider.go`, lines ~175–184):
-
-```go
-// BEFORE (buggy)
-go func() {
-    defer func() {
-        p.mu.Lock()
-        p.cmd = nil
-        if p.state != hecate.TunnelStateStopped {
-            p.state = hecate.TunnelStateError
-        }
-        p.mu.Unlock()
-        p.buf.Close()   // ← (1) closes the buffer
-        close(p.done)   // ← (2) signals test
-    }()
-    _ = cmd.Wait()
-}()
-```
-
-Once `cmd.Wait()` returns (process exited), the monitor deferred function runs and calls
-`p.buf.Close()`. This sets `rb.closed = true` inside `RingBuffer`
-(`backend/internal/hecate/ring_buffer.go`, line ~95).
-
-Concurrently, the stdout scanner goroutine may not yet have been scheduled. When it eventually
-runs and calls `p.buf.Write(s.Text())`, the guard at `ring_buffer.go` line ~31 fires:
-
-```go
-func (rb *RingBuffer) Write(line string) {
-    rb.mu.Lock()
-    defer rb.mu.Unlock()
-    if rb.closed {
-        return  // ← silently drops the write
-    }
-    // ...
-}
-```
-
-The write is silently dropped. The ring buffer remains empty. The test's 1-second polling loop
-exhausts without finding any data. `ReadAll()` returns `nil` and the assertion fails.
-
-#### Why it is non-deterministic
-
-The race window is the interval between `cmd.Wait()` returning and the scanner goroutine calling
-`p.buf.Write()`. On a lightly-loaded machine the Go scheduler tends to run the scanner goroutines
-first because they are I/O-bound and already have data waiting in the pipe. On a loaded CI runner
-the monitor goroutine is more likely to win the scheduler lottery, close the buffer, and leave the
-scanner goroutine with nowhere to write.
-
-`echo` exits in < 1 ms; the entire race window is sub-millisecond — too short for `time.Sleep`-
-based workarounds but reliably closed by a `sync.WaitGroup`.
-
----
-
-### 7.2 File Locations and Exact Lines
-
-| File | Lines of interest |
-|---|---|
-| `backend/internal/hecate/providers/cloudflare/provider.go` | ~153–185 (`Start()` goroutine block) |
-| `backend/internal/hecate/ring_buffer.go` | ~29–31 (`Write` closed guard), ~93–101 (`Close`) |
-| `backend/internal/hecate/providers/cloudflare/coverage_test.go` | ~113–143 (`TestStart_CapturesStdoutOutput`) |
-
----
-
-### 7.3 Fix Specification
-
-**Single change**: add a `sync.WaitGroup` (`scanWg`) that tracks both scanner goroutines.
-The monitor goroutine calls `scanWg.Wait()` inside its deferred function, **before**
-`p.buf.Close()`, so the buffer is never closed until all writes have completed.
-
-No changes to the test or `RingBuffer` are required.
-
-#### Before (`provider.go` — Start(), goroutine block)
-
-```go
-// Stream stdout to the ring buffer.
-go func() {
-    s := bufio.NewScanner(stdoutPipe)
-    for s.Scan() {
-        p.buf.Write(s.Text())
-    }
-}()
-
-// Stream stderr to the ring buffer.
-go func() {
-    s := bufio.NewScanner(stderrPipe)
-    for s.Scan() {
-        p.buf.Write(s.Text())
-    }
-}()
-
-// Monitor process exit and update state accordingly.
-go func() {
-    defer func() {
-        p.mu.Lock()
-        p.cmd = nil
-        if p.state != hecate.TunnelStateStopped {
-            p.state = hecate.TunnelStateError
-        }
-        p.mu.Unlock()
-        p.buf.Close()
-        close(p.done)
-    }()
-    _ = cmd.Wait()
-}()
-```
-
-#### After (`provider.go` — Start(), goroutine block)
-
-```go
-var scanWg sync.WaitGroup
-
-// Stream stdout to the ring buffer.
-scanWg.Add(1)
-go func() {
-    defer scanWg.Done()
-    s := bufio.NewScanner(stdoutPipe)
-    for s.Scan() {
-        p.buf.Write(s.Text())
-    }
-}()
-
-// Stream stderr to the ring buffer.
-scanWg.Add(1)
-go func() {
-    defer scanWg.Done()
-    s := bufio.NewScanner(stderrPipe)
-    for s.Scan() {
-        p.buf.Write(s.Text())
-    }
-}()
-
-// Monitor process exit and update state accordingly.
-go func() {
-    defer func() {
-        p.mu.Lock()
-        p.cmd = nil
-        if p.state != hecate.TunnelStateStopped {
-            p.state = hecate.TunnelStateError
-        }
-        p.mu.Unlock()
-        scanWg.Wait() // drain scanner goroutines before closing the buffer
-        p.buf.Close()
-        close(p.done)
-    }()
-    _ = cmd.Wait()
-}()
-```
-
-**Why this is safe:**
-- `cmd.Wait()` returns only after the process exits and the pipe write-ends are closed by the OS.
-  At that point `s.Scan()` will return `false` (EOF) on the next iteration, so both scanner
-  goroutines will reach `scanWg.Done()` promptly.
-- `scanWg.Wait()` blocks for at most the time it takes the scanner goroutines to drain the pipe
-  buffer — microseconds in practice.
-- `p.buf.Close()` and `close(p.done)` are still called in the same relative order; only
-  `scanWg.Wait()` is inserted between the state unlock and `p.buf.Close()`.
-- `sync` is already imported in `provider.go` (used by `sync.RWMutex`); no new import is needed.
-
----
-
-### 7.4 Commit Details
-
-| Field | Value |
-|---|---|
-| **Commit message** | `fix(hecate/cloudflare): drain scanner goroutines before closing ring buffer` |
-| **Files changed** | `backend/internal/hecate/providers/cloudflare/provider.go` |
-| **Lines changed** | ~6 lines added (WaitGroup declaration + 2×Add + 2×Done + 1×Wait) |
-| **Dependencies** | None; Commits 1-6 are independent |
-
-### 7.5 Validation Gate
-
-```bash
-# Target test — must pass deterministically
-go test ./backend/internal/hecate/providers/cloudflare/... \
-    -v -count=5 -race -run TestStart_CapturesStdoutOutput
-
-# Full cloudflare package — must pass
-go test -race -count=1 ./backend/internal/hecate/providers/cloudflare/...
-
-# Coverage gate — must not regress
-bash scripts/go-test-coverage.sh
-```
-
-`-count=5` runs the test five times in a single invocation to exercise the scheduler across
-multiple scheduling decisions, providing high confidence the race is closed.
-
----
-
-*Plan written by GitHub Copilot in Planning mode. Ready for implementation agent handoff.*
+|------|-----------|--------|------------|
+| GORM AutoMigrate FK order causes constraint error | Low | Medium | Register `ProxyGroup` before `ProxyHost` in AutoMigrate list (specified above) |
+| SQLite `ON DELETE` not triggered through GORM | Medium | High | Explicitly clear `proxy_group_id` in `Delete()` before deleting group (implemented in spec) |
+| Frontend `DataTable` doesn't support grouped/sectioned rows | Medium | Medium | Use separate `DataTable` instance per group instead of one grouped table |
+| Existing Playwright tests depend on flat host list ordering | Low | Medium | Ungrouped section preserves behavior for hosts with no group |
+| Bulk assign with >20 hosts creates noticeable UI lag | Low | Low | Acceptable for v1; `bulk-update-group` endpoint is a documented follow-up |
+| Color value persisted as invalid hex breaks UI rendering | Low | Low | Frontend enforces valid hex; worst case is an unstyled badge |
