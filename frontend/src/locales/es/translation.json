@@ -156,6 +156,23 @@
     "noSecurityProfile": "Ninguno (Eliminar Perfil)",
     "removeSecurityHeadersWarning": "Esto eliminará el perfil de cabeceras de seguridad de todos los hosts seleccionados, lo que podría reducir su postura de seguridad."
   },
+  "proxyGroups": {
+    "group": "Grupo",
+    "manageGroups": "Gestionar Grupos",
+    "createGroup": "Crear Grupo",
+    "editGroup": "Editar Grupo",
+    "deleteGroup": "Eliminar Grupo",
+    "deleteGroupConfirm": "¿Eliminar este grupo? Todos los hosts se moverán a Sin Grupo.",
+    "groupName": "Nombre del Grupo",
+    "groupDescription": "Descripción",
+    "groupColor": "Color",
+    "noGroups": "Aún no hay grupos",
+    "ungrouped": "Sin Grupo",
+    "assignToGroup": "Asignar a Grupo",
+    "hostCount_one": "{{count}} host",
+    "hostCount_other": "{{count}} hosts",
+    "hostCount": "{{count}} hosts"
+  },
   "certificates": {
     "title": "Certificados SSL",
     "description": "Gestiona certificados SSL/TLS para tus hosts proxy",

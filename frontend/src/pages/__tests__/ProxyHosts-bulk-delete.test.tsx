@@ -63,6 +63,12 @@ vi.mock('../../api/settings', () => ({
 
 vi.mock('../../hooks/useSecurityHeaders', () => ({
   useSecurityHeaderProfiles: vi.fn(() => ({ data: [], isLoading: false, error: null })),
+}))
+vi.mock('../../hooks/useProxyGroups', () => ({
+  useProxyGroups: vi.fn(() => ({ data: [], isLoading: false, error: null })),
+  useCreateProxyGroup: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
+  useUpdateProxyGroup: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
+  useDeleteProxyGroup: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
 }));
 
 const mockProxyHosts = [
