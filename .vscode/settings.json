@@ -12,6 +12,9 @@
   "go.useLanguageServer": true,
   "go.lintOnSave": "workspace",
   "go.vetOnSave": "workspace",
+  "go.toolsEnvVars": {
+    "GOTOOLCHAIN": "local"
+  },
   "yaml.validate": false,
   "yaml.schemaStore.enable": false,
   "files.exclude": {},
