@@ -63,6 +63,8 @@ type ProxyHostResponse struct {
 	DNSProviderID           *uint                         `json:"dns_provider_id,omitempty"`
 	DNSProvider             *models.DNSProvider           `json:"dns_provider,omitempty"`
 	UseDNSChallenge         bool                          `json:"use_dns_challenge"`
+	ProxyGroupID            *uint                         `json:"proxy_group_id,omitempty"`
+	ProxyGroup              *models.ProxyGroup            `json:"proxy_group,omitempty"`
 	CreatedAt               time.Time                     `json:"created_at"`
 	UpdatedAt               time.Time                     `json:"updated_at"`
 	Warnings                []ProxyHostWarning            `json:"warnings,omitempty"`
@@ -102,6 +104,8 @@ func NewProxyHostResponse(host *models.ProxyHost, warnings []ProxyHostWarning) P
 		DNSProviderID:           host.DNSProviderID,
 		DNSProvider:             host.DNSProvider,
 		UseDNSChallenge:         host.UseDNSChallenge,
+		ProxyGroupID:            host.ProxyGroupID,
+		ProxyGroup:              host.ProxyGroup,
 		CreatedAt:               host.CreatedAt,
 		UpdatedAt:               host.UpdatedAt,
 		Warnings:                warnings,
@@ -248,6 +252,38 @@ func (h *ProxyHostHandler) resolveSecurityHeaderProfileReference(value any) (*ui
 	return &id, nil
 }
 
+func (h *ProxyHostHandler) resolveProxyGroupReference(value any) (*uint, error) {
+	if value == nil {
+		return nil, nil
+	}
+
+	parsedID, parseErr := parseNullableUintField(value, "proxy_group_id")
+	if parseErr == nil {
+		return parsedID, nil
+	}
+
+	uuidValue, isString := value.(string)
+	if !isString {
+		return nil, parseErr
+	}
+
+	trimmed := strings.TrimSpace(uuidValue)
+	if trimmed == "" {
+		return nil, nil
+	}
+
+	var pg models.ProxyGroup
+	if err := h.db.Select("id").Where("uuid = ?", trimmed).First(&pg).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("proxy group not found")
+		}
+		return nil, fmt.Errorf("failed to resolve proxy group")
+	}
+
+	id := pg.ID
+	return &id, nil
+}
+
 func (h *ProxyHostHandler) resolveCertificateReference(value any) (*uint, error) {
 	if value == nil {
 		return nil, nil
@@ -372,6 +408,15 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 			return
 		}
 		payload["security_header_profile_id"] = resolvedSecurityHeaderID
+	}
+
+	if rawGroupRef, ok := payload["proxy_group_id"]; ok {
+		resolvedGroupID, resolveErr := h.resolveProxyGroupReference(rawGroupRef)
+		if resolveErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": resolveErr.Error()})
+			return
+		}
+		payload["proxy_group_id"] = resolvedGroupID
 	}
 
 	if rawCertRef, ok := payload["certificate_id"]; ok {
@@ -578,6 +623,15 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 			return
 		}
 		host.AccessListID = resolvedAccessListID
+	}
+
+	if v, ok := payload["proxy_group_id"]; ok {
+		resolvedGroupID, resolveErr := h.resolveProxyGroupReference(v)
+		if resolveErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": resolveErr.Error()})
+			return
+		}
+		host.ProxyGroupID = resolvedGroupID
 	}
 
 	if v, ok := payload["dns_provider_id"]; ok {
