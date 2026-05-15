@@ -156,6 +156,23 @@
     "noSecurityProfile": "Keine (Profil entfernen)",
     "removeSecurityHeadersWarning": "Dies entfernt das Sicherheitsheader-Profil von allen ausgewählten Hosts und kann deren Sicherheitslage verringern."
   },
+  "proxyGroups": {
+    "group": "Gruppe",
+    "manageGroups": "Gruppen verwalten",
+    "createGroup": "Gruppe erstellen",
+    "editGroup": "Gruppe bearbeiten",
+    "deleteGroup": "Gruppe löschen",
+    "deleteGroupConfirm": "Gruppe löschen? Alle Hosts werden in Nicht gruppiert verschoben.",
+    "groupName": "Gruppenname",
+    "groupDescription": "Beschreibung",
+    "groupColor": "Farbe",
+    "noGroups": "Noch keine Gruppen",
+    "ungrouped": "Nicht gruppiert",
+    "assignToGroup": "Gruppe zuweisen",
+    "hostCount_one": "{{count}} Host",
+    "hostCount_other": "{{count}} Hosts",
+    "hostCount": "{{count}} Hosts"
+  },
   "certificates": {
     "title": "SSL-Zertifikate",
     "description": "SSL/TLS-Zertifikate für Ihre Proxy-Hosts verwalten",

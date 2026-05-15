@@ -156,6 +156,23 @@
     "noSecurityProfile": "无（移除配置文件）",
     "removeSecurityHeadersWarning": "这将从所有选定的主机中移除安全标头配置文件，可能降低其安全态势。"
   },
+  "proxyGroups": {
+    "group": "分组",
+    "manageGroups": "管理分组",
+    "createGroup": "创建分组",
+    "editGroup": "编辑分组",
+    "deleteGroup": "删除分组",
+    "deleteGroupConfirm": "删除此分组？所有主机将移至未分组。",
+    "groupName": "分组名称",
+    "groupDescription": "描述",
+    "groupColor": "颜色",
+    "noGroups": "暂无分组",
+    "ungrouped": "未分组",
+    "assignToGroup": "分配到分组",
+    "hostCount_one": "{{count}} 个主机",
+    "hostCount_other": "{{count}} 个主机",
+    "hostCount": "{{count}} 个主机"
+  },
   "certificates": {
     "title": "SSL证书",
     "description": "管理代理主机的SSL/TLS证书",

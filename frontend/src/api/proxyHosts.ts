@@ -49,6 +49,12 @@ export interface ProxyHost {
     description: string;
     type: string;
   } | null;
+  proxy_group_id?: number | string | null;
+  proxy_group?: {
+    uuid: string;
+    name: string;
+    color: string;
+  } | null;
   security_header_profile_id?: number | string | null;
   dns_provider_id?: number | null;
   security_header_profile?: {
