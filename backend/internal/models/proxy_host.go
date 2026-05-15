@@ -58,6 +58,10 @@ type ProxyHost struct {
 	DNSProvider     *DNSProvider `json:"dns_provider,omitempty" gorm:"foreignKey:DNSProviderID"`
 	UseDNSChallenge bool         `json:"use_dns_challenge" gorm:"default:false"`
 
+	// Proxy Group assignment
+	ProxyGroupID *uint        `json:"proxy_group_id,omitempty" gorm:"index"`
+	ProxyGroup   *ProxyGroup  `json:"proxy_group,omitempty" gorm:"foreignKey:ProxyGroupID"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

@@ -98,6 +98,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 	// AutoMigrate all models for Issue #5 persistence layer
 	if err := db.AutoMigrate(
+		&models.ProxyGroup{},  // must precede ProxyHost (FK dependency)
 		&models.ProxyHost{},
 		&models.Location{},
 		&models.CaddyConfig{},
@@ -758,6 +759,9 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		// Proxy Hosts & Remote Servers
 		proxyHostHandler := handlers.NewProxyHostHandler(db, caddyManager, notificationService, uptimeService)
 		proxyHostHandler.RegisterRoutes(management)
+
+		proxyGroupHandler := handlers.NewProxyGroupHandler(db)
+		proxyGroupHandler.RegisterRoutes(management)
 
 		remoteServerHandler := handlers.NewRemoteServerHandler(remoteServerService, notificationService)
 		remoteServerHandler.RegisterRoutes(management)
