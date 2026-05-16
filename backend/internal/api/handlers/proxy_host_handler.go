@@ -63,7 +63,7 @@ type ProxyHostResponse struct {
 	DNSProviderID           *uint                         `json:"dns_provider_id,omitempty"`
 	DNSProvider             *models.DNSProvider           `json:"dns_provider,omitempty"`
 	UseDNSChallenge         bool                          `json:"use_dns_challenge"`
-	ProxyGroupID            *uint                         `json:"proxy_group_id,omitempty"`
+	ProxyGroupID            *uint                         `json:"-"`
 	ProxyGroup              *models.ProxyGroup            `json:"proxy_group,omitempty"`
 	CreatedAt               time.Time                     `json:"created_at"`
 	UpdatedAt               time.Time                     `json:"updated_at"`

@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
@@ -124,5 +124,32 @@ describe('ProxyGroupForm', () => {
     const { mockClose } = renderForm();
     await user.click(screen.getByRole('button', { name: /cancel/i }));
     expect(mockClose).toHaveBeenCalled();
+  });
+
+  it('closes dialog via Escape key (onOpenChange)', async () => {
+    const { mockClose } = renderForm();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(mockClose).toHaveBeenCalled());
+  });
+
+  it('updates description when typing in description field', async () => {
+    renderForm();
+    const descInput = screen.getByLabelText(/description/i);
+    await user.type(descInput, 'My description');
+    expect(descInput).toHaveValue('My description');
+  });
+
+  it('changes color when clicking a non-default color preset', async () => {
+    renderForm();
+    const redPreset = screen.getByRole('button', { name: /color #ef4444/i });
+    await user.click(redPreset);
+    expect(redPreset).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('changes color via custom hex color input', async () => {
+    renderForm();
+    const colorInput = screen.getByLabelText('Custom color');
+    fireEvent.change(colorInput, { target: { value: '#ff0000' } });
+    expect(colorInput).toHaveValue('#ff0000');
   });
 });

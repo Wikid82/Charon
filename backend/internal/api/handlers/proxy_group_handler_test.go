@@ -153,3 +153,46 @@ func TestProxyGroupHandler_Delete_NotFound_404(t *testing.T) {
 	w := doRequest(router, http.MethodDelete, "/proxy-groups/nonexistent-uuid", nil)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
+
+func TestProxyGroupHandler_List_ServiceError_500(t *testing.T) {
+	router, db := setupProxyGroupHandlerRouter(t)
+	require.NoError(t, db.Migrator().DropTable(&models.ProxyGroup{}))
+	w := doRequest(router, http.MethodGet, "/proxy-groups", nil)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestProxyGroupHandler_Create_InvalidJSON_400(t *testing.T) {
+	router, _ := setupProxyGroupHandlerRouter(t)
+	req, _ := http.NewRequest(http.MethodPost, "/proxy-groups", bytes.NewBufferString("not valid json{{"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestProxyGroupHandler_Update_NotFound_404(t *testing.T) {
+	router, _ := setupProxyGroupHandlerRouter(t)
+	w := doRequest(router, http.MethodPut, "/proxy-groups/nonexistent-uuid", map[string]any{"name": "New"})
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestProxyGroupHandler_Update_InvalidJSON_400(t *testing.T) {
+	router, db := setupProxyGroupHandlerRouter(t)
+	group := &models.ProxyGroup{Name: "Valid Group"}
+	require.NoError(t, db.Create(group).Error)
+	req, _ := http.NewRequest(http.MethodPut, "/proxy-groups/"+group.UUID, bytes.NewBufferString("not valid json{{"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestProxyGroupHandler_Delete_ServiceError_500(t *testing.T) {
+	router, db := setupProxyGroupHandlerRouter(t)
+	group := &models.ProxyGroup{Name: "To Delete"}
+	require.NoError(t, db.Create(group).Error)
+	// Drop proxy_hosts so the unassign step inside Delete's transaction fails.
+	require.NoError(t, db.Migrator().DropTable(&models.ProxyHost{}))
+	w := doRequest(router, http.MethodDelete, "/proxy-groups/"+group.UUID, nil)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
