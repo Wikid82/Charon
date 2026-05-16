@@ -140,3 +140,31 @@ func TestProxyGroupService_GetHostCount(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), count)
 }
+
+func TestProxyGroupService_List_DBError(t *testing.T) {
+	db := setupProxyGroupTestDB(t)
+	svc := NewProxyGroupService(db)
+	require.NoError(t, db.Migrator().DropTable(&models.ProxyGroup{}))
+	_, err := svc.List()
+	assert.Error(t, err)
+}
+
+func TestProxyGroupService_GetByUUID_DBError(t *testing.T) {
+	db := setupProxyGroupTestDB(t)
+	svc := NewProxyGroupService(db)
+	require.NoError(t, db.Migrator().DropTable(&models.ProxyGroup{}))
+	_, err := svc.GetByUUID("some-uuid")
+	assert.Error(t, err)
+	assert.NotErrorIs(t, err, ErrProxyGroupNotFound)
+}
+
+func TestProxyGroupService_Delete_TransactionError(t *testing.T) {
+	db := setupProxyGroupTestDB(t)
+	svc := NewProxyGroupService(db)
+	group := &models.ProxyGroup{Name: "FailDelete"}
+	require.NoError(t, svc.Create(group))
+	require.NoError(t, db.Migrator().DropTable(&models.ProxyHost{}))
+	err := svc.Delete(group.ID)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to unassign proxy hosts")
+}

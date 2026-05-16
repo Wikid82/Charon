@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import {
   Dialog,
@@ -33,6 +34,7 @@ interface ProxyGroupFormProps {
 }
 
 export function ProxyGroupForm({ open, onClose, group }: ProxyGroupFormProps) {
+  const { t } = useTranslation();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [color, setColor] = useState(COLOR_PRESETS[0]);
@@ -77,11 +79,11 @@ export function ProxyGroupForm({ open, onClose, group }: ProxyGroupFormProps) {
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{isEdit ? 'Edit Group' : 'Create Group'}</DialogTitle>
+          <DialogTitle>{isEdit ? t('proxyGroups.editGroup') : t('proxyGroups.createGroup')}</DialogTitle>
           <DialogDescription>
             {isEdit
-              ? 'Update this proxy group.'
-              : 'Create a new proxy group to organize hosts.'}
+              ? t('proxyGroups.editGroupDescription')
+              : t('proxyGroups.createGroupDescription')}
           </DialogDescription>
         </DialogHeader>
 
@@ -91,7 +93,7 @@ export function ProxyGroupForm({ open, onClose, group }: ProxyGroupFormProps) {
               htmlFor="group-name"
               className="block text-sm font-medium text-content-primary mb-1.5"
             >
-              Group Name{' '}
+              {t('proxyGroups.groupName')}{' '}
               <span aria-hidden="true" className="text-error">
                 *
               </span>
@@ -100,7 +102,7 @@ export function ProxyGroupForm({ open, onClose, group }: ProxyGroupFormProps) {
               id="group-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Production"
+              placeholder={t('proxyGroups.groupNamePlaceholder')}
               required
               aria-required="true"
             />
@@ -111,13 +113,13 @@ export function ProxyGroupForm({ open, onClose, group }: ProxyGroupFormProps) {
               htmlFor="group-description"
               className="block text-sm font-medium text-content-primary mb-1.5"
             >
-              Description
+              {t('proxyGroups.groupDescription')}
             </label>
             <Textarea
               id="group-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Optional description"
+              placeholder={t('proxyGroups.groupDescriptionPlaceholder')}
               rows={2}
             />
           </div>
@@ -127,7 +129,7 @@ export function ProxyGroupForm({ open, onClose, group }: ProxyGroupFormProps) {
               id="color-label"
               className="block text-sm font-medium text-content-primary mb-1.5"
             >
-              Color
+              {t('proxyGroups.groupColor')}
             </span>
             <div
               className="flex flex-wrap items-center gap-2"
@@ -138,7 +140,7 @@ export function ProxyGroupForm({ open, onClose, group }: ProxyGroupFormProps) {
                 <button
                   key={preset}
                   type="button"
-                  aria-label={`Color ${preset}`}
+                  aria-label={t('proxyGroups.colorPreset', { color: preset })}
                   aria-pressed={color === preset}
                   className="w-7 h-7 rounded-full border-2 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
                   style={{
@@ -153,7 +155,7 @@ export function ProxyGroupForm({ open, onClose, group }: ProxyGroupFormProps) {
                 type="color"
                 value={color}
                 onChange={(e) => setColor(e.target.value)}
-                aria-label="Custom color"
+                aria-label={t('proxyGroups.customColor')}
                 className="w-7 h-7 rounded cursor-pointer border border-border bg-transparent"
               />
             </div>
@@ -161,10 +163,10 @@ export function ProxyGroupForm({ open, onClose, group }: ProxyGroupFormProps) {
 
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={onClose} disabled={isPending}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button type="submit" disabled={!name.trim() || isPending} isLoading={isPending}>
-              {isEdit ? 'Update' : 'Create'}
+              {isEdit ? t('common.update') : t('common.create')}
             </Button>
           </DialogFooter>
         </form>

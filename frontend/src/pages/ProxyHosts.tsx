@@ -86,6 +86,7 @@ export default function ProxyHosts() {
   const [groupToDelete, setGroupToDelete] = useState<ProxyGroup | null>(null)
   const [showAssignGroupModal, setShowAssignGroupModal] = useState(false)
   const [assignTargetGroupUUID, setAssignTargetGroupUUID] = useState<string | null>(null)
+  const [isAssigning, setIsAssigning] = useState(false)
   const { data: groups = [] } = useProxyGroups()
   const deleteGroup = useDeleteProxyGroup()
 
@@ -1385,15 +1386,18 @@ export default function ProxyHosts() {
               </select>
             </div>
             <DialogFooter>
-              <Button variant="ghost" onClick={() => setShowAssignGroupModal(false)}>
+              <Button variant="ghost" onClick={() => setShowAssignGroupModal(false)} disabled={isAssigning}>
                 {t('common.cancel')}
               </Button>
               <Button
+                isLoading={isAssigning}
+                disabled={isAssigning}
                 onClick={async () => {
                   const targetGroup = assignTargetGroupUUID
                     ? groups.find((g) => g.uuid === assignTargetGroupUUID) ?? null
                     : null
                   const uuids = Array.from(selectedHosts)
+                  setIsAssigning(true)
                   try {
                     await Promise.all(
                       uuids.map((uuid) =>
@@ -1406,6 +1410,8 @@ export default function ProxyHosts() {
                     setSelectedHosts(new Set())
                   } catch {
                     // errors handled individually
+                  } finally {
+                    setIsAssigning(false)
                   }
                 }}
               >

@@ -2377,3 +2377,127 @@ func TestProxyHostUpdate_CertificateID_StringValue(t *testing.T) {
 	require.NotNil(t, dbHost.CertificateID)
 	require.Equal(t, cert.ID, *dbHost.CertificateID)
 }
+
+func setupTestRouterWithProxyGroupTable(t *testing.T) (*gin.Engine, *gorm.DB) {
+	t.Helper()
+
+	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&models.ProxyGroup{},
+		&models.ProxyHost{},
+		&models.Location{},
+		&models.AccessList{},
+		&models.SecurityHeaderProfile{},
+		&models.Notification{},
+		&models.NotificationProvider{},
+	))
+
+	ns := services.NewNotificationService(db, nil)
+	h := NewProxyHostHandler(db, nil, ns, nil)
+	r := gin.New()
+	api := r.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	return r, db
+}
+
+func TestProxyHostHandler_ResolveProxyGroupReference_TargetedBranches(t *testing.T) {
+	t.Parallel()
+
+	_, db := setupTestRouterWithProxyGroupTable(t)
+	h := NewProxyHostHandler(db, nil, services.NewNotificationService(db, nil), nil)
+
+	// Non-string, non-numeric type → parseErr returned
+	resolved, err := h.resolveProxyGroupReference(true)
+	require.Error(t, err)
+	require.Nil(t, resolved)
+	require.Contains(t, err.Error(), "invalid proxy_group_id")
+
+	// Empty string → nil, nil
+	resolved, err = h.resolveProxyGroupReference("   ")
+	require.NoError(t, err)
+	require.Nil(t, resolved)
+
+	// UUID not in DB → "proxy group not found"
+	resolved, err = h.resolveProxyGroupReference(uuid.NewString())
+	require.Error(t, err)
+	require.Nil(t, resolved)
+	require.Contains(t, err.Error(), "proxy group not found")
+
+	// Valid UUID in DB → success
+	pg := models.ProxyGroup{Name: "test-pg", Color: "#abc123"}
+	require.NoError(t, db.Create(&pg).Error)
+	resolved, err = h.resolveProxyGroupReference(pg.UUID)
+	require.NoError(t, err)
+	require.NotNil(t, resolved)
+	require.Equal(t, pg.ID, *resolved)
+
+	// Drop table → "failed to resolve proxy group"
+	require.NoError(t, db.Migrator().DropTable(&models.ProxyGroup{}))
+	resolved, err = h.resolveProxyGroupReference(uuid.NewString())
+	require.Error(t, err)
+	require.Nil(t, resolved)
+	require.Contains(t, err.Error(), "failed to resolve proxy group")
+}
+
+func TestProxyHostCreate_WithProxyGroupReference_BadUUID_400(t *testing.T) {
+	t.Parallel()
+	router, _ := setupTestRouterWithProxyGroupTable(t)
+
+	body := map[string]any{
+		"name":           "Group Ref Create",
+		"domain_names":   "group-ref-create.example.com",
+		"forward_scheme": "http",
+		"forward_host":   "localhost",
+		"forward_port":   8080,
+		"enabled":        true,
+		"proxy_group_id": uuid.NewString(), // valid UUID format but not in DB
+	}
+	payload, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-hosts", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+	require.Contains(t, resp.Body.String(), "proxy group not found")
+}
+
+func TestProxyHostUpdate_WithProxyGroupReference_BadUUID_400(t *testing.T) {
+	t.Parallel()
+	router, db := setupTestRouterWithProxyGroupTable(t)
+
+	host := &models.ProxyHost{
+		UUID:          uuid.NewString(),
+		Name:          "Update PG Ref Host",
+		DomainNames:   "update-pg-ref.example.com",
+		ForwardScheme: "http",
+		ForwardHost:   "localhost",
+		ForwardPort:   80,
+		Enabled:       true,
+	}
+	require.NoError(t, db.Create(host).Error)
+
+	body := map[string]any{
+		"name":           "Updated Host",
+		"domain_names":   "update-pg-ref.example.com",
+		"forward_scheme": "http",
+		"forward_host":   "localhost",
+		"forward_port":   80,
+		"proxy_group_id": uuid.NewString(), // valid UUID format but not in DB
+	}
+	payload, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/"+host.UUID, bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+	require.Contains(t, resp.Body.String(), "proxy group not found")
+}
