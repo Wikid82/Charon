@@ -59,8 +59,8 @@ type ProxyHost struct {
 	UseDNSChallenge bool         `json:"use_dns_challenge" gorm:"default:false"`
 
 	// Proxy Group assignment
-	ProxyGroupID *uint        `json:"-" gorm:"index"`
-	ProxyGroup   *ProxyGroup  `json:"proxy_group,omitempty" gorm:"foreignKey:ProxyGroupID"`
+	ProxyGroupID *uint       `json:"-" gorm:"index"`
+	ProxyGroup   *ProxyGroup `json:"proxy_group,omitempty" gorm:"foreignKey:ProxyGroupID"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
