@@ -370,6 +370,7 @@ func (h *ProxyHostHandler) RegisterRoutes(router *gin.RouterGroup) {
 	router.DELETE("/proxy-hosts/:uuid", h.Delete)
 	router.POST("/proxy-hosts/test", h.TestConnection)
 	router.PUT("/proxy-hosts/bulk-update-acl", h.BulkUpdateACL)
+	router.PUT("/proxy-hosts/bulk-update-group", h.BulkUpdateGroup)
 	router.PUT("/proxy-hosts/bulk-update-security-headers", h.BulkUpdateSecurityHeaders)
 }
 
@@ -844,6 +845,72 @@ func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 	}
 
 	// Apply Caddy config once for all updates
+	if updated > 0 && h.caddyManager != nil {
+		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to apply configuration: " + err.Error(),
+				"updated": updated,
+				"errors":  errors,
+			})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"updated": updated,
+		"errors":  errors,
+	})
+}
+
+// BulkUpdateGroup assigns or removes a proxy group from multiple proxy hosts.
+// PUT /proxy-hosts/bulk-update-group
+func (h *ProxyHostHandler) BulkUpdateGroup(c *gin.Context) {
+	var req struct {
+		HostUUIDs    []string `json:"host_uuids"    binding:"required"`
+		ProxyGroupID *string  `json:"proxy_group_id"` // nil means remove group assignment
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if len(req.HostUUIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "host_uuids cannot be empty"})
+		return
+	}
+
+	var resolvedGroupID *uint
+	if req.ProxyGroupID != nil {
+		id, err := h.resolveProxyGroupReference(*req.ProxyGroupID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		resolvedGroupID = id
+	}
+
+	updated := 0
+	errors := []map[string]string{}
+
+	for _, hostUUID := range req.HostUUIDs {
+		host, err := h.service.GetByUUID(hostUUID)
+		if err != nil {
+			errors = append(errors, map[string]string{
+				"uuid":  hostUUID,
+				"error": "proxy host not found",
+			})
+			continue
+		}
+		host.ProxyGroupID = resolvedGroupID
+		if err := h.service.Update(host); err != nil {
+			errors = append(errors, map[string]string{
+				"uuid":  hostUUID,
+				"error": err.Error(),
+			})
+			continue
+		}
+		updated++
+	}
+
 	if updated > 0 && h.caddyManager != nil {
 		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{

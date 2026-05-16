@@ -2501,3 +2501,145 @@ func TestProxyHostUpdate_WithProxyGroupReference_BadUUID_400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, resp.Code)
 	require.Contains(t, resp.Body.String(), "proxy group not found")
 }
+
+func TestProxyHostHandler_BulkUpdateGroup_Success(t *testing.T) {
+	t.Parallel()
+	router, db := setupTestRouter(t)
+
+	group := &models.ProxyGroup{UUID: uuid.NewString(), Name: "Test Group"}
+	require.NoError(t, db.Create(group).Error)
+
+	host1 := &models.ProxyHost{
+		UUID: uuid.NewString(), Name: "Host 1", DomainNames: "h1.example.com",
+		ForwardScheme: "http", ForwardHost: "localhost", ForwardPort: 8001, Enabled: true,
+	}
+	host2 := &models.ProxyHost{
+		UUID: uuid.NewString(), Name: "Host 2", DomainNames: "h2.example.com",
+		ForwardScheme: "http", ForwardHost: "localhost", ForwardPort: 8002, Enabled: true,
+	}
+	require.NoError(t, db.Create(host1).Error)
+	require.NoError(t, db.Create(host2).Error)
+
+	body := fmt.Sprintf(`{"host_uuids":["%s","%s"],"proxy_group_id":"%s"}`, host1.UUID, host2.UUID, group.UUID)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/bulk-update-group", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
+	require.Equal(t, float64(2), result["updated"])
+	require.Empty(t, result["errors"])
+
+	var updated1 models.ProxyHost
+	require.NoError(t, db.First(&updated1, "uuid = ?", host1.UUID).Error)
+	require.NotNil(t, updated1.ProxyGroupID)
+	require.Equal(t, group.ID, *updated1.ProxyGroupID)
+}
+
+func TestProxyHostHandler_BulkUpdateGroup_Ungrouped(t *testing.T) {
+	t.Parallel()
+	router, db := setupTestRouter(t)
+
+	group := &models.ProxyGroup{UUID: uuid.NewString(), Name: "Remove Group"}
+	require.NoError(t, db.Create(group).Error)
+
+	host := &models.ProxyHost{
+		UUID: uuid.NewString(), Name: "Grouped Host", DomainNames: "grouped.example.com",
+		ForwardScheme: "http", ForwardHost: "localhost", ForwardPort: 8003,
+		ProxyGroupID: &group.ID, Enabled: true,
+	}
+	require.NoError(t, db.Create(host).Error)
+
+	body := fmt.Sprintf(`{"host_uuids":["%s"],"proxy_group_id":null}`, host.UUID)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/bulk-update-group", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
+	require.Equal(t, float64(1), result["updated"])
+
+	var updated models.ProxyHost
+	require.NoError(t, db.First(&updated, "uuid = ?", host.UUID).Error)
+	require.Nil(t, updated.ProxyGroupID)
+}
+
+func TestProxyHostHandler_BulkUpdateGroup_InvalidGroup(t *testing.T) {
+	t.Parallel()
+	router, _ := setupTestRouter(t)
+
+	body := fmt.Sprintf(`{"host_uuids":["%s"],"proxy_group_id":"%s"}`, uuid.NewString(), uuid.NewString())
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/bulk-update-group", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+	require.Contains(t, resp.Body.String(), "proxy group not found")
+}
+
+func TestProxyHostHandler_BulkUpdateGroup_PartialFailure(t *testing.T) {
+	t.Parallel()
+	router, db := setupTestRouter(t)
+
+	group := &models.ProxyGroup{UUID: uuid.NewString(), Name: "Partial Group"}
+	require.NoError(t, db.Create(group).Error)
+
+	host := &models.ProxyHost{
+		UUID: uuid.NewString(), Name: "Valid Host", DomainNames: "valid-bg.example.com",
+		ForwardScheme: "http", ForwardHost: "localhost", ForwardPort: 8004, Enabled: true,
+	}
+	require.NoError(t, db.Create(host).Error)
+
+	nonExistentUUID := uuid.NewString()
+	body := fmt.Sprintf(`{"host_uuids":["%s","%s"],"proxy_group_id":"%s"}`, host.UUID, nonExistentUUID, group.UUID)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/bulk-update-group", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
+	require.Equal(t, float64(1), result["updated"])
+
+	errs := result["errors"].([]any)
+	require.Len(t, errs, 1)
+	errMap := errs[0].(map[string]any)
+	require.Equal(t, nonExistentUUID, errMap["uuid"])
+	require.Equal(t, "proxy host not found", errMap["error"])
+}
+
+func TestProxyHostHandler_BulkUpdateGroup_EmptyUUIDs(t *testing.T) {
+	t.Parallel()
+	router, _ := setupTestRouter(t)
+
+	body := `{"host_uuids":[],"proxy_group_id":null}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/bulk-update-group", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+	require.Contains(t, resp.Body.String(), "host_uuids cannot be empty")
+}
+
+func TestProxyHostHandler_BulkUpdateGroup_InvalidJSON(t *testing.T) {
+	t.Parallel()
+	router, _ := setupTestRouter(t)
+
+	body := `{"host_uuids": invalid json}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/bulk-update-group", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+}
