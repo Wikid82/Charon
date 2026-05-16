@@ -116,14 +116,25 @@ func (s *CrowdSecWhitelistService) WriteYAML(ctx context.Context) error {
 		}
 	}
 
+	dir := filepath.Join(s.dataDir, "config", "parsers", "s02-enrich")
+	target := filepath.Join(dir, "charon-whitelist.yaml")
+
+	// CrowdSec rejects a whitelist parser whose ip and cidr lists are both empty
+	// ("Node is empty" fatal). When there are no whitelist entries, remove the
+	// file so CrowdSec starts cleanly; it handles a missing file gracefully.
+	if len(ips) == 0 && len(cidrs) == 0 {
+		if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("write whitelist yaml: remove empty: %w", err)
+		}
+		return nil
+	}
+
 	content := buildWhitelistYAML(ips, cidrs)
 
-	dir := filepath.Join(s.dataDir, "config", "parsers", "s02-enrich")
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("write whitelist yaml: create dir: %w", err)
 	}
 
-	target := filepath.Join(dir, "charon-whitelist.yaml")
 	tmp := target + ".tmp"
 
 	if err := os.WriteFile(tmp, content, 0o640); err != nil { //nolint:gosec // G306: 0640 grants group-read for CrowdSec config files

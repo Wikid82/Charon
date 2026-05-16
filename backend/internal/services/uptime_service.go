@@ -1312,9 +1312,11 @@ func (s *UptimeService) CleanupStaleFailureCounts() error {
 		UPDATE uptime_monitors SET failure_count = 0, status = 'pending'
 		WHERE status = 'down'
 		  AND failure_count > 5
-		  AND id NOT IN (
-		    SELECT DISTINCT monitor_id FROM uptime_heartbeats
-		    WHERE status = 'up' AND created_at > datetime('now', '-24 hours')
+		  AND NOT EXISTS (
+		    SELECT 1 FROM uptime_heartbeats
+		    WHERE uptime_heartbeats.monitor_id = uptime_monitors.id
+		      AND status = 'up'
+		      AND created_at > datetime('now', '-24 hours')
 		  )
 	`)
 	if result.Error != nil {
