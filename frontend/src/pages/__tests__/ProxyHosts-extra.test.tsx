@@ -57,6 +57,8 @@ const createProxyHostsHookValue = (overrides: Partial<ProxyHostsHookValue> = {})
   isUpdating: false,
   isDeleting: false,
   isBulkUpdating: false,
+  bulkUpdateGroup: vi.fn() as unknown as ProxyHostsHookValue['bulkUpdateGroup'],
+  isBulkUpdatingGroup: false,
   ...overrides,
 })
 

@@ -1,6 +1,15 @@
 import { useQuery } from '@tanstack/react-query'
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  pointerWithin,
+} from '@dnd-kit/core'
 import { Loader2, ExternalLink, AlertTriangle, Trash2, Globe, Settings, FolderOpen } from 'lucide-react'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { toast } from 'react-hot-toast'
 import { useTranslation } from 'react-i18next'
 
@@ -34,8 +43,11 @@ import { useCertificates } from '../hooks/useCertificates'
 import { useProxyHosts } from '../hooks/useProxyHosts'
 import { useDeleteProxyGroup, useProxyGroups } from '../hooks/useProxyGroups'
 import { useSecurityHeaderProfiles } from '../hooks/useSecurityHeaders'
+import { useProxyGroupDnD } from '../hooks/useProxyGroupDnD'
 import { ProxyGroupBadge } from '../components/ProxyGroupBadge'
 import { ProxyGroupForm } from '../components/ProxyGroupForm'
+import { GroupDropZone } from '../components/GroupDropZone'
+import { ProxyHostDragHandle } from '../components/ProxyHostDragHandle'
 import compareHosts from '../utils/compareHosts'
 import { formatSettingLabel, settingHelpText, applyBulkSettingsToHosts } from '../utils/proxyHostsHelpers'
 
@@ -46,7 +58,7 @@ import type { ProxyHost } from '../api/proxyHosts'
 
 export default function ProxyHosts() {
   const { t } = useTranslation()
-  const { hosts, loading, isFetching, error, createHost, updateHost, deleteHost, bulkUpdateACL, bulkUpdateSecurityHeaders, isBulkUpdating, isCreating, isUpdating, isDeleting } = useProxyHosts()
+  const { hosts, loading, isFetching, error, createHost, updateHost, deleteHost, bulkUpdateACL, bulkUpdateSecurityHeaders, bulkUpdateGroup, isBulkUpdating, isCreating, isUpdating, isDeleting } = useProxyHosts()
   const { certificates } = useCertificates()
   const { data: accessLists } = useAccessLists()
   const { data: securityProfiles } = useSecurityHeaderProfiles()
@@ -89,6 +101,28 @@ export default function ProxyHosts() {
   const [isAssigning, setIsAssigning] = useState(false)
   const { data: groups = [] } = useProxyGroups()
   const deleteGroup = useDeleteProxyGroup()
+
+  const {
+    activeDragId,
+    hostsBeingDragged,
+    handleDragStart,
+    handleDragOver,
+    handleDragEnd,
+    handleDragCancel,
+  } = useProxyGroupDnD({
+    hosts,
+    groups,
+    selectedHosts,
+    setSelectedHosts,
+    bulkUpdateGroup,
+  })
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 },
+    }),
+    useSensor(KeyboardSensor),
+  )
 
   const { data: settings } = useQuery({
     queryKey: ['settings'],
@@ -429,6 +463,35 @@ export default function ProxyHosts() {
     }
   }
 
+  // DataTable drag handle column renderer
+  const dragHandleColumn = useCallback(
+    (host: ProxyHost) => (
+      <ProxyHostDragHandle
+        hostUuid={host.uuid}
+        dragCount={selectedHosts.has(host.uuid) && hostsBeingDragged.length > 1 ? hostsBeingDragged.length : 1}
+      />
+    ),
+    [selectedHosts, hostsBeingDragged],
+  )
+
+  // Helper: display label for host during drag overlay
+  const getHostName = useCallback(
+    (uuid: string): string => {
+      const host = hosts.find((h) => h.uuid === uuid)
+      return host?.name ?? host?.uuid ?? uuid
+    },
+    [hosts],
+  )
+
+  // Helper: display label for group during accessibility announcements
+  const getGroupName = useCallback(
+    (id: string): string => {
+      if (id === 'ungrouped') return t('proxyGroups.ungrouped')
+      return groups.find((g) => g.uuid === id)?.name ?? id
+    },
+    [groups, t],
+  )
+
   // DataTable columns definition
   const columns: Column<ProxyHost>[] = [
     {
@@ -690,11 +753,33 @@ export default function ProxyHosts() {
             }
           />
         ) : (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={pointerWithin}
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDragEnd={handleDragEnd}
+            onDragCancel={handleDragCancel}
+            accessibility={{
+              announcements: {
+                onDragStart: ({ active }) =>
+                  t('proxyGroups.dnd.announcePickUp', { name: getHostName(active.id as string) }),
+                onDragOver: ({ over }) =>
+                  over ? t('proxyGroups.dnd.announceOver', { group: getGroupName(over.id as string) }) : '',
+                onDragEnd: ({ over }) =>
+                  over
+                    ? t('proxyGroups.dnd.announceDrop', { group: getGroupName(over.id as string) })
+                    : t('proxyGroups.dnd.announceCancel'),
+                onDragCancel: () => t('proxyGroups.dnd.announceCancel'),
+              },
+            }}
+          >
           <div className="space-y-6">
             {groups.map((group) => {
               const groupHosts = groupedHosts.byGroup[group.uuid] ?? []
               return (
-                <section key={group.uuid} aria-label={group.name}>
+                <GroupDropZone key={group.uuid} groupId={group.uuid} isDragActive={!!activeDragId}>
+                <section aria-label={group.name}>
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <span
@@ -737,6 +822,7 @@ export default function ProxyHosts() {
                     selectable
                     selectedKeys={selectedHosts}
                     onSelectionChange={setSelectedHosts}
+                    renderDragHandle={dragHandleColumn}
                     emptyState={
                       <EmptyState
                         icon={<Globe className="h-10 w-10" />}
@@ -747,9 +833,11 @@ export default function ProxyHosts() {
                     }
                   />
                 </section>
+                </GroupDropZone>
               )
             })}
-            {groupedHosts.ungrouped.length > 0 && (
+            {(groupedHosts.ungrouped.length > 0 || !!activeDragId) && (
+              <GroupDropZone groupId="ungrouped" isDragActive={!!activeDragId}>
               <section aria-label={t('proxyGroups.ungrouped')}>
                 <div className="flex items-center gap-2 mb-2">
                   <h2 className="text-sm font-semibold text-content-muted">
@@ -766,9 +854,11 @@ export default function ProxyHosts() {
                   selectable
                   selectedKeys={selectedHosts}
                   onSelectionChange={setSelectedHosts}
+                  renderDragHandle={dragHandleColumn}
                   emptyState={null}
                 />
               </section>
+              </GroupDropZone>
             )}
             {sortedHosts.length === 0 && (
               <EmptyState
@@ -779,6 +869,19 @@ export default function ProxyHosts() {
               />
             )}
           </div>
+          <DragOverlay>
+            {activeDragId && (
+              <div className="rounded-lg border border-brand-400 bg-surface-elevated shadow-lg px-4 py-2 text-sm font-medium text-content-primary opacity-90 pointer-events-none">
+                {hostsBeingDragged.length > 1
+                  ? t('proxyGroups.dnd.movingMultiple', { count: hostsBeingDragged.length })
+                  : t('proxyGroups.dnd.movingOne')}
+                {hostsBeingDragged.length === 1 && (
+                  <span className="ml-1 text-content-muted">— {getHostName(hostsBeingDragged[0])}</span>
+                )}
+              </div>
+            )}
+          </DragOverlay>
+          </DndContext>
         )}
 
         {/* Add/Edit Form Dialog */}
