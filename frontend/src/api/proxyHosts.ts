@@ -192,3 +192,24 @@ export const bulkUpdateSecurityHeaders = async (
   );
   return data;
 };
+
+export interface BulkUpdateGroupRequest {
+  host_uuids: string[]
+  proxy_group_id: string | null
+}
+
+export interface BulkUpdateGroupResponse {
+  updated: number
+  errors: { uuid: string; error: string }[]
+}
+
+export const bulkUpdateGroup = async (
+  hostUUIDs: string[],
+  proxyGroupId: string | null,
+): Promise<BulkUpdateGroupResponse> => {
+  const { data } = await client.put<BulkUpdateGroupResponse>(
+    '/proxy-hosts/bulk-update-group',
+    { host_uuids: hostUUIDs, proxy_group_id: proxyGroupId },
+  )
+  return data
+}
