@@ -405,7 +405,19 @@ bash scripts/go-test-coverage.sh
 
 ---
 
-## 4. Implementation Plan
+### Change 3 — `scripts/rate_limit_integration.sh`: Add 429 retry resilience
+
+#### 3.3.1 Replace single-shot 429 assertion with retry loop
+
+**Find** (exact block):
+
+```bash
+echo ""
+echo "Sending request ${RATE_LIMIT_REQUESTS}+1 (should return 429 Too Many Requests)..."
+
+# Capture headers too for Retry-After check
+BLOCKED_RESPONSE=$(curl -s -D - -o /dev/null -H "Host: ${TEST_DOMAIN}" http://localhost:8180/get)
+BLOCKED_STATUS=$(echo "$BLOCKED_RESPONSE" | head -1 | grep -o '[0-9]\{3\}' | head -1)
 
 ### Phase 1 — Playwright Tests
 
@@ -443,7 +455,12 @@ No documentation changes required.
 
 ---
 
-## 5. Acceptance Criteria
+## 4. Implementation Plan
+
+### Phase 1 — No Playwright phase
+
+These are CI script and workflow changes only. No frontend or backend application code is
+modified.
 
 | # | Criterion | Verification |
 |---|---|---|
@@ -457,7 +474,7 @@ No documentation changes required.
 
 ---
 
-## 6. Commit Slicing Strategy
+## 5. Commit Slicing Strategy
 
 **Decision**: Single PR with 6 ordered logical commits.
 
