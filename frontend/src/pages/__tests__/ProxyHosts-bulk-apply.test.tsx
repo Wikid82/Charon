@@ -35,7 +35,7 @@ vi.mock('../../api/accessLists', () => ({ accessListsApi: { list: vi.fn() } }));
 vi.mock('../../api/settings', () => ({ getSettings: vi.fn() }));
 vi.mock('../../hooks/useSecurityHeaders', () => ({
   useSecurityHeaderProfiles: vi.fn(() => ({ data: [], isLoading: false, error: null })),
-}))
+}));
 vi.mock('../../hooks/useProxyGroups', () => ({
   useProxyGroups: vi.fn(() => ({ data: [], isLoading: false, error: null })),
   useCreateProxyGroup: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),

@@ -46,7 +46,7 @@ vi.mock('../../hooks/useProxyGroups', () => ({
   useCreateProxyGroup: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
   useUpdateProxyGroup: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
   useDeleteProxyGroup: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
-}))
+}));
 vi.mock('../../hooks/useSecurityHeaders', () => ({
   useSecurityHeaderProfiles: vi.fn(() => ({ data: mockSecurityProfiles, isLoading: false, error: null })),
 }));
