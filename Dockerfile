@@ -10,7 +10,7 @@ ARG BUILD_DEBUG=0
 
 # ---- Pinned Toolchain Versions ----
 # renovate: datasource=docker depName=golang versioning=docker
-ARG GO_VERSION=1.26.2
+ARG GO_VERSION=1.26.3
 
 # renovate: datasource=docker depName=alpine versioning=docker
 ARG ALPINE_IMAGE=alpine:3.23.4@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
@@ -25,7 +25,7 @@ ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0b
 # renovate: datasource=go depName=github.com/expr-lang/expr
 ARG EXPR_LANG_VERSION=1.17.8
 # renovate: datasource=go depName=golang.org/x/net
-ARG XNET_VERSION=0.53.0
+ARG XNET_VERSION=0.54.0
 # renovate: datasource=go depName=github.com/smallstep/certificates
 ARG SMALLSTEP_CERTIFICATES_VERSION=0.30.0
 # renovate: datasource=npm depName=npm
@@ -107,7 +107,8 @@ ENV VITE_APP_VERSION=${VERSION}
 ARG NPM_VERSION
 # hadolint ignore=DL3017
 RUN apk upgrade --no-cache && \
-    npm install -g npm@${NPM_VERSION} --no-fund --no-audit && \
+    npm install -g npm@${NPM_VERSION} --no-fund --no-audit \
+        --fetch-retries=5 --fetch-retry-mintimeout=10000 && \
     npm cache clean --force
 
 # Patch CVE-2026-33671: picomatch ReDoS (fixed in 4.0.4) — bundled in Node.js 24.15.0 npm toolchain.
@@ -235,7 +236,7 @@ ARG CADDY_PATCH_SCENARIO
 ARG CADDY_SECURITY_VERSION
 ARG CORAZA_CADDY_VERSION
 # renovate: datasource=go depName=github.com/caddyserver/xcaddy
-ARG XCADDY_VERSION=0.4.5
+ARG XCADDY_VERSION=0.4.6
 ARG EXPR_LANG_VERSION
 ARG XNET_VERSION
 ARG SMALLSTEP_CERTIFICATES_VERSION
@@ -354,7 +355,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         rm -rf /tmp/buildenv_* /tmp/caddy-initial'
 
 # ---- CrowdSec Builder ----
-# Build CrowdSec from source to ensure we use Go 1.26.2+ and avoid stdlib vulnerabilities
+# Build CrowdSec from source to ensure we use Go 1.26.3+ and avoid stdlib vulnerabilities
 # (CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729)
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS crowdsec-builder
 COPY --from=xx / /
@@ -389,7 +390,7 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # Fix available at v1.79.3. Pin here so the CrowdSec binary is patched immediately;
     # remove once CrowdSec ships a release built with grpc >= v1.79.3.
     # renovate: datasource=go depName=google.golang.org/grpc
-    go get google.golang.org/grpc@v1.81.0 && \
+    go get google.golang.org/grpc@v1.81.1 && \
     # CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
     # renovate: datasource=github-tags depName=jackc/pgx
     go get github.com/jackc/pgx/v4@v4.18.3 && \
@@ -403,10 +404,10 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
     go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.10 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.73.0 && \
+    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.74.0 && \
     go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/s3
-    go get github.com/aws/aws-sdk-go-v2/service/s3@v1.100.1 && \
+    go get github.com/aws/aws-sdk-go-v2/service/s3@v1.101.0 && \
     # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
     # Affects /usr/local/bin/cscli (transitive dependency). Fix available at v0.1.1.
     # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
@@ -506,7 +507,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=c173df28ef52c70db07c835fd78f04c46bf0938f6097b39c6454b07cd144859d
+ARG GEOLITE2_COUNTRY_SHA256=730d2a55c257a2515fcb1f41a8116e2019cb6f8408e3e49cd5edc2878a5244f5
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
@@ -536,7 +537,7 @@ COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 # Allow non-root to bind privileged ports (80/443) securely
 RUN setcap 'cap_net_bind_service=+ep' /usr/bin/caddy
 
-# Copy CrowdSec binaries from the crowdsec-builder stage (built with Go 1.26.2+)
+# Copy CrowdSec binaries from the crowdsec-builder stage (built with Go 1.26.3+)
 # This ensures we don't have stdlib vulnerabilities from older Go versions
 COPY --from=crowdsec-builder /crowdsec-out/crowdsec /usr/local/bin/crowdsec
 COPY --from=crowdsec-builder /crowdsec-out/cscli /usr/local/bin/cscli

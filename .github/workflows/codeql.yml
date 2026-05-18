@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main, nightly, development]
   push:
-    branches: [main]
+    branches: [main, nightly, development]
   workflow_dispatch:
   schedule:
     - cron: '0 3 * * 1' # Mondays 03:00 UTC
@@ -15,7 +15,7 @@ concurrency:
 
 env:
   GOTOOLCHAIN: auto
-  GO_VERSION: '1.26.2'
+  GO_VERSION: '1.26.3'
 
 permissions:
   contents: read
@@ -52,7 +52,7 @@ jobs:
         run: bash scripts/ci/check-codeql-parity.sh
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@e46ed2cbd01164d986452f91f178727624ae40d7 # v4
+        uses: github/codeql-action/init@9e0d7b8d25671d64c341c19c0152d693099fb5ba # v4
         with:
           languages: ${{ matrix.language }}
           queries: security-and-quality
@@ -92,11 +92,11 @@ jobs:
         run: mkdir -p sarif-results
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@e46ed2cbd01164d986452f91f178727624ae40d7 # v4
+        uses: github/codeql-action/autobuild@9e0d7b8d25671d64c341c19c0152d693099fb5ba # v4
 
       - name: Perform CodeQL Analysis
         id: codeql_analyze
-        uses: github/codeql-action/analyze@e46ed2cbd01164d986452f91f178727624ae40d7 # v4
+        uses: github/codeql-action/analyze@9e0d7b8d25671d64c341c19c0152d693099fb5ba # v4
         with:
           category: "/language:${{ matrix.language }}"
           output: sarif-results/${{ matrix.language }}

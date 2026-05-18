@@ -5,7 +5,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import { useCertificates, useDeleteCertificate, useBulkDeleteCertificates } from '../../hooks/useCertificates'
 import { createTestQueryClient } from '../../test/createTestQueryClient'
-import CertificateList, { isDeletable, isInUse } from '../CertificateList'
+import CertificateList from '../CertificateList'
+import { isDeletable, isInUse } from '../../utils/certificateUtils'
 
 import type { Certificate } from '../../api/certificates'
 

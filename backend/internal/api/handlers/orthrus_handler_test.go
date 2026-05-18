@@ -48,6 +48,7 @@ func newOrthrusTestSetup(t *testing.T) (*OrthrusHandler, *gorm.DB) {
 	require.NoError(t, err)
 	srv, err := orthrus.NewOrthrusServer(db, ca)
 	require.NoError(t, err)
+	t.Cleanup(srv.Stop)
 
 	svc := services.NewOrthrusService(db, srv)
 	return NewOrthrusHandler(svc), db
