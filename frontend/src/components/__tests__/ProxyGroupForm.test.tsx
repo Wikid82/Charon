@@ -21,7 +21,27 @@ vi.mock('../../hooks/useProxyGroups', () => ({
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string) => key,
+    t: (key: string, options?: Record<string, unknown>) => {
+      const map: Record<string, string> = {
+        'proxyGroups.createGroup': 'Create Group',
+        'proxyGroups.editGroup': 'Edit Group',
+        'proxyGroups.createGroupDescription': 'Create a new proxy group',
+        'proxyGroups.editGroupDescription': 'Edit proxy group',
+        'proxyGroups.groupName': 'Group Name',
+        'proxyGroups.groupNamePlaceholder': 'Enter group name',
+        'proxyGroups.groupDescription': 'Description',
+        'proxyGroups.groupDescriptionPlaceholder': 'Enter description',
+        'proxyGroups.groupColor': 'Group Color',
+        'proxyGroups.customColor': 'Custom color',
+        'common.cancel': 'Cancel',
+        'common.create': 'Create',
+        'common.update': 'Update',
+      };
+      if (key === 'proxyGroups.colorPreset' && options?.color) {
+        return `Color ${options.color}`;
+      }
+      return map[key] ?? key;
+    },
   }),
 }));
 
