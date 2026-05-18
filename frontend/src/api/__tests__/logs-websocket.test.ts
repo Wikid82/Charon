@@ -131,40 +131,9 @@ describe('logs API - connectLiveLogs', () => {
 
   // These tests are skipped because the WebSocket mock has timing issues with event handlers
   // The functionality is covered by E2E tests
-  it.skip('calls onError callback when error occurs', async () => {
-    const mockOnError = vi.fn();
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  it.todo('calls onError callback when error occurs')
 
-    connectLiveLogs({}, vi.fn(), mockOnError);
-
-    // Wait for handlers to be set up
-    await new Promise(resolve => setTimeout(resolve, 10));
-
-    mockWebSocket.simulateError();
-
-    expect(mockOnError).toHaveBeenCalled();
-    expect(consoleErrorSpy).toHaveBeenCalledWith('WebSocket error:', expect.any(Event));
-
-    consoleErrorSpy.mockRestore();
-  });
-
-  it.skip('calls onClose callback when connection closes', async () => {
-    const mockOnClose = vi.fn();
-    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-
-    connectLiveLogs({}, vi.fn(), undefined, mockOnClose);
-
-    // Wait for handlers to be set up
-    await new Promise(resolve => setTimeout(resolve, 10));
-
-    mockWebSocket.close();
-
-    // Wait for the close event to be processed
-    await new Promise(resolve => setTimeout(resolve, 20));
-
-    expect(mockOnClose).toHaveBeenCalled();
-    consoleLogSpy.mockRestore();
-  });
+  it.todo('calls onClose callback when connection closes')
 
   it('returns a close function that closes the WebSocket', async () => {
     const closeConnection = connectLiveLogs({}, vi.fn());

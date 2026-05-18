@@ -192,6 +192,7 @@ func TestOrthrusServer_WatchHeartbeat_ClosedSession_ExitsAndMarksOffline(t *test
 	db := setupServerTestDB(t)
 	srv, err := NewOrthrusServer(db, setupTestCA(t))
 	require.NoError(t, err)
+	t.Cleanup(srv.Stop) // drains watchHeartbeat and yamux goroutines before TempDir cleanup
 	srv.heartbeatTimeout = 40 * time.Millisecond
 
 	serverConn, done := testWSPair(t)
