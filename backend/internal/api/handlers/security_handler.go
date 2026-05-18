@@ -67,6 +67,11 @@ func NewSecurityHandlerWithDeps(cfg config.SecurityConfig, db *gorm.DB, caddyMan
 	return &SecurityHandler{cfg: cfg, db: db, svc: svc, caddyManager: caddyManager, cerberus: cerberus}
 }
 
+// Close stops the background audit goroutine. Required for test cleanup.
+func (h *SecurityHandler) Close() {
+	h.svc.Close()
+}
+
 // SetGeoIPService sets the GeoIP service for the handler.
 func (h *SecurityHandler) SetGeoIPService(geoipSvc *services.GeoIPService) {
 	h.geoipSvc = geoipSvc

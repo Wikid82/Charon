@@ -12,24 +12,11 @@ import { Checkbox } from './ui/Checkbox'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/Tooltip'
 import { type Certificate } from '../api/certificates'
 import { useCertificates, useDeleteCertificate, useBulkDeleteCertificates } from '../hooks/useCertificates'
+import { isInUse, isDeletable } from '../utils/certificateUtils'
 import { toast } from '../utils/toast'
 
 type SortColumn = 'name' | 'expires'
 type SortDirection = 'asc' | 'desc'
-
-export function isInUse(cert: Certificate): boolean {
-  return cert.in_use
-}
-
-export function isDeletable(cert: Certificate): boolean {
-  if (cert.in_use) return false
-  return (
-    cert.provider === 'custom' ||
-    cert.provider === 'letsencrypt-staging' ||
-    cert.status === 'expired' ||
-    cert.status === 'expiring'
-  )
-}
 
 function daysUntilExpiry(expiresAt: string): number {
   const now = new Date()
