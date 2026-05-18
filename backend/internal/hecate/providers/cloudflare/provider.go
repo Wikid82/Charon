@@ -148,8 +148,12 @@ func (p *CloudflareTunnelProvider) Start(ctx context.Context) error {
 	p.state = hecate.TunnelStateConnected
 	p.mu.Unlock()
 
+	var scanWg sync.WaitGroup
+
 	// Stream stdout to the ring buffer.
+	scanWg.Add(1)
 	go func() {
+		defer scanWg.Done()
 		s := bufio.NewScanner(stdoutPipe)
 		for s.Scan() {
 			p.buf.Write(s.Text())
@@ -157,7 +161,9 @@ func (p *CloudflareTunnelProvider) Start(ctx context.Context) error {
 	}()
 
 	// Stream stderr to the ring buffer.
+	scanWg.Add(1)
 	go func() {
+		defer scanWg.Done()
 		s := bufio.NewScanner(stderrPipe)
 		for s.Scan() {
 			p.buf.Write(s.Text())
@@ -173,6 +179,7 @@ func (p *CloudflareTunnelProvider) Start(ctx context.Context) error {
 				p.state = hecate.TunnelStateError
 			}
 			p.mu.Unlock()
+			scanWg.Wait()
 			p.buf.Close()
 			close(p.done)
 		}()

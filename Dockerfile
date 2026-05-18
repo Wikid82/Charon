@@ -107,7 +107,8 @@ ENV VITE_APP_VERSION=${VERSION}
 ARG NPM_VERSION
 # hadolint ignore=DL3017
 RUN apk upgrade --no-cache && \
-    npm install -g npm@${NPM_VERSION} --no-fund --no-audit && \
+    npm install -g npm@${NPM_VERSION} --no-fund --no-audit \
+        --fetch-retries=5 --fetch-retry-mintimeout=10000 && \
     npm cache clean --force
 
 # Patch CVE-2026-33671: picomatch ReDoS (fixed in 4.0.4) — bundled in Node.js 24.15.0 npm toolchain.
@@ -235,7 +236,7 @@ ARG CADDY_PATCH_SCENARIO
 ARG CADDY_SECURITY_VERSION
 ARG CORAZA_CADDY_VERSION
 # renovate: datasource=go depName=github.com/caddyserver/xcaddy
-ARG XCADDY_VERSION=0.4.5
+ARG XCADDY_VERSION=0.4.6
 ARG EXPR_LANG_VERSION
 ARG XNET_VERSION
 ARG SMALLSTEP_CERTIFICATES_VERSION
@@ -389,7 +390,7 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # Fix available at v1.79.3. Pin here so the CrowdSec binary is patched immediately;
     # remove once CrowdSec ships a release built with grpc >= v1.79.3.
     # renovate: datasource=go depName=google.golang.org/grpc
-    go get google.golang.org/grpc@v1.81.0 && \
+    go get google.golang.org/grpc@v1.81.1 && \
     # CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
     # renovate: datasource=github-tags depName=jackc/pgx
     go get github.com/jackc/pgx/v4@v4.18.3 && \
@@ -506,7 +507,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=c173df28ef52c70db07c835fd78f04c46bf0938f6097b39c6454b07cd144859d
+ARG GEOLITE2_COUNTRY_SHA256=730d2a55c257a2515fcb1f41a8116e2019cb6f8408e3e49cd5edc2878a5244f5
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \

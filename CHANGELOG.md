@@ -90,6 +90,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **CI: Package Deduplication**: Removed 3 duplicate `devDependency` keys in `package.json` for `@typescript-eslint/eslint-plugin`, `@typescript-eslint/parser`, and related packages — duplicate keys caused the last value to silently overwrite earlier entries
+- **Frontend: Fast-Refresh Violation**: Extracted `isInUse` and `isDeletable` helper functions from `CertificateList` into a new `certificateUtils` utility module to satisfy React Fast Refresh constraints (non-component exports must not share a file with components)
+- **Accessibility: Form Labels**: Replaced 5 invalid `<label>` elements wrapping non-labelable content with `<span>` elements in `AccessListForm`, `AccessListSelector`, and `CSPBuilder` — resolves WCAG 1.3.1 failures reported by axe-core
+- **Tests: Disabled Test Markers**: Replaced 2 `.skip()` calls with `.todo()` in WebSocket logs tests — `.skip()` silently suppresses failures; `.todo()` correctly signals tests that are planned but not yet implemented
+- **Backend Tests: Goroutine Leak**: Fixed `SecurityHandler` goroutine leak in parallel tests by adding a `Close()` method and registering cleanup via `t.Cleanup()` — goroutines started during handler initialization are now reliably torn down after each test
+- **Backend: Race Condition**: Fixed stdout capture race condition in the Cloudflare DNS provider — `sync.WaitGroup` now ensures all scanner goroutines finish before the ring buffer is closed, preventing data races under `go test -race`
+
 - **Notifications:** Fixed Pushover token-clearing bug where tokens were silently stripped on provider create/update
 - **TCP Monitor Creation**: Fixed misleading form UX that caused silent HTTP 500 errors when creating TCP monitors
   - Corrected URL placeholder to show `host:port` format instead of the incorrect `tcp://host:port` prefix

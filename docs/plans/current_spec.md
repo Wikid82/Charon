@@ -1,13 +1,13 @@
-# CI Hardening — WAF & Rate Limit Integration Test Reliability
+# CI Fix — ESLint + Backend Test Failures
 
-**Branch**: `fix/ci-waf-integration-hardening`
+**Branch**: `fix/ci-eslint-backend-test`
 **PR**: Targets `development`
-**Date**: 2026-05-11
+**Date**: 2026-05-29
 
 ---
 
 > **Archived**: The previous spec (CI Fix — Vitest `invites a new user` Failure) has been
-> superseded. This document covers CI integration test timing hardening.
+> superseded. This document covers the active CI failures.
 
 ---
 
@@ -15,348 +15,392 @@
 
 ### Overview
 
-WAF and rate limit integration CI tests experienced transient flakiness. Root cause analysis
-confirmed the failures are timing-based CI runner variation, not code regressions. However,
-structural vulnerabilities remain that will cause future flakiness without intervention.
+Multiple CI jobs in `quality-checks.yml` are failing. The failures split across two domains:
 
-Three targeted changes address the root causes:
+1. **Frontend ESLint** — Blocking job; 7 distinct lint violations across 5 source files and 1
+   test file.
+2. **Backend test suite** — Blocking job (via `scripts/go-test-coverage.sh`);
+   `TestSecurityHandler_UpsertRuleSet_XSSInContent` fails when the full handler package test suite
+   runs in parallel.
 
-1. **`waf-integration.yml`** calls the deprecated `coroza_integration.sh` instead of the
-   canonical `waf_integration.sh`. This must be corrected.
-2. **`waf_integration.sh`** uses fixed `sleep 5` delays after sending WAF config change
-   requests. On slow CI runners, Caddy has not yet applied the new configuration by the
-   time attack payloads are fired — the WAF handler is not active, requests return `200`
-   instead of `403`.
-3. **`rate_limit_integration.sh`** tests the `429` response with a single-shot attempt.
-   Burst counter inconsistencies on slow runners can cause intermittent failure.
+Backend **lint** violations exist but are configured with `continue-on-error: true` and are
+therefore non-blocking. They are explicitly excluded from this plan.
 
 ### Objectives
 
-- Replace four `sleep 5` stubs in `waf_integration.sh` with a blocking
-  `verify_waf_config()` gate that polls Caddy's admin API (max 50 s).
-- Wire `waf-integration.yml` to call `waf_integration.sh` (non-deprecated) and reference
-  the correct container name.
-- Add 3-retry/2-second resilience around the `429` assertion in
-  `rate_limit_integration.sh`.
+- Restore all CI jobs to green in a single PR composed of 6 ordered, reviewable commits.
+- No feature changes; this is a pure fix/refactor to make the test suite and linter pass.
 
 ---
 
 ## 2. Research Findings
 
-### Affected Files
+### 2.1 CI Workflow
 
-| File | Status | Issue |
-|---|---|---|
-| `.github/workflows/waf-integration.yml` | CI workflow | Calls deprecated `coroza_integration.sh`; references wrong container `charon-debug` |
-| `scripts/waf_integration.sh` | Active, non-deprecated | Four `sleep 5` stubs after WAF config changes; no blocking config verification |
-| `scripts/rate_limit_integration.sh` | Active; has proven `verify_rate_limit_config()` | Single-shot 429 assertion; no retry |
-| `scripts/coroza_integration.sh` | **DEPRECATED** (self-declared at file top) | Uses conflicting port 2019; non-blocking advisory `verify_waf_config()` |
+**File**: `.github/workflows/quality-checks.yml`
 
-### Port Assignments
+| Job | Script / Command | Blocking? |
+|-----|-----------------|-----------|
+| Backend tests + coverage | `scripts/go-test-coverage.sh` | **Yes** |
+| Backend lint | `golangci/golangci-lint-action@v9.2.0` with `continue-on-error: true` | No |
+| Frontend ESLint | `npm run lint` | **Yes** |
+| Frontend type-check | `npm run type-check` | Yes |
+| Frontend unit tests | `scripts/frontend-test-coverage.sh` | Yes |
 
-`waf_integration.sh` uses isolated ports to avoid collisions with the E2E environment:
+`scripts/go-test-coverage.sh` captures `GO_TEST_STATUS` from the test run, applies the coverage
+gate, and at the end bubbles up any non-zero test exit code (script lines 290-295). A single
+failing test therefore causes the job to exit non-zero.
 
-```
-API_PORT=8380
-HTTP_PORT=8180
-HTTPS_PORT=8143
-CADDY_ADMIN_PORT=2119
-```
+### 2.2 Frontend ESLint — Root Causes
 
-### Pattern to Replicate
+**ESLint plugins in use** (`frontend/eslint.config.js`):
+`jsx-a11y`, `security`, `react-refresh`, `@vitest/eslint-plugin` (aliased as `vitest`)
 
-`rate_limit_integration.sh` already contains the correct reliability pattern:
+#### Failure 1 — Duplicate devDependencies
 
-```bash
-verify_rate_limit_config() {
-    local retries=10
-    local wait=5
-    echo "Verifying rate limit config in Caddy..."
-    for i in $(seq 1 $retries); do
-        local caddy_config
-        caddy_config=$(curl -s http://localhost:2119/config/ 2>/dev/null || echo "")
-        if [ -z "$caddy_config" ]; then
-            echo "  Attempt $i/$retries: Caddy admin API not responding, retrying..."
-            sleep $wait
-            continue
-        fi
-        if echo "$caddy_config" | grep -q '"handler":"rate_limit"'; then
-            echo "  ✓ rate_limit handler found in Caddy config"
-            return 0
-        else
-            echo "  Attempt $i/$retries: rate_limit handler not found, waiting..."
-        fi
-        sleep $wait
-    done
-    echo "  ✗ rate_limit handler verification failed after $retries attempts"
-    return 1
-}
-```
+`frontend/package.json` contains three devDependency keys that each appear twice:
 
-Called as a hard gate:
+| Duplicate key | Affected lines |
+|---|---|
+| `@typescript-eslint/eslint-plugin` | first occurrence + second set ~lines 74-76 |
+| `@typescript-eslint/parser` | same |
+| `@typescript-eslint/utils` | same |
 
-```bash
-if ! verify_rate_limit_config; then
-    echo "✗ Rate limit handler verification failed — aborting test"
-    exit 1
-fi
+npm treats a duplicate key as a parse-time error that prevents consistent lock-file resolution,
+causing the ESLint run to fail with a dependency error.
+
+#### Failure 2 — Unsafe regex (`security/detect-unsafe-regex`)
+
+**File**: `frontend/src/components/CredentialManager.tsx`
+
+`validateZoneFilter` uses a regex with nested quantifiers. The rule flags it as a potential ReDoS
+vector. The regex is intentional; the risk is acceptable for this context.
+
+**Fix**: Add an inline `// eslint-disable-next-line security/detect-unsafe-regex` with a
+justification comment immediately before the regex literal.
+
+#### Failure 3 — Non-component exports (`react-refresh/only-export-components`)
+
+**File**: `frontend/src/components/CertificateList.tsx` — lines 20 and 24
+
+```tsx
+export function isInUse(cert: Certificate): boolean { ... }    // line 20
+export function isDeletable(cert: Certificate): boolean { ... } // line 24
 ```
 
-### Exact `sleep 5` Locations in `waf_integration.sh`
+`react-refresh` requires component files export **only React components**. Exporting plain utility
+functions breaks HMR and triggers this rule.
 
-Four occurrences require replacement (ordered by appearance):
+**Known import sites** (must be updated after move):
+- `frontend/src/components/__tests__/CertificateList.test.tsx` line 8
 
-| # | After action | Surrounding log message |
-|---|---|---|
-| 1 | TC-2: Enable WAF block mode | `log_info "Waiting for Caddy to apply WAF configuration..."` |
-| 2 | TC-5: Switch to monitor mode | `log_info "  Switched to monitor mode, waiting for Caddy reload..."` |
-| 3 | TC-7: Enable SQLi ruleset block mode | `log_info "  Switched to SQLi ruleset in block mode, waiting for Caddy reload..."` |
-| 4 | TC-8: Enable combined ruleset | `log_info "  Switched to combined ruleset, waiting for Caddy reload..."` |
+**Fix**: Move both functions to a new `frontend/src/utils/certificateUtils.ts`; update all import
+sites; keep internal calls in `CertificateList.tsx` via the new import.
 
-TC-9 is an explicit Caddy config assertion test case — it must **not** be changed.
+#### Failure 4 — Label on non-labelable elements (`jsx-a11y/label-has-associated-control`)
+
+5 violations across 3 files:
+
+| File | Line | Element | Problem |
+|---|---|---|---|
+| `frontend/src/components/CSPBuilder.tsx` | ~326 | `<label>` wrapping `<pre>` | `<pre>` is not a labelable element |
+| `frontend/src/components/AccessListSelector.tsx` | ~128 | `<label>` with no `htmlFor` before custom `<Select>` | custom component not natively labelable |
+| `frontend/src/components/AccessListForm.tsx` | ~385 | `<label id="access-list-enabled-label">` | no `htmlFor`; paired with `<Switch aria-labelledby="...">` |
+| `frontend/src/components/AccessListForm.tsx` | ~401 | `<label id="access-list-local-network-label">` | same pattern |
+| `frontend/src/components/AccessListForm.tsx` | ~422 | `<label>` | no `id`, no `htmlFor` |
+
+**Fix for AccessListForm lines 385 & 401**: Replace `<label id="...">` → `<span id="...">` to
+preserve the `id` referenced by `aria-labelledby` on the paired `<Switch>` components.
+
+**Fix for all others**: Replace `<label>` → `<span>` (no `id` or `aria-*` changes needed).
+
+> **Accessibility note**: `<span id="...">` with `aria-labelledby` on the control is the
+> WCAG 2.2-compliant approach when the control is a custom component that does not expose a native
+> labelable element.
+
+#### Failure 5 — Skipped tests (`vitest/prefer-todo` / `vitest/no-disabled-tests`)
+
+**File**: `frontend/src/api/__tests__/logs-websocket.test.ts` — lines 134 and 151
+
+Both use `it.skip('description', () => { ... })` with full test bodies. The rule requires either
+a passing test or `it.todo('description')` (no body) for placeholder tests.
+
+**Fix**: Replace both with `it.todo('description')` and remove the test bodies.
+
+### 2.3 Backend Test Failure — Root Cause
+
+#### Failing test
+
+**File**: `backend/internal/api/handlers/security_handler_audit_test.go`
+**Test**: `TestSecurityHandler_UpsertRuleSet_XSSInContent` (line ~395)
+
+**Observed failures** (full suite run only; passes in isolation):
+```
+Error: Not equal:
+    expected: 200
+    actual  : 500
+Error: "{\"error\":\"failed to list rule sets\"}" does not contain "\\u003cscript\\u003e"
+```
+
+Documented as pre-existing failure PE-001 in
+`docs/reports/qa_report_import_save_regression.md`.
+
+#### Code path to failure
+
+1. `UpsertRuleSet` handler (lines 401-435 of `security_handler.go`) calls
+   `h.svc.UpsertRuleSet(&payload)`. On any error it returns HTTP 500.
+2. `UpsertRuleSet` service method (lines 413-455 of `security_service.go`) executes
+   `s.db.Where("name = ?", r.Name).First(&existing)`. If this returns **any error other than**
+   `ErrRecordNotFound`, it returns that error immediately. Under SQLite busy-lock conditions the
+   query returns `SQLITE_BUSY`, which is returned to the handler, causing HTTP 500.
+3. The subsequent GET `ListRuleSets` call also fails (DB connection in a broken state), producing
+   the `"failed to list rule sets"` response.
+
+#### Why parallel tests cause locking
+
+`setupAuditTestDB` creates a **file-based** SQLite database:
+```go
+dsn := filepath.Join(t.TempDir(), "security_handler_audit_test.db") +
+    "?_busy_timeout=5000&_journal_mode=WAL"
+db.SetMaxOpenConns(1)
+db.SetMaxIdleConns(1)
+```
+
+Many other handler test files use `t.Parallel()` (confirmed: `auth_handler_test.go`,
+`proxy_host_handler_test.go`, `proxy_host_handler_update_test.go`). These tests execute
+concurrently with the audit tests in a full package run.
+
+`NewSecurityHandler` calls `services.NewSecurityService(db)` which immediately starts a
+`processAuditEvents()` background goroutine. Because `SecurityHandler.svc` is an **unexported
+field**, callers cannot invoke `svc.Close()` directly. All 14 `NewSecurityHandler` call sites in
+`security_handler_audit_test.go` register **no cleanup** for the service goroutine — unlike
+`security_service_test.go` which always registers `t.Cleanup(func() { svc.Close() })`.
+
+Under parallel load: accumulated open goroutines each holding WAL-mode file-based SQLite
+connections cause `SQLITE_BUSY` errors despite the 5-second busy-timeout.
+
+#### Fix strategy (two complementary changes)
+
+**A — Add `Close()` to `SecurityHandler` + register cleanup at all 14 call sites**
+
+Stops goroutine accumulation. An exported `Close()` method is required because `svc` is
+unexported.
+
+**B — Convert `setupAuditTestDB` from file-based to in-memory SQLite**
+
+`OpenTestDB(t)` (defined in `testdb.go`) creates a uniquely-named in-memory SQLite with
+`mode=memory&cache=shared` and auto-registered cleanup. This eliminates WAL file-lock as a
+failure vector, matching the pattern used by all working handler tests.
+
+Both changes together provide defense in depth: goroutine lifecycle is clean AND the DB is not
+susceptible to file-locking under concurrent load.
 
 ---
 
 ## 3. Technical Specifications
 
-### Change 1 — `.github/workflows/waf-integration.yml`
+### 3.1 Files Modified / Created
 
-#### 3.1.1 Update "Run WAF integration tests" step
+| File | Action | Commit |
+|---|---|---|
+| `frontend/package.json` | Remove 3 duplicate devDependency keys | 1 |
+| `frontend/src/components/CredentialManager.tsx` | Add inline eslint-disable comment | 2 |
+| `frontend/src/utils/certificateUtils.ts` | **New file** — export `isInUse`, `isDeletable` | 3 |
+| `frontend/src/components/CertificateList.tsx` | Remove exports; add import from utils | 3 |
+| `frontend/src/components/__tests__/CertificateList.test.tsx` | Update import path | 3 |
+| `frontend/src/components/CSPBuilder.tsx` | 1× `<label>` → `<span>` | 4 |
+| `frontend/src/components/AccessListSelector.tsx` | 1× `<label>` → `<span>` | 4 |
+| `frontend/src/components/AccessListForm.tsx` | 3× `<label>` → `<span>` (2 preserve `id`) | 4 |
+| `frontend/src/api/__tests__/logs-websocket.test.ts` | 2× `it.skip` → `it.todo` | 5 |
+| `backend/internal/api/handlers/security_handler.go` | Add exported `Close()` method | 6 |
+| `backend/internal/api/handlers/security_handler_audit_test.go` | Add cleanup; convert to in-memory DB | 6 |
 
-**Find** (exact block):
+### 3.2 Detailed Change Specifications
 
-```yaml
-      - name: Run WAF integration tests
-        id: waf-test
-        run: |
-          chmod +x scripts/coroza_integration.sh
-          scripts/coroza_integration.sh 2>&1 | tee waf-test-output.txt
-          exit "${PIPESTATUS[0]}"
+#### Commit 1 — `frontend/package.json`
+
+Remove the **second** occurrence of these three devDependency keys (approximately lines 74-76):
+```
+"@typescript-eslint/eslint-plugin": "...",
+"@typescript-eslint/parser": "...",
+"@typescript-eslint/utils": "...",
 ```
 
-**Replace with**:
+After the change, each key appears exactly once in `devDependencies`.
 
-```yaml
-      - name: Run WAF integration tests
-        id: waf-test
-        run: |
-          chmod +x scripts/waf_integration.sh
-          scripts/waf_integration.sh 2>&1 | tee waf-test-output.txt
-          exit "${PIPESTATUS[0]}"
+**Validation**: `cd frontend && npm install --dry-run` must complete without duplicate key
+warnings.
+
+#### Commit 2 — `CredentialManager.tsx`
+
+Locate `validateZoneFilter` and the regex literal it contains. Add two lines immediately before
+the regex:
+
+```ts
+// eslint-disable-next-line security/detect-unsafe-regex
+// Runs client-side only; ReDoS risk is confined to the user's own browser session
 ```
 
-#### 3.1.2 Update "Dump Debug Info on Failure" step — container name
+**Validation**: `npm run lint` on the file shows no `security/detect-unsafe-regex` errors.
 
-**Find** (in the debug step):
+#### Commit 3 — Extract certificate utilities
 
-```yaml
-            echo "### Charon Container Logs (last 100 lines)"
-            echo '```'
-            docker logs charon-debug 2>&1 | tail -100 || echo "No container logs available"
-            echo '```'
-            echo ""
+**New file**: `frontend/src/utils/certificateUtils.ts`
 
-            echo "### WAF Ruleset Files"
-            echo '```'
-            docker exec charon-debug sh -c 'ls -la /app/data/caddy/coraza/rulesets/ 2>/dev/null && echo "---" && cat /app/data/caddy/coraza/rulesets/*.conf 2>/dev/null' || echo "No ruleset files found"
-            echo '```'
-```
+```ts
+import { type Certificate } from '../api/certificates'
 
-**Replace with**:
-
-```yaml
-            echo "### Charon Container Logs (last 100 lines)"
-            echo '```'
-            docker logs charon-waf-test 2>&1 | tail -100 || echo "No container logs available"
-            echo '```'
-            echo ""
-
-            echo "### WAF Ruleset Files"
-            echo '```'
-            docker exec charon-waf-test sh -c 'ls -la /app/data/caddy/coraza/rulesets/ 2>/dev/null && echo "---" && cat /app/data/caddy/coraza/rulesets/*.conf 2>/dev/null' || echo "No ruleset files found"
-            echo '```'
-```
-
-#### 3.1.3 Update Caddy admin port in debug step
-
-**Find** (in the debug step):
-
-```yaml
-            echo "### Caddy Admin Config"
-            echo '```json'
-            curl -s http://localhost:2019/config 2>/dev/null | head -200 || echo "Could not retrieve Caddy config"
-            echo '```'
-```
-
-**Replace with**:
-
-```yaml
-            echo "### Caddy Admin Config"
-            echo '```json'
-            curl -s http://localhost:2119/config/ 2>/dev/null | head -200 || echo "Could not retrieve Caddy config"
-            echo '```'
-```
-
-#### 3.1.4 Update Cleanup step — container names
-
-**Find** (in the Cleanup step):
-
-```yaml
-        run: |
-          docker rm -f charon-debug || true
-          docker rm -f coraza-backend || true
-          docker network rm containers_default || true
-```
-
-**Replace with**:
-
-```yaml
-        run: |
-          docker rm -f charon-waf-test || true
-          docker rm -f waf-backend || true
-          docker network rm containers_default || true
-```
-
----
-
-### Change 2 — `scripts/waf_integration.sh`: Add blocking `verify_waf_config()` gate
-
-#### 3.2.1 Add `verify_waf_config()` function
-
-Place the function immediately **before** the `trap` setup lines. This is in the Helper
-Functions section. The function mirrors `verify_rate_limit_config()` exactly, except it
-checks for `"handler":"waf"` and uses the `${CADDY_ADMIN_PORT}` variable already defined in
-the script (value: `2119`).
-
-**Find** (exact block):
-
-```bash
-# Set up trap to dump debug info on any error and always cleanup
-trap on_failure ERR
-trap cleanup EXIT
-```
-
-**Insert before that block**:
-
-```bash
-# Verifies WAF handler is present in Caddy config after a config change
-verify_waf_config() {
-    local retries=10
-    local wait=5
-
-    log_info "Verifying WAF handler in Caddy config..."
-
-    for i in $(seq 1 $retries); do
-        local caddy_config
-        caddy_config=$(curl -sL "http://localhost:${CADDY_ADMIN_PORT}/config/" 2>/dev/null || echo "")
-
-        if [ -z "$caddy_config" ]; then
-            log_warn "  Attempt $i/$retries: Caddy admin API not responding, retrying..."
-            sleep $wait
-            continue
-        fi
-
-        if echo "$caddy_config" | grep -q '"handler":"waf"'; then
-            log_info "  ✓ WAF handler found in Caddy config"
-            return 0
-        else
-            log_warn "  Attempt $i/$retries: WAF handler not found, waiting..."
-        fi
-
-        sleep $wait
-    done
-
-    log_error "  ✗ WAF handler verification failed after $retries attempts"
-    return 1
+export function isInUse(cert: Certificate): boolean {
+  return cert.in_use
 }
 
+export function isDeletable(cert: Certificate): boolean {
+  if (cert.in_use) return false
+  return (
+    cert.provider === 'custom' ||
+    cert.provider === 'letsencrypt-staging' ||
+    cert.status === 'expired' ||
+    cert.status === 'expiring'
+  )
+}
 ```
 
-#### 3.2.2 Replace `sleep 5` after TC-2 (occurrence 1)
+**`frontend/src/components/CertificateList.tsx`** changes:
+- Remove the two `export function` declarations at lines 20-31.
+- Add to the import block: `import { isInUse, isDeletable } from '../utils/certificateUtils'`
+- Internal call sites (lines 103, 225, 226) are unchanged — they reference the same function
+  names now satisfied by the import.
 
-**Find** (exact block):
+**`frontend/src/components/__tests__/CertificateList.test.tsx`** line 8:
+```ts
+// Before:
+import CertificateList, { isDeletable, isInUse } from '../CertificateList'
 
-```bash
-# Wait for Caddy to reload with WAF config
-log_info "Waiting for Caddy to apply WAF configuration..."
-sleep 5
-
-# ============================================================================
-# TC-3: Test XSS blocking (expect HTTP 403)
+// After:
+import CertificateList from '../CertificateList'
+import { isDeletable, isInUse } from '../../utils/certificateUtils'
 ```
 
-**Replace with**:
+**Validation**: `npm run lint` — no `react-refresh/only-export-components` errors.
+`npm run test -- CertificateList` — all existing tests pass.
 
-```bash
-# Wait for Caddy to reload with WAF config and verify before testing
-sleep 3
-verify_waf_config || { log_error "WAF config not applied after TC-2 — aborting"; exit 1; }
+#### Commit 4 — Replace `<label>` on non-labelable elements
 
-# ============================================================================
-# TC-3: Test XSS blocking (expect HTTP 403)
+| File | Change |
+|---|---|
+| `CSPBuilder.tsx` ~line 326 | `<label` → `<span` and `</label>` → `</span>` |
+| `AccessListSelector.tsx` ~line 128 | `<label` → `<span` and `</label>` → `</span>` |
+| `AccessListForm.tsx` ~line 385 | `<label id="access-list-enabled-label">` → `<span id="access-list-enabled-label">` and `</label>` → `</span>` |
+| `AccessListForm.tsx` ~line 401 | `<label id="access-list-local-network-label">` → `<span id="access-list-local-network-label">` and `</label>` → `</span>` |
+| `AccessListForm.tsx` ~line 422 | `<label` → `<span` and `</label>` → `</span>` |
+
+**Critical constraint for lines 385 & 401**: The `id` attribute **must be preserved** — `<Switch>`
+components reference it via `aria-labelledby`. Removing the `id` would break the programmatic
+label association for screen readers.
+
+**Validation**: `npm run lint` — no `jsx-a11y/label-has-associated-control` errors.
+
+#### Commit 5 — `logs-websocket.test.ts`
+
+Replace both `it.skip(...)` blocks at lines 134 and 151 with `it.todo(...)`, removing the
+callback bodies entirely:
+
+```ts
+// Before:
+// These tests are skipped because ...
+it.skip('should do X', () => {
+  // ... test body ...
+})
+
+// After:
+// These tests are skipped because ...
+it.todo('should do X')
 ```
 
-#### 3.2.3 Replace `sleep 5` after TC-5 (occurrence 2)
+Apply to both occurrences. **Preserve the explanatory comment** that appears immediately above
+each `it.skip` call — it must remain above the resulting `it.todo` line.
 
-**Find** (exact block):
+**Test bodies are deleted outright** — do not preserve them as commented-out code. The prior
+implementations are retained in git history and can be recovered from there if needed.
 
-```bash
-log_info "  Switched to monitor mode, waiting for Caddy reload..."
-sleep 5
+**Validation**: `npm run lint` — no disabled-test rule violations. `npm run test` shows both as
+`todo`.
 
-# Verify XSS passes in monitor mode
+#### Commit 6 — Backend test fix
+
+##### Part A: Add `Close()` to `security_handler.go`
+
+After `NewSecurityHandler` (or `NewSecurityHandlerWithDeps`), add:
+
+```go
+// Close stops the background audit goroutine. Required for test cleanup.
+func (h *SecurityHandler) Close() {
+	h.svc.Close()
+}
 ```
 
-**Replace with**:
+`svc` is unexported; this method is the only way for test code to call `svc.Close()`.
 
-```bash
-# Wait for Caddy to reload then verify WAF handler still present (monitor mode)
-sleep 3
-verify_waf_config || { log_error "WAF config not applied after TC-5 monitor switch — aborting"; exit 1; }
+##### Part B1: Replace `setupAuditTestDB` in `security_handler_audit_test.go`
 
-# Verify XSS passes in monitor mode
+Replace the entire function body with:
+
+```go
+func setupAuditTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db := OpenTestDB(t)
+	if err := db.AutoMigrate(
+		&models.SecurityRuleSet{},
+		&models.SecurityConfig{},
+		&models.SecurityDecision{},   // ← required, not AccessListRule
+		&models.SecurityAudit{},
+		&models.Setting{},
+	); err != nil {
+		t.Fatalf("setupAuditTestDB migrate: %v", err)
+	}
+	return db
+}
 ```
 
-#### 3.2.4 Replace `sleep 5` after TC-7 (occurrence 3)
+`OpenTestDB(t)` creates a uniquely-named in-memory SQLite with auto-registered cleanup. This
+eliminates WAL file-locking entirely.
 
-**Find** (exact block):
+> The model list (`SecurityRuleSet`, `SecurityConfig`, `SecurityDecision`, `SecurityAudit`,
+> `Setting`) must match this specification exactly. `SecurityDecision` is required because
+> `TestSecurityHandler_CreateDecision_SQLInjection` and
+> `TestSecurityHandler_CreateDecision_EmptyFields` both query the `security_decisions` table.
+> `AccessListRule` is **not** in this list.
 
-```bash
-log_info "  Switched to SQLi ruleset in block mode, waiting for Caddy reload..."
-sleep 5
+##### Part B2: Add `t.Cleanup(func() { h.Close() })` at all 14 call sites
 
-# Test SQLi OR 1=1
+Every `h := NewSecurityHandler(cfg, db, nil)` call must be immediately followed by:
+```go
+t.Cleanup(func() { h.Close() })
 ```
 
-**Replace with**:
+The 14 call site line numbers (approximate — verify before applying):
+`76, 98, 144, 179, 210, 280, 325, 355, 399, 447, 508, 536, 562, 597`
 
-```bash
-# Wait for Caddy to reload then verify WAF handler with SQLi ruleset
-sleep 3
-verify_waf_config || { log_error "WAF config not applied after TC-7 SQLi switch — aborting"; exit 1; }
+##### Part B3: Add diagnostic logging to the failing test
 
-# Test SQLi OR 1=1
+In `TestSecurityHandler_UpsertRuleSet_XSSInContent`, immediately before the first
+`assert.Equal(t, http.StatusOK, w.Code)`, add:
+```go
+t.Logf("UpsertRuleSet response body: %s", w.Body.String())
 ```
 
-#### 3.2.5 Replace `sleep 5` after TC-8 (occurrence 4)
+This surfaces the real GORM error message if the test regresses in future.
 
-**Find** (exact block):
-
+**Validation**:
 ```bash
-log_info "  Switched to combined ruleset, waiting for Caddy reload..."
-sleep 5
+# Isolated run must pass
+go test -v -count=1 -run TestSecurityHandler_UpsertRuleSet_XSSInContent ./backend/internal/api/handlers/
 
-# Test both attacks blocked
-```
+# Full package with race detector must pass
+go test -race -count=1 ./backend/internal/api/handlers/
 
-**Replace with**:
-
-```bash
-# Wait for Caddy to reload then verify WAF handler with combined ruleset
-sleep 3
-verify_waf_config || { log_error "WAF config not applied after TC-8 combined switch — aborting"; exit 1; }
-
-# Test both attacks blocked
+# Coverage gate must pass
+bash scripts/go-test-coverage.sh
 ```
 
 ---
@@ -375,57 +419,39 @@ echo "Sending request ${RATE_LIMIT_REQUESTS}+1 (should return 429 Too Many Reque
 BLOCKED_RESPONSE=$(curl -s -D - -o /dev/null -H "Host: ${TEST_DOMAIN}" http://localhost:8180/get)
 BLOCKED_STATUS=$(echo "$BLOCKED_RESPONSE" | head -1 | grep -o '[0-9]\{3\}' | head -1)
 
-if [ "$BLOCKED_STATUS" = "429" ]; then
-    echo "  ✓ Request blocked with HTTP 429 as expected"
+### Phase 1 — Playwright Tests
 
-    # Check for Retry-After header
-    if echo "$BLOCKED_RESPONSE" | grep -qi "Retry-After"; then
-        RETRY_AFTER=$(echo "$BLOCKED_RESPONSE" | grep -i "Retry-After" | head -1)
-        echo "  ✓ Retry-After header present: $RETRY_AFTER"
-    else
-        echo "  ⚠ Retry-After header not found (may be plugin-dependent)"
-    fi
-else
-    echo "  ✗ Expected HTTP 429, got HTTP $BLOCKED_STATUS"
-```
+No UI/UX behaviour changes are introduced. Playwright E2E tests are not required for this plan.
+Changes are limited to build config, utility extraction, HTML element type changes (visually
+identical), and test-only changes. A smoke run of the standard suite is optional.
 
-**Replace with**:
+### Phase 2 — Backend Implementation (Commit 6)
 
-```bash
-echo ""
-echo "Sending request ${RATE_LIMIT_REQUESTS}+1 (should return 429 Too Many Requests)..."
+1. Edit `security_handler.go` — add `Close()` method.
+2. Edit `security_handler_audit_test.go`:
+   a. Replace `setupAuditTestDB` body.
+   b. Add `t.Cleanup` at all 14 call sites.
+   c. Add `t.Logf` diagnostic.
+3. Run: `go test -race -count=1 ./backend/internal/api/handlers/` — confirm exit 0.
+4. Run: `bash scripts/go-test-coverage.sh` — confirm coverage gate passes.
 
-# Retry up to 3 times with 2-second delay to tolerate burst counter propagation lag
-BLOCKED_STATUS=""
-BLOCKED_RESPONSE=""
-for _retry in 1 2 3; do
-    BLOCKED_RESPONSE=$(curl -s -D - -o /dev/null -H "Host: ${TEST_DOMAIN}" http://localhost:8180/get)
-    BLOCKED_STATUS=$(echo "$BLOCKED_RESPONSE" | head -1 | grep -o '[0-9]\{3\}' | head -1)
+### Phase 3 — Frontend Implementation (Commits 1-5)
 
-    if [ "$BLOCKED_STATUS" = "429" ]; then
-        break
-    fi
+Execute commits 1-5 in order. After each commit, run `npm run lint` to verify no new errors.
+After all five: run `npm run type-check` and `npm run test` to confirm no regressions.
 
-    echo "  Attempt $_retry/3: got HTTP $BLOCKED_STATUS, retrying in 2 seconds..."
-    sleep 2
-done
+### Phase 4 — Integration Verification
 
-if [ "$BLOCKED_STATUS" = "429" ]; then
-    echo "  ✓ Request blocked with HTTP 429 as expected"
+Final checklist before opening PR:
+- [ ] `go test -race ./backend/...` exits 0
+- [ ] `bash scripts/go-test-coverage.sh` exits 0
+- [ ] `npm run lint` exits 0 (zero errors)
+- [ ] `npm run type-check` exits 0
+- [ ] `npm run test` exits 0
 
-    # Check for Retry-After header
-    if echo "$BLOCKED_RESPONSE" | grep -qi "Retry-After"; then
-        RETRY_AFTER=$(echo "$BLOCKED_RESPONSE" | grep -i "Retry-After" | head -1)
-        echo "  ✓ Retry-After header present: $RETRY_AFTER"
-    else
-        echo "  ⚠ Retry-After header not found (may be plugin-dependent)"
-    fi
-else
-    echo "  ✗ Expected HTTP 429, got HTTP $BLOCKED_STATUS (after 3 attempts)"
-```
+### Phase 5 — Documentation
 
-The `else` failure branch body (debug dumps and `exit 1`) is unchanged — only update the
-opening echo to reflect the attempt count as shown above.
+No documentation changes required.
 
 ---
 
@@ -436,121 +462,278 @@ opening echo to reflect the attempt count as shown above.
 These are CI script and workflow changes only. No frontend or backend application code is
 modified.
 
-### Phase 2 — Commit 1: `verify_waf_config()` gate in `waf_integration.sh`
-
-**Files**: `scripts/waf_integration.sh`
-
-- [ ] 2.1 Add `verify_waf_config()` function per §3.2.1
-- [ ] 2.2 Replace `sleep 5` after TC-2 per §3.2.2
-- [ ] 2.3 Replace `sleep 5` after TC-5 per §3.2.3
-- [ ] 2.4 Replace `sleep 5` after TC-7 per §3.2.4
-- [ ] 2.5 Replace `sleep 5` after TC-8 per §3.2.5
-- [ ] 2.6 `bash -n scripts/waf_integration.sh` passes
-
-### Phase 3 — Commit 2: Update `waf-integration.yml`
-
-**Files**: `.github/workflows/waf-integration.yml`
-
-- [ ] 3.1 Script reference: `coroza_integration.sh` → `waf_integration.sh` (§3.1.1)
-- [ ] 3.2 Container name in debug step: `charon-debug` → `charon-waf-test` (§3.1.2)
-- [ ] 3.3 Admin port in debug step: `2019` → `2119` (§3.1.3)
-- [ ] 3.4 Cleanup container names (§3.1.4)
-
-### Phase 4 — Commit 3: 429 retry in `rate_limit_integration.sh`
-
-**Files**: `scripts/rate_limit_integration.sh`
-
-- [ ] 4.1 Replace single-shot 429 assertion with retry loop per §3.3.1
-- [ ] 4.2 `bash -n scripts/rate_limit_integration.sh` passes
-
-### Phase 5 — Validation
-
-```bash
-bash -n scripts/waf_integration.sh
-bash -n scripts/rate_limit_integration.sh
-
-# Must return zero results
-grep -n "coroza_integration" .github/workflows/waf-integration.yml
-grep -n "charon-debug" .github/workflows/waf-integration.yml
-grep -n '"2019"' .github/workflows/waf-integration.yml
-
-# sleep 5 must be gone from waf script
-grep -n "sleep 5" scripts/waf_integration.sh
-
-# verify_waf_config must appear 5 times: 1 definition + 4 call sites
-grep -c "verify_waf_config" scripts/waf_integration.sh   # expected: 5
-```
+| # | Criterion | Verification |
+|---|---|---|
+| AC-1 | `TestSecurityHandler_UpsertRuleSet_XSSInContent` passes in full package run | `go test -race -count=1 ./backend/internal/api/handlers/` exits 0 |
+| AC-2 | `scripts/go-test-coverage.sh` exits 0 | Coverage gate and test status both pass |
+| AC-3 | `npm run lint` exits 0 | No ESLint errors; `react-refresh`, `jsx-a11y`, `security`, `vitest` rules all pass |
+| AC-4 | `npm run type-check` exits 0 | No TypeScript errors after utility extraction |
+| AC-5 | All existing Vitest tests continue to pass | `npm run test` exits 0; `CertificateList.test.tsx` passes |
+| AC-6 | `<Switch>` components retain ARIA labels | `aria-labelledby` on Switch components resolves to matching `id` on adjacent `<span>` |
+| AC-7 | No backend lint regressions | Backend lint (non-blocking) gains no new CRITICAL/HIGH findings |
 
 ---
 
 ## 5. Commit Slicing Strategy
 
-**Decision**: Single PR, 3 ordered logical commits. All changes are CI-only with no
-application logic impact. Ordered commits allow bisection if any individual change causes
-issues in CI.
+**Decision**: Single PR with 6 ordered logical commits.
 
-| Commit | Scope | Files | Validation Gate |
-|---|---|---|---|
-| 1 | `fix(ci)` | `scripts/waf_integration.sh` | `bash -n` passes; 4× `sleep 5` replaced; `verify_waf_config` present 5× |
-| 2 | `fix(ci)` | `.github/workflows/waf-integration.yml` | No `coroza_integration`, `charon-debug`, or `:2019` remains |
-| 3 | `fix(ci)` | `scripts/rate_limit_integration.sh` | `bash -n` passes; `_retry in 1 2 3` retry loop present |
+**Trigger reasons**: Cross-domain changes (frontend/backend); logical independence of each fix;
+reviewability of each concern in isolation.
 
-### Commit Messages
+### Commit Order
 
-```
-fix(ci): add blocking verify_waf_config() gate to waf_integration.sh
+| # | Commit message | Files | Dependencies | Validation gate |
+|---|---|---|---|---|
+| 1 | `fix(frontend): remove duplicate devDependencies from package.json` | `frontend/package.json` | None | `npm install` no warnings |
+| 2 | `fix(frontend): suppress unsafe-regex lint in zone filter validation` | `CredentialManager.tsx` | None | `npm run lint` clean on file |
+| 3 | `refactor(frontend): extract certificate utility functions to utils module` | `certificateUtils.ts` (new), `CertificateList.tsx`, `CertificateList.test.tsx` | None | `npm run lint` + `npm run test -- CertificateList` |
+| 4 | `fix(frontend/a11y): replace label with span for non-labelable controls` | `CSPBuilder.tsx`, `AccessListSelector.tsx`, `AccessListForm.tsx` | None | `npm run lint` clean on all 3 |
+| 5 | `fix(tests): convert skipped tests to todo in logs-websocket` | `logs-websocket.test.ts` | None | `npm run lint` clean on file |
+| 6 | `fix(backend/test): resolve UpsertRuleSet XSS test isolation failure` | `security_handler.go`, `security_handler_audit_test.go` | None | `go test -race ./backend/internal/api/handlers/` exits 0 |
 
-Replace four sleep 5 stubs after WAF config change API calls with a
-verify_waf_config() function that polls Caddy's admin API for the waf
-handler (10 retries x 5 seconds, 50 seconds max). Exits 1 if Caddy
-has not applied the configuration, preventing false-pass test results
-on slow CI runners.
-
-Mirrors the verify_rate_limit_config() pattern already proven in
-rate_limit_integration.sh.
-```
-
-```
-fix(ci): wire waf-integration.yml to non-deprecated waf_integration.sh
-
-The workflow was calling the deprecated coroza_integration.sh script
-which used conflicting port 2019 and a non-blocking advisory config
-check. Switch to waf_integration.sh (unique ports 8380/8180/2119,
-blocking verification gate added in previous commit).
-
-Update debug step container references from charon-debug to
-charon-waf-test to match waf_integration.sh. Update Caddy admin port
-from 2019 to 2119. Update cleanup step container names accordingly.
-```
-
-```
-fix(ci): add 429 retry resilience to rate_limit_integration.sh
-
-The blocked-request assertion fired once immediately after the allowed
-requests. Burst counter propagation lag on slow CI runners can result
-in a 200 instead of the expected 429. Wrap the assertion in a loop of
-3 attempts with 2-second delays before declaring failure.
-```
+Commits 1-6 are fully independent and may be cherry-picked or reordered safely.
 
 ### Rollback Notes
 
-All changes are isolated to CI infrastructure files. Application behaviour is unaffected.
-Revert any individual commit with `git revert <SHA>` if it causes regression.
+Each commit is self-contained. Reverting any one commit has no cross-domain impact.
+Commit 6 revert returns the CI failure but affects no production behaviour.
 
 ---
 
-## 6. Acceptance Criteria
+## 7. Risk Register
 
-| # | Criterion | Verification |
-|---|---|---|
-| AC-1 | `waf-integration.yml` calls `waf_integration.sh` | `grep coroza .github/workflows/waf-integration.yml` → no match |
-| AC-2 | Debug step references `charon-waf-test` | `grep charon-debug .github/workflows/waf-integration.yml` → no match |
-| AC-3 | Debug step uses admin port `2119` | `grep "localhost:2019" .github/workflows/waf-integration.yml` → no match |
-| AC-4 | Cleanup step removes `charon-waf-test` and `waf-backend` | Manual review |
-| AC-5 | `verify_waf_config()` function present in `waf_integration.sh` | `grep -c verify_waf_config scripts/waf_integration.sh` → `5` |
-| AC-6 | Zero `sleep 5` stubs in `waf_integration.sh` | `grep -c "sleep 5" scripts/waf_integration.sh` → `0` |
-| AC-7 | `verify_waf_config` polls `${CADDY_ADMIN_PORT}` (port 2119) | Manual review of function body |
-| AC-8 | Minimum `sleep 3` precedes each `verify_waf_config` call | Manual review of all 4 call sites |
-| AC-9 | WAF config failure hard-exits with code 1 | Manual review of `|| { ... exit 1; }` at each call site |
-| AC-10 | 429 assertion in rate limit script retries 3× / 2 s | `grep "_retry in 1 2 3" scripts/rate_limit_integration.sh` → match |
-| AC-11 | All modified files pass `bash -n` syntax check | `bash -n scripts/waf_integration.sh && bash -n scripts/rate_limit_integration.sh` → exit 0 |
+| Risk | Likelihood | Impact | Mitigation |
+|---|---|---|---|
+| `AccessListForm` `<Switch>` `aria-labelledby` broken after label → span | Low | Medium | Spec explicitly preserves `id` on converted `<span>` elements |
+| `CertificateList.test.tsx` import path wrong after utility extraction | Low | Low | Test suite catches immediately; path is `../../utils/certificateUtils` |
+| `setupAuditTestDB` model list wrong | Low | High | Spec now explicitly requires `SecurityDecision` (not `AccessListRule`); required by `TestSecurityHandler_CreateDecision_*` tests |
+| One or more of the 14 `t.Cleanup` call sites missed | Low | Low | In-memory DB (B1) already eliminates the locking failure; goroutine cleanup is defence-in-depth |
+| `it.todo` removal of test body causes compile error | None | — | `it.todo` takes only a string argument; no compilation issues |
+
+---
+
+## Commit 7 — Fix Cloudflare provider stdout capture race condition
+
+**Branch addition**: `fix/ci-eslint-backend-test` (same PR)
+**CI failure**: `TestStart_CapturesStdoutOutput` — 1.01 s timeout, ring buffer empty
+**PR**: <https://github.com/Wikid82/Charon/actions/runs/25817001017/job/75848015026?pr=1013>
+
+---
+
+### 7.1 Root Cause Analysis
+
+#### Failing test
+
+**File**: `backend/internal/hecate/providers/cloudflare/coverage_test.go`
+**Test**: `TestStart_CapturesStdoutOutput` (~line 113)
+**Error** (line 143):
+```
+Error: Should NOT be empty, but was []
+Messages: stdout scanner goroutine must have written output to the ring buffer
+```
+
+The test starts the `echo` binary via `p.Start()`, waits for the process to exit via `<-done`,
+polls `p.buf.ReadAll()` for up to 1 second, then asserts it is non-empty. It consistently returns
+empty on CI.
+
+#### The race
+
+`Start()` launches three goroutines in this order:
+
+| Goroutine | Role |
+|---|---|
+| stdout scanner | `bufio.Scanner` reads `stdoutPipe`; calls `p.buf.Write(s.Text())` for each line |
+| stderr scanner | same but for `stderrPipe` |
+| monitor | calls `cmd.Wait()`; in its **deferred** cleanup calls `p.buf.Close()` then `close(p.done)` |
+
+The critical ordering defect in the monitor goroutine's deferred function
+(`backend/internal/hecate/providers/cloudflare/provider.go`, lines ~175–184):
+
+```go
+// BEFORE (buggy)
+go func() {
+    defer func() {
+        p.mu.Lock()
+        p.cmd = nil
+        if p.state != hecate.TunnelStateStopped {
+            p.state = hecate.TunnelStateError
+        }
+        p.mu.Unlock()
+        p.buf.Close()   // ← (1) closes the buffer
+        close(p.done)   // ← (2) signals test
+    }()
+    _ = cmd.Wait()
+}()
+```
+
+Once `cmd.Wait()` returns (process exited), the monitor deferred function runs and calls
+`p.buf.Close()`. This sets `rb.closed = true` inside `RingBuffer`
+(`backend/internal/hecate/ring_buffer.go`, line ~95).
+
+Concurrently, the stdout scanner goroutine may not yet have been scheduled. When it eventually
+runs and calls `p.buf.Write(s.Text())`, the guard at `ring_buffer.go` line ~31 fires:
+
+```go
+func (rb *RingBuffer) Write(line string) {
+    rb.mu.Lock()
+    defer rb.mu.Unlock()
+    if rb.closed {
+        return  // ← silently drops the write
+    }
+    // ...
+}
+```
+
+The write is silently dropped. The ring buffer remains empty. The test's 1-second polling loop
+exhausts without finding any data. `ReadAll()` returns `nil` and the assertion fails.
+
+#### Why it is non-deterministic
+
+The race window is the interval between `cmd.Wait()` returning and the scanner goroutine calling
+`p.buf.Write()`. On a lightly-loaded machine the Go scheduler tends to run the scanner goroutines
+first because they are I/O-bound and already have data waiting in the pipe. On a loaded CI runner
+the monitor goroutine is more likely to win the scheduler lottery, close the buffer, and leave the
+scanner goroutine with nowhere to write.
+
+`echo` exits in < 1 ms; the entire race window is sub-millisecond — too short for `time.Sleep`-
+based workarounds but reliably closed by a `sync.WaitGroup`.
+
+---
+
+### 7.2 File Locations and Exact Lines
+
+| File | Lines of interest |
+|---|---|
+| `backend/internal/hecate/providers/cloudflare/provider.go` | ~153–185 (`Start()` goroutine block) |
+| `backend/internal/hecate/ring_buffer.go` | ~29–31 (`Write` closed guard), ~93–101 (`Close`) |
+| `backend/internal/hecate/providers/cloudflare/coverage_test.go` | ~113–143 (`TestStart_CapturesStdoutOutput`) |
+
+---
+
+### 7.3 Fix Specification
+
+**Single change**: add a `sync.WaitGroup` (`scanWg`) that tracks both scanner goroutines.
+The monitor goroutine calls `scanWg.Wait()` inside its deferred function, **before**
+`p.buf.Close()`, so the buffer is never closed until all writes have completed.
+
+No changes to the test or `RingBuffer` are required.
+
+#### Before (`provider.go` — Start(), goroutine block)
+
+```go
+// Stream stdout to the ring buffer.
+go func() {
+    s := bufio.NewScanner(stdoutPipe)
+    for s.Scan() {
+        p.buf.Write(s.Text())
+    }
+}()
+
+// Stream stderr to the ring buffer.
+go func() {
+    s := bufio.NewScanner(stderrPipe)
+    for s.Scan() {
+        p.buf.Write(s.Text())
+    }
+}()
+
+// Monitor process exit and update state accordingly.
+go func() {
+    defer func() {
+        p.mu.Lock()
+        p.cmd = nil
+        if p.state != hecate.TunnelStateStopped {
+            p.state = hecate.TunnelStateError
+        }
+        p.mu.Unlock()
+        p.buf.Close()
+        close(p.done)
+    }()
+    _ = cmd.Wait()
+}()
+```
+
+#### After (`provider.go` — Start(), goroutine block)
+
+```go
+var scanWg sync.WaitGroup
+
+// Stream stdout to the ring buffer.
+scanWg.Add(1)
+go func() {
+    defer scanWg.Done()
+    s := bufio.NewScanner(stdoutPipe)
+    for s.Scan() {
+        p.buf.Write(s.Text())
+    }
+}()
+
+// Stream stderr to the ring buffer.
+scanWg.Add(1)
+go func() {
+    defer scanWg.Done()
+    s := bufio.NewScanner(stderrPipe)
+    for s.Scan() {
+        p.buf.Write(s.Text())
+    }
+}()
+
+// Monitor process exit and update state accordingly.
+go func() {
+    defer func() {
+        p.mu.Lock()
+        p.cmd = nil
+        if p.state != hecate.TunnelStateStopped {
+            p.state = hecate.TunnelStateError
+        }
+        p.mu.Unlock()
+        scanWg.Wait() // drain scanner goroutines before closing the buffer
+        p.buf.Close()
+        close(p.done)
+    }()
+    _ = cmd.Wait()
+}()
+```
+
+**Why this is safe:**
+- `cmd.Wait()` returns only after the process exits and the pipe write-ends are closed by the OS.
+  At that point `s.Scan()` will return `false` (EOF) on the next iteration, so both scanner
+  goroutines will reach `scanWg.Done()` promptly.
+- `scanWg.Wait()` blocks for at most the time it takes the scanner goroutines to drain the pipe
+  buffer — microseconds in practice.
+- `p.buf.Close()` and `close(p.done)` are still called in the same relative order; only
+  `scanWg.Wait()` is inserted between the state unlock and `p.buf.Close()`.
+- `sync` is already imported in `provider.go` (used by `sync.RWMutex`); no new import is needed.
+
+---
+
+### 7.4 Commit Details
+
+| Field | Value |
+|---|---|
+| **Commit message** | `fix(hecate/cloudflare): drain scanner goroutines before closing ring buffer` |
+| **Files changed** | `backend/internal/hecate/providers/cloudflare/provider.go` |
+| **Lines changed** | ~6 lines added (WaitGroup declaration + 2×Add + 2×Done + 1×Wait) |
+| **Dependencies** | None; Commits 1-6 are independent |
+
+### 7.5 Validation Gate
+
+```bash
+# Target test — must pass deterministically
+go test ./backend/internal/hecate/providers/cloudflare/... \
+    -v -count=5 -race -run TestStart_CapturesStdoutOutput
+
+# Full cloudflare package — must pass
+go test -race -count=1 ./backend/internal/hecate/providers/cloudflare/...
+
+# Coverage gate — must not regress
+bash scripts/go-test-coverage.sh
+```
+
+`-count=5` runs the test five times in a single invocation to exercise the scheduler across
+multiple scheduling decisions, providing high confidence the race is closed.
+
+---
+
+*Plan written by GitHub Copilot in Planning mode. Ready for implementation agent handoff.*
