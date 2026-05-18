@@ -1263,5 +1263,16 @@
         "pending": "待连接"
       }
     }
+  },
+  "feedback": {
+    "triggerLabel": "打开反馈菜单",
+    "closeTriggerLabel": "关闭反馈菜单",
+    "panelLabel": "反馈选项",
+    "reportBug": "报告错误",
+    "reportBugDescription": "发现问题了吗？",
+    "reportBugAriaLabel": "报告错误（在新标签页打开 GitHub Issues）",
+    "requestFeature": "请求功能",
+    "requestFeatureDescription": "有想法吗？",
+    "requestFeatureAriaLabel": "请求功能（在新标签页打开 GitHub Issues）"
   }
 }

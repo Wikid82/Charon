@@ -1,8 +1,7 @@
-# Spec: Drag-and-Drop Proxy Host Group Assignment
+# Spec: Static Feedback Widget
 
 **Status**: Draft
-**Author**: Principal Architect
-**Target**: Single PR — ordered logical commits
+**Target**: Single PR — one atomic commit
 
 ---
 
@@ -10,896 +9,475 @@
 
 ### Overview
 
-This feature adds drag-and-drop (DnD) group assignment for proxy host cards in `ProxyHosts.tsx`. Users can drag one or more host rows from any group section (including Ungrouped) and drop them onto a different group's header/container. Alphabetical ordering within each group is preserved — DnD only changes group membership.
+Add a persistent, accessible feedback widget to every authenticated page in the Charon frontend. The widget appears as a small floating icon button anchored to the bottom-right corner of the viewport. When activated, it expands into a compact popover panel offering two GitHub Issue links:
+
+- **Report a Bug** → `https://github.com/Wikid82/Charon/issues/new?template=bug_report.md`
+- **Request a Feature** → `https://github.com/Wikid82/Charon/issues/new?template=feature_request.md`
+
+Both links open in a new tab. The widget is rendered inside `Layout.tsx` so it appears on all authenticated routes but is absent from `/login`, `/setup`, and `/accept-invite`.
 
 ### Objectives
 
-1. Allow individual host rows to be dragged to a different group without opening a modal.
-2. When the dragged host is part of a multi-selection, moving it moves **all** selected hosts.
-3. When the dragged host is **not** selected, only that one host moves (selection is unaffected).
-4. The "Ungrouped" section is always a valid drop target, setting `proxy_group_id = null`.
-5. Visual feedback (highlight ring) on the target group during drag.
-6. Optimistic UI: cache updated immediately, rolled back on API error.
-7. Full keyboard accessibility via dnd-kit's built-in `KeyboardSensor`.
-8. Feature coexists with the existing "Assign to Group" bulk-action button — they are not mutually exclusive.
+- Provide a low-friction path for users to report bugs or request features directly from the app
+- Match existing UI design language (semantic tokens, Tailwind, Lucide icons)
+- Meet WCAG 2.2 AA accessibility requirements
+- Introduce zero new runtime dependencies
+- Keep the widget unobtrusive — collapsed by default, non-blocking
 
 ---
 
 ## 2. Research Findings
 
-### 2.1 No Existing DnD Library
+### Architecture Summary
 
-`frontend/package.json` has no `@dnd-kit`, `react-dnd`, `react-beautiful-dnd`, or `@hello-pangea/dnd`. The library must be installed.
+| Layer | Detail |
+|---|---|
+| Framework | React 19.2.3, TypeScript (strict), Vite 8 |
+| Styling | Tailwind CSS 4.x with semantic CSS custom properties; `darkMode: 'class'` |
+| Icons | `lucide-react` — used uniformly across all components |
+| Accessible overlays | `@radix-ui/react-tooltip`, `@radix-ui/react-dialog` already installed |
+| Classname utility | `cn()` at `frontend/src/utils/cn.ts` |
+| Component variants | `class-variance-authority` (cva) |
+| i18n | `react-i18next`, keys loaded from `src/locales/{locale}/translation.json` |
+| Unit tests | Vitest 4 + React Testing Library; files in `src/components/__tests__/` |
+| Layout entrypoint | `frontend/src/components/Layout.tsx` |
 
-**Chosen library**: `@dnd-kit/core` + `@dnd-kit/utilities`
-**Rationale**: Actively maintained, touch/pointer/keyboard sensors out-of-the-box, composable (no opinionated sortable wrapper needed — cross-group movement only, no intra-group reordering).
+### Z-Index Hierarchy
 
-### 2.2 Backend: PUT /proxy-hosts/:uuid Already Supports proxy_group_id
+| Element | z-index |
+|---|---|
+| Mobile overlay (backdrop) | `z-20` |
+| Sidebar (`<aside>`) | `z-30` |
+| Mobile header | `z-40` |
+| Skip-to-content link (focus) | `z-50` |
+| **Feedback Widget** | **`z-50`** ← must sit on top of sidebar and mobile header |
 
-The `Update` handler in `proxy_host_handler.go` handles `proxy_group_id` via `resolveProxyGroupReference`:
+### Integration Point
 
-- `nil` → sets `ProxyGroupID = nil` (ungrouped)
-- UUID string → looked up in `proxy_groups` table by `WHERE uuid = ?`
-- Empty string → treated as null
+`Layout.tsx` returns a single root `<div className="min-h-screen bg-light-bg dark:bg-dark-bg flex transition-colors duration-200">`. All sidebar, overlay, and `<main>` elements are children of this div. `<FeedbackWidget />` must be rendered as the **last child** of this root div. Because the widget uses `position: fixed`, its DOM position does not affect layout — it is always anchored to the viewport.
 
-**Conclusion**: Sending `PUT /proxy-hosts/:uuid` with `{ "proxy_group_id": "group-uuid" }` (or `null`) is already supported with no backend changes for single-host updates.
-
-### 2.3 New Bulk Endpoint Needed
-
-The existing `BulkUpdateACL` handler pattern: loops over `host_uuids`, updates each, then calls `caddyManager.ApplyConfig` **once**. If we fire N individual PUTs for a multi-select drag, Caddy rebuilds its config N times. A bulk endpoint applies the config once.
-
-**Decision**: Add `PUT /proxy-hosts/bulk-update-group` following the exact `BulkUpdateACL` pattern.
-
-### 2.4 DataTable Has No DnD Hooks
-
-`frontend/src/components/ui/DataTable.tsx` renders standard `<table>/<tr>/<td>`. The cleanest extension is adding an optional `renderDragHandle?: (row: T) => React.ReactNode` prop that, when provided, adds a narrow leading column per row.
-
-### 2.5 ProxyHosts.tsx Grouped Layout
-
-When `groups.length > 0`, the grouped view renders:
-
-```
-<div className="space-y-6">
-  {groups.map(group => (
-    <section key={group.uuid} aria-label={group.name}>
-      <div>{/* header: color dot, name, count, edit/delete buttons */}</div>
-      <DataTable data={groupHosts} ... />
-    </section>
-  ))}
-  {groupedHosts.ungrouped.length > 0 && (
-    <section aria-label={t('proxyGroups.ungrouped')}>
-      <DataTable data={groupedHosts.ungrouped} ... />
-    </section>
-  )}
-</div>
+```tsx
+// Layout.tsx — end of JSX return
+return (
+  <div className="min-h-screen bg-light-bg dark:bg-dark-bg flex transition-colors duration-200">
+    {/* ... skip link, mobile header, sidebar, overlay, main ... */}
+    <FeedbackWidget />   {/* ← insert here: after </main>, outside all header/sidebar branches */}
+  </div>
+)
 ```
 
-Each `<section>` must become a droppable zone. Each DataTable row must have a drag handle.
+> **Placement constraint**: `<FeedbackWidget />` must be placed after `</main>`, as the final sibling inside the root wrapper div. It must NOT be nested inside the mobile header branch, the desktop sidebar branch, or the `<main>` element itself.
 
-### 2.6 Selection State
+### Existing Pattern: Self-Managed Popover
 
-`selectedHosts: Set<string>` (UUID strings) is managed in `ProxyHosts.tsx`. The drag hook reads this to decide single vs. multi-drag.
+`NotificationCenter.tsx` is the primary pattern reference: a button toggles `isOpen` state to show/hide a floating panel (`absolute` positioned within a `relative` container). The feedback widget follows the same pattern but uses `fixed` positioning so it is viewport-anchored regardless of scroll position.
 
-### 2.7 Frontend API Types
+**No Radix Popover needed.** The NotificationCenter pattern is the reference implementation. NotificationCenter uses a backdrop `<div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)}>` to handle click-outside dismissal — NOT a `useRef`/`useEffect` document-level event listener. The feedback widget uses the same backdrop approach for pattern consistency. Plain React `useState` is sufficient; no `@radix-ui/react-popover` needed.
 
-`ProxyHost.proxy_group_id?: number | string | null` — accepted by the PUT endpoint.
-`ProxyHost.proxy_group?: { uuid, name, color } | null` — what the frontend actually reads.
+### Tailwind Token Vocabulary
 
-For optimistic updates, both fields must be updated in the cache snapshot.
+The existing components (Layout, NotificationCenter, Button) use the following token pattern consistently:
+
+```
+bg:      bg-white dark:bg-dark-card
+border:  border-gray-200 dark:border-gray-800
+text:    text-gray-700 dark:text-gray-300
+hover:   hover:bg-gray-100 dark:hover:bg-gray-800
+focus:   focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2
+shadow:  shadow-md  /  shadow-lg
+```
+
+These are the canonical tokens used; the widget will follow this same vocabulary.
 
 ---
 
 ## 3. Technical Specifications
 
-### 3.1 API Design
+### 3.1 Component: `FeedbackWidget`
 
-#### 3.1.1 Existing Endpoint (no changes needed)
+**File:** `frontend/src/components/FeedbackWidget.tsx`
+**Test:** `frontend/src/components/__tests__/FeedbackWidget.test.tsx`
 
-```
-PUT /api/proxy-hosts/:uuid
-Body: { "proxy_group_id": "<group-uuid>" | null }
-Response: ProxyHost (200 OK)
-```
+#### Props
 
-#### 3.1.2 New Bulk Endpoint
+None. The component is fully self-contained with no configuration props.
 
-```
-PUT /api/proxy-hosts/bulk-update-group
-Body:
-  {
-    "host_uuids": ["<uuid1>", "<uuid2>"],
-    "proxy_group_id": "<group-uuid>" | null    // null = ungrouped
-  }
-Response 200:
-  {
-    "updated": 2,
-    "errors": []
-  }
-Response 400: { "error": "host_uuids cannot be empty" }
-Response 500: { "error": "...", "updated": N, "errors": [...] }
-```
+#### State and Refs
 
-**Route registration** (in `RegisterRoutes`, alongside other bulk routes):
+| Name | Type | Purpose |
+|---|---|---|
+| `isOpen` | `boolean` (useState) | Controls popover panel visibility |
+| `triggerRef` | `useRef<HTMLButtonElement>` | Focus return target on panel close |
+| `firstLinkRef` | `useRef<HTMLAnchorElement>` | Focus management: receives focus when panel opens |
 
-```go
-router.PUT("/proxy-hosts/bulk-update-group", h.BulkUpdateGroup)
-```
-
-#### 3.1.3 Backend Handler Signature
-
-```go
-// BulkUpdateGroup applies a proxy group assignment to multiple proxy hosts.
-// PUT /proxy-hosts/bulk-update-group
-func (h *ProxyHostHandler) BulkUpdateGroup(c *gin.Context) {
-    var req struct {
-        HostUUIDs    []string `json:"host_uuids"    binding:"required"`
-        ProxyGroupID *string  `json:"proxy_group_id"` // nil = ungrouped
-    }
-    // 1. Bind JSON → 400 on error
-    // 2. Guard: len(req.HostUUIDs) == 0 → 400
-    // 3. If req.ProxyGroupID != nil: resolveProxyGroupReference(*req.ProxyGroupID) → *uint
-    // 4. Loop req.HostUUIDs:
-    //      host, err := h.service.GetByUUID(hostUUID) → skip on err, append to errors
-    //      host.ProxyGroupID = resolvedGroupID (or nil)
-    //      h.service.Update(host) → append to errors on failure
-    //      updated++
-    // 5. If updated > 0: h.caddyManager.ApplyConfig(ctx) once
-    // 6. Respond { "updated": N, "errors": [...] }
-}
-```
-
-### 3.2 Frontend API Layer
-
-**File**: `frontend/src/api/proxyHosts.ts` — append after `bulkUpdateSecurityHeaders`:
-
-```typescript
-export interface BulkUpdateGroupRequest {
-  host_uuids: string[];
-  proxy_group_id: string | null; // group UUID or null for ungrouped
-}
-
-export interface BulkUpdateGroupResponse {
-  updated: number;
-  errors: { uuid: string; error: string }[];
-}
-
-export const bulkUpdateGroup = async (
-  hostUUIDs: string[],
-  proxyGroupId: string | null
-): Promise<BulkUpdateGroupResponse> => {
-  const { data } = await client.put<BulkUpdateGroupResponse>(
-    '/proxy-hosts/bulk-update-group',
-    { host_uuids: hostUUIDs, proxy_group_id: proxyGroupId }
-  );
-  return data;
-};
-```
-
-### 3.3 Frontend Hook Layer
-
-**File**: `frontend/src/hooks/useProxyHosts.ts` — add inside `useProxyHosts()` alongside existing mutations:
-
-```typescript
-const bulkGroupMutation = useMutation({
-  mutationFn: ({ hostUUIDs, proxyGroupId }: {
-    hostUUIDs: string[];
-    proxyGroupId: string | null;
-  }) => bulkUpdateGroup(hostUUIDs, proxyGroupId),
-});
-
-// Expose:
-bulkUpdateGroup: (hostUUIDs: string[], proxyGroupId: string | null) =>
-  bulkGroupMutation.mutateAsync({ hostUUIDs, proxyGroupId }),
-isBulkUpdatingGroup: bulkGroupMutation.isPending,
-```
-
-### 3.4 DnD State Hook
-
-**New file**: `frontend/src/hooks/useProxyGroupDnD.ts`
-
-This hook encapsulates all drag logic and is the only file that imports from `@dnd-kit/core`.
-
-#### Interface
-
-```typescript
-import { useQueryClient } from '@tanstack/react-query';
-import { QUERY_KEY } from './useProxyHosts';
-import type { DragStartEvent, DragEndEvent, DragOverEvent } from '@dnd-kit/core';
-import type { ProxyHost } from '../api/proxyHosts';
-import type { ProxyGroup } from '../api/proxyGroups';
-
-interface UseProxyGroupDnDOptions {
-  hosts: ProxyHost[];
-  groups: ProxyGroup[];
-  selectedHosts: Set<string>;
-  setSelectedHosts: (hosts: Set<string>) => void;
-  bulkUpdateGroup: (uuids: string[], groupId: string | null) => Promise<BulkUpdateGroupResponse>;
-}
-
-interface UseProxyGroupDnDReturn {
-  activeDragId:     string | null;   // UUID of host being dragged
-  overGroupId:      string | null;   // UUID of hover target (or 'ungrouped')
-  hostsBeingDragged: string[];       // UUIDs (1 or N depending on selection)
-  handleDragStart:  (event: DragStartEvent) => void;
-  handleDragOver:   (event: DragOverEvent)  => void;
-  handleDragEnd:    (event: DragEndEvent)   => void;
-  handleDragCancel: () => void;
-}
-```
-
-#### Logic
-
-**Hook initialization (inside `useProxyGroupDnD` body)**
-```
-const queryClient = useQueryClient()
-```
-
-**`handleDragStart(event)`**
-```
-activeDragId = event.active.id as string
-hostsBeingDragged = selectedHosts.has(activeDragId)
-  ? Array.from(selectedHosts)
-  : [activeDragId]
-```
-
-**`handleDragOver(event)`**
-```
-overGroupId = event.over?.id as string ?? null
-```
-
-**`handleDragEnd(event)`**
-```
-if (!event.over) → handleDragCancel(); return
-
-targetGroupId = event.over.id as string    // group UUID | 'ungrouped'
-targetGroup   = groups.find(g => g.uuid === targetGroupId) ?? null
-
-// Skip no-op: every dragged host is already in the target
-alreadyInTarget = hostsBeingDragged.every(uuid => {
-  const host = hosts.find(h => h.uuid === uuid)
-  return (host?.proxy_group?.uuid ?? null) === (targetGroup?.uuid ?? null)
-})
-if (alreadyInTarget) → handleDragCancel(); return
-
-// 1. Snapshot current cache
-snapshot = queryClient.getQueryData<ProxyHost[]>(QUERY_KEY)
-
-// 2. Optimistic update
-queryClient.setQueryData<ProxyHost[]>(QUERY_KEY, (old = []) =>
-  old.map(h => {
-    if (!hostsBeingDragged.includes(h.uuid)) return h
-    return {
-      ...h,
-      proxy_group_id: targetGroup?.uuid ?? null,
-      proxy_group: targetGroup
-        ? { uuid: targetGroup.uuid, name: targetGroup.name, color: targetGroup.color }
-        : null,
-    }
-  })
-)
-
-const hostsBeingDragged_snapshot = [...hostsBeingDragged]
-
-// 3. Reset drag state (DragOverlay disappears before API returns)
-activeDragId = null; overGroupId = null; hostsBeingDragged = []
-
-// 4. API call
-try {
-  result = await bulkUpdateGroup(hostsBeingDragged_snapshot, targetGroup?.uuid ?? null)
-  if (result.errors.length > 0)
-    toast.error(t('proxyGroups.dnd.partialError', { count: result.errors.length }))
-  else
-    toast.success(t('proxyGroups.dnd.moveSuccess', { count: hostsBeingDragged_snapshot.length }))
-  queryClient.invalidateQueries({ queryKey: QUERY_KEY })
-  setSelectedHosts(new Set())   // clear selection after successful move
-} catch {
-  // 5. Rollback
-  queryClient.setQueryData(QUERY_KEY, snapshot)
-  toast.error(t('proxyGroups.dnd.moveFailed'))
-}
-```
-
-**`handleDragCancel()`**
-```
-activeDragId = null; overGroupId = null; hostsBeingDragged = []
-```
-
-### 3.5 Component: ProxyHostDragHandle
-
-**New file**: `frontend/src/components/ProxyHostDragHandle.tsx`
-
-```typescript
-import { useDraggable } from '@dnd-kit/core';
-import { GripVertical } from 'lucide-react';
-import { useTranslation } from 'react-i18next';
-
-interface ProxyHostDragHandleProps {
-  hostUuid: string;
-  /** Number of hosts that will move (≥1 when host is part of selection) */
-  dragCount: number;
-}
-
-export function ProxyHostDragHandle({ hostUuid, dragCount }: ProxyHostDragHandleProps) {
-  const { t } = useTranslation();
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: hostUuid,
-    data: { type: 'proxy-host', hostUuid },
-  });
-
-  return (
-    <span
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      className={[
-        'inline-flex items-center justify-center w-6 h-6 rounded',
-        'cursor-grab active:cursor-grabbing',
-        'text-content-muted hover:text-content-secondary',
-        'focus-visible:outline-none focus-visible:ring-2',
-        'focus-visible:ring-brand-500 focus-visible:ring-offset-1',
-        isDragging ? 'opacity-30' : '',
-      ].join(' ')}
-      aria-label={
-        dragCount > 1
-          ? t('proxyGroups.dnd.dragHandleMultiple', { count: dragCount })
-          : t('proxyGroups.dnd.dragHandleSingle')
-      }
-      aria-roledescription={t('proxyGroups.dnd.roleDescription')}
-    >
-      <GripVertical size={16} aria-hidden="true" />
-    </span>
-  );
-}
-```
-
-### 3.6 Component: GroupDropZone
-
-**New file**: `frontend/src/components/GroupDropZone.tsx`
-
-```typescript
-import { useDroppable } from '@dnd-kit/core';
-
-interface GroupDropZoneProps {
-  /** Group UUID or the literal string 'ungrouped' */
-  groupId: string;
-  /** Whether any drag is currently active (for ungrouped empty-state visibility) */
-  isDragActive: boolean;
-  children: React.ReactNode;
-}
-
-export function GroupDropZone({ groupId, isDragActive, children }: GroupDropZoneProps) {
-  const { setNodeRef, isOver } = useDroppable({ id: groupId });
-
-  return (
-    <div
-      ref={setNodeRef}
-      data-drop-zone={groupId}
-      className={[
-        'rounded-xl transition-all duration-150',
-        isOver
-          ? 'ring-2 ring-brand-400 ring-offset-2 ring-offset-surface-base bg-brand-500/5'
-          : '',
-      ].join(' ')}
-      {/* aria-dropeffect is deprecated in ARIA 1.1 but retained for backward compatibility with older assistive technologies */}
-      aria-dropeffect={isDragActive ? 'move' : undefined}
-    >
-      {children}
-    </div>
-  );
-}
-```
-
-### 3.7 DataTable Extension
-
-**Modified file**: `frontend/src/components/ui/DataTable.tsx`
-
-Add one optional prop to `DataTableProps<T>`:
-
-```typescript
-/** When provided, renders a leading drag-handle column (before checkbox). */
-renderDragHandle?: (row: T) => React.ReactNode;
-```
-
-**Changes inside DataTable**:
-
-1. In `<thead>`, when `renderDragHandle` is set, add before the checkbox `<th>`:
-```tsx
-<th className="w-10 px-2 py-3" aria-hidden="true" />
-```
-
-2. In each `<tbody> <tr>`, when `renderDragHandle` is set, add before checkbox `<td>` and column `<td>` cells:
-```tsx
-<td
-  className="w-10 px-2 py-4"
-  onClick={(e) => e.stopPropagation()}
-  onKeyDown={(e) => e.stopPropagation()}
->
-  {renderDragHandle(row)}
-</td>
-```
-
-3. Update the empty-state `colSpan` to include the drag handle column:
-```tsx
-colSpan={
-  columns.length
-  + (selectable ? 1 : 0)
-  + (renderDragHandle ? 1 : 0)
-}
-```
-
-No other changes to DataTable. The `onClick`/`onKeyDown` stopPropagation prevents the drag handle click from toggling row selection.
-
-### 3.8 DragOverlay
-
-Inline inside `ProxyHosts.tsx` — no separate component file needed:
+**Focus-on-open mechanism:**
 
 ```tsx
-<DragOverlay dropAnimation={{ duration: 150, easing: 'ease' }}>
-  {activeDragId && (
-    <div className="rounded-lg bg-surface-elevated border border-brand-400 shadow-xl px-4 py-2 text-sm font-medium text-content-primary cursor-grabbing">
-      {hostsBeingDragged.length > 1
-        ? t('proxyGroups.dnd.movingMultiple', { count: hostsBeingDragged.length })
-        : (() => {
-            const h = hosts.find(x => x.uuid === activeDragId);
-            return h?.name || h?.domain_names || t('proxyGroups.dnd.movingOne');
-          })()
-      }
-    </div>
-  )}
-</DragOverlay>
+const firstLinkRef = useRef<HTMLAnchorElement>(null)
+
+useEffect(() => {
+  if (isOpen) firstLinkRef.current?.focus()
+}, [isOpen])
 ```
 
-### 3.9 ProxyHosts.tsx Integration
+The `firstLinkRef` is attached to the first `<a>` element (Bug report link). When `isOpen` transitions to `true`, this effect fires and moves keyboard focus to that link, fulfilling WCAG 2.4.3 and ARIA authoring guidance for disclosure widgets.
 
-**Modified file**: `frontend/src/pages/ProxyHosts.tsx`
-
-#### New Imports
-
-```typescript
-import {
-  DndContext, DragOverlay,
-  PointerSensor, KeyboardSensor,
-  useSensor, useSensors,
-  pointerWithin,
-} from '@dnd-kit/core';
-import { GroupDropZone }       from '../components/GroupDropZone';
-import { ProxyHostDragHandle } from '../components/ProxyHostDragHandle';
-import { useProxyGroupDnD }    from '../hooks/useProxyGroupDnD';
-```
-
-#### New Hook Usage
-
-```typescript
-const {
-  activeDragId,
-  overGroupId,
-  hostsBeingDragged,
-  handleDragStart,
-  handleDragOver,
-  handleDragEnd,
-  handleDragCancel,
-} = useProxyGroupDnD({
-  hosts,
-  groups,
-  selectedHosts,
-  setSelectedHosts,
-  bulkUpdateGroup,   // from useProxyHosts()
-});
-
-const sensors = useSensors(
-  useSensor(PointerSensor, {
-    activationConstraint: { distance: 8 }, // prevents accidental drags on click
-  }),
-  useSensor(KeyboardSensor)
-);
-```
-
-#### Drag Handle Column (grouped view only)
-
-```typescript
-const dragHandleColumn = useCallback(
-  (host: ProxyHost) => (
-    <ProxyHostDragHandle
-      hostUuid={host.uuid}
-      dragCount={selectedHosts.has(host.uuid) ? selectedHosts.size : 1}
-    />
-  ),
-  [selectedHosts]
-);
-```
-
-#### Helper Utilities (add to component body)
-
-```typescript
-const getHostName = useCallback((uuid: string) => {
-  const h = hosts.find(x => x.uuid === uuid);
-  return h?.name || h?.domain_names || uuid;
-}, [hosts]);
-
-const getGroupName = useCallback((id: string) => {
-  if (id === 'ungrouped') return t('proxyGroups.ungrouped');
-  return groups.find(g => g.uuid === id)?.name ?? id;
-}, [groups, t]);
-```
-
-#### Grouped Render Replacement
-
-Replace the current `<div className="space-y-6">` grouped block with:
+**Click-outside mechanism** (matches NotificationCenter pattern):
 
 ```tsx
-<DndContext
-  sensors={sensors}
-  // Use pointerWithin (not closestCenter): group sections are tall droppable regions;
-  // closestCenter resolves to the geometrically nearest center which may be the
-  // wrong group for pointers visually inside a large container.
-  collisionDetection={pointerWithin}
-  onDragStart={handleDragStart}
-  onDragOver={handleDragOver}
-  onDragEnd={handleDragEnd}
-  onDragCancel={handleDragCancel}
-  accessibility={{
-    announcements: {
-      onDragStart: ({ active }) =>
-        t('proxyGroups.dnd.announcePickUp', { name: getHostName(active.id as string) }),
-      onDragOver: ({ over }) =>
-        over ? t('proxyGroups.dnd.announceOver', { group: getGroupName(over.id as string) }) : '',
-      onDragEnd: ({ over }) =>
-        over
-          ? t('proxyGroups.dnd.announceDrop', { group: getGroupName(over.id as string) })
-          : t('proxyGroups.dnd.announceCancel'),
-      onDragCancel: () => t('proxyGroups.dnd.announceCancel'),
-    },
-  }}
->
-  <div className="space-y-6">
-    {groups.map((group) => {
-      const groupHosts = groupedHosts.byGroup[group.uuid] ?? [];
-      return (
-        <GroupDropZone key={group.uuid} groupId={group.uuid} isDragActive={!!activeDragId}>
-          <section aria-label={group.name}>
-            {/* existing group header div — no changes */}
-            <DataTable
-              data={groupHosts}
-              columns={columns}
-              rowKey={(row) => row.uuid}
-              selectable
-              selectedKeys={selectedHosts}
-              onSelectionChange={setSelectedHosts}
-              renderDragHandle={dragHandleColumn}
-            />
-          </section>
-        </GroupDropZone>
-      );
-    })}
-
-    {/* Always render ungrouped zone while dragging, even if empty */}
-    {(groupedHosts.ungrouped.length > 0 || !!activeDragId) && (
-      <GroupDropZone groupId="ungrouped" isDragActive={!!activeDragId}>
-        <section aria-label={t('proxyGroups.ungrouped')}>
-          <div className="flex items-center gap-2 mb-2">
-            <h2 className="text-sm font-semibold text-content-muted">
-              {t('proxyGroups.ungrouped')}
-            </h2>
-            <span className="text-xs text-content-muted">
-              {t('proxyGroups.hostCount', { count: groupedHosts.ungrouped.length })}
-            </span>
-          </div>
-          <DataTable
-            data={groupedHosts.ungrouped}
-            columns={columns}
-            rowKey={(row) => row.uuid}
-            selectable
-            selectedKeys={selectedHosts}
-            onSelectionChange={setSelectedHosts}
-            renderDragHandle={dragHandleColumn}
-            emptyState={null}
-          />
-        </section>
-      </GroupDropZone>
-    )}
-  </div>
-
-  <DragOverlay dropAnimation={{ duration: 150, easing: 'ease' }}>
-    {/* see §3.8 */}
-  </DragOverlay>
-</DndContext>
+{isOpen && (
+  <div
+    className="fixed inset-0 z-10"
+    aria-hidden="true"
+    onClick={() => setIsOpen(false)}
+  />
+)}
 ```
 
-> **Note**: `DndContext` wraps ONLY the grouped `<div className="space-y-6">` block, not the flat `DataTable` rendered when `groups.length === 0`. `renderDragHandle` should NOT be passed to the flat view.
+The backdrop renders below the panel (`z-10` vs panel's higher stacking) and captures any click outside the widget.
 
-### 3.10 i18n Translation Keys
+#### Interaction Specification
 
-**File**: `frontend/src/locales/en/translation.json` — add inside `"proxyGroups"`:
+1. User presses **Tab** → focus lands on the floating trigger button.
+2. User presses **Enter** or **Space** (or clicks) → panel opens; focus moves to first link.
+3. User presses **Tab** / **Shift+Tab** → navigate between the two links within the panel.
+4. User presses **Enter** on a link → opens GitHub in a new tab; panel stays open.
+5. User presses **Escape** → panel closes; focus returns to trigger button.
+6. User clicks outside the widget → panel closes.
+7. User presses **Tab** past last link → focus moves to next focusable element in page (natural DOM order, no trap).
+
+#### ARIA Attributes
+
+| Element | Attribute | Value |
+|---|---|---|
+| Trigger `<button>` | `aria-label` | dynamic: `t('feedback.triggerLabel')` when closed / `t('feedback.closeTriggerLabel')` when open |
+| Trigger `<button>` | `aria-expanded` | `"true"` / `"false"` |
+| Trigger `<button>` | `aria-controls` | `"feedback-panel"` |
+| Panel `<nav>` | `id` | `"feedback-panel"` |
+| Panel `<nav>` | `aria-label` | `t('feedback.panelLabel')` |
+| Bug link `<a>` | `aria-label` | `t('feedback.reportBugAriaLabel')` |
+| Feature link `<a>` | `aria-label` | `t('feedback.requestFeatureAriaLabel')` |
+
+> **No `role="menu"` / `role="menuitem"`**: These ARIA roles require a custom arrow-key keyboard handler per the ARIA spec and are semantically incorrect for navigation links that open external URLs. Use a plain `<nav aria-label="...">` containing native `<a>` elements instead. Tab navigation between the two links is provided natively by the browser — no custom keyboard handler needed.
+
+> **No `aria-haspopup`**: The ARIA `aria-haspopup` attribute signals a menu, listbox, tree, grid, or dialog. Since the panel is a `<nav>` (not a menu), `aria-haspopup` is omitted. `aria-expanded` alone is sufficient to communicate the toggle state.
+
+#### CSS Layout
+
+```
+Wrapper:   position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 50
+Trigger:   h-10 w-10 (40×40px, matches Button size="icon"), rounded-full
+Panel:     position: absolute; bottom: calc(100% + 0.5rem); right: 0; width: 12rem
+```
+
+The panel is positioned relative to the fixed wrapper, appearing above the trigger.
+
+#### Panel Animation
+
+CSS transition using Tailwind. The panel conditional class changes based on `isOpen`:
+
+| State | Classes |
+|---|---|
+| Open | `opacity-100 scale-100 pointer-events-auto` |
+| Closed | `opacity-0 scale-95 pointer-events-none` |
+
+Combined with `transition-all duration-150 ease-out origin-bottom-right` always applied.
+
+#### URL Constants
+
+Defined as module-level constants (not in a config file — they are static GitHub template URLs):
+
+```ts
+const GITHUB_BUG_URL =
+  'https://github.com/Wikid82/Charon/issues/new?template=bug_report.md'
+const GITHUB_FEATURE_URL =
+  'https://github.com/Wikid82/Charon/issues/new?template=feature_request.md'
+```
+
+#### Lucide Icons
+
+| Use | Icon | Available in lucide-react |
+|---|---|---|
+| Trigger button | `MessageSquarePlus` | ✅ (not yet imported anywhere) |
+| Bug report link | `Bug` | ✅ (not yet imported anywhere) |
+| Feature request link | `Sparkles` | ✅ (not yet imported anywhere) |
+
+Single import: `import { MessageSquarePlus, Bug, Sparkles } from 'lucide-react'`
+
+#### WCAG 2.2 AA Compliance Map
+
+| Criterion | Requirement | Implementation |
+|---|---|---|
+| 1.1.1 Non-text Content | Icon button has text alternative | `aria-label` on trigger |
+| 1.3.1 Info and Relationships | Programmatic structure | `<nav>` landmark with native `<a>` links; no synthetic ARIA roles needed |
+| 1.4.3 Contrast (Minimum) | 4.5:1 for normal text | Tokens inherited from existing UI (brand-500 / dark-card) |
+| 1.4.11 Non-text Contrast | 3:1 for UI components | Focus ring via `ring-brand-500` matches existing Button |
+| 2.1.1 Keyboard | All functionality keyboard-operable | Enter/Space open; Tab/Shift+Tab navigate natively; Escape closes |
+| 2.1.2 No Keyboard Trap | User can exit any component | No focus trap; Escape always returns focus to trigger |
+| 2.4.3 Focus Order | Focus follows logical order | Widget last in DOM after `</main>`; focus moves to first link on open |
+| 2.4.7 Focus Visible | Focus indicator visible | `focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2` |
+| 2.4.11 Focus Appearance | Focus indicator meets minimum size/contrast | `focus-visible:ring-2 ring-brand-500 ring-offset-2` — same ring token used across all interactive elements in the codebase; meets 2px minimum requirement |
+| 4.1.2 Name, Role, Value | All components correctly identified | Native `<button>`, native `<a>`, `<nav>` landmark, explicit `aria-label` and `aria-expanded` |
+
+### 3.2 i18n Keys
+
+Add a `"feedback"` object as a new top-level key in all five locale files.
+
+**English (`en`) — source of truth:**
 
 ```json
-"dnd": {
-  "dragHandleSingle":   "Drag to move to another group",
-  "dragHandleMultiple": "Drag to move {{count}} selected hosts",
-  "roleDescription":    "Draggable proxy host",
-  "movingOne":          "Moving host",
-  "movingMultiple":     "Moving {{count}} hosts",
-  "moveSuccess_one":    "Moved 1 host",
-  "moveSuccess_other":  "Moved {{count}} hosts",
-  "moveFailed":         "Failed to move host(s)",
-  "partialError":       "{{count}} host(s) failed to move",
-  "announcePickUp":     "Picked up {{name}}. Use arrow keys to move between groups.",
-  "announceOver":       "Moving over {{group}}",
-  "announceDrop":       "Dropped into {{group}}",
-  "announceCancel":     "Move cancelled"
+"feedback": {
+  "triggerLabel": "Open feedback menu",
+  "closeTriggerLabel": "Close feedback menu",
+  "panelLabel": "Feedback options",
+  "reportBug": "Report a Bug",
+  "reportBugDescription": "Found an issue?",
+  "reportBugAriaLabel": "Report a bug (opens GitHub Issues in new tab)",
+  "requestFeature": "Request a Feature",
+  "requestFeatureDescription": "Have an idea?",
+  "requestFeatureAriaLabel": "Request a feature (opens GitHub Issues in new tab)"
 }
 ```
 
-All other locale files must receive the same keys. Use English strings as placeholders where translations are unavailable.
+**Per-locale values (full table):**
+
+| Key | de | es | fr | zh |
+|---|---|---|---|---|
+| `triggerLabel` | Feedback-Menü öffnen | Abrir menú de comentarios | Ouvrir le menu de retour | 打开反馈菜单 |
+| `closeTriggerLabel` | Feedback-Menü schließen | Cerrar menú de comentarios | Fermer le menu de retour | 关闭反馈菜单 |
+| `panelLabel` | Feedback-Optionen | Opciones de comentarios | Options de retour | 反馈选项 |
+| `reportBug` | Fehler melden | Reportar un error | Signaler un bug | 报告错误 |
+| `reportBugDescription` | Fehler gefunden? | ¿Encontraste un problema? | Trouvé un problème ? | 发现问题了吗？ |
+| `reportBugAriaLabel` | Fehler melden (öffnet GitHub Issues im neuen Tab) | Reportar un error (abre GitHub Issues en nueva pestaña) | Signaler un bug (ouvre GitHub Issues dans un nouvel onglet) | 报告错误（在新标签页打开 GitHub Issues） |
+| `requestFeature` | Funktion anfragen | Solicitar una función | Demander une fonctionnalité | 请求功能 |
+| `requestFeatureDescription` | Eine Idee? | ¿Tienes una idea? | Vous avez une idée ? | 有想法吗？ |
+| `requestFeatureAriaLabel` | Funktion anfragen (öffnet GitHub Issues im neuen Tab) | Solicitar función (abre GitHub Issues en nueva pestaña) | Demander une fonctionnalité (ouvre GitHub Issues dans un nouvel onglet) | 请求功能（在新标签页打开 GitHub Issues） |
+
+### 3.3 `Layout.tsx` Changes
+
+Two surgical changes:
+
+1. **Import** (add to existing component imports, after `NotificationCenter`):
+   ```tsx
+   import FeedbackWidget from './FeedbackWidget'
+   ```
+
+2. **JSX** (add as last child of root wrapper div, **after** `</main>`, outside both mobile header and desktop sidebar branches):
+   ```tsx
+   <FeedbackWidget />
+   ```
+
+Total: 2 lines changed, 0 lines deleted.
 
 ---
 
-## 4. Data Flow
+## 4. Implementation Plan
+
+### Phase 1 — Playwright E2E Tests (TDD — Written First)
+
+**File:** `tests/feedback-widget.spec.ts`
+
+Write the Playwright spec before writing the component. This defines the observable contract of the feature.
 
 ```
-User grabs drag handle
-  PointerSensor (distance ≥ 8px) OR KeyboardSensor (Space)
-        │
-        ▼
-handleDragStart()
-  activeDragId    = host.uuid
-  hostsBeingDragged = selectedHosts.has(uuid) → [...selectedHosts] | [uuid]
-        │
-   drag in progress
-        ▼
-handleDragOver()
-  overGroupId = event.over?.id   (group.uuid | 'ungrouped')
-  GroupDropZone: isOver=true → ring-2 ring-brand-400 highlight
-        │
-   user releases (pointer) or presses Space/Enter (keyboard)
-        ▼
-handleDragEnd()
-  ├── no drop target → handleDragCancel()
-  ├── no-op (same group) → handleDragCancel()
-  └── valid drop
-        ├── snapshot = queryClient.getQueryData(['proxy-hosts'])
-        ├── optimistic cache update (proxy_group + proxy_group_id)
-        ├── reset activeDragId / overGroupId (DragOverlay closes)
-        └── await bulkUpdateGroup(hostsBeingDragged, targetGroupUuid | null)
-              ├── success → invalidateQueries + toast.success + clear selection
-              └── error   → restore snapshot + toast.error
+Test suite: Feedback Widget
+  ✦ Trigger button is visible on the dashboard when authenticated
+  ✦ Trigger button has accessible name "Open feedback menu"
+  ✦ Trigger button has aria-expanded="false" by default
+  ✦ Clicking the trigger opens the panel with two links
+  ✦ Focus moves to the first link ("Report a Bug") when the panel opens
+  ✦ "Report a Bug" link href points to GitHub bug template URL
+  ✦ "Request a Feature" link href points to GitHub feature template URL
+  ✦ Both links have target="_blank" and rel="noopener noreferrer"
+  ✦ Pressing Escape closes the panel
+  ✦ After Escape, focus returns to the trigger button
+  ✦ Clicking outside the widget closes the panel
+  ✦ Widget is NOT present on the /login page
+```
+
+Run target (after Docker rebuild): `npx playwright test tests/feedback-widget.spec.ts --project=firefox`
+
+### Phase 2 — Backend
+
+No backend changes required.
+
+### Phase 3 — Frontend Implementation
+
+Execute in order:
+
+| Step | Task | Files |
+|---|---|---|
+| 3.1 | Create `FeedbackWidget.tsx` | `frontend/src/components/FeedbackWidget.tsx` |
+| 3.2 | Add i18n keys | `frontend/src/locales/*/translation.json` (5 files) |
+| 3.3 | Integrate into `Layout.tsx` | `frontend/src/components/Layout.tsx` |
+| 3.4 | Write unit tests | `frontend/src/components/__tests__/FeedbackWidget.test.tsx` |
+
+### Phase 4 — Integration and Testing
+
+1. Run unit tests:
+   ```
+   cd /projects/Charon && npx vitest run frontend/src/components/__tests__/FeedbackWidget.test.tsx
+   ```
+2. TypeScript check:
+   ```
+   cd /projects/Charon/frontend && npx tsc --noEmit
+   ```
+3. Rebuild E2E Docker container:
+   ```
+   .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+   ```
+4. Run Playwright spec:
+   ```
+   npx playwright test tests/feedback-widget.spec.ts --project=firefox
+   ```
+5. Smoke test: Run a subset of existing non-security shards to ensure no regressions.
+
+### Phase 5 — Documentation
+
+No README or CHANGELOG updates required for this internal UI component.
+
+---
+
+## 5. Component Data Flow
+
+```
+User Tab-focuses trigger button (bottom-right, z-50, fixed)
+     │
+     ▼
+User presses Enter/Space or clicks
+     │
+     ├── isOpen = false → isOpen = true
+     │   Panel transitions: opacity-0 scale-95 → opacity-100 scale-100
+     │   aria-expanded: "false" → "true"
+     │   Focus moves to first <a> (Bug link)
+     │
+     ▼
+User navigates links with Tab/Shift+Tab
+     │
+     ├── Enter on Bug link ─────────────────────────────────────────►
+     │   window opens: https://github.com/Wikid82/Charon/issues/new?template=bug_report.md
+     │   Panel stays open
+     │
+     ├── Enter on Feature link ──────────────────────────────────────►
+     │   window opens: https://github.com/Wikid82/Charon/issues/new?template=feature_request.md
+     │   Panel stays open
+     │
+     └── Escape key or click-outside
+         isOpen = true → isOpen = false
+         Panel transitions: opacity-100 → opacity-0 scale-95
+         aria-expanded: "true" → "false"
+         Focus returns to trigger button
 ```
 
 ---
 
-## 5. Database Schema
+## 6. Unit Tests Specification
 
-No schema changes required. `proxy_group_id` FK already exists on `proxy_hosts`.
+**File:** `frontend/src/components/__tests__/FeedbackWidget.test.tsx`
 
----
+Pattern: follows `NotificationCenter.test.tsx` (no ThemeProvider needed, no QueryClient needed — uses plain `render` from Testing Library).
 
-## 6. Implementation Phases
+The global `react-i18next` mock in `test/setup.ts` loads real `en/translation.json`. Once the `feedback` key is added, `t('feedback.reportBug')` will return `"Report a Bug"`.
 
-### Phase 1: Playwright Tests (Acceptance Criteria Scaffold)
-
-**New file**: `tests/proxy-host-drag-drop.spec.ts`
-
-Scaffold the full E2E spec before implementation:
-
-```typescript
-import { test, expect } from '@playwright/test';
-
-test.describe('Proxy Host Drag-and-Drop Group Assignment', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/proxy-hosts');
-  });
-
-  test('drag handle appears in grouped view', async ({ page }) => { ... });
-  test('drag handle absent in flat view', async ({ page }) => { ... });
-  test('drag single unselected host to different group', async ({ page }) => { ... });
-  test('drag selected host moves all selected hosts', async ({ page }) => { ... });
-  test('drag host to Ungrouped section removes group', async ({ page }) => { ... });
-  test('drop zone highlights while dragging over it', async ({ page }) => { ... });
-  test('ungrouped zone visible during drag even when empty', async ({ page }) => { ... });
-  test('keyboard: Space pick-up, arrow navigation, Space drop', async ({ page }) => { ... });
-  test('Escape cancels drag with no state change', async ({ page }) => { ... });
-});
-```
-
-**Validation gate**: Tests are written in Commit 8 using the acceptance criteria defined in Phase 1 as a guide.
-
-### Phase 2: Backend — Bulk Update Group Endpoint
-
-**Files**:
-- `backend/internal/api/handlers/proxy_host_handler.go`
-
-**Changes**:
-1. Add `BulkUpdateGroup` method (modeled exactly on `BulkUpdateACL` lines 804–860).
-2. Register `router.PUT("/proxy-hosts/bulk-update-group", h.BulkUpdateGroup)` in `RegisterRoutes`.
-
-**Complexity**: Low.
-**Validation gate**: `go test ./backend/...` passes. `curl -X PUT .../bulk-update-group` returns expected JSON.
-
-### Phase 3: Frontend API + Hook
-
-**Files**:
-- `frontend/src/api/proxyHosts.ts`
-- `frontend/src/hooks/useProxyHosts.ts`
-
-**Changes**: Per §3.2 and §3.3.
-**Validation gate**: Vitest passes. New unit test `useProxyHosts-bulkGroup.test.tsx` mocks the API and asserts the mutation works and invalidates the query.
-
-### Phase 4: New Components + DataTable Extension
-
-**Files** (created/modified):
-- `frontend/src/components/ProxyHostDragHandle.tsx` (new)
-- `frontend/src/components/GroupDropZone.tsx` (new)
-- `frontend/src/components/ui/DataTable.tsx` (modified — `renderDragHandle` prop)
-
-**Changes**: Per §3.5, §3.6, §3.7.
-**Validation gate**: `npm run type-check --prefix frontend` passes. Vitest component tests pass.
-
-### Phase 5: DnD Library + Hook
-
-**Files**:
-- `frontend/package.json` + lock file
-- `frontend/src/hooks/useProxyGroupDnD.ts` (new)
-
-**Install command**:
-```bash
-cd frontend && npm install @dnd-kit/core @dnd-kit/utilities
-```
-
-> `@dnd-kit/utilities` provides `CSS.Transform.toString()`, which is used to apply the DragOverlay transform style during pointer movement.
-
-**Changes**: Per §3.4.
-**Validation gate**: `npm run type-check --prefix frontend` passes. Hook unit tests pass.
-
-### Phase 6: Wire ProxyHosts.tsx
-
-**Files**:
-- `frontend/src/pages/ProxyHosts.tsx`
-
-**Changes**: Per §3.9.
-**Validation gate**: `npm run type-check` passes. Manual smoke test: drag host between groups in browser.
-
-### Phase 7: i18n + Tests
-
-**Files**:
-- `frontend/src/locales/en/translation.json` (and all other locale files)
-- `tests/proxy-host-drag-drop.spec.ts` (complete the spec from Phase 1)
-- `frontend/src/hooks/__tests__/useProxyGroupDnD.test.ts` (new)
-- `frontend/src/components/__tests__/ProxyHostDragHandle.test.tsx` (new)
-- `frontend/src/components/__tests__/GroupDropZone.test.tsx` (new)
-
-**`useProxyGroupDnD.test.ts` — minimum test cases**:
-
-| Test | Description |
-|------|-------------|
-| Happy path | Drag single host to new group → API called once, cache updated optimistically |
-| No-op | Drag host to same group → API NOT called, state unchanged |
-| API error | Mutation fails → cache rolled back to snapshot |
-| Partial success | `result.errors.length > 0` → no rollback (partial success is accepted) |
-| Rapid second drag | Second drag while first is pending → first completes before second begins (sequential, not parallel) |
-
-**Validation gate**: All Vitest + Playwright tests pass. `scripts/scan-gorm-security.sh --check` passes.
+| # | Test Case | Assertion |
+|---|---|---|
+| 1 | Component renders | Trigger button is in the document |
+| 2 | Default aria-label | `aria-label` = "Open feedback menu" |
+| 3 | Default aria-expanded | `aria-expanded` = `"false"` |
+| 4 | Panel hidden by default | Panel element has class `opacity-0` or `pointer-events-none` |
+| 5 | Open on click | After click: `aria-expanded` = `"true"` |
+| 6 | Bug link present | `getByRole('link', { name: /report a bug/i })` exists |
+| 7 | Bug link href | Bug link `href` = `GITHUB_BUG_URL` |
+| 8 | Feature link href | Feature link `href` = `GITHUB_FEATURE_URL` |
+| 9 | Links open new tab | Both links have `target="_blank"` |
+| 10 | Links are safe | Both links have `rel="noopener noreferrer"` |
+| 11 | Escape closes panel | After Escape: `aria-expanded` = `"false"` |
+| 12 | Focus returns on Escape | After Escape: `document.activeElement` = trigger button |
+| 13 | Second click closes panel | Click → open; click again → `aria-expanded` = `"false"` |
+| 14 | aria-label reflects state | When open, `aria-label` = "Close feedback menu" |
+| 15 | Focus moves to first link on open | After click: `document.activeElement` = bug report `<a>` (`firstLinkRef.current`) |
 
 ---
 
 ## 7. Acceptance Criteria
 
-| # | Criterion | Verification |
-|---|-----------|-------------|
-| 1 | GripVertical drag handle on each row in grouped view | Playwright |
-| 2 | No drag handle in flat (no-groups) view | Playwright |
-| 3 | Single host drags to different group | Playwright + API |
-| 4 | Selected host drag moves all selected hosts | Playwright |
-| 5 | Unselected host drag moves only that host | Playwright |
-| 6 | Drop on "Ungrouped" sets `proxy_group_id = null` | Playwright |
-| 7 | Drop zone ring highlights on hover | Playwright visual |
-| 8 | Ungrouped zone visible during drag when empty | Playwright |
-| 9 | Optimistic update before API returns | Manual |
-| 10 | API failure rolls back optimistic update | Vitest (mocked failure) |
-| 11 | Alphabetical order preserved within groups | Playwright |
-| 12 | Keyboard DnD: Space/Arrow/Space flow | Playwright a11y |
-| 13 | Screen reader announcements fire correctly | ARIA code review |
-| 14 | Bulk endpoint calls Caddy config once | Backend unit test |
-| 15 | `npm run type-check` passes | CI |
-| 16 | Vitest ≥ 85% overall coverage | CI |
-| 17 | GORM security scan: 0 CRITICAL/HIGH | `scripts/scan-gorm-security.sh --check` |
+| # | Criterion | Verified By |
+|---|---|---|
+| AC-1 | Widget trigger visible on `/dashboard` when authenticated | Playwright |
+| AC-2 | Widget absent from `/login`, `/setup`, `/accept-invite` | Playwright |
+| AC-3 | Clicking trigger opens panel with two links | Playwright + Unit |
+| AC-4 | Bug link href = GitHub bug template URL | Playwright + Unit |
+| AC-5 | Feature link href = GitHub feature template URL | Playwright + Unit |
+| AC-6 | Both links open in new tab | Playwright + Unit |
+| AC-7 | Keyboard navigation: Tab, Enter, Escape all work | Playwright + Unit |
+| AC-8 | Focus returns to trigger after Escape | Unit test #12 |
+| AC-9 | Widget renders above all other elements (z-50) | Visual review |
+| AC-10 | Dark mode renders correctly | Visual review |
+| AC-11 | All unit tests pass (15 tests) | `vitest run` |
+| AC-12 | No new runtime dependencies introduced | `package.json` diff |
+| AC-13 | TypeScript strict mode: zero errors | `tsc --noEmit` |
+| AC-14 | Clicking outside the widget closes the panel | Playwright |
+
+### Definition of Done
+
+- [ ] `FeedbackWidget.tsx` created, lint-clean, TypeScript error-free
+- [ ] i18n keys added to all 5 locale files (en, de, es, fr, zh)
+- [ ] `Layout.tsx` imports and renders `<FeedbackWidget />`
+- [ ] `FeedbackWidget.test.tsx` written with all 15 test cases passing
+- [ ] `tests/feedback-widget.spec.ts` Playwright spec written and passing on Firefox
+- [ ] `tsc --noEmit` passes
+- [ ] Visual review: widget visible bottom-right on dashboard in both light and dark mode
+- [ ] GORM security scan: N/A (no backend models changed)
 
 ---
 
-## 8. Accessibility
+## 8. Commit Slicing Strategy
 
-### Keyboard Interaction
+### Decision
 
-| Key | Effect |
-|-----|--------|
-| `Tab` | Focus next drag handle |
-| `Space` | Pick up item (start drag) |
-| `Arrow keys` | Move focus between drop zones |
-| `Space` / `Enter` | Drop into focused group |
-| `Escape` | Cancel drag, item stays in original group |
+**Single PR, single commit.** This feature is entirely frontend, confined to new files and two lines changed in `Layout.tsx`. No backend changes, no API changes, no schema migrations. One atomic commit is correct for this scope.
 
-### ARIA Attributes
+### Commit
 
-- Drag handle: `role="button"` (from dnd-kit `attributes`), `aria-roledescription`, `aria-label` (describes count if multi-select)
-- Drop zones: `aria-dropeffect="move"` while drag is active
-- Live region: `aria-live="assertive"` — managed automatically by `DndContext`'s `accessibility.announcements`
+```
+feat(ui): add feedback widget with GitHub issue links
 
-### Visual Requirements
+Add a persistent floating feedback widget to all authenticated pages.
+The widget provides direct links to GitHub Issues for bug reports and
+feature requests, opening each in a new browser tab. Implemented as a
+self-contained fixed-position component integrated into Layout.tsx.
 
-- Drag handle focus indicator: `focus-visible:ring-2 focus-visible:ring-brand-500` (≥ 3:1 contrast on UI boundary)
-- Drop zone highlight: `ring-2 ring-brand-400` on `surface-base` (≥ 3:1 contrast for UI component boundary)
-- `DragOverlay` card: `shadow-xl` for clear visual layering
-- Handle cursor: `cursor-grab` (default), `cursor-grabbing` (active)
+WCAG 2.2 AA: aria-expanded on trigger, <nav> landmark panel,
+native <a> links (no role="menu"/"menuitem"), keyboard navigation
+(Escape closes, Tab navigates natively, focus moves to first link
+on open), focus management (returns to trigger on close), visible
+focus ring (2.4.7 + 2.4.11).
 
----
+Zero new runtime dependencies.
 
-## 9. Edge Cases
+Closes #<issue-number>
+```
 
-| Scenario | Behavior |
-|----------|----------|
-| Drop on same group | No-op detected before optimistic update, returns early |
-| All dragged hosts fail | Full rollback, `toast.error` |
-| Some dragged hosts fail | Partial toast, `invalidateQueries` reconciles |
-| Group deleted while drag in progress | 404 from API, rollback + toast error |
-| `groups.length === 0` | Flat `DataTable` rendered, `DndContext` not mounted, no drag handles |
-| Click on drag handle (no drag) | `activationConstraint: { distance: 8 }` prevents; `onClick` stopPropagation prevents row toggle |
-| Touch device | `PointerSensor` handles native Pointer Events (touch included) |
-| Rapid consecutive drags | Optimistic cache is source-of-truth until `invalidateQueries` reconciles |
-
----
-
-## 10. Commit Slicing Strategy
-
-**Decision**: Single PR with 8 ordered logical commits. Each commit is independently valid and does not break the build.
-
-| # | Commit | Scope | Files | Dependencies | Validation Gate |
-|---|--------|-------|-------|-------------|----------------|
-| 1 | `chore(deps): add @dnd-kit/core and @dnd-kit/utilities` | deps | `frontend/package.json`, `frontend/package-lock.json` | none | `npm run type-check` |
-| 2 | `feat(backend): add BulkUpdateGroup handler and route` | backend API | `proxy_host_handler.go` | none | `go test ./backend/...` |
-| 3 | `feat(api): add bulkUpdateGroup to frontend API and hook` | frontend API | `proxyHosts.ts`, `useProxyHosts.ts` | Commit 2 | Vitest |
-| 4 | `feat(components): add DnD components and extend DataTable` | components | `ProxyHostDragHandle.tsx`, `GroupDropZone.tsx`, `DataTable.tsx` | Commit 1 | `type-check` + Vitest |
-| 5 | `feat(hooks): add useProxyGroupDnD with optimistic update` | hook | `useProxyGroupDnD.ts` | Commits 1, 3 | Vitest |
-| 6 | `feat(pages): wire DnD into ProxyHosts grouped view` | page | `ProxyHosts.tsx` | Commits 4, 5 | `type-check` + manual smoke |
-| 7 | `feat(i18n): add DnD translation keys` | i18n | locale files | Commit 6 | `npm run type-check` |
-| 8 | `test(dnd): add DnD unit + E2E test suite` | tests | spec files, `__tests__/*.tsx` | Commit 7 | Full test suite + Playwright |
-
-**Rollback note**: Commits 1–5 have zero visible UI impact. Commit 6 is the feature toggle. If Commit 6 must be reverted, prior commits remain in place harmlessly and can be re-applied.
-
----
-
-## 11. File Inventory
-
-### New Files
-
-| File | Purpose |
-|------|---------|
-| `frontend/src/components/ProxyHostDragHandle.tsx` | Drag handle using `useDraggable` |
-| `frontend/src/components/GroupDropZone.tsx` | Drop zone wrapper using `useDroppable` |
-| `frontend/src/hooks/useProxyGroupDnD.ts` | All DnD state logic, optimistic updates, rollback |
-| `tests/proxy-host-drag-drop.spec.ts` | Playwright E2E spec |
-| `frontend/src/hooks/__tests__/useProxyGroupDnD.test.ts` | Unit tests for hook |
-| `frontend/src/components/__tests__/ProxyHostDragHandle.test.tsx` | Unit tests for drag handle |
-| `frontend/src/components/__tests__/GroupDropZone.test.tsx` | Unit tests for drop zone |
-
-### Modified Files
+### Files Changed
 
 | File | Change |
-|------|--------|
-| `frontend/package.json` | Add `@dnd-kit/core`, `@dnd-kit/utilities` |
-| `frontend/src/api/proxyHosts.ts` | Add `BulkUpdateGroupRequest`, `BulkUpdateGroupResponse`, `bulkUpdateGroup` |
-| `frontend/src/hooks/useProxyHosts.ts` | Add `bulkUpdateGroup` mutation + expose from hook |
-| `frontend/src/components/ui/DataTable.tsx` | Add `renderDragHandle?: (row: T) => React.ReactNode` prop |
-| `frontend/src/pages/ProxyHosts.tsx` | Wrap grouped view in `DndContext`, use `GroupDropZone` and `ProxyHostDragHandle` |
-| `frontend/src/locales/en/translation.json` | Add `proxyGroups.dnd.*` keys |
-| `backend/internal/api/handlers/proxy_host_handler.go` | Add `BulkUpdateGroup` handler, register route |
+|---|---|
+| `frontend/src/components/FeedbackWidget.tsx` | New file |
+| `frontend/src/components/__tests__/FeedbackWidget.test.tsx` | New file |
+| `tests/feedback-widget.spec.ts` | New file |
+| `frontend/src/components/Layout.tsx` | +2 lines (import + JSX element) |
+| `frontend/src/locales/en/translation.json` | +10 lines (feedback key) |
+| `frontend/src/locales/de/translation.json` | +10 lines |
+| `frontend/src/locales/es/translation.json` | +10 lines |
+| `frontend/src/locales/fr/translation.json` | +10 lines |
+| `frontend/src/locales/zh/translation.json` | +10 lines |
 
----
+### Rollback
 
-## 12. Risks and Mitigations
+Remove the `import FeedbackWidget from './FeedbackWidget'` and `<FeedbackWidget />` from `Layout.tsx`. The remaining new files can stay in place harmlessly. No database state, no backend state to revert.
 
-| Risk | Likelihood | Mitigation |
-|------|-----------|-----------|
-| `@dnd-kit` bundle size | Low | Core + utilities only (~12 KB gzipped). No `@dnd-kit/sortable`. |
-| Accidental drag on row click | Medium | `activationConstraint: { distance: 8 }` + `onClick` stopPropagation on handle |
-| Touch device drag sensitivity | Medium | `PointerSensor` inherently handles touch; `distance: 8` prevents accidental drags |
-| N Caddy rebuilds for multi-select | Mitigated | Bulk endpoint calls `ApplyConfig` once per drag action |
-| ESLint `exhaustive-deps` | Medium | Use `useCallback` with correct deps; CI lint will catch |
-| Race: rapid consecutive drags | Low | Optimistic cache is authoritative; `invalidateQueries` reconciles after each API call |
+### Validation Gates
+
+1. `npx vitest run frontend/src/components/__tests__/FeedbackWidget.test.tsx` — 15 tests pass
+2. `cd frontend && npx tsc --noEmit` — zero errors
+3. `npx playwright test tests/feedback-widget.spec.ts --project=firefox` — spec passes
