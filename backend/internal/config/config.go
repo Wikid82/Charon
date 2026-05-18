@@ -15,27 +15,27 @@ import (
 
 // Config captures runtime configuration sourced from environment variables.
 type Config struct {
-	Environment     string
-	HTTPPort        string
-	DatabasePath    string
-	ConfigRoot      string
-	FrontendDir     string
-	CaddyAdminAPI   string
-	CaddyConfigDir  string
-	CaddyBinary     string
-	ImportCaddyfile string
-	ImportDir       string
-	JWTSecret       string
-	EncryptionKey   string
-	ACMEStaging     bool
-	SingleContainer bool
-	PluginsDir      string
-	CaddyLogDir     string
-	CrowdSecLogDir  string
-	Debug           bool
+	Environment           string
+	HTTPPort              string
+	DatabasePath          string
+	ConfigRoot            string
+	FrontendDir           string
+	CaddyAdminAPI         string
+	CaddyConfigDir        string
+	CaddyBinary           string
+	ImportCaddyfile       string
+	ImportDir             string
+	JWTSecret             string
+	EncryptionKey         string
+	ACMEStaging           bool
+	SingleContainer       bool
+	PluginsDir            string
+	CaddyLogDir           string
+	CrowdSecLogDir        string
+	Debug                 bool
 	CertExpiryWarningDays int
-	Security        SecurityConfig
-	Emergency       EmergencyConfig
+	Security              SecurityConfig
+	Emergency             EmergencyConfig
 }
 
 // SecurityConfig holds configuration for optional security services.

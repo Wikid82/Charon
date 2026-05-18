@@ -252,5 +252,3 @@ func TestDetectFormat_PEM(t *testing.T) {
 	format := DetectFormat(certPEM)
 	assert.Equal(t, FormatPEM, format)
 }
-
-

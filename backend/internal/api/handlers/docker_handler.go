@@ -22,9 +22,14 @@ type remoteServerGetter interface {
 	GetByUUID(uuidStr string) (*models.RemoteServer, error)
 }
 
+type orthrusProxyResolver interface {
+	GetProxyAddr(agentUUID string) (string, bool)
+}
+
 type DockerHandler struct {
 	dockerService       dockerContainerLister
 	remoteServerService remoteServerGetter
+	orthrusResolver     orthrusProxyResolver
 }
 
 func NewDockerHandler(dockerService dockerContainerLister, remoteServerService remoteServerGetter) *DockerHandler {
@@ -32,6 +37,10 @@ func NewDockerHandler(dockerService dockerContainerLister, remoteServerService r
 		dockerService:       dockerService,
 		remoteServerService: remoteServerService,
 	}
+}
+
+func (h *DockerHandler) SetOrthrusResolver(r orthrusProxyResolver) {
+	h.orthrusResolver = r
 }
 
 func (h *DockerHandler) RegisterRoutes(r *gin.RouterGroup) {
@@ -62,9 +71,25 @@ func (h *DockerHandler) ListContainers(c *gin.Context) {
 		}
 
 		// Construct Docker host string
-		// Assuming TCP for now as that's what RemoteServer supports (Host/Port)
-		// TODO: Support SSH if/when RemoteServer supports it
-		host = fmt.Sprintf("tcp://%s:%d", server.Host, server.Port)
+		switch server.ConnectionType {
+		case models.ConnectionTypeOrthrus:
+			if h.orthrusResolver == nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Orthrus subsystem unavailable"})
+				return
+			}
+			if server.OrthrusAgentUUID == nil || *server.OrthrusAgentUUID == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Remote server has no Orthrus agent UUID configured"})
+				return
+			}
+			proxyAddr, ok := h.orthrusResolver.GetProxyAddr(*server.OrthrusAgentUUID)
+			if !ok {
+				c.JSON(http.StatusBadGateway, gin.H{"error": "Orthrus agent is not currently connected"})
+				return
+			}
+			host = "tcp://" + proxyAddr
+		default:
+			host = fmt.Sprintf("tcp://%s:%d", server.Host, server.Port)
+		}
 	}
 
 	containers, err := h.dockerService.ListContainers(c.Request.Context(), host)

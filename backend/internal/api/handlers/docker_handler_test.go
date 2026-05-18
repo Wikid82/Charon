@@ -392,3 +392,109 @@ func TestDockerHandler_ListContainers_503DetailsWithGroupGuidance(t *testing.T) 
 	assert.Contains(t, w.Body.String(), "--group-add 988")
 	assert.Contains(t, w.Body.String(), "group_add")
 }
+
+type fakeOrthrusResolver struct {
+	addr string
+	ok   bool
+}
+
+func (f *fakeOrthrusResolver) GetProxyAddr(_ string) (string, bool) {
+	return f.addr, f.ok
+}
+
+func TestDockerHandler_ListContainers_OrthrusAgentConnected(t *testing.T) {
+	router := gin.New()
+	agentUUID := "agent-uuid-123"
+	dockerSvc := &fakeDockerService{ret: []services.DockerContainer{}}
+	remoteSvc := &fakeRemoteServerService{server: &models.RemoteServer{
+		ConnectionType:   models.ConnectionTypeOrthrus,
+		OrthrusAgentUUID: &agentUUID,
+	}}
+	h := NewDockerHandler(dockerSvc, remoteSvc)
+	h.SetOrthrusResolver(&fakeOrthrusResolver{addr: "127.0.0.1:54321", ok: true})
+
+	api := router.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?server_id=srv-1", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.True(t, dockerSvc.called)
+	assert.Equal(t, "tcp://127.0.0.1:54321", dockerSvc.host)
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestDockerHandler_ListContainers_OrthrusAgentOffline(t *testing.T) {
+	router := gin.New()
+	agentUUID := "agent-offline-uuid"
+	dockerSvc := &fakeDockerService{}
+	remoteSvc := &fakeRemoteServerService{server: &models.RemoteServer{
+		ConnectionType:   models.ConnectionTypeOrthrus,
+		OrthrusAgentUUID: &agentUUID,
+	}}
+	h := NewDockerHandler(dockerSvc, remoteSvc)
+	h.SetOrthrusResolver(&fakeOrthrusResolver{ok: false})
+
+	api := router.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?server_id=srv-1", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadGateway, w.Code)
+	assert.Contains(t, w.Body.String(), "Orthrus agent is not currently connected")
+	assert.False(t, dockerSvc.called)
+}
+
+func TestDockerHandler_ListContainers_OrthrusSubsystemUnavailable(t *testing.T) {
+	router := gin.New()
+	agentUUID := "agent-uuid-svc"
+	dockerSvc := &fakeDockerService{}
+	remoteSvc := &fakeRemoteServerService{server: &models.RemoteServer{
+		ConnectionType:   models.ConnectionTypeOrthrus,
+		OrthrusAgentUUID: &agentUUID,
+	}}
+	h := NewDockerHandler(dockerSvc, remoteSvc)
+	// orthrusResolver intentionally not set (nil)
+
+	api := router.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?server_id=srv-1", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	assert.Contains(t, w.Body.String(), "Orthrus subsystem unavailable")
+	assert.False(t, dockerSvc.called)
+}
+
+func TestDockerHandler_ListContainers_OrthrusMissingAgentUUID(t *testing.T) {
+	router := gin.New()
+	dockerSvc := &fakeDockerService{}
+	remoteSvc := &fakeRemoteServerService{server: &models.RemoteServer{
+		ConnectionType:   models.ConnectionTypeOrthrus,
+		OrthrusAgentUUID: nil,
+	}}
+	h := NewDockerHandler(dockerSvc, remoteSvc)
+	h.SetOrthrusResolver(&fakeOrthrusResolver{ok: true, addr: "127.0.0.1:1234"})
+
+	api := router.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?server_id=srv-1", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "no Orthrus agent UUID configured")
+	assert.False(t, dockerSvc.called)
+}
+
+func TestDockerHandler_SetOrthrusResolver_Nil(t *testing.T) {
+	h := NewDockerHandler(&fakeDockerService{}, &fakeRemoteServerService{})
+	h.SetOrthrusResolver(nil)
+	assert.Nil(t, h.orthrusResolver)
+}
