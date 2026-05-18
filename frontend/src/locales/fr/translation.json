@@ -1263,5 +1263,16 @@
         "pending": "En attente"
       }
     }
+  },
+  "feedback": {
+    "triggerLabel": "Ouvrir le menu de retour",
+    "closeTriggerLabel": "Fermer le menu de retour",
+    "panelLabel": "Options de retour",
+    "reportBug": "Signaler un bug",
+    "reportBugDescription": "Trouvé un problème ?",
+    "reportBugAriaLabel": "Signaler un bug (ouvre GitHub Issues dans un nouvel onglet)",
+    "requestFeature": "Demander une fonctionnalité",
+    "requestFeatureDescription": "Vous avez une idée ?",
+    "requestFeatureAriaLabel": "Demander une fonctionnalité (ouvre GitHub Issues dans un nouvel onglet)"
   }
 }
