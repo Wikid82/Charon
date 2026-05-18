@@ -75,8 +75,13 @@ func TestAgentSession_GetProxyAddr_WithPort(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = sess.Close() }()
 
+	ln, lnErr := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, lnErr)
+	t.Cleanup(func() { _ = ln.Close() })
+
 	sess.mu.Lock()
 	sess.proxyPort = 8080
+	sess.listener = ln
 	sess.mu.Unlock()
 
 	addr := sess.GetProxyAddr()
