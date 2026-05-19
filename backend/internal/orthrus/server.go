@@ -93,6 +93,11 @@ func (s *OrthrusServer) HandleWebSocket(c *gin.Context) {
 
 	s.sessions.Store(agent.UUID, session)
 
+	if err := session.StartDockerProxy(); err != nil {
+		logger.Log().WithField("uuid", util.SanitizeForLog(agent.UUID)).
+			WithError(err).Warn("orthrus: failed to start docker proxy listener")
+	}
+
 	now := time.Now()
 	if err := s.db.Model(agent).Updates(map[string]interface{}{
 		"status":    models.OrthrusStatusOnline,
@@ -163,6 +168,7 @@ func (s *OrthrusServer) watchHeartbeat(agentUUID string, sess *AgentSession) {
 			return
 		case <-ticker.C:
 			if !sess.IsAlive() {
+				_ = sess.Close() // stops runProxyListener goroutine; idempotent
 				s.markOffline(agentUUID)
 				s.sessions.Delete(agentUUID)
 				return
