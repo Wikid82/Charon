@@ -1,7 +1,6 @@
 package orthrus
 
 import (
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -69,10 +68,6 @@ func TestOrthrusServer_GetProxyAddr_SessionExists_WithProxy(t *testing.T) {
 
 	sess.mu.Lock()
 	sess.proxyPort = 9876
-	ln, err2 := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err2)
-	t.Cleanup(func() { _ = ln.Close() })
-	sess.listener = ln
 	sess.mu.Unlock()
 
 	srv.sessions.Store("with-proxy-uuid", sess)
