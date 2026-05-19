@@ -545,7 +545,8 @@ watchHeartbeat: sess.IsAlive() == false
 | `backend/internal/api/handlers/docker_handler_test.go` | Modify | Add orthrus resolver tests |
 | `backend/internal/orthrus/proxy_integration_test.go` | Create | Integration test stub (`//go:build integration`) |
 
----
+This is a 5-line change to one file. No scaffolding, no test setup, no
+multi-phase implementation. The entire work is one atomic commit.
 
 ## 7. Implementation Plan
 
