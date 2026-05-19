@@ -334,9 +334,9 @@ func createGitRepoWithCoverageInputs(t *testing.T) string {
 	t.Helper()
 
 	repoRoot := t.TempDir()
-	mustRunCommand(t, repoRoot, "git", "init")
-	mustRunCommand(t, repoRoot, "git", "config", "user.email", "test@example.com")
-	mustRunCommand(t, repoRoot, "git", "config", "user.name", "Test User")
+	mustRunCommand(t, repoRoot, "init")
+	mustRunCommand(t, repoRoot, "config", "user.email", "test@example.com")
+	mustRunCommand(t, repoRoot, "config", "user.name", "Test User")
 
 	paths := []string{
 		filepath.Join(repoRoot, "backend", "internal"),
@@ -367,20 +367,20 @@ func createGitRepoWithCoverageInputs(t *testing.T) string {
 		t.Fatalf("write frontend coverage: %v", err)
 	}
 
-	mustRunCommand(t, repoRoot, "git", "add", ".")
-	mustRunCommand(t, repoRoot, "git", "commit", "-m", "initial commit")
+	mustRunCommand(t, repoRoot, "add", ".")
+	mustRunCommand(t, repoRoot, "commit", "-m", "initial commit")
 
 	return repoRoot
 }
 
-func mustRunCommand(t *testing.T, dir string, name string, args ...string) {
+func mustRunCommand(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	// #nosec G204 -- Test helper executes deterministic local commands.
-	cmd := exec.Command(name, args...)
+	// #nosec G204 -- Test helper executes deterministic local git commands.
+	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("command %s %s failed: %v\n%s", name, strings.Join(args, " "), err, string(output))
+		t.Fatalf("command git %s failed: %v\n%s", strings.Join(args, " "), err, string(output))
 	}
 }
 
@@ -628,7 +628,7 @@ func TestRunMainSubprocessReturnsExitCode(t *testing.T) {
 
 func TestMustRunCommandHelper(t *testing.T) {
 	temp := t.TempDir()
-	mustRunCommand(t, temp, "git", "init")
+	mustRunCommand(t, temp, "init")
 
 	// #nosec G204 -- Test setup command with fixed arguments.
 	configEmail := exec.Command("git", "-C", temp, "config", "user.email", "test@example.com")
@@ -645,8 +645,8 @@ func TestMustRunCommandHelper(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 
-	mustRunCommand(t, temp, "git", "add", ".")
-	mustRunCommand(t, temp, "git", "commit", "-m", "test")
+	mustRunCommand(t, temp, "add", ".")
+	mustRunCommand(t, temp, "commit", "-m", "test")
 }
 
 func TestSubprocessHelperFailsWithoutSeparator(t *testing.T) {

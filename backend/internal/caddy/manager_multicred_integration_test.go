@@ -386,7 +386,7 @@ func TestApplyConfig_MultiCredential_CatchAll(t *testing.T) {
 }
 
 // assertDNSChallengeCredential is a helper to verify DNS challenge uses correct credentials
-func assertDNSChallengeCredential(t *testing.T, policy *AutomationPolicy, providerType, expectedToken string) {
+func assertDNSChallengeCredential(t *testing.T, policy *AutomationPolicy, providerType, expectedToken string) { //nolint:unparam // test helper; providerType may vary in future tests
 	t.Helper()
 
 	require.Greater(t, len(policy.IssuersRaw), 0, "Policy should have issuers")

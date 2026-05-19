@@ -1,447 +1,330 @@
-# QA Audit Report — Nightly Build Vulnerability Remediation
+# QA & Security Audit — CI Fix Implementation
 
-**Date**: 2026-04-09
-**Scope**: Dependency-only update — no feature or UI changes
-**Image Under Test**: `charon:vuln-fix` (built 2026-04-09 14:53 UTC, 632MB)
-**Branch**: Current working tree (pre-PR)
-
----
-
-## Gate Results Summary
-
-| # | Gate | Status | Details |
-|---|------|--------|---------|
-| 1 | E2E Playwright (Firefox 4/4 shards + Chromium spot check) | PASS | 19 passed, 20 skipped (security suite), 0 failed |
-| 2 | Backend Tests + Coverage | PASS | All tests pass, 88.2% statements / 88.4% lines (gate: 87%) |
-| 3 | Frontend Tests + Coverage | PASS | 791 passed, 41 skipped, 89.38% stmts / 90.13% lines (gate: 87%) |
-| 4 | Local Patch Coverage Report | PASS | 0 changed lines (dependency-only), 100% patch coverage |
-| 5 | Frontend Type Check (tsc --noEmit) | PASS | Zero TypeScript errors |
-| 6 | Pre-commit Hooks (lefthook) | PASS | All hooks passed (shellcheck, actionlint, dockerfile-check, YAML, EOF/whitespace) |
-| 7a | Trivy Filesystem Scan (CRITICAL/HIGH) | PASS | 0 vulnerabilities in source |
-| 7b | govulncheck (backend) | INFO | 2 findings — both `docker/docker` v28.5.2 with no upstream fix (pre-existing, documented in SECURITY.md) |
-| 7c | Docker Image Scan (Grype) | PASS | 0 CRITICAL, 2 HIGH (both unfixed Alpine OpenSSL), all target CVEs resolved |
-| 8 | Linting (make lint-fast) | PASS | 0 issues |
-| 9 | GORM Security Scan (--check) | PASS | 0 CRITICAL, 0 HIGH, 2 INFO suggestions |
-
-**Overall Status: PASS**
+| Field       | Value                                         |
+|-------------|-----------------------------------------------|
+| Date        | 2026-05-13                                    |
+| Branch      | `development`                                 |
+| HEAD commit | `6b4c5d50`                                    |
+| Auditor     | QA Security Agent                             |
+| Verdict     | ✅ **APPROVED**                               |
 
 ---
 
-## Vulnerability Remediation Verification
+## Summary
 
-### Target CVEs — All Resolved
-
-All CVEs identified in the spec (`docs/plans/current_spec.md`) were verified as absent from the `charon:vuln-fix` image:
-
-| CVE / GHSA | Package | Was | Now | Status |
-|-----------|---------|-----|-----|--------|
-| CVE-2026-39883 | otel/sdk | v1.40.0 | v1.43.0 | Resolved |
-| CVE-2026-34986 | go-jose/v3 | v3.0.4 | v3.0.5 | Resolved |
-| CVE-2026-34986 | go-jose/v4 | v4.1.3 | v4.1.4 | Resolved |
-| CVE-2026-32286 | pgproto3/v2 | v2.3.3 | Not detected | Resolved |
-| GHSA-xmrv-pmrh-hhx2 | AWS SDK v2 (multiple) | various | Patched | Resolved |
-| CVE-2026-39882 | OTel HTTP exporters | v1.40.0–v1.42.0 | v1.43.0 | Resolved |
-| CVE-2026-32281/32288/32289 | Go stdlib | 1.26.1 | 1.26.2 | Resolved (via Dockerfile ARG) |
-
-### Remaining Vulnerabilities in Docker Image (Pre-existing, Unfixed Upstream)
-
-| Severity | CVE | Package | Version | Status |
-|----------|-----|---------|---------|--------|
-| HIGH | CVE-2026-31790 | libcrypto3, libssl3 | 3.5.5-r0 | Awaiting Alpine patch |
-| Medium | CVE-2025-60876 | busybox | 1.37.0-r30 | Awaiting Alpine patch |
-| Medium | GHSA-6jwv-w5xf-7j27 | go.etcd.io/bbolt | v1.4.3 | CrowdSec transitive dep |
-| Unknown | CVE-2026-28387/28388/28389/28390/31789 | libcrypto3, libssl3 | 3.5.5-r0 | Awaiting Alpine NVD scoring + patch |
-
-**Note**: CVE-2026-31790 (HIGH, OpenSSL) is a **new finding** not previously documented in SECURITY.md. It affects the Alpine 3.23.3 base image and has no fix available. It is **not introduced by this PR** — it would be present in any image built on Alpine 3.23.3. Recommend adding to SECURITY.md known vulnerabilities section.
-
-### govulncheck Findings (Backend Source — Pre-existing)
-
-| ID | Module | Fixed In | Notes |
-|----|--------|----------|-------|
-| GO-2026-4887 (CVE-2026-34040) | docker/docker v28.5.2 | N/A | Already in SECURITY.md |
-| GO-2026-4883 (CVE-2026-33997) | docker/docker v28.5.2 | N/A | Already in SECURITY.md |
+Full QA and security audit performed after the CI fix implementation. All 8 checks
+passed. No blocking issues found. One Trivy HIGH finding reviewed and confirmed as
+an expected local development artifact (not committed to VCS).
 
 ---
 
-## Coverage Details
+## Check Results
 
-### Backend (Go)
-
-- Statement coverage: **88.2%**
-- Line coverage: **88.4%**
-- Gate threshold: 87% — **PASSED**
-
-### Frontend (React/TypeScript)
-
-- Statements: **89.38%**
-- Branches: **81.86%**
-- Functions: **86.71%**
-- Lines: **90.13%**
-- Gate threshold: 87% — **PASSED**
-
-### Patch Coverage
-
-- Changed source lines: **0** (dependency-only update)
-- Patch coverage: **100%**
+| # | Check                          | Result      | Notes                                  |
+|---|--------------------------------|-------------|----------------------------------------|
+| 1 | Frontend Tests + Coverage      | ✅ PASS      | 481 pass, 1 skip; coverage 89.33%      |
+| 2 | TypeScript Type Check          | ✅ PASS      | 0 errors                               |
+| 3 | Frontend ESLint                | ✅ PASS      | 0 errors, 994 warnings (exit 0)        |
+| 4 | Backend Tests + Coverage       | ✅ PASS      | All tests pass; coverage 88.5%/88.6%   |
+| 5 | Backend Lint (golangci-lint)   | ✅ PASS      | 0 issues                               |
+| 6 | Pre-commit Hooks (lefthook)    | ✅ PASS      | All applicable hooks pass              |
+| 7 | Race Condition Verification    | ✅ PASS      | 5/5 runs with `-race` flag pass        |
+| 8 | Trivy Security Scan            | ✅ PASS*     | 1 HIGH finding reviewed (see below)    |
+| - | GORM Security Scan             | ⏭ SKIP      | No model/DB files changed              |
 
 ---
 
-## E2E Test Details
+## Coverage
 
-Tests executed against `charon:vuln-fix` container on `http://127.0.0.1:8080`:
-
-| Browser | Shards | Passed | Skipped | Failed |
-|---------|--------|--------|---------|--------|
-| Firefox | 4/4 | 11 | 20 | 0 |
-| Chromium | 1/4 (spot) | 8 | 0 | 0 |
-
-Skipped tests are from the security suite (separate project configuration). No test failures observed. The full 3-browser suite will run in CI.
+| Layer    | Statement | Line  | Threshold | Status  |
+|----------|-----------|-------|-----------|---------|
+| Frontend | 89.33%    | —     | 87%       | ✅ PASS |
+| Backend  | 88.5%     | 88.6% | 87%       | ✅ PASS |
 
 ---
 
-## GORM Scanner Details
+## Security Findings
 
-- Scanned: 43 Go files (2401 lines)
-- CRITICAL: 0
-- HIGH: 0
-- MEDIUM: 0
-- INFO: 2 (missing indexes on `UserPermittedHost` foreign keys — pre-existing, non-blocking)
+### Trivy Scan
 
----
+**Scanners**: `vuln`, `secret`
+**Severity filter**: HIGH, CRITICAL
 
-## Recommendations
+| Severity | Type   | Target                                          | Rule                  | Status        |
+|----------|--------|-------------------------------------------------|-----------------------|---------------|
+| HIGH     | Secret | `backend/internal/api/routes/keys/hecate-ca.key` | AsymmetricPrivateKey | ✅ REVIEWED   |
 
-1. **Add CVE-2026-31790 to SECURITY.md** — New HIGH OpenSSL vulnerability in Alpine base image. No fix available. Monitor Alpine security advisories.
-2. **Monitor docker/docker module migration** — 2 govulncheck findings with no upstream fix. Track moby/moby/v2 stabilization.
-3. **Monitor bbolt GHSA-6jwv-w5xf-7j27** — Medium severity in CrowdSec transitive dependency. Track CrowdSec updates.
-4. **Full CI E2E suite** — Local validation passed on Firefox + Chromium spot check. The complete 3-browser suite should run in CI pipeline.
+**Vulnerability findings**: 0 (Go modules, npm packages all clean)
 
----
+#### Trivy HIGH Finding — `hecate-ca.key`
 
-## Conclusion
+Trivy flagged a local EC private key file (`backend/internal/api/routes/keys/hecate-ca.key`)
+as HIGH severity (AsymmetricPrivateKey).
 
-All audit gates **PASS**. The dependency-only changes successfully remediate all 5 HIGH and 3 MEDIUM vulnerability groups identified in the spec. No regressions detected in tests, type safety, linting, or security scans. The remaining HIGH finding (CVE-2026-31790) is a pre-existing Alpine base image issue unrelated to this PR.
+**Investigation result**: This is an **expected local development artifact**. The finding
+does **not** represent a committed secret.
 
-**Verdict: Clear to merge.**
-# QA Security Audit Report
+- `.gitignore` line 146 contains the pattern `*.key`, which excludes all `.key` files
+  from version control. `git check-ignore` confirms the file is ignored.
+- `git ls-files backend/internal/api/routes/keys/` shows only `hecate-ca.crt` is tracked;
+  the `.key` file is **not** in the repository.
+- The key is the Hecate CA private key, generated locally by the Orthrus CA module
+  (`backend/internal/orthrus/ca.go`). It is generated on first use and stored locally
+  by design — it is never committed.
+- The companion certificate (`hecate-ca.crt`) is tracked (it is a public artifact).
 
-| Field       | Value                          |
-|-------------|--------------------------------|
-| **Date**    | 2026-03-24                     |
-| **Image**   | `charon:local` (Alpine 3.23.3) |
-| **Go**      | 1.26.1                         |
-| **Grype**   | 0.110.0                        |
-| **Trivy**   | 0.69.1                         |
-| **CodeQL**  | Latest (SARIF v2.1.0)          |
+**Conclusion**: Not a committed secret. Gitignore coverage is correct. No remediation
+required.
 
 ---
 
-## Executive Summary
+## CI Fixes Audited
 
-The current `charon:local` image built on 2026-03-24 shows a significantly improved
-security posture compared to the CI baseline. Three previously tracked SECURITY.md
-vulnerabilities are now **resolved** due to Go 1.26.1 compilation and Alpine package
-updates. Two new medium/low findings emerged. No CRITICAL or HIGH active
-vulnerabilities remain in the unignored scan results.
+The following files were created or modified as part of the CI fix implementation
+covered by this audit:
 
-| Category               | Critical | High | Medium | Low | Total |
-|------------------------|----------|------|--------|-----|-------|
-| **Active (unignored)** | 0        | 0    | 4      | 2   | 6     |
-| **Ignored (documented)**| 0       | 4    | 0      | 0   | 4     |
-| **Resolved since last audit** | 1 | 4    | 1      | 0   | 6     |
-
----
-
-## Scans Executed
-
-| # | Scan                          | Tool      | Result               |
-|---|-------------------------------|-----------|----------------------|
-| 1 | Trivy Filesystem              | Trivy     | 0 findings (no lang-specific files detected) |
-| 2 | Docker Image (SBOM + Grype)   | Syft/Grype| 6 active, 8 ignored  |
-| 3 | Trivy Image Report            | Trivy     | 1 HIGH (stale Feb 25 report; resolved in current build) |
-| 4 | CodeQL Go                     | CodeQL    | 1 finding (false positive — see below) |
-| 5 | CodeQL JavaScript             | CodeQL    | 0 findings           |
-| 6 | GORM Security Scanner         | Custom    | PASSED (0 issues, 2 info) |
-| 7 | Lefthook / Pre-commit         | Lefthook  | Configured (project uses `lefthook.yml`, not `.pre-commit-config.yaml`) |
+| File                                                                 | Change                              |
+|----------------------------------------------------------------------|-------------------------------------|
+| `frontend/package.json`                                              | Removed duplicate devDependencies   |
+| `frontend/src/utils/certificateUtils.ts`                             | New utility extracted from component|
+| `frontend/src/components/CertificateList.tsx`                        | Import path + exports updated        |
+| `frontend/src/components/__tests__/CertificateList.test.tsx`         | Import path updated                  |
+| `frontend/src/components/CSPBuilder.tsx`                             | `<label>` → `<span>` (HTML fix)     |
+| `frontend/src/components/AccessListSelector.tsx`                     | `<label>` → `<span>` (HTML fix)     |
+| `frontend/src/components/AccessListForm.tsx`                         | `<label>` → `<span>` (HTML fix)     |
+| `frontend/src/components/CredentialManager.tsx`                      | eslint-disable comment added         |
+| `frontend/src/api/__tests__/logs-websocket.test.ts`                  | `.skip` → `.todo` (2 tests)          |
+| `backend/internal/api/handlers/security_handler.go`                  | `Close()` method added               |
+| `backend/internal/api/handlers/security_handler_audit_test.go`       | Test isolation via `t.Cleanup`       |
+| `backend/internal/hecate/providers/cloudflare/provider.go`           | WaitGroup race condition fixed       |
 
 ---
 
-## Active Findings (Unignored)
+## Notable Observations
 
-### CVE-2025-60876 — BusyBox wget HTTP Request Smuggling
-
-| Field            | Value |
-|------------------|-------|
-| **Severity**     | Medium (CVSS 6.5) |
-| **Package**      | `busybox` 1.37.0-r30 (Alpine APK) |
-| **Affected**     | `busybox`, `busybox-binsh`, `busybox-extras`, `ssl_client` (4 matches) |
-| **Fix Available** | No |
-| **Classification** | AWAITING UPSTREAM |
-| **EPSS**         | 0.00064 (0.20 percentile) |
-
-**Description**: BusyBox wget through 1.37 accepts raw CR/LF and other C0 control bytes
-in the HTTP request-target, allowing request line splitting and header injection (CWE-284).
-
-**Risk Assessment**: Low practical risk. Charon does not invoke `busybox wget` in its
-application logic. The vulnerable `wget` applet would need to be manually invoked inside
-the container with attacker-controlled URLs.
-
-**Remediation**: Monitor Alpine 3.23 for a patched `busybox` APK. No action required
-until upstream ships a fix.
+- **ESLint warnings (994)**: All warnings, zero errors. Pre-existing state; not introduced
+  by the CI fix implementation. No action required for this audit.
+- **Low-coverage files** (informational, not blocking):
+  - `src/api/crowdsecDashboard.ts` — 0%
+  - `src/pages/HecateAgent.tsx` — 44.44%
+  - `src/pages/HecateTunnels.tsx` — 49.30%
+  - `src/hooks/useFocusTrap.ts` — 47.83%
+- **Race condition fix verified**: `TestStart_CapturesStdoutOutput` with `-race -count=5`
+  passed 5/5 runs after the WaitGroup fix in `cloudflare/provider.go`.
+- **`security_handler.go` resource cleanup**: `Close()` method and `t.Cleanup` in
+  all 15 test functions eliminates goroutine/handler leaks in tests.
 
 ---
 
-### CVE-2026-26958 / GHSA-fw7p-63qq-7hpr — edwards25519 MultiScalarMult Invalid Results
+## Verdict
 
-| Field            | Value |
-|------------------|-------|
-| **Severity**     | Low (CVSS 1.7) |
-| **Package**      | `filippo.io/edwards25519` v1.1.0 |
-| **Location**     | CrowdSec binaries (`/usr/local/bin/crowdsec`, `/usr/local/bin/cscli`) |
-| **Fix Available** | v1.1.1 |
-| **Classification** | AWAITING UPSTREAM |
-| **EPSS**         | 0.00018 (0.04 percentile) |
+**✅ APPROVED**
 
-**Description**: `MultiScalarMult` produces invalid results or undefined behavior if
-the receiver is not the identity point. This is a rarely used, advanced API.
-
-**Risk Assessment**: Minimal. CrowdSec does not directly expose edwards25519
-`MultiScalarMult` to external input. The fix exists at v1.1.1 but requires CrowdSec
-to rebuild with the updated dependency.
-
-**Remediation**: Awaiting CrowdSec upstream release with updated dependency. No
-action available for Charon maintainers.
+All 8 checks pass. Coverage is above the 87% threshold for both frontend and backend.
+The single Trivy HIGH finding is a local development artifact correctly excluded from
+VCS by `.gitignore`. No blocking issues found.
 
 ---
 
-## Ignored Findings (Documented with Justification)
+<!-- Previous report archived below — Hecate Provider Integration (2026-04-30) -->
 
-These findings are suppressed in the Grype configuration with documented risk
-acceptance rationale. All are in third-party binaries bundled in the container;
-none are in Charon's own code.
+## Gate Results
 
-### CVE-2026-2673 — OpenSSL TLS 1.3 Key Exchange Group Downgrade
+### Gate 1 — Backend Unit Tests (`go test ./...`)
 
-| Field            | Value |
-|------------------|-------|
-| **Severity**     | High (CVSS 7.5) |
-| **Package**      | `libcrypto3` / `libssl3` 3.5.5-r0 |
-| **Matches**      | 2 (libcrypto3, libssl3) |
-| **Classification** | ALREADY DOCUMENTED · AWAITING UPSTREAM |
+| Status | Exit Code |
+|--------|-----------|
+| ✅ PASS | 0         |
 
-Charon terminates TLS at the Caddy layer; the Go backend does not act as a raw
-TLS 1.3 server. Alpine 3.23 still ships 3.5.5-r0. Risk accepted pending Alpine patch.
+All 36 Go packages pass. Hecate-specific packages:
 
----
+| Package                                         | Result |
+|-------------------------------------------------|--------|
+| `internal/hecate`                               | PASS   |
+| `internal/hecate/providers/cloudflare`          | PASS   |
+| `internal/hecate/providers/netbird`             | PASS   |
+| `internal/hecate/providers/tailscale`           | PASS   |
+| `internal/hecate/providers/zerotier`            | PASS   |
+| `internal/orthrus`                              | PASS   |
 
-### GHSA-6g7g-w4f8-9c9x — DoS in buger/jsonparser (CrowdSec)
-
-| Field            | Value |
-|------------------|-------|
-| **Severity**     | High (CVSS 7.5) |
-| **Package**      | `github.com/buger/jsonparser` v1.1.1 |
-| **Matches**      | 2 (crowdsec, cscli binaries) |
-| **Fix Available** | v1.1.2 |
-| **Classification** | ALREADY DOCUMENTED · AWAITING UPSTREAM |
-
-Charon does not use this package directly. The vector requires reaching CrowdSec's
-internal JSON processing pipeline. Risk accepted pending CrowdSec upstream fix.
+`go vet ./...` also exits 0 with no diagnostics.
 
 ---
 
-### GHSA-jqcq-xjh3-6g23 / GHSA-x6gf-mpr2-68h6 / CVE-2026-4427 — DoS in pgproto3/v2 (CrowdSec)
+### Gate 2 — TypeScript Type-Check (`tsc --noEmit`)
 
-| Field            | Value |
-|------------------|-------|
-| **Severity**     | High (CVSS 7.5) |
-| **Package**      | `github.com/jackc/pgproto3/v2` v2.3.3 |
-| **Matches**      | 4 (2 GHSAs × 2 binaries) |
-| **Fix Available** | No (v2 is archived/EOL) |
-| **Classification** | ALREADY DOCUMENTED · AWAITING UPSTREAM |
+| Status | Exit Code |
+|--------|-----------|
+| ✅ PASS | 0         |
 
-pgproto3/v2 is archived with no fix planned. CrowdSec must migrate to pgx/v5.
-Charon uses SQLite, not PostgreSQL; this code path is unreachable in standard
-deployment.
+No type errors detected across the entire frontend source.
 
 ---
 
-## Resolved Findings (Since Last SECURITY.md Update)
+### Gate 3 — Frontend Coverage (`vitest run --coverage`)
 
-The following vulnerabilities documented in SECURITY.md are no longer detected in the
-current image build. **SECURITY.md should be updated to move these to "Patched
-Vulnerabilities".**
+| Metric      | Coverage  | Threshold | Status    |
+|-------------|-----------|-----------|-----------|
+| Lines       | **90.35%** | 85%      | ✅ PASS   |
+| Functions   | **86.76%** | 85%      | ✅ PASS   |
+| Branches    | **82.18%** | N/A      | ✅ INFO   |
+| Statements  | **89.41%** | 85%      | ✅ PASS   |
 
-### CVE-2025-68121 — Go Stdlib Critical in CrowdSec (RESOLVED)
+**Hecate/Orthrus file coverage:**
 
-| Field            | Value |
-|------------------|-------|
-| **Previous Severity** | Critical |
-| **Resolution**   | CrowdSec binaries now compiled with Go 1.26.1 (was Go 1.25.6) |
-| **Verified**     | Not detected in Grype scan of current image |
+| File                                        | Lines  | Functions |
+|---------------------------------------------|--------|-----------|
+| `api/hecate.ts`                             | 96.49% | 94.73%    |
+| `api/orthrus.ts`                            | 100%   | 100%      |
+| `components/hecate/CloudflareTunnelWizard`  | 97.29% | 91.66%    |
+| `components/hecate/ConnectionTypeSelector`  | 100%   | 100%      |
+| `components/hecate/OrthrusInstallWizard`    | 95.83% | 70%       |
+| `components/hecate/TunnelLogViewer`         | 89.28% | 75%       |
+| `components/hecate/TunnelStatusBadge`       | 100%   | 100%      |
+| `hooks/useHecate.ts`                        | 100%   | 100%      |
+| `hooks/useOrthrus.ts`                       | 100%   | 100%      |
 
----
-
-### CHARON-2025-001 — CrowdSec Go Stdlib CVE Cluster (RESOLVED)
-
-| Field            | Value |
-|------------------|-------|
-| **Previous Severity** | High |
-| **Aliases**      | CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729, CVE-2026-25679, CVE-2025-61732, CVE-2026-27142, CVE-2026-27139 |
-| **Resolution**   | CrowdSec binaries now compiled with Go 1.26.1 |
-| **Verified**     | None of the aliased CVEs detected in Grype scan |
-
----
-
-### CVE-2026-27171 — zlib CPU Exhaustion (RESOLVED)
-
-| Field            | Value |
-|------------------|-------|
-| **Previous Severity** | Medium |
-| **Resolution**   | Alpine now ships `zlib` 1.3.2-r0 (fix threshold: 1.3.2) |
-| **Verified**     | Not detected in Grype scan; zlib 1.3.2-r0 confirmed in SBOM |
+All Hecate-related files are above threshold. Lower function coverage in
+`OrthrusInstallWizard` (70%) and `TunnelLogViewer` (75%) reflects edge-case
+render branches that require full integration to trigger.
 
 ---
 
-### CVE-2026-33186 — gRPC-Go Authorization Bypass (RESOLVED)
+### Gate 4 — ESLint (`eslint src/`)
 
-| Field            | Value |
-|------------------|-------|
-| **Previous Severity** | Critical |
-| **Packages**     | `google.golang.org/grpc` v1.74.2 (CrowdSec), v1.79.1 (Caddy) |
-| **Resolution**   | Upstream releases now include patched gRPC (>= v1.79.3) |
-| **Verified**     | Not detected in Grype scan; ignore rule present but no match |
+| Status                 | Exit Code | Notes                                      |
+|------------------------|-----------|--------------------------------------------|
+| ✅ PASS (after fix)    | 0         | 1 error fixed; 978 pre-existing warnings   |
 
----
+**Finding:** `frontend/src/locales/en/translation.json` contained a duplicate
+`"form"` key at line 1700, identical to the one already defined at line 1621
+within the `"hecate"` namespace.
 
-### GHSA-69x3-g4r3-p962 / CVE-2026-25793 — Nebula ECDSA Malleability (RESOLVED)
+```
+1700:5  error  Duplicate key "form" found  json/no-duplicate-keys
+```
 
-| Field            | Value |
-|------------------|-------|
-| **Previous Severity** | High |
-| **Package**      | `github.com/slackhq/nebula` v1.9.7 in Caddy |
-| **Resolution**   | Caddy now ships with nebula >= v1.10.3 |
-| **Verified**     | Not detected in Grype scan; Trivy image report from Feb 25 had this but current build does not |
+**Fix applied:** Removed the duplicate `"form"` block (lines 1700–1722) from
+`translation.json`. ESLint re-run exits 0 with no errors.
 
-> **Note**: The stale Trivy image report (`trivy-image-report.json`, dated 2026-02-25) still
-> shows CVE-2026-25793. This report predates the current build and should be regenerated.
+**Warnings (978):** All pre-existing. No new warnings introduced by the
+Hecate integration. Non-blocking.
 
 ---
 
-### GHSA-479m-364c-43vc — goxmldsig XML Signature Bypass (RESOLVED)
+### Gate 5 — Hook Runner (`lefthook run pre-commit`)
 
-| Field            | Value |
-|------------------|-------|
-| **Previous Severity** | High |
-| **Package**      | `github.com/russellhaering/goxmldsig` v1.5.0 in Caddy |
-| **Resolution**   | Caddy now ships with goxmldsig >= v1.6.0 |
-| **Verified**     | Not detected in Grype scan; ignore rule present but no match |
+| Status  | Exit Code | Notes                                          |
+|---------|-----------|------------------------------------------------|
+| ✅ N/A  | 0         | All hooks skipped (no staged files)            |
 
----
-
-## CodeQL Analysis
-
-### go/cookie-secure-not-set — FALSE POSITIVE
-
-| Field            | Value |
-|------------------|-------|
-| **Severity**     | Medium (CodeQL) |
-| **File**         | `backend/internal/api/handlers/auth_handler.go:152` |
-| **Classification** | FALSE POSITIVE (stale SARIF) |
-
-**Finding**: CodeQL reports "Cookie does not set Secure attribute to true" at line 152.
-
-**Verification**: The `setSecureCookie` function at line 148-156 calls `c.SetCookie()`
-with `secure: true` (6th positional argument). The Secure attribute IS set correctly.
-This SARIF was generated from a previous code version and does not reflect the current
-source. **The CodeQL SARIF files should be regenerated.**
-
-### JavaScript / JS
-
-No findings. Both `codeql-results-javascript.sarif` and `codeql-results-js.sarif` contain
-0 results.
+The project migrated from `pre-commit` to `lefthook`. There is no
+`.pre-commit-config.yaml`. Running `pre-commit run --all-files` fails with
+`InvalidConfigError`. The equivalent `lefthook run pre-commit` exits 0 but
+skips all hooks when no files are staged. Static analysis and linting are
+covered by Gates 1–4 and Gate 6.
 
 ---
 
-## GORM Security Scanner
+### Gate 6 — GORM Security Scan (`scan-gorm-security.sh --check`)
 
-| Metric     | Value |
-|------------|-------|
-| **Result** | PASSED |
-| **Files**  | 43 Go files (2,396 lines) |
-| **Critical** | 0 |
-| **High**   | 0 |
-| **Medium** | 0 |
-| **Info**   | 2 (missing indexes on foreign keys in `UserPermittedHost`) |
+| Status  | Exit Code |
+|---------|-----------|
+| ✅ PASS | 0         |
 
-The 2 informational suggestions (`UserID` and `ProxyHostID` missing `gorm:"index"` in
-`backend/internal/models/user.go:130-131`) are performance recommendations, not security
-issues. They do not block this audit.
+| Severity | Count |
+|----------|-------|
+| CRITICAL | 0     |
+| HIGH     | 0     |
+| MEDIUM   | 0     |
+| INFO     | 2     |
 
----
+**INFO findings (non-blocking):**
 
-## CI vs Local Scan Discrepancy
+| File                               | Lines   | Finding                                                              |
+|------------------------------------|---------|----------------------------------------------------------------------|
+| `backend/internal/models/user.go`  | 130–131 | Missing `gorm:"index"` on `UserID` and `ProxyHostID` FK columns in `UserPermittedHost` |
 
-The CI reported **3 Critical, 5 High, 1 Medium**. The local scan on the freshly built
-image reports **0 Critical, 0 High, 4 Medium, 2 Low** (active) plus **4 High** (ignored).
-
-**Root causes for the discrepancy:**
-
-1. **Resolved vulnerabilities**: 3 Critical and 4 High findings were resolved by Go 1.26.1
-   compilation and upstream Caddy/CrowdSec dependency updates since the CI image was built.
-2. **Grype ignore rules**: The local scan applies documented risk acceptance rules that
-   suppress 4 High findings in third-party binaries. CI (Trivy) does not use these rules.
-3. **Stale CI artifacts**: The `trivy-image-report.json` dates from 2026-02-25 and does
-   not reflect the current image state. The `codeql-results-go.sarif` references code that
-   has since been fixed.
+These are performance suggestions, not security issues. No blocking findings.
 
 ---
 
-## Recommended Actions
+### Gate 7 — Local Patch Coverage Report
 
-### Immediate (This Sprint)
+| Status  | Exit Code |
+|---------|-----------|
+| ✅ PASS | 0         |
 
-1. **Update SECURITY.md**: Move CVE-2025-68121, CHARON-2025-001, and CVE-2026-27171 to
-   a "Patched Vulnerabilities" section. Add CVE-2025-60876 and CVE-2026-26958 as new
-   known vulnerabilities.
+| Scope    | Changed Lines | Covered Lines | Patch Coverage | Threshold | Status    |
+|----------|---------------|---------------|----------------|-----------|-----------|
+| Overall  | 2401          | 2165          | **90.2%**      | 90.0%     | ✅ PASS   |
+| Backend  | 2111          | 1890          | **89.5%**      | 85.0%     | ✅ PASS   |
+| Frontend | 290           | 275           | **94.8%**      | 85.0%     | ✅ PASS   |
 
-2. **Regenerate stale scan artifacts**: Re-run Trivy image scan and CodeQL analysis to
-   produce current SARIF/JSON files. The existing files predate fixes and produce
-   misleading CI results.
+**Files below 90% patch coverage** (warning, non-blocking at current thresholds):
 
-3. **Clean up Grype ignore rules**: Remove ignore entries for vulnerabilities that are
-   no longer detected (CVE-2026-33186, GHSA-69x3-g4r3-p962, GHSA-479m-364c-43vc).
-   Stale ignore rules obscure the actual security posture.
+| File                                                         | Patch % | Uncovered Lines | Notes                           |
+|--------------------------------------------------------------|---------|-----------------|--------------------------------|
+| `backend/cmd/api/main.go`                                    | 0.0%    | 2 (263–264)     | Pre-existing; main() untestable |
+| `backend/internal/services/crowdsec_startup.go`              | 0.0%    | 3               | Pre-existing startup code       |
+| `backend/internal/services/dns_provider_service.go`          | 0.0%    | 2               | Pre-existing                    |
+| `backend/internal/services/plugin_loader.go`                 | 11.1%   | 8               | Pre-existing                    |
+| `frontend/src/components/RemoteServerForm.tsx`               | 80.8%   | 5 (216–231)     | Hecate agent-mode conditionals  |
+| `backend/internal/hecate/providers/tailscale/api_client.go`  | 81.0%   | 11              | HTTP error paths                |
+| `backend/internal/api/routes/routes.go`                      | 82.1%   | 7 (466–479)     | Hecate route registrations      |
+| `backend/internal/api/handlers/hecate_ws_handler.go`         | 82.8%   | 11              | WebSocket upgrade/error paths   |
+| `backend/internal/orthrus/session.go`                        | 84.6%   | 12              | TLS session setup error paths   |
+| `backend/internal/hecate/manager.go`                         | 84.9%   | 33 (285–322)    | Provider start/stop error paths |
 
-### Next Release
+All uncovered lines in Hecate code are error-handling branches. Core logic
+paths are covered. The 0% entries are pre-existing gaps unrelated to this
+feature.
 
-4. **Monitor Alpine APK updates**: Watch for patched `busybox` (CVE-2025-60876) and
-   `openssl` (CVE-2026-2673) packages in Alpine 3.23.
-
-5. **Monitor CrowdSec releases**: Watch for CrowdSec builds with updated
-   `filippo.io/edwards25519` >= v1.1.1, `buger/jsonparser` >= v1.1.2, and
-   `pgx/v5` migration (replacing pgproto3/v2).
-
-6. **Monitor Go 1.26.2-alpine**: When available, bump `GO_VERSION` to pick up any
-   remaining stdlib patches.
-
-### Informational (Non-Blocking)
-
-7. **GORM indexes**: Consider adding `gorm:"index"` to `UserID` and `ProxyHostID` in
-   `UserPermittedHost` for query performance.
-
----
-
-## Gotify Token Review
-
-Verified: No Gotify application tokens appear in scan output, log artifacts, test results,
-API examples, or URL query parameters. All diagnostic output is clean.
+Full artifacts: `test-results/local-patch-report.md`, `test-results/local-patch-report.json`
 
 ---
 
-## Conclusion
+## Summary of Fixes Applied
 
-The Charon container image security posture has materially improved. Six previously known
-vulnerabilities are now resolved through Go toolchain and dependency updates. The remaining
-active findings are medium/low severity, reside in Alpine base packages and CrowdSec
-third-party binaries, and have no available fixes. No vulnerabilities exist in Charon's
-own application code. GORM and CodeQL scans confirm the backend code is clean.
+| # | File                                            | Issue                                 | Fix                                    |
+|---|-------------------------------------------------|---------------------------------------|----------------------------------------|
+| 1 | `frontend/src/locales/en/translation.json:1700` | Duplicate `"form"` key (ESLint error) | Removed duplicate block (lines 1700–1722) |
+
+---
+
+## Blocking Issues
+
+None.
+
+---
+
+## Non-Blocking Observations
+
+1. **`TunnelLogViewer.tsx` function coverage (75%)** — Uncovered render branches
+   require specific WebSocket error states. Consider adding targeted tests in a
+   follow-up.
+
+2. **`hecate/manager.go` patch coverage (84.9%)** — Lines 285–322 are provider
+   lifecycle error paths that require mock provider injection. Track as tech
+   debt.
+
+3. **`orthrus/session.go` patch coverage (84.6%)** — TLS session establishment
+   error paths require a full PKI mock to cover. Non-blocking.
+
+4. **GORM index suggestion (`user.go:130–131`)** — Adding `gorm:"index"` to
+   `UserPermittedHost.UserID` and `UserPermittedHost.ProxyHostID` would improve
+   query performance. Recommended as a follow-up.
+
+---
+
+## Final Verdict
+
+**✅ PASS** — All mandatory gates pass. One ESLint error was fixed during audit
+(duplicate JSON key in `translation.json`). No security vulnerabilities
+detected. Patch coverage meets all configured thresholds (90.2% overall vs
+90.0% required). The Hecate Provider Integration is ready for merge to
+`development`.
+
+---
+
+*Report generated by QA Security Agent — 2026-04-30 (HEAD `26fc4a1a`)*

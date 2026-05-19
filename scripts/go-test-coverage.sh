@@ -129,7 +129,7 @@ if [ "$GO_TEST_STATUS" -ne 0 ]; then
     echo "============================================"
     echo "FAILED TEST SUMMARY:"
     echo "============================================"
-    grep -E "(FAIL:|--- FAIL:)" "$TEST_OUTPUT_FILE" || echo "No specific failures captured in output"
+    grep -E "(^--- FAIL:|^FAIL[[:space:]]|^WARNING: DATA RACE|^panic:)" "$TEST_OUTPUT_FILE" || echo "No specific failures captured in output"
     echo "============================================"
 fi
 

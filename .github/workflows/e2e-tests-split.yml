@@ -83,7 +83,7 @@ on:
 
 env:
   NODE_VERSION: '20'
-  GO_VERSION: '1.26.2'
+  GO_VERSION: '1.26.3'
   GOTOOLCHAIN: auto
   DOCKERHUB_REGISTRY: docker.io
   IMAGE_NAME: ${{ github.repository_owner }}/charon
@@ -151,7 +151,7 @@ jobs:
 
       - name: Set up Node.js
         if: steps.resolve-image.outputs.image_source == 'build'
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -225,7 +225,7 @@ jobs:
           ref: ${{ github.sha }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -286,7 +286,7 @@ jobs:
       - name: Wait for service health
         run: |
           echo "⏳ Waiting for Charon to be healthy..."
-          MAX_ATTEMPTS=30
+          MAX_ATTEMPTS=60
           ATTEMPT=0
           while [[ ${ATTEMPT} -lt ${MAX_ATTEMPTS} ]]; do
             ATTEMPT=$((ATTEMPT + 1))
@@ -427,7 +427,7 @@ jobs:
           ref: ${{ github.sha }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -488,7 +488,7 @@ jobs:
       - name: Wait for service health
         run: |
           echo "⏳ Waiting for Charon to be healthy..."
-          MAX_ATTEMPTS=30
+          MAX_ATTEMPTS=60
           ATTEMPT=0
           while [[ ${ATTEMPT} -lt ${MAX_ATTEMPTS} ]]; do
             ATTEMPT=$((ATTEMPT + 1))
@@ -637,7 +637,7 @@ jobs:
           ref: ${{ github.sha }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -698,7 +698,7 @@ jobs:
       - name: Wait for service health
         run: |
           echo "⏳ Waiting for Charon to be healthy..."
-          MAX_ATTEMPTS=30
+          MAX_ATTEMPTS=60
           ATTEMPT=0
           while [[ ${ATTEMPT} -lt ${MAX_ATTEMPTS} ]]; do
             ATTEMPT=$((ATTEMPT + 1))
@@ -859,7 +859,7 @@ jobs:
           ref: ${{ github.sha }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -935,7 +935,7 @@ jobs:
       - name: Wait for service health
         run: |
           echo "⏳ Waiting for Charon to be healthy..."
-          MAX_ATTEMPTS=30
+          MAX_ATTEMPTS=60
           ATTEMPT=0
           while [[ ${ATTEMPT} -lt ${MAX_ATTEMPTS} ]]; do
             ATTEMPT=$((ATTEMPT + 1))
@@ -980,6 +980,7 @@ jobs:
             --project=chromium \
             --shard=${{ matrix.shard }}/${{ matrix.total-shards }} \
             --output=playwright-output/chromium-shard-${{ matrix.shard }} \
+            tests/a11y \
             tests/core \
             tests/dns-provider-crud.spec.ts \
             tests/dns-provider-types.spec.ts \
@@ -1096,7 +1097,7 @@ jobs:
           ref: ${{ github.sha }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -1172,7 +1173,7 @@ jobs:
       - name: Wait for service health
         run: |
           echo "⏳ Waiting for Charon to be healthy..."
-          MAX_ATTEMPTS=30
+          MAX_ATTEMPTS=60
           ATTEMPT=0
           while [[ ${ATTEMPT} -lt ${MAX_ATTEMPTS} ]]; do
             ATTEMPT=$((ATTEMPT + 1))
@@ -1225,6 +1226,7 @@ jobs:
             --project=firefox \
             --shard=${{ matrix.shard }}/${{ matrix.total-shards }} \
             --output=playwright-output/firefox-shard-${{ matrix.shard }} \
+            tests/a11y \
             tests/core \
             tests/dns-provider-crud.spec.ts \
             tests/dns-provider-types.spec.ts \
@@ -1341,7 +1343,7 @@ jobs:
           ref: ${{ github.sha }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -1417,7 +1419,7 @@ jobs:
       - name: Wait for service health
         run: |
           echo "⏳ Waiting for Charon to be healthy..."
-          MAX_ATTEMPTS=30
+          MAX_ATTEMPTS=60
           ATTEMPT=0
           while [[ ${ATTEMPT} -lt ${MAX_ATTEMPTS} ]]; do
             ATTEMPT=$((ATTEMPT + 1))
@@ -1470,6 +1472,7 @@ jobs:
             --project=webkit \
             --shard=${{ matrix.shard }}/${{ matrix.total-shards }} \
             --output=playwright-output/webkit-shard-${{ matrix.shard }} \
+            tests/a11y \
             tests/core \
             tests/dns-provider-crud.spec.ts \
             tests/dns-provider-types.spec.ts \

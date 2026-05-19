@@ -230,20 +230,20 @@ func writeMarkdown(path string, report reportJSON, backendCoveragePath, frontend
 	var builder strings.Builder
 	builder.WriteString("# Local Patch Coverage Report\n\n")
 	builder.WriteString("## Metadata\n\n")
-	builder.WriteString(fmt.Sprintf("- Generated: %s\n", report.GeneratedAt))
-	builder.WriteString(fmt.Sprintf("- Baseline: `%s`\n", report.Baseline))
-	builder.WriteString(fmt.Sprintf("- Mode: `%s`\n\n", report.Mode))
+	fmt.Fprintf(&builder, "- Generated: %s\n", report.GeneratedAt)
+	fmt.Fprintf(&builder, "- Baseline: `%s`\n", report.Baseline)
+	fmt.Fprintf(&builder, "- Mode: `%s`\n\n", report.Mode)
 
 	builder.WriteString("## Inputs\n\n")
-	builder.WriteString(fmt.Sprintf("- Backend coverage: `%s`\n", backendCoveragePath))
-	builder.WriteString(fmt.Sprintf("- Frontend coverage: `%s`\n\n", frontendCoveragePath))
+	fmt.Fprintf(&builder, "- Backend coverage: `%s`\n", backendCoveragePath)
+	fmt.Fprintf(&builder, "- Frontend coverage: `%s`\n\n", frontendCoveragePath)
 
 	builder.WriteString("## Resolved Thresholds\n\n")
 	builder.WriteString("| Scope | Minimum (%) | Source |\n")
 	builder.WriteString("|---|---:|---|\n")
-	builder.WriteString(fmt.Sprintf("| Overall | %.1f | %s |\n", report.Thresholds.Overall, report.ThresholdSources.Overall))
-	builder.WriteString(fmt.Sprintf("| Backend | %.1f | %s |\n", report.Thresholds.Backend, report.ThresholdSources.Backend))
-	builder.WriteString(fmt.Sprintf("| Frontend | %.1f | %s |\n\n", report.Thresholds.Frontend, report.ThresholdSources.Frontend))
+	fmt.Fprintf(&builder, "| Overall | %.1f | %s |\n", report.Thresholds.Overall, report.ThresholdSources.Overall)
+	fmt.Fprintf(&builder, "| Backend | %.1f | %s |\n", report.Thresholds.Backend, report.ThresholdSources.Backend)
+	fmt.Fprintf(&builder, "| Frontend | %.1f | %s |\n\n", report.Thresholds.Frontend, report.ThresholdSources.Frontend)
 
 	builder.WriteString("## Coverage Summary\n\n")
 	builder.WriteString("| Scope | Changed Lines | Covered Lines | Patch Coverage (%) | Status |\n")
@@ -262,7 +262,7 @@ func writeMarkdown(path string, report reportJSON, backendCoveragePath, frontend
 			if len(fileCoverage.UncoveredChangedLineRange) > 0 {
 				ranges = strings.Join(fileCoverage.UncoveredChangedLineRange, ", ")
 			}
-			builder.WriteString(fmt.Sprintf("| `%s` | %.1f | %d | %s |\n", fileCoverage.Path, fileCoverage.PatchCoveragePct, fileCoverage.UncoveredChangedLines, ranges))
+			fmt.Fprintf(&builder, "| `%s` | %.1f | %d | %s |\n", fileCoverage.Path, fileCoverage.PatchCoveragePct, fileCoverage.UncoveredChangedLines, ranges)
 		}
 		builder.WriteString("\n")
 	}
@@ -270,14 +270,14 @@ func writeMarkdown(path string, report reportJSON, backendCoveragePath, frontend
 	if len(report.Warnings) > 0 {
 		builder.WriteString("## Warnings\n\n")
 		for _, warning := range report.Warnings {
-			builder.WriteString(fmt.Sprintf("- %s\n", warning))
+			fmt.Fprintf(&builder, "- %s\n", warning)
 		}
 		builder.WriteString("\n")
 	}
 
 	builder.WriteString("## Artifacts\n\n")
-	builder.WriteString(fmt.Sprintf("- Markdown: `%s`\n", report.Artifacts.Markdown))
-	builder.WriteString(fmt.Sprintf("- JSON: `%s`\n", report.Artifacts.JSON))
+	fmt.Fprintf(&builder, "- Markdown: `%s`\n", report.Artifacts.Markdown)
+	fmt.Fprintf(&builder, "- JSON: `%s`\n", report.Artifacts.JSON)
 
 	if err := os.WriteFile(path, []byte(builder.String()), 0o600); err != nil {
 		return fmt.Errorf("write markdown file: %w", err)

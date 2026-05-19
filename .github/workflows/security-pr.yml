@@ -226,11 +226,12 @@ jobs:
           ARTIFACT_ID=$(printf '%s' "${ARTIFACTS_JSON}" | jq -r --arg name "${ARTIFACT_NAME}" '.artifacts[] | select(.name == $name) | .id' | head -n 1)
 
           if [[ -z "${ARTIFACT_ID}" ]]; then
-            echo "❌ reason_category=not_found"
-            echo "reason=Required artifact was not found"
+            echo "⚠️ reason_category=not_found"
+            echo "reason=Artifact not found — build was likely skipped (e.g., renovate/chore PR)"
             echo "upstream_run_id=${RUN_ID}"
             echo "artifact_name=${ARTIFACT_NAME}"
-            exit 1
+            echo "artifact_exists=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
           {
@@ -241,7 +242,7 @@ jobs:
           echo "✅ Found artifact: ${ARTIFACT_NAME} (ID: ${ARTIFACT_ID})"
 
       - name: Download PR image artifact
-        if: github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch'
+        if: (github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch') && steps.check-artifact.outputs.artifact_exists == 'true'
         # actions/download-artifact v4.1.8
         uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317
         with:
@@ -250,7 +251,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Load Docker image
-        if: github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch'
+        if: (github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch') && steps.check-artifact.outputs.artifact_exists == 'true'
         id: load-image
         run: |
           echo "📦 Loading Docker image..."
@@ -364,14 +365,17 @@ jobs:
 
       - name: Run Trivy filesystem scan (SARIF output)
         if: steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request'
-        # aquasecurity/trivy-action 0.35.0
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
+        # aquasecurity/trivy-action 0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           scan-type: 'fs'
           scan-ref: ${{ steps.extract.outputs.binary_path }}
           format: 'sarif'
           output: 'trivy-binary-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
+          version: 'v0.70.0'
+          trivyignores: '.trivyignore'
+          config: 'trivy.yaml'
         continue-on-error: true
 
       - name: Check Trivy SARIF output exists
@@ -396,14 +400,17 @@ jobs:
 
       - name: Run Trivy filesystem scan (fail on CRITICAL/HIGH)
         if: steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request'
-        # aquasecurity/trivy-action 0.35.0
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
+        # aquasecurity/trivy-action 0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           scan-type: 'fs'
           scan-ref: ${{ steps.extract.outputs.binary_path }}
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
+          version: 'v0.70.0'
+          trivyignores: '.trivyignore'
+          config: 'trivy.yaml'
 
       - name: Upload scan artifacts
         if: always() && steps.trivy-sarif-check.outputs.exists == 'true'

@@ -1455,7 +1455,7 @@ func TestSendJSONPayload_ServiceSpecificValidation(t *testing.T) {
 	t.Run("slack_requires_text_or_blocks", func(t *testing.T) {
 		subSvc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
 
-		provider := models.NotificationProvider{
+		provider := models.NotificationProvider{ //nolint:gosec // G101: test credential
 			Type:     "slack",
 			URL:      "#test",
 			Token:    "https://hooks.slack.com/services/T00/B00/xxx",
@@ -3022,7 +3022,7 @@ func TestSendJSONPayload_Telegram_ChatIDInjectionAndDispatch(t *testing.T) {
 	svc := NewNotificationService(db, nil)
 	svc.telegramAPIBaseURL = server.URL
 
-	provider := models.NotificationProvider{
+	provider := models.NotificationProvider{ //nolint:gosec // G101: test credential
 		Type:     "telegram",
 		URL:      "123456789",      // chat_id
 		Token:    "fake-bot-token", // bot token
@@ -3060,7 +3060,7 @@ func TestSendJSONPayload_Telegram_NormalizesMessageToText(t *testing.T) {
 	svc.telegramAPIBaseURL = server.URL
 
 	// Custom template that produces "message" key instead of "text" — exercises normalization.
-	provider := models.NotificationProvider{
+	provider := models.NotificationProvider{ //nolint:gosec // G101: test credential
 		Type:     "telegram",
 		URL:      "987654321",
 		Token:    "fake-bot-token",
@@ -3089,7 +3089,7 @@ func TestSendJSONPayload_Telegram_RequiresTextField(t *testing.T) {
 	svc := NewNotificationService(db, nil)
 
 	// Custom template missing both 'text' and 'message' keys
-	provider := models.NotificationProvider{
+	provider := models.NotificationProvider{ //nolint:gosec // G101: test credential
 		Type:     "telegram",
 		URL:      "987654321",
 		Token:    "fake-bot-token",
@@ -3147,7 +3147,7 @@ func TestSendJSONPayload_Telegram_MarshalErrorOnChatIDInjection(t *testing.T) {
 	svc.telegramAPIBaseURL = server.URL
 
 	// Exercises the chat_id injection + marshal + body.Write path.
-	provider := models.NotificationProvider{
+	provider := models.NotificationProvider{ //nolint:gosec // G101: test credential
 		Type:     "telegram",
 		URL:      "999888777",
 		Token:    "valid-bot-token",
@@ -3238,7 +3238,7 @@ func TestNotificationService_CreateProvider_Slack(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	svc := NewNotificationService(db, nil)
 
-	provider := &models.NotificationProvider{
+	provider := &models.NotificationProvider{ //nolint:gosec // G101: test credential
 		Name:  "Slack Alerts",
 		Type:  "slack",
 		URL:   "#alerts",
@@ -3276,7 +3276,7 @@ func TestNotificationService_UpdateProvider_Slack_PreservesToken(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	svc := NewNotificationService(db, nil)
 
-	existing := models.NotificationProvider{
+	existing := models.NotificationProvider{ //nolint:gosec // G101: test credential
 		ID:    "prov-slack-token",
 		Type:  "slack",
 		Name:  "Slack Alerts",
@@ -3403,7 +3403,7 @@ func TestNotificationService_Slack_PayloadRequiresTextOrBlocks(t *testing.T) {
 
 	svc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
 
-	provider := models.NotificationProvider{
+	provider := models.NotificationProvider{ //nolint:gosec // G101: test credential
 		Type:     "slack",
 		URL:      "#test",
 		Token:    "https://hooks.slack.com/services/T00/B00/xxx",
@@ -3441,7 +3441,7 @@ func TestNotificationService_Slack_TokenNotExposedInList(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	svc := NewNotificationService(db, nil)
 
-	provider := &models.NotificationProvider{
+	provider := &models.NotificationProvider{ //nolint:gosec // G101: test credential
 		Name:  "Slack Secret",
 		Type:  "slack",
 		URL:   "#secret",
@@ -3507,7 +3507,7 @@ func TestSendJSONPayload_Slack_InvalidWebhookURLReturnsValidationError(t *testin
 	db := setupNotificationTestDB(t)
 	svc := NewNotificationService(db, nil)
 
-	provider := models.NotificationProvider{
+	provider := models.NotificationProvider{ //nolint:gosec // G101: test credential
 		Type:     "slack",
 		URL:      "#alerts",
 		Token:    "https://evil.com/not-a-slack-webhook",
@@ -3559,7 +3559,7 @@ func TestCreateProvider_Slack_InvalidTokenRejected(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	svc := NewNotificationService(db, nil)
 
-	provider := &models.NotificationProvider{
+	provider := &models.NotificationProvider{ //nolint:gosec // G101: test credential
 		Name:  "Slack Bad Token",
 		Type:  "slack",
 		URL:   "#alerts",
@@ -3574,7 +3574,7 @@ func TestUpdateProvider_Slack_InvalidNewTokenRejected(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	svc := NewNotificationService(db, nil)
 
-	existing := models.NotificationProvider{
+	existing := models.NotificationProvider{ //nolint:gosec // G101: test credential
 		ID:    "prov-slack-update-invalid",
 		Type:  "slack",
 		Name:  "Slack Alerts",
@@ -3583,7 +3583,7 @@ func TestUpdateProvider_Slack_InvalidNewTokenRejected(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&existing).Error)
 
-	update := models.NotificationProvider{
+	update := models.NotificationProvider{ //nolint:gosec // G101: test credential
 		ID:    "prov-slack-update-invalid",
 		Type:  "slack",
 		Name:  "Slack Alerts",
@@ -3599,7 +3599,7 @@ func TestUpdateProvider_Slack_UnchangedTokenSkipsValidation(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	svc := NewNotificationService(db, nil)
 
-	existing := models.NotificationProvider{
+	existing := models.NotificationProvider{ //nolint:gosec // G101: test credential
 		ID:    "prov-slack-update-unchanged",
 		Type:  "slack",
 		Name:  "Slack Alerts",

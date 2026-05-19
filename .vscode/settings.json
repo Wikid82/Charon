@@ -1,4 +1,5 @@
 {
+  "docker.host": "unix:///run/user/1001/docker.sock",
   "gopls": {
     "buildFlags": ["-tags=integration"]
   },

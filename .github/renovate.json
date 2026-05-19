@@ -7,7 +7,6 @@
     "helpers:pinGitHubActionDigests"
   ],
   "baseBranchPatterns": [
-    "feature/beta-release",
     "development"
   ],
   "postUpdateOptions": ["npmDedupe"],
@@ -24,6 +23,7 @@
     ".docker/**"
   ],
 
+  "minimumReleaseAge": null,
   "rebaseWhen": "auto",
 
   "vulnerabilityAlerts": {
@@ -63,6 +63,19 @@
       ],
       "datasourceTemplate": "go",
       "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track Go major-version module patches in Dockerfile via github-tags (workaround: Renovate go datasource cannot resolve /vN paths from custom managers)",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=github-tags\\s+depName=(?<depName>[^\\s]+)\\s*\\n\\s*go get [^@]+@v(?<currentValue>[^\\s|]+)"
+      ],
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v(?<version>.+)$"
     },
     {
       "customType": "regex",
@@ -242,6 +255,20 @@
       "depNameTemplate": "golang/go",
       "datasourceTemplate": "golang-version",
       "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track golangci-lint version in quality checks workflow",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/quality-checks\\.yml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=github-releases depName=golangci/golangci-lint\\n\\s+version: v(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "golangci/golangci-lint",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v(?<version>.*)"
     }
   ],
 
@@ -265,18 +292,11 @@
         "*"
       ]
     },
-        {
-      "description": "Feature branches: Auto-merge non-major updates after proven stable",
-      "matchBaseBranches": ["feature/**"],
-      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
-      "automerge": false
-    },
     {
       "description": "Development branch: Auto-merge non-major updates after proven stable",
       "matchBaseBranches": ["development"],
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
-      "automerge": false,
-      "minimumReleaseAge": "14 days"
+      "automerge": false
     },
     {
       "description": "Preserve your custom Caddy patch labels but allow them to group into a single PR",
@@ -296,22 +316,31 @@
       "allowedVersions": "<3.0.0"
     },
     {
-      "description": "Go: keep pgx within v4 (CrowdSec requires pgx/v4 module path)",
+      "description": "Go: keep pgx within v4 (CrowdSec requires pgx/v4 module path) - applies to go.mod lookups",
       "matchDatasources": ["go"],
       "matchPackageNames": ["github.com/jackc/pgx/v4"],
-      "allowedVersions": "<5.0.0"
+      "allowedVersions": "<5.0.0",
+      "sourceUrl": "https://github.com/jackc/pgx"
+    },
+    {
+      "description": "jackc/pgx via github-tags: constrain to v4.x.x patch releases (Dockerfile CVE pin)",
+      "matchDatasources": ["github-tags"],
+      "matchPackageNames": ["jackc/pgx"],
+      "allowedVersions": ">=4.0.0 <5.0.0"
     },
     {
       "description": "Go: keep go-jose/v3 within v3 (v4 is a different Go module path)",
       "matchDatasources": ["go"],
       "matchPackageNames": ["github.com/go-jose/go-jose/v3"],
-      "allowedVersions": "<4.0.0"
+      "allowedVersions": "<4.0.0",
+      "sourceUrl": "https://github.com/go-jose/go-jose"
     },
     {
       "description": "Go: keep go-jose/v4 within v4 (v5 would be a different Go module path)",
       "matchDatasources": ["go"],
       "matchPackageNames": ["github.com/go-jose/go-jose/v4"],
-      "allowedVersions": "<5.0.0"
+      "allowedVersions": "<5.0.0",
+      "sourceUrl": "https://github.com/go-jose/go-jose"
     },
     {
       "description": "Safety: Keep MAJOR updates separate and require manual review",
@@ -324,6 +353,66 @@
       "matchDatasources": ["go"],
       "matchPackageNames": ["github.com/oschwald/geoip2-golang/v2"],
       "sourceUrl": "https://github.com/oschwald/geoip2-golang"
+    },
+    {
+      "description": "Fix Renovate lookup for google/uuid",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/google/uuid"],
+      "sourceUrl": "https://github.com/google/uuid"
+    },
+    {
+      "description": "Fix Renovate lookup for golang-jwt/jwt v5 module path",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/golang-jwt/jwt/v5"],
+      "sourceUrl": "https://github.com/golang-jwt/jwt"
+    },
+    {
+      "description": "Fix Renovate lookup for robfig/cron v3 module path",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/robfig/cron/v3"],
+      "sourceUrl": "https://github.com/robfig/cron"
+    },
+    {
+      "description": "Fix Renovate lookup for oschwald/maxminddb-golang v2 module path",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/oschwald/maxminddb-golang/v2"],
+      "sourceUrl": "https://github.com/oschwald/maxminddb-golang"
+    },
+    {
+      "description": "Fix Renovate lookup for cespare/xxhash v2 module path",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/cespare/xxhash/v2"],
+      "sourceUrl": "https://github.com/cespare/xxhash"
+    },
+    {
+      "description": "Fix Renovate lookup for klauspost/cpuid v2 module path",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/klauspost/cpuid/v2"],
+      "sourceUrl": "https://github.com/klauspost/cpuid"
+    },
+    {
+      "description": "Fix Renovate lookup for pelletier/go-toml v2 module path",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/pelletier/go-toml/v2"],
+      "sourceUrl": "https://github.com/pelletier/go-toml"
+    },
+    {
+      "description": "Fix Renovate lookup for go-playground/validator v10 module path",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/go-playground/validator/v10"],
+      "sourceUrl": "https://github.com/go-playground/validator"
+    },
+    {
+      "description": "Fix Renovate lookup for gorm.io/gorm (vanity domain maps to go-gorm/gorm)",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["gorm.io/gorm"],
+      "sourceUrl": "https://github.com/go-gorm/gorm"
+    },
+    {
+      "description": "Fix Renovate lookup for gorm.io/driver/sqlite (vanity domain maps to go-gorm/sqlite)",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["gorm.io/driver/sqlite"],
+      "sourceUrl": "https://github.com/go-gorm/sqlite"
     }
   ]
 }

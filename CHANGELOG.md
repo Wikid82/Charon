@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Hecate Tunnel & Pathway Manager**: Connect remote servers behind NAT/firewalls without opening inbound ports, with pluggable connection types managed from the Remote Servers page (Issue #368)
+  - Connection types: Direct (host/port), Orthrus Agent (self-hosted), Cloudflare Tunnel, Tailscale, ZeroTier, NetBird
+  - Tunnel lifecycle management: create, start, stop, delete, rotate credentials
+  - Real-time tunnel log streaming to browser via WebSocket
+  - Orthrus agent provisioning with one-time auth key display and multi-method install wizard (Docker Compose, systemd, Tarball, Homebrew, Kubernetes)
+  - `TunnelStatusBadge` component on the Remote Servers page showing live connection state
+  - Orthrus agent binary published as `ghcr.io/wikid82/charon-orthrus-agent` (~2.4 MB, scratch-based)
+  - CI workflow for automated Orthrus agent image publishing
+  - E2E Playwright test coverage for tunnel manager and agent install wizard
+
+- **Accessibility Testing**: Integrated `@axe-core/playwright` for automated WCAG 2.0/2.1/2.2 AA accessibility testing across all application pages (Issue #929)
+  - Added 12 accessibility test specs: login, dashboard, proxy hosts, certificates, DNS providers, settings, security, uptime, tasks, domains, notifications, and setup pages
+  - Tests target WCAG 2.0 Level A/AA and WCAG 2.2 Level AA rule sets via axe-core
+  - Known violations baselined in `tests/a11y/a11y-baseline.ts` with per-entry expiry dates for tracked remediation
+  - Authenticated tests share a logged-in auth fixture; login page runs unauthenticated to test the pre-auth state
+  - Canvas elements excluded from scanning to prevent false positives from chart libraries (CrowdSec dashboard, Uptime monitors)
+  - Accessibility tests run in CI across Chromium, Firefox, and WebKit browsers via the non-security test shards
+
 - **CrowdSec Dashboard**: Visual analytics for CrowdSec security data within the Security section
   - Summary cards showing total bans, active bans, unique IPs, and top scenario
   - Interactive charts: ban timeline (area), top attacking IPs (bar), scenario breakdown (pie)
@@ -49,6 +67,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **CVE-2026-34040**: Remediated high-severity vulnerability by migrating from `github.com/docker/docker` to `github.com/moby/moby/client v0.4.1`
+  - Affected component: Docker client SDK used for container management features
+  - Resolution: Updated `go.mod` to reference the actively maintained `moby/moby` module
+
 - **Supply Chain**: Enhanced PR verification workflow stability and accuracy
   - **Vulnerability Reporting**: Eliminated false negatives ("0 vulnerabilities") by enforcing strict failure conditions
   - **Tooling**: Switched to manual Grype installation ensuring usage of latest stable binary
@@ -67,6 +89,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Prevents timeout errors in Firefox/WebKit caused by strict label matching
 
 ### Fixed
+
+- **CI: Package Deduplication**: Removed 3 duplicate `devDependency` keys in `package.json` for `@typescript-eslint/eslint-plugin`, `@typescript-eslint/parser`, and related packages — duplicate keys caused the last value to silently overwrite earlier entries
+- **Frontend: Fast-Refresh Violation**: Extracted `isInUse` and `isDeletable` helper functions from `CertificateList` into a new `certificateUtils` utility module to satisfy React Fast Refresh constraints (non-component exports must not share a file with components)
+- **Accessibility: Form Labels**: Replaced 5 invalid `<label>` elements wrapping non-labelable content with `<span>` elements in `AccessListForm`, `AccessListSelector`, and `CSPBuilder` — resolves WCAG 1.3.1 failures reported by axe-core
+- **Tests: Disabled Test Markers**: Replaced 2 `.skip()` calls with `.todo()` in WebSocket logs tests — `.skip()` silently suppresses failures; `.todo()` correctly signals tests that are planned but not yet implemented
+- **Backend Tests: Goroutine Leak**: Fixed `SecurityHandler` goroutine leak in parallel tests by adding a `Close()` method and registering cleanup via `t.Cleanup()` — goroutines started during handler initialization are now reliably torn down after each test
+- **Backend: Race Condition**: Fixed stdout capture race condition in the Cloudflare DNS provider — `sync.WaitGroup` now ensures all scanner goroutines finish before the ring buffer is closed, preventing data races under `go test -race`
 
 - **Notifications:** Fixed Pushover token-clearing bug where tokens were silently stripped on provider create/update
 - **TCP Monitor Creation**: Fixed misleading form UX that caused silent HTTP 500 errors when creating TCP monitors

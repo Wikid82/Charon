@@ -2,6 +2,8 @@
 
 # This script updates npm dependencies for the project.
 
+export PATH="/usr/share/nodejs/corepack/shims:$PATH"
+
 cd /projects/Charon || exit
 
 echo "Updating root npm dependencies..."

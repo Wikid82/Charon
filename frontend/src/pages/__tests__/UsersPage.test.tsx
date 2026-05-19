@@ -1,7 +1,7 @@
 import { screen, waitFor, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { act } from 'react'
-import { vi, describe, it, expect, beforeEach } from 'vitest'
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 
 import client from '../../api/client'
 import * as proxyHostsApi from '../../api/proxyHosts'
@@ -263,7 +263,7 @@ describe('UsersPage', () => {
       expect(screen.getByPlaceholderText('user@example.com')).toBeTruthy()
     })
 
-    await user.type(screen.getByPlaceholderText('user@example.com'), 'new@example.com')
+      fireEvent.change(screen.getByPlaceholderText('user@example.com'), { target: { value: 'new@example.com' } })
     await user.click(screen.getByRole('button', { name: /^Send Invite$/i }))
 
     await waitFor(() => {
@@ -364,7 +364,7 @@ describe('UsersPage', () => {
     const user = userEvent.setup()
     expect(await screen.findByText('Invite User')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Invite User/i }))
-    await user.type(screen.getByPlaceholderText('user@example.com'), 'manual@example.com')
+      fireEvent.change(screen.getByPlaceholderText('user@example.com'), { target: { value: 'manual@example.com' } })
     await user.click(screen.getByRole('button', { name: /^Send Invite$/i }))
 
     await waitFor(() => {
@@ -447,18 +447,23 @@ describe('UsersPage', () => {
       const user = userEvent.setup()
       expect(await screen.findByText('Invite User')).toBeInTheDocument()
       await user.click(screen.getByRole('button', { name: /Invite User/i }))
+      expect(await screen.findByPlaceholderText('user@example.com')).toBeInTheDocument()
 
-      const emailInput = screen.getByPlaceholderText('user@example.com')
-      await user.type(emailInput, 'test@example.com')
+      vi.useFakeTimers()
 
-      await waitFor(() => {
+      try {
+        const emailInput = screen.getByPlaceholderText('user@example.com')
+        fireEvent.change(emailInput, { target: { value: 'test@example.com' } })
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(550)
+        })
+
         expect(client.post).toHaveBeenCalledWith('/users/preview-invite-url', { email: 'test@example.com' })
-      }, { timeout: 2000 })
-
-      // Look for the preview URL content with ellipsis replacing the token
-      await waitFor(() => {
         expect(screen.getByText('https://charon.example.com/accept-invite?token=...')).toBeInTheDocument()
-      }, { timeout: 2000 })
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('debounces URL preview for 500ms', async () => {
@@ -517,20 +522,27 @@ describe('UsersPage', () => {
       const user = userEvent.setup()
       expect(await screen.findByText('Invite User')).toBeInTheDocument()
       await user.click(screen.getByRole('button', { name: /Invite User/i }))
+      expect(await screen.findByPlaceholderText('user@example.com')).toBeInTheDocument()
 
-      const emailInput = screen.getByPlaceholderText('user@example.com')
-      await user.type(emailInput, 'test@example.com')
+      vi.useFakeTimers()
 
-      await waitFor(() => {
+      try {
+        const emailInput = screen.getByPlaceholderText('user@example.com')
+        fireEvent.change(emailInput, { target: { value: 'test@example.com' } })
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(550)
+        })
+
         expect(client.post).toHaveBeenCalledWith('/users/preview-invite-url', { email: 'test@example.com' })
-      }, { timeout: 2000 })
 
-      await waitFor(() => {
         const preview = screen.getByText('https://example.com/accept-invite?token=...')
-
         expect(preview.textContent).toContain('...')
         expect(preview.textContent).not.toContain('SAMPLE_TOKEN_PREVIEW')
-      }, { timeout: 2000 })
+      }
+      finally {
+        vi.useRealTimers()
+      }
     })
 
     it('shows warning when not configured', async () => {
@@ -550,19 +562,26 @@ describe('UsersPage', () => {
       const user = userEvent.setup()
       expect(await screen.findByText('Invite User')).toBeInTheDocument()
       await user.click(screen.getByRole('button', { name: /Invite User/i }))
+      expect(await screen.findByPlaceholderText('user@example.com')).toBeInTheDocument()
 
-      const emailInput = screen.getByPlaceholderText('user@example.com')
-      await user.type(emailInput, 'test@example.com')
+      vi.useFakeTimers()
 
-      await waitFor(() => {
+      try {
+        const emailInput = screen.getByPlaceholderText('user@example.com')
+        fireEvent.change(emailInput, { target: { value: 'test@example.com' } })
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(550)
+        })
+
         expect(client.post).toHaveBeenCalledWith('/users/preview-invite-url', { email: 'test@example.com' })
-      }, { timeout: 2000 })
 
-      await waitFor(() => {
         // Look for link to system settings
         const link = screen.getByRole('link')
         expect(link.getAttribute('href')).toContain('/settings/system')
-      }, { timeout: 2000 })
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('does not show preview when email is invalid', async () => {
@@ -594,17 +613,27 @@ describe('UsersPage', () => {
       const user = userEvent.setup()
       expect(await screen.findByText('Invite User')).toBeInTheDocument()
       await user.click(screen.getByRole('button', { name: /Invite User/i }))
+      expect(await screen.findByPlaceholderText('user@example.com')).toBeInTheDocument()
 
-      const emailInput = screen.getByPlaceholderText('user@example.com')
-      await user.type(emailInput, 'test@example.com')
+      vi.useFakeTimers()
 
-      await waitFor(() => {
+      try {
+        const emailInput = screen.getByPlaceholderText('user@example.com')
+        fireEvent.change(emailInput, { target: { value: 'test@example.com' } })
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(550)
+        })
+
         expect(client.post).toHaveBeenCalledWith('/users/preview-invite-url', { email: 'test@example.com' })
-      }, { timeout: 2000 })
 
-      // Verify preview is not displayed after error
-      const previewQuery = screen.queryByText(/accept-invite/)
-      expect(previewQuery).toBeNull()
+        // Verify preview is not displayed after error
+        const previewQuery = screen.queryByText(/accept-invite/)
+        expect(previewQuery).toBeNull()
+      }
+      finally {
+        vi.useRealTimers()
+      }
     })
   })
 

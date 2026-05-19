@@ -6,6 +6,7 @@ const coverageThresholdValue =
   process.env.CHARON_MIN_COVERAGE ?? process.env.CPM_MIN_COVERAGE ?? '87.0'
 const coverageThreshold = Number.parseFloat(coverageThresholdValue)
 const resolvedCoverageThreshold = Number.isNaN(coverageThreshold) ? 87.0 : coverageThreshold
+const coverageReportsDirectory = process.env.VITEST_COVERAGE_REPORTS_DIR ?? './coverage'
 
 export default defineConfig({
   plugins: [react()],
@@ -34,6 +35,7 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       clean: false,
+      reportsDirectory: coverageReportsDirectory,
       reporter: ['text', 'json', 'html', 'lcov', 'json-summary'],
       exclude: [
         'node_modules/',

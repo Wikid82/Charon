@@ -382,7 +382,7 @@ export function AccessListForm({ initialData, onSubmit, onCancel, onDelete, isLo
 
         <div className="flex items-center justify-between">
           <div>
-            <label id="access-list-enabled-label" className="block text-sm font-medium text-gray-300">Enabled</label>
+            <span id="access-list-enabled-label" className="block text-sm font-medium text-gray-300">Enabled</span>
             <p className="text-xs text-gray-500">Apply this access list to hosts</p>
           </div>
           <Switch
@@ -398,7 +398,7 @@ export function AccessListForm({ initialData, onSubmit, onCancel, onDelete, isLo
         <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <label id="access-list-local-network-label" className="block text-sm font-medium text-gray-300">Local Network Only (RFC1918)</label>
+              <span id="access-list-local-network-label" className="block text-sm font-medium text-gray-300">Local Network Only (RFC1918)</span>
               <p className="text-xs text-gray-500">
                 Allow only private network IPs (10.x.x.x, 192.168.x.x, 172.16-31.x.x)
               </p>
@@ -419,7 +419,7 @@ export function AccessListForm({ initialData, onSubmit, onCancel, onDelete, isLo
                 </div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between mb-2">
-                    <label className="block text-sm font-medium text-gray-300">IP Addresses / CIDR Ranges</label>
+                    <span className="block text-sm font-medium text-gray-300">IP Addresses / CIDR Ranges</span>
                     <Button
                       type="button"
                       variant="secondary"

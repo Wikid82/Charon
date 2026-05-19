@@ -72,8 +72,12 @@ mkdir -p /app/data/caddy 2>/dev/null || true
 mkdir -p /app/data/crowdsec 2>/dev/null || true
 mkdir -p /app/data/geoip 2>/dev/null || true
 
-# Fix ownership for directories created as root
+# Fix ownership for the data volume and required subdirectories when running as root.
+# This handles rootless Docker environments where the host volume may be owned by the
+# host user (mapped to container UID 0), making it inaccessible to the charon user.
 if is_root; then
+    chown charon:charon /app/data 2>/dev/null || true
+    chown charon:charon /config 2>/dev/null || true
     chown -R charon:charon /app/data/caddy 2>/dev/null || true
     chown -R charon:charon /app/data/crowdsec 2>/dev/null || true
     chown -R charon:charon /app/data/geoip 2>/dev/null || true
@@ -303,6 +307,19 @@ ACQUIS_EOF
     # Also handle case where it might be without trailing slash
     sed -i 's|log_dir: /var/log$|log_dir: /var/log/crowdsec|g' "$CS_CONFIG_DIR/config.yaml"
 
+    # Redirect CrowdSec LAPI database to persistent volume
+    # Default path /var/lib/crowdsec/data/crowdsec.db is ephemeral (not volume-mounted),
+    # so it is destroyed on every container rebuild. The bouncer API key (stored on the
+    # persistent volume at /app/data/crowdsec/) survives rebuilds but the LAPI database
+    # that validates it does not — causing perpetual key rejection.
+    # Redirecting db_path to the volume-mounted CS_DATA_DIR fixes this.
+    sed -i "s|db_path: /var/lib/crowdsec/data/crowdsec.db|db_path: ${CS_DATA_DIR}/crowdsec.db|g" "$CS_CONFIG_DIR/config.yaml"
+    if grep -q "db_path:.*${CS_DATA_DIR}" "$CS_CONFIG_DIR/config.yaml"; then
+        echo "✓ CrowdSec LAPI database redirected to persistent volume: ${CS_DATA_DIR}/crowdsec.db"
+    else
+        echo "⚠️  WARNING: Could not verify LAPI db_path redirect — bouncer keys may not survive rebuilds"
+    fi
+
     # Verify LAPI configuration was applied correctly
     if grep -q "listen_uri:.*:8085" "$CS_CONFIG_DIR/config.yaml"; then
         echo "✓ CrowdSec LAPI configured for port 8085"
@@ -310,23 +327,32 @@ ACQUIS_EOF
         echo "✗ WARNING: LAPI port configuration may be incorrect"
     fi
 
-    # Always refresh hub index on startup (stale index causes hash mismatch errors on collection install)
-    echo "Updating CrowdSec hub index..."
-    if ! timeout 60s cscli hub update 2>&1; then
-        echo "⚠️ Hub index update failed (network issue?). Collections may fail to install."
-        echo "   CrowdSec will still start with whatever index is cached."
-    fi
-
-    # Ensure local machine is registered (auto-heal for volume/config mismatch)
-    # We force registration because we just restored configuration (and likely credentials)
+    # Machine registration is fast (local DB write) and required for LAPI auth.
+    # Always run regardless of environment.
     echo "Registering local machine..."
     cscli machines add -a --force 2>/dev/null || echo "Warning: Machine registration may have failed"
 
-    # Always ensure required collections are present (idempotent — already-installed items are skipped).
-    # Collections are just config files with zero runtime cost when CrowdSec is disabled.
-    echo "Ensuring CrowdSec hub items are installed..."
-    if [ -x /usr/local/bin/install_hub_items.sh ]; then
-        /usr/local/bin/install_hub_items.sh || echo "⚠️ Some hub items may not have installed. CrowdSec can still start."
+    # Hub index update and hub item downloads are internet-bound operations (30–120 s).
+    # Skip them when CHARON_SECURITY_TESTS_ENABLED=false (non-security CI shards) so the
+    # container starts within the health-check window.
+    # Production and security-test environments leave this variable unset or true, which
+    # preserves the existing behaviour.
+    if [ "${CHARON_SECURITY_TESTS_ENABLED}" = "false" ]; then
+        echo "⚡ Skipping CrowdSec hub initialization (CHARON_SECURITY_TESTS_ENABLED=false)"
+    else
+        # Always refresh hub index on startup (stale index causes hash mismatch errors on collection install)
+        echo "Updating CrowdSec hub index..."
+        if ! timeout 60s cscli hub update 2>&1; then
+            echo "⚠️ Hub index update failed (network issue?). Collections may fail to install."
+            echo "   CrowdSec will still start with whatever index is cached."
+        fi
+
+        # Always ensure required collections are present (idempotent — already-installed items are skipped).
+        # Collections are just config files with zero runtime cost when CrowdSec is disabled.
+        echo "Ensuring CrowdSec hub items are installed..."
+        if [ -x /usr/local/bin/install_hub_items.sh ]; then
+            /usr/local/bin/install_hub_items.sh || echo "⚠️ Some hub items may not have installed. CrowdSec can still start."
+        fi
     fi
 
     # Fix ownership AFTER cscli commands (they run as root and create root-owned files)

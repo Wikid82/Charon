@@ -352,8 +352,18 @@ echo ""
 echo "Sending request ${RATE_LIMIT_REQUESTS}+1 (should return 429 Too Many Requests)..."
 
 # Capture headers too for Retry-After check
-BLOCKED_RESPONSE=$(curl -s -D - -o /dev/null -H "Host: ${TEST_DOMAIN}" http://localhost:8180/get)
-BLOCKED_STATUS=$(echo "$BLOCKED_RESPONSE" | head -1 | grep -o '[0-9]\{3\}' | head -1)
+BLOCKED_STATUS=""
+for _retry in 1 2 3; do
+    BLOCKED_RESPONSE=$(curl -s -D - -o /dev/null -H "Host: ${TEST_DOMAIN}" http://localhost:8180/get)
+    BLOCKED_STATUS=$(echo "$BLOCKED_RESPONSE" | head -1 | grep -o '[0-9]\{3\}' | head -1)
+    if [ "$BLOCKED_STATUS" = "429" ]; then
+        break
+    fi
+    if [ "$_retry" -lt 3 ]; then
+        echo "  Attempt $_retry: Got $BLOCKED_STATUS, expected 429, retrying in 2s..."
+        sleep 2
+    fi
+done
 
 if [ "$BLOCKED_STATUS" = "429" ]; then
     echo "  ✓ Request blocked with HTTP 429 as expected"

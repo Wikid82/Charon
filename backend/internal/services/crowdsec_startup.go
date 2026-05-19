@@ -197,6 +197,12 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 		"data_dir": dataDir,
 	}).Info("CrowdSec reconciliation: starting CrowdSec (mode=local, not currently running)")
 
+	// Regenerate whitelist YAML before starting so CrowdSec loads the current entries.
+	whitelistSvc := NewCrowdSecWhitelistService(db, dataDir)
+	if writeErr := whitelistSvc.WriteYAML(context.Background()); writeErr != nil {
+		logger.Log().WithError(writeErr).Warn("CrowdSec reconciliation: failed to write whitelist YAML on startup (non-fatal)")
+	}
+
 	startCtx, startCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer startCancel()
 
@@ -402,14 +408,14 @@ func testKeyAgainstLAPIStartup(apiKey string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody) //nolint:gosec // G704: endpoint from env config, not user input
 	if err != nil {
 		return false
 	}
 	req.Header.Set("X-Api-Key", apiKey)
 
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // G704: request built from trusted config endpoint
 	if err != nil {
 		return false
 	}
@@ -433,7 +439,7 @@ func maskAPIKeyStartup(key string) string {
 type simpleCommandExecutor struct{}
 
 func (e *simpleCommandExecutor) Execute(ctx context.Context, name string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: command is from internal allowlist, not user input
 	cmd.Env = os.Environ()
 	return cmd.CombinedOutput()
 }

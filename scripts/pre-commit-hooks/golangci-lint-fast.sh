@@ -12,8 +12,8 @@ lint_major_version() {
 }
 
 install_v2_linter() {
-    echo "🔧 Installing golangci-lint v2 with current Go toolchain..."
-    go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+    echo "🔧 Installing golangci-lint v2 with current Go toolchain..." >&2
+    go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest >&2
 }
 
 resolve_v2_linter() {
@@ -59,5 +59,16 @@ echo "Using golangci-lint: $GOLANGCI_LINT"
 echo "Version: $($GOLANGCI_LINT version)"
 
 # Change to backend directory and run golangci-lint
+# --new-from-rev HEAD: only report issues in lines changed since the last commit,
+# preventing pre-existing issues in unrelated files from blocking commits.
 cd "$(dirname "$0")/../../backend" || exit 1
-exec "$GOLANGCI_LINT" run --config .golangci-fast.yml ./...
+
+# Pass 1: auto-fix (gocritic appendAssign, simplifications, etc.).
+# Errors are intentionally swallowed; the reporting pass below is the gate.
+"$GOLANGCI_LINT" run --config .golangci-fast.yml --fix --new-from-rev HEAD ./... 2>/dev/null || true
+
+# Re-stage any files that were auto-fixed so the commit includes the corrections.
+git add -u -- "*.go" 2>/dev/null || true
+
+# Pass 2: report remaining issues. This is the gate — non-zero exit blocks the commit.
+exec "$GOLANGCI_LINT" run --config .golangci-fast.yml --new-from-rev HEAD ./...

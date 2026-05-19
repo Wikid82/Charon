@@ -283,15 +283,16 @@ func TestRegisterBouncerExecutionFailure(t *testing.T) {
 
 // TestGetAcquisitionConfigFileError tests file read error
 func TestGetAcquisitionConfigNotPresent(t *testing.T) {
-	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
-	r := gin.New()
-	g := r.Group("/api/v1")
-	h.RegisterRoutes(g)
+        t.Setenv("CHARON_CROWDSEC_ACQUIS_PATH", filepath.Join(t.TempDir(), "nonexistent.yaml"))
+        h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+        r := gin.New()
+        g := r.Group("/api/v1")
+        h.RegisterRoutes(g)
 
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/acquisition", http.NoBody)
-	r.ServeHTTP(w, req)
+        w := httptest.NewRecorder()
+        req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/acquisition", http.NoBody)
+        r.ServeHTTP(w, req)
 
-	// File won't exist in test env
-	require.True(t, w.Code == http.StatusNotFound || w.Code == http.StatusOK)
+        // File won't exist in test env, should give 404
+        require.Equal(t, http.StatusNotFound, w.Code)
 }

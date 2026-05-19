@@ -6,10 +6,11 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate, Link } from 'react-router-dom'
 
 import { createBackup } from '../api/backups'
-import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, type CrowdSecDecision, statusCrowdsec, type CrowdSecStatus, startCrowdsec } from '../api/crowdsec'
+import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, type CrowdSecDecision, type CrowdSecWhitelistEntry, statusCrowdsec, type CrowdSecStatus, startCrowdsec } from '../api/crowdsec'
 import { getFeatureFlags } from '../api/featureFlags'
 import { listCrowdsecPresets, pullCrowdsecPreset, applyCrowdsecPreset, getCrowdsecPresetCache } from '../api/presets'
 import { getSecurityStatus } from '../api/security'
+import { getMyIP } from '../api/system'
 import { CrowdSecBouncerKeyDisplay } from '../components/CrowdSecBouncerKeyDisplay'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { Button } from '../components/ui/Button'
@@ -19,6 +20,7 @@ import { Skeleton } from '../components/ui/Skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/Tabs'
 import { CROWDSEC_PRESETS, type CrowdsecPreset } from '../data/crowdsecPresets'
 import { useConsoleStatus, useEnrollConsole, useClearConsoleEnrollment } from '../hooks/useConsoleEnrollment'
+import { useWhitelistEntries, useAddWhitelist, useDeleteWhitelist } from '../hooks/useCrowdSecWhitelist'
 import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
 import { toast } from '../utils/toast'
 
@@ -36,6 +38,8 @@ export default function CrowdSecConfig() {
   const [showBanModal, setShowBanModal] = useState(false)
   const [banForm, setBanForm] = useState({ ip: '', duration: '24h', reason: '' })
   const [confirmUnban, setConfirmUnban] = useState<CrowdSecDecision | null>(null)
+  const [whitelistForm, setWhitelistForm] = useState<{ ip_or_cidr: string; reason: string }>({ ip_or_cidr: '', reason: '' })
+  const [confirmDeleteWhitelist, setConfirmDeleteWhitelist] = useState<CrowdSecWhitelistEntry | null>(null)
   const [isApplyingPreset, setIsApplyingPreset] = useState(false)
   const [presetPreview, setPresetPreview] = useState<string>('')
   const [presetMeta, setPresetMeta] = useState<{ cacheKey?: string; etag?: string; retrievedAt?: string; source?: string } | null>(null)
@@ -361,6 +365,25 @@ export default function CrowdSecConfig() {
     },
   })
 
+  const whitelistQuery = useWhitelistEntries()
+  const addWhitelistMutation = useAddWhitelist()
+  const deleteWhitelistMutation = useDeleteWhitelist()
+
+  const whitelistInlineError = addWhitelistMutation.error instanceof Error
+    ? addWhitelistMutation.error.message
+    : addWhitelistMutation.error != null
+    ? 'Failed to add entry'
+    : null
+
+  const handleAddMyIP = async () => {
+    try {
+      const result = await getMyIP()
+      setWhitelistForm((prev) => ({ ...prev, ip_or_cidr: result.ip }))
+    } catch {
+      toast.error('Failed to detect your IP address')
+    }
+  }
+
   const handleExport = async () => {
     const defaultName = buildCrowdsecExportFilename()
     const filename = promptCrowdsecFilename(defaultName)
@@ -517,7 +540,9 @@ export default function CrowdSecConfig() {
     pullPresetMutation.isPending ||
     isApplyingPreset ||
     banMutation.isPending ||
-    unbanMutation.isPending
+    unbanMutation.isPending ||
+    addWhitelistMutation.isPending ||
+    deleteWhitelistMutation.isPending
 
   // Determine contextual message
   const getMessage = () => {
@@ -538,6 +563,12 @@ export default function CrowdSecConfig() {
     }
     if (unbanMutation.isPending) {
       return { message: 'Guardian lowers shield...', submessage: 'Unbanning IP address' }
+    }
+    if (addWhitelistMutation.isPending) {
+      return { message: 'Guardian updates list...', submessage: 'Adding IP to whitelist' }
+    }
+    if (deleteWhitelistMutation.isPending) {
+      return { message: 'Guardian updates list...', submessage: 'Removing from whitelist' }
     }
     return { message: 'Strengthening the guard...', submessage: 'Configuration in progress' }
   }
@@ -565,6 +596,7 @@ export default function CrowdSecConfig() {
         <TabsList>
           <TabsTrigger value="config">{t('security.crowdsec.tabs.config', 'Configuration')}</TabsTrigger>
           <TabsTrigger value="dashboard">{t('security.crowdsec.tabs.dashboard', 'Dashboard')}</TabsTrigger>
+          {isLocalMode && <TabsTrigger value="whitelist">{t('crowdsecConfig.whitelist.tabLabel', 'Whitelist')}</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="dashboard" className="mt-4">
@@ -583,7 +615,7 @@ export default function CrowdSecConfig() {
       <div className="bg-blue-900/20 border border-blue-700 rounded-lg p-4 mb-4">
         <p className="text-sm text-blue-200">
           <strong>{t('crowdsecConfig.note')}:</strong> {t('crowdsecConfig.noteText')}{' '}
-          <Link to="/security" className="text-blue-400 hover:text-blue-300 underline">{t('navigation.security')}</Link>.
+          <Link to="/security" className="text-blue-400 hover:text-blue-300 underline">{t('navigation.cerberus')}</Link>.
         </p>
       </div>
 
@@ -1241,6 +1273,135 @@ export default function CrowdSecConfig() {
       </Card>
 
       </TabsContent>
+
+      {isLocalMode && (
+        <TabsContent value="whitelist" className="mt-4">
+          <Card>
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Shield className="h-5 w-5 text-green-400" />
+                <h3 className="text-md font-semibold">{t('crowdsecConfig.whitelist.title', 'IP Whitelist')}</h3>
+              </div>
+              <p className="text-sm text-gray-400">
+                {t('crowdsecConfig.whitelist.description', 'Whitelisted IPs and CIDRs are never blocked by CrowdSec, even if they trigger alerts.')}
+              </p>
+
+              {/* Add entry form */}
+              <div className="flex flex-wrap gap-3 items-end">
+                <div className="flex-1 min-w-[180px]">
+                  <Input
+                    id="whitelist-ip"
+                    label={t('crowdsecConfig.whitelist.ipLabel', 'IP or CIDR')}
+                    placeholder="192.168.1.1 or 10.0.0.0/8"
+                    value={whitelistForm.ip_or_cidr}
+                    onChange={(e) => {
+                      setWhitelistForm((prev) => ({ ...prev, ip_or_cidr: e.target.value }))
+                      if (addWhitelistMutation.error) addWhitelistMutation.reset()
+                    }}
+                    error={whitelistInlineError ?? undefined}
+                    errorTestId="whitelist-ip-error"
+                    aria-required={true}
+                    data-testid="whitelist-ip-input"
+                  />
+                </div>
+                <div className="flex-1 min-w-[180px]">
+                  <Input
+                    id="whitelist-reason"
+                    label={t('crowdsecConfig.whitelist.reasonLabel', 'Reason')}
+                    placeholder={t('crowdsecConfig.whitelist.reasonPlaceholder', 'Optional reason')}
+                    value={whitelistForm.reason}
+                    onChange={(e) => setWhitelistForm((prev) => ({ ...prev, reason: e.target.value }))}
+                    data-testid="whitelist-reason-input"
+                  />
+                </div>
+                <div className="flex gap-2 pb-0.5">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    type="button"
+                    onClick={handleAddMyIP}
+                    data-testid="whitelist-add-my-ip-btn"
+                  >
+                    {t('crowdsecConfig.whitelist.addMyIp', 'Add My IP')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    type="button"
+                    onClick={() => {
+                      addWhitelistMutation.mutate(whitelistForm, {
+                        onSuccess: () => setWhitelistForm({ ip_or_cidr: '', reason: '' }),
+                      })
+                    }}
+                    disabled={!whitelistForm.ip_or_cidr.trim() || addWhitelistMutation.isPending}
+                    isLoading={addWhitelistMutation.isPending}
+                    data-testid="whitelist-add-btn"
+                  >
+                    {t('common.add', 'Add')}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Entries table */}
+              {whitelistQuery.isLoading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-8 w-full" />
+                </div>
+              ) : !whitelistQuery.data?.length ? (
+                <p className="text-sm text-gray-500" data-testid="whitelist-empty">
+                  {t('crowdsecConfig.whitelist.none', 'No whitelist entries')}
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-700">
+                        <th className="text-left py-2 px-3 text-gray-400 font-medium" scope="col">
+                          {t('crowdsecConfig.whitelist.columnIp', 'IP / CIDR')}
+                        </th>
+                        <th className="text-left py-2 px-3 text-gray-400 font-medium" scope="col">
+                          {t('crowdsecConfig.whitelist.columnReason', 'Reason')}
+                        </th>
+                        <th className="text-left py-2 px-3 text-gray-400 font-medium" scope="col">
+                          {t('crowdsecConfig.whitelist.columnAdded', 'Added')}
+                        </th>
+                        <th className="text-right py-2 px-3 text-gray-400 font-medium" scope="col">
+                          {t('crowdsecConfig.bannedIps.actions')}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {whitelistQuery.data.map((entry) => (
+                        <tr key={entry.uuid} className="border-b border-gray-800 hover:bg-gray-800/50">
+                          <td className="py-2 px-3 font-mono text-white">{entry.ip_or_cidr}</td>
+                          <td className="py-2 px-3 text-gray-300">{entry.reason || '-'}</td>
+                          <td className="py-2 px-3 text-gray-300">
+                            {entry.created_at ? new Date(entry.created_at).toLocaleString() : '-'}
+                          </td>
+                          <td className="py-2 px-3 text-right">
+                            <Button
+                              variant="danger"
+                              size="sm"
+                              onClick={() => setConfirmDeleteWhitelist(entry)}
+                              aria-label={`${t('crowdsecConfig.whitelist.deleteAriaLabel', 'Remove whitelist entry for')} ${entry.ip_or_cidr}`}
+                              data-testid="whitelist-delete-btn"
+                            >
+                              <Trash2 className="h-3 w-3 mr-1" />
+                              {t('crowdsecConfig.whitelist.delete', 'Delete')}
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </Card>
+        </TabsContent>
+      )}
+
       </Tabs>
       </div>
 
@@ -1381,6 +1542,54 @@ export default function CrowdSecConfig() {
                 isLoading={unbanMutation.isPending}
               >
                 {t('crowdsecConfig.unbanModal.submit')}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Whitelist Entry Modal */}
+      {confirmDeleteWhitelist && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="whitelist-delete-modal-title"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white"
+            onClick={() => setConfirmDeleteWhitelist(null)}
+            aria-label={t('common.close')}
+          />
+          <div
+            className="relative z-10 bg-gray-900 rounded-lg border border-gray-700 p-6 max-w-md w-full mx-4 shadow-xl"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setConfirmDeleteWhitelist(null)
+            }}
+          >
+            <h2 id="whitelist-delete-modal-title" className="text-lg font-semibold text-white mb-2">
+              {t('crowdsecConfig.whitelist.deleteModal.title', 'Remove Whitelist Entry')}
+            </h2>
+            <p className="text-sm text-gray-300 mb-4">
+              {t('crowdsecConfig.whitelist.deleteModal.body', 'Remove {{ip}} from the whitelist? CrowdSec may then block this IP if it triggers alerts.', { ip: confirmDeleteWhitelist.ip_or_cidr })}
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => setConfirmDeleteWhitelist(null)}
+                autoFocus
+              >
+                {t('common.cancel', 'Cancel')}
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => deleteWhitelistMutation.mutate(confirmDeleteWhitelist.uuid, {
+                  onSuccess: () => setConfirmDeleteWhitelist(null),
+                })}
+                isLoading={deleteWhitelistMutation.isPending}
+              >
+                {t('crowdsecConfig.whitelist.deleteModal.submit', 'Remove')}
               </Button>
             </div>
           </div>

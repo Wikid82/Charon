@@ -87,23 +87,6 @@ GHSA-x6gf-mpr2-68h6
 # exp: 2026-07-09
 CVE-2026-32286
 
-# CVE-2026-34040 / GHSA-x744-4wpc-v9h2: Docker AuthZ plugin bypass via oversized request body
-# Severity: HIGH (CVSS 8.8) — Package: github.com/docker/docker v28.5.2+incompatible
-# Incomplete fix for CVE-2024-41110. Fixed in moby/moby v29.3.1 but no fix for docker/docker import path.
-# Charon uses Docker client SDK only (list containers); the vulnerability is server-side in the Docker daemon.
-# Review by: 2026-04-30
-# See also: .grype.yaml for full justification
-# exp: 2026-04-30
-CVE-2026-34040
-
-# GHSA-x744-4wpc-v9h2: Docker AuthZ plugin bypass via oversized request body (GHSA alias)
-# Severity: HIGH (CVSS 8.8) — Package: github.com/docker/docker v28.5.2+incompatible
-# GHSA alias for CVE-2026-34040. See CVE-2026-34040 entry above for full details.
-# Review by: 2026-04-30
-# See also: .grype.yaml for full justification
-# exp: 2026-04-30
-GHSA-x744-4wpc-v9h2
-
 # CVE-2026-33997 / GHSA-pxq6-2prw-chj9: Moby off-by-one error in plugin privilege validation
 # Severity: MEDIUM (CVSS 6.8) — Package: github.com/docker/docker v28.5.2+incompatible
 # Fixed in moby/moby v29.3.1 but no fix for docker/docker import path.

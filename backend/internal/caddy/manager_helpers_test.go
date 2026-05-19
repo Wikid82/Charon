@@ -298,7 +298,7 @@ func TestGetCredentialForDomain_MultiCredential_CatchAllMatch(t *testing.T) {
 	provider := &models.DNSProvider{
 		UseMultiCredentials: true,
 		Credentials: []models.DNSProviderCredential{
-			{
+			{ //nolint:gosec // test fixture with intentionally invalid data
 				UUID:                 "cred-catch-all",
 				Label:                "Catch-All",
 				ZoneFilter:           "", // Empty = catch-all

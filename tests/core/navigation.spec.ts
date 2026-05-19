@@ -155,20 +155,30 @@ test.describe('Navigation', () => {
       await page.goto('/');
 
       await test.step('Click Settings navigation', async () => {
-        const explicitSettingsNav = page.locator('a[href^="/settings"]').first();
-        const settingsNav = explicitSettingsNav.or(page
-          .getByRole('link', { name: /settings?/i })
-          .or(page.getByRole('button', { name: /settings?/i })))
-          .first();
+        // When the sidebar is in collapsed (icon-only) mode, the Settings item renders
+        // as a direct <Link to="/settings">, so clicking it navigates immediately.
+        // When the sidebar is expanded (default), Settings renders as a collapsible
+        // <button> that only expands the sub-menu — sub-links must then be clicked.
+        const directLink = page.locator('a[href^="/settings"]').first();
 
-        if (await settingsNav.isVisible().catch(() => false)) {
-          await settingsNav.click();
+        if (await directLink.isVisible().catch(() => false)) {
+          await directLink.click();
           await waitForLoadingComplete(page);
-
-          await test.step('Verify navigation to Settings page', async () => {
-            await expect(page).toHaveURL(/settings?/i);
-          });
+        } else {
+          const settingsButton = page.getByRole('navigation').getByRole('button', { name: /settings/i }).first();
+          if (!await settingsButton.isVisible().catch(() => false)) {
+            return;
+          }
+          await settingsButton.click();
+          const firstSubLink = page.locator('a[href^="/settings"]').first();
+          await expect(firstSubLink).toBeVisible();
+          await firstSubLink.click();
+          await waitForLoadingComplete(page);
         }
+
+        await test.step('Verify navigation to Settings page', async () => {
+          await expect(page).toHaveURL(/\/settings/i);
+        });
       });
     });
   });

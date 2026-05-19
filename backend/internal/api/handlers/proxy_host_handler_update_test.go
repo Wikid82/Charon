@@ -1029,7 +1029,7 @@ func TestParseNullableUintField(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			id, _, err := parseNullableUintField(tt.value, "test_field")
+			id, err := parseNullableUintField(tt.value, "test_field")
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errContain)
