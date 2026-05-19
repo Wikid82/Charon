@@ -53,6 +53,8 @@ func gatherStats(t *testing.T, req *http.Request, router http.Handler, counts in
 }
 
 // computePercentiles returns avg, p50, p95, p99, max
+//
+//nolint:unparam // p50 kept for completeness alongside p95/p99
 func computePercentiles(samples []float64) (avg, p50, p95, p99, maxVal float64) {
 	sort.Float64s(samples)
 	var sum float64

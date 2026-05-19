@@ -31,8 +31,7 @@ func TestBuildSecurityHeadersHandler_AllEnabled(t *testing.T) {
 		SecurityHeaderProfile: profile,
 	}
 
-	handler, err := buildSecurityHeadersHandler(host)
-	assert.NoError(t, err)
+	handler := buildSecurityHeadersHandler(host)
 	assert.NotNil(t, handler)
 	assert.Equal(t, "headers", handler["handler"])
 
@@ -69,8 +68,7 @@ func TestBuildSecurityHeadersHandler_HSTSOnly(t *testing.T) {
 		SecurityHeaderProfile: profile,
 	}
 
-	handler, err := buildSecurityHeadersHandler(host)
-	assert.NoError(t, err)
+	handler := buildSecurityHeadersHandler(host)
 	assert.NotNil(t, handler)
 
 	response := handler["response"].(map[string]any)
@@ -99,8 +97,7 @@ func TestBuildSecurityHeadersHandler_CSPOnly(t *testing.T) {
 		SecurityHeaderProfile: profile,
 	}
 
-	handler, err := buildSecurityHeadersHandler(host)
-	assert.NoError(t, err)
+	handler := buildSecurityHeadersHandler(host)
 	assert.NotNil(t, handler)
 
 	response := handler["response"].(map[string]any)
@@ -125,8 +122,7 @@ func TestBuildSecurityHeadersHandler_CSPReportOnly(t *testing.T) {
 		SecurityHeaderProfile: profile,
 	}
 
-	handler, err := buildSecurityHeadersHandler(host)
-	assert.NoError(t, err)
+	handler := buildSecurityHeadersHandler(host)
 	assert.NotNil(t, handler)
 
 	response := handler["response"].(map[string]any)
@@ -142,8 +138,7 @@ func TestBuildSecurityHeadersHandler_NoProfile(t *testing.T) {
 		SecurityHeadersEnabled: true,
 	}
 
-	handler, err := buildSecurityHeadersHandler(host)
-	assert.NoError(t, err)
+	handler := buildSecurityHeadersHandler(host)
 	assert.NotNil(t, handler)
 
 	// Should use defaults
@@ -161,14 +156,12 @@ func TestBuildSecurityHeadersHandler_Disabled(t *testing.T) {
 		SecurityHeadersEnabled: false,
 	}
 
-	handler, err := buildSecurityHeadersHandler(host)
-	assert.NoError(t, err)
+	handler := buildSecurityHeadersHandler(host)
 	assert.Nil(t, handler)
 }
 
 func TestBuildSecurityHeadersHandler_NilHost(t *testing.T) {
-	handler, err := buildSecurityHeadersHandler(nil)
-	assert.NoError(t, err)
+	handler := buildSecurityHeadersHandler(nil)
 	assert.Nil(t, handler)
 }
 
@@ -310,8 +303,7 @@ func TestBuildSecurityHeadersHandler_PermissionsPolicy(t *testing.T) {
 		SecurityHeaderProfile: profile,
 	}
 
-	handler, err := buildSecurityHeadersHandler(host)
-	assert.NoError(t, err)
+	handler := buildSecurityHeadersHandler(host)
 	assert.NotNil(t, handler)
 
 	response := handler["response"].(map[string]any)
@@ -336,8 +328,7 @@ func TestBuildSecurityHeadersHandler_InvalidCSPJSON(t *testing.T) {
 		SecurityHeaderProfile: profile,
 	}
 
-	handler, err := buildSecurityHeadersHandler(host)
-	assert.NoError(t, err)
+	handler := buildSecurityHeadersHandler(host)
 	assert.NotNil(t, handler)
 
 	// Should skip CSP if invalid JSON
@@ -357,8 +348,7 @@ func TestBuildSecurityHeadersHandler_InvalidPermissionsJSON(t *testing.T) {
 		SecurityHeaderProfile: profile,
 	}
 
-	handler, err := buildSecurityHeadersHandler(host)
-	assert.NoError(t, err)
+	handler := buildSecurityHeadersHandler(host)
 
 	// Should skip invalid permissions policy but continue with other headers
 	// If profile had no other headers, handler would be nil
@@ -389,8 +379,7 @@ func TestBuildSecurityHeadersHandler_APIFriendlyPreset(t *testing.T) {
 		SecurityHeaderProfile: profile,
 	}
 
-	handler, err := buildSecurityHeadersHandler(host)
-	assert.NoError(t, err)
+	handler := buildSecurityHeadersHandler(host)
 	assert.NotNil(t, handler)
 	assert.Equal(t, "headers", handler["handler"])
 

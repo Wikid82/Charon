@@ -23,7 +23,7 @@ func TestIntegration_WAF_BlockAndMonitor(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	// Helper to spin server with given WAF mode
-	newServer := func(mode string) (*gin.Engine, *gorm.DB) {
+	newServer := func(mode string) *gin.Engine {
 		db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 		if err != nil {
 			t.Fatalf("db open: %v", err)
@@ -37,12 +37,12 @@ func TestIntegration_WAF_BlockAndMonitor(t *testing.T) {
 		if err := routes.Register(context.Background(), r, db, cfg); err != nil {
 			t.Fatalf("register: %v", err)
 		}
-		return r, db
+		return r
 	}
 
 	// Block mode: cerberus middleware doesn't block requests - that's Coraza's job at the Caddy layer
 	// The API middleware only tracks metrics when WAF is enabled
-	rBlock, _ := newServer("block")
+	rBlock := newServer("block")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/remote-servers?test=<script>", http.NoBody)
 	w := httptest.NewRecorder()
 	rBlock.ServeHTTP(w, req)
@@ -54,7 +54,7 @@ func TestIntegration_WAF_BlockAndMonitor(t *testing.T) {
 	}
 
 	// Monitor mode should allow request but still evaluate (log-only)
-	rMon, _ := newServer("monitor")
+	rMon := newServer("monitor")
 	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/remote-servers?test=<script>", http.NoBody)
 	w2 := httptest.NewRecorder()
 	rMon.ServeHTTP(w2, req2)

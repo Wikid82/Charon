@@ -63,12 +63,18 @@ if ! command -v go >/dev/null 2>&1; then
 fi
 
 if [[ -z "$BASELINE" ]]; then
-    if git -C "$ROOT_DIR" rev-parse --verify --quiet "origin/development^{commit}" >/dev/null; then
+    # Prefer origin/main to match Codecov's patch comparison baseline (Codecov
+    # uses the repository's default branch as the base for patch calculations).
+    if git -C "$ROOT_DIR" rev-parse --verify --quiet "origin/main^{commit}" >/dev/null; then
+        BASELINE="origin/main...HEAD"
+    elif git -C "$ROOT_DIR" rev-parse --verify --quiet "main^{commit}" >/dev/null; then
+        BASELINE="main...HEAD"
+    elif git -C "$ROOT_DIR" rev-parse --verify --quiet "origin/development^{commit}" >/dev/null; then
         BASELINE="origin/development...HEAD"
     elif git -C "$ROOT_DIR" rev-parse --verify --quiet "development^{commit}" >/dev/null; then
         BASELINE="development...HEAD"
     else
-        BASELINE="origin/development...HEAD"
+        BASELINE="origin/main...HEAD"
     fi
 fi
 

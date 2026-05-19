@@ -16,7 +16,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/services"
 )
 
-func setupRemoteServerTest_New(t *testing.T) (*gin.Engine, *handlers.RemoteServerHandler) {
+func setupRemoteServerTest_New(t *testing.T) *gin.Engine {
 	t.Helper()
 	db := setupTestDB(t)
 	// Ensure RemoteServer table exists
@@ -36,13 +36,12 @@ func setupRemoteServerTest_New(t *testing.T) (*gin.Engine, *handlers.RemoteServe
 	servers.POST("/test", handler.TestConnectionCustom)
 	servers.POST("/:uuid/test", handler.TestConnection)
 
-	return r, handler
+	return r
 }
 
 func TestRemoteServerHandler_TestConnectionCustom(t *testing.T) {
-	r, _ := setupRemoteServerTest_New(t)
+	r := setupRemoteServerTest_New(t)
 
-	// Test with a likely closed port
 	payload := map[string]any{
 		"host": "127.0.0.1",
 		"port": 54321,
@@ -62,7 +61,7 @@ func TestRemoteServerHandler_TestConnectionCustom(t *testing.T) {
 }
 
 func TestRemoteServerHandler_FullCRUD(t *testing.T) {
-	r, _ := setupRemoteServerTest_New(t)
+	r := setupRemoteServerTest_New(t)
 
 	// Create
 	rs := models.RemoteServer{

@@ -1,460 +1,739 @@
-# Coverage Improvement Plan — Patch Coverage ≥ 90%
+# CI Fix — ESLint + Backend Test Failures
 
-**Date**: 2026-05-02
-**Status**: Draft — Awaiting Approval
-**Priority**: High
-**Archived Previous Plan**: Custom Certificate Upload & Management (Issue #22) → `docs/plans/archive/custom-cert-upload-management-spec-2026-05-02.md`
+**Branch**: `fix/ci-eslint-backend-test`
+**PR**: Targets `development`
+**Date**: 2026-05-29
+
+---
+
+> **Archived**: The previous spec (CI Fix — Vitest `invites a new user` Failure) has been
+> superseded. This document covers the active CI failures.
 
 ---
 
 ## 1. Introduction
 
-This plan identifies exact uncovered branches across the six highest-gap backend source files and two frontend components, and specifies new test cases to close those gaps. The target is to raise overall patch coverage from **85.61% (206 missing lines)** to **≥ 90%**.
+### Overview
 
-**Constraints**:
-- No source file modifications — test files only
-- Go tests placed in `*_patch_coverage_test.go` (same package as source)
-- Frontend tests extend existing `__tests__/*.test.tsx` files
-- Use testify (Go) and Vitest + React Testing Library (frontend)
+Multiple CI jobs in `quality-checks.yml` are failing. The failures split across two domains:
+
+1. **Frontend ESLint** — Blocking job; 7 distinct lint violations across 5 source files and 1
+   test file.
+2. **Backend test suite** — Blocking job (via `scripts/go-test-coverage.sh`);
+   `TestSecurityHandler_UpsertRuleSet_XSSInContent` fails when the full handler package test suite
+   runs in parallel.
+
+Backend **lint** violations exist but are configured with `continue-on-error: true` and are
+therefore non-blocking. They are explicitly excluded from this plan.
+
+### Objectives
+
+- Restore all CI jobs to green in a single PR composed of 6 ordered, reviewable commits.
+- No feature changes; this is a pure fix/refactor to make the test suite and linter pass.
 
 ---
 
 ## 2. Research Findings
 
-### 2.1 Coverage Gap Summary
+### 2.1 CI Workflow
 
-| Package | File | Missing Lines | Current Coverage |
+**File**: `.github/workflows/quality-checks.yml`
+
+| Job | Script / Command | Blocking? |
+|-----|-----------------|-----------|
+| Backend tests + coverage | `scripts/go-test-coverage.sh` | **Yes** |
+| Backend lint | `golangci/golangci-lint-action@v9.2.0` with `continue-on-error: true` | No |
+| Frontend ESLint | `npm run lint` | **Yes** |
+| Frontend type-check | `npm run type-check` | Yes |
+| Frontend unit tests | `scripts/frontend-test-coverage.sh` | Yes |
+
+`scripts/go-test-coverage.sh` captures `GO_TEST_STATUS` from the test run, applies the coverage
+gate, and at the end bubbles up any non-zero test exit code (script lines 290-295). A single
+failing test therefore causes the job to exit non-zero.
+
+### 2.2 Frontend ESLint — Root Causes
+
+**ESLint plugins in use** (`frontend/eslint.config.js`):
+`jsx-a11y`, `security`, `react-refresh`, `@vitest/eslint-plugin` (aliased as `vitest`)
+
+#### Failure 1 — Duplicate devDependencies
+
+`frontend/package.json` contains three devDependency keys that each appear twice:
+
+| Duplicate key | Affected lines |
+|---|---|
+| `@typescript-eslint/eslint-plugin` | first occurrence + second set ~lines 74-76 |
+| `@typescript-eslint/parser` | same |
+| `@typescript-eslint/utils` | same |
+
+npm treats a duplicate key as a parse-time error that prevents consistent lock-file resolution,
+causing the ESLint run to fail with a dependency error.
+
+#### Failure 2 — Unsafe regex (`security/detect-unsafe-regex`)
+
+**File**: `frontend/src/components/CredentialManager.tsx`
+
+`validateZoneFilter` uses a regex with nested quantifiers. The rule flags it as a potential ReDoS
+vector. The regex is intentional; the risk is acceptable for this context.
+
+**Fix**: Add an inline `// eslint-disable-next-line security/detect-unsafe-regex` with a
+justification comment immediately before the regex literal.
+
+#### Failure 3 — Non-component exports (`react-refresh/only-export-components`)
+
+**File**: `frontend/src/components/CertificateList.tsx` — lines 20 and 24
+
+```tsx
+export function isInUse(cert: Certificate): boolean { ... }    // line 20
+export function isDeletable(cert: Certificate): boolean { ... } // line 24
+```
+
+`react-refresh` requires component files export **only React components**. Exporting plain utility
+functions breaks HMR and triggers this rule.
+
+**Known import sites** (must be updated after move):
+- `frontend/src/components/__tests__/CertificateList.test.tsx` line 8
+
+**Fix**: Move both functions to a new `frontend/src/utils/certificateUtils.ts`; update all import
+sites; keep internal calls in `CertificateList.tsx` via the new import.
+
+#### Failure 4 — Label on non-labelable elements (`jsx-a11y/label-has-associated-control`)
+
+5 violations across 3 files:
+
+| File | Line | Element | Problem |
 |---|---|---|---|
-| `handlers` | `certificate_handler.go` | ~54 | 70.28% |
-| `services` | `certificate_service.go` | ~54 | 82.85% |
-| `services` | `certificate_validator.go` | ~18 | 88.68% |
-| `handlers` | `proxy_host_handler.go` | ~12 | 55.17% |
-| `config` | `config.go` | ~8 | ~92% |
-| `caddy` | `manager.go` | ~10 | ~88% |
-| Frontend | `CertificateList.tsx` | moderate | — |
-| Frontend | `CertificateUploadDialog.tsx` | moderate | — |
+| `frontend/src/components/CSPBuilder.tsx` | ~326 | `<label>` wrapping `<pre>` | `<pre>` is not a labelable element |
+| `frontend/src/components/AccessListSelector.tsx` | ~128 | `<label>` with no `htmlFor` before custom `<Select>` | custom component not natively labelable |
+| `frontend/src/components/AccessListForm.tsx` | ~385 | `<label id="access-list-enabled-label">` | no `htmlFor`; paired with `<Switch aria-labelledby="...">` |
+| `frontend/src/components/AccessListForm.tsx` | ~401 | `<label id="access-list-local-network-label">` | same pattern |
+| `frontend/src/components/AccessListForm.tsx` | ~422 | `<label>` | no `id`, no `htmlFor` |
 
-### 2.2 Test Infrastructure (Confirmed)
+**Fix for AccessListForm lines 385 & 401**: Replace `<label id="...">` → `<span id="...">` to
+preserve the `id` referenced by `aria-labelledby` on the paired `<Switch>` components.
 
-- **In-memory DB**: `gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})`
-- **Mock auth**: `mockAuthMiddleware()` from `coverage_helpers_test.go`
-- **Mock backup service**: `&mockBackupService{createFunc: ..., availableSpaceFunc: ...}`
-- **Manager test hooks**: package-level `generateConfigFunc`, `validateConfigFunc`, `writeFileFunc` vars with `defer` restore pattern
-- **Frontend mocks**: `vi.mock('../../hooks/...', ...)` and `vi.mock('react-i18next', ...)`
+**Fix for all others**: Replace `<label>` → `<span>` (no `id` or `aria-*` changes needed).
 
-### 2.3 Existing Patch Test Files
+> **Accessibility note**: `<span id="...">` with `aria-labelledby` on the control is the
+> WCAG 2.2-compliant approach when the control is a custom component that does not expose a native
+> labelable element.
 
-| File | Existing Tests |
+#### Failure 5 — Skipped tests (`vitest/prefer-todo` / `vitest/no-disabled-tests`)
+
+**File**: `frontend/src/api/__tests__/logs-websocket.test.ts` — lines 134 and 151
+
+Both use `it.skip('description', () => { ... })` with full test bodies. The rule requires either
+a passing test or `it.todo('description')` (no body) for placeholder tests.
+
+**Fix**: Replace both with `it.todo('description')` and remove the test bodies.
+
+### 2.3 Backend Test Failure — Root Cause
+
+#### Failing test
+
+**File**: `backend/internal/api/handlers/security_handler_audit_test.go`
+**Test**: `TestSecurityHandler_UpsertRuleSet_XSSInContent` (line ~395)
+
+**Observed failures** (full suite run only; passes in isolation):
+```
+Error: Not equal:
+    expected: 200
+    actual  : 500
+Error: "{\"error\":\"failed to list rule sets\"}" does not contain "\\u003cscript\\u003e"
+```
+
+Documented as pre-existing failure PE-001 in
+`docs/reports/qa_report_import_save_regression.md`.
+
+#### Code path to failure
+
+1. `UpsertRuleSet` handler (lines 401-435 of `security_handler.go`) calls
+   `h.svc.UpsertRuleSet(&payload)`. On any error it returns HTTP 500.
+2. `UpsertRuleSet` service method (lines 413-455 of `security_service.go`) executes
+   `s.db.Where("name = ?", r.Name).First(&existing)`. If this returns **any error other than**
+   `ErrRecordNotFound`, it returns that error immediately. Under SQLite busy-lock conditions the
+   query returns `SQLITE_BUSY`, which is returned to the handler, causing HTTP 500.
+3. The subsequent GET `ListRuleSets` call also fails (DB connection in a broken state), producing
+   the `"failed to list rule sets"` response.
+
+#### Why parallel tests cause locking
+
+`setupAuditTestDB` creates a **file-based** SQLite database:
+```go
+dsn := filepath.Join(t.TempDir(), "security_handler_audit_test.db") +
+    "?_busy_timeout=5000&_journal_mode=WAL"
+db.SetMaxOpenConns(1)
+db.SetMaxIdleConns(1)
+```
+
+Many other handler test files use `t.Parallel()` (confirmed: `auth_handler_test.go`,
+`proxy_host_handler_test.go`, `proxy_host_handler_update_test.go`). These tests execute
+concurrently with the audit tests in a full package run.
+
+`NewSecurityHandler` calls `services.NewSecurityService(db)` which immediately starts a
+`processAuditEvents()` background goroutine. Because `SecurityHandler.svc` is an **unexported
+field**, callers cannot invoke `svc.Close()` directly. All 14 `NewSecurityHandler` call sites in
+`security_handler_audit_test.go` register **no cleanup** for the service goroutine — unlike
+`security_service_test.go` which always registers `t.Cleanup(func() { svc.Close() })`.
+
+Under parallel load: accumulated open goroutines each holding WAL-mode file-based SQLite
+connections cause `SQLITE_BUSY` errors despite the 5-second busy-timeout.
+
+#### Fix strategy (two complementary changes)
+
+**A — Add `Close()` to `SecurityHandler` + register cleanup at all 14 call sites**
+
+Stops goroutine accumulation. An exported `Close()` method is required because `svc` is
+unexported.
+
+**B — Convert `setupAuditTestDB` from file-based to in-memory SQLite**
+
+`OpenTestDB(t)` (defined in `testdb.go`) creates a uniquely-named in-memory SQLite with
+`mode=memory&cache=shared` and auto-registered cleanup. This eliminates WAL file-lock as a
+failure vector, matching the pattern used by all working handler tests.
+
+Both changes together provide defense in depth: goroutine lifecycle is clean AND the DB is not
+susceptible to file-locking under concurrent load.
+
+---
+
+## 3. Technical Specifications
+
+### 3.1 Files Modified / Created
+
+| File | Action | Commit |
+|---|---|---|
+| `frontend/package.json` | Remove 3 duplicate devDependency keys | 1 |
+| `frontend/src/components/CredentialManager.tsx` | Add inline eslint-disable comment | 2 |
+| `frontend/src/utils/certificateUtils.ts` | **New file** — export `isInUse`, `isDeletable` | 3 |
+| `frontend/src/components/CertificateList.tsx` | Remove exports; add import from utils | 3 |
+| `frontend/src/components/__tests__/CertificateList.test.tsx` | Update import path | 3 |
+| `frontend/src/components/CSPBuilder.tsx` | 1× `<label>` → `<span>` | 4 |
+| `frontend/src/components/AccessListSelector.tsx` | 1× `<label>` → `<span>` | 4 |
+| `frontend/src/components/AccessListForm.tsx` | 3× `<label>` → `<span>` (2 preserve `id`) | 4 |
+| `frontend/src/api/__tests__/logs-websocket.test.ts` | 2× `it.skip` → `it.todo` | 5 |
+| `backend/internal/api/handlers/security_handler.go` | Add exported `Close()` method | 6 |
+| `backend/internal/api/handlers/security_handler_audit_test.go` | Add cleanup; convert to in-memory DB | 6 |
+
+### 3.2 Detailed Change Specifications
+
+#### Commit 1 — `frontend/package.json`
+
+Remove the **second** occurrence of these three devDependency keys (approximately lines 74-76):
+```
+"@typescript-eslint/eslint-plugin": "...",
+"@typescript-eslint/parser": "...",
+"@typescript-eslint/utils": "...",
+```
+
+After the change, each key appears exactly once in `devDependencies`.
+
+**Validation**: `cd frontend && npm install --dry-run` must complete without duplicate key
+warnings.
+
+#### Commit 2 — `CredentialManager.tsx`
+
+Locate `validateZoneFilter` and the regex literal it contains. Add two lines immediately before
+the regex:
+
+```ts
+// eslint-disable-next-line security/detect-unsafe-regex
+// Runs client-side only; ReDoS risk is confined to the user's own browser session
+```
+
+**Validation**: `npm run lint` on the file shows no `security/detect-unsafe-regex` errors.
+
+#### Commit 3 — Extract certificate utilities
+
+**New file**: `frontend/src/utils/certificateUtils.ts`
+
+```ts
+import { type Certificate } from '../api/certificates'
+
+export function isInUse(cert: Certificate): boolean {
+  return cert.in_use
+}
+
+export function isDeletable(cert: Certificate): boolean {
+  if (cert.in_use) return false
+  return (
+    cert.provider === 'custom' ||
+    cert.provider === 'letsencrypt-staging' ||
+    cert.status === 'expired' ||
+    cert.status === 'expiring'
+  )
+}
+```
+
+**`frontend/src/components/CertificateList.tsx`** changes:
+- Remove the two `export function` declarations at lines 20-31.
+- Add to the import block: `import { isInUse, isDeletable } from '../utils/certificateUtils'`
+- Internal call sites (lines 103, 225, 226) are unchanged — they reference the same function
+  names now satisfied by the import.
+
+**`frontend/src/components/__tests__/CertificateList.test.tsx`** line 8:
+```ts
+// Before:
+import CertificateList, { isDeletable, isInUse } from '../CertificateList'
+
+// After:
+import CertificateList from '../CertificateList'
+import { isDeletable, isInUse } from '../../utils/certificateUtils'
+```
+
+**Validation**: `npm run lint` — no `react-refresh/only-export-components` errors.
+`npm run test -- CertificateList` — all existing tests pass.
+
+#### Commit 4 — Replace `<label>` on non-labelable elements
+
+| File | Change |
 |---|---|
-| `certificate_handler_patch_coverage_test.go` | `TestDelete_UUID_WithBackup_Success`, `_NotFound`, `_InUse` |
-| `certificate_service_patch_coverage_test.go` | `TestExportCertificate_DER`, `_PFX`, `_P12`, `_UnsupportedFormat` |
-| `certificate_validator_extra_coverage_test.go` | ECDSA/Ed25519 key match, `ConvertDERToPEM` valid/invalid |
-| `manager_patch_coverage_test.go` | DNS provider encryption key paths |
-| `proxy_host_handler_test.go` | Full CRUD + BulkUpdateACL + BulkUpdateSecurityHeaders |
-| `proxy_host_handler_update_test.go` | Update edge cases, `ParseForwardPortField`, `ParseNullableUintField` |
+| `CSPBuilder.tsx` ~line 326 | `<label` → `<span` and `</label>` → `</span>` |
+| `AccessListSelector.tsx` ~line 128 | `<label` → `<span` and `</label>` → `</span>` |
+| `AccessListForm.tsx` ~line 385 | `<label id="access-list-enabled-label">` → `<span id="access-list-enabled-label">` and `</label>` → `</span>` |
+| `AccessListForm.tsx` ~line 401 | `<label id="access-list-local-network-label">` → `<span id="access-list-local-network-label">` and `</label>` → `</span>` |
+| `AccessListForm.tsx` ~line 422 | `<label` → `<span` and `</label>` → `</span>` |
+
+**Critical constraint for lines 385 & 401**: The `id` attribute **must be preserved** — `<Switch>`
+components reference it via `aria-labelledby`. Removing the `id` would break the programmatic
+label association for screen readers.
+
+**Validation**: `npm run lint` — no `jsx-a11y/label-has-associated-control` errors.
+
+#### Commit 5 — `logs-websocket.test.ts`
+
+Replace both `it.skip(...)` blocks at lines 134 and 151 with `it.todo(...)`, removing the
+callback bodies entirely:
+
+```ts
+// Before:
+// These tests are skipped because ...
+it.skip('should do X', () => {
+  // ... test body ...
+})
+
+// After:
+// These tests are skipped because ...
+it.todo('should do X')
+```
+
+Apply to both occurrences. **Preserve the explanatory comment** that appears immediately above
+each `it.skip` call — it must remain above the resulting `it.todo` line.
+
+**Test bodies are deleted outright** — do not preserve them as commented-out code. The prior
+implementations are retained in git history and can be recovered from there if needed.
+
+**Validation**: `npm run lint` — no disabled-test rule violations. `npm run test` shows both as
+`todo`.
+
+#### Commit 6 — Backend test fix
+
+##### Part A: Add `Close()` to `security_handler.go`
+
+After `NewSecurityHandler` (or `NewSecurityHandlerWithDeps`), add:
+
+```go
+// Close stops the background audit goroutine. Required for test cleanup.
+func (h *SecurityHandler) Close() {
+	h.svc.Close()
+}
+```
+
+`svc` is unexported; this method is the only way for test code to call `svc.Close()`.
+
+##### Part B1: Replace `setupAuditTestDB` in `security_handler_audit_test.go`
+
+Replace the entire function body with:
+
+```go
+func setupAuditTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db := OpenTestDB(t)
+	if err := db.AutoMigrate(
+		&models.SecurityRuleSet{},
+		&models.SecurityConfig{},
+		&models.SecurityDecision{},   // ← required, not AccessListRule
+		&models.SecurityAudit{},
+		&models.Setting{},
+	); err != nil {
+		t.Fatalf("setupAuditTestDB migrate: %v", err)
+	}
+	return db
+}
+```
+
+`OpenTestDB(t)` creates a uniquely-named in-memory SQLite with auto-registered cleanup. This
+eliminates WAL file-locking entirely.
+
+> The model list (`SecurityRuleSet`, `SecurityConfig`, `SecurityDecision`, `SecurityAudit`,
+> `Setting`) must match this specification exactly. `SecurityDecision` is required because
+> `TestSecurityHandler_CreateDecision_SQLInjection` and
+> `TestSecurityHandler_CreateDecision_EmptyFields` both query the `security_decisions` table.
+> `AccessListRule` is **not** in this list.
+
+##### Part B2: Add `t.Cleanup(func() { h.Close() })` at all 14 call sites
+
+Every `h := NewSecurityHandler(cfg, db, nil)` call must be immediately followed by:
+```go
+t.Cleanup(func() { h.Close() })
+```
+
+The 14 call site line numbers (approximate — verify before applying):
+`76, 98, 144, 179, 210, 280, 325, 355, 399, 447, 508, 536, 562, 597`
+
+##### Part B3: Add diagnostic logging to the failing test
+
+In `TestSecurityHandler_UpsertRuleSet_XSSInContent`, immediately before the first
+`assert.Equal(t, http.StatusOK, w.Code)`, add:
+```go
+t.Logf("UpsertRuleSet response body: %s", w.Body.String())
+```
+
+This surfaces the real GORM error message if the test regresses in future.
+
+**Validation**:
+```bash
+# Isolated run must pass
+go test -v -count=1 -run TestSecurityHandler_UpsertRuleSet_XSSInContent ./backend/internal/api/handlers/
+
+# Full package with race detector must pass
+go test -race -count=1 ./backend/internal/api/handlers/
+
+# Coverage gate must pass
+bash scripts/go-test-coverage.sh
+```
 
 ---
 
-## 3. Technical Specifications — Per-File Gap Analysis
+### Change 3 — `scripts/rate_limit_integration.sh`: Add 429 retry resilience
 
-### 3.1 `certificate_handler.go` — Export Re-Auth Path (~18 lines)
+#### 3.3.1 Replace single-shot 429 assertion with retry loop
 
-The `Export` handler re-authenticates the user when `include_key=true`. All six guard branches are uncovered.
+**Find** (exact block):
 
-**Gap location**: Lines ~260–320 (password empty check, `user` context key extraction, `map[string]any` cast, `id` field lookup, DB user lookup, bcrypt check)
+```bash
+echo ""
+echo "Sending request ${RATE_LIMIT_REQUESTS}+1 (should return 429 Too Many Requests)..."
 
-**New tests** (append to `certificate_handler_patch_coverage_test.go`):
+# Capture headers too for Retry-After check
+BLOCKED_RESPONSE=$(curl -s -D - -o /dev/null -H "Host: ${TEST_DOMAIN}" http://localhost:8180/get)
+BLOCKED_STATUS=$(echo "$BLOCKED_RESPONSE" | head -1 | grep -o '[0-9]\{3\}' | head -1)
 
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestExport_IncludeKey_MissingPassword` | POST with `include_key=true`, no `password` field | 403 |
-| `TestExport_IncludeKey_NoUserContext` | No `"user"` key in gin context | 403 |
-| `TestExport_IncludeKey_InvalidClaimsType` | `"user"` set to a plain string | 403 |
-| `TestExport_IncludeKey_UserIDNotInClaims` | `user = map[string]any{}` with no `"id"` key | 403 |
-| `TestExport_IncludeKey_UserNotFoundInDB` | Valid claims, no matching user row | 403 |
-| `TestExport_IncludeKey_WrongPassword` | User in DB, wrong plaintext password submitted | 403 |
+### Phase 1 — Playwright Tests
 
-### 3.2 `certificate_handler.go` — Export Service Errors (~4 lines)
+No UI/UX behaviour changes are introduced. Playwright E2E tests are not required for this plan.
+Changes are limited to build config, utility extraction, HTML element type changes (visually
+identical), and test-only changes. A smoke run of the standard suite is optional.
 
-**Gap location**: After `ExportCertificate` call — ErrCertNotFound and generic error branches
+### Phase 2 — Backend Implementation (Commit 6)
 
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestExport_CertNotFound` | Unknown UUID | 404 |
-| `TestExport_ServiceError` | Service returns non-not-found error | 500 |
+1. Edit `security_handler.go` — add `Close()` method.
+2. Edit `security_handler_audit_test.go`:
+   a. Replace `setupAuditTestDB` body.
+   b. Add `t.Cleanup` at all 14 call sites.
+   c. Add `t.Logf` diagnostic.
+3. Run: `go test -race -count=1 ./backend/internal/api/handlers/` — confirm exit 0.
+4. Run: `bash scripts/go-test-coverage.sh` — confirm coverage gate passes.
 
-### 3.3 `certificate_handler.go` — Delete Numeric-ID Error Paths (~12 lines)
+### Phase 3 — Frontend Implementation (Commits 1-5)
 
-**Gap location**: `IsCertificateInUse` error, disk space check, backup error, `DeleteCertificateByID` returning `ErrCertInUse` or generic error
+Execute commits 1-5 in order. After each commit, run `npm run lint` to verify no new errors.
+After all five: run `npm run type-check` and `npm run test` to confirm no regressions.
 
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestDelete_NumericID_UsageCheckError` | `IsCertificateInUse` returns error | 500 |
-| `TestDelete_NumericID_LowDiskSpace` | `availableSpaceFunc` returns 0 | 507 |
-| `TestDelete_NumericID_BackupError` | `createFunc` returns error | 500 |
-| `TestDelete_NumericID_CertInUse_FromService` | `DeleteCertificateByID` → `ErrCertInUse` | 409 |
-| `TestDelete_NumericID_DeleteError` | `DeleteCertificateByID` → generic error | 500 |
+### Phase 4 — Integration Verification
 
-### 3.4 `certificate_handler.go` — Delete UUID Additional Error Paths (~8 lines)
+Final checklist before opening PR:
+- [ ] `go test -race ./backend/...` exits 0
+- [ ] `bash scripts/go-test-coverage.sh` exits 0
+- [ ] `npm run lint` exits 0 (zero errors)
+- [ ] `npm run type-check` exits 0
+- [ ] `npm run test` exits 0
 
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestDelete_UUID_UsageCheckInternalError` | `IsCertificateInUseByUUID` returns non-ErrCertNotFound error | 500 |
-| `TestDelete_UUID_LowDiskSpace` | `availableSpaceFunc` returns 0 | 507 |
-| `TestDelete_UUID_BackupCreationError` | `createFunc` returns error | 500 |
-| `TestDelete_UUID_CertInUse_FromService` | `DeleteCertificate` → `ErrCertInUse` | 409 |
+### Phase 5 — Documentation
 
-### 3.5 `certificate_handler.go` — Upload/Validate File Open Errors (~8 lines)
-
-**Gap location**: `file.Open()` calls on multipart key and chain form files returning errors
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestUpload_KeyFile_OpenError` | Valid cert file, malformed key multipart entry | 500 |
-| `TestUpload_ChainFile_OpenError` | Valid cert+key, malformed chain multipart entry | 500 |
-| `TestValidate_KeyFile_OpenError` | Valid cert, malformed key multipart entry | 500 |
-| `TestValidate_ChainFile_OpenError` | Valid cert+key, malformed chain multipart entry | 500 |
-
-### 3.6 `certificate_handler.go` — `sendDeleteNotification` Rate-Limit (~2 lines)
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestSendDeleteNotification_RateLimit` | Call `sendDeleteNotification` twice within 10-second window | Second call is a no-op |
-
----
-
-### 3.7 `certificate_service.go` — `SyncFromDisk` Branches (~14 lines)
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestSyncFromDisk_StagingToProductionUpgrade` | DB has staging cert, disk has production cert for same domain | DB cert updated to production provider |
-| `TestSyncFromDisk_ExpiryOnlyUpdate` | Disk cert content matches DB cert, only expiry changed | Only `expires_at` column updated |
-| `TestSyncFromDisk_CertRootStatPermissionError` | `os.Chmod(certRoot, 0)` before sync; add skip guard `if os.Getuid() == 0 { t.Skip("chmod permission test cannot run as root") }` | No panic; logs error; function completes |
-
-### 3.8 `certificate_service.go` — `ListCertificates` Background Goroutine (~4 lines)
-
-**Gap location**: `initialized=true` && TTL expired path → spawns background goroutine
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestListCertificates_StaleCache_TriggersBackgroundSync` | `initialized=true`, `lastScan` = 10 min ago | Returns cached list without blocking; background sync completes |
-
-*Use `require.Eventually(t, func() bool { return svc.lastScan.After(before) }, 2*time.Second, 10*time.Millisecond, "background sync did not update lastScan")` after the call — avoids flaky fixed sleeps.*
-
-### 3.9 `certificate_service.go` — `GetDecryptedPrivateKey` Nil encSvc and Decrypt Failure (~4 lines)
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestGetDecryptedPrivateKey_NoEncSvc` | Service with `nil` encSvc, cert has non-empty `PrivateKeyEncrypted` | Returns error |
-| `TestGetDecryptedPrivateKey_DecryptFails` | encSvc configured, corrupted ciphertext in DB | Returns wrapped error |
-
-### 3.10 `certificate_service.go` — `MigratePrivateKeys` Branches (~6 lines)
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestMigratePrivateKeys_NoEncSvc` | `encSvc == nil` | Returns nil; logs warning |
-| `TestMigratePrivateKeys_WithRows` | DB has cert with `private_key` populated, valid encSvc | Row migrated: `private_key` cleared, `private_key_enc` set |
-
-### 3.11 `certificate_service.go` — `UpdateCertificate` Errors (~4 lines)
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestUpdateCertificate_NotFound` | Non-existent UUID | Returns `ErrCertNotFound` |
-| `TestUpdateCertificate_DBSaveError` | Valid UUID, DB closed before Save | Returns wrapped error |
-
-### 3.12 `certificate_service.go` — `DeleteCertificate` ACME File Cleanup (~8 lines)
-
-**Gap location**: `cert.Provider == "letsencrypt"` branch → Walk certRoot and remove `.crt`/`.key`/`.json` files
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestDeleteCertificate_LetsEncryptProvider_FileCleanup` | Create temp `.crt` matching cert domain, delete cert | `.crt` removed from disk |
-| `TestDeleteCertificate_StagingProvider_FileCleanup` | Provider = `"letsencrypt-staging"` | Same cleanup behavior triggered |
-
-### 3.13 `certificate_service.go` — `CheckExpiringCertificates` (~8 lines)
-
-**Implementation** (lines ~966–1020): queries `provider = 'custom'` certs expiring before `threshold`, iterates and sends notification for certs with `daysLeft <= warningDays`.
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestCheckExpiringCertificates_ExpiresInRange` | Custom cert `expires_at = now+5d`, warningDays=30 | Returns slice with 1 cert |
-| `TestCheckExpiringCertificates_AlreadyExpired` | Custom cert `expires_at = yesterday` | Result contains cert with negative days |
-| `TestCheckExpiringCertificates_DBError` | DB closed before query | Returns error |
-
----
-
-### 3.14 `certificate_validator.go` — `DetectFormat` Password-Protected PFX (~2 lines)
-
-**Gap location**: PFX where `pkcs12.DecodeAll("")` fails but first byte is `0x30` (ASN.1 SEQUENCE), DER parse also fails → returns `FormatPFX`
-
-**New file**: `certificate_validator_patch_coverage_test.go`
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestDetectFormat_PasswordProtectedPFX` | Generate PFX with non-empty password, call `DetectFormat` | Returns `FormatPFX` |
-
-### 3.15 `certificate_validator.go` — `parsePEMPrivateKey` Additional Block Types (~4 lines)
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestParsePEMPrivateKey_PKCS1RSA` | PEM block type `"RSA PRIVATE KEY"` (x509.MarshalPKCS1PrivateKey) | Returns RSA key |
-| `TestParsePEMPrivateKey_EC` | PEM block type `"EC PRIVATE KEY"` (x509.MarshalECPrivateKey) | Returns ECDSA key |
-
-### 3.16 `certificate_validator.go` — `detectKeyType` P-384 and Unknown Curves (~4 lines)
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestDetectKeyType_ECDSAP384` | P-384 ECDSA key | Returns `"ECDSA-P384"` |
-| `TestDetectKeyType_ECDSAUnknownCurve` | ECDSA key with custom/unknown curve (e.g. P-224) | Returns `"ECDSA"` |
-
-### 3.17 `certificate_validator.go` — `ConvertPEMToPFX` Empty Chain (~2 lines)
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestConvertPEMToPFX_EmptyChain` | Valid cert+key PEM, empty chain string | Returns PFX bytes without error |
-
-### 3.18 `certificate_validator.go` — `ConvertPEMToDER` Non-Certificate Block (~2 lines)
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestConvertPEMToDER_NonCertBlock` | PEM block type `"PRIVATE KEY"` | Returns nil data and error |
-
-### 3.19 `certificate_validator.go` — `formatSerial` Nil BigInt (~2 lines)
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestFormatSerial_Nil` | `formatSerial(nil)` | Returns `""` |
-
----
-
-### 3.20 `proxy_host_handler.go` — `generateForwardHostWarnings` Private IP (~2 lines)
-
-**Gap location**: `net.ParseIP(forwardHost) != nil && network.IsPrivateIP(ip)` branch (non-Docker private IP)
-
-**New file**: `proxy_host_handler_patch_coverage_test.go`
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestGenerateForwardHostWarnings_PrivateIP` | forwardHost = `"192.168.1.100"` (RFC-1918, non-Docker) | Returns warning with field `"forward_host"` |
-
-### 3.21 `proxy_host_handler.go` — `BulkUpdateSecurityHeaders` Edge Cases (~4 lines)
-
-| Test Name | Scenario | Expected |
-|---|---|---|
-| `TestBulkUpdateSecurityHeaders_AllFail_Rollback` | All UUIDs not found → `updated == 0` at end | 400, transaction rolled back |
-| `TestBulkUpdateSecurityHeaders_ProfileDB_NonNotFoundError` | Profile lookup returns wrapped DB error | 500 |
-
----
-
-### 3.22 Frontend: `CertificateList.tsx` — Untested Branches
-
-**File**: `frontend/src/components/__tests__/CertificateList.test.tsx`
-
-| Gap | New Test |
-|---|---|
-| `bulkDeleteMutation` success | `'calls bulkDeleteMutation.mutate with selected UUIDs on confirm'` |
-| `bulkDeleteMutation` error | `'shows error toast on bulk delete failure'` |
-| Sort direction toggle | `'toggles sort direction when same column clicked twice'` |
-| `selectedIds` reconciliation | `'reconciles selectedIds when certificate list shrinks'` |
-| Export dialog open | `'opens export dialog when export button clicked'` |
-
-### 3.23 Frontend: `CertificateUploadDialog.tsx` — Untested Branches
-
-**File**: `frontend/src/components/dialogs/__tests__/CertificateUploadDialog.test.tsx`
-
-| Gap | New Test |
-|---|---|
-| PFX hides key/chain zones | `'hides key and chain file inputs when PFX file selected'` |
-| Upload success closes dialog | `'calls onOpenChange(false) on successful upload'` |
-| Upload error shows toast | `'shows error toast when upload mutation fails'` |
-| Validate result shown | `'displays validation result after validate clicked'` |
+No documentation changes required.
 
 ---
 
 ## 4. Implementation Plan
 
-### Phase 1: Playwright Smoke Tests (Acceptance Gating)
+### Phase 1 — No Playwright phase
 
-Add smoke coverage to confirm certificate export and delete flows reach the backend.
+These are CI script and workflow changes only. No frontend or backend application code is
+modified.
 
-**File**: `tests/certificate-coverage-smoke.spec.ts`
-
-```typescript
-import { test, expect } from '@playwright/test'
-
-test.describe('Certificate Coverage Smoke', () => {
-  test('export dialog opens when export button clicked', async ({ page }) => {
-    await page.goto('/')
-    // navigate to Certificates, click export on a cert
-    // assert dialog visible
-  })
-
-  test('delete dialog opens for deletable certificate', async ({ page }) => {
-    await page.goto('/')
-    // assert delete confirmation dialog appears
-  })
-})
-```
-
-### Phase 2: Backend — Handler Tests
-
-**File**: `backend/internal/api/handlers/certificate_handler_patch_coverage_test.go`
-**Action**: Append all tests from sections 3.1–3.6.
-
-Setup pattern for handler tests:
-
-```go
-func setupCertHandlerTest(t *testing.T) (*gin.Engine, *CertificateHandler, *gorm.DB) {
-    t.Helper()
-    db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
-    require.NoError(t, err)
-    require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.User{}, &models.ProxyHost{}))
-    tmpDir := t.TempDir()
-    certSvc := services.NewCertificateService(tmpDir, db, nil)
-    backup := &mockBackupService{
-        availableSpaceFunc: func() (int64, error) { return 1 << 30, nil },
-        createFunc:         func(string) (string, error) { return "/tmp/backup.db", nil },
-    }
-    h := NewCertificateHandler(certSvc, backup, nil)
-    h.SetDB(db)
-    r := gin.New()
-    r.Use(mockAuthMiddleware())
-    h.RegisterRoutes(r.Group("/api"))
-    return r, h, db
-}
-```
-
-For `TestExport_IncludeKey_*` tests: inject user into gin context directly using a custom middleware wrapper that sets `"user"` (type `map[string]any`, field `"id"`) to the desired value.
-
-### Phase 3: Backend — Service Tests
-
-**File**: `backend/internal/services/certificate_service_patch_coverage_test.go`
-**Action**: Append all tests from sections 3.7–3.13.
-
-Setup pattern:
-
-```go
-func newTestSvc(t *testing.T) (*CertificateService, *gorm.DB, string) {
-    t.Helper()
-    db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
-    require.NoError(t, err)
-    require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
-    tmpDir := t.TempDir()
-    return NewCertificateService(tmpDir, db, nil), db, tmpDir
-}
-```
-
-For `TestMigratePrivateKeys_WithRows`: use `db.Exec("INSERT INTO ssl_certificates (..., private_key) VALUES (...)` raw SQL to bypass GORM's `gorm:"-"` tag.
-
-### Phase 4: Backend — Validator Tests
-
-**File**: `backend/internal/services/certificate_validator_patch_coverage_test.go` (new)
-
-Key helpers needed:
-
-```go
-// generatePKCS1RSAKeyPEM returns an RSA key in PKCS#1 "RSA PRIVATE KEY" PEM format.
-func generatePKCS1RSAKeyPEM(t *testing.T) []byte {
-    key, err := rsa.GenerateKey(rand.Reader, 2048)
-    require.NoError(t, err)
-    return pem.EncodeToMemory(&pem.Block{
-        Type:  "RSA PRIVATE KEY",
-        Bytes: x509.MarshalPKCS1PrivateKey(key),
-    })
-}
-
-// generateECKeyPEM returns an EC key in "EC PRIVATE KEY" (SEC1) PEM format.
-func generateECKeyPEM(t *testing.T, curve elliptic.Curve) []byte {
-    key, err := ecdsa.GenerateKey(curve, rand.Reader)
-    require.NoError(t, err)
-    b, err := x509.MarshalECPrivateKey(key)
-    require.NoError(t, err)
-    return pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: b})
-}
-```
-
-### Phase 5: Backend — Proxy Host Handler Tests
-
-**File**: `backend/internal/api/handlers/proxy_host_handler_patch_coverage_test.go` (new)
-
-Setup pattern mirrors existing `proxy_host_handler_test.go` — use in-memory SQLite, `mockAuthMiddleware`, and `mockCaddyManager` (already available via test hook vars).
-
-### Phase 6: Frontend Tests
-
-**Files**:
-- `frontend/src/components/__tests__/CertificateList.test.tsx`
-- `frontend/src/components/dialogs/__tests__/CertificateUploadDialog.test.tsx`
-
-Use existing mock structure; add new `it(...)` blocks inside existing `describe` blocks.
-
-Frontend bulk delete success test pattern:
-
-```typescript
-it('calls bulkDeleteMutation.mutate with selected UUIDs on confirm', async () => {
-    const bulkDeleteFn = vi.fn()
-    mockUseBulkDeleteCertificates.mockReturnValue({
-        mutate: bulkDeleteFn,
-        isPending: false,
-    })
-    render(<CertificateList />)
-    // select checkboxes, click bulk delete, confirm dialog
-    expect(bulkDeleteFn).toHaveBeenCalledWith(['uuid-1', 'uuid-2'])
-})
-```
-
-### Phase 7: Validation
-
-1. `cd /projects/Charon && bash scripts/go-test-coverage.sh`
-2. `cd /projects/Charon && bash scripts/frontend-test-coverage.sh`
-3. `bash scripts/local-patch-report.sh` → verify `test-results/local-patch-report.md` shows ≥ 90%
-4. `bash scripts/scan-gorm-security.sh --check` → zero CRITICAL/HIGH
+| # | Criterion | Verification |
+|---|---|---|
+| AC-1 | `TestSecurityHandler_UpsertRuleSet_XSSInContent` passes in full package run | `go test -race -count=1 ./backend/internal/api/handlers/` exits 0 |
+| AC-2 | `scripts/go-test-coverage.sh` exits 0 | Coverage gate and test status both pass |
+| AC-3 | `npm run lint` exits 0 | No ESLint errors; `react-refresh`, `jsx-a11y`, `security`, `vitest` rules all pass |
+| AC-4 | `npm run type-check` exits 0 | No TypeScript errors after utility extraction |
+| AC-5 | All existing Vitest tests continue to pass | `npm run test` exits 0; `CertificateList.test.tsx` passes |
+| AC-6 | `<Switch>` components retain ARIA labels | `aria-labelledby` on Switch components resolves to matching `id` on adjacent `<span>` |
+| AC-7 | No backend lint regressions | Backend lint (non-blocking) gains no new CRITICAL/HIGH findings |
 
 ---
 
 ## 5. Commit Slicing Strategy
 
-**Decision**: One PR with 5 ordered, independently-reviewable commits.
+**Decision**: Single PR with 6 ordered logical commits.
 
-**Rationale**: Four packages touched across two build systems (Go + Node). Atomic commits allow targeted revert if a mock approach proves brittle for a specific file, without rolling back unrelated coverage gains.
+**Trigger reasons**: Cross-domain changes (frontend/backend); logical independence of each fix;
+reviewability of each concern in isolation.
 
-| # | Scope | Files | Dependencies | Validation Gate |
+### Commit Order
+
+| # | Commit message | Files | Dependencies | Validation gate |
 |---|---|---|---|---|
-| **Commit 1** | Handler re-auth + delete + file-open errors | `certificate_handler_patch_coverage_test.go` (extend) | None | `go test ./backend/internal/api/handlers/...` |
-| **Commit 2** | Service SyncFromDisk, ListCerts, GetDecryptedKey, Migrate, Update, Delete, CheckExpiring | `certificate_service_patch_coverage_test.go` (extend) | None | `go test ./backend/internal/services/...` |
-| **Commit 3** | Validator DetectFormat, parsePEMPrivateKey, detectKeyType, ConvertPEMToPFX/DER, formatSerial | `certificate_validator_patch_coverage_test.go` (new) | Commit 2 not required (separate file) | `go test ./backend/internal/services/...` |
-| **Commit 4** | Proxy host warnings + BulkUpdateSecurityHeaders edge cases | `proxy_host_handler_patch_coverage_test.go` (new) | None | `go test ./backend/internal/api/handlers/...` |
-| **Commit 5** | Frontend CertificateList + CertificateUploadDialog | `CertificateList.test.tsx`, `CertificateUploadDialog.test.tsx` (extend) | None | `npm run test` |
+| 1 | `fix(frontend): remove duplicate devDependencies from package.json` | `frontend/package.json` | None | `npm install` no warnings |
+| 2 | `fix(frontend): suppress unsafe-regex lint in zone filter validation` | `CredentialManager.tsx` | None | `npm run lint` clean on file |
+| 3 | `refactor(frontend): extract certificate utility functions to utils module` | `certificateUtils.ts` (new), `CertificateList.tsx`, `CertificateList.test.tsx` | None | `npm run lint` + `npm run test -- CertificateList` |
+| 4 | `fix(frontend/a11y): replace label with span for non-labelable controls` | `CSPBuilder.tsx`, `AccessListSelector.tsx`, `AccessListForm.tsx` | None | `npm run lint` clean on all 3 |
+| 5 | `fix(tests): convert skipped tests to todo in logs-websocket` | `logs-websocket.test.ts` | None | `npm run lint` clean on file |
+| 6 | `fix(backend/test): resolve UpsertRuleSet XSS test isolation failure` | `security_handler.go`, `security_handler_audit_test.go` | None | `go test -race ./backend/internal/api/handlers/` exits 0 |
 
-**Rollback**: Any commit is safe to revert independently — all changes are additive test-only files.
+Commits 1-6 are fully independent and may be cherry-picked or reordered safely.
 
-**Contingency**: If the `Export` handler's re-auth tests require gin context injection that the current router wiring doesn't support cleanly, use a sub-router with a custom test middleware that pre-populates `"user"` (`map[string]any{"id": uint(1)}`) with the specific value under test, bypassing `mockAuthMiddleware` for those cases only.
+### Rollback Notes
 
----
-
-## 6. Acceptance Criteria
-
-- [ ] `go test -race ./backend/...` — all tests pass, no data races
-- [ ] Backend patch coverage ≥ 90% for all modified Go files per `test-results/local-patch-report.md`
-- [ ] `npm run test` — all Vitest tests pass
-- [ ] Frontend patch coverage ≥ 90% for `CertificateList.tsx` and `CertificateUploadDialog.tsx`
-- [ ] GORM security scan: zero CRITICAL/HIGH findings
-- [ ] No new `//nolint` or `//nosec` directives introduced
-- [ ] No source file modifications — test files only
-- [ ] All new Go test names follow `TestFunctionName_Scenario` convention
-- [ ] Previous spec archived to `docs/plans/archive/`
+Each commit is self-contained. Reverting any one commit has no cross-domain impact.
+Commit 6 revert returns the CI failure but affects no production behaviour.
 
 ---
 
-## 7. Estimated Coverage Impact
+## 7. Risk Register
 
-| File | Current | Estimated After | Lines Recovered |
+| Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| `certificate_handler.go` | 70.28% | ~85% | ~42 lines |
-| `certificate_service.go` | 82.85% | ~92% | ~44 lines |
-| `certificate_validator.go` | 88.68% | ~96% | ~18 lines |
-| `proxy_host_handler.go` | 55.17% | ~60% | ~8 lines |
-| `CertificateList.tsx` | moderate | high | ~15 lines |
-| `CertificateUploadDialog.tsx` | moderate | high | ~12 lines |
-| **Overall patch** | **85.61%** | **≥ 90%** | **~139 lines** |
+| `AccessListForm` `<Switch>` `aria-labelledby` broken after label → span | Low | Medium | Spec explicitly preserves `id` on converted `<span>` elements |
+| `CertificateList.test.tsx` import path wrong after utility extraction | Low | Low | Test suite catches immediately; path is `../../utils/certificateUtils` |
+| `setupAuditTestDB` model list wrong | Low | High | Spec now explicitly requires `SecurityDecision` (not `AccessListRule`); required by `TestSecurityHandler_CreateDecision_*` tests |
+| One or more of the 14 `t.Cleanup` call sites missed | Low | Low | In-memory DB (B1) already eliminates the locking failure; goroutine cleanup is defence-in-depth |
+| `it.todo` removal of test body causes compile error | None | — | `it.todo` takes only a string argument; no compilation issues |
 
-> **Note**: Proxy host handler remains below 90% after this plan because the `Create`/`Update`/`Delete` handler paths require full Caddy manager mock integration. A follow-up plan should address these with a dedicated `mockCaddyManager` interface.
+---
+
+## Commit 7 — Fix Cloudflare provider stdout capture race condition
+
+**Branch addition**: `fix/ci-eslint-backend-test` (same PR)
+**CI failure**: `TestStart_CapturesStdoutOutput` — 1.01 s timeout, ring buffer empty
+**PR**: <https://github.com/Wikid82/Charon/actions/runs/25817001017/job/75848015026?pr=1013>
+
+---
+
+### 7.1 Root Cause Analysis
+
+#### Failing test
+
+**File**: `backend/internal/hecate/providers/cloudflare/coverage_test.go`
+**Test**: `TestStart_CapturesStdoutOutput` (~line 113)
+**Error** (line 143):
+```
+Error: Should NOT be empty, but was []
+Messages: stdout scanner goroutine must have written output to the ring buffer
+```
+
+The test starts the `echo` binary via `p.Start()`, waits for the process to exit via `<-done`,
+polls `p.buf.ReadAll()` for up to 1 second, then asserts it is non-empty. It consistently returns
+empty on CI.
+
+#### The race
+
+`Start()` launches three goroutines in this order:
+
+| Goroutine | Role |
+|---|---|
+| stdout scanner | `bufio.Scanner` reads `stdoutPipe`; calls `p.buf.Write(s.Text())` for each line |
+| stderr scanner | same but for `stderrPipe` |
+| monitor | calls `cmd.Wait()`; in its **deferred** cleanup calls `p.buf.Close()` then `close(p.done)` |
+
+The critical ordering defect in the monitor goroutine's deferred function
+(`backend/internal/hecate/providers/cloudflare/provider.go`, lines ~175–184):
+
+```go
+// BEFORE (buggy)
+go func() {
+    defer func() {
+        p.mu.Lock()
+        p.cmd = nil
+        if p.state != hecate.TunnelStateStopped {
+            p.state = hecate.TunnelStateError
+        }
+        p.mu.Unlock()
+        p.buf.Close()   // ← (1) closes the buffer
+        close(p.done)   // ← (2) signals test
+    }()
+    _ = cmd.Wait()
+}()
+```
+
+Once `cmd.Wait()` returns (process exited), the monitor deferred function runs and calls
+`p.buf.Close()`. This sets `rb.closed = true` inside `RingBuffer`
+(`backend/internal/hecate/ring_buffer.go`, line ~95).
+
+Concurrently, the stdout scanner goroutine may not yet have been scheduled. When it eventually
+runs and calls `p.buf.Write(s.Text())`, the guard at `ring_buffer.go` line ~31 fires:
+
+```go
+func (rb *RingBuffer) Write(line string) {
+    rb.mu.Lock()
+    defer rb.mu.Unlock()
+    if rb.closed {
+        return  // ← silently drops the write
+    }
+    // ...
+}
+```
+
+The write is silently dropped. The ring buffer remains empty. The test's 1-second polling loop
+exhausts without finding any data. `ReadAll()` returns `nil` and the assertion fails.
+
+#### Why it is non-deterministic
+
+The race window is the interval between `cmd.Wait()` returning and the scanner goroutine calling
+`p.buf.Write()`. On a lightly-loaded machine the Go scheduler tends to run the scanner goroutines
+first because they are I/O-bound and already have data waiting in the pipe. On a loaded CI runner
+the monitor goroutine is more likely to win the scheduler lottery, close the buffer, and leave the
+scanner goroutine with nowhere to write.
+
+`echo` exits in < 1 ms; the entire race window is sub-millisecond — too short for `time.Sleep`-
+based workarounds but reliably closed by a `sync.WaitGroup`.
+
+---
+
+### 7.2 File Locations and Exact Lines
+
+| File | Lines of interest |
+|---|---|
+| `backend/internal/hecate/providers/cloudflare/provider.go` | ~153–185 (`Start()` goroutine block) |
+| `backend/internal/hecate/ring_buffer.go` | ~29–31 (`Write` closed guard), ~93–101 (`Close`) |
+| `backend/internal/hecate/providers/cloudflare/coverage_test.go` | ~113–143 (`TestStart_CapturesStdoutOutput`) |
+
+---
+
+### 7.3 Fix Specification
+
+**Single change**: add a `sync.WaitGroup` (`scanWg`) that tracks both scanner goroutines.
+The monitor goroutine calls `scanWg.Wait()` inside its deferred function, **before**
+`p.buf.Close()`, so the buffer is never closed until all writes have completed.
+
+No changes to the test or `RingBuffer` are required.
+
+#### Before (`provider.go` — Start(), goroutine block)
+
+```go
+// Stream stdout to the ring buffer.
+go func() {
+    s := bufio.NewScanner(stdoutPipe)
+    for s.Scan() {
+        p.buf.Write(s.Text())
+    }
+}()
+
+// Stream stderr to the ring buffer.
+go func() {
+    s := bufio.NewScanner(stderrPipe)
+    for s.Scan() {
+        p.buf.Write(s.Text())
+    }
+}()
+
+// Monitor process exit and update state accordingly.
+go func() {
+    defer func() {
+        p.mu.Lock()
+        p.cmd = nil
+        if p.state != hecate.TunnelStateStopped {
+            p.state = hecate.TunnelStateError
+        }
+        p.mu.Unlock()
+        p.buf.Close()
+        close(p.done)
+    }()
+    _ = cmd.Wait()
+}()
+```
+
+#### After (`provider.go` — Start(), goroutine block)
+
+```go
+var scanWg sync.WaitGroup
+
+// Stream stdout to the ring buffer.
+scanWg.Add(1)
+go func() {
+    defer scanWg.Done()
+    s := bufio.NewScanner(stdoutPipe)
+    for s.Scan() {
+        p.buf.Write(s.Text())
+    }
+}()
+
+// Stream stderr to the ring buffer.
+scanWg.Add(1)
+go func() {
+    defer scanWg.Done()
+    s := bufio.NewScanner(stderrPipe)
+    for s.Scan() {
+        p.buf.Write(s.Text())
+    }
+}()
+
+// Monitor process exit and update state accordingly.
+go func() {
+    defer func() {
+        p.mu.Lock()
+        p.cmd = nil
+        if p.state != hecate.TunnelStateStopped {
+            p.state = hecate.TunnelStateError
+        }
+        p.mu.Unlock()
+        scanWg.Wait() // drain scanner goroutines before closing the buffer
+        p.buf.Close()
+        close(p.done)
+    }()
+    _ = cmd.Wait()
+}()
+```
+
+**Why this is safe:**
+- `cmd.Wait()` returns only after the process exits and the pipe write-ends are closed by the OS.
+  At that point `s.Scan()` will return `false` (EOF) on the next iteration, so both scanner
+  goroutines will reach `scanWg.Done()` promptly.
+- `scanWg.Wait()` blocks for at most the time it takes the scanner goroutines to drain the pipe
+  buffer — microseconds in practice.
+- `p.buf.Close()` and `close(p.done)` are still called in the same relative order; only
+  `scanWg.Wait()` is inserted between the state unlock and `p.buf.Close()`.
+- `sync` is already imported in `provider.go` (used by `sync.RWMutex`); no new import is needed.
+
+---
+
+### 7.4 Commit Details
+
+| Field | Value |
+|---|---|
+| **Commit message** | `fix(hecate/cloudflare): drain scanner goroutines before closing ring buffer` |
+| **Files changed** | `backend/internal/hecate/providers/cloudflare/provider.go` |
+| **Lines changed** | ~6 lines added (WaitGroup declaration + 2×Add + 2×Done + 1×Wait) |
+| **Dependencies** | None; Commits 1-6 are independent |
+
+### 7.5 Validation Gate
+
+```bash
+# Target test — must pass deterministically
+go test ./backend/internal/hecate/providers/cloudflare/... \
+    -v -count=5 -race -run TestStart_CapturesStdoutOutput
+
+# Full cloudflare package — must pass
+go test -race -count=1 ./backend/internal/hecate/providers/cloudflare/...
+
+# Coverage gate — must not regress
+bash scripts/go-test-coverage.sh
+```
+
+`-count=5` runs the test five times in a single invocation to exercise the scheduler across
+multiple scheduling decisions, providing high confidence the race is closed.
+
+---
+
+*Plan written by GitHub Copilot in Planning mode. Ready for implementation agent handoff.*

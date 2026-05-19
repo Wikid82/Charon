@@ -232,7 +232,7 @@ func TestTestURLConnectivity_ErrorPaths(t *testing.T) {
 			url:      "ftp://example.com",
 			errMatch: "only http and https schemes are allowed",
 		},
-		{
+		{ //nolint:gosec // test verifies rejection of embedded credentials in URL
 			name:     "Embedded credentials",
 			url:      "https://user:pass@example.com",
 			errMatch: "embedded credentials are not allowed",

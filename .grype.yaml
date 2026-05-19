@@ -203,45 +203,47 @@ ignore:
   # GHSA-6g7g-w4f8-9c9x: buger/jsonparser Delete panic on malformed JSON (DoS)
   # Severity: HIGH (CVSS 7.5)
   # Package: github.com/buger/jsonparser v1.1.1 (embedded in /usr/local/bin/crowdsec and /usr/local/bin/cscli)
-  # Status: NO upstream fix available — OSV marks "Last affected: v1.1.1" with no Fixed event
+  # Status: UPSTREAM FIX EXISTS (v1.1.2 released 2026-03-20) — awaiting CrowdSec to update dependency
+  # NOTE: As of 2026-04-20, grype v0.111.0 with fresh DB no longer flags this finding in the image.
+  #       This suppression is retained as a safety net in case future DB updates re-surface it.
   #
   # Vulnerability Details:
   # - The Delete function fails to validate offsets on malformed JSON input, producing a
   #   negative slice index and a runtime panic — denial of service (CWE-125).
   # - CVSSv3: AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H
   #
-  # Root Cause (Third-Party Binary + No Upstream Fix):
+  # Root Cause (Third-Party Binary — Fix Exists Upstream, Not Yet in CrowdSec):
   # - Charon does not use buger/jsonparser directly. It is compiled into CrowdSec binaries.
-  # - The buger/jsonparser repository has no released fix as of 2026-03-19 (GitHub issue #275
-  #   and golang/vulndb #4514 are both open).
-  # - Fix path: once buger/jsonparser releases a patched version and CrowdSec updates their
-  #   dependency, rebuild the Docker image and remove this suppression.
+  # - buger/jsonparser released v1.1.2 on 2026-03-20 fixing issue #275.
+  # - CrowdSec has not yet released a version built with buger/jsonparser v1.1.2.
+  # - Fix path: once CrowdSec updates their dependency and rebuilds, rebuild the Docker image
+  #   and remove this suppression.
   #
-  # Risk Assessment: ACCEPTED (Limited exploitability + no upstream fix)
+  # Risk Assessment: ACCEPTED (Limited exploitability; fix exists upstream but not yet in CrowdSec)
   # - The DoS vector requires passing malformed JSON to the vulnerable Delete function within
   #   CrowdSec's internal processing pipeline; this is not a direct attack surface in Charon.
   # - CrowdSec's exposed surface is its HTTP API (not raw JSON stream parsing via this path).
   #
   # Mitigation (active while suppression is in effect):
-  # - Monitor buger/jsonparser: https://github.com/buger/jsonparser/issues/275
-  # - Monitor CrowdSec releases: https://github.com/crowdsecurity/crowdsec/releases
+  # - Monitor CrowdSec releases for a build using buger/jsonparser >= v1.1.2.
+  # - CrowdSec releases: https://github.com/crowdsecurity/crowdsec/releases
   # - Weekly CI security rebuild flags the moment a fixed image ships.
   #
   # Review:
-  # - Reviewed 2026-03-19 (initial suppression): no upstream fix exists. Set 30-day review.
-  # - Extended 2026-04-04: no upstream fix available. buger/jsonparser issue #275 still open.
-  # - Next review: 2026-05-19. Remove suppression once buger/jsonparser ships a fix and
-  #   CrowdSec updates their dependency.
+  # - Reviewed 2026-03-19 (initial suppression): no upstream fix. Set 30-day review.
+  # - Extended 2026-04-04: no upstream fix. buger/jsonparser issue #275 still open.
+  # - Updated 2026-04-20: buger/jsonparser v1.1.2 released 2026-03-20. CrowdSec not yet updated.
+  #   Grype v0.111.0 with fresh DB (2026-04-20) no longer flags this finding. Suppression retained
+  #   as a safety net. Next review: 2026-05-19 — remove if CrowdSec ships with v1.1.2+.
   #
   # Removal Criteria:
-  # - buger/jsonparser releases a patched version (v1.1.2 or higher)
-  # - CrowdSec releases a version built with the patched jsonparser
+  # - CrowdSec releases a version built with buger/jsonparser >= v1.1.2
   # - Rebuild Docker image, run security-scan-docker-image, confirm finding is resolved
   # - Remove this entry and the corresponding .trivyignore entry simultaneously
   #
   # References:
   # - GHSA-6g7g-w4f8-9c9x: https://github.com/advisories/GHSA-6g7g-w4f8-9c9x
-  # - Upstream issue: https://github.com/buger/jsonparser/issues/275
+  # - Upstream fix: https://github.com/buger/jsonparser/releases/tag/v1.1.2
   # - golang/vulndb: https://github.com/golang/vulndb/issues/4514
   # - CrowdSec releases: https://github.com/crowdsecurity/crowdsec/releases
   - vulnerability: GHSA-6g7g-w4f8-9c9x
@@ -251,21 +253,20 @@ ignore:
       type: go-module
     reason: |
       HIGH — DoS panic via malformed JSON in buger/jsonparser v1.1.1 embedded in CrowdSec binaries.
-      No upstream fix: buger/jsonparser has no released patch as of 2026-03-19 (issue #275 open).
-      Charon does not use this package directly; the vector requires reaching CrowdSec's internal
-      JSON processing pipeline. Risk accepted; no remediation path until upstream ships a fix.
-      Reviewed 2026-03-19: no patched release available.
-    expiry: "2026-05-19"  # Extended 2026-04-04: no upstream fix. Next review 2026-05-19.
+      Upstream fix: buger/jsonparser v1.1.2 released 2026-03-20; CrowdSec has not yet updated their
+      dependency. Grype no longer flags this as of 2026-04-20 (fresh DB). Suppression retained as
+      safety net pending CrowdSec update. Charon does not use this package directly.
+      Updated 2026-04-20: fix v1.1.2 exists upstream; awaiting CrowdSec dependency update.
+    expiry: "2026-05-19"  # Review 2026-05-19: remove if CrowdSec ships with buger/jsonparser >= v1.1.2.
 
     # Action items when this suppression expires:
-    # 1. Check buger/jsonparser releases: https://github.com/buger/jsonparser/releases
-    #    and issue #275: https://github.com/buger/jsonparser/issues/275
-    # 2. If a fix has shipped AND CrowdSec has updated their dependency:
-    #    a. Rebuild Docker image and run local security-scan-docker-image
-    #    b. Remove this suppression entry and the corresponding .trivyignore entry
-    # 3. If no fix yet: Extend expiry by 30 days and update the review comment above
-    # 4. If extended 3+ times with no progress: Consider opening an issue upstream or
-    #    evaluating whether CrowdSec can replace buger/jsonparser with a safe alternative
+    # 1. Check if CrowdSec has released a version with buger/jsonparser >= v1.1.2:
+    #    https://github.com/crowdsecurity/crowdsec/releases
+    # 2. If CrowdSec has updated: rebuild Docker image, run security-scan-docker-image,
+    #    and remove this suppression entry and the corresponding .trivyignore entry
+    # 3. If grype still does not flag it with fresh DB: consider removing the suppression as
+    #    it may no longer be necessary
+    # 4. If no CrowdSec update yet: Extend expiry by 30 days
 
   # GHSA-jqcq-xjh3-6g23: pgproto3/v2 DataRow.Decode panic on negative field length (DoS)
   # Severity: HIGH (CVSS 7.5)
@@ -482,73 +483,6 @@ ignore:
     # 4. If not yet migrated: Extend expiry by 30 days and update the review comment above
     # 5. If extended 3+ times: Open an upstream issue on crowdsecurity/crowdsec requesting pgx/v5 migration
 
-  # GHSA-x744-4wpc-v9h2 / CVE-2026-34040: Docker AuthZ plugin bypass via oversized request body
-  # Severity: HIGH (CVSS 8.8)
-  # CVSS Vector: CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H
-  # CWE: CWE-863 (Incorrect Authorization)
-  # Package: github.com/docker/docker v28.5.2+incompatible (go-module)
-  # Status: Fixed in moby/moby v29.3.1 — NO fix available for docker/docker import path
-  #
-  # Vulnerability Details:
-  # - Incomplete fix for Docker AuthZ plugin bypass (CVE-2024-41110). An attacker can send an
-  #   oversized request body to the Docker daemon, causing it to forward the request to the AuthZ
-  #   plugin without the body, allowing unauthorized approvals.
-  #
-  # Root Cause (No Fix Available for Import Path):
-  # - The fix exists in moby/moby v29.3.1, but not for the docker/docker import path that Charon uses.
-  # - Migration to moby/moby/v2 is not practical: currently beta with breaking changes.
-  # - Fix path: once docker/docker publishes a patched version or moby/moby/v2 stabilizes,
-  #   update the dependency and remove this suppression.
-  #
-  # Risk Assessment: ACCEPTED (Not exploitable in Charon context)
-  # - Charon uses the Docker client SDK only (list containers). The vulnerability is server-side
-  #   in the Docker daemon's AuthZ plugin handler.
-  # - Charon does not run a Docker daemon or use AuthZ plugins.
-  # - The attack vector requires local access to the Docker daemon socket with AuthZ plugins enabled.
-  #
-  # Mitigation (active while suppression is in effect):
-  # - Monitor docker/docker releases: https://github.com/moby/moby/releases
-  # - Monitor moby/moby/v2 stabilization: https://github.com/moby/moby
-  # - Weekly CI security rebuild flags the moment a fixed version ships.
-  #
-  # Review:
-  # - Reviewed 2026-03-30 (initial suppression): no fix for docker/docker import path. Set 30-day review.
-  # - Next review: 2026-04-30. Remove suppression once a fix is available for the docker/docker import path.
-  #
-  # Removal Criteria:
-  # - docker/docker publishes a patched version OR moby/moby/v2 stabilizes and migration is feasible
-  # - Update dependency, rebuild, run security-scan-docker-image, confirm finding is resolved
-  # - Remove this entry, the GHSA-pxq6-2prw-chj9 entry, and the corresponding .trivyignore entries simultaneously
-  #
-  # References:
-  # - GHSA-x744-4wpc-v9h2: https://github.com/advisories/GHSA-x744-4wpc-v9h2
-  # - CVE-2026-34040: https://nvd.nist.gov/vuln/detail/CVE-2026-34040
-  # - CVE-2024-41110 (original): https://nvd.nist.gov/vuln/detail/CVE-2024-41110
-  # - moby/moby releases: https://github.com/moby/moby/releases
-  - vulnerability: GHSA-x744-4wpc-v9h2
-    package:
-      name: github.com/docker/docker
-      version: "v28.5.2+incompatible"
-      type: go-module
-    reason: |
-      HIGH — Docker AuthZ plugin bypass via oversized request body in docker/docker v28.5.2+incompatible.
-      Incomplete fix for CVE-2024-41110. Fixed in moby/moby v29.3.1 but no fix for docker/docker import path.
-      Charon uses Docker client SDK only (list containers); the vulnerability is server-side in the Docker
-      daemon's AuthZ plugin handler. Charon does not run a Docker daemon or use AuthZ plugins.
-      Risk accepted; no remediation path until docker/docker publishes a fix or moby/moby/v2 stabilizes.
-      Reviewed 2026-03-30: no patched release available for docker/docker import path.
-    expiry: "2026-04-30"  # 30-day review: no fix for docker/docker import path. Extend in 30-day increments with documented justification.
-
-    # Action items when this suppression expires:
-    # 1. Check docker/docker and moby/moby releases: https://github.com/moby/moby/releases
-    # 2. Check if moby/moby/v2 has stabilized: https://github.com/moby/moby
-    # 3. If a fix has shipped for docker/docker import path OR moby/moby/v2 is stable:
-    #    a. Update the dependency and rebuild Docker image
-    #    b. Run local security-scan-docker-image and confirm finding is resolved
-    #    c. Remove this entry, GHSA-pxq6-2prw-chj9 entry, and all corresponding .trivyignore entries
-    # 4. If no fix yet: Extend expiry by 30 days and update the review comment above
-    # 5. If extended 3+ times: Open an issue to track moby/moby/v2 migration feasibility
-
   # GHSA-pxq6-2prw-chj9 / CVE-2026-33997: Moby off-by-one error in plugin privilege validation
   # Severity: MEDIUM (CVSS 6.8)
   # Package: github.com/docker/docker v28.5.2+incompatible (go-module)
@@ -559,9 +493,9 @@ ignore:
   #   via crafted plugin configurations.
   #
   # Root Cause (No Fix Available for Import Path):
-  # - Same import path issue as GHSA-x744-4wpc-v9h2. The fix exists in moby/moby v29.3.1 but not
+  # - Same import path issue as CVE-2026-34040. The fix exists in moby/moby v29.3.1 but not
   #   for the docker/docker import path that Charon uses.
-  # - Fix path: same as GHSA-x744-4wpc-v9h2 — wait for docker/docker patch or moby/moby/v2 stabilization.
+  # - Fix path: same dependency migration pattern as CVE-2026-34040 (if needed) or upstream fix.
   #
   # Risk Assessment: ACCEPTED (Not exploitable in Charon context)
   # - Charon uses the Docker client SDK only (list containers). The vulnerability is in Docker's
@@ -577,9 +511,9 @@ ignore:
   # - Next review: 2026-04-30. Remove suppression once a fix is available for the docker/docker import path.
   #
   # Removal Criteria:
-  # - Same as GHSA-x744-4wpc-v9h2: docker/docker publishes a patched version OR moby/moby/v2 stabilizes
+  # - docker/docker publishes a patched version OR moby/moby/v2 stabilizes
   # - Update dependency, rebuild, run security-scan-docker-image, confirm finding is resolved
-  # - Remove this entry, GHSA-x744-4wpc-v9h2 entry, and all corresponding .trivyignore entries simultaneously
+  # - Remove this entry and all corresponding .trivyignore entries simultaneously
   #
   # References:
   # - GHSA-pxq6-2prw-chj9: https://github.com/advisories/GHSA-pxq6-2prw-chj9
@@ -605,7 +539,7 @@ ignore:
     # 3. If a fix has shipped for docker/docker import path OR moby/moby/v2 is stable:
     #    a. Update the dependency and rebuild Docker image
     #    b. Run local security-scan-docker-image and confirm finding is resolved
-    #    c. Remove this entry, GHSA-x744-4wpc-v9h2 entry, and all corresponding .trivyignore entries
+    #    c. Remove this entry and all corresponding .trivyignore entries
     # 4. If no fix yet: Extend expiry by 30 days and update the review comment above
     # 5. If extended 3+ times: Open an issue to track moby/moby/v2 migration feasibility
 

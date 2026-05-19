@@ -11,7 +11,10 @@ linters:
     - errcheck     # Unchecked errors
     - ineffassign  # Ineffectual assignments
     - unused       # Unused code detection
+    - unparam      # Unused function parameters
+    - gocritic     # Code style checks (appendAssign, sloppyLen, etc.)
     - gosec        # Security checks (critical issues only)
+    # Note: gosimple is merged into staticcheck in golangci-lint v2
   settings:
     govet:
       enable:
@@ -21,6 +24,7 @@ linters:
         - (io.Closer).Close
         - (*os.File).Close
         - (net/http.ResponseWriter).Write
+    # gocritic defaults (appendAssign, sloppyLen, etc.) are active without settings
     gosec:
       # Only check CRITICAL security issues for fast pre-commit
       includes:
@@ -31,3 +35,8 @@ linters:
         - G501  # Blacklisted import crypto/md5
         - G502  # Blacklisted import crypto/des
         - G503  # Blacklisted import crypto/rc4
+  exclusions:
+    rules:
+      - path: "_test\\.go"
+        linters:
+          - gosec

@@ -435,7 +435,7 @@ export default function Security() {
                   <ShieldAlert className={`w-5 h-5 ${crowdsecChecked ? 'text-success' : 'text-content-muted'}`} />
                 </div>
                 <div>
-                  <CardTitle className="text-base">{t('security.crowdsec')}</CardTitle>
+                  <CardTitle className="text-base">{t('security.crowdsec.title')}</CardTitle>
                   <CardDescription>{t('security.crowdsecDescription')}</CardDescription>
                 </div>
               </div>
@@ -485,7 +485,7 @@ export default function Security() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Badge variant="outline" size="sm">{t('security.layer2')}</Badge>
-                  <Badge variant="primary" size="sm">{t('security.acl')}</Badge>
+                  <Badge variant="primary" size="sm">{t('security.acl.badge')}</Badge>
                 </div>
                 <Badge variant={status.acl.enabled ? 'success' : 'default'}>
                   {status.acl.enabled ? t('common.enabled') : t('common.disabled')}
@@ -538,7 +538,7 @@ export default function Security() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Badge variant="outline" size="sm">{t('security.layer3')}</Badge>
-                  <Badge variant="primary" size="sm">{t('security.waf')}</Badge>
+                  <Badge variant="primary" size="sm">{t('security.waf.badge')}</Badge>
                 </div>
                 <Badge variant={status.waf.enabled ? 'success' : 'default'}>
                   {status.waf.enabled ? t('common.enabled') : t('common.disabled')}

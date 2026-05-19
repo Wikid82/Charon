@@ -152,35 +152,35 @@ func safeFloat64ToUint(f float64) (uint, bool) {
 	return uint(f), true
 }
 
-func parseNullableUintField(value any, fieldName string) (*uint, bool, error) {
+func parseNullableUintField(value any, fieldName string) (*uint, error) {
 	if value == nil {
-		return nil, true, nil
+		return nil, nil
 	}
 
 	switch v := value.(type) {
 	case float64:
 		if id, ok := safeFloat64ToUint(v); ok {
-			return &id, true, nil
+			return &id, nil
 		}
-		return nil, true, fmt.Errorf("invalid %s: unable to convert value %v of type %T to uint", fieldName, value, value)
+		return nil, fmt.Errorf("invalid %s: unable to convert value %v of type %T to uint", fieldName, value, value)
 	case int:
 		if id, ok := safeIntToUint(v); ok {
-			return &id, true, nil
+			return &id, nil
 		}
-		return nil, true, fmt.Errorf("invalid %s: unable to convert value %v of type %T to uint", fieldName, value, value)
+		return nil, fmt.Errorf("invalid %s: unable to convert value %v of type %T to uint", fieldName, value, value)
 	case string:
 		trimmed := strings.TrimSpace(v)
 		if trimmed == "" {
-			return nil, true, nil
+			return nil, nil
 		}
 		n, err := strconv.ParseUint(trimmed, 10, 32)
 		if err != nil {
-			return nil, true, fmt.Errorf("invalid %s: unable to convert value %v of type %T to uint", fieldName, value, value)
+			return nil, fmt.Errorf("invalid %s: unable to convert value %v of type %T to uint", fieldName, value, value)
 		}
 		id := uint(n)
-		return &id, true, nil
+		return &id, nil
 	default:
-		return nil, true, fmt.Errorf("invalid %s: unable to convert value %v of type %T to uint", fieldName, value, value)
+		return nil, fmt.Errorf("invalid %s: unable to convert value %v of type %T to uint", fieldName, value, value)
 	}
 }
 
@@ -189,7 +189,7 @@ func (h *ProxyHostHandler) resolveAccessListReference(value any) (*uint, error) 
 		return nil, nil
 	}
 
-	parsedID, _, parseErr := parseNullableUintField(value, "access_list_id")
+	parsedID, parseErr := parseNullableUintField(value, "access_list_id")
 	if parseErr == nil {
 		return parsedID, nil
 	}
@@ -221,7 +221,7 @@ func (h *ProxyHostHandler) resolveSecurityHeaderProfileReference(value any) (*ui
 		return nil, nil
 	}
 
-	parsedID, _, parseErr := parseNullableUintField(value, "security_header_profile_id")
+	parsedID, parseErr := parseNullableUintField(value, "security_header_profile_id")
 	if parseErr == nil {
 		return parsedID, nil
 	}
@@ -253,7 +253,7 @@ func (h *ProxyHostHandler) resolveCertificateReference(value any) (*uint, error)
 		return nil, nil
 	}
 
-	parsedID, _, parseErr := parseNullableUintField(value, "certificate_id")
+	parsedID, parseErr := parseNullableUintField(value, "certificate_id")
 	if parseErr == nil {
 		return parsedID, nil
 	}
@@ -581,7 +581,7 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 	}
 
 	if v, ok := payload["dns_provider_id"]; ok {
-		parsedID, _, parseErr := parseNullableUintField(v, "dns_provider_id")
+		parsedID, parseErr := parseNullableUintField(v, "dns_provider_id")
 		if parseErr != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": parseErr.Error()})
 			return

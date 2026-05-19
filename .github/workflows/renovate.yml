@@ -15,7 +15,7 @@ permissions:
   issues: write
 
 env:
-  GO_VERSION: '1.26.2'
+  GO_VERSION: '1.26.3'
 
 jobs:
   renovate:
@@ -33,7 +33,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Run Renovate
-        uses: renovatebot/github-action@eb932558ad942cccfd8211cf535f17ff183a9f74 # v46.1.9
+        uses: renovatebot/github-action@693b9ef15eec82123529a37c782242f091365961 # v46.1.14
         with:
           configurationFile: .github/renovate.json
           token: ${{ secrets.RENOVATE_TOKEN || secrets.GITHUB_TOKEN }}

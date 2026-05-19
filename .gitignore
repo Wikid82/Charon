@@ -316,6 +316,13 @@ docs/reports/codecove_patch_report.md
 vuln-results.json
 test_output.txt
 coverage_results.txt
-new-results.json
-.gitignore
 final-results.json
+new-results.json
+scan_output.json
+coverage_output.txt
+frontend/lint_output.txt
+lefthook_out.txt
+backend/test_out.txt
+backend/cf_coverage.txt
+backend/***_coverage.txt
+backend/***_cov.txt

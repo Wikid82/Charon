@@ -95,7 +95,7 @@ func DetectFormat(data []byte) CertFormat {
 }
 
 // ParseCertificateInput handles PEM, PFX, and DER input parsing.
-func ParseCertificateInput(certData []byte, keyData []byte, chainData []byte, pfxPassword string) (*ParsedCertificate, error) {
+func ParseCertificateInput(certData, keyData, chainData []byte, pfxPassword string) (*ParsedCertificate, error) {
 	if len(certData) == 0 {
 		return nil, fmt.Errorf("certificate data is empty")
 	}
@@ -114,7 +114,7 @@ func ParseCertificateInput(certData []byte, keyData []byte, chainData []byte, pf
 	}
 }
 
-func parsePEMInput(certData []byte, keyData []byte, chainData []byte) (*ParsedCertificate, error) {
+func parsePEMInput(certData, keyData, chainData []byte) (*ParsedCertificate, error) {
 	result := &ParsedCertificate{Format: FormatPEM}
 
 	// Parse leaf certificate
@@ -201,7 +201,7 @@ func parsePFXInput(pfxData []byte, password string) (*ParsedCertificate, error) 
 	return result, nil
 }
 
-func parseDERInput(certData []byte, keyData []byte) (*ParsedCertificate, error) {
+func parseDERInput(certData, keyData []byte) (*ParsedCertificate, error) {
 	cert, err := x509.ParseCertificate(certData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse DER certificate: %w", err)
@@ -260,7 +260,7 @@ func ValidateKeyMatch(cert *x509.Certificate, key crypto.PrivateKey) error {
 		if !ok {
 			return fmt.Errorf("key type mismatch: certificate has ECDSA public key but private key is not ECDSA")
 		}
-		if pub.X.Cmp(privKey.X) != 0 || pub.Y.Cmp(privKey.Y) != 0 {
+		if !pub.Equal(&privKey.PublicKey) {
 			return fmt.Errorf("ECDSA key mismatch: certificate and private key points differ")
 		}
 	case ed25519.PublicKey:
@@ -313,7 +313,7 @@ func ConvertDERToPEM(derData []byte) (string, error) {
 }
 
 // ConvertPFXToPEM extracts cert, key, and chain from PFX/PKCS12.
-func ConvertPFXToPEM(pfxData []byte, password string) (certPEM string, keyPEM string, chainPEM string, err error) {
+func ConvertPFXToPEM(pfxData []byte, password string) (certPEM, keyPEM, chainPEM string, err error) {
 	privateKey, leaf, caCerts, err := pkcs12.DecodeChain(pfxData, password)
 	if err != nil {
 		return "", "", "", fmt.Errorf("failed to decode PFX: %w", err)
@@ -338,7 +338,7 @@ func ConvertPFXToPEM(pfxData []byte, password string) (certPEM string, keyPEM st
 }
 
 // ConvertPEMToPFX bundles cert, key, chain into PFX.
-func ConvertPEMToPFX(certPEM string, keyPEM string, chainPEM string, password string) ([]byte, error) {
+func ConvertPEMToPFX(certPEM, keyPEM, chainPEM, password string) ([]byte, error) {
 	certs, err := parsePEMCertificates([]byte(certPEM))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse cert PEM: %w", err)
@@ -478,14 +478,14 @@ func encodeKeyToPEM(key crypto.PrivateKey) (string, error) {
 	return string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})), nil
 }
 
-func formatFingerprint(hex string) string {
+func formatFingerprint(hexStr string) string {
 	var parts []string
-	for i := 0; i < len(hex); i += 2 {
+	for i := 0; i < len(hexStr); i += 2 {
 		end := i + 2
-		if end > len(hex) {
-			end = len(hex)
+		if end > len(hexStr) {
+			end = len(hexStr)
 		}
-		parts = append(parts, strings.ToUpper(hex[i:end]))
+		parts = append(parts, strings.ToUpper(hexStr[i:end]))
 	}
 	return strings.Join(parts, ":")
 }
