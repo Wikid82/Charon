@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
@@ -40,6 +41,13 @@ func NewDockerHandler(dockerService dockerContainerLister, remoteServerService r
 }
 
 func (h *DockerHandler) SetOrthrusResolver(r orthrusProxyResolver) {
+	// Guard against the Go typed-nil trap: a nil *T passed as an interface
+	// produces a non-nil interface (type descriptor present, data nil), which
+	// would bypass the h.orthrusResolver == nil guard and panic in GetProxyAddr.
+	if r == nil || (reflect.ValueOf(r).Kind() == reflect.Ptr && reflect.ValueOf(r).IsNil()) {
+		h.orthrusResolver = nil
+		return
+	}
 	h.orthrusResolver = r
 }
 
