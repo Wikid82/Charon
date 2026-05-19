@@ -498,3 +498,30 @@ func TestDockerHandler_SetOrthrusResolver_Nil(t *testing.T) {
 	h.SetOrthrusResolver(nil)
 	assert.Nil(t, h.orthrusResolver)
 }
+
+// TestDockerHandler_ListContainers_OrthrusEmptyAgentUUID verifies that a
+// non-nil pointer to an empty string for OrthrusAgentUUID is rejected with 400.
+// This covers the right-hand side of the || condition in the UUID guard.
+func TestDockerHandler_ListContainers_OrthrusEmptyAgentUUID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	emptyUUID := ""
+	dockerSvc := &fakeDockerService{}
+	remoteSvc := &fakeRemoteServerService{server: &models.RemoteServer{
+		ConnectionType:   models.ConnectionTypeOrthrus,
+		OrthrusAgentUUID: &emptyUUID,
+	}}
+	h := NewDockerHandler(dockerSvc, remoteSvc)
+	h.SetOrthrusResolver(&fakeOrthrusResolver{ok: true, addr: "127.0.0.1:1234"})
+
+	api := router.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?server_id=srv-1", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "no Orthrus agent UUID configured")
+	assert.False(t, dockerSvc.called)
+}
