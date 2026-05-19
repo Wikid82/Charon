@@ -41,7 +41,8 @@ function, `bulkGroupMutation`, and DnD-related i18n keys in 5 locales.
 
 ---
 
-## Coverage
+The `hotfix/ci` branch contains no Go source, no TypeScript/React source, and no Dockerfile changes.
+The only file changed is `.github/workflows/weekly-nightly-promotion.yml`.
 
 ### Overall Coverage
 

@@ -103,7 +103,6 @@ func TestSystemPermissionsHandler_RepairPermissions_NonRoot(t *testing.T) {
 		t.Skip("test requires non-root execution")
 	}
 
-
 	cfg := config.Config{SingleContainer: true}
 	h := NewSystemPermissionsHandler(cfg, nil, stubPermissionChecker{})
 
@@ -232,7 +231,6 @@ func TestSystemPermissionsHandler_RepairPermissions_InvalidJSON(t *testing.T) {
 		t.Skip("test requires root execution")
 	}
 
-
 	root := t.TempDir()
 	dataDir := filepath.Join(root, "data")
 	require.NoError(t, os.MkdirAll(dataDir, 0o750))
@@ -263,7 +261,6 @@ func TestSystemPermissionsHandler_RepairPermissions_Success(t *testing.T) {
 	if os.Geteuid() != 0 {
 		t.Skip("test requires root execution")
 	}
-
 
 	root := t.TempDir()
 	dataDir := filepath.Join(root, "data")
@@ -525,7 +522,6 @@ func TestSystemPermissionsHandler_RepairPermissions_InvalidRequestBody_Root(t *t
 	if os.Geteuid() != 0 {
 		t.Skip("test requires root execution")
 	}
-
 
 	tmp := t.TempDir()
 	dataDir := filepath.Join(tmp, "data")

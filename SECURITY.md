@@ -756,4 +756,4 @@ We recognize security researchers who help improve Charon:
 
 ---
 
-**Last Updated**: 2026-03-24
+**Last Updated**: 2026-05-18

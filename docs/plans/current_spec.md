@@ -829,7 +829,11 @@ cd frontend && npm install @dnd-kit/core @dnd-kit/utilities
 - `DragOverlay` card: `shadow-xl` for clear visual layering
 - Handle cursor: `cursor-grab` (default), `cursor-grabbing` (active)
 
----
+**Files**:
+- `backend/internal/orthrus/session.go` — constant, new field, `StartDockerProxy()`, `runProxyListener()`, `proxyConn()`, updated `Close()`
+- `backend/internal/orthrus/server.go` — `StartDockerProxy()` call in `HandleWebSocket`; `sess.Close()` in `watchHeartbeat`
+- `backend/internal/orthrus/session_test.go` — 3 new tests
+- `backend/internal/orthrus/server_test.go` — 1 new test
 
 ## 9. Edge Cases
 
@@ -863,7 +867,7 @@ cd frontend && npm install @dnd-kit/core @dnd-kit/utilities
 
 **Rollback note**: Commits 1–5 have zero visible UI impact. Commit 6 is the feature toggle. If Commit 6 must be reverted, prior commits remain in place harmlessly and can be re-applied.
 
----
+**Rollback**: Revert Commit 2. Proxy listener still runs (from Commit 1) but is never used by the Docker handler.
 
 ## 11. File Inventory
 
