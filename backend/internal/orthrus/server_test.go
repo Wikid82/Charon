@@ -4,12 +4,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/stretchr/testify/assert"
@@ -191,48 +188,4 @@ func TestOrthrusServer_HandleWebSocket_InvalidToken(t *testing.T) {
 	srv.HandleWebSocket(c)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-}
-
-func TestOrthrusServer_HandleWebSocket_StartsProxy(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	db := setupServerTestDB(t)
-	srv, err := NewOrthrusServer(db, setupTestCA(t))
-	require.NoError(t, err)
-
-	plainKey := "ch_orthrus_proxytest1234"
-	hash, err := bcrypt.GenerateFromPassword([]byte(plainKey), bcrypt.MinCost)
-	require.NoError(t, err)
-
-	agentUUID := "proxy-test-uuid"
-	agent := &models.OrthrusAgent{
-		UUID:        agentUUID,
-		Name:        "proxy-test-agent",
-		AuthKeyHash: string(hash),
-		Status:      models.OrthrusStatusPending,
-	}
-	require.NoError(t, db.Create(agent).Error)
-
-	r := gin.New()
-	r.GET("/ws/orthrus/connect", srv.HandleWebSocket)
-	httpSrv := httptest.NewServer(r)
-	defer httpSrv.Close()
-
-	url := "ws" + strings.TrimPrefix(httpSrv.URL, "http") + "/ws/orthrus/connect"
-	headers := http.Header{}
-	headers.Set("Authorization", "Bearer "+plainKey)
-
-	clientConn, resp, err := websocket.DefaultDialer.Dial(url, headers)
-	require.NoError(t, err)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	defer func() { _ = clientConn.Close() }()
-
-	// Allow server goroutine to process the connection and start the proxy.
-	time.Sleep(50 * time.Millisecond)
-
-	addr, ok := srv.GetProxyAddr(agentUUID)
-	assert.True(t, ok, "proxy addr should be registered after connection")
-	assert.NotEmpty(t, addr)
-	assert.True(t, strings.HasPrefix(addr, "127.0.0.1:"), "addr must be on loopback: %s", addr)
 }

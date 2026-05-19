@@ -81,21 +81,15 @@ func (c *wsNetConn) SetWriteDeadline(t time.Time) error {
 	return c.conn.SetWriteDeadline(t)
 }
 
-// streamTypeDocker is the first byte written to every yamux stream opened for
-// Docker API proxying. The agent reads this byte to dispatch the stream to the
-// Docker socket handler.
-const streamTypeDocker = byte(0x01)
-
 // AgentSession represents a single connected Orthrus agent's active WebSocket
-// and Yamux session.
+// and Yamux session. Full proxy stream forwarding is implemented in PR 5.
 type AgentSession struct {
 	agentUUID string
 	agentName string
 	conn      *websocket.Conn
 	session   *yamux.Session
 	cancel    context.CancelFunc
-	listener  net.Listener // nil until StartDockerProxy succeeds
-	proxyPort int          // ephemeral port allocated by StartDockerProxy
+	proxyPort int // allocated in PR 5; 0 means no proxy listener yet
 	mu        sync.Mutex
 }
 
@@ -120,30 +114,24 @@ func NewAgentSession(agentUUID, agentName string, conn *websocket.Conn) (*AgentS
 	}, nil
 }
 
-// Close terminates the proxy listener, the Yamux session, and the underlying
-// WebSocket connection. Yamux closes the underlying net.Conn (wsNetConn) when
-// the session is closed, which in turn closes the WebSocket connection; no
-// second close is needed. Idempotent: a second call is a no-op for the
-// listener.
+// Close terminates the Yamux session and the underlying WebSocket connection.
+// Yamux closes the underlying net.Conn (wsNetConn) when the session is closed,
+// which in turn closes the WebSocket connection; no second close is needed.
 func (s *AgentSession) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.cancel()
-	if s.listener != nil {
-		_ = s.listener.Close()
-		s.listener = nil
-	}
 	return s.session.Close()
 }
 
 // GetProxyAddr returns the local address of the proxy listener for this session.
-// Returns an empty string when no proxy listener is active.
+// Returns an empty string when no proxy port has been allocated (PR 5).
 func (s *AgentSession) GetProxyAddr() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.listener == nil {
+	if s.proxyPort == 0 {
 		return ""
 	}
 	return fmt.Sprintf("127.0.0.1:%d", s.proxyPort)
@@ -152,65 +140,4 @@ func (s *AgentSession) GetProxyAddr() string {
 // IsAlive returns true if the Yamux session has not been closed.
 func (s *AgentSession) IsAlive() bool {
 	return !s.session.IsClosed()
-}
-
-// StartDockerProxy allocates a loopback TCP listener on an ephemeral port and
-// starts accepting connections. Each accepted connection opens a new yamux
-// stream to the agent with a streamTypeDocker header byte. Returns an error if
-// the proxy was already started or the listener could not be allocated.
-func (s *AgentSession) StartDockerProxy() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.listener != nil {
-		return fmt.Errorf("orthrus: docker proxy already started for agent %s", s.agentUUID)
-	}
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return fmt.Errorf("orthrus: start docker proxy listener: %w", err)
-	}
-
-	s.listener = ln
-	s.proxyPort = ln.Addr().(*net.TCPAddr).Port
-	go s.runProxyListener(ln)
-	return nil
-}
-
-// runProxyListener accepts TCP connections and spawns a proxyConn goroutine
-// for each one. It exits when the listener is closed (by Close()).
-func (s *AgentSession) runProxyListener(ln net.Listener) {
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			return
-		}
-		go s.proxyConn(conn)
-	}
-}
-
-// proxyConn forwards a single TCP connection through a new yamux stream.
-// It writes the streamTypeDocker byte first so the agent can dispatch the
-// stream to the Docker socket handler. io.Copy runs concurrently in both
-// directions; proxyConn blocks until both directions complete.
-func (s *AgentSession) proxyConn(conn net.Conn) {
-	defer func() { _ = conn.Close() }()
-
-	stream, err := s.session.Open()
-	if err != nil {
-		return
-	}
-	defer func() { _ = stream.Close() }()
-
-	if _, err := stream.Write([]byte{streamTypeDocker}); err != nil {
-		return
-	}
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_, _ = io.Copy(stream, conn)
-	}()
-	_, _ = io.Copy(conn, stream)
-	<-done
 }
