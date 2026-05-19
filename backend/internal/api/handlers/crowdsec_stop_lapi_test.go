@@ -167,10 +167,10 @@ func TestGetLAPIDecisions_WithMockServer(t *testing.T) {
 
 	secSvc := createTestSecurityService(t, db)
 	h := &CrowdsecHandler{
-		DB:       db,
-		Security: secSvc,
-		CmdExec:  &mockCommandExecutor{},
-		DataDir:  t.TempDir(),
+		DB:              db,
+		Security:        secSvc,
+		CmdExec:         &mockCommandExecutor{},
+		DataDir:         t.TempDir(),
 		validateLAPIURL: permissiveLAPIURLValidator,
 	}
 
@@ -210,10 +210,10 @@ func TestGetLAPIDecisions_Unauthorized(t *testing.T) {
 
 	secSvc := createTestSecurityService(t, db)
 	h := &CrowdsecHandler{
-		DB:       db,
-		Security: secSvc,
-		CmdExec:  &mockCommandExecutor{},
-		DataDir:  t.TempDir(),
+		DB:              db,
+		Security:        secSvc,
+		CmdExec:         &mockCommandExecutor{},
+		DataDir:         t.TempDir(),
 		validateLAPIURL: permissiveLAPIURLValidator,
 	}
 
@@ -245,10 +245,10 @@ func TestGetLAPIDecisions_NullResponse(t *testing.T) {
 
 	secSvc := createTestSecurityService(t, db)
 	h := &CrowdsecHandler{
-		DB:       db,
-		Security: secSvc,
-		CmdExec:  &mockCommandExecutor{},
-		DataDir:  t.TempDir(),
+		DB:              db,
+		Security:        secSvc,
+		CmdExec:         &mockCommandExecutor{},
+		DataDir:         t.TempDir(),
 		validateLAPIURL: permissiveLAPIURLValidator,
 	}
 
@@ -323,10 +323,10 @@ func TestCheckLAPIHealth_WithMockServer(t *testing.T) {
 
 	secSvc := createTestSecurityService(t, db)
 	h := &CrowdsecHandler{
-		DB:       db,
-		Security: secSvc,
-		CmdExec:  &mockCommandExecutor{},
-		DataDir:  t.TempDir(),
+		DB:              db,
+		Security:        secSvc,
+		CmdExec:         &mockCommandExecutor{},
+		DataDir:         t.TempDir(),
 		validateLAPIURL: permissiveLAPIURLValidator,
 	}
 
@@ -369,10 +369,10 @@ func TestCheckLAPIHealth_FallbackToDecisions(t *testing.T) {
 
 	secSvc := createTestSecurityService(t, db)
 	h := &CrowdsecHandler{
-		DB:       db,
-		Security: secSvc,
-		CmdExec:  &mockCommandExecutor{},
-		DataDir:  t.TempDir(),
+		DB:              db,
+		Security:        secSvc,
+		CmdExec:         &mockCommandExecutor{},
+		DataDir:         t.TempDir(),
 		validateLAPIURL: permissiveLAPIURLValidator,
 	}
 

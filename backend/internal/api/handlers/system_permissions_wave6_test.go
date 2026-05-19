@@ -28,7 +28,6 @@ func TestSystemPermissionsWave6_RepairPermissions_NonRootBranchViaSeteuid(t *tes
 		require.NoError(t, restoreErr)
 	}()
 
-
 	root := t.TempDir()
 	dataDir := filepath.Join(root, "data")
 	require.NoError(t, os.MkdirAll(dataDir, 0o750))

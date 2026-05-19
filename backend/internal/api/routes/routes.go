@@ -389,6 +389,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management.DELETE("/domains/:id", domainHandler.Delete)
 
 		// DNS Providers - only available if encryption key is configured
+		var orthrusServer *orthrus.OrthrusServer
 		if cfg.EncryptionKey != "" {
 			encryptionService, err := crypto.NewEncryptionService(cfg.EncryptionKey)
 			if err != nil {
@@ -467,7 +468,6 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 				}
 
 				orthrusCA, caErr := orthrus.NewInternalCA(dataRoot)
-				var orthrusServer *orthrus.OrthrusServer
 				if caErr == nil {
 					var serverErr error
 					orthrusServer, serverErr = orthrus.NewOrthrusServer(db, orthrusCA)
@@ -503,6 +503,9 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		// The service will return proper error messages when Docker is not accessible
 		dockerService := services.NewDockerService()
 		dockerHandler := handlers.NewDockerHandler(dockerService, remoteServerService)
+		if orthrusServer != nil {
+			dockerHandler.SetOrthrusResolver(orthrusServer)
+		}
 		dockerHandler.RegisterRoutes(management)
 
 		// Uptime Service — reuse the single uptimeService instance (defined above)
