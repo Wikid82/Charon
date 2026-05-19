@@ -503,7 +503,9 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		// The service will return proper error messages when Docker is not accessible
 		dockerService := services.NewDockerService()
 		dockerHandler := handlers.NewDockerHandler(dockerService, remoteServerService)
-		dockerHandler.SetOrthrusResolver(orthrusServer)
+		if orthrusServer != nil {
+			dockerHandler.SetOrthrusResolver(orthrusServer)
+		}
 		dockerHandler.RegisterRoutes(management)
 
 		// Uptime Service — reuse the single uptimeService instance (defined above)
