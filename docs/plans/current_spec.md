@@ -1,13 +1,10 @@
-# CI Fix — ESLint + Backend Test Failures
+# Fix: GitHub Actions JS Injection in Weekly Nightly Promotion Workflow
 
-**Branch**: `fix/ci-eslint-backend-test`
+**Issue**: #1022
+**Branch**: `fix/weekly-promotion-js-injection`
 **PR**: Targets `development`
-**Date**: 2026-05-29
-
----
-
-> **Archived**: The previous spec (CI Fix — Vitest `invites a new user` Failure) has been
-> superseded. This document covers the active CI failures.
+**Date**: 2026-05-19
+**File**: `.github/workflows/weekly-nightly-promotion.yml`
 
 ---
 
@@ -15,725 +12,478 @@
 
 ### Overview
 
-Multiple CI jobs in `quality-checks.yml` are failing. The failures split across two domains:
+Issue #1022 is a **JavaScript injection vulnerability** in the
+`weekly-nightly-promotion.yml` GitHub Actions workflow. When a user manually
+triggers the workflow with a `reason` input containing an apostrophe (e.g.,
+`"didn't run as scheduled"`), the value is interpolated directly into a
+single-quoted JavaScript string literal, terminating the string prematurely
+and producing a `SyntaxError`. The workflow step fails immediately.
 
-1. **Frontend ESLint** — Blocking job; 7 distinct lint violations across 5 source files and 1
-   test file.
-2. **Backend test suite** — Blocking job (via `scripts/go-test-coverage.sh`);
-   `TestSecurityHandler_UpsertRuleSet_XSSInContent` fails when the full handler package test suite
-   runs in parallel.
-
-Backend **lint** violations exist but are configured with `continue-on-error: true` and are
-therefore non-blocking. They are explicitly excluded from this plan.
+A secondary defensive fix addresses the same anti-pattern in the
+`notify-on-failure` job where dynamically-generated output values are also
+interpolated directly into single-quoted JS strings.
 
 ### Objectives
 
-- Restore all CI jobs to green in a single PR composed of 6 ordered, reviewable commits.
-- No feature changes; this is a pure fix/refactor to make the test suite and linter pass.
+1. Fix the primary injection that causes `SyntaxError` when `inputs.reason`
+   contains an apostrophe or other metacharacter.
+2. Defensively fix the `notify-on-failure` job to follow the same secure
+   pattern, eliminating a latent class of bugs.
+3. Apply zero changes outside the two affected steps — no refactoring, no
+   other workflow files, no shell steps.
 
 ---
 
 ## 2. Research Findings
 
-### 2.1 CI Workflow
+### 2.1 Confirmed Root Cause
 
-**File**: `.github/workflows/quality-checks.yml`
+The `Create Promotion PR` step (`create-promotion-pr` job, line 297) uses the
+`actions/github-script` action and injects `${{ inputs.reason }}` directly
+into the JavaScript source at line 310:
 
-| Job | Script / Command | Blocking? |
-|-----|-----------------|-----------|
-| Backend tests + coverage | `scripts/go-test-coverage.sh` | **Yes** |
-| Backend lint | `golangci/golangci-lint-action@v9.2.0` with `continue-on-error: true` | No |
-| Frontend ESLint | `npm run lint` | **Yes** |
-| Frontend type-check | `npm run type-check` | Yes |
-| Frontend unit tests | `scripts/frontend-test-coverage.sh` | Yes |
-
-`scripts/go-test-coverage.sh` captures `GO_TEST_STATUS` from the test run, applies the coverage
-gate, and at the end bubbles up any non-zero test exit code (script lines 290-295). A single
-failing test therefore causes the job to exit non-zero.
-
-### 2.2 Frontend ESLint — Root Causes
-
-**ESLint plugins in use** (`frontend/eslint.config.js`):
-`jsx-a11y`, `security`, `react-refresh`, `@vitest/eslint-plugin` (aliased as `vitest`)
-
-#### Failure 1 — Duplicate devDependencies
-
-`frontend/package.json` contains three devDependency keys that each appear twice:
-
-| Duplicate key | Affected lines |
-|---|---|
-| `@typescript-eslint/eslint-plugin` | first occurrence + second set ~lines 74-76 |
-| `@typescript-eslint/parser` | same |
-| `@typescript-eslint/utils` | same |
-
-npm treats a duplicate key as a parse-time error that prevents consistent lock-file resolution,
-causing the ESLint run to fail with a dependency error.
-
-#### Failure 2 — Unsafe regex (`security/detect-unsafe-regex`)
-
-**File**: `frontend/src/components/CredentialManager.tsx`
-
-`validateZoneFilter` uses a regex with nested quantifiers. The rule flags it as a potential ReDoS
-vector. The regex is intentional; the risk is acceptable for this context.
-
-**Fix**: Add an inline `// eslint-disable-next-line security/detect-unsafe-regex` with a
-justification comment immediately before the regex literal.
-
-#### Failure 3 — Non-component exports (`react-refresh/only-export-components`)
-
-**File**: `frontend/src/components/CertificateList.tsx` — lines 20 and 24
-
-```tsx
-export function isInUse(cert: Certificate): boolean { ... }    // line 20
-export function isDeletable(cert: Certificate): boolean { ... } // line 24
+```javascript
+// Line 310 — verbatim source as it exists today:
+const triggerReason = '${{ inputs.reason }}' || 'Scheduled weekly promotion';
 ```
 
-`react-refresh` requires component files export **only React components**. Exporting plain utility
-functions breaks HMR and triggers this rule.
+When the user enters `didn't run as scheduled`, the Actions runner performs
+template expansion **before** the script is executed, producing:
 
-**Known import sites** (must be updated after move):
-- `frontend/src/components/__tests__/CertificateList.test.tsx` line 8
-
-**Fix**: Move both functions to a new `frontend/src/utils/certificateUtils.ts`; update all import
-sites; keep internal calls in `CertificateList.tsx` via the new import.
-
-#### Failure 4 — Label on non-labelable elements (`jsx-a11y/label-has-associated-control`)
-
-5 violations across 3 files:
-
-| File | Line | Element | Problem |
-|---|---|---|---|
-| `frontend/src/components/CSPBuilder.tsx` | ~326 | `<label>` wrapping `<pre>` | `<pre>` is not a labelable element |
-| `frontend/src/components/AccessListSelector.tsx` | ~128 | `<label>` with no `htmlFor` before custom `<Select>` | custom component not natively labelable |
-| `frontend/src/components/AccessListForm.tsx` | ~385 | `<label id="access-list-enabled-label">` | no `htmlFor`; paired with `<Switch aria-labelledby="...">` |
-| `frontend/src/components/AccessListForm.tsx` | ~401 | `<label id="access-list-local-network-label">` | same pattern |
-| `frontend/src/components/AccessListForm.tsx` | ~422 | `<label>` | no `id`, no `htmlFor` |
-
-**Fix for AccessListForm lines 385 & 401**: Replace `<label id="...">` → `<span id="...">` to
-preserve the `id` referenced by `aria-labelledby` on the paired `<Switch>` components.
-
-**Fix for all others**: Replace `<label>` → `<span>` (no `id` or `aria-*` changes needed).
-
-> **Accessibility note**: `<span id="...">` with `aria-labelledby` on the control is the
-> WCAG 2.2-compliant approach when the control is a custom component that does not expose a native
-> labelable element.
-
-#### Failure 5 — Skipped tests (`vitest/prefer-todo` / `vitest/no-disabled-tests`)
-
-**File**: `frontend/src/api/__tests__/logs-websocket.test.ts` — lines 134 and 151
-
-Both use `it.skip('description', () => { ... })` with full test bodies. The rule requires either
-a passing test or `it.todo('description')` (no body) for placeholder tests.
-
-**Fix**: Replace both with `it.todo('description')` and remove the test bodies.
-
-### 2.3 Backend Test Failure — Root Cause
-
-#### Failing test
-
-**File**: `backend/internal/api/handlers/security_handler_audit_test.go`
-**Test**: `TestSecurityHandler_UpsertRuleSet_XSSInContent` (line ~395)
-
-**Observed failures** (full suite run only; passes in isolation):
-```
-Error: Not equal:
-    expected: 200
-    actual  : 500
-Error: "{\"error\":\"failed to list rule sets\"}" does not contain "\\u003cscript\\u003e"
+```javascript
+const triggerReason = 'didn't run as scheduled' || 'Scheduled weekly promotion';
 ```
 
-Documented as pre-existing failure PE-001 in
-`docs/reports/qa_report_import_save_regression.md`.
+The single quote inside `didn't` terminates the string literal. The remaining
+token `t run as scheduled` is an unexpected identifier, and V8 throws:
 
-#### Code path to failure
-
-1. `UpsertRuleSet` handler (lines 401-435 of `security_handler.go`) calls
-   `h.svc.UpsertRuleSet(&payload)`. On any error it returns HTTP 500.
-2. `UpsertRuleSet` service method (lines 413-455 of `security_service.go`) executes
-   `s.db.Where("name = ?", r.Name).First(&existing)`. If this returns **any error other than**
-   `ErrRecordNotFound`, it returns that error immediately. Under SQLite busy-lock conditions the
-   query returns `SQLITE_BUSY`, which is returned to the handler, causing HTTP 500.
-3. The subsequent GET `ListRuleSets` call also fails (DB connection in a broken state), producing
-   the `"failed to list rule sets"` response.
-
-#### Why parallel tests cause locking
-
-`setupAuditTestDB` creates a **file-based** SQLite database:
-```go
-dsn := filepath.Join(t.TempDir(), "security_handler_audit_test.db") +
-    "?_busy_timeout=5000&_journal_mode=WAL"
-db.SetMaxOpenConns(1)
-db.SetMaxIdleConns(1)
+```
+SyntaxError: Unexpected identifier 't'
 ```
 
-Many other handler test files use `t.Parallel()` (confirmed: `auth_handler_test.go`,
-`proxy_host_handler_test.go`, `proxy_host_handler_update_test.go`). These tests execute
-concurrently with the audit tests in a full package run.
+The entire `create-promotion-pr` job fails, the promotion PR is never created,
+and the `notify-on-failure` job may or may not fire depending on health check
+state.
 
-`NewSecurityHandler` calls `services.NewSecurityService(db)` which immediately starts a
-`processAuditEvents()` background goroutine. Because `SecurityHandler.svc` is an **unexported
-field**, callers cannot invoke `svc.Close()` directly. All 14 `NewSecurityHandler` call sites in
-`security_handler_audit_test.go` register **no cleanup** for the service goroutine — unlike
-`security_service_test.go` which always registers `t.Cleanup(func() { svc.Close() })`.
+### 2.2 Secondary Risk (Defensive Fix)
 
-Under parallel load: accumulated open goroutines each holding WAL-mode file-based SQLite
-connections cause `SQLITE_BUSY` errors despite the 5-second busy-timeout.
+The `Create Failure Issue` step (`notify-on-failure` job, line 486) uses the
+same pattern for two job output values:
 
-#### Fix strategy (two complementary changes)
+```javascript
+// Lines 490–491 — verbatim source:
+const failureReason = '${{ needs.check-nightly-health.outputs.failure_reason }}';
+const latestRunUrl  = '${{ needs.check-nightly-health.outputs.latest_run_url }}';
+```
 
-**A — Add `Close()` to `SecurityHandler` + register cleanup at all 14 call sites**
+`failure_reason` is assembled from workflow file names, conclusion strings, and
+GitHub HTML URLs (e.g.,
+`quality-checks.yml failure (https://github.com/owner/repo/actions/runs/123)`).
+In practice these values never contain apostrophes, so this does not
+reproducibly fail today. However, any future change to how `failure_reason` is
+composed could silently reintroduce the bug. The fix is applied proactively.
 
-Stops goroutine accumulation. An exported `Close()` method is required because `svc` is
-unexported.
+### 2.3 Correct Pattern: Environment Variable Passthrough
 
-**B — Convert `setupAuditTestDB` from file-based to in-memory SQLite**
+The `actions/github-script` action supports an `env:` block at the step level.
+Values assigned to `env:` are expanded by the Actions runner (the YAML context
+layer) and then passed to the Node.js process as environment variables. The
+`script:` body reads them via `process.env.*`. The value is **never
+interpolated into JavaScript source code** — it arrives as a runtime string,
+making injection structurally impossible.
 
-`OpenTestDB(t)` (defined in `testdb.go`) creates a uniquely-named in-memory SQLite with
-`mode=memory&cache=shared` and auto-registered cleanup. This eliminates WAL file-lock as a
-failure vector, matching the pattern used by all working handler tests.
-
-Both changes together provide defense in depth: goroutine lifecycle is clean AND the DB is not
-susceptible to file-locking under concurrent load.
+This is the canonical pattern in GitHub's own security-hardening guide for
+Actions and is the standard fix for this class of vulnerability
+(`CWE-94: Improper Control of Generation of Code`).
 
 ---
 
-## 3. Technical Specifications
+## 3. Requirements (EARS Notation)
 
-### 3.1 Files Modified / Created
-
-| File | Action | Commit |
-|---|---|---|
-| `frontend/package.json` | Remove 3 duplicate devDependency keys | 1 |
-| `frontend/src/components/CredentialManager.tsx` | Add inline eslint-disable comment | 2 |
-| `frontend/src/utils/certificateUtils.ts` | **New file** — export `isInUse`, `isDeletable` | 3 |
-| `frontend/src/components/CertificateList.tsx` | Remove exports; add import from utils | 3 |
-| `frontend/src/components/__tests__/CertificateList.test.tsx` | Update import path | 3 |
-| `frontend/src/components/CSPBuilder.tsx` | 1× `<label>` → `<span>` | 4 |
-| `frontend/src/components/AccessListSelector.tsx` | 1× `<label>` → `<span>` | 4 |
-| `frontend/src/components/AccessListForm.tsx` | 3× `<label>` → `<span>` (2 preserve `id`) | 4 |
-| `frontend/src/api/__tests__/logs-websocket.test.ts` | 2× `it.skip` → `it.todo` | 5 |
-| `backend/internal/api/handlers/security_handler.go` | Add exported `Close()` method | 6 |
-| `backend/internal/api/handlers/security_handler_audit_test.go` | Add cleanup; convert to in-memory DB | 6 |
-
-### 3.2 Detailed Change Specifications
-
-#### Commit 1 — `frontend/package.json`
-
-Remove the **second** occurrence of these three devDependency keys (approximately lines 74-76):
-```
-"@typescript-eslint/eslint-plugin": "...",
-"@typescript-eslint/parser": "...",
-"@typescript-eslint/utils": "...",
-```
-
-After the change, each key appears exactly once in `devDependencies`.
-
-**Validation**: `cd frontend && npm install --dry-run` must complete without duplicate key
-warnings.
-
-#### Commit 2 — `CredentialManager.tsx`
-
-Locate `validateZoneFilter` and the regex literal it contains. Add two lines immediately before
-the regex:
-
-```ts
-// eslint-disable-next-line security/detect-unsafe-regex
-// Runs client-side only; ReDoS risk is confined to the user's own browser session
-```
-
-**Validation**: `npm run lint` on the file shows no `security/detect-unsafe-regex` errors.
-
-#### Commit 3 — Extract certificate utilities
-
-**New file**: `frontend/src/utils/certificateUtils.ts`
-
-```ts
-import { type Certificate } from '../api/certificates'
-
-export function isInUse(cert: Certificate): boolean {
-  return cert.in_use
-}
-
-export function isDeletable(cert: Certificate): boolean {
-  if (cert.in_use) return false
-  return (
-    cert.provider === 'custom' ||
-    cert.provider === 'letsencrypt-staging' ||
-    cert.status === 'expired' ||
-    cert.status === 'expiring'
-  )
-}
-```
-
-**`frontend/src/components/CertificateList.tsx`** changes:
-- Remove the two `export function` declarations at lines 20-31.
-- Add to the import block: `import { isInUse, isDeletable } from '../utils/certificateUtils'`
-- Internal call sites (lines 103, 225, 226) are unchanged — they reference the same function
-  names now satisfied by the import.
-
-**`frontend/src/components/__tests__/CertificateList.test.tsx`** line 8:
-```ts
-// Before:
-import CertificateList, { isDeletable, isInUse } from '../CertificateList'
-
-// After:
-import CertificateList from '../CertificateList'
-import { isDeletable, isInUse } from '../../utils/certificateUtils'
-```
-
-**Validation**: `npm run lint` — no `react-refresh/only-export-components` errors.
-`npm run test -- CertificateList` — all existing tests pass.
-
-#### Commit 4 — Replace `<label>` on non-labelable elements
-
-| File | Change |
-|---|---|
-| `CSPBuilder.tsx` ~line 326 | `<label` → `<span` and `</label>` → `</span>` |
-| `AccessListSelector.tsx` ~line 128 | `<label` → `<span` and `</label>` → `</span>` |
-| `AccessListForm.tsx` ~line 385 | `<label id="access-list-enabled-label">` → `<span id="access-list-enabled-label">` and `</label>` → `</span>` |
-| `AccessListForm.tsx` ~line 401 | `<label id="access-list-local-network-label">` → `<span id="access-list-local-network-label">` and `</label>` → `</span>` |
-| `AccessListForm.tsx` ~line 422 | `<label` → `<span` and `</label>` → `</span>` |
-
-**Critical constraint for lines 385 & 401**: The `id` attribute **must be preserved** — `<Switch>`
-components reference it via `aria-labelledby`. Removing the `id` would break the programmatic
-label association for screen readers.
-
-**Validation**: `npm run lint` — no `jsx-a11y/label-has-associated-control` errors.
-
-#### Commit 5 — `logs-websocket.test.ts`
-
-Replace both `it.skip(...)` blocks at lines 134 and 151 with `it.todo(...)`, removing the
-callback bodies entirely:
-
-```ts
-// Before:
-// These tests are skipped because ...
-it.skip('should do X', () => {
-  // ... test body ...
-})
-
-// After:
-// These tests are skipped because ...
-it.todo('should do X')
-```
-
-Apply to both occurrences. **Preserve the explanatory comment** that appears immediately above
-each `it.skip` call — it must remain above the resulting `it.todo` line.
-
-**Test bodies are deleted outright** — do not preserve them as commented-out code. The prior
-implementations are retained in git history and can be recovered from there if needed.
-
-**Validation**: `npm run lint` — no disabled-test rule violations. `npm run test` shows both as
-`todo`.
-
-#### Commit 6 — Backend test fix
-
-##### Part A: Add `Close()` to `security_handler.go`
-
-After `NewSecurityHandler` (or `NewSecurityHandlerWithDeps`), add:
-
-```go
-// Close stops the background audit goroutine. Required for test cleanup.
-func (h *SecurityHandler) Close() {
-	h.svc.Close()
-}
-```
-
-`svc` is unexported; this method is the only way for test code to call `svc.Close()`.
-
-##### Part B1: Replace `setupAuditTestDB` in `security_handler_audit_test.go`
-
-Replace the entire function body with:
-
-```go
-func setupAuditTestDB(t *testing.T) *gorm.DB {
-	t.Helper()
-	db := OpenTestDB(t)
-	if err := db.AutoMigrate(
-		&models.SecurityRuleSet{},
-		&models.SecurityConfig{},
-		&models.SecurityDecision{},   // ← required, not AccessListRule
-		&models.SecurityAudit{},
-		&models.Setting{},
-	); err != nil {
-		t.Fatalf("setupAuditTestDB migrate: %v", err)
-	}
-	return db
-}
-```
-
-`OpenTestDB(t)` creates a uniquely-named in-memory SQLite with auto-registered cleanup. This
-eliminates WAL file-locking entirely.
-
-> The model list (`SecurityRuleSet`, `SecurityConfig`, `SecurityDecision`, `SecurityAudit`,
-> `Setting`) must match this specification exactly. `SecurityDecision` is required because
-> `TestSecurityHandler_CreateDecision_SQLInjection` and
-> `TestSecurityHandler_CreateDecision_EmptyFields` both query the `security_decisions` table.
-> `AccessListRule` is **not** in this list.
-
-##### Part B2: Add `t.Cleanup(func() { h.Close() })` at all 14 call sites
-
-Every `h := NewSecurityHandler(cfg, db, nil)` call must be immediately followed by:
-```go
-t.Cleanup(func() { h.Close() })
-```
-
-The 14 call site line numbers (approximate — verify before applying):
-`76, 98, 144, 179, 210, 280, 325, 355, 399, 447, 508, 536, 562, 597`
-
-##### Part B3: Add diagnostic logging to the failing test
-
-In `TestSecurityHandler_UpsertRuleSet_XSSInContent`, immediately before the first
-`assert.Equal(t, http.StatusOK, w.Code)`, add:
-```go
-t.Logf("UpsertRuleSet response body: %s", w.Body.String())
-```
-
-This surfaces the real GORM error message if the test regresses in future.
-
-**Validation**:
-```bash
-# Isolated run must pass
-go test -v -count=1 -run TestSecurityHandler_UpsertRuleSet_XSSInContent ./backend/internal/api/handlers/
-
-# Full package with race detector must pass
-go test -race -count=1 ./backend/internal/api/handlers/
-
-# Coverage gate must pass
-bash scripts/go-test-coverage.sh
-```
+| ID | Requirement |
+|----|-------------|
+| R-01 | **WHEN** a user manually triggers `weekly-nightly-promotion.yml` with a `reason` input containing an apostrophe, single quote, double quote, backslash, or any other JavaScript metacharacter, **THE SYSTEM SHALL** complete the `Create Promotion PR` step without a `SyntaxError`. |
+| R-02 | **WHEN** the `Create Promotion PR` step completes successfully, **THE SYSTEM SHALL** use the literal value of `inputs.reason` (verbatim, unmodified) as the trigger reason in the PR body. |
+| R-03 | **WHEN** `inputs.reason` is empty or absent (scheduled run), **THE SYSTEM SHALL** fall back to the string `'Scheduled weekly promotion'` as the trigger reason. |
+| R-04 | **WHEN** the `notify-on-failure` job's `Create Failure Issue` step executes, **THE SYSTEM SHALL** read `failure_reason` and `latest_run_url` from environment variables rather than from interpolated JavaScript string literals. |
+| R-05 | **THE SYSTEM SHALL NOT** modify any step, job, or file outside the two affected steps (`Create Promotion PR` and `Create Failure Issue`). |
+| R-06 | **THE SYSTEM SHALL NOT** alter the observable behaviour of the workflow for any input that does not contain JavaScript metacharacters (i.e., existing scheduled runs remain functionally identical). |
 
 ---
 
-### Change 3 — `scripts/rate_limit_integration.sh`: Add 429 retry resilience
+## 4. Full Expression Audit
 
-#### 3.3.1 Replace single-shot 429 assertion with retry loop
+This section audits every `${{ }}` expression that appears inside a
+`script: |` block (JavaScript context) in the file. Shell `run:` steps are
+not evaluated as code and are **out of scope for injection analysis**.
 
-**Find** (exact block):
+### 4.1 `check-nightly-health` job — `Check Nightly Workflow Status` step
 
-```bash
-echo ""
-echo "Sending request ${RATE_LIMIT_REQUESTS}+1 (should return 429 Too Many Requests)..."
+| Line | Expression | Context | Risk Assessment |
+|------|-----------|---------|----------------|
+| 53 | `'${{ inputs.skip_workflow_check }}'` | Single-quoted JS string | **SAFE.** Declared `type: boolean`; Actions renders only `true` or `false`. No special characters possible. |
 
-# Capture headers too for Retry-After check
-BLOCKED_RESPONSE=$(curl -s -D - -o /dev/null -H "Host: ${TEST_DOMAIN}" http://localhost:8180/get)
-BLOCKED_STATUS=$(echo "$BLOCKED_RESPONSE" | head -1 | grep -o '[0-9]\{3\}' | head -1)
+### 4.2 `create-promotion-pr` job — `Check for Existing PR` step
+
+| Line | Expression | Context | Risk Assessment |
+|------|-----------|---------|----------------|
+| 284 | `` `${context.repo.owner}:${{ env.SOURCE_BRANCH }}` `` | Backtick template literal | **SAFE.** `SOURCE_BRANCH` is a static workflow-level env var (`nightly`). No user-controlled input. Template literals do not amplify single-quote injection. |
+| 285 | `'${{ env.TARGET_BRANCH }}'` | Single-quoted JS string | **SAFE.** `TARGET_BRANCH` is a static workflow-level env var (`main`). No special characters. |
+
+### 4.3 `create-promotion-pr` job — `Create Promotion PR` step
+
+| Line | Expression | Context | Risk Assessment |
+|------|-----------|---------|----------------|
+| 305 | `'${{ steps.commits.outputs.date }}'` | Single-quoted JS string | **SAFE.** Output of `date -u +%Y-%m-%d`; format is always `YYYY-MM-DD` (digits and hyphens only). |
+| 306 | `'${{ steps.commits.outputs.commit_count }}'` | Single-quoted JS string | **SAFE.** Output of `git rev-list --count`; always a decimal integer. |
+| 307 | `'${{ steps.commits.outputs.files_changed }}'` | Single-quoted JS string | **SAFE.** Output of `git diff --stat \| tail -1`; standard git summary (`N files changed, M insertions(+), K deletions(-)`). Git never produces apostrophes in this output. |
+| **310** | **`'${{ inputs.reason }}'`** | **Single-quoted JS string** | **🔴 VULNERABLE — PRIMARY BUG.** Free-text user input. Any apostrophe terminates the JS string literal. **Fix via `process.env`.** |
+| 342 | `` `...${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}...` `` | Backtick template literal | **SAFE.** `github.server_url` is a URL, `github.repository` is `owner/repo`, `github.run_id` is numeric. All are GitHub context values with no special characters. |
+| 350 | `'${{ env.SOURCE_BRANCH }}'` | Single-quoted JS string | **SAFE.** Static env var `nightly`. |
+| 351 | `'${{ env.TARGET_BRANCH }}'` | Single-quoted JS string | **SAFE.** Static env var `main`. |
+
+### 4.4 `create-promotion-pr` job — `Update Existing PR` step
+
+| Line | Expression | Context | Risk Assessment |
+|------|-----------|---------|----------------|
+| 405 | `${{ steps.existing-pr.outputs.pr_number }}` | **Unquoted** bare JS value | **SAFE.** PR number is always an integer rendered directly as a numeric literal. No injection possible. |
+| 412 | `` `...${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}...` `` | Backtick template literal | **SAFE.** Same as line 342. |
+| 416 | `'${{ steps.existing-pr.outputs.pr_url }}'` | Single-quoted JS string | **SAFE in practice.** GitHub PR URLs have the fixed format `https://github.com/owner/repo/pull/N`. No apostrophes possible in a well-formed URL. |
+
+### 4.5 `notify-on-failure` job — `Create Failure Issue` step
+
+| Line | Expression | Context | Risk Assessment |
+|------|-----------|---------|----------------|
+| 489 | `'${{ needs.check-nightly-health.outputs.is_healthy }}'` | Single-quoted JS string | **SAFE.** Value is always `'true'` or `'false'` — set by script with literal strings. |
+| **490** | **`'${{ needs.check-nightly-health.outputs.failure_reason }}'`** | **Single-quoted JS string** | **🟡 LOW RISK — DEFENSIVE FIX.** Currently safe (workflow file names, conclusion words, and URLs contain no apostrophes), but the value is dynamically constructed. A future change to `failure_reason` composition could silently reintroduce injection. **Fix via `process.env`.** |
+| **491** | **`'${{ needs.check-nightly-health.outputs.latest_run_url }}'`** | **Single-quoted JS string** | **🟡 LOW RISK — DEFENSIVE FIX.** GitHub run URLs never contain apostrophes, but same defensive rationale applies. **Fix via `process.env`.** |
+| 492 | `'${{ needs.create-promotion-pr.result }}'` | Single-quoted JS string | **SAFE.** GitHub job result is a fixed enum: `success`, `failure`, `cancelled`, `skipped`. |
+| 506, 528 | `` `...${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}...` `` | JS template string in YAML multiline | **SAFE.** Same analysis as line 342. |
+
+### 4.6 `summary` job — `Generate Summary` step (shell `run:`)
+
+| Lines | Expression | Context | Risk Assessment |
+|-------|-----------|---------|----------------|
+| 603–607, 628 | Various `${{ needs.*.outputs.* }}` and `${{ github.* }}` | Bash `run:` step, **not JavaScript** | **OUT OF SCOPE.** Shell variable assignment (`VAR="${{ expr }}"`) is not code injection. Double-quoting prevents word-splitting; values are only used in `echo`. No fix required. |
+
+### 4.7 Audit Conclusion
+
+**Two locations require changes.** All other `${{ }}` expressions in JS
+`script:` blocks are safe by analysis. The pattern
+`${{ env.SOURCE_BRANCH }}` / `${{ env.TARGET_BRANCH }}` (static workflow env
+vars `nightly` and `main`) are safe enough to leave as-is; converting them
+would add noise without meaningful security benefit.
+
+---
+
+## 5. Design
+
+### 5.1 Fix 1 — `Create Promotion PR` Step (Primary Bug)
+
+**File**: `.github/workflows/weekly-nightly-promotion.yml`
+**Scope**: Lines 297–311 (step header + first four JS variable declarations)
+
+Add an `env:` block between `uses:` and `with:`, then replace the interpolated
+JS string at line 310 with a `process.env` read.
+
+#### Before (lines 297–311):
+
+```yaml
+      - name: Create Promotion PR
+        id: create-pr
+        if: steps.check-diff.outputs.skipped != 'true' && steps.existing-pr.outputs.exists != 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            const fs = require('fs');
+
+            const date = '${{ steps.commits.outputs.date }}';
+            const commitCount = '${{ steps.commits.outputs.commit_count }}';
+            const filesChanged = '${{ steps.commits.outputs.files_changed }}';
+            const commitLog = fs.readFileSync('/tmp/commit_log.md', 'utf8');
+
+            const triggerReason = '${{ inputs.reason }}' || 'Scheduled weekly promotion';
+```
+
+#### After:
+
+```yaml
+      - name: Create Promotion PR
+        id: create-pr
+        if: steps.check-diff.outputs.skipped != 'true' && steps.existing-pr.outputs.exists != 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          TRIGGER_REASON: ${{ inputs.reason }}
+        with:
+          script: |
+            const fs = require('fs');
+
+            const date = '${{ steps.commits.outputs.date }}';
+            const commitCount = '${{ steps.commits.outputs.commit_count }}';
+            const filesChanged = '${{ steps.commits.outputs.files_changed }}';
+            const commitLog = fs.readFileSync('/tmp/commit_log.md', 'utf8');
+
+            const triggerReason = process.env.TRIGGER_REASON || 'Scheduled weekly promotion';
+```
+
+**Diff summary**:
+
+| Action | Detail |
+|--------|--------|
+| Insert 2 lines | `        env:` and `          TRIGGER_REASON: ${{ inputs.reason }}` after the `uses:` line |
+| Modify 1 line | `'${{ inputs.reason }}'` → `process.env.TRIGGER_REASON` on the `triggerReason` declaration |
+
+> **Why `env:` before `with:`?** YAML step keys have no required ordering, but
+> convention in this file places `env:` between the action reference and its
+> `with:` block. This minimises diff noise.
+
+> **Why not escape the apostrophe in the expression?** Escaping inside an
+> Actions expression (e.g., `replace(inputs.reason, '''', '\''')`) is fragile
+> and does not cover double quotes, backslashes, or newlines. The `process.env`
+> approach is the only architecturally correct solution.
+
+### 5.2 Fix 2 — `Create Failure Issue` Step (Defensive)
+
+**File**: `.github/workflows/weekly-nightly-promotion.yml`
+**Scope**: Lines 486–492 (step header + first four JS variable declarations)
+
+Add an `env:` block and replace the two `failure_reason`/`latest_run_url`
+interpolations with `process.env` reads.
+
+#### Before (lines 486–492):
+
+```yaml
+      - name: Create Failure Issue
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            const isHealthy = '${{ needs.check-nightly-health.outputs.is_healthy }}';
+            const failureReason = '${{ needs.check-nightly-health.outputs.failure_reason }}';
+            const latestRunUrl = '${{ needs.check-nightly-health.outputs.latest_run_url }}';
+            const prResult = '${{ needs.create-promotion-pr.result }}';
+```
+
+#### After:
+
+```yaml
+      - name: Create Failure Issue
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          FAILURE_REASON: ${{ needs.check-nightly-health.outputs.failure_reason }}
+          LATEST_RUN_URL: ${{ needs.check-nightly-health.outputs.latest_run_url }}
+        with:
+          script: |
+            const isHealthy = '${{ needs.check-nightly-health.outputs.is_healthy }}';
+            const failureReason = process.env.FAILURE_REASON || '';
+            const latestRunUrl = process.env.LATEST_RUN_URL || 'N/A';
+            const prResult = '${{ needs.create-promotion-pr.result }}';
+```
+
+**Diff summary**:
+
+| Action | Detail |
+|--------|--------|
+| Insert 3 lines | `        env:`, `          FAILURE_REASON: ${{ needs.check-nightly-health.outputs.failure_reason }}`, `          LATEST_RUN_URL: ${{ needs.check-nightly-health.outputs.latest_run_url }}` after the `uses:` line |
+| Modify 1 line | `'${{ ...failure_reason }}'` → `process.env.FAILURE_REASON \|\| ''` |
+| Modify 1 line | `'${{ ...latest_run_url }}'` → `process.env.LATEST_RUN_URL \|\| 'N/A'` |
+
+> **Fallback values**: `|| ''` and `|| 'N/A'` match what `check-nightly-health`
+> sets when the health check is skipped (`failure_reason: ''`,
+> `latest_run_url: 'N/A - check skipped'`). Behaviour for the non-apostrophe
+> path is preserved exactly.
+
+### 5.3 Unchanged Expressions (Explicitly Safe)
+
+The following single-quoted JS string interpolations are **not changed**
+because they are safe by analysis (see §4):
+
+| Line | Expression | Reason not changed |
+|------|-----------|-------------------|
+| 53 | `'${{ inputs.skip_workflow_check }}'` | Boolean type; renders only `true`/`false` |
+| 285 | `'${{ env.TARGET_BRANCH }}'` | Static env var `main` |
+| 305 | `'${{ steps.commits.outputs.date }}'` | `YYYY-MM-DD` format only |
+| 306 | `'${{ steps.commits.outputs.commit_count }}'` | Integer only |
+| 307 | `'${{ steps.commits.outputs.files_changed }}'` | Git stat summary; no apostrophes |
+| 350, 351 | `'${{ env.SOURCE_BRANCH }}'`, `'${{ env.TARGET_BRANCH }}'` | Static env vars |
+| 416 | `'${{ steps.existing-pr.outputs.pr_url }}'` | GitHub PR URL; no apostrophes in URLs |
+| 489 | `'${{ needs.check-nightly-health.outputs.is_healthy }}'` | Fixed `true`/`false` |
+| 492 | `'${{ needs.create-promotion-pr.result }}'` | Fixed GitHub result enum |
+
+---
+
+## 6. Implementation Plan
+
+This is a 5-line change to one file. No scaffolding, no test setup, no
+multi-phase implementation. The entire work is one atomic commit.
 
 ### Phase 1 — Playwright Tests
 
-No UI/UX behaviour changes are introduced. Playwright E2E tests are not required for this plan.
-Changes are limited to build config, utility extraction, HTML element type changes (visually
-identical), and test-only changes. A smoke run of the standard suite is optional.
+No UI/UX behaviour changes are introduced by this fix. Playwright E2E tests
+are not required.
 
-### Phase 2 — Backend Implementation (Commit 6)
+### Phase 2 — Backend Implementation
 
-1. Edit `security_handler.go` — add `Close()` method.
-2. Edit `security_handler_audit_test.go`:
-   a. Replace `setupAuditTestDB` body.
-   b. Add `t.Cleanup` at all 14 call sites.
-   c. Add `t.Logf` diagnostic.
-3. Run: `go test -race -count=1 ./backend/internal/api/handlers/` — confirm exit 0.
-4. Run: `bash scripts/go-test-coverage.sh` — confirm coverage gate passes.
+Not applicable. This fix is in a CI workflow file only.
 
-### Phase 3 — Frontend Implementation (Commits 1-5)
+### Phase 3 — Frontend Implementation
 
-Execute commits 1-5 in order. After each commit, run `npm run lint` to verify no new errors.
-After all five: run `npm run type-check` and `npm run test` to confirm no regressions.
+Not applicable.
 
-### Phase 4 — Integration Verification
+### Phase 4 — Integration and Testing
 
-Final checklist before opening PR:
-- [ ] `go test -race ./backend/...` exits 0
-- [ ] `bash scripts/go-test-coverage.sh` exits 0
-- [ ] `npm run lint` exits 0 (zero errors)
-- [ ] `npm run type-check` exits 0
-- [ ] `npm run test` exits 0
+| # | Task | File | Scope |
+|---|------|------|-------|
+| 1 | Add `env: TRIGGER_REASON` block to `Create Promotion PR` step | `weekly-nightly-promotion.yml` | 2 lines inserted after line 300 |
+| 2 | Replace `'${{ inputs.reason }}'` with `process.env.TRIGGER_REASON` | `weekly-nightly-promotion.yml` | Line 310 modified |
+| 3 | Add `env: FAILURE_REASON / LATEST_RUN_URL` block to `Create Failure Issue` step | `weekly-nightly-promotion.yml` | 3 lines inserted after line 487 |
+| 4 | Replace `'${{ ...failure_reason }}'` with `process.env.FAILURE_REASON \|\| ''` | `weekly-nightly-promotion.yml` | Line 490 modified |
+| 5 | Replace `'${{ ...latest_run_url }}'` with `process.env.LATEST_RUN_URL \|\| 'N/A'` | `weekly-nightly-promotion.yml` | Line 491 modified |
 
-### Phase 5 — Documentation
+Run validation gates after each task (see §8).
 
-No documentation changes required.
+### Phase 5 — Documentation and Deployment
+
+No documentation changes required. Merge to `development`; the workflow runs
+on `nightly` and `main` branches and will pick up the fix on next trigger.
 
 ---
 
-## 4. Implementation Plan
+## 7. Commit Slicing Strategy
 
-### Phase 1 — No Playwright phase
+**Decision**: Single PR, single commit. This is a surgical security fix with
+no logic changes, no cross-domain impact, and no migration risk.
 
-These are CI script and workflow changes only. No frontend or backend application code is
-modified.
+**Rationale**: The entire change touches one file, two steps, five lines. A
+single atomic commit makes the fix easy to cherry-pick to `nightly` or `main`
+if needed, and keeps the diff reviewable in under 30 seconds.
 
-| # | Criterion | Verification |
-|---|---|---|
-| AC-1 | `TestSecurityHandler_UpsertRuleSet_XSSInContent` passes in full package run | `go test -race -count=1 ./backend/internal/api/handlers/` exits 0 |
-| AC-2 | `scripts/go-test-coverage.sh` exits 0 | Coverage gate and test status both pass |
-| AC-3 | `npm run lint` exits 0 | No ESLint errors; `react-refresh`, `jsx-a11y`, `security`, `vitest` rules all pass |
-| AC-4 | `npm run type-check` exits 0 | No TypeScript errors after utility extraction |
-| AC-5 | All existing Vitest tests continue to pass | `npm run test` exits 0; `CertificateList.test.tsx` passes |
-| AC-6 | `<Switch>` components retain ARIA labels | `aria-labelledby` on Switch components resolves to matching `id` on adjacent `<span>` |
-| AC-7 | No backend lint regressions | Backend lint (non-blocking) gains no new CRITICAL/HIGH findings |
+### Commit 1 (and only commit)
 
----
-
-## 5. Commit Slicing Strategy
-
-**Decision**: Single PR with 6 ordered logical commits.
-
-**Trigger reasons**: Cross-domain changes (frontend/backend); logical independence of each fix;
-reviewability of each concern in isolation.
-
-### Commit Order
-
-| # | Commit message | Files | Dependencies | Validation gate |
-|---|---|---|---|---|
-| 1 | `fix(frontend): remove duplicate devDependencies from package.json` | `frontend/package.json` | None | `npm install` no warnings |
-| 2 | `fix(frontend): suppress unsafe-regex lint in zone filter validation` | `CredentialManager.tsx` | None | `npm run lint` clean on file |
-| 3 | `refactor(frontend): extract certificate utility functions to utils module` | `certificateUtils.ts` (new), `CertificateList.tsx`, `CertificateList.test.tsx` | None | `npm run lint` + `npm run test -- CertificateList` |
-| 4 | `fix(frontend/a11y): replace label with span for non-labelable controls` | `CSPBuilder.tsx`, `AccessListSelector.tsx`, `AccessListForm.tsx` | None | `npm run lint` clean on all 3 |
-| 5 | `fix(tests): convert skipped tests to todo in logs-websocket` | `logs-websocket.test.ts` | None | `npm run lint` clean on file |
-| 6 | `fix(backend/test): resolve UpsertRuleSet XSS test isolation failure` | `security_handler.go`, `security_handler_audit_test.go` | None | `go test -race ./backend/internal/api/handlers/` exits 0 |
-
-Commits 1-6 are fully independent and may be cherry-picked or reordered safely.
-
-### Rollback Notes
-
-Each commit is self-contained. Reverting any one commit has no cross-domain impact.
-Commit 6 revert returns the CI failure but affects no production behaviour.
-
----
-
-## 7. Risk Register
-
-| Risk | Likelihood | Impact | Mitigation |
-|---|---|---|---|
-| `AccessListForm` `<Switch>` `aria-labelledby` broken after label → span | Low | Medium | Spec explicitly preserves `id` on converted `<span>` elements |
-| `CertificateList.test.tsx` import path wrong after utility extraction | Low | Low | Test suite catches immediately; path is `../../utils/certificateUtils` |
-| `setupAuditTestDB` model list wrong | Low | High | Spec now explicitly requires `SecurityDecision` (not `AccessListRule`); required by `TestSecurityHandler_CreateDecision_*` tests |
-| One or more of the 14 `t.Cleanup` call sites missed | Low | Low | In-memory DB (B1) already eliminates the locking failure; goroutine cleanup is defence-in-depth |
-| `it.todo` removal of test body causes compile error | None | — | `it.todo` takes only a string argument; no compilation issues |
-
----
-
-## Commit 7 — Fix Cloudflare provider stdout capture race condition
-
-**Branch addition**: `fix/ci-eslint-backend-test` (same PR)
-**CI failure**: `TestStart_CapturesStdoutOutput` — 1.01 s timeout, ring buffer empty
-**PR**: <https://github.com/Wikid82/Charon/actions/runs/25817001017/job/75848015026?pr=1013>
-
----
-
-### 7.1 Root Cause Analysis
-
-#### Failing test
-
-**File**: `backend/internal/hecate/providers/cloudflare/coverage_test.go`
-**Test**: `TestStart_CapturesStdoutOutput` (~line 113)
-**Error** (line 143):
 ```
-Error: Should NOT be empty, but was []
-Messages: stdout scanner goroutine must have written output to the ring buffer
+fix(ci): pass workflow inputs via env vars to prevent JS injection
+
+In weekly-nightly-promotion.yml, two github-script steps interpolated
+${{ }} expressions directly into single-quoted JS string literals.
+When inputs.reason contained an apostrophe (e.g. "didn't run"),
+the string terminated prematurely, producing SyntaxError.
+
+Pass user-controlled and dynamic values through step-level env: blocks
+and read them via process.env.* in the script body. This eliminates
+the injection vector entirely.
+
+Primary fix: Create Promotion PR step (inputs.reason -> TRIGGER_REASON)
+Defensive fix: Create Failure Issue step (failure_reason, latest_run_url)
+
+Closes #1022
 ```
 
-The test starts the `echo` binary via `p.Start()`, waits for the process to exit via `<-done`,
-polls `p.buf.ReadAll()` for up to 1 second, then asserts it is non-empty. It consistently returns
-empty on CI.
+**Scope**: `.github/workflows/weekly-nightly-promotion.yml` only
+**Files changed**: 1
+**Lines added**: 5 (`env:` keys and values)
+**Lines modified**: 3 (JS variable declarations)
 
-#### The race
+**PR description**:
 
-`Start()` launches three goroutines in this order:
+> ## Summary
+>
+> Fixes #1022 — `SyntaxError` when manually triggering the weekly promotion
+> workflow with a reason containing an apostrophe.
+>
+> ## Root Cause
+>
+> ```javascript
+> // Before — VULNERABLE: apostrophe in input terminates the JS string
+> const triggerReason = '${{ inputs.reason }}' || 'Scheduled weekly promotion';
+>
+> // After — SAFE: value arrives as an environment variable at runtime
+> const triggerReason = process.env.TRIGGER_REASON || 'Scheduled weekly promotion';
+> ```
+>
+> ## Testing
+>
+> Manually trigger with reason `didn't run as scheduled` and verify
+> `Create Promotion PR` step completes without error.
 
-| Goroutine | Role |
-|---|---|
-| stdout scanner | `bufio.Scanner` reads `stdoutPipe`; calls `p.buf.Write(s.Text())` for each line |
-| stderr scanner | same but for `stderrPipe` |
-| monitor | calls `cmd.Wait()`; in its **deferred** cleanup calls `p.buf.Close()` then `close(p.done)` |
-
-The critical ordering defect in the monitor goroutine's deferred function
-(`backend/internal/hecate/providers/cloudflare/provider.go`, lines ~175–184):
-
-```go
-// BEFORE (buggy)
-go func() {
-    defer func() {
-        p.mu.Lock()
-        p.cmd = nil
-        if p.state != hecate.TunnelStateStopped {
-            p.state = hecate.TunnelStateError
-        }
-        p.mu.Unlock()
-        p.buf.Close()   // ← (1) closes the buffer
-        close(p.done)   // ← (2) signals test
-    }()
-    _ = cmd.Wait()
-}()
-```
-
-Once `cmd.Wait()` returns (process exited), the monitor deferred function runs and calls
-`p.buf.Close()`. This sets `rb.closed = true` inside `RingBuffer`
-(`backend/internal/hecate/ring_buffer.go`, line ~95).
-
-Concurrently, the stdout scanner goroutine may not yet have been scheduled. When it eventually
-runs and calls `p.buf.Write(s.Text())`, the guard at `ring_buffer.go` line ~31 fires:
-
-```go
-func (rb *RingBuffer) Write(line string) {
-    rb.mu.Lock()
-    defer rb.mu.Unlock()
-    if rb.closed {
-        return  // ← silently drops the write
-    }
-    // ...
-}
-```
-
-The write is silently dropped. The ring buffer remains empty. The test's 1-second polling loop
-exhausts without finding any data. `ReadAll()` returns `nil` and the assertion fails.
-
-#### Why it is non-deterministic
-
-The race window is the interval between `cmd.Wait()` returning and the scanner goroutine calling
-`p.buf.Write()`. On a lightly-loaded machine the Go scheduler tends to run the scanner goroutines
-first because they are I/O-bound and already have data waiting in the pipe. On a loaded CI runner
-the monitor goroutine is more likely to win the scheduler lottery, close the buffer, and leave the
-scanner goroutine with nowhere to write.
-
-`echo` exits in < 1 ms; the entire race window is sub-millisecond — too short for `time.Sleep`-
-based workarounds but reliably closed by a `sync.WaitGroup`.
+**Rollback**: `git revert <sha>` — zero risk, one commit.
 
 ---
 
-### 7.2 File Locations and Exact Lines
+## 8. Validation Gates
 
-| File | Lines of interest |
-|---|---|
-| `backend/internal/hecate/providers/cloudflare/provider.go` | ~153–185 (`Start()` goroutine block) |
-| `backend/internal/hecate/ring_buffer.go` | ~29–31 (`Write` closed guard), ~93–101 (`Close`) |
-| `backend/internal/hecate/providers/cloudflare/coverage_test.go` | ~113–143 (`TestStart_CapturesStdoutOutput`) |
+### Gate 1 — YAML Lint
 
----
-
-### 7.3 Fix Specification
-
-**Single change**: add a `sync.WaitGroup` (`scanWg`) that tracks both scanner goroutines.
-The monitor goroutine calls `scanWg.Wait()` inside its deferred function, **before**
-`p.buf.Close()`, so the buffer is never closed until all writes have completed.
-
-No changes to the test or `RingBuffer` are required.
-
-#### Before (`provider.go` — Start(), goroutine block)
-
-```go
-// Stream stdout to the ring buffer.
-go func() {
-    s := bufio.NewScanner(stdoutPipe)
-    for s.Scan() {
-        p.buf.Write(s.Text())
-    }
-}()
-
-// Stream stderr to the ring buffer.
-go func() {
-    s := bufio.NewScanner(stderrPipe)
-    for s.Scan() {
-        p.buf.Write(s.Text())
-    }
-}()
-
-// Monitor process exit and update state accordingly.
-go func() {
-    defer func() {
-        p.mu.Lock()
-        p.cmd = nil
-        if p.state != hecate.TunnelStateStopped {
-            p.state = hecate.TunnelStateError
-        }
-        p.mu.Unlock()
-        p.buf.Close()
-        close(p.done)
-    }()
-    _ = cmd.Wait()
-}()
-```
-
-#### After (`provider.go` — Start(), goroutine block)
-
-```go
-var scanWg sync.WaitGroup
-
-// Stream stdout to the ring buffer.
-scanWg.Add(1)
-go func() {
-    defer scanWg.Done()
-    s := bufio.NewScanner(stdoutPipe)
-    for s.Scan() {
-        p.buf.Write(s.Text())
-    }
-}()
-
-// Stream stderr to the ring buffer.
-scanWg.Add(1)
-go func() {
-    defer scanWg.Done()
-    s := bufio.NewScanner(stderrPipe)
-    for s.Scan() {
-        p.buf.Write(s.Text())
-    }
-}()
-
-// Monitor process exit and update state accordingly.
-go func() {
-    defer func() {
-        p.mu.Lock()
-        p.cmd = nil
-        if p.state != hecate.TunnelStateStopped {
-            p.state = hecate.TunnelStateError
-        }
-        p.mu.Unlock()
-        scanWg.Wait() // drain scanner goroutines before closing the buffer
-        p.buf.Close()
-        close(p.done)
-    }()
-    _ = cmd.Wait()
-}()
-```
-
-**Why this is safe:**
-- `cmd.Wait()` returns only after the process exits and the pipe write-ends are closed by the OS.
-  At that point `s.Scan()` will return `false` (EOF) on the next iteration, so both scanner
-  goroutines will reach `scanWg.Done()` promptly.
-- `scanWg.Wait()` blocks for at most the time it takes the scanner goroutines to drain the pipe
-  buffer — microseconds in practice.
-- `p.buf.Close()` and `close(p.done)` are still called in the same relative order; only
-  `scanWg.Wait()` is inserted between the state unlock and `p.buf.Close()`.
-- `sync` is already imported in `provider.go` (used by `sync.RWMutex`); no new import is needed.
-
----
-
-### 7.4 Commit Details
-
-| Field | Value |
-|---|---|
-| **Commit message** | `fix(hecate/cloudflare): drain scanner goroutines before closing ring buffer` |
-| **Files changed** | `backend/internal/hecate/providers/cloudflare/provider.go` |
-| **Lines changed** | ~6 lines added (WaitGroup declaration + 2×Add + 2×Done + 1×Wait) |
-| **Dependencies** | None; Commits 1-6 are independent |
-
-### 7.5 Validation Gate
+Run `yamllint` against the modified file before merging. The `env:` block must
+parse correctly and indentation must be consistent with the rest of the file
+(2-space indent, step keys at 8 spaces).
 
 ```bash
-# Target test — must pass deterministically
-go test ./backend/internal/hecate/providers/cloudflare/... \
-    -v -count=5 -race -run TestStart_CapturesStdoutOutput
-
-# Full cloudflare package — must pass
-go test -race -count=1 ./backend/internal/hecate/providers/cloudflare/...
-
-# Coverage gate — must not regress
-bash scripts/go-test-coverage.sh
+yamllint .github/workflows/weekly-nightly-promotion.yml
 ```
 
-`-count=5` runs the test five times in a single invocation to exercise the scheduler across
-multiple scheduling decisions, providing high confidence the race is closed.
+### Gate 2 — actionlint
+
+`actionlint` statically analyses GitHub Actions workflows and will catch:
+- Incorrect `env:` key names
+- Invalid expression syntax
+- Undefined step outputs used in `env:` values
+
+```bash
+actionlint .github/workflows/weekly-nightly-promotion.yml
+```
+
+### Gate 3 — Manual Trigger Test (post-merge)
+
+1. Navigate to **Actions → Weekly Nightly to Main Promotion → Run workflow**
+2. In the `reason` field, enter: `didn't run as scheduled`
+3. Set `skip_workflow_check` to `true` (bypasses health check during test)
+4. Click **Run workflow**
+5. **Expected**: The `Create Promotion PR` step completes without error.
+   Either a PR is created (if nightly has changes) or the step is skipped
+   (if nightly is already in sync with main). No `SyntaxError` appears.
+6. **Failure indicator**: Any log line containing `SyntaxError`, `Unexpected
+   identifier`, or `Unexpected token` in the `Create Promotion PR` step.
+
+### Gate 4 — Regression Check
+
+Trigger the workflow with a plain reason (no apostrophes): `Ad-hoc test run`.
+Verify the `triggerReason` variable correctly appears in the PR body with the
+literal string provided (same behaviour as before the fix).
 
 ---
 
-*Plan written by GitHub Copilot in Planning mode. Ready for implementation agent handoff.*
+## 9. Acceptance Criteria
+
+| # | Criterion | Pass Condition |
+|---|-----------|---------------|
+| AC-1 | Workflow completes with reason containing `'` (apostrophe) | `Create Promotion PR` step exits 0; no `SyntaxError` in logs |
+| AC-2 | Workflow completes with reason containing `"` (double quote) | Same as AC-1 |
+| AC-3 | Workflow completes with reason containing `\` (backslash) | Same as AC-1 |
+| AC-4 | Scheduled run (no manual reason) falls back correctly | PR body shows `Scheduled weekly promotion` as trigger |
+| AC-5 | Plain reason (no special chars) passes through verbatim | PR body shows the exact string entered |
+| AC-6 | `Create Failure Issue` uses `process.env.FAILURE_REASON` | No raw `${{ }}` expansion in JS string context |
+| AC-7 | No other steps or files modified | `git diff` touches only `weekly-nightly-promotion.yml` |
+| AC-8 | YAML lint passes | `yamllint` exits 0 |
+| AC-9 | actionlint passes | `actionlint` exits 0 |
+
+---
+
+## 10. Out-of-Scope Items
+
+The following are **explicitly not part of this fix**:
+
+1. **No changes to shell `run:` steps** — `${{ }}` in bash variable
+   assignments is not code injection.
+2. **No changes to `check-nightly-health` job** — `inputs.skip_workflow_check`
+   is a `type: boolean` input; no injection risk.
+3. **No changes to other single-quoted interpolations in JS** — Lines 285,
+   305, 306, 307, 350, 351, 416, 489, 492 are safe by analysis (see §4).
+4. **No changes to any other workflow files**.
+5. **No changes to the `Update Existing PR` step** — Line 405 (`pr_number` as
+   a bare numeric literal) and line 416 (`pr_url` as a GitHub URL) are safe.
+6. **No refactoring of the JS body** — Only the minimum variable declarations
+   are changed; all script logic is untouched.
+7. **No changes to the `summary` job** — Its `run:` step uses `${{ }}` in
+   bash, not JavaScript.
+8. **No version bump to `actions/github-script`** — The pinned commit SHA
+   (`3a2844b7e9c422d3c10d287c895573f7108da1b3`) must not be changed as part of
+   this fix.
