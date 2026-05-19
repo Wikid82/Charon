@@ -285,4 +285,38 @@ describe('ProxyHosts group rendering', () => {
       expect(updateHostMock).toHaveBeenCalledWith('h1', { proxy_group_id: 'grp-1' }),
     )
   })
+
+  it('renders ungrouped section (line 861) and groups container (line 871) when groups exist and host has no proxy group', async () => {
+    vi.mocked(useProxyGroups).mockReturnValue({
+      data: [makeGroup()],
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof useProxyGroups>)
+    vi.mocked(useProxyHosts).mockReturnValue(
+      createProxyHostsHookValue({
+        hosts: [sampleHost({ uuid: 'h2', name: 'UngroupedVisible' })],
+      }),
+    )
+
+    renderWithProviders(<ProxyHosts />)
+
+    const ungroupedSection = await screen.findByRole('region', { name: 'Ungrouped' })
+    expect(within(ungroupedSection).getByText('UngroupedVisible')).toBeInTheDocument()
+  })
+
+  it('renders groups container div (line 871) when groups exist with no hosts', async () => {
+    vi.mocked(useProxyGroups).mockReturnValue({
+      data: [makeGroup()],
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof useProxyGroups>)
+    vi.mocked(useProxyHosts).mockReturnValue(
+      createProxyHostsHookValue({ hosts: [] }),
+    )
+
+    renderWithProviders(<ProxyHosts />)
+
+    expect(await screen.findByText('Production')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Ungrouped' })).not.toBeInTheDocument()
+  })
 })

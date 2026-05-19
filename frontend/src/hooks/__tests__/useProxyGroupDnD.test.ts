@@ -204,6 +204,70 @@ describe('useProxyGroupDnD', () => {
     expect(cached?.every((h) => h.proxy_group?.uuid === 'g1')).toBe(true)
   })
 
+  it('handleDragOver: sets overGroupId from event', () => {
+    const group = makeGroup('g1')
+    const host = makeHost('h1', null)
+    const bulkUpdateGroup = vi.fn()
+    const setSelectedHosts = vi.fn()
+
+    const { result } = renderHook(
+      () =>
+        useProxyGroupDnD({
+          hosts: [host],
+          groups: [group],
+          selectedHosts: new Set(),
+          setSelectedHosts,
+          bulkUpdateGroup,
+        }),
+      { wrapper: createWrapper(qc) },
+    )
+
+    act(() => {
+      result.current.handleDragOver({ over: { id: 'g1' } } as Parameters<typeof result.current.handleDragOver>[0])
+    })
+    expect(result.current.overGroupId).toBe('g1')
+
+    act(() => {
+      result.current.handleDragOver({ over: null } as unknown as Parameters<typeof result.current.handleDragOver>[0])
+    })
+    expect(result.current.overGroupId).toBeNull()
+  })
+
+  it('handleDragEnd with no over: calls handleDragCancel', async () => {
+    const group = makeGroup('g1')
+    const host = makeHost('h1', null)
+    const bulkUpdateGroup = vi.fn()
+    const setSelectedHosts = vi.fn()
+
+    const { result } = renderHook(
+      () =>
+        useProxyGroupDnD({
+          hosts: [host],
+          groups: [group],
+          selectedHosts: new Set(),
+          setSelectedHosts,
+          bulkUpdateGroup,
+        }),
+      { wrapper: createWrapper(qc) },
+    )
+
+    act(() => {
+      result.current.handleDragStart({ active: { id: 'h1' } } as Parameters<typeof result.current.handleDragStart>[0])
+    })
+    expect(result.current.activeDragId).toBe('h1')
+
+    await act(async () => {
+      await result.current.handleDragEnd({
+        active: { id: 'h1' },
+        over: null,
+      } as unknown as Parameters<typeof result.current.handleDragEnd>[0])
+    })
+
+    expect(result.current.activeDragId).toBeNull()
+    expect(result.current.hostsBeingDragged).toHaveLength(0)
+    expect(bulkUpdateGroup).not.toHaveBeenCalled()
+  })
+
   it('multi-select drag: all selected UUIDs passed to bulkUpdateGroup', async () => {
     const group = makeGroup('g1')
     const hosts = [makeHost('h1', null), makeHost('h2', null), makeHost('h3', null)]
