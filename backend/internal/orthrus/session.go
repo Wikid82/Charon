@@ -2,15 +2,21 @@ package orthrus
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"sync"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/gorilla/websocket"
 	"github.com/hashicorp/yamux"
 )
+
+// streamTypeDocker identifies Docker socket proxy streams opened toward the agent.
+// Must match the constant in the Orthrus agent (agent/leash/leash.go).
+const streamTypeDocker = byte(0x01)
 
 // wsNetConn adapts a gorilla WebSocket connection to the net.Conn interface
 // so that yamux can use it as a byte-stream transport.
@@ -82,14 +88,15 @@ func (c *wsNetConn) SetWriteDeadline(t time.Time) error {
 }
 
 // AgentSession represents a single connected Orthrus agent's active WebSocket
-// and Yamux session. Full proxy stream forwarding is implemented in PR 5.
+// and Yamux session.
 type AgentSession struct {
 	agentUUID string
 	agentName string
 	conn      *websocket.Conn
 	session   *yamux.Session
 	cancel    context.CancelFunc
-	proxyPort int // allocated in PR 5; 0 means no proxy listener yet
+	proxyPort int          // ephemeral port; 0 until StartDockerProxy succeeds
+	listener  net.Listener // nil until StartDockerProxy succeeds; set atomically with proxyPort
 	mu        sync.Mutex
 }
 
@@ -114,12 +121,107 @@ func NewAgentSession(agentUUID, agentName string, conn *websocket.Conn) (*AgentS
 	}, nil
 }
 
-// Close terminates the Yamux session and the underlying WebSocket connection.
-// Yamux closes the underlying net.Conn (wsNetConn) when the session is closed,
-// which in turn closes the WebSocket connection; no second close is needed.
+// StartDockerProxy allocates an ephemeral loopback TCP listener and starts
+// accepting connections. Each accepted connection is tunnelled to the agent's
+// Docker socket via a new yamux stream of type streamTypeDocker (0x01).
+// Returns an error if the OS cannot allocate a port, if the proxy is already
+// running for this session (idempotency guard), or if the session is closed.
+func (s *AgentSession) StartDockerProxy() error {
+	s.mu.Lock()
+	if s.listener != nil {
+		s.mu.Unlock()
+		return fmt.Errorf("orthrus: docker proxy already started for session %s", s.agentUUID)
+	}
+	if s.session.IsClosed() {
+		s.mu.Unlock()
+		return fmt.Errorf("orthrus: cannot start proxy on closed session %s", s.agentUUID)
+	}
+	s.mu.Unlock()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return fmt.Errorf("orthrus: allocate proxy listener: %w", err)
+	}
+
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	s.mu.Lock()
+	if s.listener != nil { // re-check after net.Listen (double-check pattern)
+		_ = ln.Close()
+		s.mu.Unlock()
+		return fmt.Errorf("orthrus: docker proxy already started for session %s", s.agentUUID)
+	}
+	s.listener = ln
+	s.proxyPort = port
+	s.mu.Unlock()
+
+	go s.runProxyListener(ln)
+	return nil
+}
+
+// runProxyListener accepts TCP connections from local Docker clients and
+// dispatches each to proxyConn. Exits when ln is closed (normal shutdown
+// via Close).
+func (s *AgentSession) runProxyListener(ln net.Listener) {
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return // normal shutdown
+			}
+			logger.Log().WithField("uuid", s.agentUUID).WithError(err).Warn("orthrus: proxy listener accept error")
+			return
+		}
+		go s.proxyConn(conn)
+	}
+}
+
+// proxyConn opens a yamux stream, writes the Docker stream-type byte,
+// then bidirectionally copies until either side closes.
+func (s *AgentSession) proxyConn(conn net.Conn) {
+	defer func() { _ = conn.Close() }()
+
+	stream, err := s.session.Open()
+	if err != nil {
+		// yamux session already closed; expected on disconnect.
+		logger.Log().WithField("uuid", s.agentUUID).WithError(err).Debug("orthrus: open yamux stream failed")
+		return
+	}
+	defer func() { _ = stream.Close() }()
+
+	if _, err := stream.Write([]byte{streamTypeDocker}); err != nil {
+		logger.Log().WithField("uuid", s.agentUUID).WithError(err).Warn("orthrus: write stream type byte failed")
+		return
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		defer func() { _ = stream.Close() }()
+		io.Copy(stream, conn) //nolint:errcheck
+	}()
+	go func() {
+		defer wg.Done()
+		defer func() { _ = conn.Close() }()
+		io.Copy(conn, stream) //nolint:errcheck
+	}()
+	wg.Wait()
+}
+
+// Close terminates the proxy listener, cancels the context, and closes the
+// Yamux session (which also closes the underlying WebSocket via wsNetConn).
 func (s *AgentSession) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.listener != nil {
+		_ = s.listener.Close()
+		s.listener = nil
+		// proxyPort is intentionally left non-zero for diagnostic purposes.
+		// GetProxyAddr will not be called on a closed session: the session is
+		// removed from the sessions map before any caller can observe it.
+	}
 
 	s.cancel()
 	return s.session.Close()
