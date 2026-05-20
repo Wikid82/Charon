@@ -119,6 +119,37 @@ cleanup() {
     log_info "Cleanup complete"
 }
 
+# Verifies WAF handler is present in Caddy config (blocking gate)
+verify_waf_config() {
+    local retries=10
+    local wait=5
+
+    log_info "Verifying WAF handler in Caddy config..."
+
+    for i in $(seq 1 $retries); do
+        local caddy_config
+        caddy_config=$(curl -sL "http://localhost:${CADDY_ADMIN_PORT}/config/" 2>/dev/null || echo "")
+
+        if [ -z "$caddy_config" ]; then
+            echo "  Attempt $i/$retries: Caddy admin API not responding, retrying..."
+            sleep $wait
+            continue
+        fi
+
+        if echo "$caddy_config" | grep -q '"handler":"waf"'; then
+            log_info "  ✓ WAF handler found in Caddy config"
+            return 0
+        else
+            echo "  Attempt $i/$retries: WAF handler not found, waiting..."
+        fi
+
+        sleep $wait
+    done
+
+    log_error "  WAF handler verification failed after $retries attempts"
+    return 1
+}
+
 # Set up trap to dump debug info on any error and always cleanup
 trap on_failure ERR
 trap cleanup EXIT
@@ -325,9 +356,11 @@ else
     fail_test "Failed to enable WAF (HTTP $WAF_STATUS)"
 fi
 
-# Wait for Caddy to reload with WAF config
-log_info "Waiting for Caddy to apply WAF configuration..."
-sleep 5
+sleep 3
+if ! verify_waf_config; then
+    log_error "WAF handler not present in Caddy config after waiting — aborting"
+    exit 1
+fi
 
 # ============================================================================
 # TC-3: Test XSS blocking (expect HTTP 403)
@@ -384,8 +417,11 @@ curl -s -X POST -H "Content-Type: application/json" \
     -b "${TMP_COOKIE}" \
     "http://localhost:${API_PORT}/api/v1/security/config" >/dev/null
 
-log_info "  Switched to monitor mode, waiting for Caddy reload..."
-sleep 5
+sleep 3
+if ! verify_waf_config; then
+    log_error "WAF handler not present in Caddy config after waiting — aborting"
+    exit 1
+fi
 
 # Verify XSS passes in monitor mode
 RESP=$(curl -s -o /dev/null -w "%{http_code}" \
@@ -441,8 +477,11 @@ curl -s -X POST -H "Content-Type: application/json" \
     -b "${TMP_COOKIE}" \
     "http://localhost:${API_PORT}/api/v1/security/config" >/dev/null
 
-log_info "  Switched to SQLi ruleset in block mode, waiting for Caddy reload..."
-sleep 5
+sleep 3
+if ! verify_waf_config; then
+    log_error "WAF handler not present in Caddy config after waiting — aborting"
+    exit 1
+fi
 
 # Test SQLi OR 1=1
 RESP=$(curl -s -o /dev/null -w "%{http_code}" \
@@ -499,8 +538,11 @@ curl -s -X POST -H "Content-Type: application/json" \
     -b "${TMP_COOKIE}" \
     "http://localhost:${API_PORT}/api/v1/security/config" >/dev/null
 
-log_info "  Switched to combined ruleset, waiting for Caddy reload..."
-sleep 5
+sleep 3
+if ! verify_waf_config; then
+    log_error "WAF handler not present in Caddy config after waiting — aborting"
+    exit 1
+fi
 
 # Test both attacks blocked
 RESP=$(curl -s -o /dev/null -w "%{http_code}" \
