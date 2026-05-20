@@ -1,9 +1,9 @@
-# Orthrus Agent Docker Proxy Listener — Feature Spec (PR 5)
+# Orthrus External Docker Proxy — Feature Spec
 
-**Branch**: `feature/hecate`
-**PR**: #5 (Orthrus Docker Proxy — server-side listener)
-**Date**: 2026-05-18
+**Branch**: `feature/orthrus-external-proxy`
+**Date**: 2026-05-20
 **Status**: Ready for implementation
+**Author**: Principal Architect
 
 ---
 
@@ -11,708 +11,803 @@
 
 ### Overview
 
-Orthrus agents connect to Charon over a persistent WebSocket multiplexed with yamux. The agent binary (`agent/leash/leash.go`) already handles an incoming yamux stream whose first byte is `0x01` (`streamTypeDocker`) by connecting to its local `/var/run/docker.sock` and bidirectionally copying. The server-side half of this tunnel was deferred with the comment "PR 5".
+PR #1031 implemented a server-side Docker proxy listener for the Orthrus subsystem. When an agent connects over WebSocket (yamux-multiplexed), Charon binds an ephemeral `127.0.0.1:N` TCP listener and proxies Docker API traffic through the yamux session to the agent's `/var/run/docker.sock`. This loopback proxy allows Charon itself to discover remote Docker containers.
 
-This spec covers the complete implementation:
+However, **other containers on the Docker network** (e.g., Dockhand) that previously pointed at a dedicated `socat`-based TCP proxy cannot reach `127.0.0.1:N` — loopback is not routable across Docker bridge networks.
 
-1. **Server-side proxy listener** — when an agent session is registered, allocate an ephemeral `127.0.0.1:0` TCP listener; for each accepted connection, open a yamux stream to the agent, write `0x01`, then bidirectionally copy.
-2. **`DockerHandler` integration** — when a `RemoteServer` has `connection_type == "orthrus"`, resolve the agent's proxy address and use `tcp://127.0.0.1:<port>` as the Docker host instead of the server's `Host:Port` fields.
+This spec covers the **External Docker Proxy** extension: an optional HTTP-aware, muzzle-filtered TCP listener on `0.0.0.0:PORT` that bridges the Docker network to the Orthrus agent's Docker socket. Containers on the same Docker network reach the remote daemon via `charon:PORT` without any host port publishing.
 
 ### Objectives
 
-1. `GetProxyAddr()` returns a non-empty address for every live agent session.
-2. Docker container listing via `GET /api/v1/docker/containers?server_id=<uuid>` works for Orthrus-backed remote servers.
-3. Clear 502/503 errors when the agent is offline or the orthrus subsystem is unavailable.
-4. All changes are covered by unit tests; an integration test stub is provided.
+1. Per-agent configurable `external_proxy_port` (0 = disabled, 1024–65535 = enabled).
+2. When an agent with `external_proxy_port > 0` connects, bind `0.0.0.0:PORT` and serve HTTP-filtered (muzzle) Docker API traffic through the loopback proxy → yamux → agent.
+3. API to read and write `external_proxy_port` per agent.
+4. UI to configure the port and display the connection string (`tcp://charon:PORT`).
+5. Graceful degradation: bind failure keeps the loopback proxy intact; agent disconnect closes the external listener immediately.
+6. Full unit test coverage of new code paths.
 
 ---
 
 ## 2. Research Findings
 
-### 2.1 `backend/internal/orthrus/session.go`
+### 2.1 Current loopback proxy (`session.go`)
 
-**`AgentSession` struct** (relevant fields):
+`AgentSession` holds one `net.Listener` (`listener`) bound to `127.0.0.1:0`. `runProxyListener` accepts TCP connections; `proxyConn` opens a yamux stream, writes `0x01` (`streamTypeDocker`), then bidirectionally copies raw bytes. `Close()` closes the listener, cancels the context, and closes the yamux session.
 
-```go
-type AgentSession struct {
-    agentUUID string
-    agentName string
-    conn      *websocket.Conn
-    session   *yamux.Session
-    cancel    context.CancelFunc
-    proxyPort int        // 0 means no proxy listener yet (allocated in PR 5)
-    mu        sync.Mutex
-}
-```
+**Key insight**: `proxyConn` is a raw byte forwarder — there is no HTTP parsing in the current path. `Muzzle` is an `http.Handler` wrapper that cannot intercept raw TCP bytes.
 
-**`GetProxyAddr()`** already returns the correct format, updated to use `s.listener != nil` as the sentinel for consistency with the idempotency guard:
+### 2.2 `OrthrusServer` (`server.go`)
 
-```go
-func (s *AgentSession) GetProxyAddr() string {
-    s.mu.Lock()
-    defer s.mu.Unlock()
-    if s.listener == nil {
-        return ""
-    }
-    return fmt.Sprintf("127.0.0.1:%d", s.proxyPort)
-}
-```
+`HandleWebSocket` calls `session.StartDockerProxy()` (the loopback proxy) immediately after creating the session and before storing it in `sessions`. `watchHeartbeat` polls `IsAlive()` and calls `markOffline` + `sessions.Delete` on disconnect. `watchHeartbeat` already calls `_ = sess.Close()` before `markOffline` (added in PR #1031). The `Close()` method must be **extended** in this PR to also stop the external proxy `http.Server` — this is new work, not a bug fix.
 
-An existing coverage test (`session_coverage_test.go`) manually sets `sess.proxyPort = 8080` and asserts `GetProxyAddr()` returns `"127.0.0.1:8080"` — the integer field remains the source of truth for the port value; `listener` is the guard that determines whether a proxy is active.
+### 2.3 `Muzzle` (`muzzle.go`)
 
-**`Close()`** cancels the context and closes the yamux session (which also closes the underlying WebSocket). The listener allocated in PR 5 must be closed here.
+Allowlist: `GET /containers/json`, `GET /images/json`, `GET /info`, `GET /version` (after stripping `/vN.NN` prefix). All other methods and paths return `403 Forbidden`. It is an `http.Handler` and cannot intercept raw TCP.
 
-**`IsAlive()`** returns `!s.session.IsClosed()`.
+### 2.4 `OrthrusAgent` model
 
-### 2.2 `backend/internal/orthrus/server.go`
+No `external_proxy_port` field currently exists. The model resides in `backend/internal/models/orthrus_agent.go`. GORM AutoMigrate handles schema additions.
 
-**`OrthrusServer`** stores sessions in a `sync.Map` keyed by `agentUUID → *AgentSession`.
+### 2.5 `OrthrusService.Patch`
 
-**`HandleWebSocket()`** — the connection lifecycle:
-1. Authenticates the bearer token (bcrypt compare against all agents).
-2. Calls `NewAgentSession(uuid, name, conn)` to create the yamux server session.
-3. Stores in `sessions`.
-4. Updates the agent's `status = online` in the DB.
-5. Launches `watchHeartbeat` goroutine.
+Accepts `name, hecateTunnelUUID, deviceID, resolvedAddress *string`. The `patchAgentRequest` in the handler mirrors this. Both must be extended to carry `externalProxyPort *int`.
 
-`StartDockerProxy()` (to be added) must be called between steps 2 and 3.
+### 2.6 Docker bridge networking constraint
 
-**`watchHeartbeat()`** polls `sess.IsAlive()` on a ticker. When false, it calls `markOffline` and `s.sessions.Delete(agentUUID)` — but does **not** call `sess.Close()`. This means the listener goroutine would outlive the session. The fix: call `sess.Close()` in `watchHeartbeat` when `!sess.IsAlive()`.
-
-**`GetProxyAddr(agentUUID string) (string, bool)`** and **`GetSession(agentUUID string) (*AgentSession, bool)`** are already implemented as stubs and will work correctly once `proxyPort` is set.
-
-**`Stop()`** already calls `sess.Close()` for all sessions — listener cleanup will be covered once `Close()` is updated.
-
-### 2.3 `backend/internal/api/handlers/docker_handler.go`
-
-**Current struct**:
-
-```go
-type DockerHandler struct {
-    dockerService       dockerContainerLister
-    remoteServerService remoteServerGetter
-}
-```
-
-**Current `ListContainers` flow for `server_id`**:
-
-```go
-server, err := h.remoteServerService.GetByUUID(serverID)
-// ...
-host = fmt.Sprintf("tcp://%s:%d", server.Host, server.Port)
-```
-
-No awareness of `ConnectionType` or `OrthrusAgentUUID`. No reference to `OrthrusServer`.
-
-### 2.4 `backend/internal/api/routes/routes.go`
-
-**Critical wiring gap**: `orthrusServer` is created inside `if strings.TrimSpace(os.Getenv("CHARON_ENCRYPTION_KEY")) != "" { ... }`. The `dockerHandler` is created **after** this block closes:
-
-```go
-if encryptionKey != "" {
-    // ...
-    orthrusServer, _ = orthrus.NewOrthrusServer(db, orthrusCA)
-    // orthrusServer registered with api and caddyManager here
-}
-// dockerHandler created here — orthrusServer is OUT OF SCOPE
-dockerService := services.NewDockerService()
-dockerHandler := handlers.NewDockerHandler(dockerService, remoteServerService)
-dockerHandler.RegisterRoutes(management)
-```
-
-Fix: hoist `var orthrusServer *orthrus.OrthrusServer` declaration above the `if` block, then call `dockerHandler.SetOrthrusResolver(orthrusServer)` (may be nil) after the handler is created.
-
-### 2.5 `backend/internal/services/docker_service.go`
-
-**`ListContainers(ctx, host string)`**: when `host` is neither empty nor `"local"`, creates a new `*client.Client` with `client.WithHost(host)`. A `tcp://127.0.0.1:<port>` value is a valid host string — no changes needed to `docker_service.go`.
-
-### 2.6 `backend/internal/models/remote_server.go`
-
-```go
-type ConnectionType string
-
-const (
-    ConnectionTypeDirect     ConnectionType = "direct"
-    ConnectionTypeOrthrus    ConnectionType = "orthrus"
-    ConnectionTypeCloudflare ConnectionType = "cloudflare"
-    ConnectionTypeTailscale  ConnectionType = "tailscale"
-    ConnectionTypeNetbird    ConnectionType = "netbird"
-    ConnectionTypeZerotier   ConnectionType = "zerotier"
-)
-
-type RemoteServer struct {
-    // ...
-    ConnectionType   ConnectionType `json:"connection_type" gorm:"default:'direct';index"`
-    OrthrusAgentUUID *string        `json:"orthrus_agent_uuid,omitempty" gorm:"index"`
-    // ...
-}
-```
-
-All six values are enumerated here for completeness. Only `orthrus` uses the proxy path; the `default:` branch in `ListContainers` handles all remaining types (`direct`, `cloudflare`, `tailscale`, `netbird`, `zerotier`) correctly by falling through to the `tcp://host:port` construction.
-
-### 2.7 `agent/leash/leash.go` — Agent-side protocol (already implemented)
-
-```go
-const (
-    streamTypeDocker      = byte(0x01)
-    streamTypePortForward = byte(0x02)
-)
-```
-
-**`handleStream(stream *yamux.Stream)`**: reads 1 type byte, dispatches to `handleDockerStream` for `0x01`.
-
-**`handleDockerStream(stream *yamux.Stream)`**: calls `l.filter.ServeProxy(l.dockerSock, stream, stream)` — the `muzzle.Filter` proxies the stream to the local Docker socket, applying the allowlist filter.
-
-**Server-side requirement**: open a yamux stream (`s.session.Open()`), write `[]byte{0x01}`, then bidirectionally copy between the TCP connection and the yamux stream.
-
-### 2.8 Existing Tests
-
-- `session_coverage_test.go` directly accesses `sess.proxyPort` (unexported). The new `StartDockerProxy()` sets this field — existing test remains valid.
-- `docker_handler_test.go` uses `fakeDockerService` and `fakeRemoteServerService`. New tests will add a `fakeOrthrusResolver`.
-- `server_test.go` uses a real SQLite DB and real WebSocket pairs. New tests will exercise the proxy listener start/stop lifecycle.
+`0.0.0.0:PORT` inside the Charon container is reachable from other containers on the **same Docker network** by name (`charon:PORT`) without any `-p HOST:CONTAINER` port publishing. This is the desired behavior. Publishing the port to the host is an explicit user action with security implications (documented in §9).
 
 ---
 
-## 3. Technical Specifications
+## 3. Requirements (EARS Notation)
 
-### 3.1 New Constant
+### 3.1 Configuration
 
-**File**: `backend/internal/orthrus/session.go`
+- **R1**: WHEN an admin sends `PATCH /api/v1/orthrus/agents/:uuid` with `{"external_proxy_port": N}` where `N ∈ {0} ∪ [1024, 65535]`, THE SYSTEM SHALL persist the value to the `orthrus_agents` row.
+- **R2**: WHEN `N` is outside the valid range (1–1023 or > 65535) or negative, THE SYSTEM SHALL return HTTP 400 with a descriptive error message.
+- **R3**: THE SYSTEM SHALL default `external_proxy_port` to `0` for all new and migrated agents.
 
-```go
-// streamTypeDocker is the yamux stream type byte for Docker socket proxy traffic.
-// Must match streamTypeDocker in the Orthrus agent (agent/leash/leash.go).
-const streamTypeDocker = byte(0x01)
+### 3.2 Proxy Lifecycle
+
+- **R4**: WHEN an agent whose `external_proxy_port > 0` establishes a WebSocket connection, THE SYSTEM SHALL bind a TCP listener on `0.0.0.0:<external_proxy_port>` after the loopback proxy listener is successfully started.
+- **R5**: WHEN the external proxy port bind fails (e.g., port already in use), THE SYSTEM SHALL log a warning, NOT start the external listener, AND NOT prevent the loopback proxy from operating.
+- **R6**: WHEN an agent session is closed (disconnect, heartbeat timeout, or revocation), THE SYSTEM SHALL close the external proxy listener and its `http.Server` within the same `Close()` call.
+- **R7**: WHEN the agent is disconnected and a client attempts to connect to `0.0.0.0:<PORT>`, THE SYSTEM SHALL refuse the TCP connection (port not listening).
+- **R8**: WHEN an agent with `external_proxy_port = 0` connects, THE SYSTEM SHALL NOT bind any external listener.
+
+### 3.3 Request Filtering
+
+- **R9**: WHEN a client connects to the external proxy port and sends a Docker API request, THE SYSTEM SHALL apply muzzle filtering before forwarding any bytes to the agent.
+- **R10**: WHEN a client sends a request to a non-allowlisted path or uses a non-GET method, THE SYSTEM SHALL return HTTP 403 and SHALL NOT open a yamux stream.
+- **R11**: WHEN a client sends a valid muzzle-allowlisted GET request, THE SYSTEM SHALL forward it through the loopback proxy → yamux → agent's Docker socket and return the response to the client.
+
+### 3.4 Concurrency
+
+- **R12**: WHEN multiple clients connect simultaneously to the external proxy port, THE SYSTEM SHALL handle each connection concurrently in independent goroutines.
+- **R13**: WHEN an agent reconnects after disconnect, THE SYSTEM SHALL successfully re-bind the same `external_proxy_port` (because the old listener was closed by `Close()`).
+
+### 3.5 Status API
+
+- **R14**: WHEN an admin calls `GET /api/v1/orthrus/agents/:uuid/proxy-status`, THE SYSTEM SHALL return the live external proxy state: configured port, bound address (if active), and whether the listener is currently active.
+
+### 3.6 UI
+
+- **R15**: WHEN viewing an Orthrus agent in the management UI, THE SYSTEM SHALL display an "External Docker Proxy" section with a port input field and a status indicator.
+- **R16**: WHEN the external proxy is active, THE SYSTEM SHALL prominently display the connection string `tcp://charon:<PORT>` for copy-paste use.
+
+---
+
+## 4. Architecture Decision Records
+
+### ADR-01: Port Assignment Strategy
+
+**Decision**: Store `external_proxy_port int` on the `OrthrusAgent` model. Port `0` means disabled. Users set any value in `[1024, 65535]`. Ephemeral assignment is explicitly rejected.
+
+**Context**: Dockhand and similar tools must know the port in advance to configure their Docker host. Ephemeral ports change on every Charon restart and every agent reconnect, making them unworkable for static container configuration.
+
+**Options**:
+
+- A. Ephemeral-and-stored: Assign a random port on first agent connect, persist it. Complex — requires write-back from runtime to DB; race conditions during initial connect.
+- B. User-configured fixed port: User chooses the port, stored in DB. Simplest, most operationally predictable. **SELECTED**.
+- C. Range-allocated pool: Charon manages a pool. Unnecessary complexity.
+
+**Rationale**: Option B aligns with how operators configure Docker proxy endpoints (`socat` to a fixed port, `dockerd --host tcp://0.0.0.0:2375`). The value persists across Charon restarts. The agent reconnect scenario is clean: the port was freed when the old session closed, so rebinding succeeds.
+
+**Impact**: DB migration adds one `int` column. No schema complexities.
+
+---
+
+### ADR-02: Bind Address
+
+**Decision**: Always bind `0.0.0.0:<PORT>` for the external proxy. Not configurable in this release.
+
+**Context**: The entire motivation is that containers on the Docker bridge network need to reach `charon:PORT`. A loopback-only bind defeats this purpose entirely.
+
+**Options**:
+
+- A. Loopback `127.0.0.1`: Useless for the stated goal.
+- B. `0.0.0.0` (all interfaces): Reachable from Docker network peers. Also reachable from the Docker host and potentially external networks if the port is published. **SELECTED**.
+- C. Docker bridge interface IP (e.g., `172.17.0.X`): Restricts to Docker network only but requires runtime inspection of container network config — unacceptable complexity.
+
+**Rationale**: Option B is simple and correct. The Docker bridge network is an internal network. Exposure to external networks only occurs via explicit user `-p PORT:PORT` publishing.
+
+**Security Mitigations**: Muzzle filtering (R9–R10); UI warning; §9 documentation.
+
+---
+
+### ADR-03: Muzzle Integration Architecture
+
+**Decision**: The external proxy is an `http.Server` fronted by `Muzzle`, reverse-proxying to the loopback `127.0.0.1:<loopback_port>`. The raw TCP tunnel layer (`proxyConn`) remains unchanged.
+
+**Proxy chain**:
+
+```
+Docker client → net/http.Server (0.0.0.0:PORT)
+  → Muzzle (http.Handler — allowlist gate)
+    → httputil.ReverseProxy (Director rewrites Host to 127.0.0.1:loopbackPort)
+      → runProxyListener (existing loopback)
+        → proxyConn (yamux stream + streamTypeDocker byte)
+          → agent /var/run/docker.sock
 ```
 
-### 3.2 `AgentSession` Struct Changes
+**Why not raw TCP forwarding?** Muzzle cannot filter raw TCP bytes; HTTP parsing is mandatory for allowlist enforcement.
 
-**File**: `backend/internal/orthrus/session.go`
+**Why not parse HTTP in `proxyConn`?** That would muzzle Charon's own loopback Docker access, adding complexity to a path that works correctly today.
 
-Add one field to `AgentSession`:
+**Streaming support**: `httputil.ReverseProxy.FlushInterval = -1` (flush immediately) handles Docker log/event streaming. `http.Server.WriteTimeout = 0` prevents premature termination of long-lived streaming responses. `ReadHeaderTimeout = 10s` guards against Slowloris.
+
+**Double-filtering**: Muzzle applied at Charon (external entry) AND at agent (existing leash code). Defense in depth.
+
+---
+
+### ADR-04: Bind Timing
+
+**Decision**: Bind eagerly on agent connect, same pattern as the loopback proxy.
+
+**Rationale**: Consistent observable state — the port is either listening or not; there is no transient window. If bind fails, the error is stored and surfaced via the status endpoint.
+
+---
+
+### ADR-05: Port Change During Active Session
+
+**Decision**: Port changes take effect on the **next agent connection**. Running sessions are not dynamically reconfigured.
+
+**Rationale**: Dynamic reconfiguration requires stopping the `http.Server` while HTTP connections may be in flight, adding locking complexity. Administrative port changes are rare.
+
+**UI signal**: Display live active port (from `/proxy-status`) alongside configured port. When they differ: *"Changes will take effect on next agent reconnect."*
+
+---
+
+### ADR-06: `external_proxy_port` Model Location
+
+**Decision**: Store on `OrthrusAgent`, not `RemoteServer`.
+
+**Rationale**: The external proxy is a property of the agent's Docker socket exposure. Multiple `RemoteServer` records can reference the same `OrthrusAgent`; the proxy port should be configured once. Storing it on `OrthrusAgent` maintains cohesion between the port and the session lifecycle that owns the listener.
+
+---
+
+### ADR-07: `Close()` Must Cover the External Proxy Server
+
+**Decision**: Extend `AgentSession.Close()` to shut down the `extServer` (`http.Server`) and its `extListener` in addition to the existing loopback listener teardown.
+
+**Context**: `watchHeartbeat` already calls `sess.Close()` (PR #1031). When the external proxy is added, `Close()` must also call `extServer.Close()` to stop the HTTP server and free the external listener port. Without this, the port would remain bound and refuse re-binding on agent reconnect (R13).
+
+**No change required to `watchHeartbeat` itself** — it already calls `sess.Close()` before `markOffline`.
+
+---
+
+## 5. Database Schema
+
+### 5.1 Change: `orthrus_agents` table
+
+Add one column:
+
+| Column | Type | Default | Notes |
+|--------|------|---------|-------|
+| `external_proxy_port` | `INTEGER` | `0` | `0` = disabled; `1024`–`65535` = external proxy port |
+
+**GORM field**:
 
 ```go
-type AgentSession struct {
-    agentUUID string
-    agentName string
-    conn      *websocket.Conn
-    session   *yamux.Session
-    cancel    context.CancelFunc
-    proxyPort int          // ephemeral port; 0 until StartDockerProxy succeeds
-    listener  net.Listener // nil until StartDockerProxy succeeds
-    mu        sync.Mutex
+// ExternalProxyPort is the TCP port bound on 0.0.0.0 for inter-container Docker API access.
+// 0 = disabled. Valid range: 1024–65535.
+ExternalProxyPort int `json:"external_proxy_port" gorm:"default:0"`
+```
+
+**Migration**: GORM AutoMigrate adds the column automatically at startup. Existing rows default to `0` (disabled). No explicit migration script required.
+
+### 5.2 No new tables
+
+---
+
+## 6. Backend Implementation Plan
+
+### 6.1 `backend/internal/models/orthrus_agent.go`
+
+Add `ExternalProxyPort` field after `ResolvedAddress`:
+
+```go
+// ExternalProxyPort is the TCP port bound on 0.0.0.0 for inter-container Docker API access.
+// 0 = disabled. Valid values: 1024–65535.
+ExternalProxyPort int `json:"external_proxy_port" gorm:"default:0"`
+```
+
+---
+
+### 6.2 `backend/internal/orthrus/session.go`
+
+#### New fields on `AgentSession`
+
+```go
+extServer    *http.Server  // nil if external proxy disabled/not started
+extListener  net.Listener  // nil until StartExternalProxy succeeds
+extProxyPort int           // the port arg passed to StartExternalProxy; 0 if not started
+extErr       error         // last bind error; nil on success
+```
+
+New imports required: `"net/http"`, `"net/http/httputil"`, `"net/url"`, `"time"`, `"errors"`.
+
+#### New method: `StartExternalProxy(port int) error`
+
+Signature:
+
+```go
+func (s *AgentSession) StartExternalProxy(port int) error
+```
+
+Behaviour:
+
+1. `port == 0` → return nil immediately (no-op; R8).
+2. Lock `s.mu`. If `s.proxyPort == 0` → return "loopback proxy not started" error.
+3. If `s.extListener != nil` → return "already started" error.
+4. If `s.session.IsClosed()` → return "closed session" error.
+5. Read `loopbackPort = s.proxyPort`. Unlock.
+6. `net.Listen("tcp", "0.0.0.0:PORT")`. On failure: lock, store `extErr`, unlock, return error (R5).
+7. Create `httputil.ReverseProxy` targeting `http://127.0.0.1:loopbackPort`; `FlushInterval = -1`.
+8. Create `http.Server{Handler: NewMuzzle(rp), ReadHeaderTimeout: 10s}`.
+9. Lock. Double-check `s.extListener == nil` (concurrent call guard). Store `extListener`, `extServer`, `extProxyPort`. Unlock.
+10. `go srv.Serve(ln)`.
+11. Log at INFO: "orthrus: external docker proxy started".
+12. Return nil.
+
+#### New method: `GetExternalProxyStatus() ExternalProxyStatus`
+
+Returns a snapshot of `extProxyPort`, `extListener.Addr()`, `extListener != nil`, `extErr`.
+
+New exported type `ExternalProxyStatus`:
+
+```go
+type ExternalProxyStatus struct {
+    ConfiguredPort int    `json:"configured_port"` // value passed to StartExternalProxy
+    ActivePort     int    `json:"active_port"`     // 0 if not active
+    BindAddress    string `json:"bind_address"`    // "0.0.0.0:PORT" or ""
+    Active         bool   `json:"active"`
+    Error          string `json:"error,omitempty"` // bind error text, if any
 }
 ```
 
-**`GetProxyAddr()` sentinel updated** — the nil-check changes from `s.proxyPort == 0` to `s.listener == nil` for consistency with the idempotency guard introduced in `StartDockerProxy()`. The integer `s.proxyPort` field continues to hold the ephemeral port value and is still set atomically alongside `s.listener`.
+#### Updated `Close()`
 
-### 3.3 `StartDockerProxy()` Method
-
-**File**: `backend/internal/orthrus/session.go`
+Add before existing `s.cancel()` call:
 
 ```go
-// StartDockerProxy allocates an ephemeral TCP listener on localhost and starts
-// accepting connections. Each accepted connection is proxied to the agent's
-// Docker socket via a new yamux stream with stream type 0x01.
-// Returns an error if the listener cannot be bound or if the proxy has already
-// been started for this session (idempotency guard).
-func (s *AgentSession) StartDockerProxy() error {
-    s.mu.Lock()
-    if s.listener != nil {
-        s.mu.Unlock()
-        return fmt.Errorf("orthrus: docker proxy already started for session %s", s.agentUUID)
-    }
-    s.mu.Unlock()
-
-    ln, err := net.Listen("tcp", "127.0.0.1:0")
-    if err != nil {
-        return fmt.Errorf("orthrus: allocate proxy listener: %w", err)
-    }
-
-    port := ln.Addr().(*net.TCPAddr).Port
-
-    s.mu.Lock()
-    s.listener = ln
-    s.proxyPort = port
-    s.mu.Unlock()
-
-    go s.runProxyListener(ln)
-    return nil
+if s.extServer != nil {
+    _ = s.extServer.Close() // closes extListener internally
+    s.extServer = nil
+}
+if s.extListener != nil { // defensive; http.Server.Close covers this
+    _ = s.extListener.Close()
+    s.extListener = nil
 }
 ```
 
-### 3.4 `runProxyListener()` and `proxyConn()` Methods
+---
 
-**File**: `backend/internal/orthrus/session.go`
+### 6.3 `backend/internal/orthrus/server.go`
 
-```go
-// runProxyListener accepts TCP connections and proxies each to the agent's
-// Docker socket via a new yamux stream. Exits when the listener is closed.
-func (s *AgentSession) runProxyListener(ln net.Listener) {
-    for {
-        conn, err := ln.Accept()
-        if err != nil {
-            // Listener closed — normal shutdown.
-            return
-        }
-        go s.proxyConn(conn)
-    }
-}
-
-// proxyConn opens a yamux stream for Docker proxy traffic, writes the type byte,
-// then bidirectionally copies until either side closes.
-func (s *AgentSession) proxyConn(conn net.Conn) {
-    defer conn.Close()
-
-    stream, err := s.session.Open()
-    if err != nil {
-        // yamux session already closed; nothing to proxy.
-        return
-    }
-    defer stream.Close()
-
-    if _, err := stream.Write([]byte{streamTypeDocker}); err != nil {
-        return
-    }
-
-    var wg sync.WaitGroup
-    wg.Add(2)
-    go func() {
-        defer wg.Done()
-        defer stream.Close()
-        io.Copy(stream, conn) //nolint:errcheck
-    }()
-    go func() {
-        defer wg.Done()
-        defer conn.Close()
-        io.Copy(conn, stream) //nolint:errcheck
-    }()
-    wg.Wait()
-}
-```
-
-### 3.5 `Close()` Changes
-
-**File**: `backend/internal/orthrus/session.go`
-
-Close the listener in addition to the yamux session:
+#### `HandleWebSocket` — call `StartExternalProxy` after `StartDockerProxy`
 
 ```go
-func (s *AgentSession) Close() error {
-    s.mu.Lock()
-    defer s.mu.Unlock()
-
-    s.cancel()
-
-    if s.listener != nil {
-        _ = s.listener.Close()
-        s.listener = nil
-    }
-
-    return s.session.Close()
-}
-```
-
-### 3.6 `server.go` — `HandleWebSocket` Changes
-
-**File**: `backend/internal/orthrus/server.go`
-
-After creating the session and before storing it, start the proxy listener:
-
-```go
-session, err := NewAgentSession(agent.UUID, agent.Name, conn)
-if err != nil {
-    logger.Log().WithError(err).Error("orthrus: create agent session failed")
-    _ = conn.Close()
-    return
-}
-
 if err := session.StartDockerProxy(); err != nil {
     logger.Log().WithField("uuid", util.SanitizeForLog(agent.UUID)).
-        WithError(err).Warn("orthrus: failed to start docker proxy listener — Docker tunneling unavailable for this session")
-    // Non-fatal: session still registered; GetProxyAddr() returns "" -> Docker handler returns 502
+        WithError(err).Warn("orthrus: failed to start loopback docker proxy")
 }
 
-s.sessions.Store(agent.UUID, session)
-```
-
-### 3.7 `server.go` — `watchHeartbeat` Changes
-
-**File**: `backend/internal/orthrus/server.go`
-
-Call `sess.Close()` when the yamux session is found dead to ensure the listener goroutine exits:
-
-```go
-if !sess.IsAlive() {
-    _ = sess.Close() // closes listener goroutine; idempotent
-    s.markOffline(agentUUID)
-    s.sessions.Delete(agentUUID)
-    return
+// agent.ExternalProxyPort == 0 is a no-op in StartExternalProxy.
+if err := session.StartExternalProxy(agent.ExternalProxyPort); err != nil {
+    logger.Log().WithField("uuid", util.SanitizeForLog(agent.UUID)).
+        WithField("port", agent.ExternalProxyPort).
+        WithError(err).Warn("orthrus: failed to start external docker proxy")
 }
 ```
 
-### 3.8 `docker_handler.go` — New Interface and Field
+#### `watchHeartbeat` — fix goroutine leak (ADR-07)
 
-**File**: `backend/internal/api/handlers/docker_handler.go`
+Add `_ = sess.Close()` before `s.markOffline(agentUUID)` and `s.sessions.Delete(agentUUID)`.
 
-Add interface and field:
-
-```go
-// orthrusProxyResolver resolves the local TCP proxy address for a connected Orthrus agent.
-// The address is in "host:port" form, suitable for use as tcp://host:port with Docker.
-type orthrusProxyResolver interface {
-    GetProxyAddr(agentUUID string) (string, bool)
-}
-
-type DockerHandler struct {
-    dockerService       dockerContainerLister
-    remoteServerService remoteServerGetter
-    orthrusResolver     orthrusProxyResolver // nil when Orthrus subsystem is unavailable
-}
-```
-
-**`NewDockerHandler` signature is unchanged.** Add a setter following the existing `caddyManager.SetOrthrusServer` pattern:
+#### New method: `GetExternalProxyStatus(agentUUID string) (ExternalProxyStatus, bool)`
 
 ```go
-// SetOrthrusResolver configures the Orthrus proxy resolver for Docker tunneling.
-// If never called (or called with nil), requests for Orthrus-backed servers
-// return 503 Service Unavailable.
-func (h *DockerHandler) SetOrthrusResolver(r orthrusProxyResolver) {
-    h.orthrusResolver = r
-}
-```
-
-### 3.9 `docker_handler.go` — `ListContainers` Logic
-
-**File**: `backend/internal/api/handlers/docker_handler.go`
-
-Replace the single `host = fmt.Sprintf(...)` line in the `serverID != ""` branch with connection-type-aware logic:
-
-```go
-if serverID != "" {
-    server, err := h.remoteServerService.GetByUUID(serverID)
-    if err != nil {
-        log.WithFields(map[string]any{"server_id": util.SanitizeForLog(serverID)}).Warn("remote server not found")
-        c.JSON(http.StatusNotFound, gin.H{"error": "Remote server not found"})
-        return
+func (s *OrthrusServer) GetExternalProxyStatus(agentUUID string) (ExternalProxyStatus, bool) {
+    raw, ok := s.sessions.Load(agentUUID)
+    if !ok {
+        return ExternalProxyStatus{}, false
     }
-
-    switch server.ConnectionType {
-    case models.ConnectionTypeOrthrus:
-        if h.orthrusResolver == nil {
-            c.JSON(http.StatusServiceUnavailable, gin.H{
-                "error":   "Orthrus subsystem unavailable",
-                "details": "The Orthrus agent tunnel service is not running. Ensure CHARON_ENCRYPTION_KEY is set.",
-            })
-            return
-        }
-        if server.OrthrusAgentUUID == nil || *server.OrthrusAgentUUID == "" {
-            c.JSON(http.StatusBadRequest, gin.H{"error": "Remote server has no linked Orthrus agent"})
-            return
-        }
-        addr, ok := h.orthrusResolver.GetProxyAddr(*server.OrthrusAgentUUID)
-        if !ok {
-            log.WithFields(map[string]any{"agent_uuid": util.SanitizeForLog(*server.OrthrusAgentUUID)}).Warn("orthrus agent not connected")
-            c.JSON(http.StatusBadGateway, gin.H{
-                "error":   "Orthrus agent is not currently connected",
-                "details": "The Orthrus agent for this server is offline. Please ensure the agent is running and connected to Charon.",
-            })
-            return
-        }
-        host = "tcp://" + addr // e.g. tcp://127.0.0.1:54321
-
-    default:
-        // Direct, Tailscale, NetBird, ZeroTier, Cloudflare — use explicit host/port
-        host = fmt.Sprintf("tcp://%s:%d", server.Host, server.Port)
-    }
+    return raw.(*AgentSession).GetExternalProxyStatus(), true
 }
 ```
 
-### 3.10 `routes.go` — Hoist `orthrusServer` and Wire Resolver
+---
 
-**File**: `backend/internal/api/routes/routes.go`
+### 6.4 `backend/internal/services/orthrus_service.go`
 
-1. Hoist the variable declaration before the encryption-key `if` block:
+#### Updated `Patch` signature
+
+Add `externalProxyPort *int` parameter.
+
+#### Validation
 
 ```go
-// Declared here so dockerHandler (created below the if-block) can access it.
-var orthrusServer *orthrus.OrthrusServer
+if externalProxyPort != nil {
+    port := *externalProxyPort
+    if port != 0 && (port < 1024 || port > 65535) {
+        return nil, fmt.Errorf("orthrus: external_proxy_port must be 0 (disabled) or in range [1024, 65535], got %d", port)
+    }
+    updates["external_proxy_port"] = port
+}
 ```
 
-2. Remove the `var orthrusServer *orthrus.OrthrusServer` declaration inside the `if` block (it becomes an assignment only).
+---
 
-3. After `dockerHandler` is created (outside the block), wire the resolver:
+### 6.5 `backend/internal/api/handlers/orthrus_handler.go`
+
+#### Updated `patchAgentRequest`
+
+Add:
 
 ```go
-dockerService := services.NewDockerService()
-dockerHandler := handlers.NewDockerHandler(dockerService, remoteServerService)
+ExternalProxyPort *int `json:"external_proxy_port"` // 0=disabled, 1024-65535=enabled
+```
+
+#### Updated `Patch` handler call
+
+Pass `req.ExternalProxyPort` as the new final argument to `h.svc.Patch(...)`.
+
+#### New interface + field on `OrthrusHandler`
+
+```go
+type orthrusProxyStatusResolver interface {
+    GetExternalProxyStatus(agentUUID string) (orthrus.ExternalProxyStatus, bool)
+}
+
+type OrthrusHandler struct {
+    svc           *services.OrthrusService
+    proxyResolver orthrusProxyStatusResolver // nil when orthrus server unavailable
+}
+
+// SetProxyResolver wires the live proxy status source.
+// Uses reflect nil-guard (same pattern as DockerHandler.SetOrthrusResolver).
+func (h *OrthrusHandler) SetProxyResolver(r orthrusProxyStatusResolver) { ... }
+```
+
+#### New handler: `GetProxyStatus`
+
+Route: `GET /orthrus/agents/:uuid/proxy-status` (added in `RegisterRoutes`).
+
+Logic:
+
+1. `h.svc.Get(uuid)` → 404 if not found.
+2. Build base response with `configured_port` and `agent_online`.
+3. If `h.proxyResolver == nil` → return with `active: false`, `error: "orthrus subsystem unavailable"`.
+4. `h.proxyResolver.GetExternalProxyStatus(uuid)` → if not connected, `active: false`.
+5. If connected and active: populate `active_port`, `bind_address`, `connection_string: "tcp://charon:PORT"`.
+6. If connected but error: populate `error` field.
+
+---
+
+### 6.6 `backend/internal/api/routes/routes.go`
+
+After `orthrusHandler.RegisterRoutes(management)`, add:
+
+```go
 if orthrusServer != nil {
-    dockerHandler.SetOrthrusResolver(orthrusServer)
+    orthrusHandler.SetProxyResolver(orthrusServer)
 }
-dockerHandler.RegisterRoutes(management)
+```
+
+No AutoMigrate change required (`OrthrusAgent` already listed).
+
+---
+
+## 7. API Endpoints
+
+### 7.1 Modified: `PATCH /api/v1/orthrus/agents/:uuid`
+
+**Auth**: Bearer (management access required)
+
+**New optional field in request body**:
+
+```json
+{ "external_proxy_port": 2375 }
+```
+
+**Validation**: `external_proxy_port` ∈ `{0} ∪ [1024, 65535]`. Values 1–1023 or > 65535 → `400 Bad Request`.
+
+**Response** `200 OK`:
+
+```json
+{
+  "uuid": "abc-123",
+  "name": "my-agent",
+  "status": "online",
+  "external_proxy_port": 2375,
+  "created_at": "...",
+  "updated_at": "..."
+}
 ```
 
 ---
 
-## 4. Data Flow
+### 7.2 New: `GET /api/v1/orthrus/agents/:uuid/proxy-status`
 
-### 4.1 Happy Path — Orthrus Agent Connected
+**Auth**: Bearer (management access required)
 
-```
-Client
-  → GET /api/v1/docker/containers?server_id=<uuid>
-  → DockerHandler.ListContainers
-      → remoteServerService.GetByUUID(uuid)
-          → RemoteServer{connection_type: "orthrus", orthrus_agent_uuid: "agent-abc"}
-      → h.orthrusResolver.GetProxyAddr("agent-abc")
-          → AgentSession.proxyPort = 54321
-          → returns ("127.0.0.1:54321", true)
-      → host = "tcp://127.0.0.1:54321"
-      → dockerService.ListContainers(ctx, "tcp://127.0.0.1:54321")
-          → Docker client dials 127.0.0.1:54321
-          → TCP connection accepted by AgentSession.runProxyListener
-          → AgentSession.proxyConn:
-              → session.Open() → new yamux stream
-              → stream.Write([]byte{0x01})
-              → io.Copy(stream, conn) / io.Copy(conn, stream)
-          → yamux stream arrives at agent
-          → agent.handleDockerStream:
-              → filter.ServeProxy("/var/run/docker.sock", stream, stream)
-              → HTTP request forwarded to local Docker API
-          → Docker API response returns through tunnel
-      → []DockerContainer returned
-  → 200 OK JSON
+**Response** `200 OK` — agent offline, proxy disabled:
+
+```json
+{
+  "agent_uuid": "abc-123",
+  "configured_port": 0,
+  "agent_online": false,
+  "active": false,
+  "active_port": 0
+}
 ```
 
-### 4.2 Agent Disconnected — 502
+**Response** `200 OK` — agent online, proxy active:
 
-```
-GET /api/v1/docker/containers?server_id=<uuid>
-→ server.ConnectionType == "orthrus"
-→ h.orthrusResolver.GetProxyAddr("agent-abc") → ("", false)
-→ 502 Bad Gateway {"error": "Orthrus agent is not currently connected", ...}
-```
-
-### 4.3 Orthrus Subsystem Unavailable (no encryption key) — 503
-
-```
-GET /api/v1/docker/containers?server_id=<uuid>
-→ server.ConnectionType == "orthrus"
-→ h.orthrusResolver == nil
-→ 503 Service Unavailable {"error": "Orthrus subsystem unavailable", ...}
+```json
+{
+  "agent_uuid": "abc-123",
+  "configured_port": 2375,
+  "agent_online": true,
+  "active": true,
+  "active_port": 2375,
+  "bind_address": "0.0.0.0:2375",
+  "connection_string": "tcp://charon:2375"
+}
 ```
 
-### 4.4 Session Disconnect — Listener Cleanup
+**Response** `200 OK` — bind failed (port conflict):
 
-```
-watchHeartbeat: sess.IsAlive() == false
-  → sess.Close()
-      → s.listener.Close()       ← runProxyListener exits Accept() loop
-      → s.session.Close()
-  → markOffline(agentUUID)
-  → s.sessions.Delete(agentUUID)
+```json
+{
+  "agent_uuid": "abc-123",
+  "configured_port": 2375,
+  "agent_online": true,
+  "active": false,
+  "active_port": 0,
+  "error": "bind tcp 0.0.0.0:2375: bind: address already in use"
+}
 ```
 
-> **Async goroutine completion**: `proxyConn` goroutines launched from `runProxyListener` complete asynchronously after `Close()` returns. They are bounded by the time to flush in-flight `io.Copy` calls, which is safe because closing the yamux session terminates all streams, causing the in-flight `io.Copy` on the stream side to return promptly.
+**Error**: `404` — agent not found.
 
 ---
 
-## 5. Error Handling and Edge Cases
+## 8. Frontend Changes
 
-| Scenario | Where Detected | Response |
-|----------|---------------|----------|
-| Agent not connected | `GetProxyAddr` returns `("", false)` | `ListContainers` → 502 Bad Gateway |
-| Orthrus subsystem unavailable | `h.orthrusResolver == nil` | `ListContainers` → 503 Service Unavailable |
-| `OrthrusAgentUUID` is nil/empty on the server record | `server.OrthrusAgentUUID == nil` check | `ListContainers` → 400 Bad Request |
-| Port allocation failure on connect | `net.Listen` returns error | `HandleWebSocket` logs warning; session registered with `proxyPort == 0`; Docker returns 502 |
-| Agent disconnects mid-request | `io.Copy` returns error | `proxyConn` exits; Docker client gets connection reset; `ListContainers` returns error → 503 |
-| yamux stream open failure | `session.Open()` returns error | `proxyConn` returns; TCP conn closed; Docker client retries or fails |
-| Concurrent `Close()` calls | `s.mu.Lock()` in `Close()`, `listener = nil` after close | Idempotent; second call is a no-op for the listener |
-| `StartDockerProxy` called a second time | `s.listener != nil` guard under mutex | Returns error; caller logs and skips; no new listener |
+### 8.1 Orthrus Agent Edit Modal — New Section
 
----
+**Location**: Identify the agent edit modal/panel in `frontend/src/components/orthrus/` by searching for the existing `PATCH /orthrus/agents/:uuid` call site.
 
-## 6. Files Changed
+**New "External Docker Proxy" section**:
 
-| File | Change Type | Summary |
-|------|-------------|---------|
-| `backend/internal/orthrus/session.go` | Modify | Add `streamTypeDocker` constant, `listener net.Listener` field, `StartDockerProxy()`, `runProxyListener()`, `proxyConn()`, update `Close()` |
-| `backend/internal/orthrus/server.go` | Modify | Call `session.StartDockerProxy()` in `HandleWebSocket`; call `sess.Close()` in `watchHeartbeat` cleanup |
-| `backend/internal/api/handlers/docker_handler.go` | Modify | Add `orthrusProxyResolver` interface, `orthrusResolver` field, `SetOrthrusResolver()`, update `ListContainers` switch on `ConnectionType` |
-| `backend/internal/api/routes/routes.go` | Modify | Hoist `var orthrusServer` declaration; call `dockerHandler.SetOrthrusResolver(orthrusServer)` |
-| `backend/internal/orthrus/session_test.go` | Modify | Add proxy lifecycle tests |
-| `backend/internal/orthrus/server_test.go` | Modify | Add test for proxy start on session connect |
-| `backend/internal/api/handlers/docker_handler_test.go` | Modify | Add orthrus resolver tests |
-| `backend/internal/orthrus/proxy_integration_test.go` | Create | Integration test stub (`//go:build integration`) |
+```
+┌─ External Docker Proxy ─────────────────────────────────────────────┐
+│                                                                       │
+│  Proxy Port  [ 2375 ]   (0 = disabled · 1024–65535)                  │
+│                                                                       │
+│  ⚠ Accessible from all containers on the same Docker network.       │
+│     Do not publish this port to the host unless intended.             │
+│                                                                       │
+│  Status: ● Active   tcp://charon:2375   [Copy]                       │
+│  or:     ○ Inactive (agent offline or port=0)                        │
+│  or:     ⚠ Error: bind: address already in use                       │
+│                                                                       │
+│  ℹ Port changes take effect on next agent reconnect.                 │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+**State management**:
+
+1. On modal open: `GET /orthrus/agents/:uuid/proxy-status` → display live status.
+2. Port input: `<input type="number" min="0" max="65535" step="1">`. Client-side validation: `value === 0 || (value >= 1024 && value <= 65535)`.
+3. On save: `PATCH /orthrus/agents/:uuid` with `{ external_proxy_port: N }`.
+4. After save: re-fetch proxy status.
+
+**TypeScript type**:
+
+```typescript
+interface ExternalProxyStatus {
+  agent_uuid: string;
+  configured_port: number;
+  agent_online: boolean;
+  active: boolean;
+  active_port: number;
+  bind_address?: string;
+  connection_string?: string;
+  error?: string;
+}
+```
+
+**Accessibility** (per a11y instructions):
+
+- `<label for="external-proxy-port">` with `aria-describedby` pointing to help text.
+- `role="status"` + `aria-live="polite"` on status div.
+- Copy button: `aria-label="Copy Docker connection string to clipboard"`.
+- Bind errors: `role="alert"`.
+- Never use colour as the sole status differentiator; use icon + text.
+
+### 8.2 Agent List — Optional PROXY Badge
+
+When `external_proxy_port > 0` and agent is online: show a `PROXY` chip/badge. Clicking copies the connection string to clipboard.
+
+### 8.3 API Client
+
+Add to `frontend/src/api/orthrus.ts` (or equivalent):
+
+```typescript
+export async function getAgentProxyStatus(uuid: string): Promise<ExternalProxyStatus> {
+  const res = await api.get<ExternalProxyStatus>(`/orthrus/agents/${uuid}/proxy-status`);
+  return res.data;
+}
+```
 
 This is a 5-line change to one file. No scaffolding, no test setup, no
 multi-phase implementation. The entire work is one atomic commit.
 
-## 7. Implementation Plan
+## 9. Security Analysis
 
-### Phase 1 — Playwright Tests (UI/UX Specification)
+### 9.1 Threat Model
 
-Write Playwright tests that define expected behavior before implementation. These will fail until the backend is wired up.
+| Threat | Vector | Mitigation |
+|--------|--------|------------|
+| Destructive Docker control from Docker network | `POST /containers/{id}/kill` | Muzzle: only GET allowlisted paths. POST → 403. |
+| Docker API path traversal | `GET /containers/../../../etc/passwd` | Muzzle path-maps against fixed allowlist after stripping version prefix. Unmatched → 403. |
+| Log injection via path | `GET /containers%0A%0Ainjected` | `sanitizePath()` (existing in `muzzle.go`) strips `\n`/`\r`. |
+| Slowloris connection hold | Client sends partial headers | `http.Server.ReadHeaderTimeout = 10s`. |
+| SSRF via `Host` header | Attacker rewrites `Host` to internal service | `Director` unconditionally sets `req.URL.Host = "127.0.0.1:loopbackPort"`. |
+| Port pre-occupation DoS | Another process holds the port | Bind failure logged and surfaced via `/proxy-status`. Loopback proxy unaffected. No crash. |
+| Port published to Docker host | User adds `-p PORT:PORT` to Charon container | User-controlled; out of scope. UI warning displayed. |
 
-**File**: `tests/docker-orthrus-proxy.spec.ts`
+### 9.2 Residual Read Exposure
 
-Tests:
-1. **Agent offline** — with a remote server that has `connection_type: "orthrus"` and an agent that is offline, the Docker containers panel shows a "Orthrus agent is not currently connected" error state.
-2. **No `server_id`** — local Docker containers still load normally (no regression).
+Allowlisted endpoints (`/containers/json`, `/images/json`, `/info`, `/version`) reveal container names, image tags, environment variables, and network topology. Operators running sensitive workloads must evaluate whether enabling the external proxy is appropriate for their threat model.
 
-These tests validate the UI error handling introduced by the new 502/503 responses.
+### 9.3 Defence in Depth
 
-### Phase 2 — Backend: Session Proxy Listener
+Muzzle applied at:
 
-**Files**: `session.go`, `server.go`
+1. **Charon side** (new) — at the external HTTP entry point.
+2. **Agent side** (existing in `agent/leash/leash.go`) — before bytes reach the Docker socket.
 
-- [ ] Add `streamTypeDocker = byte(0x01)` constant to `session.go`
-- [ ] Add `listener net.Listener` field to `AgentSession`
-- [ ] Implement `StartDockerProxy() error`
-- [ ] Implement `runProxyListener(ln net.Listener)`
-- [ ] Implement `proxyConn(conn net.Conn)`
-- [ ] Update `Close()` to close `s.listener` (under mutex, set to nil)
-- [ ] In `HandleWebSocket`: call `session.StartDockerProxy()`, log warning on failure (non-fatal)
-- [ ] In `watchHeartbeat`: call `sess.Close()` before `markOffline` when session is dead
-- [ ] Unit tests:
-  - `TestAgentSession_StartDockerProxy_SetsProxyAddr` — start proxy, assert `GetProxyAddr()` non-empty
-  - `TestAgentSession_StartDockerProxy_AcceptsConnection` — dial the proxy addr, verify type byte written to yamux stream
-  - `TestAgentSession_Close_StopsProxyListener` — start proxy, close session, verify listener no longer accepts
-  - `TestAgentSession_StartDockerProxy_CalledTwice` — call twice; second call returns error containing "already started"; `GetProxyAddr()` returns same address as first call; no additional listener port allocated
-  - `TestOrthrusServer_HandleWebSocket_StartsProxy` — full WebSocket handshake, assert session has non-empty proxy addr
+A bug in Charon's muzzle is not catastrophic; the agent's muzzle is a second gate.
 
-**Validation gate**: `go test -race ./backend/internal/orthrus/...` passes.
+---
 
-### Phase 3 — Backend: DockerHandler Integration
+## 10. Test Plan
 
-**Files**: `docker_handler.go`, `routes.go`, `docker_handler_test.go`
+### 10.1 Unit Tests: `backend/internal/orthrus/session_external_proxy_test.go` (new)
 
-- [ ] Add `orthrusProxyResolver` interface to `docker_handler.go`
-- [ ] Add `orthrusResolver orthrusProxyResolver` field to `DockerHandler`
-- [ ] Implement `SetOrthrusResolver(r orthrusProxyResolver)`
-- [ ] Update `ListContainers`: replace single `fmt.Sprintf` with `switch server.ConnectionType`
-- [ ] In `routes.go`: hoist `var orthrusServer` declaration; call `dockerHandler.SetOrthrusResolver(orthrusServer)`
-- [ ] Unit tests:
-  - `TestDockerHandler_ListContainers_OrthrusAgentConnected` — resolver returns `("127.0.0.1:54321", true)`; verify `dockerSvc.host == "tcp://127.0.0.1:54321"`
-  - `TestDockerHandler_ListContainers_OrthrusAgentOffline` — resolver returns `("", false)`; verify 502
-  - `TestDockerHandler_ListContainers_OrthrusSubsystemUnavailable` — `orthrusResolver == nil`; verify 503
-  - `TestDockerHandler_ListContainers_OrthrusMissingAgentUUID` — server has `OrthrusAgentUUID == nil`; verify 400
-  - `TestDockerHandler_SetOrthrusResolver_Nil` — explicit nil does not panic on request
+| ID | Description | Pass Condition |
+|----|-------------|----------------|
+| U-EXT-01 | `StartExternalProxy(0)` is a no-op | Returns nil; `GetExternalProxyStatus().Active == false` |
+| U-EXT-02 | `StartExternalProxy(PORT)` binds `0.0.0.0:PORT` | Status: `Active=true`, `BindAddress="0.0.0.0:PORT"` |
+| U-EXT-03 | Double call to `StartExternalProxy` | Second call returns error containing "already started" |
+| U-EXT-04 | `StartExternalProxy` before `StartDockerProxy` | Error contains "loopback proxy not started" |
+| U-EXT-05 | `StartExternalProxy` on closed session | Error contains "closed session" |
+| U-EXT-06 | `Close()` terminates external listener | Subsequent TCP dial refused |
+| U-EXT-07 | GET `/containers/json` through external proxy | HTTP 200 proxied through mock loopback |
+| U-EXT-08 | POST request to external proxy | HTTP 403, no yamux stream opened |
+| U-EXT-09 | GET to non-allowlisted path | HTTP 403 for `GET /exec/abc/start` |
+| U-EXT-10 | `ReadHeaderTimeout` set on http.Server | `srv.ReadHeaderTimeout == 10 * time.Second` |
 
-**Validation gate**: `go test -race ./backend/internal/api/...` passes; no regression in existing Docker handler tests.
+**Test helper**: Use `testWSPairBoth` (existing in `session_proxy_test.go`). Allocate free port with `net.Listen("tcp", "127.0.0.1:0")`, extract port, close listener, pass that port to `StartExternalProxy`.
 
-### Phase 4 — Integration Test Stub
+### 10.2 Unit Tests: `backend/internal/orthrus/server_test.go` (additions)
 
-**File**: `backend/internal/orthrus/proxy_integration_test.go`
+| ID | Description |
+|----|-------------|
+| U-SRV-01 | `GetExternalProxyStatus` returns `(_, false)` for unknown UUID |
+| U-SRV-02 | `Close()` on session with active external proxy shuts down `http.Server` and frees the port |
 
-```go
-//go:build integration
+### 10.3 Unit Tests: `backend/internal/services/orthrus_service_test.go` (additions)
 
-package orthrus_test
+| ID | Description |
+|----|-------------|
+| U-SVC-01 | `Patch` with `externalProxyPort = 0` persists successfully |
+| U-SVC-02 | `Patch` with `externalProxyPort = 2375` persists successfully |
+| U-SVC-03 | `Patch` with `externalProxyPort = 80` returns validation error |
+| U-SVC-04 | `Patch` with `externalProxyPort = 99999` returns validation error |
+| U-SVC-05 | `Patch` with `externalProxyPort = nil` leaves existing value unchanged |
 
-import (
-    "testing"
-)
+### 10.4 Unit Tests: `backend/internal/api/handlers/orthrus_handler_test.go` (additions)
 
-// TestDockerProxyIntegration_FullTunnel exercises the complete path:
-//   TCP connection → local proxy listener → yamux stream → agent → Docker socket
-// Requires a running Orthrus agent with Docker socket accessible.
-func TestDockerProxyIntegration_FullTunnel(t *testing.T) {
-    t.Skip("requires running Orthrus agent with /var/run/docker.sock")
-}
+| ID | Description |
+|----|-------------|
+| U-HDL-01 | `PATCH` with `external_proxy_port: 2375` → updated agent with port |
+| U-HDL-02 | `PATCH` with `external_proxy_port: 100` → 400 |
+| U-HDL-03 | `GET /proxy-status` unknown agent → 404 |
+| U-HDL-04 | `GET /proxy-status` resolver nil → `active: false`, `error` present |
+| U-HDL-05 | `GET /proxy-status` resolver returns active status → `connection_string` present |
+| U-HDL-06 | `GET /proxy-status` resolver returns inactive status → `active: false` |
+| U-HDL-07 | `GET /proxy-status` resolver returns bind error → `error` field present |
+
+### 10.5 Playwright E2E: `tests/orthrus-external-proxy.spec.ts` (new)
+
+| Test | Steps | Expected |
+|------|-------|----------|
+| Configure proxy port | Open agent edit modal, enter 2376, save | Port saved; success toast; `/proxy-status` returns `configured_port: 2376` |
+| Disable proxy | Set port to 0, save | Status shows disabled |
+| Invalid port rejected | Enter 80, attempt save | Client-side validation error; no API call made |
+| Connection string displayed | Agent online with active proxy | `tcp://charon:2376` shown with copy button |
+| Reconnect notice | Configured port differs from active port | "Changes will take effect on next agent reconnect" message shown |
+
+### 10.6 Integration Test Stub
+
+File: `backend/internal/orthrus/external_proxy_integration_test.go`
+Build tag: `//go:build integration`
+
+Test: Full agent WebSocket connect → `ExternalProxyPort` configured → Docker client dials external port → container list returned.
+
+---
+
+## 11. Commit Slicing Strategy
+
+**Decision**: Single PR, 4 ordered logical commits. Each commit is independently buildable and passes `go test ./...`.
+
+---
+
+### Commit 1 — `feat(orthrus): add external_proxy_port field to OrthrusAgent model`
+
+**Scope**: Model only. Zero runtime behaviour change.
+
+**Files**:
+
+- `backend/internal/models/orthrus_agent.go` — add `ExternalProxyPort int` field
+
+**Dependencies**: None.
+
+**Validation gate**:
+
+```bash
+cd backend && go build ./... && go test ./internal/models/...
 ```
 
-**Validation gate**: `go test -tags integration ./backend/internal/orthrus/...` — skips cleanly.
-
-### Phase 5 — Documentation
-
-- [ ] Update `ARCHITECTURE.md` component table: add row for "Orthrus Docker Proxy Listener"
-- [ ] Confirm no OpenAPI spec changes needed (existing `GET /docker/containers` endpoint; response schema unchanged)
-
 ---
 
-## 8. Acceptance Criteria
+### Commit 2 — `feat(orthrus): implement external docker proxy listener with muzzle filtering`
 
-| # | Criterion | Verification |
-|---|-----------|-------------|
-| AC-1 | `AgentSession.GetProxyAddr()` returns a non-empty `127.0.0.1:PORT` address after `StartDockerProxy()` succeeds | Unit test `TestAgentSession_StartDockerProxy_SetsProxyAddr` |
-| AC-2 | A TCP connection to the proxy address results in `0x01` being written to the agent's yamux stream | Unit test `TestAgentSession_StartDockerProxy_AcceptsConnection` |
-| AC-3 | Closing an `AgentSession` causes `ln.Accept()` to return an error and `runProxyListener` to exit | Unit test `TestAgentSession_Close_StopsProxyListener` |
-| AC-4 | `HandleWebSocket` registers a session with a non-zero `proxyPort` | Unit test `TestOrthrusServer_HandleWebSocket_StartsProxy` |
-| AC-5 | `GET /docker/containers?server_id=<orthrus-uuid>` with a connected agent passes `tcp://127.0.0.1:PORT` to the Docker client | Unit test `TestDockerHandler_ListContainers_OrthrusAgentConnected` |
-| AC-6 | Same request with a disconnected agent returns HTTP 502 with `"Orthrus agent is not currently connected"` | Unit test `TestDockerHandler_ListContainers_OrthrusAgentOffline` |
-| AC-7 | Same request when Orthrus subsystem is unavailable returns HTTP 503 | Unit test `TestDockerHandler_ListContainers_OrthrusSubsystemUnavailable` |
-| AC-8 | `RemoteServer` with `connection_type == "orthrus"` and nil `OrthrusAgentUUID` returns HTTP 400 | Unit test `TestDockerHandler_ListContainers_OrthrusMissingAgentUUID` |
-| AC-9 | No regression in existing Docker handler tests for direct connection type | `go test ./backend/internal/api/handlers/...` |
-| AC-10 | No regression in existing Orthrus session/server unit tests | `go test ./backend/internal/orthrus/...` |
-| AC-11 | `go test -race ./backend/...` passes with no race conditions | CI |
-| AC-12 | A second call to `StartDockerProxy()` on an already-started session returns a non-nil error containing `"already started"`. `GetProxyAddr()` still returns the address from the first successful call. No additional listener port is allocated. | `TestAgentSession_StartDockerProxy_CalledTwice` |
-
----
-
-## 9. Commit Slicing Strategy
-
-**Decision**: Single PR with 3 ordered logical commits. Each commit is independently compilable and testable.
-
-**Trigger reasons**: Cross-domain change (orthrus package + handler package + routes wiring); clear phase boundary between the tunnel mechanics (Commit 1) and the HTTP handler integration (Commit 2).
-
----
-
-### Commit 1 — `feat(orthrus): implement server-side Docker proxy listener`
-
-**Scope**: Session proxy lifecycle only. No HTTP handler changes.
+**Scope**: Session and server layer. New external proxy + updated `Close()` + unit tests.
 
 **Files**:
-- `backend/internal/orthrus/session.go` — constant, new field, `StartDockerProxy()`, `runProxyListener()`, `proxyConn()`, updated `Close()`
-- `backend/internal/orthrus/server.go` — `StartDockerProxy()` call in `HandleWebSocket`; `sess.Close()` in `watchHeartbeat`
-- `backend/internal/orthrus/session_test.go` — 3 new tests
-- `backend/internal/orthrus/server_test.go` — 1 new test
 
-**Dependencies**: None (self-contained change to orthrus package).
+- `backend/internal/orthrus/session.go` — `StartExternalProxy`, `GetExternalProxyStatus`, `ExternalProxyStatus` type, updated `Close()` (add `extServer.Close()`)
+- `backend/internal/orthrus/server.go` — wire `StartExternalProxy` in `HandleWebSocket`, add `GetExternalProxyStatus` method (no `watchHeartbeat` change needed — already correct)
+- `backend/internal/orthrus/session_external_proxy_test.go` — new file: U-EXT-01..10
+- `backend/internal/orthrus/server_test.go` — add U-SRV-01, U-SRV-02
 
-**Validation gate**: `go test -race ./backend/internal/orthrus/...` — all pass.
+**Dependencies**: Commit 1 (`agent.ExternalProxyPort` field must exist for `HandleWebSocket` to read).
 
-**Rollback**: Revert this commit. No other code depends on `StartDockerProxy()` until Commit 2.
+**Validation gate**:
+
+```bash
+cd backend && go test ./internal/orthrus/...
+```
 
 ---
 
-### Commit 2 — `feat(docker): route orthrus-backed servers through local proxy`
+### Commit 3 — `feat(orthrus): API endpoints for external proxy configuration and status`
 
-**Scope**: `DockerHandler` orthrus awareness and routes wiring.
+**Scope**: Service + handler + route wiring.
 
 **Files**:
-- `backend/internal/api/handlers/docker_handler.go` — interface, field, setter, updated `ListContainers`
-- `backend/internal/api/routes/routes.go` — hoist var, call `SetOrthrusResolver`
-- `backend/internal/api/handlers/docker_handler_test.go` — 5 new tests
 
-**Dependencies**: Commit 1 (`AgentSession.GetProxyAddr()` must return a real address).
+- `backend/internal/services/orthrus_service.go` — extend `Patch`, add validation
+- `backend/internal/services/orthrus_service_test.go` — add U-SVC-01..05
+- `backend/internal/api/handlers/orthrus_handler.go` — `patchAgentRequest`, `GetProxyStatus`, `orthrusProxyStatusResolver`, `SetProxyResolver`
+- `backend/internal/api/handlers/orthrus_handler_test.go` — add U-HDL-01..07
+- `backend/internal/api/routes/routes.go` — wire `SetProxyResolver`
 
-**Validation gate**: `go test -race ./backend/internal/api/...` — all pass; no regression in existing handler tests.
+**Dependencies**: Commit 2 (`GetExternalProxyStatus` on `OrthrusServer`).
 
-**Rollback**: Revert Commit 2. Proxy listener still runs (from Commit 1) but is never used by the Docker handler.
+**Validation gate**:
+
+```bash
+cd backend && go test ./...
+```
 
 ---
 
-### Commit 3 — `test(orthrus): add integration test stub for Docker proxy tunnel`
+### Commit 4 — `feat(orthrus/ui): external docker proxy configuration and status UI`
 
-**Scope**: Integration test placeholder only.
+**Scope**: Frontend only.
 
 **Files**:
-- `backend/internal/orthrus/proxy_integration_test.go` — `//go:build integration` stub
 
-**Dependencies**: Commits 1 and 2.
+- `frontend/src/api/orthrus.ts` — add `getAgentProxyStatus`
+- `frontend/src/components/orthrus/<AgentEditModal>.tsx` — new External Docker Proxy section
+- `frontend/src/components/orthrus/<AgentList>.tsx` — optional PROXY badge
+- `tests/orthrus-external-proxy.spec.ts` — new Playwright E2E tests
 
-**Validation gate**: `go test -tags integration ./backend/internal/orthrus/...` — skips cleanly.
+**Dependencies**: Commit 3 (API endpoints must exist).
 
-**Rollback**: Delete the file. No functional impact.
+**Validation gate**:
+
+```bash
+cd frontend && npm test
+# E2E (requires Docker E2E environment rebuild):
+npx playwright test tests/orthrus-external-proxy.spec.ts --project=firefox
+```
 
 ---
 
-## 10. Security Considerations
+### Rollback Notes
 
-- **Loopback only**: The proxy listener binds `127.0.0.1:0` (never `0.0.0.0`). Only Charon's own process can dial it.
-- **No port reuse**: Ephemeral OS-assigned port; no hardcoded port that could be predicted or hijacked.
-- **Muzzle filter on the agent**: The agent's `handleDockerStream` applies `muzzle.Filter` (read-only Docker endpoint allowlist). Charon cannot trigger destructive Docker operations through the tunnel.
-- **Session ownership**: The `agentUUID` is authenticated by bcrypt bearer token; only a legitimate agent creates a session with its UUID.
-- **Listener closed on disconnect**: `Close()` closes the listener synchronously under the mutex. No dangling goroutine after session cleanup.
-- **No secrets in logs**: `proxyPort` (integer) and `127.0.0.1:PORT` are safe to log. No external-facing addresses exposed.
+Each commit is independently revertable:
+
+- Commit 1: DB column drop is safe (SQLite stores it; old code ignores unknown columns on read).
+- Commits 2–3: New code paths only activate when `ExternalProxyPort > 0` or the new endpoint is called. Reverting has no impact on existing agent operation.
+- Commit 4: Frontend-only; reverting does not affect backend.
+
+---
+
+## 12. Migration Strategy
+
+### 12.1 Existing agents
+
+GORM AutoMigrate at startup adds `external_proxy_port INTEGER DEFAULT 0`. All existing agents receive `0` (disabled). No proxy is started. No operator action required unless the feature is desired.
+
+### 12.2 Downgrade
+
+Old Charon without this feature ignores the unknown DB column on read. No functional breakage. The column can be dropped manually if desired.
+
+### 12.3 `socat`-based deployments (Dockhand users)
+
+Migration path:
+
+1. Identify the Orthrus agent for the target host.
+2. Set `external_proxy_port` to the port previously served by `socat` (e.g., 2375).
+3. Update Dockhand Docker host config: `tcp://socat-container:2375` → `tcp://charon:2375`.
+4. Decommission the `socat` container.
+
+The UI displays `tcp://charon:PORT` prominently once the proxy is active.
+
+### 12.4 Multi-agent port uniqueness
+
+No DB uniqueness constraint on `external_proxy_port` (excluding 0) is enforced in this PR. Operators must assign distinct ports per agent. Conflicts surface as bind errors in the `/proxy-status` endpoint. A uniqueness constraint is a future improvement.
+
+---
+
+## Appendix A: Type Placement
+
+`ExternalProxyStatus` is defined in `backend/internal/orthrus/session.go` alongside `AgentSession`. The handler imports it as `orthrus.ExternalProxyStatus` via the `orthrusProxyStatusResolver` interface. No circular imports.
+
+## Appendix B: File Change Summary
+
+| File | Change | Commit |
+|------|--------|--------|
+| `backend/internal/models/orthrus_agent.go` | Add `ExternalProxyPort int` | 1 |
+| `backend/internal/orthrus/session.go` | `StartExternalProxy`, `GetExternalProxyStatus`, `Close` update, `ExternalProxyStatus` type | 2 |
+| `backend/internal/orthrus/server.go` | Wire `StartExternalProxy`, fix `watchHeartbeat`, `GetExternalProxyStatus` | 2 |
+| `backend/internal/orthrus/session_external_proxy_test.go` | New: U-EXT-01..10 | 2 |
+| `backend/internal/orthrus/server_test.go` | Add U-SRV-01..02 | 2 |
+| `backend/internal/services/orthrus_service.go` | Extend `Patch`, add port validation | 3 |
+| `backend/internal/services/orthrus_service_test.go` | Add U-SVC-01..05 | 3 |
+| `backend/internal/api/handlers/orthrus_handler.go` | `patchAgentRequest`, `GetProxyStatus`, interface, `SetProxyResolver` | 3 |
+| `backend/internal/api/handlers/orthrus_handler_test.go` | Add U-HDL-01..07 | 3 |
+| `backend/internal/api/routes/routes.go` | Wire `SetProxyResolver` | 3 |
+| `frontend/src/api/orthrus.ts` | Add `getAgentProxyStatus` | 4 |
+| `frontend/src/components/orthrus/<modal>.tsx` | External proxy section | 4 |
+| `frontend/src/components/orthrus/<list>.tsx` | PROXY badge | 4 |
+| `tests/orthrus-external-proxy.spec.ts` | New E2E tests | 4 |
