@@ -10,6 +10,7 @@ import {
   getInstallSnippets,
   patchAgent,
   renameAgent,
+  getAgentProxyStatus,
 } from '../orthrus'
 
 vi.mock('../client', () => ({
@@ -173,6 +174,32 @@ describe('orthrus API', () => {
     it('propagates errors', async () => {
       vi.mocked(client.get).mockRejectedValue(new Error('snippets failed'))
       await expect(getInstallSnippets('agent-uuid')).rejects.toThrow('snippets failed')
+    })
+  })
+
+  describe('getAgentProxyStatus', () => {
+    it('calls the proxy-status endpoint and returns data', async () => {
+      const status = {
+        agent_uuid: 'agent-uuid',
+        agent_online: true,
+        configured_port: 2375,
+        active: true,
+        active_port: 2375,
+        bind_address: '0.0.0.0:2375',
+        connection_string: 'tcp://charon:2375',
+        error: '',
+      }
+      vi.mocked(client.get).mockResolvedValue({ data: status })
+
+      const result = await getAgentProxyStatus('agent-uuid')
+
+      expect(client.get).toHaveBeenCalledWith('/orthrus/agents/agent-uuid/proxy-status')
+      expect(result).toEqual(status)
+    })
+
+    it('propagates errors', async () => {
+      vi.mocked(client.get).mockRejectedValue(new Error('proxy status failed'))
+      await expect(getAgentProxyStatus('agent-uuid')).rejects.toThrow('proxy status failed')
     })
   })
 })

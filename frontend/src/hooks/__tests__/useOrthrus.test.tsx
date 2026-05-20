@@ -4,7 +4,7 @@ import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import * as api from '../../api/orthrus'
-import { useOrthrus, useAgentList, useProvisionAgent, useRenameAgent, useDeleteAgent, AGENTS_QUERY_KEY } from '../useOrthrus'
+import { useOrthrus, useAgentList, useProvisionAgent, useRenameAgent, useDeleteAgent, useAgentProxyStatus, AGENTS_QUERY_KEY } from '../useOrthrus'
 
 vi.mock('../../api/orthrus', () => ({
   listAgents: vi.fn(),
@@ -13,6 +13,7 @@ vi.mock('../../api/orthrus', () => ({
   deleteAgent: vi.fn(),
   revokeAgent: vi.fn(),
   getInstallSnippets: vi.fn(),
+  getAgentProxyStatus: vi.fn(),
 }))
 
 const createWrapper = () => {
@@ -220,5 +221,40 @@ describe('useOrthrus', () => {
     expect(result.current.isDeleting).toBe(false)
     expect(result.current.isRevoking).toBe(false)
     expect(result.current.isFetchingSnippets).toBe(false)
+  })
+})
+
+describe('useAgentProxyStatus', () => {
+  it('fetches proxy status when enabled', async () => {
+    const status = {
+      agent_uuid: 'agent-1',
+      agent_online: true,
+      configured_port: 2375,
+      active: true,
+      active_port: 2375,
+      bind_address: '0.0.0.0:2375',
+      connection_string: 'tcp://charon:2375',
+      error: '',
+    }
+    vi.mocked(api.getAgentProxyStatus).mockResolvedValue(status)
+
+    const { result } = renderHook(
+      () => useAgentProxyStatus('agent-1', true),
+      { wrapper: createWrapper() },
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.data).toEqual(status)
+    expect(api.getAgentProxyStatus).toHaveBeenCalledWith('agent-1')
+  })
+
+  it('does not fetch when disabled', () => {
+    const { result } = renderHook(
+      () => useAgentProxyStatus('agent-1', false),
+      { wrapper: createWrapper() },
+    )
+
+    expect(result.current.fetchStatus).toBe('idle')
+    expect(api.getAgentProxyStatus).not.toHaveBeenCalled()
   })
 })

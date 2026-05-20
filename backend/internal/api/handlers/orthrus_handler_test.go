@@ -713,3 +713,112 @@ func TestOrthrusHandler_GetProxyStatus_Connected(t *testing.T) {
 	assert.Equal(t, "0.0.0.0:2375", resp["bind_address"])
 	assert.Equal(t, "tcp://charon:2375", resp["connection_string"])
 }
+
+// TestOrthrusHandler_SetProxyResolver_TypedNilClearsResolver verifies that
+// passing a typed nil pointer (non-nil interface wrapping nil pointer) causes
+// SetProxyResolver to clear the stored resolver via the reflect.IsNil branch.
+func TestOrthrusHandler_SetProxyResolver_TypedNilClearsResolver(t *testing.T) {
+	h, _ := newOrthrusTestSetup(t)
+
+	// Wire a valid resolver first.
+	h.SetProxyResolver(&mockProxyResolver{ok: true})
+
+	// Pass a typed nil *mockProxyResolver — the interface value is non-nil but
+	// rv.IsNil() returns true, exercising the h.proxyResolver = nil / return path.
+	var nilResolver *mockProxyResolver
+	h.SetProxyResolver(nilResolver)
+
+	// Confirm the resolver was cleared: provision an agent and verify
+	// GetProxyStatus returns agent_online=false (no resolver active).
+	wProv := httptest.NewRecorder()
+	cProv, _ := gin.CreateTestContext(wProv)
+	cProv.Request = httptest.NewRequest(http.MethodPost, "/management/orthrus/agents",
+		bytes.NewBufferString(`{"name":"typed-nil-agent"}`))
+	cProv.Request.Header.Set("Content-Type", "application/json")
+	h.Provision(cProv)
+	require.Equal(t, http.StatusCreated, wProv.Code)
+	var provisioned map[string]any
+	require.NoError(t, json.Unmarshal(wProv.Body.Bytes(), &provisioned))
+	agentUUID := provisioned["agent"].(map[string]any)["uuid"].(string)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/management/orthrus/agents/"+agentUUID+"/proxy-status", http.NoBody)
+	c.Params = gin.Params{{Key: "uuid", Value: agentUUID}}
+	h.GetProxyStatus(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, false, resp["agent_online"])
+}
+
+// TestOrthrusHandler_Patch_MalformedJSON verifies that sending a body that
+// cannot be parsed as JSON triggers the ShouldBindJSON error path → 400.
+func TestOrthrusHandler_Patch_MalformedJSON(t *testing.T) {
+	h, _ := newOrthrusTestSetup(t)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPatch, "/management/orthrus/agents/any-uuid",
+		bytes.NewBufferString(`{not valid json`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{{Key: "uuid", Value: "any-uuid"}}
+
+	h.Patch(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestOrthrusHandler_GetProxyStatus_AgentNotFound verifies that requesting
+// proxy status for a non-existent agent UUID returns 404.
+func TestOrthrusHandler_GetProxyStatus_AgentNotFound(t *testing.T) {
+	h, _ := newOrthrusTestSetup(t)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/management/orthrus/agents/does-not-exist/proxy-status", http.NoBody)
+	c.Params = gin.Params{{Key: "uuid", Value: "does-not-exist"}}
+
+	h.GetProxyStatus(c)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// TestOrthrusHandler_GetProxyStatus_Connected_WithError verifies that when the
+// resolver returns a status with a non-empty Error field, the error is included
+// in the response — covering the if status.Error != "" branch.
+func TestOrthrusHandler_GetProxyStatus_Connected_WithError(t *testing.T) {
+	h, _ := newOrthrusTestSetup(t)
+
+	wProv := httptest.NewRecorder()
+	cProv, _ := gin.CreateTestContext(wProv)
+	cProv.Request = httptest.NewRequest(http.MethodPost, "/management/orthrus/agents",
+		bytes.NewBufferString(`{"name":"error-agent"}`))
+	cProv.Request.Header.Set("Content-Type", "application/json")
+	h.Provision(cProv)
+	require.Equal(t, http.StatusCreated, wProv.Code)
+	var provisioned map[string]any
+	require.NoError(t, json.Unmarshal(wProv.Body.Bytes(), &provisioned))
+	agentUUID := provisioned["agent"].(map[string]any)["uuid"].(string)
+
+	errStatus := orthrus.ExternalProxyStatus{
+		ConfiguredPort: 2375,
+		Active:         false,
+		Error:          "bind failed: address already in use",
+	}
+	h.SetProxyResolver(&mockProxyResolver{status: errStatus, ok: true})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/management/orthrus/agents/"+agentUUID+"/proxy-status", http.NoBody)
+	c.Params = gin.Params{{Key: "uuid", Value: agentUUID}}
+	h.GetProxyStatus(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, true, resp["agent_online"])
+	assert.Equal(t, false, resp["active"])
+	assert.Equal(t, "bind failed: address already in use", resp["error"])
+}
