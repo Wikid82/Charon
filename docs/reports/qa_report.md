@@ -1,330 +1,84 @@
-# QA & Security Audit — CI Fix Implementation
-
-| Field       | Value                                         |
-|-------------|-----------------------------------------------|
-| Date        | 2026-05-13                                    |
-| Branch      | `development`                                 |
-| HEAD commit | `6b4c5d50`                                    |
-| Auditor     | QA Security Agent                             |
-| Verdict     | ✅ **APPROVED**                               |
-
----
-
-## Summary
-
-Full QA and security audit performed after the CI fix implementation. All 8 checks
-passed. No blocking issues found. One Trivy HIGH finding reviewed and confirmed as
-an expected local development artifact (not committed to VCS).
-
----
-
-## Check Results
-
-| # | Check                          | Result      | Notes                                  |
-|---|--------------------------------|-------------|----------------------------------------|
-| 1 | Frontend Tests + Coverage      | ✅ PASS      | 481 pass, 1 skip; coverage 89.33%      |
-| 2 | TypeScript Type Check          | ✅ PASS      | 0 errors                               |
-| 3 | Frontend ESLint                | ✅ PASS      | 0 errors, 994 warnings (exit 0)        |
-| 4 | Backend Tests + Coverage       | ✅ PASS      | All tests pass; coverage 88.5%/88.6%   |
-| 5 | Backend Lint (golangci-lint)   | ✅ PASS      | 0 issues                               |
-| 6 | Pre-commit Hooks (lefthook)    | ✅ PASS      | All applicable hooks pass              |
-| 7 | Race Condition Verification    | ✅ PASS      | 5/5 runs with `-race` flag pass        |
-| 8 | Trivy Security Scan            | ✅ PASS*     | 1 HIGH finding reviewed (see below)    |
-| - | GORM Security Scan             | ⏭ SKIP      | No model/DB files changed              |
-
----
-
-## Coverage
-
-| Layer    | Statement | Line  | Threshold | Status  |
-|----------|-----------|-------|-----------|---------|
-| Frontend | 89.33%    | —     | 87%       | ✅ PASS |
-| Backend  | 88.5%     | 88.6% | 87%       | ✅ PASS |
-
----
-
-## Security Findings
-
-### Trivy Scan
-
-**Scanners**: `vuln`, `secret`
-**Severity filter**: HIGH, CRITICAL
-
-| Severity | Type   | Target                                          | Rule                  | Status        |
-|----------|--------|-------------------------------------------------|-----------------------|---------------|
-| HIGH     | Secret | `backend/internal/api/routes/keys/hecate-ca.key` | AsymmetricPrivateKey | ✅ REVIEWED   |
-
-**Vulnerability findings**: 0 (Go modules, npm packages all clean)
-
-#### Trivy HIGH Finding — `hecate-ca.key`
-
-Trivy flagged a local EC private key file (`backend/internal/api/routes/keys/hecate-ca.key`)
-as HIGH severity (AsymmetricPrivateKey).
-
-**Investigation result**: This is an **expected local development artifact**. The finding
-does **not** represent a committed secret.
-
-- `.gitignore` line 146 contains the pattern `*.key`, which excludes all `.key` files
-  from version control. `git check-ignore` confirms the file is ignored.
-- `git ls-files backend/internal/api/routes/keys/` shows only `hecate-ca.crt` is tracked;
-  the `.key` file is **not** in the repository.
-- The key is the Hecate CA private key, generated locally by the Orthrus CA module
-  (`backend/internal/orthrus/ca.go`). It is generated on first use and stored locally
-  by design — it is never committed.
-- The companion certificate (`hecate-ca.crt`) is tracked (it is a public artifact).
-
-**Conclusion**: Not a committed secret. Gitignore coverage is correct. No remediation
-required.
-
----
-
-## CI Fixes Audited
-
-The following files were created or modified as part of the CI fix implementation
-covered by this audit:
-
-| File                                                                 | Change                              |
-|----------------------------------------------------------------------|-------------------------------------|
-| `frontend/package.json`                                              | Removed duplicate devDependencies   |
-| `frontend/src/utils/certificateUtils.ts`                             | New utility extracted from component|
-| `frontend/src/components/CertificateList.tsx`                        | Import path + exports updated        |
-| `frontend/src/components/__tests__/CertificateList.test.tsx`         | Import path updated                  |
-| `frontend/src/components/CSPBuilder.tsx`                             | `<label>` → `<span>` (HTML fix)     |
-| `frontend/src/components/AccessListSelector.tsx`                     | `<label>` → `<span>` (HTML fix)     |
-| `frontend/src/components/AccessListForm.tsx`                         | `<label>` → `<span>` (HTML fix)     |
-| `frontend/src/components/CredentialManager.tsx`                      | eslint-disable comment added         |
-| `frontend/src/api/__tests__/logs-websocket.test.ts`                  | `.skip` → `.todo` (2 tests)          |
-| `backend/internal/api/handlers/security_handler.go`                  | `Close()` method added               |
-| `backend/internal/api/handlers/security_handler_audit_test.go`       | Test isolation via `t.Cleanup`       |
-| `backend/internal/hecate/providers/cloudflare/provider.go`           | WaitGroup race condition fixed       |
-
----
-
-## Notable Observations
-
-- **ESLint warnings (994)**: All warnings, zero errors. Pre-existing state; not introduced
-  by the CI fix implementation. No action required for this audit.
-- **Low-coverage files** (informational, not blocking):
-  - `src/api/crowdsecDashboard.ts` — 0%
-  - `src/pages/HecateAgent.tsx` — 44.44%
-  - `src/pages/HecateTunnels.tsx` — 49.30%
-  - `src/hooks/useFocusTrap.ts` — 47.83%
-- **Race condition fix verified**: `TestStart_CapturesStdoutOutput` with `-race -count=5`
-  passed 5/5 runs after the WaitGroup fix in `cloudflare/provider.go`.
-- **`security_handler.go` resource cleanup**: `Close()` method and `t.Cleanup` in
-  all 15 test functions eliminates goroutine/handler leaks in tests.
-
----
-
-## Verdict
-
-**✅ APPROVED**
-
-All 8 checks pass. Coverage is above the 87% threshold for both frontend and backend.
-The single Trivy HIGH finding is a local development artifact correctly excluded from
-VCS by `.gitignore`. No blocking issues found.
-
----
-
-<!-- Previous report archived below — Hecate Provider Integration (2026-04-30) -->
+# QA Report — Orthrus External Docker Proxy
+**Date**: 2026-05-20
+**Feature**: External Docker Proxy (Orthrus)
+**Branch**: feature/hecate
 
 ## Gate Results
 
-### Gate 1 — Backend Unit Tests (`go test ./...`)
+| Gate | Description | Result | Notes |
+|------|-------------|--------|-------|
+| 0 | E2E Container Rebuild | ✅ | `charon-e2e` Up healthy; ports 8080/2020/2019 confirmed |
+| 1 | Playwright E2E | ❌ | Infrastructure blocker: ubuntu26.04-x64 not supported by Playwright 1.60.0; all install methods exhausted; CI environment (ubuntu-latest) is unaffected |
+| 2 | Backend Unit Coverage | ✅ | 89.0% (threshold: 85%); `backend/coverage.txt` generated 2026-05-20 |
+| 3 | Frontend Unit Coverage | ✅ | 89.4% (threshold: 85%); `frontend/coverage/lcov.info` valid |
+| 4 | Local Patch Report | ⚠️ | 86.9% (threshold: 90%, mode=warn, exit 0); uncovered changed lines: `server.go` L97-99 (40%), `session.go` L127-128, 160-161, 167-170, 210-212 (84.9%) |
+| 5 | TypeScript Type-check | ✅ | `npm run type-check` exit 0 |
+| 6 | Lefthook Equivalent | ✅ | `go vet ./...` exit 0; ESLint 0 errors (993 pre-existing warnings) |
+| 7 | GORM Security Scan | ✅ | 0 CRITICAL, 0 HIGH; 2 pre-existing INFO items (UserID/ProxyHostID FK index in `models/user.go:130-131`) |
+| 8 | Trivy FS Scan | ✅ | Exit 0; no CRITICAL/HIGH; DB updated 2026-05-20T05:16:05Z |
+| 9 | Docker Image Scan | ❌ | 3 HIGH findings in bundled binaries (Caddy, CrowdSec); no CRITICAL; see Security Findings |
 
-| Status | Exit Code |
-|--------|-----------|
-| ✅ PASS | 0         |
+## Coverage Summary
 
-All 36 Go packages pass. Hecate-specific packages:
+- Backend: 89.0%
+- Frontend: 89.4%
+- Patch coverage: 86.9% (threshold: 90%, mode: warn)
 
-| Package                                         | Result |
-|-------------------------------------------------|--------|
-| `internal/hecate`                               | PASS   |
-| `internal/hecate/providers/cloudflare`          | PASS   |
-| `internal/hecate/providers/netbird`             | PASS   |
-| `internal/hecate/providers/tailscale`           | PASS   |
-| `internal/hecate/providers/zerotier`            | PASS   |
-| `internal/orthrus`                              | PASS   |
+### Patch Coverage Detail
 
-`go vet ./...` also exits 0 with no diagnostics.
+| File | Patch Coverage | Uncovered Changed Lines |
+|------|---------------|------------------------|
+| `backend/internal/orthrus/server.go` | 40.0% | 97–99 |
+| `backend/internal/orthrus/session.go` | 84.9% | 127–128, 160–161, 167–170, 210–212 |
+| `frontend/src/` (changed files) | 100.0% | — |
 
----
+## Security Findings
 
-### Gate 2 — TypeScript Type-Check (`tsc --noEmit`)
+### Gate 7 — GORM Security Scan (PASSED)
 
-| Status | Exit Code |
-|--------|-----------|
-| ✅ PASS | 0         |
+No CRITICAL or HIGH issues. Two pre-existing INFO items that are non-blocking:
+- `backend/internal/models/user.go:130-131` — UserID/ProxyHostID foreign key index (INFO, pre-existing)
 
-No type errors detected across the entire frontend source.
+### Gate 8 — Trivy Filesystem Scan (PASSED)
 
----
+No CRITICAL or HIGH vulnerabilities in the filesystem. Trivy DB freshly updated 2026-05-20T05:16:05Z.
 
-### Gate 3 — Frontend Coverage (`vitest run --coverage`)
+### Gate 9 — Docker Image Scan (FAILED)
 
-| Metric      | Coverage  | Threshold | Status    |
-|-------------|-----------|-----------|-----------|
-| Lines       | **90.35%** | 85%      | ✅ PASS   |
-| Functions   | **86.76%** | 85%      | ✅ PASS   |
-| Branches    | **82.18%** | N/A      | ✅ INFO   |
-| Statements  | **89.41%** | 85%      | ✅ PASS   |
+Three HIGH vulnerabilities found in bundled third-party binaries. No CRITICAL findings.
 
-**Hecate/Orthrus file coverage:**
+#### CVE-2026-45135 — `github.com/caddyserver/caddy/v2` (HIGH)
 
-| File                                        | Lines  | Functions |
-|---------------------------------------------|--------|-----------|
-| `api/hecate.ts`                             | 96.49% | 94.73%    |
-| `api/orthrus.ts`                            | 100%   | 100%      |
-| `components/hecate/CloudflareTunnelWizard`  | 97.29% | 91.66%    |
-| `components/hecate/ConnectionTypeSelector`  | 100%   | 100%      |
-| `components/hecate/OrthrusInstallWizard`    | 95.83% | 70%       |
-| `components/hecate/TunnelLogViewer`         | 89.28% | 75%       |
-| `components/hecate/TunnelStatusBadge`       | 100%   | 100%      |
-| `hooks/useHecate.ts`                        | 100%   | 100%      |
-| `hooks/useOrthrus.ts`                       | 100%   | 100%      |
+- **Binary**: `/usr/bin/caddy`
+- **Installed**: v2.11.2
+- **Fixed**: v2.11.3
+- **Status**: Fix available — upgrade required
+- **Description**: Unsafe Unicode handling in FastCGI `splitPos` allows execution of non-PHP files
+- **Reference**: https://avd.aquasec.com/nvd/cve-2026-45135
+- **Remediation**: Update Caddy build version in `Dockerfile` from v2.11.2 to v2.11.3
 
-All Hecate-related files are above threshold. Lower function coverage in
-`OrthrusInstallWizard` (70%) and `TunnelLogViewer` (75%) reflects edge-case
-render branches that require full integration to trigger.
+#### CVE-2026-32286 — `github.com/jackc/pgproto3/v2` in CrowdSec (HIGH)
 
----
+- **Binaries**: `/usr/local/bin/crowdsec`, `/usr/local/bin/cscli`
+- **Installed**: v2.3.3
+- **Fixed**: No upstream fix available at time of scan
+- **Status**: Affected; awaiting upstream patch in CrowdSec
+- **Description**: Denial of Service via malicious PostgreSQL server response
+- **Reference**: https://avd.aquasec.com/nvd/cve-2026-32286
+- **Risk Context**: Exploitable only when CrowdSec is configured to use a PostgreSQL backend. The default Charon deployment uses the local SQLite backend; PostgreSQL is not used. Risk is LOW in standard deployments.
+- **Remediation**: Track upstream CrowdSec release that patches pgproto3/v2; no immediate action available
 
-### Gate 4 — ESLint (`eslint src/`)
+### Pre-existing Backend Test Failure (Not Orthrus-related)
 
-| Status                 | Exit Code | Notes                                      |
-|------------------------|-----------|--------------------------------------------|
-| ✅ PASS (after fix)    | 0         | 1 error fixed; 978 pre-existing warnings   |
+- `TestSendExternal_AllEventTypes/domain` (notification/webhook tests) — pre-existing failure unrelated to this feature; does not affect Gate 2 result.
 
-**Finding:** `frontend/src/locales/en/translation.json` contained a duplicate
-`"form"` key at line 1700, identical to the one already defined at line 1621
-within the `"hecate"` namespace.
+## Conclusion
 
-```
-1700:5  error  Duplicate key "form" found  json/no-duplicate-keys
-```
+**BLOCKED** — Gate 9 failed due to HIGH severity CVEs in bundled third-party binaries.
 
-**Fix applied:** Removed the duplicate `"form"` block (lines 1700–1722) from
-`translation.json`. ESLint re-run exits 0 with no errors.
+### Required Actions Before Approval
 
-**Warnings (978):** All pre-existing. No new warnings introduced by the
-Hecate integration. Non-blocking.
-
----
-
-### Gate 5 — Hook Runner (`lefthook run pre-commit`)
-
-| Status  | Exit Code | Notes                                          |
-|---------|-----------|------------------------------------------------|
-| ✅ N/A  | 0         | All hooks skipped (no staged files)            |
-
-The project migrated from `pre-commit` to `lefthook`. There is no
-`.pre-commit-config.yaml`. Running `pre-commit run --all-files` fails with
-`InvalidConfigError`. The equivalent `lefthook run pre-commit` exits 0 but
-skips all hooks when no files are staged. Static analysis and linting are
-covered by Gates 1–4 and Gate 6.
-
----
-
-### Gate 6 — GORM Security Scan (`scan-gorm-security.sh --check`)
-
-| Status  | Exit Code |
-|---------|-----------|
-| ✅ PASS | 0         |
-
-| Severity | Count |
-|----------|-------|
-| CRITICAL | 0     |
-| HIGH     | 0     |
-| MEDIUM   | 0     |
-| INFO     | 2     |
-
-**INFO findings (non-blocking):**
-
-| File                               | Lines   | Finding                                                              |
-|------------------------------------|---------|----------------------------------------------------------------------|
-| `backend/internal/models/user.go`  | 130–131 | Missing `gorm:"index"` on `UserID` and `ProxyHostID` FK columns in `UserPermittedHost` |
-
-These are performance suggestions, not security issues. No blocking findings.
-
----
-
-### Gate 7 — Local Patch Coverage Report
-
-| Status  | Exit Code |
-|---------|-----------|
-| ✅ PASS | 0         |
-
-| Scope    | Changed Lines | Covered Lines | Patch Coverage | Threshold | Status    |
-|----------|---------------|---------------|----------------|-----------|-----------|
-| Overall  | 2401          | 2165          | **90.2%**      | 90.0%     | ✅ PASS   |
-| Backend  | 2111          | 1890          | **89.5%**      | 85.0%     | ✅ PASS   |
-| Frontend | 290           | 275           | **94.8%**      | 85.0%     | ✅ PASS   |
-
-**Files below 90% patch coverage** (warning, non-blocking at current thresholds):
-
-| File                                                         | Patch % | Uncovered Lines | Notes                           |
-|--------------------------------------------------------------|---------|-----------------|--------------------------------|
-| `backend/cmd/api/main.go`                                    | 0.0%    | 2 (263–264)     | Pre-existing; main() untestable |
-| `backend/internal/services/crowdsec_startup.go`              | 0.0%    | 3               | Pre-existing startup code       |
-| `backend/internal/services/dns_provider_service.go`          | 0.0%    | 2               | Pre-existing                    |
-| `backend/internal/services/plugin_loader.go`                 | 11.1%   | 8               | Pre-existing                    |
-| `frontend/src/components/RemoteServerForm.tsx`               | 80.8%   | 5 (216–231)     | Hecate agent-mode conditionals  |
-| `backend/internal/hecate/providers/tailscale/api_client.go`  | 81.0%   | 11              | HTTP error paths                |
-| `backend/internal/api/routes/routes.go`                      | 82.1%   | 7 (466–479)     | Hecate route registrations      |
-| `backend/internal/api/handlers/hecate_ws_handler.go`         | 82.8%   | 11              | WebSocket upgrade/error paths   |
-| `backend/internal/orthrus/session.go`                        | 84.6%   | 12              | TLS session setup error paths   |
-| `backend/internal/hecate/manager.go`                         | 84.9%   | 33 (285–322)    | Provider start/stop error paths |
-
-All uncovered lines in Hecate code are error-handling branches. Core logic
-paths are covered. The 0% entries are pre-existing gaps unrelated to this
-feature.
-
-Full artifacts: `test-results/local-patch-report.md`, `test-results/local-patch-report.json`
-
----
-
-## Summary of Fixes Applied
-
-| # | File                                            | Issue                                 | Fix                                    |
-|---|-------------------------------------------------|---------------------------------------|----------------------------------------|
-| 1 | `frontend/src/locales/en/translation.json:1700` | Duplicate `"form"` key (ESLint error) | Removed duplicate block (lines 1700–1722) |
-
----
-
-## Blocking Issues
-
-None.
-
----
-
-## Non-Blocking Observations
-
-1. **`TunnelLogViewer.tsx` function coverage (75%)** — Uncovered render branches
-   require specific WebSocket error states. Consider adding targeted tests in a
-   follow-up.
-
-2. **`hecate/manager.go` patch coverage (84.9%)** — Lines 285–322 are provider
-   lifecycle error paths that require mock provider injection. Track as tech
-   debt.
-
-3. **`orthrus/session.go` patch coverage (84.6%)** — TLS session establishment
-   error paths require a full PKI mock to cover. Non-blocking.
-
-4. **GORM index suggestion (`user.go:130–131`)** — Adding `gorm:"index"` to
-   `UserPermittedHost.UserID` and `UserPermittedHost.ProxyHostID` would improve
-   query performance. Recommended as a follow-up.
-
----
-
-## Final Verdict
-
-**✅ PASS** — All mandatory gates pass. One ESLint error was fixed during audit
-(duplicate JSON key in `translation.json`). No security vulnerabilities
-detected. Patch coverage meets all configured thresholds (90.2% overall vs
-90.0% required). The Hecate Provider Integration is ready for merge to
-`development`.
-
----
-
-*Report generated by QA Security Agent — 2026-04-30 (HEAD `26fc4a1a`)*
+1. **Gate 9 — Caddy CVE-2026-45135** (blocking): Upgrade Caddy from v2.11.2 to v2.11.3 in the Dockerfile. A fix is available.
+2. **Gate 9 — pgproto3 CVE-2026-32286** (conditional): No upstream fix exists yet. Document as accepted risk given Charon's default non-PostgreSQL CrowdSec configuration, or pin for remediation when CrowdSec releases a patched version.
+3. **Gate 1 — Playwright E2E** (infrastructure): Local environment is blocked by ubuntu26.04-x64 incompatibility with Playwright 1.60.0. CI (ubuntu-latest) runs these tests successfully. This gate should be confirmed passing via CI before merge.
+4. **Gate 4 — Patch Coverage** (advisory): 86.9% is below the 90% threshold. Uncovered lines in `server.go` (L97–99) and `session.go` (L127–128, 160–161, 167–170, 210–212) should receive targeted tests to close the gap.

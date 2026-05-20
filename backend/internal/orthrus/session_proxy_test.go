@@ -16,7 +16,7 @@ import (
 )
 
 // testWSPairBoth creates a WebSocket server/client pair and returns both sides.
-func testWSPairBoth(t *testing.T) (serverConn *websocket.Conn, clientConn *websocket.Conn, done func()) {
+func testWSPairBoth(t *testing.T) (serverConn, clientConn *websocket.Conn, done func()) {
 	t.Helper()
 
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
@@ -123,6 +123,15 @@ func TestStartDockerProxy_AcceptsAndForwards(t *testing.T) {
 	_, err = io.ReadFull(tcpConn, recv)
 	require.NoError(t, err)
 	assert.Equal(t, msg, recv)
+
+	// Data flows from TCP conn → stream.
+	msg2 := []byte("docker-pong")
+	_, err = tcpConn.Write(msg2)
+	require.NoError(t, err)
+	recv2 := make([]byte, len(msg2))
+	_, err = io.ReadFull(stream, recv2)
+	require.NoError(t, err)
+	assert.Equal(t, msg2, recv2)
 }
 
 // U4 — Close stops the proxy listener; subsequent dials are refused.
@@ -162,4 +171,61 @@ func TestStartDockerProxy_AfterClose(t *testing.T) {
 	assert.Equal(t, "", sess.GetProxyAddr())
 }
 
-// U6: injecting a non-ErrClosed Accept error requires a net.Listener seam; future work.
+// errOnceListener returns a fixed error from Accept and is used to cover the
+// non-net.ErrClosed branch in runProxyListener.
+type errOnceListener struct{ err error }
+
+func (l *errOnceListener) Accept() (net.Conn, error) { return nil, l.err }
+func (l *errOnceListener) Close() error              { return nil }
+func (l *errOnceListener) Addr() net.Addr            { return &net.TCPAddr{} }
+
+// U6 — runProxyListener exits immediately when Accept returns a non-net.ErrClosed error.
+// Covers session.go lines 188-189.
+func TestAgentSession_runProxyListener_NonErrClosedError_Returns(t *testing.T) {
+	serverConn, done := testWSPair(t)
+	defer done()
+
+	sess, err := NewAgentSession("rpl-uuid", "rpl-agent", serverConn)
+	require.NoError(t, err)
+	defer func() { _ = sess.Close() }()
+
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		sess.runProxyListener(&errOnceListener{err: io.ErrUnexpectedEOF})
+	}()
+
+	select {
+	case <-finished:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("runProxyListener did not return on non-ErrClosed error")
+	}
+}
+
+// U7 — proxyConn exits quietly when the yamux session is already closed.
+// Covers session.go lines 202-205.
+func TestAgentSession_proxyConn_ClosedSession_ReturnsQuietly(t *testing.T) {
+	serverConn, done := testWSPair(t)
+	defer done()
+
+	sess, err := NewAgentSession("pc-closed-uuid", "pc-agent", serverConn)
+	require.NoError(t, err)
+
+	// Close the yamux session so session.Open() returns an error.
+	require.NoError(t, sess.Close())
+
+	client, server := net.Pipe()
+	defer func() { _ = client.Close() }()
+
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		sess.proxyConn(server)
+	}()
+
+	select {
+	case <-finished:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("proxyConn did not return on closed session")
+	}
+}

@@ -81,7 +81,7 @@ func (s *OrthrusService) Get(uuid string) (*models.OrthrusAgent, error) {
 }
 
 // Patch applies a partial update to an agent. Only non-nil fields are written.
-func (s *OrthrusService) Patch(uuid string, name, hecateTunnelUUID, deviceID, resolvedAddress *string) (*models.OrthrusAgent, error) {
+func (s *OrthrusService) Patch(uuid string, name, hecateTunnelUUID, deviceID, resolvedAddress *string, externalProxyPort *int) (*models.OrthrusAgent, error) {
 	updates := map[string]interface{}{}
 	if name != nil {
 		trimmed := strings.TrimSpace(*name)
@@ -99,6 +99,13 @@ func (s *OrthrusService) Patch(uuid string, name, hecateTunnelUUID, deviceID, re
 	if resolvedAddress != nil {
 		updates["resolved_address"] = *resolvedAddress
 	}
+	if externalProxyPort != nil {
+		port := *externalProxyPort
+		if port != 0 && (port < 1024 || port > 65535) {
+			return nil, fmt.Errorf("external_proxy_port must be 0 (disabled) or in range 1024–65535, got %d", port)
+		}
+		updates["external_proxy_port"] = port
+	}
 	if len(updates) == 0 {
 		return s.Get(uuid)
 	}
@@ -110,7 +117,7 @@ func (s *OrthrusService) Patch(uuid string, name, hecateTunnelUUID, deviceID, re
 
 // Rename updates the display name of an agent (backward-compat wrapper around Patch).
 func (s *OrthrusService) Rename(uuid, newName string) (*models.OrthrusAgent, error) {
-	return s.Patch(uuid, &newName, nil, nil, nil)
+	return s.Patch(uuid, &newName, nil, nil, nil, nil)
 }
 
 // Delete removes an agent from the database (does not revoke/disconnect first).

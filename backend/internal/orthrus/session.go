@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"sync"
 	"time"
 
@@ -87,17 +90,32 @@ func (c *wsNetConn) SetWriteDeadline(t time.Time) error {
 	return c.conn.SetWriteDeadline(t)
 }
 
+// ExternalProxyStatus describes the runtime state of the external Docker proxy
+// bound on 0.0.0.0 for this agent session.
+type ExternalProxyStatus struct {
+	ConfiguredPort   int    `json:"configured_port"`             // port passed to StartExternalProxy
+	ActivePort       int    `json:"active_port"`                 // actual bound port (0 if not active)
+	BoundAddress     string `json:"bind_address"`                // e.g. "0.0.0.0:9999"
+	ConnectionString string `json:"connection_string,omitempty"` // e.g. "tcp://charon:9999"
+	Active           bool   `json:"active"`
+	Error            string `json:"error,omitempty"` // last start error, if any
+}
+
 // AgentSession represents a single connected Orthrus agent's active WebSocket
 // and Yamux session.
 type AgentSession struct {
-	agentUUID string
-	agentName string
-	conn      *websocket.Conn
-	session   *yamux.Session
-	cancel    context.CancelFunc
-	proxyPort int          // ephemeral port; 0 until StartDockerProxy succeeds
-	listener  net.Listener // nil until StartDockerProxy succeeds; set atomically with proxyPort
-	mu        sync.Mutex
+	agentUUID    string
+	agentName    string
+	conn         *websocket.Conn
+	session      *yamux.Session
+	cancel       context.CancelFunc
+	proxyPort    int          // ephemeral port; 0 until StartDockerProxy succeeds
+	listener     net.Listener // nil until StartDockerProxy succeeds; set atomically with proxyPort
+	extServer    *http.Server // nil until StartExternalProxy succeeds
+	extListener  net.Listener // nil until StartExternalProxy succeeds
+	extProxyPort int          // port passed to StartExternalProxy; 0 if never started
+	extErr       error        // last error from StartExternalProxy
+	mu           sync.Mutex
 }
 
 // NewAgentSession wraps the WebSocket connection in a Yamux server session.
@@ -151,6 +169,11 @@ func (s *AgentSession) StartDockerProxy() error {
 		s.mu.Unlock()
 		return fmt.Errorf("orthrus: docker proxy already started for session %s", s.agentUUID)
 	}
+	if s.session.IsClosed() {
+		_ = ln.Close()
+		s.mu.Unlock()
+		return fmt.Errorf("orthrus: cannot start proxy on closed session %s", s.agentUUID)
+	}
 	s.listener = ln
 	s.proxyPort = port
 	s.mu.Unlock()
@@ -163,15 +186,28 @@ func (s *AgentSession) StartDockerProxy() error {
 // dispatches each to proxyConn. Exits when ln is closed (normal shutdown
 // via Close).
 func (s *AgentSession) runProxyListener(ln net.Listener) {
+	const maxTransientRetries = 5
+	var transientRetries int
+
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
 				return // normal shutdown
 			}
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() {
+				transientRetries++
+				if transientRetries <= maxTransientRetries {
+					logger.Log().WithField("uuid", s.agentUUID).WithError(err).Warn("orthrus: proxy listener transient error, retrying")
+					time.Sleep(time.Duration(transientRetries*100) * time.Millisecond)
+					continue
+				}
+			}
 			logger.Log().WithField("uuid", s.agentUUID).WithError(err).Warn("orthrus: proxy listener accept error")
 			return
 		}
+		transientRetries = 0 // reset on successful accept
 		go s.proxyConn(conn)
 	}
 }
@@ -199,14 +235,121 @@ func (s *AgentSession) proxyConn(conn net.Conn) {
 	go func() {
 		defer wg.Done()
 		defer func() { _ = stream.Close() }()
-		io.Copy(stream, conn) //nolint:errcheck
+		io.Copy(stream, conn) //nolint:errcheck,gosec
 	}()
 	go func() {
 		defer wg.Done()
 		defer func() { _ = conn.Close() }()
-		io.Copy(conn, stream) //nolint:errcheck
+		io.Copy(conn, stream) //nolint:errcheck,gosec
 	}()
 	wg.Wait()
+}
+
+// StartExternalProxy binds an HTTP listener on 0.0.0.0:port that reverse-proxies
+// Docker API requests through the existing loopback proxy to the agent's Docker socket.
+// Requests are filtered by Muzzle to the read-only allowlist.
+// A port of 0 is a no-op (returns nil). Returns an error if the loopback proxy is
+// not yet running, if an external proxy is already active, if the session is closed,
+// or if the OS cannot bind the port.
+func (s *AgentSession) StartExternalProxy(port int) error {
+	if port == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	if s.proxyPort == 0 {
+		s.mu.Unlock()
+		return errors.New("orthrus: loopback proxy not started")
+	}
+	if s.extListener != nil {
+		s.mu.Unlock()
+		return errors.New("orthrus: external proxy already started")
+	}
+	if s.session.IsClosed() {
+		s.mu.Unlock()
+		return errors.New("orthrus: cannot start external proxy on closed session")
+	}
+	loopbackPort := s.proxyPort
+	s.mu.Unlock()
+
+	ln, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
+	if err != nil {
+		s.mu.Lock()
+		s.extProxyPort = port // record attempted port for diagnostics
+		s.extErr = fmt.Errorf("orthrus: bind external proxy port %d: %w", port, err)
+		s.mu.Unlock()
+		return s.extErr
+	}
+
+	loopbackTarget := fmt.Sprintf("127.0.0.1:%d", loopbackPort)
+	targetURL := &url.URL{Scheme: "http", Host: loopbackTarget}
+	rp := &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(targetURL)
+			pr.Out.Host = ""
+		},
+		FlushInterval: -1,
+	}
+
+	srv := &http.Server{
+		Handler:           NewMuzzle(rp),
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      0,
+	}
+
+	s.mu.Lock()
+	if s.extListener != nil { // double-check after bind
+		_ = ln.Close()
+		s.mu.Unlock()
+		return errors.New("orthrus: external proxy already started")
+	}
+	s.extListener = ln
+	s.extServer = srv
+	s.extProxyPort = port
+	s.extErr = nil
+	s.mu.Unlock()
+
+	logger.Log().WithField("uuid", s.agentUUID).
+		WithField("port", port).
+		Info("orthrus: external docker proxy started")
+
+	go func() { _ = srv.Serve(ln) }()
+	return nil
+}
+
+// GetExternalProxyStatus returns the runtime state of the external proxy for this session.
+func (s *AgentSession) GetExternalProxyStatus() ExternalProxyStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	active := s.extListener != nil
+	boundAddr := ""
+	activePort := 0
+	if active {
+		boundAddr = s.extListener.Addr().String()
+		if tcpAddr, ok := s.extListener.Addr().(*net.TCPAddr); ok {
+			activePort = tcpAddr.Port
+		}
+	}
+
+	errStr := ""
+	if s.extErr != nil {
+		errStr = s.extErr.Error()
+	}
+
+	connStr := ""
+	if active && activePort > 0 {
+		connStr = fmt.Sprintf("tcp://charon:%d", activePort)
+	}
+
+	return ExternalProxyStatus{
+		ConfiguredPort:   s.extProxyPort,
+		ActivePort:       activePort,
+		BoundAddress:     boundAddr,
+		ConnectionString: connStr,
+		Active:           active,
+		Error:            errStr,
+	}
 }
 
 // Close terminates the proxy listener, cancels the context, and closes the
@@ -221,6 +364,15 @@ func (s *AgentSession) Close() error {
 		// proxyPort is intentionally left non-zero for diagnostic purposes.
 		// GetProxyAddr will not be called on a closed session: the session is
 		// removed from the sessions map before any caller can observe it.
+	}
+
+	if s.extServer != nil {
+		_ = s.extServer.Close()
+		s.extServer = nil
+	}
+	if s.extListener != nil {
+		_ = s.extListener.Close()
+		s.extListener = nil
 	}
 
 	s.cancel()

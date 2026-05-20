@@ -47,6 +47,7 @@ const agentWithProvider = {
   device_id: 'ts-device-1',
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
+  external_proxy_port: 0,
 };
 
 const agentWithoutProvider = {
@@ -59,6 +60,7 @@ const agentWithoutProvider = {
   device_id: undefined,
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
+  external_proxy_port: 0,
 };
 
 const agentWithDeviceIdOnly = {
@@ -71,6 +73,7 @@ const agentWithDeviceIdOnly = {
   device_id: 'ts-device-abc',
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
+  external_proxy_port: 0,
 };
 
 const agentTunnelOnly = {
@@ -83,6 +86,7 @@ const agentTunnelOnly = {
   device_id: undefined,
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
+  external_proxy_port: 0,
 };
 
 function renderManager(agents: OrthrusAgent[]) {
