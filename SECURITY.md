@@ -27,7 +27,7 @@ public disclosure.
 
 ## Known Vulnerabilities
 
-Last reviewed: 2026-04-21
+Last reviewed: 2026-05-20
 
 ### [HIGH] CVE-2026-31790 · OpenSSL Vulnerability in Alpine Base Image
 
@@ -194,6 +194,91 @@ attacker-controlled URLs. Charon's application logic does not use busybox wget. 
 **Planned Remediation**
 Monitor Alpine 3.23 for a patched busybox APK. No immediate action required. Practical risk to
 Charon users is negligible since the vulnerable code path is not exercised.
+
+---
+
+### [HIGH] CVE-2026-45135 · Caddy FastCGI Unsafe Unicode Handling in splitPos
+
+| Field        | Value |
+|--------------|-------|
+| **ID**       | CVE-2026-45135 |
+| **Severity** | High · 8.1 |
+| **Status**   | Fix in Dockerfile (v2.11.3) — Pending Image Rebuild |
+
+**What**
+Caddy v2.11.2 contains unsafe Unicode handling in the FastCGI `splitPos` function. A
+network-reachable attacker (no privileges required, high attack complexity) can trigger
+potential confidentiality and integrity impact through malformed Unicode in FastCGI requests.
+
+**Who**
+
+- Discovered by: Automated scan (Trivy image scan)
+- Reported: 2026-05-20
+- Affects: Charon deployments using the FastCGI reverse proxy capability
+
+**Where**
+
+- Component: `github.com/caddyserver/caddy/v2` v2.11.2 (embedded in Charon binary via xcaddy)
+- Versions affected: Caddy < v2.11.3
+
+**When**
+
+- Discovered: 2026-05-20
+- Disclosed (if public): Public
+- Target fix: v2.11.3 (available)
+
+**How**
+Caddy is not a Go module dependency — it is built from source via xcaddy in the Dockerfile
+multi-stage build. The `CADDY_VERSION` ARG in the Dockerfile **is already pinned to 2.11.3**,
+which contains the fix. The vulnerability only affects the stale `charon:local` image built
+before this Dockerfile change. A container image rebuild applies the fix.
+
+**Planned Remediation**
+Rebuild the container image. No code changes required. The fix is already present in the
+Dockerfile (`ARG CADDY_VERSION=2.11.3`).
+
+---
+
+### [HIGH] CVE-2026-32286 · pgproto3 DoS via Negative DataRow Field Length
+
+| Field        | Value |
+|--------------|-------|
+| **ID**       | CVE-2026-32286 |
+| **Severity** | High · 7.5 |
+| **Status**   | Awaiting Upstream |
+
+**What**
+`github.com/jackc/pgproto3/v2` v2.3.3 — `DataRow.Decode` does not validate field length
+before allocation. A malicious or compromised PostgreSQL server can send a DataRow message
+with a negative field length to trigger a panic or excessive memory allocation, causing denial
+of service (CWE-400).
+
+**Who**
+
+- Discovered by: Automated scan (Trivy image scan)
+- Reported: 2026-05-20
+- Affects: Charon deployments connecting to an untrusted PostgreSQL server (non-default)
+
+**Where**
+
+- Component: `github.com/jackc/pgproto3/v2` v2.3.3 (transitive Go dependency)
+- Versions affected: pgproto3/v2 < patched version
+
+**When**
+
+- Discovered: 2026-05-20
+- Disclosed (if public): Public
+- Target fix: When upstream publishes a patched release
+
+**How**
+Exploitation requires a malicious or compromised PostgreSQL server to send a crafted DataRow
+message. Charon's default installation uses SQLite and does not connect to PostgreSQL. Users
+deploying Charon with a PostgreSQL backend (non-standard configuration) may be exposed if the
+database server is untrusted. EPSS score not yet available.
+
+**Planned Remediation**
+Monitor https://github.com/jackc/pgproto3 for a fix release. Upgrade the indirect dependency
+once a patched version is available. Pre-existing; not introduced by PR #1031.
 
 ## Patched Vulnerabilities
 

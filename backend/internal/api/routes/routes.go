@@ -487,6 +487,10 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 				orthrusHandler := handlers.NewOrthrusHandler(orthrsuSvc)
 				orthrusHandler.RegisterRoutes(management)
 
+				if orthrusServer != nil {
+					orthrusHandler.SetProxyResolver(orthrusServer)
+				}
+
 				hecateWSHandler := handlers.NewHecateWSHandler(hecateSvc, wsTracker)
 				management.GET("/ws/hecate/logs/:uuid", hecateWSHandler.StreamLogs)
 

@@ -86,6 +86,7 @@ const [isCollapsed, setIsCollapsed] = useState(() => {
 ```
 
 `localStorage.getItem` is synchronous. `sidebarCollapsed` is either:
+
 - `null` → defaults to `false` (banner.png rendered in sidebar)
 - `"true"` → `isCollapsed = true` (logo.png rendered in sidebar)
 - `"false"` → `isCollapsed = false` (banner.png rendered in sidebar)
@@ -180,6 +181,7 @@ When `isCollapsed = false`, the sidebar requests `/banner.png`, and the mobile h
 boundary should only wrap the content area (`<Outlet>`), not the shell.
 
 **Before** (`App.tsx`):
+
 ```tsx
 <Suspense fallback={<LoadingOverlay message="Loading application..." />}>
   <Routes>
@@ -195,6 +197,7 @@ boundary should only wrap the content area (`<Outlet>`), not the shell.
 ```
 
 **After** (`App.tsx`):
+
 ```tsx
 {/* No Suspense wrapper at Routes level — only wraps unauthenticated lazy pages */}
 <Routes>
@@ -230,6 +233,7 @@ boundary should only wrap the content area (`<Outlet>`), not the shell.
 ```
 
 **And** inside `Layout.tsx`, wrap children rendering:
+
 ```tsx
 {/* ✅ Suspense only wraps the content area; sidebar/header stay mounted */}
 <Suspense fallback={<PageLoadingFallback />}>
@@ -248,6 +252,7 @@ image on desktop screens, eliminating the invisible network request.
 Two acceptable implementation options:
 
 **Option A — `useMediaQuery` hook (preferred for testability)**:
+
 ```tsx
 // frontend/src/hooks/useMediaQuery.ts (new file)
 export function useMediaQuery(query: string): boolean {
@@ -273,6 +278,7 @@ const isMobile = useMediaQuery('(max-width: 1023px)')   // < lg breakpoint
 ```
 
 **Option B — `loading="lazy"` + `decoding="async"` (simpler, CSS-safe)**:
+
 ```tsx
 <img
   src="/logo.png"
