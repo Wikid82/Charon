@@ -91,12 +91,20 @@ func (s *OrthrusServer) HandleWebSocket(c *gin.Context) {
 		return
 	}
 
-	s.sessions.Store(agent.UUID, session)
-
 	if err := session.StartDockerProxy(); err != nil {
 		logger.Log().WithField("uuid", util.SanitizeForLog(agent.UUID)).
 			WithError(err).Warn("orthrus: failed to start docker proxy listener")
 	}
+
+	if agent.ExternalProxyPort > 0 {
+		if err := session.StartExternalProxy(agent.ExternalProxyPort); err != nil {
+			logger.Log().WithField("uuid", util.SanitizeForLog(agent.UUID)).
+				WithField("port", agent.ExternalProxyPort).
+				WithError(err).Warn("orthrus: failed to start external proxy")
+		}
+	}
+
+	s.sessions.Store(agent.UUID, session)
 
 	now := time.Now()
 	if err := s.db.Model(agent).Updates(map[string]interface{}{
@@ -116,6 +124,17 @@ func (s *OrthrusServer) HandleWebSocket(c *gin.Context) {
 		defer s.wg.Done()
 		s.watchHeartbeat(agent.UUID, session)
 	}()
+}
+
+// GetExternalProxyStatus returns the external proxy status for a connected agent.
+// Returns (ExternalProxyStatus{}, false) when no active session exists.
+func (s *OrthrusServer) GetExternalProxyStatus(agentUUID string) (ExternalProxyStatus, bool) {
+	raw, ok := s.sessions.Load(agentUUID)
+	if !ok {
+		return ExternalProxyStatus{}, false
+	}
+	sess := raw.(*AgentSession)
+	return sess.GetExternalProxyStatus(), true
 }
 
 // GetProxyAddr returns the proxy listener address for a connected agent.
