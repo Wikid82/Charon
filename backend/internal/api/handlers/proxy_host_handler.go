@@ -268,9 +268,6 @@ func (h *ProxyHostHandler) resolveProxyGroupReference(value any) (*uint, error) 
 	}
 
 	trimmed := strings.TrimSpace(uuidValue)
-	if trimmed == "" {
-		return nil, nil
-	}
 
 	var pg models.ProxyGroup
 	if err := h.db.Select("id").Where("uuid = ?", trimmed).First(&pg).Error; err != nil {

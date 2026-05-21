@@ -1,8 +1,7 @@
-# Spec: Drag-and-Drop Proxy Host Group Assignment
+# PR #1018 Coverage Gap Remediation — Proxy Groups Feature
 
-**Status**: Draft
-**Author**: Principal Architect
-**Target**: Single PR — ordered logical commits
+**Status**: Active
+**Target**: PR #1018 (`feature/proxy_groups` → `main`)
 
 ---
 
@@ -10,907 +9,545 @@
 
 ### Overview
 
-This feature adds drag-and-drop (DnD) group assignment for proxy host cards in `ProxyHosts.tsx`. Users can drag one or more host rows from any group section (including Ungrouped) and drop them onto a different group's header/container. Alphabetical ordering within each group is preserved — DnD only changes group membership.
+PR #1018 introduces proxy group management: hosts can be assigned to named groups, dragged between groups via a drag-and-drop interface, and bulk-reassigned via a new `BulkUpdateGroup` API endpoint. Codecov reports **84.12% patch coverage**, failing the **90% CI gate**. This spec identifies every uncovered block and specifies the exact tests to close the gaps.
 
 ### Objectives
 
-1. Allow individual host rows to be dragged to a different group without opening a modal.
-2. When the dragged host is part of a multi-selection, moving it moves **all** selected hosts.
-3. When the dragged host is **not** selected, only that one host moves (selection is unaffected).
-4. The "Ungrouped" section is always a valid drop target, setting `proxy_group_id = null`.
-5. Visual feedback (highlight ring) on the target group during drag.
-6. Optimistic UI: cache updated immediately, rolled back on API error.
-7. Full keyboard accessibility via dnd-kit's built-in `KeyboardSensor`.
-8. Feature coexists with the existing "Assign to Group" bulk-action button — they are not mutually exclusive.
+1. Bring Codecov patch coverage from 84.12% to ≥ 90%.
+2. Identify all uncovered lines in changed files.
+3. Specify tests with enough detail for direct implementation without further research.
+4. Address one confirmed dead-code block via code removal rather than a contrived test.
 
 ---
 
 ## 2. Research Findings
 
-### 2.1 No Existing DnD Library
+### 2.1 Architecture
 
-`frontend/package.json` has no `@dnd-kit`, `react-dnd`, `react-beautiful-dnd`, or `@hello-pangea/dnd`. The library must be installed.
+- **Backend**: Gin + GORM + SQLite (in-memory for tests). Handlers: `backend/internal/api/handlers/`. Key file: `proxy_host_handler.go`.
+- **Frontend**: React + TypeScript + Vitest. API: `frontend/src/api/`, hooks: `frontend/src/hooks/`, components: `frontend/src/components/`.
+- **Coverage tooling**: `scripts/go-test-coverage.sh` (backend), `scripts/frontend-test-coverage.sh` (frontend), `scripts/local-patch-report.sh` (patch delta report).
 
-**Chosen library**: `@dnd-kit/core` + `@dnd-kit/utilities`
-**Rationale**: Actively maintained, touch/pointer/keyboard sensors out-of-the-box, composable (no opinionated sortable wrapper needed — cross-group movement only, no intra-group reordering).
+### 2.2 Confirmed Uncovered Lines — Backend
 
-### 2.2 Backend: PUT /proxy-hosts/:uuid Already Supports proxy_group_id
+Source: fresh coverage profile `backend/internal/api/handlers/coverage_handlers.txt` (4518 lines).
 
-The `Update` handler in `proxy_host_handler.go` handles `proxy_group_id` via `resolveProxyGroupReference`:
+File: `backend/internal/api/handlers/proxy_host_handler.go`
 
-- `nil` → sets `ProxyGroupID = nil` (ungrouped)
-- UUID string → looked up in `proxy_groups` table by `WHERE uuid = ?`
-- Empty string → treated as null
+| Block | Lines | Description | Root Cause |
+|---|---|---|---|
+| `271.19,273.3 1 0` | 271–273 | `if trimmed == ""` in `resolveProxyGroupReference` | **Dead code** — `parseNullableUintField` handles blank strings internally, returning `nil, nil` (no error), so the early-return at `if parseErr == nil` fires before this check |
+| `420.3,420.46 1 0` | 420 | `payload["proxy_group_id"] = resolvedGroupID` in Create handler | No test creates a proxy host with a valid ProxyGroup UUID in the DB |
+| `635.3,635.38 1 0` | 635 | `host.ProxyGroupID = resolvedGroupID` in Update handler | No test updates a proxy host with a valid ProxyGroup UUID in the DB |
+| `904.48,909.12 2 0` | 904–909 | `errors = append(...)` on `service.Update` failure in `BulkUpdateGroup` | Existing PartialFailure test only exercises `GetByUUID` failure; `service.Update` never fails |
+| `914.42,915.73 1 0` | 914 | `if updated > 0 && h.caddyManager != nil` in `BulkUpdateGroup` | All test setups pass `nil` for `caddyManager` |
+| `915.73,922.4 2 0` | 915–922 | `caddyManager.ApplyConfig(...)` error path in `BulkUpdateGroup` | Same as above |
 
-**Conclusion**: Sending `PUT /proxy-hosts/:uuid` with `{ "proxy_group_id": "group-uuid" }` (or `null`) is already supported with no backend changes for single-host updates.
+### 2.3 Dead Code Analysis — Lines 271–273
 
-### 2.3 New Bulk Endpoint Needed
+```go
+// parseNullableUintField (line ~170)
+case string:
+    trimmed := strings.TrimSpace(v)
+    if trimmed == "" {
+        return nil, nil  // ← blank strings return nil,nil — NO error raised
+    }
 
-The existing `BulkUpdateACL` handler pattern: loops over `host_uuids`, updates each, then calls `caddyManager.ApplyConfig` **once**. If we fire N individual PUTs for a multi-select drag, Caddy rebuilds its config N times. A bulk endpoint applies the config once.
-
-**Decision**: Add `PUT /proxy-hosts/bulk-update-group` following the exact `BulkUpdateACL` pattern.
-
-### 2.4 DataTable Has No DnD Hooks
-
-`frontend/src/components/ui/DataTable.tsx` renders standard `<table>/<tr>/<td>`. The cleanest extension is adding an optional `renderDragHandle?: (row: T) => React.ReactNode` prop that, when provided, adds a narrow leading column per row.
-
-### 2.5 ProxyHosts.tsx Grouped Layout
-
-When `groups.length > 0`, the grouped view renders:
-
+// resolveProxyGroupReference (line 260)
+func (h *ProxyHostHandler) resolveProxyGroupReference(value any) (*uint, error) {
+    parsedID, parseErr := parseNullableUintField(value, "proxy_group_id")
+    if parseErr == nil {
+        return parsedID, nil  // ← blank strings exit here (parseErr is nil)
+    }
+    uuidValue, isString := value.(string)
+    ...
+    trimmed := strings.TrimSpace(uuidValue)
+    if trimmed == "" {        // ← DEAD: blank strings already handled above
+        return nil, nil       // ← lines 271-273: never reached
+    }
+    ...
+}
 ```
-<div className="space-y-6">
-  {groups.map(group => (
-    <section key={group.uuid} aria-label={group.name}>
-      <div>{/* header: color dot, name, count, edit/delete buttons */}</div>
-      <DataTable data={groupHosts} ... />
-    </section>
-  ))}
-  {groupedHosts.ungrouped.length > 0 && (
-    <section aria-label={t('proxyGroups.ungrouped')}>
-      <DataTable data={groupedHosts.ungrouped} ... />
-    </section>
-  )}
-</div>
+
+**Conclusion**: Unreachable. Removal is the correct fix; no test can cover it.
+
+### 2.4 Caddy Manager Pattern in Existing Tests
+
+`TestProxyHostErrors` (line ~364 of test file) demonstrates the established pattern for testing `caddyManager` error paths. No interface extraction is needed — a real `caddy.Manager` is constructed with a failing `httptest.Server`:
+
+```go
+caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    w.WriteHeader(http.StatusInternalServerError)
+}))
+client := caddy.NewClientWithExpectedPort(caddyServer.URL, expectedPortFromURL(t, caddyServer.URL))
+manager := caddy.NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
+h := NewProxyHostHandler(db, manager, ns, nil)
 ```
 
-Each `<section>` must become a droppable zone. Each DataTable row must have a drag handle.
+This same pattern applies to `BulkUpdateGroup` (lines 914–922).
 
-### 2.6 Selection State
+### 2.5 Existing PR Test Functions (lines 2381+)
 
-`selectedHosts: Set<string>` (UUID strings) is managed in `ProxyHosts.tsx`. The drag hook reads this to decide single vs. multi-drag.
+Already in `proxy_host_handler_test.go`:
 
-### 2.7 Frontend API Types
+- `setupTestRouterWithProxyGroupTable` — router helper with `ProxyGroup` + `ProxyHost` auto-migrate
+- `TestProxyHostHandler_ResolveProxyGroupReference_TargetedBranches`
+- `TestProxyHostCreate_WithProxyGroupReference_BadUUID_400`
+- `TestProxyHostUpdate_WithProxyGroupReference_BadUUID_400`
+- `TestProxyHostHandler_BulkUpdateGroup_Success`
+- `TestProxyHostHandler_BulkUpdateGroup_Ungrouped`
+- `TestProxyHostHandler_BulkUpdateGroup_InvalidGroup`
+- `TestProxyHostHandler_BulkUpdateGroup_PartialFailure` — exercises `GetByUUID` failure only
+- `TestProxyHostHandler_BulkUpdateGroup_EmptyUUIDs`
+- `TestProxyHostHandler_BulkUpdateGroup_InvalidJSON`
 
-`ProxyHost.proxy_group_id?: number | string | null` — accepted by the PUT endpoint.
-`ProxyHost.proxy_group?: { uuid, name, color } | null` — what the frontend actually reads.
+### 2.6 Confirmed Uncovered Lines — Frontend
 
-For optimistic updates, both fields must be updated in the cache snapshot.
+| File | Gap | Root Cause |
+|---|---|---|
+| `frontend/src/api/proxyHosts.ts` | `bulkUpdateGroup()` function body | Added in PR; `proxyHosts.test.ts` has no tests for it |
+| `frontend/src/hooks/useProxyHosts.ts` | `bulkGroupMutation` and `bulkUpdateGroup` wrapper | `useProxyHosts-bulk.test.tsx` + `useProxyHosts.test.tsx` have zero `bulkUpdateGroup` tests |
+| `frontend/src/components/GroupDropZone.tsx` | `isOver` ring-style branch; `isDragActive` aria-dropeffect branch | No `GroupDropZone.test.tsx` exists |
+| `frontend/src/components/ProxyHostDragHandle.tsx` | `isDragging` opacity branch; `dragCount > 1` aria-label branch | No `ProxyHostDragHandle.test.tsx` exists |
+| `frontend/src/components/ui/DataTable.tsx` | `renderDragHandle` prop — header cell, row cell, colSpan (lines 103, 122, 225–231) | No DataTable test exercises `renderDragHandle` |
 
 ---
 
 ## 3. Technical Specifications
 
-### 3.1 API Design
+### 3.1 Backend Tests
 
-#### 3.1.1 Existing Endpoint (no changes needed)
+#### 3.1.1 `TestProxyHostCreate_WithProxyGroupReference_ValidUUID_201`
 
-```
-PUT /api/proxy-hosts/:uuid
-Body: { "proxy_group_id": "<group-uuid>" | null }
-Response: ProxyHost (200 OK)
-```
+**Covers**: Line 420 (`payload["proxy_group_id"] = resolvedGroupID`)
 
-#### 3.1.2 New Bulk Endpoint
+**Location**: `backend/internal/api/handlers/proxy_host_handler_test.go` — after `TestProxyHostCreate_WithProxyGroupReference_BadUUID_400`
 
-```
-PUT /api/proxy-hosts/bulk-update-group
-Body:
-  {
-    "host_uuids": ["<uuid1>", "<uuid2>"],
-    "proxy_group_id": "<group-uuid>" | null    // null = ungrouped
-  }
-Response 200:
-  {
-    "updated": 2,
-    "errors": []
-  }
-Response 400: { "error": "host_uuids cannot be empty" }
-Response 500: { "error": "...", "updated": N, "errors": [...] }
-```
+**Setup**:
+1. `router, db := setupTestRouterWithProxyGroupTable(t)`
+2. Insert `models.ProxyGroup{Name: "test-group", Color: "#123456"}` directly via `db.Create(&pg)`
+3. POST to `/api/v1/proxy-hosts` with all required fields plus `"proxy_group_id": "<pg.UUID>"`
 
-**Route registration** (in `RegisterRoutes`, alongside other bulk routes):
+**Assertions**:
+- Response code: 201
+- Response body `proxy_group_id` field equals `pg.UUID`
 
-```go
-router.PUT("/proxy-hosts/bulk-update-group", h.BulkUpdateGroup)
-```
-
-#### 3.1.3 Backend Handler Signature
-
-```go
-// BulkUpdateGroup applies a proxy group assignment to multiple proxy hosts.
-// PUT /proxy-hosts/bulk-update-group
-func (h *ProxyHostHandler) BulkUpdateGroup(c *gin.Context) {
-    var req struct {
-        HostUUIDs    []string `json:"host_uuids"    binding:"required"`
-        ProxyGroupID *string  `json:"proxy_group_id"` // nil = ungrouped
-    }
-    // 1. Bind JSON → 400 on error
-    // 2. Guard: len(req.HostUUIDs) == 0 → 400
-    // 3. If req.ProxyGroupID != nil: resolveProxyGroupReference(*req.ProxyGroupID) → *uint
-    // 4. Loop req.HostUUIDs:
-    //      host, err := h.service.GetByUUID(hostUUID) → skip on err, append to errors
-    //      host.ProxyGroupID = resolvedGroupID (or nil)
-    //      h.service.Update(host) → append to errors on failure
-    //      updated++
-    // 5. If updated > 0: h.caddyManager.ApplyConfig(ctx) once
-    // 6. Respond { "updated": N, "errors": [...] }
-}
-```
-
-### 3.2 Frontend API Layer
-
-**File**: `frontend/src/api/proxyHosts.ts` — append after `bulkUpdateSecurityHeaders`:
-
-```typescript
-export interface BulkUpdateGroupRequest {
-  host_uuids: string[];
-  proxy_group_id: string | null; // group UUID or null for ungrouped
-}
-
-export interface BulkUpdateGroupResponse {
-  updated: number;
-  errors: { uuid: string; error: string }[];
-}
-
-export const bulkUpdateGroup = async (
-  hostUUIDs: string[],
-  proxyGroupId: string | null
-): Promise<BulkUpdateGroupResponse> => {
-  const { data } = await client.put<BulkUpdateGroupResponse>(
-    '/proxy-hosts/bulk-update-group',
-    { host_uuids: hostUUIDs, proxy_group_id: proxyGroupId }
-  );
-  return data;
-};
-```
-
-### 3.3 Frontend Hook Layer
-
-**File**: `frontend/src/hooks/useProxyHosts.ts` — add inside `useProxyHosts()` alongside existing mutations:
-
-```typescript
-const bulkGroupMutation = useMutation({
-  mutationFn: ({ hostUUIDs, proxyGroupId }: {
-    hostUUIDs: string[];
-    proxyGroupId: string | null;
-  }) => bulkUpdateGroup(hostUUIDs, proxyGroupId),
-});
-
-// Expose:
-bulkUpdateGroup: (hostUUIDs: string[], proxyGroupId: string | null) =>
-  bulkGroupMutation.mutateAsync({ hostUUIDs, proxyGroupId }),
-isBulkUpdatingGroup: bulkGroupMutation.isPending,
-```
-
-### 3.4 DnD State Hook
-
-**New file**: `frontend/src/hooks/useProxyGroupDnD.ts`
-
-This hook encapsulates all drag logic and is the only file that imports from `@dnd-kit/core`.
-
-#### Interface
-
-```typescript
-import { useQueryClient } from '@tanstack/react-query';
-import { QUERY_KEY } from './useProxyHosts';
-import type { DragStartEvent, DragEndEvent, DragOverEvent } from '@dnd-kit/core';
-import type { ProxyHost } from '../api/proxyHosts';
-import type { ProxyGroup } from '../api/proxyGroups';
-
-interface UseProxyGroupDnDOptions {
-  hosts: ProxyHost[];
-  groups: ProxyGroup[];
-  selectedHosts: Set<string>;
-  setSelectedHosts: (hosts: Set<string>) => void;
-  bulkUpdateGroup: (uuids: string[], groupId: string | null) => Promise<BulkUpdateGroupResponse>;
-}
-
-interface UseProxyGroupDnDReturn {
-  activeDragId:     string | null;   // UUID of host being dragged
-  overGroupId:      string | null;   // UUID of hover target (or 'ungrouped')
-  hostsBeingDragged: string[];       // UUIDs (1 or N depending on selection)
-  handleDragStart:  (event: DragStartEvent) => void;
-  handleDragOver:   (event: DragOverEvent)  => void;
-  handleDragEnd:    (event: DragEndEvent)   => void;
-  handleDragCancel: () => void;
-}
-```
-
-#### Logic
-
-**Hook initialization (inside `useProxyGroupDnD` body)**
-```
-const queryClient = useQueryClient()
-```
-
-**`handleDragStart(event)`**
-```
-activeDragId = event.active.id as string
-hostsBeingDragged = selectedHosts.has(activeDragId)
-  ? Array.from(selectedHosts)
-  : [activeDragId]
-```
-
-**`handleDragOver(event)`**
-```
-overGroupId = event.over?.id as string ?? null
-```
-
-**`handleDragEnd(event)`**
-```
-if (!event.over) → handleDragCancel(); return
-
-targetGroupId = event.over.id as string    // group UUID | 'ungrouped'
-targetGroup   = groups.find(g => g.uuid === targetGroupId) ?? null
-
-// Skip no-op: every dragged host is already in the target
-alreadyInTarget = hostsBeingDragged.every(uuid => {
-  const host = hosts.find(h => h.uuid === uuid)
-  return (host?.proxy_group?.uuid ?? null) === (targetGroup?.uuid ?? null)
-})
-if (alreadyInTarget) → handleDragCancel(); return
-
-// 1. Snapshot current cache
-snapshot = queryClient.getQueryData<ProxyHost[]>(QUERY_KEY)
-
-// 2. Optimistic update
-queryClient.setQueryData<ProxyHost[]>(QUERY_KEY, (old = []) =>
-  old.map(h => {
-    if (!hostsBeingDragged.includes(h.uuid)) return h
-    return {
-      ...h,
-      proxy_group_id: targetGroup?.uuid ?? null,
-      proxy_group: targetGroup
-        ? { uuid: targetGroup.uuid, name: targetGroup.name, color: targetGroup.color }
-        : null,
-    }
-  })
-)
-
-const hostsBeingDragged_snapshot = [...hostsBeingDragged]
-
-// 3. Reset drag state (DragOverlay disappears before API returns)
-activeDragId = null; overGroupId = null; hostsBeingDragged = []
-
-// 4. API call
-try {
-  result = await bulkUpdateGroup(hostsBeingDragged_snapshot, targetGroup?.uuid ?? null)
-  if (result.errors.length > 0)
-    toast.error(t('proxyGroups.dnd.partialError', { count: result.errors.length }))
-  else
-    toast.success(t('proxyGroups.dnd.moveSuccess', { count: hostsBeingDragged_snapshot.length }))
-  queryClient.invalidateQueries({ queryKey: QUERY_KEY })
-  setSelectedHosts(new Set())   // clear selection after successful move
-} catch {
-  // 5. Rollback
-  queryClient.setQueryData(QUERY_KEY, snapshot)
-  toast.error(t('proxyGroups.dnd.moveFailed'))
-}
-```
-
-**`handleDragCancel()`**
-```
-activeDragId = null; overGroupId = null; hostsBeingDragged = []
-```
-
-### 3.5 Component: ProxyHostDragHandle
-
-**New file**: `frontend/src/components/ProxyHostDragHandle.tsx`
-
-```typescript
-import { useDraggable } from '@dnd-kit/core';
-import { GripVertical } from 'lucide-react';
-import { useTranslation } from 'react-i18next';
-
-interface ProxyHostDragHandleProps {
-  hostUuid: string;
-  /** Number of hosts that will move (≥1 when host is part of selection) */
-  dragCount: number;
-}
-
-export function ProxyHostDragHandle({ hostUuid, dragCount }: ProxyHostDragHandleProps) {
-  const { t } = useTranslation();
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: hostUuid,
-    data: { type: 'proxy-host', hostUuid },
-  });
-
-  return (
-    <span
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      className={[
-        'inline-flex items-center justify-center w-6 h-6 rounded',
-        'cursor-grab active:cursor-grabbing',
-        'text-content-muted hover:text-content-secondary',
-        'focus-visible:outline-none focus-visible:ring-2',
-        'focus-visible:ring-brand-500 focus-visible:ring-offset-1',
-        isDragging ? 'opacity-30' : '',
-      ].join(' ')}
-      aria-label={
-        dragCount > 1
-          ? t('proxyGroups.dnd.dragHandleMultiple', { count: dragCount })
-          : t('proxyGroups.dnd.dragHandleSingle')
-      }
-      aria-roledescription={t('proxyGroups.dnd.roleDescription')}
-    >
-      <GripVertical size={16} aria-hidden="true" />
-    </span>
-  );
-}
-```
-
-### 3.6 Component: GroupDropZone
-
-**New file**: `frontend/src/components/GroupDropZone.tsx`
-
-```typescript
-import { useDroppable } from '@dnd-kit/core';
-
-interface GroupDropZoneProps {
-  /** Group UUID or the literal string 'ungrouped' */
-  groupId: string;
-  /** Whether any drag is currently active (for ungrouped empty-state visibility) */
-  isDragActive: boolean;
-  children: React.ReactNode;
-}
-```
-
----
-
-### 6.3 `backend/internal/orthrus/server.go`
-
-#### `HandleWebSocket` — call `StartExternalProxy` after `StartDockerProxy`
-
-export function GroupDropZone({ groupId, isDragActive, children }: GroupDropZoneProps) {
-  const { setNodeRef, isOver } = useDroppable({ id: groupId });
-
-  return (
-    <div
-      ref={setNodeRef}
-      data-drop-zone={groupId}
-      className={[
-        'rounded-xl transition-all duration-150',
-        isOver
-          ? 'ring-2 ring-brand-400 ring-offset-2 ring-offset-surface-base bg-brand-500/5'
-          : '',
-      ].join(' ')}
-      {/* aria-dropeffect is deprecated in ARIA 1.1 but retained for backward compatibility with older assistive technologies */}
-      aria-dropeffect={isDragActive ? 'move' : undefined}
-    >
-      {children}
-    </div>
-  );
-}
-```
-
-### 3.7 DataTable Extension
-
-**Modified file**: `frontend/src/components/ui/DataTable.tsx`
-
-Add one optional prop to `DataTableProps<T>`:
-
-```typescript
-/** When provided, renders a leading drag-handle column (before checkbox). */
-renderDragHandle?: (row: T) => React.ReactNode;
-```
-
-**Changes inside DataTable**:
-
-1. In `<thead>`, when `renderDragHandle` is set, add before the checkbox `<th>`:
-```tsx
-<th className="w-10 px-2 py-3" aria-hidden="true" />
-```
-
-2. In each `<tbody> <tr>`, when `renderDragHandle` is set, add before checkbox `<td>` and column `<td>` cells:
-```tsx
-<td
-  className="w-10 px-2 py-4"
-  onClick={(e) => e.stopPropagation()}
-  onKeyDown={(e) => e.stopPropagation()}
->
-  {renderDragHandle(row)}
-</td>
-```
-
-3. Update the empty-state `colSpan` to include the drag handle column:
-```tsx
-colSpan={
-  columns.length
-  + (selectable ? 1 : 0)
-  + (renderDragHandle ? 1 : 0)
-}
-```
-
-No other changes to DataTable. The `onClick`/`onKeyDown` stopPropagation prevents the drag handle click from toggling row selection.
-
-### 3.8 DragOverlay
-
-Inline inside `ProxyHosts.tsx` — no separate component file needed:
-
-```tsx
-<DragOverlay dropAnimation={{ duration: 150, easing: 'ease' }}>
-  {activeDragId && (
-    <div className="rounded-lg bg-surface-elevated border border-brand-400 shadow-xl px-4 py-2 text-sm font-medium text-content-primary cursor-grabbing">
-      {hostsBeingDragged.length > 1
-        ? t('proxyGroups.dnd.movingMultiple', { count: hostsBeingDragged.length })
-        : (() => {
-            const h = hosts.find(x => x.uuid === activeDragId);
-            return h?.name || h?.domain_names || t('proxyGroups.dnd.movingOne');
-          })()
-      }
-    </div>
-  )}
-</DragOverlay>
-```
-
-### 3.9 ProxyHosts.tsx Integration
-
-**Modified file**: `frontend/src/pages/ProxyHosts.tsx`
-
-#### New Imports
-
-```typescript
-import {
-  DndContext, DragOverlay,
-  PointerSensor, KeyboardSensor,
-  useSensor, useSensors,
-  pointerWithin,
-} from '@dnd-kit/core';
-import { GroupDropZone }       from '../components/GroupDropZone';
-import { ProxyHostDragHandle } from '../components/ProxyHostDragHandle';
-import { useProxyGroupDnD }    from '../hooks/useProxyGroupDnD';
-```
-
-#### New Hook Usage
-
-```typescript
-const {
-  activeDragId,
-  overGroupId,
-  hostsBeingDragged,
-  handleDragStart,
-  handleDragOver,
-  handleDragEnd,
-  handleDragCancel,
-} = useProxyGroupDnD({
-  hosts,
-  groups,
-  selectedHosts,
-  setSelectedHosts,
-  bulkUpdateGroup,   // from useProxyHosts()
-});
-
-const sensors = useSensors(
-  useSensor(PointerSensor, {
-    activationConstraint: { distance: 8 }, // prevents accidental drags on click
-  }),
-  useSensor(KeyboardSensor)
-);
-```
-
-#### Drag Handle Column (grouped view only)
-
-```typescript
-const dragHandleColumn = useCallback(
-  (host: ProxyHost) => (
-    <ProxyHostDragHandle
-      hostUuid={host.uuid}
-      dragCount={selectedHosts.has(host.uuid) ? selectedHosts.size : 1}
-    />
-  ),
-  [selectedHosts]
-);
-```
-
-#### Helper Utilities (add to component body)
-
-```typescript
-const getHostName = useCallback((uuid: string) => {
-  const h = hosts.find(x => x.uuid === uuid);
-  return h?.name || h?.domain_names || uuid;
-}, [hosts]);
-
-const getGroupName = useCallback((id: string) => {
-  if (id === 'ungrouped') return t('proxyGroups.ungrouped');
-  return groups.find(g => g.uuid === id)?.name ?? id;
-}, [groups, t]);
-```
-
-#### Grouped Render Replacement
-
-Replace the current `<div className="space-y-6">` grouped block with:
-
-```tsx
-<DndContext
-  sensors={sensors}
-  // Use pointerWithin (not closestCenter): group sections are tall droppable regions;
-  // closestCenter resolves to the geometrically nearest center which may be the
-  // wrong group for pointers visually inside a large container.
-  collisionDetection={pointerWithin}
-  onDragStart={handleDragStart}
-  onDragOver={handleDragOver}
-  onDragEnd={handleDragEnd}
-  onDragCancel={handleDragCancel}
-  accessibility={{
-    announcements: {
-      onDragStart: ({ active }) =>
-        t('proxyGroups.dnd.announcePickUp', { name: getHostName(active.id as string) }),
-      onDragOver: ({ over }) =>
-        over ? t('proxyGroups.dnd.announceOver', { group: getGroupName(over.id as string) }) : '',
-      onDragEnd: ({ over }) =>
-        over
-          ? t('proxyGroups.dnd.announceDrop', { group: getGroupName(over.id as string) })
-          : t('proxyGroups.dnd.announceCancel'),
-      onDragCancel: () => t('proxyGroups.dnd.announceCancel'),
-    },
-  }}
->
-  <div className="space-y-6">
-    {groups.map((group) => {
-      const groupHosts = groupedHosts.byGroup[group.uuid] ?? [];
-      return (
-        <GroupDropZone key={group.uuid} groupId={group.uuid} isDragActive={!!activeDragId}>
-          <section aria-label={group.name}>
-            {/* existing group header div — no changes */}
-            <DataTable
-              data={groupHosts}
-              columns={columns}
-              rowKey={(row) => row.uuid}
-              selectable
-              selectedKeys={selectedHosts}
-              onSelectionChange={setSelectedHosts}
-              renderDragHandle={dragHandleColumn}
-            />
-          </section>
-        </GroupDropZone>
-      );
-    })}
-
-    {/* Always render ungrouped zone while dragging, even if empty */}
-    {(groupedHosts.ungrouped.length > 0 || !!activeDragId) && (
-      <GroupDropZone groupId="ungrouped" isDragActive={!!activeDragId}>
-        <section aria-label={t('proxyGroups.ungrouped')}>
-          <div className="flex items-center gap-2 mb-2">
-            <h2 className="text-sm font-semibold text-content-muted">
-              {t('proxyGroups.ungrouped')}
-            </h2>
-            <span className="text-xs text-content-muted">
-              {t('proxyGroups.hostCount', { count: groupedHosts.ungrouped.length })}
-            </span>
-          </div>
-          <DataTable
-            data={groupedHosts.ungrouped}
-            columns={columns}
-            rowKey={(row) => row.uuid}
-            selectable
-            selectedKeys={selectedHosts}
-            onSelectionChange={setSelectedHosts}
-            renderDragHandle={dragHandleColumn}
-            emptyState={null}
-          />
-        </section>
-      </GroupDropZone>
-    )}
-  </div>
-
-  <DragOverlay dropAnimation={{ duration: 150, easing: 'ease' }}>
-    {/* see §3.8 */}
-  </DragOverlay>
-</DndContext>
-```
-
-> **Note**: `DndContext` wraps ONLY the grouped `<div className="space-y-6">` block, not the flat `DataTable` rendered when `groups.length === 0`. `renderDragHandle` should NOT be passed to the flat view.
-
-### 3.10 i18n Translation Keys
-
-**File**: `frontend/src/locales/en/translation.json` — add inside `"proxyGroups"`:
-
+**Minimal request body**:
 ```json
-"dnd": {
-  "dragHandleSingle":   "Drag to move to another group",
-  "dragHandleMultiple": "Drag to move {{count}} selected hosts",
-  "roleDescription":    "Draggable proxy host",
-  "movingOne":          "Moving host",
-  "movingMultiple":     "Moving {{count}} hosts",
-  "moveSuccess_one":    "Moved 1 host",
-  "moveSuccess_other":  "Moved {{count}} hosts",
-  "moveFailed":         "Failed to move host(s)",
-  "partialError":       "{{count}} host(s) failed to move",
-  "announcePickUp":     "Picked up {{name}}. Use arrow keys to move between groups.",
-  "announceOver":       "Moving over {{group}}",
-  "announceDrop":       "Dropped into {{group}}",
-  "announceCancel":     "Move cancelled"
+{
+  "name": "Host With Group",
+  "domain_names": "with-group.test.local",
+  "forward_scheme": "http",
+  "forward_host": "localhost",
+  "forward_port": 8080,
+  "enabled": true,
+  "proxy_group_id": "<pg.UUID>"
 }
 ```
 
-All other locale files must receive the same keys. Use English strings as placeholders where translations are unavailable.
+---
+
+#### 3.1.2 `TestProxyHostUpdate_WithProxyGroupReference_ValidUUID_200`
+
+**Covers**: Line 635 (`host.ProxyGroupID = resolvedGroupID`)
+
+**Location**: After 3.1.1
+
+**Setup**:
+1. `router, db := setupTestRouterWithProxyGroupTable(t)`
+2. Insert ProxyGroup directly in DB
+3. Insert ProxyHost directly in DB (bypass handler to avoid caddy error): `db.Create(&host)`
+4. PUT to `/api/v1/proxy-hosts/<host.UUID>` with `"proxy_group_id": "<pg.UUID>"`
+
+**Assertions**:
+- Response code: 200
+- Response body contains `proxy_group_id` equal to `pg.UUID`
 
 ---
 
-## 7. API Endpoints
+#### 3.1.3 `TestProxyHostHandler_BulkUpdateGroup_ServiceUpdateError`
 
-### 7.1 Modified: `PATCH /api/v1/orthrus/agents/:uuid`
+**Covers**: Lines 904–909 (`errors = append(...)` on `service.Update` failure)
 
+**Location**: After `TestProxyHostHandler_BulkUpdateGroup_PartialFailure`
+
+**Strategy**: Use a SQLite BEFORE UPDATE trigger to force `service.Update` to fail while `GetByUUID` (SELECT) succeeds.
+
+**Setup**:
+1. `router, db := setupTestRouterWithProxyGroupTable(t)` (or inline DB creation)
+2. Create ProxyGroup and ProxyHost in DB
+3. Install a SQLite abort trigger on the proxy_hosts table:
+   ```go
+   db.Exec(`CREATE TRIGGER fail_update BEFORE UPDATE ON proxy_hosts
+            BEGIN SELECT RAISE(ABORT,'forced update failure'); END`)
+   ```
+4. PUT to `/api/v1/proxy-hosts/bulk-update-group` with `host_uuids: [host.UUID]` and `proxy_group_id: pg.UUID`
+
+**Assertions**:
+- Response code: 200
+- Response body `updated` equals 0
+- Response body `errors` is a non-empty array containing an entry with the host UUID
+
+**Why this works**: The RAISE(ABORT,...) trigger fires when GORM executes the UPDATE statement, returning a database error. The SELECT used by `GetByUUID` is unaffected (trigger is BEFORE UPDATE only). This isolates lines 904–909 distinctly from the existing PartialFailure test which tests `GetByUUID` failure.
+
+---
+
+#### 3.1.4 `TestProxyHostHandler_BulkUpdateGroup_CaddyApplyError`
+
+**Covers**: Lines 914–922 (`caddyManager.ApplyConfig` error path)
+
+**Location**: After 3.1.3
+
+**Pattern**: Same as `TestProxyHostErrors` (line ~364 of test file).
+
+**Setup**:
+1. Create `httptest.Server` returning 500 for all requests
+2. Create in-memory SQLite DB and auto-migrate: `ProxyGroup`, `ProxyHost`, `Location`, `Setting`, `CaddyConfig`, `Notification`, `NotificationProvider`
+3. Create `caddy.Manager` via `caddy.NewClientWithExpectedPort` + `caddy.NewManager`
+4. Create handler: `NewProxyHostHandler(db, manager, ns, nil)`
+5. Create ProxyGroup and ProxyHost directly in DB
+6. PUT to `/api/v1/proxy-hosts/bulk-update-group` with valid `host_uuids` and `proxy_group_id`
+
+**Assertions**:
+- Response code: 500
+- Response body `error` field contains `"Failed to apply"`
+
+**Full test scaffold**:
+```go
+func TestProxyHostHandler_BulkUpdateGroup_CaddyApplyError(t *testing.T) {
+    t.Parallel()
+
+    caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        w.WriteHeader(http.StatusInternalServerError)
+    }))
+    defer caddyServer.Close()
+
+    dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
+    db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+    require.NoError(t, err)
+    require.NoError(t, db.AutoMigrate(
+        &models.ProxyGroup{}, &models.ProxyHost{}, &models.Location{},
+        &models.Setting{}, &models.CaddyConfig{},
+        &models.Notification{}, &models.NotificationProvider{},
+    ))
+
+    tmpDir := t.TempDir()
+    client := caddy.NewClientWithExpectedPort(caddyServer.URL, expectedPortFromURL(t, caddyServer.URL))
+    manager := caddy.NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
+    ns := services.NewNotificationService(db, nil)
+    h := NewProxyHostHandler(db, manager, ns, nil)
+    r := gin.New()
+    api := r.Group("/api/v1")
+    h.RegisterRoutes(api)
+
+    pg := models.ProxyGroup{Name: "caddy-error-group", Color: "#ff0000"}
+    require.NoError(t, db.Create(&pg).Error)
+    host := models.ProxyHost{
+        UUID: uuid.NewString(), Name: "Caddy Error Host",
+        DomainNames: "caddy-err.test.local", ForwardScheme: "http",
+        ForwardHost: "localhost", ForwardPort: 8080, Enabled: true,
+    }
+    require.NoError(t, db.Create(&host).Error)
+
+    body := fmt.Sprintf(`{"host_uuids":["%s"],"proxy_group_id":"%s"}`, host.UUID, pg.UUID)
+    req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/bulk-update-group", strings.NewReader(body))
+    req.Header.Set("Content-Type", "application/json")
+    resp := httptest.NewRecorder()
+    r.ServeHTTP(resp, req)
+
+    require.Equal(t, http.StatusInternalServerError, resp.Code)
+    var result map[string]interface{}
+    require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
+    require.Contains(t, result["error"].(string), "Failed to apply")
+}
 ```
-User grabs drag handle
-  PointerSensor (distance ≥ 8px) OR KeyboardSensor (Space)
-        │
-        ▼
-handleDragStart()
-  activeDragId    = host.uuid
-  hostsBeingDragged = selectedHosts.has(uuid) → [...selectedHosts] | [uuid]
-        │
-   drag in progress
-        ▼
-handleDragOver()
-  overGroupId = event.over?.id   (group.uuid | 'ungrouped')
-  GroupDropZone: isOver=true → ring-2 ring-brand-400 highlight
-        │
-   user releases (pointer) or presses Space/Enter (keyboard)
-        ▼
-handleDragEnd()
-  ├── no drop target → handleDragCancel()
-  ├── no-op (same group) → handleDragCancel()
-  └── valid drop
-        ├── snapshot = queryClient.getQueryData(['proxy-hosts'])
-        ├── optimistic cache update (proxy_group + proxy_group_id)
-        ├── reset activeDragId / overGroupId (DragOverlay closes)
-        └── await bulkUpdateGroup(hostsBeingDragged, targetGroupUuid | null)
-              ├── success → invalidateQueries + toast.success + clear selection
-              └── error   → restore snapshot + toast.error
+
+---
+
+#### 3.1.5 Dead Code Removal — Lines 271–273
+
+**File**: `backend/internal/api/handlers/proxy_host_handler.go`
+
+**Change**: Remove the 3-line `if trimmed == ""` block from `resolveProxyGroupReference` (lines 271–273). The variable `trimmed` is still needed for the DB lookup below, so only the `if trimmed == ""` guard is removed.
+
+**Before**:
+```go
+trimmed := strings.TrimSpace(uuidValue)
+if trimmed == "" {
+    return nil, nil
+}
+```
+
+**After**:
+```go
+trimmed := strings.TrimSpace(uuidValue)
+```
+
+**Impact**: Removes 3 lines from the coverage denominator. Codecov will no longer count them as missed. No behavioral change — `parseNullableUintField` already handles blank strings.
+
+---
+
+### 3.2 Frontend Tests
+
+#### 3.2.1 `bulkUpdateGroup` API Function Tests
+
+**File**: `frontend/src/api/__tests__/proxyHosts-bulk.test.ts`
+
+**Test 1** — group assignment:
+```typescript
+it('calls PUT /proxy-hosts/bulk-update-group with host_uuids and proxy_group_id', async () => {
+  const mockResponse = { updated: 2, errors: [] }
+  vi.mocked(client.put).mockResolvedValueOnce({ data: mockResponse })
+  const result = await bulkUpdateGroup(['uuid-1', 'uuid-2'], 'group-uuid')
+  expect(client.put).toHaveBeenCalledWith(
+    '/proxy-hosts/bulk-update-group',
+    { host_uuids: ['uuid-1', 'uuid-2'], proxy_group_id: 'group-uuid' }
+  )
+  expect(result).toEqual(mockResponse)
+})
+```
+
+**Test 2** — ungrouped (null):
+```typescript
+it('sends null proxy_group_id when ungrouping hosts', async () => {
+  vi.mocked(client.put).mockResolvedValueOnce({ data: { updated: 1, errors: [] } })
+  await bulkUpdateGroup(['uuid-1'], null)
+  expect(client.put).toHaveBeenCalledWith(
+    '/proxy-hosts/bulk-update-group',
+    { host_uuids: ['uuid-1'], proxy_group_id: null }
+  )
+})
 ```
 
 ---
 
-## 5. Database Schema
+#### 3.2.2 `bulkGroupMutation` Hook Test
 
-No schema changes required. `proxy_group_id` FK already exists on `proxy_hosts`.
+**File**: `frontend/src/hooks/__tests__/useProxyHosts-bulk.test.tsx`
 
----
-
-## 6. Implementation Phases
-
-### Phase 1: Playwright Tests (Acceptance Criteria Scaffold)
-
-**New file**: `tests/proxy-host-drag-drop.spec.ts`
-
-Scaffold the full E2E spec before implementation:
+Add to the existing test suite (file already exists, no bulkUpdateGroup tests):
 
 ```typescript
-import { test, expect } from '@playwright/test';
+it('bulkUpdateGroup calls the API mutation and returns the result', async () => {
+  const mockResult = { updated: 1, errors: [] }
+  vi.mocked(bulkUpdateGroup).mockResolvedValueOnce(mockResult)
 
-test.describe('Proxy Host Drag-and-Drop Group Assignment', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/proxy-hosts');
-  });
+  const { result } = renderHook(() => useProxyHosts(), { wrapper: QueryWrapper })
+  const response = await act(() =>
+    result.current.bulkUpdateGroup(['uuid-1'], 'group-uuid')
+  )
 
-  test('drag handle appears in grouped view', async ({ page }) => { ... });
-  test('drag handle absent in flat view', async ({ page }) => { ... });
-  test('drag single unselected host to different group', async ({ page }) => { ... });
-  test('drag selected host moves all selected hosts', async ({ page }) => { ... });
-  test('drag host to Ungrouped section removes group', async ({ page }) => { ... });
-  test('drop zone highlights while dragging over it', async ({ page }) => { ... });
-  test('ungrouped zone visible during drag even when empty', async ({ page }) => { ... });
-  test('keyboard: Space pick-up, arrow navigation, Space drop', async ({ page }) => { ... });
-  test('Escape cancels drag with no state change', async ({ page }) => { ... });
-});
+  expect(bulkUpdateGroup).toHaveBeenCalledWith(['uuid-1'], 'group-uuid')
+  expect(response).toEqual(mockResult)
+})
 ```
 
-**Validation gate**: Tests are written in Commit 8 using the acceptance criteria defined in Phase 1 as a guide.
+---
 
-### Phase 2: Backend — Bulk Update Group Endpoint
+#### 3.2.3 `GroupDropZone.tsx` Component Tests
 
-**Files**:
-- `backend/internal/api/handlers/proxy_host_handler.go`
+**File**: `frontend/src/components/__tests__/GroupDropZone.test.tsx` *(new file)*
 
-**Changes**:
-1. Add `BulkUpdateGroup` method (modeled exactly on `BulkUpdateACL` lines 804–860).
-2. Register `router.PUT("/proxy-hosts/bulk-update-group", h.BulkUpdateGroup)` in `RegisterRoutes`.
-
-**Complexity**: Low.
-**Validation gate**: `go test ./backend/...` passes. `curl -X PUT .../bulk-update-group` returns expected JSON.
-
-### Phase 3: Frontend API + Hook
-
-**Files**:
-- `frontend/src/api/proxyHosts.ts`
-- `frontend/src/hooks/useProxyHosts.ts`
-
-**Changes**: Per §3.2 and §3.3.
-**Validation gate**: Vitest passes. New unit test `useProxyHosts-bulkGroup.test.tsx` mocks the API and asserts the mutation works and invalidates the query.
-
-### Phase 4: New Components + DataTable Extension
-
-**Files** (created/modified):
-- `frontend/src/components/ProxyHostDragHandle.tsx` (new)
-- `frontend/src/components/GroupDropZone.tsx` (new)
-- `frontend/src/components/ui/DataTable.tsx` (modified — `renderDragHandle` prop)
-
-**Changes**: Per §3.5, §3.6, §3.7.
-**Validation gate**: `npm run type-check --prefix frontend` passes. Vitest component tests pass.
-
-### Phase 5: DnD Library + Hook
-
-**Files**:
-- `frontend/package.json` + lock file
-- `frontend/src/hooks/useProxyGroupDnD.ts` (new)
-
-**Install command**:
-```bash
-cd frontend && npm install @dnd-kit/core @dnd-kit/utilities
+**`@dnd-kit/core` mock** (declare at top of file):
+```typescript
+vi.mock('@dnd-kit/core', () => ({
+  useDroppable: vi.fn(() => ({ setNodeRef: vi.fn(), isOver: false })),
+}))
 ```
 
-> `@dnd-kit/utilities` provides `CSS.Transform.toString()`, which is used to apply the DragOverlay transform style during pointer movement.
+**Test cases**:
 
-**Changes**: Per §3.4.
-**Validation gate**: `npm run type-check --prefix frontend` passes. Hook unit tests pass.
+1. Renders children without ring styles when `isOver` is false:
+   - Default mock (`isOver: false`)
+   - Assert rendered div does NOT contain class `ring-2`
 
-### Phase 6: Wire ProxyHosts.tsx
+2. Applies ring styles when `isOver` is true:
+   - Override mock: `vi.mocked(useDroppable).mockReturnValue({ setNodeRef: vi.fn(), isOver: true })`
+   - Assert rendered div contains class `ring-2`
 
-**Files**:
-- `frontend/src/pages/ProxyHosts.tsx`
+3. Sets `aria-dropeffect="move"` when `isDragActive` is true:
+   - Render with `isDragActive={true}`
+   - Assert element has attribute `aria-dropeffect="move"`
 
-**Changes**: Per §3.9.
-**Validation gate**: `npm run type-check` passes. Manual smoke test: drag host between groups in browser.
-
-### Phase 7: i18n + Tests
-
-**Files**:
-- `frontend/src/locales/en/translation.json` (and all other locale files)
-- `tests/proxy-host-drag-drop.spec.ts` (complete the spec from Phase 1)
-- `frontend/src/hooks/__tests__/useProxyGroupDnD.test.ts` (new)
-- `frontend/src/components/__tests__/ProxyHostDragHandle.test.tsx` (new)
-- `frontend/src/components/__tests__/GroupDropZone.test.tsx` (new)
-
-**`useProxyGroupDnD.test.ts` — minimum test cases**:
-
-| Test | Description |
-|------|-------------|
-| Happy path | Drag single host to new group → API called once, cache updated optimistically |
-| No-op | Drag host to same group → API NOT called, state unchanged |
-| API error | Mutation fails → cache rolled back to snapshot |
-| Partial success | `result.errors.length > 0` → no rollback (partial success is accepted) |
-| Rapid second drag | Second drag while first is pending → first completes before second begins (sequential, not parallel) |
-
-**Validation gate**: All Vitest + Playwright tests pass. `scripts/scan-gorm-security.sh --check` passes.
+4. Omits `aria-dropeffect` when `isDragActive` is false:
+   - Render with `isDragActive={false}`
+   - Assert element does NOT have `aria-dropeffect` attribute
 
 ---
 
-## 7. Acceptance Criteria
+#### 3.2.4 `ProxyHostDragHandle.tsx` Component Tests
 
-| # | Criterion | Verification |
-|---|-----------|-------------|
-| 1 | GripVertical drag handle on each row in grouped view | Playwright |
-| 2 | No drag handle in flat (no-groups) view | Playwright |
-| 3 | Single host drags to different group | Playwright + API |
-| 4 | Selected host drag moves all selected hosts | Playwright |
-| 5 | Unselected host drag moves only that host | Playwright |
-| 6 | Drop on "Ungrouped" sets `proxy_group_id = null` | Playwright |
-| 7 | Drop zone ring highlights on hover | Playwright visual |
-| 8 | Ungrouped zone visible during drag when empty | Playwright |
-| 9 | Optimistic update before API returns | Manual |
-| 10 | API failure rolls back optimistic update | Vitest (mocked failure) |
-| 11 | Alphabetical order preserved within groups | Playwright |
-| 12 | Keyboard DnD: Space/Arrow/Space flow | Playwright a11y |
-| 13 | Screen reader announcements fire correctly | ARIA code review |
-| 14 | Bulk endpoint calls Caddy config once | Backend unit test |
-| 15 | `npm run type-check` passes | CI |
-| 16 | Vitest ≥ 85% overall coverage | CI |
-| 17 | GORM security scan: 0 CRITICAL/HIGH | `scripts/scan-gorm-security.sh --check` |
+**File**: `frontend/src/components/__tests__/ProxyHostDragHandle.test.tsx` *(new file)*
 
----
-
-## 8. Accessibility
-
-### Keyboard Interaction
-
-| Key | Effect |
-|-----|--------|
-| `Tab` | Focus next drag handle |
-| `Space` | Pick up item (start drag) |
-| `Arrow keys` | Move focus between drop zones |
-| `Space` / `Enter` | Drop into focused group |
-| `Escape` | Cancel drag, item stays in original group |
-
-### ARIA Attributes
-
-- Drag handle: `role="button"` (from dnd-kit `attributes`), `aria-roledescription`, `aria-label` (describes count if multi-select)
-- Drop zones: `aria-dropeffect="move"` while drag is active
-- Live region: `aria-live="assertive"` — managed automatically by `DndContext`'s `accessibility.announcements`
-
-### Visual Requirements
-
-- Drag handle focus indicator: `focus-visible:ring-2 focus-visible:ring-brand-500` (≥ 3:1 contrast on UI boundary)
-- Drop zone highlight: `ring-2 ring-brand-400` on `surface-base` (≥ 3:1 contrast for UI component boundary)
-- `DragOverlay` card: `shadow-xl` for clear visual layering
-- Handle cursor: `cursor-grab` (default), `cursor-grabbing` (active)
-
-**Files**:
-
-## 9. Edge Cases
-
-| Scenario | Behavior |
-|----------|----------|
-| Drop on same group | No-op detected before optimistic update, returns early |
-| All dragged hosts fail | Full rollback, `toast.error` |
-| Some dragged hosts fail | Partial toast, `invalidateQueries` reconciles |
-| Group deleted while drag in progress | 404 from API, rollback + toast error |
-| `groups.length === 0` | Flat `DataTable` rendered, `DndContext` not mounted, no drag handles |
-| Click on drag handle (no drag) | `activationConstraint: { distance: 8 }` prevents; `onClick` stopPropagation prevents row toggle |
-| Touch device | `PointerSensor` handles native Pointer Events (touch included) |
-| Rapid consecutive drags | Optimistic cache is source-of-truth until `invalidateQueries` reconciles |
-
----
-
-## 10. Commit Slicing Strategy
-
-**Decision**: Single PR with 8 ordered logical commits. Each commit is independently valid and does not break the build.
-
-| # | Commit | Scope | Files | Dependencies | Validation Gate |
-|---|--------|-------|-------|-------------|----------------|
-| 1 | `chore(deps): add @dnd-kit/core and @dnd-kit/utilities` | deps | `frontend/package.json`, `frontend/package-lock.json` | none | `npm run type-check` |
-| 2 | `feat(backend): add BulkUpdateGroup handler and route` | backend API | `proxy_host_handler.go` | none | `go test ./backend/...` |
-| 3 | `feat(api): add bulkUpdateGroup to frontend API and hook` | frontend API | `proxyHosts.ts`, `useProxyHosts.ts` | Commit 2 | Vitest |
-| 4 | `feat(components): add DnD components and extend DataTable` | components | `ProxyHostDragHandle.tsx`, `GroupDropZone.tsx`, `DataTable.tsx` | Commit 1 | `type-check` + Vitest |
-| 5 | `feat(hooks): add useProxyGroupDnD with optimistic update` | hook | `useProxyGroupDnD.ts` | Commits 1, 3 | Vitest |
-| 6 | `feat(pages): wire DnD into ProxyHosts grouped view` | page | `ProxyHosts.tsx` | Commits 4, 5 | `type-check` + manual smoke |
-| 7 | `feat(i18n): add DnD translation keys` | i18n | locale files | Commit 6 | `npm run type-check` |
-| 8 | `test(dnd): add DnD unit + E2E test suite` | tests | spec files, `__tests__/*.tsx` | Commit 7 | Full test suite + Playwright |
-
-**Rollback note**: Commits 1–5 have zero visible UI impact. Commit 6 is the feature toggle. If Commit 6 must be reverted, prior commits remain in place harmlessly and can be re-applied.
-
-```bash
-cd backend && go test ./...
+**`@dnd-kit/core` mock**:
+```typescript
+vi.mock('@dnd-kit/core', () => ({
+  useDraggable: vi.fn(() => ({
+    attributes: {},
+    listeners: {},
+    setNodeRef: vi.fn(),
+    isDragging: false,
+  })),
+}))
 ```
 
-## 11. File Inventory
+**Test cases**:
 
-### New Files
+1. `dragCount=1` → aria-label uses single-host translation key:
+   - Render `<ProxyHostDragHandle hostUuid="h1" dragCount={1} />`
+   - Assert aria-label matches the single-host i18n string
 
-| File | Purpose |
-|------|---------|
-| `frontend/src/components/ProxyHostDragHandle.tsx` | Drag handle using `useDraggable` |
-| `frontend/src/components/GroupDropZone.tsx` | Drop zone wrapper using `useDroppable` |
-| `frontend/src/hooks/useProxyGroupDnD.ts` | All DnD state logic, optimistic updates, rollback |
-| `tests/proxy-host-drag-drop.spec.ts` | Playwright E2E spec |
-| `frontend/src/hooks/__tests__/useProxyGroupDnD.test.ts` | Unit tests for hook |
-| `frontend/src/components/__tests__/ProxyHostDragHandle.test.tsx` | Unit tests for drag handle |
-| `frontend/src/components/__tests__/GroupDropZone.test.tsx` | Unit tests for drop zone |
+2. `dragCount=3` → aria-label uses multi-host translation key with count:
+   - Render with `dragCount={3}`
+   - Assert aria-label contains `3` or the multi-host key
 
-### Modified Files
+3. `isDragging=true` → applies opacity-30 class:
+   - Override mock: `vi.mocked(useDraggable).mockReturnValue({ ..., isDragging: true })`
+   - Assert rendered element has class `opacity-30`
 
-| File | Change |
-|------|--------|
-| `frontend/package.json` | Add `@dnd-kit/core`, `@dnd-kit/utilities` |
-| `frontend/src/api/proxyHosts.ts` | Add `BulkUpdateGroupRequest`, `BulkUpdateGroupResponse`, `bulkUpdateGroup` |
-| `frontend/src/hooks/useProxyHosts.ts` | Add `bulkUpdateGroup` mutation + expose from hook |
-| `frontend/src/components/ui/DataTable.tsx` | Add `renderDragHandle?: (row: T) => React.ReactNode` prop |
-| `frontend/src/pages/ProxyHosts.tsx` | Wrap grouped view in `DndContext`, use `GroupDropZone` and `ProxyHostDragHandle` |
-| `frontend/src/locales/en/translation.json` | Add `proxyGroups.dnd.*` keys |
-| `backend/internal/api/handlers/proxy_host_handler.go` | Add `BulkUpdateGroup` handler, register route |
+4. `isDragging=false` → no opacity class:
+   - Default mock
+   - Assert rendered element does NOT have class `opacity-30`
 
 ---
 
-## 12. Risks and Mitigations
+#### 3.2.5 `DataTable.tsx` — `renderDragHandle` Prop Tests
 
-| Risk | Likelihood | Mitigation |
-|------|-----------|-----------|
-| `@dnd-kit` bundle size | Low | Core + utilities only (~12 KB gzipped). No `@dnd-kit/sortable`. |
-| Accidental drag on row click | Medium | `activationConstraint: { distance: 8 }` + `onClick` stopPropagation on handle |
-| Touch device drag sensitivity | Medium | `PointerSensor` inherently handles touch; `distance: 8` prevents accidental drags |
-| N Caddy rebuilds for multi-select | Mitigated | Bulk endpoint calls `ApplyConfig` once per drag action |
-| ESLint `exhaustive-deps` | Medium | Use `useCallback` with correct deps; CI lint will catch |
-| Race: rapid consecutive drags | Low | Optimistic cache is authoritative; `invalidateQueries` reconciles after each API call |
+**File**: `frontend/src/components/ui/__tests__/DataTable.test.tsx` *(extend existing file)*
+
+**Test cases**:
+
+1. No drag column when `renderDragHandle` is not provided:
+   - Render `<DataTable columns={cols} data={rows} />` without `renderDragHandle`
+   - Assert no `data-testid="drag-handle-header"` (or check that drag-handle column header is absent)
+
+2. Drag column appears when `renderDragHandle` is provided:
+   - Render with `renderDragHandle={(row) => <span data-testid={`drag-${row.id}`} />}`
+   - Assert `getByTestId('drag-1')` (or similar) exists per row
+
+3. `colSpan` increases when `renderDragHandle` and `selectable` are both provided:
+   - Render empty-state table (0 rows) with `selectable=true` and `renderDragHandle` provided
+   - Assert the empty-state row's `colSpan` equals `columns.length + 2`
+
+---
+
+### 3.3 API Contract Reference (No Change)
+
+```
+PUT /api/v1/proxy-hosts/bulk-update-group
+Content-Type: application/json
+
+Request:
+  { "host_uuids": ["uuid-1", ...], "proxy_group_id": "group-uuid" | null }
+
+Response 200 (success):
+  { "updated": N, "errors": [] }
+
+Response 200 (partial):
+  { "updated": N, "errors": [{"uuid": "...", "error": "..."}] }
+
+Response 500 (caddy failure):
+  { "error": "Failed to apply configuration: ..." }
+```
+
+---
+
+## 4. Implementation Plan
+
+### Phase 1: Playwright Tests
+
+Not applicable. This is a coverage-gap remediation task. The DnD feature behavior is already implemented and tested at the unit level. Playwright E2E tests for proxy group DnD are deferred to a follow-up.
+
+### Phase 2: Backend Implementation
+
+| # | Task | File | Complexity | Covers |
+|---|---|---|---|---|
+| B1 | Remove dead code (lines 271–273) | `proxy_host_handler.go` | Trivial | Removes uncoverable lines from denominator |
+| B2 | Add `TestProxyHostCreate_WithProxyGroupReference_ValidUUID_201` | `proxy_host_handler_test.go` | Low | Line 420 |
+| B3 | Add `TestProxyHostUpdate_WithProxyGroupReference_ValidUUID_200` | `proxy_host_handler_test.go` | Low | Line 635 |
+| B4 | Add `TestProxyHostHandler_BulkUpdateGroup_ServiceUpdateError` | `proxy_host_handler_test.go` | Medium | Lines 904–909 |
+| B5 | Add `TestProxyHostHandler_BulkUpdateGroup_CaddyApplyError` | `proxy_host_handler_test.go` | Medium | Lines 914–922 |
+
+**Execution order**: B1 first (reduces coverage denominator), then B2–B5 in any order.
+
+### Phase 3: Frontend Implementation
+
+| # | Task | File | Complexity | Covers |
+|---|---|---|---|---|
+| F1 | Add `bulkUpdateGroup` API tests | `api/__tests__/proxyHosts-bulk.test.ts` | Low | `bulkUpdateGroup` function |
+| F2 | Add `bulkGroupMutation` hook test | `hooks/__tests__/useProxyHosts-bulk.test.tsx` | Low | Hook mutation wrapper |
+| F3 | Create `GroupDropZone.test.tsx` | `components/__tests__/GroupDropZone.test.tsx` | Low-medium | All branches |
+| F4 | Create `ProxyHostDragHandle.test.tsx` | `components/__tests__/ProxyHostDragHandle.test.tsx` | Low-medium | All branches |
+| F5 | Extend `DataTable.test.tsx` | `components/ui/__tests__/DataTable.test.tsx` | Low | `renderDragHandle` paths |
+
+### Phase 4: Integration and Verification
+
+1. Run backend: `bash scripts/go-test-coverage.sh`
+2. Run frontend: `bash scripts/frontend-test-coverage.sh`
+3. Run patch report: `bash scripts/local-patch-report.sh`
+4. Review `test-results/local-patch-report.md` — all changed files must show ≥ 90%
+5. If any gap remains, identify the specific uncovered block and add a targeted test
+
+### Phase 5: Documentation
+
+No documentation changes required beyond this spec. The dead code removal (B1) is self-explanatory from context.
+
+---
+
+## 5. Acceptance Criteria
+
+| # | Criterion | Verification Method |
+|---|---|---|
+| AC1 | All backend tests pass | `go test ./internal/api/handlers/... -count=1` exits 0 |
+| AC2 | Line 420 covered (Create + valid group UUID) | `coverage_handlers.txt`: `420.3,420.46 1 1+` |
+| AC3 | Line 635 covered (Update + valid group UUID) | `coverage_handlers.txt`: `635.3,635.38 1 1+` |
+| AC4 | Lines 904–909 covered (BulkUpdateGroup Update failure) | `coverage_handlers.txt`: `904.48,909.12 2 1+` |
+| AC5 | Lines 914–922 covered (BulkUpdateGroup Caddy error) | `coverage_handlers.txt`: `914.42,915.73 1 1+` and `915.73,922.4 2 1+` |
+| AC6 | Dead code at 271–273 removed | No `271.19,273.3 1 0` entry in coverage output |
+| AC7 | `bulkUpdateGroup` API function tested | `proxyHosts-bulk.test.ts` covers PUT call with group and null |
+| AC8 | `bulkGroupMutation` hook tested | `useProxyHosts-bulk.test.tsx` covers mutation path |
+| AC9 | `GroupDropZone` branches covered | `GroupDropZone.test.tsx` covers `isOver` and `isDragActive` |
+| AC10 | `ProxyHostDragHandle` branches covered | `ProxyHostDragHandle.test.tsx` covers `isDragging` and `dragCount > 1` |
+| AC11 | `DataTable.renderDragHandle` covered | `DataTable.test.tsx` covers column header, row cells, colSpan |
+| AC12 | Local patch report ≥ 90% for all changed files | `test-results/local-patch-report.md` passes threshold |
+| AC13 | Codecov CI gate passes (≥ 90% patch coverage) | PR CI: `patch/target` check is green |
+| AC14 | GORM security scanner passes (0 CRITICAL/HIGH) | `./scripts/scan-gorm-security.sh --check` exits 0 |
+
+---
+
+## 6. Commit Slicing Strategy
+
+**Decision**: Single PR (#1018), three ordered logical commits.
+
+**Rationale**: All changes are scoped to one feature. Three commits provide clean review checkpoints and allow bisect on regressions.
+
+### Commit 1: `refactor(backend): remove unreachable branch in resolveProxyGroupReference`
+
+| Attribute | Value |
+|---|---|
+| Scope | `backend/internal/api/handlers/proxy_host_handler.go` |
+| Files | `proxy_host_handler.go` — 3-line deletion |
+| Dependencies | None |
+| Validation gate | `go test ./internal/api/handlers/... -count=1` passes; lines 271–273 absent from coverage denominator |
+
+### Commit 2: `test(backend): cover proxy group create, update, and bulk update paths`
+
+| Attribute | Value |
+|---|---|
+| Scope | `backend/internal/api/handlers/` |
+| Files | `proxy_host_handler_test.go` — 4 new test functions (Tasks B2–B5) |
+| Dependencies | Commit 1 (dead code removed) |
+| Validation gate | Lines 420, 635, 904–909, 914–922 each show hit count ≥ 1 in fresh coverage profile |
+
+### Commit 3: `test(frontend): cover bulkUpdateGroup API, hook, and new DnD components`
+
+| Attribute | Value |
+|---|---|
+| Scope | `frontend/src/` |
+| Files | `api/__tests__/proxyHosts-bulk.test.ts` (F1), `hooks/__tests__/useProxyHosts-bulk.test.tsx` (F2), `components/__tests__/GroupDropZone.test.tsx` (F3, new), `components/__tests__/ProxyHostDragHandle.test.tsx` (F4, new), `components/ui/__tests__/DataTable.test.tsx` (F5, extended) |
+| Dependencies | None — frontend tests are independent |
+| Validation gate | `npm test` passes; `scripts/local-patch-report.sh` shows ≥ 90% for all frontend changed files |
+
+**Rollback**: Each commit is independently revertable. If Task B4 (SQLite trigger approach) proves flaky, revert Commit 2 and replace with a table-rename approach or accept partial coverage with documented rationale.
+
+**Contingency**: If Codecov patch coverage remains below 90% after all six tasks, run the patch report to identify any remaining gap, then add a targeted test. The `ProxyHosts.tsx` DragOverlay ternary branches (lines 861, 871) are the most likely residual gap; they require simulating an active `@dnd-kit/core` drag state and are deferred as high-complexity.
