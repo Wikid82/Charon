@@ -3,7 +3,8 @@ name: Orthrus Agent — Build & Publish
 # Mirrors the trigger and tagging strategy from docker-build.yml so that the
 # Orthrus agent image always receives the same identifiable tags as the main
 # Charon image (e.g. feature-hecate-abc1234), enabling coordinated manual
-# testing on remote servers.
+# testing on remote servers. The push trigger has no paths filter (matching
+# docker-build.yml); paths filtering is only applied to pull_request events.
 
 "on":
   pull_request:
@@ -13,9 +14,6 @@ name: Orthrus Agent — Build & Publish
   push:
     branches: [main, development]
     tags: ['v*']
-    paths:
-      - 'agent/**'
-      - '.github/workflows/orthrus-build.yml'
   workflow_dispatch:
     inputs:
       reason:

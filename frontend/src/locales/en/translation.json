@@ -1800,7 +1800,22 @@
       "deviceId": "Device / Peer ID",
       "resolvedAddress": "Resolved Address",
       "saveProviderAssignment": "Save Assignment",
-      "removeProviderAssignment": "Remove Provider"
+      "removeProviderAssignment": "Remove Provider",
+      "configureProxy": "Configure proxy for {{name}}"
+    },
+    "externalProxy": {
+      "title": "External Docker Proxy",
+      "description": "Configure a TCP port to expose this agent's Docker API on your network.",
+      "portLabel": "Port",
+      "portHint": "Enter a port (1024–65535) to enable, or 0 to disable.",
+      "securityWarning": "This exposes Docker API endpoints on your local network. Ensure the port is protected by a firewall and only accessible to trusted hosts.",
+      "statusLabel": "Proxy Status",
+      "statusHeading": "Current Status",
+      "statusActive": "Active",
+      "statusInactive": "Inactive",
+      "copyConnectionString": "Copy Docker connection string",
+      "reconnectNotice": "Port change will take effect on next agent reconnect.",
+      "agentOffline": "Agent is offline. Proxy status unavailable."
     }
   }
 }

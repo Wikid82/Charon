@@ -1261,7 +1261,22 @@
         "online": "En línea",
         "offline": "Desconectado",
         "pending": "Pendiente"
-      }
+      },
+      "configureProxy": "Configure proxy for {{name}}"
+    },
+    "externalProxy": {
+      "title": "Proxy Docker Externo",
+      "description": "Configure un puerto TCP para exponer la API Docker de este agente en su red.",
+      "portLabel": "Puerto",
+      "portHint": "Ingrese un puerto (1024–65535) para habilitar, o 0 para deshabilitar.",
+      "securityWarning": "Esto expone los endpoints de la API Docker en su red local. Asegúrese de que el puerto esté protegido por un firewall y solo sea accesible para hosts de confianza.",
+      "statusLabel": "Estado del proxy",
+      "statusHeading": "Estado actual",
+      "statusActive": "Activo",
+      "statusInactive": "Inactivo",
+      "copyConnectionString": "Copiar cadena de conexión Docker",
+      "reconnectNotice": "El cambio de puerto surtirá efecto en la próxima reconexión del agente.",
+      "agentOffline": "El agente está fuera de línea. Estado del proxy no disponible."
     }
   }
 }
