@@ -2,12 +2,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
   deleteAgent,
+  getAgentProxyStatus,
   getInstallSnippets,
   listAgents,
   patchAgent,
   provisionAgent,
   renameAgent,
   revokeAgent,
+  type ExternalProxyStatus,
   type OrthrusAgent,
   type PatchAgentRequest,
   type ProvisionAgentRequest,
@@ -61,6 +63,14 @@ export const useDeleteAgent = () => {
     },
   });
 };
+
+export const useAgentProxyStatus = (agentUUID: string, enabled: boolean) =>
+  useQuery<ExternalProxyStatus>({
+    queryKey: ['orthrus', 'agents', agentUUID, 'proxy-status'],
+    queryFn: () => getAgentProxyStatus(agentUUID),
+    enabled,
+    staleTime: 10_000,
+  });
 
 export const useOrthrus = () => {
   const queryClient = useQueryClient();

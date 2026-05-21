@@ -114,10 +114,10 @@ github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8
 github.com/opencontainers/go-digest v1.0.0/go.mod h1:0JzlMkj0TRzQZfJkVvzbP0HBR3IKzErnv2BNG4W4MAM=
 github.com/opencontainers/image-spec v1.1.1 h1:y0fUlFfIZhPF1W537XOLg0/fcx6zcHCJwooC2xJA040=
 github.com/opencontainers/image-spec v1.1.1/go.mod h1:qpqAh3Dmcf36wStyyWU+kCeDgrGnAve2nCC8+7h8Q0M=
-github.com/oschwald/geoip2-golang/v2 v2.1.0 h1:DjnLhNJu9WHwTrmoiQFvgmyJoczhdnm7LB23UBI2Amo=
-github.com/oschwald/geoip2-golang/v2 v2.1.0/go.mod h1:qdVmcPgrTJ4q2eP9tHq/yldMTdp2VMr33uVdFbHBiBc=
-github.com/oschwald/maxminddb-golang/v2 v2.2.0 h1:/2khmIiNvFxgfwGxitper3XBJBs5qTCPQ/H1iR9MgBw=
-github.com/oschwald/maxminddb-golang/v2 v2.2.0/go.mod h1:n/ctYVTFYQypkn5uO1CZnTmj8jdQKIVh/LX7gSaIl0w=
+github.com/oschwald/geoip2-golang/v2 v2.2.0 h1:gdkhpnHQMiH9ymOI+zSB0QKFGH+n4TntNt7vz+TxGPY=
+github.com/oschwald/geoip2-golang/v2 v2.2.0/go.mod h1:xW4tCeQiNU1gqMD1x7zEH2CDNM3d796Ls50yxYDaX0U=
+github.com/oschwald/maxminddb-golang/v2 v2.3.0 h1:PnXjMGjkSQlwOBSyZ7hk6Fd75t7erkAhJNJgEhA3MQU=
+github.com/oschwald/maxminddb-golang/v2 v2.3.0/go.mod h1:NSQvgFwPxODpBTJI5+5Ns1AAucnx7ggW9PSRRifAT1s=
 github.com/pelletier/go-toml/v2 v2.3.1 h1:MYEvvGnQjeNkRF1qUuGolNtNExTDwct51yp7olPtrEc=
 github.com/pelletier/go-toml/v2 v2.3.1/go.mod h1:2gIqNv+qfxSVS7cM2xJQKtLSTLUE9V8t9Stt+h56mCY=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

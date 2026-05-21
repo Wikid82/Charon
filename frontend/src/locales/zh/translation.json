@@ -1229,7 +1229,22 @@
         "online": "在线",
         "offline": "离线",
         "pending": "待连接"
-      }
+      },
+      "configureProxy": "Configure proxy for {{name}}"
+    },
+    "externalProxy": {
+      "title": "外部 Docker 代理",
+      "description": "配置 TCP 端口以在网络上公开此代理的 Docker API。",
+      "portLabel": "端口",
+      "portHint": "输入端口 (1024–65535) 以启用，或输入 0 以禁用。",
+      "securityWarning": "这将在您的本地网络上公开 Docker API 端点。请确保端口受防火墙保护，仅供可信主机访问。",
+      "statusLabel": "代理状态",
+      "statusHeading": "当前状态",
+      "statusActive": "活跃",
+      "statusInactive": "非活跃",
+      "copyConnectionString": "复制 Docker 连接字符串",
+      "reconnectNotice": "端口更改将在代理下次重新连接时生效。",
+      "agentOffline": "代理已离线。代理状态不可用。"
     }
   }
 }
