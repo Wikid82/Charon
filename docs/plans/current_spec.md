@@ -366,6 +366,13 @@ interface GroupDropZoneProps {
   isDragActive: boolean;
   children: React.ReactNode;
 }
+```
+
+---
+
+### 6.3 `backend/internal/orthrus/server.go`
+
+#### `HandleWebSocket` — call `StartExternalProxy` after `StartDockerProxy`
 
 export function GroupDropZone({ groupId, isDragActive, children }: GroupDropZoneProps) {
   const { setNodeRef, isOver } = useDroppable({ id: groupId });
@@ -633,7 +640,9 @@ All other locale files must receive the same keys. Use English strings as placeh
 
 ---
 
-## 4. Data Flow
+## 7. API Endpoints
+
+### 7.1 Modified: `PATCH /api/v1/orthrus/agents/:uuid`
 
 ```
 User grabs drag handle
@@ -830,10 +839,6 @@ cd frontend && npm install @dnd-kit/core @dnd-kit/utilities
 - Handle cursor: `cursor-grab` (default), `cursor-grabbing` (active)
 
 **Files**:
-- `backend/internal/orthrus/session.go` — constant, new field, `StartDockerProxy()`, `runProxyListener()`, `proxyConn()`, updated `Close()`
-- `backend/internal/orthrus/server.go` — `StartDockerProxy()` call in `HandleWebSocket`; `sess.Close()` in `watchHeartbeat`
-- `backend/internal/orthrus/session_test.go` — 3 new tests
-- `backend/internal/orthrus/server_test.go` — 1 new test
 
 ## 9. Edge Cases
 
@@ -867,7 +872,9 @@ cd frontend && npm install @dnd-kit/core @dnd-kit/utilities
 
 **Rollback note**: Commits 1–5 have zero visible UI impact. Commit 6 is the feature toggle. If Commit 6 must be reverted, prior commits remain in place harmlessly and can be re-applied.
 
-**Rollback**: Revert Commit 2. Proxy listener still runs (from Commit 1) but is never used by the Docker handler.
+```bash
+cd backend && go test ./...
+```
 
 ## 11. File Inventory
 

@@ -8,7 +8,7 @@
 | Auditor     | QA Security Agent                                                   |
 | Verdict     | ⚠️ **CONDITIONAL PASS**                                            |
 
----
+## Coverage Summary
 
 ## Summary
 
@@ -21,7 +21,7 @@ infrastructure limitations are documented below and are non-blocking.
 `ProxyHostDragHandle` components, `useProxyGroupDnD` hook, `bulkUpdateGroup` API
 function, `bulkGroupMutation`, and DnD-related i18n keys in 5 locales.
 
----
+## Security Findings
 
 ## Check Results
 
@@ -39,7 +39,7 @@ function, `bulkGroupMutation`, and DnD-related i18n keys in 5 locales.
 | 10 | CodeQL SARIF Analysis          | ✅ PASS        | 3 NOTE-level findings (all pre-existing)           |
 | 11 | E2E Playwright (targeted)      | ⚠️ ENV ISSUE   | Firefox binary missing — infrastructure, not code  |
 
----
+### Gate 8 — Trivy Filesystem Scan (PASSED)
 
 The `hotfix/ci` branch contains no Go source, no TypeScript/React source, and no Dockerfile changes.
 The only file changed is `.github/workflows/weekly-nightly-promotion.yml`.
@@ -68,7 +68,14 @@ All uncovered lines in `proxy_host_handler.go` are error-handling branches
 (JSON bind failures, DB errors). These are difficult to reach without mocks and
 represent a known gap for a future test improvement pass.
 
----
+- **Binaries**: `/usr/local/bin/crowdsec`, `/usr/local/bin/cscli`
+- **Installed**: v2.3.3
+- **Fixed**: No upstream fix available at time of scan
+- **Status**: Affected; awaiting upstream patch in CrowdSec
+- **Description**: Denial of Service via malicious PostgreSQL server response
+- **Reference**: https://avd.aquasec.com/nvd/cve-2026-32286
+- **Risk Context**: Exploitable only when CrowdSec is configured to use a PostgreSQL backend. The default Charon deployment uses the local SQLite backend; PostgreSQL is not used. Risk is LOW in standard deployments.
+- **Remediation**: Track upstream CrowdSec release that patches pgproto3/v2; no immediate action available
 
 ## Static Analysis
 
@@ -89,7 +96,7 @@ All warnings are pre-existing. No new lint errors introduced by this branch.
 
 All DnD-related types (`@dnd-kit/core`, `@dnd-kit/utilities`) are correctly typed.
 
----
+### Required Actions Before Approval
 
 ## Pre-commit Hooks (Lefthook v2.1.6)
 
