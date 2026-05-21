@@ -98,7 +98,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 	// AutoMigrate all models for Issue #5 persistence layer
 	if err := db.AutoMigrate(
-		&models.ProxyGroup{},  // must precede ProxyHost (FK dependency)
+		&models.ProxyGroup{}, // must precede ProxyHost (FK dependency)
 		&models.ProxyHost{},
 		&models.Location{},
 		&models.CaddyConfig{},
