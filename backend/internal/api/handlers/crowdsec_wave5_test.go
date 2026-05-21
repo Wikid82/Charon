@@ -35,7 +35,6 @@ func TestCrowdsecWave5_GetLAPIDecisions_Unauthorized(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-
 	require.NoError(t, db.Create(&models.SecurityConfig{UUID: "default", CrowdSecAPIURL: server.URL}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
@@ -62,7 +61,6 @@ func TestCrowdsecWave5_GetLAPIDecisions_NonJSONContentTypeFallsBack(t *testing.T
 		_, _ = w.Write([]byte("<html>not-json</html>"))
 	}))
 	t.Cleanup(server.Close)
-
 
 	require.NoError(t, db.Create(&models.SecurityConfig{UUID: "default", CrowdSecAPIURL: server.URL}).Error)
 

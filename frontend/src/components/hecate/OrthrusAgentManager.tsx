@@ -1,10 +1,11 @@
-import { Check, Link2, Pencil, Trash2, X } from 'lucide-react';
+import { Check, Link2, Pencil, Settings, Trash2, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { AgentExternalProxyDialog } from './AgentExternalProxyDialog';
+import { AgentProviderAssignDialog } from './AgentProviderAssignDialog';
 import { type OrthrusAgent } from '../../api/orthrus';
 import { useDeleteAgent, useRenameAgent } from '../../hooks/useOrthrus';
-import { AgentProviderAssignDialog } from './AgentProviderAssignDialog';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import {
@@ -35,9 +36,10 @@ interface AgentRowProps {
   agent: OrthrusAgent;
   onDelete: (uuid: string, name: string) => void;
   onAssignProvider: (agent: OrthrusAgent) => void;
+  onConfigureProxy: (agent: OrthrusAgent) => void;
 }
 
-const AgentRow = ({ agent, onDelete, onAssignProvider }: AgentRowProps) => {
+const AgentRow = ({ agent, onDelete, onAssignProvider, onConfigureProxy }: AgentRowProps) => {
   const { t } = useTranslation();
   const { mutate: rename, isPending: isRenaming } = useRenameAgent();
   const [editing, setEditing] = useState(false);
@@ -132,9 +134,16 @@ const AgentRow = ({ agent, onDelete, onAssignProvider }: AgentRowProps) => {
 
       {/* Status */}
       <td className="py-3 px-4">
-        <Badge variant={statusVariant(agent.status)} className="capitalize">
-          {t(`hecate.agentManager.status.${agent.status}`)}
-        </Badge>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <Badge variant={statusVariant(agent.status)} className="capitalize">
+            {t(`hecate.agentManager.status.${agent.status}`)}
+          </Badge>
+          {agent.external_proxy_port > 0 && (
+            <Badge variant="secondary" className="uppercase text-[10px]">
+              PROXY
+            </Badge>
+          )}
+        </div>
       </td>
 
       {/* Provider */}
@@ -164,6 +173,15 @@ const AgentRow = ({ agent, onDelete, onAssignProvider }: AgentRowProps) => {
             variant="ghost"
             size="sm"
             className="h-7 w-7 p-0 text-content-tertiary hover:text-brand-500"
+            onClick={() => onConfigureProxy(agent)}
+            aria-label={t('hecate.agentManager.configureProxy', { name: agent.name })}
+          >
+            <Settings className="h-3.5 w-3.5" aria-hidden="true" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0 text-content-tertiary hover:text-brand-500"
             onClick={() => onAssignProvider(agent)}
             aria-label={t('hecate.agentManager.assignProvider', { name: agent.name })}
           >
@@ -189,6 +207,7 @@ export const OrthrusAgentManager = ({ agents }: OrthrusAgentManagerProps) => {
   const { mutate: deleteAgent, isPending: isDeleting } = useDeleteAgent();
   const [confirmDelete, setConfirmDelete] = useState<{ uuid: string; name: string } | null>(null);
   const [assignProviderAgent, setAssignProviderAgent] = useState<OrthrusAgent | null>(null);
+  const [proxyConfigAgent, setProxyConfigAgent] = useState<OrthrusAgent | null>(null);
 
   const handleDeleteRequest = (uuid: string, name: string) => {
     setConfirmDelete({ uuid, name });
@@ -242,6 +261,7 @@ export const OrthrusAgentManager = ({ agents }: OrthrusAgentManagerProps) => {
                 agent={agent}
                 onDelete={handleDeleteRequest}
                 onAssignProvider={setAssignProviderAgent}
+                onConfigureProxy={setProxyConfigAgent}
               />
             ))}
           </tbody>
@@ -273,6 +293,14 @@ export const OrthrusAgentManager = ({ agents }: OrthrusAgentManagerProps) => {
           agent={assignProviderAgent}
           open={!!assignProviderAgent}
           onClose={() => setAssignProviderAgent(null)}
+        />
+      )}
+      {/* External Docker Proxy dialog */}
+      {proxyConfigAgent && (
+        <AgentExternalProxyDialog
+          agent={proxyConfigAgent}
+          open={!!proxyConfigAgent}
+          onClose={() => setProxyConfigAgent(null)}
         />
       )}
     </>

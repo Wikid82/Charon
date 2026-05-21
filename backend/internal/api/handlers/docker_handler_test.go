@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/orthrus"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -391,4 +392,170 @@ func TestDockerHandler_ListContainers_503DetailsWithGroupGuidance(t *testing.T) 
 	assert.Contains(t, w.Body.String(), "Docker daemon unavailable")
 	assert.Contains(t, w.Body.String(), "--group-add 988")
 	assert.Contains(t, w.Body.String(), "group_add")
+}
+
+type fakeOrthrusResolver struct {
+	addr string
+	ok   bool
+}
+
+func (f *fakeOrthrusResolver) GetProxyAddr(_ string) (string, bool) {
+	return f.addr, f.ok
+}
+
+func TestDockerHandler_ListContainers_OrthrusAgentConnected(t *testing.T) {
+	router := gin.New()
+	agentUUID := "agent-uuid-123"
+	dockerSvc := &fakeDockerService{ret: []services.DockerContainer{}}
+	remoteSvc := &fakeRemoteServerService{server: &models.RemoteServer{
+		ConnectionType:   models.ConnectionTypeOrthrus,
+		OrthrusAgentUUID: &agentUUID,
+	}}
+	h := NewDockerHandler(dockerSvc, remoteSvc)
+	h.SetOrthrusResolver(&fakeOrthrusResolver{addr: "127.0.0.1:54321", ok: true})
+
+	api := router.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?server_id=srv-1", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.True(t, dockerSvc.called)
+	assert.Equal(t, "tcp://127.0.0.1:54321", dockerSvc.host)
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestDockerHandler_ListContainers_OrthrusAgentOffline(t *testing.T) {
+	router := gin.New()
+	agentUUID := "agent-offline-uuid"
+	dockerSvc := &fakeDockerService{}
+	remoteSvc := &fakeRemoteServerService{server: &models.RemoteServer{
+		ConnectionType:   models.ConnectionTypeOrthrus,
+		OrthrusAgentUUID: &agentUUID,
+	}}
+	h := NewDockerHandler(dockerSvc, remoteSvc)
+	h.SetOrthrusResolver(&fakeOrthrusResolver{ok: false})
+
+	api := router.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?server_id=srv-1", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadGateway, w.Code)
+	assert.Contains(t, w.Body.String(), "Orthrus agent is not currently connected")
+	assert.False(t, dockerSvc.called)
+}
+
+func TestDockerHandler_ListContainers_OrthrusSubsystemUnavailable(t *testing.T) {
+	router := gin.New()
+	agentUUID := "agent-uuid-svc"
+	dockerSvc := &fakeDockerService{}
+	remoteSvc := &fakeRemoteServerService{server: &models.RemoteServer{
+		ConnectionType:   models.ConnectionTypeOrthrus,
+		OrthrusAgentUUID: &agentUUID,
+	}}
+	h := NewDockerHandler(dockerSvc, remoteSvc)
+	// orthrusResolver intentionally not set (nil)
+
+	api := router.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?server_id=srv-1", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	assert.Contains(t, w.Body.String(), "Orthrus subsystem unavailable")
+	assert.False(t, dockerSvc.called)
+}
+
+func TestDockerHandler_ListContainers_OrthrusMissingAgentUUID(t *testing.T) {
+	router := gin.New()
+	dockerSvc := &fakeDockerService{}
+	remoteSvc := &fakeRemoteServerService{server: &models.RemoteServer{
+		ConnectionType:   models.ConnectionTypeOrthrus,
+		OrthrusAgentUUID: nil,
+	}}
+	h := NewDockerHandler(dockerSvc, remoteSvc)
+	h.SetOrthrusResolver(&fakeOrthrusResolver{ok: true, addr: "127.0.0.1:1234"})
+
+	api := router.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?server_id=srv-1", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "no Orthrus agent UUID configured")
+	assert.False(t, dockerSvc.called)
+}
+
+func TestDockerHandler_SetOrthrusResolver_Nil(t *testing.T) {
+	h := NewDockerHandler(&fakeDockerService{}, &fakeRemoteServerService{})
+	h.SetOrthrusResolver(nil)
+	assert.Nil(t, h.orthrusResolver)
+}
+
+// TestDockerHandler_ListContainers_OrthrusEmptyAgentUUID verifies that a
+// non-nil pointer to an empty string for OrthrusAgentUUID is rejected with 400.
+// This covers the right-hand side of the || condition in the UUID guard.
+func TestDockerHandler_ListContainers_OrthrusEmptyAgentUUID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	emptyUUID := ""
+	dockerSvc := &fakeDockerService{}
+	remoteSvc := &fakeRemoteServerService{server: &models.RemoteServer{
+		ConnectionType:   models.ConnectionTypeOrthrus,
+		OrthrusAgentUUID: &emptyUUID,
+	}}
+	h := NewDockerHandler(dockerSvc, remoteSvc)
+	h.SetOrthrusResolver(&fakeOrthrusResolver{ok: true, addr: "127.0.0.1:1234"})
+
+	api := router.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?server_id=srv-1", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "no Orthrus agent UUID configured")
+	assert.False(t, dockerSvc.called)
+}
+
+// TestDockerHandler_SetOrthrusResolver_TypedNil verifies the Go typed-nil trap:
+// passing a nil *orthrus.OrthrusServer to SetOrthrusResolver would normally box
+// into a non-nil interface (type descriptor present, data pointer nil), which
+// defeats the h.orthrusResolver == nil guard and panics inside GetProxyAddr.
+// SetOrthrusResolver must normalise such values to a truly-nil interface so the
+// 503 path is taken instead.
+func TestDockerHandler_SetOrthrusResolver_TypedNil(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var typedNil *orthrus.OrthrusServer
+	uuid := "test-agent-uuid"
+	remoteSvc := &fakeRemoteServerService{server: &models.RemoteServer{
+		ConnectionType:   models.ConnectionTypeOrthrus,
+		OrthrusAgentUUID: &uuid,
+	}}
+	h := NewDockerHandler(&fakeDockerService{}, remoteSvc)
+	h.SetOrthrusResolver(typedNil)
+
+	// Resolver must be a truly-nil interface, not a non-nil typed-nil.
+	assert.Nil(t, h.orthrusResolver)
+
+	router := gin.New()
+	api := router.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?server_id=srv-1", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req) // must NOT panic
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	assert.Contains(t, w.Body.String(), "Orthrus subsystem unavailable")
 }

@@ -30,6 +30,23 @@ vi.mock('../AgentProviderAssignDialog', () => ({
     ) : null,
 }));
 
+vi.mock('../AgentExternalProxyDialog', () => ({
+  AgentExternalProxyDialog: ({
+    open,
+    onClose,
+    agent,
+  }: {
+    open: boolean;
+    onClose: () => void;
+    agent: { name: string };
+  }) =>
+    open ? (
+      <div data-testid="proxy-dialog" aria-label={`proxy-dialog-${agent.name}`}>
+        <button onClick={onClose}>CloseProxy</button>
+      </div>
+    ) : null,
+}));
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, string>) =>
@@ -47,6 +64,7 @@ const agentWithProvider = {
   device_id: 'ts-device-1',
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
+  external_proxy_port: 0,
 };
 
 const agentWithoutProvider = {
@@ -59,6 +77,7 @@ const agentWithoutProvider = {
   device_id: undefined,
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
+  external_proxy_port: 0,
 };
 
 const agentWithDeviceIdOnly = {
@@ -71,6 +90,7 @@ const agentWithDeviceIdOnly = {
   device_id: 'ts-device-abc',
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
+  external_proxy_port: 0,
 };
 
 const agentTunnelOnly = {
@@ -83,6 +103,7 @@ const agentTunnelOnly = {
   device_id: undefined,
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
+  external_proxy_port: 0,
 };
 
 function renderManager(agents: OrthrusAgent[]) {
@@ -347,5 +368,39 @@ describe('OrthrusAgentManager', () => {
         }),
       ).not.toBeInTheDocument();
     });
+  });
+
+  it('clicking configure proxy button opens the proxy dialog', async () => {
+    renderManager([agentWithProvider]);
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: `hecate.agentManager.configureProxy:${agentWithProvider.name}`,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId('proxy-dialog')).toBeInTheDocument(),
+    );
+  });
+
+  it('proxy dialog onClose clears proxyConfigAgent', async () => {
+    renderManager([agentWithProvider]);
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: `hecate.agentManager.configureProxy:${agentWithProvider.name}`,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId('proxy-dialog')).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByText('CloseProxy'));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('proxy-dialog')).not.toBeInTheDocument(),
+    );
   });
 });
