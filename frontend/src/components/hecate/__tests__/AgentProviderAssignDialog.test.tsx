@@ -67,6 +67,7 @@ const baseAgent = {
   capabilities: '["proxy"]',
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
+  external_proxy_port: 0,
 };
 
 describe('AgentProviderAssignDialog', () => {

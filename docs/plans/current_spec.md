@@ -369,7 +369,7 @@ User navigates links with Tab/Shift+Tab
          Focus returns to trigger button
 ```
 
----
+### Phase 1: Playwright Tests
 
 ## 6. Unit Tests Specification
 
@@ -397,7 +397,11 @@ The global `react-i18next` mock in `test/setup.ts` loads real `en/translation.js
 | 14 | aria-label reflects state | When open, `aria-label` = "Close feedback menu" |
 | 15 | Focus moves to first link on open | After click: `document.activeElement` = bug report `<a>` (`firstLinkRef.current`) |
 
----
+1. Run backend: `bash scripts/go-test-coverage.sh`
+2. Run frontend: `bash scripts/frontend-test-coverage.sh`
+3. Run patch report: `bash scripts/local-patch-report.sh`
+4. Review `test-results/local-patch-report.md` — all changed files must show ≥ 90%
+5. If any gap remains, identify the specific uncovered block and add a targeted test
 
 ## 7. Acceptance Criteria
 

@@ -166,7 +166,7 @@ export function ProxyGroupForm({ open, onClose, group }: ProxyGroupFormProps) {
               {t('common.cancel')}
             </Button>
             <Button type="submit" disabled={!name.trim() || isPending} isLoading={isPending}>
-              {isEdit ? t('common.update') : t('common.create')}
+              {t('common.save')}
             </Button>
           </DialogFooter>
         </form>

@@ -2643,3 +2643,156 @@ func TestProxyHostHandler_BulkUpdateGroup_InvalidJSON(t *testing.T) {
 
 	require.Equal(t, http.StatusBadRequest, resp.Code)
 }
+
+func TestProxyHostCreate_WithProxyGroupReference_ValidUUID_201(t *testing.T) {
+	t.Parallel()
+	router, db := setupTestRouterWithProxyGroupTable(t)
+
+	pg := models.ProxyGroup{Name: "test-group", Color: "#123456"}
+	require.NoError(t, db.Create(&pg).Error)
+
+	body := map[string]any{
+		"name":           "Host With Group",
+		"domain_names":   "with-group.test.local",
+		"forward_scheme": "http",
+		"forward_host":   "localhost",
+		"forward_port":   8080,
+		"enabled":        true,
+		"proxy_group_id": pg.UUID,
+	}
+	payload, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-hosts", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusCreated, resp.Code)
+}
+
+func TestProxyHostUpdate_WithProxyGroupReference_ValidUUID_200(t *testing.T) {
+	t.Parallel()
+	router, db := setupTestRouterWithProxyGroupTable(t)
+
+	pg := models.ProxyGroup{Name: "update-group", Color: "#654321"}
+	require.NoError(t, db.Create(&pg).Error)
+
+	host := models.ProxyHost{
+		UUID:          uuid.NewString(),
+		Name:          "Update PG Valid Host",
+		DomainNames:   "update-pg-valid.test.local",
+		ForwardScheme: "http",
+		ForwardHost:   "localhost",
+		ForwardPort:   8080,
+		Enabled:       true,
+	}
+	require.NoError(t, db.Create(&host).Error)
+
+	body := map[string]any{
+		"proxy_group_id": pg.UUID,
+	}
+	payload, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/"+host.UUID, bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var dbHost models.ProxyHost
+	require.NoError(t, db.First(&dbHost, "uuid = ?", host.UUID).Error)
+	require.NotNil(t, dbHost.ProxyGroupID)
+	require.Equal(t, pg.ID, *dbHost.ProxyGroupID)
+}
+
+func TestProxyHostHandler_BulkUpdateGroup_ServiceUpdateError(t *testing.T) {
+	t.Parallel()
+	router, db := setupTestRouterWithProxyGroupTable(t)
+
+	pg := models.ProxyGroup{Name: "trigger-group", Color: "#aabbcc"}
+	require.NoError(t, db.Create(&pg).Error)
+
+	host := models.ProxyHost{
+		UUID:          uuid.NewString(),
+		Name:          "Trigger Host",
+		DomainNames:   "trigger-update.test.local",
+		ForwardScheme: "http",
+		ForwardHost:   "localhost",
+		ForwardPort:   8080,
+		Enabled:       true,
+	}
+	require.NoError(t, db.Create(&host).Error)
+
+	require.NoError(t, db.Exec(`CREATE TRIGGER fail_update BEFORE UPDATE ON proxy_hosts BEGIN SELECT RAISE(ABORT,'forced update failure'); END`).Error)
+
+	body := fmt.Sprintf(`{"host_uuids":["%s"],"proxy_group_id":"%s"}`, host.UUID, pg.UUID)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/bulk-update-group", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
+	require.Equal(t, float64(0), result["updated"])
+	errs := result["errors"].([]any)
+	require.NotEmpty(t, errs)
+	errMap := errs[0].(map[string]any)
+	require.Equal(t, host.UUID, errMap["uuid"])
+}
+
+func TestProxyHostHandler_BulkUpdateGroup_CaddyApplyError(t *testing.T) {
+	t.Parallel()
+
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer caddyServer.Close()
+
+	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&models.ProxyGroup{}, &models.ProxyHost{}, &models.Location{},
+		&models.Setting{}, &models.CaddyConfig{},
+		&models.Notification{}, &models.NotificationProvider{},
+	))
+
+	tmpDir := t.TempDir()
+	client := caddy.NewClientWithExpectedPort(caddyServer.URL, expectedPortFromURL(t, caddyServer.URL))
+	manager := caddy.NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
+	ns := services.NewNotificationService(db, nil)
+	h := NewProxyHostHandler(db, manager, ns, nil)
+	r := gin.New()
+	api := r.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	pg := models.ProxyGroup{UUID: uuid.NewString(), Name: "caddy-error-group", Color: "#ff0000"}
+	require.NoError(t, db.Create(&pg).Error)
+
+	host := models.ProxyHost{
+		UUID:          uuid.NewString(),
+		Name:          "Caddy Error Host",
+		DomainNames:   "caddy-err.test.local",
+		ForwardScheme: "http",
+		ForwardHost:   "localhost",
+		ForwardPort:   8080,
+		Enabled:       true,
+	}
+	require.NoError(t, db.Create(&host).Error)
+
+	body := fmt.Sprintf(`{"host_uuids":["%s"],"proxy_group_id":"%s"}`, host.UUID, pg.UUID)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/bulk-update-group", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	r.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusInternalServerError, resp.Code)
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
+	require.Contains(t, result["error"].(string), "Failed to apply")
+}

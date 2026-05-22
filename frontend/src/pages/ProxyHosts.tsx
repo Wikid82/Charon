@@ -46,6 +46,7 @@ import { useSecurityHeaderProfiles } from '../hooks/useSecurityHeaders'
 import { useProxyGroupDnD } from '../hooks/useProxyGroupDnD'
 import { ProxyGroupBadge } from '../components/ProxyGroupBadge'
 import { ProxyGroupForm } from '../components/ProxyGroupForm'
+import { ManageGroupsDialog } from '../components/ManageGroupsDialog'
 import { GroupDropZone } from '../components/GroupDropZone'
 import { ProxyHostDragHandle } from '../components/ProxyHostDragHandle'
 import compareHosts from '../utils/compareHosts'
@@ -96,6 +97,7 @@ export default function ProxyHosts() {
   const [showGroupForm, setShowGroupForm] = useState(false)
   const [editingGroup, setEditingGroup] = useState<ProxyGroup | undefined>()
   const [groupToDelete, setGroupToDelete] = useState<ProxyGroup | null>(null)
+  const [showManageGroupsDialog, setShowManageGroupsDialog] = useState(false)
   const [showAssignGroupModal, setShowAssignGroupModal] = useState(false)
   const [assignTargetGroupUUID, setAssignTargetGroupUUID] = useState<string | null>(null)
   const [isAssigning, setIsAssigning] = useState(false)
@@ -498,7 +500,7 @@ export default function ProxyHosts() {
       key: 'name',
       header: t('proxyHosts.columnName'),
       sortable: true,
-      width: '18%',
+      width: '16%',
       cell: (host) => (
         <div className="text-sm font-medium text-content-primary truncate">
           {host.name || <span className="text-content-muted italic">{t('proxyHosts.unnamed')}</span>}
@@ -509,7 +511,7 @@ export default function ProxyHosts() {
       key: 'domain',
       header: t('proxyHosts.columnDomain'),
       sortable: true,
-      width: '24%',
+      width: '20%',
       cell: (host) => (
         <div className="text-sm font-medium text-content-primary">
           {host.domain_names.split(',').map((domain, i) => {
@@ -539,7 +541,7 @@ export default function ProxyHosts() {
       key: 'forward',
       header: t('proxyHosts.columnForwardTo'),
       sortable: true,
-      width: '18%',
+      width: '16%',
       cell: (host) => (
         <div className="text-sm text-content-secondary">
           {host.forward_scheme}://{host.forward_host}:{host.forward_port}
@@ -549,7 +551,7 @@ export default function ProxyHosts() {
     {
       key: 'ssl',
       header: t('proxyHosts.columnSSL'),
-      width: '10%',
+      width: '8%',
       cell: (host) => {
         const primaryDomain = host.domain_names.split(',')[0]?.trim().toLowerCase()
         const certInfo = certStatusByDomain[primaryDomain]
@@ -573,7 +575,7 @@ export default function ProxyHosts() {
     {
       key: 'features',
       header: t('proxyHosts.columnFeatures'),
-      width: '12%',
+      width: '10%',
       cell: (host) => (
         <div className="flex flex-wrap gap-1">
           {host.websocket_support && (
@@ -661,10 +663,7 @@ export default function ProxyHosts() {
             <Button
               variant="outline"
               leftIcon={FolderOpen}
-              onClick={() => {
-                setEditingGroup(undefined)
-                setShowGroupForm(true)
-              }}
+              onClick={() => setShowManageGroupsDialog(true)}
             >
               {t('proxyGroups.manageGroups')}
             </Button>
@@ -1428,6 +1427,12 @@ export default function ProxyHosts() {
             setEditingGroup(undefined)
           }}
           group={editingGroup}
+        />
+
+        {/* Manage Groups Dialog */}
+        <ManageGroupsDialog
+          open={showManageGroupsDialog}
+          onClose={() => setShowManageGroupsDialog(false)}
         />
 
         {/* Delete Group Confirmation Dialog */}

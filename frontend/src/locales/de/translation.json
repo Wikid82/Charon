@@ -168,24 +168,25 @@
     "groupColor": "Farbe",
     "noGroups": "Noch keine Gruppen",
     "ungrouped": "Nicht gruppiert",
+    "manageGroupsDescription": "View, create, edit, and delete proxy groups.",
     "assignToGroup": "Gruppe zuweisen",
     "hostCount_one": "{{count}} Host",
     "hostCount_other": "{{count}} Hosts",
     "hostCount": "{{count}} Hosts",
     "dnd": {
-      "dragHandleSingle":   "Drag to move to another group",
-      "dragHandleMultiple": "Drag to move {{count}} selected hosts",
-      "roleDescription":    "Draggable proxy host",
-      "movingOne":          "Moving host",
-      "movingMultiple":     "Moving {{count}} hosts",
-      "moveSuccess_one":    "Moved 1 host",
-      "moveSuccess_other":  "Moved {{count}} hosts",
-      "moveFailed":         "Failed to move host(s)",
-      "partialError":       "{{count}} host(s) failed to move",
-      "announcePickUp":     "Picked up {{name}}. Use arrow keys to move between groups.",
-      "announceOver":       "Moving over {{group}}",
-      "announceDrop":       "Dropped into {{group}}",
-      "announceCancel":     "Move cancelled"
+      "dragHandleSingle":   "Zum Verschieben in eine andere Gruppe ziehen",
+      "dragHandleMultiple": "{{count}} ausgewählte Hosts verschieben",
+      "roleDescription":    "Verschiebbarer Proxy-Host",
+      "movingOne":          "Host wird verschoben",
+      "movingMultiple":     "{{count}} Hosts werden verschoben",
+      "moveSuccess_one":    "1 Host verschoben",
+      "moveSuccess_other":  "{{count}} Hosts verschoben",
+      "moveFailed":         "Host(s) konnten nicht verschoben werden",
+      "partialError":       "{{count}} Host(s) konnte(n) nicht verschoben werden",
+      "announcePickUp":     "{{name}} aufgenommen. Pfeiltasten verwenden, um zwischen Gruppen zu wechseln.",
+      "announceOver":       "Wird über {{group}} bewegt",
+      "announceDrop":       "In {{group}} abgelegt",
+      "announceCancel":     "Verschieben abgebrochen"
     }
   },
   "certificates": {
@@ -1259,7 +1260,22 @@
         "online": "Online",
         "offline": "Offline",
         "pending": "Ausstehend"
-      }
+      },
+      "configureProxy": "Configure proxy for {{name}}"
+    },
+    "externalProxy": {
+      "title": "Externer Docker-Proxy",
+      "description": "Konfigurieren Sie einen TCP-Port, um die Docker-API dieses Agenten im Netzwerk bereitzustellen.",
+      "portLabel": "Port",
+      "portHint": "Geben Sie einen Port (1024–65535) zum Aktivieren oder 0 zum Deaktivieren ein.",
+      "securityWarning": "Dadurch werden Docker-API-Endpunkte in Ihrem lokalen Netzwerk freigegeben. Stellen Sie sicher, dass der Port durch eine Firewall geschützt und nur für vertrauenswürdige Hosts zugänglich ist.",
+      "statusLabel": "Proxy-Status",
+      "statusHeading": "Aktueller Status",
+      "statusActive": "Aktiv",
+      "statusInactive": "Inaktiv",
+      "copyConnectionString": "Docker-Verbindungszeichenfolge kopieren",
+      "reconnectNotice": "Portänderung wird bei der nächsten Agentenverbindung wirksam.",
+      "agentOffline": "Agent ist offline. Proxy-Status nicht verfügbar."
     }
   },
   "feedback": {
