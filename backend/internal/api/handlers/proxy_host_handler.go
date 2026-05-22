@@ -262,7 +262,7 @@ func (h *ProxyHostHandler) resolveProxyGroupReference(value any) (*uint, error) 
 	// expose internal auto-increment PKs and violate the API contract.
 	uuidValue, isString := value.(string)
 	if !isString {
-		return nil, fmt.Errorf("proxy_group_id must be a UUID string")
+		return nil, fmt.Errorf("invalid proxy_group_id: must be a UUID string")
 	}
 
 	trimmed := strings.TrimSpace(uuidValue)
