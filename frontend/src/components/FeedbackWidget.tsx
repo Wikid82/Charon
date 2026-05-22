@@ -33,80 +33,76 @@ export default function FeedbackWidget() {
 
   return (
     <div className="fixed bottom-6 right-6 z-50" onKeyDown={handlePanelKeyDown}>
+      {/* Panel and backdrop are only mounted when open — links never reach the tab
+          order or screen-reader tree while the widget is closed. */}
       {isOpen && (
-        <div
-          className="fixed inset-0 z-10"
-          aria-hidden="true"
-          onClick={() => setIsOpen(false)}
-        />
+        <>
+          {/* Backdrop — uses close() so focus always returns to the trigger */}
+          <div
+            className="fixed inset-0 z-10"
+            aria-hidden="true"
+            onClick={close}
+          />
+
+          <div className="absolute bottom-full right-0 mb-2 w-48 z-50">
+            <nav
+              id="feedback-panel"
+              aria-label={t('feedback.panelLabel')}
+              className={cn(
+                'rounded-lg border shadow-lg overflow-hidden',
+                'bg-white dark:bg-dark-card',
+                'border-gray-200 dark:border-gray-800'
+              )}
+            >
+              <a
+                ref={firstLinkRef}
+                href={GITHUB_BUG_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={t('feedback.reportBugAriaLabel')}
+                className={cn(
+                  'flex items-center gap-3 px-4 py-3 text-sm',
+                  'text-gray-700 dark:text-gray-300',
+                  'hover:bg-gray-100 dark:hover:bg-gray-800',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2',
+                  'transition-colors'
+                )}
+              >
+                <Bug className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <div>
+                  <div className="font-medium">{t('feedback.reportBug')}</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    {t('feedback.reportBugDescription')}
+                  </div>
+                </div>
+              </a>
+
+              <a
+                href={GITHUB_FEATURE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={t('feedback.requestFeatureAriaLabel')}
+                className={cn(
+                  'flex items-center gap-3 px-4 py-3 text-sm',
+                  'border-t border-gray-200 dark:border-gray-800',
+                  'text-gray-700 dark:text-gray-300',
+                  'hover:bg-gray-100 dark:hover:bg-gray-800',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2',
+                  'transition-colors'
+                )}
+              >
+                <Sparkles className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <div>
+                  <div className="font-medium">{t('feedback.requestFeature')}</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    {t('feedback.requestFeatureDescription')}
+                  </div>
+                </div>
+              </a>
+            </nav>
+          </div>
+        </>
       )}
-
-      {/* Panel */}
-      <div
-        className={cn(
-          'absolute bottom-full right-0 mb-2 w-48 z-50',
-          'transition-all duration-150 ease-out origin-bottom-right',
-          isOpen
-            ? 'opacity-100 scale-100 pointer-events-auto'
-            : 'opacity-0 scale-95 pointer-events-none'
-        )}
-      >
-        <nav
-          id="feedback-panel"
-          aria-label={t('feedback.panelLabel')}
-          className={cn(
-            'rounded-lg border shadow-lg overflow-hidden',
-            'bg-white dark:bg-dark-card',
-            'border-gray-200 dark:border-gray-800'
-          )}
-        >
-          <a
-            ref={firstLinkRef}
-            href={GITHUB_BUG_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={t('feedback.reportBugAriaLabel')}
-            className={cn(
-              'flex items-center gap-3 px-4 py-3 text-sm',
-              'text-gray-700 dark:text-gray-300',
-              'hover:bg-gray-100 dark:hover:bg-gray-800',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2',
-              'transition-colors'
-            )}
-          >
-            <Bug className="w-4 h-4 shrink-0" aria-hidden="true" />
-            <div>
-              <div className="font-medium">{t('feedback.reportBug')}</div>
-              <div className="text-xs text-gray-500 dark:text-gray-400">
-                {t('feedback.reportBugDescription')}
-              </div>
-            </div>
-          </a>
-
-          <a
-            href={GITHUB_FEATURE_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={t('feedback.requestFeatureAriaLabel')}
-            className={cn(
-              'flex items-center gap-3 px-4 py-3 text-sm',
-              'border-t border-gray-200 dark:border-gray-800',
-              'text-gray-700 dark:text-gray-300',
-              'hover:bg-gray-100 dark:hover:bg-gray-800',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2',
-              'transition-colors'
-            )}
-          >
-            <Sparkles className="w-4 h-4 shrink-0" aria-hidden="true" />
-            <div>
-              <div className="font-medium">{t('feedback.requestFeature')}</div>
-              <div className="text-xs text-gray-500 dark:text-gray-400">
-                {t('feedback.requestFeatureDescription')}
-              </div>
-            </div>
-          </a>
-        </nav>
-      </div>
 
       {/* Trigger button */}
       <button
