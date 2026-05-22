@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -76,10 +77,18 @@ func (h *ProxyGroupHandler) Create(c *gin.Context) {
 func (h *ProxyGroupHandler) Get(c *gin.Context) {
 	group, err := h.service.GetByUUID(c.Param("uuid"))
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "proxy group not found"})
+		if errors.Is(err, services.ErrProxyGroupNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "proxy group not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve proxy group"})
+		}
 		return
 	}
-	count, _ := h.service.GetHostCount(group.ID)
+	count, err := h.service.GetHostCount(group.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve host count"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"uuid":        group.UUID,
 		"name":        group.Name,
@@ -95,7 +104,11 @@ func (h *ProxyGroupHandler) Get(c *gin.Context) {
 func (h *ProxyGroupHandler) Update(c *gin.Context) {
 	group, err := h.service.GetByUUID(c.Param("uuid"))
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "proxy group not found"})
+		if errors.Is(err, services.ErrProxyGroupNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "proxy group not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve proxy group"})
+		}
 		return
 	}
 
@@ -135,7 +148,11 @@ func (h *ProxyGroupHandler) Update(c *gin.Context) {
 func (h *ProxyGroupHandler) Delete(c *gin.Context) {
 	group, err := h.service.GetByUUID(c.Param("uuid"))
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "proxy group not found"})
+		if errors.Is(err, services.ErrProxyGroupNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "proxy group not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve proxy group"})
+		}
 		return
 	}
 	if err := h.service.Delete(group.ID); err != nil {
