@@ -350,4 +350,105 @@ describe('DataTable', () => {
     const nameHeader = screen.getByText('Name').closest('th')
     expect(nameHeader).toHaveStyle({ width: '200px' })
   })
+
+  describe('renderDragHandle prop', () => {
+    it('does not render drag handle column when prop is not provided', () => {
+      render(
+        <DataTable data={mockData} columns={mockColumns} rowKey={(row) => row.id} />,
+      )
+      const headers = document.querySelectorAll('th')
+      expect(headers).toHaveLength(2)
+    })
+
+    it('renders an aria-hidden drag handle header cell when provided', () => {
+      render(
+        <DataTable
+          data={mockData}
+          columns={mockColumns}
+          rowKey={(row) => row.id}
+          renderDragHandle={(row) => <span data-testid={`drag-${row.id}`} />}
+        />,
+      )
+      const headers = document.querySelectorAll('th')
+      expect(headers).toHaveLength(3)
+      expect(headers[0]).toHaveAttribute('aria-hidden', 'true')
+    })
+
+    it('renders drag handle cell for each data row', () => {
+      render(
+        <DataTable
+          data={mockData}
+          columns={mockColumns}
+          rowKey={(row) => row.id}
+          renderDragHandle={(row) => <span data-testid={`drag-${row.id}`} />}
+        />,
+      )
+      expect(screen.getByTestId('drag-1')).toBeInTheDocument()
+      expect(screen.getByTestId('drag-2')).toBeInTheDocument()
+      expect(screen.getByTestId('drag-3')).toBeInTheDocument()
+    })
+
+    it('increases colSpan to include drag handle column in empty state', () => {
+      const { container } = render(
+        <DataTable
+          data={[]}
+          columns={mockColumns}
+          rowKey={(row) => row.id}
+          renderDragHandle={() => <span />}
+        />,
+      )
+      const emptyTd = container.querySelector('td')
+      // columns.length (2) + renderDragHandle (1) = 3
+      expect(emptyTd).toHaveAttribute('colspan', '3')
+    })
+
+    it('increases colSpan further when both selectable and renderDragHandle are provided', () => {
+      const { container } = render(
+        <DataTable
+          data={[]}
+          columns={mockColumns}
+          rowKey={(row) => row.id}
+          selectable={true}
+          selectedKeys={new Set()}
+          onSelectionChange={() => {}}
+          renderDragHandle={() => <span />}
+        />,
+      )
+      const emptyTd = container.querySelector('td')
+      // columns.length (2) + selectable (1) + renderDragHandle (1) = 4
+      expect(emptyTd).toHaveAttribute('colspan', '4')
+    })
+
+    it('stops click propagation on drag handle cell so onRowClick is not triggered', () => {
+      const onRowClick = vi.fn()
+      render(
+        <DataTable
+          data={mockData}
+          columns={mockColumns}
+          rowKey={(row) => row.id}
+          onRowClick={onRowClick}
+          renderDragHandle={(row) => <span data-testid={`drag-${row.id}`} />}
+        />,
+      )
+      const dragHandle = screen.getByTestId('drag-1')
+      fireEvent.click(dragHandle.parentElement!)
+      expect(onRowClick).not.toHaveBeenCalled()
+    })
+
+    it('stops keydown propagation on drag handle cell so onRowClick is not triggered', () => {
+      const onRowClick = vi.fn()
+      render(
+        <DataTable
+          data={mockData}
+          columns={mockColumns}
+          rowKey={(row) => row.id}
+          onRowClick={onRowClick}
+          renderDragHandle={(row) => <span data-testid={`drag-${row.id}`} />}
+        />,
+      )
+      const dragHandle = screen.getByTestId('drag-1')
+      fireEvent.keyDown(dragHandle.parentElement!, { key: 'Enter' })
+      expect(onRowClick).not.toHaveBeenCalled()
+    })
+  })
 })

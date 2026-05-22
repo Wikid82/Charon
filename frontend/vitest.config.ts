@@ -35,6 +35,7 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       clean: false,
+      reportOnFailure: true,
       reportsDirectory: coverageReportsDirectory,
       reporter: ['text', 'json', 'html', 'lcov', 'json-summary'],
       exclude: [

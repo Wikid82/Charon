@@ -7,6 +7,7 @@ import {
   deleteProxyHost,
   bulkUpdateACL,
   bulkUpdateSecurityHeaders,
+  bulkUpdateGroup,
   type ProxyHost
 } from '../api/proxyHosts';
 
@@ -59,6 +60,16 @@ export function useProxyHosts() {
     },
   });
 
+  const bulkGroupMutation = useMutation({
+    mutationFn: ({
+      hostUUIDs,
+      proxyGroupId,
+    }: {
+      hostUUIDs: string[]
+      proxyGroupId: string | null
+    }) => bulkUpdateGroup(hostUUIDs, proxyGroupId),
+  });
+
   return {
     hosts: query.data || [],
     loading: query.isLoading,
@@ -71,10 +82,13 @@ export function useProxyHosts() {
       bulkUpdateACLMutation.mutateAsync({ hostUUIDs, accessListID }),
     bulkUpdateSecurityHeaders: (hostUUIDs: string[], securityHeaderProfileId: number | null) =>
       bulkUpdateSecurityHeadersMutation.mutateAsync({ hostUUIDs, securityHeaderProfileId }),
+    bulkUpdateGroup: (hostUUIDs: string[], proxyGroupId: string | null) =>
+      bulkGroupMutation.mutateAsync({ hostUUIDs, proxyGroupId }),
     isCreating: createMutation.isPending,
     isUpdating: updateMutation.isPending,
     isDeleting: deleteMutation.isPending,
     isBulkUpdating: bulkUpdateACLMutation.isPending || bulkUpdateSecurityHeadersMutation.isPending,
+    isBulkUpdatingGroup: bulkGroupMutation.isPending,
   };
 }
 
