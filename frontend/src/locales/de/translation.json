@@ -173,19 +173,19 @@
     "hostCount_other": "{{count}} Hosts",
     "hostCount": "{{count}} Hosts",
     "dnd": {
-      "dragHandleSingle":   "Drag to move to another group",
-      "dragHandleMultiple": "Drag to move {{count}} selected hosts",
-      "roleDescription":    "Draggable proxy host",
-      "movingOne":          "Moving host",
-      "movingMultiple":     "Moving {{count}} hosts",
-      "moveSuccess_one":    "Moved 1 host",
-      "moveSuccess_other":  "Moved {{count}} hosts",
-      "moveFailed":         "Failed to move host(s)",
-      "partialError":       "{{count}} host(s) failed to move",
-      "announcePickUp":     "Picked up {{name}}. Use arrow keys to move between groups.",
-      "announceOver":       "Moving over {{group}}",
-      "announceDrop":       "Dropped into {{group}}",
-      "announceCancel":     "Move cancelled"
+      "dragHandleSingle":   "Zum Verschieben in eine andere Gruppe ziehen",
+      "dragHandleMultiple": "{{count}} ausgewählte Hosts verschieben",
+      "roleDescription":    "Verschiebbarer Proxy-Host",
+      "movingOne":          "Host wird verschoben",
+      "movingMultiple":     "{{count}} Hosts werden verschoben",
+      "moveSuccess_one":    "1 Host verschoben",
+      "moveSuccess_other":  "{{count}} Hosts verschoben",
+      "moveFailed":         "Host(s) konnten nicht verschoben werden",
+      "partialError":       "{{count}} Host(s) konnte(n) nicht verschoben werden",
+      "announcePickUp":     "{{name}} aufgenommen. Pfeiltasten verwenden, um zwischen Gruppen zu wechseln.",
+      "announceOver":       "Wird über {{group}} bewegt",
+      "announceDrop":       "In {{group}} abgelegt",
+      "announceCancel":     "Verschieben abgebrochen"
     }
   },
   "certificates": {

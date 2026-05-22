@@ -173,19 +173,19 @@
     "hostCount_other": "{{count}} 个主机",
     "hostCount": "{{count}} 个主机",
     "dnd": {
-      "dragHandleSingle":   "Drag to move to another group",
-      "dragHandleMultiple": "Drag to move {{count}} selected hosts",
-      "roleDescription":    "Draggable proxy host",
-      "movingOne":          "Moving host",
-      "movingMultiple":     "Moving {{count}} hosts",
-      "moveSuccess_one":    "Moved 1 host",
-      "moveSuccess_other":  "Moved {{count}} hosts",
-      "moveFailed":         "Failed to move host(s)",
-      "partialError":       "{{count}} host(s) failed to move",
-      "announcePickUp":     "Picked up {{name}}. Use arrow keys to move between groups.",
-      "announceOver":       "Moving over {{group}}",
-      "announceDrop":       "Dropped into {{group}}",
-      "announceCancel":     "Move cancelled"
+      "dragHandleSingle":   "拖拽以移动到另一个分组",
+      "dragHandleMultiple": "拖拽以移动 {{count}} 个选定的主机",
+      "roleDescription":    "可拖拽的代理主机",
+      "movingOne":          "正在移动主机",
+      "movingMultiple":     "正在移动 {{count}} 个主机",
+      "moveSuccess_one":    "已移动 1 个主机",
+      "moveSuccess_other":  "已移动 {{count}} 个主机",
+      "moveFailed":         "移动主机失败",
+      "partialError":       "{{count}} 个主机移动失败",
+      "announcePickUp":     "已拾取 {{name}}。使用方向键在分组之间移动。",
+      "announceOver":       "正在移动到 {{group}} 上方",
+      "announceDrop":       "已放入 {{group}}",
+      "announceCancel":     "移动已取消"
     }
   },
   "certificates": {

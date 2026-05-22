@@ -173,19 +173,19 @@
     "hostCount_other": "{{count}} hôtes",
     "hostCount": "{{count}} hôtes",
     "dnd": {
-      "dragHandleSingle":   "Drag to move to another group",
-      "dragHandleMultiple": "Drag to move {{count}} selected hosts",
-      "roleDescription":    "Draggable proxy host",
-      "movingOne":          "Moving host",
-      "movingMultiple":     "Moving {{count}} hosts",
-      "moveSuccess_one":    "Moved 1 host",
-      "moveSuccess_other":  "Moved {{count}} hosts",
-      "moveFailed":         "Failed to move host(s)",
-      "partialError":       "{{count}} host(s) failed to move",
-      "announcePickUp":     "Picked up {{name}}. Use arrow keys to move between groups.",
-      "announceOver":       "Moving over {{group}}",
-      "announceDrop":       "Dropped into {{group}}",
-      "announceCancel":     "Move cancelled"
+      "dragHandleSingle":   "Glisser pour déplacer vers un autre groupe",
+      "dragHandleMultiple": "Glisser pour déplacer {{count}} hôtes sélectionnés",
+      "roleDescription":    "Hôte proxy déplaçable",
+      "movingOne":          "Déplacement de l'hôte",
+      "movingMultiple":     "Déplacement de {{count}} hôtes",
+      "moveSuccess_one":    "1 hôte déplacé",
+      "moveSuccess_other":  "{{count}} hôtes déplacés",
+      "moveFailed":         "Échec du déplacement du ou des hôte(s)",
+      "partialError":       "{{count}} hôte(s) n'ont pas pu être déplacés",
+      "announcePickUp":     "{{name}} saisi. Utilisez les touches fléchées pour vous déplacer entre les groupes.",
+      "announceOver":       "Déplacement au-dessus de {{group}}",
+      "announceDrop":       "Déposé dans {{group}}",
+      "announceCancel":     "Déplacement annulé"
     }
   },
   "certificates": {
