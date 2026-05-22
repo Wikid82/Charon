@@ -44,6 +44,17 @@ jobs:
           scripts/cerberus_integration.sh 2>&1 | tee cerberus-test-output.txt
           exit "${PIPESTATUS[0]}"
 
+      - name: Upload Container Logs on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cerberus-container-logs-${{ github.run_id }}
+          path: |
+            /tmp/charon-cerberus-test.log
+            /tmp/cerberus-backend.log
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Dump Debug Info on Failure
         if: failure()
         run: |
