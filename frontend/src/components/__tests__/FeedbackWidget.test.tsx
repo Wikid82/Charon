@@ -24,15 +24,12 @@ describe('FeedbackWidget', () => {
     expect(trigger).toHaveAttribute('aria-expanded', 'false')
   })
 
-  // 3. Panel is not visible (pointer-events-none) initially
-  it('panel is not visible initially', () => {
+  // 3. Panel is not in the DOM initially (conditional render keeps links out of tab order)
+  it('panel is not in the DOM initially', () => {
     const { container } = render(<FeedbackWidget />)
-    // The panel wrapper should have pointer-events-none when closed
+    // With conditional rendering the nav is unmounted when closed
     const panel = container.querySelector('#feedback-panel')
-    expect(panel).not.toBeNull()
-    // The wrapping div should have opacity-0 and pointer-events-none
-    const panelWrapper = panel!.closest('[class*="opacity-0"]')
-    expect(panelWrapper).not.toBeNull()
+    expect(panel).toBeNull()
   })
 
   // 4. Clicking trigger opens the panel
@@ -149,6 +146,22 @@ describe('FeedbackWidget', () => {
       'aria-expanded',
       'false'
     )
+  })
+
+  // 13a. Clicking backdrop returns focus to trigger (uses close() path)
+  it('clicking backdrop returns focus to trigger', async () => {
+    const { container } = render(<FeedbackWidget />)
+    const trigger = screen.getByRole('button', { name: 'Open feedback menu' })
+    await userEvent.click(trigger)
+
+    const backdrop = container.querySelector('[aria-hidden="true"]') as HTMLElement
+    fireEvent.click(backdrop)
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        screen.getByRole('button', { name: 'Open feedback menu' })
+      )
+    })
   })
 
   // 14. i18n keys render correctly
