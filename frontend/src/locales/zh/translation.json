@@ -168,6 +168,7 @@
     "groupColor": "颜色",
     "noGroups": "暂无分组",
     "ungrouped": "未分组",
+    "manageGroupsDescription": "View, create, edit, and delete proxy groups.",
     "assignToGroup": "分配到分组",
     "hostCount_one": "{{count}} 个主机",
     "hostCount_other": "{{count}} 个主机",

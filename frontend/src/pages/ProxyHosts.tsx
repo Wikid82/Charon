@@ -46,6 +46,7 @@ import { useSecurityHeaderProfiles } from '../hooks/useSecurityHeaders'
 import { useProxyGroupDnD } from '../hooks/useProxyGroupDnD'
 import { ProxyGroupBadge } from '../components/ProxyGroupBadge'
 import { ProxyGroupForm } from '../components/ProxyGroupForm'
+import { ManageGroupsDialog } from '../components/ManageGroupsDialog'
 import { GroupDropZone } from '../components/GroupDropZone'
 import { ProxyHostDragHandle } from '../components/ProxyHostDragHandle'
 import compareHosts from '../utils/compareHosts'
@@ -96,6 +97,7 @@ export default function ProxyHosts() {
   const [showGroupForm, setShowGroupForm] = useState(false)
   const [editingGroup, setEditingGroup] = useState<ProxyGroup | undefined>()
   const [groupToDelete, setGroupToDelete] = useState<ProxyGroup | null>(null)
+  const [showManageGroupsDialog, setShowManageGroupsDialog] = useState(false)
   const [showAssignGroupModal, setShowAssignGroupModal] = useState(false)
   const [assignTargetGroupUUID, setAssignTargetGroupUUID] = useState<string | null>(null)
   const [isAssigning, setIsAssigning] = useState(false)
@@ -661,10 +663,7 @@ export default function ProxyHosts() {
             <Button
               variant="outline"
               leftIcon={FolderOpen}
-              onClick={() => {
-                setEditingGroup(undefined)
-                setShowGroupForm(true)
-              }}
+              onClick={() => setShowManageGroupsDialog(true)}
             >
               {t('proxyGroups.manageGroups')}
             </Button>
@@ -1428,6 +1427,12 @@ export default function ProxyHosts() {
             setEditingGroup(undefined)
           }}
           group={editingGroup}
+        />
+
+        {/* Manage Groups Dialog */}
+        <ManageGroupsDialog
+          open={showManageGroupsDialog}
+          onClose={() => setShowManageGroupsDialog(false)}
         />
 
         {/* Delete Group Confirmation Dialog */}

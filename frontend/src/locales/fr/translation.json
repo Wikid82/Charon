@@ -168,6 +168,7 @@
     "groupColor": "Couleur",
     "noGroups": "Aucun groupe pour l'instant",
     "ungrouped": "Non groupé",
+    "manageGroupsDescription": "View, create, edit, and delete proxy groups.",
     "assignToGroup": "Assigner à un Groupe",
     "hostCount_one": "{{count}} hôte",
     "hostCount_other": "{{count}} hôtes",
