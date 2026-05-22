@@ -120,8 +120,13 @@ on_failure() {
 # Cleanup function
 cleanup() {
     log_info "Cleaning up test resources..."
+    docker logs "${CONTAINER_NAME}" > /tmp/charon-cerberus-test.log 2>&1 || true
+    docker logs "${BACKEND_CONTAINER}" > /tmp/cerberus-backend.log 2>&1 || true
     docker rm -f ${CONTAINER_NAME} 2>/dev/null || true
     docker rm -f ${BACKEND_CONTAINER} 2>/dev/null || true
+    docker volume rm charon_cerberus_test_data 2>/dev/null || true
+    docker volume rm caddy_cerberus_test_data 2>/dev/null || true
+    docker volume rm caddy_cerberus_test_config 2>/dev/null || true
     rm -f "${TMP_COOKIE:-}" 2>/dev/null || true
     log_info "Cleanup complete"
 }
@@ -162,6 +167,9 @@ fi
 log_info "Stopping any existing test containers..."
 docker rm -f ${CONTAINER_NAME} 2>/dev/null || true
 docker rm -f ${BACKEND_CONTAINER} 2>/dev/null || true
+docker volume rm charon_cerberus_test_data 2>/dev/null || true
+docker volume rm caddy_cerberus_test_data 2>/dev/null || true
+docker volume rm caddy_cerberus_test_config 2>/dev/null || true
 
 # Ensure network exists
 if ! docker network inspect containers_default >/dev/null 2>&1; then
@@ -243,62 +251,7 @@ curl -s -X POST -H "Content-Type: application/json" \
 log_info "Authentication complete"
 
 # ============================================================================
-# Step 4: Create proxy host
-# ============================================================================
-log_info "Creating proxy host '${TEST_DOMAIN}' pointing to backend..."
-PROXY_HOST_PAYLOAD=$(cat <<EOF
-{
-    "name": "cerberus-test-backend",
-    "domain_names": "${TEST_DOMAIN}",
-    "forward_scheme": "http",
-    "forward_host": "${BACKEND_CONTAINER}",
-    "forward_port": 80,
-    "enabled": true
-}
-EOF
-)
-
-CREATE_RESP=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" \
-    -d "${PROXY_HOST_PAYLOAD}" \
-    -b "${TMP_COOKIE}" \
-    "http://localhost:${API_PORT}/api/v1/proxy-hosts")
-CREATE_STATUS=$(echo "$CREATE_RESP" | tail -n1)
-
-if [ "$CREATE_STATUS" = "201" ]; then
-    log_info "Proxy host created successfully"
-else
-    log_info "Proxy host may already exist (status: $CREATE_STATUS)"
-fi
-
-# Wait for Caddy to apply config
-sleep 3
-
-# ============================================================================
-# Step 5: Create WAF ruleset (XSS protection)
-# ============================================================================
-log_info "Creating XSS WAF ruleset..."
-XSS_RULESET=$(cat <<'EOF'
-{
-    "name": "cerberus-xss",
-    "content": "SecRule REQUEST_BODY|ARGS|ARGS_NAMES \"<script\" \"id:99001,phase:2,deny,status:403,msg:'XSS Attack Detected'\""
-}
-EOF
-)
-
-XSS_RESP=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" \
-    -d "${XSS_RULESET}" \
-    -b "${TMP_COOKIE}" \
-    "http://localhost:${API_PORT}/api/v1/security/rulesets")
-XSS_STATUS=$(echo "$XSS_RESP" | tail -n1)
-
-if [ "$XSS_STATUS" = "200" ] || [ "$XSS_STATUS" = "201" ]; then
-    log_info "XSS ruleset created"
-else
-    log_warn "XSS ruleset creation returned status: $XSS_STATUS"
-fi
-
-# ============================================================================
-# Step 6: Enable WAF in block mode + configure rate limiting
+# Step 4: Enable WAF in block mode + configure rate limiting
 # ============================================================================
 log_info "Enabling WAF (block mode) and rate limiting (${RATE_LIMIT_REQUESTS} req / ${RATE_LIMIT_WINDOW_SEC} sec)..."
 SECURITY_CONFIG=$(cat <<EOF
@@ -328,9 +281,66 @@ else
     log_warn "Security config returned status: $SEC_STATUS"
 fi
 
-# Wait for Caddy to reload with all security features
-log_info "Waiting for Caddy to apply security configuration..."
-sleep 5
+# ============================================================================
+# Step 5: Create WAF ruleset (XSS protection)
+# ============================================================================
+log_info "Creating XSS WAF ruleset..."
+XSS_RULESET=$(cat <<'EOF'
+{
+    "name": "cerberus-xss",
+    "content": "SecRule REQUEST_BODY|ARGS|ARGS_NAMES \"<script\" \"id:99001,phase:2,deny,status:403,msg:'XSS Attack Detected'\""
+}
+EOF
+)
+
+XSS_RESP=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" \
+    -d "${XSS_RULESET}" \
+    -b "${TMP_COOKIE}" \
+    "http://localhost:${API_PORT}/api/v1/security/rulesets")
+XSS_STATUS=$(echo "$XSS_RESP" | tail -n1)
+
+if [ "$XSS_STATUS" = "200" ] || [ "$XSS_STATUS" = "201" ]; then
+    log_info "XSS ruleset created"
+else
+    log_warn "XSS ruleset creation returned status: $XSS_STATUS"
+fi
+
+# ============================================================================
+# Step 6: Create proxy host
+# ============================================================================
+log_info "Creating proxy host '${TEST_DOMAIN}' pointing to backend..."
+PROXY_HOST_PAYLOAD=$(cat <<EOF
+{
+    "name": "cerberus-test-backend",
+    "domain_names": "${TEST_DOMAIN}",
+    "forward_scheme": "http",
+    "forward_host": "${BACKEND_CONTAINER}",
+    "forward_port": 80,
+    "enabled": true
+}
+EOF
+)
+
+CREATE_RESP=$(curl -s -w "\n%{http_code}" -X POST \
+    -H "Content-Type: application/json" \
+    -b "${TMP_COOKIE}" \
+    "http://localhost:${API_PORT}/api/v1/proxy-hosts" \
+    -d "${PROXY_HOST_PAYLOAD}")
+CREATE_STATUS=$(echo "$CREATE_RESP" | tail -n1)
+CREATE_BODY=$(echo "$CREATE_RESP" | head -n -1)
+
+if [ "$CREATE_STATUS" = "201" ]; then
+    log_info "Proxy host created successfully"
+elif [ "$CREATE_STATUS" = "409" ]; then
+    log_info "Proxy host already exists (HTTP 409) — continuing"
+else
+    log_error "Proxy host creation failed (HTTP ${CREATE_STATUS})"
+    log_error "Response body: ${CREATE_BODY}"
+    exit 1
+fi
+
+# Wait for Caddy to apply config
+sleep 3
 
 echo ""
 echo "=============================================="

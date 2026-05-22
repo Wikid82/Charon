@@ -21,6 +21,12 @@ vi.mock('../../hooks/useAccessLists', () => ({ useAccessLists: vi.fn() }))
 vi.mock('../../hooks/useSecurityHeaders', () => ({
   useSecurityHeaderProfiles: vi.fn(() => ({ data: [], isLoading: false, error: null })),
 }))
+vi.mock('../../hooks/useProxyGroups', () => ({
+  useProxyGroups: vi.fn(() => ({ data: [], isLoading: false, error: null })),
+  useCreateProxyGroup: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
+  useUpdateProxyGroup: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
+  useDeleteProxyGroup: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
+}))
 vi.mock('../../api/settings', () => ({ getSettings: vi.fn() }))
 vi.mock('../../api/uptime', () => ({ getMonitors: vi.fn() }))
 vi.mock('../../api/backups', () => ({ createBackup: vi.fn() }))
@@ -51,6 +57,8 @@ const createProxyHostsHookValue = (overrides: Partial<ProxyHostsHookValue> = {})
   isUpdating: false,
   isDeleting: false,
   isBulkUpdating: false,
+  bulkUpdateGroup: vi.fn() as unknown as ProxyHostsHookValue['bulkUpdateGroup'],
+  isBulkUpdatingGroup: false,
   ...overrides,
 })
 

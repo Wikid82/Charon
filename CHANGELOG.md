@@ -90,6 +90,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Proxy Groups: Dead Code Removal**: Removed unreachable code block in `resolveProxyGroupReference` — proxy host handler now has no dead branches
+- **Proxy Groups: Test Coverage**: Added backend tests for proxy host create/update with valid group UUID, bulk update service error, and bulk update Caddy apply error; added frontend tests for `bulkUpdateGroup` API, `useProxyHosts` bulk mutation hook, `GroupDropZone`, `ProxyHostDragHandle`, and `DataTable` renderDragHandle prop — raises PR #1018 patch coverage from 84% to ≥90%
+
 - **CI: Package Deduplication**: Removed 3 duplicate `devDependency` keys in `package.json` for `@typescript-eslint/eslint-plugin`, `@typescript-eslint/parser`, and related packages — duplicate keys caused the last value to silently overwrite earlier entries
 - **Frontend: Fast-Refresh Violation**: Extracted `isInUse` and `isDeletable` helper functions from `CertificateList` into a new `certificateUtils` utility module to satisfy React Fast Refresh constraints (non-component exports must not share a file with components)
 - **Accessibility: Form Labels**: Replaced 5 invalid `<label>` elements wrapping non-labelable content with `<span>` elements in `AccessListForm`, `AccessListSelector`, and `CSPBuilder` — resolves WCAG 1.3.1 failures reported by axe-core
