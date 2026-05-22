@@ -1,7 +1,7 @@
-# PR #1018 Coverage Gap Remediation — Proxy Groups Feature
+# PR #1026 Cerberus Integration CI Failure Fix — Proxy Groups
 
 **Status**: Active
-**Target**: PR #1018 (`feature/proxy_groups` → `main`)
+**Target**: PR #1026 (`development` → `main`)
 
 ---
 
@@ -9,446 +9,261 @@
 
 ### Overview
 
-PR #1018 introduces proxy group management: hosts can be assigned to named groups, dragged between groups via a drag-and-drop interface, and bulk-reassigned via a new `BulkUpdateGroup` API endpoint. Codecov reports **84.12% patch coverage**, failing the **90% CI gate**. This spec identifies every uncovered block and specifies the exact tests to close the gaps.
+The Cerberus Integration CI workflow (`.github/workflows/cerberus-integration.yml`) fails on PR #1026 with TC-3 ("Not all malicious requests were blocked by WAF") and TC-4 ("Too many legitimate requests failed"). TC-1, TC-2, and TC-5 pass.
+
+The root cause is a **silent HTTP 500** on proxy host creation at `13:10:30.980Z` (248 ms after API ready). The test script (`scripts/cerberus_integration.sh`) treats any non-201 response as "Proxy host may already exist" and continues without the proxy host in the database. As a result, the security configuration is applied to Caddy with **zero proxy hosts**, producing no `reverse_proxy` route for the test domain. All test traffic reaches a fallback handler that returns the React SPA (`<!DOCTYPE html>`), which the WAF and rate limiter never see.
+
+The **exact Caddy rejection reason is unknown** due to two compounding observability gaps: the script discards the HTTP response body (containing the full error), and the CI debug step runs after `trap cleanup EXIT` has already removed all containers. This plan fixes the observability gap first, then addresses every confirmed defect.
+
+A secondary defect also exists: even if proxy host creation succeeded, `buildWAFHandler` in `config.go` returns `nil` when `secCfg.WAFMode == "disabled"` (the seeded DB value), so the WAF handler would not be present in the Caddy route during the initial proxy host creation. The security config PUT (step 5) sets `WAFMode = "block"` and triggers a second `ApplyConfig`, at which point the WAF would apply correctly. This ordering issue is a separate concern from the 500 and is documented below.
+
+A tertiary defect is stale named Docker volumes: the cleanup function removes containers but not volumes. Stale `charon.db` data from a prior run persists across CI runs and can leave the database in a partially configured state at startup.
 
 ### Objectives
 
-1. Bring Codecov patch coverage from 84.12% to ≥ 90%.
-2. Identify all uncovered lines in changed files.
-3. Specify tests with enough detail for direct implementation without further research.
-4. Address one confirmed dead-code block via code removal rather than a contrived test.
+1. Fix the observability gap so the next CI run exposes the exact Caddy rejection reason.
+2. Fix the script's silent failure on any non-201 proxy host creation response.
+3. Fix the CI workflow debug step ordering (containers are removed before logs are captured).
+4. Eliminate stale volume state between CI runs.
+5. Fix the `buildWAFHandler` / DB-seed interaction so WAF applies from the first `ApplyConfig`.
+6. Add a mutex to `ApplyConfig` to prevent concurrent invocations.
+7. Fix the CLI `migrate` subcommand missing `ProxyGroup` in the AutoMigrate list.
 
 ---
 
 ## 2. Research Findings
 
-### 2.1 Architecture
+### 2.1 CI Failure Chain
 
-- **Backend**: Gin + GORM + SQLite (in-memory for tests). Handlers: `backend/internal/api/handlers/`. Key file: `proxy_host_handler.go`.
-- **Frontend**: React + TypeScript + Vitest. API: `frontend/src/api/`, hooks: `frontend/src/hooks/`, components: `frontend/src/components/`.
-- **Coverage tooling**: `scripts/go-test-coverage.sh` (backend), `scripts/frontend-test-coverage.sh` (frontend), `scripts/local-patch-report.sh` (patch delta report).
+Confirmed from `.github/logs/ci_failure.log`:
 
-### 2.2 Confirmed Uncovered Lines — Backend
+| Time (UTC) | Event | Status |
+|---|---|---|
+| 13:10:15.390Z | Charon container started | — |
+| 13:10:30.732Z | Charon API health check passed | PASS |
+| 13:10:30.960Z | Authentication complete | PASS |
+| 13:10:30.980Z | `POST /api/v1/proxy-hosts` | **HTTP 500** |
+| 13:10:33.982Z | XSS WAF ruleset created (`POST /api/v1/security/waf/rulesets`) | HTTP 201 |
+| 13:10:34.011Z | Security config applied (`PUT /api/v1/security/config`) | HTTP 200 |
+| 13:10:39.012Z | TC-1: Cerberus features enabled | PASS |
+| 13:10:39.012Z | TC-2: Handler order in Caddy config (1 route) | PASS |
+| 13:10:39.013Z | TC-3: WAF blocks malicious requests (0/3 blocked) | **FAIL** |
+| 13:10:39.013Z | TC-4: Legitimate traffic flows to httpbin (all return `<!DOCTYPE html>`) | **FAIL** |
 
-Source: fresh coverage profile `backend/internal/api/handlers/coverage_handlers.txt` (4518 lines).
+### 2.2 Defect 1 — Script: Silent Failure on Non-201 (CRITICAL)
 
-File: `backend/internal/api/handlers/proxy_host_handler.go`
+**File**: `scripts/cerberus_integration.sh`, lines 261–272
 
-| Block | Lines | Description | Root Cause |
-|---|---|---|---|
-| `271.19,273.3 1 0` | 271–273 | `if trimmed == ""` in `resolveProxyGroupReference` | **Dead code** — `parseNullableUintField` handles blank strings internally, returning `nil, nil` (no error), so the early-return at `if parseErr == nil` fires before this check |
-| `420.3,420.46 1 0` | 420 | `payload["proxy_group_id"] = resolvedGroupID` in Create handler | No test creates a proxy host with a valid ProxyGroup UUID in the DB |
-| `635.3,635.38 1 0` | 635 | `host.ProxyGroupID = resolvedGroupID` in Update handler | No test updates a proxy host with a valid ProxyGroup UUID in the DB |
-| `904.48,909.12 2 0` | 904–909 | `errors = append(...)` on `service.Update` failure in `BulkUpdateGroup` | Existing PartialFailure test only exercises `GetByUUID` failure; `service.Update` never fails |
-| `914.42,915.73 1 0` | 914 | `if updated > 0 && h.caddyManager != nil` in `BulkUpdateGroup` | All test setups pass `nil` for `caddyManager` |
-| `915.73,922.4 2 0` | 915–922 | `caddyManager.ApplyConfig(...)` error path in `BulkUpdateGroup` | Same as above |
+```bash
+CREATE_RESP=$(curl -s -w "\n%{http_code}" -X POST ... -d "${PROXY_HOST_PAYLOAD}" ...)
+CREATE_STATUS=$(echo "$CREATE_RESP" | tail -n1)
+if [ "$CREATE_STATUS" = "201" ]; then
+    log_info "Proxy host created successfully"
+else
+    log_info "Proxy host may already exist (status: $CREATE_STATUS)"   # silent continue
+fi
+sleep 3
+```
 
-### 2.3 Dead Code Analysis — Lines 271–273
+- Any non-201 status (including 500) is logged as "may already exist" — **no exit, no body extraction**.
+- The response body containing `"Failed to apply configuration: apply failed (rolled back): <caddy_error>"` is **never read or logged**.
+- Script continues to steps 5 and 6 with an empty proxy host table.
 
-```go
-// parseNullableUintField (line ~170)
-case string:
-    trimmed := strings.TrimSpace(v)
-    if trimmed == "" {
-        return nil, nil  // ← blank strings return nil,nil — NO error raised
-    }
+### 2.3 Defect 2 — Script: Stale Named Volumes (CRITICAL)
 
-// resolveProxyGroupReference (line 260)
-func (h *ProxyHostHandler) resolveProxyGroupReference(value any) (*uint, error) {
-    parsedID, parseErr := parseNullableUintField(value, "proxy_group_id")
-    if parseErr == nil {
-        return parsedID, nil  // ← blank strings exit here (parseErr is nil)
-    }
-    uuidValue, isString := value.(string)
-    ...
-    trimmed := strings.TrimSpace(uuidValue)
-    if trimmed == "" {        // ← DEAD: blank strings already handled above
-        return nil, nil       // ← lines 271-273: never reached
-    }
-    ...
+The `cleanup()` function and the per-run `docker rm -f` commands remove containers but **never remove named volumes**:
+
+```bash
+cleanup() {
+    docker rm -f ${CONTAINER_NAME} 2>/dev/null || true
+    docker rm -f ${BACKEND_CONTAINER} 2>/dev/null || true
+    # volumes charon_cerberus_test_data, caddy_cerberus_test_data, caddy_cerberus_test_config
+    # are NOT removed
 }
 ```
 
-**Conclusion**: Unreachable. Removal is the correct fix; no test can cover it.
+On repeated CI runs the volumes persist, leaving `charon.db` with proxy hosts, WAF rulesets, and security config from the prior run. On a stale-volume start, `SeedDefaultSecurityConfig` uses `FirstOrCreate` and preserves old values rather than re-seeding; a previously committed `WAFMode = "block"` or `Enabled = true` survives. Each run must start from a known-good empty state.
 
-### 2.4 Caddy Manager Pattern in Existing Tests
+### 2.4 Defect 3 — CI Workflow: Debug Step After Container Cleanup (CRITICAL)
 
-`TestProxyHostErrors` (line ~364 of test file) demonstrates the established pattern for testing `caddyManager` error paths. No interface extraction is needed — a real `caddy.Manager` is constructed with a failing `httptest.Server`:
+**File**: `.github/workflows/cerberus-integration.yml`
+
+The "Dump Debug Info on Failure" step executes `docker logs charon-cerberus-test`, but `trap cleanup EXIT` has already run inside the script and removed the container. Confirmed in the CI log at `13:11:49Z`: `Error: No such container: charon-cerberus-test`.
+
+### 2.5 Root Cause of HTTP 500: Observability Gap
+
+The `Create` handler (`proxy_host_handler.go`) returns HTTP 500 when `ApplyConfig` fails:
 
 ```go
-caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-    w.WriteHeader(http.StatusInternalServerError)
-}))
-client := caddy.NewClientWithExpectedPort(caddyServer.URL, expectedPortFromURL(t, caddyServer.URL))
-manager := caddy.NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
-h := NewProxyHostHandler(db, manager, ns, nil)
+c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
 ```
 
-This same pattern applies to `BulkUpdateGroup` (lines 914–922).
+The `err.Error()` string is one of:
+- `"apply failed (rolled back): <caddy_error>"` — Caddy's `/load` API rejected the config.
+- `"save snapshot: <io_error>"` — disk error writing the config snapshot.
+- `"validate config: <validation_error>"` — local validation of generated config failed.
 
-### 2.5 Existing PR Test Functions (lines 2381+)
+The exact value is unknown because the script discards the response body. Likely candidates given the CI environment:
+- **Stale Caddy data** in the named volumes causing `/load` to reject the config.
+- A **Caddy JSON validation error** specific to the generated config for `cerberus.test.local` in non-E2E mode (ACME automation policy for a `.local` domain, rate-limit or WAF handler shape mismatch, etc.).
+- A **concurrent `ApplyConfig` collision** between the background startup goroutine and the request handler (no mutex).
 
-Already in `proxy_host_handler_test.go`:
+Fixes 1, 2, and 3 (observability + volume cleanup) will reveal the exact error on the next CI run.
 
-- `setupTestRouterWithProxyGroupTable` — router helper with `ProxyGroup` + `ProxyHost` auto-migrate
-- `TestProxyHostHandler_ResolveProxyGroupReference_TargetedBranches`
-- `TestProxyHostCreate_WithProxyGroupReference_BadUUID_400`
-- `TestProxyHostUpdate_WithProxyGroupReference_BadUUID_400`
-- `TestProxyHostHandler_BulkUpdateGroup_Success`
-- `TestProxyHostHandler_BulkUpdateGroup_Ungrouped`
-- `TestProxyHostHandler_BulkUpdateGroup_InvalidGroup`
-- `TestProxyHostHandler_BulkUpdateGroup_PartialFailure` — exercises `GetByUUID` failure only
-- `TestProxyHostHandler_BulkUpdateGroup_EmptyUUIDs`
-- `TestProxyHostHandler_BulkUpdateGroup_InvalidJSON`
+### 2.6 Defect 4 — buildWAFHandler / DB-Seed Interaction (SECONDARY)
 
-### 2.6 Confirmed Uncovered Lines — Frontend
+`SeedDefaultSecurityConfig` (`backend/internal/models/seed.go`) creates the "default" `SecurityConfig` row with `Enabled: false` and `WAFMode: "disabled"`. At proxy host creation time, `computeEffectiveFlags` reads this DB record and sets `wafEnabled = false` (because `Enabled == false` forces all flags to false). The WAF handler is therefore absent from the Caddy route generated during proxy host creation.
 
-| File | Gap | Root Cause |
-|---|---|---|
-| `frontend/src/api/proxyHosts.ts` | `bulkUpdateGroup()` function body | Added in PR; `proxyHosts.test.ts` has no tests for it |
-| `frontend/src/hooks/useProxyHosts.ts` | `bulkGroupMutation` and `bulkUpdateGroup` wrapper | `useProxyHosts-bulk.test.tsx` + `useProxyHosts.test.tsx` have zero `bulkUpdateGroup` tests |
-| `frontend/src/components/GroupDropZone.tsx` | `isOver` ring-style branch; `isDragActive` aria-dropeffect branch | No `GroupDropZone.test.tsx` exists |
-| `frontend/src/components/ProxyHostDragHandle.tsx` | `isDragging` opacity branch; `dragCount > 1` aria-label branch | No `ProxyHostDragHandle.test.tsx` exists |
-| `frontend/src/components/ui/DataTable.tsx` | `renderDragHandle` prop — header cell, row cell, colSpan (lines 103, 122, 225–231) | No DataTable test exercises `renderDragHandle` |
+After the security config PUT (step 5 of the script), `SecurityConfig.Enabled = true` and `WAFMode = "block"` are written to the DB. The subsequent `ApplyConfig` call correctly builds the WAF handler. However, this ordering means the first `ApplyConfig` — the one that actually registers the proxy route — has no WAF. Because the proxy host creation currently fails with 500, this secondary ordering issue is masked; it would surface as TC-3 failing even on a run where the 500 is resolved.
+
+The fix is to reorder the test script so the security configuration is applied **before** the proxy host is created, ensuring `SecurityConfig.Enabled = true` and `WAFMode = "block"` are in the DB when the first `ApplyConfig` runs.
+
+### 2.7 TC-2 Passes Despite Failure
+
+After the proxy host creation rolls back (0 proxy hosts in DB), the security config PUT triggers `ApplyConfig`. This generates a Caddy config that includes the management server and a security-handlers-only route (WAF + rate limiter + ACL), but with no `reverse_proxy` to `cerberus-backend`. TC-2 checks handler ORDER in `.apps.http.servers.charon_server.routes`, finds 1 route, verifies the middleware chain order, and passes. There is no functional proxy route for `cerberus.test.local`, so TC-3 and TC-4 fail: all traffic returns the React SPA served by the management server fallback.
+
+### 2.8 Defect 5 — No Mutex on ApplyConfig (CODE SMELL)
+
+`ApplyConfig` in `backend/internal/caddy/manager.go` has no synchronization. The background startup goroutine calls `ApplyConfig` once (after Caddy pings successfully) and request handlers call it on every proxy host create/update/delete. In the CI sequence, the background goroutine fires ~1 second after container start and the API health check passes at t+15 s — no overlap by default. However, concurrent HTTP requests can trigger concurrent `ApplyConfig` calls, causing interleaved config generation and snapshot corruption. A mutex is a cheap, correct prevention.
+
+### 2.9 Defect 6 — CLI Migrate Missing ProxyGroup (MEDIUM)
+
+**File**: `backend/cmd/api/main.go`, CLI `migrate` subcommand AutoMigrate list.
+
+`&models.ProxyGroup{}` is missing before `&models.ProxyHost{}`. `ProxyHost` has a foreign key to `ProxyGroup`. Running `go run . migrate` on a fresh database would attempt to create `proxy_hosts` before `proxy_groups`, producing an FK constraint violation. Not triggered in CI (CI uses `routes.go:RegisterWithDeps`), but breaks the standalone migration path.
 
 ---
 
 ## 3. Technical Specifications
 
-### 3.1 Backend Tests
+### Fix 1 — Fail-Fast Script with Response Body Logging
 
-#### 3.1.1 `TestProxyHostCreate_WithProxyGroupReference_ValidUUID_201`
+**File**: `scripts/cerberus_integration.sh`
 
-**Covers**: Line 420 (`payload["proxy_group_id"] = resolvedGroupID`)
+Replace the proxy host creation block (lines 261–272):
 
-**Location**: `backend/internal/api/handlers/proxy_host_handler_test.go` — after `TestProxyHostCreate_WithProxyGroupReference_BadUUID_400`
+```bash
+log_info "Creating proxy host '${TEST_DOMAIN}' pointing to backend..."
+CREATE_RESP=$(curl -s -w "\n%{http_code}" -X POST \
+    -H "Content-Type: application/json" \
+    -b "${TMP_COOKIE}" \
+    "http://localhost:${API_PORT}/api/v1/proxy-hosts" \
+    -d "${PROXY_HOST_PAYLOAD}")
+CREATE_STATUS=$(echo "$CREATE_RESP" | tail -n1)
+CREATE_BODY=$(echo "$CREATE_RESP" | head -n -1)
 
-**Setup**:
-1. `router, db := setupTestRouterWithProxyGroupTable(t)`
-2. Insert `models.ProxyGroup{Name: "test-group", Color: "#123456"}` directly via `db.Create(&pg)`
-3. POST to `/api/v1/proxy-hosts` with all required fields plus `"proxy_group_id": "<pg.UUID>"`
+if [ "$CREATE_STATUS" = "201" ]; then
+    log_info "Proxy host created successfully"
+elif [ "$CREATE_STATUS" = "409" ]; then
+    log_info "Proxy host already exists (HTTP 409) — continuing"
+else
+    log_error "Proxy host creation failed (HTTP ${CREATE_STATUS})"
+    log_error "Response body: ${CREATE_BODY}"
+    exit 1
+fi
+```
 
-**Assertions**:
-- Response code: 201
-- Response body `proxy_group_id` field equals `pg.UUID`
+Only 201 and 409 are acceptable. Any other status exits non-zero with full body logged.
 
-**Minimal request body**:
-```json
-{
-  "name": "Host With Group",
-  "domain_names": "with-group.test.local",
-  "forward_scheme": "http",
-  "forward_host": "localhost",
-  "forward_port": 8080,
-  "enabled": true,
-  "proxy_group_id": "<pg.UUID>"
+### Fix 2 — Volume Cleanup in Script
+
+**File**: `scripts/cerberus_integration.sh`
+
+Update `cleanup()` to save container logs before removing containers, and remove named volumes:
+
+```bash
+cleanup() {
+    # Save container logs before removal (consumed by CI artifact upload)
+    docker logs "${CONTAINER_NAME}" > /tmp/charon-cerberus-test.log 2>&1 || true
+    docker logs "${BACKEND_CONTAINER}" > /tmp/cerberus-backend.log 2>&1 || true
+
+    docker rm -f ${CONTAINER_NAME} 2>/dev/null || true
+    docker rm -f ${BACKEND_CONTAINER} 2>/dev/null || true
+
+    # Remove volumes to ensure a clean state for the next run
+    docker volume rm charon_cerberus_test_data 2>/dev/null || true
+    docker volume rm caddy_cerberus_test_data 2>/dev/null || true
+    docker volume rm caddy_cerberus_test_config 2>/dev/null || true
 }
 ```
 
----
+Also add volume removal in the explicit per-run cleanup block before `docker run`:
 
-#### 3.1.2 `TestProxyHostUpdate_WithProxyGroupReference_ValidUUID_200`
+```bash
+docker rm -f ${CONTAINER_NAME} 2>/dev/null || true
+docker rm -f ${BACKEND_CONTAINER} 2>/dev/null || true
+docker volume rm charon_cerberus_test_data 2>/dev/null || true
+docker volume rm caddy_cerberus_test_data 2>/dev/null || true
+docker volume rm caddy_cerberus_test_config 2>/dev/null || true
+```
 
-**Covers**: Line 635 (`host.ProxyGroupID = resolvedGroupID`)
+### Fix 3 — CI Artifact Upload for Container Logs
 
-**Location**: After 3.1.1
+**File**: `.github/workflows/cerberus-integration.yml`
 
-**Setup**:
-1. `router, db := setupTestRouterWithProxyGroupTable(t)`
-2. Insert ProxyGroup directly in DB
-3. Insert ProxyHost directly in DB (bypass handler to avoid caddy error): `db.Create(&host)`
-4. PUT to `/api/v1/proxy-hosts/<host.UUID>` with `"proxy_group_id": "<pg.UUID>"`
+Add an artifact upload step immediately after "Run Cerberus Integration Test". Container logs are written to `/tmp` by `cleanup()` before containers are removed, so this step captures them even on failure:
 
-**Assertions**:
-- Response code: 200
-- Response body contains `proxy_group_id` equal to `pg.UUID`
+```yaml
+- name: Upload Container Logs on Failure
+  if: failure()
+  uses: actions/upload-artifact@v4
+  with:
+    name: cerberus-container-logs-${{ github.run_id }}
+    path: |
+      /tmp/charon-cerberus-test.log
+      /tmp/cerberus-backend.log
+    if-no-files-found: ignore
+    retention-days: 7
+```
 
----
+### Fix 4 — Reorder Script Steps (Security Config Before Proxy Host)
 
-#### 3.1.3 `TestProxyHostHandler_BulkUpdateGroup_ServiceUpdateError`
+**File**: `scripts/cerberus_integration.sh`
 
-**Covers**: Lines 904–909 (`errors = append(...)` on `service.Update` failure)
+Move the security config application and WAF ruleset creation to run **before** proxy host creation:
 
-**Location**: After `TestProxyHostHandler_BulkUpdateGroup_PartialFailure`
+```
+Current order:
+  Step 4: Create proxy host                       ← ApplyConfig with Enabled=false, WAFMode=disabled
+  Step 5: Create WAF ruleset
+  Step 6: Apply security config (Enabled=true, WAFMode=block)
 
-**Strategy**: Use a SQLite BEFORE UPDATE trigger to force `service.Update` to fail while `GetByUUID` (SELECT) succeeds.
+Correct order:
+  Step 4: Apply security config (Enabled=true, WAFMode=block)
+  Step 5: Create WAF ruleset
+  Step 6: Create proxy host                       ← ApplyConfig with Enabled=true, WAFMode=block
+```
 
-**Setup**:
-1. `router, db := setupTestRouterWithProxyGroupTable(t)` (or inline DB creation)
-2. Create ProxyGroup and ProxyHost in DB
-3. Install a SQLite abort trigger on the proxy_hosts table:
-   ```go
-   db.Exec(`CREATE TRIGGER fail_update BEFORE UPDATE ON proxy_hosts
-            BEGIN SELECT RAISE(ABORT,'forced update failure'); END`)
-   ```
-4. PUT to `/api/v1/proxy-hosts/bulk-update-group` with `host_uuids: [host.UUID]` and `proxy_group_id: pg.UUID`
+This ensures `computeEffectiveFlags` reads the correct DB state when it generates the Caddy config for the proxy host route. After this reordering, `buildWAFHandler` will receive `wafEnabled=true` and the WAF handler will be included in the route.
 
-**Assertions**:
-- Response code: 200
-- Response body `updated` equals 0
-- Response body `errors` is a non-empty array containing an entry with the host UUID
+The security config endpoint should not require an existing proxy host, so this reordering is safe. Add a short `sleep 1` after the security config PUT to allow Caddy to finish loading the management-only config before the proxy host triggers a follow-up load.
 
-**Why this works**: The RAISE(ABORT,...) trigger fires when GORM executes the UPDATE statement, returning a database error. The SELECT used by `GetByUUID` is unaffected (trigger is BEFORE UPDATE only). This isolates lines 904–909 distinctly from the existing PartialFailure test which tests `GetByUUID` failure.
+### Fix 5 — Mutex on ApplyConfig
 
----
+**File**: `backend/internal/caddy/manager.go`
 
-#### 3.1.4 `TestProxyHostHandler_BulkUpdateGroup_CaddyApplyError`
+Add a `sync.Mutex` field to `Manager` and acquire it at the start of `ApplyConfig`:
 
-**Covers**: Lines 914–922 (`caddyManager.ApplyConfig` error path)
-
-**Location**: After 3.1.3
-
-**Pattern**: Same as `TestProxyHostErrors` (line ~364 of test file).
-
-**Setup**:
-1. Create `httptest.Server` returning 500 for all requests
-2. Create in-memory SQLite DB and auto-migrate: `ProxyGroup`, `ProxyHost`, `Location`, `Setting`, `CaddyConfig`, `Notification`, `NotificationProvider`
-3. Create `caddy.Manager` via `caddy.NewClientWithExpectedPort` + `caddy.NewManager`
-4. Create handler: `NewProxyHostHandler(db, manager, ns, nil)`
-5. Create ProxyGroup and ProxyHost directly in DB
-6. PUT to `/api/v1/proxy-hosts/bulk-update-group` with valid `host_uuids` and `proxy_group_id`
-
-**Assertions**:
-- Response code: 500
-- Response body `error` field contains `"Failed to apply"`
-
-**Full test scaffold**:
 ```go
-func TestProxyHostHandler_BulkUpdateGroup_CaddyApplyError(t *testing.T) {
-    t.Parallel()
+type Manager struct {
+    mu sync.Mutex
+    // ... existing fields unchanged ...
+}
 
-    caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        w.WriteHeader(http.StatusInternalServerError)
-    }))
-    defer caddyServer.Close()
-
-    dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
-    db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-    require.NoError(t, err)
-    require.NoError(t, db.AutoMigrate(
-        &models.ProxyGroup{}, &models.ProxyHost{}, &models.Location{},
-        &models.Setting{}, &models.CaddyConfig{},
-        &models.Notification{}, &models.NotificationProvider{},
-    ))
-
-    tmpDir := t.TempDir()
-    client := caddy.NewClientWithExpectedPort(caddyServer.URL, expectedPortFromURL(t, caddyServer.URL))
-    manager := caddy.NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
-    ns := services.NewNotificationService(db, nil)
-    h := NewProxyHostHandler(db, manager, ns, nil)
-    r := gin.New()
-    api := r.Group("/api/v1")
-    h.RegisterRoutes(api)
-
-    pg := models.ProxyGroup{Name: "caddy-error-group", Color: "#ff0000"}
-    require.NoError(t, db.Create(&pg).Error)
-    host := models.ProxyHost{
-        UUID: uuid.NewString(), Name: "Caddy Error Host",
-        DomainNames: "caddy-err.test.local", ForwardScheme: "http",
-        ForwardHost: "localhost", ForwardPort: 8080, Enabled: true,
-    }
-    require.NoError(t, db.Create(&host).Error)
-
-    body := fmt.Sprintf(`{"host_uuids":["%s"],"proxy_group_id":"%s"}`, host.UUID, pg.UUID)
-    req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/bulk-update-group", strings.NewReader(body))
-    req.Header.Set("Content-Type", "application/json")
-    resp := httptest.NewRecorder()
-    r.ServeHTTP(resp, req)
-
-    require.Equal(t, http.StatusInternalServerError, resp.Code)
-    var result map[string]interface{}
-    require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
-    require.Contains(t, result["error"].(string), "Failed to apply")
+func (m *Manager) ApplyConfig(ctx context.Context) error {
+    m.mu.Lock()
+    defer m.mu.Unlock()
+    // rest of function unchanged
 }
 ```
 
----
+`sync.Mutex` zero-value is an unlocked mutex; no constructor change is needed.
 
-#### 3.1.5 Dead Code Removal — Lines 271–273
+### Fix 6 — CLI Migrate Missing ProxyGroup
 
-**File**: `backend/internal/api/handlers/proxy_host_handler.go`
+**File**: `backend/cmd/api/main.go`
 
-**Change**: Remove the 3-line `if trimmed == ""` block from `resolveProxyGroupReference` (lines 271–273). The variable `trimmed` is still needed for the DB lookup below, so only the `if trimmed == ""` guard is removed.
-
-**Before**:
-```go
-trimmed := strings.TrimSpace(uuidValue)
-if trimmed == "" {
-    return nil, nil
-}
-```
-
-**After**:
-```go
-trimmed := strings.TrimSpace(uuidValue)
-```
-
-**Impact**: Removes 3 lines from the coverage denominator. Codecov will no longer count them as missed. No behavioral change — `parseNullableUintField` already handles blank strings.
-
----
-
-### 3.2 Frontend Tests
-
-#### 3.2.1 `bulkUpdateGroup` API Function Tests
-
-**File**: `frontend/src/api/__tests__/proxyHosts-bulk.test.ts`
-
-**Test 1** — group assignment:
-```typescript
-it('calls PUT /proxy-hosts/bulk-update-group with host_uuids and proxy_group_id', async () => {
-  const mockResponse = { updated: 2, errors: [] }
-  vi.mocked(client.put).mockResolvedValueOnce({ data: mockResponse })
-  const result = await bulkUpdateGroup(['uuid-1', 'uuid-2'], 'group-uuid')
-  expect(client.put).toHaveBeenCalledWith(
-    '/proxy-hosts/bulk-update-group',
-    { host_uuids: ['uuid-1', 'uuid-2'], proxy_group_id: 'group-uuid' }
-  )
-  expect(result).toEqual(mockResponse)
-})
-```
-
-**Test 2** — ungrouped (null):
-```typescript
-it('sends null proxy_group_id when ungrouping hosts', async () => {
-  vi.mocked(client.put).mockResolvedValueOnce({ data: { updated: 1, errors: [] } })
-  await bulkUpdateGroup(['uuid-1'], null)
-  expect(client.put).toHaveBeenCalledWith(
-    '/proxy-hosts/bulk-update-group',
-    { host_uuids: ['uuid-1'], proxy_group_id: null }
-  )
-})
-```
-
----
-
-#### 3.2.2 `bulkGroupMutation` Hook Test
-
-**File**: `frontend/src/hooks/__tests__/useProxyHosts-bulk.test.tsx`
-
-Add to the existing test suite (file already exists, no bulkUpdateGroup tests):
-
-```typescript
-it('bulkUpdateGroup calls the API mutation and returns the result', async () => {
-  const mockResult = { updated: 1, errors: [] }
-  vi.mocked(bulkUpdateGroup).mockResolvedValueOnce(mockResult)
-
-  const { result } = renderHook(() => useProxyHosts(), { wrapper: QueryWrapper })
-  const response = await act(() =>
-    result.current.bulkUpdateGroup(['uuid-1'], 'group-uuid')
-  )
-
-  expect(bulkUpdateGroup).toHaveBeenCalledWith(['uuid-1'], 'group-uuid')
-  expect(response).toEqual(mockResult)
-})
-```
-
----
-
-#### 3.2.3 `GroupDropZone.tsx` Component Tests
-
-**File**: `frontend/src/components/__tests__/GroupDropZone.test.tsx` *(new file)*
-
-**`@dnd-kit/core` mock** (declare at top of file):
-```typescript
-vi.mock('@dnd-kit/core', () => ({
-  useDroppable: vi.fn(() => ({ setNodeRef: vi.fn(), isOver: false })),
-}))
-```
-
-**Test cases**:
-
-1. Renders children without ring styles when `isOver` is false:
-   - Default mock (`isOver: false`)
-   - Assert rendered div does NOT contain class `ring-2`
-
-2. Applies ring styles when `isOver` is true:
-   - Override mock: `vi.mocked(useDroppable).mockReturnValue({ setNodeRef: vi.fn(), isOver: true })`
-   - Assert rendered div contains class `ring-2`
-
-3. Sets `aria-dropeffect="move"` when `isDragActive` is true:
-   - Render with `isDragActive={true}`
-   - Assert element has attribute `aria-dropeffect="move"`
-
-4. Omits `aria-dropeffect` when `isDragActive` is false:
-   - Render with `isDragActive={false}`
-   - Assert element does NOT have `aria-dropeffect` attribute
-
----
-
-#### 3.2.4 `ProxyHostDragHandle.tsx` Component Tests
-
-**File**: `frontend/src/components/__tests__/ProxyHostDragHandle.test.tsx` *(new file)*
-
-**`@dnd-kit/core` mock**:
-```typescript
-vi.mock('@dnd-kit/core', () => ({
-  useDraggable: vi.fn(() => ({
-    attributes: {},
-    listeners: {},
-    setNodeRef: vi.fn(),
-    isDragging: false,
-  })),
-}))
-```
-
-**Test cases**:
-
-1. `dragCount=1` → aria-label uses single-host translation key:
-   - Render `<ProxyHostDragHandle hostUuid="h1" dragCount={1} />`
-   - Assert aria-label matches the single-host i18n string
-
-2. `dragCount=3` → aria-label uses multi-host translation key with count:
-   - Render with `dragCount={3}`
-   - Assert aria-label contains `3` or the multi-host key
-
-3. `isDragging=true` → applies opacity-30 class:
-   - Override mock: `vi.mocked(useDraggable).mockReturnValue({ ..., isDragging: true })`
-   - Assert rendered element has class `opacity-30`
-
-4. `isDragging=false` → no opacity class:
-   - Default mock
-   - Assert rendered element does NOT have class `opacity-30`
-
----
-
-#### 3.2.5 `DataTable.tsx` — `renderDragHandle` Prop Tests
-
-**File**: `frontend/src/components/ui/__tests__/DataTable.test.tsx` *(extend existing file)*
-
-**Test cases**:
-
-1. No drag column when `renderDragHandle` is not provided:
-   - Render `<DataTable columns={cols} data={rows} />` without `renderDragHandle`
-   - Assert no `data-testid="drag-handle-header"` (or check that drag-handle column header is absent)
-
-2. Drag column appears when `renderDragHandle` is provided:
-   - Render with `renderDragHandle={(row) => <span data-testid={`drag-${row.id}`} />}`
-   - Assert `getByTestId('drag-1')` (or similar) exists per row
-
-3. `colSpan` increases when `renderDragHandle` and `selectable` are both provided:
-   - Render empty-state table (0 rows) with `selectable=true` and `renderDragHandle` provided
-   - Assert the empty-state row's `colSpan` equals `columns.length + 2`
-
----
-
-### 3.3 API Contract Reference (No Change)
-
-```
-PUT /api/v1/proxy-hosts/bulk-update-group
-Content-Type: application/json
-
-Request:
-  { "host_uuids": ["uuid-1", ...], "proxy_group_id": "group-uuid" | null }
-
-Response 200 (success):
-  { "updated": N, "errors": [] }
-
-Response 200 (partial):
-  { "updated": N, "errors": [{"uuid": "...", "error": "..."}] }
-
-Response 500 (caddy failure):
-  { "error": "Failed to apply configuration: ..." }
-```
+Add `&models.ProxyGroup{}` immediately before `&models.ProxyHost{}` in the CLI `migrate` subcommand's AutoMigrate call. The order must mirror `routes.go:RegisterWithDeps`.
 
 ---
 
@@ -456,98 +271,81 @@ Response 500 (caddy failure):
 
 ### Phase 1: Playwright Tests
 
-Not applicable. This is a coverage-gap remediation task. The DnD feature behavior is already implemented and tested at the unit level. Playwright E2E tests for proxy group DnD are deferred to a follow-up.
+Not applicable. No frontend or UI changes are part of this fix.
 
-### Phase 2: Backend Implementation
+### Phase 2: Backend Changes
 
-| # | Task | File | Complexity | Covers |
-|---|---|---|---|---|
-| B1 | Remove dead code (lines 271–273) | `proxy_host_handler.go` | Trivial | Removes uncoverable lines from denominator |
-| B2 | Add `TestProxyHostCreate_WithProxyGroupReference_ValidUUID_201` | `proxy_host_handler_test.go` | Low | Line 420 |
-| B3 | Add `TestProxyHostUpdate_WithProxyGroupReference_ValidUUID_200` | `proxy_host_handler_test.go` | Low | Line 635 |
-| B4 | Add `TestProxyHostHandler_BulkUpdateGroup_ServiceUpdateError` | `proxy_host_handler_test.go` | Medium | Lines 904–909 |
-| B5 | Add `TestProxyHostHandler_BulkUpdateGroup_CaddyApplyError` | `proxy_host_handler_test.go` | Medium | Lines 914–922 |
+| # | Task | File | Complexity |
+|---|---|---|---|
+| B1 | Add `mu sync.Mutex` to `Manager` and lock `ApplyConfig` | `backend/internal/caddy/manager.go` | Low |
+| B2 | Add `&models.ProxyGroup{}` before `&models.ProxyHost{}` in CLI migrate | `backend/cmd/api/main.go` | Trivial |
 
-**Execution order**: B1 first (reduces coverage denominator), then B2–B5 in any order.
+**B1 detail**: Add `mu sync.Mutex` field, add `m.mu.Lock(); defer m.mu.Unlock()` at top of `ApplyConfig`. Verify `sync` import. 3-line change.
 
-### Phase 3: Frontend Implementation
+**B2 detail**: Find the `migrate` subcommand AutoMigrate call, insert `&models.ProxyGroup{}` immediately before `&models.ProxyHost{}`. 1-line addition.
 
-| # | Task | File | Complexity | Covers |
-|---|---|---|---|---|
-| F1 | Add `bulkUpdateGroup` API tests | `api/__tests__/proxyHosts-bulk.test.ts` | Low | `bulkUpdateGroup` function |
-| F2 | Add `bulkGroupMutation` hook test | `hooks/__tests__/useProxyHosts-bulk.test.tsx` | Low | Hook mutation wrapper |
-| F3 | Create `GroupDropZone.test.tsx` | `components/__tests__/GroupDropZone.test.tsx` | Low-medium | All branches |
-| F4 | Create `ProxyHostDragHandle.test.tsx` | `components/__tests__/ProxyHostDragHandle.test.tsx` | Low-medium | All branches |
-| F5 | Extend `DataTable.test.tsx` | `components/ui/__tests__/DataTable.test.tsx` | Low | `renderDragHandle` paths |
+### Phase 3: Script and CI Changes
 
-### Phase 4: Integration and Verification
+| # | Task | File | Complexity |
+|---|---|---|---|
+| S1 | Fail-fast proxy host creation with body logging | `scripts/cerberus_integration.sh` | Low |
+| S2 | Volume cleanup in `cleanup()` and pre-run block | `scripts/cerberus_integration.sh` | Low |
+| S3 | Reorder steps: security config → WAF ruleset → proxy host | `scripts/cerberus_integration.sh` | Low |
+| S4 | Add artifact upload step for container logs | `.github/workflows/cerberus-integration.yml` | Low |
 
-1. Run backend: `bash scripts/go-test-coverage.sh`
-2. Run frontend: `bash scripts/frontend-test-coverage.sh`
-3. Run patch report: `bash scripts/local-patch-report.sh`
-4. Review `test-results/local-patch-report.md` — all changed files must show ≥ 90%
-5. If any gap remains, identify the specific uncovered block and add a targeted test
+**S1 detail**: Replace the proxy host creation block (lines 261–272) per Fix 1 spec. ~10-line change.
+
+**S2 detail**: Add `docker logs` capture and `docker volume rm` calls to `cleanup()` and the per-run cleanup block. ~8-line addition.
+
+**S3 detail**: Move the security config PUT block (and WAF ruleset POST) to before the proxy host creation. Add `sleep 1` after security config PUT. The actual block positions depend on the current line numbers — confirm with `grep -n "Step [456]"` before editing.
+
+**S4 detail**: Add the `actions/upload-artifact@v4` step after "Run Cerberus Integration Test" per Fix 3 spec. ~10-line addition.
+
+### Phase 4: Integration and Testing
+
+| # | Task |
+|---|---|
+| T1 | Push branch changes, trigger `.github/workflows/cerberus-integration.yml` |
+| T2 | If HTTP 500 still occurs: download the artifact `cerberus-container-logs-*` and read `charon-cerberus-test.log` for the `"Failed to apply configuration: ..."` line |
+| T3 | Implement targeted fix based on the exact Caddy error (defer to Contingency Commit 5 if needed) |
+| T4 | Re-run until TC-1 through TC-5 all pass |
 
 ### Phase 5: Documentation
 
-No documentation changes required beyond this spec. The dead code removal (B1) is self-explanatory from context.
+No user-facing documentation changes required beyond this spec.
 
 ---
 
 ## 5. Acceptance Criteria
 
-| # | Criterion | Verification Method |
+| # | Criterion | Verification |
 |---|---|---|
-| AC1 | All backend tests pass | `go test ./internal/api/handlers/... -count=1` exits 0 |
-| AC2 | Line 420 covered (Create + valid group UUID) | `coverage_handlers.txt`: `420.3,420.46 1 1+` |
-| AC3 | Line 635 covered (Update + valid group UUID) | `coverage_handlers.txt`: `635.3,635.38 1 1+` |
-| AC4 | Lines 904–909 covered (BulkUpdateGroup Update failure) | `coverage_handlers.txt`: `904.48,909.12 2 1+` |
-| AC5 | Lines 914–922 covered (BulkUpdateGroup Caddy error) | `coverage_handlers.txt`: `914.42,915.73 1 1+` and `915.73,922.4 2 1+` |
-| AC6 | Dead code at 271–273 removed | No `271.19,273.3 1 0` entry in coverage output |
-| AC7 | `bulkUpdateGroup` API function tested | `proxyHosts-bulk.test.ts` covers PUT call with group and null |
-| AC8 | `bulkGroupMutation` hook tested | `useProxyHosts-bulk.test.tsx` covers mutation path |
-| AC9 | `GroupDropZone` branches covered | `GroupDropZone.test.tsx` covers `isOver` and `isDragActive` |
-| AC10 | `ProxyHostDragHandle` branches covered | `ProxyHostDragHandle.test.tsx` covers `isDragging` and `dragCount > 1` |
-| AC11 | `DataTable.renderDragHandle` covered | `DataTable.test.tsx` covers column header, row cells, colSpan |
-| AC12 | Local patch report ≥ 90% for all changed files | `test-results/local-patch-report.md` passes threshold |
-| AC13 | Codecov CI gate passes (≥ 90% patch coverage) | PR CI: `patch/target` check is green |
-| AC14 | GORM security scanner passes (0 CRITICAL/HIGH) | `./scripts/scan-gorm-security.sh --check` exits 0 |
+| AC1 | Script exits non-zero on any non-201/non-409 proxy host creation response | Script output contains `"Proxy host creation failed (HTTP ...)"` and exits 1 |
+| AC2 | Full HTTP response body is logged on proxy host creation failure | Script output contains `"Response body: ..."` with the Caddy error string |
+| AC3 | Named volumes are removed at cleanup and before each run | `docker volume ls` shows no `charon_cerberus_test_data` after script exit |
+| AC4 | Container logs saved to `/tmp` before container removal | `/tmp/charon-cerberus-test.log` exists and is non-empty after a test run |
+| AC5 | Container logs uploaded as CI artifact on failure | GitHub Actions run shows `cerberus-container-logs-*` artifact on any failing run |
+| AC6 | Security config applied to DB before proxy host creation | `computeEffectiveFlags` returns `wafEnabled=true` when proxy host `ApplyConfig` fires |
+| AC7 | `ApplyConfig` calls are serialized by mutex | No concurrent `ApplyConfig` executions possible |
+| AC8 | `go run . migrate` succeeds on a fresh database | `proxy_groups` table created before `proxy_hosts`; no FK constraint error |
+| AC9 | TC-3 passes: 3/3 malicious requests blocked | WAF returns HTTP 403 for XSS and injection payloads |
+| AC10 | TC-4 passes: 10/10 legitimate requests succeed | Responses are from httpbin backend (HTTP 200, JSON body) |
+| AC11 | TC-1, TC-2, TC-5 continue to pass | No regression from current PASS state |
+| AC12 | DoD: all 5 TCs pass in CI without errors | `.github/workflows/cerberus-integration.yml` run exits green; no `"Proxy host may already exist"` log line present |
 
 ---
 
 ## 6. Commit Slicing Strategy
 
-**Decision**: Single PR (#1018), three ordered logical commits.
+**Decision**: Single PR (#1026) with 4 ordered logical commits. All changes are confined to script, workflow, and backend files. Each commit is independently revertible.
 
-**Rationale**: All changes are scoped to one feature. Three commits provide clean review checkpoints and allow bisect on regressions.
+| Commit | Scope | Files | Dependencies | Validation Gate |
+|---|---|---|---|---|
+| Commit 1 | Observability: fail-fast + body logging + volume cleanup + log capture + CI artifact | `scripts/cerberus_integration.sh`, `.github/workflows/cerberus-integration.yml` | None | Next CI run produces either a PASS or a readable artifact with the exact Caddy error |
+| Commit 2 | Script: reorder steps so security config precedes proxy host creation | `scripts/cerberus_integration.sh` | Commit 1 (clean volumes needed to verify ordering) | TC-3 and TC-4 pass; `wafEnabled=true` at proxy host `ApplyConfig` time |
+| Commit 3 | Backend: mutex on `ApplyConfig` | `backend/internal/caddy/manager.go` | None | Existing unit tests pass; no behavioral change |
+| Commit 4 | Backend: CLI `migrate` fix | `backend/cmd/api/main.go` | None | `go run . migrate` on a fresh SQLite file creates `proxy_groups` before `proxy_hosts` |
 
-### Commit 1: `refactor(backend): remove unreachable branch in resolveProxyGroupReference`
+**Rollback**: Each commit can be reverted independently. Commits 1 and 2 are highest priority; Commits 3 and 4 are precautionary hardening with zero risk.
 
-| Attribute | Value |
-|---|---|
-| Scope | `backend/internal/api/handlers/proxy_host_handler.go` |
-| Files | `proxy_host_handler.go` — 3-line deletion |
-| Dependencies | None |
-| Validation gate | `go test ./internal/api/handlers/... -count=1` passes; lines 271–273 absent from coverage denominator |
-
-### Commit 2: `test(backend): cover proxy group create, update, and bulk update paths`
-
-| Attribute | Value |
-|---|---|
-| Scope | `backend/internal/api/handlers/` |
-| Files | `proxy_host_handler_test.go` — 4 new test functions (Tasks B2–B5) |
-| Dependencies | Commit 1 (dead code removed) |
-| Validation gate | Lines 420, 635, 904–909, 914–922 each show hit count ≥ 1 in fresh coverage profile |
-
-### Commit 3: `test(frontend): cover bulkUpdateGroup API, hook, and new DnD components`
-
-| Attribute | Value |
-|---|---|
-| Scope | `frontend/src/` |
-| Files | `api/__tests__/proxyHosts-bulk.test.ts` (F1), `hooks/__tests__/useProxyHosts-bulk.test.tsx` (F2), `components/__tests__/GroupDropZone.test.tsx` (F3, new), `components/__tests__/ProxyHostDragHandle.test.tsx` (F4, new), `components/ui/__tests__/DataTable.test.tsx` (F5, extended) |
-| Dependencies | None — frontend tests are independent |
-| Validation gate | `npm test` passes; `scripts/local-patch-report.sh` shows ≥ 90% for all frontend changed files |
-
-**Rollback**: Each commit is independently revertable. If Task B4 (SQLite trigger approach) proves flaky, revert Commit 2 and replace with a table-rename approach or accept partial coverage with documented rationale.
-
-**Contingency**: If Codecov patch coverage remains below 90% after all six tasks, run the patch report to identify any remaining gap, then add a targeted test. The `ProxyHosts.tsx` DragOverlay ternary branches (lines 861, 871) are the most likely residual gap; they require simulating an active `@dnd-kit/core` drag state and are deferred as high-complexity.
+**Contingency**: If Commit 1 reveals a non-trivial Caddy error (e.g., a JSON shape regression in the generated config, a plugin API mismatch, a TLS policy validation failure for `.local` domains), a Commit 5 addresses that specific code path after diagnosis. The nature of that fix cannot be specified until the error body is captured from the artifact.
