@@ -37,11 +37,11 @@ type UptimeMonitor struct {
 
 type UptimeHeartbeat struct {
 	ID        uint      `gorm:"primaryKey" json:"-"`
-	MonitorID string    `json:"monitor_id" gorm:"index"`
-	Status    string    `json:"status"` // up, down
+	MonitorID string    `json:"monitor_id" gorm:"index;index:idx_heartbeat_lookup,priority:1"`
+	Status    string    `json:"status" gorm:"index:idx_heartbeat_lookup,priority:2"`
 	Latency   int64     `json:"latency"`
 	Message   string    `json:"message"`
-	CreatedAt time.Time `json:"created_at" gorm:"index"`
+	CreatedAt time.Time `json:"created_at" gorm:"index;index:idx_heartbeat_lookup,priority:3"`
 }
 
 func (m *UptimeMonitor) BeforeCreate(tx *gorm.DB) (err error) {

@@ -63,6 +63,8 @@ type ProxyHostResponse struct {
 	DNSProviderID           *uint                         `json:"dns_provider_id,omitempty"`
 	DNSProvider             *models.DNSProvider           `json:"dns_provider,omitempty"`
 	UseDNSChallenge         bool                          `json:"use_dns_challenge"`
+	ProxyGroupID            *uint                         `json:"-"`
+	ProxyGroup              *models.ProxyGroup            `json:"proxy_group,omitempty"`
 	CreatedAt               time.Time                     `json:"created_at"`
 	UpdatedAt               time.Time                     `json:"updated_at"`
 	Warnings                []ProxyHostWarning            `json:"warnings,omitempty"`
@@ -102,6 +104,8 @@ func NewProxyHostResponse(host *models.ProxyHost, warnings []ProxyHostWarning) P
 		DNSProviderID:           host.DNSProviderID,
 		DNSProvider:             host.DNSProvider,
 		UseDNSChallenge:         host.UseDNSChallenge,
+		ProxyGroupID:            host.ProxyGroupID,
+		ProxyGroup:              host.ProxyGroup,
 		CreatedAt:               host.CreatedAt,
 		UpdatedAt:               host.UpdatedAt,
 		Warnings:                warnings,
@@ -248,6 +252,35 @@ func (h *ProxyHostHandler) resolveSecurityHeaderProfileReference(value any) (*ui
 	return &id, nil
 }
 
+func (h *ProxyHostHandler) resolveProxyGroupReference(value any) (*uint, error) {
+	if value == nil {
+		return nil, nil
+	}
+
+	parsedID, parseErr := parseNullableUintField(value, "proxy_group_id")
+	if parseErr == nil {
+		return parsedID, nil
+	}
+
+	uuidValue, isString := value.(string)
+	if !isString {
+		return nil, parseErr
+	}
+
+	trimmed := strings.TrimSpace(uuidValue)
+
+	var pg models.ProxyGroup
+	if err := h.db.Select("id").Where("uuid = ?", trimmed).First(&pg).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("proxy group not found")
+		}
+		return nil, fmt.Errorf("failed to resolve proxy group")
+	}
+
+	id := pg.ID
+	return &id, nil
+}
+
 func (h *ProxyHostHandler) resolveCertificateReference(value any) (*uint, error) {
 	if value == nil {
 		return nil, nil
@@ -334,6 +367,7 @@ func (h *ProxyHostHandler) RegisterRoutes(router *gin.RouterGroup) {
 	router.DELETE("/proxy-hosts/:uuid", h.Delete)
 	router.POST("/proxy-hosts/test", h.TestConnection)
 	router.PUT("/proxy-hosts/bulk-update-acl", h.BulkUpdateACL)
+	router.PUT("/proxy-hosts/bulk-update-group", h.BulkUpdateGroup)
 	router.PUT("/proxy-hosts/bulk-update-security-headers", h.BulkUpdateSecurityHeaders)
 }
 
@@ -372,6 +406,15 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 			return
 		}
 		payload["security_header_profile_id"] = resolvedSecurityHeaderID
+	}
+
+	if rawGroupRef, ok := payload["proxy_group_id"]; ok {
+		resolvedGroupID, resolveErr := h.resolveProxyGroupReference(rawGroupRef)
+		if resolveErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": resolveErr.Error()})
+			return
+		}
+		payload["proxy_group_id"] = resolvedGroupID
 	}
 
 	if rawCertRef, ok := payload["certificate_id"]; ok {
@@ -578,6 +621,15 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 			return
 		}
 		host.AccessListID = resolvedAccessListID
+	}
+
+	if v, ok := payload["proxy_group_id"]; ok {
+		resolvedGroupID, resolveErr := h.resolveProxyGroupReference(v)
+		if resolveErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": resolveErr.Error()})
+			return
+		}
+		host.ProxyGroupID = resolvedGroupID
 	}
 
 	if v, ok := payload["dns_provider_id"]; ok {
@@ -790,6 +842,72 @@ func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 	}
 
 	// Apply Caddy config once for all updates
+	if updated > 0 && h.caddyManager != nil {
+		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to apply configuration: " + err.Error(),
+				"updated": updated,
+				"errors":  errors,
+			})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"updated": updated,
+		"errors":  errors,
+	})
+}
+
+// BulkUpdateGroup assigns or removes a proxy group from multiple proxy hosts.
+// PUT /proxy-hosts/bulk-update-group
+func (h *ProxyHostHandler) BulkUpdateGroup(c *gin.Context) {
+	var req struct {
+		HostUUIDs    []string `json:"host_uuids"    binding:"required"`
+		ProxyGroupID *string  `json:"proxy_group_id"` // nil means remove group assignment
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if len(req.HostUUIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "host_uuids cannot be empty"})
+		return
+	}
+
+	var resolvedGroupID *uint
+	if req.ProxyGroupID != nil {
+		id, err := h.resolveProxyGroupReference(*req.ProxyGroupID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		resolvedGroupID = id
+	}
+
+	updated := 0
+	errors := []map[string]string{}
+
+	for _, hostUUID := range req.HostUUIDs {
+		host, err := h.service.GetByUUID(hostUUID)
+		if err != nil {
+			errors = append(errors, map[string]string{
+				"uuid":  hostUUID,
+				"error": "proxy host not found",
+			})
+			continue
+		}
+		host.ProxyGroupID = resolvedGroupID
+		if err := h.service.Update(host); err != nil {
+			errors = append(errors, map[string]string{
+				"uuid":  hostUUID,
+				"error": err.Error(),
+			})
+			continue
+		}
+		updated++
+	}
+
 	if updated > 0 && h.caddyManager != nil {
 		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
