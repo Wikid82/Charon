@@ -1,6 +1,7 @@
 package orthrus
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -277,4 +278,93 @@ func TestOrthrusServer_FindAgentByToken_DBError_ReturnsError(t *testing.T) {
 
 	_, err = srv.findAgentByToken("anytoken")
 	assert.Error(t, err)
+}
+
+// TestOrthrusServer_HandleWebSocket_UpgradeFailure covers server.go:82-85 —
+// the error-log path when wsUpgrader.Upgrade rejects a non-WebSocket request.
+func TestOrthrusServer_HandleWebSocket_UpgradeFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupServerTestDB(t)
+	srv, err := NewOrthrusServer(db, setupTestCA(t))
+	require.NoError(t, err)
+
+	token := "ch_orthrus_upgerr01" //nolint:gosec // G101: test credential
+	hash, err := bcrypt.GenerateFromPassword([]byte(token), bcrypt.MinCost)
+	require.NoError(t, err)
+
+	agent := &models.OrthrusAgent{
+		UUID:        "upgerr-uuid",
+		Name:        "upgerr-agent",
+		AuthKeyHash: string(hash),
+		Status:      models.OrthrusStatusPending,
+	}
+	require.NoError(t, db.Create(agent).Error)
+
+	// Plain HTTP GET with valid auth — NOT a WebSocket upgrade.
+	// wsUpgrader.Upgrade writes 400 Bad Request and returns an error.
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest(http.MethodGet, "/ws", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+token)
+	c.Request = req
+
+	// Should not panic; handler logs the error and returns.
+	srv.HandleWebSocket(c)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestOrthrusServer_HandleWebSocket_ExternalProxyFails covers server.go:100-104 —
+// the warning-log path when StartExternalProxy fails on an occupied port.
+func TestOrthrusServer_HandleWebSocket_ExternalProxyFails(t *testing.T) {
+	// Occupy a port so StartExternalProxy cannot bind it.
+	blocker, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	blockedPort := blocker.Addr().(*net.TCPAddr).Port
+	defer blocker.Close() //nolint:errcheck
+
+	db := setupServerTestDB(t)
+	srv, err := NewOrthrusServer(db, setupTestCA(t))
+	require.NoError(t, err)
+	srv.heartbeatTimeout = 200 * time.Millisecond
+
+	token := "ch_orthrus_extfail02" //nolint:gosec // G101: test credential
+	hash, err := bcrypt.GenerateFromPassword([]byte(token), bcrypt.MinCost)
+	require.NoError(t, err)
+
+	agent := &models.OrthrusAgent{
+		UUID:              "extfail-uuid",
+		Name:              "extfail-agent",
+		AuthKeyHash:       string(hash),
+		Status:            models.OrthrusStatusPending,
+		ExternalProxyPort: blockedPort,
+	}
+	require.NoError(t, db.Create(agent).Error)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/ws", srv.HandleWebSocket)
+	ts := httptest.NewServer(router)
+	t.Cleanup(srv.Stop)
+	t.Cleanup(ts.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws"
+	header := http.Header{"Authorization": []string{"Bearer " + token}}
+	conn, dialResp, err := gorillaws.DefaultDialer.Dial(wsURL, header)
+	require.NoError(t, err)
+	if dialResp != nil {
+		_ = dialResp.Body.Close()
+	}
+	defer func() { _ = conn.Close() }()
+
+	// sessions.Store is called after StartExternalProxy, so once the session is
+	// present the proxy attempt (and its failure) has already completed.
+	assert.Eventually(t, func() bool {
+		_, ok := srv.GetSession("extfail-uuid")
+		return ok
+	}, 2*time.Second, 20*time.Millisecond, "session should be stored after WS connect")
+
+	status, ok := srv.GetExternalProxyStatus("extfail-uuid")
+	require.True(t, ok)
+	assert.False(t, status.Active)
+	assert.NotEmpty(t, status.Error)
 }

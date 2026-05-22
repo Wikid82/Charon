@@ -3,6 +3,7 @@ package services
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"gorm.io/gorm"
 
@@ -26,6 +27,7 @@ func NewProxyGroupService(db *gorm.DB) *ProxyGroupService {
 
 // Create persists a new proxy group.
 func (s *ProxyGroupService) Create(group *models.ProxyGroup) error {
+	group.Name = strings.TrimSpace(group.Name)
 	if group.Name == "" {
 		return ErrProxyGroupNameEmpty
 	}

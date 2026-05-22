@@ -37,9 +37,11 @@ ARG NPM_VERSION=11.11.1
 # avoid accidentally pulling a v3 major release. Renovate can still update
 # this ARG to a specific v2.x tag when desired.
 ## Try to build the requested Caddy v2.x tag (Renovate can update this ARG).
-## If the requested tag isn't available, fall back to a known-good v2.11.2 build.
-ARG CADDY_VERSION=2.11.2
-ARG CADDY_CANDIDATE_VERSION=2.11.2
+## If the requested tag isn't available, fall back to a known-good v2.11.3 build.
+# renovate: datasource=go depName=https://github.com/caddyserver/caddy
+ARG CADDY_VERSION=2.11.3
+# renovate: datasource=go depName=https://github.com/caddyserver/caddy
+ARG CADDY_CANDIDATE_VERSION=2.11.3
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
@@ -404,7 +406,7 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
     go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.10 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.73.0 && \
+    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.74.0 && \
     go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/s3
     go get github.com/aws/aws-sdk-go-v2/service/s3@v1.101.0 && \
@@ -507,7 +509,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=6ed0f194250158fe8caad1fc0f7cb92e4a4db9a7e540217ebda2251102631879
+ARG GEOLITE2_COUNTRY_SHA256=730d2a55c257a2515fcb1f41a8116e2019cb6f8408e3e49cd5edc2878a5244f5
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \

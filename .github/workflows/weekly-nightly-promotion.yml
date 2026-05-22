@@ -48,9 +48,11 @@ jobs:
       - name: Check Nightly Workflow Status
         id: check
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          SKIP_WORKFLOW_CHECK: ${{ inputs.skip_workflow_check }}
         with:
           script: |
-            const skipCheck = '${{ inputs.skip_workflow_check }}' === 'true';
+            const skipCheck = process.env.SKIP_WORKFLOW_CHECK === 'true';
 
             if (skipCheck) {
               core.info('Skipping workflow health check as requested');
@@ -298,6 +300,8 @@ jobs:
         id: create-pr
         if: steps.check-diff.outputs.skipped != 'true' && steps.existing-pr.outputs.exists != 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          TRIGGER_REASON: ${{ inputs.reason }}
         with:
           script: |
             const fs = require('fs');
@@ -307,7 +311,7 @@ jobs:
             const filesChanged = '${{ steps.commits.outputs.files_changed }}';
             const commitLog = fs.readFileSync('/tmp/commit_log.md', 'utf8');
 
-            const triggerReason = '${{ inputs.reason }}' || 'Scheduled weekly promotion';
+            const triggerReason = process.env.TRIGGER_REASON || 'Scheduled weekly promotion';
 
             const body = `## 🚀 Weekly Nightly to Main Promotion
 
@@ -484,11 +488,14 @@ jobs:
     steps:
       - name: Create Failure Issue
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          FAILURE_REASON: ${{ needs.check-nightly-health.outputs.failure_reason }}
+          LATEST_RUN_URL: ${{ needs.check-nightly-health.outputs.latest_run_url }}
         with:
           script: |
             const isHealthy = '${{ needs.check-nightly-health.outputs.is_healthy }}';
-            const failureReason = '${{ needs.check-nightly-health.outputs.failure_reason }}';
-            const latestRunUrl = '${{ needs.check-nightly-health.outputs.latest_run_url }}';
+            const failureReason = process.env.FAILURE_REASON || '';
+            const latestRunUrl = process.env.LATEST_RUN_URL || 'N/A';
             const prResult = '${{ needs.create-promotion-pr.result }}';
 
             let title, body;

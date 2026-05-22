@@ -16,6 +16,8 @@ export interface OrthrusAgent {
   hecate_tunnel_uuid?: string;
   device_id?: string;
   resolved_address?: string;
+  // External Docker proxy port (0 = disabled, 1024–65535 = enabled)
+  external_proxy_port: number;
 }
 
 export interface PatchAgentRequest {
@@ -23,6 +25,18 @@ export interface PatchAgentRequest {
   hecate_tunnel_uuid?: string | null;
   device_id?: string | null;
   resolved_address?: string | null;
+  external_proxy_port?: number;
+}
+
+export interface ExternalProxyStatus {
+  agent_uuid: string;
+  agent_online: boolean;
+  configured_port: number;
+  active: boolean;
+  active_port: number;
+  bind_address: string;
+  connection_string: string;
+  error: string;
 }
 
 export interface ProvisionAgentRequest {
@@ -81,5 +95,10 @@ export const getInstallSnippets = async (uuid: string): Promise<InstallSnippets>
   const { data } = await client.get<InstallSnippets>(`/orthrus/agents/${uuid}/snippets`, {
     headers: { 'X-Charon-URL': window.location.origin },
   });
+  return data;
+};
+
+export const getAgentProxyStatus = async (agentUUID: string): Promise<ExternalProxyStatus> => {
+  const { data } = await client.get<ExternalProxyStatus>(`/orthrus/agents/${agentUUID}/proxy-status`);
   return data;
 };

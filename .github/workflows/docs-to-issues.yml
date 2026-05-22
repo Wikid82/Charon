@@ -343,7 +343,8 @@ jobs:
           # Removed [skip ci] to allow CI checks to run on PRs
           # Infinite loop protection: path filter excludes docs/issues/created/** AND github.actor guard prevents bot loops
           git diff --staged --quiet || git commit -m "chore: move processed issue files to created/"
-          git push
+          BRANCH="${{ github.event.workflow_run.head_branch || github.ref_name }}"
+          git push origin HEAD:refs/heads/${BRANCH}
 
       - name: Summary
         if: always()

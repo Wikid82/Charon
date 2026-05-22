@@ -170,10 +170,13 @@ describe('ProxyHosts group rendering', () => {
     renderWithProviders(<ProxyHosts />)
 
     await user.click(await screen.findByRole('button', { name: /manage groups/i }))
-    expect(await screen.findByText('Create Group')).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: /create group/i }))
+    expect(await screen.findByRole('button', { name: /cancel/i })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /cancel/i }))
-    await waitFor(() => expect(screen.queryByText('Create Group')).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument(),
+    )
   })
 
   it('opens ProxyGroupForm in edit mode when clicking edit group button', async () => {
@@ -284,5 +287,39 @@ describe('ProxyHosts group rendering', () => {
     await waitFor(() =>
       expect(updateHostMock).toHaveBeenCalledWith('h1', { proxy_group_id: 'grp-1' }),
     )
+  })
+
+  it('renders ungrouped section (line 861) and groups container (line 871) when groups exist and host has no proxy group', async () => {
+    vi.mocked(useProxyGroups).mockReturnValue({
+      data: [makeGroup()],
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof useProxyGroups>)
+    vi.mocked(useProxyHosts).mockReturnValue(
+      createProxyHostsHookValue({
+        hosts: [sampleHost({ uuid: 'h2', name: 'UngroupedVisible' })],
+      }),
+    )
+
+    renderWithProviders(<ProxyHosts />)
+
+    const ungroupedSection = await screen.findByRole('region', { name: 'Ungrouped' })
+    expect(within(ungroupedSection).getByText('UngroupedVisible')).toBeInTheDocument()
+  })
+
+  it('renders groups container div (line 871) when groups exist with no hosts', async () => {
+    vi.mocked(useProxyGroups).mockReturnValue({
+      data: [makeGroup()],
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof useProxyGroups>)
+    vi.mocked(useProxyHosts).mockReturnValue(
+      createProxyHostsHookValue({ hosts: [] }),
+    )
+
+    renderWithProviders(<ProxyHosts />)
+
+    expect(await screen.findByText('Production')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Ungrouped' })).not.toBeInTheDocument()
   })
 })

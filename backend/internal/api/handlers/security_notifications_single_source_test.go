@@ -125,7 +125,6 @@ func TestR6_LegacySecuritySettingsWrite410Gone(t *testing.T) {
 	service := services.NewEnhancedSecurityNotificationService(db)
 	handler := NewSecurityNotificationHandler(service)
 
-
 	// Test canonical endpoint: PUT /api/v1/notifications/settings/security
 	t.Run("CanonicalEndpoint", func(t *testing.T) {
 		reqBody := map[string]interface{}{
@@ -203,7 +202,6 @@ func TestR6_LegacyWrite410GoneNoMutation(t *testing.T) {
 	service := services.NewEnhancedSecurityNotificationService(db)
 	handler := NewSecurityNotificationHandler(service)
 
-
 	// Attempt PUT to canonical endpoint
 	reqBody := map[string]interface{}{
 		"security_waf_enabled":      true,
@@ -236,7 +234,6 @@ func TestProviderCRUD_SecurityEventsIncludeCrowdSec(t *testing.T) {
 
 	service := services.NewNotificationService(db, nil)
 	handler := NewNotificationProviderHandler(service)
-
 
 	// Test CREATE
 	t.Run("CreatePersistsCrowdSec", func(t *testing.T) {

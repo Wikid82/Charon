@@ -9,7 +9,7 @@ import {
 
 test.describe('Proxy Groups', () => {
   test.beforeEach(async ({ page }) => {
-    await waitForAPIHealth(page);
+    await waitForAPIHealth(page.request);
     await page.goto('/proxy-hosts');
     await waitForLoadingComplete(page);
   });
@@ -25,18 +25,16 @@ test.describe('Proxy Groups', () => {
       await page.getByRole('button', { name: /manage groups/i }).click();
       await waitForDialog(page);
 
-      const responsePromise = waitForAPIResponse(page, '/api/proxy-groups');
       await page.getByRole('button', { name: /create group/i }).click();
 
       await page.getByRole('dialog').last().waitFor({ state: 'visible' });
       await page.getByLabel(/group name/i).fill('Test Group');
 
-      const savePromise = waitForAPIResponse(page, '/api/proxy-groups');
+      const savePromise = waitForAPIResponse(page, '/api/v1/proxy-groups', { status: 201 });
       await page.getByRole('button', { name: /save/i }).click();
       await savePromise;
 
       await expect(getToastLocator(page)).toBeVisible();
-      await responsePromise;
     });
 
     test('should show validation error when name is empty', async ({ page }) => {

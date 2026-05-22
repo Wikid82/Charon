@@ -43,6 +43,10 @@ type OrthrusAgent struct {
 	// set by Charon at assignment time, used as upstream host in Remote Servers.
 	ResolvedAddress *string `json:"resolved_address,omitempty"`
 
+	// ExternalProxyPort is the TCP port bound on 0.0.0.0 for inter-container Docker API access.
+	// 0 = disabled. Valid values: 1024–65535.
+	ExternalProxyPort int `json:"external_proxy_port" gorm:"default:0"`
+
 	LastHeartbeat *time.Time `json:"last_heartbeat,omitempty"`
 	LastSeen      *time.Time `json:"last_seen,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
