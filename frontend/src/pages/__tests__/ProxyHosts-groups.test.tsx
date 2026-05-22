@@ -170,10 +170,13 @@ describe('ProxyHosts group rendering', () => {
     renderWithProviders(<ProxyHosts />)
 
     await user.click(await screen.findByRole('button', { name: /manage groups/i }))
-    expect(await screen.findByText('Create Group')).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: /create group/i }))
+    expect(await screen.findByRole('button', { name: /cancel/i })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /cancel/i }))
-    await waitFor(() => expect(screen.queryByText('Create Group')).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument(),
+    )
   })
 
   it('opens ProxyGroupForm in edit mode when clicking edit group button', async () => {
