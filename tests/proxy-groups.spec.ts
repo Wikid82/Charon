@@ -37,17 +37,15 @@ test.describe('Proxy Groups', () => {
       await expect(getToastLocator(page)).toBeVisible();
     });
 
-    test('should show validation error when name is empty', async ({ page }) => {
+    test('should disable Save button when name is empty', async ({ page }) => {
       await page.getByRole('button', { name: /manage groups/i }).click();
       await waitForDialog(page);
 
       await page.getByRole('button', { name: /create group/i }).click();
       await page.getByRole('dialog').last().waitFor({ state: 'visible' });
 
-      await page.getByRole('button', { name: /save/i }).click();
-
-      const nameInput = page.getByLabel(/group name/i);
-      await expect(nameInput).toBeFocused();
+      // Save is disabled while the name field is blank.
+      await expect(page.getByRole('button', { name: /save/i })).toBeDisabled();
     });
 
     test('should allow selecting a preset color', async ({ page }) => {
@@ -59,12 +57,12 @@ test.describe('Proxy Groups', () => {
 
       await page.getByLabel(/group name/i).fill('Colored Group');
 
-      const colorSwatches = page.locator('[data-testid="color-swatch"], button[title]').filter({ hasText: '' });
-      if (await colorSwatches.count() > 0) {
-        await colorSwatches.first().click();
-      }
-
-      await expect(page.getByLabel(/group name/i)).toHaveValue('Colored Group');
+      // Color preset buttons are labelled "Color #<hex>" via the colorPreset i18n key.
+      // Scoping to the last dialog avoids matching unrelated buttons on the page.
+      const dialog = page.getByRole('dialog').last();
+      const colorSwatch = dialog.getByRole('button', { name: /^color #/i }).first();
+      await colorSwatch.click();
+      await expect(colorSwatch).toHaveAttribute('aria-pressed', 'true');
     });
   });
 

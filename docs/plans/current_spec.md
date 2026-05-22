@@ -24,9 +24,9 @@ Both links open in a new tab. The widget is rendered inside `Layout.tsx` so it a
 - Introduce zero new runtime dependencies
 - Keep the widget unobtrusive — collapsed by default, non-blocking
 
----
+The **exact Caddy rejection reason is unknown** due to two compounding observability gaps: the script discards the HTTP response body (containing the full error), and the CI debug step runs after `trap cleanup EXIT` has already removed all containers. This plan fixes the observability gap first, then addresses every confirmed defect.
 
-## 2. Research Findings
+A secondary defect also exists: even if proxy host creation succeeded, `buildWAFHandler` in `config.go` returns `nil` when `secCfg.WAFMode == "disabled"` (the seeded DB value), so the WAF handler would not be present in the Caddy route during the initial proxy host creation. The security config PUT (step 5) sets `WAFMode = "block"` and triggers a second `ApplyConfig`, at which point the WAF would apply correctly. This ordering issue is a separate concern from the 500 and is documented below.
 
 ### Architecture Summary
 
@@ -397,11 +397,12 @@ The global `react-i18next` mock in `test/setup.ts` loads real `en/translation.js
 | 14 | aria-label reflects state | When open, `aria-label` = "Close feedback menu" |
 | 15 | Focus moves to first link on open | After click: `document.activeElement` = bug report `<a>` (`firstLinkRef.current`) |
 
-1. Run backend: `bash scripts/go-test-coverage.sh`
-2. Run frontend: `bash scripts/frontend-test-coverage.sh`
-3. Run patch report: `bash scripts/local-patch-report.sh`
-4. Review `test-results/local-patch-report.md` — all changed files must show ≥ 90%
-5. If any gap remains, identify the specific uncovered block and add a targeted test
+| # | Task |
+|---|---|
+| T1 | Push branch changes, trigger `.github/workflows/cerberus-integration.yml` |
+| T2 | If HTTP 500 still occurs: download the artifact `cerberus-container-logs-*` and read `charon-cerberus-test.log` for the `"Failed to apply configuration: ..."` line |
+| T3 | Implement targeted fix based on the exact Caddy error (defer to Contingency Commit 5 if needed) |
+| T4 | Re-run until TC-1 through TC-5 all pass |
 
 ## 7. Acceptance Criteria
 
