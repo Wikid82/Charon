@@ -184,6 +184,7 @@
     "ungrouped": "Ungrouped",
     "editGroupDescription": "Update this proxy group.",
     "createGroupDescription": "Create a new proxy group to organize hosts.",
+    "manageGroupsDescription": "View, create, edit, and delete proxy groups.",
     "groupNamePlaceholder": "e.g. Production",
     "groupDescriptionPlaceholder": "Optional description",
     "colorPreset": "Color {{color}}",

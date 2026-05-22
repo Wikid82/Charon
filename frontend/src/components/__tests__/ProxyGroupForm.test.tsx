@@ -36,6 +36,7 @@ vi.mock('react-i18next', () => ({
         'common.cancel': 'Cancel',
         'common.create': 'Create',
         'common.update': 'Update',
+        'common.save': 'Save',
       };
       if (key === 'proxyGroups.colorPreset' && options?.color) {
         return `Color ${options.color}`;
@@ -68,7 +69,7 @@ describe('ProxyGroupForm', () => {
     expect(screen.getByText('Create Group')).toBeInTheDocument();
     expect(screen.getByLabelText(/group name/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/description/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /create/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /save/i })).toBeInTheDocument();
   });
 
   it('renders edit form with pre-filled values when group prop is provided', () => {
@@ -84,19 +85,19 @@ describe('ProxyGroupForm', () => {
     expect(screen.getByText('Edit Group')).toBeInTheDocument();
     expect(screen.getByLabelText(/group name/i)).toHaveValue('Production');
     expect(screen.getByLabelText(/description/i)).toHaveValue('Prod env');
-    expect(screen.getByRole('button', { name: /update/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /save/i })).toBeInTheDocument();
   });
 
   it('disables submit when name is empty', () => {
     renderForm();
-    const submitBtn = screen.getByRole('button', { name: /create/i });
+    const submitBtn = screen.getByRole('button', { name: /save/i });
     expect(submitBtn).toBeDisabled();
   });
 
   it('enables submit when name is filled', async () => {
     renderForm();
     await user.type(screen.getByLabelText(/group name/i), 'My Group');
-    const submitBtn = screen.getByRole('button', { name: /create/i });
+    const submitBtn = screen.getByRole('button', { name: /save/i });
     expect(submitBtn).toBeEnabled();
   });
 
@@ -105,7 +106,7 @@ describe('ProxyGroupForm', () => {
     const { mockClose } = renderForm();
 
     await user.type(screen.getByLabelText(/group name/i), 'New Group');
-    await user.click(screen.getByRole('button', { name: /create/i }));
+    await user.click(screen.getByRole('button', { name: /save/i }));
 
     await waitFor(() => {
       expect(mockMutateAsync).toHaveBeenCalledWith(
@@ -130,7 +131,7 @@ describe('ProxyGroupForm', () => {
     const nameInput = screen.getByLabelText(/group name/i);
     await user.clear(nameInput);
     await user.type(nameInput, 'New Name');
-    await user.click(screen.getByRole('button', { name: /update/i }));
+    await user.click(screen.getByRole('button', { name: /save/i }));
 
     await waitFor(() => {
       expect(mockMutateAsync).toHaveBeenCalledWith(
