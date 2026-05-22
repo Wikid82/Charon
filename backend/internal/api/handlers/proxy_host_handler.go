@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -257,21 +258,21 @@ func (h *ProxyHostHandler) resolveProxyGroupReference(value any) (*uint, error) 
 		return nil, nil
 	}
 
-	parsedID, parseErr := parseNullableUintField(value, "proxy_group_id")
-	if parseErr == nil {
-		return parsedID, nil
-	}
-
+	// Only UUID strings are accepted as external identifiers; numeric IDs would
+	// expose internal auto-increment PKs and violate the API contract.
 	uuidValue, isString := value.(string)
 	if !isString {
-		return nil, parseErr
+		return nil, fmt.Errorf("proxy_group_id must be a UUID string")
 	}
 
 	trimmed := strings.TrimSpace(uuidValue)
+	if trimmed == "" {
+		return nil, nil
+	}
 
 	var pg models.ProxyGroup
 	if err := h.db.Select("id").Where("uuid = ?", trimmed).First(&pg).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("proxy group not found")
 		}
 		return nil, fmt.Errorf("failed to resolve proxy group")
