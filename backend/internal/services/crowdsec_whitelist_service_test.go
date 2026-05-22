@@ -141,13 +141,34 @@ func TestCrowdSecWhitelistService_WriteYAML_EmptyLists(t *testing.T) {
 	err := svc.WriteYAML(context.Background())
 	require.NoError(t, err)
 
+	// CrowdSec rejects a parser with empty ip/cidr arrays, so the file must not
+	// exist when there are no whitelist entries.
 	yamlPath := filepath.Join(tmpDir, "config", "parsers", "s02-enrich", "charon-whitelist.yaml")
-	content, err := os.ReadFile(yamlPath) //nolint:gosec // G304: path built from controlled tmpDir
+	_, statErr := os.Stat(yamlPath)
+	assert.True(t, os.IsNotExist(statErr), "whitelist YAML should not be written when there are no entries")
+}
+
+func TestCrowdSecWhitelistService_WriteYAML_RemovesFileWhenEmpty(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	db := openWhitelistTestDB(t)
+	svc := services.NewCrowdSecWhitelistService(db, tmpDir)
+
+	// Write the file by adding an entry.
+	_, err := svc.Add(context.Background(), "1.1.1.1", "will be deleted")
+	require.NoError(t, err)
+	yamlPath := filepath.Join(tmpDir, "config", "parsers", "s02-enrich", "charon-whitelist.yaml")
+	require.FileExists(t, yamlPath)
+
+	// Delete the last entry - the file should be removed so CrowdSec does not fail on reload.
+	entries, err := svc.List(context.Background())
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	err = svc.Delete(context.Background(), entries[0].UUID)
 	require.NoError(t, err)
 
-	s := string(content)
-	assert.Contains(t, s, "ip: []")
-	assert.Contains(t, s, "cidr: []")
+	_, statErr := os.Stat(yamlPath)
+	assert.True(t, os.IsNotExist(statErr), "whitelist YAML should be removed when the last entry is deleted")
 }
 
 func TestCrowdSecWhitelistService_List_AfterAdd(t *testing.T) {
@@ -234,10 +255,15 @@ func TestCrowdSecWhitelistService_WriteYAML_DBError(t *testing.T) {
 func TestCrowdSecWhitelistService_WriteYAML_MkdirError(t *testing.T) {
 	t.Parallel()
 	db := openWhitelistTestDB(t)
-	// Use a path under /dev/null which cannot have subdirectories
+	// Populate the DB so WriteYAML proceeds past the empty-list early return.
+	svcSetup := services.NewCrowdSecWhitelistService(db, "")
+	_, err := svcSetup.Add(context.Background(), "1.2.3.4", "trigger mkdir path")
+	require.NoError(t, err)
+
+	// Use a path under /dev/null which cannot have subdirectories.
 	svc := services.NewCrowdSecWhitelistService(db, "/dev/null/impossible")
 
-	err := svc.WriteYAML(context.Background())
+	err = svc.WriteYAML(context.Background())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "create dir")
 }
@@ -246,15 +272,21 @@ func TestCrowdSecWhitelistService_WriteYAML_WriteFileError(t *testing.T) {
 	t.Parallel()
 	db := openWhitelistTestDB(t)
 	tmpDir := t.TempDir()
+
+	// Populate the DB so WriteYAML proceeds past the empty-list early return.
+	svcSetup := services.NewCrowdSecWhitelistService(db, "")
+	_, err := svcSetup.Add(context.Background(), "1.2.3.4", "trigger write path")
+	require.NoError(t, err)
+
 	svc := services.NewCrowdSecWhitelistService(db, tmpDir)
 
-	// Create a directory where the .tmp file would be written, causing WriteFile to fail
+	// Create a directory where the .tmp file would be written, causing WriteFile to fail.
 	dir := filepath.Join(tmpDir, "config", "parsers", "s02-enrich")
 	require.NoError(t, os.MkdirAll(dir, 0o750))
 	tmpTarget := filepath.Join(dir, "charon-whitelist.yaml.tmp")
 	require.NoError(t, os.MkdirAll(tmpTarget, 0o750))
 
-	err := svc.WriteYAML(context.Background())
+	err = svc.WriteYAML(context.Background())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "write temp")
 }
@@ -288,15 +320,21 @@ func TestCrowdSecWhitelistService_WriteYAML_RenameError(t *testing.T) {
 	t.Parallel()
 	db := openWhitelistTestDB(t)
 	tmpDir := t.TempDir()
+
+	// Populate the DB so WriteYAML proceeds past the empty-list early return.
+	svcSetup := services.NewCrowdSecWhitelistService(db, "")
+	_, err := svcSetup.Add(context.Background(), "1.2.3.4", "trigger rename path")
+	require.NoError(t, err)
+
 	svc := services.NewCrowdSecWhitelistService(db, tmpDir)
 
-	// Create target as a directory so rename (atomic replace) fails
+	// Create target as a directory so rename (atomic replace) fails.
 	dir := filepath.Join(tmpDir, "config", "parsers", "s02-enrich")
 	require.NoError(t, os.MkdirAll(dir, 0o750))
 	target := filepath.Join(dir, "charon-whitelist.yaml")
 	require.NoError(t, os.MkdirAll(target, 0o750))
 
-	err := svc.WriteYAML(context.Background())
+	err = svc.WriteYAML(context.Background())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "rename")
 }
