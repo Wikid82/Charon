@@ -8,18 +8,6 @@ import { ManageGroupsDialog } from '../ManageGroupsDialog';
 
 const mockMutateAsync = vi.fn();
 
-vi.mock('../../hooks/useProxyGroups', () => ({
-  useProxyGroups: vi.fn(() => ({
-    data: [],
-    isLoading: false,
-    error: null,
-  })),
-  useDeleteProxyGroup: vi.fn(() => ({
-    mutateAsync: mockMutateAsync,
-    isPending: false,
-  })),
-}));
-
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string) => {
