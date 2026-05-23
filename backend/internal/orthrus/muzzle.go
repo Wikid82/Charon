@@ -24,6 +24,7 @@ var versionPrefixRe = regexp.MustCompile(`^/v\d+\.\d+`)
 // allowedDockerPaths is the set of Docker API paths that are safe to expose to agents.
 // Path matching is performed after stripping the version prefix.
 var allowedDockerPaths = map[string]struct{}{
+	"/_ping":           {},
 	"/containers/json": {},
 	"/images/json":     {},
 	"/info":            {},
@@ -42,8 +43,17 @@ func NewMuzzle(next http.Handler) *Muzzle {
 }
 
 // ServeHTTP implements http.Handler. Only GET requests to allowlisted paths
-// are forwarded; all others receive 403 Forbidden.
+// are forwarded; HEAD is also permitted for /_ping (Docker client health checks).
+// All other methods or paths receive 403 Forbidden.
 func (m *Muzzle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	stripped := versionPrefixRe.ReplaceAllString(r.URL.Path, "")
+
+	// HEAD /_ping is permitted alongside GET for Docker client health checks.
+	if r.Method == http.MethodHead && stripped == "/_ping" {
+		m.next.ServeHTTP(w, r)
+		return
+	}
+
 	if r.Method != http.MethodGet {
 		logger.Log().WithField("method", util.SanitizeForLog(r.Method)).WithField("path", sanitizePath(r.URL.Path)).
 			Warn("orthrus: muzzle blocked non-GET Docker request")
@@ -51,7 +61,6 @@ func (m *Muzzle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stripped := versionPrefixRe.ReplaceAllString(r.URL.Path, "")
 	if _, ok := allowedDockerPaths[stripped]; ok {
 		m.next.ServeHTTP(w, r)
 		return

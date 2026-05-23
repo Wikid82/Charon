@@ -16,6 +16,7 @@ func passthroughHandler() http.Handler {
 
 func TestMuzzle_AllowlistedGET_Passthrough(t *testing.T) {
 	allowed := []string{
+		"/_ping",
 		"/containers/json",
 		"/images/json",
 		"/info",
@@ -81,13 +82,33 @@ func TestMuzzle_DELETE_Blocked(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, rr.Code)
 }
 
+func TestMuzzle_HEAD_Ping_Passthrough(t *testing.T) {
+	m := NewMuzzle(passthroughHandler())
+
+	for _, path := range []string{"/_ping", "/v1.44/_ping"} {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodHead, path, http.NoBody)
+			rr := httptest.NewRecorder()
+			m.ServeHTTP(rr, req)
+			assert.Equal(t, http.StatusOK, rr.Code)
+		})
+	}
+}
+
+func TestMuzzle_HEAD_NonPing_Blocked(t *testing.T) {
+	m := NewMuzzle(passthroughHandler())
+	req := httptest.NewRequest(http.MethodHead, "/containers/json", http.NoBody)
+	rr := httptest.NewRecorder()
+	m.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusForbidden, rr.Code)
+}
+
 func TestMuzzle_UnknownPath_Blocked(t *testing.T) {
 	paths := []string{
 		"/containers/create",
 		"/exec/abc/start",
 		"/containers/abc/kill",
 		"/networks/create",
-		"/_ping",
 	}
 
 	m := NewMuzzle(passthroughHandler())
