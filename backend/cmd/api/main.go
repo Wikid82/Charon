@@ -118,6 +118,7 @@ func main() {
 			logger.Log().Info("Running database migrations for all models...")
 			if err := db.AutoMigrate(
 				// Core models
+				&models.ProxyGroup{},
 				&models.ProxyHost{},
 				&models.Location{},
 				&models.CaddyConfig{},

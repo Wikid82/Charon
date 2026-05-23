@@ -157,4 +157,62 @@ describe('useProxyHosts bulk operations', () => {
       await waitFor(() => expect(result.current.isBulkUpdating).toBe(false));
     });
   });
+
+  describe('bulkUpdateGroup', () => {
+    it('calls the API and returns the result', async () => {
+      const mockResult = { updated: 1, errors: [] };
+      vi.mocked(proxyHostsApi.getProxyHosts).mockResolvedValue([]);
+      vi.mocked(proxyHostsApi.bulkUpdateGroup).mockResolvedValue(mockResult);
+
+      const { result } = renderHook(() => useProxyHosts(), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      const response = await result.current.bulkUpdateGroup(['uuid-1'], 'group-uuid');
+
+      expect(proxyHostsApi.bulkUpdateGroup).toHaveBeenCalledWith(['uuid-1'], 'group-uuid');
+      expect(response).toEqual(mockResult);
+    });
+
+    it('sends null proxyGroupId when ungrouping', async () => {
+      const mockResult = { updated: 2, errors: [] };
+      vi.mocked(proxyHostsApi.getProxyHosts).mockResolvedValue([]);
+      vi.mocked(proxyHostsApi.bulkUpdateGroup).mockResolvedValue(mockResult);
+
+      const { result } = renderHook(() => useProxyHosts(), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      await result.current.bulkUpdateGroup(['uuid-1', 'uuid-2'], null);
+
+      expect(proxyHostsApi.bulkUpdateGroup).toHaveBeenCalledWith(['uuid-1', 'uuid-2'], null);
+    });
+
+    it('tracks isBulkUpdatingGroup state', async () => {
+      vi.mocked(proxyHostsApi.getProxyHosts).mockResolvedValue([]);
+      vi.mocked(proxyHostsApi.bulkUpdateGroup).mockImplementation(
+        () => new Promise((resolve) => setTimeout(() => resolve({ updated: 1, errors: [] }), 50)),
+      );
+
+      const { result } = renderHook(() => useProxyHosts(), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      expect(result.current.isBulkUpdatingGroup).toBe(false);
+
+      const promise = result.current.bulkUpdateGroup(['uuid-1'], 'group-uuid');
+
+      await waitFor(() => expect(result.current.isBulkUpdatingGroup).toBe(true));
+
+      await promise;
+
+      await waitFor(() => expect(result.current.isBulkUpdatingGroup).toBe(false));
+    });
+  });
 });

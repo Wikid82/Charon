@@ -85,6 +85,13 @@ describe('ProxyHosts page - coverage targets (isolated)', () => {
       useSecurityHeaderProfiles: vi.fn(() => ({ data: [], isLoading: false, error: null }))
     }))
 
+    vi.doMock('../../hooks/useProxyGroups', () => ({
+      useProxyGroups: vi.fn(() => ({ data: [], isLoading: false, error: null })),
+      useCreateProxyGroup: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
+      useUpdateProxyGroup: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
+      useDeleteProxyGroup: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
+    }))
+
     vi.doMock('../../api/settings', () => ({ getSettings: vi.fn(() => Promise.resolve({ 'ui.domain_link_behavior': 'new_window' })) }))
 
     // Import page after mocks are in place
