@@ -2242,3 +2242,97 @@ func TestCheckAll_OrthrusMonitor_NotShortCircuitedWhenHostDown(t *testing.T) {
 		"Orthrus monitor should be checked via checkMonitor, not short-circuited")
 	assert.NotEqual(t, "Host unreachable", heartbeat.Message)
 }
+
+// TestSyncMonitors_OrthrusRemoteServer_NilAgentUUID_SkipsMonitorCreation verifies
+// that an Orthrus-type server with a nil OrthrusAgentUUID is skipped without
+// creating a monitor (the continue guard inside SyncMonitors).
+func TestSyncMonitors_OrthrusRemoteServer_NilAgentUUID_SkipsMonitorCreation(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db, nil)
+	us := newTestUptimeService(t, db, ns)
+
+	server := models.RemoteServer{
+		UUID:             "remote-nil-agent",
+		Name:             "Nil Agent Server",
+		Host:             "100.99.23.60",
+		Port:             2375,
+		Scheme:           "http",
+		Enabled:          true,
+		ConnectionType:   models.ConnectionTypeOrthrus,
+		OrthrusAgentUUID: nil,
+	}
+	require.NoError(t, db.Create(&server).Error)
+
+	require.NoError(t, us.SyncMonitors())
+
+	var count int64
+	db.Model(&models.UptimeMonitor{}).Where("upstream_host = ?", server.Host).Count(&count)
+	assert.Equal(t, int64(0), count, "no monitor should be created when OrthrusAgentUUID is nil")
+}
+
+// TestCheckMonitor_OrthrusType_EmptyURL_ReturnsDown covers the empty agent UUID
+// guard inside the "orthrus" case of checkMonitor (msg = "Monitor missing agent UUID").
+func TestCheckMonitor_OrthrusType_EmptyURL_ReturnsDown(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db, nil)
+	us := newTestUptimeService(t, db, ns)
+	us.SetOrthrusResolver(&mockOrthrusResolver{addr: "127.0.0.1:1234", ok: true})
+
+	monitor := models.UptimeMonitor{
+		ID:         "orthrus-empty-url",
+		Name:       "Orthrus Empty URL",
+		Type:       "orthrus",
+		URL:        "",
+		Enabled:    true,
+		Status:     "pending",
+		MaxRetries: 1,
+	}
+	require.NoError(t, db.Create(&monitor).Error)
+
+	us.checkMonitor(monitor)
+
+	var heartbeat models.UptimeHeartbeat
+	require.NoError(t, db.Where("monitor_id = ?", monitor.ID).
+		Order("created_at desc").First(&heartbeat).Error)
+	assert.Equal(t, "Monitor missing agent UUID", heartbeat.Message)
+}
+
+// TestCheckHost_NonOrthrusMonitorNoPort_SkipsTCPDial covers the !attempted early
+// return: hasDialable is true (there is a non-orthrus monitor) but the monitor's
+// URL yields no parseable port, so attempted stays false and checkHost returns
+// without updating the host status.
+func TestCheckHost_NonOrthrusMonitorNoPort_SkipsTCPDial(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db, nil)
+	us := newTestUptimeService(t, db, ns)
+
+	uptimeHost := models.UptimeHost{
+		Host:   "10.0.0.1",
+		Name:   "No Port Host",
+		Status: "pending",
+	}
+	require.NoError(t, db.Create(&uptimeHost).Error)
+
+	hostID := uptimeHost.ID
+	noPortMonitor := models.UptimeMonitor{
+		ID:           "no-port-monitor-1",
+		Name:         "No Port Monitor",
+		Type:         "http",
+		URL:          "just-a-hostname",
+		Enabled:      true,
+		Status:       "pending",
+		UptimeHostID: &hostID,
+		UpstreamHost: "10.0.0.1",
+		MaxRetries:   1,
+	}
+	require.NoError(t, db.Create(&noPortMonitor).Error)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	us.checkHost(ctx, &uptimeHost)
+
+	var refreshed models.UptimeHost
+	require.NoError(t, db.Where("id = ?", uptimeHost.ID).First(&refreshed).Error)
+	assert.Equal(t, "pending", refreshed.Status,
+		"host status must not change when no TCP dial was attempted")
+}
