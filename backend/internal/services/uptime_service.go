@@ -21,9 +21,16 @@ import (
 	"gorm.io/gorm"
 )
 
+// orthrusStatusChecker allows UptimeService to query Orthrus session liveness
+// without a direct dependency on the orthrus package.
+type orthrusStatusChecker interface {
+	GetProxyAddr(agentUUID string) (string, bool)
+}
+
 type UptimeService struct {
 	DB                  *gorm.DB
 	NotificationService *NotificationService
+	orthrusResolver     orthrusStatusChecker // nil when Orthrus feature is disabled
 	// Batching: track pending notifications
 	pendingNotifications map[string]*pendingHostNotification
 	notificationMutex    sync.Mutex
@@ -75,6 +82,16 @@ func NewUptimeService(db *gorm.DB, ns *NotificationService) *UptimeService {
 			StaggerDelay:     100 * time.Millisecond,
 		},
 	}
+}
+
+// SetOrthrusResolver injects the Orthrus session resolver.
+// Uses the typed-nil guard pattern established in DockerHandler.
+func (s *UptimeService) SetOrthrusResolver(r orthrusStatusChecker) {
+	if r == nil {
+		s.orthrusResolver = nil
+		return
+	}
+	s.orthrusResolver = r
 }
 
 // extractPort extracts the port from a URL or host:port string
@@ -270,6 +287,16 @@ func (s *UptimeService) SyncMonitors() error {
 		// The upstream host for grouping
 		upstreamHost := server.Host
 
+		// Orthrus-managed servers: connectivity is measured by session liveness, not TCP.
+		if server.ConnectionType == models.ConnectionTypeOrthrus {
+			if server.OrthrusAgentUUID == nil || *server.OrthrusAgentUUID == "" {
+				continue // No agent linked — cannot create a meaningful monitor
+			}
+			targetType = "orthrus"
+			targetURL = *server.OrthrusAgentUUID // Agent UUID as the monitor identifier
+			// upstreamHost remains server.Host (Tailscale IP) — correct for grouping/display
+		}
+
 		switch err {
 		case gorm.ErrRecordNotFound:
 			// Find or create UptimeHost
@@ -382,6 +409,8 @@ func (s *UptimeService) CheckAll() {
 					tcpMonitors := make([]models.UptimeMonitor, 0, len(monitors))
 					nonTCPMonitors := make([]models.UptimeMonitor, 0, len(monitors))
 
+					// "orthrus" type is not "tcp", so it falls into nonTCPMonitors and
+					// continues to run checkMonitor independently even when the host is down.
 					for _, monitor := range monitors {
 						normalizedType := strings.ToLower(strings.TrimSpace(monitor.Type))
 						if normalizedType == "tcp" {
@@ -484,6 +513,22 @@ func (s *UptimeService) checkHost(ctx context.Context, host *models.UptimeHost) 
 		return
 	}
 
+	// Fast-path: if every monitor for this host is Orthrus-type, skip the
+	// TCP pre-check entirely — individual checkMonitor calls determine status.
+	hasDialable := false
+	for _, m := range monitors {
+		if strings.ToLower(m.Type) != "orthrus" {
+			hasDialable = true
+			break
+		}
+	}
+	if !hasDialable {
+		return
+	}
+
+	// Track whether any non-Orthrus monitor with a valid port was attempted.
+	attempted := false
+
 	// Try to connect to any of the monitor ports with retry logic
 	success := false
 	var msg string
@@ -508,6 +553,11 @@ func (s *UptimeService) checkHost(ctx context.Context, host *models.UptimeHost) 
 		}
 
 		for _, monitor := range monitors {
+			// Orthrus liveness is checked per-monitor via session state, not TCP pre-check.
+			if strings.ToLower(monitor.Type) == "orthrus" {
+				continue
+			}
+
 			var port string
 
 			// Use actual backend port from ProxyHost if available
@@ -522,6 +572,7 @@ func (s *UptimeService) checkHost(ctx context.Context, host *models.UptimeHost) 
 				continue
 			}
 
+			attempted = true
 			logger.Log().WithFields(map[string]any{
 				"monitor":        monitor.Name,
 				"extracted_port": extractPort(monitor.URL),
@@ -552,6 +603,12 @@ func (s *UptimeService) checkHost(ctx context.Context, host *models.UptimeHost) 
 			lastErr = err
 			msg = fmt.Sprintf("TCP check failed: %v", err)
 		}
+	}
+
+	// If every monitor for this host is Orthrus-type, there are no dialable ports.
+	// Skip the TCP pre-check; individual checkMonitor() calls determine status.
+	if !attempted {
+		return
 	}
 
 	latency := time.Since(start).Milliseconds()
@@ -806,6 +863,23 @@ func (s *UptimeService) checkMonitor(monitor models.UptimeMonitor) {
 			msg = "Connection successful"
 		} else {
 			msg = err.Error()
+		}
+	case "orthrus":
+		agentUUID := monitor.URL
+		if s.orthrusResolver == nil {
+			msg = "Orthrus subsystem unavailable"
+			break
+		}
+		if agentUUID == "" {
+			msg = "Monitor missing agent UUID"
+			break
+		}
+		_, ok := s.orthrusResolver.GetProxyAddr(agentUUID)
+		if ok {
+			success = true
+			msg = "Orthrus session active"
+		} else {
+			msg = "Orthrus agent not connected"
 		}
 	default:
 		msg = "Unknown monitor type"

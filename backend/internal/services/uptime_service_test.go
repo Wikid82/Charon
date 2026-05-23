@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -1889,4 +1890,355 @@ func TestCheckMonitor_TCP_AcceptsRFC1918Address(t *testing.T) {
 	var result models.UptimeMonitor
 	db.First(&result, "id = ?", monitor.ID)
 	assert.Equal(t, "up", result.Status, "TCP monitor to loopback should report up")
+}
+
+// --- Orthrus uptime monitoring tests ---
+
+type mockOrthrusResolver struct {
+	addr string
+	ok   bool
+}
+
+func (m *mockOrthrusResolver) GetProxyAddr(_ string) (string, bool) {
+	return m.addr, m.ok
+}
+
+func TestUptimeService_SetOrthrusResolver(t *testing.T) {
+	t.Run("normal set", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db, nil)
+		us := newTestUptimeService(t, db, ns)
+		mock := &mockOrthrusResolver{addr: "127.0.0.1:1234", ok: true}
+		us.SetOrthrusResolver(mock)
+		assert.Equal(t, mock, us.orthrusResolver)
+	})
+
+	t.Run("nil resolver clears field", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db, nil)
+		us := newTestUptimeService(t, db, ns)
+		us.SetOrthrusResolver(&mockOrthrusResolver{})
+		us.SetOrthrusResolver(nil)
+		assert.Nil(t, us.orthrusResolver)
+	})
+
+	t.Run("resolver replacement", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db, nil)
+		us := newTestUptimeService(t, db, ns)
+		r1 := &mockOrthrusResolver{addr: "a", ok: true}
+		r2 := &mockOrthrusResolver{addr: "b", ok: false}
+		us.SetOrthrusResolver(r1)
+		us.SetOrthrusResolver(r2)
+		assert.Equal(t, r2, us.orthrusResolver)
+	})
+}
+
+func TestSyncMonitors_OrthrusRemoteServer_CreatesOrthrusMonitor(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db, nil)
+	us := newTestUptimeService(t, db, ns)
+
+	agentUUID := "test-agent-uuid-1234"
+	server := models.RemoteServer{
+		UUID:             "remote-orthrus-1",
+		Name:             "Orthrus Server",
+		Host:             "100.99.23.57",
+		Port:             2375,
+		Scheme:           "http",
+		Enabled:          true,
+		ConnectionType:   models.ConnectionTypeOrthrus,
+		OrthrusAgentUUID: &agentUUID,
+	}
+	require.NoError(t, db.Create(&server).Error)
+
+	require.NoError(t, us.SyncMonitors())
+
+	var monitor models.UptimeMonitor
+	require.NoError(t, db.Where("remote_server_id = ?", server.ID).First(&monitor).Error)
+	assert.Equal(t, "orthrus", monitor.Type)
+	assert.Equal(t, agentUUID, monitor.URL)
+	assert.Equal(t, "100.99.23.57", monitor.UpstreamHost)
+}
+
+func TestSyncMonitors_OrthrusRemoteServer_MigratesExistingTCPMonitor(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db, nil)
+	us := newTestUptimeService(t, db, ns)
+
+	agentUUID := "migrate-agent-uuid"
+	server := models.RemoteServer{
+		UUID:             "remote-migrate-1",
+		Name:             "Migrate Server",
+		Host:             "100.99.23.58",
+		Port:             2375,
+		Scheme:           "http",
+		Enabled:          true,
+		ConnectionType:   models.ConnectionTypeOrthrus,
+		OrthrusAgentUUID: &agentUUID,
+	}
+	require.NoError(t, db.Create(&server).Error)
+
+	legacyMonitor := models.UptimeMonitor{
+		ID:             "legacy-tcp-monitor",
+		RemoteServerID: &server.ID,
+		Name:           server.Name,
+		Type:           "tcp",
+		URL:            fmt.Sprintf("%s:%d", server.Host, server.Port),
+		UpstreamHost:   server.Host,
+		Enabled:        true,
+		Status:         "up",
+	}
+	require.NoError(t, db.Create(&legacyMonitor).Error)
+
+	require.NoError(t, us.SyncMonitors())
+
+	var updated models.UptimeMonitor
+	require.NoError(t, db.Where("remote_server_id = ?", server.ID).First(&updated).Error)
+	assert.Equal(t, "orthrus", updated.Type)
+	assert.Equal(t, agentUUID, updated.URL)
+}
+
+func TestSyncMonitors_NonOrthrusRemoteServer_StillUsesHTTP(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db, nil)
+	us := newTestUptimeService(t, db, ns)
+
+	server := models.RemoteServer{
+		UUID:           "remote-direct-1",
+		Name:           "Direct Server",
+		Host:           "192.168.1.100",
+		Port:           8080,
+		Scheme:         "http",
+		Enabled:        true,
+		ConnectionType: models.ConnectionTypeDirect,
+	}
+	require.NoError(t, db.Create(&server).Error)
+
+	require.NoError(t, us.SyncMonitors())
+
+	var monitor models.UptimeMonitor
+	require.NoError(t, db.Where("remote_server_id = ?", server.ID).First(&monitor).Error)
+	assert.Equal(t, "http", monitor.Type)
+	assert.Contains(t, monitor.URL, "192.168.1.100")
+}
+
+func TestCheckHost_OrthrusOnlyHost_SkipsTCPDial(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db, nil)
+	us := newTestUptimeService(t, db, ns)
+
+	uptimeHost := models.UptimeHost{
+		Host:   "100.99.23.57",
+		Name:   "Orthrus Only Host",
+		Status: "pending",
+	}
+	require.NoError(t, db.Create(&uptimeHost).Error)
+
+	hostID := uptimeHost.ID
+	orthrusMonitor := models.UptimeMonitor{
+		ID:           "orthrus-only-1",
+		Name:         "Orthrus Monitor",
+		Type:         "orthrus",
+		URL:          "some-agent-uuid",
+		Enabled:      true,
+		Status:       "pending",
+		UptimeHostID: &hostID,
+		UpstreamHost: "100.99.23.57",
+	}
+	require.NoError(t, db.Create(&orthrusMonitor).Error)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	us.checkHost(ctx, &uptimeHost)
+
+	var refreshed models.UptimeHost
+	require.NoError(t, db.Where("id = ?", uptimeHost.ID).First(&refreshed).Error)
+	assert.Equal(t, "pending", refreshed.Status, "Orthrus-only host should not have TCP pre-check run")
+}
+
+func TestCheckHost_MixedHost_OrthrusAndTCP_DialsTCPOnly(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db, nil)
+	us := newTestUptimeService(t, db, ns)
+	us.config.FailureThreshold = 1
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := ln.Addr().(*net.TCPAddr).Port
+	go func() {
+		conn, _ := ln.Accept()
+		if conn != nil {
+			_ = conn.Close()
+		}
+	}()
+	t.Cleanup(func() { _ = ln.Close() })
+
+	uptimeHost := models.UptimeHost{
+		Host:   "127.0.0.1",
+		Name:   "Mixed Host",
+		Status: "pending",
+	}
+	require.NoError(t, db.Create(&uptimeHost).Error)
+
+	hostID := uptimeHost.ID
+	orthrusMonitor := models.UptimeMonitor{
+		ID:           "mixed-orthrus-1",
+		Name:         "Orthrus Monitor",
+		Type:         "orthrus",
+		URL:          "agent-uuid-xyz",
+		Enabled:      true,
+		Status:       "pending",
+		UptimeHostID: &hostID,
+		UpstreamHost: "127.0.0.1",
+	}
+	tcpMonitor := models.UptimeMonitor{
+		ID:           "mixed-tcp-1",
+		Name:         "TCP Monitor",
+		Type:         "tcp",
+		URL:          fmt.Sprintf("127.0.0.1:%d", port),
+		Enabled:      true,
+		Status:       "pending",
+		UptimeHostID: &hostID,
+		UpstreamHost: "127.0.0.1",
+	}
+	require.NoError(t, db.Create(&orthrusMonitor).Error)
+	require.NoError(t, db.Create(&tcpMonitor).Error)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	us.checkHost(ctx, &uptimeHost)
+
+	var refreshed models.UptimeHost
+	require.NoError(t, db.Where("id = ?", uptimeHost.ID).First(&refreshed).Error)
+	assert.Equal(t, "up", refreshed.Status, "Mixed host TCP port should succeed")
+}
+
+func TestCheckMonitor_OrthrusType_AgentConnected_ReturnsUp(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db, nil)
+	us := newTestUptimeService(t, db, ns)
+	us.SetOrthrusResolver(&mockOrthrusResolver{addr: "127.0.0.1:54321", ok: true})
+
+	monitor := models.UptimeMonitor{
+		ID:         "orthrus-up-1",
+		Name:       "Orthrus Connected",
+		Type:       "orthrus",
+		URL:        "connected-agent-uuid",
+		Enabled:    true,
+		Status:     "pending",
+		MaxRetries: 1,
+	}
+	require.NoError(t, db.Create(&monitor).Error)
+
+	us.checkMonitor(monitor)
+
+	var refreshed models.UptimeMonitor
+	require.NoError(t, db.Where("id = ?", monitor.ID).First(&refreshed).Error)
+	assert.Equal(t, "up", refreshed.Status)
+
+	var heartbeat models.UptimeHeartbeat
+	require.NoError(t, db.Where("monitor_id = ?", monitor.ID).Order("created_at desc").First(&heartbeat).Error)
+	assert.Equal(t, "up", heartbeat.Status)
+	assert.Equal(t, "Orthrus session active", heartbeat.Message)
+}
+
+func TestCheckMonitor_OrthrusType_AgentDisconnected_ReturnsDown(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db, nil)
+	us := newTestUptimeService(t, db, ns)
+	us.SetOrthrusResolver(&mockOrthrusResolver{addr: "", ok: false})
+
+	monitor := models.UptimeMonitor{
+		ID:           "orthrus-down-1",
+		Name:         "Orthrus Disconnected",
+		Type:         "orthrus",
+		URL:          "disconnected-agent-uuid",
+		Enabled:      true,
+		Status:       "pending",
+		MaxRetries:   1,
+		FailureCount: 0,
+	}
+	require.NoError(t, db.Create(&monitor).Error)
+
+	us.checkMonitor(monitor)
+
+	var refreshed models.UptimeMonitor
+	require.NoError(t, db.Where("id = ?", monitor.ID).First(&refreshed).Error)
+	assert.Equal(t, "down", refreshed.Status)
+
+	var heartbeat models.UptimeHeartbeat
+	require.NoError(t, db.Where("monitor_id = ?", monitor.ID).Order("created_at desc").First(&heartbeat).Error)
+	assert.Equal(t, "down", heartbeat.Status)
+	assert.Equal(t, "Orthrus agent not connected", heartbeat.Message)
+}
+
+func TestCheckMonitor_OrthrusType_NilResolver_ReturnsDown(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db, nil)
+	us := newTestUptimeService(t, db, ns)
+
+	monitor := models.UptimeMonitor{
+		ID:           "orthrus-nil-resolver",
+		Name:         "Orthrus Nil Resolver",
+		Type:         "orthrus",
+		URL:          "some-agent-uuid",
+		Enabled:      true,
+		Status:       "pending",
+		MaxRetries:   1,
+		FailureCount: 0,
+	}
+	require.NoError(t, db.Create(&monitor).Error)
+
+	us.checkMonitor(monitor)
+
+	var heartbeat models.UptimeHeartbeat
+	require.NoError(t, db.Where("monitor_id = ?", monitor.ID).Order("created_at desc").First(&heartbeat).Error)
+	assert.Equal(t, "Orthrus subsystem unavailable", heartbeat.Message)
+}
+
+func TestCheckAll_OrthrusMonitor_NotShortCircuitedWhenHostDown(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db, nil)
+	us := newTestUptimeService(t, db, ns)
+	us.config.FailureThreshold = 1
+	us.SetOrthrusResolver(&mockOrthrusResolver{addr: "", ok: false})
+
+	uptimeHost := models.UptimeHost{
+		Host:   "100.99.23.57",
+		Name:   "Down Orthrus Host",
+		Status: "down",
+	}
+	require.NoError(t, db.Create(&uptimeHost).Error)
+
+	hostID := uptimeHost.ID
+	orthrusMonitor := models.UptimeMonitor{
+		ID:           "checkall-orthrus-1",
+		Name:         "Orthrus Not Short-Circuited",
+		Type:         "orthrus",
+		URL:          "agent-uuid",
+		Enabled:      true,
+		Status:       "pending",
+		UptimeHostID: &hostID,
+		UpstreamHost: "100.99.23.57",
+		MaxRetries:   1,
+	}
+	require.NoError(t, db.Create(&orthrusMonitor).Error)
+
+	us.CheckAll()
+
+	assert.Eventually(t, func() bool {
+		var refreshed models.UptimeMonitor
+		if db.Where("id = ?", orthrusMonitor.ID).First(&refreshed).Error != nil {
+			return false
+		}
+		return refreshed.Status == "down"
+	}, 3*time.Second, 25*time.Millisecond)
+
+	var heartbeat models.UptimeHeartbeat
+	err := db.Where("monitor_id = ?", orthrusMonitor.ID).Order("created_at desc").First(&heartbeat).Error
+	require.NoError(t, err)
+	assert.Equal(t, "Orthrus agent not connected", heartbeat.Message,
+		"Orthrus monitor should be checked via checkMonitor, not short-circuited")
+	assert.NotEqual(t, "Host unreachable", heartbeat.Message)
 }
