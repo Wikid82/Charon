@@ -19,6 +19,11 @@ func TestFilter_Allow(t *testing.T) {
 		reqPath string
 		allowed bool
 	}{
+		// Allowed: health check endpoints
+		{"GET", "/_ping", true},
+		{"GET", "/v1.44/_ping", true},
+		{"HEAD", "/_ping", false}, // HEAD not allowed by Allow() (GET only)
+
 		// Allowed: read-only GET endpoints
 		{"GET", "/v1.41/containers/json", true},
 		{"GET", "/v1.41/info", true},
@@ -27,6 +32,12 @@ func TestFilter_Allow(t *testing.T) {
 		{"GET", "/v1.41/events", true},
 		{"GET", "/v1.44/containers/abc123/json", true},
 		{"GET", "/v1.24/containers/json", true},
+
+		// Allowed: volumes and networks (read-only listing and inspection)
+		{"GET", "/v1.41/volumes", true},
+		{"GET", "/v1.41/volumes/myvol", true},
+		{"GET", "/v1.41/networks", true},
+		{"GET", "/v1.41/networks/mynet", true},
 
 		// Blocked: mutating methods
 		{"POST", "/v1.41/containers/create", false},
@@ -37,8 +48,6 @@ func TestFilter_Allow(t *testing.T) {
 		// Blocked: paths not on allowlist
 		{"GET", "/v1.41/exec/abc/start", false},
 		{"GET", "/v1.41/containers/prune", false},
-		{"GET", "/v1.41/networks", false},
-		{"GET", "/v1.41/volumes", false},
 	}
 
 	for _, tt := range tests {

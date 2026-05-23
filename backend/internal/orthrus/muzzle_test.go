@@ -21,6 +21,9 @@ func TestMuzzle_AllowlistedGET_Passthrough(t *testing.T) {
 		"/images/json",
 		"/info",
 		"/version",
+		"/events",
+		"/volumes",
+		"/networks",
 	}
 
 	m := NewMuzzle(passthroughHandler())
@@ -41,6 +44,10 @@ func TestMuzzle_VersionPrefixStripped_Passthrough(t *testing.T) {
 		"/v1.40/images/json",
 		"/v1.41/info",
 		"/v1.42/version",
+		"/v1.47/_ping",
+		"/v1.44/events",
+		"/v1.44/volumes",
+		"/v1.44/networks",
 	}
 
 	m := NewMuzzle(passthroughHandler())
@@ -103,12 +110,33 @@ func TestMuzzle_HEAD_NonPing_Blocked(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, rr.Code)
 }
 
+func TestMuzzle_DynamicPaths_Passthrough(t *testing.T) {
+	paths := []string{
+		"/containers/abc123/json",
+		"/v1.44/containers/abc123/json",
+		"/volumes/myvolume",
+		"/v1.44/volumes/myvolume",
+		"/networks/mynet",
+		"/v1.44/networks/mynet",
+	}
+
+	m := NewMuzzle(passthroughHandler())
+
+	for _, p := range paths {
+		t.Run(p, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, p, http.NoBody)
+			rr := httptest.NewRecorder()
+			m.ServeHTTP(rr, req)
+			assert.Equal(t, http.StatusOK, rr.Code)
+		})
+	}
+}
+
 func TestMuzzle_UnknownPath_Blocked(t *testing.T) {
 	paths := []string{
 		"/containers/create",
 		"/exec/abc/start",
 		"/containers/abc/kill",
-		"/networks/create",
 	}
 
 	m := NewMuzzle(passthroughHandler())

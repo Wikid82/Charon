@@ -21,12 +21,18 @@ const forbiddenResponse = "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnec
 // Matching uses path.Match after stripping query parameters; each pattern
 // uses `*` to match any single path segment (never crosses a slash).
 var allowedPatterns = []string{
+	"/_ping",    // no version prefix (Docker < 1.24 / direct health check)
+	"/v*/_ping", // versioned ping for Docker client health checks
 	"/v*/containers/json",
 	"/v*/containers/*/json",
 	"/v*/info",
 	"/v*/images/json",
 	"/v*/version",
 	"/v*/events",
+	"/v*/volumes",
+	"/v*/volumes/*",
+	"/v*/networks",
+	"/v*/networks/*",
 }
 
 // Filter is an HTTP allowlist filter for Docker socket proxy streams.
