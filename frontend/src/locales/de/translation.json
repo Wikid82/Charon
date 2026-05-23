@@ -1277,5 +1277,16 @@
       "reconnectNotice": "Portänderung wird bei der nächsten Agentenverbindung wirksam.",
       "agentOffline": "Agent ist offline. Proxy-Status nicht verfügbar."
     }
+  },
+  "feedback": {
+    "triggerLabel": "Feedback-Menü öffnen",
+    "closeTriggerLabel": "Feedback-Menü schließen",
+    "panelLabel": "Feedback-Optionen",
+    "reportBug": "Fehler melden",
+    "reportBugDescription": "Fehler gefunden?",
+    "reportBugAriaLabel": "Fehler melden (öffnet GitHub Issues im neuen Tab)",
+    "requestFeature": "Funktion anfragen",
+    "requestFeatureDescription": "Eine Idee?",
+    "requestFeatureAriaLabel": "Funktion anfragen (öffnet GitHub Issues im neuen Tab)"
   }
 }
