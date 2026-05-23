@@ -82,7 +82,7 @@ func TestFilter_Allow(t *testing.T) {
 		{"GET", "/v1.41/containers/prune", false},
 
 		// --- Path traversal: path.Clean normalises before matching ---
-		{"GET", "/v1.47/../containers/json", true},   // resolves to /containers/json — allowed
+		{"GET", "/v1.47/../containers/json", true},     // resolves to /containers/json — allowed
 		{"GET", "/containers/../../etc/passwd", false}, // resolves to /etc/passwd — blocked
 	}
 
