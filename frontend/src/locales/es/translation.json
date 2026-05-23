@@ -1279,5 +1279,16 @@
       "reconnectNotice": "El cambio de puerto surtirá efecto en la próxima reconexión del agente.",
       "agentOffline": "El agente está fuera de línea. Estado del proxy no disponible."
     }
+  },
+  "feedback": {
+    "triggerLabel": "Abrir menú de comentarios",
+    "closeTriggerLabel": "Cerrar menú de comentarios",
+    "panelLabel": "Opciones de comentarios",
+    "reportBug": "Reportar un error",
+    "reportBugDescription": "¿Encontraste un problema?",
+    "reportBugAriaLabel": "Reportar un error (abre GitHub Issues en nueva pestaña)",
+    "requestFeature": "Solicitar una función",
+    "requestFeatureDescription": "¿Tienes una idea?",
+    "requestFeatureAriaLabel": "Solicitar función (abre GitHub Issues en nueva pestaña)"
   }
 }

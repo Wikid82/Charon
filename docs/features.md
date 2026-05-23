@@ -321,6 +321,14 @@ Easy on the eyes, day or night. Toggle between light and dark themes to match yo
 
 ---
 
+### 💬 Feedback Widget
+
+Found a bug or have an idea? The feedback button sits in the corner of every page—click it to report a bug or request a feature on GitHub without leaving Charon. No copy-pasting URLs, no digging through bookmarks—just click and go.
+
+→ [Open an Issue](https://github.com/Wikid82/Charon/issues)
+
+---
+
 ## 🤖 Automation & API
 
 ### 🤖 REST API

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Feedback Widget**: A floating button in the bottom-right corner of every authenticated page provides quick access to GitHub Issues for reporting bugs or requesting new features. Fully keyboard-accessible and localized across all 5 supported languages (en, de, es, fr, zh)
+
 - **Hecate Tunnel & Pathway Manager**: Connect remote servers behind NAT/firewalls without opening inbound ports, with pluggable connection types managed from the Remote Servers page (Issue #368)
   - Connection types: Direct (host/port), Orthrus Agent (self-hosted), Cloudflare Tunnel, Tailscale, ZeroTier, NetBird
   - Tunnel lifecycle management: create, start, stop, delete, rotate credentials
