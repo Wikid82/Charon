@@ -6,6 +6,7 @@ import { Link, useLocation } from 'react-router-dom'
 
 import { useMediaQuery } from '../hooks/useMediaQuery'
 
+import FeedbackWidget from './FeedbackWidget'
 import NotificationCenter from './NotificationCenter'
 import SystemStatus from './SystemStatus'
 import { ThemeToggle } from './ThemeToggle'
@@ -395,6 +396,7 @@ export default function Layout({ children }: LayoutProps) {
           </div>
         </div>
       </main>
+      <FeedbackWidget />
     </div>
   )
 }
