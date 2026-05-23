@@ -256,3 +256,52 @@ func TestWatchHeartbeat_StaleGoroutine_DoesNotEvictNewSession(t *testing.T) {
 	assert.Equal(t, models.OrthrusStatusOnline, stored.Status,
 		"stale goroutine must not flip agent status to offline")
 }
+
+// TestWatchHeartbeat_CurrentSession_MarksOfflineAndEvictsFromMap exercises the
+// CompareAndDelete true-branch: when the session pointer in the map matches the
+// goroutine's pointer, the agent is marked offline and the map entry is removed.
+func TestWatchHeartbeat_CurrentSession_MarksOfflineAndEvictsFromMap(t *testing.T) {
+	db := setupServerTestDB(t)
+	srv, err := NewOrthrusServer(db, setupTestCA(t))
+	require.NoError(t, err)
+	srv.heartbeatTimeout = time.Millisecond
+
+	const agentUUID = "current-session-uuid"
+	agent := &models.OrthrusAgent{
+		UUID:   agentUUID,
+		Name:   "current-agent",
+		Status: models.OrthrusStatusOnline,
+	}
+	require.NoError(t, db.Create(agent).Error)
+
+	conn, wsCleanup := testWSPair(t)
+	defer wsCleanup()
+
+	sess, err := NewAgentSession(agentUUID, "current-agent", conn)
+	require.NoError(t, err)
+	require.NoError(t, sess.Close())
+	require.False(t, sess.IsAlive())
+
+	// Store the SAME pointer so CompareAndDelete returns true.
+	srv.sessions.Store(agentUUID, sess)
+
+	doneCh := make(chan struct{})
+	go func() {
+		defer close(doneCh)
+		srv.watchHeartbeat(agentUUID, sess)
+	}()
+
+	select {
+	case <-doneCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("watchHeartbeat did not exit within deadline")
+	}
+
+	_, ok := srv.sessions.Load(agentUUID)
+	assert.False(t, ok, "session must be evicted when CompareAndDelete succeeds")
+
+	var stored models.OrthrusAgent
+	require.NoError(t, db.Where("uuid = ?", agentUUID).First(&stored).Error)
+	assert.Equal(t, models.OrthrusStatusOffline, stored.Status,
+		"agent must be marked offline when CompareAndDelete succeeds")
+}
