@@ -226,6 +226,7 @@ jobs:
             ALPINE_IMAGE=${{ steps.alpine.outputs.image }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          no-cache-filter: caddy-builder
           provenance: true
           sbom: true
 

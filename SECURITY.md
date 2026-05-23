@@ -203,7 +203,7 @@ Charon users is negligible since the vulnerable code path is not exercised.
 |--------------|-------|
 | **ID**       | CVE-2026-45135 |
 | **Severity** | High · 8.1 |
-| **Status**   | Fix in Dockerfile (v2.11.3) — Pending Image Rebuild |
+| **Status**   | Fix deployed — `no-cache-filter: caddy-builder` added to nightly workflow |
 
 **What**
 Caddy v2.11.2 contains unsafe Unicode handling in the FastCGI `splitPos` function. A
@@ -225,17 +225,21 @@ potential confidentiality and integrity impact through malformed Unicode in Fast
 
 - Discovered: 2026-05-20
 - Disclosed (if public): Public
-- Target fix: v2.11.3 (available)
+- Fixed: 2026-05-21
 
 **How**
-Caddy is not a Go module dependency — it is built from source via xcaddy in the Dockerfile
-multi-stage build. The `CADDY_VERSION` ARG in the Dockerfile **is already pinned to 2.11.3**,
-which contains the fix. The vulnerability only affects the stale `charon:local` image built
-before this Dockerfile change. A container image rebuild applies the fix.
+Caddy is built from source via xcaddy in the Dockerfile multi-stage `caddy-builder` stage.
+The `CADDY_VERSION` ARG was updated to `2.11.3` (commit `d94519d1`), but the nightly CI build
+continued to produce images containing v2.11.2. Root cause: the GHA BuildKit layer cache
+(`cache-from: type=gha,mode=max`) was serving the stale `caddy-builder` stage output from a
+prior nightly run despite the ARG value change — a known edge case where GHA cache import
+loses ARG-scoped metadata, preventing proper cache key invalidation.
 
-**Planned Remediation**
-Rebuild the container image. No code changes required. The fix is already present in the
-Dockerfile (`ARG CADDY_VERSION=2.11.3`).
+**Remediation Applied**
+Added `no-cache-filter: caddy-builder` to the `build-and-push-nightly` job in
+`.github/workflows/nightly-build.yml`. This forces the `caddy-builder` stage to rebuild from
+scratch on every nightly run, bypassing the GHA layer cache for that stage. All other stages
+continue to benefit from the cache.
 
 ---
 

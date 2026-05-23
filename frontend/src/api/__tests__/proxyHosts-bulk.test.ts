@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import { bulkUpdateACL, type BulkUpdateACLResponse  } from '../proxyHosts';
+import {
+  bulkUpdateACL,
+  bulkUpdateGroup,
+  type BulkUpdateACLResponse,
+  type BulkUpdateGroupResponse,
+} from '../proxyHosts';
 
 
 // Mock the client module
@@ -91,6 +96,54 @@ describe('proxyHosts bulk operations', () => {
       mockPut.mockRejectedValue(error);
 
       await expect(bulkUpdateACL(['uuid-1'], 1)).rejects.toThrow('Network error');
+    });
+  });
+
+  describe('bulkUpdateGroup', () => {
+    it('calls PUT /proxy-hosts/bulk-update-group with host_uuids and proxy_group_id', async () => {
+      const mockResponse: BulkUpdateGroupResponse = { updated: 2, errors: [] };
+      mockPut.mockResolvedValueOnce({ data: mockResponse });
+
+      const result = await bulkUpdateGroup(['uuid-1', 'uuid-2'], 'group-uuid');
+
+      expect(mockPut).toHaveBeenCalledWith('/proxy-hosts/bulk-update-group', {
+        host_uuids: ['uuid-1', 'uuid-2'],
+        proxy_group_id: 'group-uuid',
+      });
+      expect(result).toEqual(mockResponse);
+    });
+
+    it('sends null proxy_group_id when ungrouping hosts', async () => {
+      const mockResponse: BulkUpdateGroupResponse = { updated: 1, errors: [] };
+      mockPut.mockResolvedValueOnce({ data: mockResponse });
+
+      await bulkUpdateGroup(['uuid-1'], null);
+
+      expect(mockPut).toHaveBeenCalledWith('/proxy-hosts/bulk-update-group', {
+        host_uuids: ['uuid-1'],
+        proxy_group_id: null,
+      });
+    });
+
+    it('returns partial failure response data', async () => {
+      const mockResponse: BulkUpdateGroupResponse = {
+        updated: 1,
+        errors: [{ uuid: 'bad-uuid', error: 'not found' }],
+      };
+      mockPut.mockResolvedValueOnce({ data: mockResponse });
+
+      const result = await bulkUpdateGroup(['uuid-1', 'bad-uuid'], 'group-uuid');
+
+      expect(result.updated).toBe(1);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].uuid).toBe('bad-uuid');
+    });
+
+    it('propagates API errors', async () => {
+      const error = new Error('Network error');
+      mockPut.mockRejectedValue(error);
+
+      await expect(bulkUpdateGroup(['uuid-1'], 'group-uuid')).rejects.toThrow('Network error');
     });
   });
 });

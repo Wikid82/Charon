@@ -1,6 +1,15 @@
 import { useQuery } from '@tanstack/react-query'
-import { Loader2, ExternalLink, AlertTriangle, Trash2, Globe, Settings } from 'lucide-react'
-import { useState, useMemo } from 'react'
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  pointerWithin,
+} from '@dnd-kit/core'
+import { Loader2, ExternalLink, AlertTriangle, Trash2, Globe, Settings, FolderOpen } from 'lucide-react'
+import { useState, useMemo, useCallback } from 'react'
 import { toast } from 'react-hot-toast'
 import { useTranslation } from 'react-i18next'
 
@@ -32,17 +41,25 @@ import {
 import { useAccessLists } from '../hooks/useAccessLists'
 import { useCertificates } from '../hooks/useCertificates'
 import { useProxyHosts } from '../hooks/useProxyHosts'
+import { useDeleteProxyGroup, useProxyGroups } from '../hooks/useProxyGroups'
 import { useSecurityHeaderProfiles } from '../hooks/useSecurityHeaders'
+import { useProxyGroupDnD } from '../hooks/useProxyGroupDnD'
+import { ProxyGroupBadge } from '../components/ProxyGroupBadge'
+import { ProxyGroupForm } from '../components/ProxyGroupForm'
+import { ManageGroupsDialog } from '../components/ManageGroupsDialog'
+import { GroupDropZone } from '../components/GroupDropZone'
+import { ProxyHostDragHandle } from '../components/ProxyHostDragHandle'
 import compareHosts from '../utils/compareHosts'
 import { formatSettingLabel, settingHelpText, applyBulkSettingsToHosts } from '../utils/proxyHostsHelpers'
 
 import type { AccessList } from '../api/accessLists'
+import type { ProxyGroup } from '../api/proxyGroups'
 import type { ProxyHost } from '../api/proxyHosts'
 
 
 export default function ProxyHosts() {
   const { t } = useTranslation()
-  const { hosts, loading, isFetching, error, createHost, updateHost, deleteHost, bulkUpdateACL, bulkUpdateSecurityHeaders, isBulkUpdating, isCreating, isUpdating, isDeleting } = useProxyHosts()
+  const { hosts, loading, isFetching, error, createHost, updateHost, deleteHost, bulkUpdateACL, bulkUpdateSecurityHeaders, bulkUpdateGroup, isBulkUpdating, isCreating, isUpdating, isDeleting } = useProxyHosts()
   const { certificates } = useCertificates()
   const { data: accessLists } = useAccessLists()
   const { data: securityProfiles } = useSecurityHeaderProfiles()
@@ -77,6 +94,37 @@ export default function ProxyHosts() {
     profileId: number | null;
   }>({ apply: false, profileId: null })
   const [hostToDelete, setHostToDelete] = useState<ProxyHost | null>(null)
+  const [showGroupForm, setShowGroupForm] = useState(false)
+  const [editingGroup, setEditingGroup] = useState<ProxyGroup | undefined>()
+  const [groupToDelete, setGroupToDelete] = useState<ProxyGroup | null>(null)
+  const [showManageGroupsDialog, setShowManageGroupsDialog] = useState(false)
+  const [showAssignGroupModal, setShowAssignGroupModal] = useState(false)
+  const [assignTargetGroupUUID, setAssignTargetGroupUUID] = useState<string | null>(null)
+  const [isAssigning, setIsAssigning] = useState(false)
+  const { data: groups = [] } = useProxyGroups()
+  const deleteGroup = useDeleteProxyGroup()
+
+  const {
+    activeDragId,
+    hostsBeingDragged,
+    handleDragStart,
+    handleDragOver,
+    handleDragEnd,
+    handleDragCancel,
+  } = useProxyGroupDnD({
+    hosts,
+    groups,
+    selectedHosts,
+    setSelectedHosts,
+    bulkUpdateGroup,
+  })
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 },
+    }),
+    useSensor(KeyboardSensor),
+  )
 
   const { data: settings } = useQuery({
     queryKey: ['settings'],
@@ -115,6 +163,21 @@ export default function ProxyHosts() {
 
   // Sort hosts alphabetically by name for display
   const sortedHosts = useMemo(() => [...hosts].sort((a, b) => compareHosts(a, b, 'name', 'asc')), [hosts])
+
+  const groupedHosts = useMemo(() => {
+    const byGroup: Record<string, ProxyHost[]> = {}
+    const ungrouped: ProxyHost[] = []
+    for (const host of sortedHosts) {
+      const gid = host.proxy_group?.uuid
+      if (gid) {
+        if (!byGroup[gid]) byGroup[gid] = []
+        byGroup[gid].push(host)
+      } else {
+        ungrouped.push(host)
+      }
+    }
+    return { byGroup, ungrouped }
+  }, [sortedHosts])
 
   const handleDomainClick = (e: React.MouseEvent, url: string) => {
     if (linkBehavior === 'new_window') {
@@ -402,13 +465,42 @@ export default function ProxyHosts() {
     }
   }
 
+  // DataTable drag handle column renderer
+  const dragHandleColumn = useCallback(
+    (host: ProxyHost) => (
+      <ProxyHostDragHandle
+        hostUuid={host.uuid}
+        dragCount={selectedHosts.has(host.uuid) && hostsBeingDragged.length > 1 ? hostsBeingDragged.length : 1}
+      />
+    ),
+    [selectedHosts, hostsBeingDragged],
+  )
+
+  // Helper: display label for host during drag overlay
+  const getHostName = useCallback(
+    (uuid: string): string => {
+      const host = hosts.find((h) => h.uuid === uuid)
+      return host?.name ?? host?.uuid ?? uuid
+    },
+    [hosts],
+  )
+
+  // Helper: display label for group during accessibility announcements
+  const getGroupName = useCallback(
+    (id: string): string => {
+      if (id === 'ungrouped') return t('proxyGroups.ungrouped')
+      return groups.find((g) => g.uuid === id)?.name ?? id
+    },
+    [groups, t],
+  )
+
   // DataTable columns definition
   const columns: Column<ProxyHost>[] = [
     {
       key: 'name',
       header: t('proxyHosts.columnName'),
       sortable: true,
-      width: '18%',
+      width: '16%',
       cell: (host) => (
         <div className="text-sm font-medium text-content-primary truncate">
           {host.name || <span className="text-content-muted italic">{t('proxyHosts.unnamed')}</span>}
@@ -419,7 +511,7 @@ export default function ProxyHosts() {
       key: 'domain',
       header: t('proxyHosts.columnDomain'),
       sortable: true,
-      width: '24%',
+      width: '20%',
       cell: (host) => (
         <div className="text-sm font-medium text-content-primary">
           {host.domain_names.split(',').map((domain, i) => {
@@ -449,7 +541,7 @@ export default function ProxyHosts() {
       key: 'forward',
       header: t('proxyHosts.columnForwardTo'),
       sortable: true,
-      width: '18%',
+      width: '16%',
       cell: (host) => (
         <div className="text-sm text-content-secondary">
           {host.forward_scheme}://{host.forward_host}:{host.forward_port}
@@ -459,7 +551,7 @@ export default function ProxyHosts() {
     {
       key: 'ssl',
       header: t('proxyHosts.columnSSL'),
-      width: '10%',
+      width: '8%',
       cell: (host) => {
         const primaryDomain = host.domain_names.split(',')[0]?.trim().toLowerCase()
         const certInfo = certStatusByDomain[primaryDomain]
@@ -483,7 +575,7 @@ export default function ProxyHosts() {
     {
       key: 'features',
       header: t('proxyHosts.columnFeatures'),
-      width: '12%',
+      width: '10%',
       cell: (host) => (
         <div className="flex flex-wrap gap-1">
           {host.websocket_support && (
@@ -494,6 +586,17 @@ export default function ProxyHosts() {
           )}
         </div>
       ),
+    },
+    {
+      key: 'group',
+      header: t('proxyGroups.group'),
+      width: '12%',
+      cell: (host) =>
+        host.proxy_group ? (
+          <ProxyGroupBadge group={host.proxy_group} />
+        ) : (
+          <span className="text-content-muted text-sm">—</span>
+        ),
     },
     {
       key: 'status',
@@ -557,6 +660,13 @@ export default function ProxyHosts() {
         actions={
           <div className="flex items-center gap-3">
             {isFetching && !loading && <Loader2 className="animate-spin text-brand-400" size={20} />}
+            <Button
+              variant="outline"
+              leftIcon={FolderOpen}
+              onClick={() => setShowManageGroupsDialog(true)}
+            >
+              {t('proxyGroups.manageGroups')}
+            </Button>
             <Button onClick={handleAdd}>{t('proxyHosts.addHost')}</Button>
           </div>
         }
@@ -593,6 +703,18 @@ export default function ProxyHosts() {
               >
                 {t('proxyHosts.manageACL')}
               </Button>
+              {groups.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setAssignTargetGroupUUID(groups[0].uuid)
+                    setShowAssignGroupModal(true)
+                  }}
+                >
+                  {t('proxyGroups.assignToGroup')}
+                </Button>
+              )}
               <Button
                 variant="danger"
                 size="sm"
@@ -608,7 +730,7 @@ export default function ProxyHosts() {
         {/* Data Table */}
         {loading ? (
           <SkeletonTable rows={5} columns={7} />
-        ) : (
+        ) : groups.length === 0 ? (
           <DataTable
             data={sortedHosts}
             columns={columns}
@@ -629,6 +751,136 @@ export default function ProxyHosts() {
               />
             }
           />
+        ) : (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={pointerWithin}
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDragEnd={handleDragEnd}
+            onDragCancel={handleDragCancel}
+            accessibility={{
+              announcements: {
+                onDragStart: ({ active }) =>
+                  t('proxyGroups.dnd.announcePickUp', { name: getHostName(active.id as string) }),
+                onDragOver: ({ over }) =>
+                  over ? t('proxyGroups.dnd.announceOver', { group: getGroupName(over.id as string) }) : '',
+                onDragEnd: ({ over }) =>
+                  over
+                    ? t('proxyGroups.dnd.announceDrop', { group: getGroupName(over.id as string) })
+                    : t('proxyGroups.dnd.announceCancel'),
+                onDragCancel: () => t('proxyGroups.dnd.announceCancel'),
+              },
+            }}
+          >
+          <div className="space-y-6">
+            {groups.map((group) => {
+              const groupHosts = groupedHosts.byGroup[group.uuid] ?? []
+              return (
+                <GroupDropZone key={group.uuid} groupId={group.uuid} isDragActive={!!activeDragId}>
+                <section aria-label={group.name}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="inline-block w-3 h-3 rounded-full shrink-0"
+                        style={{ backgroundColor: group.color ?? '#6b7280' }}
+                        aria-hidden="true"
+                      />
+                      <h2 className="text-sm font-semibold text-content-primary">{group.name}</h2>
+                      <span className="text-xs text-content-muted">
+                        {t('proxyGroups.hostCount', { count: groupHosts.length })}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label={`Edit group ${group.name}`}
+                        onClick={() => {
+                          setEditingGroup(group)
+                          setShowGroupForm(true)
+                        }}
+                      >
+                        {t('common.edit')}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-error hover:text-error hover:bg-error/10"
+                        aria-label={`Delete group ${group.name}`}
+                        onClick={() => setGroupToDelete(group)}
+                      >
+                        {t('common.delete')}
+                      </Button>
+                    </div>
+                  </div>
+                  <DataTable
+                    data={groupHosts}
+                    columns={columns}
+                    rowKey={(row) => row.uuid}
+                    selectable
+                    selectedKeys={selectedHosts}
+                    onSelectionChange={setSelectedHosts}
+                    renderDragHandle={dragHandleColumn}
+                    emptyState={
+                      <EmptyState
+                        icon={<Globe className="h-10 w-10" />}
+                        title={t('proxyHosts.noHosts')}
+                        description={t('proxyHosts.noHostsDescription')}
+                        action={{ label: t('proxyHosts.addHost'), onClick: handleAdd }}
+                      />
+                    }
+                  />
+                </section>
+                </GroupDropZone>
+              )
+            })}
+            {(groupedHosts.ungrouped.length > 0 || !!activeDragId) && (
+              <GroupDropZone groupId="ungrouped" isDragActive={!!activeDragId}>
+              <section aria-label={t('proxyGroups.ungrouped')}>
+                <div className="flex items-center gap-2 mb-2">
+                  <h2 className="text-sm font-semibold text-content-muted">
+                    {t('proxyGroups.ungrouped')}
+                  </h2>
+                  <span className="text-xs text-content-muted">
+                    {t('proxyGroups.hostCount', { count: groupedHosts.ungrouped.length })}
+                  </span>
+                </div>
+                <DataTable
+                  data={groupedHosts.ungrouped}
+                  columns={columns}
+                  rowKey={(row) => row.uuid}
+                  selectable
+                  selectedKeys={selectedHosts}
+                  onSelectionChange={setSelectedHosts}
+                  renderDragHandle={dragHandleColumn}
+                  emptyState={null}
+                />
+              </section>
+              </GroupDropZone>
+            )}
+            {sortedHosts.length === 0 && (
+              <EmptyState
+                icon={<Globe className="h-12 w-12" />}
+                title={t('proxyHosts.noHosts')}
+                description={t('proxyHosts.noHostsDescription')}
+                action={{ label: t('proxyHosts.addHost'), onClick: handleAdd }}
+              />
+            )}
+          </div>
+          <DragOverlay>
+            {activeDragId && (
+              <div className="rounded-lg border border-brand-400 bg-surface-elevated shadow-lg px-4 py-2 text-sm font-medium text-content-primary opacity-90 pointer-events-none">
+                {hostsBeingDragged.length > 1
+                  ? t('proxyGroups.dnd.movingMultiple', { count: hostsBeingDragged.length })
+                  : t('proxyGroups.dnd.movingOne')}
+                {hostsBeingDragged.length === 1 && (
+                  <span className="ml-1 text-content-muted">— {getHostName(hostsBeingDragged[0])}</span>
+                )}
+              </div>
+            )}
+          </DragOverlay>
+          </DndContext>
         )}
 
         {/* Add/Edit Form Dialog */}
@@ -1166,6 +1418,116 @@ export default function ProxyHosts() {
             isBulk={certCleanupData.isBulk}
           />
         )}
+
+        {/* Proxy Group Form Dialog */}
+        <ProxyGroupForm
+          open={showGroupForm}
+          onClose={() => {
+            setShowGroupForm(false)
+            setEditingGroup(undefined)
+          }}
+          group={editingGroup}
+        />
+
+        {/* Manage Groups Dialog */}
+        <ManageGroupsDialog
+          open={showManageGroupsDialog}
+          onClose={() => setShowManageGroupsDialog(false)}
+        />
+
+        {/* Delete Group Confirmation Dialog */}
+        <Dialog open={!!groupToDelete} onOpenChange={(open) => !open && setGroupToDelete(null)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>{t('proxyGroups.deleteGroup')}</DialogTitle>
+              <DialogDescription>{t('proxyGroups.deleteGroupConfirm')}</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setGroupToDelete(null)}>
+                {t('common.cancel')}
+              </Button>
+              <Button
+                variant="danger"
+                onClick={async () => {
+                  if (!groupToDelete) return
+                  try {
+                    await deleteGroup.mutateAsync(groupToDelete.uuid)
+                  } catch {
+                    // errors handled by hook toast
+                  } finally {
+                    setGroupToDelete(null)
+                  }
+                }}
+                isLoading={deleteGroup.isPending}
+              >
+                {t('common.delete')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Assign to Group Dialog */}
+        <Dialog open={showAssignGroupModal} onOpenChange={(open) => !open && setShowAssignGroupModal(false)}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>{t('proxyGroups.assignToGroup')}</DialogTitle>
+              <DialogDescription>
+                {selectedHosts.size} host(s) selected
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-2">
+              <label htmlFor="assign-group-select" className="block text-sm font-medium text-content-primary mb-1.5">
+                {t('proxyGroups.group')}
+              </label>
+              <select
+                id="assign-group-select"
+                value={assignTargetGroupUUID ?? ''}
+                onChange={(e) => setAssignTargetGroupUUID(e.target.value || null)}
+                className="w-full rounded-md border border-border bg-surface-primary text-content-primary px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              >
+                <option value="">{t('proxyGroups.ungrouped')}</option>
+                {groups.map((g) => (
+                  <option key={g.uuid} value={g.uuid}>
+                    {g.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setShowAssignGroupModal(false)} disabled={isAssigning}>
+                {t('common.cancel')}
+              </Button>
+              <Button
+                isLoading={isAssigning}
+                disabled={isAssigning}
+                onClick={async () => {
+                  const targetGroup = assignTargetGroupUUID
+                    ? groups.find((g) => g.uuid === assignTargetGroupUUID) ?? null
+                    : null
+                  const uuids = Array.from(selectedHosts)
+                  setIsAssigning(true)
+                  try {
+                    await Promise.all(
+                      uuids.map((uuid) =>
+                        updateHost(uuid, {
+                          proxy_group_id: targetGroup ? targetGroup.uuid : null,
+                        })
+                      )
+                    )
+                    setShowAssignGroupModal(false)
+                    setSelectedHosts(new Set())
+                  } catch {
+                    // errors handled individually
+                  } finally {
+                    setIsAssigning(false)
+                  }
+                }}
+              >
+                {t('common.save')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </PageShell>
     </>
   )

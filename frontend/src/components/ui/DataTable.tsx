@@ -23,6 +23,8 @@ export interface DataTableProps<T> extends Omit<React.HTMLAttributes<HTMLDivElem
   emptyState?: React.ReactNode
   isLoading?: boolean
   stickyHeader?: boolean
+  /** When provided, renders a leading drag-handle column (before checkbox). */
+  renderDragHandle?: (row: T) => React.ReactNode
 }
 
 /**
@@ -49,6 +51,7 @@ export function DataTable<T>({
   emptyState,
   isLoading = false,
   stickyHeader = false,
+  renderDragHandle,
   className,
   ...props
 }: DataTableProps<T>) {
@@ -97,7 +100,7 @@ export function DataTable<T>({
   const allSelected = data.length > 0 && selectedKeys.size === data.length
   const someSelected = selectedKeys.size > 0 && selectedKeys.size < data.length
 
-  const colSpan = columns.length + (selectable ? 1 : 0)
+  const colSpan = columns.length + (selectable ? 1 : 0) + (renderDragHandle ? 1 : 0)
 
   return (
     <div
@@ -116,6 +119,9 @@ export function DataTable<T>({
             )}
           >
             <tr>
+              {renderDragHandle && (
+                <th className="w-10 px-2 py-3" aria-hidden="true" />
+              )}
               {selectable && (
                 <th className="w-12 px-4 py-3">
                   <Checkbox
@@ -216,6 +222,15 @@ export function DataTable<T>({
                       }
                     }}
                   >
+                    {renderDragHandle && (
+                      <td
+                        className="w-10 px-2 py-4"
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
+                      >
+                        {renderDragHandle(row)}
+                      </td>
+                    )}
                     {selectable && (
                       <td
                         className="w-12 px-4 py-4"

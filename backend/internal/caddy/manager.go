@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -67,6 +68,7 @@ type CaddyClient interface {
 
 // Manager orchestrates Caddy configuration lifecycle: generate, validate, apply, rollback.
 type Manager struct {
+	mu          sync.Mutex
 	client      CaddyClient
 	db          *gorm.DB
 	configDir   string
@@ -101,6 +103,8 @@ func (m *Manager) SetOrthrusServer(s OrthrusAddrResolver) {
 
 // ApplyConfig generates configuration from database, validates it, applies to Caddy with rollback on failure.
 func (m *Manager) ApplyConfig(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	// Fetch all proxy hosts from database
 	var hosts []models.ProxyHost
 	if err := m.db.Preload("Locations").Preload("Certificate").Preload("AccessList").Preload("SecurityHeaderProfile").Preload("DNSProvider").Find(&hosts).Error; err != nil {
