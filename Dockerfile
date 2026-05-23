@@ -25,7 +25,7 @@ ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0b
 # renovate: datasource=go depName=github.com/expr-lang/expr
 ARG EXPR_LANG_VERSION=1.17.8
 # renovate: datasource=go depName=golang.org/x/net
-ARG XNET_VERSION=0.54.0
+ARG XNET_VERSION=0.55.0
 # renovate: datasource=go depName=github.com/smallstep/certificates
 ARG SMALLSTEP_CERTIFICATES_VERSION=0.30.0
 # renovate: datasource=npm depName=npm
@@ -94,7 +94,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.15.0-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.16.0-alpine@sha256:2bdb65ed1dab192432bc31c95f94155ca5ad7fc1392fb7eb7526ab682fa5bf14 AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
