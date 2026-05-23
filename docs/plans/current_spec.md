@@ -1,7 +1,8 @@
-# Uptime Monitoring Bugs: Orthrus-Managed Remote Servers Always Reported DOWN
+# Orthrus Tunnel Diagnosis & Fix Plan
 
-**Status**: Active
-**Target**: New PR (`development` → `main`)
+**Feature Branch:** `feature/hecate`
+**Date:** 2026-05-23
+**Status:** Research complete — ready for implementation
 
 ---
 
@@ -9,611 +10,642 @@
 
 ### Overview
 
-Two interrelated bugs cause Charon's uptime monitoring subsystem to permanently report
-Orthrus-managed remote servers as DOWN, even when the Orthrus WebSocket tunnel is alive
-and healthy.
+Dockhand (a Docker management UI running on the VPS at `0.0.0.0:3001`) is configured to
+reach HomeLab Docker via Charon's Orthrus reverse-WebSocket tunnel at `http://charon:3000`
+(internal Docker network). The HomeLab Orthrus agent has been **offline for approximately
+four hours** as of the time of writing, and the connection is actively unstable due to a
+session race condition in the Charon server code.
 
-**Bug 1 — Orthrus host-check dials the wrong port on the wrong machine.**
-`SyncMonitors()` creates a TCP monitor using `server.Host:server.Port` for every
-`RemoteServer` regardless of `ConnectionType`. For `ConnectionTypeOrthrus`, `server.Port`
-is the `ExternalProxyPort` (e.g. 2375) that Orthrus binds on `0.0.0.0` of the **Charon
-server** — not on the remote machine. The host-level pre-check in `checkHost()` therefore
-dials `<remote_tailscale_ip>:2375`, which is not open on the remote machine, and marks
-the `UptimeHost` as DOWN after `FailureThreshold` failures.
+Even when the connection was briefly stable this morning, the Server Muzzle HTTP allowlist
+was blocking `/system/df` (Dockhand's disk-usage check), and the Agent Muzzle on HomeLab
+(running old pre-fix code) would have blocked `/_ping`, volumes, and networks entirely.
 
-**Bug 2 — Downstream cascade makes every TCP monitor for the same IP report DOWN.**
-Once an `UptimeHost` is marked DOWN, `CheckAll()` short-circuits all TCP monitors
-associated with that host without running them. Any additional TCP monitors for services
-at the same Tailscale IP (e.g. a port-3001 Dockhand monitor) are therefore always
-reported DOWN even if the service is reachable, because they ride the same `UptimeHost`
-that was incorrectly marked DOWN by Bug 1.
+### Goals
 
-### Objectives
+1. Restore a stable Orthrus tunnel between VPS Charon and the HomeLab agent.
+2. Eliminate all confirmed API-path 403 blocks so Dockhand can list containers, volumes,
+   networks, and inspect disk usage.
+3. Optionally enable container action endpoints (start/stop/restart/kill) through the
+   tunnel for full Dockhand functionality.
+4. Document the exact HomeLab agent rebuild and redeploy steps.
 
-1. Fix `SyncMonitors()` to build correct, connection-type-aware monitor records for
-   Orthrus remote servers.
-2. Fix `checkHost()` to skip raw TCP dials for Orthrus-only hosts and report their
-   reachability via Orthrus session state instead.
-3. Fix `checkMonitor()` to handle `Type = "orthrus"` monitors by querying the live
-   Orthrus session rather than dialling a TCP port.
-4. Fix `CheckAll()` to never short-circuit `"orthrus"` monitors on a host-DOWN event
-   (analogous to the existing HTTP monitor exception).
-5. Wire the Orthrus resolver into `UptimeService` without creating a circular dependency.
-6. Preserve all existing behaviour for non-Orthrus remote servers and all proxy host monitors.
+### Non-Goals
+
+- Changes to Hawser protocol (Dockhand uses `connection_type=direct`, not Hawser).
+- Rate limiting or audit logging for the Docker proxy.
+- Multi-agent support improvements beyond what is needed for this fix.
 
 ---
 
 ## 2. Research Findings
 
-### 2.1 Architecture Summary
+### 2.1 Request Flow
 
-| Component | Location | Role |
-|-----------|----------|------|
-| `UptimeService` | `backend/internal/services/uptime_service.go` | Polling, monitor CRUD, host status |
-| `SyncMonitors()` | `uptime_service.go:153` | Creates/updates monitor records from ProxyHost + RemoteServer |
-| `CheckAll()` | `uptime_service.go:354` | Orchestrates host pre-checks then individual monitor checks |
-| `checkAllHosts()` | `uptime_service.go:415` | Runs `checkHost()` for every `UptimeHost` |
-| `checkHost()` | `uptime_service.go:457` | TCP pre-check; determines `UptimeHost.Status` |
-| `checkMonitor()` | `uptime_service.go:731` | Per-monitor HTTP / TCP / (new) orthrus check |
-| `extractPort()` | `uptime_service.go:81` | Extracts port string from URL or `host:port` |
-| `OrthrusServer` | `backend/internal/orthrus/server.go` | WS endpoint; tracks live `AgentSession` objects |
-| `AgentSession` | `backend/internal/orthrus/session.go` | Per-agent state; starts Docker proxy listeners |
-| `RemoteServer` | `backend/internal/models/remote_server.go` | User record; holds `ConnectionType`, `OrthrusAgentUUID`, `Host`, `Port` |
-| `UptimeMonitor` | `backend/internal/models/uptime.go` | Per-monitor record; `Type` is free-form string |
-| `UptimeHost` | `backend/internal/models/uptime_host.go` | Per-IP grouping record; `Status` drives short-circuit |
-| `routes.go` | `backend/internal/api/routes/routes.go:282` | DI wiring; creates `UptimeService` |
-
-### 2.2 Critical Code Paths
-
-#### SyncMonitors() — Remote server block (lines 260–335)
-
-```go
-// No ConnectionType check exists. For all RemoteServers:
-targetType := "tcp"
-targetURL  := fmt.Sprintf("%s:%d", server.Host, server.Port)
-// For Orthrus: server.Port = ExternalProxyPort (e.g. 2375) bound on CHARON server
-// Result: targetURL = "100.99.23.57:2375" — port doesn't exist on the remote machine
+```
+Dockhand UI (VPS, port 3001)
+  │  (internal vps Docker network, host=charon)
+  ▼
+Charon container, port 3000
+  └─ Server Muzzle (HTTP allowlist filter)
+     └─ httputil.ReverseProxy → loopback 127.0.0.1:<ephemeral>
+        └─ yamux stream (WebSocket to HomeLab 100.99.23.57)
+           └─ HomeLab Orthrus Agent
+              └─ Agent Muzzle (TCP-level HTTP filter)
+                 └─ /var/run/docker.sock
 ```
 
-#### checkHost() — Port extraction (lines 513–525)
+Dockhand is configured in its SQLite database (`dockhand.db`) as:
+
+| Field | Value |
+|-------|-------|
+| `name` | `HomeLab` |
+| `connection_type` | `direct` |
+| `host` | `charon` |
+| `port` | `3000` |
+| `protocol` | `http` |
+| `hawser_*` | (all empty) |
+
+Dockhand does **not** use the Hawser token protocol. It speaks plain Docker API HTTP to
+`http://charon:3000`.
+
+### 2.2 Server-Side Code (VPS — HEAD `b6ff258c`, current)
+
+**File:** `backend/internal/orthrus/muzzle.go`
+
+The Server Muzzle allowlist as of HEAD:
 
 ```go
-// monitor.ProxyHost == nil for RemoteServer monitors, so fallback branch runs:
-port = extractPort(monitor.URL)          // returns "2375" from "100.99.23.57:2375"
-addr = net.JoinHostPort(host.Host, port) // "100.99.23.57:2375"
-conn, err = dialer.DialContext(ctx, "tcp", addr)
-// FAILS — port 2375 is bound on Charon (0.0.0.0:2375), not on the remote machine
-```
+var allowedDockerPaths = map[string]struct{}{
+    "/_ping":            {},
+    "/containers/json":  {},
+    "/images/json":      {},
+    "/info":             {},
+    "/version":          {},
+    "/events":           {},
+    "/volumes":          {},
+    "/networks":         {},
+}
 
-#### StartExternalProxy() — Binds on Charon host (session.go ~260)
-
-```go
-// Binds on THE CHARON SERVER, not on the remote machine.
-ln, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
-connStr = fmt.Sprintf("tcp://charon:%d", activePort)
-```
-
-Port 2375 is bound on the Charon server's network interface. The remote machine at
-`100.99.23.57` never listens on this port.
-
-#### CheckAll() — Short-circuit logic (lines 390–412)
-
-```go
-if uptimeHost.Status == "down" {
-    // TCP monitors are short-circuited (never checked):
-    s.markHostMonitorsDown(tcpMonitors, &uptimeHost)
-    // HTTP/HTTPS monitors still run (nonTCPMonitors).
-    for _, monitor := range nonTCPMonitors { go s.checkMonitor(monitor) }
-    continue
+var allowedDockerPatterns = []string{
+    "/containers/*/json",
+    "/volumes/*",
+    "/networks/*",
 }
 ```
 
-Once Bug 1 marks the host DOWN, every TCP monitor for the same IP is permanently
-skipped, including unrelated services that may be fully reachable.
+The `HEAD` method is only allowed for `/_ping`; all other methods except `GET` return 403.
+Version prefix stripping (`/v1.44/...` → `/...`) is correctly implemented.
 
-#### GetProxyAddr() — Session liveness signal (server.go:142–155)
+**Missing from Server Muzzle allowlist:** `/system/df` (confirmed blocked in live logs).
+
+### 2.3 Agent-Side Code (HomeLab — OLD pre-fix code, `b6ff258c^`)
+
+**File:** `agent/muzzle/muzzle.go` (as running on HomeLab)
 
 ```go
-func (s *OrthrusServer) GetProxyAddr(agentUUID string) (string, bool) {
-    s.mu.RLock()
-    defer s.mu.RUnlock()
-    sess, ok := s.sessions[agentUUID]
-    if !ok { return "", false }
-    addr := sess.GetDockerProxyAddr()
-    return addr, addr != ""  // ok == true ↔ agent connected and proxy active
+var allowedPatterns = []string{
+    "/v*/containers/json",
+    "/v*/containers/*/json",
+    "/v*/info",
+    "/v*/images/json",
+    "/v*/version",
+    "/v*/events",
 }
 ```
 
-`GetProxyAddr` returning `ok = true` is the authoritative signal that an Orthrus agent
-has an active WebSocket session. No network I/O — it's an in-memory map lookup.
+No `/_ping` entry. No volumes or networks entries.
 
-#### DI wiring — routes.go (lines 282 and 511–512)
+**Structural bug (present in both old AND new versions):**
 
 ```go
-// Line 282 — UptimeService created BEFORE orthrusServer exists:
-uptimeService := services.NewUptimeService(db, notificationService)
-
-// Lines 471–484 — orthrusServer conditionally created inside feature block.
-
-// Lines 511–512 — existing post-conditional setter pattern (model to follow):
-if orthrusServer != nil {
-    dockerHandler.SetOrthrusResolver(orthrusServer)
+func (f *Filter) Allow(method, path string) bool {
+    if !strings.EqualFold(method, http.MethodGet) {
+        return false  // blocks HEAD before reaching path patterns
+    }
+    // ... pattern matching
 }
 ```
 
-The `SetOrthrusResolver` setter pattern is already established. `UptimeService` needs
-the same setter called in the same location.
+This unconditionally rejects `HEAD` before any path check is reached. The fix commit
+`b6ff258c` added `/_ping` and `/v*/_ping` to the patterns but did **not** fix this method
+check. `HEAD /_ping` will still be blocked even after deploying `b6ff258c`.
 
-#### Existing orthrusProxyResolver interface (docker_handler.go:26–27)
+### 2.4 Agent Deployment State
 
+Charon database (`orthrus_agents` table, queried via `docker exec`):
+
+| Field | Value |
+|-------|-------|
+| `name` | `HomeLab` |
+| `status` | `online` (stale — DB not updated on disconnect) |
+| `external_proxy_port` | `3000` |
+| `resolved_address` | `100.99.23.57` |
+| `last_seen` | `2026-05-23 06:24:26 -04:00` |
+| `last_heartbeat` | (empty) |
+
+The agent is **actually offline** as of 06:41:16 today. The `status=online` in the DB is a
+stale value from the last successful connection before the race condition struck.
+
+### 2.5 Live Evidence from Charon Logs
+
+Orthrus log events today (filtered from Charon container logs):
+
+| Time (EDT) | Event |
+|------------|-------|
+| `06:23:46` | Agent marked offline (Charon was rebuilding/restarting) |
+| `06:23:56` | Agent reconnected, external proxy started on port 3000 |
+| `06:24:16` | Agent marked offline (stale heartbeat killed 20s-old session) |
+| `06:24:26` | Agent reconnected again, external proxy started on port 3000 |
+| `06:24:55` | **Server Muzzle blocked `GET /system/df`** |
+| `06:28:03` | **Server Muzzle blocked `GET /system/df`** (5-min interval) |
+| `06:33:03` | **Server Muzzle blocked `GET /system/df`** |
+| `06:38:03` | **Server Muzzle blocked `GET /system/df`** |
+| `06:41:13` | Agent reconnected; `StartExternalProxy` FAILED: "address already in use" |
+| `06:41:13` | Agent session stored in sessions map |
+| `06:41:16` | **Agent marked offline** (3 seconds after connecting) |
+| *(silence)* | No further Orthrus events — agent offline ~4 hours |
+
+The `/system/df` blocks occur every 5 minutes, confirming Dockhand polls this endpoint on
+a recurring schedule. The path is confirmed absent from the Server Muzzle allowlist.
+
+### 2.6 Session Race Condition (Root Cause of 4-Hour Outage)
+
+Reading `backend/internal/orthrus/server.go`:
+
+**`HandleWebSocket`** stores the new session and starts a `watchHeartbeat` goroutine:
 ```go
-type orthrusProxyResolver interface {
-    GetProxyAddr(agentUUID string) (string, bool)
+s.sessions.Store(agent.UUID, session)  // replaces old session in map
+go s.watchHeartbeat(agent.UUID, session)
+```
+
+**`watchHeartbeat`** (old goroutine, still running with reference to `oldSess`):
+```go
+func (s *OrthrusServer) watchHeartbeat(agentUUID string, sess *AgentSession) {
+    ticker := time.NewTicker(s.heartbeatTimeout)  // 10s
+    for {
+        case <-ticker.C:
+            if !sess.IsAlive() {
+                _ = sess.Close()         // closes old TCP listeners (correct)
+                s.markOffline(agentUUID) // marks agent offline in DB (kills new session DB state)
+                s.sessions.Delete(agentUUID) // DELETES THE NEW SESSION from map
+                return
+            }
+    }
 }
 ```
 
-`OrthrusServer.GetProxyAddr` already satisfies this signature. No new methods needed
-on `OrthrusServer`.
+**Race sequence:**
+
+```
+t=0:    oldSess active in map, oldWatchHB goroutine running
+t=0:    oldSess yamux closes (agent disconnected)
+t=3s:   newSess connects (HandleWebSocket called)
+         → sessions.Store(uuid, newSess)  ← map now has newSess
+         → newWatchHB goroutine started for newSess
+         → StartExternalProxy(3000) FAILS ("address already in use")
+           because oldSess.extListener still bound (oldWatchHB hasn't fired yet)
+t=10s:  oldWatchHB ticker fires
+         → oldSess.IsAlive() = false
+         → oldSess.Close() ← frees port 3000 (good)
+         → markOffline(uuid) ← writes "offline" to DB (corrupts newSess DB state)
+         → sessions.Delete(uuid) ← REMOVES newSess from map (bad)
+         newSess is orphaned: alive yamux, not in map, DB says offline
+t=~40s: newSess yamux keepalive times out (no streams opened, default 30s)
+t=~40s: agent reconnects (session3)
+         → sessions.Store(uuid, session3)  ← map now has session3
+         → StartExternalProxy(3000) succeeds (port freed at t=10s)
+         → newWatchHB (from t=3s) still running, has reference to newSess
+t=~50s: newWatchHB fires for dead newSess
+         → markOffline(uuid) ← kills session3 DB state
+         → sessions.Delete(uuid) ← removes session3 from map
+         Infinite kill cycle: every new session deleted ~40s after connecting
+```
+
+This is why the agent has been offline for 4 hours — the kill cycle prevents stable reconnection.
+
+### 2.7 Agent Reconnect Logic
+
+`agent/leash/leash.go` `Run()` method:
+
+```go
+const (
+    reconnectDelayDefault = 5 * time.Second
+    reconnectDelayMax     = 60 * time.Second
+    reconnectResetAfter   = 60 * time.Second
+)
+```
+
+- Backoff is reset to 5s when a connection was stable for >= 60s.
+- The 06:24:26 session lasted ~17 minutes, so the delay reset to 5s at 06:41:16.
+- After each kill-cycle iteration (~40s), delay doubles: 5s → 10s → 20s → 40s → 60s.
+- At 60s max backoff the agent retries every ~100s, but each connection is killed within 40s.
+- This creates an infinite retry-and-kill loop, explaining the 4-hour outage.
+
+### 2.8 Dockhand Docker API Paths
+
+Based on confirmed behavior in Charon logs and standard Docker management UI patterns:
+
+| Category | Method | Path |
+|----------|--------|------|
+| Health/ping | GET, HEAD | `/_ping`, `/v*/version` |
+| System | GET | `/v*/info`, `/v*/events`, `/v*/system/df` |
+| Containers (read) | GET | `/v*/containers/json`, `/v*/containers/{id}/json` |
+| Container streams | GET | `/v*/containers/{id}/logs`, `/v*/containers/{id}/stats`, `/v*/containers/{id}/top` |
+| Container actions | POST | `/v*/containers/{id}/start`, `/v*/containers/{id}/stop`, `/v*/containers/{id}/restart`, `/v*/containers/{id}/kill` |
+| Images | GET | `/v*/images/json`, `/v*/images/{id}/json` |
+| Volumes | GET | `/v*/volumes`, `/v*/volumes/{id}` |
+| Networks | GET | `/v*/networks`, `/v*/networks/{id}` |
 
 ---
 
-## 3. Root Cause Analysis
+## 3. Confirmed Root Causes
 
-### Bug 1 — Complete Causal Chain
+### RC1 — Agent Muzzle missing `/_ping` (old code on HomeLab)
+**Evidence:** `git show b6ff258c^:agent/muzzle/muzzle.go` — 6 patterns only, no `/_ping` entry.
+**Impact:** `GET /v*/ping` → 403 at Agent Muzzle. Dockhand cannot confirm connectivity.
+**Fix:** Deploy fix commit `b6ff258c` to HomeLab (adds `/_ping` and `/v*/_ping`).
 
+### RC2 — Agent Muzzle unconditionally blocks HEAD method (both old and new code)
+**Evidence:**
+```go
+// agent/muzzle/muzzle.go (both b6ff258c^ and b6ff258c)
+if !strings.EqualFold(method, http.MethodGet) {
+    return false  // HEAD never reaches pattern matching
+}
 ```
-User creates RemoteServer:
-  Host = "100.99.23.57"  ← Tailscale IP of remote machine
-  Port = 2375            ← ExternalProxyPort (bound on CHARON at 0.0.0.0:2375)
-  ConnectionType = "orthrus"
-  OrthrusAgentUUID = "<uuid>"
+**Impact:** `HEAD /_ping` → 403 even after deploying `b6ff258c`. Separate bug, not fixed in current commit.
+**Fix:** Add a HEAD-specific guard before the GET check (see Fix B in Section 4).
 
-SyncMonitors() [uptime_service.go:260–335]:
-  ↓ No ConnectionType check — all RemoteServers treated identically
-  ↓ targetURL = "100.99.23.57:2375"
-  ↓ targetType = "tcp"
-  Creates UptimeMonitor { Type: "tcp", URL: "100.99.23.57:2375" }
-  Creates UptimeHost    { Host: "100.99.23.57" }
+### RC3 — Agent Muzzle missing volumes and networks paths (old code)
+**Evidence:** Pre-fix `allowedPatterns` has no `/v*/volumes`, `/v*/networks` entries.
+**Impact:** `GET /v*/volumes` and `GET /v*/networks` → 403 at Agent Muzzle.
+**Fix:** Covered by deploying `b6ff258c` (adds these patterns).
 
-checkAllHosts() → checkHost() [uptime_service.go:513–525]:
-  ↓ monitor.ProxyHost == nil (RemoteServer monitor, not ProxyHost monitor)
-  ↓ extractPort("100.99.23.57:2375") = "2375"
-  ↓ addr = "100.99.23.57:2375"
-  net.DialContext("tcp", "100.99.23.57:2375")
-  → ECONNREFUSED — port 2375 not open on remote machine
-  host.FailureCount++ → reaches FailureThreshold (default: 2)
-  host.Status = "down"   ← FALSE NEGATIVE
-```
+### RC4 — Fix commit `b6ff258c` not deployed to HomeLab agent
+**Evidence:** Agent last reconnected at 06:24:26 running old code. No automated deployment
+pipeline for agent to HomeLab. Agent is a scratch image requiring full rebuild from source.
+**Impact:** RC1 and RC3 remain active on HomeLab.
+**Fix:** Rebuild agent from HEAD, deploy to HomeLab.
 
-### Bug 2 — Cascade Chain
+### RC5 — Server Muzzle missing `/system/df`
+**Evidence:** Charon logs confirm four consecutive `"muzzle blocked disallowed Docker path","path":"/system/df"` entries at 5-minute intervals (06:24:55 to 06:38:03).
+**Impact:** Dockhand disk-usage dashboard errors every 5 minutes.
+**Fix:** Add `/system/df` to `allowedDockerPaths` in `backend/internal/orthrus/muzzle.go`.
 
-```
-UptimeHost { Host: "100.99.23.57", Status: "down" }  (set by Bug 1)
+### RC6 — Session race condition: stale watchHeartbeat goroutine deletes new session
+**Evidence:**
+- 06:41:13: "orthrus: agent connected" (new session stored in map)
+- 06:41:16: "orthrus: agent marked offline" (3 seconds later — old watchHeartbeat fired)
+- No reconnection for 4+ hours (infinite kill cycle, see Section 2.6)
 
-User has additional monitor at 100.99.23.57:3001 (e.g. Dockhand)
+**Impact:** Agent cannot maintain stable connection after any rapid reconnect. **Primary reason agent has been offline 4 hours.**
+**Fix:** In `HandleWebSocket`, explicitly close and remove the old session before storing the new one, AND use `CompareAndDelete` in `watchHeartbeat` (see Fix D in Section 4).
 
-CheckAll() [uptime_service.go:390–412]:
-  ↓ uptimeHost.Status == "down"
-  ↓ monitor { Type: "tcp", URL: "100.99.23.57:3001" } → tcpMonitors list
-  markHostMonitorsDown([monitor@3001], host)
-  monitor.Status = "down"  ← NEVER ACTUALLY CHECKED — FALSE NEGATIVE
-```
-
-### Common Root
-
-Both bugs share the same root: `SyncMonitors()` and `checkHost()` have zero awareness of
-`RemoteServer.ConnectionType`. For `ConnectionTypeOrthrus`:
-
-- `server.Port` stores the `ExternalProxyPort` — a port bound on the Charon server, not
-  the remote machine. Using it as the TCP target for the remote IP is semantically wrong.
-- Orthrus connectivity is gauged by **WebSocket session liveness**, not TCP reachability
-  of any port on the remote machine.
-
-The contrast is instructive: `docker_handler.go` already handles `ConnectionTypeOrthrus`
-correctly — it calls `orthrusResolver.GetProxyAddr(agentUUID)` instead of dialling the
-remote IP. The uptime service needs the same awareness.
+### RC7 — External proxy port leak (consequence of RC6)
+**Evidence:** 06:41:13 log: `"error":"listen tcp 0.0.0.0:3000: bind: address already in use"`.
+**Root cause:** `StartExternalProxy` called on new session while old session's `extListener` still bound (old `watchHeartbeat` hasn't fired yet to call `sess.Close()`).
+**Impact:** External proxy fails to start; Dockhand gets connection refused on port 3000.
+**Fix:** Resolved as side-effect of Fix D (explicitly closing old session before starting new).
 
 ---
 
-## 4. Technical Specification
+## 4. Technical Specifications
 
-### 4.1 Design Decision
+### Fix A — Server Muzzle: add `/system/df` and container read paths
 
-**Chosen approach: Orthrus-aware monitor type `"orthrus"`**
+**File:** `backend/internal/orthrus/muzzle.go`
 
-Introduce a first-class monitor type `"orthrus"` handled at every level of the uptime stack:
-
-| Layer | Change |
-|-------|--------|
-| `SyncMonitors()` | Detect `ConnectionTypeOrthrus`; create monitor with `Type="orthrus"`, `URL=agentUUID` |
-| `checkHost()` | Skip TCP dial for `"orthrus"` monitors; skip host pre-check entirely if all monitors are orthrus-only |
-| `checkMonitor()` | Add `case "orthrus":` — query `orthrusResolver.GetProxyAddr(agentUUID)` |
-| `CheckAll()` | `"orthrus"` is not `"tcp"` so it already falls into `nonTCPMonitors`; add defensive comment |
-| DI | Add `SetOrthrusResolver()` to `UptimeService`; call from `routes.go` |
-
-**Why not a minimal skip-in-checkHost approach**: It would require loading `RemoteServer`
-in `checkHost()` (extra DB join), still produces false-DOWN on individual TCP monitor
-checks, and doesn't give correct per-monitor status. Option A is cleaner and correct.
-
-### 4.2 Interface Definition
-
-Add a private interface to `uptime_service.go`. This avoids importing the `orthrus`
-package and follows the established pattern in `docker_handler.go`:
-
+Add to `allowedDockerPaths`:
 ```go
-// orthrusStatusChecker allows UptimeService to query Orthrus session liveness
-// without a direct dependency on the orthrus package.
-type orthrusStatusChecker interface {
-    GetProxyAddr(agentUUID string) (string, bool)
+"/system/df":   {},
+```
+
+Add to `allowedDockerPatterns` for container streaming endpoints:
+```go
+"/containers/*/logs",
+"/containers/*/stats",
+"/containers/*/top",
+```
+
+The version-prefix stripping logic correctly handles `/v1.47/system/df` → `/system/df`.
+
+### Fix B — Agent Muzzle: allow HEAD for `/_ping`
+
+**File:** `agent/muzzle/muzzle.go`
+
+Current `Allow()` method (both old and new code):
+```go
+func (f *Filter) Allow(method, path string) bool {
+    if !strings.EqualFold(method, http.MethodGet) {
+        return false
+    }
+    cleanPath := cleanDockerPath(path)
+    for _, pattern := range f.patterns {
+        if matchGlob(pattern, cleanPath) {
+            return true
+        }
+    }
+    return false
 }
 ```
 
-`OrthrusServer.GetProxyAddr` already satisfies this interface.
-
-### 4.3 UptimeService Struct Changes
-
+Fixed `Allow()` method (using the existing code structure — `allowedPatterns` package-level slice, `path.Match`, `path.Clean`):
 ```go
-type UptimeService struct {
-    DB                  *gorm.DB
-    NotificationService *NotificationService
-    orthrusResolver     orthrusStatusChecker  // nil when Orthrus feature is disabled
-    // ... all existing fields unchanged ...
-}
-
-// SetOrthrusResolver injects the Orthrus session resolver.
-// Uses the typed-nil guard pattern established in DockerHandler.
-func (s *UptimeService) SetOrthrusResolver(r orthrusStatusChecker) {
-    if r == nil {
-        s.orthrusResolver = nil
-        return
+func (f *Filter) Allow(method, reqPath string) bool {
+    // HEAD is permitted only for /_ping (Docker SDK connectivity check).
+    // Check against the two versioned ping patterns already in allowedPatterns.
+    if strings.EqualFold(method, http.MethodHead) {
+        cleanPath := path.Clean(reqPath)
+        for _, p := range []string{"/_ping", "/v*/_ping"} {
+            if matched, _ := path.Match(p, cleanPath); matched {
+                return true
+            }
+        }
+        return false
     }
-    s.orthrusResolver = r
+
+    if !strings.EqualFold(method, http.MethodGet) {
+        return false
+    }
+
+    cleanPath := path.Clean(reqPath)
+    for _, pattern := range allowedPatterns {
+        if matched, err := path.Match(pattern, cleanPath); err == nil && matched {
+            return true
+        }
+    }
+    return false
 }
 ```
 
-### 4.4 SyncMonitors() — Orthrus Branch
+Note: the agent muzzle does NOT strip version prefixes — it matches against versioned patterns (`/v*/_ping`, etc.) using `path.Match`. The `/_ping` and `/v*/_ping` entries added in commit `b6ff258c` are already in `allowedPatterns`, so the HEAD branch only needs to check those two patterns.
 
-Insert before the existing `switch err` (create-vs-update) block in the remote server loop:
+### Fix C — Agent Muzzle: add POST for container actions (optional, policy decision required)
+
+**File:** `agent/muzzle/muzzle.go`
 
 ```go
-// Orthrus-managed servers: connectivity is measured by session liveness, not TCP.
-if server.ConnectionType == models.ConnectionTypeOrthrus {
-    if server.OrthrusAgentUUID == nil || *server.OrthrusAgentUUID == "" {
-        continue // No agent linked — cannot create a meaningful monitor
+var allowedPostPatterns = []string{
+    "/v*/containers/*/start",
+    "/v*/containers/*/stop",
+    "/v*/containers/*/restart",
+    "/v*/containers/*/kill",
+}
+
+// In Allow(), before the GET check:
+if strings.EqualFold(method, http.MethodPost) {
+    for _, pattern := range allowedPostPatterns {
+        if matchGlob(pattern, path) {
+            return true
+        }
     }
-    targetType = "orthrus"
-    targetURL  = *server.OrthrusAgentUUID  // Agent UUID as the monitor identifier
-    // upstreamHost remains server.Host (Tailscale IP) — correct for grouping/display
+    return false
 }
 ```
 
-The existing `switch err` block then stores or updates the monitor with `Type="orthrus"`
-and `URL="<agentUUID>"`. The `monitor.Type != targetType` update guard migrates any
-existing stale TCP records on the next `SyncMonitors()` call — no manual migration
-needed.
+The Server Muzzle also needs corresponding changes to allow POST for these paths (currently
+all non-GET/non-HEAD-ping return 403).
 
-### 4.5 checkHost() — Skip Orthrus Monitors
+**Confirm with operator before implementing** — enables Dockhand to stop/kill HomeLab
+containers remotely.
 
-In the port-extraction loop, skip monitors with `Type == "orthrus"` and track whether
-any dialable ports were found:
+### Fix D — Server: fix watchHeartbeat session race condition
+
+**File:** `backend/internal/orthrus/server.go`
+
+**Change 1: Displace old session BEFORE binding ports in `HandleWebSocket`**
+
+The displacement must happen immediately after `NewAgentSession` succeeds and **before** `StartDockerProxy` / `StartExternalProxy`, so the old session's external proxy port (3000) is freed before the new session tries to bind it. Placing it just before `sessions.Store` is too late — `StartExternalProxy` would already have failed with "address already in use".
 
 ```go
-attempted := false
-for _, monitor := range monitors {
-    if strings.ToLower(monitor.Type) == "orthrus" {
-        continue  // Orthrus liveness checked per-monitor, not via TCP pre-check
+session, err := NewAgentSession(agent.UUID, agent.Name, conn)
+// ... error check ...
+
+// Displace prior session BEFORE binding the external proxy port so the old
+// session's extListener is closed and port 3000 is freed in time.
+if old, loaded := s.sessions.LoadAndDelete(agent.UUID); loaded {
+    if oldSess, ok := old.(*AgentSession); ok {
+        _ = oldSess.Close()
     }
-    var port string
-    if monitor.ProxyHost != nil {
-        port = fmt.Sprintf("%d", monitor.ProxyHost.ForwardPort)
-    } else {
-        port = extractPort(monitor.URL)
-    }
-    if port == "" {
-        continue
-    }
-    attempted = true
-    // ... existing dial logic unchanged ...
 }
 
-// If every monitor for this host is Orthrus-type, there are no dialable ports.
-// Skip the TCP pre-check; individual checkMonitor() calls determine status.
-if !attempted {
-    return
+if err := session.StartDockerProxy(); err != nil { ... }
+if agent.ExternalProxyPort > 0 {
+    if err := session.StartExternalProxy(agent.ExternalProxyPort); err != nil { ... }
 }
+s.sessions.Store(agent.UUID, session)
 ```
 
-This ensures `checkHost()` never marks an Orthrus-only `UptimeHost` as DOWN via TCP.
+**Change 2: Use generation-aware delete in `watchHeartbeat`**
 
-### 4.6 checkMonitor() — Orthrus Case
-
-Add to the `switch monitor.Type` block:
-
-```go
-case "orthrus":
-    agentUUID := monitor.URL  // Agent UUID stored in the URL field
-    if s.orthrusResolver == nil {
-        msg = "Orthrus subsystem unavailable"
-        break
-    }
-    if agentUUID == "" {
-        msg = "Monitor missing agent UUID"
-        break
-    }
-    _, ok := s.orthrusResolver.GetProxyAddr(agentUUID)
-    if ok {
-        success = true
-        msg = "Orthrus session active"
-    } else {
-        msg = "Orthrus agent not connected"
-    }
-```
-
-No network I/O. `GetProxyAddr` is an in-memory map lookup (~0 µs). Latency recorded
-by the outer checkMonitor logic will be near zero and is not meaningful for this type.
-
-### 4.7 CheckAll() — Short-Circuit Invariant
-
-`"orthrus"` is not `"tcp"`, so it already falls into `nonTCPMonitors` (always checked)
-in the existing short-circuit logic. However, with the `checkHost()` fix in place,
-Orthrus-only hosts will never enter the `Status == "down"` branch at all. Add a comment
-documenting the invariant for clarity; no code change is required.
-
-### 4.8 DI Wiring — routes.go
-
-After the existing `if orthrusServer != nil { dockerHandler.SetOrthrusResolver(...) }`
-block at lines 511–512, add:
+Replace `s.sessions.Delete(agentUUID)` with `s.sessions.CompareAndDelete(agentUUID, sess)`.
+`sync.Map.CompareAndDelete` (Go 1.20+) only removes the entry when the stored value is
+still the same pointer as `sess`. A stale goroutine holding a reference to the old session
+will find the entry has changed and the delete is a no-op.
 
 ```go
-// Inject Orthrus session resolver into uptime service (mirrors dockerHandler pattern).
-if orthrusServer != nil {
-    uptimeService.SetOrthrusResolver(orthrusServer)
+func (s *OrthrusServer) watchHeartbeat(agentUUID string, sess *AgentSession) {
+    ticker := time.NewTicker(s.heartbeatTimeout)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-s.ctx.Done():
+            return
+        case <-ticker.C:
+            if !sess.IsAlive() {
+                _ = sess.Close()
+                // Only delete and mark offline if this session is still the current one.
+                if s.sessions.CompareAndDelete(agentUUID, sess) {
+                    s.markOffline(agentUUID)
+                }
+                return
+            }
+        }
+    }
 }
 ```
 
-### 4.9 Database Migration
+### Fix E — Agent rebuild and redeploy to HomeLab
 
-No schema changes. `UptimeMonitor.Type` is a free-form string column. Existing "tcp"
-records for Orthrus servers are migrated in-place by `SyncMonitors()` on the next
-scheduled run — no GORM `AutoMigrate` update required.
+The HomeLab agent is a scratch Docker image built via `agent/Dockerfile` and must be
+rebuilt from source to pick up any code changes.
 
-### 4.10 Edge Cases
+**Build:**
+```bash
+cd /projects/Charon
+docker buildx build \
+  --platform linux/amd64 \
+  --file agent/Dockerfile \
+  --tag orthrus-agent:latest \
+  --load \
+  .
+```
 
-| Scenario | Expected Behaviour |
-|----------|--------------------|
-| Orthrus feature disabled (`orthrusServer == nil`) | `SetOrthrusResolver` not called; `s.orthrusResolver == nil`; `checkMonitor` returns `success=false`, `msg="Orthrus subsystem unavailable"` — monitor stays DOWN. Correct: without the feature the tunnel cannot be active. |
-| Agent configured but never connected | `GetProxyAddr` returns `("", false)`; monitor DOWN. Correct. |
-| Agent disconnects mid-poll | Next `checkMonitor` run reports DOWN within one poll interval. |
-| Agent reconnects | Next `checkMonitor` run reports UP; failure count resets; recovery notification fires. |
-| `ConnectionTypeOrthrus` but `OrthrusAgentUUID == nil` | `SyncMonitors()` skips monitor creation (`continue`). Stale pre-fix TCP records for this server remain unchanged (no regression; they will be cleaned up manually or by a future task). |
-| Mixed host: Orthrus monitor + direct HTTP monitor at same IP | `checkHost()` dials the HTTP monitor's port; host UP/DOWN reflects HTTP TCP reachability. Orthrus monitor is checked independently via session state. Both reported accurately. |
-| Custom `ExternalProxyPort` (not 2375) | Fix is identical — the bug is in the `Type/URL` construction, not the specific port value. |
-| Orthrus-only `UptimeHost` (no co-located TCP services) | `UptimeHost.Status` remains `"pending"` — the aggregate host tile never reflects UP/DOWN. Individual monitor tiles are accurate. Known limitation; cosmetic only. |
+**Export and transfer:**
+```bash
+docker save orthrus-agent:latest | gzip > /tmp/orthrus-agent.tar.gz
+scp /tmp/orthrus-agent.tar.gz homelab:/tmp/
+```
+
+**On HomeLab (100.99.23.57) — mechanism to be confirmed:**
+```bash
+docker load < /tmp/orthrus-agent.tar.gz
+# Restart the agent container using the local compose file
+```
+
+**Agent environment variables required:**
+```
+ORTHRUS_SERVER_URL=wss://charon.hatfieldhosted.com/api/v1/ws/orthrus/connect
+ORTHRUS_AUTH_KEY=<token from Charon provisioning>
+ORTHRUS_AGENT_ID=6f446cca-792f-4631-a4b8-8c3406cbc10c
+ORTHRUS_DOCKER_SOCKET=/var/run/docker.sock
+```
+
+**ACTION REQUIRED:** SSH to HomeLab and determine current agent deployment mechanism
+(systemd unit, Docker Compose file path, or manual binary) before implementing Phase 4.
+
+### Fix F — Emergency: restart Charon to clear stuck state (no code change)
+
+```bash
+docker compose -f /home/jeremy/docker/containers/charon/docker-compose.yml restart charon
+```
+
+This clears all orphaned session goroutines and forces the HomeLab agent to reconnect.
+Does not fix the underlying race condition — it will recur on the next rapid reconnect.
 
 ---
 
 ## 5. Implementation Plan
 
-### Phase 1 — Playwright E2E Tests (Written First, TDD)
+### Phase 0: Emergency Recovery (no code change, 15 min)
 
-**File**: `tests/uptime-orthrus.spec.ts`
+| Task | Action |
+|------|--------|
+| 0.1 | Restart Charon container on VPS to clear orphaned session state |
+| 0.2 | Verify HomeLab agent reconnects within 60s (watch `docker logs charon -f`) |
+| 0.3 | Confirm `/system/df` blocks still appear (connection alive, muzzle issue remains) |
+| 0.4 | Confirm Dockhand HomeLab environment shows containers in UI |
 
-Write failing tests that define the observable contract before implementing the backend
-fix. Use `page.route()` to intercept and mock the uptime monitors API response — no live
-Orthrus agent required in the E2E container.
+Expected: Dockhand shows containers but disk-usage widget errors every 5 min.
 
-**Tests to write:**
+---
 
-| # | Test | Assertion |
-|---|------|-----------|
-| 1 | `Uptime dashboard — Orthrus monitor shows "up" badge when API reports connected` | Green UP badge visible for Orthrus-linked RemoteServer monitor |
-| 2 | `Uptime dashboard — Orthrus monitor shows "down" when API reports disconnected` | Red DOWN badge; message "Orthrus agent not connected" visible |
-| 3 | `Uptime monitor target column — type "orthrus" does not show a raw IP:port` | Target/URL column does not contain `:2375` or similar port string |
-| 4 | `Uptime dashboard — non-Orthrus monitor at same IP is checked independently` | A TCP monitor at the same Tailscale IP retains its own correct status |
+### Phase 1: Playwright Tests
 
-Run target: `npx playwright test tests/uptime-orthrus.spec.ts --project=firefox`
+| Task | File | Test Description |
+|------|------|-----------------|
+| 1.1 | `tests/orthrus-muzzle.spec.ts` | Server Muzzle: `GET /_ping` returns 200 through tunnel |
+| 1.2 | `tests/orthrus-muzzle.spec.ts` | Server Muzzle: `HEAD /_ping` returns 200 through tunnel |
+| 1.3 | `tests/orthrus-muzzle.spec.ts` | `GET /system/df` returns 200 (not 403) |
+| 1.4 | `tests/orthrus-muzzle.spec.ts` | `GET /containers/json` returns container list |
+| 1.5 | `tests/orthrus-session.spec.ts` | Rapid reconnect does not kill new session |
 
-### Phase 2 — Backend Changes
+---
 
-#### 2a. `backend/internal/services/uptime_service.go`
+### Phase 2: Backend — Server Muzzle and Session Race Fix
 
-| Change | Location | Description |
-|--------|----------|-------------|
-| Add interface | Top of file, after imports | `orthrusStatusChecker` with `GetProxyAddr(agentUUID string) (string, bool)` |
-| Add field | `UptimeService` struct | `orthrusResolver orthrusStatusChecker` |
-| Add setter | New exported method | `SetOrthrusResolver(r orthrusStatusChecker)` — typed-nil guard |
-| Orthrus branch | `SyncMonitors()` — remote server loop | `targetType="orthrus"`, `targetURL=agentUUID` when `ConnectionTypeOrthrus` |
-| Skip orthrus dials | `checkHost()` — port-extraction loop | Skip `"orthrus"` monitors; return early if `!attempted` |
-| Orthrus case | `checkMonitor()` — switch block | `case "orthrus":` calls `orthrusResolver.GetProxyAddr(agentUUID)` |
-| Comment | `CheckAll()` | Document `"orthrus"` ∈ `nonTCPMonitors` invariant |
+| Task | File | Change |
+|------|------|--------|
+| 2.1 | `backend/internal/orthrus/muzzle.go` | Add `/system/df` to `allowedDockerPaths` |
+| 2.2 | `backend/internal/orthrus/muzzle.go` | Add container stream paths (logs, stats, top) |
+| 2.3 | `backend/internal/orthrus/server.go` | `HandleWebSocket`: `LoadAndDelete` + `Close()` old session |
+| 2.4 | `backend/internal/orthrus/server.go` | `watchHeartbeat`: use `CompareAndDelete` |
+| 2.5 | `backend/internal/orthrus/server.go` | `watchHeartbeat`: only call `markOffline` when `CompareAndDelete` returns true |
+| 2.6 | `backend/internal/orthrus/server_test.go` | Unit test: rapid reconnect does not corrupt session map |
+| 2.7 | `backend/internal/orthrus/muzzle_test.go` | Unit test: `/system/df` passes Server Muzzle |
 
-#### 2b. `backend/internal/api/routes/routes.go`
+---
 
-After the existing `dockerHandler.SetOrthrusResolver` block:
+### Phase 3: Agent — Muzzle HEAD fix
 
-```go
-if orthrusServer != nil {
-    uptimeService.SetOrthrusResolver(orthrusServer)
-}
-```
+| Task | File | Change |
+|------|------|--------|
+| 3.1 | `agent/muzzle/muzzle.go` | Fix `Allow()`: HEAD guard for `/_ping` before GET check |
+| 3.2 | `agent/muzzle/muzzle.go` | Verify `/v*/_ping`, volumes, networks patterns from `b6ff258c` are present |
+| 3.3 | `agent/muzzle/muzzle_test.go` | `HEAD /_ping` → allowed; `HEAD /containers/json` → blocked |
+| 3.4 | `agent/muzzle/muzzle_test.go` | `GET /v1.47/_ping` → allowed |
+| 3.5 | `agent/muzzle/muzzle_test.go` | `GET /v1.47/volumes` → allowed |
 
-### Phase 3 — Frontend
+---
 
-No changes required for the core bug fix. The uptime dashboard already renders
-`monitor.type` and `monitor.url` from the API response. The `"orthrus"` type and UUID
-URL render as-is.
+### Phase 4: Integration and Agent Deployment
 
-**Deferred (separate PR)**: Display a friendly label such as "Orthrus Tunnel" in the
-target column instead of the raw agent UUID. This is cosmetic and not part of this fix.
+| Task | Action |
+|------|--------|
+| 4.1 | SSH to HomeLab, determine agent deployment mechanism and compose file location |
+| 4.2 | Build agent Docker image from HEAD of `feature/hecate` |
+| 4.3 | Transfer image to HomeLab and restart agent container |
+| 4.4 | Verify `HEAD /_ping` no longer blocked (no muzzle-blocked log entries) |
+| 4.5 | Verify all Dockhand features: containers, volumes, networks, disk usage |
 
-### Phase 4 — Unit Tests
+---
 
-**File**: `backend/internal/services/uptime_service_test.go`
+### Phase 5: Optional — Container Actions (policy confirmation required)
 
-| Test | Description |
-|------|-------------|
-| `TestSyncMonitors_OrthrusRemoteServer_CreatesOrthrusMonitor` | Orthrus RS → `Type="orthrus"`, `URL=agentUUID`; no TCP record with port `:2375` |
-| `TestSyncMonitors_OrthrusRemoteServer_NoUUID_SkipsMonitor` | Orthrus RS with nil UUID → no monitor created |
-| `TestSyncMonitors_OrthrusRemoteServer_MigratesExistingTCPMonitor` | Stale `Type="tcp", URL="10.0.0.1:2375"` → updated to `Type="orthrus", URL=uuid` |
-| `TestCheckHost_OrthrusOnlyHost_SkipsTCPDial` | Host with only `"orthrus"` monitors → zero TCP dials; host status unchanged from "pending" |
-| `TestCheckMonitor_OrthrusType_AgentConnected_ReturnsUp` | `GetProxyAddr` returns `("127.0.0.1:54321", true)` → `success=true`, `msg="Orthrus session active"` |
-| `TestCheckMonitor_OrthrusType_AgentDisconnected_ReturnsDown` | `GetProxyAddr` returns `("", false)` → `success=false`, `msg="Orthrus agent not connected"` |
-| `TestCheckMonitor_OrthrusType_NilResolver_ReturnsDown` | `s.orthrusResolver == nil` → `success=false`, `msg` contains "Orthrus subsystem unavailable" |
-| `TestCheckAll_OrthrusMonitor_NotShortCircuitedWhenHostDown` | `UptimeHost{Status:"down"}` with one `"orthrus"` monitor → `checkMonitor()` is called, `markHostMonitorsDown()` is NOT called for it |
-
-### Phase 5 — Documentation
-
-- `ARCHITECTURE.md` § Uptime Monitoring: document `"orthrus"` as a supported monitor
-  type and explain that Orthrus monitors use WebSocket session liveness instead of TCP
-  connectivity checks. Document that the `"orthrus"` monitor type reports UP only when
-  both the WebSocket tunnel AND the loopback Docker proxy listener are operational.
-  Document that Orthrus-only hosts (no co-located TCP services) will show
-  `status=pending` as a known cosmetic limitation.
-- `CHANGELOG.md`: add entry under Unreleased section.
+| Task | File | Change |
+|------|------|--------|
+| 5.1 | `backend/internal/orthrus/muzzle.go` | Allow POST for container action paths |
+| 5.2 | `agent/muzzle/muzzle.go` | Allow POST for container action paths |
+| 5.3 | Tests | `POST /containers/{id}/start` passes through tunnel |
 
 ---
 
 ## 6. Commit Slicing Strategy
 
-**Decision**: Single PR, four ordered logical commits.
+All work ships in a **single PR on `feature/hecate`** with ordered logical commits.
+One feature = one PR. Commits are ordered so each is independently reviewable and verifiable.
 
-**Rationale**: The change is isolated to two files (`uptime_service.go` + `routes.go`)
-plus tests and docs. Four commits align with four separable concerns, allowing reviewers
-to validate each independently and enabling targeted revert if needed.
+| Commit | Message | Files | Dependencies | Validation Gate |
+|--------|---------|-------|-------------|----------------|
+| **1** | `fix(orthrus): add /system/df and container stream paths to Server Muzzle allowlist` | `backend/internal/orthrus/muzzle.go`, `backend/internal/orthrus/muzzle_test.go` | none | Unit tests pass; no `/system/df` block in logs after Charon restart |
+| **2** | `fix(orthrus): prevent stale heartbeat goroutine from killing reconnected session` | `backend/internal/orthrus/server.go`, `backend/internal/orthrus/server_test.go` | Commit 1 merged | Unit test: rapid reconnect keeps session alive; agent stays online after restart |
+| **3** | `fix(agent): allow HEAD /_ping through agent muzzle filter` | `agent/muzzle/muzzle.go`, `agent/muzzle/muzzle_test.go` | Commit 2 merged | Unit tests pass; `HEAD /_ping` allowed, `HEAD /containers/json` blocked |
+| **4** | `docs: add HomeLab Orthrus agent rebuild and redeploy guide` | `docs/implementation/orthrus_agent_deploy.md` | Commit 3 merged, Phase 4 complete | Deploy steps verified on HomeLab 100.99.23.57 |
 
----
+**Optional Commit 5 (after policy confirmation):**
+`feat(orthrus): allow container action POST requests through Orthrus tunnel`
+Files: `backend/internal/orthrus/muzzle.go`, `agent/muzzle/muzzle.go`, tests.
 
-### Commit 1 — `fix(uptime): add OrthrusStatusChecker interface and DI wiring`
+### Rollback Notes
 
-**Scope**: Interface definition, struct field, setter, routes.go injection
-**Files**:
-- `backend/internal/services/uptime_service.go`
-- `backend/internal/api/routes/routes.go`
-
-**Description**: Add `orthrusStatusChecker` interface, `orthrusResolver` field and
-`SetOrthrusResolver()` setter (with typed-nil guard) to `UptimeService`. Call
-`uptimeService.SetOrthrusResolver(orthrusServer)` in `routes.go` after the existing
-`dockerHandler.SetOrthrusResolver` call. No behaviour change — resolver is wired but
-not yet consulted by any check logic.
-
-**Validation gate**: `go build ./...` passes; all existing tests pass; `uptime_service.go`
-imports no packages from `backend/internal/orthrus`.
-
-**Dependencies**: None.
-
----
-
-### Commit 2 — `fix(uptime): create orthrus-type monitors in SyncMonitors`
-
-**Scope**: `SyncMonitors()` Orthrus branch + SyncMonitors unit tests
-**Files**:
-- `backend/internal/services/uptime_service.go`
-- `backend/internal/services/uptime_service_test.go`
-
-**Description**: Add `ConnectionTypeOrthrus` guard in the remote server loop so that
-Orthrus servers produce `Type="orthrus"` monitors with the agent UUID as the URL. The
-existing update-branch guard migrates stale TCP records automatically.
-
-**Validation gate**: `TestSyncMonitors_OrthrusRemoteServer_*` tests pass; non-Orthrus
-sync tests unchanged.
-
-**Dependencies**: Commit 1 (struct field must exist for mock resolver setup in tests).
-
-> ⚠️ Intermediate state only — `checkMonitor()` case for `"orthrus"` type is added in Commit 3. This commit must not be deployed or merged independently.
-
----
-
-### Commit 3 — `fix(uptime): skip TCP dials for Orthrus hosts; add orthrus checkMonitor case`
-
-**Scope**: `checkHost()` + `checkMonitor()` + host/monitor unit tests
-**Files**:
-- `backend/internal/services/uptime_service.go`
-- `backend/internal/services/uptime_service_test.go`
-
-**Description**: Skip `"orthrus"` monitors in `checkHost()` port-extraction loop; return
-early when no dialable ports remain. Add `case "orthrus":` to `checkMonitor()` switch
-using `orthrusResolver.GetProxyAddr(agentUUID)` as the liveness signal.
-
-**Validation gate**: `TestCheckHost_*` and `TestCheckMonitor_*` tests pass;
-`TestCheckAll_OrthrusMonitor_NotShortCircuitedWhenHostDown` passes.
-
-**Dependencies**: Commits 1 + 2.
-
----
-
-### Commit 4 — `test(uptime): add Playwright E2E tests; update architecture docs`
-
-**Scope**: E2E spec + documentation
-**Files**:
-- `tests/uptime-orthrus.spec.ts`
-- `ARCHITECTURE.md`
-- `CHANGELOG.md`
-
-**Description**: Add Playwright E2E tests using API mocking. Update ARCHITECTURE.md to
-document the `"orthrus"` monitor type. Add CHANGELOG entry.
-
-**Validation gate**: `npx playwright test tests/uptime-orthrus.spec.ts --project=firefox`
-passes.
-
-**Dependencies**: Commits 1–3 (backend must be correct for tests to be meaningful).
-
----
-
-### Rollback
-
-If the PR needs to be reverted, `git revert` the merge commit. The database will contain
-`Type="orthrus"` monitor records for any Orthrus servers synced since the PR merged.
-These records are benign on the reverted code — they will simply never be checked
-(no `case "orthrus"` branch in reverted code, so monitors silently remain in last-known
-state). A `SyncMonitors()` call against the reverted code will re-create TCP monitors
-for those servers (the update guard fires because `monitor.Type != "tcp"`), restoring
-pre-fix behaviour. No manual SQL cleanup required.
+- Commits 1–3 are independently safe to revert: no DB schema changes, no API contract changes.
+- The session race fix (Commit 2) changes behavior: old session is explicitly closed on
+  reconnect rather than reaped up to 10s later by the heartbeat timer. This is strictly an
+  improvement but worth calling out in the PR description.
+- Commit 3 requires agent rebuild + redeploy on HomeLab. Rollback requires redeploying the
+  old agent binary.
+- No persistent state changes (DB migrations) in this plan.
 
 ---
 
 ## 7. Acceptance Criteria
 
-### Functional
-
 | ID | Criterion | Verification |
 |----|-----------|-------------|
-| AC-1 | Orthrus-managed RemoteServer uptime monitor shows `status=up` when agent WebSocket session is alive **and local Docker proxy listener is operational** | Unit test: `TestCheckMonitor_OrthrusType_AgentConnected_ReturnsUp`; Playwright: test #1 |
-| AC-2 | Monitor transitions to `status=down` within one poll interval after agent disconnects | Unit test: `TestCheckMonitor_OrthrusType_AgentDisconnected_ReturnsDown` |
-| AC-3 | `UptimeHost` for an Orthrus-only remote server is never marked DOWN due to TCP dial failure | Unit test: `TestCheckHost_OrthrusOnlyHost_SkipsTCPDial` |
-| AC-4 | TCP service monitors at the same Tailscale IP as an Orthrus server are checked independently and not cascaded | Unit test: `TestCheckAll_OrthrusMonitor_NotShortCircuitedWhenHostDown`; Playwright: test #4 |
-| AC-5 | `SyncMonitors()` creates no TCP monitor with `URL` containing the ExternalProxyPort for an Orthrus server | Unit test: `TestSyncMonitors_OrthrusRemoteServer_CreatesOrthrusMonitor` |
-| AC-6 | `SyncMonitors()` creates a monitor with `type="orthrus"` and `url=<agentUUID>` for an Orthrus server | Unit test: same |
-| AC-7 | Existing stale TCP monitors for Orthrus servers are migrated to `type="orthrus"` on next `SyncMonitors()` | Unit test: `TestSyncMonitors_OrthrusRemoteServer_MigratesExistingTCPMonitor` |
-| AC-8 | When Orthrus feature is disabled (`orthrusServer == nil`), Orthrus monitors report DOWN with message "Orthrus subsystem unavailable" | Unit test: `TestCheckMonitor_OrthrusType_NilResolver_ReturnsDown` |
-
-### Non-Regression
-
-| ID | Criterion |
-|----|-----------|
-| NR-1 | All existing `uptime_service_test.go` tests pass unchanged |
-| NR-2 | Non-Orthrus RemoteServer monitors (direct, tailscale, cloudflare, etc.) continue to use TCP/HTTP checks with `server.Host:server.Port` |
-| NR-3 | ProxyHost monitors are unaffected by all changes |
-| NR-4 | `GET /api/uptime/monitors` returns all monitor types including `"orthrus"` with correct JSON |
-
-### Definition of Done
-
-- [ ] All unit tests pass: `go test ./backend/...`
-- [ ] All Playwright E2E tests pass (Firefox, headless): `npx playwright test tests/uptime-orthrus.spec.ts --project=firefox`
-- [ ] `go vet ./...` and `golangci-lint run` pass with zero new findings
-- [ ] GORM Security Scanner passes: no model-layer changes, run as precaution
-- [ ] `ARCHITECTURE.md` updated to document `"orthrus"` monitor type
-- [ ] `CHANGELOG.md` entry added under Unreleased
-- [ ] PR description references this spec
+| AC1 | `HEAD /_ping` returns 200 through full Orthrus tunnel | `curl -I http://charon:3000/_ping` from Dockhand container → HTTP 200 |
+| AC2 | `GET /_ping` returns 200 through tunnel | `curl http://charon:3000/_ping` → `{"OK":true}` |
+| AC3 | `GET /v*/containers/json` returns container list | Dockhand HomeLab UI shows container list |
+| AC4 | `GET /v*/volumes` and `GET /v*/networks` return data | Dockhand volumes/networks views populate |
+| AC5 | `GET /system/df` returns 200 (not 403) | No more `muzzle blocked /system/df` entries in Charon logs |
+| AC6 | Agent stays connected 60+ minutes without being killed | No `agent marked offline` entries except on natural disconnect |
+| AC7 | Rapid reconnect does not trigger kill cycle | Manual test: `docker restart charon` → agent reconnects and stays online; unit test passes |
+| AC8 | All Agent Muzzle unit tests pass | `go test ./agent/muzzle/...` green |
+| AC9 | All Server Muzzle and Orthrus server unit tests pass | `go test ./backend/internal/orthrus/...` green |
+| AC10 | Dockhand HomeLab environment shows connected status | Dockhand UI at VPS:3001 — HomeLab environment green |
 
 ---
 
-## 8. Key File Reference
+## 8. Risk Register
 
-| File | Change Type | Purpose |
-|------|-------------|---------|
-| `backend/internal/services/uptime_service.go` | Modify | Primary fix: interface, SyncMonitors, checkHost, checkMonitor |
-| `backend/internal/api/routes/routes.go` | Modify | DI: inject OrthrusServer into UptimeService |
-| `backend/internal/services/uptime_service_test.go` | Modify | Unit tests for all new code paths |
-| `tests/uptime-orthrus.spec.ts` | Create | Playwright E2E tests (API-mocked) |
-| `ARCHITECTURE.md` | Modify | Document "orthrus" monitor type |
-| `CHANGELOG.md` | Modify | Unreleased section entry |
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|-----------|
+| HomeLab agent deployment mechanism unknown | High | Medium | SSH to HomeLab and inspect before Phase 4 |
+| `sync.Map.CompareAndDelete` unavailable (Go < 1.20) | Low | Low | Verify `go.mod` Go version; fallback: mutex-protected generation counter |
+| Closing old session in `HandleWebSocket` interrupts active yamux streams | Low | Low | Only fires on reconnect — the old connection was already broken from agent side |
+| Container actions (Phase 5) enabling destructive operations on HomeLab | Medium | High | Require explicit operator confirmation before Commit 5 |
+| Restarting Charon (Phase 0) briefly drops all proxied services | Certain | Low | Schedule during low-traffic window; typically completes in <5s |
+
+---
+
+*Plan authored: 2026-05-23 | Branch: `feature/hecate` | Status: Ready for implementation*

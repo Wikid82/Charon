@@ -24,6 +24,7 @@ func TestMuzzle_AllowlistedGET_Passthrough(t *testing.T) {
 		"/events",
 		"/volumes",
 		"/networks",
+		"/system/df",
 	}
 
 	m := NewMuzzle(passthroughHandler())
@@ -48,6 +49,7 @@ func TestMuzzle_VersionPrefixStripped_Passthrough(t *testing.T) {
 		"/v1.44/events",
 		"/v1.44/volumes",
 		"/v1.44/networks",
+		"/v1.47/system/df",
 	}
 
 	m := NewMuzzle(passthroughHandler())
@@ -114,6 +116,12 @@ func TestMuzzle_DynamicPaths_Passthrough(t *testing.T) {
 	paths := []string{
 		"/containers/abc123/json",
 		"/v1.44/containers/abc123/json",
+		"/containers/abc123/logs",
+		"/v1.47/containers/abc123/logs",
+		"/containers/abc123/stats",
+		"/v1.47/containers/abc123/stats",
+		"/containers/abc123/top",
+		"/v1.47/containers/abc123/top",
 		"/volumes/myvolume",
 		"/v1.44/volumes/myvolume",
 		"/networks/mynet",

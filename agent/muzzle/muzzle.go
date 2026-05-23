@@ -44,8 +44,20 @@ func New() *Filter {
 }
 
 // Allow returns true if method+reqPath is on the allowlist.
-// Only GET is permitted; all other methods are rejected immediately.
+// Only GET is permitted, except HEAD which is allowed on /_ping and /v*/_ping
+// (Docker SDK connectivity check).
 func (f *Filter) Allow(method, reqPath string) bool {
+	// HEAD is permitted only for /_ping (Docker SDK connectivity check).
+	if strings.EqualFold(method, http.MethodHead) {
+		cleanPath := path.Clean(reqPath)
+		for _, p := range []string{"/_ping", "/v*/_ping"} {
+			if matched, _ := path.Match(p, cleanPath); matched {
+				return true
+			}
+		}
+		return false
+	}
+
 	if !strings.EqualFold(method, http.MethodGet) {
 		return false
 	}
