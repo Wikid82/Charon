@@ -1,7 +1,7 @@
-# Spec: Static Feedback Widget
+# Uptime Monitoring Bugs: Orthrus-Managed Remote Servers Always Reported DOWN
 
-**Status**: Draft
-**Target**: Single PR — one atomic commit
+**Status**: Active
+**Target**: New PR (`development` → `main`)
 
 ---
 
@@ -9,480 +9,611 @@
 
 ### Overview
 
-Add a persistent, accessible feedback widget to every authenticated page in the Charon frontend. The widget appears as a small floating icon button anchored to the bottom-right corner of the viewport. When activated, it expands into a compact popover panel offering two GitHub Issue links:
+Two interrelated bugs cause Charon's uptime monitoring subsystem to permanently report
+Orthrus-managed remote servers as DOWN, even when the Orthrus WebSocket tunnel is alive
+and healthy.
 
-- **Report a Bug** → `https://github.com/Wikid82/Charon/issues/new?template=bug_report.md`
-- **Request a Feature** → `https://github.com/Wikid82/Charon/issues/new?template=feature_request.md`
+**Bug 1 — Orthrus host-check dials the wrong port on the wrong machine.**
+`SyncMonitors()` creates a TCP monitor using `server.Host:server.Port` for every
+`RemoteServer` regardless of `ConnectionType`. For `ConnectionTypeOrthrus`, `server.Port`
+is the `ExternalProxyPort` (e.g. 2375) that Orthrus binds on `0.0.0.0` of the **Charon
+server** — not on the remote machine. The host-level pre-check in `checkHost()` therefore
+dials `<remote_tailscale_ip>:2375`, which is not open on the remote machine, and marks
+the `UptimeHost` as DOWN after `FailureThreshold` failures.
 
-Both links open in a new tab. The widget is rendered inside `Layout.tsx` so it appears on all authenticated routes but is absent from `/login`, `/setup`, and `/accept-invite`.
+**Bug 2 — Downstream cascade makes every TCP monitor for the same IP report DOWN.**
+Once an `UptimeHost` is marked DOWN, `CheckAll()` short-circuits all TCP monitors
+associated with that host without running them. Any additional TCP monitors for services
+at the same Tailscale IP (e.g. a port-3001 Dockhand monitor) are therefore always
+reported DOWN even if the service is reachable, because they ride the same `UptimeHost`
+that was incorrectly marked DOWN by Bug 1.
 
 ### Objectives
 
-- Provide a low-friction path for users to report bugs or request features directly from the app
-- Match existing UI design language (semantic tokens, Tailwind, Lucide icons)
-- Meet WCAG 2.2 AA accessibility requirements
-- Introduce zero new runtime dependencies
-- Keep the widget unobtrusive — collapsed by default, non-blocking
-
-The **exact Caddy rejection reason is unknown** due to two compounding observability gaps: the script discards the HTTP response body (containing the full error), and the CI debug step runs after `trap cleanup EXIT` has already removed all containers. This plan fixes the observability gap first, then addresses every confirmed defect.
-
-A secondary defect also exists: even if proxy host creation succeeded, `buildWAFHandler` in `config.go` returns `nil` when `secCfg.WAFMode == "disabled"` (the seeded DB value), so the WAF handler would not be present in the Caddy route during the initial proxy host creation. The security config PUT (step 5) sets `WAFMode = "block"` and triggers a second `ApplyConfig`, at which point the WAF would apply correctly. This ordering issue is a separate concern from the 500 and is documented below.
-
-### Architecture Summary
-
-| Layer | Detail |
-|---|---|
-| Framework | React 19.2.3, TypeScript (strict), Vite 8 |
-| Styling | Tailwind CSS 4.x with semantic CSS custom properties; `darkMode: 'class'` |
-| Icons | `lucide-react` — used uniformly across all components |
-| Accessible overlays | `@radix-ui/react-tooltip`, `@radix-ui/react-dialog` already installed |
-| Classname utility | `cn()` at `frontend/src/utils/cn.ts` |
-| Component variants | `class-variance-authority` (cva) |
-| i18n | `react-i18next`, keys loaded from `src/locales/{locale}/translation.json` |
-| Unit tests | Vitest 4 + React Testing Library; files in `src/components/__tests__/` |
-| Layout entrypoint | `frontend/src/components/Layout.tsx` |
-
-### Z-Index Hierarchy
-
-| Element | z-index |
-|---|---|
-| Mobile overlay (backdrop) | `z-20` |
-| Sidebar (`<aside>`) | `z-30` |
-| Mobile header | `z-40` |
-| Skip-to-content link (focus) | `z-50` |
-| **Feedback Widget** | **`z-50`** ← must sit on top of sidebar and mobile header |
-
-### Integration Point
-
-`Layout.tsx` returns a single root `<div className="min-h-screen bg-light-bg dark:bg-dark-bg flex transition-colors duration-200">`. All sidebar, overlay, and `<main>` elements are children of this div. `<FeedbackWidget />` must be rendered as the **last child** of this root div. Because the widget uses `position: fixed`, its DOM position does not affect layout — it is always anchored to the viewport.
-
-```tsx
-// Layout.tsx — end of JSX return
-return (
-  <div className="min-h-screen bg-light-bg dark:bg-dark-bg flex transition-colors duration-200">
-    {/* ... skip link, mobile header, sidebar, overlay, main ... */}
-    <FeedbackWidget />   {/* ← insert here: after </main>, outside all header/sidebar branches */}
-  </div>
-)
-```
-
-> **Placement constraint**: `<FeedbackWidget />` must be placed after `</main>`, as the final sibling inside the root wrapper div. It must NOT be nested inside the mobile header branch, the desktop sidebar branch, or the `<main>` element itself.
-
-### Existing Pattern: Self-Managed Popover
-
-`NotificationCenter.tsx` is the primary pattern reference: a button toggles `isOpen` state to show/hide a floating panel (`absolute` positioned within a `relative` container). The feedback widget follows the same pattern but uses `fixed` positioning so it is viewport-anchored regardless of scroll position.
-
-**No Radix Popover needed.** The NotificationCenter pattern is the reference implementation. NotificationCenter uses a backdrop `<div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)}>` to handle click-outside dismissal — NOT a `useRef`/`useEffect` document-level event listener. The feedback widget uses the same backdrop approach for pattern consistency. Plain React `useState` is sufficient; no `@radix-ui/react-popover` needed.
-
-### Tailwind Token Vocabulary
-
-The existing components (Layout, NotificationCenter, Button) use the following token pattern consistently:
-
-```
-bg:      bg-white dark:bg-dark-card
-border:  border-gray-200 dark:border-gray-800
-text:    text-gray-700 dark:text-gray-300
-hover:   hover:bg-gray-100 dark:hover:bg-gray-800
-focus:   focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2
-shadow:  shadow-md  /  shadow-lg
-```
-
-These are the canonical tokens used; the widget will follow this same vocabulary.
+1. Fix `SyncMonitors()` to build correct, connection-type-aware monitor records for
+   Orthrus remote servers.
+2. Fix `checkHost()` to skip raw TCP dials for Orthrus-only hosts and report their
+   reachability via Orthrus session state instead.
+3. Fix `checkMonitor()` to handle `Type = "orthrus"` monitors by querying the live
+   Orthrus session rather than dialling a TCP port.
+4. Fix `CheckAll()` to never short-circuit `"orthrus"` monitors on a host-DOWN event
+   (analogous to the existing HTTP monitor exception).
+5. Wire the Orthrus resolver into `UptimeService` without creating a circular dependency.
+6. Preserve all existing behaviour for non-Orthrus remote servers and all proxy host monitors.
 
 ---
 
-## 3. Technical Specifications
+## 2. Research Findings
 
-### 3.1 Component: `FeedbackWidget`
+### 2.1 Architecture Summary
 
-**File:** `frontend/src/components/FeedbackWidget.tsx`
-**Test:** `frontend/src/components/__tests__/FeedbackWidget.test.tsx`
+| Component | Location | Role |
+|-----------|----------|------|
+| `UptimeService` | `backend/internal/services/uptime_service.go` | Polling, monitor CRUD, host status |
+| `SyncMonitors()` | `uptime_service.go:153` | Creates/updates monitor records from ProxyHost + RemoteServer |
+| `CheckAll()` | `uptime_service.go:354` | Orchestrates host pre-checks then individual monitor checks |
+| `checkAllHosts()` | `uptime_service.go:415` | Runs `checkHost()` for every `UptimeHost` |
+| `checkHost()` | `uptime_service.go:457` | TCP pre-check; determines `UptimeHost.Status` |
+| `checkMonitor()` | `uptime_service.go:731` | Per-monitor HTTP / TCP / (new) orthrus check |
+| `extractPort()` | `uptime_service.go:81` | Extracts port string from URL or `host:port` |
+| `OrthrusServer` | `backend/internal/orthrus/server.go` | WS endpoint; tracks live `AgentSession` objects |
+| `AgentSession` | `backend/internal/orthrus/session.go` | Per-agent state; starts Docker proxy listeners |
+| `RemoteServer` | `backend/internal/models/remote_server.go` | User record; holds `ConnectionType`, `OrthrusAgentUUID`, `Host`, `Port` |
+| `UptimeMonitor` | `backend/internal/models/uptime.go` | Per-monitor record; `Type` is free-form string |
+| `UptimeHost` | `backend/internal/models/uptime_host.go` | Per-IP grouping record; `Status` drives short-circuit |
+| `routes.go` | `backend/internal/api/routes/routes.go:282` | DI wiring; creates `UptimeService` |
 
-#### Props
+### 2.2 Critical Code Paths
 
-None. The component is fully self-contained with no configuration props.
+#### SyncMonitors() — Remote server block (lines 260–335)
 
-#### State and Refs
-
-| Name | Type | Purpose |
-|---|---|---|
-| `isOpen` | `boolean` (useState) | Controls popover panel visibility |
-| `triggerRef` | `useRef<HTMLButtonElement>` | Focus return target on panel close |
-| `firstLinkRef` | `useRef<HTMLAnchorElement>` | Focus management: receives focus when panel opens |
-
-**Focus-on-open mechanism:**
-
-```tsx
-const firstLinkRef = useRef<HTMLAnchorElement>(null)
-
-useEffect(() => {
-  if (isOpen) firstLinkRef.current?.focus()
-}, [isOpen])
+```go
+// No ConnectionType check exists. For all RemoteServers:
+targetType := "tcp"
+targetURL  := fmt.Sprintf("%s:%d", server.Host, server.Port)
+// For Orthrus: server.Port = ExternalProxyPort (e.g. 2375) bound on CHARON server
+// Result: targetURL = "100.99.23.57:2375" — port doesn't exist on the remote machine
 ```
 
-The `firstLinkRef` is attached to the first `<a>` element (Bug report link). When `isOpen` transitions to `true`, this effect fires and moves keyboard focus to that link, fulfilling WCAG 2.4.3 and ARIA authoring guidance for disclosure widgets.
+#### checkHost() — Port extraction (lines 513–525)
 
-**Click-outside mechanism** (matches NotificationCenter pattern):
-
-```tsx
-{isOpen && (
-  <div
-    className="fixed inset-0 z-10"
-    aria-hidden="true"
-    onClick={() => setIsOpen(false)}
-  />
-)}
+```go
+// monitor.ProxyHost == nil for RemoteServer monitors, so fallback branch runs:
+port = extractPort(monitor.URL)          // returns "2375" from "100.99.23.57:2375"
+addr = net.JoinHostPort(host.Host, port) // "100.99.23.57:2375"
+conn, err = dialer.DialContext(ctx, "tcp", addr)
+// FAILS — port 2375 is bound on Charon (0.0.0.0:2375), not on the remote machine
 ```
 
-The backdrop renders below the panel (`z-10` vs panel's higher stacking) and captures any click outside the widget.
+#### StartExternalProxy() — Binds on Charon host (session.go ~260)
 
-#### Interaction Specification
-
-1. User presses **Tab** → focus lands on the floating trigger button.
-2. User presses **Enter** or **Space** (or clicks) → panel opens; focus moves to first link.
-3. User presses **Tab** / **Shift+Tab** → navigate between the two links within the panel.
-4. User presses **Enter** on a link → opens GitHub in a new tab; panel stays open.
-5. User presses **Escape** → panel closes; focus returns to trigger button.
-6. User clicks outside the widget → panel closes.
-7. User presses **Tab** past last link → focus moves to next focusable element in page (natural DOM order, no trap).
-
-#### ARIA Attributes
-
-| Element | Attribute | Value |
-|---|---|---|
-| Trigger `<button>` | `aria-label` | dynamic: `t('feedback.triggerLabel')` when closed / `t('feedback.closeTriggerLabel')` when open |
-| Trigger `<button>` | `aria-expanded` | `"true"` / `"false"` |
-| Trigger `<button>` | `aria-controls` | `"feedback-panel"` |
-| Panel `<nav>` | `id` | `"feedback-panel"` |
-| Panel `<nav>` | `aria-label` | `t('feedback.panelLabel')` |
-| Bug link `<a>` | `aria-label` | `t('feedback.reportBugAriaLabel')` |
-| Feature link `<a>` | `aria-label` | `t('feedback.requestFeatureAriaLabel')` |
-
-> **No `role="menu"` / `role="menuitem"`**: These ARIA roles require a custom arrow-key keyboard handler per the ARIA spec and are semantically incorrect for navigation links that open external URLs. Use a plain `<nav aria-label="...">` containing native `<a>` elements instead. Tab navigation between the two links is provided natively by the browser — no custom keyboard handler needed.
-
-> **No `aria-haspopup`**: The ARIA `aria-haspopup` attribute signals a menu, listbox, tree, grid, or dialog. Since the panel is a `<nav>` (not a menu), `aria-haspopup` is omitted. `aria-expanded` alone is sufficient to communicate the toggle state.
-
-#### CSS Layout
-
-```
-Wrapper:   position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 50
-Trigger:   h-10 w-10 (40×40px, matches Button size="icon"), rounded-full
-Panel:     position: absolute; bottom: calc(100% + 0.5rem); right: 0; width: 12rem
+```go
+// Binds on THE CHARON SERVER, not on the remote machine.
+ln, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
+connStr = fmt.Sprintf("tcp://charon:%d", activePort)
 ```
 
-The panel is positioned relative to the fixed wrapper, appearing above the trigger.
+Port 2375 is bound on the Charon server's network interface. The remote machine at
+`100.99.23.57` never listens on this port.
 
-#### Panel Animation
+#### CheckAll() — Short-circuit logic (lines 390–412)
 
-CSS transition using Tailwind. The panel conditional class changes based on `isOpen`:
-
-| State | Classes |
-|---|---|
-| Open | `opacity-100 scale-100 pointer-events-auto` |
-| Closed | `opacity-0 scale-95 pointer-events-none` |
-
-Combined with `transition-all duration-150 ease-out origin-bottom-right` always applied.
-
-#### URL Constants
-
-Defined as module-level constants (not in a config file — they are static GitHub template URLs):
-
-```ts
-const GITHUB_BUG_URL =
-  'https://github.com/Wikid82/Charon/issues/new?template=bug_report.md'
-const GITHUB_FEATURE_URL =
-  'https://github.com/Wikid82/Charon/issues/new?template=feature_request.md'
-```
-
-#### Lucide Icons
-
-| Use | Icon | Available in lucide-react |
-|---|---|---|
-| Trigger button | `MessageSquarePlus` | ✅ (not yet imported anywhere) |
-| Bug report link | `Bug` | ✅ (not yet imported anywhere) |
-| Feature request link | `Sparkles` | ✅ (not yet imported anywhere) |
-
-Single import: `import { MessageSquarePlus, Bug, Sparkles } from 'lucide-react'`
-
-#### WCAG 2.2 AA Compliance Map
-
-| Criterion | Requirement | Implementation |
-|---|---|---|
-| 1.1.1 Non-text Content | Icon button has text alternative | `aria-label` on trigger |
-| 1.3.1 Info and Relationships | Programmatic structure | `<nav>` landmark with native `<a>` links; no synthetic ARIA roles needed |
-| 1.4.3 Contrast (Minimum) | 4.5:1 for normal text | Tokens inherited from existing UI (brand-500 / dark-card) |
-| 1.4.11 Non-text Contrast | 3:1 for UI components | Focus ring via `ring-brand-500` matches existing Button |
-| 2.1.1 Keyboard | All functionality keyboard-operable | Enter/Space open; Tab/Shift+Tab navigate natively; Escape closes |
-| 2.1.2 No Keyboard Trap | User can exit any component | No focus trap; Escape always returns focus to trigger |
-| 2.4.3 Focus Order | Focus follows logical order | Widget last in DOM after `</main>`; focus moves to first link on open |
-| 2.4.7 Focus Visible | Focus indicator visible | `focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2` |
-| 2.4.11 Focus Appearance | Focus indicator meets minimum size/contrast | `focus-visible:ring-2 ring-brand-500 ring-offset-2` — same ring token used across all interactive elements in the codebase; meets 2px minimum requirement |
-| 4.1.2 Name, Role, Value | All components correctly identified | Native `<button>`, native `<a>`, `<nav>` landmark, explicit `aria-label` and `aria-expanded` |
-
-### 3.2 i18n Keys
-
-Add a `"feedback"` object as a new top-level key in all five locale files.
-
-**English (`en`) — source of truth:**
-
-```json
-"feedback": {
-  "triggerLabel": "Open feedback menu",
-  "closeTriggerLabel": "Close feedback menu",
-  "panelLabel": "Feedback options",
-  "reportBug": "Report a Bug",
-  "reportBugDescription": "Found an issue?",
-  "reportBugAriaLabel": "Report a bug (opens GitHub Issues in new tab)",
-  "requestFeature": "Request a Feature",
-  "requestFeatureDescription": "Have an idea?",
-  "requestFeatureAriaLabel": "Request a feature (opens GitHub Issues in new tab)"
+```go
+if uptimeHost.Status == "down" {
+    // TCP monitors are short-circuited (never checked):
+    s.markHostMonitorsDown(tcpMonitors, &uptimeHost)
+    // HTTP/HTTPS monitors still run (nonTCPMonitors).
+    for _, monitor := range nonTCPMonitors { go s.checkMonitor(monitor) }
+    continue
 }
 ```
 
-**Per-locale values (full table):**
+Once Bug 1 marks the host DOWN, every TCP monitor for the same IP is permanently
+skipped, including unrelated services that may be fully reachable.
 
-| Key | de | es | fr | zh |
-|---|---|---|---|---|
-| `triggerLabel` | Feedback-Menü öffnen | Abrir menú de comentarios | Ouvrir le menu de retour | 打开反馈菜单 |
-| `closeTriggerLabel` | Feedback-Menü schließen | Cerrar menú de comentarios | Fermer le menu de retour | 关闭反馈菜单 |
-| `panelLabel` | Feedback-Optionen | Opciones de comentarios | Options de retour | 反馈选项 |
-| `reportBug` | Fehler melden | Reportar un error | Signaler un bug | 报告错误 |
-| `reportBugDescription` | Fehler gefunden? | ¿Encontraste un problema? | Trouvé un problème ? | 发现问题了吗？ |
-| `reportBugAriaLabel` | Fehler melden (öffnet GitHub Issues im neuen Tab) | Reportar un error (abre GitHub Issues en nueva pestaña) | Signaler un bug (ouvre GitHub Issues dans un nouvel onglet) | 报告错误（在新标签页打开 GitHub Issues） |
-| `requestFeature` | Funktion anfragen | Solicitar una función | Demander une fonctionnalité | 请求功能 |
-| `requestFeatureDescription` | Eine Idee? | ¿Tienes una idea? | Vous avez une idée ? | 有想法吗？ |
-| `requestFeatureAriaLabel` | Funktion anfragen (öffnet GitHub Issues im neuen Tab) | Solicitar función (abre GitHub Issues en nueva pestaña) | Demander une fonctionnalité (ouvre GitHub Issues dans un nouvel onglet) | 请求功能（在新标签页打开 GitHub Issues） |
+#### GetProxyAddr() — Session liveness signal (server.go:142–155)
 
-### 3.3 `Layout.tsx` Changes
+```go
+func (s *OrthrusServer) GetProxyAddr(agentUUID string) (string, bool) {
+    s.mu.RLock()
+    defer s.mu.RUnlock()
+    sess, ok := s.sessions[agentUUID]
+    if !ok { return "", false }
+    addr := sess.GetDockerProxyAddr()
+    return addr, addr != ""  // ok == true ↔ agent connected and proxy active
+}
+```
 
-Two surgical changes:
+`GetProxyAddr` returning `ok = true` is the authoritative signal that an Orthrus agent
+has an active WebSocket session. No network I/O — it's an in-memory map lookup.
 
-1. **Import** (add to existing component imports, after `NotificationCenter`):
-   ```tsx
-   import FeedbackWidget from './FeedbackWidget'
-   ```
+#### DI wiring — routes.go (lines 282 and 511–512)
 
-2. **JSX** (add as last child of root wrapper div, **after** `</main>`, outside both mobile header and desktop sidebar branches):
-   ```tsx
-   <FeedbackWidget />
-   ```
+```go
+// Line 282 — UptimeService created BEFORE orthrusServer exists:
+uptimeService := services.NewUptimeService(db, notificationService)
 
-Total: 2 lines changed, 0 lines deleted.
+// Lines 471–484 — orthrusServer conditionally created inside feature block.
+
+// Lines 511–512 — existing post-conditional setter pattern (model to follow):
+if orthrusServer != nil {
+    dockerHandler.SetOrthrusResolver(orthrusServer)
+}
+```
+
+The `SetOrthrusResolver` setter pattern is already established. `UptimeService` needs
+the same setter called in the same location.
+
+#### Existing orthrusProxyResolver interface (docker_handler.go:26–27)
+
+```go
+type orthrusProxyResolver interface {
+    GetProxyAddr(agentUUID string) (string, bool)
+}
+```
+
+`OrthrusServer.GetProxyAddr` already satisfies this signature. No new methods needed
+on `OrthrusServer`.
 
 ---
 
-## 4. Implementation Plan
+## 3. Root Cause Analysis
 
-### Phase 1 — Playwright E2E Tests (TDD — Written First)
-
-**File:** `tests/feedback-widget.spec.ts`
-
-Write the Playwright spec before writing the component. This defines the observable contract of the feature.
+### Bug 1 — Complete Causal Chain
 
 ```
-Test suite: Feedback Widget
-  ✦ Trigger button is visible on the dashboard when authenticated
-  ✦ Trigger button has accessible name "Open feedback menu"
-  ✦ Trigger button has aria-expanded="false" by default
-  ✦ Clicking the trigger opens the panel with two links
-  ✦ Focus moves to the first link ("Report a Bug") when the panel opens
-  ✦ "Report a Bug" link href points to GitHub bug template URL
-  ✦ "Request a Feature" link href points to GitHub feature template URL
-  ✦ Both links have target="_blank" and rel="noopener noreferrer"
-  ✦ Pressing Escape closes the panel
-  ✦ After Escape, focus returns to the trigger button
-  ✦ Clicking outside the widget closes the panel
-  ✦ Widget is NOT present on the /login page
+User creates RemoteServer:
+  Host = "100.99.23.57"  ← Tailscale IP of remote machine
+  Port = 2375            ← ExternalProxyPort (bound on CHARON at 0.0.0.0:2375)
+  ConnectionType = "orthrus"
+  OrthrusAgentUUID = "<uuid>"
+
+SyncMonitors() [uptime_service.go:260–335]:
+  ↓ No ConnectionType check — all RemoteServers treated identically
+  ↓ targetURL = "100.99.23.57:2375"
+  ↓ targetType = "tcp"
+  Creates UptimeMonitor { Type: "tcp", URL: "100.99.23.57:2375" }
+  Creates UptimeHost    { Host: "100.99.23.57" }
+
+checkAllHosts() → checkHost() [uptime_service.go:513–525]:
+  ↓ monitor.ProxyHost == nil (RemoteServer monitor, not ProxyHost monitor)
+  ↓ extractPort("100.99.23.57:2375") = "2375"
+  ↓ addr = "100.99.23.57:2375"
+  net.DialContext("tcp", "100.99.23.57:2375")
+  → ECONNREFUSED — port 2375 not open on remote machine
+  host.FailureCount++ → reaches FailureThreshold (default: 2)
+  host.Status = "down"   ← FALSE NEGATIVE
 ```
 
-Run target (after Docker rebuild): `npx playwright test tests/feedback-widget.spec.ts --project=firefox`
+### Bug 2 — Cascade Chain
 
-### Phase 2 — Backend
+```
+UptimeHost { Host: "100.99.23.57", Status: "down" }  (set by Bug 1)
 
-No backend changes required.
+User has additional monitor at 100.99.23.57:3001 (e.g. Dockhand)
 
-### Phase 3 — Frontend Implementation
+CheckAll() [uptime_service.go:390–412]:
+  ↓ uptimeHost.Status == "down"
+  ↓ monitor { Type: "tcp", URL: "100.99.23.57:3001" } → tcpMonitors list
+  markHostMonitorsDown([monitor@3001], host)
+  monitor.Status = "down"  ← NEVER ACTUALLY CHECKED — FALSE NEGATIVE
+```
 
-Execute in order:
+### Common Root
 
-| Step | Task | Files |
-|---|---|---|
-| 3.1 | Create `FeedbackWidget.tsx` | `frontend/src/components/FeedbackWidget.tsx` |
-| 3.2 | Add i18n keys | `frontend/src/locales/*/translation.json` (5 files) |
-| 3.3 | Integrate into `Layout.tsx` | `frontend/src/components/Layout.tsx` |
-| 3.4 | Write unit tests | `frontend/src/components/__tests__/FeedbackWidget.test.tsx` |
+Both bugs share the same root: `SyncMonitors()` and `checkHost()` have zero awareness of
+`RemoteServer.ConnectionType`. For `ConnectionTypeOrthrus`:
 
-### Phase 4 — Integration and Testing
+- `server.Port` stores the `ExternalProxyPort` — a port bound on the Charon server, not
+  the remote machine. Using it as the TCP target for the remote IP is semantically wrong.
+- Orthrus connectivity is gauged by **WebSocket session liveness**, not TCP reachability
+  of any port on the remote machine.
 
-1. Run unit tests:
-   ```
-   cd /projects/Charon && npx vitest run frontend/src/components/__tests__/FeedbackWidget.test.tsx
-   ```
-2. TypeScript check:
-   ```
-   cd /projects/Charon/frontend && npx tsc --noEmit
-   ```
-3. Rebuild E2E Docker container:
-   ```
-   .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
-   ```
-4. Run Playwright spec:
-   ```
-   npx playwright test tests/feedback-widget.spec.ts --project=firefox
-   ```
-5. Smoke test: Run a subset of existing non-security shards to ensure no regressions.
+The contrast is instructive: `docker_handler.go` already handles `ConnectionTypeOrthrus`
+correctly — it calls `orthrusResolver.GetProxyAddr(agentUUID)` instead of dialling the
+remote IP. The uptime service needs the same awareness.
+
+---
+
+## 4. Technical Specification
+
+### 4.1 Design Decision
+
+**Chosen approach: Orthrus-aware monitor type `"orthrus"`**
+
+Introduce a first-class monitor type `"orthrus"` handled at every level of the uptime stack:
+
+| Layer | Change |
+|-------|--------|
+| `SyncMonitors()` | Detect `ConnectionTypeOrthrus`; create monitor with `Type="orthrus"`, `URL=agentUUID` |
+| `checkHost()` | Skip TCP dial for `"orthrus"` monitors; skip host pre-check entirely if all monitors are orthrus-only |
+| `checkMonitor()` | Add `case "orthrus":` — query `orthrusResolver.GetProxyAddr(agentUUID)` |
+| `CheckAll()` | `"orthrus"` is not `"tcp"` so it already falls into `nonTCPMonitors`; add defensive comment |
+| DI | Add `SetOrthrusResolver()` to `UptimeService`; call from `routes.go` |
+
+**Why not a minimal skip-in-checkHost approach**: It would require loading `RemoteServer`
+in `checkHost()` (extra DB join), still produces false-DOWN on individual TCP monitor
+checks, and doesn't give correct per-monitor status. Option A is cleaner and correct.
+
+### 4.2 Interface Definition
+
+Add a private interface to `uptime_service.go`. This avoids importing the `orthrus`
+package and follows the established pattern in `docker_handler.go`:
+
+```go
+// orthrusStatusChecker allows UptimeService to query Orthrus session liveness
+// without a direct dependency on the orthrus package.
+type orthrusStatusChecker interface {
+    GetProxyAddr(agentUUID string) (string, bool)
+}
+```
+
+`OrthrusServer.GetProxyAddr` already satisfies this interface.
+
+### 4.3 UptimeService Struct Changes
+
+```go
+type UptimeService struct {
+    DB                  *gorm.DB
+    NotificationService *NotificationService
+    orthrusResolver     orthrusStatusChecker  // nil when Orthrus feature is disabled
+    // ... all existing fields unchanged ...
+}
+
+// SetOrthrusResolver injects the Orthrus session resolver.
+// Uses the typed-nil guard pattern established in DockerHandler.
+func (s *UptimeService) SetOrthrusResolver(r orthrusStatusChecker) {
+    if r == nil {
+        s.orthrusResolver = nil
+        return
+    }
+    s.orthrusResolver = r
+}
+```
+
+### 4.4 SyncMonitors() — Orthrus Branch
+
+Insert before the existing `switch err` (create-vs-update) block in the remote server loop:
+
+```go
+// Orthrus-managed servers: connectivity is measured by session liveness, not TCP.
+if server.ConnectionType == models.ConnectionTypeOrthrus {
+    if server.OrthrusAgentUUID == nil || *server.OrthrusAgentUUID == "" {
+        continue // No agent linked — cannot create a meaningful monitor
+    }
+    targetType = "orthrus"
+    targetURL  = *server.OrthrusAgentUUID  // Agent UUID as the monitor identifier
+    // upstreamHost remains server.Host (Tailscale IP) — correct for grouping/display
+}
+```
+
+The existing `switch err` block then stores or updates the monitor with `Type="orthrus"`
+and `URL="<agentUUID>"`. The `monitor.Type != targetType` update guard migrates any
+existing stale TCP records on the next `SyncMonitors()` call — no manual migration
+needed.
+
+### 4.5 checkHost() — Skip Orthrus Monitors
+
+In the port-extraction loop, skip monitors with `Type == "orthrus"` and track whether
+any dialable ports were found:
+
+```go
+attempted := false
+for _, monitor := range monitors {
+    if strings.ToLower(monitor.Type) == "orthrus" {
+        continue  // Orthrus liveness checked per-monitor, not via TCP pre-check
+    }
+    var port string
+    if monitor.ProxyHost != nil {
+        port = fmt.Sprintf("%d", monitor.ProxyHost.ForwardPort)
+    } else {
+        port = extractPort(monitor.URL)
+    }
+    if port == "" {
+        continue
+    }
+    attempted = true
+    // ... existing dial logic unchanged ...
+}
+
+// If every monitor for this host is Orthrus-type, there are no dialable ports.
+// Skip the TCP pre-check; individual checkMonitor() calls determine status.
+if !attempted {
+    return
+}
+```
+
+This ensures `checkHost()` never marks an Orthrus-only `UptimeHost` as DOWN via TCP.
+
+### 4.6 checkMonitor() — Orthrus Case
+
+Add to the `switch monitor.Type` block:
+
+```go
+case "orthrus":
+    agentUUID := monitor.URL  // Agent UUID stored in the URL field
+    if s.orthrusResolver == nil {
+        msg = "Orthrus subsystem unavailable"
+        break
+    }
+    if agentUUID == "" {
+        msg = "Monitor missing agent UUID"
+        break
+    }
+    _, ok := s.orthrusResolver.GetProxyAddr(agentUUID)
+    if ok {
+        success = true
+        msg = "Orthrus session active"
+    } else {
+        msg = "Orthrus agent not connected"
+    }
+```
+
+No network I/O. `GetProxyAddr` is an in-memory map lookup (~0 µs). Latency recorded
+by the outer checkMonitor logic will be near zero and is not meaningful for this type.
+
+### 4.7 CheckAll() — Short-Circuit Invariant
+
+`"orthrus"` is not `"tcp"`, so it already falls into `nonTCPMonitors` (always checked)
+in the existing short-circuit logic. However, with the `checkHost()` fix in place,
+Orthrus-only hosts will never enter the `Status == "down"` branch at all. Add a comment
+documenting the invariant for clarity; no code change is required.
+
+### 4.8 DI Wiring — routes.go
+
+After the existing `if orthrusServer != nil { dockerHandler.SetOrthrusResolver(...) }`
+block at lines 511–512, add:
+
+```go
+// Inject Orthrus session resolver into uptime service (mirrors dockerHandler pattern).
+if orthrusServer != nil {
+    uptimeService.SetOrthrusResolver(orthrusServer)
+}
+```
+
+### 4.9 Database Migration
+
+No schema changes. `UptimeMonitor.Type` is a free-form string column. Existing "tcp"
+records for Orthrus servers are migrated in-place by `SyncMonitors()` on the next
+scheduled run — no GORM `AutoMigrate` update required.
+
+### 4.10 Edge Cases
+
+| Scenario | Expected Behaviour |
+|----------|--------------------|
+| Orthrus feature disabled (`orthrusServer == nil`) | `SetOrthrusResolver` not called; `s.orthrusResolver == nil`; `checkMonitor` returns `success=false`, `msg="Orthrus subsystem unavailable"` — monitor stays DOWN. Correct: without the feature the tunnel cannot be active. |
+| Agent configured but never connected | `GetProxyAddr` returns `("", false)`; monitor DOWN. Correct. |
+| Agent disconnects mid-poll | Next `checkMonitor` run reports DOWN within one poll interval. |
+| Agent reconnects | Next `checkMonitor` run reports UP; failure count resets; recovery notification fires. |
+| `ConnectionTypeOrthrus` but `OrthrusAgentUUID == nil` | `SyncMonitors()` skips monitor creation (`continue`). Stale pre-fix TCP records for this server remain unchanged (no regression; they will be cleaned up manually or by a future task). |
+| Mixed host: Orthrus monitor + direct HTTP monitor at same IP | `checkHost()` dials the HTTP monitor's port; host UP/DOWN reflects HTTP TCP reachability. Orthrus monitor is checked independently via session state. Both reported accurately. |
+| Custom `ExternalProxyPort` (not 2375) | Fix is identical — the bug is in the `Type/URL` construction, not the specific port value. |
+| Orthrus-only `UptimeHost` (no co-located TCP services) | `UptimeHost.Status` remains `"pending"` — the aggregate host tile never reflects UP/DOWN. Individual monitor tiles are accurate. Known limitation; cosmetic only. |
+
+---
+
+## 5. Implementation Plan
+
+### Phase 1 — Playwright E2E Tests (Written First, TDD)
+
+**File**: `tests/uptime-orthrus.spec.ts`
+
+Write failing tests that define the observable contract before implementing the backend
+fix. Use `page.route()` to intercept and mock the uptime monitors API response — no live
+Orthrus agent required in the E2E container.
+
+**Tests to write:**
+
+| # | Test | Assertion |
+|---|------|-----------|
+| 1 | `Uptime dashboard — Orthrus monitor shows "up" badge when API reports connected` | Green UP badge visible for Orthrus-linked RemoteServer monitor |
+| 2 | `Uptime dashboard — Orthrus monitor shows "down" when API reports disconnected` | Red DOWN badge; message "Orthrus agent not connected" visible |
+| 3 | `Uptime monitor target column — type "orthrus" does not show a raw IP:port` | Target/URL column does not contain `:2375` or similar port string |
+| 4 | `Uptime dashboard — non-Orthrus monitor at same IP is checked independently` | A TCP monitor at the same Tailscale IP retains its own correct status |
+
+Run target: `npx playwright test tests/uptime-orthrus.spec.ts --project=firefox`
+
+### Phase 2 — Backend Changes
+
+#### 2a. `backend/internal/services/uptime_service.go`
+
+| Change | Location | Description |
+|--------|----------|-------------|
+| Add interface | Top of file, after imports | `orthrusStatusChecker` with `GetProxyAddr(agentUUID string) (string, bool)` |
+| Add field | `UptimeService` struct | `orthrusResolver orthrusStatusChecker` |
+| Add setter | New exported method | `SetOrthrusResolver(r orthrusStatusChecker)` — typed-nil guard |
+| Orthrus branch | `SyncMonitors()` — remote server loop | `targetType="orthrus"`, `targetURL=agentUUID` when `ConnectionTypeOrthrus` |
+| Skip orthrus dials | `checkHost()` — port-extraction loop | Skip `"orthrus"` monitors; return early if `!attempted` |
+| Orthrus case | `checkMonitor()` — switch block | `case "orthrus":` calls `orthrusResolver.GetProxyAddr(agentUUID)` |
+| Comment | `CheckAll()` | Document `"orthrus"` ∈ `nonTCPMonitors` invariant |
+
+#### 2b. `backend/internal/api/routes/routes.go`
+
+After the existing `dockerHandler.SetOrthrusResolver` block:
+
+```go
+if orthrusServer != nil {
+    uptimeService.SetOrthrusResolver(orthrusServer)
+}
+```
+
+### Phase 3 — Frontend
+
+No changes required for the core bug fix. The uptime dashboard already renders
+`monitor.type` and `monitor.url` from the API response. The `"orthrus"` type and UUID
+URL render as-is.
+
+**Deferred (separate PR)**: Display a friendly label such as "Orthrus Tunnel" in the
+target column instead of the raw agent UUID. This is cosmetic and not part of this fix.
+
+### Phase 4 — Unit Tests
+
+**File**: `backend/internal/services/uptime_service_test.go`
+
+| Test | Description |
+|------|-------------|
+| `TestSyncMonitors_OrthrusRemoteServer_CreatesOrthrusMonitor` | Orthrus RS → `Type="orthrus"`, `URL=agentUUID`; no TCP record with port `:2375` |
+| `TestSyncMonitors_OrthrusRemoteServer_NoUUID_SkipsMonitor` | Orthrus RS with nil UUID → no monitor created |
+| `TestSyncMonitors_OrthrusRemoteServer_MigratesExistingTCPMonitor` | Stale `Type="tcp", URL="10.0.0.1:2375"` → updated to `Type="orthrus", URL=uuid` |
+| `TestCheckHost_OrthrusOnlyHost_SkipsTCPDial` | Host with only `"orthrus"` monitors → zero TCP dials; host status unchanged from "pending" |
+| `TestCheckMonitor_OrthrusType_AgentConnected_ReturnsUp` | `GetProxyAddr` returns `("127.0.0.1:54321", true)` → `success=true`, `msg="Orthrus session active"` |
+| `TestCheckMonitor_OrthrusType_AgentDisconnected_ReturnsDown` | `GetProxyAddr` returns `("", false)` → `success=false`, `msg="Orthrus agent not connected"` |
+| `TestCheckMonitor_OrthrusType_NilResolver_ReturnsDown` | `s.orthrusResolver == nil` → `success=false`, `msg` contains "Orthrus subsystem unavailable" |
+| `TestCheckAll_OrthrusMonitor_NotShortCircuitedWhenHostDown` | `UptimeHost{Status:"down"}` with one `"orthrus"` monitor → `checkMonitor()` is called, `markHostMonitorsDown()` is NOT called for it |
 
 ### Phase 5 — Documentation
 
-No README or CHANGELOG updates required for this internal UI component.
+- `ARCHITECTURE.md` § Uptime Monitoring: document `"orthrus"` as a supported monitor
+  type and explain that Orthrus monitors use WebSocket session liveness instead of TCP
+  connectivity checks. Document that the `"orthrus"` monitor type reports UP only when
+  both the WebSocket tunnel AND the loopback Docker proxy listener are operational.
+  Document that Orthrus-only hosts (no co-located TCP services) will show
+  `status=pending` as a known cosmetic limitation.
+- `CHANGELOG.md`: add entry under Unreleased section.
 
 ---
 
-## 5. Component Data Flow
+## 6. Commit Slicing Strategy
 
-```
-User Tab-focuses trigger button (bottom-right, z-50, fixed)
-     │
-     ▼
-User presses Enter/Space or clicks
-     │
-     ├── isOpen = false → isOpen = true
-     │   Panel transitions: opacity-0 scale-95 → opacity-100 scale-100
-     │   aria-expanded: "false" → "true"
-     │   Focus moves to first <a> (Bug link)
-     │
-     ▼
-User navigates links with Tab/Shift+Tab
-     │
-     ├── Enter on Bug link ─────────────────────────────────────────►
-     │   window opens: https://github.com/Wikid82/Charon/issues/new?template=bug_report.md
-     │   Panel stays open
-     │
-     ├── Enter on Feature link ──────────────────────────────────────►
-     │   window opens: https://github.com/Wikid82/Charon/issues/new?template=feature_request.md
-     │   Panel stays open
-     │
-     └── Escape key or click-outside
-         isOpen = true → isOpen = false
-         Panel transitions: opacity-100 → opacity-0 scale-95
-         aria-expanded: "true" → "false"
-         Focus returns to trigger button
-```
+**Decision**: Single PR, four ordered logical commits.
 
-### Phase 1: Playwright Tests
-
-## 6. Unit Tests Specification
-
-**File:** `frontend/src/components/__tests__/FeedbackWidget.test.tsx`
-
-Pattern: follows `NotificationCenter.test.tsx` (no ThemeProvider needed, no QueryClient needed — uses plain `render` from Testing Library).
-
-The global `react-i18next` mock in `test/setup.ts` loads real `en/translation.json`. Once the `feedback` key is added, `t('feedback.reportBug')` will return `"Report a Bug"`.
-
-| # | Test Case | Assertion |
-|---|---|---|
-| 1 | Component renders | Trigger button is in the document |
-| 2 | Default aria-label | `aria-label` = "Open feedback menu" |
-| 3 | Default aria-expanded | `aria-expanded` = `"false"` |
-| 4 | Panel hidden by default | Panel element has class `opacity-0` or `pointer-events-none` |
-| 5 | Open on click | After click: `aria-expanded` = `"true"` |
-| 6 | Bug link present | `getByRole('link', { name: /report a bug/i })` exists |
-| 7 | Bug link href | Bug link `href` = `GITHUB_BUG_URL` |
-| 8 | Feature link href | Feature link `href` = `GITHUB_FEATURE_URL` |
-| 9 | Links open new tab | Both links have `target="_blank"` |
-| 10 | Links are safe | Both links have `rel="noopener noreferrer"` |
-| 11 | Escape closes panel | After Escape: `aria-expanded` = `"false"` |
-| 12 | Focus returns on Escape | After Escape: `document.activeElement` = trigger button |
-| 13 | Second click closes panel | Click → open; click again → `aria-expanded` = `"false"` |
-| 14 | aria-label reflects state | When open, `aria-label` = "Close feedback menu" |
-| 15 | Focus moves to first link on open | After click: `document.activeElement` = bug report `<a>` (`firstLinkRef.current`) |
-
-| # | Task |
-|---|---|
-| T1 | Push branch changes, trigger `.github/workflows/cerberus-integration.yml` |
-| T2 | If HTTP 500 still occurs: download the artifact `cerberus-container-logs-*` and read `charon-cerberus-test.log` for the `"Failed to apply configuration: ..."` line |
-| T3 | Implement targeted fix based on the exact Caddy error (defer to Contingency Commit 5 if needed) |
-| T4 | Re-run until TC-1 through TC-5 all pass |
-
-## 7. Acceptance Criteria
-
-| # | Criterion | Verified By |
-|---|---|---|
-| AC-1 | Widget trigger visible on `/dashboard` when authenticated | Playwright |
-| AC-2 | Widget absent from `/login`, `/setup`, `/accept-invite` | Playwright |
-| AC-3 | Clicking trigger opens panel with two links | Playwright + Unit |
-| AC-4 | Bug link href = GitHub bug template URL | Playwright + Unit |
-| AC-5 | Feature link href = GitHub feature template URL | Playwright + Unit |
-| AC-6 | Both links open in new tab | Playwright + Unit |
-| AC-7 | Keyboard navigation: Tab, Enter, Escape all work | Playwright + Unit |
-| AC-8 | Focus returns to trigger after Escape | Unit test #12 |
-| AC-9 | Widget renders above all other elements (z-50) | Visual review |
-| AC-10 | Dark mode renders correctly | Visual review |
-| AC-11 | All unit tests pass (15 tests) | `vitest run` |
-| AC-12 | No new runtime dependencies introduced | `package.json` diff |
-| AC-13 | TypeScript strict mode: zero errors | `tsc --noEmit` |
-| AC-14 | Clicking outside the widget closes the panel | Playwright |
-
-### Definition of Done
-
-- [ ] `FeedbackWidget.tsx` created, lint-clean, TypeScript error-free
-- [ ] i18n keys added to all 5 locale files (en, de, es, fr, zh)
-- [ ] `Layout.tsx` imports and renders `<FeedbackWidget />`
-- [ ] `FeedbackWidget.test.tsx` written with all 15 test cases passing
-- [ ] `tests/feedback-widget.spec.ts` Playwright spec written and passing on Firefox
-- [ ] `tsc --noEmit` passes
-- [ ] Visual review: widget visible bottom-right on dashboard in both light and dark mode
-- [ ] GORM security scan: N/A (no backend models changed)
+**Rationale**: The change is isolated to two files (`uptime_service.go` + `routes.go`)
+plus tests and docs. Four commits align with four separable concerns, allowing reviewers
+to validate each independently and enabling targeted revert if needed.
 
 ---
 
-## 8. Commit Slicing Strategy
+### Commit 1 — `fix(uptime): add OrthrusStatusChecker interface and DI wiring`
 
-### Decision
+**Scope**: Interface definition, struct field, setter, routes.go injection
+**Files**:
+- `backend/internal/services/uptime_service.go`
+- `backend/internal/api/routes/routes.go`
 
-**Single PR, single commit.** This feature is entirely frontend, confined to new files and two lines changed in `Layout.tsx`. No backend changes, no API changes, no schema migrations. One atomic commit is correct for this scope.
+**Description**: Add `orthrusStatusChecker` interface, `orthrusResolver` field and
+`SetOrthrusResolver()` setter (with typed-nil guard) to `UptimeService`. Call
+`uptimeService.SetOrthrusResolver(orthrusServer)` in `routes.go` after the existing
+`dockerHandler.SetOrthrusResolver` call. No behaviour change — resolver is wired but
+not yet consulted by any check logic.
 
-### Commit
+**Validation gate**: `go build ./...` passes; all existing tests pass; `uptime_service.go`
+imports no packages from `backend/internal/orthrus`.
 
-```
-feat(ui): add feedback widget with GitHub issue links
+**Dependencies**: None.
 
-Add a persistent floating feedback widget to all authenticated pages.
-The widget provides direct links to GitHub Issues for bug reports and
-feature requests, opening each in a new browser tab. Implemented as a
-self-contained fixed-position component integrated into Layout.tsx.
+---
 
-WCAG 2.2 AA: aria-expanded on trigger, <nav> landmark panel,
-native <a> links (no role="menu"/"menuitem"), keyboard navigation
-(Escape closes, Tab navigates natively, focus moves to first link
-on open), focus management (returns to trigger on close), visible
-focus ring (2.4.7 + 2.4.11).
+### Commit 2 — `fix(uptime): create orthrus-type monitors in SyncMonitors`
 
-Zero new runtime dependencies.
+**Scope**: `SyncMonitors()` Orthrus branch + SyncMonitors unit tests
+**Files**:
+- `backend/internal/services/uptime_service.go`
+- `backend/internal/services/uptime_service_test.go`
 
-Closes #<issue-number>
-```
+**Description**: Add `ConnectionTypeOrthrus` guard in the remote server loop so that
+Orthrus servers produce `Type="orthrus"` monitors with the agent UUID as the URL. The
+existing update-branch guard migrates stale TCP records automatically.
 
-### Files Changed
+**Validation gate**: `TestSyncMonitors_OrthrusRemoteServer_*` tests pass; non-Orthrus
+sync tests unchanged.
 
-| File | Change |
-|---|---|
-| `frontend/src/components/FeedbackWidget.tsx` | New file |
-| `frontend/src/components/__tests__/FeedbackWidget.test.tsx` | New file |
-| `tests/feedback-widget.spec.ts` | New file |
-| `frontend/src/components/Layout.tsx` | +2 lines (import + JSX element) |
-| `frontend/src/locales/en/translation.json` | +10 lines (feedback key) |
-| `frontend/src/locales/de/translation.json` | +10 lines |
-| `frontend/src/locales/es/translation.json` | +10 lines |
-| `frontend/src/locales/fr/translation.json` | +10 lines |
-| `frontend/src/locales/zh/translation.json` | +10 lines |
+**Dependencies**: Commit 1 (struct field must exist for mock resolver setup in tests).
+
+> ⚠️ Intermediate state only — `checkMonitor()` case for `"orthrus"` type is added in Commit 3. This commit must not be deployed or merged independently.
+
+---
+
+### Commit 3 — `fix(uptime): skip TCP dials for Orthrus hosts; add orthrus checkMonitor case`
+
+**Scope**: `checkHost()` + `checkMonitor()` + host/monitor unit tests
+**Files**:
+- `backend/internal/services/uptime_service.go`
+- `backend/internal/services/uptime_service_test.go`
+
+**Description**: Skip `"orthrus"` monitors in `checkHost()` port-extraction loop; return
+early when no dialable ports remain. Add `case "orthrus":` to `checkMonitor()` switch
+using `orthrusResolver.GetProxyAddr(agentUUID)` as the liveness signal.
+
+**Validation gate**: `TestCheckHost_*` and `TestCheckMonitor_*` tests pass;
+`TestCheckAll_OrthrusMonitor_NotShortCircuitedWhenHostDown` passes.
+
+**Dependencies**: Commits 1 + 2.
+
+---
+
+### Commit 4 — `test(uptime): add Playwright E2E tests; update architecture docs`
+
+**Scope**: E2E spec + documentation
+**Files**:
+- `tests/uptime-orthrus.spec.ts`
+- `ARCHITECTURE.md`
+- `CHANGELOG.md`
+
+**Description**: Add Playwright E2E tests using API mocking. Update ARCHITECTURE.md to
+document the `"orthrus"` monitor type. Add CHANGELOG entry.
+
+**Validation gate**: `npx playwright test tests/uptime-orthrus.spec.ts --project=firefox`
+passes.
+
+**Dependencies**: Commits 1–3 (backend must be correct for tests to be meaningful).
+
+---
 
 ### Rollback
 
-Remove the `import FeedbackWidget from './FeedbackWidget'` and `<FeedbackWidget />` from `Layout.tsx`. The remaining new files can stay in place harmlessly. No database state, no backend state to revert.
+If the PR needs to be reverted, `git revert` the merge commit. The database will contain
+`Type="orthrus"` monitor records for any Orthrus servers synced since the PR merged.
+These records are benign on the reverted code — they will simply never be checked
+(no `case "orthrus"` branch in reverted code, so monitors silently remain in last-known
+state). A `SyncMonitors()` call against the reverted code will re-create TCP monitors
+for those servers (the update guard fires because `monitor.Type != "tcp"`), restoring
+pre-fix behaviour. No manual SQL cleanup required.
 
-### Validation Gates
+---
 
-1. `npx vitest run frontend/src/components/__tests__/FeedbackWidget.test.tsx` — 15 tests pass
-2. `cd frontend && npx tsc --noEmit` — zero errors
-3. `npx playwright test tests/feedback-widget.spec.ts --project=firefox` — spec passes
+## 7. Acceptance Criteria
+
+### Functional
+
+| ID | Criterion | Verification |
+|----|-----------|-------------|
+| AC-1 | Orthrus-managed RemoteServer uptime monitor shows `status=up` when agent WebSocket session is alive **and local Docker proxy listener is operational** | Unit test: `TestCheckMonitor_OrthrusType_AgentConnected_ReturnsUp`; Playwright: test #1 |
+| AC-2 | Monitor transitions to `status=down` within one poll interval after agent disconnects | Unit test: `TestCheckMonitor_OrthrusType_AgentDisconnected_ReturnsDown` |
+| AC-3 | `UptimeHost` for an Orthrus-only remote server is never marked DOWN due to TCP dial failure | Unit test: `TestCheckHost_OrthrusOnlyHost_SkipsTCPDial` |
+| AC-4 | TCP service monitors at the same Tailscale IP as an Orthrus server are checked independently and not cascaded | Unit test: `TestCheckAll_OrthrusMonitor_NotShortCircuitedWhenHostDown`; Playwright: test #4 |
+| AC-5 | `SyncMonitors()` creates no TCP monitor with `URL` containing the ExternalProxyPort for an Orthrus server | Unit test: `TestSyncMonitors_OrthrusRemoteServer_CreatesOrthrusMonitor` |
+| AC-6 | `SyncMonitors()` creates a monitor with `type="orthrus"` and `url=<agentUUID>` for an Orthrus server | Unit test: same |
+| AC-7 | Existing stale TCP monitors for Orthrus servers are migrated to `type="orthrus"` on next `SyncMonitors()` | Unit test: `TestSyncMonitors_OrthrusRemoteServer_MigratesExistingTCPMonitor` |
+| AC-8 | When Orthrus feature is disabled (`orthrusServer == nil`), Orthrus monitors report DOWN with message "Orthrus subsystem unavailable" | Unit test: `TestCheckMonitor_OrthrusType_NilResolver_ReturnsDown` |
+
+### Non-Regression
+
+| ID | Criterion |
+|----|-----------|
+| NR-1 | All existing `uptime_service_test.go` tests pass unchanged |
+| NR-2 | Non-Orthrus RemoteServer monitors (direct, tailscale, cloudflare, etc.) continue to use TCP/HTTP checks with `server.Host:server.Port` |
+| NR-3 | ProxyHost monitors are unaffected by all changes |
+| NR-4 | `GET /api/uptime/monitors` returns all monitor types including `"orthrus"` with correct JSON |
+
+### Definition of Done
+
+- [ ] All unit tests pass: `go test ./backend/...`
+- [ ] All Playwright E2E tests pass (Firefox, headless): `npx playwright test tests/uptime-orthrus.spec.ts --project=firefox`
+- [ ] `go vet ./...` and `golangci-lint run` pass with zero new findings
+- [ ] GORM Security Scanner passes: no model-layer changes, run as precaution
+- [ ] `ARCHITECTURE.md` updated to document `"orthrus"` monitor type
+- [ ] `CHANGELOG.md` entry added under Unreleased
+- [ ] PR description references this spec
+
+---
+
+## 8. Key File Reference
+
+| File | Change Type | Purpose |
+|------|-------------|---------|
+| `backend/internal/services/uptime_service.go` | Modify | Primary fix: interface, SyncMonitors, checkHost, checkMonitor |
+| `backend/internal/api/routes/routes.go` | Modify | DI: inject OrthrusServer into UptimeService |
+| `backend/internal/services/uptime_service_test.go` | Modify | Unit tests for all new code paths |
+| `tests/uptime-orthrus.spec.ts` | Create | Playwright E2E tests (API-mocked) |
+| `ARCHITECTURE.md` | Modify | Document "orthrus" monitor type |
+| `CHANGELOG.md` | Modify | Unreleased section entry |
