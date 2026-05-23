@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
@@ -188,4 +189,70 @@ func TestOrthrusServer_HandleWebSocket_InvalidToken(t *testing.T) {
 	srv.HandleWebSocket(c)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+// TestWatchHeartbeat_StaleGoroutine_DoesNotEvictNewSession is a regression test
+// for the session race condition: a stale watchHeartbeat goroutine (holding a
+// reference to an old, dead session) must not evict or mark offline a newer
+// session that has already been stored for the same agent UUID.
+func TestWatchHeartbeat_StaleGoroutine_DoesNotEvictNewSession(t *testing.T) {
+	db := setupServerTestDB(t)
+	srv, err := NewOrthrusServer(db, setupTestCA(t))
+	require.NoError(t, err)
+	// Short timeout so the ticker fires immediately in the test.
+	srv.heartbeatTimeout = time.Millisecond
+
+	const agentUUID = "race-regression-uuid"
+
+	// Insert the agent in the DB with status online so we can verify markOffline
+	// is not called.
+	agent := &models.OrthrusAgent{
+		UUID:   agentUUID,
+		Name:   "race-agent",
+		Status: models.OrthrusStatusOnline,
+	}
+	require.NoError(t, db.Create(agent).Error)
+
+	// sess1: already closed — represents a stale session whose watchHeartbeat
+	// goroutine is still running after a newer session has replaced it.
+	conn1, done1 := testWSPair(t)
+	defer done1()
+	sess1, err := NewAgentSession(agentUUID, "race-agent", conn1)
+	require.NoError(t, err)
+	require.NoError(t, sess1.Close())
+	require.False(t, sess1.IsAlive())
+
+	// sess2: alive — represents the current (newer) reconnect stored in the map.
+	conn2, done2 := testWSPair(t)
+	defer done2()
+	sess2, err := NewAgentSession(agentUUID, "race-agent", conn2)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sess2.Close() })
+	srv.sessions.Store(agentUUID, sess2)
+
+	// Run the stale watchHeartbeat (for sess1) and wait for it to exit.
+	// With CompareAndDelete, it finds sess1 ≠ sess2 in the map, so it returns
+	// false and skips markOffline — sess2 stays in the map.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		srv.watchHeartbeat(agentUUID, sess1)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("watchHeartbeat did not exit within deadline")
+	}
+
+	// sess2 must still be present in the map.
+	raw, ok := srv.sessions.Load(agentUUID)
+	require.True(t, ok, "sess2 should still be in the sessions map")
+	assert.Same(t, sess2, raw.(*AgentSession), "sess2 pointer must be unchanged")
+
+	// The agent must NOT have been marked offline.
+	var stored models.OrthrusAgent
+	require.NoError(t, db.Where("uuid = ?", agentUUID).First(&stored).Error)
+	assert.Equal(t, models.OrthrusStatusOnline, stored.Status,
+		"stale goroutine must not flip agent status to offline")
 }

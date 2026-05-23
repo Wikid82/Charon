@@ -33,6 +33,7 @@ var allowedDockerPaths = map[string]struct{}{
 	"/events":          {},
 	"/volumes":         {},
 	"/networks":        {},
+	"/system/df":       {},
 }
 
 // allowedDockerPatterns covers dynamic-segment paths such as
@@ -40,6 +41,9 @@ var allowedDockerPaths = map[string]struct{}{
 // Matching uses path.Match after the version prefix has been stripped.
 var allowedDockerPatterns = []string{
 	"/containers/*/json",
+	"/containers/*/logs",
+	"/containers/*/stats",
+	"/containers/*/top",
 	"/volumes/*",
 	"/networks/*",
 }

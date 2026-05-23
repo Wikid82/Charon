@@ -22,7 +22,10 @@ func TestFilter_Allow(t *testing.T) {
 		// Allowed: health check endpoints
 		{"GET", "/_ping", true},
 		{"GET", "/v1.44/_ping", true},
-		{"HEAD", "/_ping", false}, // HEAD not allowed by Allow() (GET only)
+		{"HEAD", "/_ping", true},                  // HEAD allowed for ping (Docker SDK connectivity check)
+		{"HEAD", "/v1.47/_ping", true},            // HEAD allowed for versioned ping
+		{"HEAD", "/containers/json", false},       // HEAD blocked for non-ping paths
+		{"HEAD", "/v1.47/containers/json", false}, // HEAD blocked for non-ping paths
 
 		// Allowed: read-only GET endpoints
 		{"GET", "/v1.41/containers/json", true},
