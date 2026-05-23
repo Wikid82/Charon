@@ -133,4 +133,3 @@ func TestFilter_ServeProxy_Blocked_UnversionedPost(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, buf.String(), "403")
 }
-
