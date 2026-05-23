@@ -2,6 +2,7 @@ package orthrus
 
 import (
 	"net/http"
+	"path"
 	"regexp"
 	"strings"
 
@@ -29,6 +30,18 @@ var allowedDockerPaths = map[string]struct{}{
 	"/images/json":     {},
 	"/info":            {},
 	"/version":         {},
+	"/events":          {},
+	"/volumes":         {},
+	"/networks":        {},
+}
+
+// allowedDockerPatterns covers dynamic-segment paths such as
+// /containers/{id}/json, /volumes/{name}, and /networks/{id}.
+// Matching uses path.Match after the version prefix has been stripped.
+var allowedDockerPatterns = []string{
+	"/containers/*/json",
+	"/volumes/*",
+	"/networks/*",
 }
 
 // Muzzle is an http.Handler wrapper that restricts Docker socket access
@@ -64,6 +77,19 @@ func (m *Muzzle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if _, ok := allowedDockerPaths[stripped]; ok {
 		m.next.ServeHTTP(w, r)
 		return
+	}
+
+	// Check dynamic path patterns for container/volume/network inspection.
+	// Normalize to an absolute path by trimming stray slashes and re-anchoring
+	// to "/" so that path.Match works correctly. Traversal sequences such as ".."
+	// are left unresolved intentionally — they will not match any allowed pattern
+	// and will be blocked, which is the safe behavior.
+	cleanPath := "/" + strings.Trim(stripped, "/")
+	for _, pat := range allowedDockerPatterns {
+		if matched, err := path.Match(pat, cleanPath); err == nil && matched {
+			m.next.ServeHTTP(w, r)
+			return
+		}
 	}
 
 	logger.Log().WithField("method", util.SanitizeForLog(r.Method)).WithField("path", sanitizePath(r.URL.Path)).
