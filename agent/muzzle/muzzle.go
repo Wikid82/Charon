@@ -20,19 +20,51 @@ const forbiddenResponse = "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnec
 // allowedPatterns enumerates the Docker API paths that agents may access.
 // Matching uses path.Match after stripping query parameters; each pattern
 // uses `*` to match any single path segment (never crosses a slash).
+//
+// Both versioned (/v*/...) and unversioned (/...) forms are listed because
+// Docker clients such as Dockhand send unversioned requests (e.g. GET /containers/json)
+// while the canonical Docker CLI sends versioned requests (e.g. GET /v1.47/containers/json).
 var allowedPatterns = []string{
 	"/_ping",    // no version prefix (Docker < 1.24 / direct health check)
 	"/v*/_ping", // versioned ping for Docker client health checks
+
+	// Container listing and inspection — unversioned (RC8 fix) + versioned
+	"/containers/json",
 	"/v*/containers/json",
+	"/containers/*/json",
 	"/v*/containers/*/json",
+	"/containers/*/logs",
+	"/v*/containers/*/logs",
+	"/containers/*/stats",
+	"/v*/containers/*/stats",
+	"/containers/*/top",
+	"/v*/containers/*/top",
+
+	// Daemon info — unversioned + versioned
+	"/info",
 	"/v*/info",
+	"/images/json",
 	"/v*/images/json",
+	"/version",
 	"/v*/version",
+	"/events",
 	"/v*/events",
+
+	// Volumes — unversioned + versioned
+	"/volumes",
 	"/v*/volumes",
+	"/volumes/*",
 	"/v*/volumes/*",
+
+	// Networks — unversioned + versioned
+	"/networks",
 	"/v*/networks",
+	"/networks/*",
 	"/v*/networks/*",
+
+	// System disk usage — unversioned + versioned
+	"/system/df",
+	"/v*/system/df",
 }
 
 // Filter is an HTTP allowlist filter for Docker socket proxy streams.
