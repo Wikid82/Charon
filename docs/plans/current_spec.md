@@ -1,7 +1,7 @@
-# PR #1026 Cerberus Integration CI Failure Fix — Proxy Groups
+# Spec: Static Feedback Widget
 
-**Status**: Active
-**Target**: PR #1026 (`development` → `main`)
+**Status**: Draft
+**Target**: Single PR — one atomic commit
 
 ---
 
@@ -9,299 +9,393 @@
 
 ### Overview
 
-The Cerberus Integration CI workflow (`.github/workflows/cerberus-integration.yml`) fails on PR #1026 with TC-3 ("Not all malicious requests were blocked by WAF") and TC-4 ("Too many legitimate requests failed"). TC-1, TC-2, and TC-5 pass.
+Add a persistent, accessible feedback widget to every authenticated page in the Charon frontend. The widget appears as a small floating icon button anchored to the bottom-right corner of the viewport. When activated, it expands into a compact popover panel offering two GitHub Issue links:
 
-The root cause is a **silent HTTP 500** on proxy host creation at `13:10:30.980Z` (248 ms after API ready). The test script (`scripts/cerberus_integration.sh`) treats any non-201 response as "Proxy host may already exist" and continues without the proxy host in the database. As a result, the security configuration is applied to Caddy with **zero proxy hosts**, producing no `reverse_proxy` route for the test domain. All test traffic reaches a fallback handler that returns the React SPA (`<!DOCTYPE html>`), which the WAF and rate limiter never see.
+- **Report a Bug** → `https://github.com/Wikid82/Charon/issues/new?template=bug_report.md`
+- **Request a Feature** → `https://github.com/Wikid82/Charon/issues/new?template=feature_request.md`
+
+Both links open in a new tab. The widget is rendered inside `Layout.tsx` so it appears on all authenticated routes but is absent from `/login`, `/setup`, and `/accept-invite`.
+
+### Objectives
+
+- Provide a low-friction path for users to report bugs or request features directly from the app
+- Match existing UI design language (semantic tokens, Tailwind, Lucide icons)
+- Meet WCAG 2.2 AA accessibility requirements
+- Introduce zero new runtime dependencies
+- Keep the widget unobtrusive — collapsed by default, non-blocking
 
 The **exact Caddy rejection reason is unknown** due to two compounding observability gaps: the script discards the HTTP response body (containing the full error), and the CI debug step runs after `trap cleanup EXIT` has already removed all containers. This plan fixes the observability gap first, then addresses every confirmed defect.
 
 A secondary defect also exists: even if proxy host creation succeeded, `buildWAFHandler` in `config.go` returns `nil` when `secCfg.WAFMode == "disabled"` (the seeded DB value), so the WAF handler would not be present in the Caddy route during the initial proxy host creation. The security config PUT (step 5) sets `WAFMode = "block"` and triggers a second `ApplyConfig`, at which point the WAF would apply correctly. This ordering issue is a separate concern from the 500 and is documented below.
 
-A tertiary defect is stale named Docker volumes: the cleanup function removes containers but not volumes. Stale `charon.db` data from a prior run persists across CI runs and can leave the database in a partially configured state at startup.
+### Architecture Summary
 
-### Objectives
+| Layer | Detail |
+|---|---|
+| Framework | React 19.2.3, TypeScript (strict), Vite 8 |
+| Styling | Tailwind CSS 4.x with semantic CSS custom properties; `darkMode: 'class'` |
+| Icons | `lucide-react` — used uniformly across all components |
+| Accessible overlays | `@radix-ui/react-tooltip`, `@radix-ui/react-dialog` already installed |
+| Classname utility | `cn()` at `frontend/src/utils/cn.ts` |
+| Component variants | `class-variance-authority` (cva) |
+| i18n | `react-i18next`, keys loaded from `src/locales/{locale}/translation.json` |
+| Unit tests | Vitest 4 + React Testing Library; files in `src/components/__tests__/` |
+| Layout entrypoint | `frontend/src/components/Layout.tsx` |
 
-1. Fix the observability gap so the next CI run exposes the exact Caddy rejection reason.
-2. Fix the script's silent failure on any non-201 proxy host creation response.
-3. Fix the CI workflow debug step ordering (containers are removed before logs are captured).
-4. Eliminate stale volume state between CI runs.
-5. Fix the `buildWAFHandler` / DB-seed interaction so WAF applies from the first `ApplyConfig`.
-6. Add a mutex to `ApplyConfig` to prevent concurrent invocations.
-7. Fix the CLI `migrate` subcommand missing `ProxyGroup` in the AutoMigrate list.
+### Z-Index Hierarchy
 
----
+| Element | z-index |
+|---|---|
+| Mobile overlay (backdrop) | `z-20` |
+| Sidebar (`<aside>`) | `z-30` |
+| Mobile header | `z-40` |
+| Skip-to-content link (focus) | `z-50` |
+| **Feedback Widget** | **`z-50`** ← must sit on top of sidebar and mobile header |
 
-## 2. Research Findings
+### Integration Point
 
-### 2.1 CI Failure Chain
+`Layout.tsx` returns a single root `<div className="min-h-screen bg-light-bg dark:bg-dark-bg flex transition-colors duration-200">`. All sidebar, overlay, and `<main>` elements are children of this div. `<FeedbackWidget />` must be rendered as the **last child** of this root div. Because the widget uses `position: fixed`, its DOM position does not affect layout — it is always anchored to the viewport.
 
-Confirmed from `.github/logs/ci_failure.log`:
-
-| Time (UTC) | Event | Status |
-|---|---|---|
-| 13:10:15.390Z | Charon container started | — |
-| 13:10:30.732Z | Charon API health check passed | PASS |
-| 13:10:30.960Z | Authentication complete | PASS |
-| 13:10:30.980Z | `POST /api/v1/proxy-hosts` | **HTTP 500** |
-| 13:10:33.982Z | XSS WAF ruleset created (`POST /api/v1/security/waf/rulesets`) | HTTP 201 |
-| 13:10:34.011Z | Security config applied (`PUT /api/v1/security/config`) | HTTP 200 |
-| 13:10:39.012Z | TC-1: Cerberus features enabled | PASS |
-| 13:10:39.012Z | TC-2: Handler order in Caddy config (1 route) | PASS |
-| 13:10:39.013Z | TC-3: WAF blocks malicious requests (0/3 blocked) | **FAIL** |
-| 13:10:39.013Z | TC-4: Legitimate traffic flows to httpbin (all return `<!DOCTYPE html>`) | **FAIL** |
-
-### 2.2 Defect 1 — Script: Silent Failure on Non-201 (CRITICAL)
-
-**File**: `scripts/cerberus_integration.sh`, lines 261–272
-
-```bash
-CREATE_RESP=$(curl -s -w "\n%{http_code}" -X POST ... -d "${PROXY_HOST_PAYLOAD}" ...)
-CREATE_STATUS=$(echo "$CREATE_RESP" | tail -n1)
-if [ "$CREATE_STATUS" = "201" ]; then
-    log_info "Proxy host created successfully"
-else
-    log_info "Proxy host may already exist (status: $CREATE_STATUS)"   # silent continue
-fi
-sleep 3
+```tsx
+// Layout.tsx — end of JSX return
+return (
+  <div className="min-h-screen bg-light-bg dark:bg-dark-bg flex transition-colors duration-200">
+    {/* ... skip link, mobile header, sidebar, overlay, main ... */}
+    <FeedbackWidget />   {/* ← insert here: after </main>, outside all header/sidebar branches */}
+  </div>
+)
 ```
 
-- Any non-201 status (including 500) is logged as "may already exist" — **no exit, no body extraction**.
-- The response body containing `"Failed to apply configuration: apply failed (rolled back): <caddy_error>"` is **never read or logged**.
-- Script continues to steps 5 and 6 with an empty proxy host table.
+> **Placement constraint**: `<FeedbackWidget />` must be placed after `</main>`, as the final sibling inside the root wrapper div. It must NOT be nested inside the mobile header branch, the desktop sidebar branch, or the `<main>` element itself.
 
-### 2.3 Defect 2 — Script: Stale Named Volumes (CRITICAL)
+### Existing Pattern: Self-Managed Popover
 
-The `cleanup()` function and the per-run `docker rm -f` commands remove containers but **never remove named volumes**:
+`NotificationCenter.tsx` is the primary pattern reference: a button toggles `isOpen` state to show/hide a floating panel (`absolute` positioned within a `relative` container). The feedback widget follows the same pattern but uses `fixed` positioning so it is viewport-anchored regardless of scroll position.
 
-```bash
-cleanup() {
-    docker rm -f ${CONTAINER_NAME} 2>/dev/null || true
-    docker rm -f ${BACKEND_CONTAINER} 2>/dev/null || true
-    # volumes charon_cerberus_test_data, caddy_cerberus_test_data, caddy_cerberus_test_config
-    # are NOT removed
-}
+**No Radix Popover needed.** The NotificationCenter pattern is the reference implementation. NotificationCenter uses a backdrop `<div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)}>` to handle click-outside dismissal — NOT a `useRef`/`useEffect` document-level event listener. The feedback widget uses the same backdrop approach for pattern consistency. Plain React `useState` is sufficient; no `@radix-ui/react-popover` needed.
+
+### Tailwind Token Vocabulary
+
+The existing components (Layout, NotificationCenter, Button) use the following token pattern consistently:
+
+```
+bg:      bg-white dark:bg-dark-card
+border:  border-gray-200 dark:border-gray-800
+text:    text-gray-700 dark:text-gray-300
+hover:   hover:bg-gray-100 dark:hover:bg-gray-800
+focus:   focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2
+shadow:  shadow-md  /  shadow-lg
 ```
 
-On repeated CI runs the volumes persist, leaving `charon.db` with proxy hosts, WAF rulesets, and security config from the prior run. On a stale-volume start, `SeedDefaultSecurityConfig` uses `FirstOrCreate` and preserves old values rather than re-seeding; a previously committed `WAFMode = "block"` or `Enabled = true` survives. Each run must start from a known-good empty state.
-
-### 2.4 Defect 3 — CI Workflow: Debug Step After Container Cleanup (CRITICAL)
-
-**File**: `.github/workflows/cerberus-integration.yml`
-
-The "Dump Debug Info on Failure" step executes `docker logs charon-cerberus-test`, but `trap cleanup EXIT` has already run inside the script and removed the container. Confirmed in the CI log at `13:11:49Z`: `Error: No such container: charon-cerberus-test`.
-
-### 2.5 Root Cause of HTTP 500: Observability Gap
-
-The `Create` handler (`proxy_host_handler.go`) returns HTTP 500 when `ApplyConfig` fails:
-
-```go
-c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
-```
-
-The `err.Error()` string is one of:
-- `"apply failed (rolled back): <caddy_error>"` — Caddy's `/load` API rejected the config.
-- `"save snapshot: <io_error>"` — disk error writing the config snapshot.
-- `"validate config: <validation_error>"` — local validation of generated config failed.
-
-The exact value is unknown because the script discards the response body. Likely candidates given the CI environment:
-- **Stale Caddy data** in the named volumes causing `/load` to reject the config.
-- A **Caddy JSON validation error** specific to the generated config for `cerberus.test.local` in non-E2E mode (ACME automation policy for a `.local` domain, rate-limit or WAF handler shape mismatch, etc.).
-- A **concurrent `ApplyConfig` collision** between the background startup goroutine and the request handler (no mutex).
-
-Fixes 1, 2, and 3 (observability + volume cleanup) will reveal the exact error on the next CI run.
-
-### 2.6 Defect 4 — buildWAFHandler / DB-Seed Interaction (SECONDARY)
-
-`SeedDefaultSecurityConfig` (`backend/internal/models/seed.go`) creates the "default" `SecurityConfig` row with `Enabled: false` and `WAFMode: "disabled"`. At proxy host creation time, `computeEffectiveFlags` reads this DB record and sets `wafEnabled = false` (because `Enabled == false` forces all flags to false). The WAF handler is therefore absent from the Caddy route generated during proxy host creation.
-
-After the security config PUT (step 5 of the script), `SecurityConfig.Enabled = true` and `WAFMode = "block"` are written to the DB. The subsequent `ApplyConfig` call correctly builds the WAF handler. However, this ordering means the first `ApplyConfig` — the one that actually registers the proxy route — has no WAF. Because the proxy host creation currently fails with 500, this secondary ordering issue is masked; it would surface as TC-3 failing even on a run where the 500 is resolved.
-
-The fix is to reorder the test script so the security configuration is applied **before** the proxy host is created, ensuring `SecurityConfig.Enabled = true` and `WAFMode = "block"` are in the DB when the first `ApplyConfig` runs.
-
-### 2.7 TC-2 Passes Despite Failure
-
-After the proxy host creation rolls back (0 proxy hosts in DB), the security config PUT triggers `ApplyConfig`. This generates a Caddy config that includes the management server and a security-handlers-only route (WAF + rate limiter + ACL), but with no `reverse_proxy` to `cerberus-backend`. TC-2 checks handler ORDER in `.apps.http.servers.charon_server.routes`, finds 1 route, verifies the middleware chain order, and passes. There is no functional proxy route for `cerberus.test.local`, so TC-3 and TC-4 fail: all traffic returns the React SPA served by the management server fallback.
-
-### 2.8 Defect 5 — No Mutex on ApplyConfig (CODE SMELL)
-
-`ApplyConfig` in `backend/internal/caddy/manager.go` has no synchronization. The background startup goroutine calls `ApplyConfig` once (after Caddy pings successfully) and request handlers call it on every proxy host create/update/delete. In the CI sequence, the background goroutine fires ~1 second after container start and the API health check passes at t+15 s — no overlap by default. However, concurrent HTTP requests can trigger concurrent `ApplyConfig` calls, causing interleaved config generation and snapshot corruption. A mutex is a cheap, correct prevention.
-
-### 2.9 Defect 6 — CLI Migrate Missing ProxyGroup (MEDIUM)
-
-**File**: `backend/cmd/api/main.go`, CLI `migrate` subcommand AutoMigrate list.
-
-`&models.ProxyGroup{}` is missing before `&models.ProxyHost{}`. `ProxyHost` has a foreign key to `ProxyGroup`. Running `go run . migrate` on a fresh database would attempt to create `proxy_hosts` before `proxy_groups`, producing an FK constraint violation. Not triggered in CI (CI uses `routes.go:RegisterWithDeps`), but breaks the standalone migration path.
+These are the canonical tokens used; the widget will follow this same vocabulary.
 
 ---
 
 ## 3. Technical Specifications
 
-### Fix 1 — Fail-Fast Script with Response Body Logging
+### 3.1 Component: `FeedbackWidget`
 
-**File**: `scripts/cerberus_integration.sh`
+**File:** `frontend/src/components/FeedbackWidget.tsx`
+**Test:** `frontend/src/components/__tests__/FeedbackWidget.test.tsx`
 
-Replace the proxy host creation block (lines 261–272):
+#### Props
 
-```bash
-log_info "Creating proxy host '${TEST_DOMAIN}' pointing to backend..."
-CREATE_RESP=$(curl -s -w "\n%{http_code}" -X POST \
-    -H "Content-Type: application/json" \
-    -b "${TMP_COOKIE}" \
-    "http://localhost:${API_PORT}/api/v1/proxy-hosts" \
-    -d "${PROXY_HOST_PAYLOAD}")
-CREATE_STATUS=$(echo "$CREATE_RESP" | tail -n1)
-CREATE_BODY=$(echo "$CREATE_RESP" | head -n -1)
+None. The component is fully self-contained with no configuration props.
 
-if [ "$CREATE_STATUS" = "201" ]; then
-    log_info "Proxy host created successfully"
-elif [ "$CREATE_STATUS" = "409" ]; then
-    log_info "Proxy host already exists (HTTP 409) — continuing"
-else
-    log_error "Proxy host creation failed (HTTP ${CREATE_STATUS})"
-    log_error "Response body: ${CREATE_BODY}"
-    exit 1
-fi
+#### State and Refs
+
+| Name | Type | Purpose |
+|---|---|---|
+| `isOpen` | `boolean` (useState) | Controls popover panel visibility |
+| `triggerRef` | `useRef<HTMLButtonElement>` | Focus return target on panel close |
+| `firstLinkRef` | `useRef<HTMLAnchorElement>` | Focus management: receives focus when panel opens |
+
+**Focus-on-open mechanism:**
+
+```tsx
+const firstLinkRef = useRef<HTMLAnchorElement>(null)
+
+useEffect(() => {
+  if (isOpen) firstLinkRef.current?.focus()
+}, [isOpen])
 ```
 
-Only 201 and 409 are acceptable. Any other status exits non-zero with full body logged.
+The `firstLinkRef` is attached to the first `<a>` element (Bug report link). When `isOpen` transitions to `true`, this effect fires and moves keyboard focus to that link, fulfilling WCAG 2.4.3 and ARIA authoring guidance for disclosure widgets.
 
-### Fix 2 — Volume Cleanup in Script
+**Click-outside mechanism** (matches NotificationCenter pattern):
 
-**File**: `scripts/cerberus_integration.sh`
+```tsx
+{isOpen && (
+  <div
+    className="fixed inset-0 z-10"
+    aria-hidden="true"
+    onClick={() => setIsOpen(false)}
+  />
+)}
+```
 
-Update `cleanup()` to save container logs before removing containers, and remove named volumes:
+The backdrop renders below the panel (`z-10` vs panel's higher stacking) and captures any click outside the widget.
 
-```bash
-cleanup() {
-    # Save container logs before removal (consumed by CI artifact upload)
-    docker logs "${CONTAINER_NAME}" > /tmp/charon-cerberus-test.log 2>&1 || true
-    docker logs "${BACKEND_CONTAINER}" > /tmp/cerberus-backend.log 2>&1 || true
+#### Interaction Specification
 
-    docker rm -f ${CONTAINER_NAME} 2>/dev/null || true
-    docker rm -f ${BACKEND_CONTAINER} 2>/dev/null || true
+1. User presses **Tab** → focus lands on the floating trigger button.
+2. User presses **Enter** or **Space** (or clicks) → panel opens; focus moves to first link.
+3. User presses **Tab** / **Shift+Tab** → navigate between the two links within the panel.
+4. User presses **Enter** on a link → opens GitHub in a new tab; panel stays open.
+5. User presses **Escape** → panel closes; focus returns to trigger button.
+6. User clicks outside the widget → panel closes.
+7. User presses **Tab** past last link → focus moves to next focusable element in page (natural DOM order, no trap).
 
-    # Remove volumes to ensure a clean state for the next run
-    docker volume rm charon_cerberus_test_data 2>/dev/null || true
-    docker volume rm caddy_cerberus_test_data 2>/dev/null || true
-    docker volume rm caddy_cerberus_test_config 2>/dev/null || true
+#### ARIA Attributes
+
+| Element | Attribute | Value |
+|---|---|---|
+| Trigger `<button>` | `aria-label` | dynamic: `t('feedback.triggerLabel')` when closed / `t('feedback.closeTriggerLabel')` when open |
+| Trigger `<button>` | `aria-expanded` | `"true"` / `"false"` |
+| Trigger `<button>` | `aria-controls` | `"feedback-panel"` |
+| Panel `<nav>` | `id` | `"feedback-panel"` |
+| Panel `<nav>` | `aria-label` | `t('feedback.panelLabel')` |
+| Bug link `<a>` | `aria-label` | `t('feedback.reportBugAriaLabel')` |
+| Feature link `<a>` | `aria-label` | `t('feedback.requestFeatureAriaLabel')` |
+
+> **No `role="menu"` / `role="menuitem"`**: These ARIA roles require a custom arrow-key keyboard handler per the ARIA spec and are semantically incorrect for navigation links that open external URLs. Use a plain `<nav aria-label="...">` containing native `<a>` elements instead. Tab navigation between the two links is provided natively by the browser — no custom keyboard handler needed.
+
+> **No `aria-haspopup`**: The ARIA `aria-haspopup` attribute signals a menu, listbox, tree, grid, or dialog. Since the panel is a `<nav>` (not a menu), `aria-haspopup` is omitted. `aria-expanded` alone is sufficient to communicate the toggle state.
+
+#### CSS Layout
+
+```
+Wrapper:   position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 50
+Trigger:   h-10 w-10 (40×40px, matches Button size="icon"), rounded-full
+Panel:     position: absolute; bottom: calc(100% + 0.5rem); right: 0; width: 12rem
+```
+
+The panel is positioned relative to the fixed wrapper, appearing above the trigger.
+
+#### Panel Animation
+
+CSS transition using Tailwind. The panel conditional class changes based on `isOpen`:
+
+| State | Classes |
+|---|---|
+| Open | `opacity-100 scale-100 pointer-events-auto` |
+| Closed | `opacity-0 scale-95 pointer-events-none` |
+
+Combined with `transition-all duration-150 ease-out origin-bottom-right` always applied.
+
+#### URL Constants
+
+Defined as module-level constants (not in a config file — they are static GitHub template URLs):
+
+```ts
+const GITHUB_BUG_URL =
+  'https://github.com/Wikid82/Charon/issues/new?template=bug_report.md'
+const GITHUB_FEATURE_URL =
+  'https://github.com/Wikid82/Charon/issues/new?template=feature_request.md'
+```
+
+#### Lucide Icons
+
+| Use | Icon | Available in lucide-react |
+|---|---|---|
+| Trigger button | `MessageSquarePlus` | ✅ (not yet imported anywhere) |
+| Bug report link | `Bug` | ✅ (not yet imported anywhere) |
+| Feature request link | `Sparkles` | ✅ (not yet imported anywhere) |
+
+Single import: `import { MessageSquarePlus, Bug, Sparkles } from 'lucide-react'`
+
+#### WCAG 2.2 AA Compliance Map
+
+| Criterion | Requirement | Implementation |
+|---|---|---|
+| 1.1.1 Non-text Content | Icon button has text alternative | `aria-label` on trigger |
+| 1.3.1 Info and Relationships | Programmatic structure | `<nav>` landmark with native `<a>` links; no synthetic ARIA roles needed |
+| 1.4.3 Contrast (Minimum) | 4.5:1 for normal text | Tokens inherited from existing UI (brand-500 / dark-card) |
+| 1.4.11 Non-text Contrast | 3:1 for UI components | Focus ring via `ring-brand-500` matches existing Button |
+| 2.1.1 Keyboard | All functionality keyboard-operable | Enter/Space open; Tab/Shift+Tab navigate natively; Escape closes |
+| 2.1.2 No Keyboard Trap | User can exit any component | No focus trap; Escape always returns focus to trigger |
+| 2.4.3 Focus Order | Focus follows logical order | Widget last in DOM after `</main>`; focus moves to first link on open |
+| 2.4.7 Focus Visible | Focus indicator visible | `focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2` |
+| 2.4.11 Focus Appearance | Focus indicator meets minimum size/contrast | `focus-visible:ring-2 ring-brand-500 ring-offset-2` — same ring token used across all interactive elements in the codebase; meets 2px minimum requirement |
+| 4.1.2 Name, Role, Value | All components correctly identified | Native `<button>`, native `<a>`, `<nav>` landmark, explicit `aria-label` and `aria-expanded` |
+
+### 3.2 i18n Keys
+
+Add a `"feedback"` object as a new top-level key in all five locale files.
+
+**English (`en`) — source of truth:**
+
+```json
+"feedback": {
+  "triggerLabel": "Open feedback menu",
+  "closeTriggerLabel": "Close feedback menu",
+  "panelLabel": "Feedback options",
+  "reportBug": "Report a Bug",
+  "reportBugDescription": "Found an issue?",
+  "reportBugAriaLabel": "Report a bug (opens GitHub Issues in new tab)",
+  "requestFeature": "Request a Feature",
+  "requestFeatureDescription": "Have an idea?",
+  "requestFeatureAriaLabel": "Request a feature (opens GitHub Issues in new tab)"
 }
 ```
 
-Also add volume removal in the explicit per-run cleanup block before `docker run`:
+**Per-locale values (full table):**
 
-```bash
-docker rm -f ${CONTAINER_NAME} 2>/dev/null || true
-docker rm -f ${BACKEND_CONTAINER} 2>/dev/null || true
-docker volume rm charon_cerberus_test_data 2>/dev/null || true
-docker volume rm caddy_cerberus_test_data 2>/dev/null || true
-docker volume rm caddy_cerberus_test_config 2>/dev/null || true
-```
+| Key | de | es | fr | zh |
+|---|---|---|---|---|
+| `triggerLabel` | Feedback-Menü öffnen | Abrir menú de comentarios | Ouvrir le menu de retour | 打开反馈菜单 |
+| `closeTriggerLabel` | Feedback-Menü schließen | Cerrar menú de comentarios | Fermer le menu de retour | 关闭反馈菜单 |
+| `panelLabel` | Feedback-Optionen | Opciones de comentarios | Options de retour | 反馈选项 |
+| `reportBug` | Fehler melden | Reportar un error | Signaler un bug | 报告错误 |
+| `reportBugDescription` | Fehler gefunden? | ¿Encontraste un problema? | Trouvé un problème ? | 发现问题了吗？ |
+| `reportBugAriaLabel` | Fehler melden (öffnet GitHub Issues im neuen Tab) | Reportar un error (abre GitHub Issues en nueva pestaña) | Signaler un bug (ouvre GitHub Issues dans un nouvel onglet) | 报告错误（在新标签页打开 GitHub Issues） |
+| `requestFeature` | Funktion anfragen | Solicitar una función | Demander une fonctionnalité | 请求功能 |
+| `requestFeatureDescription` | Eine Idee? | ¿Tienes una idea? | Vous avez une idée ? | 有想法吗？ |
+| `requestFeatureAriaLabel` | Funktion anfragen (öffnet GitHub Issues im neuen Tab) | Solicitar función (abre GitHub Issues en nueva pestaña) | Demander une fonctionnalité (ouvre GitHub Issues dans un nouvel onglet) | 请求功能（在新标签页打开 GitHub Issues） |
 
-### Fix 3 — CI Artifact Upload for Container Logs
+### 3.3 `Layout.tsx` Changes
 
-**File**: `.github/workflows/cerberus-integration.yml`
+Two surgical changes:
 
-Add an artifact upload step immediately after "Run Cerberus Integration Test". Container logs are written to `/tmp` by `cleanup()` before containers are removed, so this step captures them even on failure:
+1. **Import** (add to existing component imports, after `NotificationCenter`):
+   ```tsx
+   import FeedbackWidget from './FeedbackWidget'
+   ```
 
-```yaml
-- name: Upload Container Logs on Failure
-  if: failure()
-  uses: actions/upload-artifact@v4
-  with:
-    name: cerberus-container-logs-${{ github.run_id }}
-    path: |
-      /tmp/charon-cerberus-test.log
-      /tmp/cerberus-backend.log
-    if-no-files-found: ignore
-    retention-days: 7
-```
+2. **JSX** (add as last child of root wrapper div, **after** `</main>`, outside both mobile header and desktop sidebar branches):
+   ```tsx
+   <FeedbackWidget />
+   ```
 
-### Fix 4 — Reorder Script Steps (Security Config Before Proxy Host)
-
-**File**: `scripts/cerberus_integration.sh`
-
-Move the security config application and WAF ruleset creation to run **before** proxy host creation:
-
-```
-Current order:
-  Step 4: Create proxy host                       ← ApplyConfig with Enabled=false, WAFMode=disabled
-  Step 5: Create WAF ruleset
-  Step 6: Apply security config (Enabled=true, WAFMode=block)
-
-Correct order:
-  Step 4: Apply security config (Enabled=true, WAFMode=block)
-  Step 5: Create WAF ruleset
-  Step 6: Create proxy host                       ← ApplyConfig with Enabled=true, WAFMode=block
-```
-
-This ensures `computeEffectiveFlags` reads the correct DB state when it generates the Caddy config for the proxy host route. After this reordering, `buildWAFHandler` will receive `wafEnabled=true` and the WAF handler will be included in the route.
-
-The security config endpoint should not require an existing proxy host, so this reordering is safe. Add a short `sleep 1` after the security config PUT to allow Caddy to finish loading the management-only config before the proxy host triggers a follow-up load.
-
-### Fix 5 — Mutex on ApplyConfig
-
-**File**: `backend/internal/caddy/manager.go`
-
-Add a `sync.Mutex` field to `Manager` and acquire it at the start of `ApplyConfig`:
-
-```go
-type Manager struct {
-    mu sync.Mutex
-    // ... existing fields unchanged ...
-}
-
-func (m *Manager) ApplyConfig(ctx context.Context) error {
-    m.mu.Lock()
-    defer m.mu.Unlock()
-    // rest of function unchanged
-}
-```
-
-`sync.Mutex` zero-value is an unlocked mutex; no constructor change is needed.
-
-### Fix 6 — CLI Migrate Missing ProxyGroup
-
-**File**: `backend/cmd/api/main.go`
-
-Add `&models.ProxyGroup{}` immediately before `&models.ProxyHost{}` in the CLI `migrate` subcommand's AutoMigrate call. The order must mirror `routes.go:RegisterWithDeps`.
+Total: 2 lines changed, 0 lines deleted.
 
 ---
 
 ## 4. Implementation Plan
 
+### Phase 1 — Playwright E2E Tests (TDD — Written First)
+
+**File:** `tests/feedback-widget.spec.ts`
+
+Write the Playwright spec before writing the component. This defines the observable contract of the feature.
+
+```
+Test suite: Feedback Widget
+  ✦ Trigger button is visible on the dashboard when authenticated
+  ✦ Trigger button has accessible name "Open feedback menu"
+  ✦ Trigger button has aria-expanded="false" by default
+  ✦ Clicking the trigger opens the panel with two links
+  ✦ Focus moves to the first link ("Report a Bug") when the panel opens
+  ✦ "Report a Bug" link href points to GitHub bug template URL
+  ✦ "Request a Feature" link href points to GitHub feature template URL
+  ✦ Both links have target="_blank" and rel="noopener noreferrer"
+  ✦ Pressing Escape closes the panel
+  ✦ After Escape, focus returns to the trigger button
+  ✦ Clicking outside the widget closes the panel
+  ✦ Widget is NOT present on the /login page
+```
+
+Run target (after Docker rebuild): `npx playwright test tests/feedback-widget.spec.ts --project=firefox`
+
+### Phase 2 — Backend
+
+No backend changes required.
+
+### Phase 3 — Frontend Implementation
+
+Execute in order:
+
+| Step | Task | Files |
+|---|---|---|
+| 3.1 | Create `FeedbackWidget.tsx` | `frontend/src/components/FeedbackWidget.tsx` |
+| 3.2 | Add i18n keys | `frontend/src/locales/*/translation.json` (5 files) |
+| 3.3 | Integrate into `Layout.tsx` | `frontend/src/components/Layout.tsx` |
+| 3.4 | Write unit tests | `frontend/src/components/__tests__/FeedbackWidget.test.tsx` |
+
+### Phase 4 — Integration and Testing
+
+1. Run unit tests:
+   ```
+   cd /projects/Charon && npx vitest run frontend/src/components/__tests__/FeedbackWidget.test.tsx
+   ```
+2. TypeScript check:
+   ```
+   cd /projects/Charon/frontend && npx tsc --noEmit
+   ```
+3. Rebuild E2E Docker container:
+   ```
+   .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+   ```
+4. Run Playwright spec:
+   ```
+   npx playwright test tests/feedback-widget.spec.ts --project=firefox
+   ```
+5. Smoke test: Run a subset of existing non-security shards to ensure no regressions.
+
+### Phase 5 — Documentation
+
+No README or CHANGELOG updates required for this internal UI component.
+
+---
+
+## 5. Component Data Flow
+
+```
+User Tab-focuses trigger button (bottom-right, z-50, fixed)
+     │
+     ▼
+User presses Enter/Space or clicks
+     │
+     ├── isOpen = false → isOpen = true
+     │   Panel transitions: opacity-0 scale-95 → opacity-100 scale-100
+     │   aria-expanded: "false" → "true"
+     │   Focus moves to first <a> (Bug link)
+     │
+     ▼
+User navigates links with Tab/Shift+Tab
+     │
+     ├── Enter on Bug link ─────────────────────────────────────────►
+     │   window opens: https://github.com/Wikid82/Charon/issues/new?template=bug_report.md
+     │   Panel stays open
+     │
+     ├── Enter on Feature link ──────────────────────────────────────►
+     │   window opens: https://github.com/Wikid82/Charon/issues/new?template=feature_request.md
+     │   Panel stays open
+     │
+     └── Escape key or click-outside
+         isOpen = true → isOpen = false
+         Panel transitions: opacity-100 → opacity-0 scale-95
+         aria-expanded: "true" → "false"
+         Focus returns to trigger button
+```
+
 ### Phase 1: Playwright Tests
 
-Not applicable. No frontend or UI changes are part of this fix.
+## 6. Unit Tests Specification
 
-### Phase 2: Backend Changes
+**File:** `frontend/src/components/__tests__/FeedbackWidget.test.tsx`
 
-| # | Task | File | Complexity |
-|---|---|---|---|
-| B1 | Add `mu sync.Mutex` to `Manager` and lock `ApplyConfig` | `backend/internal/caddy/manager.go` | Low |
-| B2 | Add `&models.ProxyGroup{}` before `&models.ProxyHost{}` in CLI migrate | `backend/cmd/api/main.go` | Trivial |
+Pattern: follows `NotificationCenter.test.tsx` (no ThemeProvider needed, no QueryClient needed — uses plain `render` from Testing Library).
 
-**B1 detail**: Add `mu sync.Mutex` field, add `m.mu.Lock(); defer m.mu.Unlock()` at top of `ApplyConfig`. Verify `sync` import. 3-line change.
+The global `react-i18next` mock in `test/setup.ts` loads real `en/translation.json`. Once the `feedback` key is added, `t('feedback.reportBug')` will return `"Report a Bug"`.
 
-**B2 detail**: Find the `migrate` subcommand AutoMigrate call, insert `&models.ProxyGroup{}` immediately before `&models.ProxyHost{}`. 1-line addition.
-
-### Phase 3: Script and CI Changes
-
-| # | Task | File | Complexity |
-|---|---|---|---|
-| S1 | Fail-fast proxy host creation with body logging | `scripts/cerberus_integration.sh` | Low |
-| S2 | Volume cleanup in `cleanup()` and pre-run block | `scripts/cerberus_integration.sh` | Low |
-| S3 | Reorder steps: security config → WAF ruleset → proxy host | `scripts/cerberus_integration.sh` | Low |
-| S4 | Add artifact upload step for container logs | `.github/workflows/cerberus-integration.yml` | Low |
-
-**S1 detail**: Replace the proxy host creation block (lines 261–272) per Fix 1 spec. ~10-line change.
-
-**S2 detail**: Add `docker logs` capture and `docker volume rm` calls to `cleanup()` and the per-run cleanup block. ~8-line addition.
-
-**S3 detail**: Move the security config PUT block (and WAF ruleset POST) to before the proxy host creation. Add `sleep 1` after security config PUT. The actual block positions depend on the current line numbers — confirm with `grep -n "Step [456]"` before editing.
-
-**S4 detail**: Add the `actions/upload-artifact@v4` step after "Run Cerberus Integration Test" per Fix 3 spec. ~10-line addition.
-
-### Phase 4: Integration and Testing
+| # | Test Case | Assertion |
+|---|---|---|
+| 1 | Component renders | Trigger button is in the document |
+| 2 | Default aria-label | `aria-label` = "Open feedback menu" |
+| 3 | Default aria-expanded | `aria-expanded` = `"false"` |
+| 4 | Panel hidden by default | Panel element has class `opacity-0` or `pointer-events-none` |
+| 5 | Open on click | After click: `aria-expanded` = `"true"` |
+| 6 | Bug link present | `getByRole('link', { name: /report a bug/i })` exists |
+| 7 | Bug link href | Bug link `href` = `GITHUB_BUG_URL` |
+| 8 | Feature link href | Feature link `href` = `GITHUB_FEATURE_URL` |
+| 9 | Links open new tab | Both links have `target="_blank"` |
+| 10 | Links are safe | Both links have `rel="noopener noreferrer"` |
+| 11 | Escape closes panel | After Escape: `aria-expanded` = `"false"` |
+| 12 | Focus returns on Escape | After Escape: `document.activeElement` = trigger button |
+| 13 | Second click closes panel | Click → open; click again → `aria-expanded` = `"false"` |
+| 14 | aria-label reflects state | When open, `aria-label` = "Close feedback menu" |
+| 15 | Focus moves to first link on open | After click: `document.activeElement` = bug report `<a>` (`firstLinkRef.current`) |
 
 | # | Task |
 |---|---|
@@ -310,42 +404,85 @@ Not applicable. No frontend or UI changes are part of this fix.
 | T3 | Implement targeted fix based on the exact Caddy error (defer to Contingency Commit 5 if needed) |
 | T4 | Re-run until TC-1 through TC-5 all pass |
 
-### Phase 5: Documentation
+## 7. Acceptance Criteria
 
-No user-facing documentation changes required beyond this spec.
-
----
-
-## 5. Acceptance Criteria
-
-| # | Criterion | Verification |
+| # | Criterion | Verified By |
 |---|---|---|
-| AC1 | Script exits non-zero on any non-201/non-409 proxy host creation response | Script output contains `"Proxy host creation failed (HTTP ...)"` and exits 1 |
-| AC2 | Full HTTP response body is logged on proxy host creation failure | Script output contains `"Response body: ..."` with the Caddy error string |
-| AC3 | Named volumes are removed at cleanup and before each run | `docker volume ls` shows no `charon_cerberus_test_data` after script exit |
-| AC4 | Container logs saved to `/tmp` before container removal | `/tmp/charon-cerberus-test.log` exists and is non-empty after a test run |
-| AC5 | Container logs uploaded as CI artifact on failure | GitHub Actions run shows `cerberus-container-logs-*` artifact on any failing run |
-| AC6 | Security config applied to DB before proxy host creation | `computeEffectiveFlags` returns `wafEnabled=true` when proxy host `ApplyConfig` fires |
-| AC7 | `ApplyConfig` calls are serialized by mutex | No concurrent `ApplyConfig` executions possible |
-| AC8 | `go run . migrate` succeeds on a fresh database | `proxy_groups` table created before `proxy_hosts`; no FK constraint error |
-| AC9 | TC-3 passes: 3/3 malicious requests blocked | WAF returns HTTP 403 for XSS and injection payloads |
-| AC10 | TC-4 passes: 10/10 legitimate requests succeed | Responses are from httpbin backend (HTTP 200, JSON body) |
-| AC11 | TC-1, TC-2, TC-5 continue to pass | No regression from current PASS state |
-| AC12 | DoD: all 5 TCs pass in CI without errors | `.github/workflows/cerberus-integration.yml` run exits green; no `"Proxy host may already exist"` log line present |
+| AC-1 | Widget trigger visible on `/dashboard` when authenticated | Playwright |
+| AC-2 | Widget absent from `/login`, `/setup`, `/accept-invite` | Playwright |
+| AC-3 | Clicking trigger opens panel with two links | Playwright + Unit |
+| AC-4 | Bug link href = GitHub bug template URL | Playwright + Unit |
+| AC-5 | Feature link href = GitHub feature template URL | Playwright + Unit |
+| AC-6 | Both links open in new tab | Playwright + Unit |
+| AC-7 | Keyboard navigation: Tab, Enter, Escape all work | Playwright + Unit |
+| AC-8 | Focus returns to trigger after Escape | Unit test #12 |
+| AC-9 | Widget renders above all other elements (z-50) | Visual review |
+| AC-10 | Dark mode renders correctly | Visual review |
+| AC-11 | All unit tests pass (15 tests) | `vitest run` |
+| AC-12 | No new runtime dependencies introduced | `package.json` diff |
+| AC-13 | TypeScript strict mode: zero errors | `tsc --noEmit` |
+| AC-14 | Clicking outside the widget closes the panel | Playwright |
+
+### Definition of Done
+
+- [ ] `FeedbackWidget.tsx` created, lint-clean, TypeScript error-free
+- [ ] i18n keys added to all 5 locale files (en, de, es, fr, zh)
+- [ ] `Layout.tsx` imports and renders `<FeedbackWidget />`
+- [ ] `FeedbackWidget.test.tsx` written with all 15 test cases passing
+- [ ] `tests/feedback-widget.spec.ts` Playwright spec written and passing on Firefox
+- [ ] `tsc --noEmit` passes
+- [ ] Visual review: widget visible bottom-right on dashboard in both light and dark mode
+- [ ] GORM security scan: N/A (no backend models changed)
 
 ---
 
-## 6. Commit Slicing Strategy
+## 8. Commit Slicing Strategy
 
-**Decision**: Single PR (#1026) with 4 ordered logical commits. All changes are confined to script, workflow, and backend files. Each commit is independently revertible.
+### Decision
 
-| Commit | Scope | Files | Dependencies | Validation Gate |
-|---|---|---|---|---|
-| Commit 1 | Observability: fail-fast + body logging + volume cleanup + log capture + CI artifact | `scripts/cerberus_integration.sh`, `.github/workflows/cerberus-integration.yml` | None | Next CI run produces either a PASS or a readable artifact with the exact Caddy error |
-| Commit 2 | Script: reorder steps so security config precedes proxy host creation | `scripts/cerberus_integration.sh` | Commit 1 (clean volumes needed to verify ordering) | TC-3 and TC-4 pass; `wafEnabled=true` at proxy host `ApplyConfig` time |
-| Commit 3 | Backend: mutex on `ApplyConfig` | `backend/internal/caddy/manager.go` | None | Existing unit tests pass; no behavioral change |
-| Commit 4 | Backend: CLI `migrate` fix | `backend/cmd/api/main.go` | None | `go run . migrate` on a fresh SQLite file creates `proxy_groups` before `proxy_hosts` |
+**Single PR, single commit.** This feature is entirely frontend, confined to new files and two lines changed in `Layout.tsx`. No backend changes, no API changes, no schema migrations. One atomic commit is correct for this scope.
 
-**Rollback**: Each commit can be reverted independently. Commits 1 and 2 are highest priority; Commits 3 and 4 are precautionary hardening with zero risk.
+### Commit
 
-**Contingency**: If Commit 1 reveals a non-trivial Caddy error (e.g., a JSON shape regression in the generated config, a plugin API mismatch, a TLS policy validation failure for `.local` domains), a Commit 5 addresses that specific code path after diagnosis. The nature of that fix cannot be specified until the error body is captured from the artifact.
+```
+feat(ui): add feedback widget with GitHub issue links
+
+Add a persistent floating feedback widget to all authenticated pages.
+The widget provides direct links to GitHub Issues for bug reports and
+feature requests, opening each in a new browser tab. Implemented as a
+self-contained fixed-position component integrated into Layout.tsx.
+
+WCAG 2.2 AA: aria-expanded on trigger, <nav> landmark panel,
+native <a> links (no role="menu"/"menuitem"), keyboard navigation
+(Escape closes, Tab navigates natively, focus moves to first link
+on open), focus management (returns to trigger on close), visible
+focus ring (2.4.7 + 2.4.11).
+
+Zero new runtime dependencies.
+
+Closes #<issue-number>
+```
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `frontend/src/components/FeedbackWidget.tsx` | New file |
+| `frontend/src/components/__tests__/FeedbackWidget.test.tsx` | New file |
+| `tests/feedback-widget.spec.ts` | New file |
+| `frontend/src/components/Layout.tsx` | +2 lines (import + JSX element) |
+| `frontend/src/locales/en/translation.json` | +10 lines (feedback key) |
+| `frontend/src/locales/de/translation.json` | +10 lines |
+| `frontend/src/locales/es/translation.json` | +10 lines |
+| `frontend/src/locales/fr/translation.json` | +10 lines |
+| `frontend/src/locales/zh/translation.json` | +10 lines |
+
+### Rollback
+
+Remove the `import FeedbackWidget from './FeedbackWidget'` and `<FeedbackWidget />` from `Layout.tsx`. The remaining new files can stay in place harmlessly. No database state, no backend state to revert.
+
+### Validation Gates
+
+1. `npx vitest run frontend/src/components/__tests__/FeedbackWidget.test.tsx` — 15 tests pass
+2. `cd frontend && npx tsc --noEmit` — zero errors
+3. `npx playwright test tests/feedback-widget.spec.ts --project=firefox` — spec passes
