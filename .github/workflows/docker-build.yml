@@ -781,6 +781,9 @@ jobs:
       packages: read
       security-events: write
     steps:
+      - name: Checkout repository for Trivy ignore rules
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
       - name: Normalize image name
         run: |
           IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
@@ -852,6 +855,7 @@ jobs:
         with:
           image-ref: ${{ steps.pr-image.outputs.image_ref }}
           format: 'table'
+          trivyignores: '.trivyignore'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
           version: 'v0.70.0'
@@ -863,6 +867,7 @@ jobs:
           image-ref: ${{ steps.pr-image.outputs.image_ref }}
           format: 'sarif'
           output: 'trivy-pr-results.sarif'
+          trivyignores: '.trivyignore'
           severity: 'CRITICAL,HIGH'
           # Keep scanning strict for CRITICAL/HIGH; fail is enforced explicitly
           # at the end so SARIF upload and summaries still run.
