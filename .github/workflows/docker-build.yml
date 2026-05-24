@@ -339,7 +339,6 @@ jobs:
             type=raw,value=nightly,enable=${{ env.TRIGGER_REF == 'refs/heads/nightly' }}
             type=raw,value=beta,enable=${{ env.TRIGGER_EVENT == 'pull_request' && env.TRIGGER_BASE_REF == 'development' }}
             type=raw,value=${{ steps.pr_image_ref_output.outputs.image_tag }},enable=${{ steps.pr_image_ref_output.outputs.image_tag != '' }}
-            type=raw,value=${{ steps.branch-tags.outputs.pr_feature_branch_sha_tag }},enable=${{ env.TRIGGER_EVENT == 'pull_request' && steps.branch-tags.outputs.pr_feature_branch_sha_tag != '' }}
             type=raw,value=${{ steps.branch-tags.outputs.feature_branch_tag }},enable=${{ env.TRIGGER_EVENT != 'pull_request' && startsWith(env.TRIGGER_REF, 'refs/heads/feature/') && steps.branch-tags.outputs.feature_branch_tag != '' }}
             type=raw,value=${{ steps.branch-tags.outputs.branch_sha_tag }},enable=${{ env.TRIGGER_EVENT != 'pull_request' && steps.branch-tags.outputs.branch_sha_tag != '' }}
             type=sha,format=short,prefix=,suffix=,enable=${{ env.TRIGGER_EVENT != 'pull_request' && (env.TRIGGER_REF == 'refs/heads/main' || env.TRIGGER_REF == 'refs/heads/development' || env.TRIGGER_REF == 'refs/heads/nightly') }}
@@ -790,19 +789,21 @@ jobs:
       - name: Load PR image reference
         id: pr-image
         run: |
-          IMAGE_REF="${{ needs.build-and-push.outputs.pr_image_ref }}"
+          DIGEST="${{ needs.build-and-push.outputs.digest }}"
 
-          if [[ -z "$IMAGE_REF" ]]; then
-            IMAGE_REF="ghcr.io/${{ env.IMAGE_NAME }}:pr-${{ env.TRIGGER_PR_NUMBER }}"
-            echo "⚠️ WARNING: build-and-push pr_image_ref output missing; using deterministic fallback: ${IMAGE_REF}"
-          fi
-
-          if ! [[ "$IMAGE_REF" =~ ^ghcr\.io/[^[:space:]]+:pr-[0-9]+$ ]]; then
-            echo "❌ ERROR: Invalid PR image reference: ${IMAGE_REF}"
+          if [[ -z "$DIGEST" ]]; then
+            echo "❌ ERROR: build-and-push digest output is empty; cannot proceed without immutable reference"
             exit 1
           fi
 
+          if ! [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "❌ ERROR: Invalid digest format (expected sha256:<64 hex chars>): ${DIGEST}"
+            exit 1
+          fi
+
+          IMAGE_REF="ghcr.io/${IMAGE_NAME}@${DIGEST}"
           echo "image_ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
+          echo "Using immutable digest reference: ${IMAGE_REF}"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
@@ -892,7 +893,7 @@ jobs:
             echo ""
             echo "- Category: ${{ env.TRIVY_SARIF_CATEGORY }}"
             echo "- Image: ${IMAGE_REF}"
-            echo "- Digest: n/a (tag-based PR image)"
+            echo "- Digest: ${IMAGE_REF#*@}"
             echo "- Caddy version: ${CADDY_VERSION}"
           } >> "$GITHUB_STEP_SUMMARY"
 
