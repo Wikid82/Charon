@@ -25,6 +25,9 @@ permissions:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/charon
+  # Canonical SARIF category owner for weekly rebuild Trivy uploads.
+  # Keep this stable to prevent duplicate/stale code scanning tracks.
+  TRIVY_SARIF_CATEGORY: .github/workflows/security-weekly-rebuild.yml:trivy-weekly
 
 jobs:
   security-rebuild:
@@ -119,6 +122,7 @@ jobs:
         uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
         with:
           sarif_file: 'trivy-weekly-results.sarif'
+          category: ${{ env.TRIVY_SARIF_CATEGORY }}
 
       - name: Run Trivy vulnerability scanner (JSON for artifact)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -156,6 +160,7 @@ jobs:
             echo ""
             echo "- **Build Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
             echo "- **Image:** ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
+            echo "- **SARIF Category:** ${{ env.TRIVY_SARIF_CATEGORY }}"
             echo "- **Cache Used:** No (forced fresh build)"
             echo "- **Trivy Scan:** Completed (see Security tab for details)"
             echo ""
