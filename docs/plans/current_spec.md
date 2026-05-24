@@ -183,7 +183,7 @@ corresponding yamux stream, which lives for as long as the stream is active. The
 is no connection reuse for streaming responses; the connection is only closed when
 the response body (stream) finishes or the client disconnects. Correct.
 
----
+#### 5. Verify Multi-Arch Digests
 
 ## 5. Test Plan
 
@@ -265,7 +265,7 @@ when the mock Docker server is still actively writing an infinite response.
 func TestServeProxy_StreamingResponseTerminatesOnWriterClose(t *testing.T) {
 ```
 
----
+- Prevents long-tail stale alert tracks and ambiguous ownership.
 
 ### 5.2 New test in `backend/internal/orthrus/session_test.go`
 
@@ -307,7 +307,100 @@ complex, an acceptable alternative is to use `reflect` to inspect
 `rp.Transport.(*http.Transport).DisableKeepAlives` after calling `StartExternalProxy`.
 Prefer the behavioural test.
 
----
+- Eliminates partial-artifact blind spots.
+- Removes implicit category drift in weekly rebuild uploads.
+
+### Priority 3 Tighten Post-Merge Refresh Guarantees
+
+- Ensure Dockerfile/security-significant changes cannot bypass build+scan via
+  skip logic.
+- Add a condition override: if Dockerfile or workflow security files changed,
+  force build/scan.
+
+Why:
+
+- Guarantees scan freshness after security-relevant merges.
+
+### Priority 4 Normalize PR Tag and Artifact Resolution
+
+- Align all workflows on immutable pr-<number>-<sha> semantics.
+- Remove or gate legacy pr-<number> fallback paths.
+
+Why:
+
+- Avoids scanning wrong images.
+
+### Priority 5 Add Freshness Telemetry and Closure Proof
+
+- Emit build digest, Caddy version, and scan category into step summary and
+  retained artifact for each security upload.
+- Optional: add a post-scan assertion that SARIF run metadata references same
+  digest scanned.
+
+Why:
+
+- Makes stale-path diagnosis immediate.
+
+### Priority 6 Multi-Arch Explicit Verification
+
+- Add per-arch Caddy version check in CI before SARIF upload, at least for
+  linux/amd64 and linux/arm64 manifests where available.
+
+Why:
+
+- Prevents hidden platform drift.
+
+## Review of .gitignore, .dockerignore, codecov.yml, Dockerfile
+
+### .gitignore
+
+- No change required for this issue.
+- Existing SARIF/artifact ignores are appropriate.
+
+### .dockerignore
+
+- No change required for this issue.
+- Current exclusions do not explain stale Caddy finding source.
+
+### codecov.yml
+
+- No change required for this issue.
+- Coverage settings are unrelated to code scanning freshness.
+
+### Dockerfile
+
+- Functional version pin is already correct at 2.11.3.
+- Optional hardening (recommended if issue persists):
+  - add explicit build-time assertion that built Caddy reports expected major/minor/patch;
+  - emit OCI label with built Caddy version for traceability.
+
+## Implementation Plan
+
+### Phase 1 Playwright/UI Validation
+
+Objective:
+
+- Confirm this problem is CI/security-pipeline only, not a UI regression.
+- Run UI/Playwright checks conditionally when product-surface files changed.
+
+Tasks:
+
+1. Compute change scope:
+  - workflow/security-pipeline-only change (for example .github/workflows,
+    scripts security tooling, scan configs), or
+  - product-surface change (frontend/backend/runtime behavior).
+2. If product-surface change is present, run targeted smoke UI task(s) per DoD
+  policy.
+3. If workflow/security-pipeline-only, record conditional waiver and skip UI
+  execution.
+4. Record that no UI behavior change is expected from this remediation.
+
+Validation gate:
+
+- For product-surface changes: no UI regressions.
+- For workflow/security-only changes: waiver recorded with scope evidence.
+
+### Phase 2 Root-Cause Evidence Collection
 
 ## 6. Commit Strategy
 
