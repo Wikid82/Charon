@@ -802,6 +802,7 @@ jobs:
           fi
 
           IMAGE_REF="ghcr.io/${IMAGE_NAME}@${DIGEST}"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
           echo "image_ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
           echo "Using immutable digest reference: ${IMAGE_REF}"
 
@@ -812,20 +813,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Validate image freshness
+      - name: Inspect PR image metadata
+        id: image-metadata
         run: |
-          echo "🔍 Validating image freshness for PR #${{ env.TRIGGER_PR_NUMBER }}..."
-          echo "Expected SHA: ${{ env.TRIGGER_HEAD_SHA }}"
+          echo "🔍 Inspecting image metadata for PR #${{ env.TRIGGER_PR_NUMBER }}..."
           echo "Image: ${{ steps.pr-image.outputs.image_ref }}"
 
-          # Pull image to inspect
+          # Pull the immutable digest reference to inspect labels.
           docker pull "${{ steps.pr-image.outputs.image_ref }}"
 
-          # Extract commit SHA from image label
           LABEL_SHA=$(docker inspect "${{ steps.pr-image.outputs.image_ref }}" \
             --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')
 
           echo "Image label SHA: ${LABEL_SHA}"
+          echo "label_sha=${LABEL_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate image freshness
+        run: |
+          LABEL_SHA="${{ steps.image-metadata.outputs.label_sha }}"
 
           if [[ -z "${LABEL_SHA}" ]]; then
             echo "❌ ERROR: Missing image revision label"
@@ -904,6 +909,8 @@ jobs:
             echo "## 🔒 PR Image Security Scan"
             echo ""
             echo "- **Image**: ${{ steps.pr-image.outputs.image_ref }}"
+            echo "- **Image Digest**: ${{ steps.pr-image.outputs.digest }}"
+            echo "- **Image Revision Label SHA**: ${{ steps.image-metadata.outputs.label_sha || 'missing' }}"
             echo "- **PR**: #${{ env.TRIGGER_PR_NUMBER }}"
             echo "- **Commit**: ${{ env.TRIGGER_HEAD_SHA }}"
             echo "- **Scan Status**: ${{ steps.trivy-scan.outcome == 'success' && '✅ No critical vulnerabilities' || '❌ Vulnerabilities detected' }}"
