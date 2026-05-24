@@ -129,6 +129,10 @@ func (f *Filter) ServeProxy(dst string, r io.Reader, w io.Writer) error {
 	}
 	defer conn.Close()
 
+	// Ensure Docker closes the socket after the response so ServeProxy can
+	// terminate cleanly instead of waiting on an idle keep-alive connection.
+	req.Close = true
+
 	// Forward the full request (headers + body) to the Docker socket.
 	if err := req.Write(conn); err != nil {
 		return fmt.Errorf("muzzle: forward request to docker: %w", err)
