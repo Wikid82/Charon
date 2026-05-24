@@ -1,15 +1,90 @@
 package muzzle_test
 
 import (
+	"bufio"
 	"bytes"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/Wikid82/charon/agent/muzzle"
 )
+
+var errWriterClosed = errors.New("writer closed")
+
+type closableWriter struct {
+	mu         sync.Mutex
+	buf        bytes.Buffer
+	closed     bool
+	firstWrite chan struct{}
+	once       sync.Once
+}
+
+func newClosableWriter() *closableWriter {
+	return &closableWriter{firstWrite: make(chan struct{})}
+}
+
+func (w *closableWriter) Write(p []byte) (int, error) {
+	w.once.Do(func() { close(w.firstWrite) })
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return 0, errWriterClosed
+	}
+	return w.buf.Write(p)
+}
+
+func (w *closableWriter) Close() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.closed = true
+}
+
+func (w *closableWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.String()
+}
+
+func startUnixHTTPServer(t *testing.T, handler func(net.Conn)) (string, func()) {
+	t.Helper()
+
+	sockPath := filepath.Join(t.TempDir(), "docker.sock")
+	ln, err := net.Listen("unix", sockPath)
+	require.NoError(t, err)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		conn, acceptErr := ln.Accept()
+		if acceptErr != nil {
+			return
+		}
+		handler(conn)
+	}()
+
+	cleanup := func() {
+		_ = ln.Close()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("unix server goroutine did not exit")
+		}
+	}
+
+	return sockPath, cleanup
+}
 
 func TestFilter_Allow(t *testing.T) {
 	f := muzzle.New()
@@ -136,4 +211,156 @@ func TestFilter_ServeProxy_Blocked_UnversionedPost(t *testing.T) {
 	err := f.ServeProxy("/tmp/nonexistent.sock", strings.NewReader(reqStr), &buf)
 	require.Error(t, err)
 	assert.Contains(t, buf.String(), "403")
+}
+
+func TestServeProxy_ConnectionCloseSetOnRequest(t *testing.T) {
+	f := muzzle.New()
+
+	reqSeen := make(chan *http.Request, 1)
+	serverErr := make(chan error, 1)
+
+	sockPath, cleanup := startUnixHTTPServer(t, func(conn net.Conn) {
+		defer conn.Close()
+
+		req, err := http.ReadRequest(bufio.NewReader(conn))
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		reqSeen <- req
+
+		_, err = io.WriteString(conn, "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello")
+		if err != nil {
+			serverErr <- err
+		}
+	})
+	defer cleanup()
+
+	var out bytes.Buffer
+	req := "GET /containers/json HTTP/1.1\r\nHost: localhost\r\n\r\n"
+	err := f.ServeProxy(sockPath, strings.NewReader(req), &out)
+	require.NoError(t, err)
+
+	seen := <-reqSeen
+	select {
+	case err := <-serverErr:
+		require.NoError(t, err)
+	default:
+	}
+	assert.True(t, seen.Close)
+	assert.Equal(t, "close", strings.ToLower(seen.Header.Get("Connection")))
+	assert.Contains(t, out.String(), "200 OK")
+	assert.Contains(t, out.String(), "hello")
+}
+
+func TestServeProxy_CompletesAfterDockerResponse(t *testing.T) {
+	f := muzzle.New()
+	serverErr := make(chan error, 1)
+	body := `{"status":"ok"}`
+
+	sockPath, cleanup := startUnixHTTPServer(t, func(conn net.Conn) {
+		defer conn.Close()
+
+		_, err := http.ReadRequest(bufio.NewReader(conn))
+		if err != nil {
+			serverErr <- err
+			return
+		}
+
+		_, err = io.WriteString(conn, fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s", len(body), body))
+		if err != nil {
+			serverErr <- err
+		}
+	})
+	defer cleanup()
+
+	var out bytes.Buffer
+	req := "GET /containers/json HTTP/1.1\r\nHost: localhost\r\n\r\n"
+
+	done := make(chan error, 1)
+	go func() {
+		done <- f.ServeProxy(sockPath, strings.NewReader(req), &out)
+	}()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("ServeProxy did not return after complete response")
+	}
+
+	assert.Contains(t, out.String(), body)
+	select {
+	case err := <-serverErr:
+		require.NoError(t, err)
+	default:
+	}
+}
+
+func TestServeProxy_StreamingResponseTerminatesOnWriterClose(t *testing.T) {
+	f := muzzle.New()
+
+	serverWriteErr := make(chan error, 1)
+	serverErr := make(chan error, 1)
+
+	sockPath, cleanup := startUnixHTTPServer(t, func(conn net.Conn) {
+		defer conn.Close()
+
+		_, err := http.ReadRequest(bufio.NewReader(conn))
+		if err != nil {
+			serverErr <- err
+			return
+		}
+
+		_, err = io.WriteString(conn, "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n")
+		if err != nil {
+			serverErr <- err
+			return
+		}
+
+		for {
+			if _, writeErr := io.WriteString(conn, "6\r\nhello!\r\n"); writeErr != nil {
+				serverWriteErr <- writeErr
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	})
+	defer cleanup()
+
+	w := newClosableWriter()
+	req := "GET /events HTTP/1.1\r\nHost: localhost\r\n\r\n"
+
+	done := make(chan error, 1)
+	go func() {
+		done <- f.ServeProxy(sockPath, strings.NewReader(req), w)
+	}()
+
+	select {
+	case <-w.firstWrite:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stream did not start")
+	}
+
+	w.Close()
+
+	select {
+	case err := <-done:
+		require.Error(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("ServeProxy did not return after writer close")
+	}
+
+	select {
+	case err := <-serverWriteErr:
+		require.Error(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("mock docker stream did not observe closed connection")
+	}
+
+	select {
+	case err := <-serverErr:
+		require.NoError(t, err)
+	default:
+	}
 }
