@@ -1,479 +1,428 @@
-# Dockhand Flapping Fix — Orthrus Reverse Tunnel Keep-Alive Deadlock
+## CI Planning Spec: PR Image Output Contract Hardening
 
-**Feature Branch:** `feature/hecate`
-**Date:** 2026-05-24
-**Status:** Plan complete — ready for implementation
+Date: 2026-05-24
+Branch context: feature/hecate
+Target workflow: .github/workflows/docker-build.yml
+Failing job: Security Scan PR Image
+Failing step signal: Missing PR image reference from build-and-push outputs
 
----
+## Introduction
 
-## 1. Problem Summary
+This plan defines a long-term, contract-first fix for the CI failure where
+scan-pr-image receives an empty value for
+needs.build-and-push.outputs.pr_image_ref.
 
-Dockhand (Docker management UI on VPS, port 3001) reaches HomeLab Docker via Charon's
-Orthrus reverse-WebSocket tunnel at `http://charon:3000`. Every request after the first
-one fails with `context deadline exceeded` after exactly 30 seconds — the Dockhand poll
-interval. This makes the Dockhand container list show as perpetually "flapping": one
-successful load, then all subsequent loads time out until the agent reconnects.
+Goal:
+- Ensure pr_image_ref is always emitted when scan-pr-image is eligible to run.
+- Preserve correct job dependency and condition behavior for pull_request, push,
+	and workflow_run triggers.
+- Improve observability so producer/consumer output failures become immediately
+	diagnosable.
 
----
+Out of scope:
+- Changing vulnerability thresholds or Trivy policy behavior.
+- Refactoring unrelated Docker build or release logic.
 
-## 2. Root Cause
+## Research Findings
 
-### Confirmed failure sequence
+### Evidence sources reviewed
 
-```
-Dockhand  →  ExternalProxy (0.0.0.0:3000)  →  loopback TCP  →  proxyConn goroutine
-          →  yamux stream  →  agent ServeProxy  →  Docker unix socket
-```
+- Workflow producer and consumer chain:
+	.github/workflows/docker-build.yml
+- Failing execution log:
+	.github/logs/ci_failure.log
+- Ancillary files requested for necessity review:
+	.gitignore, .dockerignore, codecov.yml, Dockerfile
 
-1. **Request #1**: `http.DefaultTransport` opens a fresh loopback TCP connection → new
-   `proxyConn` goroutine → yamux stream #1 → agent `ServeProxy` dials Docker socket →
-   response returned. **SUCCESS**.
+### Failure evidence summary
 
-2. **Keep-alive idle state**: Docker does NOT close the TCP connection after the response
-   because `req.Close` is never set in `agent/muzzle/muzzle.go`. The agent's `ServeProxy`
-   goroutine blocks inside `io.Copy(w=yamuxStream, conn=dockerSocket)` waiting for more
-   data that never arrives (Docker is idle, connection is alive).
+- The failing job is Security Scan PR Image.
+- In the failing run, Load PR image reference executes with:
+	IMAGE_REF="" and exits with:
+	Missing PR image reference from build-and-push outputs.
+- Trigger context in the same log confirms PR semantics:
+	TRIGGER_EVENT=pull_request,
+	TRIGGER_PR_NUMBER=1035,
+	TRIGGER_HEAD_REF=feature/hecate.
 
-3. **Transport pools the connection**: `http.DefaultTransport` considers the loopback TCP
-   connection healthy and returns it to its idle pool.
+### Producer to consumer mapping
 
-4. **Request #2 (30 s later)**: Transport reuses the pooled loopback TCP connection.
-   Bytes of the new request arrive at the `proxyConn` goroutine's loopback TCP socket,
-   which forwards them into **yamux stream #1**. The agent is not reading from yamux
-   stream #1 — it is stuck in `io.Copy`.
+| Stage | Workflow location | Contract detail | Risk observed |
+|---|---|---|---|
+| Producer job output | docker-build.yml build-and-push.outputs.pr_image_ref | Mapped from steps.pr-image-ref.outputs.image_ref | Empty at consumer in failing run |
+| Producer step | docker-build.yml step id pr-image-ref | Sets image_ref from first line of steps.meta.outputs.tags | First-line selection can be brittle |
+| Consumer job gate | docker-build.yml scan-pr-image.if | Requires build success, skip_build != true, github.event_name == pull_request | Does not assert non-empty pr_image_ref |
+| Consumer step | docker-build.yml Load PR image reference | Reads needs.build-and-push.outputs.pr_image_ref and fails if empty | Current hard failure point |
 
-5. **Deadlock**: The yamux receive window on stream #1 fills up. The VPS-side write to
-   yamux blocks. The loopback TCP write buffer fills. `httputil.ReverseProxy` write
-   blocks. After 30 s, Dockhand's context fires → `context deadline exceeded`.
+## Root Cause Candidates (with evidence mapping)
 
-6. **Self-reinforcing**: Because every Dockhand poll arrives at exactly the 30-second
-   interval (same as the timeout), each new request races against Transport's stale-conn
-   detection and wins the race, guaranteeing deadlock on every subsequent request.
+### Candidate A: Brittle PR tag extraction strategy
 
-### Why Fix 1 (agent) is fundamental
+Observation:
+- The producer step resolves IMAGE_REF using head -n 1 from
+	steps.meta.outputs.tags.
 
-Setting `req.Close = true` before `req.Write(conn)` causes `ServeProxy` to send
-`Connection: close` to Docker. Docker closes the connection after sending the response.
-`io.Copy(w, conn)` receives EOF and returns. The yamux stream closes cleanly. The
-`proxyConn` goroutine exits. No goroutine leak. No stale stream.
+Evidence mapping:
+- Source: docker-build.yml Resolve PR image reference step.
+- Failure signal: downstream receives empty output.
 
-### Why Fix 2 (server) is belt-and-suspenders (and deployable immediately)
+Why plausible:
+- Metadata tags are multiline and include multiple tag classes and registries.
+- Selecting only the first line is order-dependent and not contract-driven.
+- Any change in tag ordering, formatting, or empty leading line can break
+	producer output without a compile-time error.
 
-Adding `Transport: &http.Transport{DisableKeepAlives: true}` to the `httputil.ReverseProxy`
-in `StartExternalProxy` prevents Transport from ever pooling the loopback TCP connection.
-Every request opens a fresh loopback TCP connection → fresh `proxyConn` goroutine → fresh
-yamux stream → fresh agent goroutine. The agent can handle it. This fix works with the
-**old agent already deployed on HomeLab** and stops the flapping immediately.
+### Candidate B: Output contract not validated before downstream usage
 
----
+Observation:
+- scan-pr-image enforces non-empty output, but build-and-push does not enforce
+	a terminal output contract assertion tied to PR execution.
 
-## 3. Affected Files
+Evidence mapping:
+- Source: docker-build.yml scan-pr-image Load PR image reference step.
+- Source: docker-build.yml lacks a final PR output assertion step.
 
-| File | Function | Approx. Lines | Change |
-|------|----------|---------------|--------|
-| `agent/muzzle/muzzle.go` | `ServeProxy` | 111–139 | Add `req.Close = true` before `req.Write(conn)` (~L131) |
-| `backend/internal/orthrus/session.go` | `StartExternalProxy` | ~253–330 | Add `Transport: &http.Transport{DisableKeepAlives: true}` to `httputil.ReverseProxy` literal (~L293) |
-| `agent/muzzle/muzzle_test.go` | (new tests) | append | Two new tests for connection-close behaviour |
-| `backend/internal/orthrus/session_test.go` | (new test) | append | One new test for DisableKeepAlives on external proxy transport |
+Why plausible:
+- An empty producer output can reach the next job, moving failure farther from
+	origin and reducing diagnosability.
 
----
+### Candidate C: Job/step id and output reference fragility
 
-## 4. Exact Code Changes
+Observation:
+- Producer and internal references use hyphenated step id naming.
 
-### 4.1 Fix 1 — `agent/muzzle/muzzle.go` `ServeProxy` (~line 131)
+Evidence mapping:
+- Source: docker-build.yml ids and output references around pr-image-ref.
 
-**Before:**
-```go
-	conn, err := net.Dial("unix", dst)
-	if err != nil {
-		return fmt.Errorf("muzzle: dial docker socket: %w", err)
-	}
-	defer conn.Close()
+Why plausible:
+- Hyphenated ids are valid, but are more error-prone during future edits,
+	especially when copied into complex expressions.
+- Using a canonical underscore id and an explicit output emitter step reduces
+	long-term maintenance risk.
 
-	// Forward the full request (headers + body) to the Docker socket.
-	if err := req.Write(conn); err != nil {
-		return fmt.Errorf("muzzle: forward request to docker: %w", err)
-	}
+## Preferred Long-Term Fix
 
-	// Stream the response back to the caller.
-	_, err = io.Copy(w, conn)
-	return err
-```
+### Decision
 
-**After:**
-```go
-	conn, err := net.Dial("unix", dst)
-	if err != nil {
-		return fmt.Errorf("muzzle: dial docker socket: %w", err)
-	}
-	defer conn.Close()
+Adopt a contract-first producer model for pr_image_ref in build-and-push, then
+consume that contract in scan-pr-image with explicit gating and diagnostics.
 
-	// Signal Docker to close the connection after the response so io.Copy
-	// below returns on EOF rather than blocking on an idle keep-alive socket.
-	// Without this, ServeProxy holds the yamux stream open indefinitely and
-	// the server-side Transport reuses the stale loopback connection, causing
-	// every subsequent request to deadlock (context deadline exceeded).
-	req.Close = true
+### Design overview
 
-	// Forward the full request (headers + body) to the Docker socket.
-	if err := req.Write(conn); err != nil {
-		return fmt.Errorf("muzzle: forward request to docker: %w", err)
-	}
+1. Replace first-line tag selection with deterministic PR-tag resolution
+	 and validation against metadata tag list.
+2. Emit pr_image_ref from a dedicated producer step with stable id naming.
+3. Add a producer-side assertion step so PR runs fail in build-and-push if
+	 pr_image_ref is empty.
+4. Keep scan-pr-image as dependent consumer, but gate it with explicit
+	 non-empty output check for defensive correctness.
+5. Add summary telemetry for emitted pr_image_ref.
 
-	// Stream the response back to the caller.
-	_, err = io.Copy(w, conn)
-	return err
-```
+### High-level YAML shape (targeted snippets)
 
----
+In build-and-push (producer):
 
-### 4.2 Fix 2 — `backend/internal/orthrus/session.go` `StartExternalProxy` (~line 285)
+```yaml
+# after metadata generation
+- name: Resolve PR image reference (contract)
+	if: steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
+	id: resolve_pr_image_ref
+	run: |
+		# 1) read docker/metadata-action multiline tags output
+		# 2) select tags matching anchored PR pattern
+		#    ^ghcr\.io/[^[:space:]]+:pr-[0-9]+-[0-9a-f]{7,}$
+		# 3) assert exactly one match (fail on zero or multiple)
+		# 4) emit that single match as image_ref (source of truth)
+		# 5) reconstructed expected tag is diagnostics only (not selection input)
 
-**Before:**
-```go
-	loopbackTarget := fmt.Sprintf("127.0.0.1:%d", loopbackPort)
-	targetURL := &url.URL{Scheme: "http", Host: loopbackTarget}
-	rp := &httputil.ReverseProxy{
-		Rewrite: func(pr *httputil.ProxyRequest) {
-			pr.SetURL(targetURL)
-			pr.Out.Host = ""
-		},
-		FlushInterval: -1,
-	}
-```
-
-**After:**
-```go
-	loopbackTarget := fmt.Sprintf("127.0.0.1:%d", loopbackPort)
-	targetURL := &url.URL{Scheme: "http", Host: loopbackTarget}
-	rp := &httputil.ReverseProxy{
-		Rewrite: func(pr *httputil.ProxyRequest) {
-			pr.SetURL(targetURL)
-			pr.Out.Host = ""
-		},
-		FlushInterval: -1,
-		// Disable HTTP keep-alives on the loopback transport so that each
-		// Docker API request opens a fresh loopback TCP connection, which
-		// maps to a fresh yamux stream that the agent can service without
-		// contention. With keep-alives enabled, Transport reuses the loopback
-		// connection; the agent goroutine is blocked reading from the stale
-		// yamux stream, causing all requests after the first to deadlock.
-		Transport: &http.Transport{DisableKeepAlives: true},
-	}
+- name: Assert PR output contract
+	if: steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
+	run: |
+		test -n "${{ steps.resolve_pr_image_ref.outputs.image_ref }}"
 ```
 
----
+Update build job outputs mapping:
 
-### 4.3 Streaming Endpoints — Safety Confirmation
-
-Both fixes are safe for long-lived streaming responses served by `/events`,
-`/containers/*/logs`, and `/containers/*/stats`.
-
-**Fix 1 (`req.Close = true` in `ServeProxy`):**
-Docker emits `Connection: close` in the response headers but continues streaming
-data until EOF or client disconnect. `io.Copy(w, conn)` in `ServeProxy` terminates
-only when the yamux stream write returns an error (i.e., the client/proxy side
-disconnects), at which point `defer conn.Close()` fires and tears down the Docker
-socket. The streaming data path is unaffected; the connection is not closed
-prematurely.
-
-**Fix 2 (`DisableKeepAlives: true` on the loopback transport):**
-Each streaming request receives its own dedicated loopback TCP connection and
-corresponding yamux stream, which lives for as long as the stream is active. There
-is no connection reuse for streaming responses; the connection is only closed when
-the response body (stream) finishes or the client disconnects. Correct.
-
-#### 5. Verify Multi-Arch Digests
-
-## 5. Test Plan
-
-### 5.1 New tests in `agent/muzzle/muzzle_test.go`
-
-#### `TestServeProxy_ConnectionCloseSetOnRequest`
-
-**Purpose:** Verify that `ServeProxy` sets `req.Close = true`, which causes the Docker
-socket to be closed after the response, allowing `io.Copy` to return on EOF rather than
-blocking forever on an idle keep-alive connection.
-
-**Setup:**
-- Start a `net.Listener` on a temp Unix socket path (`t.TempDir()`).
-- Serve goroutine: accept one conn, read the full HTTP request using `http.ReadRequest`,
-  assert that the `Connection: close` header is present (i.e. `req.Close` was true when
-  written), send a minimal `HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello` response,
-  then close the socket (honouring the `Connection: close` header).
-- Call `f.ServeProxy(socketPath, reqReader, &buf)` in the main goroutine with a 2 s
-  deadline enforced by `t.Deadline()` or a `time.AfterFunc` that calls `t.Fatal`.
-
-**Assertions:**
-- `ServeProxy` returns `nil` error without hanging.
-- `buf.String()` contains `"200 OK"` and `"hello"`.
-- The server goroutine observes `req.Header.Get("Connection") == "close"`.
-
-**Signature:**
-```go
-func TestServeProxy_ConnectionCloseSetOnRequest(t *testing.T) {
+```yaml
+outputs:
+	pr_image_ref: ${{ steps.resolve_pr_image_ref.outputs.image_ref }}
 ```
 
----
+In scan-pr-image (consumer gate hardening):
 
-#### `TestServeProxy_CompletesAfterDockerResponse`
-
-**Purpose:** Verify end-to-end that `ServeProxy` returns after receiving a complete HTTP
-response from the Docker socket — i.e., it does not hang after the response body is
-delivered, because `Connection: close` causes Docker to close the connection.
-
-**Setup:**
-- Unix socket server: accept, read request, write complete response (`Content-Length` set
-  to exact body length), **close the connection** immediately after writing.
-- Call `ServeProxy` with a valid allowed `GET /containers/json` request.
-
-**Assertions:**
-- Returns `nil` within a 2 s deadline.
-- Response body is forwarded to the writer intact.
-
-**Signature:**
-```go
-func TestServeProxy_CompletesAfterDockerResponse(t *testing.T) {
+```yaml
+if: >-
+	needs.build-and-push.outputs.skip_build != 'true' &&
+	needs.build-and-push.result == 'success' &&
+	github.event_name == 'pull_request' &&
+	needs.build-and-push.outputs.pr_image_ref != ''
 ```
 
----
+Consumer load step remains, but now should only fail for unexpected contract
+breaches.
 
-#### `TestServeProxy_StreamingResponseTerminatesOnWriterClose`
+### Why this is preferred
 
-**Purpose:** Regression guard for `/events`-style streaming endpoints. Verify that
-`ServeProxy` exits promptly when the yamux stream (writer side) is closed, even
-when the mock Docker server is still actively writing an infinite response.
+- Removes dependence on implicit metadata ordering.
+- Uses docker/metadata-action output as the sole source of truth for PR image
+	reference selection.
+- Enforces cardinality contract (exactly one anchored PR tag), preventing
+	ambiguous or missing producer outputs.
+- Fails fast in the producer job where root cause exists.
+- Preserves existing event model while adding stronger invariants.
+- Scales better as additional tag types are introduced.
 
-**Setup:**
-- Unix socket server: accept one connection, read the request, write a
-  `Transfer-Encoding: chunked` (or raw byte stream) response, then loop writing
-  chunks indefinitely (simulating an infinite `/events` stream).
-- Capture the `ResponseWriter` passed to `ServeProxy` in a wrapper that allows the
-  test to close it (simulate yamux stream closure) by calling `Close()` on the
-  underlying connection or by using a `pipe` whose write-end can be forcibly closed.
-- Call `ServeProxy` in a goroutine. After it has started reading (signal via a
-  `chan struct{}`), close the writer (yamux stream side).
+## Rejected Alternative(s)
 
-**Assertions:**
-- `ServeProxy` returns within a short deadline (e.g., 2 s) after the writer is
-  closed. Any hang indicates the `io.Copy` is not respecting write errors.
-- The mock Docker server goroutine eventually receives a write error (confirming
-  `defer conn.Close()` in `ServeProxy` fires).
+### Rejected A: Fallback compose image ref directly inside scan-pr-image
 
-**Signature:**
-```go
-func TestServeProxy_StreamingResponseTerminatesOnWriterClose(t *testing.T) {
-```
+Example concept:
+- If needs.build-and-push.outputs.pr_image_ref is empty, recompute expected ref
+	in scan-pr-image and continue.
 
-- Prevents long-tail stale alert tracks and ambiguous ownership.
+Reason rejected:
+- Masks producer contract failures.
+- Duplicates tag-construction logic across jobs.
+- Increases drift risk between build and scan behavior.
+- Converts a deterministic producer bug into silent consumer complexity.
 
-### 5.2 New test in `backend/internal/orthrus/session_test.go`
+### Rejected B: Remove separate scan job and perform PR scan only in build-and-push
 
-#### `TestStartExternalProxy_TransportDisablesKeepAlives`
+Reason rejected:
+- Reduces orchestration clarity and separation of concerns.
+- Increases blast radius and complexity of build job retries/timeouts.
+- Not necessary when producer contract is made explicit.
 
-**Purpose:** Verify that sequential HTTP requests through the external proxy each open a
-new connection to the loopback target — confirming that `DisableKeepAlives: true` is in
-effect and that Transport does not reuse stale connections.
+## Exact Files and Sections to Change
 
-**Approach (behavioural):**
-Since `Transport` is embedded inside `httputil.ReverseProxy` which is constructed inside
-`StartExternalProxy`, we test the observable effect: a mock loopback HTTP server counts
-how many distinct TCP connections it accepts for two sequential requests. With
-`DisableKeepAlives: true` the count must be 2.
+### Primary change file
 
-**Setup steps:**
-1. Start a `httptest.NewServer` that records the `RemoteAddr` of each request. Because
-   the loopback target is a real TCP server (not the yamux stack), inject the mock by
-   temporarily pointing the external proxy at it.
-2. Create a real `AgentSession` using `testWSPair` (existing helper). Start the loopback
-   proxy with `StartDockerProxy(0)` to allocate a port, then use `GetProxyAddr()`.
-   Override the loopback port by aliasing the mock server's address — achieved by having
-   the mock server listen on a random port and setting `proxyPort` via an unexported field
-   assignment in the test package (same package `orthrus`).
-3. Call `StartExternalProxy(0)` to bind on any free port.
-4. Make two sequential `http.Get` requests (using a fresh `http.Client` with no keep-alive
-   override — the fix must provide keep-alive isolation at the server, not the test client)
-   to `http://localhost:<extPort>/containers/json`.
-5. Assert that the mock server received 2 requests on 2 distinct remote addresses
-   (connection count == 2).
+- .github/workflows/docker-build.yml
 
-**Signature:**
-```go
-func TestStartExternalProxy_TransportDisablesKeepAlives(t *testing.T) {
-```
+Sections:
+- build-and-push job outputs block
+- Resolve PR image reference step (rename/refactor)
+- New producer contract assertion step
+- scan-pr-image job if condition hardening
+- Optional summary line showing emitted pr_image_ref
 
-**Fallback:** If bootstrapping a full `AgentSession` with a mock loopback is prohibitively
-complex, an acceptable alternative is to use `reflect` to inspect
-`rp.Transport.(*http.Transport).DisableKeepAlives` after calling `StartExternalProxy`.
-Prefer the behavioural test.
+### No code changes expected outside workflow
 
-- Eliminates partial-artifact blind spots.
-- Removes implicit category drift in weekly rebuild uploads.
+- No backend/frontend/runtime behavior changes planned.
+- No schema/API/component code changes planned.
 
-### Priority 3 Tighten Post-Merge Refresh Guarantees
+## Trigger and Dependency Behavior Matrix
 
-- Ensure Dockerfile/security-significant changes cannot bypass build+scan via
-  skip logic.
-- Add a condition override: if Dockerfile or workflow security files changed,
-  force build/scan.
+| Trigger | build-and-push | pr_image_ref expected | scan-pr-image should run | Expected behavior |
+|---|---|---|---|---|
+| pull_request | yes (unless skip true) | non-empty | yes when skip false and build success | PR image scanned with Trivy |
+| push (main/development) | yes | empty allowed | no | digest-based non-PR scans only |
+| workflow_run (Docker Lint completed) | conditional | empty allowed unless explicitly PR-mode future change | no (current guard) | no PR image scan job |
 
-Why:
+## Implementation Plan (Phased)
 
-- Guarantees scan freshness after security-relevant merges.
+### Phase 1: Playwright/UI Validation Scope
 
-### Priority 4 Normalize PR Tag and Artifact Resolution
+This change is CI workflow only. No product-surface files are changed.
 
-- Align all workflows on immutable pr-<number>-<sha> semantics.
-- Remove or gate legacy pr-<number> fallback paths.
+Action:
+- Record UI test waiver for this PR based on scope.
 
-Why:
+### Phase 2: Producer Contract Refactor
 
-- Avoids scanning wrong images.
+Tasks:
+1. Refactor PR image ref resolution into a deterministic contract step.
+2. Replace brittle first-line tag extraction with explicit PR-tag matching.
+3. Emit stable image_ref output from canonical step id.
 
-### Priority 5 Add Freshness Telemetry and Closure Proof
+Complexity: Medium
 
-- Emit build digest, Caddy version, and scan category into step summary and
-  retained artifact for each security upload.
-- Optional: add a post-scan assertion that SARIF run metadata references same
-  digest scanned.
+### Phase 3: Consumer Gate Hardening
 
-Why:
+Tasks:
+1. Add non-empty output condition to scan-pr-image job if expression.
+2. Keep existing consumer-level empty check for defense in depth.
 
-- Makes stale-path diagnosis immediate.
+Complexity: Low
 
-### Priority 6 Multi-Arch Explicit Verification
+### Phase 4: Validation and Regression Matrix
 
-- Add per-arch Caddy version check in CI before SARIF upload, at least for
-  linux/amd64 and linux/arm64 manifests where available.
+Tasks:
+1. Validate pull_request path (PR #1035-like scenario).
+2. Validate push path (main/development).
+3. Validate workflow_run path (Docker Lint completed).
 
-Why:
+Complexity: Medium
 
-- Prevents hidden platform drift.
+### Phase 5: Documentation and Handoff
 
-## Review of .gitignore, .dockerignore, codecov.yml, Dockerfile
+Tasks:
+1. Update plan and implementation notes in this file.
+2. Prepare supervisor review packet with evidence and validation outcomes.
+
+Complexity: Low
+
+## Validation Strategy
+
+### PR validation
+
+Required checks:
+1. build-and-push emits non-empty pr_image_ref.
+2. scan-pr-image runs and logs resolved IMAGE_REF value.
+3. Trivy PR scan uses same image reference.
+4. Step summary includes emitted pr_image_ref and trigger SHA.
+
+Producer contract assertion validation case:
+1. Provide producer metadata tags input with either:
+	- zero anchored PR matches, or
+	- more than one anchored PR match.
+2. Verify build-and-push fails at producer contract assertion with diagnostics
+	that include:
+	- anchored pattern used,
+	- total PR-tag match count,
+	- matched candidate list,
+	- reconstructed expected tag marked as diagnostics-only.
+3. Verify scan-pr-image does not run because build-and-push result is failed.
+4. Verify the failure message explicitly points to producer output generation
+	(resolve/emitter step), not consumer loading.
+
+Failure diagnostics to capture:
+- metadata tags output used for resolution
+- computed expected PR tag
+- final emitted pr_image_ref
+
+### Push validation
+
+Required checks:
+1. build-and-push succeeds for main/development.
+2. scan-pr-image does not run.
+3. Existing digest-based scan path remains unchanged.
+
+### workflow_run validation
+
+Required checks:
+1. build-and-push honors existing workflow_run guard conditions.
+2. scan-pr-image remains skipped under current event guard.
+3. No false failure due to absent pr_image_ref in non-PR context.
+
+### Regression checks
+
+- Confirm skip_build=true still prevents scan-pr-image execution.
+- Confirm forced refresh logic remains unaffected.
+
+## EARS Requirements
+
+- WHEN the workflow trigger is pull_request AND build-and-push is eligible,
+	THE SYSTEM SHALL select exactly one GHCR tag from docker/metadata-action
+	outputs matching the anchored PR pattern shown below and emit it as
+	pr_image_ref.
+
+	```regex
+	^ghcr\.io/[^[:space:]]+:pr-[0-9]+-[0-9a-f]{7,}$
+	```
+- WHEN scan-pr-image is evaluated for pull_request,
+	THE SYSTEM SHALL only run if pr_image_ref is non-empty.
+- IF zero OR more than one anchored PR tag matches are found in pull_request,
+	THEN THE SYSTEM SHALL fail build-and-push with clear producer-side
+	diagnostics and SHALL NOT run scan-pr-image.
+- IF pr_image_ref cannot be emitted from producer output generation in
+	build-and-push for pull_request,
+	THEN THE SYSTEM SHALL fail build-and-push with clear producer-side
+	diagnostics that identify producer output generation as the failure origin.
+- WHEN trigger is push or workflow_run,
+	THE SYSTEM SHALL NOT require pr_image_ref for downstream non-PR scanning logic.
+- THE SYSTEM SHALL preserve existing skip_build and dependency semantics.
+
+## Risks and Mitigations
+
+| Risk | Impact | Mitigation |
+|---|---|---|
+| Anchored PR pattern mismatch against metadata output | Producer emits no valid scan image ref | Validate exact-one match contract and fail in producer with actionable diagnostics |
+| Overly strict consumer condition hides producer issues | Missed scans | Keep producer assertion and explicit summary logging |
+| Future metadata format change | Output regression | Contract step validates shape and fails with actionable diagnostics |
+
+## Commit Slicing Strategy
+
+Decision:
+- Single PR with ordered logical commits.
+- Reason: change is tightly scoped to one workflow contract and should be
+	reviewed atomically.
+
+Trigger reasons:
+- Medium risk due cross-job output contract.
+- Cross-domain CI logic (producer + consumer job conditions).
+- Review size remains manageable in one PR.
+
+Ordered commits:
+
+1. Commit 1: Producer contract hardening
+- Scope: Refactor PR image reference resolution and output emission.
+- Files: .github/workflows/docker-build.yml
+- Dependencies: none
+- Validation gate: PR dry-run ensures non-empty output and clear logs.
+
+2. Commit 2: Consumer condition hardening
+- Scope: Update scan-pr-image job if condition and retain load guard.
+- Files: .github/workflows/docker-build.yml
+- Dependencies: Commit 1
+- Validation gate: PR run executes scan-pr-image only with non-empty output.
+
+3. Commit 3: Validation telemetry and final polish
+- Scope: Add/adjust summaries for traceability and finalize comments.
+- Files: .github/workflows/docker-build.yml
+- Dependencies: Commits 1-2
+- Validation gate: PR, push, workflow_run behavior matrix verified.
+
+Rollback and contingency:
+- If PR scan stops running unexpectedly, revert Commit 2 first to restore
+	current consumer scheduling while preserving producer diagnostics.
+- If producer logic mis-resolves tags, revert Commit 1 and retain previous
+	behavior temporarily, then patch with metadata-pattern validation fix.
+
+## Necessity Review: .gitignore, codecov.yml, .dockerignore, Dockerfile
 
 ### .gitignore
 
-- No change required for this issue.
-- Existing SARIF/artifact ignores are appropriate.
+No update required.
 
-### .dockerignore
-
-- No change required for this issue.
-- Current exclusions do not explain stale Caddy finding source.
+Reason:
+- Failure is workflow output contract related, not artifact tracking.
 
 ### codecov.yml
 
-- No change required for this issue.
-- Coverage settings are unrelated to code scanning freshness.
+No update required.
+
+Reason:
+- Coverage policy is unrelated to PR image ref propagation.
+
+### .dockerignore
+
+No update required.
+
+Reason:
+- Build context exclusions do not influence workflow output expressions.
 
 ### Dockerfile
 
-- Functional version pin is already correct at 2.11.3.
-- Optional hardening (recommended if issue persists):
-  - add explicit build-time assertion that built Caddy reports expected major/minor/patch;
-  - emit OCI label with built Caddy version for traceability.
+No update required.
 
-## Implementation Plan
+Reason:
+- Failure occurs before image scanning due missing reference propagation,
+	not image build definition.
 
-### Phase 1 Playwright/UI Validation
+## Acceptance Criteria
 
-Objective:
+1. In pull_request runs, build-and-push emits pr_image_ref only after selecting
+	exactly one anchored PR tag from docker/metadata-action output.
+2. scan-pr-image only runs when pr_image_ref is non-empty and build succeeded.
+3. For push and workflow_run, scan-pr-image remains correctly skipped.
+4. Producer contract failure path is validated: build-and-push fails with
+	producer diagnostics, scan-pr-image does not run, and the failure message
+	points to producer output generation.
+5. Workflow behavior remains backward compatible for non-PR digest scans.
+6. DoD checks for this CI-only change pass without introducing unrelated file
+	 modifications.
 
-- Confirm this problem is CI/security-pipeline only, not a UI regression.
-- Run UI/Playwright checks conditionally when product-surface files changed.
+## Handoff Note
 
-Tasks:
-
-1. Compute change scope:
-  - workflow/security-pipeline-only change (for example .github/workflows,
-    scripts security tooling, scan configs), or
-  - product-surface change (frontend/backend/runtime behavior).
-2. If product-surface change is present, run targeted smoke UI task(s) per DoD
-  policy.
-3. If workflow/security-pipeline-only, record conditional waiver and skip UI
-  execution.
-4. Record that no UI behavior change is expected from this remediation.
-
-Validation gate:
-
-- For product-surface changes: no UI regressions.
-- For workflow/security-only changes: waiver recorded with scope evidence.
-
-### Phase 2 Root-Cause Evidence Collection
-
-## 6. Commit Strategy
-
-One commit, four files:
-
-```
-fix(orthrus): prevent keep-alive deadlock on repeated Docker API requests
-
-Every Docker API request after the first timed out with "context deadline
-exceeded" because http.DefaultTransport reused the loopback TCP connection
-to the proxyConn goroutine. The yamux stream on the agent side was blocked
-in io.Copy waiting on an idle Docker socket, so the reused connection had
-no reader; the yamux receive window filled, writes blocked, and Dockhand's
-30 s context expired.
-
-Fix 1 (agent — muzzle.go): Set req.Close = true before forwarding the
-request to the Docker socket. Docker sends Connection: close in the
-response, the socket closes on EOF, io.Copy returns, and the yamux stream
-is released cleanly.
-
-Fix 2 (server — session.go): Add Transport: &http.Transport{DisableKeepAlives: true}
-to the httputil.ReverseProxy in StartExternalProxy. Each request opens a
-fresh loopback TCP connection, a fresh proxyConn goroutine, and a fresh
-yamux stream, so the agent always has a clean goroutine to handle it.
-This fix works with the already-deployed agent and stops the flapping
-immediately.
-
-Closes: Dockhand tunnel flapping (every-30s context deadline exceeded)
-```
-
-**Files in commit:**
-```
-agent/muzzle/muzzle.go
-agent/muzzle/muzzle_test.go
-backend/internal/orthrus/session.go
-backend/internal/orthrus/session_test.go
-```
-
----
-
-## 7. Deployment Notes
-
-### Fix 2 first (immediate — no agent rebuild needed)
-
-Fix 2 is server-side only. Deploying a new Charon server image to the VPS stops the
-flapping immediately because every request now gets a fresh yamux stream, even with the
-old agent code. Deploy this as soon as it passes CI.
-
-**Steps:**
-1. Build and push new Charon VPS image.
-2. `docker compose up -d charon` on the VPS.
-3. Verify in Dockhand that containers load on the first and second poll (30 s apart).
-
-### Fix 1 second (agent rebuild — HomeLab deploy)
-
-Fix 1 requires rebuilding the HomeLab agent image. Without it, each request still opens a
-new yamux stream (Fix 2 ensures this), and the previous stream terminates cleanly:
-when Fix 2 causes the loopback connection to close, `proxyConn`'s
-`io.Copy(stream, conn)` returns, which calls `stream.Close()`. The agent's
-`io.Copy(w, dockerSocket)` then fails immediately because the yamux stream is
-closed, causing `ServeProxy` to exit promptly. There is no ~75-second linger.
-Fix 1 is still valuable because it closes the Docker socket cleanly rather than
-relying on the server-side teardown cascade, making goroutine lifecycles explicit.
-
-**Steps:**
-1. Build new agent image on HomeLab (or cross-compile and push from CI).
-2. `docker compose pull && docker compose up -d charon-agent` on HomeLab.
-3. Verify agent reconnects; `GetExternalProxyStatus` shows `active: true`.
-4. Confirm no goroutine growth in Charon logs over several minutes.
-
-### Pre-deploy checklist
-
-- [ ] `go test ./agent/muzzle/... ./backend/internal/orthrus/...` passes locally
-- [ ] `bash scripts/go-test-coverage.sh` stays above coverage threshold
-- [ ] `bash scripts/local-patch-report.sh` shows changed lines covered
-- [ ] E2E container health check passes (`docker compose exec charon curl -sf http://localhost:8080/health`)
+This plan is implementation-ready and scoped for supervisor review.
