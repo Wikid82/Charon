@@ -67,7 +67,7 @@ jobs:
     outputs:
       skip_build: ${{ steps.skip.outputs.skip_build }}
       digest: ${{ steps.build-and-push.outputs.digest }}
-      pr_image_ref: ${{ steps.pr-image-ref.outputs.image_ref }}
+      pr_image_ref: ${{ steps.pr_image_ref_output.outputs.image_ref }}
 
     steps:
       - name: Checkout repository
@@ -160,9 +160,11 @@ jobs:
             echo "Force building on feature branch (PR)"
           fi
 
-          echo "skip_build=$should_skip" >> "$GITHUB_OUTPUT"
-          echo "is_feature_push=$is_feature_push" >> "$GITHUB_OUTPUT"
-          echo "force_refresh=$force_refresh" >> "$GITHUB_OUTPUT"
+          {
+            echo "skip_build=$should_skip"
+            echo "is_feature_push=$is_feature_push"
+            echo "force_refresh=$force_refresh"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         if: steps.skip.outputs.skip_build != 'true'
@@ -277,17 +279,60 @@ jobs:
             io.charon.build.timestamp=${{ github.event.repository.updated_at }}
             io.charon.feature.branch=${{ steps.branch-tags.outputs.feature_branch_tag }}
 
-      - name: Resolve PR image reference
+      - name: Resolve PR image reference (contract)
         if: steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
-        id: pr-image-ref
+        id: pr_image_ref_output
         run: |
-          IMAGE_REF=$(echo "${{ steps.meta.outputs.tags }}" | head -n 1)
-          if [[ -z "$IMAGE_REF" ]]; then
-            echo "❌ ERROR: No PR image reference found in metadata tags"
+          set -euo pipefail
+
+          TAG_PATTERN='^ghcr\.io/[^[:space:]]+:pr-[0-9]+-[0-9a-f]{7,}$'
+          EXPECTED_TAG="ghcr.io/${{ env.IMAGE_NAME }}:pr-${{ env.TRIGGER_PR_NUMBER }}-$(echo "${{ env.TRIGGER_HEAD_SHA }}" | cut -c1-7)"
+
+          MATCHED_TAGS=$(printf '%s\n' "${{ steps.meta.outputs.tags }}" | grep -E "${TAG_PATTERN}" || true)
+          MATCH_COUNT=$(printf '%s\n' "${MATCHED_TAGS}" | sed '/^$/d' | wc -l | tr -d '[:space:]')
+
+          if [[ "${MATCH_COUNT}" != "1" ]]; then
+            echo "❌ ERROR: Expected exactly one PR GHCR tag match, found ${MATCH_COUNT}"
+            echo "Pattern: ${TAG_PATTERN}"
+            echo "Expected tag (diagnostics only): ${EXPECTED_TAG}"
+            echo "Matched tags:"
+            if [[ -n "${MATCHED_TAGS}" ]]; then
+              printf '%s\n' "${MATCHED_TAGS}"
+            else
+              echo "(none)"
+            fi
+            {
+              echo "## PR Image Ref Diagnostics"
+              echo ""
+              echo "- Pattern: ${TAG_PATTERN}"
+              echo "- Match count: ${MATCH_COUNT}"
+              echo "- Expected tag (diagnostics only): ${EXPECTED_TAG}"
+              echo "- Emitted pr_image_ref: (none)"
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
+
+          IMAGE_REF=$(printf '%s\n' "${MATCHED_TAGS}" | sed -n '1p')
           echo "image_ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
           echo "Resolved PR image reference: ${IMAGE_REF}"
+
+          {
+            echo "## PR Image Ref Diagnostics"
+            echo ""
+            echo "- Pattern: ${TAG_PATTERN}"
+            echo "- Match count: ${MATCH_COUNT}"
+            echo "- Expected tag (diagnostics only): ${EXPECTED_TAG}"
+            echo "- Emitted pr_image_ref: ${IMAGE_REF}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Assert PR output contract
+        if: steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
+        run: |
+          IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
+          if [[ -z "${IMAGE_REF}" ]]; then
+            echo "❌ ERROR: pr_image_ref producer contract violated (empty output)"
+            exit 1
+          fi
       # Phase 1 Optimization: Build once, test many
       # - For PRs: Multi-platform (amd64, arm64) + immutable tags (pr-{number}-{short-sha})
       # - For feature branches: Multi-platform (amd64, arm64) + sanitized tags ({branch}-{short-sha})
@@ -355,9 +400,13 @@ jobs:
             # This enables backward compatibility with workflows that use artifacts
             if [[ "${{ env.TRIGGER_EVENT }}" == "pull_request" ]]; then
               echo "📥 Pulling image back for artifact creation..."
-              FIRST_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
-              docker pull "${FIRST_TAG}"
-              echo "✅ Image pulled: ${FIRST_TAG}"
+              PR_IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
+              if [[ -z "${PR_IMAGE_REF}" ]]; then
+                echo "❌ ERROR: pr_image_ref producer contract violated during pull-back"
+                exit 1
+              fi
+              docker pull "${PR_IMAGE_REF}"
+              echo "✅ Image pulled: ${PR_IMAGE_REF}"
             fi
 
       # Critical Fix: Use exact tag from metadata instead of manual reconstruction
@@ -378,13 +427,11 @@ jobs:
       - name: Save Docker Image as Artifact
         if: success() && steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
         run: |
-          # Extract the first tag from metadata action (PR tag)
-          IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n 1)
+          # Use the producer contract output to avoid order-dependent tag selection.
+          IMAGE_TAG="${{ steps.pr_image_ref_output.outputs.image_ref }}"
 
           if [[ -z "${IMAGE_TAG}" ]]; then
-            echo "❌ ERROR: No image tag found in metadata output"
-            echo "Metadata tags output:"
-            echo "${{ steps.meta.outputs.tags }}"
+            echo "❌ ERROR: pr_image_ref producer contract violated (empty image ref)"
             exit 1
           fi
 
@@ -424,9 +471,9 @@ jobs:
 
           # Determine the image reference based on event type
           if [ "${{ env.TRIGGER_EVENT }}" = "pull_request" ]; then
-            IMAGE_REF="${{ steps.pr-image-ref.outputs.image_ref }}"
+            IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
             if [ -z "${IMAGE_REF}" ]; then
-              echo "❌ ERROR: Failed to load PR image reference from pr-image-ref output"
+              echo "❌ ERROR: Failed to load PR image reference from pr_image_ref_output"
               exit 1
             fi
             echo "Using PR image: $IMAGE_REF"
@@ -451,9 +498,9 @@ jobs:
 
           # Determine the image reference based on event type
           if [ "${{ env.TRIGGER_EVENT }}" = "pull_request" ]; then
-            IMAGE_REF="${{ steps.pr-image-ref.outputs.image_ref }}"
+            IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
             if [ -z "${IMAGE_REF}" ]; then
-              echo "❌ ERROR: Failed to load PR image reference from pr-image-ref output"
+              echo "❌ ERROR: Failed to load PR image reference from pr_image_ref_output"
               exit 1
             fi
             echo "Using PR image: $IMAGE_REF"
@@ -518,9 +565,9 @@ jobs:
 
           # Determine the image reference based on event type
           if [ "${{ env.TRIGGER_EVENT }}" = "pull_request" ]; then
-            IMAGE_REF="${{ steps.pr-image-ref.outputs.image_ref }}"
+            IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
             if [ -z "${IMAGE_REF}" ]; then
-              echo "❌ ERROR: Failed to load PR image reference from pr-image-ref output"
+              echo "❌ ERROR: Failed to load PR image reference from pr_image_ref_output"
               exit 1
             fi
             echo "Using PR image: $IMAGE_REF"
@@ -715,7 +762,7 @@ jobs:
   scan-pr-image:
     name: Security Scan PR Image
     needs: build-and-push
-    if: needs.build-and-push.outputs.skip_build != 'true' && needs.build-and-push.result == 'success' && github.event_name == 'pull_request'
+    if: needs.build-and-push.outputs.skip_build != 'true' && needs.build-and-push.result == 'success' && github.event_name == 'pull_request' && needs.build-and-push.outputs.pr_image_ref != ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -787,7 +834,9 @@ jobs:
           format: 'sarif'
           output: 'trivy-pr-results.sarif'
           severity: 'CRITICAL,HIGH'
-          exit-code: '1'  # Intended to block, but continued on error for now
+          # Keep scanning strict for CRITICAL/HIGH; fail is enforced explicitly
+          # at the end so SARIF upload and summaries still run.
+          exit-code: '1'
           version: 'v0.70.0'
         continue-on-error: true
 
@@ -834,3 +883,11 @@ jobs:
             echo "- **Commit**: ${{ env.TRIGGER_HEAD_SHA }}"
             echo "- **Scan Status**: ${{ steps.trivy-scan.outcome == 'success' && '✅ No critical vulnerabilities' || '❌ Vulnerabilities detected' }}"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce PR Trivy security gate
+        if: always()
+        run: |
+          if [[ "${{ steps.trivy-scan.outcome }}" != "success" ]]; then
+            echo "❌ Blocking merge: PR image has CRITICAL/HIGH vulnerabilities or scan failed"
+            exit 1
+          fi

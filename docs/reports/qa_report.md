@@ -1,279 +1,65 @@
-# QA & Security Audit — feature/hecate (Orthrus Uptime Monitoring Fix)
-
-| Field       | Value                                                              |
-|-------------|--------------------------------------------------------------------|
-| Date        | 2026-05-23                                                         |
-| Branch      | `feature/hecate`                                                   |
-| Auditor     | QA Security Agent                                                  |
-| Verdict     | ✅ **APPROVED FOR MERGE** — no blocking issues found               |
-
-## Scope
-
-Branch delivers the Orthrus uptime monitoring fix. Primary changed files:
-
-- `backend/internal/services/uptime_service.go` — monitor type checks, polling logic
-- `backend/internal/api/routes/routes.go` — uptime route bootstrap wiring
-- `backend/internal/services/uptime_service_test.go` — updated/new test cases
-- `tests/uptime-orthrus.spec.ts` — new E2E spec for Orthrus monitor type (untracked)
-
-> **Note:** These files are uncommitted working-tree modifications at audit time.
-> The `git diff origin/main...HEAD` reflects only committed dependency and workflow
-> changes on this branch, not the core fix files. Coverage for the fix is confirmed
-> via per-package results in Gates 1 and 3a.
-
----
-
-## Gate Summary
-
-| # | Gate                             | Result       | Notes                                                       |
-|---|----------------------------------|--------------|-------------------------------------------------------------|
-| 1 | Backend Services Coverage        | ✅ PASS      | 87.4% statements on `./internal/services/...` (≥85%)       |
-| 2 | Full Backend Test Suite          | ✅ PASS      | 30 packages `ok`, 0 `FAIL` lines                            |
-| 3a| Generate `coverage.txt`          | ✅ PASS      | All 30 packages pass; `coverage.txt` written                |
-| 3b| Local Patch Report               | ⚠️ NOTE      | 0 changed lines detected (fix files uncommitted); artifacts exist; threshold pass |
-| 4 | Go Linting (`golangci-lint`)     | ⚠️ ISSUES    | Exit 0; 7 non-blocking findings — see Security Findings     |
-| 5 | `go vet`                         | ✅ PASS      | 0 issues, exit 0                                            |
-| 6 | Semgrep SAST                     | ✅ PASS      | 0 findings; 120 rules; 2 files scanned; exit 0              |
-| 7 | GORM Security Scanner            | ✅ PASS      | 48 files; 0 CRITICAL/HIGH; 2 INFO (pre-existing); exit 0   |
-| 8 | Trivy (Go Module CVE Scan)       | ✅ PASS      | 0 CVEs in `go.mod`; Docker workaround used                  |
-| 9 | Frontend TypeScript Check        | ✅ PASS      | 0 type errors; `tsc --noEmit` exit 0                        |
-
-**Blocking issues:** 0
-**Non-blocking issues:** 7 linter warnings (documented below)
-
----
-
-## Gate Detail
-
-### Gate 1 — Backend Services Coverage
-
-```
-go test ./internal/services/... -coverprofile=coverage_uptime.txt -covermode=atomic
-Result: 87.517s — 87.4% of statements
-Threshold: ≥85%  Status: PASS
-```
-
-### Gate 2 — Full Backend Test Suite
-
-All 30 packages passed without `-coverprofile`. Zero `FAIL` lines. Packages include
-`internal/orthrus`, `internal/services`, `internal/api/routes`, `internal/cerberus`,
-`internal/caddy`, `internal/security`, and 24 others.
-
-### Gate 3a — Generate coverage.txt
-
-```
-go test ./... -coverprofile=coverage.txt -covermode=atomic -count=1 -timeout=300s
-```
-
-Key per-package coverage:
-
-| Package                          | Coverage |
-|----------------------------------|----------|
-| `internal/api/routes`            | 90.6%    |
-| `internal/caddy`                 | 96.8%    |
-| `internal/cerberus`              | 93.8%    |
-| `internal/crowdsec`              | 86.2%    |
-| `internal/crypto`                | 87.5%    |
-| `internal/database`              | 88.9%    |
-| `internal/hecate`                | 88.1%    |
-| `internal/metrics`               | 100.0%   |
-| `internal/models`                | 97.7%    |
-| `internal/network`               | 92.1%    |
-| `internal/notifications`         | 89.4%    |
-| `internal/orthrus`               | 90.9%    |
-| `internal/security`              | 94.2%    |
-| `internal/services`              | 87.4%    |
-| `internal/util`                  | 78.0%    |
-| `internal/version`               | 100.0%   |
-| `pkg/dnsprovider`                | 100.0%   |
-
-> `internal/util` at 78.0% is below the 85% threshold but is a pre-existing
-> condition unrelated to this branch's changes and not in scope of this fix.
-
-### Gate 3b — Local Patch Report
-
-Artifacts generated:
-- `test-results/local-patch-report.md`
-- `test-results/local-patch-report.json`
+## QA Report - Workflow-Only Audit
 
-The report computed 0 changed lines against `origin/main...HEAD` because the primary
-fix files (`uptime_service.go`, `routes.go`) are uncommitted working-tree modifications.
-The script only processes committed diff hunks. Patch coverage reported as 100.0% (0/0
-lines). Coverage for these files is confirmed via Gates 1 and 3a (87.4% services,
-90.6% routes).
+| Field | Value |
+|---|---|
+| Date | 2026-05-24 |
+| Scope | .github/workflows/docker-build.yml (workflow-only change) |
+| Branch | feature/hecate |
+| Verdict | PASS with minor remediation |
 
-### Gate 4 — Go Linting
+## Objective Coverage
 
-```
-golangci-lint run ./internal/services/... ./internal/api/routes/...
-LINT_EXIT: 0
-```
+### 1) pull_request workflow correctness and security behavior
 
-7 non-blocking findings (all exit-0, no blocking rules triggered):
+| Check | Status | Evidence |
+|---|---|---|
+| Producer output contract for `pr_image_ref` | PASS | Job output maps to `steps.pr_image_ref_output.outputs.image_ref`; contract step enforces exactly one PR tag match and fails on empty output. |
+| Consumer gate behavior | PASS | `scan-pr-image` requires `needs.build-and-push.outputs.pr_image_ref != ''` before running. |
+| PR Trivy blocking enforcement while preserving SARIF path | PASS | Trivy SARIF step keeps `exit-code: '1'` + `continue-on-error: true`; SARIF upload runs with `if: always()` when file exists; final enforcement step fails when scan outcome is not success. |
 
-| File | Line | Linter | ID | Severity | Finding |
-|------|------|--------|----|----------|---------|
-| `routes.go` | 44 | gocritic | — | Style | `paramTypeCombine`: merge `logWarn, logError func(error, string)` |
-| `uptime_service.go` | 520 | gocritic | — | Style | `equalFold`: replace with `!strings.EqualFold(...)` |
-| `uptime_service.go` | 557 | gocritic | — | Style | `equalFold`: replace with `strings.EqualFold(...)` |
-| `routes.go` | 608 | gosec | G703 | **MEDIUM** | Path traversal via taint analysis |
-| `routes.go` | 692 | gosec | G703 | **MEDIUM** | Path traversal via taint analysis |
-| `routes.go` | 695 | gosec | G703 | **MEDIUM** | Path traversal via taint analysis |
-| `routes.go` | 781 | gosec | G118 | LOW | Goroutine uses `context.Background()` while request-scoped context available |
+## Executed Local Checks
 
-### Gate 5 — Go Vet
+| Command | Status | Result |
+|---|---|---|
+| `actionlint .github/workflows/docker-build.yml` | FAIL (non-blocking style) | 1 finding: `SC2129` at workflow line 91 (style: grouped redirect suggestion). No contract/gate logic error reported. |
+| `yq '.' /projects/Charon/.github/workflows/docker-build.yml` | PASS | YAML parsed successfully (`YQ_PARSE_EXIT:0`). |
+| `yamllint /projects/Charon/.github/workflows/docker-build.yml` | FAIL (style policy) | Exit 1 with many style findings (document-start, line-length, comment spacing). Not specific to this change and typically non-blocking for Actions runtime. |
+| Pattern verification (`grep`/`rg`) | PASS | Confirmed output mapping, PR consumer guard, Trivy SARIF step, SARIF upload step, and final enforcement step are present. |
+| `trivy config` on workflow path | INCONCLUSIVE (tool/path issue) | Trivy is installed, but local runs returned `lstat ... no such file or directory` for existing `.github/workflows` paths in this environment. |
+| `checkov` availability | NOT RUN | `checkov` is not installed in this environment. |
 
-```
-go vet ./internal/services/... ./internal/api/routes/...
-VET_EXIT: 0  — no issues
-```
+## Workflow Diff Assessment
 
-### Gate 6 — Semgrep SAST
+This implementation resolves the previously observed CI failure mode where PR image reference was empty in the security scan job.
 
-```
-semgrep-scan.sh uptime_service.go routes.go
-Rules run: 120 (84 Go + 36 multilang)  Findings: 0  SEMGREP_EXIT: 0
-```
+1. Producer contract hardened:
+- Step ID normalized to `pr_image_ref_output` and wired to job output.
+- PR tag resolution hardened (`set -euo pipefail`, strict regex match count = 1).
+- Explicit `Assert PR output contract` step added.
 
-### Gate 7 — GORM Security Scanner
+2. Consumer gate hardened:
+- `scan-pr-image` job now checks `needs.build-and-push.outputs.pr_image_ref != ''` at job-level `if`.
 
-```
-scripts/scan-gorm-security.sh --check
-Files scanned: 48 Go files (2,679 lines)
-CRITICAL: 0  HIGH: 0  MEDIUM: 0  INFO: 2  GORM_EXIT: 0
-```
+3. Security gate behavior corrected:
+- Trivy SARIF scan remains strict (`exit-code: '1'`) but non-blocking at step level so SARIF upload and summaries still execute.
+- Final `Enforce PR Trivy security gate` step blocks when vulnerabilities are found or scan fails.
 
-INFO findings (pre-existing, not in changed files):
-- `user.go:130` — Missing index annotation on FK field
-- `user.go:131` — Missing index annotation on FK field
+## DoD Test Applicability
 
-### Gate 8 — Trivy Go Module CVE Scan
+| DoD Item | Applicability | Rationale |
+|---|---|---|
+| Backend unit/integration coverage gates | Not applicable | No backend runtime code changes in scope. |
+| Frontend tests/type checks | Not applicable | No frontend code changes in scope. |
+| E2E Playwright execution | Not applicable | No UI/API runtime behavior changed by this patch. |
+| GORM security scan | Not applicable | No model/database changes in scope. |
+| Workflow lint/security static checks | Applicable | Executed and reported above. |
 
-Snap-installed Trivy (v0.52.2) has sandbox confinement and cannot access `/projects/`
-filesystem paths directly. Docker workaround used:
+## Remediation Needed
 
-```
-docker run --rm -v /projects/Charon/backend:/app -w /app \
-  aquasec/trivy:latest fs --severity CRITICAL,HIGH --no-progress --scanners vuln /app
+1. Recommended: resolve the `actionlint` shellcheck style warning (`SC2129`) at workflow line 91.
+2. Optional: reduce `yamllint` style noise (line-length/comment spacing) or tune project yamllint policy for workflows.
+3. Optional: resolve local Trivy config scanner path issue or run scanner in a known-good containerized path to restore workflow-IaC security scanning.
 
-go.mod | gomod | 0 vulnerabilities
-TRIVY_EXIT: 0
-```
+## Final QA Decision
 
-### Gate 9 — Frontend TypeScript Check
-
-```
-cd frontend && npm run type-check
-tsc --noEmit
-TSC_EXIT: 0  — 0 type errors
-```
-
----
-
-## Security Findings
-
-### 🟡 MEDIUM — gosec G703: Path Traversal (3 instances)
-
-**File:** `backend/internal/api/routes/routes.go`
-**Lines:** 608, 692, 695
-**Linter:** gosec — `G703: Path traversal via taint analysis`
-
-These are pre-existing findings in the route registration layer where user-controlled
-path segments flow into file operations without explicit sanitization visible to the
-taint analyzer. The linter cannot determine whether sanitization occurs upstream.
-
-**Recommended remediation:**
-1. Add `// #nosec G703` with justification if the path is sanitized upstream.
-2. Otherwise, explicitly canonicalize paths using `filepath.Clean` and validate against
-   an allow-list before use.
-3. Track as technical debt if not in scope for this fix.
-
-**Blocking:** No (exit 0; pre-existing)
-
----
-
-### 🟢 LOW — gosec G118: Goroutine Context
-
-**File:** `backend/internal/api/routes/routes.go:781`
-**Linter:** gosec — `G118: Goroutine uses context.Background()/context.TODO() while request-scoped context is available`
-
-A goroutine spawned inside a request handler uses `context.Background()` instead of
-the request's context. This prevents proper cancellation propagation if the request
-is cancelled or times out.
-
-**Recommended remediation:** Pass the request context into the goroutine, or use
-`context.WithoutCancel(r.Context())` if intentional long-running work is needed.
-
-**Blocking:** No
-
----
-
-### 🟢 STYLE — gocritic equalFold (2 instances)
-
-**File:** `backend/internal/services/uptime_service.go:520, 557`
-
-Replace `strings.ToLower(x) == y` patterns with `strings.EqualFold(x, y)` for
-correct Unicode case-folding and minor performance benefit.
-
-**Blocking:** No
-
----
-
-### 🟢 STYLE — gocritic paramTypeCombine
-
-**File:** `backend/internal/api/routes/routes.go:44`
-
-Two function parameters with identical types can be combined:
-`logWarn func(error, string), logError func(error, string)` →
-`logWarn, logError func(error, string)`
-
-**Blocking:** No
-
----
-
-### 🟢 INFO — GORM Missing FK Index (pre-existing)
-
-**File:** `backend/internal/models/user.go:130–131`
-**Scanner:** GORM Security Scanner
-
-Two FK fields lack explicit index annotations. Pre-existing condition; not introduced
-by this branch.
-
-**Blocking:** No
-
----
-
-## Trivy Note
-
-The snap-installed Trivy binary (v0.52.2) cannot access paths outside the snap
-sandbox (e.g., `/projects/`). This is a known snap confinement limitation. The Docker
-image `aquasec/trivy:latest` was used as a workaround, binding the backend directory
-as a volume. The scan result (0 vulnerabilities) is reliable.
-
-For future scans, consider installing Trivy via the official shell installer rather
-than snap to avoid this limitation:
-
-```bash
-curl -sfL https://raw.githubusercontent.com/aquasec/trivy/main/contrib/install.sh \
-  | sh -s -- -b /usr/local/bin
-```
-
----
-
-## Verdict
-
-| Criterion                        | Status |
-|----------------------------------|--------|
-| Backend tests passing            | ✅     |
-| Services coverage ≥85%           | ✅ 87.4% |
-| 0 CRITICAL/HIGH security issues  | ✅     |
-| TypeScript compiles clean        | ✅     |
-| GORM scanner passes              | ✅     |
-| No CVEs in Go modules            | ✅     |
-| Semgrep 0 findings               | ✅     |
-| `go vet` clean                   | ✅     |
-
-**✅ APPROVED FOR MERGE** — All blocking gates pass. The three G703 gosec findings
-and one G118 finding are pre-existing in `routes.go` and not introduced by the Orthrus
-fix. Style warnings are non-blocking. The `internal/util` coverage gap is pre-existing
-and out of scope for this change.
+PASS for this workflow-only change. The pull_request producer/consumer contract and PR Trivy enforcement behavior are correct, and the SARIF upload path is preserved under scan-failure conditions.
