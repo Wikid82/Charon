@@ -26,6 +26,8 @@ ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0b
 ARG EXPR_LANG_VERSION=1.17.8
 # renovate: datasource=go depName=golang.org/x/net
 ARG XNET_VERSION=0.55.0
+# renovate: datasource=go depName=golang.org/x/crypto
+ARG XCRYPTO_VERSION=0.52.0
 # renovate: datasource=npm depName=npm
 ARG NPM_VERSION=11.11.1
 
@@ -239,6 +241,7 @@ ARG CORAZA_CADDY_VERSION
 ARG XCADDY_VERSION=0.4.6
 ARG EXPR_LANG_VERSION
 ARG XNET_VERSION
+ARG XCRYPTO_VERSION
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache bash git
@@ -286,6 +289,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION}; \
         # renovate: datasource=go depName=github.com/hslatman/ipstore
         go get github.com/hslatman/ipstore@v0.4.0; \
+        go get golang.org/x/crypto@v${XCRYPTO_VERSION}; \
         go get golang.org/x/net@v${XNET_VERSION}; \
         # CVE-2026-33186: gRPC-Go auth bypass (fixed in v1.79.3)
         # CVE-2026-34986: go-jose/v4 transitive fix (requires grpc >= v1.80.0)
