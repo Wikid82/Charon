@@ -1,488 +1,682 @@
-# Spec: Static Feedback Widget
-
-**Status**: Draft
-**Target**: Single PR — one atomic commit
-
+---
+post_title: Caddy Version Drift in GitHub Security Root-Cause Plan
+categories:
+  - plans
+tags:
+  - security
+  - trivy
+  - docker
+  - github-actions
+  - supply-chain
+summary: Investigation and durable remediation plan to identify why GitHub Security still reports Caddy 2.11.2 after Dockerfile was updated to 2.11.3, with concrete verification commands, failure-mode matrix, and commit slicing.
+post_date: 2026-05-24
 ---
 
-## 1. Introduction
+## Introduction
 
 ### Overview
 
-Add a persistent, accessible feedback widget to every authenticated page in the Charon frontend. The widget appears as a small floating icon button anchored to the bottom-right corner of the viewport. When activated, it expands into a compact popover panel offering two GitHub Issue links:
-
-- **Report a Bug** → `https://github.com/Wikid82/Charon/issues/new?template=bug_report.md`
-- **Request a Feature** → `https://github.com/Wikid82/Charon/issues/new?template=feature_request.md`
-
-Both links open in a new tab. The widget is rendered inside `Layout.tsx` so it appears on all authenticated routes but is absent from `/login`, `/setup`, and `/accept-invite`.
+Dockerfile now pins Caddy to 2.11.3, but GitHub Security still shows Trivy
+alerts indicating 2.11.2. This plan defines how to identify the exact reporting
+source (workflow, category, artifact, branch, platform, or cache path), prove
+root cause with evidence, and implement durable fixes so alert state converges
+with actual shipped images.
 
 ### Objectives
 
-- Provide a low-friction path for users to report bugs or request features directly from the app
-- Match existing UI design language (semantic tokens, Tailwind, Lucide icons)
-- Meet WCAG 2.2 AA accessibility requirements
-- Introduce zero new runtime dependencies
-- Keep the widget unobtrusive — collapsed by default, non-blocking
+- Identify the precise workflow/category/artifact still emitting Caddy 2.11.2.
+- Determine why that path bypassed or outlived the Dockerfile update.
+- Define durable remediation over one-off closures.
+- Validate remediation with repeatable commands and expected outcomes.
 
-The **exact Caddy rejection reason is unknown** due to two compounding observability gaps: the script discards the HTTP response body (containing the full error), and the CI debug step runs after `trap cleanup EXIT` has already removed all containers. This plan fixes the observability gap first, then addresses every confirmed defect.
+### Scope
 
-A secondary defect also exists: even if proxy host creation succeeded, `buildWAFHandler` in `config.go` returns `nil` when `secCfg.WAFMode == "disabled"` (the seeded DB value), so the WAF handler would not be present in the Caddy route during the initial proxy host creation. The security config PUT (step 5) sets `WAFMode = "block"` and triggers a second `ApplyConfig`, at which point the WAF would apply correctly. This ordering issue is a separate concern from the 500 and is documented below.
+In scope:
 
-### Architecture Summary
+- GitHub Actions workflows that build images and upload SARIF.
+- Trivy/Grype/SBOM/provenance pipeline wiring.
+- PR/push/nightly/weekly branch and category behavior.
+- Local task/skill wiring that influences operator assumptions.
+- Minimal config updates needed for long-term correctness.
 
-| Layer | Detail |
-|---|---|
-| Framework | React 19.2.3, TypeScript (strict), Vite 8 |
-| Styling | Tailwind CSS 4.x with semantic CSS custom properties; `darkMode: 'class'` |
-| Icons | `lucide-react` — used uniformly across all components |
-| Accessible overlays | `@radix-ui/react-tooltip`, `@radix-ui/react-dialog` already installed |
-| Classname utility | `cn()` at `frontend/src/utils/cn.ts` |
-| Component variants | `class-variance-authority` (cva) |
-| i18n | `react-i18next`, keys loaded from `src/locales/{locale}/translation.json` |
-| Unit tests | Vitest 4 + React Testing Library; files in `src/components/__tests__/` |
-| Layout entrypoint | `frontend/src/components/Layout.tsx` |
+Out of scope:
 
-### Z-Index Hierarchy
+- Unrelated frontend/backend product behavior.
+- Dependency policy changes not related to the stale Caddy signal.
 
-| Element | z-index |
-|---|---|
-| Mobile overlay (backdrop) | `z-20` |
-| Sidebar (`<aside>`) | `z-30` |
-| Mobile header | `z-40` |
-| Skip-to-content link (focus) | `z-50` |
-| **Feedback Widget** | **`z-50`** ← must sit on top of sidebar and mobile header |
+## Requirements
 
-### Integration Point
+### EARS Requirements
 
-`Layout.tsx` returns a single root `<div className="min-h-screen bg-light-bg dark:bg-dark-bg flex transition-colors duration-200">`. All sidebar, overlay, and `<main>` elements are children of this div. `<FeedbackWidget />` must be rendered as the **last child** of this root div. Because the widget uses `position: fixed`, its DOM position does not affect layout — it is always anchored to the viewport.
+- WHEN Dockerfile pins Caddy to 2.11.3, THE SYSTEM SHALL report Caddy 2.11.3
+  in all image-based security scans for the same source revision.
+- WHEN SARIF is uploaded from multiple workflows, THE SYSTEM SHALL use
+  unambiguous categories that map to active workflows only.
+- IF a workflow scans a partial artifact (for example only one binary), THEN THE
+  SYSTEM SHALL not be treated as authoritative for full container component
+  status.
+- WHEN builds are skipped or use stale tags/artifacts, THE SYSTEM SHALL emit an
+  explicit signal that scan freshness is unknown.
+- WHEN multi-arch images are published, THE SYSTEM SHALL verify Caddy version
+  per relevant platform digest, not only by floating tag.
 
-```tsx
-// Layout.tsx — end of JSX return
-return (
-  <div className="min-h-screen bg-light-bg dark:bg-dark-bg flex transition-colors duration-200">
-    {/* ... skip link, mobile header, sidebar, overlay, main ... */}
-    <FeedbackWidget />   {/* ← insert here: after </main>, outside all header/sidebar branches */}
-  </div>
-)
+## Research Findings
+
+### Confirmed Version Pin
+
+- Dockerfile sets CADDY_VERSION=2.11.3 and CADDY_CANDIDATE_VERSION=2.11.3.
+- Caddy is built from source in caddy-builder and copied into runtime.
+
+### Exact Files and Workflows to Inspect
+
+#### Primary CI and Security Sources
+
+- [.github/workflows/docker-build.yml](.github/workflows/docker-build.yml)
+- [.github/workflows/security-pr.yml](.github/workflows/security-pr.yml)
+- [.github/workflows/security-weekly-rebuild.yml](.github/workflows/security-weekly-rebuild.yml)
+- [.github/workflows/nightly-build.yml](.github/workflows/nightly-build.yml)
+- [.github/workflows/supply-chain-pr.yml](.github/workflows/supply-chain-pr.yml)
+- [.github/workflows/supply-chain-verify.yml](.github/workflows/supply-chain-verify.yml)
+
+#### Scan Configuration and Ignore Policy
+
+- [trivy.yaml](trivy.yaml)
+- [.trivyignore](.trivyignore)
+- [.grype.yaml](.grype.yaml)
+
+#### Task Wiring and Local Operator Paths
+
+- [.vscode/tasks.json](.vscode/tasks.json)
+- [.github/skills/scripts/skill-runner.sh](.github/skills/scripts/skill-runner.sh)
+- [.github/skills/security-scan-trivy-scripts/run.sh](.github/skills/security-scan-trivy-scripts/run.sh)
+- [.github/skills/security-scan-docker-image-scripts/run.sh](.github/skills/security-scan-docker-image-scripts/run.sh)
+
+#### Documentation that Influences Scan Interpretation
+
+- [SECURITY.md](SECURITY.md)
+- [docs/guides/supply-chain-security-developer-guide.md](docs/guides/supply-chain-security-developer-guide.md)
+- [ARCHITECTURE.md](ARCHITECTURE.md)
+
+### High-Signal Observations
+
+- docker-build.yml uploads Trivy SARIF under multiple categories, including a
+  legacy compatibility alias:
+  .github/workflows/docker-publish.yml:build-and-push.
+- security-pr.yml does filesystem scan of extracted /app/charon binary,
+  not full image and not /usr/bin/caddy; this path cannot be authoritative for
+  Caddy image component status.
+- nightly-build.yml scans category trivy-nightly and uses separate branch
+  flow; stale findings can persist if nightly diverges from main or is not
+  rebuilt after merge.
+- docker-build.yml has skip logic for chore/Renovate patterns; if build is
+  skipped on a critical version-bump commit, canonical scan categories may not
+  refresh.
+- supply-chain-verify.yml has pull-request tag logic that still references
+  pr-<number> style in some paths while docker-build.yml emits immutable
+  pr-<number>-<sha> tags; this can cause wrong-artifact lookups in some modes.
+- Local Trivy skill scans repository filesystem (trivy fs /app), which can
+  disagree with image scans and should not be used to infer GitHub Security
+  image alert closure behavior.
+
+## Probable Failure Modes
+
+### FM-1 Stale SARIF Category Track (Legacy Alias)
+
+- Source: docker-build.yml compatibility upload to
+  .github/workflows/docker-publish.yml:build-and-push.
+- Effect: old category can keep/open alerts even after active workflow updates.
+
+### FM-2 Scanner Targets Wrong Artifact
+
+- Source: security-pr.yml scans only extracted /app/charon.
+- Effect: misses Caddy binary (/usr/bin/caddy) status and gives false closure
+  confidence.
+
+### FM-3 Build Skipped, Scan Never Refreshed
+
+- Source: skip logic on chore/bot commits in docker-build.yml.
+- Effect: post-merge categories not refreshed, old alerts remain open.
+
+### FM-4 Branch Mismatch
+
+- Source: nightly/dev/main have separate scan categories and schedules.
+- Effect: Security tab still shows 2.11.2 from non-main category/ref.
+
+### FM-5 Stale Cached Build Output
+
+- Source: BuildKit cache behavior in certain workflows/stages.
+- Effect: rebuilt image may still embed older Caddy artifact in one path.
+
+### FM-6 PR Tag and Artifact Resolution Drift
+
+- Source: mutable/legacy tag expectations (pr-<number>) vs immutable tags
+  (pr-<number>-<sha>).
+- Effect: scanner pulls unexpected image.
+
+### FM-7 Trivy DB/Cache Timing and Feed Drift
+
+- Source: DB cache freshness differences between runs.
+- Effect: inconsistent vulnerability metadata across runs.
+
+### FM-8 Multi-Arch Manifest Mismatch
+
+- Source: one architecture updated while another remains old.
+- Effect: alerts persist for platform-specific digest even if amd64 looks fixed.
+
+### FM-9 Old SARIF Still Open on Default Branch
+
+- Source: no subsequent successful upload for same category/ref to close prior
+  result set.
+- Effect: stale findings remain visible.
+
+## Technical Specifications
+
+### Investigation Data Model
+
+For each open Caddy finding, collect this tuple:
+
+- alert number
+- tool name (Trivy)
+- state
+- most recent instance ref
+- SARIF category
+- workflow/run URL
+- scanned target type (image or fs)
+- image ref or digest (if applicable)
+- observed Caddy version evidence
+
+### Verification Commands and Expected Outcomes
+
+#### 1. Enumerate Open Trivy Alerts and Categories (Paginated + Ref-Aware)
+
+```bash
+# Optional: set REF_PREFIX to constrain results to a branch namespace.
+# Examples: refs/heads/main, refs/heads/nightly
+REF_PREFIX="refs/heads/main"
+
+gh api --paginate \
+  -H "Accept: application/vnd.github+json" \
+  "/repos/<owner>/<repo>/code-scanning/alerts?tool_name=Trivy&state=open&per_page=100" \
+  | jq -r --arg refPrefix "$REF_PREFIX" '
+      .[]
+      | select(.most_recent_instance.ref | startswith($refPrefix))
+      | [
+          .number,
+          .most_recent_instance.ref,
+          .most_recent_instance.commit_sha,
+          .most_recent_instance.category,
+          .most_recent_instance.analysis_key,
+          .most_recent_instance.location.path,
+          .most_recent_instance.message.text
+        ] | @tsv'
 ```
 
-> **Placement constraint**: `<FeedbackWidget />` must be placed after `</main>`, as the final sibling inside the root wrapper div. It must NOT be nested inside the mobile header branch, the desktop sidebar branch, or the `<main>` element itself.
+Expected outcome:
 
-### Existing Pattern: Self-Managed Popover
+- Full open-alert inventory is complete (no missed pages).
+- Each open alert is mapped to ref + category + analysis key for correlation.
+- Explicit pass condition: every alert containing Caddy 2.11.2 has a known
+  category/ref owner row in the investigation table.
 
-`NotificationCenter.tsx` is the primary pattern reference: a button toggles `isOpen` state to show/hide a floating panel (`absolute` positioned within a `relative` container). The feedback widget follows the same pattern but uses `fixed` positioning so it is viewport-anchored regardless of scroll position.
+#### 2. Map Alert Category/Ref to Workflow Runs
 
-**No Radix Popover needed.** The NotificationCenter pattern is the reference implementation. NotificationCenter uses a backdrop `<div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)}>` to handle click-outside dismissal — NOT a `useRef`/`useEffect` document-level event listener. The feedback widget uses the same backdrop approach for pattern consistency. Plain React `useState` is sufficient; no `@radix-ui/react-popover` needed.
+```bash
+gh run list --workflow docker-build.yml --branch main --limit 50 \
+  --json databaseId,headSha,createdAt,conclusion,url
 
-### Tailwind Token Vocabulary
+gh run list --workflow security-weekly-rebuild.yml --branch main --limit 20 \
+  --json databaseId,headSha,createdAt,conclusion,url
 
-The existing components (Layout, NotificationCenter, Button) use the following token pattern consistently:
-
-```
-bg:      bg-white dark:bg-dark-card
-border:  border-gray-200 dark:border-gray-800
-text:    text-gray-700 dark:text-gray-300
-hover:   hover:bg-gray-100 dark:hover:bg-gray-800
-focus:   focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2
-shadow:  shadow-md  /  shadow-lg
-```
-
-These are the canonical tokens used; the widget will follow this same vocabulary.
-
----
-
-## 3. Technical Specifications
-
-### 3.1 Component: `FeedbackWidget`
-
-**File:** `frontend/src/components/FeedbackWidget.tsx`
-**Test:** `frontend/src/components/__tests__/FeedbackWidget.test.tsx`
-
-#### Props
-
-None. The component is fully self-contained with no configuration props.
-
-#### State and Refs
-
-| Name | Type | Purpose |
-|---|---|---|
-| `isOpen` | `boolean` (useState) | Controls popover panel visibility |
-| `triggerRef` | `useRef<HTMLButtonElement>` | Focus return target on panel close |
-| `firstLinkRef` | `useRef<HTMLAnchorElement>` | Focus management: receives focus when panel opens |
-
-**Focus-on-open mechanism:**
-
-```tsx
-const firstLinkRef = useRef<HTMLAnchorElement>(null)
-
-useEffect(() => {
-  if (isOpen) firstLinkRef.current?.focus()
-}, [isOpen])
+gh run list --workflow nightly-build.yml --branch nightly --limit 20 \
+  --json databaseId,headSha,createdAt,conclusion,url
 ```
 
-The `firstLinkRef` is attached to the first `<a>` element (Bug report link). When `isOpen` transitions to `true`, this effect fires and moves keyboard focus to that link, fulfilling WCAG 2.4.3 and ARIA authoring guidance for disclosure widgets.
+Expected outcome:
 
-**Click-outside mechanism** (matches NotificationCenter pattern):
+- For each alert tuple, at least one candidate run is identified by matching
+  workflow + ref + headSha window.
+- Explicit pass condition: no unresolved alert tuple remains without a candidate
+  producing run.
 
-```tsx
-{isOpen && (
-  <div
-    className="fixed inset-0 z-10"
-    aria-hidden="true"
-    onClick={() => setIsOpen(false)}
-  />
-)}
+#### 3. Correlate SARIF to Alerts Using Structured Fields (Not String-Only)
+
+```bash
+# After downloading SARIF from candidate runs, extract structured tuples.
+jq -r '
+  .runs[] as $run
+  | $run.results[]?
+  | [
+      ($run.automationDetails.id // ""),
+      (.ruleId // ""),
+      (.level // ""),
+      (.locations[0].physicalLocation.artifactLocation.uri // ""),
+      (.partialFingerprints.primaryLocationLineHash // ""),
+      (.properties.image_ref // .properties.imageRef // ""),
+      (.message.text // "")
+    ] | @tsv
+' trivy-results.sarif
+
+# Optional diagnostic grep is allowed only as a secondary check.
+grep -En "2\.11\.(2|3)|caddyserver/caddy" trivy-results.sarif || true
 ```
 
-The backdrop renders below the panel (`z-10` vs panel's higher stacking) and captures any click outside the widget.
+Expected outcome:
 
-#### Interaction Specification
+- Structured SARIF fields map back to alert category/ref/analysis key lineage.
+- Explicit pass condition: each open 2.11.2 alert is backed by one matched SARIF
+  result tuple from the owning workflow/category.
 
-1. User presses **Tab** → focus lands on the floating trigger button.
-2. User presses **Enter** or **Space** (or clicks) → panel opens; focus moves to first link.
-3. User presses **Tab** / **Shift+Tab** → navigate between the two links within the panel.
-4. User presses **Enter** on a link → opens GitHub in a new tab; panel stays open.
-5. User presses **Escape** → panel closes; focus returns to trigger button.
-6. User clicks outside the widget → panel closes.
-7. User presses **Tab** past last link → focus moves to next focusable element in page (natural DOM order, no trap).
+#### 4. Verify Built Image Caddy Version by Digest
 
-#### ARIA Attributes
-
-| Element | Attribute | Value |
-|---|---|---|
-| Trigger `<button>` | `aria-label` | dynamic: `t('feedback.triggerLabel')` when closed / `t('feedback.closeTriggerLabel')` when open |
-| Trigger `<button>` | `aria-expanded` | `"true"` / `"false"` |
-| Trigger `<button>` | `aria-controls` | `"feedback-panel"` |
-| Panel `<nav>` | `id` | `"feedback-panel"` |
-| Panel `<nav>` | `aria-label` | `t('feedback.panelLabel')` |
-| Bug link `<a>` | `aria-label` | `t('feedback.reportBugAriaLabel')` |
-| Feature link `<a>` | `aria-label` | `t('feedback.requestFeatureAriaLabel')` |
-
-> **No `role="menu"` / `role="menuitem"`**: These ARIA roles require a custom arrow-key keyboard handler per the ARIA spec and are semantically incorrect for navigation links that open external URLs. Use a plain `<nav aria-label="...">` containing native `<a>` elements instead. Tab navigation between the two links is provided natively by the browser — no custom keyboard handler needed.
-
-> **No `aria-haspopup`**: The ARIA `aria-haspopup` attribute signals a menu, listbox, tree, grid, or dialog. Since the panel is a `<nav>` (not a menu), `aria-haspopup` is omitted. `aria-expanded` alone is sufficient to communicate the toggle state.
-
-#### CSS Layout
-
-```
-Wrapper:   position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 50
-Trigger:   h-10 w-10 (40×40px, matches Button size="icon"), rounded-full
-Panel:     position: absolute; bottom: calc(100% + 0.5rem); right: 0; width: 12rem
+```bash
+IMAGE="ghcr.io/<owner>/charon@sha256:<digest>"
+docker pull "$IMAGE"
+docker run --rm --entrypoint caddy "$IMAGE" version
 ```
 
-The panel is positioned relative to the fixed wrapper, appearing above the trigger.
+Expected outcome:
 
-#### Panel Animation
+- Returns v2.11.3 for corrected artifacts.
+- If v2.11.2, confirms build-path/cache/tag issue.
+- Explicit pass condition: all active-category digests under investigation report
+  v2.11.3.
 
-CSS transition using Tailwind. The panel conditional class changes based on `isOpen`:
+#### 5. Verify Multi-Arch Digests
 
-| State | Classes |
-|---|---|
-| Open | `opacity-100 scale-100 pointer-events-auto` |
-| Closed | `opacity-0 scale-95 pointer-events-none` |
-
-Combined with `transition-all duration-150 ease-out origin-bottom-right` always applied.
-
-#### URL Constants
-
-Defined as module-level constants (not in a config file — they are static GitHub template URLs):
-
-```ts
-const GITHUB_BUG_URL =
-  'https://github.com/Wikid82/Charon/issues/new?template=bug_report.md'
-const GITHUB_FEATURE_URL =
-  'https://github.com/Wikid82/Charon/issues/new?template=feature_request.md'
+```bash
+docker buildx imagetools inspect "ghcr.io/<owner>/charon@sha256:<digest>"
 ```
 
-#### Lucide Icons
+Expected outcome:
 
-| Use | Icon | Available in lucide-react |
-|---|---|---|
-| Trigger button | `MessageSquarePlus` | ✅ (not yet imported anywhere) |
-| Bug report link | `Bug` | ✅ (not yet imported anywhere) |
-| Feature request link | `Sparkles` | ✅ (not yet imported anywhere) |
+- Lists per-platform manifests; follow with per-platform checks where possible.
+- Confirms whether one architecture still carries 2.11.2.
+- Explicit pass condition: no platform digest in active categories reports
+  Caddy 2.11.2.
 
-Single import: `import { MessageSquarePlus, Bug, Sparkles } from 'lucide-react'`
+#### 6. Validate Workflow Skip Behavior on Merge Commit
 
-#### WCAG 2.2 AA Compliance Map
-
-| Criterion | Requirement | Implementation |
-|---|---|---|
-| 1.1.1 Non-text Content | Icon button has text alternative | `aria-label` on trigger |
-| 1.3.1 Info and Relationships | Programmatic structure | `<nav>` landmark with native `<a>` links; no synthetic ARIA roles needed |
-| 1.4.3 Contrast (Minimum) | 4.5:1 for normal text | Tokens inherited from existing UI (brand-500 / dark-card) |
-| 1.4.11 Non-text Contrast | 3:1 for UI components | Focus ring via `ring-brand-500` matches existing Button |
-| 2.1.1 Keyboard | All functionality keyboard-operable | Enter/Space open; Tab/Shift+Tab navigate natively; Escape closes |
-| 2.1.2 No Keyboard Trap | User can exit any component | No focus trap; Escape always returns focus to trigger |
-| 2.4.3 Focus Order | Focus follows logical order | Widget last in DOM after `</main>`; focus moves to first link on open |
-| 2.4.7 Focus Visible | Focus indicator visible | `focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2` |
-| 2.4.11 Focus Appearance | Focus indicator meets minimum size/contrast | `focus-visible:ring-2 ring-brand-500 ring-offset-2` — same ring token used across all interactive elements in the codebase; meets 2px minimum requirement |
-| 4.1.2 Name, Role, Value | All components correctly identified | Native `<button>`, native `<a>`, `<nav>` landmark, explicit `aria-label` and `aria-expanded` |
-
-### 3.2 i18n Keys
-
-Add a `"feedback"` object as a new top-level key in all five locale files.
-
-**English (`en`) — source of truth:**
-
-```json
-"feedback": {
-  "triggerLabel": "Open feedback menu",
-  "closeTriggerLabel": "Close feedback menu",
-  "panelLabel": "Feedback options",
-  "reportBug": "Report a Bug",
-  "reportBugDescription": "Found an issue?",
-  "reportBugAriaLabel": "Report a bug (opens GitHub Issues in new tab)",
-  "requestFeature": "Request a Feature",
-  "requestFeatureDescription": "Have an idea?",
-  "requestFeatureAriaLabel": "Request a feature (opens GitHub Issues in new tab)"
-}
+```bash
+gh run view <run-id> --log | grep -n "skip_build\|Determine skip condition"
 ```
 
-**Per-locale values (full table):**
+Expected outcome:
 
-| Key | de | es | fr | zh |
-|---|---|---|---|---|
-| `triggerLabel` | Feedback-Menü öffnen | Abrir menú de comentarios | Ouvrir le menu de retour | 打开反馈菜单 |
-| `closeTriggerLabel` | Feedback-Menü schließen | Cerrar menú de comentarios | Fermer le menu de retour | 关闭反馈菜单 |
-| `panelLabel` | Feedback-Optionen | Opciones de comentarios | Options de retour | 反馈选项 |
-| `reportBug` | Fehler melden | Reportar un error | Signaler un bug | 报告错误 |
-| `reportBugDescription` | Fehler gefunden? | ¿Encontraste un problema? | Trouvé un problème ? | 发现问题了吗？ |
-| `reportBugAriaLabel` | Fehler melden (öffnet GitHub Issues im neuen Tab) | Reportar un error (abre GitHub Issues en nueva pestaña) | Signaler un bug (ouvre GitHub Issues dans un nouvel onglet) | 报告错误（在新标签页打开 GitHub Issues） |
-| `requestFeature` | Funktion anfragen | Solicitar una función | Demander une fonctionnalité | 请求功能 |
-| `requestFeatureDescription` | Eine Idee? | ¿Tienes una idea? | Vous avez une idée ? | 有想法吗？ |
-| `requestFeatureAriaLabel` | Funktion anfragen (öffnet GitHub Issues im neuen Tab) | Solicitar función (abre GitHub Issues en nueva pestaña) | Demander une fonctionnalité (ouvre GitHub Issues dans un nouvel onglet) | 请求功能（在新标签页打开 GitHub Issues） |
+- Confirms whether key post-merge build/scan was skipped due to commit title or
+  actor rules.
+- Explicit pass condition: security-relevant commits are not skipped, or skip is
+  accompanied by an accepted/manual refresh path.
 
-### 3.3 `Layout.tsx` Changes
+#### 7. Validate Scan Target Type
 
-Two surgical changes:
-
-1. **Import** (add to existing component imports, after `NotificationCenter`):
-   ```tsx
-   import FeedbackWidget from './FeedbackWidget'
-   ```
-
-2. **JSX** (add as last child of root wrapper div, **after** `</main>`, outside both mobile header and desktop sidebar branches):
-   ```tsx
-   <FeedbackWidget />
-   ```
-
-Total: 2 lines changed, 0 lines deleted.
-
----
-
-## 4. Implementation Plan
-
-### Phase 1 — Playwright E2E Tests (TDD — Written First)
-
-**File:** `tests/feedback-widget.spec.ts`
-
-Write the Playwright spec before writing the component. This defines the observable contract of the feature.
-
-```
-Test suite: Feedback Widget
-  ✦ Trigger button is visible on the dashboard when authenticated
-  ✦ Trigger button has accessible name "Open feedback menu"
-  ✦ Trigger button has aria-expanded="false" by default
-  ✦ Clicking the trigger opens the panel with two links
-  ✦ Focus moves to the first link ("Report a Bug") when the panel opens
-  ✦ "Report a Bug" link href points to GitHub bug template URL
-  ✦ "Request a Feature" link href points to GitHub feature template URL
-  ✦ Both links have target="_blank" and rel="noopener noreferrer"
-  ✦ Pressing Escape closes the panel
-  ✦ After Escape, focus returns to the trigger button
-  ✦ Clicking outside the widget closes the panel
-  ✦ Widget is NOT present on the /login page
+```bash
+# Read workflow logic directly for scan target
+grep -n "scan-type\|scan-ref\|image-ref\|/app/charon\|/usr/bin/caddy" .github/workflows/security-pr.yml .github/workflows/docker-build.yml
 ```
 
-Run target (after Docker rebuild): `npx playwright test tests/feedback-widget.spec.ts --project=firefox`
+Expected outcome:
 
-### Phase 2 — Backend
+- Evidence of fs-only binary scan vs full image scan path.
+- Explicit pass condition: authoritative image-scan workflow is clearly
+  identified and documented for closure decisions.
 
-No backend changes required.
+## Durable Remediation Options (Prioritized)
 
-### Phase 3 — Frontend Implementation
+### Priority 0 Legacy SARIF Category Closure Backfill Before Retirement
 
-Execute in order:
+- Build a closure inventory of all open legacy-category alerts keyed by:
+  category + ref + workflow + alert number.
+- Run an explicit backfill cycle that refreshes those legacy tracks with current
+  results before retiring compatibility categories.
+- Retire compatibility categories only after the backfill shows no unresolved
+  Caddy 2.11.2 lineage in those tracks.
 
-| Step | Task | Files |
-|---|---|---|
-| 3.1 | Create `FeedbackWidget.tsx` | `frontend/src/components/FeedbackWidget.tsx` |
-| 3.2 | Add i18n keys | `frontend/src/locales/*/translation.json` (5 files) |
-| 3.3 | Integrate into `Layout.tsx` | `frontend/src/components/Layout.tsx` |
-| 3.4 | Write unit tests | `frontend/src/components/__tests__/FeedbackWidget.test.tsx` |
+Why:
 
-### Phase 4 — Integration and Testing
+- Prevents orphaned legacy alert tracks from surviving category retirement.
+- Ensures closure state is auditable before compatibility removal.
 
-1. Run unit tests:
-   ```
-   cd /projects/Charon && npx vitest run frontend/src/components/__tests__/FeedbackWidget.test.tsx
-   ```
-2. TypeScript check:
-   ```
-   cd /projects/Charon/frontend && npx tsc --noEmit
-   ```
-3. Rebuild E2E Docker container:
-   ```
-   .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
-   ```
-4. Run Playwright spec:
-   ```
-   npx playwright test tests/feedback-widget.spec.ts --project=firefox
-   ```
-5. Smoke test: Run a subset of existing non-security shards to ensure no regressions.
+### Priority 1 Remove Legacy SARIF Alias Categories
 
-### Phase 5 — Documentation
+- Remove compatibility uploads in docker-build.yml for:
+  - .github/workflows/docker-publish.yml:build-and-push
+  - any duplicate compatibility category not actively used.
+- Keep one canonical category per scan job.
 
-No README or CHANGELOG updates required for this internal UI component.
+Why:
 
----
+- Prevents long-tail stale alert tracks and ambiguous ownership.
 
-## 5. Component Data Flow
+### Priority 2 Enforce Canonical Image Scan as Source of Truth
 
-```
-User Tab-focuses trigger button (bottom-right, z-50, fixed)
-     │
-     ▼
-User presses Enter/Space or clicks
-     │
-     ├── isOpen = false → isOpen = true
-     │   Panel transitions: opacity-0 scale-95 → opacity-100 scale-100
-     │   aria-expanded: "false" → "true"
-     │   Focus moves to first <a> (Bug link)
-     │
-     ▼
-User navigates links with Tab/Shift+Tab
-     │
-     ├── Enter on Bug link ─────────────────────────────────────────►
-     │   window opens: https://github.com/Wikid82/Charon/issues/new?template=bug_report.md
-     │   Panel stays open
-     │
-     ├── Enter on Feature link ──────────────────────────────────────►
-     │   window opens: https://github.com/Wikid82/Charon/issues/new?template=feature_request.md
-     │   Panel stays open
-     │
-     └── Escape key or click-outside
-         isOpen = true → isOpen = false
-         Panel transitions: opacity-100 → opacity-0 scale-95
-         aria-expanded: "true" → "false"
-         Focus returns to trigger button
-```
+- Treat image-based Trivy scan in docker-build.yml and
+  security-weekly-rebuild.yml as authoritative for Caddy status.
+- Keep security-pr.yml binary scan as supplemental, or extend it to extract
+  and scan /usr/bin/caddy explicitly if retained for Caddy signal.
+- Add explicit category ownership and normalization for
+  security-weekly-rebuild.yml (set stable category naming and owner cadence).
 
-### Phase 1: Playwright Tests
+Why:
 
-## 6. Unit Tests Specification
+- Eliminates partial-artifact blind spots.
+- Removes implicit category drift in weekly rebuild uploads.
 
-**File:** `frontend/src/components/__tests__/FeedbackWidget.test.tsx`
+### Priority 3 Tighten Post-Merge Refresh Guarantees
 
-Pattern: follows `NotificationCenter.test.tsx` (no ThemeProvider needed, no QueryClient needed — uses plain `render` from Testing Library).
+- Ensure Dockerfile/security-significant changes cannot bypass build+scan via
+  skip logic.
+- Add a condition override: if Dockerfile or workflow security files changed,
+  force build/scan.
 
-The global `react-i18next` mock in `test/setup.ts` loads real `en/translation.json`. Once the `feedback` key is added, `t('feedback.reportBug')` will return `"Report a Bug"`.
+Why:
 
-| # | Test Case | Assertion |
-|---|---|---|
-| 1 | Component renders | Trigger button is in the document |
-| 2 | Default aria-label | `aria-label` = "Open feedback menu" |
-| 3 | Default aria-expanded | `aria-expanded` = `"false"` |
-| 4 | Panel hidden by default | Panel element has class `opacity-0` or `pointer-events-none` |
-| 5 | Open on click | After click: `aria-expanded` = `"true"` |
-| 6 | Bug link present | `getByRole('link', { name: /report a bug/i })` exists |
-| 7 | Bug link href | Bug link `href` = `GITHUB_BUG_URL` |
-| 8 | Feature link href | Feature link `href` = `GITHUB_FEATURE_URL` |
-| 9 | Links open new tab | Both links have `target="_blank"` |
-| 10 | Links are safe | Both links have `rel="noopener noreferrer"` |
-| 11 | Escape closes panel | After Escape: `aria-expanded` = `"false"` |
-| 12 | Focus returns on Escape | After Escape: `document.activeElement` = trigger button |
-| 13 | Second click closes panel | Click → open; click again → `aria-expanded` = `"false"` |
-| 14 | aria-label reflects state | When open, `aria-label` = "Close feedback menu" |
-| 15 | Focus moves to first link on open | After click: `document.activeElement` = bug report `<a>` (`firstLinkRef.current`) |
+- Guarantees scan freshness after security-relevant merges.
 
-| # | Task |
-|---|---|
-| T1 | Push branch changes, trigger `.github/workflows/cerberus-integration.yml` |
-| T2 | If HTTP 500 still occurs: download the artifact `cerberus-container-logs-*` and read `charon-cerberus-test.log` for the `"Failed to apply configuration: ..."` line |
-| T3 | Implement targeted fix based on the exact Caddy error (defer to Contingency Commit 5 if needed) |
-| T4 | Re-run until TC-1 through TC-5 all pass |
+### Priority 4 Normalize PR Tag and Artifact Resolution
 
-## 7. Acceptance Criteria
+- Align all workflows on immutable pr-<number>-<sha> semantics.
+- Remove or gate legacy pr-<number> fallback paths.
 
-| # | Criterion | Verified By |
-|---|---|---|
-| AC-1 | Widget trigger visible on `/dashboard` when authenticated | Playwright |
-| AC-2 | Widget absent from `/login`, `/setup`, `/accept-invite` | Playwright |
-| AC-3 | Clicking trigger opens panel with two links | Playwright + Unit |
-| AC-4 | Bug link href = GitHub bug template URL | Playwright + Unit |
-| AC-5 | Feature link href = GitHub feature template URL | Playwright + Unit |
-| AC-6 | Both links open in new tab | Playwright + Unit |
-| AC-7 | Keyboard navigation: Tab, Enter, Escape all work | Playwright + Unit |
-| AC-8 | Focus returns to trigger after Escape | Unit test #12 |
-| AC-9 | Widget renders above all other elements (z-50) | Visual review |
-| AC-10 | Dark mode renders correctly | Visual review |
-| AC-11 | All unit tests pass (15 tests) | `vitest run` |
-| AC-12 | No new runtime dependencies introduced | `package.json` diff |
-| AC-13 | TypeScript strict mode: zero errors | `tsc --noEmit` |
-| AC-14 | Clicking outside the widget closes the panel | Playwright |
+Why:
 
-### Definition of Done
+- Avoids scanning wrong images.
 
-- [ ] `FeedbackWidget.tsx` created, lint-clean, TypeScript error-free
-- [ ] i18n keys added to all 5 locale files (en, de, es, fr, zh)
-- [ ] `Layout.tsx` imports and renders `<FeedbackWidget />`
-- [ ] `FeedbackWidget.test.tsx` written with all 15 test cases passing
-- [ ] `tests/feedback-widget.spec.ts` Playwright spec written and passing on Firefox
-- [ ] `tsc --noEmit` passes
-- [ ] Visual review: widget visible bottom-right on dashboard in both light and dark mode
-- [ ] GORM security scan: N/A (no backend models changed)
+### Priority 5 Add Freshness Telemetry and Closure Proof
 
----
+- Emit build digest, Caddy version, and scan category into step summary and
+  retained artifact for each security upload.
+- Optional: add a post-scan assertion that SARIF run metadata references same
+  digest scanned.
 
-## 8. Commit Slicing Strategy
+Why:
+
+- Makes stale-path diagnosis immediate.
+
+### Priority 6 Multi-Arch Explicit Verification
+
+- Add per-arch Caddy version check in CI before SARIF upload, at least for
+  linux/amd64 and linux/arm64 manifests where available.
+
+Why:
+
+- Prevents hidden platform drift.
+
+## Review of .gitignore, .dockerignore, codecov.yml, Dockerfile
+
+### .gitignore
+
+- No change required for this issue.
+- Existing SARIF/artifact ignores are appropriate.
+
+### .dockerignore
+
+- No change required for this issue.
+- Current exclusions do not explain stale Caddy finding source.
+
+### codecov.yml
+
+- No change required for this issue.
+- Coverage settings are unrelated to code scanning freshness.
+
+### Dockerfile
+
+- Functional version pin is already correct at 2.11.3.
+- Optional hardening (recommended if issue persists):
+  - add explicit build-time assertion that built Caddy reports expected major/minor/patch;
+  - emit OCI label with built Caddy version for traceability.
+
+## Implementation Plan
+
+### Phase 1 Playwright/UI Validation
+
+Objective:
+
+- Confirm this problem is CI/security-pipeline only, not a UI regression.
+- Run UI/Playwright checks conditionally when product-surface files changed.
+
+Tasks:
+
+1. Compute change scope:
+  - workflow/security-pipeline-only change (for example .github/workflows,
+    scripts security tooling, scan configs), or
+  - product-surface change (frontend/backend/runtime behavior).
+2. If product-surface change is present, run targeted smoke UI task(s) per DoD
+  policy.
+3. If workflow/security-pipeline-only, record conditional waiver and skip UI
+  execution.
+4. Record that no UI behavior change is expected from this remediation.
+
+Validation gate:
+
+- For product-surface changes: no UI regressions.
+- For workflow/security-only changes: waiver recorded with scope evidence.
+
+### Phase 2 Root-Cause Evidence Collection
+
+Objective:
+
+- Prove exact stale reporting source.
+
+Tasks:
+
+1. Enumerate open Trivy alerts with category/ref.
+2. Correlate each with workflow run and SARIF artifact.
+3. Confirm scanned image digest and runtime Caddy version.
+4. Determine whether issue is category-stale, artifact mismatch, skip-build,
+   branch mismatch, or multi-arch divergence.
+
+Validation gate:
+
+- One or more root causes selected, each mapped to category + ref + workflow
+  with evidence artifact links.
+
+### Phase 3 Workflow Remediation
+
+Objective:
+
+- Remove ambiguity and enforce canonical scan path.
+
+Tasks:
+
+1. Execute legacy-category closure backfill for affected category/ref/workflow
+  tuples.
+2. Remove legacy category uploads in docker-build.yml after verified backfill.
+3. Align category naming to one active track per workflow.
+4. Add explicit weekly category ownership/normalization for
+  security-weekly-rebuild.yml.
+5. Add force-scan behavior for Dockerfile/security-file changes.
+6. Align PR image tag/artifact resolution where drift exists.
+
+Validation gate:
+
+- Backfill completed and documented before compatibility retirement.
+- New run uploads SARIF to canonical category only; no legacy category updates.
+
+### Phase 4 Verification and Backfill
+
+Objective:
+
+- Demonstrate closure behavior and prevent recurrence.
+
+Tasks:
+
+1. Re-run relevant workflows on latest main commit.
+2. Verify SARIF reflects Caddy 2.11.3.
+3. Verify GitHub Security open Trivy alerts for Caddy 2.11.2 close or are
+   superseded by resolved state.
+4. If needed, run weekly/nightly paths to refresh branch-specific categories.
+
+Validation gate:
+
+- No open Caddy 2.11.2 findings remain in active categories for current refs.
+- Legacy categories either show verified closure after backfill or are
+  formally tracked with owner + retirement checkpoint.
+
+### Phase 5 Documentation and Governance
+
+Objective:
+
+- Keep future investigations short and deterministic.
+
+Tasks:
+
+1. Update SECURITY.md and supply-chain docs with category/branch ownership.
+2. Document canonical workflow for image-based closure verification.
+3. Note deprecated categories and retirement date.
+
+Validation gate:
+
+- Docs clearly map alert -> category -> workflow -> digest -> component version.
+
+## Commit Slicing Strategy
 
 ### Decision
 
-**Single PR, single commit.** This feature is entirely frontend, confined to new files and two lines changed in `Layout.tsx`. No backend changes, no API changes, no schema migrations. One atomic commit is correct for this scope.
+Single PR with ordered logical commits (security pipeline coherence issue, tightly
+related files, low product-surface risk).
 
-### Commit
+### Trigger Reasons
 
-```
-feat(ui): add feedback widget with GitHub issue links
+- Cross-domain but same concern: workflow wiring + security signal integrity.
+- High reviewer value from isolated commits (evidence, wiring, docs).
+- Fast rollback needed if any category/reporting side effect appears.
 
-Add a persistent floating feedback widget to all authenticated pages.
-The widget provides direct links to GitHub Issues for bug reports and
-feature requests, opening each in a new browser tab. Implemented as a
-self-contained fixed-position component integrated into Layout.tsx.
+### Ordered Commits
 
-WCAG 2.2 AA: aria-expanded on trigger, <nav> landmark panel,
-native <a> links (no role="menu"/"menuitem"), keyboard navigation
-(Escape closes, Tab navigates natively, focus moves to first link
-on open), focus management (returns to trigger on close), visible
-focus ring (2.4.7 + 2.4.11).
+#### Commit 1 Evidence and Traceability Baseline
 
-Zero new runtime dependencies.
+Scope:
 
-Closes #<issue-number>
-```
+- Add/adjust investigation notes and CI summaries (non-behavioral) to capture
+  category/digest/Caddy version mapping.
 
-### Files Changed
+Files (expected):
 
-| File | Change |
-|---|---|
-| `frontend/src/components/FeedbackWidget.tsx` | New file |
-| `frontend/src/components/__tests__/FeedbackWidget.test.tsx` | New file |
-| `tests/feedback-widget.spec.ts` | New file |
-| `frontend/src/components/Layout.tsx` | +2 lines (import + JSX element) |
-| `frontend/src/locales/en/translation.json` | +10 lines (feedback key) |
-| `frontend/src/locales/de/translation.json` | +10 lines |
-| `frontend/src/locales/es/translation.json` | +10 lines |
-| `frontend/src/locales/fr/translation.json` | +10 lines |
-| `frontend/src/locales/zh/translation.json` | +10 lines |
+- [.github/workflows/docker-build.yml](.github/workflows/docker-build.yml)
+- [docs/plans/current_spec.md](docs/plans/current_spec.md)
 
-### Rollback
+Dependencies:
 
-Remove the `import FeedbackWidget from './FeedbackWidget'` and `<FeedbackWidget />` from `Layout.tsx`. The remaining new files can stay in place harmlessly. No database state, no backend state to revert.
+- None.
 
-### Validation Gates
+Validation gate:
 
-1. `npx vitest run frontend/src/components/__tests__/FeedbackWidget.test.tsx` — 15 tests pass
-2. `cd frontend && npx tsc --noEmit` — zero errors
-3. `npx playwright test tests/feedback-widget.spec.ts --project=firefox` — spec passes
+- Workflow summary includes category + digest + caddy version evidence.
+
+#### Commit 2 Legacy Category Closure Backfill
+
+Scope:
+
+- Build and execute backfill for legacy category/ref/workflow tuples.
+- Capture closure evidence and retirement readiness criteria.
+
+Files (expected):
+
+- [.github/workflows/docker-build.yml](.github/workflows/docker-build.yml)
+- [docs/plans/current_spec.md](docs/plans/current_spec.md)
+
+Dependencies:
+
+- Commit 1 merged or present in branch.
+
+Validation gate:
+
+- Legacy category closure evidence exists for each tracked tuple.
+
+#### Commit 3 Canonical Category and Weekly Ownership Normalization
+
+Scope:
+
+- Remove legacy SARIF alias uploads and keep canonical categories.
+- Add explicit weekly category ownership/normalization for
+  security-weekly-rebuild.
+- Optionally refine security-pr.yml target semantics for clarity.
+
+Files (expected):
+
+- [.github/workflows/docker-build.yml](.github/workflows/docker-build.yml)
+- [.github/workflows/security-weekly-rebuild.yml](.github/workflows/security-weekly-rebuild.yml)
+- [.github/workflows/security-pr.yml](.github/workflows/security-pr.yml)
+
+Dependencies:
+
+- Commit 2.
+
+Validation gate:
+
+- SARIF uploaded to canonical categories only with explicit weekly ownership.
+
+#### Commit 4 Freshness and Skip-Guard Enforcement
+
+Scope:
+
+- Ensure Dockerfile/security-file changes force build+scan refresh.
+- Normalize PR tag/artifact resolution where needed.
+
+Files (expected):
+
+- [.github/workflows/docker-build.yml](.github/workflows/docker-build.yml)
+- [.github/workflows/supply-chain-verify.yml](.github/workflows/supply-chain-verify.yml)
+- [.github/workflows/supply-chain-pr.yml](.github/workflows/supply-chain-pr.yml)
+
+Dependencies:
+
+- Commit 3.
+
+Validation gate:
+
+- Security-relevant change cannot be skipped; image ref resolution deterministic.
+
+#### Commit 5 Docs and Operational Runbook
+
+Scope:
+
+- Document canonical verification path and stale-alert troubleshooting.
+
+Files (expected):
+
+- [SECURITY.md](SECURITY.md)
+- [docs/guides/supply-chain-security-developer-guide.md](docs/guides/supply-chain-security-developer-guide.md)
+
+Dependencies:
+
+- Commit 4.
+
+Validation gate:
+
+- Operators can map alert -> category -> workflow -> digest -> component version.
+
+### Rollback and Contingency
+
+- If category cleanup causes missing visibility, revert Commit 3 only while
+  retaining backfill evidence from Commit 2.
+- If force-scan logic creates excessive CI load, revert Commit 4 and keep
+  category cleanup.
+- Maintain a one-cycle overlap where canonical and old category results are
+  compared internally (not uploaded as parallel public categories).
+
+## Risks and Mitigations
+
+- Risk: closing legacy category may hide historical trend continuity.
+  - Mitigation: keep artifact retention and migration note in docs.
+- Risk: force-scan increases CI time.
+  - Mitigation: scope force condition to Dockerfile/security workflow paths only.
+- Risk: multi-arch checks add flakiness on runners.
+  - Mitigation: keep per-arch checks lightweight and deterministic.
+
+## Acceptance Criteria
+
+- Root cause identified with evidence from open alerts, SARIF category, and
+  workflow run mapping.
+- Root cause set allows one or more concurrent causes, each mapped to category,
+  ref, and workflow with evidence.
+- Canonical workflows show scans for current digest with Caddy 2.11.3.
+- Legacy category closure backfill completed before retirement of compatibility
+  categories.
+- Legacy/ambiguous category uploads removed or explicitly deprecated.
+- security-weekly-rebuild has explicit category ownership and normalization.
+- Security tab no longer shows active Caddy 2.11.2 findings for current active
+  categories/refs.
+- Durable guardrails in place for skip, tag resolution, and scan target clarity.
+- DoD checks pass; any residual findings are documented with explicit owner and
+  next action.
