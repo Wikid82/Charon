@@ -386,7 +386,7 @@ RUN git clone --depth 1 --branch "v${CROWDSEC_VERSION}" https://github.com/crowd
 # This follows the same pattern as Caddy's dependency patches
 # renovate: datasource=go depName=golang.org/x/crypto
 RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
-    go get golang.org/x/crypto@v0.46.0 && \
+    go get golang.org/x/crypto@v0.52.0 && \
     go get golang.org/x/net@v${XNET_VERSION} && \
     # CVE-2026-33186 (GHSA-p77j-4mvh-x3m3): gRPC-Go auth bypass via missing leading slash
     # Fix available at v1.79.3. Pin here so the CrowdSec binary is patched immediately;
