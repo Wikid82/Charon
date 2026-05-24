@@ -7,9 +7,10 @@ name: Docker Build, Publish & Test
 # - Enhanced PR handling with dedicated scanning
 # - Improved workflow orchestration with supply-chain-verify.yml
 #
-# PHASE 1 OPTIMIZATION (February 2026):
+
+  # PHASE 1 OPTIMIZATION (February 2026):
 # - PR images now pushed to GHCR registry (enables downstream workflow consumption)
-# - Immutable PR tagging: pr-{number}-{short-sha} (prevents race conditions)
+# - Stable PR tagging: pr-{number} (freshness gate prevents stale scans)
 # - Feature branch tagging: {sanitized-branch-name}-{short-sha} (enables unique testing)
 # - Tag sanitization per spec Section 3.2 (handles special chars, slashes, etc.)
 # - Mandatory security scanning for PR images (blocks on CRITICAL/HIGH vulnerabilities)
@@ -30,7 +31,7 @@ on:
     types: [completed]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.event.workflow_run.head_branch || github.ref_name }}
   cancel-in-progress: true
 
 permissions:
@@ -46,7 +47,7 @@ env:
   TRIGGER_HEAD_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
   TRIGGER_REF: ${{ github.event_name == 'workflow_run' && format('refs/heads/{0}', github.event.workflow_run.head_branch) || github.ref }}
   TRIGGER_HEAD_REF: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.head_ref }}
-  TRIGGER_PR_NUMBER: ${{ github.event_name == 'workflow_run' && join(github.event.workflow_run.pull_requests.*.number, '') || format('{0}', github.event.pull_request.number) }}
+  TRIGGER_PR_NUMBER: ${{ github.event_name == 'pull_request' && format('{0}', github.event.pull_request.number) || '' }}
   TRIGGER_ACTOR: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.actor.login || github.actor }}
   TRIGGER_BASE_REF: ${{ github.event_name == 'workflow_run' && '' || github.base_ref }}
 
@@ -251,6 +252,77 @@ jobs:
             fi
           fi
 
+      - name: Resolve security scan image reference (contract)
+        if: steps.skip.outputs.skip_build != 'true'
+        id: pr_image_ref_output
+        run: |
+          set -euo pipefail
+
+          sanitize_branch() {
+            local raw_branch="$1"
+            local sanitized_branch
+
+            sanitized_branch=$(echo "${raw_branch}" | tr '[:upper:]' '[:lower:]')
+            sanitized_branch=${sanitized_branch//[^a-z0-9-]/-}
+            while [[ "${sanitized_branch}" == *"--"* ]]; do
+              sanitized_branch=${sanitized_branch//--/-}
+            done
+            sanitized_branch=${sanitized_branch##[^a-z0-9]*}
+            sanitized_branch=${sanitized_branch%%[^a-z0-9-]*}
+
+            if [[ -z "${sanitized_branch}" ]]; then
+              sanitized_branch="branch"
+            fi
+
+            echo "${sanitized_branch}"
+          }
+
+          IMAGE_TAG=""
+
+          if [[ "${TRIGGER_EVENT}" == "pull_request" ]]; then
+            PR_NUMBER="${TRIGGER_PR_NUMBER}"
+
+            if [[ "${GITHUB_EVENT_NAME}" == "workflow_run" ]]; then
+              mapfile -t WORKFLOW_RUN_PR_NUMBERS < <(jq -r '.workflow_run.pull_requests[].number // empty' "$GITHUB_EVENT_PATH")
+
+              if [[ "${#WORKFLOW_RUN_PR_NUMBERS[@]}" != "1" ]]; then
+                echo "❌ ERROR: Expected exactly one workflow_run pull request number, found ${#WORKFLOW_RUN_PR_NUMBERS[@]}"
+                exit 1
+              fi
+
+              PR_NUMBER="${WORKFLOW_RUN_PR_NUMBERS[0]}"
+            fi
+
+            if [[ -z "${PR_NUMBER}" || "${PR_NUMBER}" == "null" ]]; then
+              echo "❌ ERROR: Missing pull request number for stable security scan tag"
+              exit 1
+            fi
+
+            IMAGE_TAG="pr-${PR_NUMBER}"
+          elif [[ "${TRIGGER_REF}" == refs/heads/nightly ]]; then
+            IMAGE_TAG="nightly"
+          elif [[ "${TRIGGER_REF}" == refs/heads/main ]]; then
+            IMAGE_TAG="main"
+          elif [[ "${TRIGGER_REF}" == refs/heads/development ]]; then
+            IMAGE_TAG="development"
+          else
+            BRANCH_NAME="${TRIGGER_HEAD_BRANCH:-${TRIGGER_REF#refs/heads/}}"
+            IMAGE_TAG="branch-$(sanitize_branch "${BRANCH_NAME}")"
+          fi
+
+          IMAGE_REF="${GHCR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+
+          echo "image_tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "image_ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
+          echo "Resolved security scan image reference: ${IMAGE_REF}"
+
+          {
+            echo "## PR Image Ref Diagnostics"
+            echo ""
+            echo "- Image tag: ${IMAGE_TAG}"
+            echo "- Emitted pr_image_ref: ${IMAGE_REF}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Generate Docker metadata
         id: meta
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
@@ -266,10 +338,10 @@ jobs:
             type=raw,value=dev,enable=${{ env.TRIGGER_REF == 'refs/heads/development' }}
             type=raw,value=nightly,enable=${{ env.TRIGGER_REF == 'refs/heads/nightly' }}
             type=raw,value=beta,enable=${{ env.TRIGGER_EVENT == 'pull_request' && env.TRIGGER_BASE_REF == 'development' }}
+            type=raw,value=${{ steps.pr_image_ref_output.outputs.image_tag }},enable=${{ steps.pr_image_ref_output.outputs.image_tag != '' }}
             type=raw,value=${{ steps.branch-tags.outputs.pr_feature_branch_sha_tag }},enable=${{ env.TRIGGER_EVENT == 'pull_request' && steps.branch-tags.outputs.pr_feature_branch_sha_tag != '' }}
             type=raw,value=${{ steps.branch-tags.outputs.feature_branch_tag }},enable=${{ env.TRIGGER_EVENT != 'pull_request' && startsWith(env.TRIGGER_REF, 'refs/heads/feature/') && steps.branch-tags.outputs.feature_branch_tag != '' }}
             type=raw,value=${{ steps.branch-tags.outputs.branch_sha_tag }},enable=${{ env.TRIGGER_EVENT != 'pull_request' && steps.branch-tags.outputs.branch_sha_tag != '' }}
-            type=raw,value=pr-${{ env.TRIGGER_PR_NUMBER }}-{{sha}},enable=${{ env.TRIGGER_EVENT == 'pull_request' }},prefix=,suffix=
             type=sha,format=short,prefix=,suffix=,enable=${{ env.TRIGGER_EVENT != 'pull_request' && (env.TRIGGER_REF == 'refs/heads/main' || env.TRIGGER_REF == 'refs/heads/development' || env.TRIGGER_REF == 'refs/heads/nightly') }}
           flavor: |
             latest=false
@@ -278,52 +350,6 @@ jobs:
             io.charon.pr.number=${{ env.TRIGGER_PR_NUMBER }}
             io.charon.build.timestamp=${{ github.event.repository.updated_at }}
             io.charon.feature.branch=${{ steps.branch-tags.outputs.feature_branch_tag }}
-
-      - name: Resolve PR image reference (contract)
-        if: steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
-        id: pr_image_ref_output
-        run: |
-          set -euo pipefail
-
-          TAG_PATTERN='^ghcr\.io/[^[:space:]]+:pr-[0-9]+-[0-9a-f]{7,}$'
-          EXPECTED_TAG="ghcr.io/${{ env.IMAGE_NAME }}:pr-${{ env.TRIGGER_PR_NUMBER }}-$(echo "${{ env.TRIGGER_HEAD_SHA }}" | cut -c1-7)"
-
-          MATCHED_TAGS=$(printf '%s\n' "${{ steps.meta.outputs.tags }}" | grep -E "${TAG_PATTERN}" || true)
-          MATCH_COUNT=$(printf '%s\n' "${MATCHED_TAGS}" | sed '/^$/d' | wc -l | tr -d '[:space:]')
-
-          if [[ "${MATCH_COUNT}" != "1" ]]; then
-            echo "❌ ERROR: Expected exactly one PR GHCR tag match, found ${MATCH_COUNT}"
-            echo "Pattern: ${TAG_PATTERN}"
-            echo "Expected tag (diagnostics only): ${EXPECTED_TAG}"
-            echo "Matched tags:"
-            if [[ -n "${MATCHED_TAGS}" ]]; then
-              printf '%s\n' "${MATCHED_TAGS}"
-            else
-              echo "(none)"
-            fi
-            {
-              echo "## PR Image Ref Diagnostics"
-              echo ""
-              echo "- Pattern: ${TAG_PATTERN}"
-              echo "- Match count: ${MATCH_COUNT}"
-              echo "- Expected tag (diagnostics only): ${EXPECTED_TAG}"
-              echo "- Emitted pr_image_ref: (none)"
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-
-          IMAGE_REF=$(printf '%s\n' "${MATCHED_TAGS}" | sed -n '1p')
-          echo "image_ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
-          echo "Resolved PR image reference: ${IMAGE_REF}"
-
-          {
-            echo "## PR Image Ref Diagnostics"
-            echo ""
-            echo "- Pattern: ${TAG_PATTERN}"
-            echo "- Match count: ${MATCH_COUNT}"
-            echo "- Expected tag (diagnostics only): ${EXPECTED_TAG}"
-            echo "- Emitted pr_image_ref: ${IMAGE_REF}"
-          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Assert PR output contract
         if: steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
@@ -334,9 +360,9 @@ jobs:
             exit 1
           fi
       # Phase 1 Optimization: Build once, test many
-      # - For PRs: Multi-platform (amd64, arm64) + immutable tags (pr-{number}-{short-sha})
+      # - For PRs: Multi-platform (amd64, arm64) + stable security-scan tag (pr-{number})
       # - For feature branches: Multi-platform (amd64, arm64) + sanitized tags ({branch}-{short-sha})
-      # - For main/dev: Multi-platform (amd64, arm64) for production
+      # - For main/dev/nightly: Multi-platform (amd64, arm64) for production
       # - Always push to registry (enables downstream workflow consumption)
       # - Retry logic handles transient registry failures (3 attempts, 10s wait)
       # See: docs/plans/current_spec.md Section 4.1
@@ -409,45 +435,31 @@ jobs:
               echo "✅ Image pulled: ${PR_IMAGE_REF}"
             fi
 
-      # Critical Fix: Use exact tag from metadata instead of manual reconstruction
-      # WHY: docker/build-push-action with load:true applies the exact tags from
-      # docker/metadata-action. Manual reconstruction can cause mismatches due to:
-      # - Case sensitivity variations (owner name normalization)
-      # - Tag format differences in Buildx internal behavior
-      # - Registry prefix inconsistencies
-      #
-      # SOLUTION: Extract the first tag from metadata output (which is the PR tag)
-      # and use it directly with docker save. This guarantees we reference the
-      # exact image that was loaded into the local Docker daemon.
-      #
-      # VALIDATION: Added defensive checks to fail fast with diagnostics if:
-      # 1. No tag found in metadata output
-      # 2. Image doesn't exist locally after build
-      # 3. Artifact creation fails
+      # Use the stable security scan reference so the saved artifact matches the
+      # image that the PR scan job will pull and validate.
       - name: Save Docker Image as Artifact
         if: success() && steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
         run: |
-          # Use the producer contract output to avoid order-dependent tag selection.
-          IMAGE_TAG="${{ steps.pr_image_ref_output.outputs.image_ref }}"
+          IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
 
-          if [[ -z "${IMAGE_TAG}" ]]; then
+          if [[ -z "${IMAGE_REF}" ]]; then
             echo "❌ ERROR: pr_image_ref producer contract violated (empty image ref)"
             exit 1
           fi
 
-          echo "🔍 Detected image tag: ${IMAGE_TAG}"
+          echo "🔍 Detected image ref: ${IMAGE_REF}"
 
           # Verify the image exists locally
-          if ! docker image inspect "${IMAGE_TAG}" >/dev/null 2>&1; then
-            echo "❌ ERROR: Image ${IMAGE_TAG} not found locally"
+          if ! docker image inspect "${IMAGE_REF}" >/dev/null 2>&1; then
+            echo "❌ ERROR: Image ${IMAGE_REF} not found locally"
             echo "📋 Available images:"
             docker images
             exit 1
           fi
 
           # Save the image using the exact tag from metadata
-          echo "💾 Saving image: ${IMAGE_TAG}"
-          docker save "${IMAGE_TAG}" -o /tmp/charon-pr-image.tar
+          echo "💾 Saving image: ${IMAGE_REF}"
+          docker save "${IMAGE_REF}" -o /tmp/charon-pr-image.tar
 
           # Verify the artifact was created
           echo "✅ Artifact created:"
@@ -764,7 +776,7 @@ jobs:
     needs: build-and-push
     if: needs.build-and-push.outputs.skip_build != 'true' && needs.build-and-push.result == 'success' && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: read
@@ -781,12 +793,11 @@ jobs:
           IMAGE_REF="${{ needs.build-and-push.outputs.pr_image_ref }}"
 
           if [[ -z "$IMAGE_REF" ]]; then
-            SHORT_SHA="$(echo "${{ env.TRIGGER_HEAD_SHA }}" | cut -c1-7)"
-            IMAGE_REF="ghcr.io/${{ env.IMAGE_NAME }}:pr-${{ env.TRIGGER_PR_NUMBER }}-${SHORT_SHA}"
+            IMAGE_REF="ghcr.io/${{ env.IMAGE_NAME }}:pr-${{ env.TRIGGER_PR_NUMBER }}"
             echo "⚠️ WARNING: build-and-push pr_image_ref output missing; using deterministic fallback: ${IMAGE_REF}"
           fi
 
-          if ! [[ "$IMAGE_REF" =~ ^ghcr\.io/[^[:space:]]+:pr-[0-9]+-[0-9a-f]{7,}$ ]]; then
+          if ! [[ "$IMAGE_REF" =~ ^ghcr\.io/[^[:space:]]+:pr-[0-9]+$ ]]; then
             echo "❌ ERROR: Invalid PR image reference: ${IMAGE_REF}"
             exit 1
           fi
@@ -815,12 +826,17 @@ jobs:
 
           echo "Image label SHA: ${LABEL_SHA}"
 
+          if [[ -z "${LABEL_SHA}" ]]; then
+            echo "❌ ERROR: Missing image revision label"
+            exit 1
+          fi
+
           if [[ "${LABEL_SHA}" != "${{ env.TRIGGER_HEAD_SHA }}" ]]; then
-            echo "⚠️ WARNING: Image SHA mismatch!"
+            echo "❌ ERROR: Image SHA mismatch!"
             echo "  Expected: ${{ env.TRIGGER_HEAD_SHA }}"
             echo "  Got:      ${LABEL_SHA}"
-            echo "Image may be stale. Resuming for triage (Bypassing failure)."
-            # exit 1
+            echo "Image may be stale. Failing closed."
+            exit 1
           fi
 
           echo "✅ Image freshness validated"
