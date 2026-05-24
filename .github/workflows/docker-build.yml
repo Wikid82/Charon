@@ -762,7 +762,7 @@ jobs:
   scan-pr-image:
     name: Security Scan PR Image
     needs: build-and-push
-    if: needs.build-and-push.outputs.skip_build != 'true' && needs.build-and-push.result == 'success' && github.event_name == 'pull_request' && needs.build-and-push.outputs.pr_image_ref != ''
+    if: needs.build-and-push.outputs.skip_build != 'true' && needs.build-and-push.result == 'success' && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -779,10 +779,18 @@ jobs:
         id: pr-image
         run: |
           IMAGE_REF="${{ needs.build-and-push.outputs.pr_image_ref }}"
+
           if [[ -z "$IMAGE_REF" ]]; then
-            echo "❌ ERROR: Missing PR image reference from build-and-push outputs"
+            SHORT_SHA="$(echo "${{ env.TRIGGER_HEAD_SHA }}" | cut -c1-7)"
+            IMAGE_REF="ghcr.io/${{ env.IMAGE_NAME }}:pr-${{ env.TRIGGER_PR_NUMBER }}-${SHORT_SHA}"
+            echo "⚠️ WARNING: build-and-push pr_image_ref output missing; using deterministic fallback: ${IMAGE_REF}"
+          fi
+
+          if ! [[ "$IMAGE_REF" =~ ^ghcr\.io/[^[:space:]]+:pr-[0-9]+-[0-9a-f]{7,}$ ]]; then
+            echo "❌ ERROR: Invalid PR image reference: ${IMAGE_REF}"
             exit 1
           fi
+
           echo "image_ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GitHub Container Registry
