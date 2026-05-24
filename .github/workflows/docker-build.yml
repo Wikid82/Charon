@@ -870,7 +870,7 @@ jobs:
         env:
           IMAGE_REF: ${{ steps.pr-image.outputs.image_ref }}
         run: |
-          CADDY_VERSION=$(docker run --rm --pull=never "${IMAGE_REF}" caddy version 2>/dev/null || echo "unknown")
+          CADDY_VERSION=$(timeout 30s docker run --rm --pull=never "${IMAGE_REF}" caddy version 2>/dev/null || echo "unknown")
           {
             echo "## PR Trivy SARIF Traceability"
             echo ""
