@@ -27,7 +27,7 @@ public disclosure.
 
 ## Known Vulnerabilities
 
-Last reviewed: 2026-05-20
+Last reviewed: 2026-05-25
 
 ### [HIGH] CVE-2026-31790 · OpenSSL Vulnerability in Alpine Base Image
 
@@ -283,6 +283,45 @@ database server is untrusted. EPSS score not yet available.
 **Planned Remediation**
 Monitor https://github.com/jackc/pgproto3 for a fix release. Upgrade the indirect dependency
 once a patched version is available. Pre-existing; not introduced by PR #1031.
+
+---
+
+### [LOW] CVE-2026-41889 · pgx/v4 Panic via Crafted PostgreSQL Wire Payload
+
+| Field        | Value |
+|--------------|-------|
+| **ID**       | CVE-2026-41889 (GHSA-j88v-2chj-qfwx) |
+| **Severity** | Low · 3.7 |
+| **Status**   | Awaiting Upstream |
+
+**What**
+`github.com/jackc/pgx/v4` may panic when decoding a crafted PostgreSQL wire payload,
+which can cause a denial-of-service condition in affected clients.
+
+**Who**
+
+- Discovered by: Automated scan (Trivy image scan)
+- Reported: 2026-05-25
+- Affects: Deployments using PostgreSQL-backed CrowdSec code paths (non-default)
+
+**Where**
+
+- Component: `github.com/jackc/pgx/v4` (transitive dependency in bundled CrowdSec components)
+- Versions affected: pgx/v4 prior to upstream remediation
+
+**When**
+
+- Discovered: 2026-05-25
+- Disclosed (if public): Public
+- Target fix: When upstream dependencies migrate to a patched path (pgx/v5)
+
+**How**
+Exploitation requires a crafted PostgreSQL protocol payload delivered to an affected pgx/v4
+decode path. Charon defaults to SQLite, so standard deployments do not expose this path.
+
+**Planned Remediation**
+Track upstream CrowdSec dependency updates and remove suppression once pgx/v4 is no longer
+present in bundled components.
 
 ## Patched Vulnerabilities
 

@@ -289,6 +289,7 @@ func (s *AgentSession) StartExternalProxy(port int) error {
 			pr.Out.Host = ""
 		},
 		FlushInterval: -1,
+		Transport:     &http.Transport{DisableKeepAlives: true},
 	}
 
 	srv := &http.Server{
