@@ -103,3 +103,13 @@ CVE-2026-33997
 # See also: .grype.yaml for full justification
 # exp: 2026-04-30
 GHSA-pxq6-2prw-chj9
+
+# CVE-2026-41889 / GHSA-j88v-2chj-qfwx: pgx/v4 panic on crafted PostgreSQL wire payload (DoS)
+# Severity: LOW (CVSS 3.7) — Package: github.com/jackc/pgx/v4, embedded in CrowdSec binaries
+# Fix path requires upstream migration to pgx/v5; CrowdSec currently vendors pgx/v4 in bundled components.
+# Charon uses SQLite by default; PostgreSQL wire-protocol path is not reachable in standard deployment.
+# Review by: 2026-05-25
+# See also: .grype.yaml for full justification
+# exp: 2026-05-25
+CVE-2026-41889
+GHSA-j88v-2chj-qfwx
