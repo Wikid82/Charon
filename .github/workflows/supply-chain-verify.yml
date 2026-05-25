@@ -68,8 +68,9 @@ jobs:
             elif [[ "${{ github.event.workflow_run.event }}" == "pull_request" ]]; then
               # Extract PR number from workflow_run context with null handling
               PR_NUMBER=$(jq -r '.pull_requests[0].number // empty' <<< '${{ toJson(github.event.workflow_run.pull_requests) }}')
+              SHORT_SHA=$(echo "${{ github.event.workflow_run.head_sha }}" | cut -c1-7)
               if [[ -n "${PR_NUMBER}" ]]; then
-                TAG="pr-${PR_NUMBER}"
+                TAG="pr-${PR_NUMBER}-${SHORT_SHA}"
               else
                 # Fallback to SHA-based tag if PR number not available
                 TAG="sha-$(echo "${{ github.event.workflow_run.head_sha }}" | cut -c1-7)"
@@ -637,20 +638,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
-      - name: Install Verification Tools
-        run: |
-          # Install Cosign
-          curl -sLO https://github.com/sigstore/cosign/releases/download/v2.4.1/cosign-linux-amd64
-          echo "4e84f155f98be2c2d3e63dea0e80b0ca5b4d843f5f4b1d3e8c9b7e4e7c0e0e0e  cosign-linux-amd64" | sha256sum -c || {
-            echo "⚠️ Checksum verification skipped (update with actual hash)"
-          }
-          sudo install cosign-linux-amd64 /usr/local/bin/cosign
-          rm cosign-linux-amd64
-
-          # Install SLSA Verifier
-          curl -sLO https://github.com/slsa-framework/slsa-verifier/releases/download/v2.6.0/slsa-verifier-linux-amd64
-          sudo install slsa-verifier-linux-amd64 /usr/local/bin/slsa-verifier
-          rm slsa-verifier-linux-amd64
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: 'v2.4.1'
 
       - name: Determine Image Tag
         id: tag
@@ -745,12 +736,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
-      - name: Install Verification Tools
-        run: |
-          # Install Cosign
-          curl -sLO https://github.com/sigstore/cosign/releases/download/v2.4.1/cosign-linux-amd64
-          sudo install cosign-linux-amd64 /usr/local/bin/cosign
-          rm cosign-linux-amd64
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: 'v2.4.1'
 
       - name: Download Release Assets
         env:

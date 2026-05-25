@@ -25,7 +25,7 @@ ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0b
 # renovate: datasource=go depName=github.com/expr-lang/expr
 ARG EXPR_LANG_VERSION=1.17.8
 # renovate: datasource=go depName=golang.org/x/net
-ARG XNET_VERSION=0.54.0
+ARG XNET_VERSION=0.55.0
 # renovate: datasource=go depName=github.com/smallstep/certificates
 ARG SMALLSTEP_CERTIFICATES_VERSION=0.30.0
 # renovate: datasource=npm depName=npm
@@ -94,7 +94,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.15.0-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.16.0-alpine@sha256:2bdb65ed1dab192432bc31c95f94155ca5ad7fc1392fb7eb7526ab682fa5bf14 AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -386,7 +386,7 @@ RUN git clone --depth 1 --branch "v${CROWDSEC_VERSION}" https://github.com/crowd
 # This follows the same pattern as Caddy's dependency patches
 # renovate: datasource=go depName=golang.org/x/crypto
 RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
-    go get golang.org/x/crypto@v0.46.0 && \
+    go get golang.org/x/crypto@v0.52.0 && \
     go get golang.org/x/net@v${XNET_VERSION} && \
     # CVE-2026-33186 (GHSA-p77j-4mvh-x3m3): gRPC-Go auth bypass via missing leading slash
     # Fix available at v1.79.3. Pin here so the CrowdSec binary is patched immediately;
@@ -509,7 +509,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=730d2a55c257a2515fcb1f41a8116e2019cb6f8408e3e49cd5edc2878a5244f5
+ARG GEOLITE2_COUNTRY_SHA256=d074a873c0db6755c0d7f22efe8c76d14fd5d4bcdaa5fc5e940508e8517e99ba
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \

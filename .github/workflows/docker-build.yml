@@ -40,6 +40,7 @@ env:
   GHCR_REGISTRY: ghcr.io
   DOCKERHUB_REGISTRY: docker.io
   IMAGE_NAME: wikid82/charon
+  TRIVY_SARIF_CATEGORY: .github/workflows/docker-build.yml:trivy-image-scan
   TRIGGER_EVENT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event || github.event_name }}
   TRIGGER_HEAD_BRANCH: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}
   TRIGGER_HEAD_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
@@ -66,6 +67,7 @@ jobs:
     outputs:
       skip_build: ${{ steps.skip.outputs.skip_build }}
       digest: ${{ steps.build-and-push.outputs.digest }}
+      pr_image_ref: ${{ steps.pr-image-ref.outputs.image_ref }}
 
     steps:
       - name: Checkout repository
@@ -89,18 +91,62 @@ jobs:
         run: |
           should_skip=false
           pr_title=""
+          force_refresh=false
+          changed_files=""
           head_msg=$(git log -1 --pretty=%s)
           if [ "$EVENT" = "pull_request" ] && [ -n "$PR_NUMBER" ]; then
             pr_title=$(curl -sS \
               -H "Authorization: Bearer ${GH_TOKEN}" \
               -H "Accept: application/vnd.github+json" \
               "https://api.github.com/repos/${REPO}/pulls/${PR_NUMBER}" | jq -r '.title // empty')
+
+            files_url="https://api.github.com/repos/${REPO}/pulls/${PR_NUMBER}/files?per_page=100&page=1"
+            while [ -n "$files_url" ]; do
+              response_file=$(mktemp)
+              headers_file=$(mktemp)
+              if ! curl -fsS \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                -D "$headers_file" \
+                "$files_url" > "$response_file"; then
+                echo "Failed to fetch changed files from GitHub API, forcing refresh"
+                force_refresh=true
+                rm -f "$response_file" "$headers_file"
+                break
+              fi
+
+              page_files=$(jq -r '.[].filename // empty' "$response_file")
+              if [ -n "$page_files" ]; then
+                if [ -n "$changed_files" ]; then
+                  changed_files="${changed_files}\n${page_files}"
+                else
+                  changed_files="${page_files}"
+                fi
+              fi
+
+              files_url=$(awk 'BEGIN{IGNORECASE=1} /^link:/ {print}' "$headers_file" \
+                | sed -n 's/.*<\([^>]*\)>; rel="next".*/\1/p' | head -n 1)
+
+              rm -f "$response_file" "$headers_file"
+            done
+          else
+            changed_files=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || true)
           fi
+
+          if echo "$changed_files" | grep -E '^(Dockerfile|\.github/workflows/(docker-build|docker-lint|security-weekly-rebuild|supply-chain-verify|supply-chain-pr|nightly-build)\.yml|trivy\.yaml|\.grype\.yaml)$' >/dev/null 2>&1; then
+            force_refresh=true
+          fi
+
           if [ "$ACTOR" = "renovate[bot]" ]; then should_skip=true; fi
           if echo "$head_msg" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
           if echo "$head_msg" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
           if echo "$pr_title" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
           if echo "$pr_title" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
+
+          if [[ "$force_refresh" == "true" ]]; then
+            should_skip=false
+            echo "Force refresh enabled due to Docker/security workflow changes"
+          fi
           # Always build on feature branches to ensure artifacts for testing
           # For PRs: use HEAD_REF (actual source branch)
           # For pushes: use REF (refs/heads/branch-name)
@@ -116,13 +162,14 @@ jobs:
 
           echo "skip_build=$should_skip" >> "$GITHUB_OUTPUT"
           echo "is_feature_push=$is_feature_push" >> "$GITHUB_OUTPUT"
+          echo "force_refresh=$force_refresh" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         if: steps.skip.outputs.skip_build != 'true'
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
       - name: Set up Docker Buildx
         if: steps.skip.outputs.skip_build != 'true'
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
       - name: Resolve Alpine base image digest
         if: steps.skip.outputs.skip_build != 'true'
         id: alpine
@@ -134,7 +181,7 @@ jobs:
 
       - name: Log in to GitHub Container Registry
         if: steps.skip.outputs.skip_build != 'true'
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           registry: ${{ env.GHCR_REGISTRY }}
           username: ${{ github.actor }}
@@ -142,7 +189,7 @@ jobs:
 
       - name: Log in to Docker Hub
         if: steps.skip.outputs.skip_build != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           registry: docker.io
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -204,7 +251,7 @@ jobs:
 
       - name: Generate Docker metadata
         id: meta
-        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
         with:
           images: |
             ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
@@ -229,6 +276,18 @@ jobs:
             io.charon.pr.number=${{ env.TRIGGER_PR_NUMBER }}
             io.charon.build.timestamp=${{ github.event.repository.updated_at }}
             io.charon.feature.branch=${{ steps.branch-tags.outputs.feature_branch_tag }}
+
+      - name: Resolve PR image reference
+        if: steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
+        id: pr-image-ref
+        run: |
+          IMAGE_REF=$(echo "${{ steps.meta.outputs.tags }}" | head -n 1)
+          if [[ -z "$IMAGE_REF" ]]; then
+            echo "❌ ERROR: No PR image reference found in metadata tags"
+            exit 1
+          fi
+          echo "image_ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
+          echo "Resolved PR image reference: ${IMAGE_REF}"
       # Phase 1 Optimization: Build once, test many
       # - For PRs: Multi-platform (amd64, arm64) + immutable tags (pr-{number}-{short-sha})
       # - For feature branches: Multi-platform (amd64, arm64) + sanitized tags ({branch}-{short-sha})
@@ -365,12 +424,11 @@ jobs:
 
           # Determine the image reference based on event type
           if [ "${{ env.TRIGGER_EVENT }}" = "pull_request" ]; then
-            PR_NUM="${{ env.TRIGGER_PR_NUMBER }}"
-            if [ -z "${PR_NUM}" ]; then
-              echo "❌ ERROR: Pull request number is empty"
+            IMAGE_REF="${{ steps.pr-image-ref.outputs.image_ref }}"
+            if [ -z "${IMAGE_REF}" ]; then
+              echo "❌ ERROR: Failed to load PR image reference from pr-image-ref output"
               exit 1
             fi
-            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${PR_NUM}"
             echo "Using PR image: $IMAGE_REF"
           else
             if [ -z "${{ steps.build-and-push.outputs.digest }}" ]; then
@@ -393,12 +451,11 @@ jobs:
 
           # Determine the image reference based on event type
           if [ "${{ env.TRIGGER_EVENT }}" = "pull_request" ]; then
-            PR_NUM="${{ env.TRIGGER_PR_NUMBER }}"
-            if [ -z "${PR_NUM}" ]; then
-              echo "❌ ERROR: Pull request number is empty"
+            IMAGE_REF="${{ steps.pr-image-ref.outputs.image_ref }}"
+            if [ -z "${IMAGE_REF}" ]; then
+              echo "❌ ERROR: Failed to load PR image reference from pr-image-ref output"
               exit 1
             fi
-            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${PR_NUM}"
             echo "Using PR image: $IMAGE_REF"
           else
             if [ -z "${{ steps.build-and-push.outputs.digest }}" ]; then
@@ -461,12 +518,11 @@ jobs:
 
           # Determine the image reference based on event type
           if [ "${{ env.TRIGGER_EVENT }}" = "pull_request" ]; then
-            PR_NUM="${{ env.TRIGGER_PR_NUMBER }}"
-            if [ -z "${PR_NUM}" ]; then
-              echo "❌ ERROR: Pull request number is empty"
+            IMAGE_REF="${{ steps.pr-image-ref.outputs.image_ref }}"
+            if [ -z "${IMAGE_REF}" ]; then
+              echo "❌ ERROR: Failed to load PR image reference from pr-image-ref output"
               exit 1
             fi
-            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${PR_NUM}"
             echo "Using PR image: $IMAGE_REF"
           else
             if [ -z "${{ steps.build-and-push.outputs.digest }}" ]; then
@@ -570,11 +626,26 @@ jobs:
 
       - name: Upload Trivy results
         if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.trivy-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@9e0d7b8d25671d64c341c19c0152d693099fb5ba # v4.35.5
+        uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
         with:
           sarif_file: 'trivy-results.sarif'
-          category: '.github/workflows/docker-build.yml:build-and-push'
+          category: ${{ env.TRIVY_SARIF_CATEGORY }}
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Record Trivy scan traceability
+        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.trivy-check.outputs.exists == 'true'
+        env:
+          IMAGE_REF: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+        run: |
+          CADDY_VERSION=$(docker run --rm --pull=never "${IMAGE_REF}" caddy version 2>/dev/null || echo "unknown")
+          {
+            echo "## Trivy SARIF Traceability"
+            echo ""
+            echo "- Category: ${{ env.TRIVY_SARIF_CATEGORY }}"
+            echo "- Image: ${IMAGE_REF}"
+            echo "- Digest: ${{ steps.build-and-push.outputs.digest }}"
+            echo "- Caddy version: ${CADDY_VERSION}"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # Generate SBOM (Software Bill of Materials) for supply chain security
       # Only for production builds (main/development) - feature branches use downstream supply-chain-pr.yml
@@ -657,16 +728,18 @@ jobs:
           IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
           echo "IMAGE_NAME=${IMAGE_NAME}" >> "$GITHUB_ENV"
 
-      - name: Determine PR image tag
+      - name: Load PR image reference
         id: pr-image
         run: |
-          SHORT_SHA="$(echo "${{ env.TRIGGER_HEAD_SHA }}" | cut -c1-7)"
-          PR_TAG="pr-${{ env.TRIGGER_PR_NUMBER }}-${SHORT_SHA}"
-          echo "tag=${PR_TAG}" >> "$GITHUB_OUTPUT"
-          echo "image_ref=${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${PR_TAG}" >> "$GITHUB_OUTPUT"
+          IMAGE_REF="${{ needs.build-and-push.outputs.pr_image_ref }}"
+          if [[ -z "$IMAGE_REF" ]]; then
+            echo "❌ ERROR: Missing PR image reference from build-and-push outputs"
+            exit 1
+          fi
+          echo "image_ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           registry: ${{ env.GHCR_REGISTRY }}
           username: ${{ github.actor }}
@@ -730,34 +803,25 @@ jobs:
 
       - name: Upload Trivy scan results
         if: always() && steps.trivy-pr-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@9e0d7b8d25671d64c341c19c0152d693099fb5ba # v4.35.5
+        uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
         with:
           sarif_file: 'trivy-pr-results.sarif'
-          category: 'docker-pr-image'
+          category: ${{ env.TRIVY_SARIF_CATEGORY }}
 
-      - name: Upload Trivy compatibility results (docker-build category)
+      - name: Record PR Trivy scan traceability
         if: always() && steps.trivy-pr-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@9e0d7b8d25671d64c341c19c0152d693099fb5ba # v4.35.5
-        with:
-          sarif_file: 'trivy-pr-results.sarif'
-          category: '.github/workflows/docker-build.yml:build-and-push'
-        continue-on-error: true
-
-      - name: Upload Trivy compatibility results (docker-publish alias)
-        if: always() && steps.trivy-pr-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@9e0d7b8d25671d64c341c19c0152d693099fb5ba # v4.35.5
-        with:
-          sarif_file: 'trivy-pr-results.sarif'
-          category: '.github/workflows/docker-publish.yml:build-and-push'
-        continue-on-error: true
-
-      - name: Upload Trivy compatibility results (nightly alias)
-        if: always() && steps.trivy-pr-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@9e0d7b8d25671d64c341c19c0152d693099fb5ba # v4.35.5
-        with:
-          sarif_file: 'trivy-pr-results.sarif'
-          category: 'trivy-nightly'
-        continue-on-error: true
+        env:
+          IMAGE_REF: ${{ steps.pr-image.outputs.image_ref }}
+        run: |
+          CADDY_VERSION=$(docker run --rm --pull=never "${IMAGE_REF}" caddy version 2>/dev/null || echo "unknown")
+          {
+            echo "## PR Trivy SARIF Traceability"
+            echo ""
+            echo "- Category: ${{ env.TRIVY_SARIF_CATEGORY }}"
+            echo "- Image: ${IMAGE_REF}"
+            echo "- Digest: n/a (tag-based PR image)"
+            echo "- Caddy version: ${CADDY_VERSION}"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Create scan summary
         if: always()

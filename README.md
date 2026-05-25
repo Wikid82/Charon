@@ -44,6 +44,7 @@ Charon gives you:
 - ✅ One-click Docker app discovery
 - ✅ Live updates without restarts
 - ✅ Zero external dependencies
+- ✅ One-click bug reports and feature requests, right from the app
 
 If you can use a website, you can run Charon.
 

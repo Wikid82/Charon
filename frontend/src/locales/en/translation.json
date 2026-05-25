@@ -1818,5 +1818,16 @@
       "reconnectNotice": "Port change will take effect on next agent reconnect.",
       "agentOffline": "Agent is offline. Proxy status unavailable."
     }
+  },
+  "feedback": {
+    "triggerLabel": "Open feedback menu",
+    "closeTriggerLabel": "Close feedback menu",
+    "panelLabel": "Feedback options",
+    "reportBug": "Report a Bug",
+    "reportBugDescription": "Found an issue?",
+    "reportBugAriaLabel": "Report a bug (opens GitHub Issues in new tab)",
+    "requestFeature": "Request a Feature",
+    "requestFeatureDescription": "Have an idea?",
+    "requestFeatureAriaLabel": "Request a feature (opens GitHub Issues in new tab)"
   }
 }
