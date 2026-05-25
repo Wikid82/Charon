@@ -942,20 +942,34 @@ jobs:
           echo "Unsuppressed HIGH/CRITICAL findings (from ${SARIF_PATH}):"
 
           if [[ ! -f "${SARIF_PATH}" ]]; then
-            FALLBACK_REASON="SARIF file missing"
+            FALLBACK_REASON="file missing"
           elif [[ ! -r "${SARIF_PATH}" ]]; then
-            FALLBACK_REASON="SARIF file unreadable"
+            FALLBACK_REASON="file unreadable"
           elif ! jq -e '.' "${SARIF_PATH}" >/dev/null 2>&1; then
-            FALLBACK_REASON="SARIF JSON invalid"
+            FALLBACK_REASON="invalid JSON"
+          elif ! jq -e '(.runs | type) == "array"' "${SARIF_PATH}" >/dev/null 2>&1; then
+            FALLBACK_REASON="unexpected schema"
           else
             if FINDINGS_JSON=$(jq -c '
               [
-                .runs[]?.results[]?
-                | select(((.suppressions // []) | length) == 0)
+                .runs[] as $run
+                | (($run.results // [])[]?) as $result
+                | select((($result.suppressions // []) | length) == 0)
                 | {
-                    id: (.ruleId // .rule.id // "unknown"),
+                    id: (
+                      $result.ruleId
+                      // $result.rule.id
+                      // (
+                        if ($result.ruleIndex != null and (($run.tool.driver.rules? // null) | type) == "array") then
+                          ($run.tool.driver.rules[$result.ruleIndex].id // empty)
+                        else
+                          empty
+                        end
+                      )
+                      // "unknown"
+                    ),
                     package: (
-                      (.message.text // "")
+                      ($result.message.text // "")
                       | capture("(?i)(?:Package|PkgName|Pkg|Library)\\s*[:=]\\s*`?(?<pkg>[A-Za-z0-9._+:+-]+)`?")?.pkg
                     )
                   }
@@ -969,7 +983,10 @@ jobs:
               ]
             ' "${SARIF_PATH}" 2>/dev/null); then
               FINDINGS_COUNT=$(echo "${FINDINGS_JSON}" | jq 'length' 2>/dev/null || echo "0")
-              UNIQUE_IDS_CSV=$(echo "${FINDINGS_JSON}" | jq -r '[.[].id] | unique | join(", ")' 2>/dev/null || echo "none")
+              UNIQUE_IDS_CSV=$(echo "${FINDINGS_JSON}" | jq -r '[.[].id | select(. != "" and . != null)] | unique | join(", ")' 2>/dev/null || echo "none")
+              if [[ -z "${UNIQUE_IDS_CSV}" ]]; then
+                UNIQUE_IDS_CSV="none"
+              fi
 
               if [[ "${FINDINGS_COUNT}" -gt 0 ]]; then
                 echo "${FINDINGS_JSON}" | jq -r '.[] | "- \(.id) | package: \(.package)"' 2>/dev/null || echo "- unable to render parsed findings"
@@ -977,7 +994,7 @@ jobs:
                 echo "- none"
               fi
             else
-              FALLBACK_REASON="Unable to parse SARIF results"
+              FALLBACK_REASON="parser command failure"
             fi
           fi
 
