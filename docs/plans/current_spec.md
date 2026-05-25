@@ -1,351 +1,682 @@
-# PR #1026 Cerberus Integration CI Failure Fix — Proxy Groups
-
-**Status**: Active
-**Target**: PR #1026 (`development` → `main`)
-
+---
+post_title: Caddy Version Drift in GitHub Security Root-Cause Plan
+categories:
+  - plans
+tags:
+  - security
+  - trivy
+  - docker
+  - github-actions
+  - supply-chain
+summary: Investigation and durable remediation plan to identify why GitHub Security still reports Caddy 2.11.2 after Dockerfile was updated to 2.11.3, with concrete verification commands, failure-mode matrix, and commit slicing.
+post_date: 2026-05-24
 ---
 
-## 1. Introduction
+## Introduction
 
 ### Overview
 
-The Cerberus Integration CI workflow (`.github/workflows/cerberus-integration.yml`) fails on PR #1026 with TC-3 ("Not all malicious requests were blocked by WAF") and TC-4 ("Too many legitimate requests failed"). TC-1, TC-2, and TC-5 pass.
-
-The root cause is a **silent HTTP 500** on proxy host creation at `13:10:30.980Z` (248 ms after API ready). The test script (`scripts/cerberus_integration.sh`) treats any non-201 response as "Proxy host may already exist" and continues without the proxy host in the database. As a result, the security configuration is applied to Caddy with **zero proxy hosts**, producing no `reverse_proxy` route for the test domain. All test traffic reaches a fallback handler that returns the React SPA (`<!DOCTYPE html>`), which the WAF and rate limiter never see.
-
-The **exact Caddy rejection reason is unknown** due to two compounding observability gaps: the script discards the HTTP response body (containing the full error), and the CI debug step runs after `trap cleanup EXIT` has already removed all containers. This plan fixes the observability gap first, then addresses every confirmed defect.
-
-A secondary defect also exists: even if proxy host creation succeeded, `buildWAFHandler` in `config.go` returns `nil` when `secCfg.WAFMode == "disabled"` (the seeded DB value), so the WAF handler would not be present in the Caddy route during the initial proxy host creation. The security config PUT (step 5) sets `WAFMode = "block"` and triggers a second `ApplyConfig`, at which point the WAF would apply correctly. This ordering issue is a separate concern from the 500 and is documented below.
-
-A tertiary defect is stale named Docker volumes: the cleanup function removes containers but not volumes. Stale `charon.db` data from a prior run persists across CI runs and can leave the database in a partially configured state at startup.
+Dockerfile now pins Caddy to 2.11.3, but GitHub Security still shows Trivy
+alerts indicating 2.11.2. This plan defines how to identify the exact reporting
+source (workflow, category, artifact, branch, platform, or cache path), prove
+root cause with evidence, and implement durable fixes so alert state converges
+with actual shipped images.
 
 ### Objectives
 
-1. Fix the observability gap so the next CI run exposes the exact Caddy rejection reason.
-2. Fix the script's silent failure on any non-201 proxy host creation response.
-3. Fix the CI workflow debug step ordering (containers are removed before logs are captured).
-4. Eliminate stale volume state between CI runs.
-5. Fix the `buildWAFHandler` / DB-seed interaction so WAF applies from the first `ApplyConfig`.
-6. Add a mutex to `ApplyConfig` to prevent concurrent invocations.
-7. Fix the CLI `migrate` subcommand missing `ProxyGroup` in the AutoMigrate list.
+- Identify the precise workflow/category/artifact still emitting Caddy 2.11.2.
+- Determine why that path bypassed or outlived the Dockerfile update.
+- Define durable remediation over one-off closures.
+- Validate remediation with repeatable commands and expected outcomes.
 
----
+### Scope
 
-## 2. Research Findings
+In scope:
 
-### 2.1 CI Failure Chain
+- GitHub Actions workflows that build images and upload SARIF.
+- Trivy/Grype/SBOM/provenance pipeline wiring.
+- PR/push/nightly/weekly branch and category behavior.
+- Local task/skill wiring that influences operator assumptions.
+- Minimal config updates needed for long-term correctness.
 
-Confirmed from `.github/logs/ci_failure.log`:
+Out of scope:
 
-| Time (UTC) | Event | Status |
-|---|---|---|
-| 13:10:15.390Z | Charon container started | — |
-| 13:10:30.732Z | Charon API health check passed | PASS |
-| 13:10:30.960Z | Authentication complete | PASS |
-| 13:10:30.980Z | `POST /api/v1/proxy-hosts` | **HTTP 500** |
-| 13:10:33.982Z | XSS WAF ruleset created (`POST /api/v1/security/waf/rulesets`) | HTTP 201 |
-| 13:10:34.011Z | Security config applied (`PUT /api/v1/security/config`) | HTTP 200 |
-| 13:10:39.012Z | TC-1: Cerberus features enabled | PASS |
-| 13:10:39.012Z | TC-2: Handler order in Caddy config (1 route) | PASS |
-| 13:10:39.013Z | TC-3: WAF blocks malicious requests (0/3 blocked) | **FAIL** |
-| 13:10:39.013Z | TC-4: Legitimate traffic flows to httpbin (all return `<!DOCTYPE html>`) | **FAIL** |
+- Unrelated frontend/backend product behavior.
+- Dependency policy changes not related to the stale Caddy signal.
 
-### 2.2 Defect 1 — Script: Silent Failure on Non-201 (CRITICAL)
+## Requirements
 
-**File**: `scripts/cerberus_integration.sh`, lines 261–272
+### EARS Requirements
 
-```bash
-CREATE_RESP=$(curl -s -w "\n%{http_code}" -X POST ... -d "${PROXY_HOST_PAYLOAD}" ...)
-CREATE_STATUS=$(echo "$CREATE_RESP" | tail -n1)
-if [ "$CREATE_STATUS" = "201" ]; then
-    log_info "Proxy host created successfully"
-else
-    log_info "Proxy host may already exist (status: $CREATE_STATUS)"   # silent continue
-fi
-sleep 3
-```
+- WHEN Dockerfile pins Caddy to 2.11.3, THE SYSTEM SHALL report Caddy 2.11.3
+  in all image-based security scans for the same source revision.
+- WHEN SARIF is uploaded from multiple workflows, THE SYSTEM SHALL use
+  unambiguous categories that map to active workflows only.
+- IF a workflow scans a partial artifact (for example only one binary), THEN THE
+  SYSTEM SHALL not be treated as authoritative for full container component
+  status.
+- WHEN builds are skipped or use stale tags/artifacts, THE SYSTEM SHALL emit an
+  explicit signal that scan freshness is unknown.
+- WHEN multi-arch images are published, THE SYSTEM SHALL verify Caddy version
+  per relevant platform digest, not only by floating tag.
 
-- Any non-201 status (including 500) is logged as "may already exist" — **no exit, no body extraction**.
-- The response body containing `"Failed to apply configuration: apply failed (rolled back): <caddy_error>"` is **never read or logged**.
-- Script continues to steps 5 and 6 with an empty proxy host table.
+## Research Findings
 
-### 2.3 Defect 2 — Script: Stale Named Volumes (CRITICAL)
+### Confirmed Version Pin
 
-The `cleanup()` function and the per-run `docker rm -f` commands remove containers but **never remove named volumes**:
+- Dockerfile sets CADDY_VERSION=2.11.3 and CADDY_CANDIDATE_VERSION=2.11.3.
+- Caddy is built from source in caddy-builder and copied into runtime.
 
-```bash
-cleanup() {
-    docker rm -f ${CONTAINER_NAME} 2>/dev/null || true
-    docker rm -f ${BACKEND_CONTAINER} 2>/dev/null || true
-    # volumes charon_cerberus_test_data, caddy_cerberus_test_data, caddy_cerberus_test_config
-    # are NOT removed
-}
-```
+### Exact Files and Workflows to Inspect
 
-On repeated CI runs the volumes persist, leaving `charon.db` with proxy hosts, WAF rulesets, and security config from the prior run. On a stale-volume start, `SeedDefaultSecurityConfig` uses `FirstOrCreate` and preserves old values rather than re-seeding; a previously committed `WAFMode = "block"` or `Enabled = true` survives. Each run must start from a known-good empty state.
+#### Primary CI and Security Sources
 
-### 2.4 Defect 3 — CI Workflow: Debug Step After Container Cleanup (CRITICAL)
+- [.github/workflows/docker-build.yml](.github/workflows/docker-build.yml)
+- [.github/workflows/security-pr.yml](.github/workflows/security-pr.yml)
+- [.github/workflows/security-weekly-rebuild.yml](.github/workflows/security-weekly-rebuild.yml)
+- [.github/workflows/nightly-build.yml](.github/workflows/nightly-build.yml)
+- [.github/workflows/supply-chain-pr.yml](.github/workflows/supply-chain-pr.yml)
+- [.github/workflows/supply-chain-verify.yml](.github/workflows/supply-chain-verify.yml)
 
-**File**: `.github/workflows/cerberus-integration.yml`
+#### Scan Configuration and Ignore Policy
 
-The "Dump Debug Info on Failure" step executes `docker logs charon-cerberus-test`, but `trap cleanup EXIT` has already run inside the script and removed the container. Confirmed in the CI log at `13:11:49Z`: `Error: No such container: charon-cerberus-test`.
+- [trivy.yaml](trivy.yaml)
+- [.trivyignore](.trivyignore)
+- [.grype.yaml](.grype.yaml)
 
-### 2.5 Root Cause of HTTP 500: Observability Gap
+#### Task Wiring and Local Operator Paths
 
-The `Create` handler (`proxy_host_handler.go`) returns HTTP 500 when `ApplyConfig` fails:
+- [.vscode/tasks.json](.vscode/tasks.json)
+- [.github/skills/scripts/skill-runner.sh](.github/skills/scripts/skill-runner.sh)
+- [.github/skills/security-scan-trivy-scripts/run.sh](.github/skills/security-scan-trivy-scripts/run.sh)
+- [.github/skills/security-scan-docker-image-scripts/run.sh](.github/skills/security-scan-docker-image-scripts/run.sh)
 
-```go
-c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
-```
+#### Documentation that Influences Scan Interpretation
 
-The `err.Error()` string is one of:
-- `"apply failed (rolled back): <caddy_error>"` — Caddy's `/load` API rejected the config.
-- `"save snapshot: <io_error>"` — disk error writing the config snapshot.
-- `"validate config: <validation_error>"` — local validation of generated config failed.
+- [SECURITY.md](SECURITY.md)
+- [docs/guides/supply-chain-security-developer-guide.md](docs/guides/supply-chain-security-developer-guide.md)
+- [ARCHITECTURE.md](ARCHITECTURE.md)
 
-The exact value is unknown because the script discards the response body. Likely candidates given the CI environment:
-- **Stale Caddy data** in the named volumes causing `/load` to reject the config.
-- A **Caddy JSON validation error** specific to the generated config for `cerberus.test.local` in non-E2E mode (ACME automation policy for a `.local` domain, rate-limit or WAF handler shape mismatch, etc.).
-- A **concurrent `ApplyConfig` collision** between the background startup goroutine and the request handler (no mutex).
+### High-Signal Observations
 
-Fixes 1, 2, and 3 (observability + volume cleanup) will reveal the exact error on the next CI run.
+- docker-build.yml uploads Trivy SARIF under multiple categories, including a
+  legacy compatibility alias:
+  .github/workflows/docker-publish.yml:build-and-push.
+- security-pr.yml does filesystem scan of extracted /app/charon binary,
+  not full image and not /usr/bin/caddy; this path cannot be authoritative for
+  Caddy image component status.
+- nightly-build.yml scans category trivy-nightly and uses separate branch
+  flow; stale findings can persist if nightly diverges from main or is not
+  rebuilt after merge.
+- docker-build.yml has skip logic for chore/Renovate patterns; if build is
+  skipped on a critical version-bump commit, canonical scan categories may not
+  refresh.
+- supply-chain-verify.yml has pull-request tag logic that still references
+  pr-<number> style in some paths while docker-build.yml emits immutable
+  pr-<number>-<sha> tags; this can cause wrong-artifact lookups in some modes.
+- Local Trivy skill scans repository filesystem (trivy fs /app), which can
+  disagree with image scans and should not be used to infer GitHub Security
+  image alert closure behavior.
 
-### 2.6 Defect 4 — buildWAFHandler / DB-Seed Interaction (SECONDARY)
+## Probable Failure Modes
 
-`SeedDefaultSecurityConfig` (`backend/internal/models/seed.go`) creates the "default" `SecurityConfig` row with `Enabled: false` and `WAFMode: "disabled"`. At proxy host creation time, `computeEffectiveFlags` reads this DB record and sets `wafEnabled = false` (because `Enabled == false` forces all flags to false). The WAF handler is therefore absent from the Caddy route generated during proxy host creation.
+### FM-1 Stale SARIF Category Track (Legacy Alias)
 
-After the security config PUT (step 5 of the script), `SecurityConfig.Enabled = true` and `WAFMode = "block"` are written to the DB. The subsequent `ApplyConfig` call correctly builds the WAF handler. However, this ordering means the first `ApplyConfig` — the one that actually registers the proxy route — has no WAF. Because the proxy host creation currently fails with 500, this secondary ordering issue is masked; it would surface as TC-3 failing even on a run where the 500 is resolved.
+- Source: docker-build.yml compatibility upload to
+  .github/workflows/docker-publish.yml:build-and-push.
+- Effect: old category can keep/open alerts even after active workflow updates.
 
-The fix is to reorder the test script so the security configuration is applied **before** the proxy host is created, ensuring `SecurityConfig.Enabled = true` and `WAFMode = "block"` are in the DB when the first `ApplyConfig` runs.
+### FM-2 Scanner Targets Wrong Artifact
 
-### 2.7 TC-2 Passes Despite Failure
+- Source: security-pr.yml scans only extracted /app/charon.
+- Effect: misses Caddy binary (/usr/bin/caddy) status and gives false closure
+  confidence.
 
-After the proxy host creation rolls back (0 proxy hosts in DB), the security config PUT triggers `ApplyConfig`. This generates a Caddy config that includes the management server and a security-handlers-only route (WAF + rate limiter + ACL), but with no `reverse_proxy` to `cerberus-backend`. TC-2 checks handler ORDER in `.apps.http.servers.charon_server.routes`, finds 1 route, verifies the middleware chain order, and passes. There is no functional proxy route for `cerberus.test.local`, so TC-3 and TC-4 fail: all traffic returns the React SPA served by the management server fallback.
+### FM-3 Build Skipped, Scan Never Refreshed
 
-### 2.8 Defect 5 — No Mutex on ApplyConfig (CODE SMELL)
+- Source: skip logic on chore/bot commits in docker-build.yml.
+- Effect: post-merge categories not refreshed, old alerts remain open.
 
-`ApplyConfig` in `backend/internal/caddy/manager.go` has no synchronization. The background startup goroutine calls `ApplyConfig` once (after Caddy pings successfully) and request handlers call it on every proxy host create/update/delete. In the CI sequence, the background goroutine fires ~1 second after container start and the API health check passes at t+15 s — no overlap by default. However, concurrent HTTP requests can trigger concurrent `ApplyConfig` calls, causing interleaved config generation and snapshot corruption. A mutex is a cheap, correct prevention.
+### FM-4 Branch Mismatch
 
-### 2.9 Defect 6 — CLI Migrate Missing ProxyGroup (MEDIUM)
+- Source: nightly/dev/main have separate scan categories and schedules.
+- Effect: Security tab still shows 2.11.2 from non-main category/ref.
 
-**File**: `backend/cmd/api/main.go`, CLI `migrate` subcommand AutoMigrate list.
+### FM-5 Stale Cached Build Output
 
-`&models.ProxyGroup{}` is missing before `&models.ProxyHost{}`. `ProxyHost` has a foreign key to `ProxyGroup`. Running `go run . migrate` on a fresh database would attempt to create `proxy_hosts` before `proxy_groups`, producing an FK constraint violation. Not triggered in CI (CI uses `routes.go:RegisterWithDeps`), but breaks the standalone migration path.
+- Source: BuildKit cache behavior in certain workflows/stages.
+- Effect: rebuilt image may still embed older Caddy artifact in one path.
 
----
+### FM-6 PR Tag and Artifact Resolution Drift
 
-## 3. Technical Specifications
+- Source: mutable/legacy tag expectations (pr-<number>) vs immutable tags
+  (pr-<number>-<sha>).
+- Effect: scanner pulls unexpected image.
 
-### Fix 1 — Fail-Fast Script with Response Body Logging
+### FM-7 Trivy DB/Cache Timing and Feed Drift
 
-**File**: `scripts/cerberus_integration.sh`
+- Source: DB cache freshness differences between runs.
+- Effect: inconsistent vulnerability metadata across runs.
 
-Replace the proxy host creation block (lines 261–272):
+### FM-8 Multi-Arch Manifest Mismatch
 
-```bash
-log_info "Creating proxy host '${TEST_DOMAIN}' pointing to backend..."
-CREATE_RESP=$(curl -s -w "\n%{http_code}" -X POST \
-    -H "Content-Type: application/json" \
-    -b "${TMP_COOKIE}" \
-    "http://localhost:${API_PORT}/api/v1/proxy-hosts" \
-    -d "${PROXY_HOST_PAYLOAD}")
-CREATE_STATUS=$(echo "$CREATE_RESP" | tail -n1)
-CREATE_BODY=$(echo "$CREATE_RESP" | head -n -1)
+- Source: one architecture updated while another remains old.
+- Effect: alerts persist for platform-specific digest even if amd64 looks fixed.
 
-if [ "$CREATE_STATUS" = "201" ]; then
-    log_info "Proxy host created successfully"
-elif [ "$CREATE_STATUS" = "409" ]; then
-    log_info "Proxy host already exists (HTTP 409) — continuing"
-else
-    log_error "Proxy host creation failed (HTTP ${CREATE_STATUS})"
-    log_error "Response body: ${CREATE_BODY}"
-    exit 1
-fi
-```
+### FM-9 Old SARIF Still Open on Default Branch
 
-Only 201 and 409 are acceptable. Any other status exits non-zero with full body logged.
+- Source: no subsequent successful upload for same category/ref to close prior
+  result set.
+- Effect: stale findings remain visible.
 
-### Fix 2 — Volume Cleanup in Script
+## Technical Specifications
 
-**File**: `scripts/cerberus_integration.sh`
+### Investigation Data Model
 
-Update `cleanup()` to save container logs before removing containers, and remove named volumes:
+For each open Caddy finding, collect this tuple:
 
-```bash
-cleanup() {
-    # Save container logs before removal (consumed by CI artifact upload)
-    docker logs "${CONTAINER_NAME}" > /tmp/charon-cerberus-test.log 2>&1 || true
-    docker logs "${BACKEND_CONTAINER}" > /tmp/cerberus-backend.log 2>&1 || true
+- alert number
+- tool name (Trivy)
+- state
+- most recent instance ref
+- SARIF category
+- workflow/run URL
+- scanned target type (image or fs)
+- image ref or digest (if applicable)
+- observed Caddy version evidence
 
-    docker rm -f ${CONTAINER_NAME} 2>/dev/null || true
-    docker rm -f ${BACKEND_CONTAINER} 2>/dev/null || true
+### Verification Commands and Expected Outcomes
 
-    # Remove volumes to ensure a clean state for the next run
-    docker volume rm charon_cerberus_test_data 2>/dev/null || true
-    docker volume rm caddy_cerberus_test_data 2>/dev/null || true
-    docker volume rm caddy_cerberus_test_config 2>/dev/null || true
-}
-```
-
-Also add volume removal in the explicit per-run cleanup block before `docker run`:
+#### 1. Enumerate Open Trivy Alerts and Categories (Paginated + Ref-Aware)
 
 ```bash
-docker rm -f ${CONTAINER_NAME} 2>/dev/null || true
-docker rm -f ${BACKEND_CONTAINER} 2>/dev/null || true
-docker volume rm charon_cerberus_test_data 2>/dev/null || true
-docker volume rm caddy_cerberus_test_data 2>/dev/null || true
-docker volume rm caddy_cerberus_test_config 2>/dev/null || true
+# Optional: set REF_PREFIX to constrain results to a branch namespace.
+# Examples: refs/heads/main, refs/heads/nightly
+REF_PREFIX="refs/heads/main"
+
+gh api --paginate \
+  -H "Accept: application/vnd.github+json" \
+  "/repos/<owner>/<repo>/code-scanning/alerts?tool_name=Trivy&state=open&per_page=100" \
+  | jq -r --arg refPrefix "$REF_PREFIX" '
+      .[]
+      | select(.most_recent_instance.ref | startswith($refPrefix))
+      | [
+          .number,
+          .most_recent_instance.ref,
+          .most_recent_instance.commit_sha,
+          .most_recent_instance.category,
+          .most_recent_instance.analysis_key,
+          .most_recent_instance.location.path,
+          .most_recent_instance.message.text
+        ] | @tsv'
 ```
 
-### Fix 3 — CI Artifact Upload for Container Logs
+Expected outcome:
 
-**File**: `.github/workflows/cerberus-integration.yml`
+- Full open-alert inventory is complete (no missed pages).
+- Each open alert is mapped to ref + category + analysis key for correlation.
+- Explicit pass condition: every alert containing Caddy 2.11.2 has a known
+  category/ref owner row in the investigation table.
 
-Add an artifact upload step immediately after "Run Cerberus Integration Test". Container logs are written to `/tmp` by `cleanup()` before containers are removed, so this step captures them even on failure:
+#### 2. Map Alert Category/Ref to Workflow Runs
 
-```yaml
-- name: Upload Container Logs on Failure
-  if: failure()
-  uses: actions/upload-artifact@v4
-  with:
-    name: cerberus-container-logs-${{ github.run_id }}
-    path: |
-      /tmp/charon-cerberus-test.log
-      /tmp/cerberus-backend.log
-    if-no-files-found: ignore
-    retention-days: 7
+```bash
+gh run list --workflow docker-build.yml --branch main --limit 50 \
+  --json databaseId,headSha,createdAt,conclusion,url
+
+gh run list --workflow security-weekly-rebuild.yml --branch main --limit 20 \
+  --json databaseId,headSha,createdAt,conclusion,url
+
+gh run list --workflow nightly-build.yml --branch nightly --limit 20 \
+  --json databaseId,headSha,createdAt,conclusion,url
 ```
 
-### Fix 4 — Reorder Script Steps (Security Config Before Proxy Host)
+Expected outcome:
 
-**File**: `scripts/cerberus_integration.sh`
+- For each alert tuple, at least one candidate run is identified by matching
+  workflow + ref + headSha window.
+- Explicit pass condition: no unresolved alert tuple remains without a candidate
+  producing run.
 
-Move the security config application and WAF ruleset creation to run **before** proxy host creation:
+#### 3. Correlate SARIF to Alerts Using Structured Fields (Not String-Only)
 
-```
-Current order:
-  Step 4: Create proxy host                       ← ApplyConfig with Enabled=false, WAFMode=disabled
-  Step 5: Create WAF ruleset
-  Step 6: Apply security config (Enabled=true, WAFMode=block)
+```bash
+# After downloading SARIF from candidate runs, extract structured tuples.
+jq -r '
+  .runs[] as $run
+  | $run.results[]?
+  | [
+      ($run.automationDetails.id // ""),
+      (.ruleId // ""),
+      (.level // ""),
+      (.locations[0].physicalLocation.artifactLocation.uri // ""),
+      (.partialFingerprints.primaryLocationLineHash // ""),
+      (.properties.image_ref // .properties.imageRef // ""),
+      (.message.text // "")
+    ] | @tsv
+' trivy-results.sarif
 
-Correct order:
-  Step 4: Apply security config (Enabled=true, WAFMode=block)
-  Step 5: Create WAF ruleset
-  Step 6: Create proxy host                       ← ApplyConfig with Enabled=true, WAFMode=block
-```
-
-This ensures `computeEffectiveFlags` reads the correct DB state when it generates the Caddy config for the proxy host route. After this reordering, `buildWAFHandler` will receive `wafEnabled=true` and the WAF handler will be included in the route.
-
-The security config endpoint should not require an existing proxy host, so this reordering is safe. Add a short `sleep 1` after the security config PUT to allow Caddy to finish loading the management-only config before the proxy host triggers a follow-up load.
-
-### Fix 5 — Mutex on ApplyConfig
-
-**File**: `backend/internal/caddy/manager.go`
-
-Add a `sync.Mutex` field to `Manager` and acquire it at the start of `ApplyConfig`:
-
-```go
-type Manager struct {
-    mu sync.Mutex
-    // ... existing fields unchanged ...
-}
-
-func (m *Manager) ApplyConfig(ctx context.Context) error {
-    m.mu.Lock()
-    defer m.mu.Unlock()
-    // rest of function unchanged
-}
+# Optional diagnostic grep is allowed only as a secondary check.
+grep -En "2\.11\.(2|3)|caddyserver/caddy" trivy-results.sarif || true
 ```
 
-`sync.Mutex` zero-value is an unlocked mutex; no constructor change is needed.
+Expected outcome:
 
-### Fix 6 — CLI Migrate Missing ProxyGroup
+- Structured SARIF fields map back to alert category/ref/analysis key lineage.
+- Explicit pass condition: each open 2.11.2 alert is backed by one matched SARIF
+  result tuple from the owning workflow/category.
 
-**File**: `backend/cmd/api/main.go`
+#### 4. Verify Built Image Caddy Version by Digest
 
-Add `&models.ProxyGroup{}` immediately before `&models.ProxyHost{}` in the CLI `migrate` subcommand's AutoMigrate call. The order must mirror `routes.go:RegisterWithDeps`.
+```bash
+IMAGE="ghcr.io/<owner>/charon@sha256:<digest>"
+docker pull "$IMAGE"
+docker run --rm --entrypoint caddy "$IMAGE" version
+```
 
----
+Expected outcome:
 
-## 4. Implementation Plan
+- Returns v2.11.3 for corrected artifacts.
+- If v2.11.2, confirms build-path/cache/tag issue.
+- Explicit pass condition: all active-category digests under investigation report
+  v2.11.3.
 
-### Phase 1: Playwright Tests
+#### 5. Verify Multi-Arch Digests
 
-Not applicable. No frontend or UI changes are part of this fix.
+```bash
+docker buildx imagetools inspect "ghcr.io/<owner>/charon@sha256:<digest>"
+```
 
-### Phase 2: Backend Changes
+Expected outcome:
 
-| # | Task | File | Complexity |
-|---|---|---|---|
-| B1 | Add `mu sync.Mutex` to `Manager` and lock `ApplyConfig` | `backend/internal/caddy/manager.go` | Low |
-| B2 | Add `&models.ProxyGroup{}` before `&models.ProxyHost{}` in CLI migrate | `backend/cmd/api/main.go` | Trivial |
+- Lists per-platform manifests; follow with per-platform checks where possible.
+- Confirms whether one architecture still carries 2.11.2.
+- Explicit pass condition: no platform digest in active categories reports
+  Caddy 2.11.2.
 
-**B1 detail**: Add `mu sync.Mutex` field, add `m.mu.Lock(); defer m.mu.Unlock()` at top of `ApplyConfig`. Verify `sync` import. 3-line change.
+#### 6. Validate Workflow Skip Behavior on Merge Commit
 
-**B2 detail**: Find the `migrate` subcommand AutoMigrate call, insert `&models.ProxyGroup{}` immediately before `&models.ProxyHost{}`. 1-line addition.
+```bash
+gh run view <run-id> --log | grep -n "skip_build\|Determine skip condition"
+```
 
-### Phase 3: Script and CI Changes
+Expected outcome:
 
-| # | Task | File | Complexity |
-|---|---|---|---|
-| S1 | Fail-fast proxy host creation with body logging | `scripts/cerberus_integration.sh` | Low |
-| S2 | Volume cleanup in `cleanup()` and pre-run block | `scripts/cerberus_integration.sh` | Low |
-| S3 | Reorder steps: security config → WAF ruleset → proxy host | `scripts/cerberus_integration.sh` | Low |
-| S4 | Add artifact upload step for container logs | `.github/workflows/cerberus-integration.yml` | Low |
+- Confirms whether key post-merge build/scan was skipped due to commit title or
+  actor rules.
+- Explicit pass condition: security-relevant commits are not skipped, or skip is
+  accompanied by an accepted/manual refresh path.
 
-**S1 detail**: Replace the proxy host creation block (lines 261–272) per Fix 1 spec. ~10-line change.
+#### 7. Validate Scan Target Type
 
-**S2 detail**: Add `docker logs` capture and `docker volume rm` calls to `cleanup()` and the per-run cleanup block. ~8-line addition.
+```bash
+# Read workflow logic directly for scan target
+grep -n "scan-type\|scan-ref\|image-ref\|/app/charon\|/usr/bin/caddy" .github/workflows/security-pr.yml .github/workflows/docker-build.yml
+```
 
-**S3 detail**: Move the security config PUT block (and WAF ruleset POST) to before the proxy host creation. Add `sleep 1` after security config PUT. The actual block positions depend on the current line numbers — confirm with `grep -n "Step [456]"` before editing.
+Expected outcome:
 
-**S4 detail**: Add the `actions/upload-artifact@v4` step after "Run Cerberus Integration Test" per Fix 3 spec. ~10-line addition.
+- Evidence of fs-only binary scan vs full image scan path.
+- Explicit pass condition: authoritative image-scan workflow is clearly
+  identified and documented for closure decisions.
 
-### Phase 4: Integration and Testing
+## Durable Remediation Options (Prioritized)
 
-| # | Task |
-|---|---|
-| T1 | Push branch changes, trigger `.github/workflows/cerberus-integration.yml` |
-| T2 | If HTTP 500 still occurs: download the artifact `cerberus-container-logs-*` and read `charon-cerberus-test.log` for the `"Failed to apply configuration: ..."` line |
-| T3 | Implement targeted fix based on the exact Caddy error (defer to Contingency Commit 5 if needed) |
-| T4 | Re-run until TC-1 through TC-5 all pass |
+### Priority 0 Legacy SARIF Category Closure Backfill Before Retirement
 
-### Phase 5: Documentation
+- Build a closure inventory of all open legacy-category alerts keyed by:
+  category + ref + workflow + alert number.
+- Run an explicit backfill cycle that refreshes those legacy tracks with current
+  results before retiring compatibility categories.
+- Retire compatibility categories only after the backfill shows no unresolved
+  Caddy 2.11.2 lineage in those tracks.
 
-No user-facing documentation changes required beyond this spec.
+Why:
 
----
+- Prevents orphaned legacy alert tracks from surviving category retirement.
+- Ensures closure state is auditable before compatibility removal.
 
-## 5. Acceptance Criteria
+### Priority 1 Remove Legacy SARIF Alias Categories
 
-| # | Criterion | Verification |
-|---|---|---|
-| AC1 | Script exits non-zero on any non-201/non-409 proxy host creation response | Script output contains `"Proxy host creation failed (HTTP ...)"` and exits 1 |
-| AC2 | Full HTTP response body is logged on proxy host creation failure | Script output contains `"Response body: ..."` with the Caddy error string |
-| AC3 | Named volumes are removed at cleanup and before each run | `docker volume ls` shows no `charon_cerberus_test_data` after script exit |
-| AC4 | Container logs saved to `/tmp` before container removal | `/tmp/charon-cerberus-test.log` exists and is non-empty after a test run |
-| AC5 | Container logs uploaded as CI artifact on failure | GitHub Actions run shows `cerberus-container-logs-*` artifact on any failing run |
-| AC6 | Security config applied to DB before proxy host creation | `computeEffectiveFlags` returns `wafEnabled=true` when proxy host `ApplyConfig` fires |
-| AC7 | `ApplyConfig` calls are serialized by mutex | No concurrent `ApplyConfig` executions possible |
-| AC8 | `go run . migrate` succeeds on a fresh database | `proxy_groups` table created before `proxy_hosts`; no FK constraint error |
-| AC9 | TC-3 passes: 3/3 malicious requests blocked | WAF returns HTTP 403 for XSS and injection payloads |
-| AC10 | TC-4 passes: 10/10 legitimate requests succeed | Responses are from httpbin backend (HTTP 200, JSON body) |
-| AC11 | TC-1, TC-2, TC-5 continue to pass | No regression from current PASS state |
-| AC12 | DoD: all 5 TCs pass in CI without errors | `.github/workflows/cerberus-integration.yml` run exits green; no `"Proxy host may already exist"` log line present |
+- Remove compatibility uploads in docker-build.yml for:
+  - .github/workflows/docker-publish.yml:build-and-push
+  - any duplicate compatibility category not actively used.
+- Keep one canonical category per scan job.
 
----
+Why:
 
-## 6. Commit Slicing Strategy
+- Prevents long-tail stale alert tracks and ambiguous ownership.
 
-**Decision**: Single PR (#1026) with 4 ordered logical commits. All changes are confined to script, workflow, and backend files. Each commit is independently revertible.
+### Priority 2 Enforce Canonical Image Scan as Source of Truth
 
-| Commit | Scope | Files | Dependencies | Validation Gate |
-|---|---|---|---|---|
-| Commit 1 | Observability: fail-fast + body logging + volume cleanup + log capture + CI artifact | `scripts/cerberus_integration.sh`, `.github/workflows/cerberus-integration.yml` | None | Next CI run produces either a PASS or a readable artifact with the exact Caddy error |
-| Commit 2 | Script: reorder steps so security config precedes proxy host creation | `scripts/cerberus_integration.sh` | Commit 1 (clean volumes needed to verify ordering) | TC-3 and TC-4 pass; `wafEnabled=true` at proxy host `ApplyConfig` time |
-| Commit 3 | Backend: mutex on `ApplyConfig` | `backend/internal/caddy/manager.go` | None | Existing unit tests pass; no behavioral change |
-| Commit 4 | Backend: CLI `migrate` fix | `backend/cmd/api/main.go` | None | `go run . migrate` on a fresh SQLite file creates `proxy_groups` before `proxy_hosts` |
+- Treat image-based Trivy scan in docker-build.yml and
+  security-weekly-rebuild.yml as authoritative for Caddy status.
+- Keep security-pr.yml binary scan as supplemental, or extend it to extract
+  and scan /usr/bin/caddy explicitly if retained for Caddy signal.
+- Add explicit category ownership and normalization for
+  security-weekly-rebuild.yml (set stable category naming and owner cadence).
 
-**Rollback**: Each commit can be reverted independently. Commits 1 and 2 are highest priority; Commits 3 and 4 are precautionary hardening with zero risk.
+Why:
 
-**Contingency**: If Commit 1 reveals a non-trivial Caddy error (e.g., a JSON shape regression in the generated config, a plugin API mismatch, a TLS policy validation failure for `.local` domains), a Commit 5 addresses that specific code path after diagnosis. The nature of that fix cannot be specified until the error body is captured from the artifact.
+- Eliminates partial-artifact blind spots.
+- Removes implicit category drift in weekly rebuild uploads.
+
+### Priority 3 Tighten Post-Merge Refresh Guarantees
+
+- Ensure Dockerfile/security-significant changes cannot bypass build+scan via
+  skip logic.
+- Add a condition override: if Dockerfile or workflow security files changed,
+  force build/scan.
+
+Why:
+
+- Guarantees scan freshness after security-relevant merges.
+
+### Priority 4 Normalize PR Tag and Artifact Resolution
+
+- Align all workflows on immutable pr-<number>-<sha> semantics.
+- Remove or gate legacy pr-<number> fallback paths.
+
+Why:
+
+- Avoids scanning wrong images.
+
+### Priority 5 Add Freshness Telemetry and Closure Proof
+
+- Emit build digest, Caddy version, and scan category into step summary and
+  retained artifact for each security upload.
+- Optional: add a post-scan assertion that SARIF run metadata references same
+  digest scanned.
+
+Why:
+
+- Makes stale-path diagnosis immediate.
+
+### Priority 6 Multi-Arch Explicit Verification
+
+- Add per-arch Caddy version check in CI before SARIF upload, at least for
+  linux/amd64 and linux/arm64 manifests where available.
+
+Why:
+
+- Prevents hidden platform drift.
+
+## Review of .gitignore, .dockerignore, codecov.yml, Dockerfile
+
+### .gitignore
+
+- No change required for this issue.
+- Existing SARIF/artifact ignores are appropriate.
+
+### .dockerignore
+
+- No change required for this issue.
+- Current exclusions do not explain stale Caddy finding source.
+
+### codecov.yml
+
+- No change required for this issue.
+- Coverage settings are unrelated to code scanning freshness.
+
+### Dockerfile
+
+- Functional version pin is already correct at 2.11.3.
+- Optional hardening (recommended if issue persists):
+  - add explicit build-time assertion that built Caddy reports expected major/minor/patch;
+  - emit OCI label with built Caddy version for traceability.
+
+## Implementation Plan
+
+### Phase 1 Playwright/UI Validation
+
+Objective:
+
+- Confirm this problem is CI/security-pipeline only, not a UI regression.
+- Run UI/Playwright checks conditionally when product-surface files changed.
+
+Tasks:
+
+1. Compute change scope:
+  - workflow/security-pipeline-only change (for example .github/workflows,
+    scripts security tooling, scan configs), or
+  - product-surface change (frontend/backend/runtime behavior).
+2. If product-surface change is present, run targeted smoke UI task(s) per DoD
+  policy.
+3. If workflow/security-pipeline-only, record conditional waiver and skip UI
+  execution.
+4. Record that no UI behavior change is expected from this remediation.
+
+Validation gate:
+
+- For product-surface changes: no UI regressions.
+- For workflow/security-only changes: waiver recorded with scope evidence.
+
+### Phase 2 Root-Cause Evidence Collection
+
+Objective:
+
+- Prove exact stale reporting source.
+
+Tasks:
+
+1. Enumerate open Trivy alerts with category/ref.
+2. Correlate each with workflow run and SARIF artifact.
+3. Confirm scanned image digest and runtime Caddy version.
+4. Determine whether issue is category-stale, artifact mismatch, skip-build,
+   branch mismatch, or multi-arch divergence.
+
+Validation gate:
+
+- One or more root causes selected, each mapped to category + ref + workflow
+  with evidence artifact links.
+
+### Phase 3 Workflow Remediation
+
+Objective:
+
+- Remove ambiguity and enforce canonical scan path.
+
+Tasks:
+
+1. Execute legacy-category closure backfill for affected category/ref/workflow
+  tuples.
+2. Remove legacy category uploads in docker-build.yml after verified backfill.
+3. Align category naming to one active track per workflow.
+4. Add explicit weekly category ownership/normalization for
+  security-weekly-rebuild.yml.
+5. Add force-scan behavior for Dockerfile/security-file changes.
+6. Align PR image tag/artifact resolution where drift exists.
+
+Validation gate:
+
+- Backfill completed and documented before compatibility retirement.
+- New run uploads SARIF to canonical category only; no legacy category updates.
+
+### Phase 4 Verification and Backfill
+
+Objective:
+
+- Demonstrate closure behavior and prevent recurrence.
+
+Tasks:
+
+1. Re-run relevant workflows on latest main commit.
+2. Verify SARIF reflects Caddy 2.11.3.
+3. Verify GitHub Security open Trivy alerts for Caddy 2.11.2 close or are
+   superseded by resolved state.
+4. If needed, run weekly/nightly paths to refresh branch-specific categories.
+
+Validation gate:
+
+- No open Caddy 2.11.2 findings remain in active categories for current refs.
+- Legacy categories either show verified closure after backfill or are
+  formally tracked with owner + retirement checkpoint.
+
+### Phase 5 Documentation and Governance
+
+Objective:
+
+- Keep future investigations short and deterministic.
+
+Tasks:
+
+1. Update SECURITY.md and supply-chain docs with category/branch ownership.
+2. Document canonical workflow for image-based closure verification.
+3. Note deprecated categories and retirement date.
+
+Validation gate:
+
+- Docs clearly map alert -> category -> workflow -> digest -> component version.
+
+## Commit Slicing Strategy
+
+### Decision
+
+Single PR with ordered logical commits (security pipeline coherence issue, tightly
+related files, low product-surface risk).
+
+### Trigger Reasons
+
+- Cross-domain but same concern: workflow wiring + security signal integrity.
+- High reviewer value from isolated commits (evidence, wiring, docs).
+- Fast rollback needed if any category/reporting side effect appears.
+
+### Ordered Commits
+
+#### Commit 1 Evidence and Traceability Baseline
+
+Scope:
+
+- Add/adjust investigation notes and CI summaries (non-behavioral) to capture
+  category/digest/Caddy version mapping.
+
+Files (expected):
+
+- [.github/workflows/docker-build.yml](.github/workflows/docker-build.yml)
+- [docs/plans/current_spec.md](docs/plans/current_spec.md)
+
+Dependencies:
+
+- None.
+
+Validation gate:
+
+- Workflow summary includes category + digest + caddy version evidence.
+
+#### Commit 2 Legacy Category Closure Backfill
+
+Scope:
+
+- Build and execute backfill for legacy category/ref/workflow tuples.
+- Capture closure evidence and retirement readiness criteria.
+
+Files (expected):
+
+- [.github/workflows/docker-build.yml](.github/workflows/docker-build.yml)
+- [docs/plans/current_spec.md](docs/plans/current_spec.md)
+
+Dependencies:
+
+- Commit 1 merged or present in branch.
+
+Validation gate:
+
+- Legacy category closure evidence exists for each tracked tuple.
+
+#### Commit 3 Canonical Category and Weekly Ownership Normalization
+
+Scope:
+
+- Remove legacy SARIF alias uploads and keep canonical categories.
+- Add explicit weekly category ownership/normalization for
+  security-weekly-rebuild.
+- Optionally refine security-pr.yml target semantics for clarity.
+
+Files (expected):
+
+- [.github/workflows/docker-build.yml](.github/workflows/docker-build.yml)
+- [.github/workflows/security-weekly-rebuild.yml](.github/workflows/security-weekly-rebuild.yml)
+- [.github/workflows/security-pr.yml](.github/workflows/security-pr.yml)
+
+Dependencies:
+
+- Commit 2.
+
+Validation gate:
+
+- SARIF uploaded to canonical categories only with explicit weekly ownership.
+
+#### Commit 4 Freshness and Skip-Guard Enforcement
+
+Scope:
+
+- Ensure Dockerfile/security-file changes force build+scan refresh.
+- Normalize PR tag/artifact resolution where needed.
+
+Files (expected):
+
+- [.github/workflows/docker-build.yml](.github/workflows/docker-build.yml)
+- [.github/workflows/supply-chain-verify.yml](.github/workflows/supply-chain-verify.yml)
+- [.github/workflows/supply-chain-pr.yml](.github/workflows/supply-chain-pr.yml)
+
+Dependencies:
+
+- Commit 3.
+
+Validation gate:
+
+- Security-relevant change cannot be skipped; image ref resolution deterministic.
+
+#### Commit 5 Docs and Operational Runbook
+
+Scope:
+
+- Document canonical verification path and stale-alert troubleshooting.
+
+Files (expected):
+
+- [SECURITY.md](SECURITY.md)
+- [docs/guides/supply-chain-security-developer-guide.md](docs/guides/supply-chain-security-developer-guide.md)
+
+Dependencies:
+
+- Commit 4.
+
+Validation gate:
+
+- Operators can map alert -> category -> workflow -> digest -> component version.
+
+### Rollback and Contingency
+
+- If category cleanup causes missing visibility, revert Commit 3 only while
+  retaining backfill evidence from Commit 2.
+- If force-scan logic creates excessive CI load, revert Commit 4 and keep
+  category cleanup.
+- Maintain a one-cycle overlap where canonical and old category results are
+  compared internally (not uploaded as parallel public categories).
+
+## Risks and Mitigations
+
+- Risk: closing legacy category may hide historical trend continuity.
+  - Mitigation: keep artifact retention and migration note in docs.
+- Risk: force-scan increases CI time.
+  - Mitigation: scope force condition to Dockerfile/security workflow paths only.
+- Risk: multi-arch checks add flakiness on runners.
+  - Mitigation: keep per-arch checks lightweight and deterministic.
+
+## Acceptance Criteria
+
+- Root cause identified with evidence from open alerts, SARIF category, and
+  workflow run mapping.
+- Root cause set allows one or more concurrent causes, each mapped to category,
+  ref, and workflow with evidence.
+- Canonical workflows show scans for current digest with Caddy 2.11.3.
+- Legacy category closure backfill completed before retirement of compatibility
+  categories.
+- Legacy/ambiguous category uploads removed or explicitly deprecated.
+- security-weekly-rebuild has explicit category ownership and normalization.
+- Security tab no longer shows active Caddy 2.11.2 findings for current active
+  categories/refs.
+- Durable guardrails in place for skip, tag resolution, and scan target clarity.
+- DoD checks pass; any residual findings are documented with explicit owner and
+  next action.
