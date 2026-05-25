@@ -1,65 +1,152 @@
-## QA Report - Workflow-Only Audit
+# QA Report - Scoped Workflow Audit
 
 | Field | Value |
 |---|---|
-| Date | 2026-05-24 |
-| Scope | .github/workflows/docker-build.yml (workflow-only change) |
-| Branch | feature/hecate |
-| Verdict | PASS with minor remediation |
+| Date | 2026-05-25 |
+| Scope | `.github/workflows/docker-build.yml` only (workflow YAML change scope) |
+| Canonical Policy Sources | `.github/instructions/copilot-instructions.md`, `.github/instructions/testing.instructions.md`, `.github/instructions/github-actions-ci-cd-best-practices.instructions.md` |
+| Final Verdict (Scoped) | **RELEASABLE (WORKFLOW SCOPE)** |
+| Release Decision Basis | **`actionlint` pass + scoped applicability classification complete** |
 
-## Objective Coverage
+## 0) Final Closure Snapshot
 
-### 1) pull_request workflow correctness and security behavior
+### Final scoped verdict
 
-| Check | Status | Evidence |
-|---|---|---|
-| Producer output contract for `pr_image_ref` | PASS | Job output maps to `steps.pr_image_ref_output.outputs.image_ref`; contract step enforces exactly one PR tag match and fails on empty output. |
-| Consumer gate behavior | PASS | `scan-pr-image` requires `needs.build-and-push.outputs.pr_image_ref != ''` before running. |
-| PR Trivy blocking enforcement while preserving SARIF path | PASS | Trivy SARIF step keeps `exit-code: '1'` + `continue-on-error: true`; SARIF upload runs with `if: always()` when file exists; final enforcement step fails when scan outcome is not success. |
+- **RELEASABLE (WORKFLOW SCOPE)**
 
-## Executed Local Checks
+### Key evidence
 
-| Command | Status | Result |
-|---|---|---|
-| `actionlint .github/workflows/docker-build.yml` | FAIL (non-blocking style) | 1 finding: `SC2129` at workflow line 91 (style: grouped redirect suggestion). No contract/gate logic error reported. |
-| `yq '.' /projects/Charon/.github/workflows/docker-build.yml` | PASS | YAML parsed successfully (`YQ_PARSE_EXIT:0`). |
-| `yamllint /projects/Charon/.github/workflows/docker-build.yml` | FAIL (style policy) | Exit 1 with many style findings (document-start, line-length, comment spacing). Not specific to this change and typically non-blocking for Actions runtime. |
-| Pattern verification (`grep`/`rg`) | PASS | Confirmed output mapping, PR consumer guard, Trivy SARIF step, SARIF upload step, and final enforcement step are present. |
-| `trivy config` on workflow path | INCONCLUSIVE (tool/path issue) | Trivy is installed, but local runs returned `lstat ... no such file or directory` for existing `.github/workflows` paths in this environment. |
-| `checkov` availability | NOT RUN | `checkov` is not installed in this environment. |
+1. Mandatory workflow-scope gate passed:
+	- `actionlint .github/workflows/docker-build.yml` -> **PASS**
+2. Scope verification confirms workflow-only releasability decision:
+	- Changed files include `.github/workflows/docker-build.yml` plus documentation artifacts.
 
-## Workflow Diff Assessment
+### Applicability classification (final)
 
-This implementation resolves the previously observed CI failure mode where PR image reference was empty in the security scan job.
+1. **Applicable and satisfied**
+	- Workflow lint/validation for edited workflow (`actionlint`) -> passed.
+2. **Conditionally applicable, not triggered by this scope**
+	- GORM scanner, E2E rebuild requirement.
+3. **Non-applicable for this workflow-only release decision**
+	- App-level coverage/type-check/build/E2E blockers.
 
-1. Producer contract hardened:
-- Step ID normalized to `pr_image_ref_output` and wired to job output.
-- PR tag resolution hardened (`set -euo pipefail`, strict regex match count = 1).
-- Explicit `Assert PR output contract` step added.
+## 1) DoD Gate Applicability for Workflow-Only Scope
 
-2. Consumer gate hardened:
-- `scan-pr-image` job now checks `needs.build-and-push.outputs.pr_image_ref != ''` at job-level `if`.
+### Strictly applicable to this change
 
-3. Security gate behavior corrected:
-- Trivy SARIF scan remains strict (`exit-code: '1'`) but non-blocking at step level so SARIF upload and summaries still execute.
-- Final `Enforce PR Trivy security gate` step blocks when vulnerabilities are found or scan fails.
+1. Workflow syntax/semantic validation for edited workflow file.
+	- Basis: workflow-specific instruction scope in `.github/instructions/github-actions-ci-cd-best-practices.instructions.md` (`applyTo: .github/workflows/*.yml,.github/workflows/*.yaml`).
+	- Enforceable locally with `actionlint` (and optional YAML lint/parse checks).
 
-## DoD Test Applicability
+### Conditionally applicable (not triggered by this scope)
 
-| DoD Item | Applicability | Rationale |
-|---|---|---|
-| Backend unit/integration coverage gates | Not applicable | No backend runtime code changes in scope. |
-| Frontend tests/type checks | Not applicable | No frontend code changes in scope. |
-| E2E Playwright execution | Not applicable | No UI/API runtime behavior changed by this patch. |
-| GORM security scan | Not applicable | No model/database changes in scope. |
-| Workflow lint/security static checks | Applicable | Executed and reported above. |
+1. GORM security scanner.
+	- Basis: `.github/instructions/testing.instructions.md` limits mandatory trigger to backend model/database paths (`backend/internal/models/**`, GORM services, migrations). Not triggered by workflow-only scope.
+2. E2E container rebuild requirement.
+	- Basis: `.github/instructions/testing.instructions.md` explicitly states rebuild is optional for CI/workflow-only changes (`.github/workflows/**`) unless environment is unhealthy.
 
-## Remediation Needed
+### Non-applicable for this scope (application-code gates)
 
-1. Recommended: resolve the `actionlint` shellcheck style warning (`SC2129`) at workflow line 91.
-2. Optional: reduce `yamllint` style noise (line-length/comment spacing) or tune project yamllint policy for workflows.
-3. Optional: resolve local Trivy config scanner path issue or run scanner in a known-good containerized path to restore workflow-IaC security scanning.
+1. Backend/frontend coverage gates and patch coverage gating for changed feature code.
+2. Frontend type-check gate.
+3. Build verification for backend/frontend binaries.
+4. App-level E2E validation as release blocker for this workflow-only diff.
 
-## Final QA Decision
+Policy note:
 
-PASS for this workflow-only change. The pull_request producer/consumer contract and PR Trivy enforcement behavior are correct, and the SARIF upload path is preserved under scan-failure conditions.
+- `.github/instructions/copilot-instructions.md` defines broad DoD gates for implementation tasks; this audit applies strict scope filtering based on conditional triggers in `.github/instructions/testing.instructions.md` and workflow-specific applicability in `.github/instructions/github-actions-ci-cd-best-practices.instructions.md`.
+
+## 2) Minimum Required Verification Set (Workflow Scope) and Evidence
+
+Executed from `/projects/Charon`.
+
+### A. Confirm scope
+
+Command:
+
+- `git diff --name-only`
+- `git status --short`
+
+Evidence:
+
+- `.github/workflows/docker-build.yml`
+- Additional modified files are documentation/reporting artifacts only:
+	- `docs/issues/manual_test_workflow_pr_trivy_phase7_closure.md`
+	- `docs/plans/current_spec.md`
+	- `docs/reports/qa_report.md`
+
+Scoped target remains `.github/workflows/docker-build.yml`.
+
+### B. actionlint on edited workflow (mandatory in this audit)
+
+Commands:
+
+- `command -v actionlint`
+- `actionlint .github/workflows/docker-build.yml`
+
+Result: **PASS**
+
+Evidence:
+
+- Binary found: `/usr/local/bin/actionlint`
+- `actionlint` returned no findings for `.github/workflows/docker-build.yml`.
+
+### C. Workflow-centric local checks (additional, advisory in this scope)
+
+Commands:
+
+- `command -v yamllint`
+- `yamllint .github/workflows/docker-build.yml`
+
+Result: **Findings present (style/lint policy), not a scoped blocker**
+
+Evidence:
+
+- Binary found: `/bin/yamllint`
+- `line 1`: warning `document-start` (missing `---`).
+- `line 2`: warning `truthy` (boolean style check).
+- `line 10`: error `line-length` (116 > 80).
+
+These checks are useful for formatting consistency but are not defined as mandatory
+release gates for this workflow-only verification in the cited canonical policies.
+
+## 3) Classification of Previously Observed Failures
+
+### Applicable blocker for this change
+
+1. None remaining after rerun.
+	- `actionlint` passed for `.github/workflows/docker-build.yml`.
+
+### Non-applicable for this change scope
+
+1. E2E failures (`Container failed to start`, unreachable 8080) from app test path.
+2. Backend/frontend coverage failures.
+3. Frontend type-check outcomes.
+4. GORM security scan outcomes (no model/database path changes).
+5. Trivy repo findings unrelated to workflow YAML content.
+6. `yamllint` style findings (`document-start`, `truthy`, `line-length`) are
+   not required release blockers for this scoped workflow audit.
+
+### Environment/tooling blocker requiring separate remediation
+
+1. `pre-commit run --all-files` failure due missing `.pre-commit-config.yaml`.
+2. CodeQL local run unavailable due missing local toolchain/extension setup.
+3. Docker-image scan failures caused by local runtime/registry access issues.
+4. Missing `ruby` interpreter for optional YAML parse check (non-blocking here).
+
+## 4) Scoped Releasability Verdict
+
+**RELEASABLE (workflow scope)**
+
+Reason:
+
+1. The strictly required local gate for this scope (`actionlint` on edited
+	workflow) now passes with zero findings.
+2. Remaining findings are classified as non-applicable/environment or advisory
+	style checks for this scoped release decision.
+
+Optional hardening before merge:
+
+1. Add `---` YAML document start.
+2. Normalize boolean style for `truthy` lint rule.
+3. Wrap long line(s) to satisfy 80-char lint convention.

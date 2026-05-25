@@ -1,217 +1,198 @@
-## Temporary CVE-2026-32286 CI Suppression Alignment
-
-Date: 2026-05-24
-Scope: PR CI security scans only. This plan is limited to making the existing
-approved suppression for CVE-2026-32286 effective in the PR-blocking Trivy path
-without broadening suppression scope.
-
 ## Introduction
 
-The repo already contains exact-match suppression records for
-CVE-2026-32286, but PR CI still fails because the blocking PR image Trivy scan
-does not load the repo ignore file. The minimal safe fix is to align the PR
-image scan workflow with the suppression mechanism already used elsewhere in the
-repo.
+This plan targets remediation for GitHub Actions run 26376706408, job
+77639044115, scoped only to
+[.github/workflows/docker-build.yml](.github/workflows/docker-build.yml).
+
+Objectives:
+- Fix PR Trivy traceability to report only Caddy version output.
+- Make blocker diagnostics resilient and non-blocking while still emitting
+  blocker IDs when available.
+- Add a mandatory pre-change dependency discovery gate for
+   needs.build-and-push.outputs.pr_image_ref and pr_image_ref contract
+   references, requiring zero remaining consumers before output removal.
+- Remove/deprecate build-and-push job output pr_image_ref if no longer needed
+  by digest-based PR scanning flow.
+- Remove stale workflow summary/error wording that references pr_image_ref so
+   operator-visible messaging uses digest/image_ref language only.
+- Keep scope minimal to workflow YAML edits only.
 
 ## Research Findings
 
-### Existing Mechanisms
+### Current Workflow Behavior
 
-1. `.trivyignore` already contains an exact suppression entry for
-   `CVE-2026-32286`, with rationale, expiry, review date, and removal criteria.
-   It is scoped by vulnerability ID only and documented as applying to the
-   CrowdSec-embedded `pgproto3/v2` finding.
-2. `.grype.yaml` already contains a package-scoped suppression for
-   `CVE-2026-32286` on `github.com/jackc/pgproto3/v2` version `v2.3.3`, with a
-   bounded expiry and explicit removal criteria.
-3. `.github/workflows/security-pr.yml` already passes `.trivyignore` into both
-   Trivy filesystem scan steps, so that PR binary scan path is already wired to
-   the repo suppression mechanism.
-4. `.github/workflows/supply-chain-pr.yml` already uses `.grype.yaml`, so the
-   Grype-based PR supply-chain scan is already wired to the repo suppression
-   mechanism.
-5. `.github/workflows/docker-build.yml` PR image scan does not pass
-   `.trivyignore` to either of its Trivy steps, and the `scan-pr-image` job
-   does not materialize the repository before those steps run. This is the
-   only confirmed PR security path not aligned with the repo's existing
-   suppression mechanism.
-6. `Dockerfile` already documents a best-effort mitigation by bumping
-   `github.com/jackc/pgx/v4@v4.18.3`, but that is mitigation evidence only, not
-   a CI suppression mechanism.
+1. PR scan already uses digest-only image resolution in
+   [scan-pr-image Load PR image reference](.github/workflows/docker-build.yml#L787)
+   and does not consume needs.build-and-push.outputs.pr_image_ref.
+2. Traceability currently runs
+   [Record PR Trivy scan traceability](.github/workflows/docker-build.yml#L884)
+   with docker run IMAGE caddy version, which can invoke image entrypoint
+   behavior and print startup logs.
+3. Diagnostics currently runs
+   [Diagnose unsuppressed PR Trivy blockers](.github/workflows/docker-build.yml#L906)
+   with strict shell mode and jq parsing assumptions, which can fail the step
+   with non-security errors (observed exit code 3 pattern).
+4. build-and-push still publishes a workflow job output at
+   [outputs.pr_image_ref](.github/workflows/docker-build.yml#L69), even though
+   PR scan path consumes digest output only.
 
-### Confirmed Failure Point
+### Root Causes
 
-Hypothesis: PR CI is failing because the blocking Trivy image scan in
-`.github/workflows/docker-build.yml` neither materializes the repository nor
-loads `.trivyignore`, even though the repo already approved suppressions in
-that file.
-
-Cheap disconfirming check: inspect the captured CI log for the PR image scan.
-
-Observed result: `.github/logs/ci_failure.log` shows `INPUT_TRIVYIGNORES:` as
-blank for the PR image scan and reports `CVE-2026-32286` in
-`/usr/local/bin/crowdsec` and `/usr/local/bin/cscli`. Workflow inspection also
-shows that `scan-pr-image` lacks an `actions/checkout` or equivalent
-materialization step. That confirms the control point is workflow wiring, not
-the absence of a suppression record.
-
-### Rejected Alternatives
-
-1. Do not skip the security job or add a workflow path filter. That would hide
-   unrelated vulnerabilities and lowers security coverage for the whole PR.
-2. Do not add `ignore-unfixed`, severity downgrades, or directory-wide excludes.
-   Those would suppress unrelated CVEs and break the repo's current exact-match
-   suppression pattern.
-3. Do not add a Docker Hub-specific note or registry exception. The failing PR
-   scan is against the GHCR PR image, not Docker Hub.
-4. Do not introduce VEX as the first response. Trivy suggested it in logs, but
-   this repo already standardizes on `.trivyignore` and `.grype.yaml` for
-   temporary, documented suppressions.
+1. Traceability ambiguity:
+   docker run IMAGE caddy version may route through image startup semantics,
+   causing noisy logs in addition to or instead of pure caddy version output.
+2. Diagnostics fragility:
+   strict shell plus jq parse assumptions can fail on malformed/missing SARIF,
+   unexpected JSON shape, or command subtleties.
+3. Output confusion:
+   exposed job output pr_image_ref appears in workflow contract but is no
+   longer required by scan-pr-image, creating warning/confusion surface.
 
 ## Technical Specification
 
-### Exact Files To Edit
+### Files In Scope
 
-1. `.github/workflows/docker-build.yml`
-    - Add an `actions/checkout` step, or equivalent repository materialization,
-       in `scan-pr-image` before the Trivy steps so `.trivyignore` is present on
-       the runner.
-   - Add `trivyignores: '.trivyignore'` to the PR image Trivy table step.
-   - Add `trivyignores: '.trivyignore'` to the PR image Trivy SARIF/blocking
-     step.
-   - Do not change severity thresholds, `exit-code`, SARIF upload, or gate
-     enforcement logic.
-2. No edit required to `.trivyignore` unless the target branch is missing the
-   existing `CVE-2026-32286` entry. If touched, keep the suppression as a
-   single exact ID line plus bounded comments only.
-3. No edit required to `.grype.yaml` unless the justification or expiry needs a
-   review refresh. The current entry is already package- and version-scoped.
-4. No edit required to `trivy.yaml`, `.github/workflows/security-pr.yml`, or
-   `.github/workflows/supply-chain-pr.yml` for this PR-unblock scope.
+- [.github/workflows/docker-build.yml](.github/workflows/docker-build.yml)
 
-### Exact Scope Of The Suppression
+No code, docs, Dockerfile, or other workflow changes are in scope.
 
-1. Trivy scope: the PR image scan shall consume the repo's existing
-   `.trivyignore` file as-is, without broadening or narrowing its approved
-   suppression set in this change.
-2. Grype scope: exact advisory ID `CVE-2026-32286` only, limited to package
-   `github.com/jackc/pgproto3/v2`, version `v2.3.3`, type `go-module`.
-3. Runtime scope: applies only to the CrowdSec-embedded binaries that still
-   carry `pgproto3/v2`; it must not be expanded to blanket PostgreSQL, pgx, or
-   generic Go-module suppressions.
-4. Workflow scope: limited to the PR image Trivy scan job in
-   `.github/workflows/docker-build.yml` so that it behaves consistently with the
-   already-approved suppression policy used in other PR security scans.
+### Remediation 1: Traceability Should Execute Caddy Binary Directly
 
-### How To Avoid Suppressing Unrelated CVEs
+Target step:
+- [Record PR Trivy scan traceability](.github/workflows/docker-build.yml#L884)
 
-1. Reuse the existing repo `.trivyignore` file unchanged for this workflow; do
-   not introduce wildcards, regex-like patterns, `ignore-unfixed`,
-   package-wide ignores, or ad hoc PR-only ignores.
-2. Preserve Grype's package/version/type match instead of loosening it to a
-   vulnerability-only allowlist.
-3. Do not change the workflow from `CRITICAL,HIGH` to a softer severity policy.
-4. Do not suppress `GHSA-jqcq-xjh3-6g23` or `GHSA-x6gf-mpr2-68h6` unless a scan
-   path explicitly starts failing on those advisories too. This plan is for the
-   currently failing `CVE-2026-32286` PR path only.
-5. Keep the existing PR gate in place so any unrelated CRITICAL/HIGH finding
-   continues to fail the workflow.
+Required change:
+- Replace traceability version command with explicit binary invocation using
+  entrypoint override.
+- Expected command pattern:
+  - docker run --rm --pull=never --entrypoint /usr/bin/caddy IMAGE_REF version
 
-## Documentation Notes
+Rationale:
+- Forces direct Caddy binary execution and avoids startup/entrypoint logs in
+  traceability summary.
 
-1. `.trivyignore` remains the Trivy suppression source of truth. Its comment
-   block must continue to state:
-   - no upstream fix exists in `pgproto3/v2`
-   - CrowdSec must migrate to `pgx/v5` / `pgproto3/v3`
-   - the suppression is temporary and reviewed on a date-bound schedule
-2. `.grype.yaml` remains the Grype suppression source of truth and must stay in
-   sync with `.trivyignore` on rationale and removal trigger.
-3. `Dockerfile` comments may continue to document best-effort mitigation, but
-   must not be treated as the authoritative suppression registry.
-4. Add or preserve a short workflow comment in `.github/workflows/docker-build.yml`
-   explaining that the PR image Trivy scan intentionally consumes the same
-   repo-level ignore file as other PR security scans.
+### Remediation 2: Diagnostics Step Must Be Non-Blocking and Robust
+
+Target step:
+- [Diagnose unsuppressed PR Trivy blockers](.github/workflows/docker-build.yml#L906)
+
+Required changes:
+1. Mark step non-blocking:
+   - add continue-on-error: true on this step.
+2. Harden script behavior:
+   - do not fail the job on jq failures or unexpected SARIF shape.
+   - keep best-effort extraction of unsuppressed findings.
+3. Preserve useful output:
+   - when parsing succeeds, print findings and unique blocker IDs.
+   - when parsing fails, print an explicit fallback message and continue.
+4. Keep security gate authoritative:
+   - [Enforce PR Trivy security gate](.github/workflows/docker-build.yml#L964)
+     remains the only blocking gate.
+
+Rationale:
+- Prevents false negatives from diagnostic tooling failures while preserving
+  blocker visibility for triage.
+
+### Remediation 3: Deprecate/Remove pr_image_ref Job Output Path
+
+Target section:
+- [build-and-push outputs](.github/workflows/docker-build.yml#L67)
+
+Required changes:
+1. Run mandatory dependency discovery gate repo-wide for:
+   - needs.build-and-push.outputs.pr_image_ref
+   - pr_image_ref
+   - expected gate result: zero remaining consumers of the
+     needs.build-and-push.outputs.pr_image_ref contract.
+2. Remove job-level output mapping for pr_image_ref only after confirming zero
+   remaining consumers of needs.build-and-push.outputs.pr_image_ref.
+3. Remove/deprecate stale workflow summary/error contract wording that still
+   references pr_image_ref, ensuring operator-visible messaging uses
+   digest/image_ref language only.
+4. Keep internal step output usage inside build-and-push untouched where still
+   needed for tagging and local save logic.
+
+Rationale:
+- scan-pr-image already consumes digest-only contract; removing unused job
+  output reduces secret-redaction warnings and operator confusion.
 
 ## Implementation Plan
 
-### Phase 1: Workflow Alignment
+### Phase 1: Workflow Edits (YAML Only)
 
-1. Update `.github/workflows/docker-build.yml` so both PR image Trivy steps load
-   `.trivyignore`.
-2. Add repository materialization in `scan-pr-image` before those Trivy steps
-   so `.trivyignore` is reliably present on the runner.
-3. Keep the change surgical: no new job conditions, no filter logic, no scan
-   severity changes.
+1. Update traceability command in
+   [Record PR Trivy scan traceability](.github/workflows/docker-build.yml#L884)
+   to direct binary execution.
+2. Update
+   [Diagnose unsuppressed PR Trivy blockers](.github/workflows/docker-build.yml#L906)
+   with continue-on-error and robust best-effort parsing.
+3. Remove build-and-push job output pr_image_ref from
+   [outputs](.github/workflows/docker-build.yml#L67).
+4. Remove/deprecate any summary/contract wording that still advertises
+   pr_image_ref as downstream output.
 
-### Phase 2: Suppression Record Verification
+### Phase 2: Validation
 
-1. Verify `.trivyignore` remains the existing repo suppression file and is not
-   broadened or rewritten as part of this change.
-2. Verify `.grype.yaml` still binds `CVE-2026-32286` to
-   `github.com/jackc/pgproto3/v2@v2.3.3` only.
-3. Verify the existing review date and removal criteria still reflect the
-   upstream state.
+Run from repository root:
 
-### Phase 3: Validation
+```bash
+actionlint .github/workflows/docker-build.yml
+```
 
-1. Re-run the PR image Trivy workflow path.
-2. Confirm `scan-pr-image` materializes the repository before invoking Trivy.
-3. Confirm action logs now show `INPUT_TRIVYIGNORES=.trivyignore` for the PR
-   image scan.
-4. Confirm `trivy-pr-results.sarif` honors the repo's existing `.trivyignore`
-   suppressions.
-5. Confirm the PR image scan still fails if another unrelated unsuppressed
-   CRITICAL/HIGH finding exists.
-6. Confirm `security-pr.yml` and `supply-chain-pr.yml` remain unchanged and keep
-   honoring their existing suppression files.
+Optional strict pass for all workflows after targeted pass:
+
+```bash
+actionlint .github/workflows/*.yml
+```
+
+### Phase 3: Runtime Confidence Check (Manual)
+
+On next PR workflow execution:
+- Confirm traceability summary shows a clean Caddy version value.
+- Confirm diagnostics step never blocks the job even if parsing degrades.
+- Confirm blocker IDs still appear when SARIF parsing succeeds.
+- Confirm scan gating behavior remains unchanged and blocking only via
+  trivy-scan outcome in enforce step.
 
 ## Acceptance Criteria
 
-### EARS Requirements
+1. WHEN Record PR Trivy scan traceability runs, THE SYSTEM SHALL execute
+   /usr/bin/caddy directly and report version output without entrypoint startup
+   log noise.
+2. WHEN diagnostics parsing encounters malformed or unexpected SARIF, THE SYSTEM
+   SHALL continue execution and print a fallback diagnostic message.
+3. WHEN diagnostics parsing succeeds, THE SYSTEM SHALL print blocker IDs and
+   findings summary in step output and job summary.
+4. WHEN PR Trivy scan finds CRITICAL/HIGH blockers, THE SYSTEM SHALL fail only
+   via the enforce security gate step.
+5. WHEN build-and-push publishes outputs, THE SYSTEM SHALL no longer expose
+   pr_image_ref as a job output contract if digest-only flow remains active.
+6. WHEN diagnostics parsing fails for any reason, THE SYSTEM SHALL always
+   append a fallback diagnostics section to GITHUB_STEP_SUMMARY.
 
-1. WHEN the PR image Trivy scan runs in `.github/workflows/docker-build.yml`,
-   THE SYSTEM SHALL materialize the repository before invoking Trivy so
-   `.trivyignore` is available on the runner.
-2. WHEN the PR image Trivy scan evaluates findings, THE SYSTEM SHALL honor the
-   repo's existing `.trivyignore` suppression set.
-3. WHEN a HIGH or CRITICAL finding in the PR image scan is not suppressed by
-   that repo-level `.trivyignore`, THE SYSTEM SHALL continue to fail the PR
-   gate.
-4. WHILE upstream CrowdSec still depends on `pgx/v4 -> pgproto3/v2`, THE SYSTEM
-   SHALL keep the suppression temporary, documented, and review-dated.
-5. WHEN CrowdSec migrates to `pgx/v5` and the finding disappears, THE SYSTEM
-   SHALL remove the suppression entries from both `.trivyignore` and
-   `.grype.yaml`.
+## Risks And Mitigations
 
-## Residual Risk
-
-1. The vulnerable `pgproto3/v2` code remains present inside CrowdSec binaries;
-   the plan only suppresses CI reporting for the already-reviewed advisory.
-2. The risk is currently accepted because Charon uses SQLite by default and the
-   vulnerable PostgreSQL protocol path is not reachable in a standard
-   deployment.
-3. Non-standard deployments that wire CrowdSec to a PostgreSQL backend retain
-   the upstream dependency risk until CrowdSec migrates to `pgx/v5`.
-4. This plan intentionally does not broaden suppression to other advisories or
-   other workflows beyond the confirmed PR CI failure path.
+- Risk: diagnostics no longer fail fast on script errors.
+  - Mitigation: enforce step remains blocking and authoritative.
+- Risk: hidden dependency on pr_image_ref output in external tooling.
+   - Mitigation: mandatory pre-change repo-wide dependency discovery gate for
+      both needs.build-and-push.outputs.pr_image_ref and pr_image_ref; remove
+      output only when zero consumers remain for the former contract.
 
 ## Commit Slicing Strategy
 
-Decision: single PR with one logical commit is sufficient because the change is
-workflow-only and the suppression records already exist.
+Decision:
+- Single PR with one logical commit is preferred because scope is one workflow
+  file and behavior change is tightly related.
 
-### Commit 1
+Commit 1:
+- Scope: traceability invocation, diagnostics hardening, output contract
+  cleanup.
+- Files: [.github/workflows/docker-build.yml](.github/workflows/docker-build.yml)
+- Dependencies: none beyond existing digest output contract.
+- Validation gate:
+  - actionlint .github/workflows/docker-build.yml passes.
 
-- Scope: align PR image Trivy steps with the repo-level `.trivyignore` policy.
-- Files: `.github/workflows/docker-build.yml`
-- Dependencies: existing `.trivyignore` entry for `CVE-2026-32286`
-- Validation gate: PR image Trivy scan loads `.trivyignore` and stops failing on
-  `CVE-2026-32286` while preserving failures for unrelated CRITICAL/HIGH issues.
-
-Rollback and contingency notes:
-
-1. If the workflow change produces unexpected scan regressions, revert only the
-   new `trivyignores` wiring in `.github/workflows/docker-build.yml`.
-2. Do not remove the existing suppression records during rollback.
-3. If a second advisory alias starts failing the same path, handle it as a
-   separate documented suppression review rather than widening this one.
+Rollback and contingency:
+- Revert only the specific workflow hunks if regression appears.
+- Keep digest-based PR scan flow unchanged during rollback.
