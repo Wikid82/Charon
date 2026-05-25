@@ -68,7 +68,6 @@ jobs:
     outputs:
       skip_build: ${{ steps.skip.outputs.skip_build }}
       digest: ${{ steps.build-and-push.outputs.digest }}
-      pr_image_ref: ${{ steps.pr_image_ref_output.outputs.image_ref }}
 
     steps:
       - name: Checkout repository
@@ -317,10 +316,10 @@ jobs:
           echo "Resolved security scan image reference: ${IMAGE_REF}"
 
           {
-            echo "## PR Image Ref Diagnostics"
+            echo "## PR Image Reference Diagnostics"
             echo ""
             echo "- Image tag: ${IMAGE_TAG}"
-            echo "- Emitted pr_image_ref: ${IMAGE_REF}"
+            echo "- Emitted image_ref: ${IMAGE_REF}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Generate Docker metadata
@@ -355,7 +354,7 @@ jobs:
         run: |
           IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
           if [[ -z "${IMAGE_REF}" ]]; then
-            echo "❌ ERROR: pr_image_ref producer contract violated (empty output)"
+            echo "❌ ERROR: image_ref output contract violated (empty output)"
             exit 1
           fi
       # Phase 1 Optimization: Build once, test many
@@ -427,7 +426,7 @@ jobs:
               echo "📥 Pulling image back for artifact creation..."
               PR_IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
               if [[ -z "${PR_IMAGE_REF}" ]]; then
-                echo "❌ ERROR: pr_image_ref producer contract violated during pull-back"
+                echo "❌ ERROR: image_ref output contract violated during pull-back"
                 exit 1
               fi
               docker pull "${PR_IMAGE_REF}"
@@ -442,7 +441,7 @@ jobs:
           IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
 
           if [[ -z "${IMAGE_REF}" ]]; then
-            echo "❌ ERROR: pr_image_ref producer contract violated (empty image ref)"
+            echo "❌ ERROR: image_ref output contract violated (empty image ref)"
             exit 1
           fi
 
@@ -484,7 +483,7 @@ jobs:
           if [ "${{ env.TRIGGER_EVENT }}" = "pull_request" ]; then
             IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
             if [ -z "${IMAGE_REF}" ]; then
-              echo "❌ ERROR: Failed to load PR image reference from pr_image_ref_output"
+              echo "❌ ERROR: Failed to load PR image reference from image_ref output"
               exit 1
             fi
             echo "Using PR image: $IMAGE_REF"
@@ -511,7 +510,7 @@ jobs:
           if [ "${{ env.TRIGGER_EVENT }}" = "pull_request" ]; then
             IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
             if [ -z "${IMAGE_REF}" ]; then
-              echo "❌ ERROR: Failed to load PR image reference from pr_image_ref_output"
+              echo "❌ ERROR: Failed to load PR image reference from image_ref output"
               exit 1
             fi
             echo "Using PR image: $IMAGE_REF"
@@ -578,7 +577,7 @@ jobs:
           if [ "${{ env.TRIGGER_EVENT }}" = "pull_request" ]; then
             IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
             if [ -z "${IMAGE_REF}" ]; then
-              echo "❌ ERROR: Failed to load PR image reference from pr_image_ref_output"
+              echo "❌ ERROR: Failed to load PR image reference from image_ref output"
               exit 1
             fi
             echo "Using PR image: $IMAGE_REF"
@@ -897,7 +896,16 @@ jobs:
         env:
           IMAGE_REF: ${{ steps.pr-image.outputs.image_ref }}
         run: |
-          CADDY_VERSION=$(timeout 30s docker run --rm --pull=never "${IMAGE_REF}" caddy version 2>/dev/null || echo "unknown")
+          CADDY_VERSION="unknown"
+          CADDY_VERSION_SOURCE="fallback-not-available"
+
+          # Prefer absolute entrypoint to avoid shell/command resolution differences.
+          if CADDY_VERSION=$(timeout 30s docker run --rm --pull=never --entrypoint /usr/bin/caddy "${IMAGE_REF}" version 2>/dev/null); then
+            CADDY_VERSION_SOURCE="--entrypoint /usr/bin/caddy"
+          elif CADDY_VERSION=$(timeout 30s docker run --rm --pull=never --entrypoint caddy "${IMAGE_REF}" version 2>/dev/null); then
+            CADDY_VERSION_SOURCE="--entrypoint caddy"
+          fi
+
           {
             echo "## PR Trivy SARIF Traceability"
             echo ""
@@ -905,6 +913,7 @@ jobs:
             echo "- Image: ${IMAGE_REF}"
             echo "- Digest: ${IMAGE_REF#*@}"
             echo "- Caddy version: ${CADDY_VERSION}"
+            echo "- Caddy version source: ${CADDY_VERSION_SOURCE}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Create scan summary
@@ -922,50 +931,72 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Diagnose unsuppressed PR Trivy blockers
-        if: always() && steps.trivy-pr-check.outputs.exists == 'true'
+        if: always()
+        continue-on-error: true
         run: |
-          set -euo pipefail
+          SARIF_PATH="trivy-pr-results.sarif"
+          FALLBACK_REASON=""
+          FINDINGS_COUNT="0"
+          UNIQUE_IDS_CSV="none"
 
-          echo "Unsuppressed HIGH/CRITICAL findings (from trivy-pr-results.sarif):"
+          echo "Unsuppressed HIGH/CRITICAL findings (from ${SARIF_PATH}):"
 
-          findings_json=$(jq -c '
-            [
-              .runs[]?.results[]?
-              | select(((.suppressions // []) | length) == 0)
-              | {
-                  id: (.ruleId // .rule.id // "unknown"),
-                  package: (
-                    (.message.text // "")
-                    | capture("(?i)(?:Package|PkgName|Pkg|Library)\\s*[:=]\\s*`?(?<pkg>[A-Za-z0-9._+:+-]+)`?")?.pkg
-                  )
-                }
-              | .package = (
-                  if (.package // "") != "" then
-                    .package
-                  else
-                    "n/a"
-                  end
-                )
-            ]
-          ' trivy-pr-results.sarif)
-
-          findings_count=$(echo "$findings_json" | jq 'length')
-          unique_ids_csv=$(echo "$findings_json" | jq -r '[.[].id] | unique | join(", ")')
-
-          if [[ "$findings_count" -gt 0 ]]; then
-            echo "$findings_json" | jq -r '.[] | "- \(.id) | package: \(.package)"'
+          if [[ ! -f "${SARIF_PATH}" ]]; then
+            FALLBACK_REASON="SARIF file missing"
+          elif [[ ! -r "${SARIF_PATH}" ]]; then
+            FALLBACK_REASON="SARIF file unreadable"
+          elif ! jq -e '.' "${SARIF_PATH}" >/dev/null 2>&1; then
+            FALLBACK_REASON="SARIF JSON invalid"
           else
-            echo "- none"
+            if FINDINGS_JSON=$(jq -c '
+              [
+                .runs[]?.results[]?
+                | select(((.suppressions // []) | length) == 0)
+                | {
+                    id: (.ruleId // .rule.id // "unknown"),
+                    package: (
+                      (.message.text // "")
+                      | capture("(?i)(?:Package|PkgName|Pkg|Library)\\s*[:=]\\s*`?(?<pkg>[A-Za-z0-9._+:+-]+)`?")?.pkg
+                    )
+                  }
+                | .package = (
+                    if (.package // "") != "" then
+                      .package
+                    else
+                      "n/a"
+                    end
+                  )
+              ]
+            ' "${SARIF_PATH}" 2>/dev/null); then
+              FINDINGS_COUNT=$(echo "${FINDINGS_JSON}" | jq 'length' 2>/dev/null || echo "0")
+              UNIQUE_IDS_CSV=$(echo "${FINDINGS_JSON}" | jq -r '[.[].id] | unique | join(", ")' 2>/dev/null || echo "none")
+
+              if [[ "${FINDINGS_COUNT}" -gt 0 ]]; then
+                echo "${FINDINGS_JSON}" | jq -r '.[] | "- \(.id) | package: \(.package)"' 2>/dev/null || echo "- unable to render parsed findings"
+              else
+                echo "- none"
+              fi
+            else
+              FALLBACK_REASON="Unable to parse SARIF results"
+            fi
           fi
 
           {
             echo "## PR Trivy Unsuppressed Blockers"
             echo ""
-            echo "- Count: ${findings_count}"
-            if [[ "$findings_count" -gt 0 ]]; then
-              echo "- Blocker IDs: ${unique_ids_csv}"
+            if [[ -n "${FALLBACK_REASON}" ]]; then
+              echo "- Diagnostics status: fallback"
+              echo "- Fallback reason: ${FALLBACK_REASON}"
+              echo "- Count: unknown"
+              echo "- Blocker IDs: unknown"
             else
-              echo "- Blocker IDs: none"
+              echo "- Diagnostics status: parsed"
+              echo "- Count: ${FINDINGS_COUNT}"
+              if [[ "${FINDINGS_COUNT}" -gt 0 ]]; then
+                echo "- Blocker IDs: ${UNIQUE_IDS_CSV}"
+              else
+                echo "- Blocker IDs: none"
+              fi
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
