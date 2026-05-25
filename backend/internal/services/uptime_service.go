@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -88,6 +89,12 @@ func NewUptimeService(db *gorm.DB, ns *NotificationService) *UptimeService {
 // Uses the typed-nil guard pattern established in DockerHandler.
 func (s *UptimeService) SetOrthrusResolver(r orthrusStatusChecker) {
 	if r == nil {
+		s.orthrusResolver = nil
+		return
+	}
+
+	rv := reflect.ValueOf(r)
+	if (rv.Kind() == reflect.Ptr || rv.Kind() == reflect.Interface) && rv.IsNil() {
 		s.orthrusResolver = nil
 		return
 	}
