@@ -921,6 +921,54 @@ jobs:
             echo "- **Scan Status**: ${{ steps.trivy-scan.outcome == 'success' && '✅ No critical vulnerabilities' || '❌ Vulnerabilities detected' }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Diagnose unsuppressed PR Trivy blockers
+        if: always() && steps.trivy-pr-check.outputs.exists == 'true'
+        run: |
+          set -euo pipefail
+
+          echo "Unsuppressed HIGH/CRITICAL findings (from trivy-pr-results.sarif):"
+
+          findings_json=$(jq -c '
+            [
+              .runs[]?.results[]?
+              | select(((.suppressions // []) | length) == 0)
+              | {
+                  id: (.ruleId // .rule.id // "unknown"),
+                  package: (
+                    (.message.text // "")
+                    | capture("(?i)(?:Package|PkgName|Pkg|Library)\\s*[:=]\\s*`?(?<pkg>[A-Za-z0-9._+:+-]+)`?")?.pkg
+                  )
+                }
+              | .package = (
+                  if (.package // "") != "" then
+                    .package
+                  else
+                    "n/a"
+                  end
+                )
+            ]
+          ' trivy-pr-results.sarif)
+
+          findings_count=$(echo "$findings_json" | jq 'length')
+          unique_ids_csv=$(echo "$findings_json" | jq -r '[.[].id] | unique | join(", ")')
+
+          if [[ "$findings_count" -gt 0 ]]; then
+            echo "$findings_json" | jq -r '.[] | "- \(.id) | package: \(.package)"'
+          else
+            echo "- none"
+          fi
+
+          {
+            echo "## PR Trivy Unsuppressed Blockers"
+            echo ""
+            echo "- Count: ${findings_count}"
+            if [[ "$findings_count" -gt 0 ]]; then
+              echo "- Blocker IDs: ${unique_ids_csv}"
+            else
+              echo "- Blocker IDs: none"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Enforce PR Trivy security gate
         if: always()
         run: |
