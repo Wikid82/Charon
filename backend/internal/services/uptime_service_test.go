@@ -1922,6 +1922,19 @@ func TestUptimeService_SetOrthrusResolver(t *testing.T) {
 		assert.Nil(t, us.orthrusResolver)
 	})
 
+	t.Run("typed nil resolver clears field", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db, nil)
+		us := newTestUptimeService(t, db, ns)
+
+		us.SetOrthrusResolver(&mockOrthrusResolver{addr: "127.0.0.1:1234", ok: true})
+
+		var typedNil *mockOrthrusResolver
+		us.SetOrthrusResolver(typedNil)
+
+		assert.Nil(t, us.orthrusResolver)
+	})
+
 	t.Run("resolver replacement", func(t *testing.T) {
 		db := setupUptimeTestDB(t)
 		ns := NewNotificationService(db, nil)
