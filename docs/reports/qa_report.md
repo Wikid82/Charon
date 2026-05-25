@@ -96,3 +96,63 @@
 
 - This closure is scoped to workflow behavior and diagnostics classification.
 - Runtime application behavior is unchanged.
+
+## Scoped Workflow QA Re-Verification
+
+| Field | Value |
+|---|---|
+| Date | 2026-05-25 |
+| Scope under test | `.github/workflows/docker-build.yml` and `docs/plans/current_spec.md` |
+| Requested checks | actionlint, scope verification, step-15 authority invariance, releasability verdict |
+
+### Evidence
+
+1. `actionlint .github/workflows/docker-build.yml`
+	- Result: **PASS** (no findings)
+2. `git diff --name-only`
+	- Result: `.github/workflows/docker-build.yml`, `docs/plans/current_spec.md`
+	- Scope assessment: workflow + plan doc only; no runtime app paths changed
+3. `rg -n "Enforce PR Trivy security gate|if: always\(\)|steps\.trivy-scan\.outcome" .github/workflows/docker-build.yml`
+	- Result: gate step and guard logic present
+4. `git diff -- .github/workflows/docker-build.yml`
+	- Result: no changes to step `Enforce PR Trivy security gate`, `if: always()`, or `steps.trivy-scan.outcome` gate decision logic
+
+### Scoped Releasability Verdict
+
+- **RELEASABLE (WORKFLOW SCOPE)**
+- Rationale:
+	- Mandatory workflow lint passed.
+	- Change scope remains limited to workflow + planning documentation.
+	- Step-15 authority semantics remain unchanged and continue to be the sole blocking gate based on `steps.trivy-scan.outcome`.
+
+## Final Closure - Workflow-Only Remediation (Scanner Alignment)
+
+| Field | Value |
+|---|---|
+| Date | 2026-05-25 |
+| Scope under verification | `.github/workflows/docker-build.yml` (plus documentation evidence updates only) |
+| Final verdict | **CLOSED - RELEASABLE (WORKFLOW SCOPE)** |
+
+### Final Run Evidence
+
+1. `actionlint .github/workflows/docker-build.yml`
+	- Result: **PASS** (no findings)
+
+2. Workflow signals present for scanner alignment and diagnostics hardening:
+	- `Run Trivy scan on PR image (table output)` exists and includes `scanners: 'vuln'`
+	- `Run Trivy scan on PR image (SARIF - blocking)` exists and includes `scanners: 'vuln'`
+	- `Diagnose unsuppressed PR Trivy blockers` exists and summary includes `Parser exit code` and `Parser hint` on parser fallback
+	- `Enforce PR Trivy security gate` remains present and still gates on `steps.trivy-scan.outcome`
+	- Evidence source: `rg -n "Run Trivy scan on PR image \(table output\)|Run Trivy scan on PR image \(SARIF - blocking\)|scanners: 'vuln'|Diagnose unsuppressed PR Trivy blockers|Parser exit code|Parser hint|Enforce PR Trivy security gate|steps\.trivy-scan\.outcome" .github/workflows/docker-build.yml`
+
+3. Final changed-file scope:
+	- `git status --short .github/workflows/docker-build.yml docs/plans/current_spec.md docs/reports/qa_report.md`
+	- `git diff --name-only`
+	- Result: `.github/workflows/docker-build.yml`, `docs/plans/current_spec.md`, `docs/reports/qa_report.md`
+
+### Final Closure Verdict
+
+- Scanner-alignment effect is implemented and verifiable in workflow configuration.
+- Diagnostics fallback now surfaces parser-specific context (`Parser exit code`, `Parser hint`) for parser-command failures.
+- Step 15 authority is unchanged and remains the single blocking decision point.
+- **Release decision for this remediation scope: RELEASABLE.**

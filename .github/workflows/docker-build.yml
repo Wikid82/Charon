@@ -854,6 +854,7 @@ jobs:
         with:
           image-ref: ${{ steps.pr-image.outputs.image_ref }}
           format: 'table'
+          scanners: 'vuln'
           trivyignores: '.trivyignore'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
@@ -866,6 +867,7 @@ jobs:
           image-ref: ${{ steps.pr-image.outputs.image_ref }}
           format: 'sarif'
           output: 'trivy-pr-results.sarif'
+          scanners: 'vuln'
           trivyignores: '.trivyignore'
           severity: 'CRITICAL,HIGH'
           # Keep scanning strict for CRITICAL/HIGH; fail is enforced explicitly
@@ -938,6 +940,8 @@ jobs:
           FALLBACK_REASON=""
           FINDINGS_COUNT="0"
           UNIQUE_IDS_CSV="none"
+          PARSER_EXIT_CODE=""
+          PARSER_HINT=""
 
           echo "Unsuppressed HIGH/CRITICAL findings (from ${SARIF_PATH}):"
 
@@ -950,15 +954,16 @@ jobs:
           elif ! jq -e '(.runs | type) == "array"' "${SARIF_PATH}" >/dev/null 2>&1; then
             FALLBACK_REASON="unexpected schema"
           else
-            if FINDINGS_JSON=$(jq -c '
+            PARSER_ERR_FILE=$(mktemp)
+            if IDS_JSON=$(jq -c '
               [
-                .runs[] as $run
+                .runs[]? as $run
                 | (($run.results // [])[]?) as $result
                 | select((($result.suppressions // []) | length) == 0)
                 | {
                     id: (
                       $result.ruleId
-                      // $result.rule.id
+                      // ($result.rule // {} | .id)
                       // (
                         if ($result.ruleIndex != null and (($run.tool.driver.rules? // null) | type) == "array") then
                           ($run.tool.driver.rules[$result.ruleIndex].id // empty)
@@ -967,35 +972,51 @@ jobs:
                         end
                       )
                       // "unknown"
-                    ),
-                    package: (
-                      ($result.message.text // "")
-                      | capture("(?i)(?:Package|PkgName|Pkg|Library)\\s*[:=]\\s*`?(?<pkg>[A-Za-z0-9._+:+-]+)`?")?.pkg
                     )
                   }
-                | .package = (
-                    if (.package // "") != "" then
-                      .package
-                    else
-                      "n/a"
-                    end
-                  )
               ]
-            ' "${SARIF_PATH}" 2>/dev/null); then
-              FINDINGS_COUNT=$(echo "${FINDINGS_JSON}" | jq 'length' 2>/dev/null || echo "0")
-              UNIQUE_IDS_CSV=$(echo "${FINDINGS_JSON}" | jq -r '[.[].id | select(. != "" and . != null)] | unique | join(", ")' 2>/dev/null || echo "none")
+            ' "${SARIF_PATH}" 2>"${PARSER_ERR_FILE}"); then
+              FINDINGS_COUNT=$(echo "${IDS_JSON}" | jq 'length' 2>/dev/null || echo "0")
+              UNIQUE_IDS_CSV=$(echo "${IDS_JSON}" | jq -r '[.[].id | select(. != "" and . != null)] | unique | join(", ")' 2>/dev/null || echo "none")
               if [[ -z "${UNIQUE_IDS_CSV}" ]]; then
                 UNIQUE_IDS_CSV="none"
               fi
 
               if [[ "${FINDINGS_COUNT}" -gt 0 ]]; then
-                echo "${FINDINGS_JSON}" | jq -r '.[] | "- \(.id) | package: \(.package)"' 2>/dev/null || echo "- unable to render parsed findings"
+                if ! jq -r '
+                  .runs[]? as $run
+                  | (($run.results // [])[]?) as $result
+                  | select((($result.suppressions // []) | length) == 0)
+                  | "- \((
+                      $result.ruleId
+                      // ($result.rule // {} | .id)
+                      // (
+                        if ($result.ruleIndex != null and (($run.tool.driver.rules? // null) | type) == \"array\") then
+                          ($run.tool.driver.rules[$result.ruleIndex].id // \"unknown\")
+                        else
+                          \"unknown\"
+                        end
+                      )
+                    )) | package: \((
+                      ($result.message.text // \"\")
+                      | (try capture(\"(?i)(?:Package|PkgName|Pkg|Library)\\\\s*[:=]\\\\s*`?(?<pkg>[A-Za-z0-9._+:+-]+)`?\").pkg catch \"n/a\")
+                    ))"
+                ' "${SARIF_PATH}"; then
+                  echo "- unable to render parsed findings"
+                fi
               else
                 echo "- none"
               fi
             else
               FALLBACK_REASON="parser command failure"
+              PARSER_EXIT_CODE="$?"
+              PARSER_HINT=$(head -n 1 "${PARSER_ERR_FILE}" | tr -d '\r' || true)
+              if [[ -z "${PARSER_HINT}" ]]; then
+                PARSER_HINT="no parser stderr available"
+              fi
             fi
+
+            rm -f "${PARSER_ERR_FILE}"
           fi
 
           {
@@ -1004,6 +1025,10 @@ jobs:
             if [[ -n "${FALLBACK_REASON}" ]]; then
               echo "- Diagnostics status: fallback"
               echo "- Fallback reason: ${FALLBACK_REASON}"
+              if [[ "${FALLBACK_REASON}" == "parser command failure" ]]; then
+                echo "- Parser exit code: ${PARSER_EXIT_CODE:-unknown}"
+                echo "- Parser hint: ${PARSER_HINT}"
+              fi
               echo "- Count: unknown"
               echo "- Blocker IDs: unknown"
             else
