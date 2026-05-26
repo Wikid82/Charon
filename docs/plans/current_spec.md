@@ -1,682 +1,711 @@
----
-post_title: Caddy Version Drift in GitHub Security Root-Cause Plan
-categories:
-  - plans
-tags:
-  - security
-  - trivy
-  - docker
-  - github-actions
-  - supply-chain
-summary: Investigation and durable remediation plan to identify why GitHub Security still reports Caddy 2.11.2 after Dockerfile was updated to 2.11.3, with concrete verification commands, failure-mode matrix, and commit slicing.
-post_date: 2026-05-24
+# Plan: Orthrus/Hecate Docs + FeedbackWidget Docs Link
+
+**Status:** Draft — Pending Review
+**Date:** 2025-06
+**Scope:** Documentation authoring (ELI5 feature pages) + Frontend widget enhancement
+
 ---
 
-## Introduction
+## 1. Introduction
 
 ### Overview
 
-Dockerfile now pins Caddy to 2.11.3, but GitHub Security still shows Trivy
-alerts indicating 2.11.2. This plan defines how to identify the exact reporting
-source (workflow, category, artifact, branch, platform, or cache path), prove
-root cause with evidence, and implement durable fixes so alert state converges
-with actual shipped images.
+This plan covers two independent, non-blocking deliverables:
+
+1. **Docs Deliverable** — Write ELI5-level documentation files for two undocumented features (Orthrus and Hecate) and a remote Docker setup guide, fix a broken link, and update index/nav entries to surface these pages.
+2. **Widget Deliverable** — Add a "View Documentation" third link to the floating `FeedbackWidget` React component so users can navigate to the docs site directly from anywhere in the UI.
 
 ### Objectives
 
-- Identify the precise workflow/category/artifact still emitting Caddy 2.11.2.
-- Determine why that path bypassed or outlived the Dockerfile update.
-- Define durable remediation over one-off closures.
-- Validate remediation with repeatable commands and expected outcomes.
+- Close the broken `features/hecate.md` reference in `docs/features.md` line 226.
+- Create `docs/features/orthrus.md` — dedicated ELI5 explainer for the Orthrus tunnel agent.
+- Create `docs/features/hecate.md` — ELI5 explainer for the Hecate Tunnel & Pathway Manager.
+- Create `docs/guides/remote-docker-setup.md` — step-by-step guide for connecting a remote HomeLab/server via Orthrus.
+- Update `docs/index.md` to surface these three new pages.
+- Update `docs/features.md` to add an Orthrus entry and fix the Hecate link.
+- Add a third "View Docs" link to `FeedbackWidget.tsx` with full i18n and accessibility support.
+- Update `frontend/src/components/__tests__/FeedbackWidget.test.tsx` to cover the new link.
+- Update `frontend/src/locales/en/translation.json` with the new i18n keys.
 
-### Scope
+---
 
-In scope:
+## 2. Research Findings
 
-- GitHub Actions workflows that build images and upload SARIF.
-- Trivy/Grype/SBOM/provenance pipeline wiring.
-- PR/push/nightly/weekly branch and category behavior.
-- Local task/skill wiring that influences operator assumptions.
-- Minimal config updates needed for long-term correctness.
+### 2.1 Docs Site Architecture
 
-Out of scope:
+- **Framework:** No `mkdocs.yml` was found anywhere in the repository. The docs site is authored as raw Markdown under `docs/` and served via GitHub Pages.
+- **Base URL:** `https://wikid82.github.io/Charon/` (from `README.md` line 134).
+- **Navigation:** Purely file-system-based relative links; there is no central nav config file to update.
+- **Existing docs gaps:**
+  - `docs/features/hecate.md` — **does not exist** but is linked from `docs/features.md` line 226 — this is an active broken link (bug fix).
+  - `docs/features/orthrus.md` — does not exist, no link yet.
+  - `docs/guides/remote-docker-setup.md` — does not exist, no link yet.
 
-- Unrelated frontend/backend product behavior.
-- Dependency policy changes not related to the stale Caddy signal.
+### 2.2 Orthrus System
 
-## Requirements
+- **Package:** `backend/internal/orthrus/`
+- **What it is:** A reverse-WebSocket tunnel agent system. An `OrthrusAgent` binary runs on the remote machine, connects outbound via WebSocket to Charon's management interface, and multiplexes streams over yamux. Charon uses these multiplexed streams to talk to Docker on the remote machine.
+- **Why it exists:** Remote Docker hosts behind NAT/firewalls cannot accept inbound TCP connections. Orthrus flips the direction — the remote agent dials outward to Charon.
+- **Muzzle filter (`muzzle.go`):** Restricts Docker API access to a read-only allowlist (`/containers/json`, `/images/json`, `/_ping`, `/info`, `/version`, `/events`, `/volumes`, `/networks`, `/system/df`). Dynamic read-only patterns: `/containers/*/json`, `/containers/*/logs`, `/containers/*/stats`, `/containers/*/top`. All non-GET methods blocked (except HEAD `/_ping`). HTTP 403 for disallowed paths.
+- **Key model fields (`models/orthrus_agent.go`):**
+  - `UUID`, `Name`, `Status` — `OrthrusStatus`: "online" / "offline" / "pending"
+  - `AuthKeyHash` — bcrypt hash; `json:"-"` (never exposed); plain key shown once at provisioning, prefixed `ch_orthrus_`
+  - `Capabilities` — JSON array, e.g. `["docker", "tcp:5432"]`
+  - `AgentCertPEM` — mTLS cert from Charon's internal CA
+  - `HecateTunnelUUID` — links agent to a Hecate tunnel provider
+  - `ResolvedAddress` — cached connectivity address
+  - `ExternalProxyPort` — TCP port for inter-container Docker API access (0 = disabled)
+  - `LastHeartbeat`, `LastSeen`
+- **Install surfaces (`snippets.go`):** Docker Compose, systemd, tarball, Homebrew, Kubernetes DaemonSet — delivered via `GET /orthrus/agents/:uuid/snippets`.
+- **REST API (`orthrus_handler.go`):**
+  - `GET /management/orthrus/agents` — list agents
+  - `POST /management/orthrus/agents` — provision (returns one-time auth key)
+  - `GET /management/orthrus/agents/:uuid` — get one agent
+  - `PATCH /management/orthrus/agents/:uuid` — update
+  - `DELETE /management/orthrus/agents/:uuid` — delete
+  - `POST /management/orthrus/agents/:uuid/revoke` — revoke auth key
+  - `GET /management/orthrus/agents/:uuid/snippets` — install instructions
+  - `GET /management/orthrus/agents/:uuid/proxy-status` — live external proxy state
+- **WebSocket endpoint:** `GET /api/v1/ws/orthrus/connect` — Bearer token auth (bcrypt), HeartbeatTimeout 10 seconds.
+- **`RemoteServer` linkage:** `ConnectionTypeOrthrus = "orthrus"` in `models/remote_server.go`; `OrthrusAgentUUID *string` field links a host config to its agent.
 
-### EARS Requirements
+### 2.3 Hecate System
 
-- WHEN Dockerfile pins Caddy to 2.11.3, THE SYSTEM SHALL report Caddy 2.11.3
-  in all image-based security scans for the same source revision.
-- WHEN SARIF is uploaded from multiple workflows, THE SYSTEM SHALL use
-  unambiguous categories that map to active workflows only.
-- IF a workflow scans a partial artifact (for example only one binary), THEN THE
-  SYSTEM SHALL not be treated as authoritative for full container component
-  status.
-- WHEN builds are skipped or use stale tags/artifacts, THE SYSTEM SHALL emit an
-  explicit signal that scan freshness is unknown.
-- WHEN multi-arch images are published, THE SYSTEM SHALL verify Caddy version
-  per relevant platform digest, not only by floating tag.
+- **Package:** `backend/internal/hecate/`
+- **What it is:** The Tunnel & Pathway Manager. Manages third-party tunneling providers (Cloudflare, Tailscale, ZeroTier, NetBird) and integrates the Orthrus agent protocol. `TunnelManager` supervises lifecycle of all active tunnel providers with exponential backoff restart (5s → 10s → 30s → 60s).
+- **Currently registered provider:** `netbird` (`NewHecateService` in `services/hecate_service.go`). Architecture supports cloudflare, tailscale, zerotier via `RegisterFactory()`.
+- **`HecateService`:** CRUD for `TunnelConfig` records; delegates start/stop to `TunnelManager`. Credentials encrypted AES-GCM before DB storage. If `IsActive=true` at creation, tunnel starts immediately.
+- **Connection modes (from `docs/features.md`):**
+  - **Direct** — manual hostname/IP
+  - **Agent** — pick an Orthrus agent; address resolved from `OrthrusAgent.ResolvedAddress`
+  - **Provider** — pick a VPN tunnel device directly (no agent required)
+- **Relationship to Orthrus:** Each Orthrus agent can be assigned a `HecateTunnelUUID` pointing to a provider tunnel, giving it a `ResolvedAddress`. Remote Servers then use `ConnectionTypeOrthrus`.
 
-## Research Findings
+### 2.4 FeedbackWidget
 
-### Confirmed Version Pin
+- **File:** `frontend/src/components/FeedbackWidget.tsx`
+- **Current links:** 2 — "Report a Bug" (`GITHUB_BUG_URL`) and "Request a Feature" (`GITHUB_FEATURE_URL`)
+- **Structure:** `<nav aria-label={...}>` containing `<a>` elements. First link has `ref={firstLinkRef}` for focus-on-open. Second link has `border-t` separator class.
+- **Icons:** `Bug`, `Sparkles` from `lucide-react`. Trigger uses `MessageSquarePlus`.
+- **i18n:** `useTranslation()` reads from `frontend/src/locales/en/translation.json` at `feedback.*` namespace.
+- **Tests:** 15 tests in `frontend/src/components/__tests__/FeedbackWidget.test.tsx` — trigger, nav, link URLs, keyboard (Escape), focus management, backdrop.
+- **Docs URL:** `https://wikid82.github.io/Charon/`
 
-- Dockerfile sets CADDY_VERSION=2.11.3 and CADDY_CANDIDATE_VERSION=2.11.3.
-- Caddy is built from source in caddy-builder and copied into runtime.
+### 2.5 ELI5 Tone Reference
 
-### Exact Files and Workflows to Inspect
+From existing docs (`getting-started.md`, `docker-integration.md`): plain English, short sentences, analogies, reassuring tone, explains *why* before *how*. Tables for comparisons. Numbered steps for procedures.
 
-#### Primary CI and Security Sources
+---
 
-- [.github/workflows/docker-build.yml](.github/workflows/docker-build.yml)
-- [.github/workflows/security-pr.yml](.github/workflows/security-pr.yml)
-- [.github/workflows/security-weekly-rebuild.yml](.github/workflows/security-weekly-rebuild.yml)
-- [.github/workflows/nightly-build.yml](.github/workflows/nightly-build.yml)
-- [.github/workflows/supply-chain-pr.yml](.github/workflows/supply-chain-pr.yml)
-- [.github/workflows/supply-chain-verify.yml](.github/workflows/supply-chain-verify.yml)
+## 3. Technical Specifications
 
-#### Scan Configuration and Ignore Policy
+### 3.1 New File: `docs/features/orthrus.md`
 
-- [trivy.yaml](trivy.yaml)
-- [.trivyignore](.trivyignore)
-- [.grype.yaml](.grype.yaml)
+**Purpose:** ELI5 explanation of Orthrus — what it is, why someone needs it, how to set it up.
+**Target reader:** Self-hosters who want to manage Docker containers on a machine they cannot directly reach.
 
-#### Task Wiring and Local Operator Paths
+**Outline:**
 
-- [.vscode/tasks.json](.vscode/tasks.json)
-- [.github/skills/scripts/skill-runner.sh](.github/skills/scripts/skill-runner.sh)
-- [.github/skills/security-scan-trivy-scripts/run.sh](.github/skills/security-scan-trivy-scripts/run.sh)
-- [.github/skills/security-scan-docker-image-scripts/run.sh](.github/skills/security-scan-docker-image-scripts/run.sh)
+```
+---
+title: Orthrus — Remote Tunnel Agent
+description: Connect to Docker on a remote machine through a secure outbound tunnel
+category: features
+---
 
-#### Documentation that Influences Scan Interpretation
+# Orthrus — Remote Tunnel Agent
 
-- [SECURITY.md](SECURITY.md)
-- [docs/guides/supply-chain-security-developer-guide.md](docs/guides/supply-chain-security-developer-guide.md)
-- [ARCHITECTURE.md](ARCHITECTURE.md)
+[Opening analogy: your HomeLab server is behind a locked door; Orthrus is
+a messenger installed there that knocks on Charon's door from the inside —
+no key to the front door required.]
 
-### High-Signal Observations
+## What Problem Does Orthrus Solve?
+- Remote machine is behind NAT / firewall / no public IP
+- You cannot open a port on it
+- You still want Charon to discover its Docker containers
 
-- docker-build.yml uploads Trivy SARIF under multiple categories, including a
-  legacy compatibility alias:
-  .github/workflows/docker-publish.yml:build-and-push.
-- security-pr.yml does filesystem scan of extracted /app/charon binary,
-  not full image and not /usr/bin/caddy; this path cannot be authoritative for
-  Caddy image component status.
-- nightly-build.yml scans category trivy-nightly and uses separate branch
-  flow; stale findings can persist if nightly diverges from main or is not
-  rebuilt after merge.
-- docker-build.yml has skip logic for chore/Renovate patterns; if build is
-  skipped on a critical version-bump commit, canonical scan categories may not
-  refresh.
-- supply-chain-verify.yml has pull-request tag logic that still references
-  pr-<number> style in some paths while docker-build.yml emits immutable
-  pr-<number>-<sha> tags; this can cause wrong-artifact lookups in some modes.
-- Local Trivy skill scans repository filesystem (trivy fs /app), which can
-  disagree with image scans and should not be used to infer GitHub Security
-  image alert closure behavior.
+## How It Works (Plain English)
+1. Orthrus agent runs on your remote machine
+2. Agent dials outbound to Charon (no inbound ports needed on remote)
+3. Charon multiplexes Docker API calls back through that connection
+4. Result: Charon sees remote containers as if they were local
 
-## Probable Failure Modes
+Disconnections are handled automatically — the agent reconnects on its own with no action required.
 
-### FM-1 Stale SARIF Category Track (Legacy Alias)
+## What Orthrus Can (and Cannot) Do
+- CAN: List running containers, images, networks, volumes
+- CANNOT: Create, delete, restart, or modify anything
+- The "Muzzle" filter enforces this at every request — it is not configurable
 
-- Source: docker-build.yml compatibility upload to
-  .github/workflows/docker-publish.yml:build-and-push.
-- Effect: old category can keep/open alerts even after active workflow updates.
+## Setting Up an Orthrus Agent
+1. In Charon go to Remote Agents (sidebar)
+2. Click Add Agent — give it a friendly name
+3. Copy the one-time auth key (it starts with ch_orthrus_)
+> ⚠️ **Save this key now.** It starts with `ch_orthrus_` and is shown **once only**. If you lose it, delete the agent and create a new one.
+4. Choose your install method (Docker Compose is easiest)
+5. Paste the snippet + auth key on your remote machine and run it
+6. The agent appears as "Online" within seconds
 
-### FM-2 Scanner Targets Wrong Artifact
+## Install Methods
+| Method           | Best For                          |
+|------------------|-----------------------------------|
+| Docker Compose   | Servers already running Docker    |
+| systemd          | Bare-metal Linux servers          |
+| Kubernetes       | K8s clusters, DaemonSet per node  |
+| Homebrew         | macOS machines                    |
+| Tarball          | Any Linux, no package manager     |
 
-- Source: security-pr.yml scans only extracted /app/charon.
-- Effect: misses Caddy binary (/usr/bin/caddy) status and gives false closure
-  confidence.
+## Agent Status Reference
+| Status  | Meaning                               | What To Do                      |
+|---------|---------------------------------------|---------------------------------|
+| online  | Connected and healthy                 | Nothing — you're good           |
+| offline | Lost connection or not started        | Check the agent is running      |
+| pending | Registered but never connected        | Run the install snippet         |
 
-### FM-3 Build Skipped, Scan Never Refreshed
+## After Setup
+→ Continue to the [Remote Docker Setup Guide](../guides/remote-docker-setup.md)
 
-- Source: skip logic on chore/bot commits in docker-build.yml.
-- Effect: post-merge categories not refreshed, old alerts remain open.
-
-### FM-4 Branch Mismatch
-
-- Source: nightly/dev/main have separate scan categories and schedules.
-- Effect: Security tab still shows 2.11.2 from non-main category/ref.
-
-### FM-5 Stale Cached Build Output
-
-- Source: BuildKit cache behavior in certain workflows/stages.
-- Effect: rebuilt image may still embed older Caddy artifact in one path.
-
-### FM-6 PR Tag and Artifact Resolution Drift
-
-- Source: mutable/legacy tag expectations (pr-<number>) vs immutable tags
-  (pr-<number>-<sha>).
-- Effect: scanner pulls unexpected image.
-
-### FM-7 Trivy DB/Cache Timing and Feed Drift
-
-- Source: DB cache freshness differences between runs.
-- Effect: inconsistent vulnerability metadata across runs.
-
-### FM-8 Multi-Arch Manifest Mismatch
-
-- Source: one architecture updated while another remains old.
-- Effect: alerts persist for platform-specific digest even if amd64 looks fixed.
-
-### FM-9 Old SARIF Still Open on Default Branch
-
-- Source: no subsequent successful upload for same category/ref to close prior
-  result set.
-- Effect: stale findings remain visible.
-
-## Technical Specifications
-
-### Investigation Data Model
-
-For each open Caddy finding, collect this tuple:
-
-- alert number
-- tool name (Trivy)
-- state
-- most recent instance ref
-- SARIF category
-- workflow/run URL
-- scanned target type (image or fs)
-- image ref or digest (if applicable)
-- observed Caddy version evidence
-
-### Verification Commands and Expected Outcomes
-
-#### 1. Enumerate Open Trivy Alerts and Categories (Paginated + Ref-Aware)
-
-```bash
-# Optional: set REF_PREFIX to constrain results to a branch namespace.
-# Examples: refs/heads/main, refs/heads/nightly
-REF_PREFIX="refs/heads/main"
-
-gh api --paginate \
-  -H "Accept: application/vnd.github+json" \
-  "/repos/<owner>/<repo>/code-scanning/alerts?tool_name=Trivy&state=open&per_page=100" \
-  | jq -r --arg refPrefix "$REF_PREFIX" '
-      .[]
-      | select(.most_recent_instance.ref | startswith($refPrefix))
-      | [
-          .number,
-          .most_recent_instance.ref,
-          .most_recent_instance.commit_sha,
-          .most_recent_instance.category,
-          .most_recent_instance.analysis_key,
-          .most_recent_instance.location.path,
-          .most_recent_instance.message.text
-        ] | @tsv'
+## Troubleshooting
+| Problem                     | Likely Cause                        | Fix                             |
+|-----------------------------|-------------------------------------|---------------------------------|
+| Agent stays "pending"       | Snippet not run yet                 | Run it on the remote machine    |
+| Agent shows "offline"       | Agent process stopped               | Restart agent service           |
+| Agent "offline" after reboot| Not configured to start on boot     | Use systemd or Docker restart:always |
+| Auth key lost               | Closed the page without saving      | Delete agent, create a new one  |
 ```
 
-Expected outcome:
+---
 
-- Full open-alert inventory is complete (no missed pages).
-- Each open alert is mapped to ref + category + analysis key for correlation.
-- Explicit pass condition: every alert containing Caddy 2.11.2 has a known
-  category/ref owner row in the investigation table.
+### 3.2 New File: `docs/features/hecate.md`
 
-#### 2. Map Alert Category/Ref to Workflow Runs
+**Purpose:** ELI5 explanation of Hecate — the UI layer that manages how Charon reaches remote servers.
+**Target reader:** Users configuring Remote Servers and choosing between connectivity options.
 
-```bash
-gh run list --workflow docker-build.yml --branch main --limit 50 \
-  --json databaseId,headSha,createdAt,conclusion,url
+**Outline:**
 
-gh run list --workflow security-weekly-rebuild.yml --branch main --limit 20 \
-  --json databaseId,headSha,createdAt,conclusion,url
+```
+---
+title: Hecate — Tunnel & Pathway Manager
+description: Choose how each remote server connects to Charon
+category: features
+---
 
-gh run list --workflow nightly-build.yml --branch nightly --limit 20 \
-  --json databaseId,headSha,createdAt,conclusion,url
+# Hecate — Tunnel & Pathway Manager
+
+[Opening analogy: Hecate is the traffic controller at a crossroads —
+it decides which road each remote server uses to reach Charon.]
+
+## What Is Hecate?
+The UI that manages all "how do I reach this server?" decisions.
+When you add a Remote Server, Hecate is what lets you pick Direct / Agent / Provider.
+
+## When Do You Need Hecate?
+- **Direct Mode users:** You don't need to configure Hecate at all — just type in the IP.
+- **Agent Mode users:** Register an agent in Orthrus first; Hecate fills in the address automatically.
+- **Provider Mode users:** Hecate is the place to add your VPN credentials before you can use them.
+
+## The Three Connection Modes
+
+| Mode     | When To Use                                    | What You Provide              |
+|----------|------------------------------------------------|-------------------------------|
+| Direct   | You know the server's hostname or IP           | Hostname / IP + port          |
+| Agent    | You installed Orthrus on the remote machine    | Pick the Orthrus agent        |
+| Provider | Server is already on a VPN, no agent needed    | Pick provider + device        |
+
+### Direct Mode
+Type in the address. That's it. Use this when the machine is on your local
+network or has a public IP.
+
+### Agent Mode (Orthrus)
+Pick an Orthrus agent from the list. Charon fills in the connection address
+automatically from the agent's network assignment. You don't need to know
+the IP.
+
+### Provider Mode
+Your server is already reachable via a VPN tunnel (NetBird, Tailscale, etc.).
+Pick the provider and the device on it. No agent installation required.
+
+## Supported Tunnel Providers
+
+| Provider    | Notes                                      |
+|-------------|---------------------------------------------|
+| NetBird     | Fully integrated — add API key to activate |
+| Tailscale   | Supported — requires Tailscale API key     |
+| Cloudflare  | Supported — Cloudflare Tunnel credentials  |
+| ZeroTier    | Supported — ZeroTier network + node ID     |
+
+## Managing Providers
+- Where to find: **Settings → Tunnel Providers**
+- Click **Add Provider** → choose type → enter credentials → save
+- Each provider card shows its configured tunnels; click the settings icon to edit
+
+## Assigning a Tunnel to an Orthrus Agent
+This tells Charon where on a VPN network your agent lives.
+
+1. Go to Remote Agents and open the agent
+2. Under **Network Assignment**, pick a Provider and a Device
+3. Save — Charon caches the resolved address
+4. When you create a Remote Server using this agent, the address fills in automatically
+
+## Live Status Badges
+Every Remote Server shows a connection health indicator:
+- 🟢 Green — connected and healthy
+- 🟡 Yellow — connecting or degraded
+- 🔴 Red — unreachable
+
+## Troubleshooting
+
+| Problem                          | Likely Cause                        | Fix                                  |
+|----------------------------------|-------------------------------------|--------------------------------------|
+| Provider shows error state       | Bad credentials or API key          | Re-enter credentials in Settings     |
+| Agent address not resolved       | No network assignment set           | Assign provider + device to the agent|
+| Tunnel keeps restarting          | Provider unreachable                | Check VPN credentials; backoff is normal |
+| "Provider" mode device not listed| Provider not configured             | Add provider in Settings first       |
 ```
 
-Expected outcome:
+---
 
-- For each alert tuple, at least one candidate run is identified by matching
-  workflow + ref + headSha window.
-- Explicit pass condition: no unresolved alert tuple remains without a candidate
-  producing run.
+### 3.3 New File: `docs/guides/remote-docker-setup.md`
 
-#### 3. Correlate SARIF to Alerts Using Structured Fields (Not String-Only)
+**Purpose:** Complete step-by-step walkthrough to connect a remote HomeLab server's Docker to Charon using Orthrus + Hecate.
+**Target reader:** First-time users going through the full remote Docker setup flow.
 
-```bash
-# After downloading SARIF from candidate runs, extract structured tuples.
-jq -r '
-  .runs[] as $run
-  | $run.results[]?
-  | [
-      ($run.automationDetails.id // ""),
-      (.ruleId // ""),
-      (.level // ""),
-      (.locations[0].physicalLocation.artifactLocation.uri // ""),
-      (.partialFingerprints.primaryLocationLineHash // ""),
-      (.properties.image_ref // .properties.imageRef // ""),
-      (.message.text // "")
-    ] | @tsv
-' trivy-results.sarif
+**Outline:**
 
-# Optional diagnostic grep is allowed only as a secondary check.
-grep -En "2\.11\.(2|3)|caddyserver/caddy" trivy-results.sarif || true
+```
+---
+title: Connecting a Remote Docker Host
+description: Step-by-step guide to managing Docker on a remote machine through Charon
+category: guides
+---
+
+# Connecting a Remote Docker Host
+
+[Opening: "Your HomeLab is in the basement. Charon is in the cloud.
+This guide connects them safely without opening any ports."]
+
+## Before You Start
+
+Checklist:
+- [ ] Charon is running and accessible
+- [ ] Remote machine has Docker installed
+- [ ] Remote machine can reach the internet (outbound HTTPS)
+- [ ] You have terminal/SSH access to the remote machine
+
+## Step 1: Register an Orthrus Agent in Charon
+
+1. In Charon sidebar click **Remote Agents**
+2. Click **Add Agent**
+3. Enter a name (e.g. "HomeLab Server")
+4. Click **Create**
+5. **Copy the auth key now** — it starts with `ch_orthrus_` and is shown only once
+
+> Need more detail? → [Orthrus feature guide](../features/orthrus.md)
+
+## Step 2: Install the Agent on Your Remote Machine
+
+The easiest method is Docker Compose. On your remote machine:
+
+1. Copy the Docker Compose snippet from the Charon UI (Agent → Install → Docker Compose)
+2. Replace `<AUTH_KEY>` with the key you copied
+3. Run:
+   ```bash
+   docker compose up -d
+   ```
+4. The agent starts and dials out to Charon.
+
+> Other methods (systemd, Kubernetes, tarball) are available in the Install tab.
+
+## Step 3: Verify the Agent Is Online
+
+Back in Charon → Remote Agents. Your agent should show **Online** within 10–30 seconds.
+
+If it stays "pending", the agent hasn't connected yet — double-check the auth key and that the container is running.
+
+## Step 4: (Optional) Assign a Tunnel Provider
+
+Do this step if your remote machine **doesn't** have a direct public IP — for example it's on a VPN (NetBird, Tailscale, etc.) or behind a NAT.
+
+1. Open the agent in Charon → **Network Assignment**
+2. Pick your VPN provider and the device that represents your remote machine
+3. Save — Charon stores the resolved address automatically
+
+> Not on a VPN? Skip to Step 5.
+> Need to set up a provider first? → [Hecate guide](../features/hecate.md)
+
+## Step 5: Add a Remote Server
+
+1. Go to **Settings → Docker** (or Remote Servers)
+2. Click **Add Remote Host**
+3. Set Connection Mode to **Agent**
+4. Choose the Orthrus agent you registered
+5. Click **Test Connection** — you should see a success response
+6. Click **Save**
+
+## Step 6: Use Your Remote Server
+
+Your remote machine now appears as a Docker source in Charon:
+
+1. Go to **Hosts → Add Host**
+2. Click **Select from Docker**
+3. In the host dropdown, pick your remote server
+4. Browse and select any container running there
+
+Done. Charon proxies through the Orthrus tunnel to reach it.
+
+## Troubleshooting
+
+| Problem                         | Likely Cause                  | Fix                                        |
+|---------------------------------|-------------------------------|--------------------------------------------|
+| Agent stays "pending"           | Snippet not run               | Run docker compose up -d on remote         |
+| Test Connection fails           | Agent offline                 | Check agent container is running           |
+| No containers listed            | Docker socket not mounted     | Add /var/run/docker.sock volume to agent   |
+| Auth key expired / lost         | Page closed before saving     | Delete agent, register a new one           |
+| Tunnel keeps disconnecting      | Network instability           | Normal — agent reconnects automatically    |
 ```
 
-Expected outcome:
+---
 
-- Structured SARIF fields map back to alert category/ref/analysis key lineage.
-- Explicit pass condition: each open 2.11.2 alert is backed by one matched SARIF
-  result tuple from the owning workflow/category.
+### 3.4 Changes to `docs/index.md`
 
-#### 4. Verify Built Image Caddy Version by Digest
+Add a "Remote Access" section after "For Developers" and before "Need Help":
 
-```bash
-IMAGE="ghcr.io/<owner>/charon@sha256:<digest>"
-docker pull "$IMAGE"
-docker run --rm --entrypoint caddy "$IMAGE" version
+```markdown
+---
+
+## 🌐 Remote Access
+
+**[Orthrus Agent Setup](features/orthrus.md)** — Tunnel into a remote machine's Docker without open ports
+**[Hecate Connection Manager](features/hecate.md)** — Choose how each remote server reaches Charon
+**[Remote Docker Guide](guides/remote-docker-setup.md)** — Step-by-step: connect a HomeLab server
+
+---
 ```
 
-Expected outcome:
+Exact insertion point: after the closing `---` of the "For Developers" section (after the `database-schema.md` link line).
 
-- Returns v2.11.3 for corrected artifacts.
-- If v2.11.2, confirms build-path/cache/tag issue.
-- Explicit pass condition: all active-category digests under investigation report
-  v2.11.3.
+---
 
-#### 5. Verify Multi-Arch Digests
+### 3.4.1 Cross-Reference: `docs/features/uptime-monitoring.md`
 
-```bash
-docker buildx imagetools inspect "ghcr.io/<owner>/charon@sha256:<digest>"
+At the end of `docs/features/uptime-monitoring.md`, append one cross-reference line:
+
+```markdown
+*Monitoring a service on a remote Docker host? See [Connecting a Remote Docker Host](../guides/remote-docker-setup.md).*
 ```
 
-Expected outcome:
+---
 
-- Lists per-platform manifests; follow with per-platform checks where possible.
-- Confirms whether one architecture still carries 2.11.2.
-- Explicit pass condition: no platform digest in active categories reports
-  Caddy 2.11.2.
+### 3.5 Changes to `docs/features.md`
 
-#### 6. Validate Workflow Skip Behavior on Merge Commit
+Add the following block immediately **before** the `### 🔀 Hecate Tunnel & Pathway Manager` heading (currently around line 207):
 
-```bash
-gh run view <run-id> --log | grep -n "skip_build\|Determine skip condition"
+```markdown
+### 🐾 Orthrus — Remote Tunnel Agent
+
+Your HomeLab behind a firewall? Orthrus is a small agent you install on any remote machine. It dials outward to Charon over a secure WebSocket — no open inbound ports required. Once connected, Charon can discover and proxy Docker containers on that machine just like local ones.
+
+→ [Learn More](features/orthrus.md)
+
+---
+
 ```
 
-Expected outcome:
+The existing `→ [Learn More](features/hecate.md)` on line 226 does not need text changes — the broken destination is fixed by creating the file.
 
-- Confirms whether key post-merge build/scan was skipped due to commit title or
-  actor rules.
-- Explicit pass condition: security-relevant commits are not skipped, or skip is
-  accompanied by an accepted/manual refresh path.
+---
 
-#### 7. Validate Scan Target Type
+### 3.6 FeedbackWidget — `frontend/src/components/FeedbackWidget.tsx`
 
-```bash
-# Read workflow logic directly for scan target
-grep -n "scan-type\|scan-ref\|image-ref\|/app/charon\|/usr/bin/caddy" .github/workflows/security-pr.yml .github/workflows/docker-build.yml
+**Change 1 — Import:**
+```typescript
+// Before:
+import { MessageSquarePlus, Bug, Sparkles } from 'lucide-react'
+
+// After:
+import { MessageSquarePlus, Bug, Sparkles, BookOpen } from 'lucide-react'
 ```
 
-Expected outcome:
+**Change 2 — Constant (after `GITHUB_FEATURE_URL`):**
+```typescript
+const DOCS_URL = 'https://wikid82.github.io/Charon/'
+```
+
+**Change 3 — Third link element** (append inside `<nav>`, after the Feature Request `</a>`):
+```tsx
+<a
+  href={DOCS_URL}
+  target="_blank"
+  rel="noopener noreferrer"
+  aria-label={t('feedback.viewDocsAriaLabel')}
+  className={cn(
+    'flex items-center gap-3 px-4 py-3 text-sm',
+    'border-t border-gray-200 dark:border-gray-800',
+    'text-gray-700 dark:text-gray-300',
+    'hover:bg-gray-100 dark:hover:bg-gray-800',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2',
+    'transition-colors'
+  )}
+>
+  <BookOpen className="w-4 h-4 shrink-0" aria-hidden="true" />
+  <div>
+    <div className="font-medium">{t('feedback.viewDocs')}</div>
+    <div className="text-xs text-gray-500 dark:text-gray-400">
+      {t('feedback.viewDocsDescription')}
+    </div>
+  </div>
+</a>
+```
+
+---
+
+### 3.7 i18n — Locale Files (All Five Languages)
+
+Add three keys inside the `"feedback"` object (after `requestFeatureAriaLabel`) to **all five locale files**:
+
+- `frontend/src/locales/en/translation.json`
+- `frontend/src/locales/de/translation.json`
+- `frontend/src/locales/fr/translation.json`
+- `frontend/src/locales/zh/translation.json`
+- `frontend/src/locales/es/translation.json`
+
+For `de`, `fr`, `zh`, and `es`: use the same English values as placeholders. Human translation is a separate backlog task and must not block this PR.
+
+The three keys to add:
+
+```json
+"viewDocs": "View Documentation",
+"viewDocsDescription": "Read the docs",
+"viewDocsAriaLabel": "View documentation (opens docs site in new tab)"
+```
+
+Final `"feedback"` object (12 keys total):
+
+```json
+"feedback": {
+  "triggerLabel": "Open feedback menu",
+  "closeTriggerLabel": "Close feedback menu",
+  "panelLabel": "Feedback options",
+  "reportBug": "Report a Bug",
+  "reportBugDescription": "Found an issue?",
+  "reportBugAriaLabel": "Report a bug (opens GitHub Issues in new tab)",
+  "requestFeature": "Request a Feature",
+  "requestFeatureDescription": "Have an idea?",
+  "requestFeatureAriaLabel": "Request a feature (opens GitHub Issues in new tab)",
+  "viewDocs": "View Documentation",
+  "viewDocsDescription": "Read the docs",
+  "viewDocsAriaLabel": "View documentation (opens docs site in new tab)"
+}
+```
+
+---
+
+### 3.8 Tests — `frontend/src/components/__tests__/FeedbackWidget.test.tsx`
+
+Add `DOCS_URL` constant and three new tests to the existing `describe` block:
+
+```typescript
+const DOCS_URL = 'https://wikid82.github.io/Charon/'
+
+// 16. Panel contains docs link pointing to correct URL
+it('panel contains docs link pointing to correct URL', async () => {
+  render(<FeedbackWidget />)
+  const trigger = screen.getByRole('button', { name: 'Open feedback menu' })
+  await userEvent.click(trigger)
+  const docsLink = screen.getByRole('link', { name: /view documentation/i })
+  expect(docsLink).toHaveAttribute('href', DOCS_URL)
+})
+
+// 17. Docs link has target="_blank"
+it('docs link has target="_blank"', async () => {
+  render(<FeedbackWidget />)
+  const trigger = screen.getByRole('button', { name: 'Open feedback menu' })
+  await userEvent.click(trigger)
+  const docsLink = screen.getByRole('link', { name: /view documentation/i })
+  expect(docsLink).toHaveAttribute('target', '_blank')
+})
+
+// 18. Docs link has rel="noopener noreferrer"
+it('docs link has rel="noopener noreferrer"', async () => {
+  render(<FeedbackWidget />)
+  const trigger = screen.getByRole('button', { name: 'Open feedback menu' })
+  await userEvent.click(trigger)
+  const docsLink = screen.getByRole('link', { name: /view documentation/i })
+  expect(docsLink).toHaveAttribute('rel', 'noopener noreferrer')
+})
 
-- Evidence of fs-only binary scan vs full image scan path.
-- Explicit pass condition: authoritative image-scan workflow is clearly
-  identified and documented for closure decisions.
+// 19. Docs link has aria-label from i18n key
+it('docs link has aria-label from i18n key', async () => {
+  render(<FeedbackWidget />)
+  await userEvent.click(screen.getByRole('button', { name: 'Open feedback menu' }))
+  const docsLink = screen.getByRole('link', { name: /view documentation/i })
+  expect(docsLink).toHaveAttribute('aria-label', 'View documentation (opens docs site in new tab)')
+})
+```
 
-## Durable Remediation Options (Prioritized)
+---
 
-### Priority 0 Legacy SARIF Category Closure Backfill Before Retirement
+### 3.9 Accessibility Notes
 
-- Build a closure inventory of all open legacy-category alerts keyed by:
-  category + ref + workflow + alert number.
-- Run an explicit backfill cycle that refreshes those legacy tracks with current
-  results before retiring compatibility categories.
-- Retire compatibility categories only after the backfill shows no unresolved
-  Caddy 2.11.2 lineage in those tracks.
+- New `<a>` element follows the identical pattern as existing links: explicit `aria-label`, `target="_blank"`, `rel="noopener noreferrer"`, `focus-visible` ring classes.
+- `BookOpen` carries `aria-hidden="true"` — accessible name from `aria-label` on the anchor.
+- `firstLinkRef` stays on the Bug Report link; Tab order flows naturally: Bug → Feature → Docs.
+- WCAG 2.2 AA satisfied: sufficient contrast (shared classes), keyboard operability, screen-reader label.
 
-Why:
+---
 
-- Prevents orphaned legacy alert tracks from surviving category retirement.
-- Ensures closure state is auditable before compatibility removal.
+## 4. Implementation Plan
 
-### Priority 1 Remove Legacy SARIF Alias Categories
+### Phase 1: Playwright Tests (Spec Validation)
 
-- Remove compatibility uploads in docker-build.yml for:
-  - .github/workflows/docker-publish.yml:build-and-push
-  - any duplicate compatibility category not actively used.
-- Keep one canonical category per scan job.
+Write failing tests first to define expected widget behaviour.
 
-Why:
+| # | File | Action |
+|---|------|--------|
+| 1 | `frontend/src/components/__tests__/FeedbackWidget.test.tsx` | Add tests 16–19 (docs link URL, target, rel, aria-label) |
 
-- Prevents long-tail stale alert tracks and ambiguous ownership.
+**Validation gate:** Tests run and fail (implementation not yet present — expected).
 
-### Priority 2 Enforce Canonical Image Scan as Source of Truth
+---
 
-- Treat image-based Trivy scan in docker-build.yml and
-  security-weekly-rebuild.yml as authoritative for Caddy status.
-- Keep security-pr.yml binary scan as supplemental, or extend it to extract
-  and scan /usr/bin/caddy explicitly if retained for Caddy signal.
-- Add explicit category ownership and normalization for
-  security-weekly-rebuild.yml (set stable category naming and owner cadence).
+### Phase 2: Documentation Files
 
-Why:
+All docs work; zero backend/frontend code changes.
 
-- Eliminates partial-artifact blind spots.
-- Removes implicit category drift in weekly rebuild uploads.
+| # | File | Action |
+|---|------|--------|
+| 2 | `docs/features/orthrus.md` | Create — full ELI5 feature page per outline in §3.1 |
+| 3 | `docs/features/hecate.md` | Create — full ELI5 feature page per outline in §3.2 (fixes broken link) |
+| 4 | `docs/guides/remote-docker-setup.md` | Create — step-by-step guide per outline in §3.3 |
+| 5 | `docs/features.md` | Insert Orthrus entry before Hecate section (§3.5) |
+| 6 | `docs/index.md` | Add "Remote Access" section (§3.4) |
+| 6a | `docs/features/uptime-monitoring.md` | Append cross-reference line per §3.4.1 |
 
-### Priority 3 Tighten Post-Merge Refresh Guarantees
+**Validation gate:** All relative links in new files resolve to real files. `features/hecate.md` link in `features.md` is no longer broken.
 
-- Ensure Dockerfile/security-significant changes cannot bypass build+scan via
-  skip logic.
-- Add a condition override: if Dockerfile or workflow security files changed,
-  force build/scan.
+---
 
-Why:
+### Phase 3: Frontend Widget
 
-- Guarantees scan freshness after security-relevant merges.
+| # | File | Action |
+|---|------|--------|
+| 7 | `frontend/src/locales/en/translation.json` | Add three `viewDocs*` keys per §3.7 |
+| 7a | `frontend/src/locales/de/translation.json` | Add three `viewDocs*` keys (English placeholders) per §3.7 |
+| 7b | `frontend/src/locales/fr/translation.json` | Add three `viewDocs*` keys (English placeholders) per §3.7 |
+| 7c | `frontend/src/locales/zh/translation.json` | Add three `viewDocs*` keys (English placeholders) per §3.7 |
+| 7d | `frontend/src/locales/es/translation.json` | Add three `viewDocs*` keys (English placeholders) per §3.7 |
+| 8 | `frontend/src/components/FeedbackWidget.tsx` | Import `BookOpen`, add `DOCS_URL`, add third link per §3.6 |
 
-### Priority 4 Normalize PR Tag and Artifact Resolution
+**Validation gate:** Tests 16–19 pass; existing 15 tests still pass.
 
-- Align all workflows on immutable pr-<number>-<sha> semantics.
-- Remove or gate legacy pr-<number> fallback paths.
+---
 
-Why:
+### Phase 4: Integration Check
 
-- Avoids scanning wrong images.
+| # | Action |
+|---|--------|
+| 9 | Run `npm run test -- --reporter=verbose` — all 19 FeedbackWidget tests green, zero regressions |
+| 10 | Manual browser verify: FeedbackWidget renders 3 links when open |
+| 11 | Spot-check: `orthrus.md`, `hecate.md`, `remote-docker-setup.md` render correctly in browser |
 
-### Priority 5 Add Freshness Telemetry and Closure Proof
+---
 
-- Emit build digest, Caddy version, and scan category into step summary and
-  retained artifact for each security upload.
-- Optional: add a post-scan assertion that SARIF run metadata references same
-  digest scanned.
+## 5. Acceptance Criteria
 
-Why:
+### Docs
 
-- Makes stale-path diagnosis immediate.
+- [ ] `docs/features/orthrus.md` exists; ELI5 tone with analogy, setup steps, troubleshooting table
+- [ ] `docs/features/hecate.md` exists; fixes the broken reference at `docs/features.md` line 226
+- [ ] `docs/guides/remote-docker-setup.md` exists; numbered steps, auth-key warning prominent
+- [ ] `docs/features.md` has a standalone Orthrus entry linking to `features/orthrus.md`
+- [ ] `docs/index.md` has "Remote Access" section with all three new page links
+- [ ] No broken internal relative links introduced or left unfixed
+- [ ] All new docs: plain English, analogy at start of new concepts, jargon immediately explained
 
-### Priority 6 Multi-Arch Explicit Verification
+### Widget
 
-- Add per-arch Caddy version check in CI before SARIF upload, at least for
-  linux/amd64 and linux/arm64 manifests where available.
+- [ ] `FeedbackWidget.tsx` renders exactly 3 links when panel is open
+- [ ] Third link `href` = `https://wikid82.github.io/Charon/`
+- [ ] Third link has `target="_blank"` and `rel="noopener noreferrer"`
+- [ ] Third link `aria-label` uses resolved value of `feedback.viewDocsAriaLabel`
+- [ ] `BookOpen` icon has `aria-hidden="true"`
+- [ ] `translation.json` contains all three new `feedback.viewDocs*` keys
+- [ ] All 19 FeedbackWidget unit tests pass; zero regressions
+- [ ] `npm run test` exits 0
 
-Why:
+---
 
-- Prevents hidden platform drift.
+## 6. Commit Slicing Strategy
 
-## Review of .gitignore, .dockerignore, codecov.yml, Dockerfile
+**Decision:** Single PR with two ordered logical commits. The deliverables are independent; separate commits make each one reviewable and rollback-safe in isolation.
 
-### .gitignore
+### Commit 1 — `docs: add Orthrus, Hecate, and remote Docker documentation`
 
-- No change required for this issue.
-- Existing SARIF/artifact ignores are appropriate.
+**Scope:** Docs-only. No frontend or backend changes.
 
-### .dockerignore
+**Files:**
+- `docs/features/orthrus.md` (new)
+- `docs/features/hecate.md` (new — fixes broken link)
+- `docs/guides/remote-docker-setup.md` (new)
+- `docs/features.md` (modified — add Orthrus entry)
+- `docs/index.md` (modified — add Remote Access section)
 
-- No change required for this issue.
-- Current exclusions do not explain stale Caddy finding source.
+**Dependencies:** None — purely additive Markdown.
 
-### codecov.yml
+**Validation gate:** All internal links in new files resolve; `features.md` Hecate link target exists.
 
-- No change required for this issue.
-- Coverage settings are unrelated to code scanning freshness.
+**Rollback:** Revert this commit with zero code impact.
 
-### Dockerfile
+---
 
-- Functional version pin is already correct at 2.11.3.
-- Optional hardening (recommended if issue persists):
-  - add explicit build-time assertion that built Caddy reports expected major/minor/patch;
-  - emit OCI label with built Caddy version for traceability.
+### Commit 2 — `feat(feedback-widget): add View Documentation link`
 
-## Implementation Plan
+**Scope:** Frontend only. No backend or docs changes.
 
-### Phase 1 Playwright/UI Validation
+**Files:**
+- `frontend/src/locales/en/translation.json` (modified — 3 new keys)
+- `frontend/src/locales/de/translation.json` (modified — 3 new keys, English placeholders)
+- `frontend/src/locales/fr/translation.json` (modified — 3 new keys, English placeholders)
+- `frontend/src/locales/zh/translation.json` (modified — 3 new keys, English placeholders)
+- `frontend/src/locales/es/translation.json` (modified — 3 new keys, English placeholders)
+- `frontend/src/components/FeedbackWidget.tsx` (modified — import, constant, link element)
+- `frontend/src/components/__tests__/FeedbackWidget.test.tsx` (modified — 4 new tests)
 
-Objective:
+**Dependencies:** Commit 1 should land first (so the target URL exists on the published site), but technically independent — URL is hardcoded.
 
-- Confirm this problem is CI/security-pipeline only, not a UI regression.
-- Run UI/Playwright checks conditionally when product-surface files changed.
+**Validation gate:** 19 FeedbackWidget tests pass; no regressions.
 
-Tasks:
+**Rollback:** Revert this commit alone with zero docs or backend impact.
 
-1. Compute change scope:
-  - workflow/security-pipeline-only change (for example .github/workflows,
-    scripts security tooling, scan configs), or
-  - product-surface change (frontend/backend/runtime behavior).
-2. If product-surface change is present, run targeted smoke UI task(s) per DoD
-  policy.
-3. If workflow/security-pipeline-only, record conditional waiver and skip UI
-  execution.
-4. Record that no UI behavior change is expected from this remediation.
+---
 
-Validation gate:
+### Contingency
 
-- For product-surface changes: no UI regressions.
-- For workflow/security-only changes: waiver recorded with scope evidence.
+If `BookOpen` is unavailable in the installed lucide-react version, substitute `ExternalLink` or `FileText` — the same structural pattern applies.
 
-### Phase 2 Root-Cause Evidence Collection
+---
 
-Objective:
+## 7. Notes for Doc Writer Agent
 
-- Prove exact stale reporting source.
+### ELI5 Writing Guidelines
 
-Tasks:
-
-1. Enumerate open Trivy alerts with category/ref.
-2. Correlate each with workflow run and SARIF artifact.
-3. Confirm scanned image digest and runtime Caddy version.
-4. Determine whether issue is category-stale, artifact mismatch, skip-build,
-   branch mismatch, or multi-arch divergence.
-
-Validation gate:
-
-- One or more root causes selected, each mapped to category + ref + workflow
-  with evidence artifact links.
-
-### Phase 3 Workflow Remediation
-
-Objective:
-
-- Remove ambiguity and enforce canonical scan path.
-
-Tasks:
-
-1. Execute legacy-category closure backfill for affected category/ref/workflow
-  tuples.
-2. Remove legacy category uploads in docker-build.yml after verified backfill.
-3. Align category naming to one active track per workflow.
-4. Add explicit weekly category ownership/normalization for
-  security-weekly-rebuild.yml.
-5. Add force-scan behavior for Dockerfile/security-file changes.
-6. Align PR image tag/artifact resolution where drift exists.
-
-Validation gate:
-
-- Backfill completed and documented before compatibility retirement.
-- New run uploads SARIF to canonical category only; no legacy category updates.
-
-### Phase 4 Verification and Backfill
-
-Objective:
-
-- Demonstrate closure behavior and prevent recurrence.
-
-Tasks:
-
-1. Re-run relevant workflows on latest main commit.
-2. Verify SARIF reflects Caddy 2.11.3.
-3. Verify GitHub Security open Trivy alerts for Caddy 2.11.2 close or are
-   superseded by resolved state.
-4. If needed, run weekly/nightly paths to refresh branch-specific categories.
-
-Validation gate:
-
-- No open Caddy 2.11.2 findings remain in active categories for current refs.
-- Legacy categories either show verified closure after backfill or are
-  formally tracked with owner + retirement checkpoint.
-
-### Phase 5 Documentation and Governance
-
-Objective:
-
-- Keep future investigations short and deterministic.
-
-Tasks:
-
-1. Update SECURITY.md and supply-chain docs with category/branch ownership.
-2. Document canonical workflow for image-based closure verification.
-3. Note deprecated categories and retirement date.
-
-Validation gate:
-
-- Docs clearly map alert -> category -> workflow -> digest -> component version.
-
-## Commit Slicing Strategy
-
-### Decision
-
-Single PR with ordered logical commits (security pipeline coherence issue, tightly
-related files, low product-surface risk).
-
-### Trigger Reasons
-
-- Cross-domain but same concern: workflow wiring + security signal integrity.
-- High reviewer value from isolated commits (evidence, wiring, docs).
-- Fast rollback needed if any category/reporting side effect appears.
-
-### Ordered Commits
-
-#### Commit 1 Evidence and Traceability Baseline
-
-Scope:
-
-- Add/adjust investigation notes and CI summaries (non-behavioral) to capture
-  category/digest/Caddy version mapping.
-
-Files (expected):
-
-- [.github/workflows/docker-build.yml](.github/workflows/docker-build.yml)
-- [docs/plans/current_spec.md](docs/plans/current_spec.md)
-
-Dependencies:
-
-- None.
-
-Validation gate:
-
-- Workflow summary includes category + digest + caddy version evidence.
-
-#### Commit 2 Legacy Category Closure Backfill
-
-Scope:
-
-- Build and execute backfill for legacy category/ref/workflow tuples.
-- Capture closure evidence and retirement readiness criteria.
-
-Files (expected):
-
-- [.github/workflows/docker-build.yml](.github/workflows/docker-build.yml)
-- [docs/plans/current_spec.md](docs/plans/current_spec.md)
-
-Dependencies:
-
-- Commit 1 merged or present in branch.
-
-Validation gate:
-
-- Legacy category closure evidence exists for each tracked tuple.
-
-#### Commit 3 Canonical Category and Weekly Ownership Normalization
-
-Scope:
-
-- Remove legacy SARIF alias uploads and keep canonical categories.
-- Add explicit weekly category ownership/normalization for
-  security-weekly-rebuild.
-- Optionally refine security-pr.yml target semantics for clarity.
-
-Files (expected):
-
-- [.github/workflows/docker-build.yml](.github/workflows/docker-build.yml)
-- [.github/workflows/security-weekly-rebuild.yml](.github/workflows/security-weekly-rebuild.yml)
-- [.github/workflows/security-pr.yml](.github/workflows/security-pr.yml)
-
-Dependencies:
-
-- Commit 2.
-
-Validation gate:
-
-- SARIF uploaded to canonical categories only with explicit weekly ownership.
-
-#### Commit 4 Freshness and Skip-Guard Enforcement
-
-Scope:
-
-- Ensure Dockerfile/security-file changes force build+scan refresh.
-- Normalize PR tag/artifact resolution where needed.
-
-Files (expected):
-
-- [.github/workflows/docker-build.yml](.github/workflows/docker-build.yml)
-- [.github/workflows/supply-chain-verify.yml](.github/workflows/supply-chain-verify.yml)
-- [.github/workflows/supply-chain-pr.yml](.github/workflows/supply-chain-pr.yml)
-
-Dependencies:
-
-- Commit 3.
-
-Validation gate:
-
-- Security-relevant change cannot be skipped; image ref resolution deterministic.
-
-#### Commit 5 Docs and Operational Runbook
-
-Scope:
-
-- Document canonical verification path and stale-alert troubleshooting.
-
-Files (expected):
-
-- [SECURITY.md](SECURITY.md)
-- [docs/guides/supply-chain-security-developer-guide.md](docs/guides/supply-chain-security-developer-guide.md)
-
-Dependencies:
-
-- Commit 4.
-
-Validation gate:
-
-- Operators can map alert -> category -> workflow -> digest -> component version.
-
-### Rollback and Contingency
-
-- If category cleanup causes missing visibility, revert Commit 3 only while
-  retaining backfill evidence from Commit 2.
-- If force-scan logic creates excessive CI load, revert Commit 4 and keep
-  category cleanup.
-- Maintain a one-cycle overlap where canonical and old category results are
-  compared internally (not uploaded as parallel public categories).
-
-## Risks and Mitigations
-
-- Risk: closing legacy category may hide historical trend continuity.
-  - Mitigation: keep artifact retention and migration note in docs.
-- Risk: force-scan increases CI time.
-  - Mitigation: scope force condition to Dockerfile/security workflow paths only.
-- Risk: multi-arch checks add flakiness on runners.
-  - Mitigation: keep per-arch checks lightweight and deterministic.
-
-## Acceptance Criteria
-
-- Root cause identified with evidence from open alerts, SARIF category, and
-  workflow run mapping.
-- Root cause set allows one or more concurrent causes, each mapped to category,
-  ref, and workflow with evidence.
-- Canonical workflows show scans for current digest with Caddy 2.11.3.
-- Legacy category closure backfill completed before retirement of compatibility
-  categories.
-- Legacy/ambiguous category uploads removed or explicitly deprecated.
-- security-weekly-rebuild has explicit category ownership and normalization.
-- Security tab no longer shows active Caddy 2.11.2 findings for current active
-  categories/refs.
-- Durable guardrails in place for skip, tag resolution, and scan target clarity.
-- DoD checks pass; any residual findings are documented with explicit owner and
-  next action.
+1. **Lead with why, not what.** "Your HomeLab is behind a firewall — Orthrus solves that" before "Orthrus is a reverse WebSocket tunnel."
+2. **Open each new concept with an analogy.** Examples:
+   - Orthrus: "a messenger that knocks from the inside"
+   - Hecate: "a traffic controller at a crossroads"
+   - Muzzle filter: "Orthrus can look but not touch"
+3. **Short sentences.** One idea per sentence.
+4. **No jargon without an immediate plain-English follow-up.** If "WebSocket" must appear: "(a type of live internet connection)".
+5. **Procedures are numbered**, not bulleted.
+6. **Use tables for comparisons** — install methods, status values, provider types.
+7. **Reassuring tone.** "Don't worry if this looks complex — you only need to do it once."
+8. **Make the one-time auth key warning impossible to miss.** Bold it, use a callout block or ⚠️ emoji.
+9. **Security note on Muzzle is a trust-builder** — mention it explicitly. Users worry about granting Docker access to a third-party tool.
+10. **Section order convention** (matches existing feature pages):
+    1. Front-matter
+    2. `# Title`
+    3. Overview / analogy paragraph
+    4. How It Works
+    5. Setup steps (numbered)
+    6. Reference tables
+    7. Troubleshooting table

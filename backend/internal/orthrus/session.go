@@ -283,12 +283,20 @@ func (s *AgentSession) StartExternalProxy(port int) error {
 
 	loopbackTarget := fmt.Sprintf("127.0.0.1:%d", loopbackPort)
 	targetURL := &url.URL{Scheme: "http", Host: loopbackTarget}
+
+	// Clone DefaultTransport to preserve its sane dial/TLS/idle-conn
+	// defaults, then disable keep-alives so the external proxy never holds
+	// open connections to the loopback target longer than a single request.
+	baseTransport := http.DefaultTransport.(*http.Transport).Clone()
+	baseTransport.DisableKeepAlives = true
+
 	rp := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(targetURL)
 			pr.Out.Host = ""
 		},
 		FlushInterval: -1,
+		Transport:     baseTransport,
 	}
 
 	srv := &http.Server{

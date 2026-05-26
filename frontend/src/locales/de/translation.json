@@ -174,19 +174,19 @@
     "hostCount_other": "{{count}} Hosts",
     "hostCount": "{{count}} Hosts",
     "dnd": {
-      "dragHandleSingle":   "Zum Verschieben in eine andere Gruppe ziehen",
+      "dragHandleSingle": "Zum Verschieben in eine andere Gruppe ziehen",
       "dragHandleMultiple": "{{count}} ausgewählte Hosts verschieben",
-      "roleDescription":    "Verschiebbarer Proxy-Host",
-      "movingOne":          "Host wird verschoben",
-      "movingMultiple":     "{{count}} Hosts werden verschoben",
-      "moveSuccess_one":    "1 Host verschoben",
-      "moveSuccess_other":  "{{count}} Hosts verschoben",
-      "moveFailed":         "Host(s) konnten nicht verschoben werden",
-      "partialError":       "{{count}} Host(s) konnte(n) nicht verschoben werden",
-      "announcePickUp":     "{{name}} aufgenommen. Pfeiltasten verwenden, um zwischen Gruppen zu wechseln.",
-      "announceOver":       "Wird über {{group}} bewegt",
-      "announceDrop":       "In {{group}} abgelegt",
-      "announceCancel":     "Verschieben abgebrochen"
+      "roleDescription": "Verschiebbarer Proxy-Host",
+      "movingOne": "Host wird verschoben",
+      "movingMultiple": "{{count}} Hosts werden verschoben",
+      "moveSuccess_one": "1 Host verschoben",
+      "moveSuccess_other": "{{count}} Hosts verschoben",
+      "moveFailed": "Host(s) konnten nicht verschoben werden",
+      "partialError": "{{count}} Host(s) konnte(n) nicht verschoben werden",
+      "announcePickUp": "{{name}} aufgenommen. Pfeiltasten verwenden, um zwischen Gruppen zu wechseln.",
+      "announceOver": "Wird über {{group}} bewegt",
+      "announceDrop": "In {{group}} abgelegt",
+      "announceCancel": "Verschieben abgebrochen"
     }
   },
   "certificates": {
@@ -1287,6 +1287,9 @@
     "reportBugAriaLabel": "Fehler melden (öffnet GitHub Issues im neuen Tab)",
     "requestFeature": "Funktion anfragen",
     "requestFeatureDescription": "Eine Idee?",
-    "requestFeatureAriaLabel": "Funktion anfragen (öffnet GitHub Issues im neuen Tab)"
+    "requestFeatureAriaLabel": "Funktion anfragen (öffnet GitHub Issues im neuen Tab)",
+    "viewDocs": "View Documentation",
+    "viewDocsDescription": "Read the full documentation",
+    "viewDocsAriaLabel": "View documentation (opens docs site in new tab)"
   }
 }

@@ -203,7 +203,15 @@ Supports both local Docker installations and remote Docker servers, perfect for 
 
 ---
 
-### 🔀 Hecate Tunnel & Pathway Manager
+### � Orthrus — Remote Tunnel Agent
+
+Your HomeLab is behind a firewall? Orthrus is a small agent you install on any remote machine. It dials outward to Charon over a secure connection — no open inbound ports required. Once connected, Charon can discover and proxy Docker containers on that machine just like local ones.
+
+→ [Learn More](features/orthrus.md)
+
+---
+
+### �🔀 Hecate Tunnel & Pathway Manager
 
 Connect remote servers that sit behind firewalls or NAT routers—no open inbound ports required. Choose how each remote server reaches Charon from three simple connection modes, all managed from the Remote Servers page.
 

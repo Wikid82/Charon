@@ -26,8 +26,8 @@ ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0b
 ARG EXPR_LANG_VERSION=1.17.8
 # renovate: datasource=go depName=golang.org/x/net
 ARG XNET_VERSION=0.55.0
-# renovate: datasource=go depName=github.com/smallstep/certificates
-ARG SMALLSTEP_CERTIFICATES_VERSION=0.30.0
+# renovate: datasource=go depName=golang.org/x/crypto
+ARG XCRYPTO_VERSION=0.52.0
 # renovate: datasource=npm depName=npm
 ARG NPM_VERSION=11.11.1
 
@@ -241,7 +241,7 @@ ARG CORAZA_CADDY_VERSION
 ARG XCADDY_VERSION=0.4.6
 ARG EXPR_LANG_VERSION
 ARG XNET_VERSION
-ARG SMALLSTEP_CERTIFICATES_VERSION
+ARG XCRYPTO_VERSION
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache bash git
@@ -289,6 +289,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION}; \
         # renovate: datasource=go depName=github.com/hslatman/ipstore
         go get github.com/hslatman/ipstore@v0.4.0; \
+        go get golang.org/x/crypto@v${XCRYPTO_VERSION}; \
         go get golang.org/x/net@v${XNET_VERSION}; \
         # CVE-2026-33186: gRPC-Go auth bypass (fixed in v1.79.3)
         # CVE-2026-34986: go-jose/v4 transitive fix (requires grpc >= v1.80.0)
@@ -316,10 +317,6 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # remove once caddy-security ships a release built with goxmldsig >= v1.6.0.
         # renovate: datasource=go depName=github.com/russellhaering/goxmldsig
         go get github.com/russellhaering/goxmldsig@v1.6.0; \
-        # CVE-2026-30836: smallstep/certificates 0.30.0-rc3 vulnerability
-        # Fix available at v0.30.0. Pin here so the Caddy binary is patched immediately;
-        # remove once caddy-security ships a release built with smallstep/certificates >= v0.30.0.
-        go get github.com/smallstep/certificates@v${SMALLSTEP_CERTIFICATES_VERSION}; \
         # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
         # Affects /usr/bin/caddy (transitive dependency). Fix available at v0.1.1.
         # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
@@ -339,8 +336,17 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
             echo "Unsupported CADDY_PATCH_SCENARIO=${CADDY_PATCH_SCENARIO}"; \
             exit 1; \
         fi; \
+        # Final re-pin: enforce requested Caddy core version after plugin/security updates.
+        go get github.com/caddyserver/caddy/v2@v${CADDY_TARGET_VERSION}; \
         # Clean up go.mod and ensure all dependencies are resolved
         go mod tidy; \
+        # Hard assertion: fail if module graph resolves to a different Caddy core version.
+        ACTUAL_CADDY_VERSION="$(go list -m -f "{{.Version}}" github.com/caddyserver/caddy/v2)"; \
+        if [ "$ACTUAL_CADDY_VERSION" != "v${CADDY_TARGET_VERSION}" ]; then \
+            echo "ERROR: Resolved Caddy version ${ACTUAL_CADDY_VERSION} does not match target v${CADDY_TARGET_VERSION}"; \
+            exit 1; \
+        fi; \
+        echo "Verified Caddy module version: ${ACTUAL_CADDY_VERSION}"; \
         echo "Dependencies patched successfully"; \
         # Remove any temporary binaries from initial xcaddy run
         rm -f /tmp/caddy-initial; \

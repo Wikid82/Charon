@@ -91,6 +91,15 @@ func (s *OrthrusServer) HandleWebSocket(c *gin.Context) {
 		return
 	}
 
+	// Displace the prior session for this UUID BEFORE binding the new proxy
+	// listeners so the old session's extListener is closed and its port is freed
+	// before StartDockerProxy / StartExternalProxy attempt to bind.
+	if old, loaded := s.sessions.LoadAndDelete(agent.UUID); loaded {
+		if oldSess, ok := old.(*AgentSession); ok {
+			_ = oldSess.Close()
+		}
+	}
+
 	if err := session.StartDockerProxy(); err != nil {
 		logger.Log().WithField("uuid", util.SanitizeForLog(agent.UUID)).
 			WithError(err).Warn("orthrus: failed to start docker proxy listener")
@@ -188,8 +197,13 @@ func (s *OrthrusServer) watchHeartbeat(agentUUID string, sess *AgentSession) {
 		case <-ticker.C:
 			if !sess.IsAlive() {
 				_ = sess.Close() // stops runProxyListener goroutine; idempotent
-				s.markOffline(agentUUID)
-				s.sessions.Delete(agentUUID)
+				// Only remove from the map and mark offline when this goroutine's
+				// session pointer is still the current one. A stale goroutine
+				// holding an old pointer will find CompareAndDelete returns false
+				// and exits without corrupting the new session's state.
+				if s.sessions.CompareAndDelete(agentUUID, sess) {
+					s.markOffline(agentUUID)
+				}
 				return
 			}
 		}

@@ -510,6 +510,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		dockerHandler := handlers.NewDockerHandler(dockerService, remoteServerService)
 		if orthrusServer != nil {
 			dockerHandler.SetOrthrusResolver(orthrusServer)
+			uptimeService.SetOrthrusResolver(orthrusServer)
 		}
 		dockerHandler.RegisterRoutes(management)
 

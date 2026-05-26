@@ -174,19 +174,19 @@
     "hostCount_other": "{{count}} hôtes",
     "hostCount": "{{count}} hôtes",
     "dnd": {
-      "dragHandleSingle":   "Glisser pour déplacer vers un autre groupe",
+      "dragHandleSingle": "Glisser pour déplacer vers un autre groupe",
       "dragHandleMultiple": "Glisser pour déplacer {{count}} hôtes sélectionnés",
-      "roleDescription":    "Hôte proxy déplaçable",
-      "movingOne":          "Déplacement de l'hôte",
-      "movingMultiple":     "Déplacement de {{count}} hôtes",
-      "moveSuccess_one":    "1 hôte déplacé",
-      "moveSuccess_other":  "{{count}} hôtes déplacés",
-      "moveFailed":         "Échec du déplacement du ou des hôte(s)",
-      "partialError":       "{{count}} hôte(s) n'ont pas pu être déplacés",
-      "announcePickUp":     "{{name}} saisi. Utilisez les touches fléchées pour vous déplacer entre les groupes.",
-      "announceOver":       "Déplacement au-dessus de {{group}}",
-      "announceDrop":       "Déposé dans {{group}}",
-      "announceCancel":     "Déplacement annulé"
+      "roleDescription": "Hôte proxy déplaçable",
+      "movingOne": "Déplacement de l'hôte",
+      "movingMultiple": "Déplacement de {{count}} hôtes",
+      "moveSuccess_one": "1 hôte déplacé",
+      "moveSuccess_other": "{{count}} hôtes déplacés",
+      "moveFailed": "Échec du déplacement du ou des hôte(s)",
+      "partialError": "{{count}} hôte(s) n'ont pas pu être déplacés",
+      "announcePickUp": "{{name}} saisi. Utilisez les touches fléchées pour vous déplacer entre les groupes.",
+      "announceOver": "Déplacement au-dessus de {{group}}",
+      "announceDrop": "Déposé dans {{group}}",
+      "announceCancel": "Déplacement annulé"
     }
   },
   "certificates": {
@@ -1289,6 +1289,9 @@
     "reportBugAriaLabel": "Signaler un bug (ouvre GitHub Issues dans un nouvel onglet)",
     "requestFeature": "Demander une fonctionnalité",
     "requestFeatureDescription": "Vous avez une idée ?",
-    "requestFeatureAriaLabel": "Demander une fonctionnalité (ouvre GitHub Issues dans un nouvel onglet)"
+    "requestFeatureAriaLabel": "Demander une fonctionnalité (ouvre GitHub Issues dans un nouvel onglet)",
+    "viewDocs": "View Documentation",
+    "viewDocsDescription": "Read the full documentation",
+    "viewDocsAriaLabel": "View documentation (opens docs site in new tab)"
   }
 }
