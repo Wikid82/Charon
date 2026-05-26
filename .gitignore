@@ -326,3 +326,6 @@ backend/test_out.txt
 backend/cf_coverage.txt
 backend/***_coverage.txt
 backend/***_cov.txt
+.tmp/caddy-binary-pin-cleanup
+.tmp/caddy-binary-pin-cleanup-local.tar
+.tmp/***

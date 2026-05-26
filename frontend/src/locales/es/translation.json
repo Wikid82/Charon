@@ -174,19 +174,19 @@
     "hostCount_other": "{{count}} hosts",
     "hostCount": "{{count}} hosts",
     "dnd": {
-      "dragHandleSingle":   "Arrastra para mover a otro grupo",
+      "dragHandleSingle": "Arrastra para mover a otro grupo",
       "dragHandleMultiple": "Arrastra para mover {{count}} hosts seleccionados",
-      "roleDescription":    "Host proxy arrastrable",
-      "movingOne":          "Moviendo host",
-      "movingMultiple":     "Moviendo {{count}} hosts",
-      "moveSuccess_one":    "1 host movido",
-      "moveSuccess_other":  "{{count}} hosts movidos",
-      "moveFailed":         "Error al mover el/los host(s)",
-      "partialError":       "{{count}} host(s) no pudieron moverse",
-      "announcePickUp":     "{{name}} tomado. Usa las teclas de flecha para moverte entre grupos.",
-      "announceOver":       "Moviéndose sobre {{group}}",
-      "announceDrop":       "Soltado en {{group}}",
-      "announceCancel":     "Movimiento cancelado"
+      "roleDescription": "Host proxy arrastrable",
+      "movingOne": "Moviendo host",
+      "movingMultiple": "Moviendo {{count}} hosts",
+      "moveSuccess_one": "1 host movido",
+      "moveSuccess_other": "{{count}} hosts movidos",
+      "moveFailed": "Error al mover el/los host(s)",
+      "partialError": "{{count}} host(s) no pudieron moverse",
+      "announcePickUp": "{{name}} tomado. Usa las teclas de flecha para moverte entre grupos.",
+      "announceOver": "Moviéndose sobre {{group}}",
+      "announceDrop": "Soltado en {{group}}",
+      "announceCancel": "Movimiento cancelado"
     }
   },
   "certificates": {
@@ -1289,6 +1289,9 @@
     "reportBugAriaLabel": "Reportar un error (abre GitHub Issues en nueva pestaña)",
     "requestFeature": "Solicitar una función",
     "requestFeatureDescription": "¿Tienes una idea?",
-    "requestFeatureAriaLabel": "Solicitar función (abre GitHub Issues en nueva pestaña)"
+    "requestFeatureAriaLabel": "Solicitar función (abre GitHub Issues en nueva pestaña)",
+    "viewDocs": "View Documentation",
+    "viewDocsDescription": "Read the full documentation",
+    "viewDocsAriaLabel": "View documentation (opens docs site in new tab)"
   }
 }

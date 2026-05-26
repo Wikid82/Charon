@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-readonly DEFAULT_CANDIDATE_VERSION="2.11.2"
+readonly DEFAULT_CANDIDATE_VERSION="2.11.3"
 readonly DEFAULT_PATCH_SCENARIOS="A,B,C"
 readonly DEFAULT_PLATFORMS="linux/amd64,linux/arm64"
 readonly DEFAULT_PLUGIN_SET="caddy-security,coraza-caddy,caddy-crowdsec-bouncer,caddy-geoip2,caddy-ratelimit"
@@ -33,7 +33,7 @@ Usage: scripts/caddy-compat-matrix.sh [options]
 Options:
   --output-dir <path>         Output directory (default: test-results/caddy-compat)
   --docs-report <path>        Markdown report path (default: docs/reports/caddy-compatibility-matrix.md)
-  --candidate-version <ver>   Candidate Caddy version (default: 2.11.2)
+  --candidate-version <ver>   Candidate Caddy version (default: 2.11.3)
   --patch-scenarios <csv>     Patch scenarios CSV (default: A,B,C)
   --platforms <csv>           Platforms CSV (default: linux/amd64,linux/arm64)
   --plugin-set <csv>          Plugin set descriptor for report metadata

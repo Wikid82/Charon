@@ -7,9 +7,10 @@ name: Docker Build, Publish & Test
 # - Enhanced PR handling with dedicated scanning
 # - Improved workflow orchestration with supply-chain-verify.yml
 #
-# PHASE 1 OPTIMIZATION (February 2026):
+
+  # PHASE 1 OPTIMIZATION (February 2026):
 # - PR images now pushed to GHCR registry (enables downstream workflow consumption)
-# - Immutable PR tagging: pr-{number}-{short-sha} (prevents race conditions)
+# - Stable PR tagging: pr-{number} (freshness gate prevents stale scans)
 # - Feature branch tagging: {sanitized-branch-name}-{short-sha} (enables unique testing)
 # - Tag sanitization per spec Section 3.2 (handles special chars, slashes, etc.)
 # - Mandatory security scanning for PR images (blocks on CRITICAL/HIGH vulnerabilities)
@@ -30,7 +31,7 @@ on:
     types: [completed]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.event.workflow_run.head_branch || github.ref_name }}
   cancel-in-progress: true
 
 permissions:
@@ -46,7 +47,7 @@ env:
   TRIGGER_HEAD_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
   TRIGGER_REF: ${{ github.event_name == 'workflow_run' && format('refs/heads/{0}', github.event.workflow_run.head_branch) || github.ref }}
   TRIGGER_HEAD_REF: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.head_ref }}
-  TRIGGER_PR_NUMBER: ${{ github.event_name == 'workflow_run' && join(github.event.workflow_run.pull_requests.*.number, '') || format('{0}', github.event.pull_request.number) }}
+  TRIGGER_PR_NUMBER: ${{ github.event_name == 'pull_request' && format('{0}', github.event.pull_request.number) || '' }}
   TRIGGER_ACTOR: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.actor.login || github.actor }}
   TRIGGER_BASE_REF: ${{ github.event_name == 'workflow_run' && '' || github.base_ref }}
 
@@ -67,7 +68,6 @@ jobs:
     outputs:
       skip_build: ${{ steps.skip.outputs.skip_build }}
       digest: ${{ steps.build-and-push.outputs.digest }}
-      pr_image_ref: ${{ steps.pr-image-ref.outputs.image_ref }}
 
     steps:
       - name: Checkout repository
@@ -160,9 +160,11 @@ jobs:
             echo "Force building on feature branch (PR)"
           fi
 
-          echo "skip_build=$should_skip" >> "$GITHUB_OUTPUT"
-          echo "is_feature_push=$is_feature_push" >> "$GITHUB_OUTPUT"
-          echo "force_refresh=$force_refresh" >> "$GITHUB_OUTPUT"
+          {
+            echo "skip_build=$should_skip"
+            echo "is_feature_push=$is_feature_push"
+            echo "force_refresh=$force_refresh"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         if: steps.skip.outputs.skip_build != 'true'
@@ -249,6 +251,77 @@ jobs:
             fi
           fi
 
+      - name: Resolve security scan image reference (contract)
+        if: steps.skip.outputs.skip_build != 'true'
+        id: pr_image_ref_output
+        run: |
+          set -euo pipefail
+
+          sanitize_branch() {
+            local raw_branch="$1"
+            local sanitized_branch
+
+            sanitized_branch=$(echo "${raw_branch}" | tr '[:upper:]' '[:lower:]')
+            sanitized_branch=${sanitized_branch//[^a-z0-9-]/-}
+            while [[ "${sanitized_branch}" == *"--"* ]]; do
+              sanitized_branch=${sanitized_branch//--/-}
+            done
+            sanitized_branch=${sanitized_branch##[^a-z0-9]*}
+            sanitized_branch=${sanitized_branch%%[^a-z0-9-]*}
+
+            if [[ -z "${sanitized_branch}" ]]; then
+              sanitized_branch="branch"
+            fi
+
+            echo "${sanitized_branch}"
+          }
+
+          IMAGE_TAG=""
+
+          if [[ "${TRIGGER_EVENT}" == "pull_request" ]]; then
+            PR_NUMBER="${TRIGGER_PR_NUMBER}"
+
+            if [[ "${GITHUB_EVENT_NAME}" == "workflow_run" ]]; then
+              mapfile -t WORKFLOW_RUN_PR_NUMBERS < <(jq -r '.workflow_run.pull_requests[].number // empty' "$GITHUB_EVENT_PATH")
+
+              if [[ "${#WORKFLOW_RUN_PR_NUMBERS[@]}" != "1" ]]; then
+                echo "❌ ERROR: Expected exactly one workflow_run pull request number, found ${#WORKFLOW_RUN_PR_NUMBERS[@]}"
+                exit 1
+              fi
+
+              PR_NUMBER="${WORKFLOW_RUN_PR_NUMBERS[0]}"
+            fi
+
+            if [[ -z "${PR_NUMBER}" || "${PR_NUMBER}" == "null" ]]; then
+              echo "❌ ERROR: Missing pull request number for stable security scan tag"
+              exit 1
+            fi
+
+            IMAGE_TAG="pr-${PR_NUMBER}"
+          elif [[ "${TRIGGER_REF}" == refs/heads/nightly ]]; then
+            IMAGE_TAG="nightly"
+          elif [[ "${TRIGGER_REF}" == refs/heads/main ]]; then
+            IMAGE_TAG="main"
+          elif [[ "${TRIGGER_REF}" == refs/heads/development ]]; then
+            IMAGE_TAG="development"
+          else
+            BRANCH_NAME="${TRIGGER_HEAD_BRANCH:-${TRIGGER_REF#refs/heads/}}"
+            IMAGE_TAG="branch-$(sanitize_branch "${BRANCH_NAME}")"
+          fi
+
+          IMAGE_REF="${GHCR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+
+          echo "image_tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "image_ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
+          echo "Resolved security scan image reference: ${IMAGE_REF}"
+
+          {
+            echo "## PR Image Reference Diagnostics"
+            echo ""
+            echo "- Image tag: ${IMAGE_TAG}"
+            echo "- Emitted image_ref: ${IMAGE_REF}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Generate Docker metadata
         id: meta
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
@@ -264,10 +337,9 @@ jobs:
             type=raw,value=dev,enable=${{ env.TRIGGER_REF == 'refs/heads/development' }}
             type=raw,value=nightly,enable=${{ env.TRIGGER_REF == 'refs/heads/nightly' }}
             type=raw,value=beta,enable=${{ env.TRIGGER_EVENT == 'pull_request' && env.TRIGGER_BASE_REF == 'development' }}
-            type=raw,value=${{ steps.branch-tags.outputs.pr_feature_branch_sha_tag }},enable=${{ env.TRIGGER_EVENT == 'pull_request' && steps.branch-tags.outputs.pr_feature_branch_sha_tag != '' }}
+            type=raw,value=${{ steps.pr_image_ref_output.outputs.image_tag }},enable=${{ steps.pr_image_ref_output.outputs.image_tag != '' }}
             type=raw,value=${{ steps.branch-tags.outputs.feature_branch_tag }},enable=${{ env.TRIGGER_EVENT != 'pull_request' && startsWith(env.TRIGGER_REF, 'refs/heads/feature/') && steps.branch-tags.outputs.feature_branch_tag != '' }}
             type=raw,value=${{ steps.branch-tags.outputs.branch_sha_tag }},enable=${{ env.TRIGGER_EVENT != 'pull_request' && steps.branch-tags.outputs.branch_sha_tag != '' }}
-            type=raw,value=pr-${{ env.TRIGGER_PR_NUMBER }}-{{sha}},enable=${{ env.TRIGGER_EVENT == 'pull_request' }},prefix=,suffix=
             type=sha,format=short,prefix=,suffix=,enable=${{ env.TRIGGER_EVENT != 'pull_request' && (env.TRIGGER_REF == 'refs/heads/main' || env.TRIGGER_REF == 'refs/heads/development' || env.TRIGGER_REF == 'refs/heads/nightly') }}
           flavor: |
             latest=false
@@ -277,21 +349,18 @@ jobs:
             io.charon.build.timestamp=${{ github.event.repository.updated_at }}
             io.charon.feature.branch=${{ steps.branch-tags.outputs.feature_branch_tag }}
 
-      - name: Resolve PR image reference
+      - name: Assert PR output contract
         if: steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
-        id: pr-image-ref
         run: |
-          IMAGE_REF=$(echo "${{ steps.meta.outputs.tags }}" | head -n 1)
-          if [[ -z "$IMAGE_REF" ]]; then
-            echo "❌ ERROR: No PR image reference found in metadata tags"
+          IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
+          if [[ -z "${IMAGE_REF}" ]]; then
+            echo "❌ ERROR: image_ref output contract violated (empty output)"
             exit 1
           fi
-          echo "image_ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
-          echo "Resolved PR image reference: ${IMAGE_REF}"
       # Phase 1 Optimization: Build once, test many
-      # - For PRs: Multi-platform (amd64, arm64) + immutable tags (pr-{number}-{short-sha})
+      # - For PRs: Multi-platform (amd64, arm64) + stable security-scan tag (pr-{number})
       # - For feature branches: Multi-platform (amd64, arm64) + sanitized tags ({branch}-{short-sha})
-      # - For main/dev: Multi-platform (amd64, arm64) for production
+      # - For main/dev/nightly: Multi-platform (amd64, arm64) for production
       # - Always push to registry (enables downstream workflow consumption)
       # - Retry logic handles transient registry failures (3 attempts, 10s wait)
       # See: docs/plans/current_spec.md Section 4.1
@@ -355,52 +424,40 @@ jobs:
             # This enables backward compatibility with workflows that use artifacts
             if [[ "${{ env.TRIGGER_EVENT }}" == "pull_request" ]]; then
               echo "📥 Pulling image back for artifact creation..."
-              FIRST_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
-              docker pull "${FIRST_TAG}"
-              echo "✅ Image pulled: ${FIRST_TAG}"
+              PR_IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
+              if [[ -z "${PR_IMAGE_REF}" ]]; then
+                echo "❌ ERROR: image_ref output contract violated during pull-back"
+                exit 1
+              fi
+              docker pull "${PR_IMAGE_REF}"
+              echo "✅ Image pulled: ${PR_IMAGE_REF}"
             fi
 
-      # Critical Fix: Use exact tag from metadata instead of manual reconstruction
-      # WHY: docker/build-push-action with load:true applies the exact tags from
-      # docker/metadata-action. Manual reconstruction can cause mismatches due to:
-      # - Case sensitivity variations (owner name normalization)
-      # - Tag format differences in Buildx internal behavior
-      # - Registry prefix inconsistencies
-      #
-      # SOLUTION: Extract the first tag from metadata output (which is the PR tag)
-      # and use it directly with docker save. This guarantees we reference the
-      # exact image that was loaded into the local Docker daemon.
-      #
-      # VALIDATION: Added defensive checks to fail fast with diagnostics if:
-      # 1. No tag found in metadata output
-      # 2. Image doesn't exist locally after build
-      # 3. Artifact creation fails
+      # Use the stable security scan reference so the saved artifact matches the
+      # image that the PR scan job will pull and validate.
       - name: Save Docker Image as Artifact
         if: success() && steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
         run: |
-          # Extract the first tag from metadata action (PR tag)
-          IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n 1)
+          IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
 
-          if [[ -z "${IMAGE_TAG}" ]]; then
-            echo "❌ ERROR: No image tag found in metadata output"
-            echo "Metadata tags output:"
-            echo "${{ steps.meta.outputs.tags }}"
+          if [[ -z "${IMAGE_REF}" ]]; then
+            echo "❌ ERROR: image_ref output contract violated (empty image ref)"
             exit 1
           fi
 
-          echo "🔍 Detected image tag: ${IMAGE_TAG}"
+          echo "🔍 Detected image ref: ${IMAGE_REF}"
 
           # Verify the image exists locally
-          if ! docker image inspect "${IMAGE_TAG}" >/dev/null 2>&1; then
-            echo "❌ ERROR: Image ${IMAGE_TAG} not found locally"
+          if ! docker image inspect "${IMAGE_REF}" >/dev/null 2>&1; then
+            echo "❌ ERROR: Image ${IMAGE_REF} not found locally"
             echo "📋 Available images:"
             docker images
             exit 1
           fi
 
           # Save the image using the exact tag from metadata
-          echo "💾 Saving image: ${IMAGE_TAG}"
-          docker save "${IMAGE_TAG}" -o /tmp/charon-pr-image.tar
+          echo "💾 Saving image: ${IMAGE_REF}"
+          docker save "${IMAGE_REF}" -o /tmp/charon-pr-image.tar
 
           # Verify the artifact was created
           echo "✅ Artifact created:"
@@ -424,9 +481,9 @@ jobs:
 
           # Determine the image reference based on event type
           if [ "${{ env.TRIGGER_EVENT }}" = "pull_request" ]; then
-            IMAGE_REF="${{ steps.pr-image-ref.outputs.image_ref }}"
+            IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
             if [ -z "${IMAGE_REF}" ]; then
-              echo "❌ ERROR: Failed to load PR image reference from pr-image-ref output"
+              echo "❌ ERROR: Failed to load PR image reference from image_ref output"
               exit 1
             fi
             echo "Using PR image: $IMAGE_REF"
@@ -451,9 +508,9 @@ jobs:
 
           # Determine the image reference based on event type
           if [ "${{ env.TRIGGER_EVENT }}" = "pull_request" ]; then
-            IMAGE_REF="${{ steps.pr-image-ref.outputs.image_ref }}"
+            IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
             if [ -z "${IMAGE_REF}" ]; then
-              echo "❌ ERROR: Failed to load PR image reference from pr-image-ref output"
+              echo "❌ ERROR: Failed to load PR image reference from image_ref output"
               exit 1
             fi
             echo "Using PR image: $IMAGE_REF"
@@ -518,9 +575,9 @@ jobs:
 
           # Determine the image reference based on event type
           if [ "${{ env.TRIGGER_EVENT }}" = "pull_request" ]; then
-            IMAGE_REF="${{ steps.pr-image-ref.outputs.image_ref }}"
+            IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
             if [ -z "${IMAGE_REF}" ]; then
-              echo "❌ ERROR: Failed to load PR image reference from pr-image-ref output"
+              echo "❌ ERROR: Failed to load PR image reference from image_ref output"
               exit 1
             fi
             echo "Using PR image: $IMAGE_REF"
@@ -717,12 +774,15 @@ jobs:
     needs: build-and-push
     if: needs.build-and-push.outputs.skip_build != 'true' && needs.build-and-push.result == 'success' && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: read
       security-events: write
     steps:
+      - name: Checkout repository for Trivy ignore rules
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
       - name: Normalize image name
         run: |
           IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
@@ -731,12 +791,22 @@ jobs:
       - name: Load PR image reference
         id: pr-image
         run: |
-          IMAGE_REF="${{ needs.build-and-push.outputs.pr_image_ref }}"
-          if [[ -z "$IMAGE_REF" ]]; then
-            echo "❌ ERROR: Missing PR image reference from build-and-push outputs"
+          DIGEST="${{ needs.build-and-push.outputs.digest }}"
+
+          if [[ -z "$DIGEST" ]]; then
+            echo "❌ ERROR: build-and-push digest output is empty; cannot proceed without immutable reference"
             exit 1
           fi
+
+          if ! [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "❌ ERROR: Invalid digest format (expected sha256:<64 hex chars>): ${DIGEST}"
+            exit 1
+          fi
+
+          IMAGE_REF="ghcr.io/${IMAGE_NAME}@${DIGEST}"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
           echo "image_ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
+          echo "Using immutable digest reference: ${IMAGE_REF}"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
@@ -745,27 +815,36 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Validate image freshness
+      - name: Inspect PR image metadata
+        id: image-metadata
         run: |
-          echo "🔍 Validating image freshness for PR #${{ env.TRIGGER_PR_NUMBER }}..."
-          echo "Expected SHA: ${{ env.TRIGGER_HEAD_SHA }}"
+          echo "🔍 Inspecting image metadata for PR #${{ env.TRIGGER_PR_NUMBER }}..."
           echo "Image: ${{ steps.pr-image.outputs.image_ref }}"
 
-          # Pull image to inspect
+          # Pull the immutable digest reference to inspect labels.
           docker pull "${{ steps.pr-image.outputs.image_ref }}"
 
-          # Extract commit SHA from image label
           LABEL_SHA=$(docker inspect "${{ steps.pr-image.outputs.image_ref }}" \
             --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')
 
           echo "Image label SHA: ${LABEL_SHA}"
+          echo "label_sha=${LABEL_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate image freshness
+        run: |
+          LABEL_SHA="${{ steps.image-metadata.outputs.label_sha }}"
+
+          if [[ -z "${LABEL_SHA}" ]]; then
+            echo "❌ ERROR: Missing image revision label"
+            exit 1
+          fi
 
           if [[ "${LABEL_SHA}" != "${{ env.TRIGGER_HEAD_SHA }}" ]]; then
-            echo "⚠️ WARNING: Image SHA mismatch!"
+            echo "❌ ERROR: Image SHA mismatch!"
             echo "  Expected: ${{ env.TRIGGER_HEAD_SHA }}"
             echo "  Got:      ${LABEL_SHA}"
-            echo "Image may be stale. Resuming for triage (Bypassing failure)."
-            # exit 1
+            echo "Image may be stale. Failing closed."
+            exit 1
           fi
 
           echo "✅ Image freshness validated"
@@ -775,6 +854,8 @@ jobs:
         with:
           image-ref: ${{ steps.pr-image.outputs.image_ref }}
           format: 'table'
+          scanners: 'vuln'
+          trivyignores: '.trivyignore'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
           version: 'v0.70.0'
@@ -786,8 +867,12 @@ jobs:
           image-ref: ${{ steps.pr-image.outputs.image_ref }}
           format: 'sarif'
           output: 'trivy-pr-results.sarif'
+          scanners: 'vuln'
+          trivyignores: '.trivyignore'
           severity: 'CRITICAL,HIGH'
-          exit-code: '1'  # Intended to block, but continued on error for now
+          # Keep scanning strict for CRITICAL/HIGH; fail is enforced explicitly
+          # at the end so SARIF upload and summaries still run.
+          exit-code: '1'
           version: 'v0.70.0'
         continue-on-error: true
 
@@ -813,14 +898,24 @@ jobs:
         env:
           IMAGE_REF: ${{ steps.pr-image.outputs.image_ref }}
         run: |
-          CADDY_VERSION=$(docker run --rm --pull=never "${IMAGE_REF}" caddy version 2>/dev/null || echo "unknown")
+          CADDY_VERSION="unknown"
+          CADDY_VERSION_SOURCE="fallback-not-available"
+
+          # Prefer absolute entrypoint to avoid shell/command resolution differences.
+          if CADDY_VERSION=$(timeout 30s docker run --rm --pull=never --entrypoint /usr/bin/caddy "${IMAGE_REF}" version 2>/dev/null); then
+            CADDY_VERSION_SOURCE="--entrypoint /usr/bin/caddy"
+          elif CADDY_VERSION=$(timeout 30s docker run --rm --pull=never --entrypoint caddy "${IMAGE_REF}" version 2>/dev/null); then
+            CADDY_VERSION_SOURCE="--entrypoint caddy"
+          fi
+
           {
             echo "## PR Trivy SARIF Traceability"
             echo ""
             echo "- Category: ${{ env.TRIVY_SARIF_CATEGORY }}"
             echo "- Image: ${IMAGE_REF}"
-            echo "- Digest: n/a (tag-based PR image)"
+            echo "- Digest: ${IMAGE_REF#*@}"
             echo "- Caddy version: ${CADDY_VERSION}"
+            echo "- Caddy version source: ${CADDY_VERSION_SOURCE}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Create scan summary
@@ -830,7 +925,127 @@ jobs:
             echo "## 🔒 PR Image Security Scan"
             echo ""
             echo "- **Image**: ${{ steps.pr-image.outputs.image_ref }}"
+            echo "- **Image Digest**: ${{ steps.pr-image.outputs.digest }}"
+            echo "- **Image Revision Label SHA**: ${{ steps.image-metadata.outputs.label_sha || 'missing' }}"
             echo "- **PR**: #${{ env.TRIGGER_PR_NUMBER }}"
             echo "- **Commit**: ${{ env.TRIGGER_HEAD_SHA }}"
             echo "- **Scan Status**: ${{ steps.trivy-scan.outcome == 'success' && '✅ No critical vulnerabilities' || '❌ Vulnerabilities detected' }}"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Diagnose unsuppressed PR Trivy blockers
+        if: always()
+        continue-on-error: true
+        run: |
+          SARIF_PATH="trivy-pr-results.sarif"
+          FALLBACK_REASON=""
+          FINDINGS_COUNT="0"
+          UNIQUE_IDS_CSV="none"
+          PARSER_EXIT_CODE=""
+          PARSER_HINT=""
+
+          echo "Unsuppressed HIGH/CRITICAL findings (from ${SARIF_PATH}):"
+
+          if [[ ! -f "${SARIF_PATH}" ]]; then
+            FALLBACK_REASON="file missing"
+          elif [[ ! -r "${SARIF_PATH}" ]]; then
+            FALLBACK_REASON="file unreadable"
+          elif ! jq -e '.' "${SARIF_PATH}" >/dev/null 2>&1; then
+            FALLBACK_REASON="invalid JSON"
+          elif ! jq -e '(.runs | type) == "array"' "${SARIF_PATH}" >/dev/null 2>&1; then
+            FALLBACK_REASON="unexpected schema"
+          else
+            PARSER_ERR_FILE=$(mktemp)
+            if IDS_JSON=$(jq -c '
+              [
+                .runs[]? as $run
+                | (($run.results // [])[]?) as $result
+                | select((($result.suppressions // []) | length) == 0)
+                | {
+                    id: (
+                      $result.ruleId
+                      // ($result.rule // {} | .id)
+                      // (
+                        if ($result.ruleIndex != null and (($run.tool.driver.rules? // null) | type) == "array") then
+                          ($run.tool.driver.rules[$result.ruleIndex].id // empty)
+                        else
+                          empty
+                        end
+                      )
+                      // "unknown"
+                    )
+                  }
+              ]
+            ' "${SARIF_PATH}" 2>"${PARSER_ERR_FILE}"); then
+              FINDINGS_COUNT=$(echo "${IDS_JSON}" | jq 'length' 2>/dev/null || echo "0")
+              UNIQUE_IDS_CSV=$(echo "${IDS_JSON}" | jq -r '[.[].id | select(. != "" and . != null)] | unique | join(", ")' 2>/dev/null || echo "none")
+              if [[ -z "${UNIQUE_IDS_CSV}" ]]; then
+                UNIQUE_IDS_CSV="none"
+              fi
+
+              if [[ "${FINDINGS_COUNT}" -gt 0 ]]; then
+                if ! jq -r '
+                  .runs[]? as $run
+                  | (($run.results // [])[]?) as $result
+                  | select((($result.suppressions // []) | length) == 0)
+                  | "- \((
+                      $result.ruleId
+                      // ($result.rule // {} | .id)
+                      // (
+                        if ($result.ruleIndex != null and (($run.tool.driver.rules? // null) | type) == \"array\") then
+                          ($run.tool.driver.rules[$result.ruleIndex].id // \"unknown\")
+                        else
+                          \"unknown\"
+                        end
+                      )
+                    )) | package: \((
+                      ($result.message.text // \"\")
+                      | (try capture(\"(?i)(?:Package|PkgName|Pkg|Library)\\\\s*[:=]\\\\s*`?(?<pkg>[A-Za-z0-9._+:+-]+)`?\").pkg catch \"n/a\")
+                    ))"
+                ' "${SARIF_PATH}"; then
+                  echo "- unable to render parsed findings"
+                fi
+              else
+                echo "- none"
+              fi
+            else
+              FALLBACK_REASON="parser command failure"
+              PARSER_EXIT_CODE="$?"
+              PARSER_HINT=$(head -n 1 "${PARSER_ERR_FILE}" | tr -d '\r' || true)
+              if [[ -z "${PARSER_HINT}" ]]; then
+                PARSER_HINT="no parser stderr available"
+              fi
+            fi
+
+            rm -f "${PARSER_ERR_FILE}"
+          fi
+
+          {
+            echo "## PR Trivy Unsuppressed Blockers"
+            echo ""
+            if [[ -n "${FALLBACK_REASON}" ]]; then
+              echo "- Diagnostics status: fallback"
+              echo "- Fallback reason: ${FALLBACK_REASON}"
+              if [[ "${FALLBACK_REASON}" == "parser command failure" ]]; then
+                echo "- Parser exit code: ${PARSER_EXIT_CODE:-unknown}"
+                echo "- Parser hint: ${PARSER_HINT}"
+              fi
+              echo "- Count: unknown"
+              echo "- Blocker IDs: unknown"
+            else
+              echo "- Diagnostics status: parsed"
+              echo "- Count: ${FINDINGS_COUNT}"
+              if [[ "${FINDINGS_COUNT}" -gt 0 ]]; then
+                echo "- Blocker IDs: ${UNIQUE_IDS_CSV}"
+              else
+                echo "- Blocker IDs: none"
+              fi
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce PR Trivy security gate
+        if: always()
+        run: |
+          if [[ "${{ steps.trivy-scan.outcome }}" != "success" ]]; then
+            echo "❌ Blocking merge: PR image has CRITICAL/HIGH vulnerabilities or scan failed"
+            exit 1
+          fi

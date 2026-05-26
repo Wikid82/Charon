@@ -368,3 +368,58 @@ func TestOrthrusServer_HandleWebSocket_ExternalProxyFails(t *testing.T) {
 	assert.False(t, status.Active)
 	assert.NotEmpty(t, status.Error)
 }
+// TestHandleWebSocket_DisplacesExistingSession covers server.go:98-100 —
+// the displacement block that closes the old session when a new connection
+// arrives for an agent UUID that already has an active session in the map.
+func TestHandleWebSocket_DisplacesExistingSession(t *testing.T) {
+	db := setupServerTestDB(t)
+	srv, err := NewOrthrusServer(db, setupTestCA(t))
+	require.NoError(t, err)
+	srv.heartbeatTimeout = 200 * time.Millisecond
+
+	token := "ch_orthrus_displace01" //nolint:gosec // G101: test credential
+	hash, err := bcrypt.GenerateFromPassword([]byte(token), bcrypt.MinCost)
+	require.NoError(t, err)
+
+	agent := &models.OrthrusAgent{
+		UUID:        "displace-uuid",
+		Name:        "displace-agent",
+		AuthKeyHash: string(hash),
+		Status:      models.OrthrusStatusPending,
+	}
+	require.NoError(t, db.Create(agent).Error)
+
+	// Create an "old" session and store it in the sessions map to simulate a
+	// prior connection that has not yet been cleaned up.
+	oldConn, oldCleanup := testWSPair(t)
+	defer oldCleanup()
+	oldSess, err := NewAgentSession("displace-uuid", "displace-agent", oldConn)
+	require.NoError(t, err)
+	srv.sessions.Store("displace-uuid", oldSess)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/ws", srv.HandleWebSocket)
+	ts := httptest.NewServer(router)
+	t.Cleanup(srv.Stop)
+	t.Cleanup(ts.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws"
+	header := http.Header{"Authorization": []string{"Bearer " + token}}
+	conn, dialResp, err := gorillaws.DefaultDialer.Dial(wsURL, header)
+	require.NoError(t, err)
+	if dialResp != nil {
+		_ = dialResp.Body.Close()
+	}
+	defer func() { _ = conn.Close() }()
+
+	// Wait for the new session to be stored, which means HandleWebSocket has run
+	// past the displacement block and stored the replacement session.
+	assert.Eventually(t, func() bool {
+		raw, ok := srv.GetSession("displace-uuid")
+		return ok && raw != oldSess
+	}, 2*time.Second, 20*time.Millisecond, "new session should replace old session")
+
+	// The old session must have been closed by the displacement block (lines 98-100).
+	assert.False(t, oldSess.IsAlive(), "old session must be closed by displacement")
+}
