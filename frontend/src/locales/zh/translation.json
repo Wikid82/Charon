@@ -174,19 +174,19 @@
     "hostCount_other": "{{count}} 个主机",
     "hostCount": "{{count}} 个主机",
     "dnd": {
-      "dragHandleSingle":   "拖拽以移动到另一个分组",
+      "dragHandleSingle": "拖拽以移动到另一个分组",
       "dragHandleMultiple": "拖拽以移动 {{count}} 个选定的主机",
-      "roleDescription":    "可拖拽的代理主机",
-      "movingOne":          "正在移动主机",
-      "movingMultiple":     "正在移动 {{count}} 个主机",
-      "moveSuccess_one":    "已移动 1 个主机",
-      "moveSuccess_other":  "已移动 {{count}} 个主机",
-      "moveFailed":         "移动主机失败",
-      "partialError":       "{{count}} 个主机移动失败",
-      "announcePickUp":     "已拾取 {{name}}。使用方向键在分组之间移动。",
-      "announceOver":       "正在移动到 {{group}} 上方",
-      "announceDrop":       "已放入 {{group}}",
-      "announceCancel":     "移动已取消"
+      "roleDescription": "可拖拽的代理主机",
+      "movingOne": "正在移动主机",
+      "movingMultiple": "正在移动 {{count}} 个主机",
+      "moveSuccess_one": "已移动 1 个主机",
+      "moveSuccess_other": "已移动 {{count}} 个主机",
+      "moveFailed": "移动主机失败",
+      "partialError": "{{count}} 个主机移动失败",
+      "announcePickUp": "已拾取 {{name}}。使用方向键在分组之间移动。",
+      "announceOver": "正在移动到 {{group}} 上方",
+      "announceDrop": "已放入 {{group}}",
+      "announceCancel": "移动已取消"
     }
   },
   "certificates": {
@@ -1289,6 +1289,9 @@
     "reportBugAriaLabel": "报告错误（在新标签页打开 GitHub Issues）",
     "requestFeature": "请求功能",
     "requestFeatureDescription": "有想法吗？",
-    "requestFeatureAriaLabel": "请求功能（在新标签页打开 GitHub Issues）"
+    "requestFeatureAriaLabel": "请求功能（在新标签页打开 GitHub Issues）",
+    "viewDocs": "View Documentation",
+    "viewDocsDescription": "Read the full documentation",
+    "viewDocsAriaLabel": "View documentation (opens docs site in new tab)"
   }
 }

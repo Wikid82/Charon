@@ -8,6 +8,7 @@ const GITHUB_BUG_URL =
   'https://github.com/Wikid82/Charon/issues/new?template=bug_report.md'
 const GITHUB_FEATURE_URL =
   'https://github.com/Wikid82/Charon/issues/new?template=feature_request.md'
+const DOCS_URL = 'https://wikid82.github.io/Charon/'
 
 describe('FeedbackWidget', () => {
   // 1. Renders trigger button with correct aria-label
@@ -181,5 +182,43 @@ describe('FeedbackWidget', () => {
       const bugLink = screen.getByRole('link', { name: /report a bug/i })
       expect(document.activeElement).toBe(bugLink)
     })
+  })
+
+  // 16. Docs link has correct href
+  it('docs link has correct href', async () => {
+    render(<FeedbackWidget />)
+    const trigger = screen.getByRole('button', { name: 'Open feedback menu' })
+    await userEvent.click(trigger)
+    const docsLink = screen.getByRole('link', { name: /view documentation/i })
+    expect(docsLink).toHaveAttribute('href', DOCS_URL)
+  })
+
+  // 17. Docs link opens in new tab
+  it('docs link opens in new tab', async () => {
+    render(<FeedbackWidget />)
+    const trigger = screen.getByRole('button', { name: 'Open feedback menu' })
+    await userEvent.click(trigger)
+    const docsLink = screen.getByRole('link', { name: /view documentation/i })
+    expect(docsLink).toHaveAttribute('target', '_blank')
+  })
+
+  // 18. Docs link has rel="noopener noreferrer"
+  it('docs link has rel="noopener noreferrer"', async () => {
+    render(<FeedbackWidget />)
+    const trigger = screen.getByRole('button', { name: 'Open feedback menu' })
+    await userEvent.click(trigger)
+    const docsLink = screen.getByRole('link', { name: /view documentation/i })
+    expect(docsLink).toHaveAttribute('rel', 'noopener noreferrer')
+  })
+
+  // 19. Docs link has correct aria-label from i18n key
+  it('docs link has correct aria-label', async () => {
+    render(<FeedbackWidget />)
+    const trigger = screen.getByRole('button', { name: 'Open feedback menu' })
+    await userEvent.click(trigger)
+    const docsLink = screen.getByRole('link', {
+      name: 'View documentation (opens docs site in new tab)',
+    })
+    expect(docsLink).toBeInTheDocument()
   })
 })
