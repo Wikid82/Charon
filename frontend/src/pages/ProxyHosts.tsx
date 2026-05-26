@@ -8,7 +8,7 @@ import {
   useSensors,
   pointerWithin,
 } from '@dnd-kit/core'
-import { Loader2, ExternalLink, AlertTriangle, Trash2, Globe, Settings, FolderOpen } from 'lucide-react'
+import { Loader2, ExternalLink, AlertTriangle, Trash2, Globe, Settings, FolderOpen, GripVertical } from 'lucide-react'
 import { useState, useMemo, useCallback } from 'react'
 import { toast } from 'react-hot-toast'
 import { useTranslation } from 'react-i18next'
@@ -98,6 +98,7 @@ export default function ProxyHosts() {
   const [editingGroup, setEditingGroup] = useState<ProxyGroup | undefined>()
   const [groupToDelete, setGroupToDelete] = useState<ProxyGroup | null>(null)
   const [showManageGroupsDialog, setShowManageGroupsDialog] = useState(false)
+  const [showDragHandles, setShowDragHandles] = useState(false)
   const [showAssignGroupModal, setShowAssignGroupModal] = useState(false)
   const [assignTargetGroupUUID, setAssignTargetGroupUUID] = useState<string | null>(null)
   const [isAssigning, setIsAssigning] = useState(false)
@@ -500,7 +501,7 @@ export default function ProxyHosts() {
       key: 'name',
       header: t('proxyHosts.columnName'),
       sortable: true,
-      width: '16%',
+      width: '14%',
       cell: (host) => (
         <div className="text-sm font-medium text-content-primary truncate">
           {host.name || <span className="text-content-muted italic">{t('proxyHosts.unnamed')}</span>}
@@ -511,7 +512,7 @@ export default function ProxyHosts() {
       key: 'domain',
       header: t('proxyHosts.columnDomain'),
       sortable: true,
-      width: '20%',
+      width: '18%',
       cell: (host) => (
         <div className="text-sm font-medium text-content-primary">
           {host.domain_names.split(',').map((domain, i) => {
@@ -541,7 +542,7 @@ export default function ProxyHosts() {
       key: 'forward',
       header: t('proxyHosts.columnForwardTo'),
       sortable: true,
-      width: '16%',
+      width: '14%',
       cell: (host) => (
         <div className="text-sm text-content-secondary">
           {host.forward_scheme}://{host.forward_host}:{host.forward_port}
@@ -551,7 +552,7 @@ export default function ProxyHosts() {
     {
       key: 'ssl',
       header: t('proxyHosts.columnSSL'),
-      width: '8%',
+      width: '7%',
       cell: (host) => {
         const primaryDomain = host.domain_names.split(',')[0]?.trim().toLowerCase()
         const certInfo = certStatusByDomain[primaryDomain]
@@ -575,7 +576,7 @@ export default function ProxyHosts() {
     {
       key: 'features',
       header: t('proxyHosts.columnFeatures'),
-      width: '10%',
+      width: '9%',
       cell: (host) => (
         <div className="flex flex-wrap gap-1">
           {host.websocket_support && (
@@ -590,7 +591,7 @@ export default function ProxyHosts() {
     {
       key: 'group',
       header: t('proxyGroups.group'),
-      width: '12%',
+      width: '10%',
       cell: (host) =>
         host.proxy_group ? (
           <ProxyGroupBadge group={host.proxy_group} />
@@ -601,7 +602,7 @@ export default function ProxyHosts() {
     {
       key: 'status',
       header: t('proxyHosts.columnStatus'),
-      width: '8%',
+      width: '7%',
       cell: (host) => (
         <Switch
           checked={host.enabled}
@@ -613,7 +614,7 @@ export default function ProxyHosts() {
     {
       key: 'actions',
       header: t('proxyHosts.columnActions'),
-      width: '10%',
+      width: '9%',
       cell: (host) => (
         <div className="flex items-center gap-2">
           <Button
@@ -660,6 +661,16 @@ export default function ProxyHosts() {
         actions={
           <div className="flex items-center gap-3">
             {isFetching && !loading && <Loader2 className="animate-spin text-brand-400" size={20} />}
+            {groups.length > 0 && (
+              <Button
+                variant={showDragHandles ? 'secondary' : 'outline'}
+                leftIcon={GripVertical}
+                onClick={() => setShowDragHandles((v) => !v)}
+                aria-pressed={showDragHandles}
+              >
+                {t('proxyGroups.organize')}
+              </Button>
+            )}
             <Button
               variant="outline"
               leftIcon={FolderOpen}
@@ -821,7 +832,7 @@ export default function ProxyHosts() {
                     selectable
                     selectedKeys={selectedHosts}
                     onSelectionChange={setSelectedHosts}
-                    renderDragHandle={dragHandleColumn}
+                    renderDragHandle={showDragHandles ? dragHandleColumn : undefined}
                     emptyState={
                       <EmptyState
                         icon={<Globe className="h-10 w-10" />}
@@ -853,7 +864,7 @@ export default function ProxyHosts() {
                   selectable
                   selectedKeys={selectedHosts}
                   onSelectionChange={setSelectedHosts}
-                  renderDragHandle={dragHandleColumn}
+                  renderDragHandle={showDragHandles ? dragHandleColumn : undefined}
                   emptyState={null}
                 />
               </section>
