@@ -282,7 +282,7 @@ jobs:
           echo "component_count=${COMPONENT_COUNT}" >> "$GITHUB_OUTPUT"
           echo "✅ SBOM generated with ${COMPONENT_COUNT} components"
 
-      # Scan for vulnerabilities using manual Grype installation (pinned to v0.110.0)
+      # Scan for vulnerabilities using manual Grype installation (pinned to v0.112.0)
       - name: Install Grype
         if: steps.set-target.outputs.image_name != ''
         run: |
@@ -362,7 +362,7 @@ jobs:
           fi
 
       - name: Upload SARIF to GitHub Security
-        if: steps.check-artifact.outputs.artifact_found == 'true'
+        if: steps.set-target.outputs.image_name != ''
         uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4
         continue-on-error: true
         with:
