@@ -63,7 +63,12 @@ func NewMuzzle(next http.Handler) *Muzzle {
 // are forwarded; HEAD is also permitted for /_ping (Docker client health checks).
 // All other methods or paths receive 403 Forbidden.
 func (m *Muzzle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	stripped := versionPrefixRe.ReplaceAllString(r.URL.Path, "")
+	rawPath := versionPrefixRe.ReplaceAllString(r.URL.Path, "")
+	// Normalize away any "." or ".." segments before any allowlist check so that
+	// traversal-style paths such as /containers/../json cannot match patterns like
+	// /containers/*/json. path.Clean always returns a rooted result when given a
+	// rooted input; the explicit "/" prefix guards against an empty rawPath value.
+	stripped := path.Clean("/" + strings.TrimLeft(rawPath, "/"))
 
 	// HEAD /_ping is permitted alongside GET for Docker client health checks.
 	if r.Method == http.MethodHead && stripped == "/_ping" {
@@ -84,13 +89,9 @@ func (m *Muzzle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check dynamic path patterns for container/volume/network inspection.
-	// Normalize to an absolute path by trimming stray slashes and re-anchoring
-	// to "/" so that path.Match works correctly. Traversal sequences such as ".."
-	// are left unresolved intentionally — they will not match any allowed pattern
-	// and will be blocked, which is the safe behavior.
-	cleanPath := "/" + strings.Trim(stripped, "/")
+	// stripped is already rooted and cleaned; use it directly.
 	for _, pat := range allowedDockerPatterns {
-		if matched, err := path.Match(pat, cleanPath); err == nil && matched {
+		if matched, err := path.Match(pat, stripped); err == nil && matched {
 			m.next.ServeHTTP(w, r)
 			return
 		}

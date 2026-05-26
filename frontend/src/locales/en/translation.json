@@ -194,19 +194,19 @@
     "hostCount_other": "{{count}} hosts",
     "hostCount": "{{count}} hosts",
     "dnd": {
-      "dragHandleSingle":   "Drag to move to another group",
+      "dragHandleSingle": "Drag to move to another group",
       "dragHandleMultiple": "Drag to move {{count}} selected hosts",
-      "roleDescription":    "Draggable proxy host",
-      "movingOne":          "Moving host",
-      "movingMultiple":     "Moving {{count}} hosts",
-      "moveSuccess_one":    "Moved 1 host",
-      "moveSuccess_other":  "Moved {{count}} hosts",
-      "moveFailed":         "Failed to move host(s)",
-      "partialError":       "{{count}} host(s) failed to move",
-      "announcePickUp":     "Picked up {{name}}. Use arrow keys to move between groups.",
-      "announceOver":       "Moving over {{group}}",
-      "announceDrop":       "Dropped into {{group}}",
-      "announceCancel":     "Move cancelled"
+      "roleDescription": "Draggable proxy host",
+      "movingOne": "Moving host",
+      "movingMultiple": "Moving {{count}} hosts",
+      "moveSuccess_one": "Moved 1 host",
+      "moveSuccess_other": "Moved {{count}} hosts",
+      "moveFailed": "Failed to move host(s)",
+      "partialError": "{{count}} host(s) failed to move",
+      "announcePickUp": "Picked up {{name}}. Use arrow keys to move between groups.",
+      "announceOver": "Moving over {{group}}",
+      "announceDrop": "Dropped into {{group}}",
+      "announceCancel": "Move cancelled"
     }
   },
   "certificates": {
@@ -1759,7 +1759,10 @@
       "pickerDescription": "Choose the Tailscale device to route traffic through.",
       "noDevices": "No Tailscale devices found. Ensure your API key is configured."
     },
-    "tunnels": { "title": "Tunnels", "description": "Manage tunnel connections" },
+    "tunnels": {
+      "title": "Tunnels",
+      "description": "Manage tunnel connections"
+    },
     "providers": {
       "title": "Providers",
       "description": "Configure provider credentials",
@@ -1770,7 +1773,10 @@
       "tunnelCount_one": "{{count}} tunnel",
       "tunnelCount_other": "{{count}} tunnels"
     },
-    "agent": { "title": "Agent", "description": "Manage Orthrus agents" },
+    "agent": {
+      "title": "Agent",
+      "description": "Manage Orthrus agents"
+    },
     "agentManager": {
       "tableLabel": "Orthrus agents",
       "colName": "Name",
@@ -1828,6 +1834,9 @@
     "reportBugAriaLabel": "Report a bug (opens GitHub Issues in new tab)",
     "requestFeature": "Request a Feature",
     "requestFeatureDescription": "Have an idea?",
-    "requestFeatureAriaLabel": "Request a feature (opens GitHub Issues in new tab)"
+    "requestFeatureAriaLabel": "Request a feature (opens GitHub Issues in new tab)",
+    "viewDocs": "View Documentation",
+    "viewDocsDescription": "Read the full documentation",
+    "viewDocsAriaLabel": "View documentation (opens docs site in new tab)"
   }
 }
