@@ -1,4 +1,4 @@
-import { MessageSquarePlus, Bug, Sparkles } from 'lucide-react'
+import { MessageSquarePlus, Bug, Sparkles, BookOpen } from 'lucide-react'
 import { useState, useRef, useEffect, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -8,6 +8,7 @@ const GITHUB_BUG_URL =
   'https://github.com/Wikid82/Charon/issues/new?template=bug_report.md'
 const GITHUB_FEATURE_URL =
   'https://github.com/Wikid82/Charon/issues/new?template=feature_request.md'
+const DOCS_URL = 'https://wikid82.github.io/Charon/'
 
 export default function FeedbackWidget() {
   const { t } = useTranslation()
@@ -96,6 +97,29 @@ export default function FeedbackWidget() {
                   <div className="font-medium">{t('feedback.requestFeature')}</div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">
                     {t('feedback.requestFeatureDescription')}
+                  </div>
+                </div>
+              </a>
+
+              <a
+                href={DOCS_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={t('feedback.viewDocsAriaLabel')}
+                className={cn(
+                  'flex items-center gap-3 px-4 py-3 text-sm',
+                  'border-t border-gray-200 dark:border-gray-800',
+                  'text-gray-700 dark:text-gray-300',
+                  'hover:bg-gray-100 dark:hover:bg-gray-800',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2',
+                  'transition-colors'
+                )}
+              >
+                <BookOpen className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <div>
+                  <div className="font-medium">{t('feedback.viewDocs')}</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    {t('feedback.viewDocsDescription')}
                   </div>
                 </div>
               </a>
