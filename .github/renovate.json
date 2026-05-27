@@ -280,17 +280,70 @@
 
   "packageRules": [
     {
-      "description": "THE MEGAZORD: Group ALL non-major updates (NPM, Docker, Go, Actions) into one PR",
+      "description": "Group GitHub Actions non-major updates into one PR",
+      "matchManagers": [
+        "github-actions"
+      ],
       "matchUpdateTypes": [
         "minor",
         "patch",
         "pin",
         "digest"
       ],
-      "groupName": "non-major-updates",
+      "groupName": "github-actions-non-major",
+      "groupSlug": "github-actions-non-major"
+    },
+    {
+      "description": "Group Go non-major updates into one PR",
+      "matchDatasources": [
+        "go",
+        "golang-version"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "groupName": "go-non-major",
+      "groupSlug": "go-non-major"
+    },
+    {
+      "description": "Group Go github-tags fallback updates from Dockerfile custom manager into Go non-major PR",
+      "matchDatasources": [
+        "github-tags"
+      ],
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchFileNames": [
+        "Dockerfile"
+      ],
       "matchPackageNames": [
-        "*"
-      ]
+        "jackc/pgx"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "groupName": "go-non-major",
+      "groupSlug": "go-non-major"
+    },
+    {
+      "description": "Group NPM non-major updates into one PR",
+      "matchDatasources": [
+        "npm"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "groupName": "npm-non-major",
+      "groupSlug": "npm-non-major"
     },
     {
       "description": "Development branch: Auto-merge non-major updates after proven stable",
