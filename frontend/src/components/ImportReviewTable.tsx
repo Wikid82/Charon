@@ -43,7 +43,7 @@ interface Props {
 export default function ImportReviewTable({ hosts, conflicts, conflictDetails, errors, caddyfileContent, onCommit, onCancel }: Props) {
   const [resolutions, setResolutions] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {}
-    conflicts.forEach((d: string) => { init[d] = 'keep' })
+    for (const d of conflicts) { init[d] = 'keep' }
     return init
   })
   const [names, setNames] = useState<Record<string, string>>(() => {
@@ -82,7 +82,13 @@ export default function ImportReviewTable({ hosts, conflicts, conflictDetails, e
     <div className="space-y-6">
       {caddyfileContent && (
         <div className="bg-dark-card rounded-lg border border-gray-800 overflow-hidden">
-          <div className="p-4 border-b border-gray-800 flex items-center justify-between cursor-pointer" onClick={() => setShowSource(!showSource)}>
+          <div
+            role="button"
+            tabIndex={0}
+            className="p-4 border-b border-gray-800 flex items-center justify-between cursor-pointer"
+            onClick={() => setShowSource(!showSource)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowSource(!showSource) }}
+          >
             <h2 className="text-lg font-semibold text-white">Source Caddyfile Content</h2>
             <span className="text-gray-400 text-sm">{showSource ? 'Hide' : 'Show'}</span>
           </div>

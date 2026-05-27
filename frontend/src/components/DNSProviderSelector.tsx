@@ -13,7 +13,7 @@ import { useDNSProviders } from '../hooks/useDNSProviders'
 
 interface DNSProviderSelectorProps {
   value?: number
-  onChange: (providerId: number | undefined) => void
+  onChange: (providerId?: number) => void
   required?: boolean
   disabled?: boolean
   label?: string
@@ -40,7 +40,7 @@ export default function DNSProviderSelector({
 
   const handleValueChange = (value: string) => {
     if (value === 'none') {
-      onChange(undefined)
+      onChange()
     } else {
       onChange(parseInt(value, 10))
     }

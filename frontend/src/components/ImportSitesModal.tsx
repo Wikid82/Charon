@@ -91,6 +91,7 @@ export default function ImportSitesModal({ visible, onClose, onUploaded }: Props
           multiple
           onChange={handleFileInput}
           style={{ display: 'none' }}
+          data-testid="file-input"
         />
 
         <div className="space-y-4 max-h-[60vh] overflow-auto mb-4">
