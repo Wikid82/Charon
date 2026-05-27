@@ -1,354 +1,379 @@
-# Fix: Race Condition in `HandleWebSocket` Causes TempDir Cleanup Failure
-
-## 1. Introduction
+## Introduction
 
 ### Overview
 
-`TestOrthrusServer_HandleWebSocket_ValidToken_UpgradesConnection` fails intermittently in CI with:
+This specification defines how to split Renovate non-major dependency updates into separate PR groupings by dependency type instead of the current single mixed group.
 
-```
-testing.go:1464: TempDir RemoveAll cleanup: unlinkat
-  /tmp/TestOrthrusServer_HandleWebSocket_ValidToken_UpgradesConnection611908746/001:
-  directory not empty
-```
+Target groupings:
 
-This is a **data race**: the `HandleWebSocket` gin handler writes to the SQLite
-database concurrently with Go's test-framework cleanup that tries to remove the
-database directory. The race is triggered by a sequencing bug — `sessions.Store`
-is called before the DB update and `wg.Add(1)`, so the test can exit (and cleanup
-can start) while the handler goroutine is still writing to the database.
+1. GitHub Actions dependencies
+2. Go dependencies
+3. NPM dependencies
 
 ### Objectives
 
-1. Fix the race by reordering three statements in `HandleWebSocket`.
-2. No test changes are required.
-3. Ship as a single commit in a single PR.
+1. Remove the current cross-ecosystem grouping behavior.
+2. Keep safety constraints for majors and pinned version boundaries.
+3. Ensure migration can be validated with deterministic Renovate config checks and dry runs.
+4. Complete in one PR with ordered logical commits and minimal back-and-forth user requests.
 
----
+## Research Findings
 
-## 2. Research Findings
+### Files Reviewed
 
-### Directory Layout
+1. [.github/renovate.json](.github/renovate.json)
+2. [docs/plans/current_spec.md](docs/plans/current_spec.md)
+3. [.gitignore](.gitignore)
+4. [codecov.yml](codecov.yml)
+5. [.dockerignore](.dockerignore)
+6. [Dockerfile](Dockerfile)
+7. [ARCHITECTURE.md](ARCHITECTURE.md)
+8. [.github/instructions/copilot-instructions.md](.github/instructions/copilot-instructions.md)
+9. [.github/instructions/spec-driven-workflow-v1.instructions.md](.github/instructions/spec-driven-workflow-v1.instructions.md)
 
-```
-backend/internal/orthrus/
-├── server.go               ← THE BUG IS HERE
-├── server_test.go          ← setupServerTestDB, setupTestCA, heartbeat tests
-├── server_coverage_test.go ← failing test + WS integration tests
-├── session.go              ← AgentSession, StartDockerProxy, runProxyListener
-└── ca.go                   ← InternalCA (synchronous I/O only; no goroutines)
-```
+### Current Renovate Behavior
 
-### TempDir Numbering
+Current configuration contains a package rule that groups all non-major updates into one PR:
 
-`t.TempDir()` returns numbered sub-directories under the test's base temp dir:
+- File: [.github/renovate.json](.github/renovate.json)
+- Location: packageRules first entry (description contains "THE MEGAZORD")
+- Keys currently driving broad grouping:
+  - groupName: non-major-updates
+  - matchUpdateTypes: minor, patch, pin, digest
+  - matchPackageNames: ["*"]
 
-| Call order | `t.TempDir()` call site | Directory | Contents |
-|-----------|------------------------------------------------------|-----------|----------------------------------------|
-| 1st | `setupServerTestDB` → `filepath.Join(t.TempDir(), "orthrus_test.db")` | `001` | SQLite DB file (actively written to) |
-| 2nd | `setupTestCA` → `NewInternalCA(t.TempDir())` | `002` | `keys/hecate-ca.key`, `keys/hecate-ca.crt` (static after creation) |
+This rule is the root cause of mixed PRs across ecosystems.
 
-The `001` directory is the only one that is written to after construction.
+### Existing Safety Rules That Must Be Preserved
 
-### Cleanup Registration Order
+The following constraints already exist and must remain in place:
 
-Cleanups are registered in this order (LIFO execution = reverse):
+1. Major update manual review rule:
+   - matchUpdateTypes: ["major"]
+   - labels: ["manual-review"]
+   - automerge: false
+2. Go module major-path/version constraints:
+   - github.com/jackc/pgx/v4 < 5.0.0
+   - jackc/pgx via github-tags in >= 4.0.0 < 5.0.0
+   - go-jose v3/v4 boundaries
+3. Dockerfile and custom regex managers for security-patched pins.
 
-| Registration order | Cleanup action | LIFO execution order |
-|-------------------|----------------------------------------|----------------------|
-| 1st | `t.TempDir()` cleanup for `001` (DB) | 5th (last) ← **FAILS** |
-| 2nd | `t.Cleanup(sqlDB.Close)` | 4th |
-| 3rd | `t.TempDir()` cleanup for `002` (CA) | 3rd |
-| 4th | `t.Cleanup(ts.Close)` | 2nd |
-| 5th | `t.Cleanup(srv.Stop)` | 1st (first) |
+### Dependency Source Mapping Needed for Correct Grouping
 
-Note: `defer conn.Close()` is a defer (not a `t.Cleanup`), so it runs when the
-test function returns, **before** any `t.Cleanup` runs.
+1. GitHub Actions dependencies:
+   - Manager: github-actions
+   - Additional workflow values managed by custom.regex should not be auto-classified as actions unless datasource indicates action versions.
+2. Go dependencies:
+   - Datasources primarily: go, golang-version
+   - One known go-related github-tags case exists for jackc/pgx fallback rule.
+3. NPM dependencies:
+   - Datasource: npm
+   - Includes npm packages matched by datasource npm only.
 
-### Relevant Code — `HandleWebSocket` (current, buggy order)
+## Requirements (EARS)
 
-```go
-// backend/internal/orthrus/server.go — current order
+1. WHEN Renovate processes non-major updates, THE SYSTEM SHALL create separate groups for GitHub Actions, Go, and NPM dependencies.
+2. WHEN a dependency update is major, THE SYSTEM SHALL keep it outside non-major grouped flow and require manual review labeling.
+3. WHEN existing package-specific safety constraints are evaluated, THE SYSTEM SHALL preserve allowedVersions and sourceUrl mapping behavior unchanged.
+4. IF a dependency does not match GitHub Actions, Go, or NPM grouping rules, THEN THE SYSTEM SHALL leave it ungrouped (or governed by existing specific rules) rather than forcing inclusion into another ecosystem group.
+5. WHEN configuration changes are introduced, THE SYSTEM SHALL pass Renovate config validation and dry-run inspection before merge.
 
-s.sessions.Store(agent.UUID, session)   // ← (A) test polling loop exits here
+### Confidence Score
 
-now := time.Now()
-if err := s.db.Model(agent).Updates(map[string]interface{}{ // ← (B) DB write
-    "status":    models.OrthrusStatusOnline,
-    "last_seen": &now,
-}).Error; err != nil { ... }
+92%
 
-s.wg.Add(1)                             // ← (C) WG increment
-go func() {
-    defer s.wg.Done()
-    s.watchHeartbeat(agent.UUID, session)
-}()
-```
+Rationale: the required behavior is isolated to [.github/renovate.json](.github/renovate.json), current grouping cause is explicit, and migration risk is primarily rule precedence, which is manageable with dry-run validation.
 
-The test polling loop in `TestOrthrusServer_HandleWebSocket_ValidToken_UpgradesConnection`:
+## Technical Specifications
 
-```go
-for i := 0; i < 20; i++ {
-    _, ok = srv.GetSession("wscov-uuid")
-    if ok { break }          // exits as soon as (A) has run
-    time.Sleep(20 * time.Millisecond)
-}
-assert.True(t, ok)
-// test function returns here — (B) and (C) may not have run yet
-```
+### Primary File to Edit
 
-### `OrthrusServer.Stop()`
+1. [.github/renovate.json](.github/renovate.json)
 
-```go
-func (s *OrthrusServer) Stop() {
-    s.cancel()
-    s.sessions.Range(func(key, value any) bool {
-        sess := value.(*AgentSession)
-        _ = sess.Close()
-        s.sessions.Delete(key)
-        return true
-    })
-    s.wg.Wait()    // blocks until all watchHeartbeat goroutines exit
-}
-```
+### Exact JSON Keys to Edit
 
-`Stop` tracks **only** the `watchHeartbeat` goroutines via `s.wg`. It does not
-track the `HandleWebSocket` handler itself.
+Within root key packageRules in [.github/renovate.json](.github/renovate.json):
 
----
+1. Replace the current broad grouping object (MEGAZORD) with three ecosystem-specific non-major group rules.
+2. Keep existing development-branch non-major automerge behavior rule, but ensure it applies cleanly with new grouped rules.
+3. Keep all existing package-specific safety and lookup rules unchanged unless explicitly required for precedence fixes.
 
-## 3. Root Cause Analysis
+### Proposed Rule Set Changes
 
-### The Race Window
+#### Rule A: GitHub Actions non-major grouping
 
-```
-HandleWebSocket goroutine           Test / cleanup goroutine
-(runs inside httptest.Server)
-─────────────────────────────────   ─────────────────────────────────────
+- matchManagers: ["github-actions"]
+- matchUpdateTypes: ["minor", "patch", "pin", "digest"]
+- groupName: "github-actions-non-major"
+- groupSlug: "github-actions-non-major"
 
-s.sessions.Store(agent.UUID, ...)
-                                    ← test polls GetSession → ok = true
-                                    ← test function returns
-                                    ← defer conn.Close() runs
-                                    ← t.Cleanup LIFO begins
-                                    ← srv.Stop() runs:
-                                         s.cancel()
-                                         sessions.Range → close session
-                                         s.wg.Wait()  ← wg = 0!
-                                                        returns immediately
-s.db.Model(agent).Updates(...)      ← sqlDB.Close() runs      ← RACE
-  ↑ SQLite creates/modifies
-    journal or WAL files in 001/    ← os.RemoveAll(001)       ← ENOTEMPTY
-```
+#### Rule B: Go non-major grouping
 
-**Why `s.wg.Wait()` returns zero:** `s.wg.Add(1)` at step (C) has not been called
-yet. The WaitGroup counter is 0, so `Wait()` returns immediately even though
-`HandleWebSocket` is still running and will call `wg.Add(1)` moments later.
+- matchDatasources: ["go", "golang-version"]
+- matchUpdateTypes: ["minor", "patch", "pin", "digest"]
+- groupName: "go-non-major"
+- groupSlug: "go-non-major"
 
-**Why files appear after `RemoveAll` started:** SQLite's WAL or rollback-journal
-mechanism creates temporary files (`orthrus_test.db-wal`, `orthrus_test.db-shm`,
-or `orthrus_test.db-journal`) during an active write transaction.
-`os.RemoveAll` on Linux removes visible directory entries in a single pass, then
-attempts `rmdir(2)`. If a new file appears between the final scan and the `rmdir`,
-the system call returns `ENOTEMPTY`, causing Go to surface the "directory not
-empty" error.
+#### Rule C: Go github-tags fallback grouping (targeted)
 
-### Why the Failure is Intermittent
+- matchDatasources: ["github-tags"]
+- matchManagers: ["custom.regex"]
+- matchFileNames: ["Dockerfile"]
+- matchPackageNames: ["jackc/pgx"]
+- matchUpdateTypes: ["minor", "patch", "pin", "digest"]
+- groupName: "go-non-major"
+- groupSlug: "go-non-major"
 
-The race only manifests when the CPU scheduler switches goroutines at precisely
-the right moment — between step (A) (`sessions.Store`) and step (C) (`wg.Add`).
-Fast machines with many cores make this rare; slow CI runners or GC pauses make
-it more common.
+#### Rule D: NPM non-major grouping
 
-### Why the CA Directory (`002`) Is Never the Culprit
+- matchDatasources: ["npm"]
+- matchUpdateTypes: ["minor", "patch", "pin", "digest"]
+- groupName: "npm-non-major"
+- groupSlug: "npm-non-major"
 
-`NewInternalCA` writes two static files (`hecate-ca.key`, `hecate-ca.crt`) during
-construction and never writes again. No goroutines hold references to `002` after
-`setupTestCA` returns. `RemoveAll(002)` always succeeds.
+### Rule Precedence and Ordering
 
----
+Order in packageRules matters for predictable merge behavior. Place grouping rules before broad branch behavior toggles and before highly specific package constraints, with this order:
 
-## 4. Technical Specification
+1. Ecosystem grouping rules (Actions, Go, Go github-tags fallback, NPM)
+2. Development branch non-major behavior rule
+3. Existing custom labels and package-specific allowedVersions/sourceUrl rules
+4. Major manual-review rule
 
-### Fix: Reorder Three Blocks in `HandleWebSocket`
+### Data Flow (Renovate matching intent)
 
-**File:** `backend/internal/orthrus/server.go`
-**Function:** `HandleWebSocket`
-
-Move `s.sessions.Store(agent.UUID, session)` to be the **last** statement in the
-success path, after the DB update and after `s.wg.Add(1)` + goroutine start.
-
-#### Before (current)
-
-```go
-s.sessions.Store(agent.UUID, session)
-
-now := time.Now()
-if err := s.db.Model(agent).Updates(map[string]interface{}{
-    "status":    models.OrthrusStatusOnline,
-    "last_seen": &now,
-}).Error; err != nil {
-    logger.Log().WithField("uuid", util.SanitizeForLog(agent.UUID)).
-        WithError(err).Warn("orthrus: update agent status failed")
-}
-
-logger.Log().WithFields(logrus.Fields{
-    "uuid": util.SanitizeForLog(agent.UUID),
-    "name": util.SanitizeForLog(agent.Name),
-}).Info("orthrus: agent connected")
-
-s.wg.Add(1)
-go func() {
-    defer s.wg.Done()
-    s.watchHeartbeat(agent.UUID, session)
-}()
+```mermaid
+flowchart TD
+  A[Dependency update candidate] --> B{Update type major?}
+  B -- Yes --> C[Major rule: manual review label]
+  B -- No --> D{Manager is github-actions?}
+  D -- Yes --> E[Group: github-actions-non-major]
+  D -- No --> F{Datasource go or golang-version?}
+  F -- Yes --> G[Group: go-non-major]
+  F -- No --> H{Datasource npm?}
+  H -- Yes --> I[Group: npm-non-major]
+  H -- No --> J[Remain ungrouped or existing specific rule]
 ```
 
-#### After (fixed)
+## Migration and Safety Considerations
 
-```go
-now := time.Now()
-if err := s.db.Model(agent).Updates(map[string]interface{}{
-    "status":    models.OrthrusStatusOnline,
-    "last_seen": &now,
-}).Error; err != nil {
-    logger.Log().WithField("uuid", util.SanitizeForLog(agent.UUID)).
-        WithError(err).Warn("orthrus: update agent status failed")
-}
+### Migration Risks
 
-logger.Log().WithFields(logrus.Fields{
-    "uuid": util.SanitizeForLog(agent.UUID),
-    "name": util.SanitizeForLog(agent.Name),
-}).Info("orthrus: agent connected")
+1. Incorrect matcher breadth could absorb unrelated dependencies.
+2. Rule ordering could override or dilute existing allowedVersions constraints.
+3. Incomplete handling of custom.regex managed values could cause unexpected PR distribution.
 
-s.wg.Add(1)
-go func() {
-    defer s.wg.Done()
-    s.watchHeartbeat(agent.UUID, session)
-}()
+### Mitigations
 
-s.sessions.Store(agent.UUID, session)   // moved last
-```
+1. Use datasource and manager matchers, not wildcard package names.
+2. Add explicit targeted fallback for jackc/pgx github-tags only.
+3. Keep existing package-specific safety rules intact and later in rule order.
+4. Validate using printed final config and dry-run PR prediction before merge.
 
-#### Why This Fixes the Race
+### Backward Compatibility
 
-By the time any external caller (test, other handler) observes the session in the
-map via `GetSession`, both invariants are guaranteed:
+1. No schema change needed.
+2. No runtime application behavior change.
+3. Existing Renovate dashboard behavior remains, but grouped PR topology changes from one mixed PR to three ecosystem-focused PR streams.
 
-1. **DB write is complete** — no concurrent SQLite I/O can race with cleanup.
-2. **`s.wg.Add(1)` has been called** — `srv.Stop()` → `s.wg.Wait()` will block
-   until the `watchHeartbeat` goroutine exits before returning control to the
-   cleanup sequence.
+## Ancillary File Review (Only If Necessary)
 
-#### Correctness Under Edge Cases
+Reviewed for this change request:
 
-| Scenario | Behaviour after fix |
-|----------|---------------------|
-| `srv.Stop()` runs while handler is between DB write and `wg.Add(1)` | `Stop`'s `Range` doesn't find the session (not stored yet); `wg.Wait()` waits for the about-to-be-added goroutine; goroutine exits via `ctx.Done()`; handler then stores the session (harmless entry, no active goroutine) |
-| `srv.Stop()` runs while handler is between `wg.Add(1)` and `sessions.Store` | Same as above — goroutine exits, handler stores session after Stop returns |
-| Normal path: handler completes before cleanup starts | `sessions.Store` is last; test sees session; cleanup runs in full; `srv.Stop()` correctly waits for goroutine; no race |
+1. [.gitignore](.gitignore)
+2. [codecov.yml](codecov.yml)
+3. [.dockerignore](.dockerignore)
+4. [Dockerfile](Dockerfile)
 
-The post-Stop zombie-entry edge case does not affect correctness: the
-`watchHeartbeat` goroutine exits immediately via `ctx.Done()` (context already
-cancelled), so no further DB writes occur after `Stop()` returns.
+Decision: no updates required.
 
-### No Changes to Tests
+Reasoning:
 
-The polling loop in `TestOrthrusServer_HandleWebSocket_ValidToken_UpgradesConnection`
-and the `assert.Eventually` loops in `TestOrthrusServer_HandleWebSocket_ExternalProxyFails`
-and `TestHandleWebSocket_DisplacesExistingSession` continue to work. They observe
-the session slightly later in the handler's execution — no timing adjustment needed.
+1. Grouping behavior is fully controlled in [.github/renovate.json](.github/renovate.json).
+2. No new artifacts, coverage behavior, or Docker build context changes are introduced by this planning scope.
+3. [Dockerfile](Dockerfile) contains renovate annotations already and does not require structural adjustment for grouping itself.
 
----
+## Implementation Plan
 
-## 5. Affected Files
+### Phase 1: Configuration Refactor (Single-file change)
 
-| File | Change | Lines affected |
-|------|--------|----------------|
-| `backend/internal/orthrus/server.go` | Reorder 3 existing blocks in `HandleWebSocket` | ~5 lines moved |
+Objective: replace mixed grouping with ecosystem-specific grouping.
 
-No new files. No test file changes.
+Tasks:
 
----
+1. Edit packageRules in [.github/renovate.json](.github/renovate.json).
+2. Remove the broad wildcard non-major grouping rule.
+3. Insert Actions, Go, Go github-tags fallback, and NPM grouping rules.
+4. Preserve existing safety rules unchanged unless ordering needs explicit adjustment.
 
-## 6. Tests to Validate
+Expected output:
 
-Run the orthrus package tests with `-race` and `-count=10` to surface the race
-reliably before the fix, and confirm it is gone after:
+1. One updated config with deterministic grouping strategy.
+
+### Phase 2: Validation and Safety Gates
+
+Objective: confirm behavior and avoid unintended rule interactions.
+
+Tasks:
+
+1. Run Renovate config validation.
+2. Run Renovate dry-run with printed config and explicit config path.
+3. Verify expected grouping outcomes in logs:
+   - GitHub Actions updates grouped only in github-actions-non-major
+   - Go datasource updates grouped only in go-non-major
+   - NPM datasource updates grouped only in npm-non-major
+   - major updates remain manual-review and not grouped with non-major
+4. Verify existing allowedVersions/sourceUrl package rules still apply.
+5. Persist validation and dry-run evidence artifacts for deterministic review.
+
+Expected output:
+
+1. Validation log proving no schema or precedence errors.
+2. Dry-run evidence of the new grouping topology.
+3. Artifacts saved at test-results/renovate/validate.log and test-results/renovate/dry-run.log.
+
+### Phase 3: Documentation and Handoff
+
+Objective: finalize planning-to-implementation handoff with minimal user interaction.
+
+Tasks:
+
+1. Keep this spec as source of truth for implementation.
+2. Delegate implementation to Supervisor after user approval in a single handoff request.
+
+Expected output:
+
+1. One implementation-ready PR execution path.
+
+## Validation Steps
+
+### Required
+
+1. Renovate schema validation:
 
 ```bash
-cd backend && go test -race -count=10 -run TestOrthrusServer_HandleWebSocket ./internal/orthrus/
+mkdir -p test-results/renovate
+npx renovate-config-validator /projects/Charon/.github/renovate.json \
+   > test-results/renovate/validate.log 2>&1
 ```
 
-A clean run (all 10 iterations pass) confirms the fix. Also run the full package:
+2. Local dry-run with full logs:
 
 ```bash
-cd backend && go test -race -count=5 ./internal/orthrus/...
+npx renovate \
+   --platform=local \
+   --dry-run=full \
+   --print-config \
+   --base-dir=/projects/Charon \
+   --config-file=/projects/Charon/.github/renovate.json \
+   > test-results/renovate/dry-run.log 2>&1
 ```
 
----
+### Validation Checklist
 
-## 7. Secondary Observation (Out of Scope)
+1. Config validator returns success.
+2. test-results/renovate/validate.log exists and records successful validation.
+3. test-results/renovate/dry-run.log exists and includes print-config output with expected rules.
+4. No duplicate or conflicting groupName/groupSlug assignments for the same dependency.
+5. Non-major updates appear in three ecosystem buckets.
+6. No forced cross-ecosystem grouping remains.
+7. Major updates are still manually reviewed.
 
-`session.StartDockerProxy()` starts a `runProxyListener` goroutine that is **not
-tracked** by any WaitGroup. `session.Close()` closes the listener, which causes
-the goroutine to exit via `net.ErrClosed`, but there is no synchronous wait.
-This goroutine does not touch the filesystem or the DB, so it does not cause the
-TempDir failure. Tracking it formally (e.g., by adding a `wg sync.WaitGroup` to
-`AgentSession`) would be good hygiene but is a separate concern and out of scope
-for this targeted bug fix.
+## Acceptance Criteria
 
----
+1. packageRules no longer contains wildcard non-major grouping that mixes all ecosystems.
+2. GitHub Actions non-major updates are grouped separately.
+3. Go non-major updates are grouped separately.
+4. NPM non-major updates are grouped separately.
+5. Existing safety constraints (major handling and allowedVersions) remain intact.
+6. Validator and dry-run indicate no regressions in rule matching.
 
-## 8. Acceptance Criteria
-
-- [ ] `TestOrthrusServer_HandleWebSocket_ValidToken_UpgradesConnection` passes
-      consistently with `-race -count=20`.
-- [ ] All other tests in `backend/internal/orthrus/...` pass with `-race`.
-- [ ] `go vet ./internal/orthrus/...` reports no issues.
-- [ ] No new linter findings in the changed function.
-
----
-
-## 9. Commit Slicing Strategy
+## Commit Slicing Strategy
 
 ### Decision
 
-Single PR, single commit. This is a targeted bug fix touching three consecutive
-blocks in one function in one file. No phasing is required.
+Single PR with ordered logical commits.
 
-| | Detail |
-|---|---|
-| **PR title** | `fix(orthrus): eliminate TempDir race by moving sessions.Store after wg.Add` |
-| **Scope** | `backend/internal/orthrus/server.go` only |
-| **Risk** | Minimal — pure reorder of existing statements, no logic change |
-| **Review size** | < 10 lines moved |
+Why:
 
-### Commit 1 (the only commit)
+1. Scope is tightly focused to one configuration file.
+2. Splitting into multiple PRs would add overhead without reducing risk.
+3. Ordered commits inside one PR provide safe review checkpoints and clean rollback.
 
-**Message:** `fix(orthrus): eliminate TempDir race by moving sessions.Store after wg.Add`
+### Trigger Reasons
 
-**Body:**
-```
-sessions.Store was called before the DB update and wg.Add(1) in HandleWebSocket.
-The test polling loop exited as soon as the session appeared in the map, starting
-cleanup while the handler was still writing to the SQLite database.
+1. Scope: dependency automation policy refinement only.
+2. Risk: medium, due to matcher precedence.
+3. Cross-domain impact: low at runtime, medium in CI automation behavior.
+4. Review size: small and suitable for one PR.
 
-srv.Stop() called wg.Wait() with wg=0 (wg.Add had not yet been called), allowing
-cleanup to proceed. Concurrent SQLite journal/WAL file creation raced with
-os.RemoveAll on the test's TempDir, producing "directory not empty".
+### Commit 1
 
-Fix: move sessions.Store to be the last statement after the DB update and
-wg.Add(1). External observers now see the session only after all setup is
-complete.
+Scope:
 
-Fixes: TestOrthrusServer_HandleWebSocket_ValidToken_UpgradesConnection flaky CI
-```
+1. Remove wildcard mixed non-major group rule.
+2. Add explicit ecosystem-specific grouping rules for GitHub Actions, Go, and NPM.
+3. Add targeted go github-tags fallback grouping for jackc/pgx.
 
-**Files changed:** `backend/internal/orthrus/server.go`
+Files:
 
-**Dependencies:** none
+1. [.github/renovate.json](.github/renovate.json)
 
-**Validation gate:** `go test -race -count=20 -run TestOrthrusServer_HandleWebSocket ./internal/orthrus/` passes cleanly.
+Dependencies:
 
-**Rollback:** `git revert <sha>` — trivially reversible, no schema migrations, no side effects.
+1. None.
+
+Validation gate:
+
+1. JSON syntax valid.
+2. Renovate config validator passes.
+
+### Commit 2
+
+Scope:
+
+1. Rule-order stabilization if needed after dry-run evidence.
+2. No functional broadening beyond requested ecosystems.
+
+Files:
+
+1. [.github/renovate.json](.github/renovate.json)
+
+Dependencies:
+
+1. Commit 1 completed.
+
+Validation gate:
+
+1. Dry-run confirms exactly three non-major grouped tracks by dependency type.
+2. Major and safety constraints unaffected.
+
+### Commit 3
+
+Scope:
+
+1. Optional documentation note in PR body only (no repo file change required) summarizing grouping migration.
+
+Files:
+
+1. No repository file changes required.
+
+Dependencies:
+
+1. Commit 2 dry-run output collected.
+
+Validation gate:
+
+1. Reviewer can map expected PR behavior to new rules quickly.
+
+### Rollback and Contingency (PR-level)
+
+1. Immediate rollback path: revert PR to restore previous grouping behavior.
+2. Contingency if dry-run reveals misclassification:
+   - tighten matcher fields by datasource/manager
+   - keep unclassified dependencies ungrouped
+   - rerun validator and dry-run before merge
+
+## Handoff
+
+After approval of this plan, hand off to Supervisor agent to execute the changes in one PR with ordered commits and validation evidence.
