@@ -1,88 +1,153 @@
-# QA Audit Report
+# QA Audit Report — Orthrus Race Fix Validation
 
-**Date:** 2026-05-26
+**Date:** 2026-05-27
 **Branch:** `development`
-**Scope:** Focused audit of two commits — new docs pages (Orthrus, Hecate, Remote Docker Setup) and FeedbackWidget UI update (docs link addition)
+**Scope:** Validation of the orthrus race fix — single-file reorder in `backend/internal/orthrus/server.go` (`wg.Add(1)` moved before `sessions.Store` in `HandleWebSocket`)
 **Auditor:** QA Security Agent
 
 ---
 
 ## Verdict: APPROVED ✅
 
-All critical checks pass. One broken internal link was identified and **fixed in-place** during this audit.
+All validation steps pass. The race condition is eliminated. No regressions introduced. Pre-existing hook warnings noted and scoped as unrelated.
 
 ---
 
-## Checks
+## Fix Description
 
-### Documentation
+In `HandleWebSocket` (`backend/internal/orthrus/server.go`), the call to `sessions.Store` was previously placed before `wg.Add(1)`. This created a window where `Stop()` could observe a session entry in the map, call `wg.Wait()`, and return before the corresponding goroutine (`watchHeartbeat`) had registered itself with the WaitGroup — resulting in a data race.
 
-| Check | File | Result | Notes |
-|---|---|---|---|
-| Frontmatter valid | `docs/features/orthrus.md` | PASS | `title`, `description`, `category: features` present |
-| Frontmatter valid | `docs/features/hecate.md` | PASS | `title`, `description`, `category: features` present |
-| Frontmatter valid | `docs/guides/remote-docker-setup.md` | PASS | `title`, `description`, `category: guides` present |
-| Internal links resolve | `docs/features/orthrus.md` | PASS *(fixed)* | See ISSUE-1 — broken link corrected |
-| Internal links resolve | `docs/features/hecate.md` | PASS | `orthrus.md`, `uptime-monitoring.md` both verified |
-| Internal links resolve | `docs/guides/remote-docker-setup.md` | PASS | `../features/hecate.md` resolves correctly |
-| Internal links resolve | `docs/features/uptime-monitoring.md` | PASS | Cross-reference `../guides/remote-docker-setup.md` appended and resolves correctly |
-| Internal links resolve | `docs/features.md` | PASS | `features/orthrus.md`, `features/hecate.md` both verified |
-| Internal links resolve | `docs/index.md` | PASS | All three new Remote Access links resolve correctly |
-| Cross-reference appended | `docs/features/uptime-monitoring.md` | PASS | Footer link to Remote Docker Setup guide present |
-| Orthrus entry added | `docs/features.md` | PASS | Entry and `Learn More` link present |
-| Hecate link fixed | `docs/features.md` | PASS | `features/hecate.md` (corrected) present |
-| Remote Access section | `docs/index.md` | PASS | Section with three links present |
+**After fix:**
 
-### Frontend — FeedbackWidget
+```go
+s.wg.Add(1)                    // ← Add BEFORE launching goroutine
+go func() {
+    defer s.wg.Done()
+    s.watchHeartbeat(agent.UUID, session)
+}()
+s.sessions.Store(agent.UUID, session)  // ← Store AFTER wg.Add
+```
 
-| Check | Result | Notes |
-|---|---|---|
-| `DOCS_URL` is a static constant | PASS | `https://wikid82.github.io/Charon/` — not derived from user input |
-| Docs link uses `target="_blank"` | PASS | Tab-nabbing vector closed |
-| Docs link uses `rel="noopener noreferrer"` | PASS | OWASP A05 compliant |
-| `aria-label` present on docs link | PASS | Uses i18n key `feedback.viewDocsAriaLabel` |
-| `BookOpen` icon has `aria-hidden="true"` | PASS | Decorative icon correctly hidden from AT |
-| No hardcoded secrets or API keys | PASS | None present |
-| TypeScript type-check (`tsc --noEmit`) | PASS | Exit 0, no errors |
-
-### Tests
-
-| Check | Result | Notes |
-|---|---|---|
-| FeedbackWidget tests (vitest) | PASS | 20/20 tests passing |
-| Tests cover new docs link `href` | PASS | Test 16 verifies `DOCS_URL` |
-| Tests cover `target="_blank"` | PASS | Test 17 |
-| Tests cover `rel="noopener noreferrer"` | PASS | Test 18 |
-| Tests cover `aria-label` | PASS | Test 19 — verifies i18n string resolves correctly |
-
-### Localisation
-
-| Check | Result | Notes |
-|---|---|---|
-| `en/translation.json` — 3 new feedback keys | PASS | `viewDocs`, `viewDocsDescription`, `viewDocsAriaLabel` present |
-| `de/translation.json` — 3 new feedback keys | PASS | All present (English strings — consistent with project pattern) |
-| `fr/translation.json` — 3 new feedback keys | PASS | All present |
-| `zh/translation.json` — 3 new feedback keys | PASS | All present |
-| `es/translation.json` — 3 new feedback keys | PASS | All present |
-| No duplicate key conflict | PASS | `viewDocs` at line ~1395 is in a different JSON namespace (`dns`), not `feedback` |
+This ordering guarantees that any session visible to `Stop()` via `sessions.Range` has already called `wg.Add(1)`, so `wg.Wait()` cannot return while that goroutine is still running.
 
 ---
 
-## Issues
+## Validation Steps
 
-### ISSUE-1 — Broken Internal Link *(FIXED)*
+### Step 1 — Targeted race-detector stress test (20×)
 
-- **Severity:** LOW
-- **File:** `docs/features/orthrus.md`, line 74
-- **Original:** `[adding a Remote Server](remote-docker-setup.md)`
-- **Problem:** Relative path resolved to `docs/features/remote-docker-setup.md` — file does not exist.
-- **Fix applied:** Changed to `[adding a Remote Server](../guides/remote-docker-setup.md)`
-- **Status:** RESOLVED ✅
+**Command:**
+```
+cd /projects/Charon/backend && go test -race -count=20 -run TestOrthrusServer_HandleWebSocket ./internal/orthrus/
+```
+
+**Result:** PASS — 20/20 iterations completed, zero `DATA RACE` warnings
 
 ---
 
-## Notes
+### Step 2 — Full orthrus package race-detector run (5×)
 
-- Non-English locale files (`de`, `fr`, `zh`, `es`) carry the three new `feedback` keys in English. This is consistent with the existing project pattern for untranslated strings and is not a blocking issue.
-- `docs/troubleshooting/` directory confirmed present; references to it from `uptime-monitoring.md` are valid.
-- `docs/features/notifications.md` confirmed present; reference from `uptime-monitoring.md` is valid.
+**Command:**
+```
+cd /projects/Charon/backend && go test -race -count=5 ./internal/orthrus/...
+```
+
+**Result:** PASS
+```
+ok  github.com/Wikid82/charon/backend/internal/orthrus  4.690s
+```
+
+---
+
+### Step 3 — Full backend test suite (no race detector)
+
+**Command:**
+```
+cd /projects/Charon/backend && go test -count=1 ./...
+```
+
+**Result:** PASS — All 36 packages `ok`, zero `FAIL` lines
+
+| Package | Result | Time |
+|---|---|---|
+| `cmd/api` | ok | 0.836s |
+| `cmd/localpatchreport` | ok | 2.370s |
+| `cmd/seed` | ok | 0.359s |
+| `internal/api` | ok | 0.007s |
+| `internal/api/handlers` | ok | 72.394s |
+| `internal/api/middleware` | ok | 1.011s |
+| `internal/api/routes` | ok | 1.640s |
+| `internal/api/tests` | ok | 0.381s |
+| `internal/caddy` | ok | 6.625s |
+| `internal/cerberus` | ok | 1.595s |
+| `internal/config` | ok | 0.009s |
+| `internal/crowdsec` | ok | 94.918s |
+| `internal/crypto` | ok | 0.036s |
+| `internal/database` | ok | 0.023s |
+| `internal/hecate` | ok | 5.098s |
+| `internal/hecate/providers/cloudflare` | ok | 0.029s |
+| `internal/hecate/providers/netbird` | ok | 0.018s |
+| `internal/hecate/providers/tailscale` | ok | 0.017s |
+| `internal/hecate/providers/zerotier` | ok | 0.013s |
+| `internal/logger` | ok | 0.007s |
+| `internal/metrics` | ok | 0.011s |
+| `internal/models` | ok | 0.567s |
+| `internal/network` | ok | 0.724s |
+| `internal/notifications` | ok | 0.220s |
+| `internal/orthrus` | ok | 0.622s |
+| `internal/patchreport` | ok | 0.021s |
+| `internal/security` | ok | 0.073s |
+| `internal/server` | ok | 0.722s |
+| `internal/services` | ok | 93.611s |
+| `internal/testutil` | ok | 0.021s |
+| `internal/util` | ok | 0.011s |
+| `internal/utils` | ok | 0.075s |
+| `internal/version` | ok | 0.008s |
+| `pkg/dnsprovider` | ok | 0.005s |
+| `pkg/dnsprovider/builtin` | ok | 0.004s |
+| `pkg/dnsprovider/custom` | ok | 0.010s |
+
+---
+
+### Step 4 — Pre-commit hook suite (lefthook)
+
+> **Note:** This project uses `lefthook` v2.1.8 (not `pre-commit`). Config: `lefthook.yml`. There is no `.pre-commit-config.yaml`.
+
+**Command:**
+```
+cd /projects/Charon && lefthook run pre-commit --force
+```
+
+**Results:**
+
+| Hook | Result | Notes |
+|---|---|---|
+| `trailing-whitespace` | PASS | No issues |
+| `block-data-backups` | PASS | No issues |
+| `end-of-file-fixer` | PASS | No issues |
+| `check-lfs-large-files` | PASS | No issues |
+| `block-codeql-db` | PASS | No issues |
+| `check-yaml` | PASS | No issues |
+| `shellcheck` | SKIP | No `.sh` files matched; shellcheck exited with status 3 (no files specified — benign) |
+| `check-version-match` | PRE-EXISTING WARN | `.version` file (v0.27.0) ≠ latest git tag (v0.32.0); script deprecated; **unrelated to this change** |
+| `go-vet` | PASS | No issues |
+| `dockerfile-check` | PASS | Dockerfile validation passed |
+| `frontend-type-check` | PASS | No issues |
+| `frontend-lint` | PASS | No issues |
+| `golangci-lint-fast` | PASS | 0 issues |
+| `actionlint` | PASS | No issues |
+| `semgrep` | PASS | No issues |
+
+**`check-version-match` warning scoped:** The `.version` / git tag mismatch is a pre-existing repository configuration issue that predates this change. The deprecated script warns it will be removed in v2.0.0. This does not indicate a defect introduced by the orthrus fix.
+
+---
+
+## Conclusion
+
+The `wg.Add(1)` reorder in `HandleWebSocket` correctly eliminates the race condition between session registration and graceful shutdown. All validation steps pass:
+
+- Race detector: zero `DATA RACE` reports across 20 targeted + 5 full-package runs
+- Full backend suite: 36/36 packages pass, no regressions
+- Lint and static analysis: zero new issues
+
+The fix is approved for merge.
