@@ -17,7 +17,7 @@ ARG ALPINE_IMAGE=alpine:3.23.4@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc911
 
 # ---- Shared CrowdSec Version ----
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
-ARG CROWDSEC_VERSION=1.7.7
+ARG CROWDSEC_VERSION=1.7.8
 # CrowdSec fallback tarball checksum (v${CROWDSEC_VERSION})
 ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0bfe5e38f863bd
 
@@ -38,15 +38,15 @@ ARG NPM_VERSION=11.11.1
 # this ARG to a specific v2.x tag when desired.
 ## Try to build the requested Caddy v2.x tag (Renovate can update this ARG).
 ## If the requested tag isn't available, fall back to a known-good v2.11.3 build.
-# renovate: datasource=go depName=https://github.com/caddyserver/caddy
+# renovate: datasource=go depName=github.com/caddyserver/caddy/v2
 ARG CADDY_VERSION=2.11.3
-# renovate: datasource=go depName=https://github.com/caddyserver/caddy
+# renovate: datasource=go depName=github.com/caddyserver/caddy/v2
 ARG CADDY_CANDIDATE_VERSION=2.11.3
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
 ARG CADDY_SECURITY_VERSION=1.1.62
-# renovate: datasource=go depName=github.com/corazawaf/coraza-caddy
+# renovate: datasource=go depName=github.com/corazawaf/coraza-caddy/v2
 ARG CORAZA_CADDY_VERSION=2.5.0
 ## When an official caddy image tag isn't available on the host, use a
 ## plain Alpine base image and overwrite its caddy binary with our
