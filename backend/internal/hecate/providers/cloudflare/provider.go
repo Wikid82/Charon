@@ -17,6 +17,15 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// Test hooks to allow overriding OS functions in unit tests.
+var (
+	// osPipe wraps os.Pipe to allow simulating pipe-creation failures.
+	osPipe = os.Pipe
+	// closeWriteFile wraps (*os.File).Close for the pipe write-ends closed
+	// after cmd.Start() succeeds. Allows simulating close errors in tests.
+	closeWriteFile = func(f *os.File) error { return f.Close() }
+)
+
 // cfCredentials holds the decrypted JSON credentials for the Cloudflare provider.
 // Both snake_case (current) and camelCase (legacy) keys are accepted to support
 // credentials stored before the frontend key-mapping fix.
@@ -128,11 +137,11 @@ func (p *CloudflareTunnelProvider) Start(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, binaryPath, "tunnel", "run") //nolint:gosec
 	cmd.Env = append(os.Environ(), "TUNNEL_TOKEN="+p.creds.TunnelToken)
 
-	stdoutR, stdoutW, err := os.Pipe()
+	stdoutR, stdoutW, err := osPipe()
 	if err != nil {
 		return fmt.Errorf("cloudflare: stdout pipe: %w", err)
 	}
-	stderrR, stderrW, err := os.Pipe()
+	stderrR, stderrW, err := osPipe()
 	if err != nil {
 		_ = stdoutR.Close()
 		_ = stdoutW.Close()
@@ -157,12 +166,12 @@ func (p *CloudflareTunnelProvider) Start(ctx context.Context) error {
 	// Close the write ends in the parent process. The child holds its own
 	// copies via exec.Cmd; keeping parent write ends open would prevent the
 	// read ends from reaching EOF when the child exits.
-	if err := stdoutW.Close(); err != nil {
+	if err := closeWriteFile(stdoutW); err != nil {
 		logger.Log().WithFields(logrus.Fields{
 			"error": err,
 		}).Error("cloudflare: failed to close stdout write end")
 	}
-	if err := stderrW.Close(); err != nil {
+	if err := closeWriteFile(stderrW); err != nil {
 		logger.Log().WithFields(logrus.Fields{
 			"error": err,
 		}).Error("cloudflare: failed to close stderr write end")
