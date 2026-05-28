@@ -17,7 +17,7 @@ ARG ALPINE_IMAGE=alpine:3.23.4@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc911
 
 # ---- Shared CrowdSec Version ----
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
-ARG CROWDSEC_VERSION=1.7.7
+ARG CROWDSEC_VERSION=1.7.8
 # CrowdSec fallback tarball checksum (v${CROWDSEC_VERSION})
 ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0bfe5e38f863bd
 
