@@ -324,9 +324,14 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         go get github.com/Azure/go-ntlmssp@v0.1.1; \
         # CVE-2026-44982 (GHSA-rw47-hm26-6wr7): CrowdSec AppSec silently drops HTTP request
         # body for chunked/HTTP-2 requests, bypassing WAF body inspection rules.
-        # caddy-crowdsec-bouncer@v0.10.0 embeds github.com/crowdsecurity/crowdsec v1.6.3
-        # (vulnerable). Pin to CROWDSEC_VERSION so /usr/bin/caddy stays in sync with the
-        # dedicated crowdsec/cscli binaries. Remove once the bouncer ships with crowdsec >= v1.7.8.
+        # caddy-crowdsec-bouncer@v0.10.0 depends on go-cs-bouncer@v0.0.14 which embeds
+        # crowdsec v1.6.3 (vulnerable). go-cs-bouncer@v0.0.21 is the first release built
+        # against crowdsec v1.7.x APIs (v1.7.6); v1.7.8 is semver-compatible.
+        # Upgrade go-cs-bouncer first so its internal crowdsec API calls compile correctly,
+        # then force crowdsec to CROWDSEC_VERSION so /usr/bin/caddy matches the sidecar.
+        # Remove both once caddy-crowdsec-bouncer ships a release using go-cs-bouncer >= v0.0.21.
+        # renovate: datasource=go depName=github.com/crowdsecurity/go-cs-bouncer
+        go get github.com/crowdsecurity/go-cs-bouncer@v0.0.21; \
         go get github.com/crowdsecurity/crowdsec@v${CROWDSEC_VERSION}; \
         if [ "${CADDY_PATCH_SCENARIO}" = "A" ]; then \
             # Rollback scenario: keep explicit nebula pin if upstream compatibility regresses.
