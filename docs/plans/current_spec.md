@@ -1,379 +1,355 @@
+# Fix: Race Condition in `TestStart_CapturesStdoutOutput`
+
 ## Introduction
 
 ### Overview
 
-This specification defines how to split Renovate non-major dependency updates into separate PR groupings by dependency type instead of the current single mixed group.
-
-Target groupings:
-
-1. GitHub Actions dependencies
-2. Go dependencies
-3. NPM dependencies
+`TestStart_CapturesStdoutOutput` in
+`backend/internal/hecate/providers/cloudflare/coverage_test.go` fails because
+the `Start()` method in `provider.go` uses `cmd.StdoutPipe()` /
+`cmd.StderrPipe()`. Go's `exec.Cmd` implementation silently closes the **read
+ends** of those pipes inside `cmd.Wait()`. The monitor goroutine calls
+`cmd.Wait()` first, which races with the scanner goroutines that are still
+trying to drain the OS pipe buffer — causing an empty ring buffer and a failing
+assertion.
 
 ### Objectives
 
-1. Remove the current cross-ecosystem grouping behavior.
-2. Keep safety constraints for majors and pinned version boundaries.
-3. Ensure migration can be validated with deterministic Renovate config checks and dry runs.
-4. Complete in one PR with ordered logical commits and minimal back-and-forth user requests.
+1. Eliminate the pipe-closing race condition introduced by `StdoutPipe()` /
+   `StderrPipe()`.
+2. Preserve all existing behaviour (line-by-line scanning, ring buffer writes,
+   `scanWg`, state transitions, `done` channel semantics).
+3. Fix in one self-contained commit; no API surface changes, no new types.
+
+---
 
 ## Research Findings
 
-### Files Reviewed
+### Files Examined
 
-1. [.github/renovate.json](.github/renovate.json)
-2. [docs/plans/current_spec.md](docs/plans/current_spec.md)
-3. [.gitignore](.gitignore)
-4. [codecov.yml](codecov.yml)
-5. [.dockerignore](.dockerignore)
-6. [Dockerfile](Dockerfile)
-7. [ARCHITECTURE.md](ARCHITECTURE.md)
-8. [.github/instructions/copilot-instructions.md](.github/instructions/copilot-instructions.md)
-9. [.github/instructions/spec-driven-workflow-v1.instructions.md](.github/instructions/spec-driven-workflow-v1.instructions.md)
+| File | Role |
+|---|---|
+| `backend/internal/hecate/providers/cloudflare/provider.go` | `Start()` implementation — the defective code |
+| `backend/internal/hecate/providers/cloudflare/coverage_test.go` | Failing test `TestStart_CapturesStdoutOutput` (lines 110–143) |
+| `backend/internal/hecate/providers/cloudflare/provider_test.go` | Remaining provider tests; `validCredsJSON()` helper |
+| `backend/internal/hecate/ring_buffer.go` | `RingBuffer` — `Write()` drops silently when `closed == true`; `ReadAll()` works after `Close()` |
 
-### Current Renovate Behavior
+### Go `exec.Cmd` Pipe-Lifecycle Mechanics
 
-Current configuration contains a package rule that groups all non-major updates into one PR:
+`cmd.StdoutPipe()` in Go's standard library executes:
 
-- File: [.github/renovate.json](.github/renovate.json)
-- Location: packageRules first entry (description contains "THE MEGAZORD")
-- Keys currently driving broad grouping:
-  - groupName: non-major-updates
-  - matchUpdateTypes: minor, patch, pin, digest
-  - matchPackageNames: ["*"]
-
-This rule is the root cause of mixed PRs across ecosystems.
-
-### Existing Safety Rules That Must Be Preserved
-
-The following constraints already exist and must remain in place:
-
-1. Major update manual review rule:
-   - matchUpdateTypes: ["major"]
-   - labels: ["manual-review"]
-   - automerge: false
-2. Go module major-path/version constraints:
-   - github.com/jackc/pgx/v4 < 5.0.0
-   - jackc/pgx via github-tags in >= 4.0.0 < 5.0.0
-   - go-jose v3/v4 boundaries
-3. Dockerfile and custom regex managers for security-patched pins.
-
-### Dependency Source Mapping Needed for Correct Grouping
-
-1. GitHub Actions dependencies:
-   - Manager: github-actions
-   - Additional workflow values managed by custom.regex should not be auto-classified as actions unless datasource indicates action versions.
-2. Go dependencies:
-   - Datasources primarily: go, golang-version
-   - One known go-related github-tags case exists for jackc/pgx fallback rule.
-3. NPM dependencies:
-   - Datasource: npm
-   - Includes npm packages matched by datasource npm only.
-
-## Requirements (EARS)
-
-1. WHEN Renovate processes non-major updates, THE SYSTEM SHALL create separate groups for GitHub Actions, Go, and NPM dependencies.
-2. WHEN a dependency update is major, THE SYSTEM SHALL keep it outside non-major grouped flow and require manual review labeling.
-3. WHEN existing package-specific safety constraints are evaluated, THE SYSTEM SHALL preserve allowedVersions and sourceUrl mapping behavior unchanged.
-4. IF a dependency does not match GitHub Actions, Go, or NPM grouping rules, THEN THE SYSTEM SHALL leave it ungrouped (or governed by existing specific rules) rather than forcing inclusion into another ecosystem group.
-5. WHEN configuration changes are introduced, THE SYSTEM SHALL pass Renovate config validation and dry-run inspection before merge.
-
-### Confidence Score
-
-92%
-
-Rationale: the required behavior is isolated to [.github/renovate.json](.github/renovate.json), current grouping cause is explicit, and migration risk is primarily rule precedence, which is manageable with dry-run validation.
-
-## Technical Specifications
-
-### Primary File to Edit
-
-1. [.github/renovate.json](.github/renovate.json)
-
-### Exact JSON Keys to Edit
-
-Within root key packageRules in [.github/renovate.json](.github/renovate.json):
-
-1. Replace the current broad grouping object (MEGAZORD) with three ecosystem-specific non-major group rules.
-2. Keep existing development-branch non-major automerge behavior rule, but ensure it applies cleanly with new grouped rules.
-3. Keep all existing package-specific safety and lookup rules unchanged unless explicitly required for precedence fixes.
-
-### Proposed Rule Set Changes
-
-#### Rule A: GitHub Actions non-major grouping
-
-- matchManagers: ["github-actions"]
-- matchUpdateTypes: ["minor", "patch", "pin", "digest"]
-- groupName: "github-actions-non-major"
-- groupSlug: "github-actions-non-major"
-
-#### Rule B: Go non-major grouping
-
-- matchDatasources: ["go", "golang-version"]
-- matchUpdateTypes: ["minor", "patch", "pin", "digest"]
-- groupName: "go-non-major"
-- groupSlug: "go-non-major"
-
-#### Rule C: Go github-tags fallback grouping (targeted)
-
-- matchDatasources: ["github-tags"]
-- matchManagers: ["custom.regex"]
-- matchFileNames: ["Dockerfile"]
-- matchPackageNames: ["jackc/pgx"]
-- matchUpdateTypes: ["minor", "patch", "pin", "digest"]
-- groupName: "go-non-major"
-- groupSlug: "go-non-major"
-
-#### Rule D: NPM non-major grouping
-
-- matchDatasources: ["npm"]
-- matchUpdateTypes: ["minor", "patch", "pin", "digest"]
-- groupName: "npm-non-major"
-- groupSlug: "npm-non-major"
-
-### Rule Precedence and Ordering
-
-Order in packageRules matters for predictable merge behavior. Place grouping rules before broad branch behavior toggles and before highly specific package constraints, with this order:
-
-1. Ecosystem grouping rules (Actions, Go, Go github-tags fallback, NPM)
-2. Development branch non-major behavior rule
-3. Existing custom labels and package-specific allowedVersions/sourceUrl rules
-4. Major manual-review rule
-
-### Data Flow (Renovate matching intent)
-
-```mermaid
-flowchart TD
-  A[Dependency update candidate] --> B{Update type major?}
-  B -- Yes --> C[Major rule: manual review label]
-  B -- No --> D{Manager is github-actions?}
-  D -- Yes --> E[Group: github-actions-non-major]
-  D -- No --> F{Datasource go or golang-version?}
-  F -- Yes --> G[Group: go-non-major]
-  F -- No --> H{Datasource npm?}
-  H -- Yes --> I[Group: npm-non-major]
-  H -- No --> J[Remain ungrouped or existing specific rule]
+```go
+pr, pw, _ := os.Pipe()
+c.Stdout = pw
+c.closeAfterStart = append(c.closeAfterStart, pw)  // pw closed after fork
+c.closeAfterWait  = append(c.closeAfterWait,  pr)  // pr closed inside Wait()
+return pr, nil
 ```
 
-## Migration and Safety Considerations
+`cmd.Wait()` calls `closeDescriptors(c.closeAfterWait)` which **closes `pr`**
+(the read end) the moment the child process exits — regardless of whether any
+goroutine is still reading from it.
 
-### Migration Risks
+When `cmd.Stdout` is assigned an `*os.File` directly, the `writerDescriptor`
+helper returns the file as-is and adds it to **neither** `closeAfterStart` nor
+`closeAfterWait`:
 
-1. Incorrect matcher breadth could absorb unrelated dependencies.
-2. Rule ordering could override or dilute existing allowedVersions constraints.
-3. Incomplete handling of custom.regex managed values could cause unexpected PR distribution.
+```go
+if f, ok := w.(*os.File); ok {
+    return f, nil  // no lifecycle management
+}
+```
 
-### Mitigations
+This is the property the fix exploits.
 
-1. Use datasource and manager matchers, not wildcard package names.
-2. Add explicit targeted fallback for jackc/pgx github-tags only.
-3. Keep existing package-specific safety rules intact and later in rule order.
-4. Validate using printed final config and dry-run PR prediction before merge.
+### Root Cause — Step-by-Step Race
 
-### Backward Compatibility
+```
+[goroutine: monitor]             [goroutine: stdout scanner]
+cmd.Wait() ──▶ child exits
+closeAfterWait ──▶ pr.Close()   ← stdoutPipe read-end now CLOSED
+                                  bufio.Scanner.Scan() → EBADF / EOF before read
+                                  scanWg.Done()  (0 bytes written to ring buffer)
+defer: scanWg.Wait()            ← already done; buffer is empty
+close(p.done)
+                                  test: p.buf.ReadAll() == []  ✗
+```
 
-1. No schema change needed.
-2. No runtime application behavior change.
-3. Existing Renovate dashboard behavior remains, but grouped PR topology changes from one mixed PR to three ecosystem-focused PR streams.
+On a loaded CI runner (or any run where the Go scheduler prioritises the monitor
+goroutine), `cmd.Wait()` fires and closes `stdoutPipe` before the scanner
+goroutine executes a single `Read()`. The OS pipe buffer still holds
+`"tunnel run\n"` but the file descriptor is already invalid.
 
-## Ancillary File Review (Only If Necessary)
+The test's 1-second polling loop (`coverage_test.go` lines 133–139) cannot
+recover because the scanner goroutine has already exited without writing.
 
-Reviewed for this change request:
+### Why `ring_buffer.go` Is Not the Cause
 
-1. [.gitignore](.gitignore)
-2. [codecov.yml](codecov.yml)
-3. [.dockerignore](.dockerignore)
-4. [Dockerfile](Dockerfile)
+`RingBuffer.Write()` drops writes only when `rb.closed == true`.
+`RingBuffer.Close()` sets that flag but does **not** clear the buffer.
+`RingBuffer.ReadAll()` works correctly after `Close()`. The bug is entirely in
+the pipe-lifecycle management inside `Start()`.
 
-Decision: no updates required.
+---
 
-Reasoning:
+## Technical Specification
 
-1. Grouping behavior is fully controlled in [.github/renovate.json](.github/renovate.json).
-2. No new artifacts, coverage behavior, or Docker build context changes are introduced by this planning scope.
-3. [Dockerfile](Dockerfile) contains renovate annotations already and does not require structural adjustment for grouping itself.
+### API / Type Surface
+
+No changes to exported types, function signatures, or the `hecate.TunnelProvider`
+interface.
+
+### Algorithm Change — `Start()` in `provider.go`
+
+Replace `cmd.StdoutPipe()` / `cmd.StderrPipe()` with explicit `os.Pipe()` pairs.
+Assign the write ends directly to `cmd.Stdout` / `cmd.Stderr`. Close the write
+ends in the **parent** immediately after `cmd.Start()` succeeds. Pass the read
+ends to the scanner goroutines, which close them via `defer`.
+
+#### Before (buggy)
+
+```go
+stdoutPipe, err := cmd.StdoutPipe()
+if err != nil {
+    return fmt.Errorf("cloudflare: stdout pipe: %w", err)
+}
+stderrPipe, err := cmd.StderrPipe()
+if err != nil {
+    return fmt.Errorf("cloudflare: stderr pipe: %w", err)
+}
+
+if err := cmd.Start(); err != nil {
+    p.mu.Lock()
+    p.state = hecate.TunnelStateError
+    close(p.done)
+    p.mu.Unlock()
+    return fmt.Errorf("cloudflare: start cloudflared: %w", err)
+}
+
+p.mu.Lock()
+p.cmd = cmd
+p.state = hecate.TunnelStateConnected
+p.mu.Unlock()
+
+var scanWg sync.WaitGroup
+
+scanWg.Add(1)
+go func() {
+    defer scanWg.Done()
+    s := bufio.NewScanner(stdoutPipe)
+    for s.Scan() {
+        p.buf.Write(s.Text())
+    }
+}()
+
+scanWg.Add(1)
+go func() {
+    defer scanWg.Done()
+    s := bufio.NewScanner(stderrPipe)
+    for s.Scan() {
+        p.buf.Write(s.Text())
+    }
+}()
+```
+
+#### After (fixed)
+
+```go
+// Use os.Pipe() instead of cmd.StdoutPipe() / cmd.StderrPipe() so that
+// cmd.Wait() never closes the read ends before the scanner goroutines drain
+// them. StdoutPipe adds the read end to closeAfterWait; a bare *os.File does
+// not, so the scanner goroutines control the lifetime of the read ends.
+stdoutR, stdoutW, err := os.Pipe()
+if err != nil {
+    return fmt.Errorf("cloudflare: stdout pipe: %w", err)
+}
+stderrR, stderrW, err := os.Pipe()
+if err != nil {
+    _ = stdoutR.Close()
+    _ = stdoutW.Close()
+    return fmt.Errorf("cloudflare: stderr pipe: %w", err)
+}
+cmd.Stdout = stdoutW
+cmd.Stderr = stderrW
+
+if err := cmd.Start(); err != nil {
+    _ = stdoutR.Close()
+    _ = stdoutW.Close()
+    _ = stderrR.Close()
+    _ = stderrW.Close()
+    p.mu.Lock()
+    p.state = hecate.TunnelStateError
+    close(p.done)
+    p.mu.Unlock()
+    return fmt.Errorf("cloudflare: start cloudflared: %w", err)
+}
+
+// Close the parent's write ends. The child holds its own inherited copies;
+// when the child exits the OS closes those, and the scanners detect EOF.
+_ = stdoutW.Close()
+_ = stderrW.Close()
+
+p.mu.Lock()
+p.cmd = cmd
+p.state = hecate.TunnelStateConnected
+p.mu.Unlock()
+
+var scanWg sync.WaitGroup
+
+scanWg.Add(1)
+go func() {
+    defer scanWg.Done()
+    defer stdoutR.Close() //nolint:errcheck
+    s := bufio.NewScanner(stdoutR)
+    for s.Scan() {
+        p.buf.Write(s.Text())
+    }
+}()
+
+scanWg.Add(1)
+go func() {
+    defer scanWg.Done()
+    defer stderrR.Close() //nolint:errcheck
+    s := bufio.NewScanner(stderrR)
+    for s.Scan() {
+        p.buf.Write(s.Text())
+    }
+}()
+```
+
+The **monitor goroutine** and the `Stop()` method are **unchanged**.
+
+### Correctness Table
+
+| Step | Old behaviour | New behaviour |
+|---|---|---|
+| `cmd.Start()` succeeds | exec adds `pr` to `closeAfterWait` | exec receives bare `*os.File`; not lifecycle-managed |
+| Parent write-end | exec closes via `closeAfterStart` | Parent closes explicitly after `Start()` |
+| `cmd.Wait()` returns | Closes `pr` → scanner gets EBADF | Read end untouched; scanner continues reading |
+| Scanner reads "tunnel run" | May miss it (race) | Reads reliably before `scanWg.Done()` |
+| `scanWg.Wait()` in defer | Scanner already failed | Scanner finished; buffer has the line |
+| `close(p.done)` | Buffer is empty → test fails | Buffer contains "tunnel run" → test passes |
+
+### Import Changes
+
+No new imports. `os` is already imported in `provider.go` (used by `os.Environ()`).
+
+---
 
 ## Implementation Plan
 
-### Phase 1: Configuration Refactor (Single-file change)
+### Phase 1 — Fix `provider.go`
 
-Objective: replace mixed grouping with ecosystem-specific grouping.
+**Task 1.1** — Replace `StdoutPipe` / `StderrPipe` with `os.Pipe`
 
-Tasks:
+- **File**: `backend/internal/hecate/providers/cloudflare/provider.go`
+- **Function**: `Start(ctx context.Context) error`
+- **Change**: As shown in the "After" block above — replaces roughly 20 lines.
+- **Imports affected**: None.
+- **Complexity**: Low — surgical line swap, zero structural changes.
 
-1. Edit packageRules in [.github/renovate.json](.github/renovate.json).
-2. Remove the broad wildcard non-major grouping rule.
-3. Insert Actions, Go, Go github-tags fallback, and NPM grouping rules.
-4. Preserve existing safety rules unchanged unless ordering needs explicit adjustment.
+**Task 1.2** — Verify no other references to the old pipe variables
 
-Expected output:
+- Confirm `stdoutPipe` / `stderrPipe` identifiers do not appear outside of
+  `Start()` (they are local variables; this is a sanity check).
 
-1. One updated config with deterministic grouping strategy.
+### Phase 2 — Validation
 
-### Phase 2: Validation and Safety Gates
-
-Objective: confirm behavior and avoid unintended rule interactions.
-
-Tasks:
-
-1. Run Renovate config validation.
-2. Run Renovate dry-run with printed config and explicit config path.
-3. Verify expected grouping outcomes in logs:
-   - GitHub Actions updates grouped only in github-actions-non-major
-   - Go datasource updates grouped only in go-non-major
-   - NPM datasource updates grouped only in npm-non-major
-   - major updates remain manual-review and not grouped with non-major
-4. Verify existing allowedVersions/sourceUrl package rules still apply.
-5. Persist validation and dry-run evidence artifacts for deterministic review.
-
-Expected output:
-
-1. Validation log proving no schema or precedence errors.
-2. Dry-run evidence of the new grouping topology.
-3. Artifacts saved at test-results/renovate/validate.log and test-results/renovate/dry-run.log.
-
-### Phase 3: Documentation and Handoff
-
-Objective: finalize planning-to-implementation handoff with minimal user interaction.
-
-Tasks:
-
-1. Keep this spec as source of truth for implementation.
-2. Delegate implementation to Supervisor after user approval in a single handoff request.
-
-Expected output:
-
-1. One implementation-ready PR execution path.
-
-## Validation Steps
-
-### Required
-
-1. Renovate schema validation:
+**Task 2.1** — Run the primary failing test in high-repetition mode
 
 ```bash
-mkdir -p test-results/renovate
-npx renovate-config-validator /projects/Charon/.github/renovate.json \
-   > test-results/renovate/validate.log 2>&1
+cd /projects/Charon/backend
+go test ./internal/hecate/providers/cloudflare/... \
+    -run TestStart_CapturesStdoutOutput -v -count=10
 ```
 
-2. Local dry-run with full logs:
+Expected: 10/10 passes.
+
+**Task 2.2** — Run the full package suite with the race detector
 
 ```bash
-npx renovate \
-   --platform=local \
-   --dry-run=full \
-   --print-config \
-   --base-dir=/projects/Charon \
-   --config-file=/projects/Charon/.github/renovate.json \
-   > test-results/renovate/dry-run.log 2>&1
+cd /projects/Charon/backend
+go test ./internal/hecate/providers/cloudflare/... -race -count=3
 ```
 
-### Validation Checklist
+All of the following must pass:
 
-1. Config validator returns success.
-2. test-results/renovate/validate.log exists and records successful validation.
-3. test-results/renovate/dry-run.log exists and includes print-config output with expected rules.
-4. No duplicate or conflicting groupName/groupSlug assignments for the same dependency.
-5. Non-major updates appear in three ecosystem buckets.
-6. No forced cross-ecosystem grouping remains.
-7. Major updates are still manually reviewed.
+| Test | Guards |
+|---|---|
+| `TestStart_CapturesStdoutOutput` | Primary fix target |
+| `TestStart_ExecFormatError` | Error path — pipe cleanup on `cmd.Start()` failure |
+| `TestStop_WhenProcessAlreadyExited` | `done` channel semantics |
+| `TestStop_WithNilDone` | `nil` done guard |
+| `TestNewCloudflareProvider_*` | Constructor validation — unaffected |
+| `TestListTunnels_*` | API client — unaffected |
+| `TestCreateTunnel_*` | API client — unaffected |
+| `TestGenerateCloudflaredConfig_*` | Config generation — unaffected |
+
+**Task 2.3** — High-repetition race-detector run on `Start` tests
+
+```bash
+cd /projects/Charon/backend
+go test ./internal/hecate/providers/cloudflare/... \
+    -run TestStart -race -count=50
+```
+
+All 50 runs must pass. Residual data races on `p.buf`, `p.done`, or file
+descriptors would be surfaced here.
+
+**Task 2.4** — Full backend coverage gate
+
+```bash
+cd /projects/Charon
+bash scripts/go-test-coverage.sh
+```
+
+Coverage must not drop below the project threshold. The fix replaces one code
+path with an equivalent one; no new uncovered branches are introduced.
+
+---
 
 ## Acceptance Criteria
 
-1. packageRules no longer contains wildcard non-major grouping that mixes all ecosystems.
-2. GitHub Actions non-major updates are grouped separately.
-3. Go non-major updates are grouped separately.
-4. NPM non-major updates are grouped separately.
-5. Existing safety constraints (major handling and allowedVersions) remain intact.
-6. Validator and dry-run indicate no regressions in rule matching.
+- [ ] `TestStart_CapturesStdoutOutput` passes 50/50 with `-race -count=50`.
+- [ ] All other tests in `./internal/hecate/providers/cloudflare/...` pass.
+- [ ] `go vet ./internal/hecate/providers/cloudflare/...` reports no issues.
+- [ ] `go test ./...` in `backend/` exits 0.
+- [ ] The race detector reports no data races in the package.
+
+---
 
 ## Commit Slicing Strategy
 
-### Decision
+**Decision**: Single PR, single commit. This is a surgical bug fix touching one
+function in one file. No database, API, frontend, or test-file changes.
 
-Single PR with ordered logical commits.
+### Commit 1 (only commit)
 
-Why:
+| Field | Value |
+|---|---|
+| **Scope** | `backend/internal/hecate/providers/cloudflare/provider.go` |
+| **Type** | `fix` |
+| **Subject** | `fix(hecate/cloudflare): replace StdoutPipe with os.Pipe to fix stdout capture race` |
+| **Files changed** | `provider.go` only |
+| **Dependencies** | None |
+| **Validation gate** | `go test ./internal/hecate/providers/cloudflare/... -race -count=50` passes 50/50 |
 
-1. Scope is tightly focused to one configuration file.
-2. Splitting into multiple PRs would add overhead without reducing risk.
-3. Ordered commits inside one PR provide safe review checkpoints and clean rollback.
+**Commit message body**:
 
-### Trigger Reasons
+```
+cmd.StdoutPipe() and cmd.StderrPipe() register the pipe read ends in
+exec.Cmd.closeAfterWait. When cmd.Wait() returns it closes those file
+descriptors, racing with the scanner goroutines that are still draining
+the OS pipe buffer. On a loaded CI runner cmd.Wait() wins the race,
+the scanners receive EBADF, and the ring buffer stays empty.
 
-1. Scope: dependency automation policy refinement only.
-2. Risk: medium, due to matcher precedence.
-3. Cross-domain impact: low at runtime, medium in CI automation behavior.
-4. Review size: small and suitable for one PR.
+Replace both calls with os.Pipe(). Assign the write ends directly to
+cmd.Stdout and cmd.Stderr (as *os.File, exec does not lifecycle-manage
+them). Close the write ends in the parent immediately after cmd.Start()
+so scanners see EOF when the child exits. The scanner goroutines own
+the read ends and close them via defer after draining.
 
-### Commit 1
+Fixes TestStart_CapturesStdoutOutput.
+```
 
-Scope:
-
-1. Remove wildcard mixed non-major group rule.
-2. Add explicit ecosystem-specific grouping rules for GitHub Actions, Go, and NPM.
-3. Add targeted go github-tags fallback grouping for jackc/pgx.
-
-Files:
-
-1. [.github/renovate.json](.github/renovate.json)
-
-Dependencies:
-
-1. None.
-
-Validation gate:
-
-1. JSON syntax valid.
-2. Renovate config validator passes.
-
-### Commit 2
-
-Scope:
-
-1. Rule-order stabilization if needed after dry-run evidence.
-2. No functional broadening beyond requested ecosystems.
-
-Files:
-
-1. [.github/renovate.json](.github/renovate.json)
-
-Dependencies:
-
-1. Commit 1 completed.
-
-Validation gate:
-
-1. Dry-run confirms exactly three non-major grouped tracks by dependency type.
-2. Major and safety constraints unaffected.
-
-### Commit 3
-
-Scope:
-
-1. Optional documentation note in PR body only (no repo file change required) summarizing grouping migration.
-
-Files:
-
-1. No repository file changes required.
-
-Dependencies:
-
-1. Commit 2 dry-run output collected.
-
-Validation gate:
-
-1. Reviewer can map expected PR behavior to new rules quickly.
-
-### Rollback and Contingency (PR-level)
-
-1. Immediate rollback path: revert PR to restore previous grouping behavior.
-2. Contingency if dry-run reveals misclassification:
-   - tighten matcher fields by datasource/manager
-   - keep unclassified dependencies ungrouped
-   - rerun validator and dry-run before merge
-
-## Handoff
-
-After approval of this plan, hand off to Supervisor agent to execute the changes in one PR with ordered commits and validation evidence.
+**Rollback**: `git revert <sha>` — fully isolated, zero downstream impact.
