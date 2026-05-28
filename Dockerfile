@@ -242,6 +242,7 @@ ARG XCADDY_VERSION=0.4.6
 ARG EXPR_LANG_VERSION
 ARG XNET_VERSION
 ARG XCRYPTO_VERSION
+ARG CROWDSEC_VERSION
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache bash git
@@ -321,6 +322,12 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Affects /usr/bin/caddy (transitive dependency). Fix available at v0.1.1.
         # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
         go get github.com/Azure/go-ntlmssp@v0.1.1; \
+        # CVE-2026-44982 (GHSA-rw47-hm26-6wr7): CrowdSec AppSec silently drops HTTP request
+        # body for chunked/HTTP-2 requests, bypassing WAF body inspection rules.
+        # caddy-crowdsec-bouncer@v0.10.0 embeds github.com/crowdsecurity/crowdsec v1.6.3
+        # (vulnerable). Pin to CROWDSEC_VERSION so /usr/bin/caddy stays in sync with the
+        # dedicated crowdsec/cscli binaries. Remove once the bouncer ships with crowdsec >= v1.7.8.
+        go get github.com/crowdsecurity/crowdsec@v${CROWDSEC_VERSION}; \
         if [ "${CADDY_PATCH_SCENARIO}" = "A" ]; then \
             # Rollback scenario: keep explicit nebula pin if upstream compatibility regresses.
             # NOTE: smallstep/certificates (pulled by caddy-security stack) currently
