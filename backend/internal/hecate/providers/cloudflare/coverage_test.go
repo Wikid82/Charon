@@ -2,11 +2,13 @@ package cloudflare
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -206,4 +208,97 @@ func TestListTunnels_RequestBuildError(t *testing.T) {
 
 	_, err := c.ListTunnels(context.Background())
 	require.Error(t, err)
+}
+
+// TestStart_StdoutPipeError covers the true branch of the stdout pipe error guard (lines 132–133)
+// by injecting osPipe to fail on the first call.
+func TestStart_StdoutPipeError(t *testing.T) {
+	dir := t.TempDir()
+	fakeBin := filepath.Join(dir, "cloudflared")
+	require.NoError(t, os.WriteFile(fakeBin, []byte("not elf"), 0o755)) //nolint:gosec
+
+	p := &CloudflareTunnelProvider{
+		binaryPath: fakeBin,
+		creds:      cfCredentials{TunnelToken: "tok"},
+		buf:        hecate.NewRingBuffer(1000),
+	}
+
+	orig := osPipe
+	t.Cleanup(func() { osPipe = orig })
+	osPipe = func() (*os.File, *os.File, error) {
+		return nil, nil, errors.New("simulated stdout pipe failure")
+	}
+
+	err := p.Start(context.Background())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "stdout pipe")
+	assert.Equal(t, hecate.TunnelStateConnecting, p.Status())
+}
+
+// TestStart_StderrPipeError covers the true branch of the stderr pipe error guard (lines 136–139)
+// by injecting osPipe to succeed on the first call and fail on the second.
+func TestStart_StderrPipeError(t *testing.T) {
+	dir := t.TempDir()
+	fakeBin := filepath.Join(dir, "cloudflared")
+	require.NoError(t, os.WriteFile(fakeBin, []byte("not elf"), 0o755)) //nolint:gosec
+
+	p := &CloudflareTunnelProvider{
+		binaryPath: fakeBin,
+		creds:      cfCredentials{TunnelToken: "tok"},
+		buf:        hecate.NewRingBuffer(1000),
+	}
+
+	calls := 0
+	origPipe := osPipe
+	t.Cleanup(func() { osPipe = origPipe })
+	osPipe = func() (*os.File, *os.File, error) {
+		calls++
+		if calls == 1 {
+			return origPipe()
+		}
+		return nil, nil, errors.New("simulated stderr pipe failure")
+	}
+
+	err := p.Start(context.Background())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "stderr pipe")
+	assert.Equal(t, hecate.TunnelStateConnecting, p.Status())
+}
+
+// TestStart_WriteEndCloseErrors covers the error-log branches for closeWriteFile (lines 161, 163, 166, 168)
+// by injecting closeWriteFile to physically close the file (unblocking scanners) but also return an error.
+func TestStart_WriteEndCloseErrors(t *testing.T) {
+	trueBin, err := exec.LookPath("true")
+	if err != nil {
+		t.Skip("true binary not available")
+	}
+
+	p := &CloudflareTunnelProvider{
+		binaryPath: trueBin,
+		creds:      cfCredentials{TunnelToken: "tok"},
+		buf:        hecate.NewRingBuffer(1000),
+	}
+
+	origClose := closeWriteFile
+	t.Cleanup(func() { closeWriteFile = origClose })
+	closeWriteFile = func(f *os.File) error {
+		_ = f.Close()
+		return errors.New("simulated write-end close error")
+	}
+
+	startErr := p.Start(context.Background())
+
+	require.NoError(t, startErr, "close errors are logged, not returned from Start()")
+
+	p.mu.RLock()
+	done := p.done
+	p.mu.RUnlock()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for cloudflared goroutines to exit")
+	}
 }
