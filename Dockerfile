@@ -464,7 +464,6 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
     go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.74.1 && \
     go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7 && \
-    # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/s3
     go get github.com/aws/aws-sdk-go-v2/service/s3@v1.102.1 && \
     # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
     # Affects /usr/local/bin/cscli (transitive dependency). Fix available at v0.1.1.
