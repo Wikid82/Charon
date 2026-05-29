@@ -1,379 +1,432 @@
+# Fix Patch Coverage Gaps in `cloudflare/provider.go`
+
 ## Introduction
 
 ### Overview
 
-This specification defines how to split Renovate non-major dependency updates into separate PR groupings by dependency type instead of the current single mixed group.
-
-Target groupings:
-
-1. GitHub Actions dependencies
-2. Go dependencies
-3. NPM dependencies
+The recent refactor replacing `cmd.StdoutPipe()` / `cmd.StderrPipe()` with `os.Pipe()` pairs
+in `Start()` introduced three new error paths and two error-logging branches that have zero
+test coverage. Codecov reports **54.54% patch coverage** (8 missing lines, 2 partials) on
+the changed lines in `backend/internal/hecate/providers/cloudflare/provider.go`.
 
 ### Objectives
 
-1. Remove the current cross-ecosystem grouping behavior.
-2. Keep safety constraints for majors and pinned version boundaries.
-3. Ensure migration can be validated with deterministic Renovate config checks and dry runs.
-4. Complete in one PR with ordered logical commits and minimal back-and-forth user requests.
+- Increase patch coverage on `provider.go` from 54.54% to ≥ 90%.
+- Use the project's established **function-variable test-hook** pattern (identical to
+  `caddy/manager.go`) — no build tags or process-injection tricks required.
+- Add exactly **2 package-level `var` declarations** to `provider.go` and **3 new test
+  functions** to `coverage_test.go`. No other files are modified.
 
-## Research Findings
+---
 
-### Files Reviewed
+## 2. Research Findings
 
-1. [.github/renovate.json](.github/renovate.json)
-2. [docs/plans/current_spec.md](docs/plans/current_spec.md)
-3. [.gitignore](.gitignore)
-4. [codecov.yml](codecov.yml)
-5. [.dockerignore](.dockerignore)
-6. [Dockerfile](Dockerfile)
-7. [ARCHITECTURE.md](ARCHITECTURE.md)
-8. [.github/instructions/copilot-instructions.md](.github/instructions/copilot-instructions.md)
-9. [.github/instructions/spec-driven-workflow-v1.instructions.md](.github/instructions/spec-driven-workflow-v1.instructions.md)
+### Existing Pattern — Function-Variable Injection
 
-### Current Renovate Behavior
+`backend/internal/caddy/manager.go` (lines 25–38) establishes the canonical pattern:
 
-Current configuration contains a package rule that groups all non-major updates into one PR:
-
-- File: [.github/renovate.json](.github/renovate.json)
-- Location: packageRules first entry (description contains "THE MEGAZORD")
-- Keys currently driving broad grouping:
-  - groupName: non-major-updates
-  - matchUpdateTypes: minor, patch, pin, digest
-  - matchPackageNames: ["*"]
-
-This rule is the root cause of mixed PRs across ecosystems.
-
-### Existing Safety Rules That Must Be Preserved
-
-The following constraints already exist and must remain in place:
-
-1. Major update manual review rule:
-   - matchUpdateTypes: ["major"]
-   - labels: ["manual-review"]
-   - automerge: false
-2. Go module major-path/version constraints:
-   - github.com/jackc/pgx/v4 < 5.0.0
-   - jackc/pgx via github-tags in >= 4.0.0 < 5.0.0
-   - go-jose v3/v4 boundaries
-3. Dockerfile and custom regex managers for security-patched pins.
-
-### Dependency Source Mapping Needed for Correct Grouping
-
-1. GitHub Actions dependencies:
-   - Manager: github-actions
-   - Additional workflow values managed by custom.regex should not be auto-classified as actions unless datasource indicates action versions.
-2. Go dependencies:
-   - Datasources primarily: go, golang-version
-   - One known go-related github-tags case exists for jackc/pgx fallback rule.
-3. NPM dependencies:
-   - Datasource: npm
-   - Includes npm packages matched by datasource npm only.
-
-## Requirements (EARS)
-
-1. WHEN Renovate processes non-major updates, THE SYSTEM SHALL create separate groups for GitHub Actions, Go, and NPM dependencies.
-2. WHEN a dependency update is major, THE SYSTEM SHALL keep it outside non-major grouped flow and require manual review labeling.
-3. WHEN existing package-specific safety constraints are evaluated, THE SYSTEM SHALL preserve allowedVersions and sourceUrl mapping behavior unchanged.
-4. IF a dependency does not match GitHub Actions, Go, or NPM grouping rules, THEN THE SYSTEM SHALL leave it ungrouped (or governed by existing specific rules) rather than forcing inclusion into another ecosystem group.
-5. WHEN configuration changes are introduced, THE SYSTEM SHALL pass Renovate config validation and dry-run inspection before merge.
-
-### Confidence Score
-
-92%
-
-Rationale: the required behavior is isolated to [.github/renovate.json](.github/renovate.json), current grouping cause is explicit, and migration risk is primarily rule precedence, which is manageable with dry-run validation.
-
-## Technical Specifications
-
-### Primary File to Edit
-
-1. [.github/renovate.json](.github/renovate.json)
-
-### Exact JSON Keys to Edit
-
-Within root key packageRules in [.github/renovate.json](.github/renovate.json):
-
-1. Replace the current broad grouping object (MEGAZORD) with three ecosystem-specific non-major group rules.
-2. Keep existing development-branch non-major automerge behavior rule, but ensure it applies cleanly with new grouped rules.
-3. Keep all existing package-specific safety and lookup rules unchanged unless explicitly required for precedence fixes.
-
-### Proposed Rule Set Changes
-
-#### Rule A: GitHub Actions non-major grouping
-
-- matchManagers: ["github-actions"]
-- matchUpdateTypes: ["minor", "patch", "pin", "digest"]
-- groupName: "github-actions-non-major"
-- groupSlug: "github-actions-non-major"
-
-#### Rule B: Go non-major grouping
-
-- matchDatasources: ["go", "golang-version"]
-- matchUpdateTypes: ["minor", "patch", "pin", "digest"]
-- groupName: "go-non-major"
-- groupSlug: "go-non-major"
-
-#### Rule C: Go github-tags fallback grouping (targeted)
-
-- matchDatasources: ["github-tags"]
-- matchManagers: ["custom.regex"]
-- matchFileNames: ["Dockerfile"]
-- matchPackageNames: ["jackc/pgx"]
-- matchUpdateTypes: ["minor", "patch", "pin", "digest"]
-- groupName: "go-non-major"
-- groupSlug: "go-non-major"
-
-#### Rule D: NPM non-major grouping
-
-- matchDatasources: ["npm"]
-- matchUpdateTypes: ["minor", "patch", "pin", "digest"]
-- groupName: "npm-non-major"
-- groupSlug: "npm-non-major"
-
-### Rule Precedence and Ordering
-
-Order in packageRules matters for predictable merge behavior. Place grouping rules before broad branch behavior toggles and before highly specific package constraints, with this order:
-
-1. Ecosystem grouping rules (Actions, Go, Go github-tags fallback, NPM)
-2. Development branch non-major behavior rule
-3. Existing custom labels and package-specific allowedVersions/sourceUrl rules
-4. Major manual-review rule
-
-### Data Flow (Renovate matching intent)
-
-```mermaid
-flowchart TD
-  A[Dependency update candidate] --> B{Update type major?}
-  B -- Yes --> C[Major rule: manual review label]
-  B -- No --> D{Manager is github-actions?}
-  D -- Yes --> E[Group: github-actions-non-major]
-  D -- No --> F{Datasource go or golang-version?}
-  F -- Yes --> G[Group: go-non-major]
-  F -- No --> H{Datasource npm?}
-  H -- Yes --> I[Group: npm-non-major]
-  H -- No --> J[Remain ungrouped or existing specific rule]
+```go
+// Test hooks to allow overriding OS and JSON functions
+var (
+    writeFileFunc        = os.WriteFile
+    readFileFunc         = os.ReadFile
+    removeFileFunc       = os.Remove
+    readDirFunc          = os.ReadDir
+    statFunc             = os.Stat
+    jsonMarshalFunc      = json.MarshalIndent
+    jsonMarshalDebugFunc = json.Marshal
+    generateConfigFunc   = GenerateConfig
+    validateConfigFunc   = Validate
+)
 ```
 
-## Migration and Safety Considerations
+`backend/internal/caddy/client.go` (line 19) mirrors it:
 
-### Migration Risks
-
-1. Incorrect matcher breadth could absorb unrelated dependencies.
-2. Rule ordering could override or dilute existing allowedVersions constraints.
-3. Incomplete handling of custom.regex managed values could cause unexpected PR distribution.
-
-### Mitigations
-
-1. Use datasource and manager matchers, not wildcard package names.
-2. Add explicit targeted fallback for jackc/pgx github-tags only.
-3. Keep existing package-specific safety rules intact and later in rule order.
-4. Validate using printed final config and dry-run PR prediction before merge.
-
-### Backward Compatibility
-
-1. No schema change needed.
-2. No runtime application behavior change.
-3. Existing Renovate dashboard behavior remains, but grouped PR topology changes from one mixed PR to three ecosystem-focused PR streams.
-
-## Ancillary File Review (Only If Necessary)
-
-Reviewed for this change request:
-
-1. [.gitignore](.gitignore)
-2. [codecov.yml](codecov.yml)
-3. [.dockerignore](.dockerignore)
-4. [Dockerfile](Dockerfile)
-
-Decision: no updates required.
-
-Reasoning:
-
-1. Grouping behavior is fully controlled in [.github/renovate.json](.github/renovate.json).
-2. No new artifacts, coverage behavior, or Docker build context changes are introduced by this planning scope.
-3. [Dockerfile](Dockerfile) contains renovate annotations already and does not require structural adjustment for grouping itself.
-
-## Implementation Plan
-
-### Phase 1: Configuration Refactor (Single-file change)
-
-Objective: replace mixed grouping with ecosystem-specific grouping.
-
-Tasks:
-
-1. Edit packageRules in [.github/renovate.json](.github/renovate.json).
-2. Remove the broad wildcard non-major grouping rule.
-3. Insert Actions, Go, Go github-tags fallback, and NPM grouping rules.
-4. Preserve existing safety rules unchanged unless ordering needs explicit adjustment.
-
-Expected output:
-
-1. One updated config with deterministic grouping strategy.
-
-### Phase 2: Validation and Safety Gates
-
-Objective: confirm behavior and avoid unintended rule interactions.
-
-Tasks:
-
-1. Run Renovate config validation.
-2. Run Renovate dry-run with printed config and explicit config path.
-3. Verify expected grouping outcomes in logs:
-   - GitHub Actions updates grouped only in github-actions-non-major
-   - Go datasource updates grouped only in go-non-major
-   - NPM datasource updates grouped only in npm-non-major
-   - major updates remain manual-review and not grouped with non-major
-4. Verify existing allowedVersions/sourceUrl package rules still apply.
-5. Persist validation and dry-run evidence artifacts for deterministic review.
-
-Expected output:
-
-1. Validation log proving no schema or precedence errors.
-2. Dry-run evidence of the new grouping topology.
-3. Artifacts saved at test-results/renovate/validate.log and test-results/renovate/dry-run.log.
-
-### Phase 3: Documentation and Handoff
-
-Objective: finalize planning-to-implementation handoff with minimal user interaction.
-
-Tasks:
-
-1. Keep this spec as source of truth for implementation.
-2. Delegate implementation to Supervisor after user approval in a single handoff request.
-
-Expected output:
-
-1. One implementation-ready PR execution path.
-
-## Validation Steps
-
-### Required
-
-1. Renovate schema validation:
-
-```bash
-mkdir -p test-results/renovate
-npx renovate-config-validator /projects/Charon/.github/renovate.json \
-   > test-results/renovate/validate.log 2>&1
+```go
+// Test hook for json marshalling to allow simulating failures in tests
+var jsonMarshalClient = json.Marshal
 ```
 
-2. Local dry-run with full logs:
+This is the agreed-upon mechanism for unit-test injection throughout the backend.
+No equivalent hooks exist yet in the `cloudflare` package — confirmed by grep
+against `backend/**` for `osPipe|var.*Pipe.*=.*os\.Pipe`.
 
-```bash
-npx renovate \
-   --platform=local \
-   --dry-run=full \
-   --print-config \
-   --base-dir=/projects/Charon \
-   --config-file=/projects/Charon/.github/renovate.json \
-   > test-results/renovate/dry-run.log 2>&1
+### Existing Tests That Already Cover Nearby Lines
+
+| Test | File | Lines Covered |
+|---|---|---|
+| `TestStart_ExecFormatError` | `coverage_test.go` | Lines 145–155 (`cmd.Start()` error block + 4 close calls) |
+| `TestStart_WithStubBinary` | `provider_test.go` | Lines 131, 135, 160, 165 (happy path — only false branches of the two pipe-check `if`s) |
+| `TestStart_CapturesStdoutOutput` | `coverage_test.go` | Same happy-path range |
+
+`TestStart_ExecFormatError` creates a non-ELF file with mode `0755` so that
+`exec.LookPath` succeeds while `cmd.Start()` fails with "exec format error". **The
+`cmd.Start()` error block (lines 145–155) is already covered; those lines are NOT
+part of the 8 missing.**
+
+### Uncovered Lines (Exact)
+
+All uncovered/partial lines are within `Start()`, introduced by the `os.Pipe()` refactor.
+Line numbers verified from `provider.go` as of the current commit:
+
+| Line | Code | Codecov Status |
+|---|---|---|
+| 132 | `if err != nil {` (stdout pipe guard) | PARTIAL — only false branch taken |
+| 133 | `return fmt.Errorf("cloudflare: stdout pipe: %w", err)` | MISSING |
+| 136 | `if err != nil {` (stderr pipe guard) | PARTIAL — only false branch taken |
+| 137 | `_ = stdoutR.Close()` (cleanup before stderr-pipe error return) | MISSING |
+| 138 | `_ = stdoutW.Close()` (cleanup before stderr-pipe error return) | MISSING |
+| 139 | `return fmt.Errorf("cloudflare: stderr pipe: %w", err)` | MISSING |
+| 161 | `logger.Log().WithFields(logrus.Fields{` (stdoutW close-error log) | MISSING |
+| 163 | `}).Error("cloudflare: failed to close stdout write end")` | MISSING |
+| 166 | `logger.Log().WithFields(logrus.Fields{` (stderrW close-error log) | MISSING |
+| 168 | `}).Error("cloudflare: failed to close stderr write end")` | MISSING |
+
+> **State-management observation (out of scope):** When `os.Pipe()` fails at line
+> 131 or 135, the code has already set `p.state = TunnelStateConnecting` and
+> `p.done = make(chan struct{})` (lines 124–125) but returns without resetting
+> them. The new tests assert the *actual* behavior (state remains
+> `TunnelStateConnecting`). Correcting that state leak is outside the scope of
+> this patch.
+
+---
+
+## 3. Technical Specifications
+
+### 3.1 Source Changes — `provider.go`
+
+Two `var` declarations are added as a commented block immediately after the import
+statement and before the first type declaration, matching the placement in
+`caddy/manager.go`.
+
+#### Hook 1 — `osPipe`
+
+```go
+// Test hooks to allow overriding OS functions in unit tests.
+var (
+    // osPipe wraps os.Pipe to allow simulating pipe-creation failures.
+    osPipe = os.Pipe
+    // closeWriteFile wraps (*os.File).Close for the pipe write-ends closed
+    // after cmd.Start() succeeds. Allows simulating close errors in tests.
+    closeWriteFile = func(f *os.File) error { return f.Close() }
+)
 ```
 
-### Validation Checklist
+#### Call-site replacements
 
-1. Config validator returns success.
-2. test-results/renovate/validate.log exists and records successful validation.
-3. test-results/renovate/dry-run.log exists and includes print-config output with expected rules.
-4. No duplicate or conflicting groupName/groupSlug assignments for the same dependency.
-5. Non-major updates appear in three ecosystem buckets.
-6. No forced cross-ecosystem grouping remains.
-7. Major updates are still manually reviewed.
+Only four lines in `Start()` change. All other close calls remain direct.
 
-## Acceptance Criteria
+| Original call | Replacement | Location |
+|---|---|---|
+| `stdoutR, stdoutW, err := os.Pipe()` | `stdoutR, stdoutW, err := osPipe()` | line 131 |
+| `stderrR, stderrW, err := os.Pipe()` | `stderrR, stderrW, err := osPipe()` | line 135 |
+| `if err := stdoutW.Close(); err != nil {` | `if err := closeWriteFile(stdoutW); err != nil {` | line 160 |
+| `if err := stderrW.Close(); err != nil {` | `if err := closeWriteFile(stderrW); err != nil {` | line 165 |
 
-1. packageRules no longer contains wildcard non-major grouping that mixes all ecosystems.
-2. GitHub Actions non-major updates are grouped separately.
-3. Go non-major updates are grouped separately.
-4. NPM non-major updates are grouped separately.
-5. Existing safety constraints (major handling and allowedVersions) remain intact.
-6. Validator and dry-run indicate no regressions in rule matching.
+The four `_ = *.Close()` calls inside the `cmd.Start()` error block (lines
+146–149) are **not modified** — they are already covered by `TestStart_ExecFormatError`
+and perform cleanup-on-failure semantics that do not need a test hook.
 
-## Commit Slicing Strategy
+### 3.2 Injection Signature Contract
+
+```
+osPipe         func() (*os.File, *os.File, error)  // identical to os.Pipe
+closeWriteFile func(*os.File) error                 // wraps file.Close()
+```
+
+Tests save and restore via `t.Cleanup` (not `defer`), which is the project-standard
+approach for test hook teardown:
+
+```go
+orig := osPipe
+t.Cleanup(func() { osPipe = orig })
+osPipe = func() (*os.File, *os.File, error) { ... }
+```
+
+None of the three new tests call `t.Parallel()` — consistent with all existing tests
+in `coverage_test.go`.
+
+### 3.3 New Test Specifications — `coverage_test.go`
+
+All three tests live in `package cloudflare` (same package as source), consistent with
+the existing test files.
+
+#### Shared setup — fake binary
+
+Tests 1 and 2 need `exec.LookPath` to succeed (so execution reaches `osPipe()`) but
+`osPipe()` to fail before `cmd.Start()` is ever called. The cleanest approach reuses
+the fake-binary pattern from `TestStart_ExecFormatError`:
+
+```go
+dir := t.TempDir()
+fakeBin := filepath.Join(dir, "cloudflared")
+require.NoError(t, os.WriteFile(fakeBin, []byte("not elf"), 0755))
+```
+
+Setting `p.binaryPath = fakeBin` makes `exec.LookPath(fakeBin)` succeed (absolute
+path, file exists, mode `0755`). The binary is never launched because `osPipe()`
+returns an error before `cmd.Start()`.
+
+---
+
+#### Test 1 — `TestStart_StdoutPipeError`
+
+**Target lines:** 132 (true branch), 133
+
+```go
+func TestStart_StdoutPipeError(t *testing.T) {
+    dir := t.TempDir()
+    fakeBin := filepath.Join(dir, "cloudflared")
+    require.NoError(t, os.WriteFile(fakeBin, []byte("not elf"), 0755))
+
+    p := &CloudflareTunnelProvider{
+        binaryPath: fakeBin,
+        creds:      cfCredentials{TunnelToken: "tok"},
+        buf:        hecate.NewRingBuffer(1000),
+    }
+
+    orig := osPipe
+    t.Cleanup(func() { osPipe = orig })
+    osPipe = func() (*os.File, *os.File, error) {
+        return nil, nil, errors.New("simulated stdout pipe failure")
+    }
+
+    err := p.Start(context.Background())
+
+    require.Error(t, err)
+    assert.Contains(t, err.Error(), "stdout pipe")
+    assert.Equal(t, hecate.TunnelStateConnecting, p.Status())
+}
+```
+
+**Why `TunnelStateConnecting`:** `p.state` is set to `TunnelStateConnecting` at line 124
+before `osPipe()` is called. The error return at line 133 exits without resetting state.
+
+---
+
+#### Test 2 — `TestStart_StderrPipeError`
+
+**Target lines:** 136 (true branch), 137, 138, 139
+
+```go
+func TestStart_StderrPipeError(t *testing.T) {
+    dir := t.TempDir()
+    fakeBin := filepath.Join(dir, "cloudflared")
+    require.NoError(t, os.WriteFile(fakeBin, []byte("not elf"), 0755))
+
+    p := &CloudflareTunnelProvider{
+        binaryPath: fakeBin,
+        creds:      cfCredentials{TunnelToken: "tok"},
+        buf:        hecate.NewRingBuffer(1000),
+    }
+
+    calls := 0
+    origPipe := osPipe
+    t.Cleanup(func() { osPipe = origPipe })
+    osPipe = func() (*os.File, *os.File, error) {
+        calls++
+        if calls == 1 {
+            return origPipe() // first call (stdout) succeeds — returns real *os.File pair
+        }
+        return nil, nil, errors.New("simulated stderr pipe failure")
+    }
+
+    err := p.Start(context.Background())
+
+    require.Error(t, err)
+    assert.Contains(t, err.Error(), "stderr pipe")
+    assert.Equal(t, hecate.TunnelStateConnecting, p.Status())
+}
+```
+
+**Why `origPipe()` on the first call:** The stderr-pipe error block (lines 137–138)
+calls `_ = stdoutR.Close()` and `_ = stdoutW.Close()`. Those variables must be real
+`*os.File` values or the close calls panic on nil. Delegating the first invocation to
+the real `origPipe()` returns a valid pair.
+
+---
+
+#### Test 3 — `TestStart_WriteEndCloseErrors`
+
+**Target lines:** 161, 163 (stdoutW close-error log), 166, 168 (stderrW close-error log)
+
+```go
+func TestStart_WriteEndCloseErrors(t *testing.T) {
+    trueBin, err := exec.LookPath("true")
+    require.NoError(t, err, "/bin/true must be available on test host")
+
+    p := &CloudflareTunnelProvider{
+        binaryPath: trueBin,
+        creds:      cfCredentials{TunnelToken: "tok"},
+        buf:        hecate.NewRingBuffer(1000),
+    }
+
+    origClose := closeWriteFile
+    t.Cleanup(func() { closeWriteFile = origClose })
+    closeWriteFile = func(f *os.File) error {
+        _ = f.Close() // physically close to unblock scanner goroutines (see note)
+        return errors.New("simulated write-end close error")
+    }
+
+    startErr := p.Start(context.Background())
+
+    require.NoError(t, startErr, "close errors are logged, not returned from Start()")
+
+    // Wait for the process to exit and the done channel to close.
+    select {
+    case <-p.done:
+    case <-time.After(5 * time.Second):
+        t.Fatal("timed out waiting for cloudflared goroutines to exit")
+    }
+}
+```
+
+**Why the hook must physically close the file:** The scanner goroutines
+(`bufio.Scanner` reading `stdoutR` / `stderrR`) block until the write ends are closed
+and the child exits. `/bin/true` exits immediately, closing the child's inherited
+write-end copies. The parent's write-end copies (`stdoutW`, `stderrW`) must also be
+closed for the scanners to see EOF. If the injected `closeWriteFile` only returns an
+error without calling `f.Close()`, the parent write-end reference remains open
+indefinitely and the goroutines never unblock — causing a test deadlock. Calling
+`f.Close()` inside the hook closes the fd while still returning the forced error that
+triggers the logger branches.
+
+**Both write ends in one test:** `closeWriteFile` is called for `stdoutW` first, then
+`stderrW`. A single injected function that always errors covers both logger branches.
+
+### 3.4 Data-Flow Summary
+
+```
+Start()
+ │
+ ├─ exec.LookPath ──────────────────── already covered
+ ├─ p.state = TunnelStateConnecting
+ ├─ osPipe() ← [hook 1]
+ │   └─ error → return "stdout pipe" ← TEST 1 covers 132(true), 133
+ ├─ osPipe() ← [hook 1, 2nd call]
+ │   └─ error → close stdout r/w → return "stderr pipe" ← TEST 2 covers 136(true), 137-139
+ ├─ cmd.Start()
+ │   └─ error → close all 4 fds → set TunnelStateError ← TestStart_ExecFormatError (existing)
+ ├─ closeWriteFile(stdoutW) ← [hook 2]
+ │   └─ error → logger.Error("failed to close stdout write end") ← TEST 3 covers 161, 163
+ ├─ closeWriteFile(stderrW) ← [hook 2]
+ │   └─ error → logger.Error("failed to close stderr write end") ← TEST 3 covers 166, 168
+ └─ p.state = TunnelStateConnected ── already covered
+```
+
+### 3.5 Edge Cases and Constraints
+
+| Scenario | Handled by |
+|---|---|
+| `exec.LookPath` fails | `TestStart_BinaryNotFound` (existing) |
+| `cmd.Start()` fails (exec format error) | `TestStart_ExecFormatError` (existing) |
+| `osPipe()` fails on first call | `TestStart_StdoutPipeError` (new) |
+| `osPipe()` fails on second call | `TestStart_StderrPipeError` (new) |
+| `closeWriteFile()` returns error | `TestStart_WriteEndCloseErrors` (new) |
+| Close calls in `cmd.Start()` error block (lines 146–149) | `TestStart_ExecFormatError` (existing, unchanged) |
+| Concurrent hook mutation | Not applicable — tests are sequential, no `t.Parallel()` |
+
+---
+
+## 4. Implementation Plan
+
+### Phase 1 — Playwright Tests
+
+Not applicable. This is a Go backend unit-test coverage fix with no UI surface area.
+
+### Phase 2 — Source Changes in `provider.go`
+
+| Task | Change | Estimated Complexity |
+|---|---|---|
+| 2.1 | Add `var ( osPipe = os.Pipe; closeWriteFile = func... )` block after imports | XS |
+| 2.2 | Replace `os.Pipe()` → `osPipe()` at lines 131, 135 | XS |
+| 2.3 | Replace `stdoutW.Close()` → `closeWriteFile(stdoutW)` at line 160 | XS |
+| 2.4 | Replace `stderrW.Close()` → `closeWriteFile(stderrW)` at line 165 | XS |
+
+Total diff: approximately 10 lines added, 2 lines modified.
+
+### Phase 3 — New Tests in `coverage_test.go`
+
+| Task | Test Name | Target Uncovered Lines | Complexity |
+|---|---|---|---|
+| 3.1 | `TestStart_StdoutPipeError` | 132 (true branch), 133 | S |
+| 3.2 | `TestStart_StderrPipeError` | 136 (true branch), 137, 138, 139 | S |
+| 3.3 | `TestStart_WriteEndCloseErrors` | 161, 163, 166, 168 | M (requires `p.done` channel wait) |
+
+Required imports for `coverage_test.go` (confirm these are already present or add):
+
+```go
+"errors"
+"os/exec"
+"time"
+```
+
+### Phase 4 — Integration and Testing
+
+| Task | Command | Pass Condition |
+|---|---|---|
+| 4.1 | `go test -race -count=1 ./backend/internal/hecate/providers/cloudflare/...` | All tests green, no data races |
+| 4.2 | `go test -coverprofile=cover.out ./backend/internal/hecate/providers/cloudflare/... && go tool cover -func=cover.out \| grep Start` | Lines 133, 137–139, 161, 163, 166, 168 show non-zero hit counts |
+| 4.3 | `bash scripts/go-test-coverage.sh` (generates `backend/coverage.txt`) | Package coverage does not drop below project threshold |
+| 4.4 | `bash scripts/local-patch-report.sh` | `test-results/local-patch-report.md` reports ≥ 90% patch coverage for `provider.go` |
+
+### Phase 5 — Documentation and Deployment
+
+No user-facing documentation, API surface, database schema, or migration changes.
+
+---
+
+## 5. Acceptance Criteria
+
+| # | Criterion | Verification |
+|---|---|---|
+| AC-1 | `go test -race -count=1 ./backend/internal/hecate/providers/cloudflare/...` exits 0 | CI / local |
+| AC-2 | `TestStart_StdoutPipeError` passes, error message contains `"stdout pipe"` | Test output |
+| AC-3 | `TestStart_StderrPipeError` passes, error message contains `"stderr pipe"` | Test output |
+| AC-4 | `TestStart_WriteEndCloseErrors` passes within 5 s (no deadlock) | Test output |
+| AC-5 | Codecov patch coverage for `provider.go` ≥ 90% | Codecov PR comment |
+| AC-6 | No existing tests in `provider_test.go` or `coverage_test.go` regress | CI |
+| AC-7 | `var osPipe` and `var closeWriteFile` are in a single commented `var (...)` block before the first type declaration, matching `caddy/manager.go` style | Code review |
+| AC-8 | No `t.Parallel()` in the three new tests | Code review |
+| AC-9 | GORM security scan gate is skipped (no model changes match trigger matrix) | CI / `scripts/scan-gorm-security.sh --report` |
+
+---
+
+## 6. Commit Slicing Strategy
 
 ### Decision
 
-Single PR with ordered logical commits.
+**Single PR · Single Commit.** All changes are confined to two files within one package.
+There is no user-facing API surface, no schema change, and no cross-domain impact.
+A single atomic commit is faster to review and trivially reversible.
 
-Why:
+### Commit 1 of 1
 
-1. Scope is tightly focused to one configuration file.
-2. Splitting into multiple PRs would add overhead without reducing risk.
-3. Ordered commits inside one PR provide safe review checkpoints and clean rollback.
+```
+test(hecate/cloudflare): add os.Pipe and write-close test hooks for Start() coverage
 
-### Trigger Reasons
+Introduce two package-level function-variable test hooks in provider.go
+(var osPipe and var closeWriteFile) following the project-standard pattern
+established in caddy/manager.go. Replace the two os.Pipe() call sites and the
+two post-cmd.Start() write-end close calls with the hook variables.
 
-1. Scope: dependency automation policy refinement only.
-2. Risk: medium, due to matcher precedence.
-3. Cross-domain impact: low at runtime, medium in CI automation behavior.
-4. Review size: small and suitable for one PR.
+Add three targeted test functions in coverage_test.go to exercise the
+previously unreachable error branches introduced by the os.Pipe() refactor:
+- TestStart_StdoutPipeError: stdout pipe creation failure
+- TestStart_StderrPipeError: stderr pipe creation failure with stdout cleanup
+- TestStart_WriteEndCloseErrors: write-end close error log branches
 
-### Commit 1
+Resolves Codecov patch coverage regression on provider.go: 54.54% → ≥90%.
+```
 
-Scope:
+| Field | Value |
+|---|---|
+| Scope | `backend/internal/hecate/providers/cloudflare/` |
+| Files | `provider.go` (2 new vars + 4 call-site edits), `coverage_test.go` (3 new test functions) |
+| Dependencies | None |
+| Validation gate | `go test -race -count=1 ./backend/internal/hecate/providers/cloudflare/...` exits 0 |
 
-1. Remove wildcard mixed non-major group rule.
-2. Add explicit ecosystem-specific grouping rules for GitHub Actions, Go, and NPM.
-3. Add targeted go github-tags fallback grouping for jackc/pgx.
+### Rollback
 
-Files:
-
-1. [.github/renovate.json](.github/renovate.json)
-
-Dependencies:
-
-1. None.
-
-Validation gate:
-
-1. JSON syntax valid.
-2. Renovate config validator passes.
-
-### Commit 2
-
-Scope:
-
-1. Rule-order stabilization if needed after dry-run evidence.
-2. No functional broadening beyond requested ecosystems.
-
-Files:
-
-1. [.github/renovate.json](.github/renovate.json)
-
-Dependencies:
-
-1. Commit 1 completed.
-
-Validation gate:
-
-1. Dry-run confirms exactly three non-major grouped tracks by dependency type.
-2. Major and safety constraints unaffected.
-
-### Commit 3
-
-Scope:
-
-1. Optional documentation note in PR body only (no repo file change required) summarizing grouping migration.
-
-Files:
-
-1. No repository file changes required.
-
-Dependencies:
-
-1. Commit 2 dry-run output collected.
-
-Validation gate:
-
-1. Reviewer can map expected PR behavior to new rules quickly.
-
-### Rollback and Contingency (PR-level)
-
-1. Immediate rollback path: revert PR to restore previous grouping behavior.
-2. Contingency if dry-run reveals misclassification:
-   - tighten matcher fields by datasource/manager
-   - keep unclassified dependencies ungrouped
-   - rerun validator and dry-run before merge
-
-## Handoff
-
-After approval of this plan, hand off to Supervisor agent to execute the changes in one PR with ordered commits and validation evidence.
+`git revert <sha>` is sufficient. No migration, no deployed artifact, no downstream
+package references to the new `var` symbols (they are unexported and package-internal).
