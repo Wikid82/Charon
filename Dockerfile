@@ -258,6 +258,18 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     bash -c 'set -e; \
+        # Restore any module cache files patched by a previous build run.
+        # xcaddy Stage 1 resolves crowdsec to its native version (v1.6.x, IPEquals *string).
+        # If a prior build left IPEquals: value, (plain string) in the cache, xcaddy fails.
+        _GOMC="$(go env GOMODCACHE)"; \
+        for _PF in \
+            "${_GOMC}/github.com/hslatman/caddy-crowdsec-bouncer@v0.12.1/internal/bouncer/live.go" \
+            "${_GOMC}/github.com/crowdsecurity/go-cs-bouncer@v0.0.14/live_bouncer.go"; do \
+            if [ -f "${_PF}" ]; then \
+                chmod +w "${_PF}"; \
+                sed -i "s/IPEquals: value,/IPEquals: \&value,/g" "${_PF}"; \
+            fi; \
+        done; \
         CADDY_TARGET_VERSION="${CADDY_VERSION}"; \
         if [ "${CADDY_USE_CANDIDATE}" = "1" ]; then \
             CADDY_TARGET_VERSION="${CADDY_CANDIDATE_VERSION}"; \
@@ -271,7 +283,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
             --with github.com/caddyserver/caddy/v2@v${CADDY_TARGET_VERSION} \
             --with github.com/greenpau/caddy-security@v${CADDY_SECURITY_VERSION} \
             --with github.com/corazawaf/coraza-caddy/v2@v${CORAZA_CADDY_VERSION} \
-            --with github.com/hslatman/caddy-crowdsec-bouncer@v0.10.0 \
+            --with github.com/hslatman/caddy-crowdsec-bouncer@v0.12.1 \
             --with github.com/zhangjiayin/caddy-geoip2 \
             --with github.com/mholt/caddy-ratelimit \
             --output /tmp/caddy-initial; \
@@ -324,14 +336,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         go get github.com/Azure/go-ntlmssp@v0.1.1; \
         # CVE-2026-44982 (GHSA-rw47-hm26-6wr7): CrowdSec AppSec silently drops HTTP request
         # body for chunked/HTTP-2 requests, bypassing WAF body inspection rules.
-        # caddy-crowdsec-bouncer@v0.10.0 depends on go-cs-bouncer@v0.0.14 which embeds
-        # crowdsec v1.6.3 (vulnerable). go-cs-bouncer@v0.0.21 is the first release built
-        # against crowdsec v1.7.x APIs (v1.7.6); v1.7.8 is semver-compatible.
-        # Upgrade go-cs-bouncer first so its internal crowdsec API calls compile correctly,
-        # then force crowdsec to CROWDSEC_VERSION so /usr/bin/caddy matches the sidecar.
-        # Remove both once caddy-crowdsec-bouncer ships a release using go-cs-bouncer >= v0.0.21.
-        # renovate: datasource=go depName=github.com/crowdsecurity/go-cs-bouncer
-        go get github.com/crowdsecurity/go-cs-bouncer@v0.0.21; \
+        # caddy-crowdsec-bouncer@v0.12.1 was built against crowdsec v1.6.3 whose
+        # DecisionsListOpts fields were *string; v1.7.8 changed them to plain string.
+        # The source-level incompatibility is patched below via local copy + go.mod replace.
+        # Remove once bouncer ships against crowdsec >= v1.7.8.
         go get github.com/crowdsecurity/crowdsec@v${CROWDSEC_VERSION}; \
         if [ "${CADDY_PATCH_SCENARIO}" = "A" ]; then \
             # Rollback scenario: keep explicit nebula pin if upstream compatibility regresses.
@@ -352,6 +360,36 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         go get github.com/caddyserver/caddy/v2@v${CADDY_TARGET_VERSION}; \
         # Clean up go.mod and ensure all dependencies are resolved
         go mod tidy; \
+        # Patch DecisionsListOpts API: crowdsec v1.7.8 changed fields (IPEquals, ScopeEquals,
+        # etc.) from *string to plain string. caddy-crowdsec-bouncer@v0.12.1 and its transitive
+        # dep go-cs-bouncer@v0.0.14 still use the old pointer form.
+        # Strategy: copy modules to ephemeral /tmp dirs and use go.mod replace directives.
+        # This avoids modifying the shared BuildKit module cache, which would corrupt xcaddy
+        # Stage 1 of subsequent builds (where these modules are compiled with crowdsec v1.6.x).
+        go mod download github.com/hslatman/caddy-crowdsec-bouncer@v0.12.1; \
+        BOUNCER_CACHE="${_GOMC}/github.com/hslatman/caddy-crowdsec-bouncer@v0.12.1"; \
+        BOUNCER_LOCAL="/tmp/bouncer-patched"; \
+        rm -rf "${BOUNCER_LOCAL}"; \
+        cp -r "${BOUNCER_CACHE}/." "${BOUNCER_LOCAL}/"; \
+        chmod -R +w "${BOUNCER_LOCAL}"; \
+        sed -i "s/IPEquals: &value,/IPEquals: value,/g" "${BOUNCER_LOCAL}/internal/bouncer/live.go"; \
+        echo "Patched caddy-crowdsec-bouncer at ${BOUNCER_LOCAL}"; \
+        go mod edit -replace "github.com/hslatman/caddy-crowdsec-bouncer@v0.12.1=${BOUNCER_LOCAL}"; \
+        GO_CS_CACHE="${_GOMC}/github.com/crowdsecurity/go-cs-bouncer@v0.0.14"; \
+        if [ -d "${GO_CS_CACHE}" ]; then \
+            GO_CS_LOCAL="/tmp/go-cs-bouncer-patched"; \
+            rm -rf "${GO_CS_LOCAL}"; \
+            cp -r "${GO_CS_CACHE}/." "${GO_CS_LOCAL}/"; \
+            chmod -R +w "${GO_CS_LOCAL}"; \
+            sed -i "s/IPEquals: &value,/IPEquals: value,/g" "${GO_CS_LOCAL}/live_bouncer.go"; \
+            sed -i "s/ScopeEquals: &value,/ScopeEquals: value,/g" "${GO_CS_LOCAL}/live_bouncer.go"; \
+            sed -i "s/ValueEquals: &value,/ValueEquals: value,/g" "${GO_CS_LOCAL}/live_bouncer.go"; \
+            sed -i "s/TypeEquals: &value,/TypeEquals: value,/g" "${GO_CS_LOCAL}/live_bouncer.go"; \
+            sed -i "s/RangeEquals: &value,/RangeEquals: value,/g" "${GO_CS_LOCAL}/live_bouncer.go"; \
+            sed -i "s/osName, osVersion := version.DetectOS()/osName, osVersion, _ := version.DetectOS()/g" "${GO_CS_LOCAL}/metrics.go"; \
+            echo "Patched go-cs-bouncer at ${GO_CS_LOCAL}"; \
+            go mod edit -replace "github.com/crowdsecurity/go-cs-bouncer@v0.0.14=${GO_CS_LOCAL}"; \
+        fi; \
         # Hard assertion: fail if module graph resolves to a different Caddy core version.
         ACTUAL_CADDY_VERSION="$(go list -m -f "{{.Version}}" github.com/caddyserver/caddy/v2)"; \
         if [ "$ACTUAL_CADDY_VERSION" != "v${CADDY_TARGET_VERSION}" ]; then \
