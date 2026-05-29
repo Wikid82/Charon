@@ -12,7 +12,18 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/hecate"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/sirupsen/logrus"
+)
+
+// Test hooks to allow overriding OS functions in unit tests.
+var (
+	// osPipe wraps os.Pipe to allow simulating pipe-creation failures.
+	osPipe = os.Pipe
+	// closeWriteFile wraps (*os.File).Close for the pipe write-ends closed
+	// after cmd.Start() succeeds. Allows simulating close errors in tests.
+	closeWriteFile = func(f *os.File) error { return f.Close() }
 )
 
 // cfCredentials holds the decrypted JSON credentials for the Cloudflare provider.
@@ -126,21 +137,44 @@ func (p *CloudflareTunnelProvider) Start(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, binaryPath, "tunnel", "run") //nolint:gosec
 	cmd.Env = append(os.Environ(), "TUNNEL_TOKEN="+p.creds.TunnelToken)
 
-	stdoutPipe, err := cmd.StdoutPipe()
+	stdoutR, stdoutW, err := osPipe()
 	if err != nil {
 		return fmt.Errorf("cloudflare: stdout pipe: %w", err)
 	}
-	stderrPipe, err := cmd.StderrPipe()
+	stderrR, stderrW, err := osPipe()
 	if err != nil {
+		_ = stdoutR.Close()
+		_ = stdoutW.Close()
 		return fmt.Errorf("cloudflare: stderr pipe: %w", err)
 	}
 
+	cmd.Stdout = stdoutW
+	cmd.Stderr = stderrW
+
 	if err := cmd.Start(); err != nil {
+		_ = stdoutR.Close()
+		_ = stdoutW.Close()
+		_ = stderrR.Close()
+		_ = stderrW.Close()
 		p.mu.Lock()
 		p.state = hecate.TunnelStateError
 		close(p.done)
 		p.mu.Unlock()
 		return fmt.Errorf("cloudflare: start cloudflared: %w", err)
+	}
+
+	// Close the write ends in the parent process. The child holds its own
+	// copies via exec.Cmd; keeping parent write ends open would prevent the
+	// read ends from reaching EOF when the child exits.
+	if err := closeWriteFile(stdoutW); err != nil {
+		logger.Log().WithFields(logrus.Fields{
+			"error": err,
+		}).Error("cloudflare: failed to close stdout write end")
+	}
+	if err := closeWriteFile(stderrW); err != nil {
+		logger.Log().WithFields(logrus.Fields{
+			"error": err,
+		}).Error("cloudflare: failed to close stderr write end")
 	}
 
 	p.mu.Lock()
@@ -154,7 +188,8 @@ func (p *CloudflareTunnelProvider) Start(ctx context.Context) error {
 	scanWg.Add(1)
 	go func() {
 		defer scanWg.Done()
-		s := bufio.NewScanner(stdoutPipe)
+		defer stdoutR.Close() //nolint:errcheck
+		s := bufio.NewScanner(stdoutR)
 		for s.Scan() {
 			p.buf.Write(s.Text())
 		}
@@ -164,7 +199,8 @@ func (p *CloudflareTunnelProvider) Start(ctx context.Context) error {
 	scanWg.Add(1)
 	go func() {
 		defer scanWg.Done()
-		s := bufio.NewScanner(stderrPipe)
+		defer stderrR.Close() //nolint:errcheck
+		s := bufio.NewScanner(stderrR)
 		for s.Scan() {
 			p.buf.Write(s.Text())
 		}
