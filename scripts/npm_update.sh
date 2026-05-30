@@ -21,6 +21,8 @@ for MODULE in "${MODULES[@]}"; do
     npx npm-check-updates -u
     npm install
     npm dedupe
+    npm run --if-present build
+    npm run --if-present lint
     npm audit --audit-level=high
     npm audit fix
     npm outdated
