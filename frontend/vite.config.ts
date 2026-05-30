@@ -16,13 +16,29 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
-    chunkSizeWarningLimit: 2000,
     rolldownOptions: {
       output: {
-        // Disable code splitting — single bundle for React init stability
-        // codeSplitting: false is the Rolldown-native approach
-        // (inlineDynamicImports is deprecated in Rolldown)
-        codeSplitting: false
+        manualChunks(id) {
+          if (id.includes('node_modules/recharts') || id.includes('node_modules/d3-')) {
+            return 'vendor-charts'
+          }
+          if (id.includes('node_modules/i18next') || id.includes('node_modules/react-i18next')) {
+            return 'vendor-i18n'
+          }
+          if (id.includes('node_modules/@radix-ui') || id.includes('node_modules/lucide-react')) {
+            return 'vendor-ui'
+          }
+          if (id.includes('node_modules/@tanstack')) {
+            return 'vendor-query'
+          }
+          if (
+            id.includes('node_modules/react/') ||
+            id.includes('node_modules/react-dom/') ||
+            id.includes('node_modules/react-router-dom/')
+          ) {
+            return 'vendor-react'
+          }
+        }
       }
     }
   }
