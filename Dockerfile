@@ -709,7 +709,7 @@ EXPOSE 80 443 443/udp 2019 8080
 
 # Security: Add healthcheck to monitor container health
 # Verifies the Charon API is responding correctly
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=4m --retries=3 \
     CMD wget -q -O /dev/null http://localhost:8080/api/v1/health || exit 1
 
 # Create CrowdSec symlink as root before switching to non-root user
