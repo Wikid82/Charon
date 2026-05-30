@@ -1,31 +1,32 @@
 #!/bin/bash
 
-# This script updates npm dependencies for the project.
+# This script updates npm dependencies for all modules in the project.
+
+set -euo pipefail
 
 export PATH="/usr/share/nodejs/corepack/shims:$PATH"
 
-cd /projects/Charon || exit
+MODULES=(
+    "/projects/Charon"
+    "/projects/Charon/frontend"
+)
 
-echo "Updating root npm dependencies..."
+for MODULE in "${MODULES[@]}"; do
+    echo "============================================================================"
+    echo "Updating: $MODULE"
+    echo "============================================================================"
 
-npm update
-npm dedup
-npm audit --audit-level=high
-npm audit fix
-npm outdated
-npm install
+    cd "$MODULE" || exit 1
 
-echo "Root npm dependencies updated successfully."
+    npx npm-check-updates -u
+    npm install
+    npm dedupe
+    npm audit --audit-level=high
+    npm audit fix
+    npm outdated
 
-cd /projects/Charon/frontend || exit
+    echo "Done: $MODULE"
+done
 
-echo "Updating frontend npm dependencies..."
-
-npm update
-npm dedup
-npm audit --audit-level=high
-npm audit fix
-npm outdated
-npm install
-
-echo "Frontend npm dependencies updated successfully."
+echo ""
+echo "All npm dependencies updated successfully."
