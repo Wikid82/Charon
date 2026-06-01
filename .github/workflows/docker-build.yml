@@ -731,20 +731,42 @@ jobs:
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       # Sign GHCR image with keyless signing (Sigstore/Fulcio)
+      # Retry up to 3 times to handle transient Fulcio/Rekor INTERNAL_ERROR (HTTP/2 stream errors)
       - name: Sign GHCR Image
         if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         run: |
           echo "Signing GHCR image with keyless signing..."
-          cosign sign --yes ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
-          echo "✅ GHCR image signed successfully"
+          for attempt in 1 2 3; do
+            if cosign sign --yes ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}; then
+              echo "✅ GHCR image signed successfully"
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "❌ GHCR signing failed after 3 attempts"
+              exit 1
+            fi
+            echo "⚠️  Attempt $attempt failed — retrying in 15s..."
+            sleep 15
+          done
 
       # Sign Docker Hub image with keyless signing (Sigstore/Fulcio)
+      # Retry up to 3 times to handle transient Fulcio/Rekor INTERNAL_ERROR (HTTP/2 stream errors)
       - name: Sign Docker Hub Image
         if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
         run: |
           echo "Signing Docker Hub image with keyless signing..."
-          cosign sign --yes ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
-          echo "✅ Docker Hub image signed successfully"
+          for attempt in 1 2 3; do
+            if cosign sign --yes ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}; then
+              echo "✅ Docker Hub image signed successfully"
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "❌ Docker Hub signing failed after 3 attempts"
+              exit 1
+            fi
+            echo "⚠️  Attempt $attempt failed — retrying in 15s..."
+            sleep 15
+          done
 
       # Attach SBOM to Docker Hub image
       - name: Attach SBOM to Docker Hub
