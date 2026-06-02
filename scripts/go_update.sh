@@ -26,5 +26,8 @@ for MODULE in "${MODULES[@]}"; do
     echo "Done: $MODULE"
 done
 
+cd /projects/Charon || exit 1
+go work sync
+
 echo ""
 echo "All Go module dependencies updated successfully."

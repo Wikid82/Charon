@@ -69,6 +69,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **CVE-2026-44982 / GHSA-rw47-hm26-6wr7**: Resolved high-severity CrowdSec AppSec vulnerability where HTTP request bodies were silently dropped for chunked/HTTP-2 requests, allowing WAF bypass
+  - Upgraded `CROWDSEC_VERSION` to `v1.7.8` in the Dockerfile
+  - Upgraded `caddy-crowdsec-bouncer` to `v0.12.1` to align with the updated crowdsec API
+  - Applied build-time source patches for two breaking API changes in crowdsec v1.7.8 (`DecisionsListOpts` field pointer types, `version.DetectOS()` return arity)
+
 - **CVE-2026-34040**: Remediated high-severity vulnerability by migrating from `github.com/docker/docker` to `github.com/moby/moby/client v0.4.1`
   - Affected component: Docker client SDK used for container management features
   - Resolution: Updated `go.mod` to reference the actively maintained `moby/moby` module

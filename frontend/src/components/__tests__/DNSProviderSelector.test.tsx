@@ -473,7 +473,7 @@ describe('DNSProviderSelector', () => {
       expect(capturedOnValueChange).toBeDefined()
       capturedOnValueChange!('none')
 
-      expect(mockOnChange).toHaveBeenCalledWith(undefined)
+      expect(mockOnChange).toHaveBeenCalledWith()
     })
 
     it('calls onChange with provider ID when a provider is selected', () => {

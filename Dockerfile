@@ -17,7 +17,7 @@ ARG ALPINE_IMAGE=alpine:3.23.4@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc911
 
 # ---- Shared CrowdSec Version ----
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
-ARG CROWDSEC_VERSION=1.7.7
+ARG CROWDSEC_VERSION=1.7.8
 # CrowdSec fallback tarball checksum (v${CROWDSEC_VERSION})
 ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0bfe5e38f863bd
 
@@ -29,7 +29,7 @@ ARG XNET_VERSION=0.55.0
 # renovate: datasource=go depName=golang.org/x/crypto
 ARG XCRYPTO_VERSION=0.52.0
 # renovate: datasource=npm depName=npm
-ARG NPM_VERSION=11.11.1
+ARG NPM_VERSION=11.16.0
 
 # Allow pinning Caddy version - Renovate will update this
 # Build the most recent Caddy 2.x release (keeps major pinned under v3).
@@ -38,15 +38,15 @@ ARG NPM_VERSION=11.11.1
 # this ARG to a specific v2.x tag when desired.
 ## Try to build the requested Caddy v2.x tag (Renovate can update this ARG).
 ## If the requested tag isn't available, fall back to a known-good v2.11.3 build.
-# renovate: datasource=go depName=https://github.com/caddyserver/caddy
+# renovate: datasource=go depName=github.com/caddyserver/caddy/v2
 ARG CADDY_VERSION=2.11.3
-# renovate: datasource=go depName=https://github.com/caddyserver/caddy
+# renovate: datasource=go depName=github.com/caddyserver/caddy/v2
 ARG CADDY_CANDIDATE_VERSION=2.11.3
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
 ARG CADDY_SECURITY_VERSION=1.1.62
-# renovate: datasource=go depName=github.com/corazawaf/coraza-caddy
+# renovate: datasource=go depName=github.com/corazawaf/coraza-caddy/v2
 ARG CORAZA_CADDY_VERSION=2.5.0
 ## When an official caddy image tag isn't available on the host, use a
 ## plain Alpine base image and overwrite its caddy binary with our
@@ -242,6 +242,7 @@ ARG XCADDY_VERSION=0.4.6
 ARG EXPR_LANG_VERSION
 ARG XNET_VERSION
 ARG XCRYPTO_VERSION
+ARG CROWDSEC_VERSION
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache bash git
@@ -257,6 +258,18 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     bash -c 'set -e; \
+        # Restore any module cache files patched by a previous build run.
+        # xcaddy Stage 1 resolves crowdsec to its native version (v1.6.x, IPEquals *string).
+        # If a prior build left IPEquals: value, (plain string) in the cache, xcaddy fails.
+        _GOMC="$(go env GOMODCACHE)"; \
+        for _PF in \
+            "${_GOMC}/github.com/hslatman/caddy-crowdsec-bouncer@v0.12.1/internal/bouncer/live.go" \
+            "${_GOMC}/github.com/crowdsecurity/go-cs-bouncer@v0.0.14/live_bouncer.go"; do \
+            if [ -f "${_PF}" ]; then \
+                chmod +w "${_PF}"; \
+                sed -i "s/IPEquals: value,/IPEquals: \&value,/g" "${_PF}"; \
+            fi; \
+        done; \
         CADDY_TARGET_VERSION="${CADDY_VERSION}"; \
         if [ "${CADDY_USE_CANDIDATE}" = "1" ]; then \
             CADDY_TARGET_VERSION="${CADDY_CANDIDATE_VERSION}"; \
@@ -270,7 +283,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
             --with github.com/caddyserver/caddy/v2@v${CADDY_TARGET_VERSION} \
             --with github.com/greenpau/caddy-security@v${CADDY_SECURITY_VERSION} \
             --with github.com/corazawaf/coraza-caddy/v2@v${CORAZA_CADDY_VERSION} \
-            --with github.com/hslatman/caddy-crowdsec-bouncer@v0.10.0 \
+            --with github.com/hslatman/caddy-crowdsec-bouncer@v0.12.1 \
             --with github.com/zhangjiayin/caddy-geoip2 \
             --with github.com/mholt/caddy-ratelimit \
             --output /tmp/caddy-initial; \
@@ -321,6 +334,13 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Affects /usr/bin/caddy (transitive dependency). Fix available at v0.1.1.
         # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
         go get github.com/Azure/go-ntlmssp@v0.1.1; \
+        # CVE-2026-44982 (GHSA-rw47-hm26-6wr7): CrowdSec AppSec silently drops HTTP request
+        # body for chunked/HTTP-2 requests, bypassing WAF body inspection rules.
+        # caddy-crowdsec-bouncer@v0.12.1 was built against crowdsec v1.6.3 whose
+        # DecisionsListOpts fields were *string; v1.7.8 changed them to plain string.
+        # The source-level incompatibility is patched below via local copy + go.mod replace.
+        # Remove once bouncer ships against crowdsec >= v1.7.8.
+        go get github.com/crowdsecurity/crowdsec@v${CROWDSEC_VERSION}; \
         if [ "${CADDY_PATCH_SCENARIO}" = "A" ]; then \
             # Rollback scenario: keep explicit nebula pin if upstream compatibility regresses.
             # NOTE: smallstep/certificates (pulled by caddy-security stack) currently
@@ -340,6 +360,36 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         go get github.com/caddyserver/caddy/v2@v${CADDY_TARGET_VERSION}; \
         # Clean up go.mod and ensure all dependencies are resolved
         go mod tidy; \
+        # Patch DecisionsListOpts API: crowdsec v1.7.8 changed fields (IPEquals, ScopeEquals,
+        # etc.) from *string to plain string. caddy-crowdsec-bouncer@v0.12.1 and its transitive
+        # dep go-cs-bouncer@v0.0.14 still use the old pointer form.
+        # Strategy: copy modules to ephemeral /tmp dirs and use go.mod replace directives.
+        # This avoids modifying the shared BuildKit module cache, which would corrupt xcaddy
+        # Stage 1 of subsequent builds (where these modules are compiled with crowdsec v1.6.x).
+        go mod download github.com/hslatman/caddy-crowdsec-bouncer@v0.12.1; \
+        BOUNCER_CACHE="${_GOMC}/github.com/hslatman/caddy-crowdsec-bouncer@v0.12.1"; \
+        BOUNCER_LOCAL="/tmp/bouncer-patched"; \
+        rm -rf "${BOUNCER_LOCAL}"; \
+        cp -r "${BOUNCER_CACHE}/." "${BOUNCER_LOCAL}/"; \
+        chmod -R +w "${BOUNCER_LOCAL}"; \
+        sed -i "s/IPEquals: &value,/IPEquals: value,/g" "${BOUNCER_LOCAL}/internal/bouncer/live.go"; \
+        echo "Patched caddy-crowdsec-bouncer at ${BOUNCER_LOCAL}"; \
+        go mod edit -replace "github.com/hslatman/caddy-crowdsec-bouncer@v0.12.1=${BOUNCER_LOCAL}"; \
+        GO_CS_CACHE="${_GOMC}/github.com/crowdsecurity/go-cs-bouncer@v0.0.14"; \
+        if [ -d "${GO_CS_CACHE}" ]; then \
+            GO_CS_LOCAL="/tmp/go-cs-bouncer-patched"; \
+            rm -rf "${GO_CS_LOCAL}"; \
+            cp -r "${GO_CS_CACHE}/." "${GO_CS_LOCAL}/"; \
+            chmod -R +w "${GO_CS_LOCAL}"; \
+            sed -i "s/IPEquals: &value,/IPEquals: value,/g" "${GO_CS_LOCAL}/live_bouncer.go"; \
+            sed -i "s/ScopeEquals: &value,/ScopeEquals: value,/g" "${GO_CS_LOCAL}/live_bouncer.go"; \
+            sed -i "s/ValueEquals: &value,/ValueEquals: value,/g" "${GO_CS_LOCAL}/live_bouncer.go"; \
+            sed -i "s/TypeEquals: &value,/TypeEquals: value,/g" "${GO_CS_LOCAL}/live_bouncer.go"; \
+            sed -i "s/RangeEquals: &value,/RangeEquals: value,/g" "${GO_CS_LOCAL}/live_bouncer.go"; \
+            sed -i "s/osName, osVersion := version.DetectOS()/osName, osVersion, _ := version.DetectOS()/g" "${GO_CS_LOCAL}/metrics.go"; \
+            echo "Patched go-cs-bouncer at ${GO_CS_LOCAL}"; \
+            go mod edit -replace "github.com/crowdsecurity/go-cs-bouncer@v0.0.14=${GO_CS_LOCAL}"; \
+        fi; \
         # Hard assertion: fail if module graph resolves to a different Caddy core version.
         ACTUAL_CADDY_VERSION="$(go list -m -f "{{.Version}}" github.com/caddyserver/caddy/v2)"; \
         if [ "$ACTUAL_CADDY_VERSION" != "v${CADDY_TARGET_VERSION}" ]; then \
@@ -407,15 +457,14 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # Pin here so the CrowdSec binary is patched immediately;
     # remove once CrowdSec ships a release built with go.opentelemetry.io/otel >= v1.41.0.
     # renovate: datasource=go depName=go.opentelemetry.io/otel
-    go get go.opentelemetry.io/otel@v1.43.0 && \
+    go get go.opentelemetry.io/otel@v1.44.0 && \
     # GHSA-xmrv-pmrh-hhx2: AWS SDK v2 event stream injection
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
     go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.10 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.74.0 && \
+    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.74.1 && \
     go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7 && \
-    # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/s3
-    go get github.com/aws/aws-sdk-go-v2/service/s3@v1.101.0 && \
+    go get github.com/aws/aws-sdk-go-v2/service/s3@v1.102.1 && \
     # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
     # Affects /usr/local/bin/cscli (transitive dependency). Fix available at v0.1.1.
     # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
@@ -498,7 +547,9 @@ RUN apk add --no-cache \
     c-ares busybox-extras \
     && apk upgrade --no-cache zlib libcrypto3 libssl3 musl musl-utils \
     # CVE-2026-34743: xz-libs DoS via buffer overflow in index decoding (fixed in 5.8.3-r0)
-    xz-libs
+    xz-libs \
+    # CVE-2026-6732: libxml2 HIGH vulnerability (fixed in 2.13.9-r1)
+    libxml2
 
 # Copy gosu binary from gosu-builder (built with Go 1.26+ to avoid stdlib CVEs)
 COPY --from=gosu-builder /gosu-out/gosu /usr/sbin/gosu
@@ -515,7 +566,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=d074a873c0db6755c0d7f22efe8c76d14fd5d4bcdaa5fc5e940508e8517e99ba
+ARG GEOLITE2_COUNTRY_SHA256=c77ac1d7e64b3fcd1447045615fc3aefb3ed886e176608c568b01f29f955e21a
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
@@ -660,7 +711,7 @@ EXPOSE 80 443 443/udp 2019 8080
 
 # Security: Add healthcheck to monitor container health
 # Verifies the Charon API is responding correctly
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=4m --retries=3 \
     CMD wget -q -O /dev/null http://localhost:8080/api/v1/health || exit 1
 
 # Create CrowdSec symlink as root before switching to non-root user

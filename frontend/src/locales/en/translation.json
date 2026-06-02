@@ -173,6 +173,7 @@
   "proxyGroups": {
     "group": "Group",
     "manageGroups": "Manage Groups",
+    "organize": "Organize",
     "createGroup": "Create Group",
     "editGroup": "Edit Group",
     "deleteGroup": "Delete Group",
