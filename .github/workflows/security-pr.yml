@@ -373,7 +373,7 @@ jobs:
           format: 'sarif'
           output: 'trivy-binary-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
-          version: 'v0.70.0'
+          version: 'v0.71.0'
           trivyignores: '.trivyignore'
           config: 'trivy.yaml'
         continue-on-error: true
@@ -408,7 +408,7 @@ jobs:
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
-          version: 'v0.70.0'
+          version: 'v0.71.0'
           trivyignores: '.trivyignore'
           config: 'trivy.yaml'
 
