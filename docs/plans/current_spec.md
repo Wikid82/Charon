@@ -1,394 +1,266 @@
-# Fix Patch Coverage Gaps in `cloudflare/provider.go`
+# Fix: Add Disk Space Reclamation to Nightly Build Jobs
 
-## Introduction
+## 1. Introduction
 
 ### Overview
 
-The recent refactor replacing `cmd.StdoutPipe()` / `cmd.StderrPipe()` with `os.Pipe()` pairs
-in `Start()` introduced three new error paths and two error-logging branches that have zero
-test coverage. Codecov reports **54.54% patch coverage** (8 missing lines, 2 partials) on
-the changed lines in `backend/internal/hecate/providers/cloudflare/provider.go`.
+The `build-and-push-nightly` and `build-and-push-nightly-orthrus` jobs in
+`.github/workflows/nightly-build.yml` crash with `System.IO.IOException: No space left on
+device` during multi-platform Docker builds (`linux/amd64,linux/arm64`). The `ubuntu-latest`
+GitHub Actions runner starts with approximately 14 GB of free disk space, but pre-installed
+toolchains (Android SDK ~8 GB, .NET ~2 GB, Haskell ~2 GB) consume most of it before any
+build step executes. When the disk fills mid-build, the runner process dies without sending
+terminal step statuses, leaving GitHub's UI showing the job as simultaneously "failed" and
+"in progress".
 
 ### Objectives
 
-- Increase patch coverage on `provider.go` from 54.54% to ≥ 90%.
-- Use the project's established **function-variable test-hook** pattern (identical to
-  `caddy/manager.go`) — no build tags or process-injection tricks required.
-- Add exactly **2 package-level `var` declarations** to `provider.go` and **3 new test
-  functions** to `coverage_test.go`. No other files are modified.
+1. Reclaim 10–15 GB of disk space on both build jobs before any Docker-related step runs.
+2. Insert a single `Free disk space` step as the **first step** in each affected job.
+3. Pin the action to commit SHA per the project's existing SHA-pinning convention.
+4. Preserve Docker images already present on the runner (`docker-images: false`) so Buildx
+   can operate normally.
 
 ---
 
 ## 2. Research Findings
 
-### Existing Pattern — Function-Variable Injection
+### 2.1 Affected Jobs
 
-`backend/internal/caddy/manager.go` (lines 25–38) establishes the canonical pattern:
+| Job | First step (current) | QEMU step |
+|-----|----------------------|-----------|
+| `build-and-push-nightly` | `Checkout nightly branch` | `Set up QEMU` (step 3) |
+| `build-and-push-nightly-orthrus` | `Checkout nightly branch` | `Set up QEMU` (step 3) |
 
-```go
-// Test hooks to allow overriding OS and JSON functions
-var (
-    writeFileFunc        = os.WriteFile
-    readFileFunc         = os.ReadFile
-    removeFileFunc       = os.Remove
-    readDirFunc          = os.ReadDir
-    statFunc             = os.Stat
-    jsonMarshalFunc      = json.MarshalIndent
-    jsonMarshalDebugFunc = json.Marshal
-    generateConfigFunc   = GenerateConfig
-    validateConfigFunc   = Validate
-)
+Both jobs follow an identical preamble:
+
+```
+1. Checkout nightly branch   (actions/checkout)
+2. Set lowercase image name  (run: echo ...)
+3. Set up QEMU               (docker/setup-qemu-action)
+4. Set up Docker Buildx      (docker/setup-buildx-action)
 ```
 
-`backend/internal/caddy/client.go` (line 19) mirrors it:
+### 2.2 Existing SHA-Pinning Convention
 
-```go
-// Test hook for json marshalling to allow simulating failures in tests
-var jsonMarshalClient = json.Marshal
+Every action in `nightly-build.yml` is pinned to a full 40-character commit SHA with a
+version comment on the same line, for example:
+
+```yaml
+uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3  # v4.1.0
+uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5  # v4.1.0
 ```
 
-This is the agreed-upon mechanism for unit-test injection throughout the backend.
-No equivalent hooks exist yet in the `cloudflare` package — confirmed by grep
-against `backend/**` for `osPipe|var.*Pipe.*=.*os\.Pipe`.
+The new step must follow this exact pattern.
 
-### Existing Tests That Already Cover Nearby Lines
+### 2.3 Action Details
 
-| Test | File | Lines Covered |
-|---|---|---|
-| `TestStart_ExecFormatError` | `coverage_test.go` | Lines 145–155 (`cmd.Start()` error block + 4 close calls) |
-| `TestStart_WithStubBinary` | `provider_test.go` | Lines 131, 135, 160, 165 (happy path — only false branches of the two pipe-check `if`s) |
-| `TestStart_CapturesStdoutOutput` | `coverage_test.go` | Same happy-path range |
+| Property | Value |
+|----------|-------|
+| Action | `jlumbroso/free-disk-space` |
+| Version | v1.3.1 |
+| Commit SHA | `54081f138730dfa15788a46383842cd2f914a1be` |
+| Marketplace | https://github.com/jlumbroso/free-disk-space |
 
-`TestStart_ExecFormatError` creates a non-ELF file with mode `0755` so that
-`exec.LookPath` succeeds while `cmd.Start()` fails with "exec format error". **The
-`cmd.Start()` error block (lines 145–155) is already covered; those lines are NOT
-part of the 8 missing.**
+### 2.4 Configuration Rationale
 
-### Uncovered Lines (Exact)
+| Input | Value | Reason |
+|-------|-------|--------|
+| `android` | `true` | Android SDK (~8 GB) — not needed by any Charon build step |
+| `dotnet` | `true` | .NET SDK (~2 GB) — not needed |
+| `haskell` | `true` | Haskell GHC/Stack (~2 GB) — not needed |
+| `large-packages` | `true` | Additional apt packages (~3–4 GB) — not needed |
+| `docker-images` | `false` | **Must stay false** — Buildx relies on pre-pulled images |
+| `swap-storage` | `true` | Reclaim ~4 GB swap file space |
+| `tool-cache` | `false` | Keep cached tools; not a significant source of waste |
 
-All uncovered/partial lines are within `Start()`, introduced by the `os.Pipe()` refactor.
-Line numbers verified from `provider.go` as of the current commit:
+**Expected recovered space:** 10–15 GB, leaving ~24–29 GB available before the build begins.
 
-| Line | Code | Codecov Status |
-|---|---|---|
-| 132 | `if err != nil {` (stdout pipe guard) | PARTIAL — only false branch taken |
-| 133 | `return fmt.Errorf("cloudflare: stdout pipe: %w", err)` | MISSING |
-| 136 | `if err != nil {` (stderr pipe guard) | PARTIAL — only false branch taken |
-| 137 | `_ = stdoutR.Close()` (cleanup before stderr-pipe error return) | MISSING |
-| 138 | `_ = stdoutW.Close()` (cleanup before stderr-pipe error return) | MISSING |
-| 139 | `return fmt.Errorf("cloudflare: stderr pipe: %w", err)` | MISSING |
-| 161 | `logger.Log().WithFields(logrus.Fields{` (stdoutW close-error log) | MISSING |
-| 163 | `}).Error("cloudflare: failed to close stdout write end")` | MISSING |
-| 166 | `logger.Log().WithFields(logrus.Fields{` (stderrW close-error log) | MISSING |
-| 168 | `}).Error("cloudflare: failed to close stderr write end")` | MISSING |
+### 2.5 CI Failure Behaviour
 
-> **State-management observation (out of scope):** When `os.Pipe()` fails at line
-> 131 or 135, the code has already set `p.state = TunnelStateConnecting` and
-> `p.done = make(chan struct{})` (lines 124–125) but returns without resetting
-> them. The new tests assert the *actual* behavior (state remains
-> `TunnelStateConnecting`). Correcting that state leak is outside the scope of
-> this patch.
+When disk space is exhausted during a multi-platform `docker/build-push-action` run, the
+runner OS-level write fails, which kills the runner worker process outright. Because the
+process does not exit cleanly, it never sends the `complete` status event back to GitHub for
+each step, resulting in:
+
+- The job appearing as **failed** (runner reported failure on re-connect timeout)
+- Individual steps remaining **in progress** in the UI (never received terminal status)
+- No actionable log output past the point of failure
 
 ---
 
-## 3. Technical Specifications
+## 3. Technical Specification
 
-### 3.1 Source Changes — `provider.go`
-
-Two `var` declarations are added as a commented block immediately after the import
-statement and before the first type declaration, matching the placement in
-`caddy/manager.go`.
-
-#### Hook 1 — `osPipe`
-
-```go
-// Test hooks to allow overriding OS functions in unit tests.
-var (
-    // osPipe wraps os.Pipe to allow simulating pipe-creation failures.
-    osPipe = os.Pipe
-    // closeWriteFile wraps (*os.File).Close for the pipe write-ends closed
-    // after cmd.Start() succeeds. Allows simulating close errors in tests.
-    closeWriteFile = func(f *os.File) error { return f.Close() }
-)
-```
-
-#### Call-site replacements
-
-Only four lines in `Start()` change. All other close calls remain direct.
-
-| Original call | Replacement | Location |
-|---|---|---|
-| `stdoutR, stdoutW, err := os.Pipe()` | `stdoutR, stdoutW, err := osPipe()` | line 131 |
-| `stderrR, stderrW, err := os.Pipe()` | `stderrR, stderrW, err := osPipe()` | line 135 |
-| `if err := stdoutW.Close(); err != nil {` | `if err := closeWriteFile(stdoutW); err != nil {` | line 160 |
-| `if err := stderrW.Close(); err != nil {` | `if err := closeWriteFile(stderrW); err != nil {` | line 165 |
-
-The four `_ = *.Close()` calls inside the `cmd.Start()` error block (lines
-146–149) are **not modified** — they are already covered by `TestStart_ExecFormatError`
-and perform cleanup-on-failure semantics that do not need a test hook.
-
-### 3.2 Injection Signature Contract
+### 3.1 File to Modify
 
 ```
-osPipe         func() (*os.File, *os.File, error)  // identical to os.Pipe
-closeWriteFile func(*os.File) error                 // wraps file.Close()
+.github/workflows/nightly-build.yml
 ```
 
-Tests save and restore via `t.Cleanup` (not `defer`), which is the project-standard
-approach for test hook teardown:
+### 3.2 Exact YAML Step to Insert
 
-```go
-orig := osPipe
-t.Cleanup(func() { osPipe = orig })
-osPipe = func() (*os.File, *os.File, error) { ... }
+The following step block must be inserted as the **first step** (before `Checkout nightly
+branch`) in both affected jobs:
+
+```yaml
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # v1.3.1
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+          tool-cache: false
 ```
 
-None of the three new tests call `t.Parallel()` — consistent with all existing tests
-in `coverage_test.go`.
+### 3.3 Insertion Points
 
-### 3.3 New Test Specifications — `coverage_test.go`
+#### Job: `build-and-push-nightly`
 
-All three tests live in `package cloudflare` (same package as source), consistent with
-the existing test files.
+Insert **before** the `Checkout nightly branch` step.
 
-#### Shared setup — fake binary
-
-Tests 1 and 2 need `exec.LookPath` to succeed (so execution reaches `osPipe()`) but
-`osPipe()` to fail before `cmd.Start()` is ever called. The cleanest approach reuses
-the fake-binary pattern from `TestStart_ExecFormatError`:
-
-```go
-dir := t.TempDir()
-fakeBin := filepath.Join(dir, "cloudflared")
-require.NoError(t, os.WriteFile(fakeBin, []byte("not elf"), 0755))
+**Before (current first step):**
+```yaml
+    steps:
+      - name: Checkout nightly branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
+          fetch-depth: 0
 ```
 
-Setting `p.binaryPath = fakeBin` makes `exec.LookPath(fakeBin)` succeed (absolute
-path, file exists, mode `0755`). The binary is never launched because `osPipe()`
-returns an error before `cmd.Start()`.
+**After (with new first step):**
+```yaml
+    steps:
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # v1.3.1
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+          tool-cache: false
 
----
-
-#### Test 1 — `TestStart_StdoutPipeError`
-
-**Target lines:** 132 (true branch), 133
-
-```go
-func TestStart_StdoutPipeError(t *testing.T) {
-    dir := t.TempDir()
-    fakeBin := filepath.Join(dir, "cloudflared")
-    require.NoError(t, os.WriteFile(fakeBin, []byte("not elf"), 0755))
-
-    p := &CloudflareTunnelProvider{
-        binaryPath: fakeBin,
-        creds:      cfCredentials{TunnelToken: "tok"},
-        buf:        hecate.NewRingBuffer(1000),
-    }
-
-    orig := osPipe
-    t.Cleanup(func() { osPipe = orig })
-    osPipe = func() (*os.File, *os.File, error) {
-        return nil, nil, errors.New("simulated stdout pipe failure")
-    }
-
-    err := p.Start(context.Background())
-
-    require.Error(t, err)
-    assert.Contains(t, err.Error(), "stdout pipe")
-    assert.Equal(t, hecate.TunnelStateConnecting, p.Status())
-}
+      - name: Checkout nightly branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
+          fetch-depth: 0
 ```
 
-**Why `TunnelStateConnecting`:** `p.state` is set to `TunnelStateConnecting` at line 124
-before `osPipe()` is called. The error return at line 133 exits without resetting state.
+#### Job: `build-and-push-nightly-orthrus`
 
----
+Insert **before** the `Checkout nightly branch` step in the orthrus job.
 
-#### Test 2 — `TestStart_StderrPipeError`
-
-**Target lines:** 136 (true branch), 137, 138, 139
-
-```go
-func TestStart_StderrPipeError(t *testing.T) {
-    dir := t.TempDir()
-    fakeBin := filepath.Join(dir, "cloudflared")
-    require.NoError(t, os.WriteFile(fakeBin, []byte("not elf"), 0755))
-
-    p := &CloudflareTunnelProvider{
-        binaryPath: fakeBin,
-        creds:      cfCredentials{TunnelToken: "tok"},
-        buf:        hecate.NewRingBuffer(1000),
-    }
-
-    calls := 0
-    origPipe := osPipe
-    t.Cleanup(func() { osPipe = origPipe })
-    osPipe = func() (*os.File, *os.File, error) {
-        calls++
-        if calls == 1 {
-            return origPipe() // first call (stdout) succeeds — returns real *os.File pair
-        }
-        return nil, nil, errors.New("simulated stderr pipe failure")
-    }
-
-    err := p.Start(context.Background())
-
-    require.Error(t, err)
-    assert.Contains(t, err.Error(), "stderr pipe")
-    assert.Equal(t, hecate.TunnelStateConnecting, p.Status())
-}
+**Before (current first step):**
+```yaml
+    steps:
+      - name: Checkout nightly branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
+          fetch-depth: 0
 ```
 
-**Why `origPipe()` on the first call:** The stderr-pipe error block (lines 137–138)
-calls `_ = stdoutR.Close()` and `_ = stdoutW.Close()`. Those variables must be real
-`*os.File` values or the close calls panic on nil. Delegating the first invocation to
-the real `origPipe()` returns a valid pair.
+**After (with new first step):**
+```yaml
+    steps:
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # v1.3.1
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+          tool-cache: false
 
----
-
-#### Test 3 — `TestStart_WriteEndCloseErrors`
-
-**Target lines:** 161, 163 (stdoutW close-error log), 166, 168 (stderrW close-error log)
-
-```go
-func TestStart_WriteEndCloseErrors(t *testing.T) {
-    trueBin, err := exec.LookPath("true")
-    require.NoError(t, err, "/bin/true must be available on test host")
-
-    p := &CloudflareTunnelProvider{
-        binaryPath: trueBin,
-        creds:      cfCredentials{TunnelToken: "tok"},
-        buf:        hecate.NewRingBuffer(1000),
-    }
-
-    origClose := closeWriteFile
-    t.Cleanup(func() { closeWriteFile = origClose })
-    closeWriteFile = func(f *os.File) error {
-        _ = f.Close() // physically close to unblock scanner goroutines (see note)
-        return errors.New("simulated write-end close error")
-    }
-
-    startErr := p.Start(context.Background())
-
-    require.NoError(t, startErr, "close errors are logged, not returned from Start()")
-
-    // Wait for the process to exit and the done channel to close.
-    select {
-    case <-p.done:
-    case <-time.After(5 * time.Second):
-        t.Fatal("timed out waiting for cloudflared goroutines to exit")
-    }
-}
+      - name: Checkout nightly branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
+          fetch-depth: 0
 ```
 
-**Why the hook must physically close the file:** The scanner goroutines
-(`bufio.Scanner` reading `stdoutR` / `stderrR`) block until the write ends are closed
-and the child exits. `/bin/true` exits immediately, closing the child's inherited
-write-end copies. The parent's write-end copies (`stdoutW`, `stderrW`) must also be
-closed for the scanners to see EOF. If the injected `closeWriteFile` only returns an
-error without calling `f.Close()`, the parent write-end reference remains open
-indefinitely and the goroutines never unblock — causing a test deadlock. Calling
-`f.Close()` inside the hook closes the fd while still returning the forced error that
-triggers the logger branches.
+### 3.4 Step Ordering (Both Jobs, Post-Change)
 
-**Both write ends in one test:** `closeWriteFile` is called for `stdoutW` first, then
-`stderrW`. A single injected function that always errors covers both logger branches.
-
-### 3.4 Data-Flow Summary
-
-```
-Start()
- │
- ├─ exec.LookPath ──────────────────── already covered
- ├─ p.state = TunnelStateConnecting
- ├─ osPipe() ← [hook 1]
- │   └─ error → return "stdout pipe" ← TEST 1 covers 132(true), 133
- ├─ osPipe() ← [hook 1, 2nd call]
- │   └─ error → close stdout r/w → return "stderr pipe" ← TEST 2 covers 136(true), 137-139
- ├─ cmd.Start()
- │   └─ error → close all 4 fds → set TunnelStateError ← TestStart_ExecFormatError (existing)
- ├─ closeWriteFile(stdoutW) ← [hook 2]
- │   └─ error → logger.Error("failed to close stdout write end") ← TEST 3 covers 161, 163
- ├─ closeWriteFile(stderrW) ← [hook 2]
- │   └─ error → logger.Error("failed to close stderr write end") ← TEST 3 covers 166, 168
- └─ p.state = TunnelStateConnected ── already covered
-```
-
-### 3.5 Edge Cases and Constraints
-
-| Scenario | Handled by |
-|---|---|
-| `exec.LookPath` fails | `TestStart_BinaryNotFound` (existing) |
-| `cmd.Start()` fails (exec format error) | `TestStart_ExecFormatError` (existing) |
-| `osPipe()` fails on first call | `TestStart_StdoutPipeError` (new) |
-| `osPipe()` fails on second call | `TestStart_StderrPipeError` (new) |
-| `closeWriteFile()` returns error | `TestStart_WriteEndCloseErrors` (new) |
-| Close calls in `cmd.Start()` error block (lines 146–149) | `TestStart_ExecFormatError` (existing, unchanged) |
-| Concurrent hook mutation | Not applicable — tests are sequential, no `t.Parallel()` |
+| # | Step name | Notes |
+|---|-----------|-------|
+| 1 | **Free disk space** | NEW — reclaims 10–15 GB |
+| 2 | Checkout nightly branch | unchanged |
+| 3 | Set lowercase image name | unchanged |
+| 4 | Set up QEMU | unchanged |
+| 5 | Set up Docker Buildx | unchanged |
+| 6+ | … remaining steps unchanged | |
 
 ---
 
 ## 4. Implementation Plan
 
-### Phase 1 — Playwright Tests
+### Phase 1: Playwright Tests
 
-Not applicable. This is a Go backend unit-test coverage fix with no UI surface area.
+No UI changes are introduced. This fix is CI-infrastructure only; no Playwright tests are
+required or applicable.
 
-### Phase 2 — Source Changes in `provider.go`
+### Phase 2: Backend Implementation
 
-| Task | Change | Estimated Complexity |
-|---|---|---|
-| 2.1 | Add `var ( osPipe = os.Pipe; closeWriteFile = func... )` block after imports | XS |
-| 2.2 | Replace `os.Pipe()` → `osPipe()` at lines 131, 135 | XS |
-| 2.3 | Replace `stdoutW.Close()` → `closeWriteFile(stdoutW)` at line 160 | XS |
-| 2.4 | Replace `stderrW.Close()` → `closeWriteFile(stderrW)` at line 165 | XS |
+Not applicable. This fix is GitHub Actions workflow YAML only.
 
-Total diff: approximately 10 lines added, 2 lines modified.
+### Phase 3: Frontend Implementation
 
-### Phase 3 — New Tests in `coverage_test.go`
+Not applicable.
 
-| Task | Test Name | Target Uncovered Lines | Complexity |
-|---|---|---|---|
-| 3.1 | `TestStart_StdoutPipeError` | 132 (true branch), 133 | S |
-| 3.2 | `TestStart_StderrPipeError` | 136 (true branch), 137, 138, 139 | S |
-| 3.3 | `TestStart_WriteEndCloseErrors` | 161, 163, 166, 168 | M (requires `p.done` channel wait) |
+### Phase 4: Workflow Change
 
-Required imports for `coverage_test.go` (confirm these are already present or add):
+**File:** `.github/workflows/nightly-build.yml`
 
-```go
-"errors"
-"os/exec"
-"time"
-```
+**Edit 1 — `build-and-push-nightly` job**
 
-### Phase 4 — Integration and Testing
+In the `steps:` block of `build-and-push-nightly`, insert the `Free disk space` step block
+immediately before the `- name: Checkout nightly branch` step so it becomes the first step
+in the job.
 
-| Task | Command | Pass Condition |
-|---|---|---|
-| 4.1 | `go test -race -count=1 ./backend/internal/hecate/providers/cloudflare/...` | All tests green, no data races |
-| 4.2 | `go test -coverprofile=cover.out ./backend/internal/hecate/providers/cloudflare/... && go tool cover -func=cover.out \| grep Start` | Lines 133, 137–139, 161, 163, 166, 168 show non-zero hit counts |
-| 4.3 | `bash scripts/go-test-coverage.sh` (generates `backend/coverage.txt`) | Package coverage does not drop below project threshold |
-| 4.4 | `bash scripts/local-patch-report.sh` | `test-results/local-patch-report.md` reports ≥ 90% patch coverage for `provider.go` |
+**Edit 2 — `build-and-push-nightly-orthrus` job**
 
-### Phase 5 — Documentation and Deployment
+In the `steps:` block of `build-and-push-nightly-orthrus`, insert the identical `Free disk
+space` step block immediately before the `- name: Checkout nightly branch` step so it
+becomes the first step in the job.
 
-No user-facing documentation, API surface, database schema, or migration changes.
+No other jobs, steps, or keys in the file are touched.
+
+### Phase 5: Integration and Testing
+
+1. After merging the PR, trigger `nightly-build.yml` manually via `workflow_dispatch`.
+2. Confirm both `build-and-push-nightly` and `build-and-push-nightly-orthrus` complete
+   without `No space left on device` errors.
+3. Confirm the `Free disk space` step is listed first in the GitHub Actions UI for both jobs
+   and reports recovered space in its output log.
+4. Confirm the subsequent `Set up QEMU` and `Set up Docker Buildx` steps succeed, validating
+   that `docker-images: false` preserved the Docker daemon state.
+
+### Phase 6: Documentation and Deployment
+
+No documentation changes required beyond this plan. The commit message is sufficient.
 
 ---
 
 ## 5. Acceptance Criteria
 
 | # | Criterion | Verification |
-|---|---|---|
-| AC-1 | `go test -race -count=1 ./backend/internal/hecate/providers/cloudflare/...` exits 0 | CI / local |
-| AC-2 | `TestStart_StdoutPipeError` passes, error message contains `"stdout pipe"` | Test output |
-| AC-3 | `TestStart_StderrPipeError` passes, error message contains `"stderr pipe"` | Test output |
-| AC-4 | `TestStart_WriteEndCloseErrors` passes within 5 s (no deadlock) | Test output |
-| AC-5 | Codecov patch coverage for `provider.go` ≥ 90% | Codecov PR comment |
-| AC-6 | No existing tests in `provider_test.go` or `coverage_test.go` regress | CI |
-| AC-7 | `var osPipe` and `var closeWriteFile` are in a single commented `var (...)` block before the first type declaration, matching `caddy/manager.go` style | Code review |
-| AC-8 | No `t.Parallel()` in the three new tests | Code review |
-| AC-9 | GORM security scan gate is skipped (no model changes match trigger matrix) | CI / `scripts/scan-gorm-security.sh --report` |
+|---|-----------|--------------|
+| 1 | `Free disk space` step is the first step in `build-and-push-nightly` | Inspect YAML and GitHub Actions UI |
+| 2 | `Free disk space` step is the first step in `build-and-push-nightly-orthrus` | Inspect YAML and GitHub Actions UI |
+| 3 | Action is pinned to SHA `54081f138730dfa15788a46383842cd2f914a1be` with comment `# v1.3.1` | Code review / grep |
+| 4 | `docker-images: false` is set (Docker daemon state preserved) | Code review |
+| 5 | Both jobs complete without `No space left on device` error on next nightly run | CI run log |
+| 6 | Multi-platform push (`linux/amd64,linux/arm64`) succeeds for both images | CI run log |
+| 7 | No other steps, jobs, or keys in the workflow file are modified | Diff review |
 
 ---
 
@@ -396,37 +268,60 @@ No user-facing documentation, API surface, database schema, or migration changes
 
 ### Decision
 
-**Single PR · Single Commit.** All changes are confined to two files within one package.
-There is no user-facing API surface, no schema change, and no cross-domain impact.
-A single atomic commit is faster to review and trivially reversible.
+**Single PR · Single Commit.** This is a two-hunk edit to one YAML file with zero
+functional ambiguity. There is no benefit to splitting further.
 
-### Commit 1 of 1
+### Trigger Reasons for Single Commit
+
+- Scope is contained: one file, two identical insertions.
+- No risk of partial deployment — both jobs must be fixed simultaneously or the nightly
+  workflow remains broken regardless.
+- Rollback is a single `git revert`.
+
+### Commit 1 (the only commit)
+
+| Property | Value |
+|----------|-------|
+| **Scope** | `.github/workflows/nightly-build.yml` |
+| **Type** | `fix` |
+| **Message** | `fix(ci): free disk space before nightly multi-platform Docker builds` |
+| **Files changed** | `.github/workflows/nightly-build.yml` |
+| **Dependencies** | None |
+| **Validation gate** | Manual `workflow_dispatch` of `nightly-build.yml` completes without disk-full error |
+
+**Commit body:**
 
 ```
-test(hecate/cloudflare): add os.Pipe and write-close test hooks for Start() coverage
+The ubuntu-latest runner (~14 GB free) is exhausted by pre-installed
+toolchains (Android SDK, .NET, Haskell) before the multi-platform
+build-push-action executes. The runner dies mid-build without sending
+terminal step statuses, leaving jobs in a failed+in-progress limbo.
 
-Introduce two package-level function-variable test hooks in provider.go
-(var osPipe and var closeWriteFile) following the project-standard pattern
-established in caddy/manager.go. Replace the two os.Pipe() call sites and the
-two post-cmd.Start() write-end close calls with the hook variables.
-
-Add three targeted test functions in coverage_test.go to exercise the
-previously unreachable error branches introduced by the os.Pipe() refactor:
-- TestStart_StdoutPipeError: stdout pipe creation failure
-- TestStart_StderrPipeError: stderr pipe creation failure with stdout cleanup
-- TestStart_WriteEndCloseErrors: write-end close error log branches
-
-Resolves Codecov patch coverage regression on provider.go: 54.54% → ≥90%.
+Add jlumbroso/free-disk-space@v1.3.1 as the first step in both
+build-and-push-nightly and build-and-push-nightly-orthrus. Configured
+to remove Android, .NET, Haskell, large-packages, and swap storage
+(~10–15 GB recovered). docker-images is explicitly false to preserve
+the Docker daemon state required by Buildx.
 ```
-
-| Field | Value |
-|---|---|
-| Scope | `backend/internal/hecate/providers/cloudflare/` |
-| Files | `provider.go` (2 new vars + 4 call-site edits), `coverage_test.go` (3 new test functions) |
-| Dependencies | None |
-| Validation gate | `go test -race -count=1 ./backend/internal/hecate/providers/cloudflare/...` exits 0 |
 
 ### Rollback
 
-`git revert <sha>` is sufficient. No migration, no deployed artifact, no downstream
-package references to the new `var` symbols (they are unexported and package-internal).
+```bash
+git revert <commit-sha>
+```
+
+No data loss, no migration, no downstream impact.
+
+---
+
+## 7. Risks and Mitigations
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| `free-disk-space` action itself fails (network, apt lock) | Low | Medium | Step is not `continue-on-error`; if it fails the job fails fast before wasting build time. |
+| Docker daemon loses needed images if `docker-images` is accidentally set `true` | Low | High | `docker-images: false` is explicit in the YAML; verified in AC-4. |
+| Disk space still insufficient after reclamation | Very low | High | ~10–15 GB recovered is well above the ~4–6 GB needed for a two-platform Go+Alpine build. |
+| SHA drift (action updated, SHA stale) | Low | Low | SHA is pinned; Dependabot will create a PR to update when a new release is published. |
+
+
+
