@@ -1,711 +1,327 @@
-# Plan: Orthrus/Hecate Docs + FeedbackWidget Docs Link
-
-**Status:** Draft — Pending Review
-**Date:** 2025-06
-**Scope:** Documentation authoring (ELI5 feature pages) + Frontend widget enhancement
-
----
+# Fix: Add Disk Space Reclamation to Nightly Build Jobs
 
 ## 1. Introduction
 
 ### Overview
 
-This plan covers two independent, non-blocking deliverables:
-
-1. **Docs Deliverable** — Write ELI5-level documentation files for two undocumented features (Orthrus and Hecate) and a remote Docker setup guide, fix a broken link, and update index/nav entries to surface these pages.
-2. **Widget Deliverable** — Add a "View Documentation" third link to the floating `FeedbackWidget` React component so users can navigate to the docs site directly from anywhere in the UI.
+The `build-and-push-nightly` and `build-and-push-nightly-orthrus` jobs in
+`.github/workflows/nightly-build.yml` crash with `System.IO.IOException: No space left on
+device` during multi-platform Docker builds (`linux/amd64,linux/arm64`). The `ubuntu-latest`
+GitHub Actions runner starts with approximately 14 GB of free disk space, but pre-installed
+toolchains (Android SDK ~8 GB, .NET ~2 GB, Haskell ~2 GB) consume most of it before any
+build step executes. When the disk fills mid-build, the runner process dies without sending
+terminal step statuses, leaving GitHub's UI showing the job as simultaneously "failed" and
+"in progress".
 
 ### Objectives
 
-- Close the broken `features/hecate.md` reference in `docs/features.md` line 226.
-- Create `docs/features/orthrus.md` — dedicated ELI5 explainer for the Orthrus tunnel agent.
-- Create `docs/features/hecate.md` — ELI5 explainer for the Hecate Tunnel & Pathway Manager.
-- Create `docs/guides/remote-docker-setup.md` — step-by-step guide for connecting a remote HomeLab/server via Orthrus.
-- Update `docs/index.md` to surface these three new pages.
-- Update `docs/features.md` to add an Orthrus entry and fix the Hecate link.
-- Add a third "View Docs" link to `FeedbackWidget.tsx` with full i18n and accessibility support.
-- Update `frontend/src/components/__tests__/FeedbackWidget.test.tsx` to cover the new link.
-- Update `frontend/src/locales/en/translation.json` with the new i18n keys.
+1. Reclaim 10–15 GB of disk space on both build jobs before any Docker-related step runs.
+2. Insert a single `Free disk space` step as the **first step** in each affected job.
+3. Pin the action to commit SHA per the project's existing SHA-pinning convention.
+4. Preserve Docker images already present on the runner (`docker-images: false`) so Buildx
+   can operate normally.
 
 ---
 
 ## 2. Research Findings
 
-### 2.1 Docs Site Architecture
+### 2.1 Affected Jobs
 
-- **Framework:** No `mkdocs.yml` was found anywhere in the repository. The docs site is authored as raw Markdown under `docs/` and served via GitHub Pages.
-- **Base URL:** `https://wikid82.github.io/Charon/` (from `README.md` line 134).
-- **Navigation:** Purely file-system-based relative links; there is no central nav config file to update.
-- **Existing docs gaps:**
-  - `docs/features/hecate.md` — **does not exist** but is linked from `docs/features.md` line 226 — this is an active broken link (bug fix).
-  - `docs/features/orthrus.md` — does not exist, no link yet.
-  - `docs/guides/remote-docker-setup.md` — does not exist, no link yet.
+| Job | First step (current) | QEMU step |
+|-----|----------------------|-----------|
+| `build-and-push-nightly` | `Checkout nightly branch` | `Set up QEMU` (step 3) |
+| `build-and-push-nightly-orthrus` | `Checkout nightly branch` | `Set up QEMU` (step 3) |
 
-### 2.2 Orthrus System
-
-- **Package:** `backend/internal/orthrus/`
-- **What it is:** A reverse-WebSocket tunnel agent system. An `OrthrusAgent` binary runs on the remote machine, connects outbound via WebSocket to Charon's management interface, and multiplexes streams over yamux. Charon uses these multiplexed streams to talk to Docker on the remote machine.
-- **Why it exists:** Remote Docker hosts behind NAT/firewalls cannot accept inbound TCP connections. Orthrus flips the direction — the remote agent dials outward to Charon.
-- **Muzzle filter (`muzzle.go`):** Restricts Docker API access to a read-only allowlist (`/containers/json`, `/images/json`, `/_ping`, `/info`, `/version`, `/events`, `/volumes`, `/networks`, `/system/df`). Dynamic read-only patterns: `/containers/*/json`, `/containers/*/logs`, `/containers/*/stats`, `/containers/*/top`. All non-GET methods blocked (except HEAD `/_ping`). HTTP 403 for disallowed paths.
-- **Key model fields (`models/orthrus_agent.go`):**
-  - `UUID`, `Name`, `Status` — `OrthrusStatus`: "online" / "offline" / "pending"
-  - `AuthKeyHash` — bcrypt hash; `json:"-"` (never exposed); plain key shown once at provisioning, prefixed `ch_orthrus_`
-  - `Capabilities` — JSON array, e.g. `["docker", "tcp:5432"]`
-  - `AgentCertPEM` — mTLS cert from Charon's internal CA
-  - `HecateTunnelUUID` — links agent to a Hecate tunnel provider
-  - `ResolvedAddress` — cached connectivity address
-  - `ExternalProxyPort` — TCP port for inter-container Docker API access (0 = disabled)
-  - `LastHeartbeat`, `LastSeen`
-- **Install surfaces (`snippets.go`):** Docker Compose, systemd, tarball, Homebrew, Kubernetes DaemonSet — delivered via `GET /orthrus/agents/:uuid/snippets`.
-- **REST API (`orthrus_handler.go`):**
-  - `GET /management/orthrus/agents` — list agents
-  - `POST /management/orthrus/agents` — provision (returns one-time auth key)
-  - `GET /management/orthrus/agents/:uuid` — get one agent
-  - `PATCH /management/orthrus/agents/:uuid` — update
-  - `DELETE /management/orthrus/agents/:uuid` — delete
-  - `POST /management/orthrus/agents/:uuid/revoke` — revoke auth key
-  - `GET /management/orthrus/agents/:uuid/snippets` — install instructions
-  - `GET /management/orthrus/agents/:uuid/proxy-status` — live external proxy state
-- **WebSocket endpoint:** `GET /api/v1/ws/orthrus/connect` — Bearer token auth (bcrypt), HeartbeatTimeout 10 seconds.
-- **`RemoteServer` linkage:** `ConnectionTypeOrthrus = "orthrus"` in `models/remote_server.go`; `OrthrusAgentUUID *string` field links a host config to its agent.
-
-### 2.3 Hecate System
-
-- **Package:** `backend/internal/hecate/`
-- **What it is:** The Tunnel & Pathway Manager. Manages third-party tunneling providers (Cloudflare, Tailscale, ZeroTier, NetBird) and integrates the Orthrus agent protocol. `TunnelManager` supervises lifecycle of all active tunnel providers with exponential backoff restart (5s → 10s → 30s → 60s).
-- **Currently registered provider:** `netbird` (`NewHecateService` in `services/hecate_service.go`). Architecture supports cloudflare, tailscale, zerotier via `RegisterFactory()`.
-- **`HecateService`:** CRUD for `TunnelConfig` records; delegates start/stop to `TunnelManager`. Credentials encrypted AES-GCM before DB storage. If `IsActive=true` at creation, tunnel starts immediately.
-- **Connection modes (from `docs/features.md`):**
-  - **Direct** — manual hostname/IP
-  - **Agent** — pick an Orthrus agent; address resolved from `OrthrusAgent.ResolvedAddress`
-  - **Provider** — pick a VPN tunnel device directly (no agent required)
-- **Relationship to Orthrus:** Each Orthrus agent can be assigned a `HecateTunnelUUID` pointing to a provider tunnel, giving it a `ResolvedAddress`. Remote Servers then use `ConnectionTypeOrthrus`.
-
-### 2.4 FeedbackWidget
-
-- **File:** `frontend/src/components/FeedbackWidget.tsx`
-- **Current links:** 2 — "Report a Bug" (`GITHUB_BUG_URL`) and "Request a Feature" (`GITHUB_FEATURE_URL`)
-- **Structure:** `<nav aria-label={...}>` containing `<a>` elements. First link has `ref={firstLinkRef}` for focus-on-open. Second link has `border-t` separator class.
-- **Icons:** `Bug`, `Sparkles` from `lucide-react`. Trigger uses `MessageSquarePlus`.
-- **i18n:** `useTranslation()` reads from `frontend/src/locales/en/translation.json` at `feedback.*` namespace.
-- **Tests:** 15 tests in `frontend/src/components/__tests__/FeedbackWidget.test.tsx` — trigger, nav, link URLs, keyboard (Escape), focus management, backdrop.
-- **Docs URL:** `https://wikid82.github.io/Charon/`
-
-### 2.5 ELI5 Tone Reference
-
-From existing docs (`getting-started.md`, `docker-integration.md`): plain English, short sentences, analogies, reassuring tone, explains *why* before *how*. Tables for comparisons. Numbered steps for procedures.
-
----
-
-## 3. Technical Specifications
-
-### 3.1 New File: `docs/features/orthrus.md`
-
-**Purpose:** ELI5 explanation of Orthrus — what it is, why someone needs it, how to set it up.
-**Target reader:** Self-hosters who want to manage Docker containers on a machine they cannot directly reach.
-
-**Outline:**
+Both jobs follow an identical preamble:
 
 ```
----
-title: Orthrus — Remote Tunnel Agent
-description: Connect to Docker on a remote machine through a secure outbound tunnel
-category: features
----
-
-# Orthrus — Remote Tunnel Agent
-
-[Opening analogy: your HomeLab server is behind a locked door; Orthrus is
-a messenger installed there that knocks on Charon's door from the inside —
-no key to the front door required.]
-
-## What Problem Does Orthrus Solve?
-- Remote machine is behind NAT / firewall / no public IP
-- You cannot open a port on it
-- You still want Charon to discover its Docker containers
-
-## How It Works (Plain English)
-1. Orthrus agent runs on your remote machine
-2. Agent dials outbound to Charon (no inbound ports needed on remote)
-3. Charon multiplexes Docker API calls back through that connection
-4. Result: Charon sees remote containers as if they were local
-
-Disconnections are handled automatically — the agent reconnects on its own with no action required.
-
-## What Orthrus Can (and Cannot) Do
-- CAN: List running containers, images, networks, volumes
-- CANNOT: Create, delete, restart, or modify anything
-- The "Muzzle" filter enforces this at every request — it is not configurable
-
-## Setting Up an Orthrus Agent
-1. In Charon go to Remote Agents (sidebar)
-2. Click Add Agent — give it a friendly name
-3. Copy the one-time auth key (it starts with ch_orthrus_)
-> ⚠️ **Save this key now.** It starts with `ch_orthrus_` and is shown **once only**. If you lose it, delete the agent and create a new one.
-4. Choose your install method (Docker Compose is easiest)
-5. Paste the snippet + auth key on your remote machine and run it
-6. The agent appears as "Online" within seconds
-
-## Install Methods
-| Method           | Best For                          |
-|------------------|-----------------------------------|
-| Docker Compose   | Servers already running Docker    |
-| systemd          | Bare-metal Linux servers          |
-| Kubernetes       | K8s clusters, DaemonSet per node  |
-| Homebrew         | macOS machines                    |
-| Tarball          | Any Linux, no package manager     |
-
-## Agent Status Reference
-| Status  | Meaning                               | What To Do                      |
-|---------|---------------------------------------|---------------------------------|
-| online  | Connected and healthy                 | Nothing — you're good           |
-| offline | Lost connection or not started        | Check the agent is running      |
-| pending | Registered but never connected        | Run the install snippet         |
-
-## After Setup
-→ Continue to the [Remote Docker Setup Guide](../guides/remote-docker-setup.md)
-
-## Troubleshooting
-| Problem                     | Likely Cause                        | Fix                             |
-|-----------------------------|-------------------------------------|---------------------------------|
-| Agent stays "pending"       | Snippet not run yet                 | Run it on the remote machine    |
-| Agent shows "offline"       | Agent process stopped               | Restart agent service           |
-| Agent "offline" after reboot| Not configured to start on boot     | Use systemd or Docker restart:always |
-| Auth key lost               | Closed the page without saving      | Delete agent, create a new one  |
+1. Checkout nightly branch   (actions/checkout)
+2. Set lowercase image name  (run: echo ...)
+3. Set up QEMU               (docker/setup-qemu-action)
+4. Set up Docker Buildx      (docker/setup-buildx-action)
 ```
 
----
+### 2.2 Existing SHA-Pinning Convention
 
-### 3.2 New File: `docs/features/hecate.md`
+Every action in `nightly-build.yml` is pinned to a full 40-character commit SHA with a
+version comment on the same line, for example:
 
-**Purpose:** ELI5 explanation of Hecate — the UI layer that manages how Charon reaches remote servers.
-**Target reader:** Users configuring Remote Servers and choosing between connectivity options.
-
-**Outline:**
-
-```
----
-title: Hecate — Tunnel & Pathway Manager
-description: Choose how each remote server connects to Charon
-category: features
----
-
-# Hecate — Tunnel & Pathway Manager
-
-[Opening analogy: Hecate is the traffic controller at a crossroads —
-it decides which road each remote server uses to reach Charon.]
-
-## What Is Hecate?
-The UI that manages all "how do I reach this server?" decisions.
-When you add a Remote Server, Hecate is what lets you pick Direct / Agent / Provider.
-
-## When Do You Need Hecate?
-- **Direct Mode users:** You don't need to configure Hecate at all — just type in the IP.
-- **Agent Mode users:** Register an agent in Orthrus first; Hecate fills in the address automatically.
-- **Provider Mode users:** Hecate is the place to add your VPN credentials before you can use them.
-
-## The Three Connection Modes
-
-| Mode     | When To Use                                    | What You Provide              |
-|----------|------------------------------------------------|-------------------------------|
-| Direct   | You know the server's hostname or IP           | Hostname / IP + port          |
-| Agent    | You installed Orthrus on the remote machine    | Pick the Orthrus agent        |
-| Provider | Server is already on a VPN, no agent needed    | Pick provider + device        |
-
-### Direct Mode
-Type in the address. That's it. Use this when the machine is on your local
-network or has a public IP.
-
-### Agent Mode (Orthrus)
-Pick an Orthrus agent from the list. Charon fills in the connection address
-automatically from the agent's network assignment. You don't need to know
-the IP.
-
-### Provider Mode
-Your server is already reachable via a VPN tunnel (NetBird, Tailscale, etc.).
-Pick the provider and the device on it. No agent installation required.
-
-## Supported Tunnel Providers
-
-| Provider    | Notes                                      |
-|-------------|---------------------------------------------|
-| NetBird     | Fully integrated — add API key to activate |
-| Tailscale   | Supported — requires Tailscale API key     |
-| Cloudflare  | Supported — Cloudflare Tunnel credentials  |
-| ZeroTier    | Supported — ZeroTier network + node ID     |
-
-## Managing Providers
-- Where to find: **Settings → Tunnel Providers**
-- Click **Add Provider** → choose type → enter credentials → save
-- Each provider card shows its configured tunnels; click the settings icon to edit
-
-## Assigning a Tunnel to an Orthrus Agent
-This tells Charon where on a VPN network your agent lives.
-
-1. Go to Remote Agents and open the agent
-2. Under **Network Assignment**, pick a Provider and a Device
-3. Save — Charon caches the resolved address
-4. When you create a Remote Server using this agent, the address fills in automatically
-
-## Live Status Badges
-Every Remote Server shows a connection health indicator:
-- 🟢 Green — connected and healthy
-- 🟡 Yellow — connecting or degraded
-- 🔴 Red — unreachable
-
-## Troubleshooting
-
-| Problem                          | Likely Cause                        | Fix                                  |
-|----------------------------------|-------------------------------------|--------------------------------------|
-| Provider shows error state       | Bad credentials or API key          | Re-enter credentials in Settings     |
-| Agent address not resolved       | No network assignment set           | Assign provider + device to the agent|
-| Tunnel keeps restarting          | Provider unreachable                | Check VPN credentials; backoff is normal |
-| "Provider" mode device not listed| Provider not configured             | Add provider in Settings first       |
+```yaml
+uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3  # v4.1.0
+uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5  # v4.1.0
 ```
 
+The new step must follow this exact pattern.
+
+### 2.3 Action Details
+
+| Property | Value |
+|----------|-------|
+| Action | `jlumbroso/free-disk-space` |
+| Version | v1.3.1 |
+| Commit SHA | `54081f138730dfa15788a46383842cd2f914a1be` |
+| Marketplace | https://github.com/jlumbroso/free-disk-space |
+
+### 2.4 Configuration Rationale
+
+| Input | Value | Reason |
+|-------|-------|--------|
+| `android` | `true` | Android SDK (~8 GB) — not needed by any Charon build step |
+| `dotnet` | `true` | .NET SDK (~2 GB) — not needed |
+| `haskell` | `true` | Haskell GHC/Stack (~2 GB) — not needed |
+| `large-packages` | `true` | Additional apt packages (~3–4 GB) — not needed |
+| `docker-images` | `false` | **Must stay false** — Buildx relies on pre-pulled images |
+| `swap-storage` | `true` | Reclaim ~4 GB swap file space |
+| `tool-cache` | `false` | Keep cached tools; not a significant source of waste |
+
+**Expected recovered space:** 10–15 GB, leaving ~24–29 GB available before the build begins.
+
+### 2.5 CI Failure Behaviour
+
+When disk space is exhausted during a multi-platform `docker/build-push-action` run, the
+runner OS-level write fails, which kills the runner worker process outright. Because the
+process does not exit cleanly, it never sends the `complete` status event back to GitHub for
+each step, resulting in:
+
+- The job appearing as **failed** (runner reported failure on re-connect timeout)
+- Individual steps remaining **in progress** in the UI (never received terminal status)
+- No actionable log output past the point of failure
+
 ---
 
-### 3.3 New File: `docs/guides/remote-docker-setup.md`
+## 3. Technical Specification
 
-**Purpose:** Complete step-by-step walkthrough to connect a remote HomeLab server's Docker to Charon using Orthrus + Hecate.
-**Target reader:** First-time users going through the full remote Docker setup flow.
-
-**Outline:**
+### 3.1 File to Modify
 
 ```
----
-title: Connecting a Remote Docker Host
-description: Step-by-step guide to managing Docker on a remote machine through Charon
-category: guides
----
-
-# Connecting a Remote Docker Host
-
-[Opening: "Your HomeLab is in the basement. Charon is in the cloud.
-This guide connects them safely without opening any ports."]
-
-## Before You Start
-
-Checklist:
-- [ ] Charon is running and accessible
-- [ ] Remote machine has Docker installed
-- [ ] Remote machine can reach the internet (outbound HTTPS)
-- [ ] You have terminal/SSH access to the remote machine
-
-## Step 1: Register an Orthrus Agent in Charon
-
-1. In Charon sidebar click **Remote Agents**
-2. Click **Add Agent**
-3. Enter a name (e.g. "HomeLab Server")
-4. Click **Create**
-5. **Copy the auth key now** — it starts with `ch_orthrus_` and is shown only once
-
-> Need more detail? → [Orthrus feature guide](../features/orthrus.md)
-
-## Step 2: Install the Agent on Your Remote Machine
-
-The easiest method is Docker Compose. On your remote machine:
-
-1. Copy the Docker Compose snippet from the Charon UI (Agent → Install → Docker Compose)
-2. Replace `<AUTH_KEY>` with the key you copied
-3. Run:
-   ```bash
-   docker compose up -d
-   ```
-4. The agent starts and dials out to Charon.
-
-> Other methods (systemd, Kubernetes, tarball) are available in the Install tab.
-
-## Step 3: Verify the Agent Is Online
-
-Back in Charon → Remote Agents. Your agent should show **Online** within 10–30 seconds.
-
-If it stays "pending", the agent hasn't connected yet — double-check the auth key and that the container is running.
-
-## Step 4: (Optional) Assign a Tunnel Provider
-
-Do this step if your remote machine **doesn't** have a direct public IP — for example it's on a VPN (NetBird, Tailscale, etc.) or behind a NAT.
-
-1. Open the agent in Charon → **Network Assignment**
-2. Pick your VPN provider and the device that represents your remote machine
-3. Save — Charon stores the resolved address automatically
-
-> Not on a VPN? Skip to Step 5.
-> Need to set up a provider first? → [Hecate guide](../features/hecate.md)
-
-## Step 5: Add a Remote Server
-
-1. Go to **Settings → Docker** (or Remote Servers)
-2. Click **Add Remote Host**
-3. Set Connection Mode to **Agent**
-4. Choose the Orthrus agent you registered
-5. Click **Test Connection** — you should see a success response
-6. Click **Save**
-
-## Step 6: Use Your Remote Server
-
-Your remote machine now appears as a Docker source in Charon:
-
-1. Go to **Hosts → Add Host**
-2. Click **Select from Docker**
-3. In the host dropdown, pick your remote server
-4. Browse and select any container running there
-
-Done. Charon proxies through the Orthrus tunnel to reach it.
-
-## Troubleshooting
-
-| Problem                         | Likely Cause                  | Fix                                        |
-|---------------------------------|-------------------------------|--------------------------------------------|
-| Agent stays "pending"           | Snippet not run               | Run docker compose up -d on remote         |
-| Test Connection fails           | Agent offline                 | Check agent container is running           |
-| No containers listed            | Docker socket not mounted     | Add /var/run/docker.sock volume to agent   |
-| Auth key expired / lost         | Page closed before saving     | Delete agent, register a new one           |
-| Tunnel keeps disconnecting      | Network instability           | Normal — agent reconnects automatically    |
+.github/workflows/nightly-build.yml
 ```
 
----
+### 3.2 Exact YAML Step to Insert
 
-### 3.4 Changes to `docs/index.md`
+The following step block must be inserted as the **first step** (before `Checkout nightly
+branch`) in both affected jobs:
 
-Add a "Remote Access" section after "For Developers" and before "Need Help":
-
-```markdown
----
-
-## 🌐 Remote Access
-
-**[Orthrus Agent Setup](features/orthrus.md)** — Tunnel into a remote machine's Docker without open ports
-**[Hecate Connection Manager](features/hecate.md)** — Choose how each remote server reaches Charon
-**[Remote Docker Guide](guides/remote-docker-setup.md)** — Step-by-step: connect a HomeLab server
-
----
+```yaml
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # v1.3.1
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+          tool-cache: false
 ```
 
-Exact insertion point: after the closing `---` of the "For Developers" section (after the `database-schema.md` link line).
+### 3.3 Insertion Points
 
----
+#### Job: `build-and-push-nightly`
 
-### 3.4.1 Cross-Reference: `docs/features/uptime-monitoring.md`
+Insert **before** the `Checkout nightly branch` step.
 
-At the end of `docs/features/uptime-monitoring.md`, append one cross-reference line:
-
-```markdown
-*Monitoring a service on a remote Docker host? See [Connecting a Remote Docker Host](../guides/remote-docker-setup.md).*
+**Before (current first step):**
+```yaml
+    steps:
+      - name: Checkout nightly branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
+          fetch-depth: 0
 ```
 
----
+**After (with new first step):**
+```yaml
+    steps:
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # v1.3.1
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+          tool-cache: false
 
-### 3.5 Changes to `docs/features.md`
-
-Add the following block immediately **before** the `### 🔀 Hecate Tunnel & Pathway Manager` heading (currently around line 207):
-
-```markdown
-### 🐾 Orthrus — Remote Tunnel Agent
-
-Your HomeLab behind a firewall? Orthrus is a small agent you install on any remote machine. It dials outward to Charon over a secure WebSocket — no open inbound ports required. Once connected, Charon can discover and proxy Docker containers on that machine just like local ones.
-
-→ [Learn More](features/orthrus.md)
-
----
-
+      - name: Checkout nightly branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
+          fetch-depth: 0
 ```
 
-The existing `→ [Learn More](features/hecate.md)` on line 226 does not need text changes — the broken destination is fixed by creating the file.
+#### Job: `build-and-push-nightly-orthrus`
 
----
+Insert **before** the `Checkout nightly branch` step in the orthrus job.
 
-### 3.6 FeedbackWidget — `frontend/src/components/FeedbackWidget.tsx`
-
-**Change 1 — Import:**
-```typescript
-// Before:
-import { MessageSquarePlus, Bug, Sparkles } from 'lucide-react'
-
-// After:
-import { MessageSquarePlus, Bug, Sparkles, BookOpen } from 'lucide-react'
+**Before (current first step):**
+```yaml
+    steps:
+      - name: Checkout nightly branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
+          fetch-depth: 0
 ```
 
-**Change 2 — Constant (after `GITHUB_FEATURE_URL`):**
-```typescript
-const DOCS_URL = 'https://wikid82.github.io/Charon/'
+**After (with new first step):**
+```yaml
+    steps:
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # v1.3.1
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+          tool-cache: false
+
+      - name: Checkout nightly branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
+          fetch-depth: 0
 ```
 
-**Change 3 — Third link element** (append inside `<nav>`, after the Feature Request `</a>`):
-```tsx
-<a
-  href={DOCS_URL}
-  target="_blank"
-  rel="noopener noreferrer"
-  aria-label={t('feedback.viewDocsAriaLabel')}
-  className={cn(
-    'flex items-center gap-3 px-4 py-3 text-sm',
-    'border-t border-gray-200 dark:border-gray-800',
-    'text-gray-700 dark:text-gray-300',
-    'hover:bg-gray-100 dark:hover:bg-gray-800',
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2',
-    'transition-colors'
-  )}
->
-  <BookOpen className="w-4 h-4 shrink-0" aria-hidden="true" />
-  <div>
-    <div className="font-medium">{t('feedback.viewDocs')}</div>
-    <div className="text-xs text-gray-500 dark:text-gray-400">
-      {t('feedback.viewDocsDescription')}
-    </div>
-  </div>
-</a>
-```
+### 3.4 Step Ordering (Both Jobs, Post-Change)
 
----
-
-### 3.7 i18n — Locale Files (All Five Languages)
-
-Add three keys inside the `"feedback"` object (after `requestFeatureAriaLabel`) to **all five locale files**:
-
-- `frontend/src/locales/en/translation.json`
-- `frontend/src/locales/de/translation.json`
-- `frontend/src/locales/fr/translation.json`
-- `frontend/src/locales/zh/translation.json`
-- `frontend/src/locales/es/translation.json`
-
-For `de`, `fr`, `zh`, and `es`: use the same English values as placeholders. Human translation is a separate backlog task and must not block this PR.
-
-The three keys to add:
-
-```json
-"viewDocs": "View Documentation",
-"viewDocsDescription": "Read the docs",
-"viewDocsAriaLabel": "View documentation (opens docs site in new tab)"
-```
-
-Final `"feedback"` object (12 keys total):
-
-```json
-"feedback": {
-  "triggerLabel": "Open feedback menu",
-  "closeTriggerLabel": "Close feedback menu",
-  "panelLabel": "Feedback options",
-  "reportBug": "Report a Bug",
-  "reportBugDescription": "Found an issue?",
-  "reportBugAriaLabel": "Report a bug (opens GitHub Issues in new tab)",
-  "requestFeature": "Request a Feature",
-  "requestFeatureDescription": "Have an idea?",
-  "requestFeatureAriaLabel": "Request a feature (opens GitHub Issues in new tab)",
-  "viewDocs": "View Documentation",
-  "viewDocsDescription": "Read the docs",
-  "viewDocsAriaLabel": "View documentation (opens docs site in new tab)"
-}
-```
-
----
-
-### 3.8 Tests — `frontend/src/components/__tests__/FeedbackWidget.test.tsx`
-
-Add `DOCS_URL` constant and three new tests to the existing `describe` block:
-
-```typescript
-const DOCS_URL = 'https://wikid82.github.io/Charon/'
-
-// 16. Panel contains docs link pointing to correct URL
-it('panel contains docs link pointing to correct URL', async () => {
-  render(<FeedbackWidget />)
-  const trigger = screen.getByRole('button', { name: 'Open feedback menu' })
-  await userEvent.click(trigger)
-  const docsLink = screen.getByRole('link', { name: /view documentation/i })
-  expect(docsLink).toHaveAttribute('href', DOCS_URL)
-})
-
-// 17. Docs link has target="_blank"
-it('docs link has target="_blank"', async () => {
-  render(<FeedbackWidget />)
-  const trigger = screen.getByRole('button', { name: 'Open feedback menu' })
-  await userEvent.click(trigger)
-  const docsLink = screen.getByRole('link', { name: /view documentation/i })
-  expect(docsLink).toHaveAttribute('target', '_blank')
-})
-
-// 18. Docs link has rel="noopener noreferrer"
-it('docs link has rel="noopener noreferrer"', async () => {
-  render(<FeedbackWidget />)
-  const trigger = screen.getByRole('button', { name: 'Open feedback menu' })
-  await userEvent.click(trigger)
-  const docsLink = screen.getByRole('link', { name: /view documentation/i })
-  expect(docsLink).toHaveAttribute('rel', 'noopener noreferrer')
-})
-
-// 19. Docs link has aria-label from i18n key
-it('docs link has aria-label from i18n key', async () => {
-  render(<FeedbackWidget />)
-  await userEvent.click(screen.getByRole('button', { name: 'Open feedback menu' }))
-  const docsLink = screen.getByRole('link', { name: /view documentation/i })
-  expect(docsLink).toHaveAttribute('aria-label', 'View documentation (opens docs site in new tab)')
-})
-```
-
----
-
-### 3.9 Accessibility Notes
-
-- New `<a>` element follows the identical pattern as existing links: explicit `aria-label`, `target="_blank"`, `rel="noopener noreferrer"`, `focus-visible` ring classes.
-- `BookOpen` carries `aria-hidden="true"` — accessible name from `aria-label` on the anchor.
-- `firstLinkRef` stays on the Bug Report link; Tab order flows naturally: Bug → Feature → Docs.
-- WCAG 2.2 AA satisfied: sufficient contrast (shared classes), keyboard operability, screen-reader label.
+| # | Step name | Notes |
+|---|-----------|-------|
+| 1 | **Free disk space** | NEW — reclaims 10–15 GB |
+| 2 | Checkout nightly branch | unchanged |
+| 3 | Set lowercase image name | unchanged |
+| 4 | Set up QEMU | unchanged |
+| 5 | Set up Docker Buildx | unchanged |
+| 6+ | … remaining steps unchanged | |
 
 ---
 
 ## 4. Implementation Plan
 
-### Phase 1: Playwright Tests (Spec Validation)
+### Phase 1: Playwright Tests
 
-Write failing tests first to define expected widget behaviour.
+No UI changes are introduced. This fix is CI-infrastructure only; no Playwright tests are
+required or applicable.
 
-| # | File | Action |
-|---|------|--------|
-| 1 | `frontend/src/components/__tests__/FeedbackWidget.test.tsx` | Add tests 16–19 (docs link URL, target, rel, aria-label) |
+### Phase 2: Backend Implementation
 
-**Validation gate:** Tests run and fail (implementation not yet present — expected).
+Not applicable. This fix is GitHub Actions workflow YAML only.
 
----
+### Phase 3: Frontend Implementation
 
-### Phase 2: Documentation Files
+Not applicable.
 
-All docs work; zero backend/frontend code changes.
+### Phase 4: Workflow Change
 
-| # | File | Action |
-|---|------|--------|
-| 2 | `docs/features/orthrus.md` | Create — full ELI5 feature page per outline in §3.1 |
-| 3 | `docs/features/hecate.md` | Create — full ELI5 feature page per outline in §3.2 (fixes broken link) |
-| 4 | `docs/guides/remote-docker-setup.md` | Create — step-by-step guide per outline in §3.3 |
-| 5 | `docs/features.md` | Insert Orthrus entry before Hecate section (§3.5) |
-| 6 | `docs/index.md` | Add "Remote Access" section (§3.4) |
-| 6a | `docs/features/uptime-monitoring.md` | Append cross-reference line per §3.4.1 |
+**File:** `.github/workflows/nightly-build.yml`
 
-**Validation gate:** All relative links in new files resolve to real files. `features/hecate.md` link in `features.md` is no longer broken.
+**Edit 1 — `build-and-push-nightly` job**
 
----
+In the `steps:` block of `build-and-push-nightly`, insert the `Free disk space` step block
+immediately before the `- name: Checkout nightly branch` step so it becomes the first step
+in the job.
 
-### Phase 3: Frontend Widget
+**Edit 2 — `build-and-push-nightly-orthrus` job**
 
-| # | File | Action |
-|---|------|--------|
-| 7 | `frontend/src/locales/en/translation.json` | Add three `viewDocs*` keys per §3.7 |
-| 7a | `frontend/src/locales/de/translation.json` | Add three `viewDocs*` keys (English placeholders) per §3.7 |
-| 7b | `frontend/src/locales/fr/translation.json` | Add three `viewDocs*` keys (English placeholders) per §3.7 |
-| 7c | `frontend/src/locales/zh/translation.json` | Add three `viewDocs*` keys (English placeholders) per §3.7 |
-| 7d | `frontend/src/locales/es/translation.json` | Add three `viewDocs*` keys (English placeholders) per §3.7 |
-| 8 | `frontend/src/components/FeedbackWidget.tsx` | Import `BookOpen`, add `DOCS_URL`, add third link per §3.6 |
+In the `steps:` block of `build-and-push-nightly-orthrus`, insert the identical `Free disk
+space` step block immediately before the `- name: Checkout nightly branch` step so it
+becomes the first step in the job.
 
-**Validation gate:** Tests 16–19 pass; existing 15 tests still pass.
+No other jobs, steps, or keys in the file are touched.
 
----
+### Phase 5: Integration and Testing
 
-### Phase 4: Integration Check
+1. After merging the PR, trigger `nightly-build.yml` manually via `workflow_dispatch`.
+2. Confirm both `build-and-push-nightly` and `build-and-push-nightly-orthrus` complete
+   without `No space left on device` errors.
+3. Confirm the `Free disk space` step is listed first in the GitHub Actions UI for both jobs
+   and reports recovered space in its output log.
+4. Confirm the subsequent `Set up QEMU` and `Set up Docker Buildx` steps succeed, validating
+   that `docker-images: false` preserved the Docker daemon state.
 
-| # | Action |
-|---|--------|
-| 9 | Run `npm run test -- --reporter=verbose` — all 19 FeedbackWidget tests green, zero regressions |
-| 10 | Manual browser verify: FeedbackWidget renders 3 links when open |
-| 11 | Spot-check: `orthrus.md`, `hecate.md`, `remote-docker-setup.md` render correctly in browser |
+### Phase 6: Documentation and Deployment
+
+No documentation changes required beyond this plan. The commit message is sufficient.
 
 ---
 
 ## 5. Acceptance Criteria
 
-### Docs
-
-- [ ] `docs/features/orthrus.md` exists; ELI5 tone with analogy, setup steps, troubleshooting table
-- [ ] `docs/features/hecate.md` exists; fixes the broken reference at `docs/features.md` line 226
-- [ ] `docs/guides/remote-docker-setup.md` exists; numbered steps, auth-key warning prominent
-- [ ] `docs/features.md` has a standalone Orthrus entry linking to `features/orthrus.md`
-- [ ] `docs/index.md` has "Remote Access" section with all three new page links
-- [ ] No broken internal relative links introduced or left unfixed
-- [ ] All new docs: plain English, analogy at start of new concepts, jargon immediately explained
-
-### Widget
-
-- [ ] `FeedbackWidget.tsx` renders exactly 3 links when panel is open
-- [ ] Third link `href` = `https://wikid82.github.io/Charon/`
-- [ ] Third link has `target="_blank"` and `rel="noopener noreferrer"`
-- [ ] Third link `aria-label` uses resolved value of `feedback.viewDocsAriaLabel`
-- [ ] `BookOpen` icon has `aria-hidden="true"`
-- [ ] `translation.json` contains all three new `feedback.viewDocs*` keys
-- [ ] All 19 FeedbackWidget unit tests pass; zero regressions
-- [ ] `npm run test` exits 0
+| # | Criterion | Verification |
+|---|-----------|--------------|
+| 1 | `Free disk space` step is the first step in `build-and-push-nightly` | Inspect YAML and GitHub Actions UI |
+| 2 | `Free disk space` step is the first step in `build-and-push-nightly-orthrus` | Inspect YAML and GitHub Actions UI |
+| 3 | Action is pinned to SHA `54081f138730dfa15788a46383842cd2f914a1be` with comment `# v1.3.1` | Code review / grep |
+| 4 | `docker-images: false` is set (Docker daemon state preserved) | Code review |
+| 5 | Both jobs complete without `No space left on device` error on next nightly run | CI run log |
+| 6 | Multi-platform push (`linux/amd64,linux/arm64`) succeeds for both images | CI run log |
+| 7 | No other steps, jobs, or keys in the workflow file are modified | Diff review |
 
 ---
 
 ## 6. Commit Slicing Strategy
 
-**Decision:** Single PR with two ordered logical commits. The deliverables are independent; separate commits make each one reviewable and rollback-safe in isolation.
+### Decision
 
-### Commit 1 — `docs: add Orthrus, Hecate, and remote Docker documentation`
+**Single PR · Single Commit.** This is a two-hunk edit to one YAML file with zero
+functional ambiguity. There is no benefit to splitting further.
 
-**Scope:** Docs-only. No frontend or backend changes.
+### Trigger Reasons for Single Commit
 
-**Files:**
-- `docs/features/orthrus.md` (new)
-- `docs/features/hecate.md` (new — fixes broken link)
-- `docs/guides/remote-docker-setup.md` (new)
-- `docs/features.md` (modified — add Orthrus entry)
-- `docs/index.md` (modified — add Remote Access section)
+- Scope is contained: one file, two identical insertions.
+- No risk of partial deployment — both jobs must be fixed simultaneously or the nightly
+  workflow remains broken regardless.
+- Rollback is a single `git revert`.
 
-**Dependencies:** None — purely additive Markdown.
+### Commit 1 (the only commit)
 
-**Validation gate:** All internal links in new files resolve; `features.md` Hecate link target exists.
+| Property | Value |
+|----------|-------|
+| **Scope** | `.github/workflows/nightly-build.yml` |
+| **Type** | `fix` |
+| **Message** | `fix(ci): free disk space before nightly multi-platform Docker builds` |
+| **Files changed** | `.github/workflows/nightly-build.yml` |
+| **Dependencies** | None |
+| **Validation gate** | Manual `workflow_dispatch` of `nightly-build.yml` completes without disk-full error |
 
-**Rollback:** Revert this commit with zero code impact.
+**Commit body:**
+
+```
+The ubuntu-latest runner (~14 GB free) is exhausted by pre-installed
+toolchains (Android SDK, .NET, Haskell) before the multi-platform
+build-push-action executes. The runner dies mid-build without sending
+terminal step statuses, leaving jobs in a failed+in-progress limbo.
+
+Add jlumbroso/free-disk-space@v1.3.1 as the first step in both
+build-and-push-nightly and build-and-push-nightly-orthrus. Configured
+to remove Android, .NET, Haskell, large-packages, and swap storage
+(~10–15 GB recovered). docker-images is explicitly false to preserve
+the Docker daemon state required by Buildx.
+```
+
+### Rollback
+
+```bash
+git revert <commit-sha>
+```
+
+No data loss, no migration, no downstream impact.
 
 ---
 
-### Commit 2 — `feat(feedback-widget): add View Documentation link`
+## 7. Risks and Mitigations
 
-**Scope:** Frontend only. No backend or docs changes.
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| `free-disk-space` action itself fails (network, apt lock) | Low | Medium | Step is not `continue-on-error`; if it fails the job fails fast before wasting build time. |
+| Docker daemon loses needed images if `docker-images` is accidentally set `true` | Low | High | `docker-images: false` is explicit in the YAML; verified in AC-4. |
+| Disk space still insufficient after reclamation | Very low | High | ~10–15 GB recovered is well above the ~4–6 GB needed for a two-platform Go+Alpine build. |
+| SHA drift (action updated, SHA stale) | Low | Low | SHA is pinned; Dependabot will create a PR to update when a new release is published. |
 
-**Files:**
-- `frontend/src/locales/en/translation.json` (modified — 3 new keys)
-- `frontend/src/locales/de/translation.json` (modified — 3 new keys, English placeholders)
-- `frontend/src/locales/fr/translation.json` (modified — 3 new keys, English placeholders)
-- `frontend/src/locales/zh/translation.json` (modified — 3 new keys, English placeholders)
-- `frontend/src/locales/es/translation.json` (modified — 3 new keys, English placeholders)
-- `frontend/src/components/FeedbackWidget.tsx` (modified — import, constant, link element)
-- `frontend/src/components/__tests__/FeedbackWidget.test.tsx` (modified — 4 new tests)
 
-**Dependencies:** Commit 1 should land first (so the target URL exists on the published site), but technically independent — URL is hardcoded.
 
-**Validation gate:** 19 FeedbackWidget tests pass; no regressions.
-
-**Rollback:** Revert this commit alone with zero docs or backend impact.
-
----
-
-### Contingency
-
-If `BookOpen` is unavailable in the installed lucide-react version, substitute `ExternalLink` or `FileText` — the same structural pattern applies.
-
----
-
-## 7. Notes for Doc Writer Agent
-
-### ELI5 Writing Guidelines
-
-1. **Lead with why, not what.** "Your HomeLab is behind a firewall — Orthrus solves that" before "Orthrus is a reverse WebSocket tunnel."
-2. **Open each new concept with an analogy.** Examples:
-   - Orthrus: "a messenger that knocks from the inside"
-   - Hecate: "a traffic controller at a crossroads"
-   - Muzzle filter: "Orthrus can look but not touch"
-3. **Short sentences.** One idea per sentence.
-4. **No jargon without an immediate plain-English follow-up.** If "WebSocket" must appear: "(a type of live internet connection)".
-5. **Procedures are numbered**, not bulleted.
-6. **Use tables for comparisons** — install methods, status values, provider types.
-7. **Reassuring tone.** "Don't worry if this looks complex — you only need to do it once."
-8. **Make the one-time auth key warning impossible to miss.** Bold it, use a callout block or ⚠️ emoji.
-9. **Security note on Muzzle is a trust-builder** — mention it explicitly. Users worry about granting Docker access to a third-party tool.
-10. **Section order convention** (matches existing feature pages):
-    1. Front-matter
-    2. `# Title`
-    3. Overview / analogy paragraph
-    4. How It Works
-    5. Setup steps (numbered)
-    6. Reference tables
-    7. Troubleshooting table

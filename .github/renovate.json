@@ -269,6 +269,74 @@
       "datasourceTemplate": "github-releases",
       "versioningTemplate": "semver",
       "extractVersionTemplate": "^v(?<version>.*)"
+    },
+    {
+      "customType": "regex",
+      "description": "Track CrowdSec version ARG in Dockerfile",
+      "managerFilePatterns": ["/^Dockerfile$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=github-releases\\s+depName=crowdsecurity/crowdsec\\s*\\nARG CROWDSEC_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "crowdsecurity/crowdsec",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v?(?<version>.*)$"
+    },
+    {
+      "customType": "regex",
+      "description": "Track Caddy version ARGs in Dockerfile",
+      "managerFilePatterns": ["/^Dockerfile$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=go\\s+depName=github\\.com/caddyserver/caddy[^\\s]*\\s*\\nARG CADDY_VERSION=(?<currentValue>[^\\s]+)",
+        "#\\s*renovate:\\s*datasource=go\\s+depName=github\\.com/caddyserver/caddy[^\\s]*\\s*\\nARG CADDY_CANDIDATE_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddyserver/caddy/v2",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track gosu version ARG in Dockerfile",
+      "managerFilePatterns": ["/^Dockerfile$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=github-releases\\s+depName=tianon/gosu\\s*\\nARG GOSU_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "tianon/gosu",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track npm version ARG in Dockerfile",
+      "managerFilePatterns": ["/^Dockerfile$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=npm\\s+depName=npm\\s*\\nARG NPM_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "npm",
+      "datasourceTemplate": "npm",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track golang.org/x/crypto version ARG in Dockerfile",
+      "managerFilePatterns": ["/^Dockerfile$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=go\\s+depName=golang\\.org/x/crypto\\s*\\nARG XCRYPTO_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "golang.org/x/crypto",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track coraza-caddy version ARG in Dockerfile",
+      "managerFilePatterns": ["/^Dockerfile$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=go\\s+depName=github\\.com/corazawaf/coraza-caddy[^\\s]*\\s*\\nARG CORAZA_CADDY_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/corazawaf/coraza-caddy/v2",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
     }
   ],
 
@@ -280,17 +348,70 @@
 
   "packageRules": [
     {
-      "description": "THE MEGAZORD: Group ALL non-major updates (NPM, Docker, Go, Actions) into one PR",
+      "description": "Group GitHub Actions non-major updates into one PR",
+      "matchManagers": [
+        "github-actions"
+      ],
       "matchUpdateTypes": [
         "minor",
         "patch",
         "pin",
         "digest"
       ],
-      "groupName": "non-major-updates",
+      "groupName": "github-actions-non-major",
+      "groupSlug": "github-actions-non-major"
+    },
+    {
+      "description": "Group Go non-major updates into one PR",
+      "matchDatasources": [
+        "go",
+        "golang-version"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "groupName": "go-non-major",
+      "groupSlug": "go-non-major"
+    },
+    {
+      "description": "Group Go github-tags fallback updates from Dockerfile custom manager into Go non-major PR",
+      "matchDatasources": [
+        "github-tags"
+      ],
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchFileNames": [
+        "Dockerfile"
+      ],
       "matchPackageNames": [
-        "*"
-      ]
+        "jackc/pgx"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "groupName": "go-non-major",
+      "groupSlug": "go-non-major"
+    },
+    {
+      "description": "Group NPM non-major updates into one PR",
+      "matchDatasources": [
+        "npm"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "groupName": "npm-non-major",
+      "groupSlug": "npm-non-major"
     },
     {
       "description": "Development branch: Auto-merge non-major updates after proven stable",
@@ -314,6 +435,18 @@
       "matchManagers": ["dockerfile"],
       "matchPackageNames": ["caddy"],
       "allowedVersions": "<3.0.0"
+    },
+    {
+      "description": "Go: keep Caddy within v2 (no automatic jump to v3) - ARG tracking via custom manager",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/caddyserver/caddy/v2"],
+      "allowedVersions": "<3.0.0"
+    },
+    {
+      "description": "Label CrowdSec updates as security-relevant",
+      "matchDatasources": ["github-releases"],
+      "matchPackageNames": ["crowdsecurity/crowdsec"],
+      "labels": ["security", "dependencies"]
     },
     {
       "description": "Go: keep pgx within v4 (CrowdSec requires pgx/v4 module path) - applies to go.mod lookups",

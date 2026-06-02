@@ -46,20 +46,20 @@ describe('ImportSitesModal', () => {
   test('reads multiple files via hidden input and submits successfully', async () => {
     const onClose = vi.fn()
     const onUploaded = vi.fn()
-    mockUpload.mockResolvedValueOnce(undefined)
+    mockUpload.mockImplementationOnce(() => Promise.resolve())
 
-    const { container } = render(<ImportSitesModal visible={true} onClose={onClose} onUploaded={onUploaded} />)
+    render(<ImportSitesModal visible={true} onClose={onClose} onUploaded={onUploaded} />)
 
     // find the hidden file input
-    const input: HTMLInputElement | null = container.querySelector('input[type="file"]')
-    expect(input).toBeTruthy()
+    const input = screen.getByTestId('file-input') as HTMLInputElement
+    expect(input).toBeInTheDocument()
 
     // create two files (note: jsdom's File.text() returns empty strings, so we'll set content manually)
     const f1 = new File(['site1'], 'site1.caddy', { type: 'text/plain' })
     const f2 = new File(['site2'], 'site2.caddy', { type: 'text/plain' })
 
     // fire change event with files
-    fireEvent.change(input!, { target: { files: [f1, f2] } })
+    fireEvent.change(input, { target: { files: [f1, f2] } })
 
     // after input, two textareas should appear (one per file)
     await waitFor(() => {

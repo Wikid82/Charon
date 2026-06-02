@@ -113,8 +113,6 @@ func (s *OrthrusServer) HandleWebSocket(c *gin.Context) {
 		}
 	}
 
-	s.sessions.Store(agent.UUID, session)
-
 	now := time.Now()
 	if err := s.db.Model(agent).Updates(map[string]interface{}{
 		"status":    models.OrthrusStatusOnline,
@@ -133,6 +131,8 @@ func (s *OrthrusServer) HandleWebSocket(c *gin.Context) {
 		defer s.wg.Done()
 		s.watchHeartbeat(agent.UUID, session)
 	}()
+
+	s.sessions.Store(agent.UUID, session)
 }
 
 // GetExternalProxyStatus returns the external proxy status for a connected agent.

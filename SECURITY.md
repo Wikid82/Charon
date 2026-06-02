@@ -27,7 +27,51 @@ public disclosure.
 
 ## Known Vulnerabilities
 
-Last reviewed: 2026-05-25
+Last reviewed: 2026-05-27
+
+### [RESOLVED] GHSA-rw47-hm26-6wr7 / CVE-2026-44982 · CrowdSec AppSec Drops HTTP Request Body
+
+| Field        | Value |
+|--------------|-------|
+| **ID**       | GHSA-rw47-hm26-6wr7 / CVE-2026-44982 |
+| **Severity** | High |
+| **Status**   | Resolved — crowdsec upgraded to v1.7.8 |
+
+**What**
+The CrowdSec AppSec component silently dropped the HTTP request body for chunked-encoded or
+HTTP/2 requests, causing the Web Application Firewall rules to operate on an empty body. This
+allowed malicious payloads in those request types to bypass WAF inspection.
+
+**Who**
+
+- Discovered by: CrowdSec security team
+- Reported: 2026-05-27 (via GHSA advisory)
+- Affects: Charon deployments with the AppSec/WAF security module enabled
+
+**Where**
+
+- Component: `github.com/crowdsecurity/crowdsec` (via `caddy-crowdsec-bouncer`)
+- Versions affected: crowdsec < v1.7.8
+
+**When**
+
+- Discovered: 2026-05-27
+- Fixed upstream: crowdsec v1.7.8
+- Resolved in Charon: 2026-05-27
+
+**How**
+The body reader in the AppSec engine did not correctly buffer chunked or HTTP/2 request bodies
+before passing them to the WAF rule evaluation pipeline. Requests with these transfer encodings
+would present an empty body to inspection rules, meaning payload-based WAF rules had no effect.
+
+**Resolution**
+Upgraded `CROWDSEC_VERSION` to `v1.7.8` in the Dockerfile. The `caddy-crowdsec-bouncer` module
+(upgraded to `v0.12.1`) now builds against crowdsec v1.7.8 which contains the body-reader fix.
+Two source-level compatibility patches are applied at build time to handle breaking API changes
+introduced between v1.6.x and v1.7.8 (`DecisionsListOpts` field types and
+`version.DetectOS()` return signature).
+
+---
 
 ### [HIGH] CVE-2026-31790 · OpenSSL Vulnerability in Alpine Base Image
 

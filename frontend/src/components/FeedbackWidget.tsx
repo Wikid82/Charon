@@ -1,5 +1,5 @@
 import { MessageSquarePlus, Bug, Sparkles, BookOpen } from 'lucide-react'
-import { useState, useRef, useEffect, type KeyboardEvent } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { cn } from '../utils/cn'
@@ -17,7 +17,17 @@ export default function FeedbackWidget() {
   const firstLinkRef = useRef<HTMLAnchorElement>(null)
 
   useEffect(() => {
-    if (isOpen) firstLinkRef.current?.focus()
+    if (!isOpen) return
+    firstLinkRef.current?.focus()
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setIsOpen(false)
+        triggerRef.current?.focus()
+      }
+    }
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
   }, [isOpen])
 
   const close = () => {
@@ -25,15 +35,8 @@ export default function FeedbackWidget() {
     triggerRef.current?.focus()
   }
 
-  const handlePanelKeyDown = (e: KeyboardEvent<HTMLElement>) => {
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      close()
-    }
-  }
-
   return (
-    <div className="fixed bottom-6 right-6 z-50" onKeyDown={handlePanelKeyDown}>
+    <div className="fixed bottom-6 right-6 z-50">
       {/* Panel and backdrop are only mounted when open — links never reach the tab
           order or screen-reader tree while the widget is closed. */}
       {isOpen && (
