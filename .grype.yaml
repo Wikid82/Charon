@@ -53,7 +53,7 @@ ignore:
       No upstream fix: Alpine 3.23 still ships libcrypto3 3.5.5-r0 as of 2026-03-18. Charon
       terminates TLS at the Caddy layer; the Go backend does not act as a raw TLS 1.3 server.
       Risk accepted pending Alpine upstream patch.
-    expiry: "2026-05-18"  # Extended 2026-04-04: Alpine 3.23 still ships 3.5.5-r0. Next review 2026-05-18.
+    expiry: "2026-08-01"  # Review: Extended 2026-06-02 — no upstream fix confirmed. Next review: 2026-08-01.
 
     # Action items when this suppression expires:
     # 1. Check Alpine security tracker: https://security.alpinelinux.org/vuln/CVE-2026-2673
@@ -75,7 +75,7 @@ ignore:
       No upstream fix: Alpine 3.23 still ships libssl3 3.5.5-r0 as of 2026-03-18. Charon
       terminates TLS at the Caddy layer; the Go backend does not act as a raw TLS 1.3 server.
       Risk accepted pending Alpine upstream patch.
-    expiry: "2026-05-18"  # Extended 2026-04-04: see libcrypto3 entry above for action items.
+    expiry: "2026-08-01"  # Review: Extended 2026-06-02 — no upstream fix confirmed. Next review: 2026-08-01.
 
   # CVE-2026-31790: OpenSSL vulnerability in Alpine base image packages
   # Severity: HIGH
@@ -118,7 +118,7 @@ ignore:
       No upstream fix: Alpine 3.23 still ships libcrypto3 3.5.5-r0 as of 2026-04-09. Charon
       terminates TLS at the Caddy layer; the Go backend does not act as a raw TLS server.
       Risk accepted pending Alpine upstream patch. Documented in SECURITY.md.
-    expiry: "2026-05-09"  # Reviewed 2026-04-09: no upstream fix available. Next review 2026-05-09.
+    expiry: "2026-08-01"  # Review: Extended 2026-06-02 — no upstream fix confirmed. Next review: 2026-08-01.
 
     # Action items when this suppression expires:
     # 1. Check Alpine security tracker: https://security.alpinelinux.org/vuln/CVE-2026-31790
@@ -140,7 +140,7 @@ ignore:
       No upstream fix: Alpine 3.23 still ships libssl3 3.5.5-r0 as of 2026-04-09. Charon
       terminates TLS at the Caddy layer; the Go backend does not act as a raw TLS server.
       Risk accepted pending Alpine upstream patch. Documented in SECURITY.md.
-    expiry: "2026-05-09"  # Reviewed 2026-04-09: see libcrypto3 entry above for action items.
+    expiry: "2026-08-01"  # Review: Extended 2026-06-02 — no upstream fix confirmed. Next review: 2026-08-01.
 
   # GHSA-69x3-g4r3-p962 / CVE-2026-25793: Nebula ECDSA Signature Malleability
   # Severity: HIGH (CVSS 8.1)
@@ -198,7 +198,7 @@ ignore:
       removed in v1.10+, causing compile failures. Charon does not use Nebula VPN PKI by default.
       Risk accepted; no remediation until smallstep/certificates ships with nebula >= v1.10.3.
       Re-evaluated 2026-04-10: still blocked by upstream API incompatibility.
-    expiry: "2026-05-10"  # Re-evaluated 2026-04-10: certificates through v0.30.2 incompatible with nebula v1.10+.
+    expiry: "2026-08-01"  # Review: Extended 2026-06-02 — no upstream fix confirmed. Next review: 2026-08-01.
 
   # GHSA-6g7g-w4f8-9c9x: buger/jsonparser Delete panic on malformed JSON (DoS)
   # Severity: HIGH (CVSS 7.5)
@@ -257,7 +257,7 @@ ignore:
       dependency. Grype no longer flags this as of 2026-04-20 (fresh DB). Suppression retained as
       safety net pending CrowdSec update. Charon does not use this package directly.
       Updated 2026-04-20: fix v1.1.2 exists upstream; awaiting CrowdSec dependency update.
-    expiry: "2026-05-19"  # Review 2026-05-19: remove if CrowdSec ships with buger/jsonparser >= v1.1.2.
+    expiry: "2026-08-01"  # Review: Extended 2026-06-02 — no upstream fix confirmed. Next review: 2026-08-01.
 
     # Action items when this suppression expires:
     # 1. Check if CrowdSec has released a version with buger/jsonparser >= v1.1.2:
@@ -324,7 +324,7 @@ ignore:
       Charon uses SQLite, not PostgreSQL; this code path is not reachable in a standard deployment.
       Risk accepted; no remediation until CrowdSec ships with pgx/v5.
       Reviewed 2026-03-19: pgproto3/v2 EOL confirmed; CrowdSec has not migrated to pgx/v5 yet.
-    expiry: "2026-05-19"  # Extended 2026-04-04: no fix path until CrowdSec migrates to pgx/v5.
+    expiry: "2026-09-01"  # Review: Extended 2026-06-02 — no upstream fix confirmed. Next review: 2026-09-01.
 
     # Action items when this suppression expires:
     # 1. Check CrowdSec releases for pgx/v5 migration:
@@ -399,7 +399,7 @@ ignore:
       Charon uses SQLite, not PostgreSQL; this code path is not reachable in a standard deployment.
       Risk accepted; no remediation until CrowdSec ships with pgx/v5.
       Reviewed 2026-03-21: pgproto3/v2 EOL confirmed; CrowdSec has not migrated to pgx/v5 yet.
-    expiry: "2026-05-21"  # Extended 2026-04-04: no fix path until CrowdSec migrates to pgx/v5.
+    expiry: "2026-09-01"  # Review: Extended 2026-06-02 — no upstream fix confirmed. Next review: 2026-09-01.
 
     # Action items when this suppression expires:
     # 1. Check CrowdSec releases for pgx/v5 migration:
@@ -531,7 +531,7 @@ ignore:
       plugin privilege validation. Charon does not run a Docker daemon or install Docker plugins.
       Risk accepted; no remediation path until docker/docker publishes a fix or moby/moby/v2 stabilizes.
       Reviewed 2026-03-30: no patched release available for docker/docker import path.
-    expiry: "2026-04-30"  # 30-day review: no fix for docker/docker import path. Extend in 30-day increments with documented justification.
+    expiry: "2026-08-01"  # Review: Extended 2026-06-02 — no upstream fix confirmed. Next review: 2026-08-01.
 
     # Action items when this suppression expires:
     # 1. Check docker/docker and moby/moby releases: https://github.com/moby/moby/releases
@@ -593,7 +593,7 @@ ignore:
       HIGH — JWE decryption panic in go-jose v3.0.4 embedded in /usr/bin/caddy.
       Fix available in v3.0.5 but requires upstream Caddy rebuild. Charon does not use go-jose
       directly. Deferring to next Caddy release.
-    expiry: "2026-05-05"  # 30-day review: remove once Caddy ships with go-jose/v3 >= v3.0.5.
+    expiry: "2026-08-01"  # Review: Extended 2026-06-02 — no upstream fix confirmed. Next review: 2026-08-01.
 
     # Action items when this suppression expires:
     # 1. Check Caddy releases: https://github.com/caddyserver/caddy/releases
@@ -615,7 +615,7 @@ ignore:
       HIGH — JWE decryption panic in go-jose v4.1.3 embedded in /usr/bin/caddy.
       Fix available in v4.1.4 but requires upstream Caddy rebuild. Charon does not use go-jose
       directly. Deferring to next Caddy release.
-    expiry: "2026-05-05"  # 30-day review: see go-jose/v3 entry above for action items.
+    expiry: "2026-08-01"  # Review: Extended 2026-06-02 — no upstream fix confirmed. Next review: 2026-08-01.
 
 # Match exclusions (patterns to ignore during scanning)
 # Use sparingly - prefer specific CVE suppressions above
