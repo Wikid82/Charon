@@ -1,390 +1,448 @@
-# Fix: Stale Grype Code Scanning Results
+# Fix: Flash of Unstyled Content (FOUC) / Forced Layout Warning
 
 **Status:** Draft
-**Date:** 2026-06-02
-**Target Files:** `.grype.yaml`, `.trivyignore`, `.github/workflows/supply-chain-pr.yml`
+**Date:** 2026-06-05
+**Target Files:** `frontend/index.html`, `frontend/src/context/ThemeContext.tsx`, `frontend/src/i18n.ts`, `frontend/src/main.tsx`, `frontend/src/index.css`
 
 ---
 
 ## 1. Introduction
 
-GitHub Code Scanning reports Grype last scanned the repository on **February 4, 2026** —
-approximately four months stale. The staleness prevents the security team from identifying
-newly disclosed vulnerabilities and erodes confidence in the supply-chain verification pipeline.
+### Overview
 
-The root cause is not a single bug but a chain of compounding failures:
+Charon's frontend exhibits a classic Flash of Unstyled Content (FOUC) during initial page load. The browser console surfaces it as:
 
-1. Suppression entries in `.trivyignore` began expiring on April 30, 2026.
-2. Expired entries caused Trivy PR scans to surface HIGH/CRITICAL findings.
-3. The Trivy security gate blocks PR merges → no PRs merged to `main`.
-4. Without PR merges, the `supply-chain-pr.yml` push trigger cannot fire.
-5. Even if a push *did* land on `main`, the job-level `if:` condition contains no `push` branch,
-   so the job would be skipped silently.
-6. There is no `schedule:` trigger to run scans periodically regardless of push activity.
-7. Separately, `.grype.yaml` suppressions also expired in May, so if a Grype scan *did* run,
-   it would detect HIGH findings and fail — preventing a fresh SARIF upload.
-8. A `continue-on-error: true` flag on the SARIF upload step silently swallows any upload errors.
+> *"Layout was forced before the page was fully loaded. If stylesheets are not yet loaded this may cause a flash of unstyled content."*
 
-**Scope:** This plan covers only the supply-chain scanning pipeline. It does **not** propose
-upgrading Grype (v0.112.0 is the current latest, released 2026-05-01) or updating the
-`codeql-action` SHA (`7211b7c8077ea37d8641b6271f6a365a22a5fbfa` = v4.36.0, released 2026-05-22).
+Users experience a visible dark-to-light (or light-to-dark) colour flicker on every hard reload or cold navigation. For light-mode users this is especially severe — the entire page flashes a dark slate background before switching to light colours. The page also experiences a blank white frame while i18n initialises.
+
+### Objectives
+
+1. Eliminate the theme class FOUC so `<html>` carries the correct `.dark` / `.light` class **before** the first browser paint.
+2. Eliminate the blank-page delay caused by async i18n initialisation.
+3. Remove the forced-layout warning triggered by React's post-paint `useEffect` applying theme classes while CSS is still resolving.
+4. Establish Playwright regression tests that prevent future regressions.
 
 ---
 
 ## 2. Research Findings
 
-### 2.1 Files Audited
+### 2.1 File Inventory
 
-| File | Lines | Key Finding |
-|------|-------|-------------|
-| `.grype.yaml` | 641 | 10 of 12 suppression entries expired in May 2026 |
-| `.trivyignore` | ~120 | 12 of 14 suppression entries expired between April 30 – May 25, 2026 |
-| `.github/workflows/supply-chain-pr.yml` | 490 | Missing `schedule:` trigger; job `if:` drops push events; `continue-on-error: true` on SARIF upload |
-| `.github/workflows/docker-build.yml` | 1073 | Trivy scans operate under a separate SARIF category; Grype is not scanned here; no impact on root cause |
+| File | Lines | Role |
+|---|---|---|
+| `frontend/index.html` | 13 | HTML shell served by Vite / Go backend |
+| `frontend/src/main.tsx` | 46 | React application entry point |
+| `frontend/src/context/ThemeContext.tsx` | 27 | Dark/light mode state and DOM application |
+| `frontend/src/context/LanguageContext.tsx` | 34 | Language state provider |
+| `frontend/src/i18n.ts` | 38 | i18next initialisation with bundled JSON resources |
+| `frontend/src/index.css` | 300 | Global stylesheet: Tailwind v4, CSS custom properties, light-mode overrides |
+| `frontend/src/App.tsx` | ~180 | Root component; all 28 pages are React.lazy() |
+| `frontend/tailwind.config.js` | ~80 | darkMode: 'class' |
+| `frontend/vite.config.ts` | 43 | Vite with rolldown, vendor chunk splitting |
 
-### 2.2 Root Cause #1 — Expired `.trivyignore` Suppressions (HIGHEST IMPACT)
+### 2.2 Critical Code Paths
 
-**Severity:** Critical — blocks PR merges, the primary gateway to Grype scans running.
+**`frontend/index.html`** (full file):
 
-Trivy's `exp: YYYY-MM-DD` DSL syntax causes entries to silently stop matching after the expiry
-date. With those entries inactive, the CVEs they covered resurface as HIGH/CRITICAL findings. The
-`Enforce PR Trivy security gate` step in `docker-build.yml` exits 1 when any HIGH/CRITICAL blocker
-is detected, blocking all PR merges.
-
-**Expired entries** (as of 2026-06-02):
-
-| Entry | Package / Context | Expiry | Status |
-|-------|-------------------|--------|--------|
-| `CVE-2026-25793` | nebula ECDSA sig. malleability; waiting on `smallstep/certificates` | 2026-05-10 | **EXPIRED** |
-| `CVE-2026-27171` | zlib 1.3.1-r2 CPU spin; no Alpine fix (MEDIUM — non-blocking by CI policy) | 2026-05-21 | **EXPIRED** |
-| `CVE-2026-2673` | libcrypto3/libssl3 3.5.5-r0; no Alpine 3.23 patch | 2026-05-18 | **EXPIRED** |
-| `CVE-2026-33186` | gRPC-Go auth bypass in CrowdSec/Caddy embedded binaries; waiting on upstream | 2026-05-04 | **EXPIRED** |
-| `GHSA-479m-364c-43vc` | goxmldsig XML sig bypass in Caddy; waiting on caddy-security plugin | 2026-05-04 | **EXPIRED** |
-| `GHSA-6g7g-w4f8-9c9x` | buger/jsonparser CrowdSec embedded; no upstream fix | 2026-05-19 | **EXPIRED** |
-| `GHSA-jqcq-xjh3-6g23` | pgproto3/v2 panic in CrowdSec; v2 archived, no fix | 2026-05-19 | **EXPIRED** |
-| `GHSA-x6gf-mpr2-68h6` | pgproto3/v2 (NVD alias CVE-2026-4427); same as above | 2026-05-21 | **EXPIRED** |
-| `CVE-2026-33997` | docker/docker Moby off-by-one; no `docker/docker` import-path fix | 2026-04-30 | **EXPIRED** |
-| `GHSA-pxq6-2prw-chj9` | Moby GHSA alias for CVE-2026-33997 | 2026-04-30 | **EXPIRED** |
-| `CVE-2026-41889` | pgx/v4 panic in CrowdSec; requires migration to pgx/v5 | 2026-05-25 | **EXPIRED** |
-| `GHSA-j88v-2chj-qfwx` | pgx/v4 GHSA alias for CVE-2026-41889 | 2026-05-25 | **EXPIRED** |
-| `CVE-2026-32286` | pgproto3/v2 buffer overflow; archived repo, no fix | 2026-07-09 | ✅ VALID |
-
-### 2.3 Root Cause #2 — Expired `.grype.yaml` Suppressions (HIGH IMPACT)
-
-**Severity:** High — when Grype *does* run, the expired entries allow HIGH/CRITICAL findings to
-surface. The `Fail on Critical/High vulnerabilities` step exits 1, preventing a successful run.
-Because this step runs *after* the SARIF upload, a SARIF may occasionally land in Code Scanning
-even when the workflow fails — but the staleness is a signal that no successful scans are occurring.
-
-**Expired entries** (as of 2026-06-02):
-
-| Entry | Package | Expiry | Status |
-|-------|---------|--------|--------|
-| `CVE-2026-2673` | libcrypto3 3.5.5-r0 | 2026-05-18 | **EXPIRED** |
-| `CVE-2026-2673` | libssl3 3.5.5-r0 | 2026-05-18 | **EXPIRED** |
-| `CVE-2026-31790` | libcrypto3 3.5.5-r0 | 2026-05-09 | **EXPIRED** |
-| `CVE-2026-31790` | libssl3 3.5.5-r0 | 2026-05-09 | **EXPIRED** |
-| `CVE-2026-25793` | nebula in Caddy binary | 2026-05-10 | **EXPIRED** |
-| `GHSA-6g7g-w4f8-9c9x` | buger/jsonparser in CrowdSec | 2026-05-19 | **EXPIRED** |
-| `GHSA-jqcq-xjh3-6g23` | pgproto3/v2 in CrowdSec | 2026-05-19 | **EXPIRED** |
-| `GHSA-x6gf-mpr2-68h6` | pgproto3/v2 in CrowdSec (alias) | 2026-05-21 | **EXPIRED** |
-| `GHSA-pxq6-2prw-chj9` | docker/docker Moby | 2026-04-30 | **EXPIRED** |
-| `GHSA-78h2-9frx-2jm8` | go-jose/v3 in Caddy (libcrypto3 entry) | 2026-05-05 | **EXPIRED** |
-| `GHSA-78h2-9frx-2jm8` | go-jose/v3 in Caddy (libssl3 entry) | 2026-05-05 | **EXPIRED** |
-| `CVE-2026-32286` | pgproto3/v2 buffer overflow | 2026-07-09 | ✅ VALID |
-
-### 2.4 Root Cause #3 — Job `if:` Condition Missing `push` Event Branch
-
-**Severity:** High — the `push: branches: [main]` trigger in `on:` fires the workflow, but the
-job-level `if:` condition evaluates to `false` for push events, causing the job to be silently
-skipped.
-
-**Current `if:` condition (supply-chain-pr.yml, lines 35–42):**
-
-```yaml
-if: >
-  github.event_name == 'workflow_dispatch' ||
-  github.event_name == 'pull_request' ||
-  (github.event_name == 'workflow_run' &&
-   (github.event.workflow_run.event == 'push' || github.event.workflow_run.pull_requests[0].number != null) &&
-   (github.event.workflow_run.status != 'completed' || github.event.workflow_run.conclusion == 'success'))
+```html
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Charon</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
 ```
 
-When `github.event_name == 'push'`:
-- `workflow_dispatch` → `false`
-- `pull_request` → `false`
-- `workflow_run && ...` → `false` (event_name is not `workflow_run`)
-- **Result: job is skipped. SARIF is never uploaded on push events.**
+Observations:
+- No inline `<script>` in `<head>` to pre-apply the theme class.
+- No `<link rel="preload">` for CSS or fonts.
+- CSS enters exclusively through the JS module graph (`main.tsx → import './index.css'`).
 
-Note: `workflow_run` is **not** in the `on:` trigger for this workflow. The third branch of the
-condition is permanently unreachable dead code.
+**`frontend/src/context/ThemeContext.tsx`** lines 11–16:
 
-### 2.5 Root Cause #4 — Missing `schedule:` Trigger
+```tsx
+useEffect(() => {
+  const root = window.document.documentElement
+  root.classList.remove('light', 'dark')
+  root.classList.add(theme)
+  localStorage.setItem('theme', theme)
+}, [theme])
+```
 
-**Severity:** Medium — without a periodic trigger, Code Scanning goes stale any time there is a
-lull in PR/push activity to `main`. GitHub Code Scanning recommends scanning at least weekly for
-supply-chain workflows.
+Observations:
+- `useEffect` fires **after** the browser has committed and painted the first frame.
+- The `<html>` element carries no `dark` or `light` class between navigation start and this effect executing — typically 50–300 ms on first load.
+- `useState` lazy initialiser correctly reads `localStorage.getItem('theme')` (lines 6–9), but the DOM class is not applied until the effect runs.
 
-### 2.6 Root Cause #5 — `continue-on-error: true` on SARIF Upload Step
+**`frontend/src/index.css`** lines 216–228 (`:root` block):
 
-**Severity:** Medium — any SARIF upload failure (e.g., GitHub API error, permission issue, rate
-limit) is silently swallowed. The workflow continues and shows a green check even though no scan
-data was persisted in Code Scanning.
+```css
+:root {
+  /* … custom properties (dark mode as default) … */
+  color-scheme: dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #0f172a;  /* slate-900 */
+}
+.light {
+  /* All surface/text/border variables overridden for light mode */
+  --color-bg-base: 248 250 252;  /* slate-50 */
+  /* … */
+}
+```
 
-### 2.7 Root Cause #6 — Missing `development` Branch in Push Trigger
+Observations:
+- `:root` hardcodes `background-color: #0f172a` (dark slate) as the document default.
+- Light-mode overrides live under `.light {}`, requiring the `.light` class on `<html>`.
+- Without the class, every user — regardless of preference — renders the dark background on first paint.
 
-**Severity:** Low-Medium — `docker-build.yml` targets `[main, development]` for push triggers,
-indicating `development` is the primary active branch. `supply-chain-pr.yml` only targets `main`,
-creating a blind spot for all supply-chain work on `development`.
+**`frontend/src/main.tsx`** lines 41–46:
 
-### 2.8 Root Cause #7 — Dead `workflow_run` Branch in Job `if:` Condition
+```tsx
+if (i18n.isInitialized) {
+  renderApp()
+} else {
+  i18n.on('initialized', renderApp)
+}
+```
 
-**Severity:** Low (cosmetic) — the `workflow_run &&` branch cannot be reached because
-`workflow_run` is not in the `on:` block. Removing it eliminates confusion and is addressed as
-part of Fix 3 below.
+**`frontend/src/i18n.ts`** — `init()` options:
 
-### 2.9 Confirmed Non-Issues
+```ts
+i18n.use(LanguageDetector).use(initReactI18next).init({
+  resources,         // Five bundled JSON files (no network fetch)
+  fallbackLng: 'en',
+  debug: false,
+  interpolation: { escapeValue: false },
+  detection: {
+    order: ['localStorage', 'navigator'],
+    caches: ['localStorage'],
+    lookupLocalStorage: 'charon-language',
+  },
+})
+```
 
-| Item | Finding |
-|------|---------|
-| Grype version `v0.112.0` | Current latest release, published 2026-05-01 — **no action** |
-| `codeql-action` SHA `7211b7c8077ea37d8641b6271f6a365a22a5fbfa` | Equals v4.36.0, published 2026-05-22 — **no action** |
-| `docker-build.yml` Trivy scanning | Uses separate SARIF category; no interaction with Grype SARIF |
+Observations:
+- All five translation JSONs are statically imported — no network fetch required.
+- i18next's default `initImmediate` is `true`, which defers `init()` resolution to the next microtask tick even when everything is synchronous.
+- Result: `i18n.isInitialized` is `false` when `main.tsx` first evaluates, so `renderApp()` is always pushed to the next event loop tick.
+- The DOM shows an empty `<div id="root">` with the dark `:root` background for one tick — visible as a brief blank flash.
+
+**`frontend/tailwind.config.js`**:
+
+```js
+export default {
+  darkMode: 'class',
+  // …
+}
+```
+
+Confirms: all Tailwind `dark:` utilities require the `.dark` class on `<html>`.
+
+**`frontend/vite.config.ts`** — `rolldownOptions`:
+
+```ts
+manualChunks(id) {
+  if (id.includes('node_modules/i18next') || id.includes('node_modules/react-i18next'))
+    return 'vendor-i18n'
+  // …
+}
+```
+
+Observations:
+- `vendor-i18n` is a separate chunk; its load must complete before `i18n.init()` can run.
+- Combined with async `initImmediate`, this adds an additional render-blocking step.
+
+### 2.3 Layout-Reading Code (Forced Layout Audit)
+
+Grep for `offsetWidth`, `offsetHeight`, `getBoundingClientRect`, `scrollHeight`, `clientHeight`, `scrollTop` across `frontend/src/**`:
+
+| File | Lines | Context |
+|---|---|---|
+| `frontend/src/components/hecate/TunnelLogViewer.tsx` | 69–70 | Scroll position check inside a scroll-event handler (post-mount) |
+| `frontend/src/components/LiveLogViewer.tsx` | 262, 269–271 | Auto-scroll logic inside `useEffect` (post-mount) |
+
+Neither reads layout properties during the initial render phase. Both execute inside already-mounted event handlers and are **not** the source of the forced-layout warning.
+
+The actual forced-layout trigger is `classList.add(theme)` in `ThemeContext.tsx`'s `useEffect`, which forces a style recalculation while the browser may not have finished resolving the CSS cascade from the JS-imported stylesheet.
+
+### 2.4 Font Loading Audit
+
+`frontend/src/index.css` references:
+
+```css
+font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+```
+
+There are **no** `@font-face` declarations, no `@fontsource` imports, and no Google Fonts `<link>` in `index.html`. `Inter` falls through to `system-ui` on most systems. No FOIT/FOUT from web font loading is present. Font loading is not a contributing factor.
+
+### 2.5 External Dependency Summary
+
+| Library | FOUC Relevance |
+|---|---|
+| `react` 19+ | CSR only — no SSR hydration concerns |
+| `i18next` | Async init default (fixed by `initImmediate: false`) |
+| `tailwindcss` v4 | `darkMode: 'class'` requires class on `<html>` |
+| `@vitejs/plugin-react` | CSS extracted to separate file in prod build automatically |
+| `recharts` / `d3-*` | Vendor-split; loaded lazily — no initial FOUC |
 
 ---
 
-## 3. Technical Specifications
+## 3. Root Cause Analysis
 
-### Fix 1 — Extend `.trivyignore` Suppressions
+### RC-1 — ThemeContext `useEffect` Applies Theme After First Paint
 
-**File:** `.trivyignore`
+**File:** `frontend/src/context/ThemeContext.tsx` lines 11–16
+**Severity:** Critical
+**Affected users:** All users
 
-Before extending each entry, verify the upstream status:
-- Alpine tracker: `https://security.alpinelinux.org/vuln/<CVE>`
-- GHSA advisory: `https://github.com/advisories/<GHSA>`
-- NVD: `https://nvd.nist.gov/vuln/detail/<CVE>`
+`useEffect` is scheduled **after** React commits the DOM and the browser paints. During the window between page-start and effect execution (typically 50–300 ms on a cold load):
 
-If an upstream fix is confirmed and the Docker image can be rebuilt to include it, **remove the
-entry** and verify the CVE no longer appears in scan output. If no fix is available, extend
-the `exp:` date and update the `# Review by:` comment.
+- `<html>` has no `dark` or `light` class.
+- All Tailwind `dark:` utilities produce no styles (class-based dark mode requires the class on `<html>`).
+- `:root` background is `#0f172a` (dark slate), but component-level `dark:` variant styles are absent.
+- Light-mode users see the dark `:root` background; dark-mode users see components without `dark:` utility styles.
 
-**Proposed new expiry dates** (assuming no upstream fix at time of implementation):
+### RC-2 — No Anti-FOUC Inline Script in `index.html`
 
-| Entry | Proposed New Expiry | Rationale |
-|-------|---------------------|-----------|
-| `CVE-2026-25793` | `2026-08-01` | 60-day ext; awaiting `smallstep/certificates` update |
-| `CVE-2026-27171` | `2026-08-01` | 60-day ext; Alpine zlib still 1.3.1-r2 |
-| `CVE-2026-2673` | `2026-08-01` | 60-day ext; Alpine 3.23 still ships 3.5.5-r0 |
-| `CVE-2026-33186` | `2026-08-01` | 60-day ext; awaiting CrowdSec/Caddy update |
-| `GHSA-479m-364c-43vc` | `2026-08-01` | 60-day ext; awaiting caddy-security plugin update |
-| `GHSA-6g7g-w4f8-9c9x` | `2026-08-01` | 60-day ext; no upstream fix for buger/jsonparser |
-| `GHSA-jqcq-xjh3-6g23` | `2026-09-01` | 90-day ext; pgproto3/v2 archived; fix requires CrowdSec migration to pgx/v5 |
-| `GHSA-x6gf-mpr2-68h6` | `2026-09-01` | 90-day ext; same tracking as GHSA-jqcq-xjh3-6g23 |
-| `CVE-2026-33997` | `2026-08-01` | 60-day ext; no fix for docker/docker import path |
-| `GHSA-pxq6-2prw-chj9` | `2026-08-01` | 60-day ext; same tracking as CVE-2026-33997 |
-| `CVE-2026-41889` | `2026-09-01` | 90-day ext; CrowdSec pgx/v4 → v5 migration required |
-| `GHSA-j88v-2chj-qfwx` | `2026-09-01` | 90-day ext; same tracking as CVE-2026-41889 |
-| `CVE-2026-32286` | _no change_ | VALID until 2026-07-09 |
+**File:** `frontend/index.html`
+**Severity:** Critical (root of RC-1)
 
-Each updated entry must include an updated comment:
-```
-exp: YYYY-MM-DD
-# Extended 2026-06-02: <reason>. Tracker: <URL>. Next review: YYYY-MM-DD.
-```
+The standard pattern for preventing theme FOUC is a small synchronous `<script>` in `<head>` that reads the persisted theme from `localStorage` and applies the class to `<html>` before any rendering occurs. Without it, there is no mechanism to apply the theme class before React loads and its first `useEffect` runs.
 
-### Fix 2 — Extend `.grype.yaml` Suppressions
+This script must be:
+- Inline (not a module import — avoids network round-trip and async execution).
+- Located in `<head>`, before `<body>` renders.
+- Wrapped in a try/catch IIFE (`localStorage` can throw in restricted contexts).
 
-**File:** `.grype.yaml`
+### RC-3 — i18next Async Init Delays React Render
 
-Same upstream verification as Fix 1 before extending. Each entry uses the `expiry:` YAML key.
-Update both the `expiry:` value and the `# Review:` history block above each stanza.
+**File:** `frontend/src/main.tsx` lines 41–46; `frontend/src/i18n.ts`
+**Severity:** Major
+**Result:** Blank page for one event-loop tick before `renderApp()` is called
 
-**Proposed new expiry dates** (assuming no upstream fix at time of implementation):
+i18next's default `initImmediate: true` defers `init()` resolution to the next microtask, even when all resources are bundled synchronously. Because `i18n.isInitialized` is `false` when `main.tsx` first evaluates, `renderApp()` is always deferred. The DOM shows an empty `<div id="root">` with the `:root` styles for one tick — visible as a brief blank flash before the first React render.
 
-| Entry | Package | Proposed New Expiry |
-|-------|---------|---------------------|
-| `CVE-2026-2673` | libcrypto3 3.5.5-r0 | `2026-08-01` |
-| `CVE-2026-2673` | libssl3 3.5.5-r0 | `2026-08-01` |
-| `CVE-2026-31790` | libcrypto3 3.5.5-r0 | `2026-08-01` |
-| `CVE-2026-31790` | libssl3 3.5.5-r0 | `2026-08-01` |
-| `CVE-2026-25793` | nebula in Caddy binary | `2026-08-01` |
-| `GHSA-6g7g-w4f8-9c9x` | buger/jsonparser in CrowdSec | `2026-08-01` |
-| `GHSA-jqcq-xjh3-6g23` | pgproto3/v2 in CrowdSec | `2026-09-01` |
-| `GHSA-x6gf-mpr2-68h6` | pgproto3/v2 alias | `2026-09-01` |
-| `GHSA-pxq6-2prw-chj9` | docker/docker | `2026-08-01` |
-| `GHSA-78h2-9frx-2jm8` | go-jose/v3 Caddy (libcrypto3) | `2026-08-01` |
-| `GHSA-78h2-9frx-2jm8` | go-jose/v3 Caddy (libssl3) | `2026-08-01` |
-| `CVE-2026-32286` | pgproto3/v2 | _no change_ (valid until 2026-07-09) |
+Setting `initImmediate: false` makes `init()` synchronous when no async plugins are involved. `i18n.isInitialized` is then `true` immediately, and `renderApp()` is called inline without waiting for the event loop.
 
-**Patch format** for each updated `expiry:` line:
-```yaml
-expiry: "2026-08-01"
-# Review: Extended 2026-06-02 — <scanner/tracker> confirms no upstream fix. Next review: 2026-08-01.
-```
+### RC-4 — `:root` Defaults to Dark; Light Mode Requires a Class
 
-### Fix 3 — Repair Job `if:` Condition in `supply-chain-pr.yml`
+**File:** `frontend/src/index.css` lines 216–228
+**Severity:** Moderate (amplifies RC-1 for light-mode users)
 
-**File:** `.github/workflows/supply-chain-pr.yml`, lines 35–42
+The `:root` block includes `background-color: #0f172a` and `color: rgba(255,255,255,0.87)`. Light-mode CSS custom property overrides live under `.light {}`. Without the `.light` class, the page is visually dark regardless of user preference. This creates a dark flash for light-mode users that persists until the theme class is applied.
 
-Remove the permanently unreachable `workflow_run` branch and add the missing `push` event branch.
+The primary fix (RC-2 inline script) resolves this by applying the class before the first paint. However, the `.light {}` block must also explicitly override `background-color`, `color-scheme`, and `color` — without these overrides, light-mode users still see a dark flash on first paint because `:root` hardcodes dark values that `.light {}` does not currently cancel. See Fix 4.4.
 
-**Current:**
-```yaml
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request' ||
-      (github.event_name == 'workflow_run' &&
-       (github.event.workflow_run.event == 'push' || github.event.workflow_run.pull_requests[0].number != null) &&
-       (github.event.workflow_run.status != 'completed' || github.event.workflow_run.conclusion == 'success'))
-```
+### RC-5 — Vendor Chunk Splitting Delays i18n Chunk Load
 
-**Replacement:**
-```yaml
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request' ||
-      github.event_name == 'push' ||
-      github.event_name == 'schedule'
-```
+**File:** `frontend/vite.config.ts` lines 25–27
+**Severity:** Minor (amplifies RC-3)
 
-### Fix 4 — Add `schedule:` Trigger and `development` Branch to `supply-chain-pr.yml`
-
-**File:** `.github/workflows/supply-chain-pr.yml`, `on:` block
-
-**Current `on:` block:**
-```yaml
-on:
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: "PR number to verify (optional, will auto-detect from workflow_run)"
-        required: false
-        type: string
-  pull_request:
-  push:
-    branches:
-      - main
-```
-
-**Replacement:**
-```yaml
-on:
-  schedule:
-    - cron: '0 2 * * 1'  # Every Monday at 02:00 UTC
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: "PR number to verify (optional, will auto-detect from workflow_run)"
-        required: false
-        type: string
-  pull_request:
-  push:
-    branches:
-      - main
-      - development
-```
-
-**Rationale for `development`:** `docker-build.yml` already targets `[main, development]`.
-Active supply-chain work happens on `development`; scanning should cover the same scope.
-
-### Fix 5 — Remove `continue-on-error: true` from SARIF Upload Step
-
-**File:** `.github/workflows/supply-chain-pr.yml`
-
-Locate the `upload-sarif` step (search for `category: supply-chain-pr`) and remove the
-`continue-on-error: true` line.
-
-**Before:**
-```yaml
-      - name: Upload SARIF to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
-        with:
-          sarif_file: grype-results.sarif
-          category: supply-chain-pr
-          token: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
-```
-
-**After:**
-```yaml
-      - name: Upload SARIF to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
-        with:
-          sarif_file: grype-results.sarif
-          category: supply-chain-pr
-          token: ${{ secrets.GITHUB_TOKEN }}
-```
+`vendor-i18n` is a separate chunk. Its network fetch and parse must complete before `i18n.init()` can run. With RC-3 fixed (`initImmediate: false`), the chunk loading delay still exists — but init completes synchronously once the chunk is available, rather than deferring again to the next tick.
 
 ---
 
-## 4. Implementation Plan
+## 4. Technical Specifications
 
-### Phase 0 — Upstream Fix Verification (Pre-implementation, ~30 min)
+### 4.1 Fix for RC-1 + RC-2: Anti-FOUC Inline Script
 
-Before editing any suppression file, verify whether upstream fixes have shipped for any of the
-expired entries. For each CVE/GHSA:
+**Target file:** `frontend/index.html`
+**Mechanism:** Synchronous inline script in `<head>` that reads `localStorage` and applies the theme class to `<html>` before any rendering
 
-1. Check Alpine security tracker for libcrypto3/libssl3 and zlib.
-2. Check GHSA advisories for pgproto3/v2 (GHSA-jqcq-xjh3-6g23, GHSA-x6gf-mpr2-68h6, CVE-2026-32286) and pgx/v4 (CVE-2026-41889, GHSA-j88v-2chj-qfwx).
-3. Check if Caddy has released a version with patched goxmldsig and go-jose/v3.
-4. Check if `smallstep/certificates` has released a version compatible with nebula v1.10+.
-5. For any entry where a fix is confirmed: **remove** the entry; note the CVE in the commit message.
-6. For entries where no fix is confirmed: **extend** the expiry using the proposed dates in Fix 1/Fix 2.
+```html
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Charon</title>
+  <script>(function(){try{var t=localStorage.getItem('theme');document.documentElement.classList.add(t==='light'?'light':'dark')}catch(_){}})()</script>
+</head>
+```
 
-### Phase 1 — Extend Suppression Files
+Constraints:
+- Plain `<script>` (not `type="module"`) — module scripts are deferred and do not execute synchronously.
+- Placed in `<head>` before `<body>` — ensures execution before any layout is calculated.
+- IIFE + try/catch guards against `localStorage` throwing in restricted contexts (private browsing, cross-origin iframes).
+- Defaults to `'dark'` when no preference is stored — matches `ThemeContext.tsx`'s default.
+- Minified to a single line — this script is render-blocking, so minimising its byte size matters.
 
-**Goal:** Allow PRs to merge again and unblock the entire pipeline.
+### 4.2 Fix for RC-3: Synchronous i18n Initialisation
 
-**Tasks:**
-- [ ] Complete Phase 0 verification.
-- [ ] Update `.trivyignore`: extend all 12 expired entries (or remove if upstream fix available). Update `# exp:`, `# Extended`, and `# Review by:` comments on each entry.
-- [ ] Update `.grype.yaml`: extend all 10 expired entries (or remove if upstream fix available). Update `expiry:` YAML value and `# Review:` history block on each entry.
-- [ ] Open a draft PR with these changes only.
-- [ ] Confirm `docker-build.yml` Trivy PR scan passes (`Enforce PR Trivy security gate` exits 0).
+**Target file:** `frontend/src/i18n.ts`
+**Mechanism:** Add `initImmediate: false` to `i18n.init()` options
 
-**Validation gate:** `Enforce PR Trivy security gate` step shows green.
+```ts
+// Add initImmediate: false to the init options
+i18n
+  .use(LanguageDetector)
+  .use(initReactI18next)
+  .init({
+    resources,
+    fallbackLng: 'en',
+    debug: false,
+    initImmediate: false,   // Makes init synchronous for bundled resources
+    interpolation: { escapeValue: false },
+    detection: {
+      order: ['localStorage', 'navigator'],
+      caches: ['localStorage'],
+      lookupLocalStorage: 'charon-language',
+    },
+  })
+```
 
-### Phase 2 — Fix `supply-chain-pr.yml`
+With all five translation JSONs statically imported (no `HttpBackend`, no network fetch), i18next has no async work. `initImmediate: false` completes init synchronously, making `i18n.isInitialized` true immediately after the `.init()` call returns. No change to `main.tsx` is needed — the existing `if (i18n.isInitialized)` guard handles this correctly.
 
-**Goal:** Ensure Grype scans run on push events, on `development`, and weekly via schedule.
+### 4.3 Fix for RC-4: ThemeContext `useLayoutEffect`
 
-**Tasks:**
-- [ ] Add `schedule:` with weekly cron to the `on:` block (Fix 4).
-- [ ] Add `development` to `push: branches:` (Fix 4).
-- [ ] Replace the job `if:` condition with the simplified three-branch form (Fix 3).
-- [ ] Remove `continue-on-error: true` from the `upload-sarif` step (Fix 5).
+**Target file:** `frontend/src/context/ThemeContext.tsx`
+**Mechanism:** Replace `useEffect` with `useLayoutEffect`
 
-**Validation gate:**
-1. Trigger `workflow_dispatch` manually.
-2. Confirm `verify-supply-chain` job is not skipped.
-3. Confirm `Upload SARIF to GitHub Security tab` step exits 0.
-4. Confirm GitHub Code Scanning shows updated Grype scan date.
+```tsx
+// Replace useEffect with useLayoutEffect for synchronous class application
+useLayoutEffect(() => {
+  const root = window.document.documentElement
+  root.classList.remove('light', 'dark')
+  root.classList.add(theme)
+  localStorage.setItem('theme', theme)
+}, [theme])
+```
 
-### Phase 3 — End-to-End Validation
+`useLayoutEffect` fires synchronously after React commits DOM mutations but **before** the browser paints. After the inline script (Fix 4.1) handles the initial load, `useLayoutEffect` becomes the mechanism for theme-toggle transitions — ensuring they are seamless with no visible flash.
 
-**Tasks:**
-- [ ] Merge the PR from Phase 1 + Phase 2.
-- [ ] Push a commit to `main` and verify `verify-supply-chain` job runs (not skipped).
-- [ ] Open GitHub Security tab → Code Scanning and confirm Grype `Last scanned` date is today.
-- [ ] Push a commit to `development` and verify the job also runs.
-- [ ] Confirm no Grype HIGH/CRITICAL findings surface (all suppressions current).
-- [ ] Optionally: temporarily change cron to `*/5 * * * *`, confirm schedule fires, then revert.
+`useLayoutEffect` is safe here because Charon is CSR-only (no SSR). If SSR is ever introduced, a `typeof window !== 'undefined'` guard must be added.
+
+The `useEffect` import may become unused if `ThemeContext.tsx` uses only `useLayoutEffect` and `useState`. Remove unused imports when making this change.
+
+### 4.4 Fix for CSS-1: Light-Mode Property Overrides in `index.css`
+
+**Target file:** `frontend/src/index.css`
+**Mechanism:** Add explicit `background-color`, `color-scheme`, and `color` overrides to the `.light {}` block
+
+The current `.light {}` block overrides CSS custom properties (e.g., `--color-bg-base`) but does not override the physical properties set on `:root` — `background-color: #0f172a`, `color-scheme: dark`, and `color: rgba(255, 255, 255, 0.87)`. Because these physical properties are not CSS variables, they are not overridden by variable redefinition.
+
+**Change:**
+
+```css
+.light {
+  background-color: #f0f4f8;   /* matches Layout.tsx root div; cancels :root dark default */
+  color-scheme: light;
+  color: rgba(0, 0, 0, 0.87);
+  /* … existing variable overrides unchanged … */
+}
+```
+
+`#f0f4f8` is used (not `#f8fafc`) to match the colour applied by `Layout.tsx`'s root `<div>`. This ensures that even in the instant between the inline script applying `.light` to `<html>` and React mounting, the page renders with a light background rather than the dark `:root` default.
 
 ---
 
-## 5. Acceptance Criteria
+### 4.5 Data Flow Diagram (After All Fixes)
 
-| # | Criterion | How to Verify |
-|---|-----------|---------------|
-| AC-1 | GitHub Code Scanning shows Grype scan date updated (not Feb 4, 2026) | Security tab → Code Scanning → Grype tool |
-| AC-2 | No expired entries remain in `.trivyignore` | `grep "exp: 202[56]-" .trivyignore` returns no past dates |
-| AC-3 | No expired entries remain in `.grype.yaml` | Inspect all `expiry:` values; none before 2026-06-02 |
-| AC-4 | `supply-chain-pr.yml` `on:` block includes `schedule:` and `development` | `grep -A5 "schedule:" .github/workflows/supply-chain-pr.yml` |
-| AC-5 | Job `if:` condition handles `push` events; no `workflow_run` dead code | Inspect lines 35–42; exactly three `event_name` branches |
-| AC-6 | SARIF upload step has no `continue-on-error: true` | `grep -n "continue-on-error" .github/workflows/supply-chain-pr.yml` returns no SARIF-related hits |
-| AC-7 | `Enforce PR Trivy security gate` passes on a new PR | PR check status green |
-| AC-8 | `verify-supply-chain` job is not skipped on push to `main` | Push a commit and observe job status (must show "success", not "skipped") |
-| AC-9 | No suppression entries removed for CVEs that still have no upstream fix | Cross-reference removal decisions against tracker URLs in commit message |
+```
+Browser parses HTML
+  ↓
+<head> inline script executes synchronously (render-blocking, ~0.1ms)
+  → reads localStorage.getItem('theme')
+  → document.documentElement.classList.add('dark' | 'light')
+  ↓
+CSS parsed (Tailwind .dark: / .light: classes now resolve correctly)
+  ↓
+vendor-i18n chunk loads
+  ↓
+main.tsx module evaluates
+  → i18n.init() called
+  → initImmediate: false → completes synchronously
+  → i18n.isInitialized === true
+  → renderApp() called immediately (no next-tick deferral)
+  ↓
+React renders
+  → ThemeContext reads localStorage — same value as the class already on <html>
+  → useLayoutEffect fires synchronously (class already present → no-op)
+  ↓
+First browser paint: correct theme applied, no flash, no forced-layout warning
+```
+
+### 4.6 Edge Cases
+
+| Scenario | Expected Behaviour |
+|---|---|
+| `localStorage` unavailable (private mode, restricted iframe) | try/catch in inline script falls back silently to dark (`:root` default). FOUC not eliminated but gracefully degraded. |
+| User clears `localStorage` between visits | Inline script falls back to dark. Matches `ThemeContext` default. |
+| First-ever visit (no `theme` key) | `localStorage.getItem('theme')` returns `null`; `null === 'light'` is `false`; `dark` applied. Correct. |
+| Theme toggled mid-session | `useLayoutEffect` fires synchronously before browser paint — no visible transition flash. |
+| `initImmediate: false` + future async i18n plugin | If `HttpBackend` is added, synchronous init completes before async ops. Missing translations fall back to `fallbackLng: 'en'` until async load finishes — acceptable. |
+| User navigates with `?theme=light` query param | Not currently a feature; not in scope. |
+
+---
+
+## 5. Implementation Plan
+
+### Phase 1 — Playwright Tests (Red State)
+
+Write failing tests that document expected post-fix behaviour. Tests must fail against the current codebase; their passage confirms the fix is complete.
+
+**New file:** `tests/core/theme-fouc.spec.ts`
+
+Test cases:
+
+| ID | Description | How Verified |
+|---|---|---|
+| T1 | Default (no stored preference): `<html>` carries `.dark` at `DOMContentLoaded`, before React runs | `addInitScript`: register a `DOMContentLoaded` listener that captures `document.documentElement.className` into `window.__domContentClasses`; assert it contains `dark` |
+| T2 | Stored light preference: `<html>` carries `.light` at `DOMContentLoaded` | `addInitScript`: set `localStorage.theme='light'` and register `DOMContentLoaded` capture into `window.__domContentClasses`; assert it contains `light` |
+| T3 | Stored dark preference: `<html>` carries `.dark` and not `.light` at `DOMContentLoaded` | `addInitScript`: set `localStorage.theme='dark'` and register `DOMContentLoaded` capture; assert `window.__domContentClasses` contains `dark` but not `light` |
+| T4 | Light-mode background is not dark slate *(depends on CSS-1: Fix 4.4)* | Set light preference, goto, assert computed `background-color` of `<html>` is not `#0f172a`; requires `.light {}` `background-color` override to be present |
+| T5 | No dual-class false positive: only `.light` on `<html>` when light theme stored | `addInitScript`: set `localStorage.theme='light'` and register `DOMContentLoaded` capture; assert `window.__domContentClasses` does not contain `dark` |
+| T6 | Theme toggle applies `.light` synchronously | Login, navigate to settings, click toggle, evaluate classList before next animation frame |
+
+Playwright approach for T1–T3 and T5 uses `page.addInitScript()` for two purposes: (1) setting `localStorage` to simulate a returning user's stored preference, and (2) registering a `DOMContentLoaded` listener that captures `document.documentElement.className` into `window.__domContentClasses`. Tests then assert on `window.__domContentClasses` rather than the final DOM state. This is critical: asserting only on final state would pass even if the inline script were removed from `index.html`, because React's `useLayoutEffect` would still apply the correct class before the assertion evaluates. Capturing at `DOMContentLoaded` — before React has executed — ensures the test detects that regression.
+
+### Phase 2 — No Backend Changes
+
+All fixes are frontend-only. Backend, database, and Go code are not affected.
+
+### Phase 3 — Fix RC-1 + RC-2: `frontend/index.html`
+
+Single-line change: add the minified anti-FOUC `<script>` to `<head>`.
+
+- **Effort:** ~5 minutes
+- **Risk:** Very low — defensive script, no breaking changes
+
+### Phase 4 — Fix RC-3: `frontend/src/i18n.ts`
+
+Single-line change: add `initImmediate: false` to `init()` options.
+
+- **Effort:** ~5 minutes
+- **Risk:** Low — safe with bundled resources; regression covered by T6 and existing auth tests
+
+### Phase 5 — Fix CSS-1: `frontend/src/index.css`
+
+Three-line addition inside the existing `.light {}` block: `background-color: #f0f4f8`, `color-scheme: light`, `color: rgba(0, 0, 0, 0.87)`.
+
+- **Effort:** ~5 minutes
+- **Risk:** Very low — additive CSS change with no structural impact
+
+### Phase 6 — Fix RC-4: `frontend/src/context/ThemeContext.tsx`
+
+Single-line change: `useEffect` → `useLayoutEffect`. Potentially remove unused `useEffect` import.
+
+- **Effort:** ~5 minutes
+- **Risk:** Low for CSR; document SSR caveat in comment or PR description
+
+### Phase 7 — Validate
+
+1. Run `tests/core/theme-fouc.spec.ts` — all T1–T6 must pass (Firefox).
+2. Run full non-security Playwright suite — no regressions.
+3. Manual browser check:
+   - Set `localStorage.theme = 'light'`, hard-reload, confirm no dark flash.
+   - Open Chrome DevTools Performance tab, record page load, confirm no "Layout was forced" warning.
+4. `tsc --noEmit` — no new TypeScript errors.
 
 ---
 
@@ -392,82 +450,97 @@ expired entries. For each CVE/GHSA:
 
 **Decision:** Single PR with three ordered logical commits.
 
-One PR keeps the change set reviewable as a cohesive supply-chain fix. Three commits separate by
-file type so each commit is independently reviewable and individually revertable if needed.
+All changes are:
+- Frontend-only (no cross-domain risk)
+- Independently small (≤ 3 lines each)
+- Closely related (all address the same user-visible bug)
 
-### Commit 1 — `fix(security): extend expired suppression entries in .grype.yaml and .trivyignore`
-
-**Scope:** Suppression file changes only.
-
-**Files:**
-- `.grype.yaml` — update `expiry:` for 10 entries; remove any with confirmed upstream fixes
-- `.trivyignore` — update `exp:` for 12 entries; remove any with confirmed upstream fixes
-
-**Dependencies:** Phase 0 upstream verification must be complete before authoring this commit.
-
-**Validation gate:** Open draft PR with this commit only. Confirm `Enforce PR Trivy security gate`
-exits 0 before adding Commit 2.
-
-**Rollback note:** Revert this commit only if an entry is found to have incorrectly suppressed a
-now-patched CVE. Re-verify upstream trackers and remove the offending entry instead of extending.
+A single PR keeps the context and test evidence together for reviewers.
 
 ---
 
-### Commit 2 — `fix(ci): add schedule trigger and development branch to supply-chain-pr.yml`
+### Commit 1 — `test(fouc): add regression tests for theme FOUC and blank page delay`
 
-**Scope:** `supply-chain-pr.yml` trigger changes only.
+**Scope:** `tests/core/theme-fouc.spec.ts` (new file)
+**Files:** `tests/core/theme-fouc.spec.ts`
+**Dependencies:** None
+**Validation gate:** Tests run; T1–T6 fail on current codebase (expected red state)
 
-**Files:**
-- `.github/workflows/supply-chain-pr.yml` — add `schedule:` cron, add `development` to push branches
-
-**Dependencies:** Commit 1 in the same PR and passing CI.
-
-**Validation gate:** `workflow_dispatch` manual run completes; `verify-supply-chain` job runs.
+Tests document expected behaviour and serve as the acceptance signal for Commits 2 and 3.
 
 ---
 
-### Commit 3 — `fix(ci): repair push-event job condition and remove silent error suppression`
+### Commit 2 — `fix(ui): eliminate FOUC with anti-FOUC script, synchronous i18n init, and light-mode CSS overrides`
 
-**Scope:** `supply-chain-pr.yml` job condition, `continue-on-error` removal, and concurrency group cleanup.
+**Scope:**
+- `frontend/index.html` — add inline `<script>` to `<head>`
+- `frontend/src/i18n.ts` — add `initImmediate: false`
+- `frontend/src/index.css` — add `background-color`, `color-scheme`, `color` overrides to `.light {}`
 
-**Files:**
-- `.github/workflows/supply-chain-pr.yml` — replace job `if:` condition (add `push` + `schedule`); remove `continue-on-error: true` from SARIF upload step; simplify `concurrency.group` to remove dead `workflow_run` expressions
+**Files:** `frontend/index.html`, `frontend/src/i18n.ts`, `frontend/src/index.css`
+**Dependencies:** Commit 1
+**Validation gate:** T1–T5 now pass; no blank-page delay observable in browser; light-mode background resolves to `#f0f4f8` not `#0f172a`
 
-**Current concurrency group (dead `workflow_run` references):**
-```yaml
-group: supply-chain-pr-${{ github.event.workflow_run.event || github.event_name }}-${{ github.event.workflow_run.head_branch || github.ref }}
-```
-
-**Replacement:**
-```yaml
-group: supply-chain-pr-${{ github.event_name }}-${{ github.ref }}
-```
-
-**Dependencies:** Commit 2 merged (schedule active before this becomes load-bearing).
-
-**Validation gate:**
-1. Push a commit to `main` and confirm `verify-supply-chain` job is **not** skipped.
-2. Check GitHub Code Scanning shows an updated Grype scan date after the push.
+This commit resolves the two highest-severity root causes (RC-1, RC-2, RC-3) and applies the CSS-1 light-mode property fix. Theme class is applied synchronously before paint; React renders on the same tick as i18n init; light-mode users see the correct background immediately.
 
 ---
 
-### Contingency Notes
+### Commit 3 — `fix(theme): use useLayoutEffect to apply theme class before browser paint`
 
-- If extending suppressions causes unexpected Grype output, run Grype locally to verify:
-  `grype -c .grype.yaml --add-cpes-if-none -o sarif <image> > grype-results.sarif`
-- If the SARIF upload step fails after removing `continue-on-error`, confirm the workflow has
-  `security-events: write` in its `permissions:` block (confirmed present during research).
-- If the Monday schedule fires but the job is still skipped, verify Commit 3 was applied
-  (the job `if:` fix is required for `schedule` events, which also use `github.event_name == 'schedule'`,
-  not `push` or `pull_request`).
+**Scope:**
+- `frontend/src/context/ThemeContext.tsx` — `useEffect` → `useLayoutEffect`
 
-  > **Important:** The simplified job condition `github.event_name == 'push'` does NOT cover
-  > `schedule` events. The final condition must include all four event names:
-  >
-  > ```yaml
-  > if: >
-  >   github.event_name == 'workflow_dispatch' ||
-  >   github.event_name == 'pull_request' ||
-  >   github.event_name == 'push' ||
-  >   github.event_name == 'schedule'
-  > ```
+**Files:** `frontend/src/context/ThemeContext.tsx`
+**Dependencies:** Commit 2
+**Validation gate:** T6 passes; DevTools Performance tab clean; full Playwright suite green
+
+Eliminates the forced-layout warning for theme-toggle transitions and makes the initial class application synchronous with React's commit phase.
+
+---
+
+### Rollback Notes
+
+All three commits are independently safe to revert:
+- Commit 1: delete `tests/core/theme-fouc.spec.ts`.
+- Commit 2: remove the `<script>` from `index.html`; remove `initImmediate: false` from `i18n.ts`; remove the three property overrides from `.light {}` in `index.css`.
+- Commit 3: revert `useLayoutEffect` to `useEffect`; restore `useEffect` import.
+
+No migrations, API changes, or infrastructure changes are involved.
+
+---
+
+## 7. Acceptance Criteria (Definition of Done)
+
+### Functional
+- [ ] Hard-reloading with `localStorage.theme = 'dark'` shows no flash of light content.
+- [ ] Hard-reloading with `localStorage.theme = 'light'` shows no dark background flash.
+- [ ] Hard-reloading with no `theme` key defaults to dark mode with no flash.
+- [ ] Theme toggle in Settings applies the new theme with no visible flicker.
+- [ ] Browser DevTools Performance tab shows no "Layout was forced before the page was fully loaded" warning.
+
+### Testing
+- [ ] `tests/core/theme-fouc.spec.ts` — all T1–T6 pass in Firefox.
+- [ ] T4 passes (depends on CSS-1: `.light {}` overrides `background-color`, `color-scheme`, and `color`).
+- [ ] Full non-security Playwright suite is green.
+- [ ] No new console errors or warnings from `localStorage`, `classList`, or `useLayoutEffect`.
+
+### Code Quality
+- [ ] Inline script in `index.html` is a single minified line.
+- [ ] Unused `useEffect` import removed from `ThemeContext.tsx` if no longer needed.
+- [ ] `tsc --noEmit` clean — no TypeScript errors introduced.
+
+### Performance
+- [ ] CSS and JS chunks load in the same order as before (waterfall unchanged).
+- [ ] No observable FCP regression (no Lighthouse gate — no pre-fix baseline is defined).
+
+---
+
+## 8. Out of Scope
+
+The following were identified during research and confirmed as non-contributing or separate concerns:
+
+- **Font loading** — `Inter` and `JetBrains Mono` fall back to `system-ui`. No `@font-face` or external CDN. No FOIT/FOUT. Separate font-bundling work would be its own feature.
+- **CSS preload hints** — Vite automatically injects `<link rel="stylesheet">` and `<link rel="modulepreload">` in production builds. The dev-server gap is acceptable.
+- **Log viewer layout reads** — `TunnelLogViewer.tsx` and `LiveLogViewer.tsx` read scroll properties inside post-mount event handlers, not during initial render. These are benign.
+- **Vendor chunk splitting** — The `vendor-i18n` chunk incurs a network round-trip on cold load. This is a performance concern separate from FOUC and belongs in a performance audit.
+- **SSR / hydration** — Charon is CSR-only. No hydration concerns exist.

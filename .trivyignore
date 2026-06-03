@@ -1,6 +1,15 @@
 .cache/
 playwright/.auth/
 
+# backend/internal/api/routes/keys/hecate-ca.key: Hecate/Orthrus agent CA seed key (dev/test artifact)
+# This EC P-256 private key is a pre-seeded development fixture for the Orthrus mTLS PKI subsystem.
+# Production code (NewInternalCA in backend/internal/orthrus/ca.go) generates its own CA key at
+# runtime from a configurable dataRoot directory and does NOT use this path in production.
+# The file is gitignored via *.key in .gitignore and is NOT committed to git history.
+# It exists only on the local development filesystem for testing convenience.
+# Assessed as dev artifact in QA audits 2026-05-18 and 2026-06-03. Rotate before production use.
+backend/internal/api/routes/keys/hecate-ca.key
+
 # GHSA-69x3-g4r3-p962 / CVE-2026-25793: Nebula ECDSA Signature Malleability
 # Severity: HIGH (CVSS 8.1) — Package: github.com/slackhq/nebula v1.9.7 in /usr/bin/caddy
 # Fix exists in nebula v1.10.3, but smallstep/certificates (through v0.30.2) uses legacy nebula
