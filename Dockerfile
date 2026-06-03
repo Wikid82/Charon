@@ -39,9 +39,9 @@ ARG NPM_VERSION=11.16.0
 ## Try to build the requested Caddy v2.x tag (Renovate can update this ARG).
 ## If the requested tag isn't available, fall back to a known-good v2.11.3 build.
 # renovate: datasource=go depName=github.com/caddyserver/caddy/v2
-ARG CADDY_VERSION=2.11.3
+ARG CADDY_VERSION=2.11.4
 # renovate: datasource=go depName=github.com/caddyserver/caddy/v2
-ARG CADDY_CANDIDATE_VERSION=2.11.3
+ARG CADDY_CANDIDATE_VERSION=2.11.4
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
