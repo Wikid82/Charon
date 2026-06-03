@@ -10,7 +10,7 @@ ARG BUILD_DEBUG=0
 
 # ---- Pinned Toolchain Versions ----
 # renovate: datasource=docker depName=golang versioning=docker
-ARG GO_VERSION=1.26.3
+ARG GO_VERSION=1.26.4
 
 # renovate: datasource=docker depName=alpine versioning=docker
 ARG ALPINE_IMAGE=alpine:3.23.4@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
@@ -39,9 +39,9 @@ ARG NPM_VERSION=11.16.0
 ## Try to build the requested Caddy v2.x tag (Renovate can update this ARG).
 ## If the requested tag isn't available, fall back to a known-good v2.11.3 build.
 # renovate: datasource=go depName=github.com/caddyserver/caddy/v2
-ARG CADDY_VERSION=2.11.3
+ARG CADDY_VERSION=2.11.4
 # renovate: datasource=go depName=github.com/caddyserver/caddy/v2
-ARG CADDY_CANDIDATE_VERSION=2.11.3
+ARG CADDY_CANDIDATE_VERSION=2.11.4
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security

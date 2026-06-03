@@ -546,6 +546,12 @@
       "matchDatasources": ["go"],
       "matchPackageNames": ["gorm.io/driver/sqlite"],
       "sourceUrl": "https://github.com/go-gorm/sqlite"
+    },
+    {
+      "description": "Fix Renovate lookup for gopkg.in/yaml.v3 (vanity domain maps to go-yaml/yaml)",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["gopkg.in/yaml.v3"],
+      "sourceUrl": "https://github.com/go-yaml/yaml"
     }
   ]
 }
