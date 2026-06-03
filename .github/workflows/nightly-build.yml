@@ -284,7 +284,7 @@ jobs:
           image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.resolve_digest.outputs.digest }}
           format: cyclonedx-json
           output-file: sbom-nightly.json
-          syft-version: v1.44.0
+          syft-version: v1.45.0
 
       - name: Generate SBOM fallback with pinned Syft
         if: always()
@@ -298,7 +298,7 @@ jobs:
 
           echo "Primary SBOM generation failed or produced missing/invalid output; using deterministic Syft fallback"
 
-          SYFT_VERSION="v1.44.0"
+          SYFT_VERSION="v1.45.0"
           OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
           ARCH="$(uname -m)"
           case "$ARCH" in
