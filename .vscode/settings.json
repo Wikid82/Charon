@@ -1,6 +1,6 @@
 {
   "docker.host": "unix:///run/user/1001/docker.sock",
-  "go.goroot": "/home/jeremy/sdk/go1.26.3",
+  "go.goroot": "/home/jeremy/sdk/go1.26.4",
   "gopls": {
     "buildFlags": ["-tags=integration"]
   },
