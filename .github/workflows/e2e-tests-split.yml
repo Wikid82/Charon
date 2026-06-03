@@ -83,7 +83,7 @@ on:
 
 env:
   NODE_VERSION: '20'
-  GO_VERSION: '1.26.3'
+  GO_VERSION: '1.26.4'
   GOTOOLCHAIN: auto
   DOCKERHUB_REGISTRY: docker.io
   IMAGE_NAME: ${{ github.repository_owner }}/charon
