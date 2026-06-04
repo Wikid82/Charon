@@ -232,6 +232,9 @@
  * LIGHT MODE OVERRIDES
  * ======================================== */
 .light {
+  background-color: #f0f4f8;
+  color-scheme: light;
+  color: rgba(0, 0, 0, 0.87);
   /* Surfaces */
   --color-bg-base: 248 250 252;        /* slate-50 */
   --color-bg-subtle: 241 245 249;      /* slate-100 */

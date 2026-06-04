@@ -201,6 +201,7 @@ func TestBuildCSP(t *testing.T) {
 		csp := buildCSP(SecurityHeadersConfig{IsDevelopment: false})
 		assert.Contains(t, csp, "default-src 'self'")
 		assert.Contains(t, csp, "script-src 'self'")
+		assert.Contains(t, csp, "'sha256-unLfZd2QbjLZq1VPhNlvrPL3YNusHSjpLCNZLKEgc0A='")
 		assert.NotContains(t, csp, "unsafe-eval")
 	})
 

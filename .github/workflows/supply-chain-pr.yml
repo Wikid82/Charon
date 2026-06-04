@@ -284,11 +284,11 @@ jobs:
           echo "component_count=${COMPONENT_COUNT}" >> "$GITHUB_OUTPUT"
           echo "✅ SBOM generated with ${COMPONENT_COUNT} components"
 
-      # Scan for vulnerabilities using manual Grype installation (pinned to v0.112.0)
+      # Scan for vulnerabilities using manual Grype installation (pinned to v0.113.0)
       - name: Install Grype
         if: steps.set-target.outputs.image_name != ''
         run: |
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.112.0
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.113.0
 
       - name: Scan for vulnerabilities
         if: steps.set-target.outputs.image_name != ''
