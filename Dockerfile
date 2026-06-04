@@ -462,7 +462,7 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
     go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.12 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.74.4 && \
+    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.75.0 && \
     go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7 && \
     go get github.com/aws/aws-sdk-go-v2/service/s3@v1.102.1 && \
     # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
@@ -472,7 +472,7 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # CVE-2026-40898: buger/jsonparser Delete() panic via negative slice index on malformed JSON.
     # Affects crowdsec and cscli binaries. Fix available at v1.1.2.
     # renovate: datasource=go depName=github.com/buger/jsonparser
-    go get github.com/buger/jsonparser@v1.1.2 && \
+    go get github.com/buger/jsonparser@v1.2.0 && \
     go mod tidy
 
 # Fix compatibility issues with expr-lang v1.17.7
