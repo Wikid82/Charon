@@ -334,6 +334,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Affects /usr/bin/caddy (transitive dependency). Fix available at v0.1.1.
         # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
         go get github.com/Azure/go-ntlmssp@v0.1.1; \
+        # CVE-2026-40898: buger/jsonparser Delete() panic via negative slice index on malformed JSON.
+        # Affects /usr/bin/caddy (transitive via caddy-crowdsec-bouncer -> crowdsec). Fix available at v1.2.0.
+        # renovate: datasource=go depName=github.com/buger/jsonparser
+        go get github.com/buger/jsonparser@v1.2.0; \
         # CVE-2026-44982 (GHSA-rw47-hm26-6wr7): CrowdSec AppSec silently drops HTTP request
         # body for chunked/HTTP-2 requests, bypassing WAF body inspection rules.
         # caddy-crowdsec-bouncer@v0.12.1 was built against crowdsec v1.6.3 whose
