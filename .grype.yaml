@@ -617,6 +617,156 @@ ignore:
       directly. Deferring to next Caddy release.
     expiry: "2026-08-01"  # Review: Extended 2026-06-02 — no upstream fix confirmed. Next review: 2026-08-01.
 
+  # GO-2024-2565 / CVE-2024-21495: Use of Insufficiently Random Values in caddy-security
+  # Severity: CRITICAL (CVSS 9.8)
+  # Package: github.com/greenpau/caddy-security v1.1.62 (embedded in /usr/bin/caddy)
+  # Status: FALSE POSITIVE — Go vulnerability database entry has no fixed version recorded;
+  #         per Snyk/NVD the fix was shipped in v1.0.42, and we run v1.1.62.
+  #
+  # Vulnerability Details:
+  # - Insecure random number generation used for OAuth nonce values, MFA secrets, and API keys.
+  # - An attacker could predict generated nonces to conduct OAuth replay attacks (CWE-330).
+  # - Trail of Bits audit: https://blog.trailofbits.com/2023/09/18/security-flaws-in-an-sso-plugin-for-caddy
+  #
+  # False Positive Analysis:
+  # - The Go vulnerability database entry (GO-2024-2565) has fix.versions = [] (empty), causing
+  #   grype to flag every caddy-security version regardless of whether the fix is present.
+  # - Per Snyk (SNYK-GOLANG-GITHUBCOMGREENPAUCADDYSECURITY-6248275) and NVD, the fix was
+  #   introduced in go-authcrunch commit ecd3725 and released in caddy-security >= v1.0.42.
+  # - We run v1.1.62, which is significantly past the v1.0.42 fix point.
+  # - This is a database completeness issue, not an actual vulnerability in our deployment.
+  #
+  # Mitigation (active while suppression is in effect):
+  # - Monitor Go vuln DB for an update to GO-2024-2565 with a fixed version recorded:
+  #   https://pkg.go.dev/vuln/GO-2024-2565
+  # - Weekly CI security rebuild will surface any change automatically.
+  #
+  # Review:
+  # - Reviewed 2026-06-05 (initial suppression): confirmed false positive. caddy-security v1.1.62
+  #   incorporates the go-authcrunch fix from v1.0.42. Go vulndb lacks the fixed version.
+  # - Next review: 2026-09-05.
+  #
+  # Removal Criteria:
+  # - Go vulnerability database records a fixed version for GO-2024-2565, and grype no longer
+  #   flags caddy-security v1.1.62+ as vulnerable; OR upgrade caddy-security to a version
+  #   that grype explicitly marks clean.
+  #
+  # References:
+  # - GO-2024-2565: https://pkg.go.dev/vuln/GO-2024-2565
+  # - CVE-2024-21495: https://nvd.nist.gov/vuln/detail/CVE-2024-21495
+  # - Snyk: https://security.snyk.io/vuln/SNYK-GOLANG-GITHUBCOMGREENPAUCADDYSECURITY-6248275
+  # - Fix commit (go-authcrunch): https://github.com/greenpau/go-authcrunch/commit/ecd3725baf2683eb1519bb3c81ae41085fbf7dc2
+  - vulnerability: GO-2024-2565
+    package:
+      name: github.com/greenpau/caddy-security
+      version: "v1.1.62"
+      type: go-module
+    reason: |
+      CRITICAL (FALSE POSITIVE) — Use of Insufficiently Random Values in caddy-security.
+      Go vulndb entry GO-2024-2565 has no fixed version recorded. Per Snyk/NVD, the fix is in
+      v1.0.42+; we run v1.1.62 which incorporates the fix. Suppressed as false positive due to
+      incomplete Go vulnerability database entry. Reviewed 2026-06-05.
+    expiry: "2026-09-05"  # Review: Initial suppression 2026-06-05. Next review: 2026-09-05.
+
+    # Action items when this suppression expires:
+    # 1. Check if Go vulndb has been updated: https://pkg.go.dev/vuln/GO-2024-2565
+    # 2. If fixed version is now recorded and we run >= that version: remove this entry
+    # 3. If still not recorded: Extend expiry by 90 days and update the review comment above
+    # 4. If extended 2+ times: file an issue against golang/vulndb to add the fixed version
+
+  # GO-2024-2557 / CVE-2024-21492: Insufficient Session Expiration in caddy-security
+  # Severity: HIGH (CVSS 5.3)
+  # Package: github.com/greenpau/caddy-security v1.1.62 (embedded in /usr/bin/caddy)
+  # Status: NO upstream fix available — session invalidation not implemented on logout
+  #
+  # Vulnerability Details:
+  # - User sessions are not properly invalidated when a user clicks "Sign Out".
+  # - Sessions remain valid after requests to /logout and /oauth2/google/logout endpoints.
+  # - An attacker holding a stolen session token can reuse it after the victim logs out.
+  # - Trail of Bits audit: https://blog.trailofbits.com/2023/09/18/security-flaws-in-an-sso-plugin-for-caddy
+  #
+  # Root Cause (No Fix Available):
+  # - No fixed version exists; Go vulndb GO-2024-2557 records no fixed version.
+  # - caddy-security uses stateless JWT tokens; server-side revocation is architecturally absent.
+  # - Fix path: caddy-security upstream adds a server-side session revocation list.
+  #
+  # Risk Assessment: ACCEPTED (Limited impact in Charon context)
+  # - JWT token lifetimes (typically 1 hour) bound the post-logout exploitation window.
+  # - An attacker must already possess a valid session token (requires prior compromise).
+  # - Charon deployments typically sit behind network controls limiting token exposure.
+  #
+  # Mitigation (active while suppression is in effect):
+  # - Configure short JWT TTLs in caddy-security to limit the post-logout window.
+  # - Monitor caddy-security releases and issue #272:
+  #   https://github.com/greenpau/caddy-security/issues/272
+  # - Weekly CI security rebuild flags the moment a fixed version ships.
+  #
+  # Review:
+  # - Reviewed 2026-06-05 (initial suppression): no upstream fix available. Risk accepted
+  #   given JWT TTL bounds the exploitation window. Set 90-day review.
+  # - Next review: 2026-09-05.
+  #
+  # Removal Criteria:
+  # - caddy-security releases a version with proper server-side session invalidation on logout
+  # - Rebuild Docker image, run security-scan-docker-image, confirm finding is resolved
+  #
+  # References:
+  # - GO-2024-2557: https://pkg.go.dev/vuln/GO-2024-2557
+  # - CVE-2024-21492: https://nvd.nist.gov/vuln/detail/CVE-2024-21492
+  # - GitHub issue: https://github.com/greenpau/caddy-security/issues/272
+  # - Snyk: https://security.snyk.io/vuln/SNYK-GOLANG-GITHUBCOMGREENPAUCADDYSECURITY-5920787
+  - vulnerability: GO-2024-2557
+    package:
+      name: github.com/greenpau/caddy-security
+      version: "v1.1.62"
+      type: go-module
+    reason: |
+      HIGH — Insufficient Session Expiration in caddy-security v1.1.62 embedded in /usr/bin/caddy.
+      No upstream fix; session tokens persist after logout. Risk accepted: JWT TTL bounds the
+      post-logout exploitation window; no server-side session store in caddy-security.
+      Reviewed 2026-06-05: monitoring caddy-security releases and issue #272.
+    expiry: "2026-09-05"  # Review: Initial suppression 2026-06-05. Next review: 2026-09-05.
+
+    # Action items when this suppression expires:
+    # 1. Check caddy-security releases: https://github.com/greenpau/caddy-security/releases
+    # 2. Check issue #272: https://github.com/greenpau/caddy-security/issues/272
+    # 3. If a fix is available: upgrade, rebuild, confirm clean, remove this entry
+    # 4. If no fix: Extend expiry by 90 days and update the review comment above
+    # 5. If extended 3+ times: evaluate migrating authentication to an alternative provider
+
+  # GO-2026-4518: pgproto3/v2 DataRow.Decode panic on negative field length (DoS)
+  # Severity: HIGH (CVSS 7.5)
+  # Package: github.com/jackc/pgproto3/v2 v2.3.3 (embedded in /usr/local/bin/crowdsec and /usr/local/bin/cscli)
+  # Status: NO fix in pgproto3/v2 (archived/EOL) — Go vulndb alias for the same underlying
+  #         vulnerability already suppressed under GHSA-jqcq-xjh3-6g23 and CVE-2026-4427.
+  #
+  # This is the golang.org/x/vuln database tracking issue (golang/vulndb#4518) for the same
+  # DataRow negative field length panic already documented in GHSA-jqcq-xjh3-6g23 above.
+  # All justification, risk assessment, and removal criteria are identical to that entry.
+  #
+  # Remove this entry simultaneously with GHSA-jqcq-xjh3-6g23, GHSA-x6gf-mpr2-68h6,
+  # CVE-2026-4427, and CVE-2026-32286 when CrowdSec migrates to pgx/v5.
+  #
+  # References:
+  # - GO-2026-4518: https://github.com/golang/vulndb/issues/4518
+  # - GHSA-jqcq-xjh3-6g23 (same vuln): https://github.com/advisories/GHSA-jqcq-xjh3-6g23
+  - vulnerability: GO-2026-4518
+    package:
+      name: github.com/jackc/pgproto3/v2
+      version: "v2.3.3"
+      type: go-module
+    reason: |
+      HIGH — DoS panic via negative field length in pgproto3/v2 v2.3.3 in CrowdSec binaries.
+      Go vulndb alias (GO-2026-4518) for the same underlying bug as GHSA-jqcq-xjh3-6g23 / CVE-2026-4427.
+      pgproto3/v2 is archived/EOL; fix requires CrowdSec to migrate to pgx/v5.
+      Charon uses SQLite; PostgreSQL code path is not reachable in a standard deployment.
+    expiry: "2026-09-01"  # Review: Initial suppression 2026-06-05. Same timeline as GHSA-jqcq-xjh3-6g23.
+
+    # Action items when this suppression expires:
+    # 1. Check CrowdSec releases for pgx/v5 migration
+    # 2. If migrated: rebuild, confirm clean, remove this entry AND GHSA-jqcq-xjh3-6g23 / CVE-2026-4427 / CVE-2026-32286
+    # 3. If not: Extend expiry by 30 days
+
 # Match exclusions (patterns to ignore during scanning)
 # Use sparingly - prefer specific CVE suppressions above
 match:
