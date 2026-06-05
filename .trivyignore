@@ -133,3 +133,21 @@ GHSA-pxq6-2prw-chj9
 # exp: 2026-09-01
 CVE-2026-41889
 GHSA-j88v-2chj-qfwx
+
+# GO-2024-2565 / CVE-2024-21495: Use of Insufficiently Random Values in caddy-security v1.1.62
+# Severity: CRITICAL (CVSS 9.8) — Package: github.com/greenpau/caddy-security in /usr/bin/caddy
+# FALSE POSITIVE: Go vulndb entry (GO-2024-2565) has no fixed version recorded. Per Snyk/NVD,
+# the fix was shipped in v1.0.42; we run v1.1.62 which incorporates the fix.
+# Review by: 2026-09-05
+# See also: .grype.yaml for full justification
+# exp: 2026-09-05
+CVE-2024-21495
+
+# GO-2024-2557 / CVE-2024-21492: Insufficient Session Expiration in caddy-security v1.1.62
+# Severity: HIGH (CVSS 5.3) — Package: github.com/greenpau/caddy-security in /usr/bin/caddy
+# No upstream fix available. caddy-security uses stateless JWTs; no server-side revocation.
+# JWT TTL bounds the post-logout exploitation window. Monitoring caddy-security issue #272.
+# Review by: 2026-09-05
+# See also: .grype.yaml for full justification
+# exp: 2026-09-05
+CVE-2024-21492
