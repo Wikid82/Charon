@@ -284,7 +284,7 @@ jobs:
           image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.resolve_digest.outputs.digest }}
           format: cyclonedx-json
           output-file: sbom-nightly.json
-          syft-version: v1.45.0
+          syft-version: v1.45.1
 
       - name: Generate SBOM fallback with pinned Syft
         if: always()
