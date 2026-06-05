@@ -274,7 +274,7 @@ jobs:
           image: ${{ steps.set-target.outputs.image_name }}
           format: cyclonedx-json
           output-file: sbom.cyclonedx.json
-          syft-version: v1.45.0
+          syft-version: v1.45.1
 
       - name: Count SBOM components
         if: steps.set-target.outputs.image_name != ''

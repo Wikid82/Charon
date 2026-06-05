@@ -125,7 +125,7 @@ jobs:
           image: ghcr.io/${{ github.repository_owner }}/charon:${{ steps.tag.outputs.tag }}
           format: cyclonedx-json
           output-file: sbom-verify.cyclonedx.json
-          syft-version: v1.45.0
+          syft-version: v1.45.1
 
       - name: Verify SBOM Completeness
         if: steps.image-check.outputs.exists == 'true'
