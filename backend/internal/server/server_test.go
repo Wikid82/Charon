@@ -37,4 +37,19 @@ func TestNewRouter(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, apiW.Code)
 	assert.NotContains(t, apiW.Body.String(), "<html></html>")
 	assert.Contains(t, apiW.Body.String(), "not found")
+
+	// Test WebP/SVG static routes return 200 when the file exists
+	for _, asset := range []struct{ route, file string }{
+		{"/banner.webp", "banner.webp"},
+		{"/banner.svg", "banner.svg"},
+		{"/logo.webp", "logo.webp"},
+		{"/logo.svg", "logo.svg"},
+	} {
+		// #nosec G306 -- Test fixture needs to be world-readable for HTTP serving test
+		_ = os.WriteFile(filepath.Join(tempDir, asset.file), []byte("data"), 0o644)
+		r, _ := http.NewRequest("GET", asset.route, http.NoBody)
+		rw := httptest.NewRecorder()
+		router.ServeHTTP(rw, r)
+		assert.Equal(t, http.StatusOK, rw.Code, "route %s should return 200", asset.route)
+	}
 }
