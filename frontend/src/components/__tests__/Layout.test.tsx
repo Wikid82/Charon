@@ -90,6 +90,30 @@ describe('Layout', () => {
     expect(logos[0]).toBeInTheDocument()
   })
 
+  it('renders banner inside a picture element with webp source when sidebar is expanded', () => {
+    localStorage.setItem('sidebarCollapsed', 'false')
+    renderWithProviders(
+      <Layout>
+        <div>Test Content</div>
+      </Layout>
+    )
+
+    const pictures = document.querySelectorAll('picture')
+    expect(pictures.length).toBeGreaterThan(0)
+
+    const sources = document.querySelectorAll('picture source')
+    expect(sources.length).toBeGreaterThan(0)
+    const webpSource = Array.from(sources).find(
+      (s) => s.getAttribute('type') === 'image/webp'
+    )
+    expect(webpSource).toBeTruthy()
+    expect(webpSource?.getAttribute('srcset')).toBe('/banner.webp')
+
+    const bannerImg = document.querySelector('picture img')
+    expect(bannerImg).toBeTruthy()
+    expect(bannerImg?.getAttribute('src')).toBe('/banner.png')
+  })
+
   it('renders all navigation items', async () => {
     const user = userEvent.setup()
     renderWithProviders(
