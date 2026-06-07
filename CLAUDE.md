@@ -1,5 +1,7 @@
 # Charon — Claude Code Instructions
 
+Do NOT use worktrees. Make all changes directly on the current working branch.
+
 ## Code Quality Guidelines
 
 Every session should improve the codebase, not just add to it. Actively refactor code you encounter, even outside of your immediate task scope. Think about long-term maintainability and consistency. Make a detailed plan before writing code. Always create unit tests for new code coverage.
