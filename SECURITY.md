@@ -241,13 +241,13 @@ Charon users is negligible since the vulnerable code path is not exercised.
 
 ---
 
-### [HIGH] CVE-2026-45135 · Caddy FastCGI Unsafe Unicode Handling in splitPos
+### ✅ [HIGH] CVE-2026-45135 · Caddy FastCGI Unsafe Unicode Handling in splitPos
 
 | Field        | Value |
 |--------------|-------|
 | **ID**       | CVE-2026-45135 |
 | **Severity** | High · 8.1 |
-| **Status**   | Fix deployed — `no-cache-filter: caddy-builder` added to nightly workflow |
+| **Status**   | Fully remediated — `no-cache-filters: caddy-builder,crowdsec-builder` applied to nightly and E2E build workflows |
 
 **What**
 Caddy v2.11.2 contains unsafe Unicode handling in the FastCGI `splitPos` function. A
@@ -280,10 +280,11 @@ prior nightly run despite the ARG value change — a known edge case where GHA c
 loses ARG-scoped metadata, preventing proper cache key invalidation.
 
 **Remediation Applied**
-Added `no-cache-filter: caddy-builder` to the `build-and-push-nightly` job in
-`.github/workflows/nightly-build.yml`. This forces the `caddy-builder` stage to rebuild from
-scratch on every nightly run, bypassing the GHA layer cache for that stage. All other stages
-continue to benefit from the cache.
+Added `no-cache-filters: caddy-builder,crowdsec-builder` to the `build-and-push-nightly` job in
+`.github/workflows/nightly-build.yml` and to the `Build Docker image` step in
+`.github/workflows/e2e-tests-split.yml`. This forces both the `caddy-builder` and
+`crowdsec-builder` stages to rebuild from scratch on every nightly and E2E build run, bypassing
+the GHA layer cache for those stages. All other stages continue to benefit from the cache.
 
 ---
 

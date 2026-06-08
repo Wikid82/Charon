@@ -1,8 +1,14 @@
-# Fix: Flash of Unstyled Content (FOUC) / Forced Layout Warning
+---
+goal: Fix CVE-2026-45135 — Ensure CI detects Caddy v2.11.4 not stale v2.11.2 in all build workflows
+version: 1.0
+date_created: 2026-06-08
+status: 'Planned'
+tags: [fix, security, infrastructure]
+---
 
-**Status:** Draft
-**Date:** 2026-06-05
-**Target Files:** `frontend/index.html`, `frontend/src/context/ThemeContext.tsx`, `frontend/src/i18n.ts`, `frontend/src/main.tsx`, `frontend/src/index.css`
+# Fix CVE-2026-45135: Caddy FastCGI Unsafe Unicode Handling
+
+![Status: Planned](https://img.shields.io/badge/status-Planned-blue)
 
 ---
 

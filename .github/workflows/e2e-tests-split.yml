@@ -184,6 +184,7 @@ jobs:
           tags: ${{ steps.resolve-image.outputs.image_tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          no-cache-filters: caddy-builder,crowdsec-builder
 
       - name: Save Docker image
         if: steps.resolve-image.outputs.image_source == 'build'
