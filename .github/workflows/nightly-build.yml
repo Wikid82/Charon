@@ -15,9 +15,9 @@ on:
       default: "false"
 
 env:
-  GO_VERSION: '1.26.3'
+  GO_VERSION: '1.26.4'
   NODE_VERSION: '24.12.0'
-  GOTOOLCHAIN: auto
+  GOTOOLCHAIN: local
   GHCR_REGISTRY: ghcr.io
   DOCKERHUB_REGISTRY: docker.io
   IMAGE_NAME: wikid82/charon
@@ -35,7 +35,7 @@ jobs:
 
     steps:
       - name: Checkout nightly branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           ref: nightly
           fetch-depth: 0
@@ -166,7 +166,7 @@ jobs:
           tool-cache: false
 
       - name: Checkout nightly branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
           fetch-depth: 0
@@ -284,7 +284,7 @@ jobs:
           image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.resolve_digest.outputs.digest }}
           format: cyclonedx-json
           output-file: sbom-nightly.json
-          syft-version: v1.44.0
+          syft-version: v1.45.1
 
       - name: Generate SBOM fallback with pinned Syft
         if: always()
@@ -298,7 +298,7 @@ jobs:
 
           echo "Primary SBOM generation failed or produced missing/invalid output; using deterministic Syft fallback"
 
-          SYFT_VERSION="v1.44.0"
+          SYFT_VERSION="v1.45.1"
           OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
           ARCH="$(uname -m)"
           case "$ARCH" in
@@ -420,7 +420,7 @@ jobs:
           tool-cache: false
 
       - name: Checkout nightly branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
           fetch-depth: 0
@@ -498,7 +498,7 @@ jobs:
 
     steps:
       - name: Checkout nightly branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
 
@@ -567,7 +567,7 @@ jobs:
 
     steps:
       - name: Checkout nightly branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
 
@@ -592,11 +592,11 @@ jobs:
           image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}
           format: 'sarif'
           output: 'trivy-nightly.sarif'
-          version: 'v0.70.0'
+          version: 'v0.71.0'
           trivyignores: '.trivyignore'
 
       - name: Upload Trivy results
-        uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa  # v4.36.0
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e  # v4.36.2
         with:
           sarif_file: 'trivy-nightly.sarif'
           category: 'trivy-nightly'

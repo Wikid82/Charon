@@ -12,8 +12,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.26.3'
-  GOTOOLCHAIN: auto
+  GO_VERSION: '1.26.4'
+  GOTOOLCHAIN: local
 
 # Minimal permissions at workflow level; write permissions granted at job level for push only
 permissions:
@@ -30,7 +30,7 @@ jobs:
       contents: write
       deployments: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           # For pull_request events, use the branch HEAD SHA (not the ephemeral merge
           # commit that github.sha resolves to), which is directly fetchable by SHA.
@@ -41,7 +41,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: backend/go.mod
 
           cache-dependency-path: backend/go.sum
 

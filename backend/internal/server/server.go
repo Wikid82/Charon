@@ -21,7 +21,11 @@ func NewRouter(frontendDir string) *gin.Engine {
 		router.Static("/assets", frontendDir+"/assets")
 		router.StaticFile("/", frontendDir+"/index.html")
 		router.StaticFile("/banner.png", frontendDir+"/banner.png")
+		router.StaticFile("/banner.webp", frontendDir+"/banner.webp")
+		router.StaticFile("/banner.svg", frontendDir+"/banner.svg")
 		router.StaticFile("/logo.png", frontendDir+"/logo.png")
+		router.StaticFile("/logo.webp", frontendDir+"/logo.webp")
+		router.StaticFile("/logo.svg", frontendDir+"/logo.svg")
 		router.StaticFile("/favicon.png", frontendDir+"/favicon.png")
 		router.NoRoute(func(c *gin.Context) {
 			// API routes should never fall back to the SPA HTML.

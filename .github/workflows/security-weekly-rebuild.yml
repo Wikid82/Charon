@@ -41,7 +41,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           # Explicitly fetch the current HEAD of the ref at run time, not the
           # SHA that was frozen when this scheduled job was queued. Without this,
@@ -105,7 +105,7 @@ jobs:
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '1' # Fail workflow if vulnerabilities found
-          version: 'v0.70.0'
+          version: 'v0.71.0'
         continue-on-error: true
 
       - name: Run Trivy vulnerability scanner (SARIF)
@@ -116,10 +116,10 @@ jobs:
           format: 'sarif'
           output: 'trivy-weekly-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
-          version: 'v0.70.0'
+          version: 'v0.71.0'
 
       - name: Upload Trivy results to GitHub Security
-        uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
         with:
           sarif_file: 'trivy-weekly-results.sarif'
           category: ${{ env.TRIVY_SARIF_CATEGORY }}
@@ -131,7 +131,7 @@ jobs:
           format: 'json'
           output: 'trivy-weekly-results.json'
           severity: 'CRITICAL,HIGH,MEDIUM,LOW'
-          version: 'v0.70.0'
+          version: 'v0.71.0'
 
       - name: Upload Trivy JSON results
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

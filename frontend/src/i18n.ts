@@ -26,6 +26,7 @@ i18n
     interpolation: {
       escapeValue: false, // React already escapes values
     },
+    initAsync: false,
     detection: {
       order: ['localStorage', 'navigator'], // Check localStorage first, then browser language
       caches: ['localStorage'], // Cache language selection in localStorage

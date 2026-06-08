@@ -12,6 +12,7 @@
 codecov.yml
 .goreleaser.yaml
 .sourcery.yml
+.claude/
 
 # -----------------------------------------------------------------------------
 # Python (tooling)
