@@ -443,11 +443,12 @@ jobs:
             const nightlyHeadSha = nightlyBranch.commit.sha;
             core.info(`Current nightly HEAD for dispatch fallback: ${nightlyHeadSha}`);
 
+            const prNumber = '${{ needs.create-promotion-pr.outputs.pr_number }}';
             const requiredWorkflows = [
               { id: 'e2e-tests-split.yml' },
               { id: 'codeql.yml' },
               { id: 'codecov-upload.yml', inputs: { run_backend: 'true', run_frontend: 'true' } },
-              { id: 'security-pr.yml' },
+              { id: 'security-pr.yml', inputs: { pr_number: prNumber } },
               { id: 'supply-chain-verify.yml' },
             ];
 
