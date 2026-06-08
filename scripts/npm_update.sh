@@ -19,6 +19,7 @@ for MODULE in "${MODULES[@]}"; do
     cd "$MODULE" || exit 1
 
     npx npm-check-updates -u
+    rm -rf node_modules package-lock.json
     npm install
     npm dedupe
     npm run --if-present build
