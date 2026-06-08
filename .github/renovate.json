@@ -23,6 +23,11 @@
   "ignorePaths": [
     ".docker/**"
   ],
+
+  "ignoreDeps": [
+    "github.com/gorilla/websocket"
+  ],
+
   "minimumReleaseAge": null,
   "rebaseWhen": "auto",
   "vulnerabilityAlerts": {

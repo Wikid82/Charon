@@ -331,3 +331,4 @@ backend/***_cov.txt
 .tmp/***
 charon-scan.tar
 .claude/scheduled_tasks.lock
+.claude/worktrees/
