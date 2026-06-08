@@ -330,3 +330,5 @@ backend/***_cov.txt
 .tmp/caddy-binary-pin-cleanup-local.tar
 .tmp/***
 charon-scan.tar
+.claude/scheduled_tasks.lock
+.claude/worktrees/

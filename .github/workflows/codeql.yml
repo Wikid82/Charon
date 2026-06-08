@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GOTOOLCHAIN: auto
-  GO_VERSION: '1.26.3'
+  GOTOOLCHAIN: local
+  GO_VERSION: '1.26.4'
 
 permissions:
   contents: read
@@ -38,7 +38,7 @@ jobs:
         language: [ 'go', 'javascript-typescript' ]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           # Use github.ref (full ref path) instead of github.ref_name:
           # - push/schedule: resolves to refs/heads/<branch>, checking out latest HEAD
@@ -52,7 +52,7 @@ jobs:
         run: bash scripts/ci/check-codeql-parity.sh
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4
+        uses: github/codeql-action/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4
         with:
           languages: ${{ matrix.language }}
           queries: security-and-quality
@@ -65,7 +65,7 @@ jobs:
         if: matrix.language == 'go'
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
 
       - name: Verify Go toolchain and build
@@ -92,11 +92,11 @@ jobs:
         run: mkdir -p sarif-results
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4
+        uses: github/codeql-action/autobuild@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4
 
       - name: Perform CodeQL Analysis
         id: codeql_analyze
-        uses: github/codeql-action/analyze@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4
+        uses: github/codeql-action/analyze@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4
         with:
           category: "/language:${{ matrix.language }}"
           output: sarif-results/${{ matrix.language }}

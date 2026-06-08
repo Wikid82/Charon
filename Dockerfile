@@ -10,7 +10,7 @@ ARG BUILD_DEBUG=0
 
 # ---- Pinned Toolchain Versions ----
 # renovate: datasource=docker depName=golang versioning=docker
-ARG GO_VERSION=1.26.3
+ARG GO_VERSION=1.26.4
 
 # renovate: datasource=docker depName=alpine versioning=docker
 ARG ALPINE_IMAGE=alpine:3.23.4@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
@@ -39,9 +39,9 @@ ARG NPM_VERSION=11.16.0
 ## Try to build the requested Caddy v2.x tag (Renovate can update this ARG).
 ## If the requested tag isn't available, fall back to a known-good v2.11.3 build.
 # renovate: datasource=go depName=github.com/caddyserver/caddy/v2
-ARG CADDY_VERSION=2.11.3
+ARG CADDY_VERSION=2.11.4
 # renovate: datasource=go depName=github.com/caddyserver/caddy/v2
-ARG CADDY_CANDIDATE_VERSION=2.11.3
+ARG CADDY_CANDIDATE_VERSION=2.11.4
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
@@ -334,6 +334,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Affects /usr/bin/caddy (transitive dependency). Fix available at v0.1.1.
         # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
         go get github.com/Azure/go-ntlmssp@v0.1.1; \
+        # buger/jsonparser Delete() panic via negative slice index on malformed JSON.
+        # Affects /usr/bin/caddy (transitive via caddy-crowdsec-bouncer -> crowdsec). Fix available at v1.2.0.
+        # renovate: datasource=go depName=github.com/buger/jsonparser
+        go get github.com/buger/jsonparser@v1.2.0; \
         # CVE-2026-44982 (GHSA-rw47-hm26-6wr7): CrowdSec AppSec silently drops HTTP request
         # body for chunked/HTTP-2 requests, bypassing WAF body inspection rules.
         # caddy-crowdsec-bouncer@v0.12.1 was built against crowdsec v1.6.3 whose
@@ -460,15 +464,24 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     go get go.opentelemetry.io/otel@v1.44.0 && \
     # GHSA-xmrv-pmrh-hhx2: AWS SDK v2 event stream injection
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
-    go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.10 && \
+    go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.13 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.74.1 && \
+    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.75.1 && \
     go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7 && \
     go get github.com/aws/aws-sdk-go-v2/service/s3@v1.102.1 && \
     # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
     # Affects /usr/local/bin/cscli (transitive dependency). Fix available at v0.1.1.
     # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
     go get github.com/Azure/go-ntlmssp@v0.1.1 && \
+    # CVE-2026-40898 (GHSA-vvgj-x9jq-8cj9): quic-go HTTP/3 QPACK Trailer Expansion Memory Exhaustion.
+    # Affects /usr/local/bin/crowdsec and /usr/local/bin/cscli (CrowdSec embeds quic-go v0.57.0).
+    # Fix available at v0.59.1. Caddy already resolves v0.59.1 through its own graph.
+    # renovate: datasource=go depName=github.com/quic-go/quic-go
+    go get github.com/quic-go/quic-go@v0.59.1 && \
+    # buger/jsonparser Delete() panic via negative slice index on malformed JSON.
+    # Fix available at v1.2.0.
+    # renovate: datasource=go depName=github.com/buger/jsonparser
+    go get github.com/buger/jsonparser@v1.2.0 && \
     go mod tidy
 
 # Fix compatibility issues with expr-lang v1.17.7
@@ -566,7 +579,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=c77ac1d7e64b3fcd1447045615fc3aefb3ed886e176608c568b01f29f955e21a
+ARG GEOLITE2_COUNTRY_SHA256=abce3a42f4f6bfb2c90cded582341da6764f5e152782ce6c832bc8fa1d873778
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
