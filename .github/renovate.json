@@ -9,7 +9,9 @@
   "baseBranchPatterns": [
     "development"
   ],
-  "postUpdateOptions": ["npmDedupe"],
+  "postUpdateOptions": [
+    "npmDedupe"
+  ],
   "timezone": "America/New_York",
   "dependencyDashboard": true,
   "dependencyDashboardApproval": true,
@@ -18,7 +20,6 @@
   "labels": [
     "dependencies"
   ],
-
   "ignorePaths": [
     ".docker/**"
   ],
@@ -29,19 +30,19 @@
 
   "minimumReleaseAge": null,
   "rebaseWhen": "auto",
-
   "vulnerabilityAlerts": {
     "enabled": true,
     "dependencyDashboardApproval": false,
     "automerge": false,
-    "labels": ["security", "vulnerability"]
+    "labels": [
+      "security",
+      "vulnerability"
+    ]
   },
-
   "rangeStrategy": "bump",
   "automerge": false,
   "automergeType": "pr",
   "platformAutomerge": true,
-
   "customManagers": [
     {
       "customType": "regex",
@@ -84,7 +85,9 @@
     {
       "customType": "regex",
       "description": "Track Alpine base image digest in Dockerfile for security updates",
-      "managerFilePatterns": ["/^Dockerfile$/"],
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
       "matchStrings": [
         "#\\s*renovate:\\s*datasource=docker\\s+depName=alpine.*\\nARG ALPINE_IMAGE=alpine:(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"
       ],
@@ -95,7 +98,9 @@
     {
       "customType": "regex",
       "description": "Track Go toolchain version ARG in Dockerfile",
-      "managerFilePatterns": ["/^Dockerfile$/"],
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
       "matchStrings": [
         "#\\s*renovate:\\s*datasource=docker\\s+depName=golang.*\\nARG GO_VERSION=(?<currentValue>[^\\s]+)"
       ],
@@ -106,7 +111,9 @@
     {
       "customType": "regex",
       "description": "Track expr-lang version ARG in Dockerfile",
-      "managerFilePatterns": ["/^Dockerfile$/"],
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
       "matchStrings": [
         "#\\s*renovate:\\s*datasource=go\\s+depName=github\\.com/expr-lang/expr.*\\nARG EXPR_LANG_VERSION=(?<currentValue>[^\\s]+)"
       ],
@@ -117,7 +124,9 @@
     {
       "customType": "regex",
       "description": "Track golang.org/x/net version ARG in Dockerfile",
-      "managerFilePatterns": ["/^Dockerfile$/"],
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
       "matchStrings": [
         "#\\s*renovate:\\s*datasource=go\\s+depName=golang\\.org/x/net.*\\nARG XNET_VERSION=(?<currentValue>[^\\s]+)"
       ],
@@ -128,7 +137,9 @@
     {
       "customType": "regex",
       "description": "Track Delve version in Dockerfile",
-      "managerFilePatterns": ["/^Dockerfile$/"],
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
       "matchStrings": [
         "ARG DLV_VERSION=(?<currentValue>[^\\s]+)"
       ],
@@ -139,7 +150,9 @@
     {
       "customType": "regex",
       "description": "Track xcaddy version in Dockerfile",
-      "managerFilePatterns": ["/^Dockerfile$/"],
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
       "matchStrings": [
         "ARG XCADDY_VERSION=(?<currentValue>[^\\s]+)"
       ],
@@ -176,7 +189,9 @@
     {
       "customType": "regex",
       "description": "Track govulncheck version in scripts",
-      "managerFilePatterns": ["/^scripts\\/security-scan\\.sh$/"],
+      "managerFilePatterns": [
+        "/^scripts\\/security-scan\\.sh$/"
+      ],
       "matchStrings": [
         "govulncheck@v(?<currentValue>[^\\s]+)"
       ],
@@ -187,7 +202,9 @@
     {
       "customType": "regex",
       "description": "Track gopls version in Go install script",
-      "managerFilePatterns": ["/^scripts\\/install-go-1\\.25\\.6\\.sh$/"],
+      "managerFilePatterns": [
+        "/^scripts\\/install-go-1\\.25\\.6\\.sh$/"
+      ],
       "matchStrings": [
         "gopls@v(?<currentValue>[^\\s]+)"
       ],
@@ -198,7 +215,9 @@
     {
       "customType": "regex",
       "description": "Track Go toolchain version in go.work for the dl shim",
-      "managerFilePatterns": ["/^go\\.work$/"],
+      "managerFilePatterns": [
+        "/^go\\.work$/"
+      ],
       "matchStrings": [
         "^go (?<currentValue>\\d+\\.\\d+\\.\\d+)$"
       ],
@@ -209,7 +228,9 @@
     {
       "customType": "regex",
       "description": "Track GO_VERSION in Actions workflows",
-      "managerFilePatterns": ["/^\\.github/workflows/.*\\.yml$/"],
+      "managerFilePatterns": [
+        "/^\\.github/workflows/.*\\.yml$/"
+      ],
       "matchStrings": [
         "GO_VERSION: ['\"]?(?<currentValue>[\\d\\.]+)['\"]?"
       ],
@@ -252,7 +273,9 @@
     {
       "customType": "regex",
       "description": "Track go-version in skill example workflows",
-      "managerFilePatterns": ["/^\\.github/skills/examples/.*\\.yml$/"],
+      "managerFilePatterns": [
+        "/^\\.github/skills/examples/.*\\.yml$/"
+      ],
       "matchStrings": [
         "go-version: [\"']?(?<currentValue>[\\d\\.]+)[\"']?"
       ],
@@ -277,7 +300,9 @@
     {
       "customType": "regex",
       "description": "Track CrowdSec version ARG in Dockerfile",
-      "managerFilePatterns": ["/^Dockerfile$/"],
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
       "matchStrings": [
         "#\\s*renovate:\\s*datasource=github-releases\\s+depName=crowdsecurity/crowdsec\\s*\\nARG CROWDSEC_VERSION=(?<currentValue>[^\\s]+)"
       ],
@@ -289,7 +314,9 @@
     {
       "customType": "regex",
       "description": "Track Caddy version ARGs in Dockerfile",
-      "managerFilePatterns": ["/^Dockerfile$/"],
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
       "matchStrings": [
         "#\\s*renovate:\\s*datasource=go\\s+depName=github\\.com/caddyserver/caddy[^\\s]*\\s*\\nARG CADDY_VERSION=(?<currentValue>[^\\s]+)",
         "#\\s*renovate:\\s*datasource=go\\s+depName=github\\.com/caddyserver/caddy[^\\s]*\\s*\\nARG CADDY_CANDIDATE_VERSION=(?<currentValue>[^\\s]+)"
@@ -301,7 +328,9 @@
     {
       "customType": "regex",
       "description": "Track gosu version ARG in Dockerfile",
-      "managerFilePatterns": ["/^Dockerfile$/"],
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
       "matchStrings": [
         "#\\s*renovate:\\s*datasource=github-releases\\s+depName=tianon/gosu\\s*\\nARG GOSU_VERSION=(?<currentValue>[^\\s]+)"
       ],
@@ -312,7 +341,9 @@
     {
       "customType": "regex",
       "description": "Track npm version ARG in Dockerfile",
-      "managerFilePatterns": ["/^Dockerfile$/"],
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
       "matchStrings": [
         "#\\s*renovate:\\s*datasource=npm\\s+depName=npm\\s*\\nARG NPM_VERSION=(?<currentValue>[^\\s]+)"
       ],
@@ -323,7 +354,9 @@
     {
       "customType": "regex",
       "description": "Track golang.org/x/crypto version ARG in Dockerfile",
-      "managerFilePatterns": ["/^Dockerfile$/"],
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
       "matchStrings": [
         "#\\s*renovate:\\s*datasource=go\\s+depName=golang\\.org/x/crypto\\s*\\nARG XCRYPTO_VERSION=(?<currentValue>[^\\s]+)"
       ],
@@ -334,7 +367,9 @@
     {
       "customType": "regex",
       "description": "Track coraza-caddy version ARG in Dockerfile",
-      "managerFilePatterns": ["/^Dockerfile$/"],
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
       "matchStrings": [
         "#\\s*renovate:\\s*datasource=go\\s+depName=github\\.com/corazawaf/coraza-caddy[^\\s]*\\s*\\nARG CORAZA_CADDY_VERSION=(?<currentValue>[^\\s]+)"
       ],
@@ -343,13 +378,11 @@
       "versioningTemplate": "semver"
     }
   ],
-
   "github-actions": {
     "managerFilePatterns": [
       "/^\\.github/skills/examples/.*\\.ya?ml$/"
     ]
   },
-
   "packageRules": [
     {
       "description": "Group GitHub Actions non-major updates into one PR",
@@ -419,15 +452,29 @@
     },
     {
       "description": "Development branch: Auto-merge non-major updates after proven stable",
-      "matchBaseBranches": ["development"],
-      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "matchBaseBranches": [
+        "development"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
       "automerge": false
     },
     {
       "description": "Preserve your custom Caddy patch labels but allow them to group into a single PR",
-      "matchManagers": ["custom.regex"],
-      "matchFileNames": ["Dockerfile"],
-      "labels": ["caddy-patch", "security"],
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchFileNames": [
+        "Dockerfile"
+      ],
+      "labels": [
+        "caddy-patch",
+        "security"
+      ],
       "matchPackageNames": [
         "/expr-lang/expr/",
         "/quic-go/quic-go/",
@@ -436,126 +483,239 @@
     },
     {
       "description": "Docker: keep Caddy within v2 (no automatic jump to v3)",
-      "matchManagers": ["dockerfile"],
-      "matchPackageNames": ["caddy"],
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "matchPackageNames": [
+        "caddy"
+      ],
       "allowedVersions": "<3.0.0"
     },
     {
       "description": "Go: keep Caddy within v2 (no automatic jump to v3) - ARG tracking via custom manager",
-      "matchDatasources": ["go"],
-      "matchPackageNames": ["github.com/caddyserver/caddy/v2"],
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/caddyserver/caddy/v2"
+      ],
       "allowedVersions": "<3.0.0"
     },
     {
       "description": "Label CrowdSec updates as security-relevant",
-      "matchDatasources": ["github-releases"],
-      "matchPackageNames": ["crowdsecurity/crowdsec"],
-      "labels": ["security", "dependencies"]
+      "matchDatasources": [
+        "github-releases"
+      ],
+      "matchPackageNames": [
+        "crowdsecurity/crowdsec"
+      ],
+      "labels": [
+        "security",
+        "dependencies"
+      ]
     },
     {
       "description": "Go: keep pgx within v4 (CrowdSec requires pgx/v4 module path) - applies to go.mod lookups",
-      "matchDatasources": ["go"],
-      "matchPackageNames": ["github.com/jackc/pgx/v4"],
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/jackc/pgx/v4"
+      ],
       "allowedVersions": "<5.0.0",
       "sourceUrl": "https://github.com/jackc/pgx"
     },
     {
       "description": "jackc/pgx via github-tags: constrain to v4.x.x patch releases (Dockerfile CVE pin)",
-      "matchDatasources": ["github-tags"],
-      "matchPackageNames": ["jackc/pgx"],
+      "matchDatasources": [
+        "github-tags"
+      ],
+      "matchPackageNames": [
+        "jackc/pgx"
+      ],
       "allowedVersions": ">=4.0.0 <5.0.0"
     },
     {
       "description": "Go: keep go-jose/v3 within v3 (v4 is a different Go module path)",
-      "matchDatasources": ["go"],
-      "matchPackageNames": ["github.com/go-jose/go-jose/v3"],
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/go-jose/go-jose/v3"
+      ],
       "allowedVersions": "<4.0.0",
       "sourceUrl": "https://github.com/go-jose/go-jose"
     },
     {
       "description": "Go: keep go-jose/v4 within v4 (v5 would be a different Go module path)",
-      "matchDatasources": ["go"],
-      "matchPackageNames": ["github.com/go-jose/go-jose/v4"],
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/go-jose/go-jose/v4"
+      ],
       "allowedVersions": "<5.0.0",
       "sourceUrl": "https://github.com/go-jose/go-jose"
     },
     {
       "description": "Safety: Keep MAJOR updates separate and require manual review",
-      "matchUpdateTypes": ["major"],
+      "matchUpdateTypes": [
+        "major"
+      ],
       "automerge": false,
-      "labels": ["manual-review"]
+      "labels": [
+        "manual-review"
+      ]
     },
     {
       "description": "Fix Renovate lookup for geoip2-golang v2 module path",
-      "matchDatasources": ["go"],
-      "matchPackageNames": ["github.com/oschwald/geoip2-golang/v2"],
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/oschwald/geoip2-golang/v2"
+      ],
       "sourceUrl": "https://github.com/oschwald/geoip2-golang"
     },
     {
       "description": "Fix Renovate lookup for google/uuid",
-      "matchDatasources": ["go"],
-      "matchPackageNames": ["github.com/google/uuid"],
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/google/uuid"
+      ],
       "sourceUrl": "https://github.com/google/uuid"
     },
     {
       "description": "Fix Renovate lookup for golang-jwt/jwt v5 module path",
-      "matchDatasources": ["go"],
-      "matchPackageNames": ["github.com/golang-jwt/jwt/v5"],
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/golang-jwt/jwt/v5"
+      ],
       "sourceUrl": "https://github.com/golang-jwt/jwt"
     },
     {
       "description": "Fix Renovate lookup for robfig/cron v3 module path",
-      "matchDatasources": ["go"],
-      "matchPackageNames": ["github.com/robfig/cron/v3"],
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/robfig/cron/v3"
+      ],
       "sourceUrl": "https://github.com/robfig/cron"
     },
     {
       "description": "Fix Renovate lookup for oschwald/maxminddb-golang v2 module path",
-      "matchDatasources": ["go"],
-      "matchPackageNames": ["github.com/oschwald/maxminddb-golang/v2"],
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/oschwald/maxminddb-golang/v2"
+      ],
       "sourceUrl": "https://github.com/oschwald/maxminddb-golang"
     },
     {
       "description": "Fix Renovate lookup for cespare/xxhash v2 module path",
-      "matchDatasources": ["go"],
-      "matchPackageNames": ["github.com/cespare/xxhash/v2"],
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/cespare/xxhash/v2"
+      ],
       "sourceUrl": "https://github.com/cespare/xxhash"
     },
     {
       "description": "Fix Renovate lookup for klauspost/cpuid v2 module path",
-      "matchDatasources": ["go"],
-      "matchPackageNames": ["github.com/klauspost/cpuid/v2"],
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/klauspost/cpuid/v2"
+      ],
       "sourceUrl": "https://github.com/klauspost/cpuid"
     },
     {
       "description": "Fix Renovate lookup for pelletier/go-toml v2 module path",
-      "matchDatasources": ["go"],
-      "matchPackageNames": ["github.com/pelletier/go-toml/v2"],
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/pelletier/go-toml/v2"
+      ],
       "sourceUrl": "https://github.com/pelletier/go-toml"
     },
     {
       "description": "Fix Renovate lookup for go-playground/validator v10 module path",
-      "matchDatasources": ["go"],
-      "matchPackageNames": ["github.com/go-playground/validator/v10"],
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/go-playground/validator/v10"
+      ],
       "sourceUrl": "https://github.com/go-playground/validator"
     },
     {
       "description": "Fix Renovate lookup for gorm.io/gorm (vanity domain maps to go-gorm/gorm)",
-      "matchDatasources": ["go"],
-      "matchPackageNames": ["gorm.io/gorm"],
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "gorm.io/gorm"
+      ],
       "sourceUrl": "https://github.com/go-gorm/gorm"
     },
     {
       "description": "Fix Renovate lookup for gorm.io/driver/sqlite (vanity domain maps to go-gorm/sqlite)",
-      "matchDatasources": ["go"],
-      "matchPackageNames": ["gorm.io/driver/sqlite"],
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "gorm.io/driver/sqlite"
+      ],
       "sourceUrl": "https://github.com/go-gorm/sqlite"
     },
     {
       "description": "Fix Renovate lookup for gopkg.in/yaml.v3 (vanity domain maps to go-yaml/yaml)",
-      "matchDatasources": ["go"],
-      "matchPackageNames": ["gopkg.in/yaml.v3"],
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "gopkg.in/yaml.v3"
+      ],
       "sourceUrl": "https://github.com/go-yaml/yaml"
+    },
+    {
+      "description": "Fix Renovate lookup for gin-gonic/gin",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/gin-gonic/gin"
+      ],
+      "sourceUrl": "https://github.com/gin-gonic/gin"
+    },
+    {
+      "description": "Fix Renovate lookup for gin-contrib/gzip",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/gin-contrib/gzip"
+      ],
+      "sourceUrl": "https://github.com/gin-contrib/gzip"
+    },
+    {
+      "description": "Fix Renovate lookup for gin-contrib/sse",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/gin-contrib/sse"
+      ],
+      "sourceUrl": "https://github.com/gin-contrib/sse"
     }
   ]
 }
