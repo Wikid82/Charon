@@ -27,7 +27,7 @@ ARG EXPR_LANG_VERSION=1.17.8
 # renovate: datasource=go depName=golang.org/x/net
 ARG XNET_VERSION=0.55.0
 # renovate: datasource=go depName=golang.org/x/crypto
-ARG XCRYPTO_VERSION=0.52.0
+ARG XCRYPTO_VERSION=0.53.0
 # renovate: datasource=npm depName=npm
 ARG NPM_VERSION=11.16.0
 
@@ -480,7 +480,7 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
     go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.13 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.75.1 && \
+    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.75.2 && \
     go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7 && \
     go get github.com/aws/aws-sdk-go-v2/service/s3@v1.102.1 && \
     # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
@@ -491,7 +491,7 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # Affects /usr/local/bin/crowdsec and /usr/local/bin/cscli (CrowdSec embeds quic-go v0.57.0).
     # Fix available at v0.59.1. Caddy already resolves v0.59.1 through its own graph.
     # renovate: datasource=go depName=github.com/quic-go/quic-go
-    go get github.com/quic-go/quic-go@v0.59.1 && \
+    go get github.com/quic-go/quic-go@v0.60.0 && \
     # buger/jsonparser Delete() panic via negative slice index on malformed JSON.
     # Fix available at v1.2.0.
     # renovate: datasource=go depName=github.com/buger/jsonparser
