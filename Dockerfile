@@ -164,18 +164,32 @@ RUN set -eux; \
         test -e "$LOADER"; \
     fi
 
-# Install Delve (cross-compile for target)
-# Note: xx-go install puts binaries in /go/bin/TARGETOS_TARGETARCH/dlv if cross-compiling.
-# We find it and move it to /go/bin/dlv so it's in a consistent location for the next stage.
+# Install Delve (cross-compile for target) — debug builds only.
+# Security: dlv is only installed when BUILD_DEBUG=1.  Production images (BUILD_DEBUG=0,
+# the default) receive a harmless stub so the unconditional COPY below still succeeds,
+# but no Delve binary with golang.org/x/sys < v0.27.0 (GO-2026-5024) is shipped.
+# When dlv IS needed, we build it inside a temporary module that pins
+# golang.org/x/sys to the patched version used by the rest of the project.
 # renovate: datasource=go depName=github.com/go-delve/delve
 ARG DLV_VERSION=1.26.3
 # hadolint ignore=DL3059,DL4006
-RUN CGO_ENABLED=0 xx-go install github.com/go-delve/delve/cmd/dlv@v${DLV_VERSION} && \
-    DLV_PATH=$(find /go/bin -name dlv -type f | head -n 1) && \
-    if [ -n "$DLV_PATH" ] && [ "$DLV_PATH" != "/go/bin/dlv" ]; then \
-        mv "$DLV_PATH" /go/bin/dlv; \
-    fi && \
-    xx-verify /go/bin/dlv
+RUN if [ "$BUILD_DEBUG" = "1" ]; then \
+        echo "DEBUG build: installing Delve v${DLV_VERSION} with patched golang.org/x/sys..."; \
+        mkdir -p /tmp/dlv-install && cd /tmp/dlv-install && \
+        go mod init dlv_install && \
+        go get golang.org/x/sys@v0.46.0 && \
+        CGO_ENABLED=0 GOFLAGS="-mod=mod" xx-go install github.com/go-delve/delve/cmd/dlv@v${DLV_VERSION} && \
+        DLV_PATH=$(find /go/bin -name dlv -type f | head -n 1) && \
+        if [ -n "$DLV_PATH" ] && [ "$DLV_PATH" != "/go/bin/dlv" ]; then \
+            mv "$DLV_PATH" /go/bin/dlv; \
+        fi && \
+        xx-verify /go/bin/dlv && \
+        cd / && rm -rf /tmp/dlv-install; \
+    else \
+        echo "Production build: skipping Delve install (GO-2026-5024 mitigation)"; \
+        printf '#!/bin/sh\necho "Delve not available in production builds. Rebuild with BUILD_DEBUG=1." >&2\nexit 1\n' \
+            > /go/bin/dlv && chmod +x /go/bin/dlv; \
+    fi
 
 # Copy Go module files
 COPY backend/go.mod backend/go.sum ./
@@ -664,7 +678,11 @@ RUN chmod +x /usr/local/bin/install_hub_items.sh /usr/local/bin/register_bouncer
 # Copy Go binary from backend builder
 COPY --from=backend-builder /app/backend/charon /app/charon
 RUN ln -s /app/charon /app/cpmp || true
-# Copy Delve debugger (xx-go install places it in /go/bin)
+# Copy Delve stub/binary from backend-builder.
+# Security (GO-2026-5024): production builds (BUILD_DEBUG=0) receive a harmless shell
+# stub that prints an error and exits 1 — no vulnerable golang.org/x/sys v0.26.0 binary
+# is present in production images.  Debug builds (BUILD_DEBUG=1) receive the real dlv
+# compiled against golang.org/x/sys v0.46.0 (patched).
 COPY --from=backend-builder /go/bin/dlv /usr/local/bin/dlv
 
 # Copy frontend build from frontend builder
