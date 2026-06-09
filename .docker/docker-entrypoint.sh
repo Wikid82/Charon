@@ -414,9 +414,18 @@ if [ ! -f "$bin_path" ]; then
 fi
 
 if [ "$DEBUG_FLAG" = "1" ]; then
+    # Verify that /usr/local/bin/dlv is a real Delve binary, not the production stub
+    # (production images ship a shell stub that exits 1 to satisfy the COPY instruction
+    # without embedding the vulnerable golang.org/x/sys < v0.27.0 — GO-2026-5024).
+    # Real Delve exits 0 on `dlv version`; the stub exits 1.
+    if ! /usr/local/bin/dlv version >/dev/null 2>&1; then
+        echo "Note: Delve not available in this image (production build, GO-2026-5024 mitigation)."
+        echo "   Running Charon directly. To enable remote debugging, rebuild with:"
+        echo "   docker build --build-arg BUILD_DEBUG=1 ..."
+        run_as_charon "$bin_path" &
     # Check if binary has debug symbols (required for Delve)
     # objdump -h lists section headers; .debug_info is present if DWARF symbols exist
-    if command -v objdump >/dev/null 2>&1; then
+    elif command -v objdump >/dev/null 2>&1; then
         if ! objdump -h "$bin_path" 2>/dev/null | grep -q '\.debug_info'; then
             echo "⚠️  WARNING: Binary lacks debug symbols (DWARF info stripped)."
             echo "   Delve debugging will NOT work with this binary."
