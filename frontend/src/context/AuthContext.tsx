@@ -42,9 +42,11 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
     setIsLoading(false);
   }, [invalidateAuthRequests]);
 
-  // Register auth error handler on mount
+  // Register auth error handler on mount; unregister on unmount so the axios
+  // interceptor never calls a stale handler after the provider is gone
   useEffect(() => {
     setAuthErrorHandler(handleAuthError);
+    return () => setAuthErrorHandler(null);
   }, [handleAuthError]);
 
   useEffect(() => {
