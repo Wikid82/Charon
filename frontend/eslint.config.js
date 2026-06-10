@@ -10,7 +10,6 @@ import unicorn from 'eslint-plugin-unicorn';
 import sonarjs from 'eslint-plugin-sonarjs';
 import security from 'eslint-plugin-security';
 import noUnsanitized from 'eslint-plugin-no-unsanitized';
-import reactCompiler from 'eslint-plugin-react-compiler';
 import testingLibrary from 'eslint-plugin-testing-library';
 import vitest from '@vitest/eslint-plugin';
 import css from '@eslint/css';
@@ -41,7 +40,6 @@ export default tseslint.config(
       sonarjs,
       security,
       'no-unsanitized': noUnsanitized,
-      'react-compiler': reactCompiler,
     },
     settings: {
       'import-x/resolver': {
@@ -52,9 +50,16 @@ export default tseslint.config(
     rules: {
       // ── React ──
       'react-refresh/only-export-components': 'warn',
+      // React Compiler diagnostics now ship with eslint-plugin-react-hooks
+      // (the standalone eslint-plugin-react-compiler is deprecated); keep
+      // them at 'warn' to match the old react-compiler/react-compiler rule.
+      ...Object.fromEntries(
+        Object.keys(reactHooks.configs['recommended-latest'].rules).map(
+          name => [name, 'warn']
+        )
+      ),
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
-      'react-compiler/react-compiler': 'warn',
 
       // ── TypeScript ──
       '@typescript-eslint/no-explicit-any': 'warn',
