@@ -169,6 +169,30 @@ describe('api client', () => {
     warnSpy.mockRestore()
   })
 
+  it('stops invoking a handler after it is unregistered with null', async () => {
+    const onAuthError = vi.fn()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    setAuthErrorHandler(onAuthError)
+    setAuthErrorHandler(null)
+
+    const error: ResponseError = {
+      response: { status: 401, data: { message: 'Unauthorized' } },
+      config: { url: '/proxy-hosts' },
+      message: 'Original',
+    }
+
+    const handler = capturedHandlers.onRejected
+    expect(handler).toBeDefined()
+
+    const resultPromise = handler ? handler(error) : Promise.reject(new Error('handler missing'))
+
+    await expect(resultPromise).rejects.toBe(error)
+    expect(onAuthError).not.toHaveBeenCalled()
+
+    warnSpy.mockRestore()
+  })
+
   it('does not invoke auth error handler when status is not 401', async () => {
     const onAuthError = vi.fn()
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
