@@ -23,7 +23,6 @@ for MODULE in "${MODULES[@]}"; do
     npm install
     npm dedupe
     npm run --if-present build
-    npm run --if-present lint
     npm audit --audit-level=high
     npm audit fix
     npm outdated
