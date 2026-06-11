@@ -4,6 +4,9 @@
 
 set -euo pipefail
 
+export PATH="$(go env GOPATH)/bin:$PATH"
+command -v govulncheck >/dev/null || go install golang.org/x/vuln/cmd/govulncheck@latest
+
 MODULES=(
     "/projects/Charon/backend"
     "/projects/Charon/agent"
@@ -16,12 +19,17 @@ for MODULE in "${MODULES[@]}"; do
 
     cd "$MODULE" || exit 1
 
-    go get -u ./...
+    # Update go/toolchain directives so Renovate's golang updates have nothing to do
+    go get go@latest toolchain@latest
+    # -t includes test-only dependencies, which Renovate also tracks
+    go get -u -t ./...
     go mod tidy
     go mod verify
     go vet ./...
     go list -m -u all
     go build ./...
+    go test ./... > /dev/null
+    govulncheck ./...
 
     echo "Done: $MODULE"
 done
