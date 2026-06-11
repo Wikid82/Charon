@@ -4,7 +4,8 @@
 
 set -euo pipefail
 
-export PATH="$(go env GOPATH)/bin:$PATH"
+GOPATH_BIN="$(go env GOPATH)/bin"
+export PATH="$GOPATH_BIN:$PATH"
 command -v govulncheck >/dev/null || go install golang.org/x/vuln/cmd/govulncheck@latest
 
 MODULES=(
@@ -26,7 +27,6 @@ for MODULE in "${MODULES[@]}"; do
     go mod tidy
     go mod verify
     go vet ./...
-    go list -m -u all
     go build ./...
     go test ./... > /dev/null
     govulncheck ./...
