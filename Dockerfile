@@ -118,7 +118,7 @@ RUN apk upgrade --no-cache && \
 # hadolint ignore=DL3059
 RUN npm install -g picomatch@4.0.4 --no-fund --no-audit
 
-RUN npm ci
+RUN npm ci --ignore-scripts
 
 # Copy frontend source and build
 COPY frontend/ ./
