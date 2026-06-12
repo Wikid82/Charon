@@ -19,7 +19,7 @@ RUN_COVERAGE_DIR="coverage/.run-${PPID}-$$-$(date +%s)"
 cd "$FRONTEND_DIR"
 
 # Ensure dependencies are installed for CI runs
-npm ci --silent
+npm ci --silent --ignore-scripts
 
 # Ensure coverage output directories exist
 mkdir -p "$CANONICAL_COVERAGE_DIR"

@@ -20,7 +20,7 @@ for MODULE in "${MODULES[@]}"; do
 
     npx npm-check-updates -u
     rm -rf node_modules package-lock.json
-    npm install
+    npm install --ignore-scripts
     npm dedupe
     npm run --if-present build
     npm audit --audit-level=high
