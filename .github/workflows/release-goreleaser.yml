@@ -62,7 +62,7 @@ jobs:
           # Inject version into frontend build from tag (if present)
           VERSION=${GITHUB_REF#refs/tags/}
           echo "VITE_APP_VERSION=${VERSION}" >> "$GITHUB_ENV"
-          npm ci
+          npm ci --ignore-scripts
           npm run build
 
       - name: Install Cross-Compilation Tools (Zig)

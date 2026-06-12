@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.build.json && vite build",
-    "pretype-check": "npm ci --silent",
+    "pretype-check": "npm ci --silent --ignore-scripts",
     "type-check": "tsc --noEmit",
     "lint": "eslint . --report-unused-disable-directives",
     "preview": "vite preview",
@@ -18,7 +18,7 @@
     "test:ci": "NODE_OPTIONS=--max-old-space-size=4096 vitest run",
     "test:ui": "vitest --ui",
     "check-coverage": "bash ../scripts/frontend-test-coverage.sh",
-    "pretest:coverage": "npm ci --silent && node -e \"require('fs').mkdirSync('coverage/.tmp', { recursive: true })\"",
+    "pretest:coverage": "npm ci --silent --ignore-scripts && node -e \"require('fs').mkdirSync('coverage/.tmp', { recursive: true })\"",
     "test:coverage": "NODE_OPTIONS=--max-old-space-size=4096 vitest run --coverage",
     "e2e:install": "npx playwright install --with-deps",
     "e2e:test": "playwright test",
@@ -114,5 +114,8 @@
     "@vitejs/plugin-react": {
       "vite": "^8.0.16"
     }
+  },
+  "allowScripts": {
+    "unrs-resolver": false
   }
 }

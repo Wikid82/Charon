@@ -166,7 +166,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.resolve-image.outputs.image_source == 'build'
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Set up Docker Buildx
         if: steps.resolve-image.outputs.image_source == 'build'
@@ -304,7 +304,7 @@ jobs:
           exit 1
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Install Playwright Chromium
         run: |
@@ -506,7 +506,7 @@ jobs:
           exit 1
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Install Playwright Chromium (required by security-tests dependency)
         run: |
@@ -716,7 +716,7 @@ jobs:
           exit 1
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Install Playwright Chromium (required by security-tests dependency)
         run: |
@@ -953,7 +953,7 @@ jobs:
           exit 1
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Install Playwright Chromium
         run: |
@@ -1191,7 +1191,7 @@ jobs:
           exit 1
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Install Playwright Chromium (required by security-tests dependency)
         run: |
@@ -1437,7 +1437,7 @@ jobs:
           exit 1
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Install Playwright Chromium (required by security-tests dependency)
         run: |
