@@ -31,7 +31,7 @@ install:
 	@echo "Installing backend dependencies..."
 	cd backend && go mod download
 	@echo "Installing frontend dependencies..."
-	cd frontend && npm install
+	cd frontend && npm install --ignore-scripts
 
 # Install Go development tools
 install-tools:

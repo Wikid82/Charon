@@ -174,7 +174,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: frontend
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Run frontend tests and coverage
         working-directory: ${{ github.workspace }}
