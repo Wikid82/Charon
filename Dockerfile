@@ -22,7 +22,7 @@ ARG CROWDSEC_VERSION=1.7.8
 ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0bfe5e38f863bd
 
 # ---- Shared Go Security Patches ----
-# renovate: datasource=go depName=github.com/expr-lang/expr
+# renovate: datasource=github-tags depName=expr-lang/expr extractVersion=^v(?<version>.+)$
 ARG EXPR_LANG_VERSION=1.17.8
 # renovate: datasource=go depName=golang.org/x/net
 ARG XNET_VERSION=0.56.0
