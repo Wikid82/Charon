@@ -25,6 +25,7 @@ type LogWatcher struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	started     bool
+	ingester    *StatsIngester // optional fan-out to StatsIngester; nil when not registered
 }
 
 // NewLogWatcher creates a new LogWatcher instance for the given log file path.
@@ -67,6 +68,16 @@ func (w *LogWatcher) Stop() {
 	logger.Log().Info("LogWatcher stopped")
 }
 
+// RegisterIngester wires a StatsIngester into the fan-out path.
+// Every parsed log entry will be forwarded to the ingester via Send (non-blocking).
+// This must be called before Start for the ingester to receive all entries.
+func (w *LogWatcher) RegisterIngester(ing *StatsIngester) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.ingester = ing
+	logger.Log().Debug("StatsIngester registered with LogWatcher")
+}
+
 // Subscribe adds a new subscriber and returns a channel for receiving log entries.
 // The caller is responsible for calling Unsubscribe when done.
 func (w *LogWatcher) Subscribe() <-chan models.SecurityLogEntry {
@@ -98,7 +109,7 @@ func (w *LogWatcher) Unsubscribe(ch <-chan models.SecurityLogEntry) {
 	}
 }
 
-// broadcast sends a log entry to all subscribers.
+// broadcast sends a log entry to all subscribers and, if registered, to the StatsIngester.
 // Non-blocking: if a subscriber's channel is full, the entry is dropped for that subscriber.
 func (w *LogWatcher) broadcast(entry models.SecurityLogEntry) {
 	w.mu.RLock()
@@ -111,6 +122,11 @@ func (w *LogWatcher) broadcast(entry models.SecurityLogEntry) {
 		default:
 			// Channel is full, skip (prevents blocking other subscribers)
 		}
+	}
+
+	// Fan-out to StatsIngester (non-blocking via Send).
+	if w.ingester != nil {
+		w.ingester.Send(entry)
 	}
 }
 
