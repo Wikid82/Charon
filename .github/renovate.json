@@ -227,6 +227,19 @@
     },
     {
       "customType": "regex",
+      "description": "Track NODE_VERSION in Actions workflows",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/.*\\.yml$/"
+      ],
+      "matchStrings": [
+        "NODE_VERSION: ['\"]?(?<currentValue>[\\d\\.]+)['\"]?"
+      ],
+      "depNameTemplate": "node",
+      "datasourceTemplate": "node-version",
+      "versioningTemplate": "node"
+    },
+    {
+      "customType": "regex",
       "description": "Track GO_VERSION in Actions workflows",
       "managerFilePatterns": [
         "/^\\.github/workflows/.*\\.yml$/"
@@ -414,29 +427,6 @@
       "groupSlug": "go-non-major"
     },
     {
-      "description": "Group Go github-tags fallback updates from Dockerfile custom manager into Go non-major PR",
-      "matchDatasources": [
-        "github-tags"
-      ],
-      "matchManagers": [
-        "custom.regex"
-      ],
-      "matchFileNames": [
-        "Dockerfile"
-      ],
-      "matchPackageNames": [
-        "jackc/pgx"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch",
-        "pin",
-        "digest"
-      ],
-      "groupName": "go-non-major",
-      "groupSlug": "go-non-major"
-    },
-    {
       "description": "Group NPM non-major updates into one PR",
       "matchDatasources": [
         "npm"
@@ -449,6 +439,26 @@
       ],
       "groupName": "npm-non-major",
       "groupSlug": "npm-non-major"
+    },
+    {
+      "description": "Dockerfile ARG trackers (any datasource) group under Dockerfile, not Go/NPM — placed after the datasource group rules so it wins",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchFileNames": [
+        "Dockerfile"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "groupName": "dockerfile-non-major",
+      "groupSlug": "dockerfile-non-major",
+      "addLabels": [
+        "dockerfile"
+      ]
     },
     {
       "description": "Development branch: Auto-merge non-major updates after proven stable",

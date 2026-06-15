@@ -126,7 +126,7 @@ echo ""
 
 # Step 2: Install npm dependencies
 echo -e "${BLUE}📦 Step 2: Installing npm dependencies...${NC}"
-npm ci --silent
+npm ci --silent --ignore-scripts
 echo -e "${GREEN}✅ Dependencies installed${NC}"
 echo ""
 

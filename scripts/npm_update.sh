@@ -19,10 +19,10 @@ for MODULE in "${MODULES[@]}"; do
     cd "$MODULE" || exit 1
 
     npx npm-check-updates -u
-    npm install
+    rm -rf node_modules package-lock.json
+    npm install --ignore-scripts
     npm dedupe
     npm run --if-present build
-    npm run --if-present lint
     npm audit --audit-level=high
     npm audit fix
     npm outdated

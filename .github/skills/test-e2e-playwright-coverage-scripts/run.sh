@@ -158,7 +158,7 @@ start_vite() {
     # Ensure dependencies are installed
     if [[ ! -d "node_modules" ]]; then
         log_info "Installing frontend dependencies..."
-        npm ci --silent
+        npm ci --silent --ignore-scripts
     fi
 
     # Start Vite in background with explicit port
