@@ -208,6 +208,54 @@ func TestStatsService_GetTrafficVolume_InvalidBucket(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid bucket")
 }
 
+// TestStatsService_GetTrafficVolume_6hBucket verifies the 6-hour bucket SQL path.
+func TestStatsService_GetTrafficVolume_6hBucket(t *testing.T) {
+	t.Parallel()
+
+	db := setupStatsServiceDB(t)
+	seedRequestLogs(t, db)
+	svc := NewStatsService(db)
+
+	buckets, err := svc.GetTrafficVolume(context.Background(), "6h")
+	require.NoError(t, err)
+	for _, b := range buckets {
+		assert.NotEmpty(t, b.Bucket)
+		assert.GreaterOrEqual(t, b.BytesSent, int64(0))
+	}
+}
+
+// TestStatsService_GetTrafficVolume_1dBucket verifies the 1-day bucket SQL path.
+func TestStatsService_GetTrafficVolume_1dBucket(t *testing.T) {
+	t.Parallel()
+
+	db := setupStatsServiceDB(t)
+	seedRequestLogs(t, db)
+	svc := NewStatsService(db)
+
+	buckets, err := svc.GetTrafficVolume(context.Background(), "1d")
+	require.NoError(t, err)
+	for _, b := range buckets {
+		assert.NotEmpty(t, b.Bucket)
+		assert.GreaterOrEqual(t, b.BytesSent, int64(0))
+	}
+}
+
+// TestStatsService_GetSummary_DBError verifies that a closed DB returns a wrapped error.
+func TestStatsService_GetSummary_DBError(t *testing.T) {
+	t.Parallel()
+
+	db := setupStatsServiceDB(t)
+	svc := NewStatsService(db)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	_, err = svc.GetSummary(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "GetSummary")
+}
+
 // TestStatsService_GetCertExpiry_ValidWithinDays verifies certs expiring soon are returned.
 func TestStatsService_GetCertExpiry_ValidWithinDays(t *testing.T) {
 	t.Parallel()

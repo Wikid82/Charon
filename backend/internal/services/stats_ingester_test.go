@@ -227,6 +227,52 @@ func TestStatsIngester_ToRequestLog_InvalidTimestamp(t *testing.T) {
 		"fallback timestamp should not be in the future")
 }
 
+// TestStatsIngester_Stop_FlushesLargerThanBatchSize verifies that Stop correctly
+// flushes in-channel entries that exceed batchSize (the internal batch-flush path).
+func TestStatsIngester_Stop_FlushesLargerThanBatchSize(t *testing.T) {
+	t.Parallel()
+
+	db := setupStatsTestDB(t)
+	ing := NewStatsIngester(db)
+
+	// Pre-fill the channel with 150 entries (> batchSize=100) without starting Run.
+	// Stop must flush the first 100 via the batchSize branch, then the remaining 50 as final batch.
+	for i := 0; i < 150; i++ {
+		ing.ingestCh <- makeEntry("host-large", "10.0.0.5", "GET", 200)
+	}
+
+	ing.Stop()
+
+	var count int64
+	db.Model(&models.RequestLog{}).Count(&count)
+	assert.Equal(t, int64(150), count, "Stop must persist all 150 entries including the batchSize-triggered flush")
+}
+
+// TestStatsIngester_Run_DrainsBigBatchOnCancel verifies the drain path inside Run
+// when the channel contains more than batchSize entries at context cancellation.
+func TestStatsIngester_Run_DrainsBigBatchOnCancel(t *testing.T) {
+	t.Parallel()
+
+	db := setupStatsTestDB(t)
+	ing := NewStatsIngester(db)
+
+	// Pre-fill 150 entries before starting Run so they are ready to drain.
+	for i := 0; i < 150; i++ {
+		ing.ingestCh <- makeEntry("host-drain", "10.0.0.6", "GET", 200)
+	}
+
+	// Use an already-cancelled context so Run enters the drain path immediately.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	ing.Run(ctx) // blocks until drain + flush complete, then returns
+
+	var count int64
+	db.Model(&models.RequestLog{}).Count(&count)
+	assert.GreaterOrEqual(t, count, int64(100),
+		"Run drain must flush at least one full batch of 100 entries")
+}
+
 // TestStatsIngester_RegisterWithLogWatcher verifies fan-out wiring.
 func TestStatsIngester_RegisterWithLogWatcher(t *testing.T) {
 	t.Parallel()

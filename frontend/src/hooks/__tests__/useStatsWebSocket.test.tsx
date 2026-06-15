@@ -139,4 +139,19 @@ describe('useStatsWebSocket', () => {
 
     expect(mockWsInstance.close).not.toHaveBeenCalled();
   });
+
+  it('updates lastMessage but not latestSummary for non-stats_update message types', () => {
+    // Covers the else-branch of if (msg.type === 'stats_update').
+    const { result } = renderHook(() => useStatsWebSocket());
+
+    const otherMsg = { type: 'ping', data: {} };
+
+    act(() => {
+      const event = { data: JSON.stringify(otherMsg) } as MessageEvent;
+      mockWsInstance.onmessage?.(event);
+    });
+
+    expect(result.current.lastMessage).toEqual(otherMsg);
+    expect(result.current.latestSummary).toBeNull();
+  });
 });

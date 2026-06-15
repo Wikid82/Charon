@@ -107,4 +107,11 @@ describe('CertExpiryList', () => {
 
     expect(screen.getByText('Certificate Expiry')).toBeInTheDocument()
   })
+
+  it('renders empty state when data is undefined and not loading', () => {
+    // Covers the (data ?? []).length === 0 branch when data is undefined.
+    render(<CertExpiryList data={undefined} isLoading={false} />)
+
+    expect(screen.getByText('No certificates expiring soon')).toBeInTheDocument()
+  })
 })
