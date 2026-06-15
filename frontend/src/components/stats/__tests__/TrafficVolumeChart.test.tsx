@@ -12,6 +12,30 @@ vi.mock('recharts', async () => {
     ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
       <div data-testid="responsive-container">{children}</div>
     ),
+    // Call tickFormatter and content callbacks to cover formatBytes and tooltip paths.
+    YAxis: ({ tickFormatter }: { tickFormatter?: (value: number) => string }) => (
+      <g data-testid="y-axis">
+        {/* Exercise all three formatBytes branches: MB, KB, B */}
+        <text>{tickFormatter?.(2_097_152)}</text>
+        <text>{tickFormatter?.(2_048)}</text>
+        <text>{tickFormatter?.(500)}</text>
+      </g>
+    ),
+    Tooltip: ({
+      content,
+    }: {
+      content?: (props: object) => React.ReactNode
+    }) => (
+      <div data-testid="tooltip">
+        {content?.({
+          active: true,
+          payload: [{ value: 1_048_576, payload: {} }],
+          label: '10:00',
+        })}
+        {content?.({ active: true, payload: [{ value: 'not-a-number', payload: {} }], label: '' })}
+        {content?.({ active: false, payload: [] })}
+      </div>
+    ),
   }
 })
 

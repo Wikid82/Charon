@@ -12,6 +12,34 @@ vi.mock('recharts', async () => {
     ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
       <div data-testid="responsive-container">{children}</div>
     ),
+    // Call content callback to cover tooltip render paths including the hostname fallback.
+    Tooltip: ({
+      content,
+    }: {
+      content?: (props: object) => React.ReactNode
+    }) => (
+      <div data-testid="tooltip">
+        {/* With explicit hostname in payload — primary path */}
+        {content?.({
+          active: true,
+          payload: [{ value: 500, payload: { hostname: 'api.example.com' } }],
+          label: 'api.example.com',
+        })}
+        {/* Without hostname in payload — exercises the ?? String(label) fallback */}
+        {content?.({
+          active: true,
+          payload: [{ value: 300, payload: {} }],
+          label: 'fallback-host',
+        })}
+        {/* count is not a number — exercises String(count) branch */}
+        {content?.({
+          active: true,
+          payload: [{ value: undefined, payload: { hostname: 'host' } }],
+          label: '',
+        })}
+        {content?.({ active: false, payload: [] })}
+      </div>
+    ),
   }
 })
 

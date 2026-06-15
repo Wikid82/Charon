@@ -12,6 +12,31 @@ vi.mock('recharts', async () => {
     ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
       <div data-testid="responsive-container">{children}</div>
     ),
+    // Call label and content callbacks during render to cover those code paths.
+    Pie: ({
+      label,
+      children,
+    }: {
+      label?: (props: { name: string; percent?: number }) => React.ReactNode
+      children?: React.ReactNode
+    }) => (
+      <g data-testid="pie">
+        {label?.({ name: 'mock', percent: undefined })}
+        {label?.({ name: '2xx', percent: 0.8 })}
+        {children}
+      </g>
+    ),
+    Tooltip: ({
+      content,
+    }: {
+      content?: (props: object) => React.ReactNode
+    }) => (
+      <div data-testid="tooltip">
+        {content?.({ active: true, payload: [{ name: '2xx', value: 100, payload: {} }] })}
+        {content?.({ active: true, payload: [{ name: '5xx', value: 'not-a-number', payload: {} }] })}
+        {content?.({ active: false, payload: [] })}
+      </div>
+    ),
   }
 })
 
@@ -76,5 +101,13 @@ describe('StatusDistributionChart', () => {
     expect(screen.getByText(/3xx/)).toBeInTheDocument()
     expect(screen.getByText(/4xx/)).toBeInTheDocument()
     expect(screen.getByText(/5xx/)).toBeInTheDocument()
+  })
+
+  it('classifies status codes below 200 as "other"', () => {
+    // 1xx codes fall into the "other" bucket — covers the final return branch in statusClass.
+    const withInfoStatus: StatusStat[] = [{ code: 101, count: 5 }]
+    render(<StatusDistributionChart data={withInfoStatus} isLoading={false} />)
+    expect(screen.getByTestId('responsive-container')).toBeInTheDocument()
+    expect(screen.getByText(/other/)).toBeInTheDocument()
   })
 })
