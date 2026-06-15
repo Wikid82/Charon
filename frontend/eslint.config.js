@@ -117,7 +117,6 @@ export default tseslint.config(
 
       // ── Unicorn (cherry-picked) ──
       'unicorn/prefer-node-protocol': 'error',
-      'unicorn/no-array-for-each': 'warn',
       'unicorn/prefer-array-find': 'warn',
       'unicorn/prefer-array-flat-map': 'warn',
       'unicorn/prefer-array-some': 'warn',
