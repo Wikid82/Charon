@@ -181,6 +181,52 @@ func TestStatsIngester_ClientIPHashing(t *testing.T) {
 	assert.NotEqual(t, got, hashClientIP("10.0.0.1"))
 }
 
+// TestStatsIngester_RegisterHub verifies that RegisterHub does not panic and
+// accepts a nil BroadcastHub (the typical case when WebSocket push is not needed).
+func TestStatsIngester_RegisterHub(t *testing.T) {
+	t.Parallel()
+
+	db := setupStatsTestDB(t)
+	ing := NewStatsIngester(db)
+
+	// Before registration the hub field is nil.
+	assert.Nil(t, ing.hub, "hub should be nil before RegisterHub")
+
+	// Passing a nil interface must not panic.
+	var hub BroadcastHub
+	ing.RegisterHub(hub)
+
+	// After registration the field is still nil (we passed a nil interface value)
+	// but the method must not have panicked.
+	assert.Nil(t, ing.hub, "hub should remain nil after registering a nil hub")
+}
+
+// TestStatsIngester_ToRequestLog_InvalidTimestamp verifies that an unparseable
+// timestamp falls back to time.Now() without panicking.
+func TestStatsIngester_ToRequestLog_InvalidTimestamp(t *testing.T) {
+	t.Parallel()
+
+	before := time.Now()
+	entry := models.SecurityLogEntry{
+		Timestamp: "not-a-valid-timestamp",
+		ClientIP:  "127.0.0.1",
+		Host:      "host-ts",
+		Method:    "GET",
+		Status:    200,
+		Duration:  0.001,
+		Size:      64,
+	}
+	result := toRequestLog(entry)
+	after := time.Now()
+
+	// Timestamp must fall back to approximately now.
+	assert.False(t, result.Timestamp.IsZero(), "fallback timestamp must not be zero")
+	assert.True(t, !result.Timestamp.Before(before) || result.Timestamp.After(before.Add(-time.Second)),
+		"fallback timestamp should be close to now")
+	assert.True(t, result.Timestamp.Before(after.Add(time.Second)),
+		"fallback timestamp should not be in the future")
+}
+
 // TestStatsIngester_RegisterWithLogWatcher verifies fan-out wiring.
 func TestStatsIngester_RegisterWithLogWatcher(t *testing.T) {
 	t.Parallel()

@@ -26,6 +26,7 @@ type StatsIngester struct {
 	db           *gorm.DB
 	ingestCh     chan models.SecurityLogEntry
 	droppedCount atomic.Int64 //nolint:govet // atomic.Int64 is properly aligned
+	hub          BroadcastHub // optional; nil when WebSocket push not required
 }
 
 // NewStatsIngester creates a StatsIngester backed by the provided GORM DB.
@@ -50,6 +51,12 @@ func (s *StatsIngester) Send(entry models.SecurityLogEntry) {
 // DroppedCount returns the total number of entries dropped due to a full channel.
 func (s *StatsIngester) DroppedCount() int64 {
 	return s.droppedCount.Load()
+}
+
+// RegisterHub wires a BroadcastHub into the ingester for real-time WebSocket push.
+// Call this before Run so the hub receives updates as batches are flushed.
+func (s *StatsIngester) RegisterHub(h BroadcastHub) {
+	s.hub = h
 }
 
 // Run processes incoming entries, batching writes to SQLite.
