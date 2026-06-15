@@ -13,7 +13,7 @@ ARG BUILD_DEBUG=0
 ARG GO_VERSION=1.26.4
 
 # renovate: datasource=docker depName=alpine versioning=docker
-ARG ALPINE_IMAGE=alpine:3.23.4@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
+ARG ALPINE_IMAGE=alpine:3.24.0@sha256:a2d49ea686c2adfe3c992e47dc3b5e7fa6e6b5055609400dc2acaeb241c829f4
 
 # ---- Shared CrowdSec Version ----
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
@@ -22,14 +22,14 @@ ARG CROWDSEC_VERSION=1.7.8
 ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0bfe5e38f863bd
 
 # ---- Shared Go Security Patches ----
-# renovate: datasource=go depName=github.com/expr-lang/expr
+# renovate: datasource=github-tags depName=expr-lang/expr extractVersion=^v(?<version>.+)$
 ARG EXPR_LANG_VERSION=1.17.8
 # renovate: datasource=go depName=golang.org/x/net
-ARG XNET_VERSION=0.55.0
+ARG XNET_VERSION=0.56.0
 # renovate: datasource=go depName=golang.org/x/crypto
-ARG XCRYPTO_VERSION=0.52.0
+ARG XCRYPTO_VERSION=0.53.0
 # renovate: datasource=npm depName=npm
-ARG NPM_VERSION=11.16.0
+ARG NPM_VERSION=11.17.0
 
 # Allow pinning Caddy version - Renovate will update this
 # Build the most recent Caddy 2.x release (keeps major pinned under v3).
@@ -37,7 +37,7 @@ ARG NPM_VERSION=11.16.0
 # avoid accidentally pulling a v3 major release. Renovate can still update
 # this ARG to a specific v2.x tag when desired.
 ## Try to build the requested Caddy v2.x tag (Renovate can update this ARG).
-## If the requested tag isn't available, fall back to a known-good v2.11.3 build.
+## If the requested tag isn't available, fall back to a known-good v2.11.4 build.
 # renovate: datasource=go depName=github.com/caddyserver/caddy/v2
 ARG CADDY_VERSION=2.11.4
 # renovate: datasource=go depName=github.com/caddyserver/caddy/v2
@@ -94,7 +94,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.16.0-alpine@sha256:2bdb65ed1dab192432bc31c95f94155ca5ad7fc1392fb7eb7526ab682fa5bf14 AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.16.0-alpine3.24@sha256:fb71d01345f11b708a3553c66e7c74074f2d506400ea81973343d915cb64eef0 AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -118,7 +118,7 @@ RUN apk upgrade --no-cache && \
 # hadolint ignore=DL3059
 RUN npm install -g picomatch@4.0.4 --no-fund --no-audit
 
-RUN npm ci
+RUN npm ci --ignore-scripts
 
 # Copy frontend source and build
 COPY frontend/ ./
@@ -164,18 +164,32 @@ RUN set -eux; \
         test -e "$LOADER"; \
     fi
 
-# Install Delve (cross-compile for target)
-# Note: xx-go install puts binaries in /go/bin/TARGETOS_TARGETARCH/dlv if cross-compiling.
-# We find it and move it to /go/bin/dlv so it's in a consistent location for the next stage.
+# Install Delve (cross-compile for target) — debug builds only.
+# Security: dlv is only installed when BUILD_DEBUG=1.  Production images (BUILD_DEBUG=0,
+# the default) receive a harmless stub so the unconditional COPY below still succeeds,
+# but no Delve binary with golang.org/x/sys < v0.27.0 (GO-2026-5024) is shipped.
+# When dlv IS needed, we build it inside a temporary module that pins
+# golang.org/x/sys to the patched version used by the rest of the project.
 # renovate: datasource=go depName=github.com/go-delve/delve
 ARG DLV_VERSION=1.26.3
 # hadolint ignore=DL3059,DL4006
-RUN CGO_ENABLED=0 xx-go install github.com/go-delve/delve/cmd/dlv@v${DLV_VERSION} && \
-    DLV_PATH=$(find /go/bin -name dlv -type f | head -n 1) && \
-    if [ -n "$DLV_PATH" ] && [ "$DLV_PATH" != "/go/bin/dlv" ]; then \
-        mv "$DLV_PATH" /go/bin/dlv; \
-    fi && \
-    xx-verify /go/bin/dlv
+RUN if [ "$BUILD_DEBUG" = "1" ]; then \
+        echo "DEBUG build: installing Delve v${DLV_VERSION} with patched golang.org/x/sys..."; \
+        mkdir -p /tmp/dlv-install && cd /tmp/dlv-install && \
+        go mod init dlv_install && \
+        go get golang.org/x/sys@v0.46.0 && \
+        CGO_ENABLED=0 GOFLAGS="-mod=mod" xx-go install github.com/go-delve/delve/cmd/dlv@v${DLV_VERSION} && \
+        DLV_PATH=$(find /go/bin -name dlv -type f | head -n 1) && \
+        if [ -n "$DLV_PATH" ] && [ "$DLV_PATH" != "/go/bin/dlv" ]; then \
+            mv "$DLV_PATH" /go/bin/dlv; \
+        fi && \
+        xx-verify /go/bin/dlv && \
+        cd / && rm -rf /tmp/dlv-install; \
+    else \
+        echo "Production build: skipping Delve install (GO-2026-5024 mitigation)"; \
+        printf '#!/bin/sh\necho "Delve not available in production builds. Rebuild with BUILD_DEBUG=1." >&2\nexit 1\n' \
+            > /go/bin/dlv && chmod +x /go/bin/dlv; \
+    fi
 
 # Copy Go module files
 COPY backend/go.mod backend/go.sum ./
@@ -466,7 +480,7 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
     go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.13 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.75.1 && \
+    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.75.2 && \
     go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7 && \
     go get github.com/aws/aws-sdk-go-v2/service/s3@v1.102.1 && \
     # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
@@ -477,7 +491,7 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # Affects /usr/local/bin/crowdsec and /usr/local/bin/cscli (CrowdSec embeds quic-go v0.57.0).
     # Fix available at v0.59.1. Caddy already resolves v0.59.1 through its own graph.
     # renovate: datasource=go depName=github.com/quic-go/quic-go
-    go get github.com/quic-go/quic-go@v0.59.1 && \
+    go get github.com/quic-go/quic-go@v0.60.0 && \
     # buger/jsonparser Delete() panic via negative slice index on malformed JSON.
     # Fix available at v1.2.0.
     # renovate: datasource=go depName=github.com/buger/jsonparser
@@ -579,7 +593,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=abce3a42f4f6bfb2c90cded582341da6764f5e152782ce6c832bc8fa1d873778
+ARG GEOLITE2_COUNTRY_SHA256=11b88595d026953920668d91f6d531057b397f05170237fc98a13a8b051ab861
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
@@ -664,7 +678,11 @@ RUN chmod +x /usr/local/bin/install_hub_items.sh /usr/local/bin/register_bouncer
 # Copy Go binary from backend builder
 COPY --from=backend-builder /app/backend/charon /app/charon
 RUN ln -s /app/charon /app/cpmp || true
-# Copy Delve debugger (xx-go install places it in /go/bin)
+# Copy Delve stub/binary from backend-builder.
+# Security (GO-2026-5024): production builds (BUILD_DEBUG=0) receive a harmless shell
+# stub that prints an error and exits 1 — no vulnerable golang.org/x/sys v0.26.0 binary
+# is present in production images.  Debug builds (BUILD_DEBUG=1) receive the real dlv
+# compiled against golang.org/x/sys v0.46.0 (patched).
 COPY --from=backend-builder /go/bin/dlv /usr/local/bin/dlv
 
 # Copy frontend build from frontend builder

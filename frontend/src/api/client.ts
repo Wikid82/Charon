@@ -30,9 +30,11 @@ let onAuthError: (() => void) | null = null;
 
 /**
  * Registers a callback to handle authentication errors (401 responses).
- * @param handler - Function to call when authentication fails
+ * Pass null to unregister (e.g., when the AuthProvider unmounts) so the
+ * interceptor never invokes a stale handler over dead component state.
+ * @param handler - Function to call when authentication fails, or null to clear
  */
-export const setAuthErrorHandler = (handler: () => void) => {
+export const setAuthErrorHandler = (handler: (() => void) | null) => {
   onAuthError = handler;
 };
 

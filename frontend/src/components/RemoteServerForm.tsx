@@ -69,7 +69,6 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
       device_id: '',
       resolved_address: '',
     })
-  // eslint-disable-next-line react-compiler/react-compiler
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [server])
 
