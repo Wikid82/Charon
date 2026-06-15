@@ -1,16 +1,36 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Globe, Server, FileKey, Activity, CheckCircle2, AlertTriangle } from 'lucide-react'
-import { useMemo, useEffect } from 'react'
+import { useMemo, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { checkHealth } from '../api/health'
+import type { StatsPeriod, StatsBucket } from '../api/stats'
 import { PageShell } from '../components/layout/PageShell'
+import {
+  RequestCountWidget,
+  ServiceHealthWidget,
+  CertExpiryList,
+  TrafficVolumeChart,
+  TopHostsChart,
+  StatusDistributionChart,
+  PeriodSelector,
+  BucketSelector,
+} from '../components/stats'
 import { StatsCard, Skeleton } from '../components/ui'
 import UptimeWidget from '../components/UptimeWidget'
 import { useAccessLists } from '../hooks/useAccessLists'
 import { useCertificates } from '../hooks/useCertificates'
 import { useProxyHosts } from '../hooks/useProxyHosts'
 import { useRemoteServers } from '../hooks/useRemoteServers'
+import {
+  useStatsSummary,
+  useTopHosts,
+  useStatusDistribution,
+  useTrafficVolume,
+  useCertExpiry,
+  useStatsHealth,
+} from '../hooks/useStats'
+import { useStatsWebSocket } from '../hooks/useStatsWebSocket'
 
 function StatsCardSkeleton() {
   return (
@@ -33,6 +53,21 @@ export default function Dashboard() {
   const { servers, loading: serversLoading } = useRemoteServers()
   const { data: accessLists, isLoading: accessListsLoading } = useAccessLists()
   const queryClient = useQueryClient()
+
+  // Stats state
+  const [period, setPeriod] = useState<StatsPeriod>('24h')
+  const [bucket, setBucket] = useState<StatsBucket>('1h')
+
+  // WebSocket for live stats updates
+  const { connected: wsConnected } = useStatsWebSocket()
+
+  // Stats data hooks
+  const summaryResult = useStatsSummary(wsConnected)
+  const topHostsResult = useTopHosts(period)
+  const statusDistResult = useStatusDistribution(period)
+  const trafficResult = useTrafficVolume(bucket)
+  const certExpiryResult = useCertExpiry(30)
+  const statsHealthResult = useStatsHealth()
 
   // Fetch certificates (polling interval managed via effect below)
   const { certificates, isLoading: certificatesLoading } = useCertificates()
@@ -174,6 +209,61 @@ export default function Dashboard() {
         <UptimeWidget />
 
       </div>
+
+      {/* Dashboard Statistics */}
+      <section aria-labelledby="stats-section-heading" className="space-y-4">
+        {/* Section header with period selector */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 id="stats-section-heading" className="text-lg font-semibold text-content-primary">
+            {t('dashboard.statistics', 'Statistics')}
+          </h2>
+          <PeriodSelector value={period} onChange={setPeriod} />
+        </div>
+
+        {/* Top row: Request counts, WS health, cert expiry — 1 col → 3 cols on lg */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <RequestCountWidget
+            summary={summaryResult.data}
+            isLoading={summaryResult.isLoading}
+          />
+          <ServiceHealthWidget
+            health={statsHealthResult.data}
+            isLoading={statsHealthResult.isLoading}
+            wsConnected={wsConnected}
+          />
+          <CertExpiryList
+            data={certExpiryResult.data}
+            isLoading={certExpiryResult.isLoading}
+          />
+        </div>
+
+        {/* Traffic volume chart with bucket selector */}
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="text-sm font-medium text-content-secondary">
+              {t('dashboard.trafficVolume', 'Traffic Volume')}
+            </h3>
+            <BucketSelector value={bucket} onChange={setBucket} />
+          </div>
+          <TrafficVolumeChart
+            data={trafficResult.data}
+            isLoading={trafficResult.isLoading}
+            bucket={bucket}
+          />
+        </div>
+
+        {/* Bottom row: Top hosts + status distribution — 1 col → 2 cols on sm */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <TopHostsChart
+            data={topHostsResult.data}
+            isLoading={topHostsResult.isLoading}
+          />
+          <StatusDistributionChart
+            data={statusDistResult.data}
+            isLoading={statusDistResult.isLoading}
+          />
+        </div>
+      </section>
     </PageShell>
   )
 }
