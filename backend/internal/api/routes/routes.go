@@ -132,6 +132,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		&models.CrowdSecWhitelist{},     // Issue #939: CrowdSec IP whitelist management
 		&models.TunnelConfig{},          // Issue #368: Hecate tunnel provider configs
 		&models.OrthrusAgent{},          // Issue #369: Orthrus reverse-proxy agent registry
+		&models.RequestLog{},            // Issue #25: Enhanced dashboard statistics
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
