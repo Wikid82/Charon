@@ -704,11 +704,33 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		}
 
 		logWatcher := services.NewLogWatcher(accessLogPath)
+
+		// Stats pipeline: ingester fan-out from LogWatcher, hub for WebSocket push.
+		statsIngester := services.NewStatsIngester(db)
+		logWatcher.RegisterIngester(statsIngester)
+		statsWSHub := handlers.NewStatsWSHub()
+		statsIngester.RegisterHub(statsWSHub)
+
+		go statsWSHub.Run(ctx)
+		go statsIngester.Run(ctx)
+
 		if err := logWatcher.Start(context.Background()); err != nil {
 			logger.Log().WithError(err).Error("Failed to start security log watcher")
 		}
 		cerberusLogsHandler := handlers.NewCerberusLogsHandler(logWatcher, wsTracker)
 		management.GET("/cerberus/logs/ws", cerberusLogsHandler.LiveLogs)
+
+		// Stats API routes (Issue #25)
+		statsService := services.NewStatsService(db)
+		statsHandler := handlers.NewStatsHandlerFull(statsService, statsIngester, statsWSHub)
+		management.GET("/stats/summary", statsHandler.GetStatsSummary)
+		management.GET("/stats/top-hosts", statsHandler.GetTopHosts)
+		management.GET("/stats/status-distribution", statsHandler.GetStatusDistribution)
+		management.GET("/stats/traffic-volume", statsHandler.GetTrafficVolume)
+		management.GET("/stats/cert-expiry", statsHandler.GetCertExpiry)
+		management.GET("/stats/requests", statsHandler.GetRequests)
+		management.GET("/stats/health", statsHandler.GetStatsHealth)
+		management.GET("/stats/ws", statsHandler.StatsWS)
 
 		// Access Lists
 		accessListHandler := handlers.NewAccessListHandler(db)
