@@ -151,6 +151,7 @@ func TestStatsService_GetTopHosts_PopulatesHostnameFromProxyHost(t *testing.T) {
 	seedRequestLogs(t, db)
 	require.NoError(t, db.Create(&models.ProxyHost{
 		UUID:        "host-a",
+		Name:        "API Server",
 		DomainNames: "api.example.com",
 		ForwardHost: "127.0.0.1",
 		ForwardPort: 8080,
@@ -162,7 +163,7 @@ func TestStatsService_GetTopHosts_PopulatesHostnameFromProxyHost(t *testing.T) {
 
 	require.NotEmpty(t, hosts)
 	assert.Equal(t, "host-a", hosts[0].HostID)
-	assert.Equal(t, "api.example.com", hosts[0].Hostname)
+	assert.Equal(t, "API Server", hosts[0].Hostname)
 }
 
 // TestStatsService_GetTopHosts_FallsBackToHostIDWhenHostMissing verifies that a
