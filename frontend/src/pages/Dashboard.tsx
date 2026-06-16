@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Globe, Server, FileKey, Activity, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { Globe, Server, FileKey, Activity, CheckCircle2, AlertTriangle, Settings } from 'lucide-react'
 import { useMemo, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -16,7 +16,7 @@ import {
   PeriodSelector,
   BucketSelector,
 } from '../components/stats'
-import { StatsCard, Skeleton } from '../components/ui'
+import { StatsCard, Skeleton, Switch } from '../components/ui'
 import UptimeWidget from '../components/UptimeWidget'
 import { useAccessLists } from '../hooks/useAccessLists'
 import { useCertificates } from '../hooks/useCertificates'
@@ -31,6 +31,8 @@ import {
   useStatsHealth,
 } from '../hooks/useStats'
 import { useStatsWebSocket } from '../hooks/useStatsWebSocket'
+import { useWidgetVisibility } from '../hooks/useWidgetVisibility'
+import type { WidgetKey } from '../hooks/useWidgetVisibility'
 
 function StatsCardSkeleton() {
   return (
@@ -47,6 +49,24 @@ function StatsCardSkeleton() {
   )
 }
 
+const WIDGET_LABELS: Record<WidgetKey, string> = {
+  requestCount: 'Request Counts',
+  trafficVolume: 'Traffic Volume',
+  topHosts: 'Top Hosts',
+  statusDistribution: 'Status Distribution',
+  certExpiry: 'Certificate Expiry',
+  serviceHealth: 'Service Health',
+}
+
+const WIDGET_KEYS: WidgetKey[] = [
+  'requestCount',
+  'serviceHealth',
+  'certExpiry',
+  'trafficVolume',
+  'topHosts',
+  'statusDistribution',
+]
+
 export default function Dashboard() {
   const { t } = useTranslation()
   const { hosts, loading: hostsLoading } = useProxyHosts()
@@ -57,6 +77,10 @@ export default function Dashboard() {
   // Stats state
   const [period, setPeriod] = useState<StatsPeriod>('24h')
   const [bucket, setBucket] = useState<StatsBucket>('1h')
+  const [customizeOpen, setCustomizeOpen] = useState(false)
+
+  // Widget visibility
+  const { visibility, toggleWidget } = useWidgetVisibility()
 
   // WebSocket for live stats updates
   const { connected: wsConnected } = useStatsWebSocket()
@@ -119,6 +143,8 @@ export default function Dashboard() {
   const validCertificates = certificates.filter(c => c.status === 'valid').length
 
   const isInitialLoading = hostsLoading || serversLoading || accessListsLoading || certificatesLoading
+
+  const allHidden = WIDGET_KEYS.every(key => !visibility[key])
 
   return (
     <PageShell
@@ -212,57 +238,117 @@ export default function Dashboard() {
 
       {/* Dashboard Statistics */}
       <section aria-labelledby="stats-section-heading" className="space-y-4">
-        {/* Section header with period selector */}
+        {/* Section header with period selector and customize button */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 id="stats-section-heading" className="text-lg font-semibold text-content-primary">
             {t('dashboard.statistics', 'Statistics')}
           </h2>
-          <PeriodSelector value={period} onChange={setPeriod} />
-        </div>
-
-        {/* Top row: Request counts, WS health, cert expiry — 1 col → 3 cols on lg */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <RequestCountWidget
-            summary={summaryResult.data}
-            isLoading={summaryResult.isLoading}
-          />
-          <ServiceHealthWidget
-            health={statsHealthResult.data}
-            isLoading={statsHealthResult.isLoading}
-            wsConnected={wsConnected}
-          />
-          <CertExpiryList
-            data={certExpiryResult.data}
-            isLoading={certExpiryResult.isLoading}
-          />
-        </div>
-
-        {/* Traffic volume chart with bucket selector */}
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h3 className="text-sm font-medium text-content-secondary">
-              {t('dashboard.trafficVolume', 'Traffic Volume')}
-            </h3>
-            <BucketSelector value={bucket} onChange={setBucket} />
+          <div className="flex items-center gap-2">
+            <PeriodSelector value={period} onChange={setPeriod} />
+            <button
+              type="button"
+              onClick={() => setCustomizeOpen(prev => !prev)}
+              aria-expanded={customizeOpen}
+              aria-controls="stats-customize-panel"
+              className="flex items-center gap-1.5 rounded-md border border-border bg-surface-elevated px-3 py-1.5 text-sm text-content-secondary transition-colors hover:bg-surface-hover hover:text-content-primary"
+            >
+              <Settings className="h-4 w-4" />
+              Customize
+            </button>
           </div>
-          <TrafficVolumeChart
-            data={trafficResult.data}
-            isLoading={trafficResult.isLoading}
-            bucket={bucket}
-          />
         </div>
 
-        {/* Bottom row: Top hosts + status distribution — 1 col → 2 cols on sm */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <TopHostsChart
-            data={topHostsResult.data}
-            isLoading={topHostsResult.isLoading}
-          />
-          <StatusDistributionChart
-            data={statusDistResult.data}
-            isLoading={statusDistResult.isLoading}
-          />
-        </div>
+        {/* Inline customization panel */}
+        {customizeOpen && (
+          <div
+            id="stats-customize-panel"
+            className="rounded-lg border border-border bg-surface-elevated p-4 space-y-3"
+          >
+            <p className="text-sm font-medium text-content-primary">Show / hide widgets</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {WIDGET_KEYS.map((key) => (
+                <label
+                  key={key}
+                  className="flex items-center gap-3 cursor-pointer select-none"
+                  htmlFor={`widget-toggle-${key}`}
+                >
+                  <Switch
+                    id={`widget-toggle-${key}`}
+                    checked={visibility[key]}
+                    onCheckedChange={() => toggleWidget(key)}
+                  />
+                  <span className="text-sm text-content-secondary">{WIDGET_LABELS[key]}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {allHidden ? (
+          <p className="text-sm text-content-muted py-8 text-center">(all hidden)</p>
+        ) : (
+          <>
+            {/* Top row: Request counts, WS health, cert expiry — 1 col → 3 cols on lg */}
+            {(visibility.requestCount || visibility.serviceHealth || visibility.certExpiry) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {visibility.requestCount && (
+                  <RequestCountWidget
+                    summary={summaryResult.data}
+                    isLoading={summaryResult.isLoading}
+                  />
+                )}
+                {visibility.serviceHealth && (
+                  <ServiceHealthWidget
+                    health={statsHealthResult.data}
+                    isLoading={statsHealthResult.isLoading}
+                    wsConnected={wsConnected}
+                  />
+                )}
+                {visibility.certExpiry && (
+                  <CertExpiryList
+                    data={certExpiryResult.data}
+                    isLoading={certExpiryResult.isLoading}
+                  />
+                )}
+              </div>
+            )}
+
+            {/* Traffic volume chart with bucket selector */}
+            {visibility.trafficVolume && (
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="text-sm font-medium text-content-secondary">
+                    {t('dashboard.trafficVolume', 'Traffic Volume')}
+                  </h3>
+                  <BucketSelector value={bucket} onChange={setBucket} />
+                </div>
+                <TrafficVolumeChart
+                  data={trafficResult.data}
+                  isLoading={trafficResult.isLoading}
+                  bucket={bucket}
+                />
+              </div>
+            )}
+
+            {/* Bottom row: Top hosts + status distribution — 1 col → 2 cols on sm */}
+            {(visibility.topHosts || visibility.statusDistribution) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {visibility.topHosts && (
+                  <TopHostsChart
+                    data={topHostsResult.data}
+                    isLoading={topHostsResult.isLoading}
+                  />
+                )}
+                {visibility.statusDistribution && (
+                  <StatusDistributionChart
+                    data={statusDistResult.data}
+                    isLoading={statusDistResult.isLoading}
+                  />
+                )}
+              </div>
+            )}
+          </>
+        )}
       </section>
     </PageShell>
   )

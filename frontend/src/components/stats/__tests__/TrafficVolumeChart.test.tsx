@@ -80,4 +80,10 @@ describe('TrafficVolumeChart', () => {
 
     expect(screen.getByTestId('responsive-container')).toBeInTheDocument()
   })
+
+  it('renders info tooltip trigger button', () => {
+    render(<TrafficVolumeChart data={mockBuckets} isLoading={false} bucket="1h" />)
+
+    expect(screen.getByRole('button', { name: 'About this widget' })).toBeInTheDocument()
+  })
 })

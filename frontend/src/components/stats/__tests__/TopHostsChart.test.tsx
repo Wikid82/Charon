@@ -85,4 +85,60 @@ describe('TopHostsChart', () => {
     // The chart renders but truncation is applied at the data level
     expect(screen.getByTestId('responsive-container')).toBeInTheDocument()
   })
+
+  it('renders a color legend with different background colors per host', () => {
+    render(<TopHostsChart data={mockHosts} isLoading={false} />)
+
+    const legend = screen.getByRole('list', { name: 'Host color legend' })
+    const dots = legend.querySelectorAll('[aria-hidden="true"]')
+    expect(dots.length).toBe(2)
+
+    const colors = Array.from(dots).map(dot => (dot as HTMLElement).style.backgroundColor)
+    // Each host should have a distinct color
+    expect(colors[0]).not.toBe(colors[1])
+    // Colors should be set (non-empty)
+    expect(colors[0]).toBeTruthy()
+    expect(colors[1]).toBeTruthy()
+  })
+
+  it('renders the color legend with host names', () => {
+    render(<TopHostsChart data={mockHosts} isLoading={false} />)
+
+    const legend = screen.getByRole('list', { name: 'Host color legend' })
+    expect(legend).toBeInTheDocument()
+
+    expect(legend).toHaveTextContent('api.example.com')
+    expect(legend).toHaveTextContent('www.example.com')
+  })
+
+  it('does not render the color legend when data is empty', () => {
+    render(<TopHostsChart data={[]} isLoading={false} />)
+
+    expect(screen.queryByRole('list', { name: 'Host color legend' })).not.toBeInTheDocument()
+  })
+
+  it('wraps colors cyclically for more than 8 hosts', () => {
+    const manyHosts: HostStat[] = Array.from({ length: 10 }, (_, i) => ({
+      host_id: `h${i}`,
+      hostname: `host${i}.example.com`,
+      count: 100 - i,
+    }))
+
+    render(<TopHostsChart data={manyHosts} isLoading={false} />)
+
+    const legend = screen.getByRole('list', { name: 'Host color legend' })
+    const dots = legend.querySelectorAll('[aria-hidden="true"]')
+    expect(dots.length).toBe(10)
+
+    // Index 0 and 8 should share the same color (8 % 8 = 0)
+    const color0 = (dots[0] as HTMLElement).style.backgroundColor
+    const color8 = (dots[8] as HTMLElement).style.backgroundColor
+    expect(color0).toBe(color8)
+  })
+
+  it('renders info tooltip trigger button', () => {
+    render(<TopHostsChart data={mockHosts} isLoading={false} />)
+
+    expect(screen.getByRole('button', { name: 'About this widget' })).toBeInTheDocument()
+  })
 })

@@ -4,6 +4,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
 import Dashboard from '../Dashboard'
 
+// localStorage is available in jsdom — clear between tests
+beforeEach(() => {
+  localStorage.clear()
+})
+
 vi.mock('../../hooks/useProxyHosts', () => ({
   useProxyHosts: () => ({
     hosts: [
@@ -134,6 +139,7 @@ vi.mock('../../components/stats', () => ({
 describe('Dashboard page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
   })
 
   it('renders counts and health status', async () => {
@@ -242,5 +248,75 @@ describe('Dashboard page', () => {
     fireEvent.click(screen.getByRole('button', { name: '6h' }))
 
     expect(screen.getByText('Traffic Volume (6h)')).toBeInTheDocument()
+  })
+
+  it('renders Customize button in the stats section header', async () => {
+    renderWithQueryClient(<Dashboard />)
+
+    expect(await screen.findByRole('button', { name: /customize/i })).toBeInTheDocument()
+  })
+
+  it('customize panel is hidden by default', async () => {
+    renderWithQueryClient(<Dashboard />)
+
+    await screen.findByRole('button', { name: /customize/i })
+
+    expect(screen.queryByText('Show / hide widgets')).not.toBeInTheDocument()
+  })
+
+  it('clicking Customize button opens the settings panel', async () => {
+    renderWithQueryClient(<Dashboard />)
+
+    const btn = await screen.findByRole('button', { name: /customize/i })
+    fireEvent.click(btn)
+
+    expect(screen.getByText('Show / hide widgets')).toBeInTheDocument()
+  })
+
+  it('clicking Customize button again closes the panel', async () => {
+    renderWithQueryClient(<Dashboard />)
+
+    const btn = await screen.findByRole('button', { name: /customize/i })
+    fireEvent.click(btn)
+    expect(screen.getByText('Show / hide widgets')).toBeInTheDocument()
+
+    fireEvent.click(btn)
+    expect(screen.queryByText('Show / hide widgets')).not.toBeInTheDocument()
+  })
+
+  it('toggling a widget switch hides that widget', async () => {
+    renderWithQueryClient(<Dashboard />)
+
+    // Open customize panel
+    const btn = await screen.findByRole('button', { name: /customize/i })
+    fireEvent.click(btn)
+
+    // The Request Counts widget is visible initially
+    expect(screen.getByTestId('request-count-widget')).toBeInTheDocument()
+
+    // Toggle it off
+    const toggle = screen.getByRole('checkbox', { name: /request counts/i })
+    fireEvent.click(toggle)
+
+    expect(screen.queryByTestId('request-count-widget')).not.toBeInTheDocument()
+  })
+
+  it('shows "(all hidden)" message when all widgets are hidden', async () => {
+    // Pre-seed localStorage with all hidden
+    localStorage.setItem(
+      'charon.stats.widgetVisibility',
+      JSON.stringify({
+        requestCount: false,
+        trafficVolume: false,
+        topHosts: false,
+        statusDistribution: false,
+        certExpiry: false,
+        serviceHealth: false,
+      })
+    )
+
+    renderWithQueryClient(<Dashboard />)
+
+    expect(await screen.findByText('(all hidden)')).toBeInTheDocument()
   })
 })

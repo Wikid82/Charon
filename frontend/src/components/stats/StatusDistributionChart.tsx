@@ -1,7 +1,13 @@
+import { Info } from 'lucide-react'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, type TooltipContentProps } from 'recharts'
 
-
 import { Card, CardContent, CardHeader, CardTitle, Skeleton } from '../ui'
+import {
+  Tooltip as UITooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '../ui'
 
 import type { StatusStat } from '../../api/stats'
 import type { ValueType, NameType } from 'recharts/types/component/DefaultTooltipContent'
@@ -53,7 +59,27 @@ export function StatusDistributionChart({ data, isLoading }: StatusDistributionC
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle>Status Distribution</CardTitle>
+        <div className="flex items-center gap-1.5">
+          <CardTitle>Status Distribution</CardTitle>
+          <TooltipProvider>
+            <UITooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="text-content-muted hover:text-content-secondary transition-colors"
+                  aria-label="About this widget"
+                >
+                  <Info className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-xs text-sm">
+                Every time someone visits your site, the server sends back a status code — like a
+                thumbs up (200 OK) or a &apos;page not found&apos; (404). This chart shows the mix.
+                Lots of green (2xx) is great; lots of red (5xx) means something needs fixing.
+              </TooltipContent>
+            </UITooltip>
+          </TooltipProvider>
+        </div>
       </CardHeader>
       <CardContent>
         {isLoading ? (
