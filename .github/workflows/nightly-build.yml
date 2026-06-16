@@ -592,7 +592,7 @@ jobs:
           image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}
           format: 'sarif'
           output: 'trivy-nightly.sarif'
-          version: 'v0.71.0'
+          version: 'v0.71.1'
           trivyignores: '.trivyignore'
 
       - name: Upload Trivy results
