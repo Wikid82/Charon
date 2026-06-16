@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -117,39 +118,56 @@ func (s *StatsService) GetTopHosts(ctx context.Context, period string, limit int
 
 	since := time.Now().UTC().Add(-dur)
 
-	type joinResult struct {
-		HostID string
-		Name   string
-		Count  int64
-	}
-
-	var rows []joinResult
+	var results []HostStat
 	if err := s.db.WithContext(ctx).
 		Model(&models.RequestLog{}).
-		Select("request_logs.host_id AS host_id, proxy_hosts.name AS name, COUNT(*) AS count").
-		Joins("LEFT JOIN proxy_hosts ON proxy_hosts.uuid = request_logs.host_id").
-		Where("request_logs.timestamp >= ?", since).
-		Group("request_logs.host_id, proxy_hosts.name").
+		Select("host_id, COUNT(*) AS count").
+		Where("timestamp >= ?", since).
+		Group("host_id").
 		Order("count DESC").
 		Limit(limit).
-		Scan(&rows).Error; err != nil {
+		Scan(&results).Error; err != nil {
 		return nil, fmt.Errorf("GetTopHosts: %w", err)
 	}
 
-	results := make([]HostStat, 0, len(rows))
-	for _, r := range rows {
-		hostname := r.Name
-		if hostname == "" {
-			hostname = r.HostID
+	nameByDomain, err := s.domainNameLookup(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("GetTopHosts: %w", err)
+	}
+
+	for i := range results {
+		if name, ok := nameByDomain[strings.ToLower(results[i].HostID)]; ok && name != "" {
+			results[i].Hostname = name
+		} else {
+			results[i].Hostname = results[i].HostID
 		}
-		results = append(results, HostStat{
-			HostID:   r.HostID,
-			Hostname: hostname,
-			Count:    r.Count,
-		})
 	}
 
 	return results, nil
+}
+
+// domainNameLookup builds a map of domain (lowercased) to proxy host display name.
+// RequestLog.HostID stores the raw Host header seen by the proxy, not a ProxyHost
+// UUID, and a single ProxyHost may serve several comma-separated domains — so the
+// match has to happen against each individual domain rather than the host's ID.
+func (s *StatsService) domainNameLookup(ctx context.Context) (map[string]string, error) {
+	var hosts []models.ProxyHost
+	if err := s.db.WithContext(ctx).
+		Select("name, domain_names").
+		Find(&hosts).Error; err != nil {
+		return nil, err
+	}
+
+	lookup := make(map[string]string, len(hosts))
+	for _, h := range hosts {
+		for _, d := range strings.Split(h.DomainNames, ",") {
+			d = strings.ToLower(strings.TrimSpace(d))
+			if d != "" {
+				lookup[d] = h.Name
+			}
+		}
+	}
+	return lookup, nil
 }
 
 // GetStatusDistribution returns HTTP status code counts over the given period.
