@@ -55,19 +55,32 @@ func Connect(dbPath string) (*gorm.DB, error) {
 		logger.Log().WithField("journal_mode", journalMode).Info("SQLite database connected with optimized settings")
 	}
 
-	// Run quick integrity check on startup in the background (warn-only).
-	// quick_check scans the whole database and can take well over a minute
-	// on larger files, so it must not block startup.
-	go runQuickCheck(db)
+	// Run quick integrity check on startup in the background (warn-only), on
+	// its own connection. The main pool is capped at one connection, so
+	// sharing it here would still serialize migrations behind the check.
+	go runQuickCheck(dbPath)
 
 	return db, nil
 }
 
-// runQuickCheck runs PRAGMA quick_check and logs the result. It is intended
-// to be run in a background goroutine so a large database doesn't delay startup.
-func runQuickCheck(db *gorm.DB) {
+// runQuickCheck opens a dedicated connection and runs PRAGMA quick_check,
+// logging the result. It uses its own connection (rather than the shared
+// pool, which is capped at one) so the scan - which can take well over a
+// minute on larger databases - never blocks startup or migrations.
+func runQuickCheck(dbPath string) {
+	checkDB, err := sql.Open(sqlite.DriverName, dbPath)
+	if err != nil {
+		logger.Log().WithError(err).Warn("Failed to open SQLite connection for integrity check")
+		return
+	}
+	defer func() {
+		if cerr := checkDB.Close(); cerr != nil {
+			logger.Log().WithError(cerr).Warn("Failed to close SQLite integrity check connection")
+		}
+	}()
+
 	var quickCheckResult string
-	if err := db.Raw("PRAGMA quick_check").Scan(&quickCheckResult).Error; err != nil {
+	if err := checkDB.QueryRow("PRAGMA quick_check").Scan(&quickCheckResult); err != nil {
 		logger.Log().WithError(err).Warn("Failed to run SQLite integrity check on startup")
 	} else if quickCheckResult == "ok" {
 		logger.Log().Info("SQLite database integrity check passed")
