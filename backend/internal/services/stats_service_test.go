@@ -142,6 +142,49 @@ func TestStatsService_GetTopHosts_LimitCap(t *testing.T) {
 	assert.LessOrEqual(t, len(hosts), 50)
 }
 
+// TestStatsService_GetTopHosts_PopulatesHostnameFromProxyHost verifies that the
+// hostname is joined in from the matching proxy_hosts row rather than left blank.
+func TestStatsService_GetTopHosts_PopulatesHostnameFromProxyHost(t *testing.T) {
+	t.Parallel()
+
+	db := setupStatsServiceDB(t)
+	seedRequestLogs(t, db)
+	require.NoError(t, db.Create(&models.ProxyHost{
+		UUID:        "host-a",
+		DomainNames: "api.example.com",
+		ForwardHost: "127.0.0.1",
+		ForwardPort: 8080,
+	}).Error)
+	svc := NewStatsService(db)
+
+	hosts, err := svc.GetTopHosts(context.Background(), "30d", 10)
+	require.NoError(t, err)
+
+	require.NotEmpty(t, hosts)
+	assert.Equal(t, "host-a", hosts[0].HostID)
+	assert.Equal(t, "api.example.com", hosts[0].Hostname)
+}
+
+// TestStatsService_GetTopHosts_FallsBackToHostIDWhenHostMissing verifies that a
+// host with no matching proxy_hosts row (e.g. deleted host) falls back to host_id
+// instead of returning a blank hostname.
+func TestStatsService_GetTopHosts_FallsBackToHostIDWhenHostMissing(t *testing.T) {
+	t.Parallel()
+
+	db := setupStatsServiceDB(t)
+	seedRequestLogs(t, db)
+	svc := NewStatsService(db)
+
+	hosts, err := svc.GetTopHosts(context.Background(), "30d", 10)
+	require.NoError(t, err)
+
+	require.NotEmpty(t, hosts)
+	for _, h := range hosts {
+		assert.NotEmpty(t, h.Hostname)
+		assert.Equal(t, h.HostID, h.Hostname)
+	}
+}
+
 // TestStatsService_GetStatusDistribution_ValidPeriod verifies status code grouping.
 func TestStatsService_GetStatusDistribution_ValidPeriod(t *testing.T) {
 	t.Parallel()
