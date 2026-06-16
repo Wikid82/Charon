@@ -117,16 +117,36 @@ func (s *StatsService) GetTopHosts(ctx context.Context, period string, limit int
 
 	since := time.Now().UTC().Add(-dur)
 
-	var results []HostStat
+	type joinResult struct {
+		HostID      string
+		DomainNames string
+		Count       int64
+	}
+
+	var rows []joinResult
 	if err := s.db.WithContext(ctx).
 		Model(&models.RequestLog{}).
-		Select("host_id, COUNT(*) AS count").
-		Where("timestamp >= ?", since).
-		Group("host_id").
+		Select("request_logs.host_id AS host_id, proxy_hosts.domain_names AS domain_names, COUNT(*) AS count").
+		Joins("LEFT JOIN proxy_hosts ON proxy_hosts.uuid = request_logs.host_id").
+		Where("request_logs.timestamp >= ?", since).
+		Group("request_logs.host_id, proxy_hosts.domain_names").
 		Order("count DESC").
 		Limit(limit).
-		Scan(&results).Error; err != nil {
+		Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("GetTopHosts: %w", err)
+	}
+
+	results := make([]HostStat, 0, len(rows))
+	for _, r := range rows {
+		hostname := r.DomainNames
+		if hostname == "" {
+			hostname = r.HostID
+		}
+		results = append(results, HostStat{
+			HostID:   r.HostID,
+			Hostname: hostname,
+			Count:    r.Count,
+		})
 	}
 
 	return results, nil
