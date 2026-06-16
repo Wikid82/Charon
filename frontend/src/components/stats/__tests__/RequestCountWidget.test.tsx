@@ -50,4 +50,10 @@ describe('RequestCountWidget', () => {
     expect(screen.getByText('Last 7 days')).toBeInTheDocument()
     expect(screen.getByText('Last 30 days')).toBeInTheDocument()
   })
+
+  it('renders info tooltip trigger button', () => {
+    render(<RequestCountWidget summary={mockSummary} isLoading={false} />)
+
+    expect(screen.getByRole('button', { name: 'About this widget' })).toBeInTheDocument()
+  })
 })

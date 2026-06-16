@@ -71,4 +71,10 @@ describe('ServiceHealthWidget', () => {
 
     expect(screen.getByText('0 events dropped')).toBeInTheDocument()
   })
+
+  it('renders info tooltip trigger button', () => {
+    render(<ServiceHealthWidget health={healthOk} isLoading={false} wsConnected={false} />)
+
+    expect(screen.getByRole('button', { name: 'About this widget' })).toBeInTheDocument()
+  })
 })

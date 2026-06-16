@@ -1,6 +1,7 @@
-import { Wifi, WifiOff, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { Info, Wifi, WifiOff, AlertTriangle, CheckCircle2 } from 'lucide-react'
 
 import { Card, CardContent, CardHeader, CardTitle, Skeleton, Badge } from '../ui'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui'
 
 import type { StatsHealth } from '../../api/stats'
 
@@ -15,7 +16,27 @@ export function ServiceHealthWidget({ health, isLoading, wsConnected }: ServiceH
     <Card>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
-          <CardTitle>Stats Service Health</CardTitle>
+          <div className="flex items-center gap-1.5">
+            <CardTitle>Stats Service Health</CardTitle>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="text-content-muted hover:text-content-secondary transition-colors"
+                    aria-label="About this widget"
+                  >
+                    <Info className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-xs text-sm">
+                  This shows whether the real-time stats connection is working. A green &apos;Live&apos;
+                  dot means stats are updating instantly. If it says &apos;Offline&apos;, stats still
+                  work but refresh every 30 seconds instead.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
           {!isLoading && (
             <Badge variant={wsConnected ? 'success' : 'default'} size="sm">
               {wsConnected ? 'Live' : 'Offline'}

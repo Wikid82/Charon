@@ -110,4 +110,10 @@ describe('StatusDistributionChart', () => {
     expect(screen.getByTestId('responsive-container')).toBeInTheDocument()
     expect(screen.getByText(/other/)).toBeInTheDocument()
   })
+
+  it('renders info tooltip trigger button', () => {
+    render(<StatusDistributionChart data={mockStatuses} isLoading={false} />)
+
+    expect(screen.getByRole('button', { name: 'About this widget' })).toBeInTheDocument()
+  })
 })

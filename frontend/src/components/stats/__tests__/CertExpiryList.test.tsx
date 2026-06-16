@@ -114,4 +114,10 @@ describe('CertExpiryList', () => {
 
     expect(screen.getByText('No certificates expiring soon')).toBeInTheDocument()
   })
+
+  it('renders info tooltip trigger button', () => {
+    render(<CertExpiryList data={mockCerts} isLoading={false} />)
+
+    expect(screen.getByRole('button', { name: 'About this widget' })).toBeInTheDocument()
+  })
 })

@@ -1,7 +1,8 @@
-import { ShieldCheck } from 'lucide-react'
+import { Info, ShieldCheck } from 'lucide-react'
 
 import { cn } from '../../utils/cn'
 import { Card, CardContent, CardHeader, CardTitle, Skeleton } from '../ui'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui'
 
 import type { CertExpiry } from '../../api/stats'
 
@@ -36,7 +37,27 @@ export function CertExpiryList({ data, isLoading }: CertExpiryListProps) {
           <div className="rounded-lg bg-brand-500/10 p-2 text-brand-500">
             <ShieldCheck className="h-5 w-5" />
           </div>
-          <CardTitle>Certificate Expiry</CardTitle>
+          <div className="flex items-center gap-1.5">
+            <CardTitle>Certificate Expiry</CardTitle>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="text-content-muted hover:text-content-secondary transition-colors"
+                    aria-label="About this widget"
+                  >
+                    <Info className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-xs text-sm">
+                  SSL certificates are like ID cards for your websites — they prove your site is
+                  safe. This shows when those ID cards expire. Red means it&apos;s urgent; renew
+                  soon or visitors will see scary security warnings.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="p-0">

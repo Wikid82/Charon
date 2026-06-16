@@ -1,3 +1,4 @@
+import { Info } from 'lucide-react'
 import {
   LineChart,
   Line,
@@ -9,8 +10,13 @@ import {
   type TooltipContentProps,
 } from 'recharts'
 
-
 import { Card, CardContent, CardHeader, CardTitle, Skeleton } from '../ui'
+import {
+  Tooltip as UITooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '../ui'
 
 import type { TrafficBucket, StatsBucket } from '../../api/stats'
 import type { ValueType, NameType } from 'recharts/types/component/DefaultTooltipContent'
@@ -32,7 +38,11 @@ function formatTimestamp(iso: string, bucket: StatsBucket): string {
   if (bucket === '1d') {
     return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(date)
   }
-  return new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }).format(date)
+  return new Intl.DateTimeFormat('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date)
 }
 
 export function TrafficVolumeChart({ data, isLoading, bucket }: TrafficVolumeChartProps) {
@@ -44,7 +54,27 @@ export function TrafficVolumeChart({ data, isLoading, bucket }: TrafficVolumeCha
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle>Traffic Volume</CardTitle>
+        <div className="flex items-center gap-1.5">
+          <CardTitle>Traffic Volume</CardTitle>
+          <TooltipProvider>
+            <UITooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="text-content-muted hover:text-content-secondary transition-colors"
+                  aria-label="About this widget"
+                >
+                  <Info className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-xs text-sm">
+                This shows how much data your sites sent over time — like checking how much water
+                flowed through a pipe. A big spike means lots of visitors or large files being
+                downloaded.
+              </TooltipContent>
+            </UITooltip>
+          </TooltipProvider>
+        </div>
       </CardHeader>
       <CardContent>
         {isLoading ? (

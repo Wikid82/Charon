@@ -1,6 +1,7 @@
-import { Activity } from 'lucide-react'
+import { Activity, Info } from 'lucide-react'
 
 import { Card, CardContent, CardHeader, CardTitle, Skeleton } from '../ui'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui'
 
 import type { StatsSummary } from '../../api/stats'
 
@@ -38,7 +39,26 @@ export function RequestCountWidget({ summary, isLoading }: RequestCountWidgetPro
           <div className="rounded-lg bg-brand-500/10 p-2 text-brand-500">
             <Activity className="h-5 w-5" />
           </div>
-          <CardTitle>Request Counts</CardTitle>
+          <div className="flex items-center gap-1.5">
+            <CardTitle>Request Counts</CardTitle>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="text-content-muted hover:text-content-secondary transition-colors"
+                    aria-label="About this widget"
+                  >
+                    <Info className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-xs text-sm">
+                  This counts how many times people visited your sites — like counting how many
+                  customers walked through your door today, this week, and this month.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
