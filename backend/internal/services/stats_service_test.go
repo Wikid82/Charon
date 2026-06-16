@@ -143,16 +143,18 @@ func TestStatsService_GetTopHosts_LimitCap(t *testing.T) {
 }
 
 // TestStatsService_GetTopHosts_PopulatesHostnameFromProxyHost verifies that the
-// hostname is joined in from the matching proxy_hosts row rather than left blank.
+// hostname is resolved from the matching proxy_hosts row (matched by domain, since
+// RequestLog.HostID stores the raw Host header, not a ProxyHost UUID) rather than
+// left blank.
 func TestStatsService_GetTopHosts_PopulatesHostnameFromProxyHost(t *testing.T) {
 	t.Parallel()
 
 	db := setupStatsServiceDB(t)
 	seedRequestLogs(t, db)
 	require.NoError(t, db.Create(&models.ProxyHost{
-		UUID:        "host-a",
+		UUID:        "proxy-host-uuid-1",
 		Name:        "API Server",
-		DomainNames: "api.example.com",
+		DomainNames: "host-a",
 		ForwardHost: "127.0.0.1",
 		ForwardPort: 8080,
 	}).Error)
@@ -164,6 +166,31 @@ func TestStatsService_GetTopHosts_PopulatesHostnameFromProxyHost(t *testing.T) {
 	require.NotEmpty(t, hosts)
 	assert.Equal(t, "host-a", hosts[0].HostID)
 	assert.Equal(t, "API Server", hosts[0].Hostname)
+}
+
+// TestStatsService_GetTopHosts_MatchesAmongMultipleCommaSeparatedDomains verifies
+// that a ProxyHost serving several domains is matched correctly regardless of which
+// of its domains the traffic hit, and that the match is case-insensitive.
+func TestStatsService_GetTopHosts_MatchesAmongMultipleCommaSeparatedDomains(t *testing.T) {
+	t.Parallel()
+
+	db := setupStatsServiceDB(t)
+	seedRequestLogs(t, db)
+	require.NoError(t, db.Create(&models.ProxyHost{
+		UUID:        "proxy-host-uuid-2",
+		Name:        "FileFlows",
+		DomainNames: "fileflows.example.com, Host-A, other.example.com",
+		ForwardHost: "127.0.0.1",
+		ForwardPort: 8080,
+	}).Error)
+	svc := NewStatsService(db)
+
+	hosts, err := svc.GetTopHosts(context.Background(), "30d", 10)
+	require.NoError(t, err)
+
+	require.NotEmpty(t, hosts)
+	assert.Equal(t, "host-a", hosts[0].HostID)
+	assert.Equal(t, "FileFlows", hosts[0].Hostname)
 }
 
 // TestStatsService_GetTopHosts_FallsBackToHostIDWhenHostMissing verifies that a
