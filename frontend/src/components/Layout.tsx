@@ -206,6 +206,7 @@ export default function Layout({ children }: LayoutProps) {
                   <div key={item.name} className="space-y-1">
                     <button
                       onClick={() => toggleMenu(item.name)}
+                      aria-expanded={isExpanded}
                       className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
                         isActive
                           ? 'text-blue-700 dark:text-blue-400'
@@ -235,6 +236,7 @@ export default function Layout({ children }: LayoutProps) {
                               <div key={child.path} className="space-y-1">
                                 <button
                                   onClick={() => toggleMenu(nestedExpandedKey)}
+                                  aria-expanded={isNestedOpen}
                                   className={`w-full flex items-center justify-between py-2 px-3 rounded-md text-sm transition-colors ${
                                     location.pathname.startsWith(child.path!)
                                       ? 'text-blue-700 dark:text-blue-400'
