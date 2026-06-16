@@ -4,10 +4,14 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"log"
+	"os"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 // Connect opens a SQLite database connection with optimized settings.
@@ -20,6 +24,13 @@ func Connect(dbPath string) (*gorm.DB, error) {
 		SkipDefaultTransaction: true,
 		// Prepare statements for reuse
 		PrepareStmt: true,
+		// Many lookups (e.g. optional settings) expect a missing row as a
+		// normal outcome and already handle it; don't log those as errors.
+		Logger: gormlogger.New(log.New(os.Stdout, "\r\n", log.LstdFlags), gormlogger.Config{
+			SlowThreshold:             200 * time.Millisecond,
+			LogLevel:                  gormlogger.Warn,
+			IgnoreRecordNotFoundError: true,
+		}),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
