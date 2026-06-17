@@ -214,6 +214,20 @@ test.describe('Dashboard Statistics', () => {
 
       expect(hasSvg || hasChartText).toBeTruthy();
     });
+
+    await test.step('Verify SVG line path is rendered inside the chart', async () => {
+      // If the chart is showing the empty state, skip the SVG assertion
+      const hasEmptyState = await page.getByText(/no data available yet/i).isVisible().catch(() => false);
+      if (hasEmptyState) {
+        // Empty state is acceptable; just confirm the card is shown
+        await expect(page.getByText(/traffic volume/i).first()).toBeVisible();
+        return;
+      }
+
+      // When data is present, an SVG with recharts-line-curve path must exist
+      const svgLineCount = await page.locator('.recharts-line-curve').count();
+      expect(svgLineCount).toBeGreaterThan(0);
+    });
   });
 
   // ─── Top hosts chart ────────────────────────────────────────────────────────

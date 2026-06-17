@@ -21,6 +21,8 @@ import {
 import type { TrafficBucket, StatsBucket } from '../../api/stats'
 import type { ValueType, NameType } from 'recharts/types/component/DefaultTooltipContent'
 
+const LINE_COLOR = '#3b82f6'
+
 export interface TrafficVolumeChartProps {
   data: TrafficBucket[] | undefined
   isLoading: boolean
@@ -132,7 +134,7 @@ export function TrafficVolumeChart({ data, isLoading, bucket }: TrafficVolumeCha
               <Line
                 type="monotone"
                 dataKey="bytes_sent"
-                stroke="var(--color-brand-500, #6366f1)"
+                stroke={LINE_COLOR}
                 strokeWidth={2}
                 dot={false}
                 activeDot={{ r: 4 }}

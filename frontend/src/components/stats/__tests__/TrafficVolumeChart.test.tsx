@@ -12,6 +12,10 @@ vi.mock('recharts', async () => {
     ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
       <div data-testid="responsive-container">{children}</div>
     ),
+    // Expose Line props via data attributes for stroke regression testing.
+    Line: ({ stroke, strokeWidth, dataKey }: { stroke?: string; strokeWidth?: number; dataKey?: string }) => (
+      <g data-testid="line" data-stroke={stroke} data-stroke-width={String(strokeWidth ?? '')} data-datakey={dataKey ?? ''} />
+    ),
     // Call tickFormatter and content callbacks to cover formatBytes and tooltip paths.
     YAxis: ({ tickFormatter }: { tickFormatter?: (value: number) => string }) => (
       <g data-testid="y-axis">
@@ -86,5 +90,21 @@ describe('TrafficVolumeChart', () => {
     render(<TrafficVolumeChart data={mockBuckets} isLoading={false} bucket="1h" />)
 
     expect(screen.getByRole('button', { name: 'About this widget' })).toBeInTheDocument()
+  })
+
+  it('passes a valid hex color to the Line stroke prop', () => {
+    render(<TrafficVolumeChart data={mockBuckets} isLoading={false} bucket="1h" />)
+
+    const line = screen.getByTestId('line')
+    const stroke = line.getAttribute('data-stroke')
+
+    expect(stroke).toMatch(/^#[0-9a-f]{6}$/i)
+    expect(stroke).toBe('#3b82f6')
+  })
+
+  it('tooltip renders bytes value correctly when line has valid stroke', () => {
+    render(<TrafficVolumeChart data={mockBuckets} isLoading={false} bucket="1h" />)
+
+    expect(screen.getByText(/1\.0 MB sent/i)).toBeInTheDocument()
   })
 })
