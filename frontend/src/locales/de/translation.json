@@ -734,7 +734,9 @@
     "activeHosts": "{{count}} aktiv",
     "activeServers": "{{count}} aktiv",
     "activeLists": "{{count}} aktiv",
-    "validCerts": "{{count}} gültig"
+    "validCerts": "{{count}} gültig",
+    "statistics": "Statistiken",
+    "trafficVolume": "Datenvolumen"
   },
   "setup": {
     "welcomeTitle": "Willkommen bei Charon",

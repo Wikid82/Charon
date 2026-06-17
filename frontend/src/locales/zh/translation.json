@@ -734,7 +734,9 @@
     "activeHosts": "{{count}} 个活动",
     "activeServers": "{{count}} 个活动",
     "activeLists": "{{count}} 个活动",
-    "validCerts": "{{count}} 个有效"
+    "validCerts": "{{count}} 个有效",
+    "statistics": "统计",
+    "trafficVolume": "流量"
   },
   "setup": {
     "welcomeTitle": "欢迎使用 Charon",
