@@ -12,6 +12,10 @@ vi.mock('recharts', async () => {
     ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
       <div data-testid="responsive-container">{children}</div>
     ),
+    // Mock LineChart to render children directly so inner mocks (Line, YAxis, Tooltip) appear in the DOM.
+    LineChart: ({ children }: { children: React.ReactNode }) => (
+      <svg data-testid="line-chart">{children}</svg>
+    ),
     // Expose Line props via data attributes for stroke regression testing.
     Line: ({ stroke, strokeWidth, dataKey }: { stroke?: string; strokeWidth?: number; dataKey?: string }) => (
       <g data-testid="line" data-stroke={stroke} data-stroke-width={String(strokeWidth ?? '')} data-datakey={dataKey ?? ''} />

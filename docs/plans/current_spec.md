@@ -9,12 +9,12 @@
 
 ## Table of Contents
 
-1. [Introduction](#introduction)
-2. [Research Findings](#research-findings)
-3. [Technical Specification](#technical-specification)
-4. [Implementation Plan](#implementation-plan)
-5. [Acceptance Criteria](#acceptance-criteria)
-6. [Commit Slicing Strategy](#commit-slicing-strategy)
+1. [Introduction](#1-introduction)
+2. [Research Findings](#2-research-findings)
+3. [Technical Specification](#3-technical-specification)
+4. [Implementation Plan](#4-implementation-plan)
+5. [Acceptance Criteria](#5-acceptance-criteria)
+6. [Commit Slicing Strategy](#6-commit-slicing-strategy)
 
 ---
 
