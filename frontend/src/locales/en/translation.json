@@ -902,7 +902,9 @@
     "activeHosts": "{{count}} active",
     "activeServers": "{{count}} active",
     "activeLists": "{{count}} active",
-    "validCerts": "{{count}} valid"
+    "validCerts": "{{count}} valid",
+    "statistics": "Statistics",
+    "trafficVolume": "Traffic Volume"
   },
   "setup": {
     "welcomeTitle": "Welcome to Charon",

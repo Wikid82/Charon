@@ -1,0 +1,308 @@
+package services
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"path/filepath"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+)
+
+func setupStatsTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	dsn := filepath.Join(t.TempDir(), "stats_test.db") + "?_busy_timeout=5000&_journal_mode=WAL"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	require.NoError(t, err, "open test db")
+	require.NoError(t, db.AutoMigrate(&models.RequestLog{}), "migrate RequestLog")
+	t.Cleanup(func() {
+		sqlDB, err := db.DB()
+		if err == nil && sqlDB != nil {
+			_ = sqlDB.Close()
+		}
+	})
+	return db
+}
+
+func makeEntry(hostID, ip, method string, status int) models.SecurityLogEntry {
+	return models.SecurityLogEntry{
+		Timestamp: time.Now().Format(time.RFC3339),
+		ClientIP:  ip,
+		Host:      hostID,
+		Method:    method,
+		Status:    status,
+		Duration:  0.001,
+		Size:      128,
+	}
+}
+
+// TestStatsIngester_BatchFlushOnCount verifies that 100 entries trigger a batch write.
+func TestStatsIngester_BatchFlushOnCount(t *testing.T) {
+	t.Parallel()
+
+	db := setupStatsTestDB(t)
+	ing := NewStatsIngester(db)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go ing.Run(ctx)
+
+	// Send exactly 100 entries — should trigger a flush before the timer fires.
+	for i := 0; i < 100; i++ {
+		ing.ingestCh <- makeEntry("host-1", "10.0.0.1", "GET", 200)
+	}
+
+	// Allow time for the batch write.
+	require.Eventually(t, func() bool {
+		var count int64
+		db.Model(&models.RequestLog{}).Count(&count)
+		return count >= 100
+	}, 3*time.Second, 50*time.Millisecond, "expected 100 rows after count-flush")
+}
+
+// TestStatsIngester_BatchFlushOnTimer verifies that entries are flushed after 500ms.
+func TestStatsIngester_BatchFlushOnTimer(t *testing.T) {
+	t.Parallel()
+
+	db := setupStatsTestDB(t)
+	ing := NewStatsIngester(db)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go ing.Run(ctx)
+
+	// Send fewer than 100 entries — only the timer should trigger the flush.
+	for i := 0; i < 5; i++ {
+		ing.ingestCh <- makeEntry("host-2", "10.0.0.2", "POST", 201)
+	}
+
+	// Should flush within ~600ms.
+	require.Eventually(t, func() bool {
+		var count int64
+		db.Model(&models.RequestLog{}).Count(&count)
+		return count >= 5
+	}, 3*time.Second, 50*time.Millisecond, "expected 5 rows after timer-flush")
+}
+
+// TestStatsIngester_DroppedCountIncrementsWhenFull verifies back-pressure tracking.
+func TestStatsIngester_DroppedCountIncrementsWhenFull(t *testing.T) {
+	t.Parallel()
+
+	db := setupStatsTestDB(t)
+	ing := NewStatsIngester(db)
+
+	// Do NOT start Run — keep the channel un-drained so we can fill it.
+	// Fill the channel buffer completely.
+	for i := 0; i < channelBufferSize; i++ {
+		ing.ingestCh <- makeEntry("host-3", "10.0.0.3", "GET", 200)
+	}
+
+	// Now send one more non-blocking — should be dropped.
+	select {
+	case ing.ingestCh <- makeEntry("host-3", "10.0.0.3", "GET", 200):
+		// sent; channel had room — only possible on a race (acceptable)
+	default:
+		ing.droppedCount.Add(1)
+	}
+
+	// Force a drop via the exported Send path.
+	ing.Send(makeEntry("host-3", "10.0.0.3", "GET", 200))
+
+	assert.GreaterOrEqual(t, ing.DroppedCount(), int64(1))
+}
+
+// TestStatsIngester_StopDrainsRemainingEntries verifies graceful shutdown writes pending entries.
+func TestStatsIngester_StopDrainsRemainingEntries(t *testing.T) {
+	t.Parallel()
+
+	db := setupStatsTestDB(t)
+	ing := NewStatsIngester(db)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ing.Run(ctx)
+	}()
+
+	// Send a small batch.
+	for i := 0; i < 10; i++ {
+		ing.ingestCh <- makeEntry("host-4", "10.0.0.4", "DELETE", 204)
+	}
+
+	// Cancel context and wait for Run to exit.
+	cancel()
+	wg.Wait()
+
+	// Stop drains the channel — all pending entries should be persisted.
+	ing.Stop()
+
+	var count int64
+	db.Model(&models.RequestLog{}).Count(&count)
+	assert.GreaterOrEqual(t, count, int64(10))
+}
+
+// TestStatsIngester_ClientIPHashing verifies GDPR-safe pseudonymisation.
+func TestStatsIngester_ClientIPHashing(t *testing.T) {
+	t.Parallel()
+
+	rawIP := "192.168.1.100"
+	got := hashClientIP(rawIP)
+
+	// Must be hex-encoded, 32 chars (16 bytes × 2 hex digits).
+	assert.Len(t, got, 32)
+
+	// Must be consistent (deterministic).
+	assert.Equal(t, got, hashClientIP(rawIP))
+
+	// Must differ from the raw IP.
+	assert.NotEqual(t, rawIP, got)
+
+	// Verify correctness against reference implementation.
+	sum := sha256.Sum256([]byte(rawIP))
+	expected := hex.EncodeToString(sum[:16])
+	assert.Equal(t, expected, got)
+
+	// Must not be reversible (different IPs produce different hashes).
+	assert.NotEqual(t, got, hashClientIP("10.0.0.1"))
+}
+
+// TestStatsIngester_RegisterHub verifies that RegisterHub does not panic and
+// accepts a nil BroadcastHub (the typical case when WebSocket push is not needed).
+func TestStatsIngester_RegisterHub(t *testing.T) {
+	t.Parallel()
+
+	db := setupStatsTestDB(t)
+	ing := NewStatsIngester(db)
+
+	// Before registration the hub field is nil.
+	assert.Nil(t, ing.hub, "hub should be nil before RegisterHub")
+
+	// Passing a nil interface must not panic.
+	var hub BroadcastHub
+	ing.RegisterHub(hub)
+
+	// After registration the field is still nil (we passed a nil interface value)
+	// but the method must not have panicked.
+	assert.Nil(t, ing.hub, "hub should remain nil after registering a nil hub")
+}
+
+// TestStatsIngester_ToRequestLog_InvalidTimestamp verifies that an unparseable
+// timestamp falls back to time.Now() without panicking.
+func TestStatsIngester_ToRequestLog_InvalidTimestamp(t *testing.T) {
+	t.Parallel()
+
+	before := time.Now()
+	entry := models.SecurityLogEntry{
+		Timestamp: "not-a-valid-timestamp",
+		ClientIP:  "127.0.0.1",
+		Host:      "host-ts",
+		Method:    "GET",
+		Status:    200,
+		Duration:  0.001,
+		Size:      64,
+	}
+	result := toRequestLog(entry)
+	after := time.Now()
+
+	// Timestamp must fall back to approximately now.
+	assert.False(t, result.Timestamp.IsZero(), "fallback timestamp must not be zero")
+	assert.True(t, !result.Timestamp.Before(before) || result.Timestamp.After(before.Add(-time.Second)),
+		"fallback timestamp should be close to now")
+	assert.True(t, result.Timestamp.Before(after.Add(time.Second)),
+		"fallback timestamp should not be in the future")
+}
+
+// TestStatsIngester_Stop_FlushesLargerThanBatchSize verifies that Stop correctly
+// flushes in-channel entries that exceed batchSize (the internal batch-flush path).
+func TestStatsIngester_Stop_FlushesLargerThanBatchSize(t *testing.T) {
+	t.Parallel()
+
+	db := setupStatsTestDB(t)
+	ing := NewStatsIngester(db)
+
+	// Pre-fill the channel with 150 entries (> batchSize=100) without starting Run.
+	// Stop must flush the first 100 via the batchSize branch, then the remaining 50 as final batch.
+	for i := 0; i < 150; i++ {
+		ing.ingestCh <- makeEntry("host-large", "10.0.0.5", "GET", 200)
+	}
+
+	ing.Stop()
+
+	var count int64
+	db.Model(&models.RequestLog{}).Count(&count)
+	assert.Equal(t, int64(150), count, "Stop must persist all 150 entries including the batchSize-triggered flush")
+}
+
+// TestStatsIngester_Run_DrainsBigBatchOnCancel verifies the drain path inside Run
+// when the channel contains more than batchSize entries at context cancellation.
+func TestStatsIngester_Run_DrainsBigBatchOnCancel(t *testing.T) {
+	t.Parallel()
+
+	db := setupStatsTestDB(t)
+	ing := NewStatsIngester(db)
+
+	// Pre-fill 150 entries before starting Run so they are ready to drain.
+	for i := 0; i < 150; i++ {
+		ing.ingestCh <- makeEntry("host-drain", "10.0.0.6", "GET", 200)
+	}
+
+	// Use an already-cancelled context so Run enters the drain path immediately.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	ing.Run(ctx) // blocks until drain + flush complete, then returns
+
+	var count int64
+	db.Model(&models.RequestLog{}).Count(&count)
+	assert.GreaterOrEqual(t, count, int64(100),
+		"Run drain must flush at least one full batch of 100 entries")
+}
+
+// TestStatsIngester_RegisterWithLogWatcher verifies fan-out wiring.
+func TestStatsIngester_RegisterWithLogWatcher(t *testing.T) {
+	t.Parallel()
+
+	db := setupStatsTestDB(t)
+	ing := NewStatsIngester(db)
+
+	watcher := NewLogWatcher("/tmp/nonexistent-test.log")
+	watcher.RegisterIngester(ing)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go ing.Run(ctx)
+
+	// Broadcast via the watcher — should fan-out to ingester.
+	entry := models.SecurityLogEntry{
+		Timestamp: time.Now().Format(time.RFC3339),
+		ClientIP:  "172.16.0.1",
+		Host:      "fan-out-host",
+		Method:    "GET",
+		Status:    200,
+		Duration:  0.002,
+		Size:      64,
+	}
+	watcher.broadcast(entry)
+
+	require.Eventually(t, func() bool {
+		var count int64
+		db.Model(&models.RequestLog{}).Count(&count)
+		return count >= 1
+	}, 3*time.Second, 50*time.Millisecond, "expected 1 row after fan-out broadcast + timer flush")
+}

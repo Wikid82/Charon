@@ -285,6 +285,22 @@ Watch requests flow through your proxy in real-time. Filter by domain, status co
 
 ---
 
+### 📈 Dashboard Statistics
+
+See exactly how your sites are performing — right from the home screen. The Dashboard Statistics section shows request counts, which of your sites are busiest, how your traffic breaks down by response type, and a heads-up when any SSL certificate is getting close to its expiry date.
+
+**Highlights:**
+
+- **Live updates** — Charts refresh automatically as new traffic arrives; no manual refresh needed
+- **Traffic overview** — Total requests over the last 24 hours, 7 days, and 30 days
+- **Top sites** — Ranked list of your busiest proxy hosts
+- **Response health** — Breakdown of successful responses versus errors at a glance
+- **Cert expiry warnings** — See which certificates are expiring soon before visitors notice
+- **Service health** — A single indicator showing whether stats collection is running normally
+- **Privacy-safe** — Visitor IP addresses are never stored; only an anonymized fingerprint is kept
+
+---
+
 ### 🔔 Notifications
 
 Get alerted when it matters. Charon sends notifications through Discord, Gotify, Ntfy, Pushover, Slack, Email, and Custom Webhook providers. Choose a built-in JSON template or write your own to control exactly what your alerts look like.
