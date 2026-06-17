@@ -5,47 +5,46 @@ import { TrafficVolumeChart } from '../TrafficVolumeChart'
 
 import type { TrafficBucket } from '../../../api/stats'
 
-vi.mock('recharts', async () => {
-  const Original = await vi.importActual('recharts')
-  return {
-    ...Original,
-    ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
-      <div data-testid="responsive-container">{children}</div>
-    ),
-    // Mock LineChart to render children directly so inner mocks (Line, YAxis, Tooltip) appear in the DOM.
-    LineChart: ({ children }: { children: React.ReactNode }) => (
-      <svg data-testid="line-chart">{children}</svg>
-    ),
-    // Expose Line props via data attributes for stroke regression testing.
-    Line: ({ stroke, strokeWidth, dataKey }: { stroke?: string; strokeWidth?: number; dataKey?: string }) => (
-      <g data-testid="line" data-stroke={stroke} data-stroke-width={String(strokeWidth ?? '')} data-datakey={dataKey ?? ''} />
-    ),
-    // Call tickFormatter and content callbacks to cover formatBytes and tooltip paths.
-    YAxis: ({ tickFormatter }: { tickFormatter?: (value: number) => string }) => (
-      <g data-testid="y-axis">
-        {/* Exercise all three formatBytes branches: MB, KB, B */}
-        <text>{tickFormatter?.(2_097_152)}</text>
-        <text>{tickFormatter?.(2_048)}</text>
-        <text>{tickFormatter?.(500)}</text>
-      </g>
-    ),
-    Tooltip: ({
-      content,
-    }: {
-      content?: (props: object) => React.ReactNode
-    }) => (
-      <div data-testid="tooltip">
-        {content?.({
-          active: true,
-          payload: [{ value: 1_048_576, payload: {} }],
-          label: '10:00',
-        })}
-        {content?.({ active: true, payload: [{ value: 'not-a-number', payload: {} }], label: '' })}
-        {content?.({ active: false, payload: [] })}
-      </div>
-    ),
-  }
-})
+// Recharts v3 ESM exports don't reliably survive { ...importActual, override } in Vitest —
+// the real LineChart renders instead of the mock, so children (Line, Tooltip) never mount.
+// Mock only the named exports the component uses; no importActual needed.
+vi.mock('recharts', () => ({
+  ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="responsive-container">{children}</div>
+  ),
+  LineChart: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="line-chart">{children}</div>
+  ),
+  // Expose Line props via data attributes for stroke regression testing.
+  Line: ({ stroke, strokeWidth, dataKey }: { stroke?: string; strokeWidth?: number; dataKey?: string }) => (
+    <div data-testid="line" data-stroke={stroke} data-stroke-width={String(strokeWidth ?? '')} data-datakey={dataKey ?? ''} />
+  ),
+  XAxis: () => null,
+  CartesianGrid: () => null,
+  // Exercise all three formatBytes branches via tickFormatter: MB, KB, B.
+  YAxis: ({ tickFormatter }: { tickFormatter?: (value: number) => string }) => (
+    <div data-testid="y-axis">
+      <span>{tickFormatter?.(2_097_152)}</span>
+      <span>{tickFormatter?.(2_048)}</span>
+      <span>{tickFormatter?.(500)}</span>
+    </div>
+  ),
+  Tooltip: ({
+    content,
+  }: {
+    content?: (props: object) => React.ReactNode
+  }) => (
+    <div data-testid="tooltip">
+      {content?.({
+        active: true,
+        payload: [{ value: 1_048_576, payload: {} }],
+        label: '10:00',
+      })}
+      {content?.({ active: true, payload: [{ value: 'not-a-number', payload: {} }], label: '' })}
+      {content?.({ active: false, payload: [] })}
+    </div>
+  ),
+}))
 
 const mockBuckets: TrafficBucket[] = [
   { bucket: '2024-01-15T10:00:00Z', bytes_sent: 1_048_576 },
