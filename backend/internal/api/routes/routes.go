@@ -716,6 +716,8 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 		if err := logWatcher.Start(context.Background()); err != nil {
 			logger.Log().WithError(err).Error("Failed to start security log watcher")
+		} else {
+			logger.Log().WithField("path", accessLogPath).Info("Security log watcher started - stats collection enabled")
 		}
 		cerberusLogsHandler := handlers.NewCerberusLogsHandler(logWatcher, wsTracker)
 		management.GET("/cerberus/logs/ws", cerberusLogsHandler.LiveLogs)

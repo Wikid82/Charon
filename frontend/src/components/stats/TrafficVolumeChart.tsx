@@ -67,10 +67,17 @@ export function TrafficVolumeChart({ data, isLoading, bucket }: TrafficVolumeCha
                   <Info className="h-3.5 w-3.5" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="top" className="max-w-xs text-sm">
-                This shows how much data your sites sent over time — like checking how much water
-                flowed through a pipe. A big spike means lots of visitors or large files being
-                downloaded.
+              <TooltipContent side="top" className="max-w-xs text-sm space-y-2">
+                <p>
+                  This shows how much data your sites sent over time — like checking how much water
+                  flowed through a pipe. A big spike means lots of visitors or large files being
+                  downloaded.
+                </p>
+                {chartData.length === 0 && (
+                  <p className="text-xs border-t border-border/40 pt-2">
+                    Data is being collected. It may take several hours to populate depending on traffic volume.
+                  </p>
+                )}
               </TooltipContent>
             </UITooltip>
           </TooltipProvider>
@@ -82,7 +89,12 @@ export function TrafficVolumeChart({ data, isLoading, bucket }: TrafficVolumeCha
             <Skeleton className="h-48 w-full" />
           </div>
         ) : chartData.length === 0 ? (
-          <p className="text-sm text-content-muted py-8 text-center">No data available</p>
+          <div className="space-y-3 py-8 text-center">
+            <p className="text-sm text-content-muted">No data available yet</p>
+            <p className="text-xs text-content-muted">
+              Data is being collected. Check back in a few hours as traffic flows through your proxy.
+            </p>
+          </div>
         ) : (
           <ResponsiveContainer width="100%" height={260}>
             <LineChart
