@@ -54,7 +54,8 @@ describe('TrafficVolumeChart', () => {
   it('renders empty state when data is empty', () => {
     render(<TrafficVolumeChart data={[]} isLoading={false} bucket="1h" />)
 
-    expect(screen.getByText('No data available')).toBeInTheDocument()
+    expect(screen.getByText('No data available yet')).toBeInTheDocument()
+    expect(screen.getByText(/Data is being collected/)).toBeInTheDocument()
   })
 
   it('renders chart title', () => {
