@@ -117,12 +117,37 @@ jobs:
           output: 'trivy-weekly-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
           version: 'v0.71.1'
+          trivyignores: '.trivyignore'
 
       - name: Upload Trivy results to GitHub Security
+        id: upload-trivy-weekly
         uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
         with:
           sarif_file: 'trivy-weekly-results.sarif'
           category: ${{ env.TRIVY_SARIF_CATEGORY }}
+
+      - name: Verify SARIF was uploaded
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ ! -f trivy-weekly-results.sarif ]; then
+            echo "::error::SARIF file trivy-weekly-results.sarif was not produced. Check Trivy scan step."
+            exit 1
+          fi
+
+          if [ "${{ steps.upload-trivy-weekly.outcome }}" != "success" ]; then
+            echo "::error::SARIF upload step did not succeed (outcome: ${{ steps.upload-trivy-weekly.outcome }})"
+            exit 1
+          fi
+
+          RESULT_COUNT=$(jq '[.runs[].results // [] | .[]] | length' trivy-weekly-results.sarif 2>/dev/null || echo "parse_error")
+          if [ "$RESULT_COUNT" = "parse_error" ]; then
+            echo "::error::SARIF file is not valid JSON or missing expected structure."
+            exit 1
+          fi
+
+          echo "SARIF upload verified. Finding count: ${RESULT_COUNT}"
+          echo "SARIF_RESULT_COUNT=${RESULT_COUNT}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run Trivy vulnerability scanner (JSON for artifact)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
