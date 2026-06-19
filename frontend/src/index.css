@@ -270,25 +270,28 @@ body {
 }
 
 /* Custom Scrollbar Styles for Sidebar Navigation */
-.overflow-y-auto::-webkit-scrollbar {
-  width: 8px;
-}
+/* Guarded so Firefox skips the block rather than rejecting the compound pseudo-element selectors */
+@supports selector(::-webkit-scrollbar) {
+  .overflow-y-auto::-webkit-scrollbar {
+    width: 8px;
+  }
 
-.overflow-y-auto::-webkit-scrollbar-track {
-  background: transparent;
-}
+  .overflow-y-auto::-webkit-scrollbar-track {
+    background: transparent;
+  }
 
-.overflow-y-auto::-webkit-scrollbar-thumb {
-  background-color: rgba(148, 163, 184, 0.3);
-  border-radius: 4px;
-}
+  .overflow-y-auto::-webkit-scrollbar-thumb {
+    background-color: rgba(148, 163, 184, 0.3);
+    border-radius: 4px;
+  }
 
-.dark .overflow-y-auto::-webkit-scrollbar-thumb {
-  background-color: rgba(148, 163, 184, 0.5);
-}
+  .dark .overflow-y-auto::-webkit-scrollbar-thumb {
+    background-color: rgba(148, 163, 184, 0.5);
+  }
 
-.overflow-y-auto::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(148, 163, 184, 0.6);
+  .overflow-y-auto::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(148, 163, 184, 0.6);
+  }
 }
 
 /* Firefox support */
