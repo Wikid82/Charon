@@ -75,7 +75,6 @@
     "@vitest/coverage-v8": "^4.1.9",
     "@vitest/eslint-plugin": "^1.6.20",
     "@vitest/ui": "^4.1.9",
-    "autoprefixer": "^10.5.0",
     "eslint": "^10.5.0",
     "eslint-formatter-compact": "^9.0.1",
     "eslint-import-resolver-typescript": "^4.4.5",
