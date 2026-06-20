@@ -23,7 +23,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  NODE_VERSION: '24.16.0'
+  NODE_VERSION: '24.17.0'
 
 permissions:
   contents: write
