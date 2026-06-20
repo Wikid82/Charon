@@ -9,6 +9,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestMain(m *testing.M) {
+	// Run quick_check synchronously in tests so it completes before t.TempDir
+	// cleanup runs. The goroutine version creates a race: the background
+	// connection may still hold WAL/SHM files open when the temp dir is removed.
+	launchQuickCheck = runQuickCheck
+	os.Exit(m.Run())
+}
+
 func TestConnect(t *testing.T) {
 	t.Parallel()
 	// Test with memory DB

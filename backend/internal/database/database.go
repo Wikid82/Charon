@@ -14,6 +14,10 @@ import (
 	gormlogger "gorm.io/gorm/logger"
 )
 
+// launchQuickCheck is called by Connect to run the integrity check goroutine.
+// Tests override this with a synchronous version to avoid cleanup races.
+var launchQuickCheck = func(dbPath string) { go runQuickCheck(dbPath) }
+
 // Connect opens a SQLite database connection with optimized settings.
 // Uses WAL mode for better concurrent read/write performance.
 func Connect(dbPath string) (*gorm.DB, error) {
@@ -69,7 +73,7 @@ func Connect(dbPath string) (*gorm.DB, error) {
 	// Run quick integrity check on startup in the background (warn-only), on
 	// its own connection. The main pool is capped at one connection, so
 	// sharing it here would still serialize migrations behind the check.
-	go runQuickCheck(dbPath)
+	launchQuickCheck(dbPath)
 
 	return db, nil
 }
