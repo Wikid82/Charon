@@ -118,15 +118,23 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
 
   const logout = useCallback(async () => {
     invalidateAuthRequests();
-    localStorage.removeItem('charon_auth_token');
+    // Revoke the axios Authorization header immediately so no new API calls
+    // are made with the old token while the backend invalidates the session.
     setAuthToken(null);
-    setUser(null);
-    setIsLoading(false);
 
     try {
+      // Invalidate the server-side session BEFORE clearing local state.
+      // The browser still sends the auth_token cookie with this request,
+      // so it authenticates correctly even without the Authorization header.
+      // Doing this first closes the window where local state appears cleared
+      // but the server-side session (and cookie) is still valid.
       await client.post('/auth/logout');
     } catch (error) {
       console.error("Logout failed", error);
+    } finally {
+      localStorage.removeItem('charon_auth_token');
+      setUser(null);
+      setIsLoading(false);
     }
   }, [invalidateAuthRequests]);
 
