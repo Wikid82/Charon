@@ -16,7 +16,7 @@ on:
 
 env:
   GO_VERSION: '1.26.4'
-  NODE_VERSION: '24.16.0'
+  NODE_VERSION: '24.17.0'
   GOTOOLCHAIN: local
   GHCR_REGISTRY: ghcr.io
   DOCKERHUB_REGISTRY: docker.io
