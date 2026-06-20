@@ -590,6 +590,15 @@ test.describe('Admin-User E2E Workflow', () => {
       // Login as user
       await loginWithCredentials(page, testUser.email, testUser.password);
 
+      // Wait for login to fully complete and React to navigate to the dashboard.
+      // loginWithCredentials returns once the API response arrives, but Login.tsx
+      // still runs queryClient.invalidateQueries() → navigate('/') before the
+      // app settles. Without this wait, page.goto('/users') can race with that
+      // navigation and trigger a conflict that flakily leaves the page in an
+      // unexpected state.
+      await page.waitForURL(/^(?!.*login).*$/, { timeout: 10000 }).catch(() => {});
+      await waitForLoadingComplete(page, { timeout: 10000 });
+
       // Try to access user management
       await page.goto('/users', { waitUntil: 'domcontentloaded' });
     });
