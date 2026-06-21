@@ -414,6 +414,16 @@
   },
   "packageRules": [
     {
+      "description": "Pin js-yaml to v4.x — transitive dependents (@eslint/eslintrc, markdownlint-cli2) use v4 API internally; v5 is a breaking rewrite incompatible with their pinned calls",
+      "matchDatasources": [
+        "npm"
+      ],
+      "matchPackageNames": [
+        "js-yaml"
+      ],
+      "allowedVersions": "<5.0.0"
+    },
+    {
       "description": "Group GitHub Actions non-major updates into one PR",
       "matchManagers": [
         "github-actions"
