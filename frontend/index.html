@@ -2,10 +2,12 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <script>!function(){try{var t=localStorage.getItem('theme');document.documentElement.classList.add(t==='light'?'light':'dark')}catch(e){document.documentElement.classList.add('dark')}}();</script>
     <link rel="icon" type="image/png" href="/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Charon</title>
+    <!-- Vite injects <link rel="stylesheet"> above this script at build time.
+         The script must remain LAST in <head> so CSS is declared before it runs. -->
+    <script>!function(){var k='charon-theme',c='charon-custom-theme';try{var t=localStorage.getItem(k)||localStorage.getItem('theme')||'dark';var r=t==='system'?(window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'):t==='custom'?'custom':t;document.documentElement.setAttribute('data-theme',r);if(r==='custom'){try{var ct=JSON.parse(localStorage.getItem(c)||'null');if(ct&&ct.colors){var s=document.documentElement.style;s.setProperty('--color-bg-base',ct.colors.bgBase);s.setProperty('--color-bg-subtle',ct.colors.bgSubtle);s.setProperty('--color-bg-muted',ct.colors.bgMuted);s.setProperty('--color-bg-elevated',ct.colors.bgElevated);s.setProperty('--color-border-default',ct.colors.borderDefault);s.setProperty('--color-border-strong',ct.colors.borderStrong);s.setProperty('--color-text-primary',ct.colors.textPrimary);s.setProperty('--color-text-secondary',ct.colors.textSecondary);s.setProperty('--color-text-muted',ct.colors.textMuted);s.setProperty('--color-brand-500',ct.colors.brandPrimary);s.setProperty('color-scheme',ct.colors.colorScheme)}}catch(e2){}}}catch(e){document.documentElement.setAttribute('data-theme','dark')}}();</script>
   </head>
   <body>
     <div id="root"></div>

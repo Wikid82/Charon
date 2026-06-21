@@ -83,7 +83,8 @@
     "language": "Idioma",
     "languageDescription": "Selecciona tu idioma preferido",
     "theme": "Tema",
-    "themeDescription": "Elige tema claro u oscuro"
+    "themeDescription": "Elige tema claro u oscuro",
+    "appearance": "Apariencia"
   },
   "proxyHosts": {
     "title": "Hosts Proxy",
