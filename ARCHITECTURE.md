@@ -148,6 +148,7 @@ graph TB
 | **Internationalization** | i18next | Latest | 5 language support |
 | **Unit Testing** | Vitest | 4.1.0-beta.6 | Fast unit test runner |
 | **E2E Testing** | Playwright | 1.58.2 | Browser automation |
+| **Theme System** | CSS Custom Properties + data-theme | N/A | `data-theme` attribute on `<html>` drives 5 built-in themes, custom colors, system mode, and logo customization |
 
 ### Infrastructure
 
@@ -212,7 +213,7 @@ graph TB
 │   │   │   └── layout/         # Layout components
 │   │   ├── api/                # API client functions
 │   │   ├── hooks/              # Custom React hooks
-│   │   ├── context/            # React context providers
+│   │   ├── context/            # React context providers (ThemeContext, AuthContext)
 │   │   ├── locales/            # i18n translation files
 │   │   ├── App.tsx             # Root component
 │   │   └── main.tsx            # Application entry point
