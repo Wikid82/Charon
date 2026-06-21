@@ -83,7 +83,8 @@
     "language": "语言",
     "languageDescription": "选择您的首选语言",
     "theme": "主题",
-    "themeDescription": "选择浅色或深色主题"
+    "themeDescription": "选择浅色或深色主题",
+    "appearance": "外观"
   },
   "proxyHosts": {
     "title": "代理主机",

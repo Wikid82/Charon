@@ -1,4 +1,4 @@
-import { Settings as SettingsIcon, Server, Mail, Bell, Users } from 'lucide-react'
+import { Settings as SettingsIcon, Server, Mail, Bell, Users, Palette } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 
@@ -17,6 +17,7 @@ export default function Settings() {
     { path: '/settings/system', label: t('settings.system'), icon: Server },
     { path: '/settings/notifications', label: t('navigation.notifications'), icon: Bell },
     { path: '/settings/smtp', label: t('settings.smtp'), icon: Mail },
+    { path: '/settings/appearance', label: t('settings.appearance'), icon: Palette },
     ...(user?.role === 'admin' ? [{ path: '/settings/users', label: t('navigation.users'), icon: Users }] : []),
   ]
 

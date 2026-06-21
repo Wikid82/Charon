@@ -97,7 +97,8 @@
     "language": "Language",
     "languageDescription": "Select your preferred language",
     "theme": "Theme",
-    "themeDescription": "Choose light or dark theme"
+    "themeDescription": "Choose light or dark theme",
+    "appearance": "Appearance"
   },
   "proxyHosts": {
     "title": "Proxy Hosts",
