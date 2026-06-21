@@ -134,7 +134,7 @@ export default function Layout({ children }: LayoutProps) {
   })
 
   return (
-    <div className="min-h-screen bg-light-bg dark:bg-dark-bg flex transition-colors duration-200">
+    <div className="min-h-screen bg-surface-base flex transition-colors duration-200">
       {/* Skip to main content link for accessibility */}
       <a
         href="#main-content"
@@ -143,7 +143,7 @@ export default function Layout({ children }: LayoutProps) {
         {t('accessibility.skipToContent')}
       </a>
       {/* Mobile Header */}
-      {isMobile && <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white dark:bg-dark-sidebar border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-4 z-40">
+      {isMobile && <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-surface-overlay border-b border-border flex items-center justify-between px-4 z-40">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)} data-testid="mobile-menu-toggle">
             <Menu className="w-5 h-5" />
@@ -159,11 +159,11 @@ export default function Layout({ children }: LayoutProps) {
       {/* Sidebar */}
       <aside className={`
         fixed lg:fixed inset-y-0 left-0 z-30 transform transition-all duration-200 ease-in-out
-        bg-white dark:bg-dark-sidebar border-r border-gray-200 dark:border-gray-800 flex flex-col
+        bg-surface-overlay border-r border-border flex flex-col
         ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         ${isCollapsed ? 'w-20' : 'w-64'}
       `}>
-        <div className={`h-20 flex items-center justify-center border-b border-gray-200 dark:border-gray-800`}>
+        <div className={`h-20 flex items-center justify-center border-b border-border`}>
            {isCollapsed ? (
              <img src="/logo.png" alt="Charon" className="h-12 w-auto" fetchPriority="high" decoding="async" />
            ) : (
@@ -191,8 +191,8 @@ export default function Layout({ children }: LayoutProps) {
                       onClick={() => setMobileSidebarOpen(false)}
                       className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors justify-center ${
                         isActive
-                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-active dark:text-white'
-                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
+                          ? 'bg-brand-700 text-content-primary'
+                          : 'text-content-secondary hover:bg-surface-muted hover:text-content-primary'
                       }`}
                       title={item.name}
                     >
@@ -209,8 +209,8 @@ export default function Layout({ children }: LayoutProps) {
                       aria-expanded={isExpanded}
                       className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
                         isActive
-                          ? 'text-blue-700 dark:text-blue-400'
-                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
+                          ? 'text-brand-500'
+                          : 'text-content-secondary hover:bg-surface-muted hover:text-content-primary'
                       }`}
                     >
                       <div className="flex items-center gap-3">
@@ -239,8 +239,8 @@ export default function Layout({ children }: LayoutProps) {
                                   aria-expanded={isNestedOpen}
                                   className={`w-full flex items-center justify-between py-2 px-3 rounded-md text-sm transition-colors ${
                                     location.pathname.startsWith(child.path!)
-                                      ? 'text-blue-700 dark:text-blue-400'
-                                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
+                                      ? 'text-brand-500'
+                                      : 'text-content-secondary hover:bg-surface-muted hover:text-content-primary'
                                   }`}
                                 >
                                   <div className="flex items-center gap-2">
@@ -262,8 +262,8 @@ export default function Layout({ children }: LayoutProps) {
                                         onClick={() => setMobileSidebarOpen(false)}
                                         className={`block py-2 px-3 rounded-md text-sm transition-colors ${
                                           location.pathname === sub.path
-                                            ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300'
-                                            : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                                            ? 'bg-brand-500/10 text-brand-500'
+                                            : 'text-content-muted hover:text-content-primary hover:bg-surface-subtle/50'
                                         }`}
                                       >
                                         {sub.name}
@@ -282,8 +282,8 @@ export default function Layout({ children }: LayoutProps) {
                               onClick={() => setMobileSidebarOpen(false)}
                               className={`block py-2 px-3 rounded-md text-sm transition-colors ${
                                 isChildActive
-                                  ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300'
-                                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                                  ? 'bg-brand-500/10 text-brand-500'
+                                  : 'text-content-muted hover:text-content-primary hover:bg-surface-subtle/50'
                               }`}
                             >
                               {child.name}
@@ -305,8 +305,8 @@ export default function Layout({ children }: LayoutProps) {
                   onClick={() => setMobileSidebarOpen(false)}
                   className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
                     isActive
-                      ? 'bg-blue-100 text-blue-700 dark:bg-blue-active dark:text-white'
-                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
+                      ? 'bg-brand-700 text-content-primary'
+                      : 'text-content-secondary hover:bg-surface-muted hover:text-content-primary'
                   } ${isCollapsed ? 'justify-center' : ''}`}
                   title={isCollapsed ? item.name : ''}
                 >
@@ -317,8 +317,8 @@ export default function Layout({ children }: LayoutProps) {
             })}
           </nav>
 
-          <div className={`mt-2 border-t border-gray-200 dark:border-gray-800 pt-4 shrink-0 ${isCollapsed ? 'hidden' : ''}`}>
-            <div className="text-xs text-gray-500 dark:text-gray-500 text-center mb-2 flex flex-col gap-0.5">
+          <div className={`mt-2 border-t border-border pt-4 shrink-0 ${isCollapsed ? 'hidden' : ''}`}>
+            <div className="text-xs text-content-muted text-center mb-2 flex flex-col gap-0.5">
               <span>Version {health?.version || 'dev'}</span>
               {health?.git_commit && health.git_commit !== 'unknown' && (
                 <span className="text-[10px] opacity-75 font-mono">
@@ -331,7 +331,7 @@ export default function Layout({ children }: LayoutProps) {
                 setMobileSidebarOpen(false)
                 logout()
               }}
-              className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-colors text-red-600 dark:text-red-400 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900"
+              className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-colors text-error bg-error-muted hover:bg-error/20"
             >
               <span className="text-lg">🚪</span>
               {t('auth.logout')}
@@ -340,13 +340,13 @@ export default function Layout({ children }: LayoutProps) {
 
           {/* Collapsed Logout */}
           {isCollapsed && (
-             <div className="mt-2 border-t border-gray-200 dark:border-gray-800 pt-4 pb-4 shrink-0">
+             <div className="mt-2 border-t border-border pt-4 pb-4 shrink-0">
                 <button
                   onClick={() => {
                     setMobileSidebarOpen(false)
                     logout()
                   }}
-                  className="w-full flex items-center justify-center p-3 rounded-lg transition-colors text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+                  className="w-full flex items-center justify-center p-3 rounded-lg transition-colors text-error hover:bg-error-muted"
                   title={t('auth.logout')}
                 >
                   <span className="text-lg">🚪</span>
@@ -369,11 +369,11 @@ export default function Layout({ children }: LayoutProps) {
       {/* Main Content */}
       <main id="main-content" tabIndex={-1} className={`flex-1 min-w-0 pt-16 lg:pt-0 flex flex-col transition-all duration-200 ${isCollapsed ? 'lg:ml-20' : 'lg:ml-64'}`}>
         {/* Desktop Header */}
-        <header className="hidden lg:flex items-center justify-between px-8 h-20 bg-white dark:bg-dark-sidebar border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10">
+        <header className="hidden lg:flex items-center justify-between px-8 h-20 bg-surface-overlay border-b border-border sticky top-0 z-10">
            <div className="w-1/3 flex items-center gap-4">
              <button
                 onClick={() => setIsCollapsed(!isCollapsed)}
-                className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                className="p-2 rounded-lg text-content-muted hover:bg-surface-muted transition-colors"
                 title={isCollapsed ? t('navigation.expandSidebar') : t('navigation.collapseSidebar')}
               >
                 <Menu className="w-5 h-5" />
@@ -384,7 +384,7 @@ export default function Layout({ children }: LayoutProps) {
            </div>
            <div className="w-1/3 flex justify-end items-center gap-4">
              {user && (
-               <Link to="/settings/users" className="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+               <Link to="/settings/users" className="text-sm font-medium text-content-secondary hover:text-brand-500 transition-colors">
                  {user.name}
                </Link>
              )}
