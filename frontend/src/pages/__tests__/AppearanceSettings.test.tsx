@@ -17,11 +17,37 @@ vi.mock('react-i18next', () => ({
         'appearance.followSystem': 'Follow System',
         'appearance.followSystemDescription': 'Automatically match your OS light/dark preference',
         'appearance.customTheme': 'Custom Theme',
+        'appearance.customThemeDescription': 'Fine-tune colors to create your own theme',
+        'appearance.colorPickerBgBase': 'Background',
+        'appearance.colorPickerBgSubtle': 'Subtle Background',
+        'appearance.colorPickerBgMuted': 'Muted Background',
+        'appearance.colorPickerBgElevated': 'Elevated Surface',
+        'appearance.colorPickerBorderDefault': 'Border',
+        'appearance.colorPickerBorderStrong': 'Strong Border',
+        'appearance.colorPickerTextPrimary': 'Primary Text',
+        'appearance.colorPickerTextSecondary': 'Secondary Text',
+        'appearance.colorPickerTextMuted': 'Muted Text',
+        'appearance.colorPickerBrandPrimary': 'Accent Color',
+        'appearance.colorPickerColorScheme': 'Base Scheme',
+        'appearance.importExport': 'Import / Export',
+        'appearance.importExportDescription': 'Share themes between Charon instances',
+        'appearance.exportButton': 'Export Theme',
+        'appearance.importButton': 'Import Theme',
+        'appearance.importError': 'Invalid theme file',
         'common.enabled': 'Enabled',
       }
       return map[key] ?? key
     },
   }),
+}))
+
+vi.mock('../../utils/toast', () => ({
+  toast: {
+    error: vi.fn(),
+    success: vi.fn(),
+    info: vi.fn(),
+    warning: vi.fn(),
+  },
 }))
 
 function renderAppearanceSettings() {
@@ -133,5 +159,84 @@ describe('AppearanceSettings', () => {
     // After click, the committed theme is high-contrast-dark
     expect(document.documentElement.getAttribute('data-theme')).toBe('high-contrast-dark')
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('high-contrast-dark')
+  })
+
+  // Custom picker visibility tests
+  describe('Custom Theme section visibility', () => {
+    it('does not show custom picker section when theme is "dark" (not custom)', () => {
+      renderAppearanceSettings()
+      expect(screen.queryByText('Custom Theme')).not.toBeInTheDocument()
+    })
+
+    it('does not show custom picker section when theme is "light"', () => {
+      renderAppearanceSettings()
+      const cards = screen.getAllByRole('radio')
+      fireEvent.click(cards[1]) // light
+      expect(screen.queryByText('Custom Theme')).not.toBeInTheDocument()
+    })
+
+    it('does not show custom picker section when theme is "system"', () => {
+      renderAppearanceSettings()
+      const cards = screen.getAllByRole('radio')
+      fireEvent.click(cards[5]) // system
+      expect(screen.queryByText('Custom Theme')).not.toBeInTheDocument()
+    })
+
+    it('shows custom picker section when localStorage has custom theme', () => {
+      localStorage.setItem(THEME_STORAGE_KEY, 'custom')
+      renderAppearanceSettings()
+      expect(screen.getByText('Custom Theme')).toBeInTheDocument()
+    })
+
+    it('shows color inputs when custom theme is selected', () => {
+      localStorage.setItem(THEME_STORAGE_KEY, 'custom')
+      renderAppearanceSettings()
+      // type="color" inputs are not accessible by role — use DOM query
+      // eslint-disable-next-line testing-library/no-node-access
+      const colorInputs = document.querySelectorAll('input[type="color"]')
+      expect(colorInputs).toHaveLength(10)
+    })
+
+    it('shows color scheme select when custom theme is selected', () => {
+      localStorage.setItem(THEME_STORAGE_KEY, 'custom')
+      renderAppearanceSettings()
+      expect(screen.getByLabelText('Base Scheme')).toBeInTheDocument()
+    })
+  })
+
+  // Import/Export section visibility tests
+  describe('Import/Export section', () => {
+    it('always shows the import/export section', () => {
+      renderAppearanceSettings()
+      expect(screen.getByText('Import / Export')).toBeInTheDocument()
+    })
+
+    it('always shows export button', () => {
+      renderAppearanceSettings()
+      expect(screen.getByRole('button', { name: /export theme/i })).toBeInTheDocument()
+    })
+
+    it('always shows import button', () => {
+      renderAppearanceSettings()
+      expect(screen.getByRole('button', { name: /import theme/i })).toBeInTheDocument()
+    })
+
+    it('shows import/export section when theme is light', () => {
+      renderAppearanceSettings()
+      const cards = screen.getAllByRole('radio')
+      fireEvent.click(cards[1]) // light
+      expect(screen.getByText('Import / Export')).toBeInTheDocument()
+    })
+
+    it('shows import/export section when theme is custom', () => {
+      localStorage.setItem(THEME_STORAGE_KEY, 'custom')
+      renderAppearanceSettings()
+      expect(screen.getByText('Import / Export')).toBeInTheDocument()
+    })
+
+    it('shows import/export section description', () => {
+      renderAppearanceSettings()
+      expect(screen.getByText('Share themes between Charon instances')).toBeInTheDocument()
+    })
   })
 })
