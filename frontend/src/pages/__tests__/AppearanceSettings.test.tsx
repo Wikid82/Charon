@@ -2,9 +2,32 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import '@testing-library/jest-dom/vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ThemeProvider } from '../../context/ThemeContext'
 import { THEME_STORAGE_KEY } from '../../context/ThemeContextValue'
 import AppearanceSettings from '../AppearanceSettings'
+
+// Mock the settings API so useQuery does not fail without a real server
+vi.mock('../../api/settings', () => ({
+  getSettings: vi.fn().mockResolvedValue({}),
+  updateSetting: vi.fn().mockResolvedValue(undefined),
+  uploadLogo: vi.fn().mockResolvedValue({ url: '/uploads/logo.png' }),
+  deleteLogo: vi.fn().mockResolvedValue(undefined),
+  validatePublicURL: vi.fn(),
+  testPublicURL: vi.fn(),
+}))
+
+// Mock useAuth for LogoCustomizer's admin check
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: vi.fn().mockReturnValue({
+    user: { user_id: 1, role: 'admin', name: 'Admin' },
+    login: vi.fn(),
+    logout: vi.fn(),
+    changePassword: vi.fn(),
+    isAuthenticated: true,
+    isLoading: false,
+  }),
+}))
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -51,10 +74,15 @@ vi.mock('../../utils/toast', () => ({
 }))
 
 function renderAppearanceSettings() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
   return render(
-    <ThemeProvider>
-      <AppearanceSettings />
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <AppearanceSettings />
+      </ThemeProvider>
+    </QueryClientProvider>
   )
 }
 

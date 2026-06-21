@@ -240,7 +240,7 @@ func main() {
 	}
 	logger.Log().Info("Plugin system initialized")
 
-	router := server.NewRouter(cfg.FrontendDir)
+	router := server.NewRouter(cfg.FrontendDir, filepath.Dir(cfg.DatabasePath))
 	// Initialize structured logger with same writer as stdlib log so both capture logs
 	logger.Init(cfg.Debug, mw)
 	// Request ID middleware must run before recovery so the recover logs include the request id

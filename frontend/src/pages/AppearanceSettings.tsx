@@ -1,12 +1,15 @@
-import { ArrowUpDown, Palette, Sliders } from 'lucide-react'
+import { ArrowUpDown, ImageIcon, Palette, Sliders } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { CustomColorPicker } from '../components/theme/CustomColorPicker'
+import { LogoCustomizer } from '../components/theme/LogoCustomizer'
 import { ThemeGallery } from '../components/theme/ThemeGallery'
 import { ThemeImportExport } from '../components/theme/ThemeImportExport'
 import { ThemePreviewOverlay } from '../components/theme/ThemePreviewOverlay'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card'
+import { deleteLogo, getSettings, updateSetting, uploadLogo } from '../api/settings'
 import { useTheme } from '../hooks/useTheme'
 
 import type { CustomThemeColors, ThemeId } from '../context/ThemeContextValue'
@@ -30,6 +33,38 @@ export default function AppearanceSettings() {
   const { t } = useTranslation()
   const { theme, resolvedTheme, setTheme, customTheme, setCustomTheme } = useTheme()
   const [previewTheme, setPreviewTheme] = useState<ThemeId | null>(null)
+  const queryClient = useQueryClient()
+
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: getSettings,
+    staleTime: 1000 * 60 * 5,
+  })
+
+  const currentLogoUrl = settings?.['ui.logo_url'] ?? null
+
+  const uploadLogoMutation = useMutation({
+    mutationFn: uploadLogo,
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['settings'] }) },
+  })
+
+  const saveUrlMutation = useMutation({
+    mutationFn: async (url: string) => {
+      await updateSetting('ui.logo_url', url, 'ui', 'string')
+      await updateSetting('ui.logo_type', 'url', 'ui', 'string')
+    },
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['settings'] }) },
+  })
+
+  const deleteLogoMutation = useMutation({
+    mutationFn: deleteLogo,
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['settings'] }) },
+  })
+
+  const isSavingLogo =
+    uploadLogoMutation.isPending ||
+    saveUrlMutation.isPending ||
+    deleteLogoMutation.isPending
 
   const handleThemeChange = (newTheme: ThemeId) => {
     setPreviewTheme(null)
@@ -105,6 +140,26 @@ export default function AppearanceSettings() {
         </CardHeader>
         <CardContent>
           <ThemeImportExport />
+        </CardContent>
+      </Card>
+
+      {/* Logo Customization Section */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <ImageIcon className="h-5 w-5 text-content-secondary" />
+            <CardTitle>{t('appearance.logoCustomization')}</CardTitle>
+          </div>
+          <CardDescription>{t('appearance.logoCustomizationDescription')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <LogoCustomizer
+            currentLogoUrl={currentLogoUrl}
+            onUpload={(file) => uploadLogoMutation.mutate(file)}
+            onUrlSave={(url) => saveUrlMutation.mutate(url)}
+            onReset={() => deleteLogoMutation.mutate()}
+            isSaving={isSavingLogo}
+          />
         </CardContent>
       </Card>
     </div>
