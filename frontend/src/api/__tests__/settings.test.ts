@@ -179,4 +179,54 @@ describe('settings API', () => {
       expect(result.reachable).toBe(false)
     })
   })
+
+  describe('uploadLogo', () => {
+    it('should call POST /settings/logo with multipart form and return url', async () => {
+      const mockResponse = { url: '/uploads/logo.png' }
+      vi.mocked(client.post).mockResolvedValue({ data: mockResponse })
+
+      const file = new File([new Uint8Array(10)], 'logo.png', { type: 'image/png' })
+      const result = await settings.uploadLogo(file)
+
+      expect(client.post).toHaveBeenCalledWith(
+        '/settings/logo',
+        expect.any(FormData),
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      )
+      expect(result).toEqual(mockResponse)
+    })
+
+    it('should attach file with field name "logo"', async () => {
+      vi.mocked(client.post).mockResolvedValue({ data: { url: '/uploads/logo.png' } })
+
+      const file = new File([new Uint8Array(10)], 'logo.png', { type: 'image/png' })
+      await settings.uploadLogo(file)
+
+      const [, formData] = vi.mocked(client.post).mock.calls[0] as [string, FormData, object]
+      expect(formData.get('logo')).toBe(file)
+    })
+
+    it('should propagate errors', async () => {
+      vi.mocked(client.post).mockRejectedValue(new Error('Upload failed'))
+
+      const file = new File([new Uint8Array(10)], 'logo.png', { type: 'image/png' })
+      await expect(settings.uploadLogo(file)).rejects.toThrow('Upload failed')
+    })
+  })
+
+  describe('deleteLogo', () => {
+    it('should call DELETE /settings/logo', async () => {
+      vi.mocked(client.delete).mockResolvedValue({ data: {} })
+
+      await settings.deleteLogo()
+
+      expect(client.delete).toHaveBeenCalledWith('/settings/logo')
+    })
+
+    it('should propagate errors', async () => {
+      vi.mocked(client.delete).mockRejectedValue(new Error('Delete failed'))
+
+      await expect(settings.deleteLogo()).rejects.toThrow('Delete failed')
+    })
+  })
 })

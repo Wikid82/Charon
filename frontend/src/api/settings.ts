@@ -55,3 +55,25 @@ export const testPublicURL = async (url: string): Promise<{
   const response = await client.post('/settings/test-url', { url })
   return response.data
 }
+
+/**
+ * Uploads a logo image file.
+ * Accepted types: image/png, image/jpeg, image/webp (max 2 MB).
+ * @param file - The image file to upload
+ * @returns Promise resolving to the served URL of the uploaded logo
+ */
+export const uploadLogo = async (file: File): Promise<{ url: string }> => {
+  const form = new FormData()
+  form.append('logo', file)
+  const response = await client.post('/settings/logo', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return response.data
+}
+
+/**
+ * Deletes the custom logo, restoring the default Charon logo.
+ */
+export const deleteLogo = async (): Promise<void> => {
+  await client.delete('/settings/logo')
+}

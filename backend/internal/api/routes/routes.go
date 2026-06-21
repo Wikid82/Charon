@@ -343,6 +343,11 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management.PATCH("/settings", settingsHandler.UpdateSetting) // E2E tests use PATCH
 		management.PATCH("/config", settingsHandler.PatchConfig)     // Bulk configuration update
 
+		// Logo upload/delete — admin only
+		logoHandler := handlers.NewLogoHandler(db, dataRoot)
+		management.POST("/settings/logo", logoHandler.UploadLogo)
+		management.DELETE("/settings/logo", logoHandler.DeleteLogo)
+
 		// SMTP Configuration
 		management.GET("/settings/smtp", middleware.RequireRole(models.RoleAdmin), settingsHandler.GetSMTPConfig)
 		management.POST("/settings/smtp", settingsHandler.UpdateSMTPConfig)

@@ -20,7 +20,7 @@ func TestNewRouter(t *testing.T) {
 	err := os.WriteFile(filepath.Join(tempDir, "index.html"), []byte("<html></html>"), 0o644)
 	assert.NoError(t, err)
 
-	router := NewRouter(tempDir)
+	router := NewRouter(tempDir, "")
 	assert.NotNil(t, router)
 
 	// Test static file serving

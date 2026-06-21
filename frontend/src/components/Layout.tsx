@@ -13,6 +13,7 @@ import { ThemeToggle } from './ThemeToggle'
 import { Button } from './ui/Button'
 import { getFeatureFlags } from '../api/featureFlags'
 import { checkHealth } from '../api/health'
+import { getSettings } from '../api/settings'
 import { useAuth } from '../hooks/useAuth'
 
 
@@ -62,6 +63,15 @@ export default function Layout({ children }: LayoutProps) {
     queryFn: getFeatureFlags,
     staleTime: 1000 * 60 * 5, // 5 minutes
   })
+
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: getSettings,
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  })
+  const customLogoUrl = settings?.['ui.logo_url'] ?? null
+  const logoSrc = customLogoUrl || '/logo.png'
+  const bannerSrc = customLogoUrl || undefined
 
   const navigation: NavItem[] = [
     { name: t('navigation.dashboard'), path: '/', icon: '📊' },
@@ -148,7 +158,7 @@ export default function Layout({ children }: LayoutProps) {
           <Button variant="ghost" size="sm" onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)} data-testid="mobile-menu-toggle">
             <Menu className="w-5 h-5" />
           </Button>
-          <img src="/logo.png" alt="Charon" className="h-10 w-auto" />
+          <img src={logoSrc} alt="Charon" className="h-10 w-auto" />
         </div>
         <div className="flex items-center gap-2">
           <NotificationCenter />
@@ -165,7 +175,9 @@ export default function Layout({ children }: LayoutProps) {
       `}>
         <div className={`h-20 flex items-center justify-center border-b border-border`}>
            {isCollapsed ? (
-             <img src="/logo.png" alt="Charon" className="h-12 w-auto" fetchPriority="high" decoding="async" />
+             <img src={logoSrc} alt="Charon" className="h-12 w-auto" fetchPriority="high" decoding="async" />
+           ) : bannerSrc ? (
+             <img src={bannerSrc} alt="Charon" className="h-14 w-auto max-w-[200px] object-contain" fetchPriority="high" decoding="async" />
            ) : (
              <picture>
                <source srcSet="/banner.webp" type="image/webp" />
