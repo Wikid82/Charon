@@ -47,6 +47,7 @@ const Login = lazy(() => import('./pages/Login'))
 const Setup = lazy(() => import('./pages/Setup'))
 const AcceptInvite = lazy(() => import('./pages/AcceptInvite'))
 const PassthroughLanding = lazy(() => import('./pages/PassthroughLanding'))
+const AppearanceSettings = lazy(() => import('./pages/AppearanceSettings'))
 
 export default function App() {
   return (
@@ -123,6 +124,7 @@ export default function App() {
                 <Route path="smtp" element={<SMTPSettings />} />
                 <Route path="crowdsec" element={<Navigate to="/security/crowdsec" replace />} />
                 <Route path="users" element={<RequireRole allowed={['admin']}><UsersPage /></RequireRole>} />
+                <Route path="appearance" element={<AppearanceSettings />} />
                 {/* Legacy redirects */}
                 <Route path="account" element={<Navigate to="/settings/users" replace />} />
                 <Route path="account-management" element={<Navigate to="/settings/users" replace />} />
