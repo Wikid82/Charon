@@ -348,6 +348,8 @@ Make Charon look exactly the way you want. Choose from five built-in themes — 
 - **Custom Colors** — Not happy with the built-in options? Pick any color you like for every part of the interface.
 - **Import & Export** — Save your custom theme as a file and share it with others, or load a theme someone else created. Great for backups too.
 - **Logo Customization** — Upload your own image or paste a URL to replace the Charon logo in the sidebar with something that feels like home.
+- **Banner Image** — Upload a custom banner image (PNG, JPG, GIF, or WebP, up to 5 MB) to display across the top of the app. Preview it before saving, and remove it any time — all from Settings > Appearance.
+- **Named Custom Themes** — Build your own color theme from scratch, give it a name, and save it. You can create as many as you like, switch between them, edit them later, or delete ones you no longer need. Find it under Settings > Appearance.
 
 → [Learn More](features/ui-themes.md)
 
