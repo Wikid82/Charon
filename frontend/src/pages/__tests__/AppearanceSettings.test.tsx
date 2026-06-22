@@ -7,12 +7,29 @@ import { ThemeProvider } from '../../context/ThemeContext'
 import { THEME_STORAGE_KEY } from '../../context/ThemeContextValue'
 import AppearanceSettings from '../AppearanceSettings'
 
+// ThemeProvider calls useUserThemes internally; stub it so tests don't need a real API server
+vi.mock('../../hooks/useUserThemes', () => ({
+  useUserThemes: vi.fn().mockReturnValue({
+    userThemes: [],
+    isLoading: false,
+    error: null,
+    createTheme: vi.fn(),
+    updateTheme: vi.fn(),
+    deleteTheme: vi.fn(),
+    isCreating: false,
+    isUpdating: false,
+    isDeleting: false,
+  }),
+}))
+
 // Mock the settings API so useQuery does not fail without a real server
 vi.mock('../../api/settings', () => ({
   getSettings: vi.fn().mockResolvedValue({}),
   updateSetting: vi.fn().mockResolvedValue(undefined),
   uploadLogo: vi.fn().mockResolvedValue({ url: '/uploads/logo.png' }),
   deleteLogo: vi.fn().mockResolvedValue(undefined),
+  uploadBanner: vi.fn().mockResolvedValue({ url: '/uploads/banner.png' }),
+  deleteBanner: vi.fn().mockResolvedValue(undefined),
   validatePublicURL: vi.fn(),
   testPublicURL: vi.fn(),
 }))

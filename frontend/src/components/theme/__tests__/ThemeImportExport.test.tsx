@@ -7,6 +7,21 @@ import { ThemeImportExport } from '../ThemeImportExport'
 
 import type { ThemeExport } from '../../../context/ThemeContextValue'
 
+// ThemeProvider calls useUserThemes internally; stub it so tests don't need QueryClientProvider
+vi.mock('../../../hooks/useUserThemes', () => ({
+  useUserThemes: vi.fn().mockReturnValue({
+    userThemes: [],
+    isLoading: false,
+    error: null,
+    createTheme: vi.fn(),
+    updateTheme: vi.fn(),
+    deleteTheme: vi.fn(),
+    isCreating: false,
+    isUpdating: false,
+    isDeleting: false,
+  }),
+}))
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string) => {

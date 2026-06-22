@@ -5,6 +5,21 @@ import { useTheme } from '../../hooks/useTheme'
 import { ThemeProvider } from '../ThemeContext'
 import { THEME_STORAGE_KEY, CUSTOM_THEME_STORAGE_KEY, type CustomThemeColors, type ThemeExport } from '../ThemeContextValue'
 
+// ThemeProvider calls useUserThemes internally; stub it so tests don't need QueryClientProvider
+vi.mock('../../hooks/useUserThemes', () => ({
+  useUserThemes: vi.fn().mockReturnValue({
+    userThemes: [],
+    isLoading: false,
+    error: null,
+    createTheme: vi.fn(),
+    updateTheme: vi.fn(),
+    deleteTheme: vi.fn(),
+    isCreating: false,
+    isUpdating: false,
+    isDeleting: false,
+  }),
+}))
+
 // Wrap renderHook so all hooks use ThemeProvider
 function renderThemeHook() {
   return renderHook(() => useTheme(), {
