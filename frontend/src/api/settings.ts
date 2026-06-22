@@ -77,3 +77,25 @@ export const uploadLogo = async (file: File): Promise<{ url: string }> => {
 export const deleteLogo = async (): Promise<void> => {
   await client.delete('/settings/logo')
 }
+
+/**
+ * Uploads a banner image file.
+ * Accepted types: image/png, image/jpeg, image/webp (max 2 MB).
+ * @param file - The image file to upload
+ * @returns Promise resolving to the served URL of the uploaded banner
+ */
+export const uploadBanner = async (file: File): Promise<{ url: string }> => {
+  const form = new FormData()
+  form.append('banner', file)
+  const response = await client.post('/settings/banner', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return response.data
+}
+
+/**
+ * Deletes the custom banner, restoring the default banner image.
+ */
+export const deleteBanner = async (): Promise<void> => {
+  await client.delete('/settings/banner')
+}

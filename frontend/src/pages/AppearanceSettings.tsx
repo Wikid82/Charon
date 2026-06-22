@@ -3,13 +3,15 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
+import { BannerCustomizer } from '../components/theme/BannerCustomizer'
 import { CustomColorPicker } from '../components/theme/CustomColorPicker'
 import { LogoCustomizer } from '../components/theme/LogoCustomizer'
 import { ThemeGallery } from '../components/theme/ThemeGallery'
 import { ThemeImportExport } from '../components/theme/ThemeImportExport'
 import { ThemePreviewOverlay } from '../components/theme/ThemePreviewOverlay'
+import { UserThemeManager } from '../components/theme/UserThemeManager'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card'
-import { deleteLogo, getSettings, updateSetting, uploadLogo } from '../api/settings'
+import { deleteBanner, deleteLogo, getSettings, updateSetting, uploadBanner, uploadLogo } from '../api/settings'
 import { useTheme } from '../hooks/useTheme'
 
 import type { CustomThemeColors, ThemeId } from '../context/ThemeContextValue'
@@ -31,7 +33,7 @@ const DARK_THEME_DEFAULTS: CustomThemeColors = {
 
 export default function AppearanceSettings() {
   const { t } = useTranslation()
-  const { theme, resolvedTheme, setTheme, customTheme, setCustomTheme } = useTheme()
+  const { theme, resolvedTheme, setTheme, customTheme, setCustomTheme, setUserTheme } = useTheme()
   const [previewTheme, setPreviewTheme] = useState<ThemeId | null>(null)
   const queryClient = useQueryClient()
 
@@ -42,6 +44,7 @@ export default function AppearanceSettings() {
   })
 
   const currentLogoUrl = settings?.['ui.logo_url'] ?? null
+  const currentBannerUrl = settings?.['ui.banner_url'] ?? null
 
   const uploadLogoMutation = useMutation({
     mutationFn: uploadLogo,
@@ -65,6 +68,34 @@ export default function AppearanceSettings() {
     uploadLogoMutation.isPending ||
     saveUrlMutation.isPending ||
     deleteLogoMutation.isPending
+
+  const uploadBannerMutation = useMutation({
+    mutationFn: uploadBanner,
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['settings'] }) },
+  })
+
+  // NOTE: saveBannerUrlMutation stores the URL as a plain setting value.
+  // It does NOT perform a server-side fetch of the URL, so it bypasses MIME/size
+  // enforcement. Client-side https:// validation in BannerCustomizer.tsx is the
+  // security boundary for this code path. Server-side url-scheme validation is a
+  // future enhancement.
+  const saveBannerUrlMutation = useMutation({
+    mutationFn: async (url: string) => {
+      await updateSetting('ui.banner_url', url, 'ui', 'string')
+      await updateSetting('ui.banner_type', 'url', 'ui', 'string')
+    },
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['settings'] }) },
+  })
+
+  const deleteBannerMutation = useMutation({
+    mutationFn: deleteBanner,
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['settings'] }) },
+  })
+
+  const isSavingBanner =
+    uploadBannerMutation.isPending ||
+    saveBannerUrlMutation.isPending ||
+    deleteBannerMutation.isPending
 
   const handleThemeChange = (newTheme: ThemeId) => {
     setPreviewTheme(null)
@@ -107,6 +138,26 @@ export default function AppearanceSettings() {
               {t('appearance.followSystemDescription')}
             </p>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Your Themes Section */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Palette className="h-5 w-5 text-content-secondary" />
+            <CardTitle>{t('appearance.userThemes')}</CardTitle>
+          </div>
+          <CardDescription>{t('appearance.userThemesDescription')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <UserThemeManager
+            activeThemeId={theme}
+            onActivate={(userTheme) => {
+              setPreviewTheme(null)
+              setUserTheme(userTheme)
+            }}
+          />
         </CardContent>
       </Card>
 
@@ -159,6 +210,26 @@ export default function AppearanceSettings() {
             onUrlSave={(url) => saveUrlMutation.mutate(url)}
             onReset={() => deleteLogoMutation.mutate()}
             isSaving={isSavingLogo}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Banner Customization Section */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <ImageIcon className="h-5 w-5 text-content-secondary" />
+            <CardTitle>{t('appearance.bannerCustomization')}</CardTitle>
+          </div>
+          <CardDescription>{t('appearance.bannerCustomizationDescription')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <BannerCustomizer
+            currentBannerUrl={currentBannerUrl}
+            onUpload={(file) => uploadBannerMutation.mutate(file)}
+            onUrlSave={(url) => saveBannerUrlMutation.mutate(url)}
+            onReset={() => deleteBannerMutation.mutate()}
+            isSaving={isSavingBanner}
           />
         </CardContent>
       </Card>

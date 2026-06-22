@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 
+import { isUserThemeId } from '../../context/ThemeContextValue'
 import type { DataThemeValue, ThemeId } from '../../context/ThemeContextValue'
 
 export interface ThemePreviewOverlayProps {
@@ -15,6 +16,7 @@ function resolveDataTheme(theme: ThemeId): DataThemeValue {
     return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
   }
   if (theme === 'custom') return 'custom'
+  if (isUserThemeId(theme)) return 'custom'
   return theme
 }
 

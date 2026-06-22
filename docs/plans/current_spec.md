@@ -1,9 +1,9 @@
-# Theme System Redo — FOUC Fix + Issue #34 Theme Customization
+# Theme System Extensions — Banner Upload + Named User Themes
 
 **Author:** Planning Agent
-**Date:** 2026-06-20
-**Branch:** development
-**Scope:** Frontend-primary; backend addition for logo upload only
+**Date:** 2026-06-21
+**Branch:** feature/theme
+**Scope:** Backend + Frontend additions extending the existing theme system
 
 ---
 
@@ -22,1497 +22,1247 @@
 
 ### 1.1 Overview
 
-This specification covers two goals shipped in a single PR:
+This plan extends the existing Charon theme system (fully implemented on `feature/theme`) with two new capabilities:
 
-**Goal 1 — Bug Fix (FOUC):** The browser console emits the following warning on every page load in Firefox:
+1. **Banner Image Upload** — a dedicated upload endpoint and UI for the expanded-sidebar banner image, separate from the logo upload already implemented.
+2. **Custom User-Created Named Themes** — multi-slot, DB-persisted color-scheme themes that users can create, name, edit, switch between, and delete. This replaces the single `localStorage`-only "Custom" theme slot.
 
-```
-Layout was forced before the page was fully loaded. If stylesheets are not yet loaded
-this may cause a flash of unstyled content.
-```
+### 1.2 Objectives
 
-**Goal 2 — Feature (GitHub Issue #34):** Implement a complete, first-class theme system with pre-built themes, a custom color picker, import/export, logo customization, and a "Follow System" mode.
+- Provide a clean separation between the small collapsed-state logo and the wide expanded-state banner, both customizable independently.
+- Persist user-created themes in the database so they survive browser cache clears and are shared across devices logged into the same Charon instance.
+- Maintain backward compatibility with existing single-slot custom theme data stored in `localStorage`.
+- Follow all existing patterns: DRY, GORM auto-migrate, UUID server-side, `filepath.Clean`, 85%+ coverage, no new npm packages.
 
-### 1.2 Root Cause of the FOUC Warning
+### 1.3 Non-Goals
 
-Two mechanisms compete to apply the theme class on `<html>`:
-
-1. The inline `<script>` in `frontend/index.html` (line 5) runs _before_ any stylesheet `<link>` has been declared. Firefox emits the forced-layout warning because calling `classList.add('dark')` triggers a style recalculation against a document with no applied stylesheets.
-
-2. `ThemeProvider` (`frontend/src/context/ThemeContext.tsx`) uses `useLayoutEffect` which redundantly re-applies the same class on every initial mount, blocking paint.
-
-### 1.3 Technical Approach (Pre-Approved)
-
-**FOUC fix:**
-- Move the inline `<script>` to the last position in `<head>`, after Vite's injected `<link rel="stylesheet">` tags.
-- Change the script to set `data-theme` attribute (not a class) on `<html>` — this aligns with the new theming foundation.
-- Replace `useLayoutEffect` with `useEffect` + a `useRef` first-render skip in `ThemeProvider` so the initial DOM write is owned solely by the inline script.
-
-**Theme system foundation:**
-- Migrate from class-based theming (`class="dark"`, `class="light"`) to `data-theme` attribute on `<html>` (`data-theme="dark"`, `data-theme="light"`, etc.).
-- CSS custom properties scoped to `[data-theme="dark"]`, `[data-theme="light"]`, etc. in `frontend/src/index.css`.
-- Tailwind's `darkMode` config changed from `'class'` to `['selector', '[data-theme="dark"]']`.
-- Theme data stored in `localStorage` under the key `charon-theme`.
-- Logo customization stored in the backend `Setting` model under key `ui.logo_url` (URL) or served from an uploaded file at `/api/v1/settings/logo`.
-
-### 1.4 Goals
-
-1. Eliminate the FOUC console warning entirely.
-2. Pre-built theme gallery: `dark`, `light`, `high-contrast-dark`, `high-contrast-light`, `solarized`.
-3. Custom color picker for user-defined themes.
-4. Theme import/export (JSON format).
-5. Logo customization (upload file or enter URL).
-6. "Follow System" option (respects `prefers-color-scheme`).
-7. Theme preview before applying.
-8. Themes change the entire UI — all components use CSS custom properties.
-9. Minimum 85% test coverage for all new and modified code.
+- Do NOT redesign the FOUC fix or the existing built-in theme gallery — those are complete and working.
+- Do NOT support SVG uploads (same restriction as logo handler).
+- Do NOT break the existing `custom` theme localStorage behavior for users who have not migrated.
 
 ---
 
 ## 2. Research Findings
 
-### 2.1 Current Theme Architecture
+### 2.1 Existing Architecture Summary
 
-**`frontend/index.html` (line 5):**
+**Backend:**
 
-The inline IIFE runs synchronously during HTML parsing, before any stylesheet link exists in the DOM. It applies a CSS class (`dark` or `light`) to `<html>`. This triggers the FOUC warning in Firefox.
+- `backend/internal/api/handlers/logo_handler.go` — `LogoHandler` with `UploadLogo` / `DeleteLogo`. Uses `requireAuthenticatedAdmin`, `http.MaxBytesReader`, byte-sniff MIME detection, fixed filename `logo.<ext>`, upserts `ui.logo_url` and `ui.logo_type` into the `Setting` model.
+- `backend/internal/models/setting.go` — `Setting` struct with `Key`, `Value`, `Type`, `Category`, `UpdatedAt`. All persistence uses `db.Where(Setting{Key:key}).Assign(s).FirstOrCreate(&s)`.
+- `backend/internal/api/routes/routes.go` — `RegisterWithDeps` runs `AutoMigrate` for all models, wires `logoHandler` under `management` group (requires `RequireManagementAccess`), registers `POST /settings/logo` and `DELETE /settings/logo`.
+- `backend/internal/server/server.go` — `NewRouter` serves `router.Static("/uploads", dataDir+"/uploads")` for uploaded files.
 
-```html
-<script>!function(){try{var t=localStorage.getItem('theme');document.documentElement.classList.add(t==='light'?'light':'dark')}catch(e){document.documentElement.classList.add('dark')}}();</script>
-```
+**Frontend:**
 
-Key problems:
-- Position: line 5 in `<head>`, before the Vite-injected stylesheet link.
-- Uses `classList.add` (class-based) — the new system will use `data-theme` attribute.
-- Storage key is `'theme'`.
+- `frontend/src/context/ThemeContextValue.ts` — `ThemeId = BuiltInTheme | MetaTheme`, `MetaTheme = 'system' | 'custom'`. `CustomTheme = { name, colors }`. Single `CUSTOM_THEME_STORAGE_KEY = 'charon-custom-theme'`.
+- `frontend/src/context/ThemeContext.tsx` — `ThemeProvider` with single-slot `customTheme` state. `setCustomTheme(colors, name)` writes to `localStorage` and sets `theme` to `'custom'`.
+- `frontend/src/components/Layout.tsx` — reads `settings['ui.logo_url']` as `customLogoUrl`. Sidebar header renders:
+  - Collapsed: `<img src={logoSrc} />` (logoSrc = customLogoUrl or `/logo.png`)
+  - Expanded with customLogoUrl: `<img src={bannerSrc} />` where `bannerSrc = customLogoUrl` (currently the SAME setting used for both)
+  - Expanded without customLogoUrl: `<picture><source srcSet="/banner.webp" /><img src="/banner.png" /></picture>`
+- `frontend/src/pages/AppearanceSettings.tsx` — uses `getSettings` query to read `ui.logo_url`, mounts `LogoCustomizer`, `ThemeGallery`, `CustomColorPicker`, `ThemeImportExport`.
+- `frontend/src/api/settings.ts` — `uploadLogo(file)` posts multipart to `/settings/logo`, `deleteLogo()` sends DELETE.
+- `frontend/index.html` — inline script reads only `localStorage`. Cannot fetch from backend. For `user:*` theme IDs it cannot resolve colors at paint time.
 
-**`frontend/src/context/ThemeContextValue.ts`:**
+### 2.2 Key Observations
 
-```typescript
-export type Theme = 'dark' | 'light'
+1. **Logo / Banner conflation**: `Layout.tsx` line 74 sets `bannerSrc = customLogoUrl || undefined`. This means uploading a logo currently replaces the banner too. The new banner upload must introduce `ui.banner_url` as a separate setting key and update Layout to read it independently.
 
-export interface ThemeContextType {
-  theme: Theme
-  toggleTheme: () => void
-}
-```
+2. **Single-slot custom theme**: `ThemeContext.tsx` has one `customTheme` state slot and one `CUSTOM_THEME_STORAGE_KEY`. Named user themes require a collection stored in the DB, accessed via React Query, without removing the existing single-slot code path.
 
-Current `Theme` type is a union of two string literals with only a binary toggle.
+3. **`data-theme` constraint**: The CSS theme system only has `data-theme` values for the static built-ins and `custom`. User-created named themes must reuse `data-theme="custom"` and inject their colors via `style.setProperty` on `<html>`, exactly like the existing custom theme does.
 
-**`frontend/src/context/ThemeContext.tsx`:**
+4. **FOUC constraint**: The inline script in `index.html` can only access `localStorage`, not the network. If `localStorage['charon-theme']` is `user:<uuid>`, the script cannot fetch that theme's colors at paint time. It must fall back to `data-theme="dark"` for any `user:*` value. React's hydration will then apply the correct colors after the network fetch completes.
 
-- Uses `useLayoutEffect` — wrong hook for a write-only DOM operation.
-- Re-applies class on initial mount, duplicating the inline script.
-- Has no `useRef` guard, so the initial mount always triggers a DOM write.
+5. **Shared upsert logic**: `LogoHandler.upsertSetting` is private. The new `BannerHandler` will need the same helper. The architectural choice of whether to share this via a dedicated `ImageUploadHandler` or duplicate is addressed in Section 3.1.
 
-**`frontend/src/hooks/useTheme.ts`:**
+### 2.3 Architectural Decision: Shared Image Upload Handler
 
-Simple context consumer that throws if used outside `ThemeProvider`.
+**Decision: Create `image_upload_handler.go` as a shared handler with a configuration struct.**
 
-**`frontend/src/hooks/__tests__/useTheme.test.tsx`:**
+**Rationale:**
 
-Only tests the error-guard path. No happy-path coverage.
+The `upsertSetting`, `acceptedMIME`, and the full upload pipeline in `logo_handler.go` are identical for any image asset upload. Duplicating them into `banner_handler.go` violates the DRY principle (CLAUDE.md: "Consolidate duplicate patterns into reusable functions after the second occurrence"). A generalized `ImageUploadHandler` parameterized by asset type (`logo`, `banner`) is cleaner and testable once.
 
-**`frontend/src/context/__tests__/`:**
+The implementation will:
+- Define an `AssetConfig` struct carrying `FormField`, `URLSettingKey`, `TypeSettingKey`, `FileBaseName`.
+- `ImageUploadHandler` holds `db`, `dataDir`, and `cfg AssetConfig`.
+- `UploadAsset(c *gin.Context)` and `DeleteAsset(c *gin.Context)` are the generic methods.
+- `LogoHandler` and `BannerHandler` become thin wrappers that instantiate `ImageUploadHandler` with the appropriate config, keeping the existing public constructor signatures and route method names for backward compatibility.
 
-Only `AuthContext.test.tsx` exists. No `ThemeContext` tests.
+This means:
+- `logo_handler.go` is refactored to use `ImageUploadHandler` internally.
+- `banner_handler.go` is a new file instantiating `ImageUploadHandler` for the banner asset.
+- Tests for both share helper setup functions.
 
-**`frontend/src/components/ThemeToggle.tsx`:**
+### 2.4 Architectural Decision: Named Themes Storage (Option B — New GORM Model)
 
-Binary toggle using emoji icons (☀️ / 🌙), calls `useTheme().toggleTheme()`. Used in `Layout.tsx` desktop header and mobile header.
+**Decision: Option B — New `CustomTheme` GORM model.**
 
-**`frontend/src/pages/Settings.tsx`:**
+**Rationale:**
 
-Tab-based layout with sub-routes. Current tabs: System, Notifications, Email, Users. Theme settings tab needs to be added as a new route at `/settings/appearance`.
-
-**`frontend/src/pages/SystemSettings.tsx`:**
-
-Uses `getSettings()` / `updateSetting()` from `frontend/src/api/settings.ts` to read/write `Setting` key-value pairs from the backend. Pattern for backend-stored UI settings already established (e.g., `ui.domain_link_behavior`).
-
-### 2.2 CSS Custom Properties Foundation
-
-**`frontend/src/index.css`:**
-
-Already has a comprehensive design token system under `:root` with:
-- `--color-brand-*` (RGB format, brand palette)
-- `--color-bg-*` (surface colors)
-- `--color-border-*`
-- `--color-text-*`
-- `--color-success`, `--color-warning`, `--color-error`, `--color-info`
-- Typography, spacing, effects tokens
-
-The dark-mode-default values live in `:root`. A `.light` class block overrides surface, border, and text tokens.
-
-**`frontend/tailwind.config.js`:**
-
-- `darkMode: 'class'` — must change to `['selector', '[data-theme="dark"]']`
-- All semantic colors already map to CSS custom properties (e.g., `surface.base` → `rgb(var(--color-bg-base) / <alpha-value>)`)
-
-This means the CSS custom property foundation is largely already in place. The migration is primarily:
-1. Rename the theming mechanism from `.dark`/`.light` classes to `[data-theme="dark"]`/`[data-theme="light"]` attributes.
-2. Add `[data-theme="high-contrast-dark"]`, `[data-theme="high-contrast-light"]`, `[data-theme="solarized"]` blocks.
-3. Add a `[data-theme="custom"]` block whose properties are overridden by CSS variables written by the custom color picker.
-
-### 2.3 Layout and Logo Usage
-
-**`frontend/src/components/Layout.tsx`:**
-
-- Sidebar header: `<img src="/logo.png">` (collapsed state) or `<picture><source srcSet="/banner.webp"><img src="/banner.png"></picture>` (expanded state).
-- Mobile header: `<img src="/logo.png">`.
-- Uses raw Tailwind classes for dark mode (`dark:bg-dark-sidebar`, `dark:border-gray-800`, etc.) — these will need updating to use CSS custom property-based classes or `data-theme` selectors.
-- `ThemeToggle` is rendered in both desktop and mobile headers.
-
-**`frontend/public/`:**
-
-Contains: `banner.png`, `banner.svg`, `banner.webp`, `favicon.png`, `logo.png`, `logo.svg`, `logo.webp`.
-
-**`backend/internal/server/server.go`:**
-
-Explicitly serves `/logo.png`, `/logo.webp`, `/logo.svg`, `/banner.png`, `/banner.webp`, `/banner.svg` as static files from `frontendDir`. A custom logo upload endpoint needs to write a file to the data directory and serve it, or store a URL in settings.
-
-### 2.4 Backend Settings Pattern
-
-`backend/internal/models/setting.go` stores key-value pairs. `backend/internal/api/handlers/settings_handler.go` provides `GET /settings` and `POST /settings` for reading and writing. The existing `updateSetting('ui.domain_link_behavior', ...)` pattern is exactly the pattern to use for `ui.logo_url` and `ui.logo_type`.
-
-For file upload, a new endpoint `POST /api/v1/settings/logo` is needed. The file is written to `data/uploads/logo.<ext>` and served via a new static route. The setting `ui.logo_url` stores either a user-provided URL (type `url`) or the server-relative path `/uploads/logo.<ext>` (type `upload`).
-
-### 2.5 Existing Components Available for Reuse
-
-- `frontend/src/components/ui/Dialog.tsx` — modal wrapper
-- `frontend/src/components/ui/Button.tsx`, `Card.tsx`, `Input.tsx`, `Label.tsx`, `Select.tsx` — form primitives
-- `frontend/src/components/ui/Tabs.tsx` — tab switching within a page
-
-### 2.6 Ignore Files Check
-
-- `.gitignore`: `data/` and `backend/data/` are gitignored. Any upload directory under `data/uploads/` is covered by the existing `data/` rule. No new entries needed.
-- `.dockerignore`: `data/` is covered. No new entries needed.
-- `codecov.yml`: New test files under `__tests__/` are auto-discovered by existing patterns. No changes needed.
-- `frontend/public/`: Already gittracked. Logo uploads go to `data/uploads/` (server-side), not `public/`. No changes needed.
-
-### 2.7 Pre-Built Theme Color Values
-
-All color values in RGB space-separated format (to support Tailwind's alpha modifier syntax `rgb(var(--x) / 0.5)`).
-
-| Token | dark | light | high-contrast-dark | high-contrast-light | solarized |
-|---|---|---|---|---|---|
-| `--color-bg-base` | `15 23 42` | `248 250 252` | `0 0 0` | `255 255 255` | `0 43 54` |
-| `--color-bg-subtle` | `30 41 59` | `241 245 249` | `17 17 17` | `245 245 245` | `7 54 66` |
-| `--color-bg-muted` | `51 65 85` | `226 232 240` | `34 34 34` | `230 230 230` | `14 63 75` |
-| `--color-bg-elevated` | `30 41 59` | `255 255 255` | `25 25 25` | `255 255 255` | `7 54 66` |
-| `--color-border-default` | `51 65 85` | `226 232 240` | `85 85 85` | `170 170 170` | `42 75 86` |
-| `--color-border-strong` | `71 85 105` | `203 213 225` | `128 128 128` | `128 128 128` | `88 110 117` |
-| `--color-text-primary` | `248 250 252` | `15 23 42` | `255 255 255` | `0 0 0` | `131 148 150` |
-| `--color-text-secondary` | `203 213 225` | `71 85 105` | `220 220 220` | `50 50 50` | `101 123 131` |
-| `--color-text-muted` | `148 163 184` | `148 163 184` | `170 170 170` | `100 100 100` | `88 110 117` |
-| `--color-brand-500` | `59 130 246` | `59 130 246` | `0 217 255` | `0 86 179` | `38 139 210` |
-| `color-scheme` | `dark` | `light` | `dark` | `light` | `dark` |
+Option A (JSON array blob in Setting) has significant drawbacks: no efficient ID-based lookup for `PUT /themes/:id` and `DELETE /themes/:id`, no indexing, size limits for large theme libraries, and GORM's `FirstOrCreate` pattern is awkward for array mutation. Option B provides:
+- First-class row identity (`id` UUID) for direct API addressing.
+- GORM auto-migrate handles schema creation.
+- Efficient per-row updates and deletes.
+- Consistent with how all other Charon entities are modeled (users, notifications, uptime monitors).
+- No scaling concerns: themes are a handful of rows.
 
 ---
 
 ## 3. Technical Specifications
 
-### 3.1 TypeScript Types
+### 3.1 Feature 1: Banner Image Upload
 
-**File: `frontend/src/context/ThemeContextValue.ts` (replace entirely)**
+#### 3.1.1 Backend — `image_upload_handler.go` (Refactor + Extend)
 
-```typescript
-import { createContext } from 'react'
+**File:** `backend/internal/api/handlers/image_upload_handler.go`
 
-// Built-in theme identifiers
-export type BuiltInTheme = 'dark' | 'light' | 'high-contrast-dark' | 'high-contrast-light' | 'solarized'
+This file absorbs the shared upload logic. The existing constants `maxLogoSize`, `mimeSniffBytes`, `logoFilePerm`, `uploadsDirPerm` and function `acceptedMIME` move here. The constant `maxLogoSize` is renamed `maxImageSize` for generality.
 
-// Special meta-themes
-export type MetaTheme = 'system' | 'custom'
+**Admin enforcement:** Since both logo and banner uploads are admin-only operations, `requireAuthenticatedAdmin(c)` MUST be called inside `ImageUploadHandler.UploadAsset` and `ImageUploadHandler.DeleteAsset` directly — NOT in the thin `LogoHandler`/`BannerHandler` wrappers. This avoids duplicating the admin check in every thin wrapper and ensures any future image asset type is automatically admin-only. The thin wrappers (`LogoHandler.UploadLogo`, `BannerHandler.UploadBanner`, etc.) do not need to call `requireAuthenticatedAdmin` themselves.
 
-// All valid data-theme attribute values
-export type DataThemeValue = BuiltInTheme | 'custom'
+Signatures:
 
-// Full theme identifier (includes 'system' which resolves to a DataThemeValue)
-export type ThemeId = BuiltInTheme | MetaTheme
-
-// A custom color token set
-export interface CustomThemeColors {
-  bgBase: string          // RGB e.g. "15 23 42"
-  bgSubtle: string
-  bgMuted: string
-  bgElevated: string
-  borderDefault: string
-  borderStrong: string
-  textPrimary: string
-  textSecondary: string
-  textMuted: string
-  brandPrimary: string
-  colorScheme: 'dark' | 'light'
+```
+// AssetConfig parameterizes a specific image asset type.
+type AssetConfig struct {
+    FormField      string // multipart field name, e.g. "logo" or "banner"
+    URLSettingKey  string // e.g. "ui.logo_url" or "ui.banner_url"
+    TypeSettingKey string // e.g. "ui.logo_type" or "ui.banner_type"
+    FileBaseName   string // e.g. "logo" or "banner" (extension appended at runtime)
 }
 
-// A custom theme definition (user-created)
-export interface CustomTheme {
-  name: string
-  colors: CustomThemeColors
+// ImageUploadHandler handles generic image asset upload and deletion.
+// Both UploadAsset and DeleteAsset enforce requireAuthenticatedAdmin internally.
+type ImageUploadHandler struct {
+    db      *gorm.DB
+    dataDir string
+    cfg     AssetConfig
 }
 
-// Exported/imported theme bundle
-export interface ThemeExport {
-  // version is a literal type — do NOT change to number.
-  // Add version: 2 as a new union member if the schema changes.
-  version: 1
-  exportedAt: string      // ISO 8601
-  theme: ThemeId
-  customTheme?: CustomTheme
-}
+func NewImageUploadHandler(db *gorm.DB, dataDir string, cfg AssetConfig) *ImageUploadHandler
 
-// Context value shape
-export interface ThemeContextType {
-  // Current effective theme name (resolved, e.g. 'system' → 'dark'/'light')
-  theme: ThemeId
-  // Effective data-theme value applied to <html>
-  resolvedTheme: DataThemeValue
-  // Apply a theme
-  setTheme: (theme: ThemeId) => void
-  // Custom theme data (if theme === 'custom')
-  customTheme: CustomTheme | null
-  // Update the custom theme colors
-  setCustomTheme: (colors: CustomThemeColors, name?: string) => void
-  // Export current theme to JSON
-  exportTheme: () => ThemeExport
-  // Import theme from JSON
-  importTheme: (data: ThemeExport) => void
-}
+// UploadAsset handles POST for any image asset type.
+// Calls requireAuthenticatedAdmin(c) at the top — returns 401/403 and aborts if not satisfied.
+func (h *ImageUploadHandler) UploadAsset(c *gin.Context)
 
-export const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
+// DeleteAsset handles DELETE for any image asset type.
+// Calls requireAuthenticatedAdmin(c) at the top — returns 401/403 and aborts if not satisfied.
+func (h *ImageUploadHandler) DeleteAsset(c *gin.Context)
 
-export const BUILT_IN_THEMES: BuiltInTheme[] = [
-  'dark',
-  'light',
-  'high-contrast-dark',
-  'high-contrast-light',
-  'solarized',
-]
+// upsertSetting creates or updates a Setting row (moved from logo_handler.go).
+func (h *ImageUploadHandler) upsertSetting(key, value, category, settingType string) error
 
-export const BUILT_IN_THEME_LABELS: Record<BuiltInTheme, string> = {
-  'dark': 'Dark',
-  'light': 'Light',
-  'high-contrast-dark': 'High Contrast Dark',
-  'high-contrast-light': 'High Contrast Light',
-  'solarized': 'Solarized',
-}
-
-export const THEME_STORAGE_KEY = 'charon-theme'
-export const CUSTOM_THEME_STORAGE_KEY = 'charon-custom-theme'
+// acceptedMIME maps a detected MIME type to file extension (moved from logo_handler.go).
+// Returns ("", false) for disallowed types including SVG.
+func acceptedMIME(mime string) (string, bool)
 ```
 
-### 3.2 Updated `ThemeProvider`
+**File:** `backend/internal/api/handlers/logo_handler.go` (Refactored)
 
-**File: `frontend/src/context/ThemeContext.tsx` (replace entirely)**
+Becomes a thin wrapper. `LogoHandler` delegates to `ImageUploadHandler`:
 
-```typescript
-import { useEffect, useRef, useState, useCallback, type ReactNode } from 'react'
-
-import {
-  ThemeContext,
-  type ThemeId,
-  type DataThemeValue,
-  type CustomTheme,
-  type CustomThemeColors,
-  type ThemeExport,
-  THEME_STORAGE_KEY,
-  CUSTOM_THEME_STORAGE_KEY,
-} from './ThemeContextValue'
-
-// Resolves 'system' to a concrete data-theme value
-function resolveSystemTheme(): DataThemeValue {
-  if (typeof window === 'undefined') return 'dark'
-  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+```
+// LogoHandler wraps ImageUploadHandler for the logo asset.
+type LogoHandler struct {
+    inner *ImageUploadHandler
 }
 
-// Maps a ThemeId to the data-theme attribute value applied to <html>
-function resolveDataTheme(theme: ThemeId): DataThemeValue {
-  if (theme === 'system') return resolveSystemTheme()
-  if (theme === 'custom') return 'custom'
-  return theme
-}
+func NewLogoHandler(db *gorm.DB, dataDir string) *LogoHandler
 
-// Applies custom color tokens as inline CSS variables on <html>
-function applyCustomTokens(colors: CustomThemeColors) {
-  const el = document.documentElement
-  el.style.setProperty('--color-bg-base', colors.bgBase)
-  el.style.setProperty('--color-bg-subtle', colors.bgSubtle)
-  el.style.setProperty('--color-bg-muted', colors.bgMuted)
-  el.style.setProperty('--color-bg-elevated', colors.bgElevated)
-  el.style.setProperty('--color-border-default', colors.borderDefault)
-  el.style.setProperty('--color-border-strong', colors.borderStrong)
-  el.style.setProperty('--color-text-primary', colors.textPrimary)
-  el.style.setProperty('--color-text-secondary', colors.textSecondary)
-  el.style.setProperty('--color-text-muted', colors.textMuted)
-  el.style.setProperty('--color-brand-500', colors.brandPrimary)
-  el.style.setProperty('color-scheme', colors.colorScheme)
-}
-
-function clearCustomTokens() {
-  const el = document.documentElement
-  const props = [
-    '--color-bg-base', '--color-bg-subtle', '--color-bg-muted', '--color-bg-elevated',
-    '--color-border-default', '--color-border-strong', '--color-text-primary',
-    '--color-text-secondary', '--color-text-muted', '--color-brand-500', 'color-scheme',
-  ]
-  props.forEach(p => el.style.removeProperty(p))
-}
-
-export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<ThemeId>(() => {
-    try {
-      return (localStorage.getItem(THEME_STORAGE_KEY) as ThemeId) || 'dark'
-    } catch {
-      return 'dark'
-    }
-  })
-
-  const [customTheme, setCustomThemeState] = useState<CustomTheme | null>(() => {
-    try {
-      const raw = localStorage.getItem(CUSTOM_THEME_STORAGE_KEY)
-      return raw ? (JSON.parse(raw) as CustomTheme) : null
-    } catch {
-      return null
-    }
-  })
-
-  // isFirstRender: on mount the inline script in index.html already set data-theme.
-  // Skip the initial DOM write to avoid a redundant attribute mutation.
-  const isFirstRender = useRef(true)
-
-  useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false
-      return
-    }
-    const resolved = resolveDataTheme(theme)
-    document.documentElement.setAttribute('data-theme', resolved)
-
-    if (resolved === 'custom' && customTheme) {
-      applyCustomTokens(customTheme.colors)
-    } else {
-      clearCustomTokens()
-    }
-
-    try {
-      localStorage.setItem(THEME_STORAGE_KEY, theme)
-    } catch {
-      // localStorage unavailable (private browsing) — silently ignore
-    }
-  }, [theme, customTheme])
-
-  // Listen for system preference changes when in 'system' mode
-  useEffect(() => {
-    if (theme !== 'system') return
-    const mq = window.matchMedia('(prefers-color-scheme: light)')
-    const handler = () => {
-      document.documentElement.setAttribute('data-theme', resolveSystemTheme())
-    }
-    mq.addEventListener('change', handler)
-    return () => mq.removeEventListener('change', handler)
-  }, [theme])
-
-  const setTheme = useCallback((newTheme: ThemeId) => {
-    setThemeState(newTheme)
-  }, [])
-
-  const setCustomTheme = useCallback((colors: CustomThemeColors, name = 'Custom') => {
-    const ct: CustomTheme = { name, colors }
-    setCustomThemeState(ct)
-    try {
-      localStorage.setItem(CUSTOM_THEME_STORAGE_KEY, JSON.stringify(ct))
-    } catch {
-      // silently ignore
-    }
-    setThemeState('custom')
-  }, [])
-
-  const exportTheme = useCallback((): ThemeExport => ({
-    version: 1,
-    exportedAt: new Date().toISOString(),
-    theme,
-    customTheme: theme === 'custom' && customTheme ? customTheme : undefined,
-  }), [theme, customTheme])
-
-  const importTheme = useCallback((data: ThemeExport) => {
-    if (data.customTheme) {
-      setCustomThemeState(data.customTheme)
-      try {
-        localStorage.setItem(CUSTOM_THEME_STORAGE_KEY, JSON.stringify(data.customTheme))
-      } catch {
-        // silently ignore
-      }
-    }
-    setThemeState(data.theme)
-  }, [])
-
-  const resolvedTheme = resolveDataTheme(theme)
-
-  return (
-    <ThemeContext.Provider value={{
-      theme,
-      resolvedTheme,
-      setTheme,
-      customTheme,
-      setCustomTheme,
-      exportTheme,
-      importTheme,
-    }}>
-      {children}
-    </ThemeContext.Provider>
-  )
-}
+func (h *LogoHandler) UploadLogo(c *gin.Context)  // delegates to h.inner.UploadAsset
+func (h *LogoHandler) DeleteLogo(c *gin.Context)  // delegates to h.inner.DeleteAsset
 ```
 
-### 3.3 Updated `useTheme` Hook
+Public API and method signatures are unchanged. All existing tests in `logo_handler_test.go` remain valid with zero changes to the test file.
 
-**File: `frontend/src/hooks/useTheme.ts` (replace entirely)**
+**File:** `backend/internal/api/handlers/banner_handler.go` (New)
 
-```typescript
-import { useContext } from 'react'
-
-import { ThemeContext, type ThemeContextType } from '../context/ThemeContextValue'
-
-export function useTheme(): ThemeContextType {
-  const context = useContext(ThemeContext)
-  if (context === undefined) {
-    throw new Error('useTheme must be used within a ThemeProvider')
-  }
-  return context
+```
+// BannerHandler wraps ImageUploadHandler for the banner asset.
+type BannerHandler struct {
+    inner *ImageUploadHandler
 }
+
+func NewBannerHandler(db *gorm.DB, dataDir string) *BannerHandler
+
+func (h *BannerHandler) UploadBanner(c *gin.Context)  // delegates to h.inner.UploadAsset
+func (h *BannerHandler) DeleteBanner(c *gin.Context)  // delegates to h.inner.DeleteAsset
 ```
 
-### 3.4 Updated `index.html` — Inline Script and `data-theme`
+The `AssetConfig` for `BannerHandler`:
+- `FormField:      "banner"`
+- `URLSettingKey:  "ui.banner_url"`
+- `TypeSettingKey: "ui.banner_type"`
+- `FileBaseName:   "banner"`
 
-**File: `frontend/index.html` (full replacement)**
+#### 3.1.2 Backend — Route Registration
 
-```html
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/favicon.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Charon</title>
-    <!-- Vite injects <link rel="stylesheet"> above this script at build time.
-         The script must remain LAST in <head> so CSS is declared before it runs. -->
-    <script>!function(){var k='charon-theme',c='charon-custom-theme';try{var t=localStorage.getItem(k)||localStorage.getItem('theme')||'dark';var r=t==='system'?(window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'):t==='custom'?'custom':t;document.documentElement.setAttribute('data-theme',r);if(r==='custom'){try{var ct=JSON.parse(localStorage.getItem(c)||'null');if(ct&&ct.colors){var s=document.documentElement.style;s.setProperty('--color-bg-base',ct.colors.bgBase);s.setProperty('--color-bg-subtle',ct.colors.bgSubtle);s.setProperty('--color-bg-muted',ct.colors.bgMuted);s.setProperty('--color-bg-elevated',ct.colors.bgElevated);s.setProperty('--color-border-default',ct.colors.borderDefault);s.setProperty('--color-border-strong',ct.colors.borderStrong);s.setProperty('--color-text-primary',ct.colors.textPrimary);s.setProperty('--color-text-secondary',ct.colors.textSecondary);s.setProperty('--color-text-muted',ct.colors.textMuted);s.setProperty('--color-brand-500',ct.colors.brandPrimary);s.setProperty('color-scheme',ct.colors.colorScheme)}}catch(e2){}}}catch(e){document.documentElement.setAttribute('data-theme','dark')}}();</script>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
-```
+**File:** `backend/internal/api/routes/routes.go`
 
-Key changes from current:
-- `<script>` moved from line 5 to last element in `<head>`.
-- Uses `setAttribute('data-theme', ...)` instead of `classList.add(...)`.
-- Storage key is `'charon-theme'`. **Fallback migration:** The script reads `localStorage.getItem('charon-theme') || localStorage.getItem('theme') || 'dark'`. This preserves the theme preference of users upgrading from the old system (whose preference is stored under `'theme'`). This is the canonical approach — see AC-12.
-- Handles `'system'`, `'custom'`, and all built-in theme names.
-- Custom theme colors applied inline at startup (zero FOUC even for custom themes).
-
-### 3.5 Updated CSS in `index.css`
-
-**File: `frontend/src/index.css`**
-
-The existing `:root` block becomes the base (dark defaults). The `.light` class block is replaced by `[data-theme="light"]`. New blocks are added for each theme and for `[data-theme="custom"]`.
-
-**Structure:**
-
-```css
-/* ========================================
- * BASE TOKENS (dark defaults — applied to all themes as fallback)
- * ======================================== */
-:root {
-  /* All existing --color-brand-*, typography, spacing, effects tokens remain */
-  /* Semantic surface tokens default to dark values (existing values) */
-  --color-bg-base: 15 23 42;
-  /* ... all existing :root values ... */
-  color-scheme: dark;
-}
-
-/* ========================================
- * BUILT-IN THEMES
- * ======================================== */
-[data-theme="dark"] {
-  /* Same as :root defaults — explicit for clarity */
-  --color-bg-base: 15 23 42;
-  --color-bg-subtle: 30 41 59;
-  --color-bg-muted: 51 65 85;
-  --color-bg-elevated: 30 41 59;
-  --color-bg-overlay: 2 6 23;
-  --color-border-default: 51 65 85;
-  --color-border-muted: 30 41 59;
-  --color-border-strong: 71 85 105;
-  --color-text-primary: 248 250 252;
-  --color-text-secondary: 203 213 225;
-  --color-text-muted: 148 163 184;
-  --color-text-inverted: 15 23 42;
-  --color-success-muted: 20 83 45;
-  --color-warning-muted: 113 63 18;
-  --color-error-muted: 127 29 29;
-  --color-info-muted: 30 58 138;
-  color-scheme: dark;
-  color: rgb(var(--color-text-primary));
-  background-color: rgb(var(--color-bg-base));
-}
-
-[data-theme="light"] {
-  --color-bg-base: 248 250 252;
-  --color-bg-subtle: 241 245 249;
-  --color-bg-muted: 226 232 240;
-  --color-bg-elevated: 255 255 255;
-  --color-bg-overlay: 15 23 42;
-  --color-border-default: 226 232 240;
-  --color-border-muted: 241 245 249;
-  --color-border-strong: 203 213 225;
-  --color-text-primary: 15 23 42;
-  --color-text-secondary: 71 85 105;
-  --color-text-muted: 148 163 184;
-  --color-text-inverted: 255 255 255;
-  --color-success-muted: 220 252 231;
-  --color-warning-muted: 254 249 195;
-  --color-error-muted: 254 226 226;
-  --color-info-muted: 219 234 254;
-  color-scheme: light;
-  color: rgb(var(--color-text-primary));
-  background-color: rgb(var(--color-bg-base));
-}
-
-[data-theme="high-contrast-dark"] {
-  --color-bg-base: 0 0 0;
-  --color-bg-subtle: 17 17 17;
-  --color-bg-muted: 34 34 34;
-  --color-bg-elevated: 25 25 25;
-  --color-bg-overlay: 0 0 0;
-  --color-border-default: 85 85 85;
-  --color-border-muted: 51 51 51;
-  --color-border-strong: 128 128 128;
-  --color-text-primary: 255 255 255;
-  --color-text-secondary: 220 220 220;
-  --color-text-muted: 170 170 170;
-  --color-text-inverted: 0 0 0;
-  --color-brand-500: 0 217 255;
-  --color-success-muted: 0 40 0;
-  --color-warning-muted: 50 40 0;
-  --color-error-muted: 50 0 0;
-  --color-info-muted: 0 30 60;
-  color-scheme: dark;
-  color: rgb(var(--color-text-primary));
-  background-color: rgb(var(--color-bg-base));
-}
-
-[data-theme="high-contrast-light"] {
-  --color-bg-base: 255 255 255;
-  --color-bg-subtle: 245 245 245;
-  --color-bg-muted: 230 230 230;
-  --color-bg-elevated: 255 255 255;
-  --color-bg-overlay: 0 0 0;
-  --color-border-default: 170 170 170;
-  --color-border-muted: 200 200 200;
-  --color-border-strong: 128 128 128;
-  --color-text-primary: 0 0 0;
-  --color-text-secondary: 50 50 50;
-  --color-text-muted: 100 100 100;
-  --color-text-inverted: 255 255 255;
-  --color-brand-500: 0 86 179;
-  --color-success-muted: 200 240 200;
-  --color-warning-muted: 255 240 180;
-  --color-error-muted: 255 200 200;
-  --color-info-muted: 200 220 255;
-  color-scheme: light;
-  color: rgb(var(--color-text-primary));
-  background-color: rgb(var(--color-bg-base));
-}
-
-[data-theme="solarized"] {
-  /* Solarized intentionally uses tight contrast; these values are based on the Solarized Dark palette */
-  --color-bg-base: 0 43 54;
-  --color-bg-subtle: 7 54 66;
-  --color-bg-muted: 14 63 75;   /* distinct from bg-base; slightly lighter surface */
-  --color-bg-elevated: 7 54 66;
-  --color-bg-overlay: 0 43 54;
-  --color-border-default: 42 75 86;  /* distinct from bg-subtle to ensure visible separation */
-  --color-border-muted: 0 43 54;
-  --color-border-strong: 88 110 117;
-  --color-text-primary: 131 148 150;
-  --color-text-secondary: 101 123 131;
-  --color-text-muted: 88 110 117;
-  --color-text-inverted: 0 43 54;
-  --color-brand-500: 38 139 210;
-  --color-success: 133 153 0;
-  --color-warning: 181 137 0;
-  --color-error: 220 50 47;
-  --color-success-muted: 10 30 0;
-  --color-warning-muted: 40 30 0;
-  --color-error-muted: 50 5 5;
-  --color-info-muted: 0 30 50;
-  color-scheme: dark;
-  color: rgb(var(--color-text-primary));
-  background-color: rgb(var(--color-bg-base));
-}
-
-/* [data-theme="custom"] uses inline styles set by ThemeProvider.
-   The base :root values act as fallback. No static block needed. */
-
-/* Remove the .light class block (replaced by [data-theme="light"]) */
-/* Remove the .dark scrollbar rule (replaced by [data-theme="dark"]) */
-```
-
-**Scrollbar CSS migration:** Replace `.dark .overflow-y-auto::-webkit-scrollbar-thumb` with `[data-theme="dark"] .overflow-y-auto::-webkit-scrollbar-thumb` and similarly for `scrollbar-color`.
-
-### 3.6 Tailwind Config Changes
-
-**File: `frontend/tailwind.config.js`**
-
-Change `darkMode: 'class'` to:
-
-```javascript
-darkMode: ['selector', '[data-theme="dark"]'],
-```
-
-This tells Tailwind that `dark:` prefixed utilities apply when the `[data-theme="dark"]` selector is present on an ancestor. The `high-contrast-dark` and `solarized` themes are both dark-scheme and will also benefit from this. For now, `dark:` utility classes inside Layout.tsx and other components will still work correctly for the two dark themes; high-contrast and solarized themes will need their own CSS variable overrides (which are provided in the `index.css` blocks above) rather than `dark:` Tailwind utilities.
-
-**Note on Layout.tsx hardcoded dark classes:** `Layout.tsx` contains many hardcoded Tailwind classes like `dark:bg-dark-sidebar`, `dark:border-gray-800`, `dark:text-gray-400`, etc. These must be migrated as part of Phase 1 (Foundation/CSS) to use semantic CSS custom property classes (`bg-surface-elevated`, `border-border`, `text-content-secondary`) so all themes work correctly. This is a significant but mechanical refactor.
-
-### 3.7 New Components
-
-#### 3.7.1 `ThemeGallery`
-
-**File:** `frontend/src/components/theme/ThemeGallery.tsx`
-
-**Props:**
-```typescript
-interface ThemeGalleryProps {
-  value: ThemeId        // currently selected
-  previewTheme: ThemeId | null  // theme being hovered/previewed
-  onChange: (theme: ThemeId) => void
-  onPreview: (theme: ThemeId | null) => void
-}
-```
-
-Renders a grid of `ThemeCard` components. Each card shows a mini preview of the theme's color palette and a label. A selected card shows a checkmark badge.
-
-#### 3.7.2 `ThemeCard`
-
-**File:** `frontend/src/components/theme/ThemeCard.tsx`
-
-**Props:**
-```typescript
-interface ThemeCardProps {
-  themeId: ThemeId
-  label: string
-  selected: boolean
-  onSelect: () => void
-  onPreview: () => void
-  onPreviewEnd: () => void
-}
-```
-
-A card with:
-- Mini color swatch row (bg-base, brand color, text color)
-- Theme name label
-- Selected indicator
-- `onMouseEnter` / `onFocus` → `onPreview()`
-- `onMouseLeave` / `onBlur` → `onPreviewEnd()`
-- `onClick` → `onSelect()`
-
-**Accessibility:** Use `role="radio"` on each `ThemeCard` and `role="radiogroup"` on the `ThemeGallery` container. Set `aria-checked={selected}` on each card. This matches WCAG 2.1 SC 4.1.2 for custom radio-select controls. The selected card must have `aria-checked="true"`; all others must have `aria-checked="false"`.
-
-#### 3.7.3 `CustomColorPicker`
-
-**File:** `frontend/src/components/theme/CustomColorPicker.tsx`
-
-**Props:**
-```typescript
-interface CustomColorPickerProps {
-  value: CustomThemeColors
-  onChange: (colors: CustomThemeColors) => void
-}
-```
-
-Renders a form with one `<input type="color">` per token. Converts hex color picker output to RGB space-separated format for the custom property system.
-
-Helper utilities:
-- `hexToRgb(hex: string): string` — `"#3b82f6"` → `"59 130 246"`
-- `rgbToHex(rgb: string): string` — `"59 130 246"` → `"#3b82f6"`
-
-Fields exposed in the picker:
-- Background Base / Subtle / Muted / Elevated
-- Border Default / Strong
-- Text Primary / Secondary / Muted
-- Brand Primary (brand-500)
-- Color Scheme toggle (dark/light)
-
-**Default value:** When no existing custom theme exists (`customTheme === null` in the context), the parent `AppearanceSettings` must initialize `CustomColorPicker`'s `value` prop with `colorScheme: 'dark'` as the default, plus the dark theme's color values as sensible starting points. `CustomColorPicker` itself is a controlled component — it does not own its initial state.
-
-#### 3.7.4 `ThemeImportExport`
-
-**File:** `frontend/src/components/theme/ThemeImportExport.tsx`
-
-Provides two buttons:
-1. **Export:** Calls `useTheme().exportTheme()`, serializes to JSON, triggers file download as `charon-theme.json`.
-2. **Import:** File input (`<input type="file" accept=".json">`), reads file, parses, validates schema, calls `useTheme().importTheme(data)` on success. Shows toast on error.
-
-**Validation function:**
-```typescript
-// Valid ThemeId values — kept in sync with ThemeContextValue.ts
-const VALID_THEME_IDS = ['dark', 'light', 'high-contrast-dark', 'high-contrast-light', 'solarized', 'system', 'custom'] as const
-
-// RGB color value pattern: three integers 0–255 separated by spaces
-const RGB_PATTERN = /^\d{1,3} \d{1,3} \d{1,3}$/
-
-function isValidThemeExport(data: unknown): data is ThemeExport {
-  if (typeof data !== 'object' || data === null) return false
-  const d = data as Record<string, unknown>
-
-  // version must be the literal 1
-  if (d.version !== 1) return false
-  if (typeof d.exportedAt !== 'string') return false
-  // theme must be a known ThemeId — prevents unknown theme injection
-  if (!VALID_THEME_IDS.includes(d.theme as typeof VALID_THEME_IDS[number])) return false
-
-  // If a custom theme is present, validate all color fields to prevent CSS injection
-  if (d.customTheme !== undefined && d.customTheme !== null) {
-    const ct = d.customTheme as Record<string, unknown>
-    if (typeof ct !== 'object') return false
-    if (ct.colors !== undefined) {
-      const colors = ct.colors as Record<string, unknown>
-      const colorFields = [
-        'bgBase', 'bgSubtle', 'bgMuted', 'bgElevated',
-        'borderDefault', 'borderStrong',
-        'textPrimary', 'textSecondary', 'textMuted',
-        'brandPrimary',
-      ]
-      for (const field of colorFields) {
-        if (typeof colors[field] !== 'string') return false
-        if (!RGB_PATTERN.test(colors[field] as string)) return false
-      }
-      if (colors.colorScheme !== 'dark' && colors.colorScheme !== 'light') return false
-    }
-  }
-
-  return true
-}
-```
-
-#### 3.7.5 `LogoCustomizer`
-
-**File:** `frontend/src/components/theme/LogoCustomizer.tsx`
-
-**Props:**
-```typescript
-interface LogoCustomizerProps {
-  currentLogoUrl: string | null
-  onSave: (value: string, type: 'url' | 'upload') => void
-  isSaving: boolean
-}
-```
-
-**Admin access control:** `LogoCustomizer` must check the current user's role via `useAuth()`. If the user is not an admin, render a read-only notice — "Logo customization requires admin access" — and hide both the upload form and URL form fields entirely. This prevents non-admin users from encountering an unexplained HTTP 403 when the backend route rejects their request.
-
-Two tabs (admin only):
-1. **Upload:** `<input type="file" accept="image/png,image/jpeg,image/webp">`, max size 2 MB, triggers `POST /api/v1/settings/logo` multipart upload. SVG is not accepted for upload — too many XSS vectors to sanitize safely server-side. The hint text must read: "PNG, JPG or WebP — max 2 MB".
-2. **URL:** Text input for an external URL (any format including SVG — user's responsibility), triggers `POST /settings` with key `ui.logo_url`.
-
-Shows current logo preview. "Reset to Default" button clears the setting.
-
-#### 3.7.6 `ThemePreviewOverlay`
-
-**File:** `frontend/src/components/theme/ThemePreviewOverlay.tsx`
-
-When `previewTheme` is non-null, this component temporarily applies the preview theme's `data-theme` attribute to `<html>` without committing to state. Uses `useEffect` to set and restore the attribute.
-
-```typescript
-interface ThemePreviewOverlayProps {
-  previewTheme: ThemeId | null
-  resolvedCurrentTheme: DataThemeValue
-}
-```
-
-On `previewTheme` change:
-- Not null: `document.documentElement.setAttribute('data-theme', resolveDataTheme(previewTheme))`
-- Null: `document.documentElement.setAttribute('data-theme', resolvedCurrentTheme)` (restore)
-
-**Race condition prevention:** `AppearanceSettings` must call `setPreviewTheme(null)` immediately before calling `setTheme(selectedTheme)` in the `onChange` handler of `ThemeGallery`. This ensures the preview restoration effect runs synchronously before the `ThemeProvider`'s effect picks up the new committed theme, preventing the two effects from racing to write `data-theme`.
-
-```typescript
-// In AppearanceSettings onChange handler:
-const handleThemeChange = (newTheme: ThemeId) => {
-  setPreviewTheme(null)          // clear preview first
-  setTheme(newTheme)             // then commit
-}
-```
-
-#### 3.7.7 Updated `ThemeToggle`
-
-**File:** `frontend/src/components/ThemeToggle.tsx` (replace existing binary toggle)
-
-Becomes a dropdown or a button that opens the Appearance settings panel directly:
-
-```typescript
-export function ThemeToggle() {
-  const { resolvedTheme } = useTheme()
-  const navigate = useNavigate()
-  return (
-    <Button
-      variant="ghost"
-      size="sm"
-      onClick={() => navigate('/settings/appearance')}
-      title="Theme settings"
-      aria-label={`Current theme: ${resolvedTheme}. Open appearance settings.`}
-    >
-      {/* Icon that reflects the current resolved theme */}
-      {resolvedTheme === 'light' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-    </Button>
-  )
-}
-```
-
-### 3.8 New Page: `AppearanceSettings`
-
-**File:** `frontend/src/pages/AppearanceSettings.tsx`
-
-Mounted at `/settings/appearance`. Added to the `Settings.tsx` tab navigation alongside System, Notifications, Email, Users.
-
-Sections:
-1. **Theme Gallery** — `<ThemeGallery>` with `<ThemePreviewOverlay>`
-2. **Custom Theme** (shown when theme = 'custom') — `<CustomColorPicker>`
-3. **Import / Export** — `<ThemeImportExport>`
-4. **Logo Customization** — `<LogoCustomizer>`
-5. **Follow System** — Toggle within `ThemeGallery` (selecting 'system' mode)
-
-State management:
-- `previewTheme: ThemeId | null` — local `useState`, drives `ThemePreviewOverlay`
-- Reads and writes via `useTheme()`
-
-### 3.9 Backend API for Logo Upload
-
-**New file:** `backend/internal/api/handlers/logo_handler.go`
+Add after the existing logo route wiring (after line 349):
 
 ```go
-// UploadLogo handles POST /api/v1/settings/logo
-// Accepts multipart form with field "logo" (image/png, image/jpeg, image/webp)
-// SVG file uploads are NOT accepted — SVG is too complex to sanitize safely inline.
-// SVG logos can still be configured via the URL option (user's responsibility).
-// Validates MIME type via server-side byte sniffing, max size 2MB, sanitizes filename
-// Writes to dataRoot/uploads/logo.<ext>
-// Saves setting ui.logo_url = "/uploads/logo.<ext>", ui.logo_type = "upload"
-// Returns 200 { url: "/uploads/logo.<ext>" }
+// Banner upload/delete — admin only (enforced inside ImageUploadHandler.UploadAsset / DeleteAsset)
+bannerHandler := handlers.NewBannerHandler(db, dataRoot)
+management.POST("/settings/banner", bannerHandler.UploadBanner)
+management.DELETE("/settings/banner", bannerHandler.DeleteBanner)
 ```
 
-Security constraints:
-- **Accept only `image/png`, `image/jpeg`, `image/webp` for file uploads.** SVG uploads are explicitly disallowed — the SVG format supports too many XSS vectors (`javascript:` href links, `on*` event handler attributes, `<foreignObject>`, `<use>` with external references, `<animate>` manipulating `href`/`src`, `<?xml-stylesheet?>` processing instructions, CSS `url()` within SVG `<style>` blocks) to be safely sanitized inline. SVG logos can be set via the URL option (user assumes responsibility).
-- **Server-side MIME detection is mandatory.** Read the first 512 bytes of the uploaded file and pass them to `net/http.DetectContentType()`. Do NOT trust the multipart `Content-Type` header — it can be spoofed by the client. If the detected MIME type does not match one of the three accepted types, reject the request with HTTP 400 even if the extension appears valid.
-- Max size: 2 MB (enforced with `http.MaxBytesReader` applied before reading any bytes).
-- Filename: always normalized to `logo.<ext>` regardless of user input (`filepath.Clean` is not sufficient alone — the file is stored with a fixed name to prevent path traversal). Extension is derived from the server-detected MIME type, not from the user-supplied filename.
-- Write to `dataRoot/uploads/logo.<ext>` using `os.WriteFile` with permissions `0644`.
+Note: The admin check (`requireAuthenticatedAdmin`) is enforced inside `ImageUploadHandler.UploadAsset` and `ImageUploadHandler.DeleteAsset` (see Section 3.1.1). `BannerHandler.UploadBanner` and `BannerHandler.DeleteBanner` are pure delegation wrappers and do NOT need to duplicate that check.
 
-**New route registration in `backend/internal/api/routes/routes.go`:**
+No AutoMigrate change needed: banner URL is stored in the existing `Setting` model under `ui.banner_url`.
 
-```go
-// Authenticated admin-only routes
-authed.POST("/settings/logo", logoHandler.UploadLogo)
-authed.DELETE("/settings/logo", logoHandler.DeleteLogo)
-```
+#### 3.1.3 Backend — API Contract
 
-**New static file route in `backend/internal/server/server.go`:**
+| Method | Path | Auth | Body | Success Response |
+|--------|------|------|------|-----------------|
+| `POST` | `/api/v1/settings/banner` | admin | `multipart/form-data` field `banner` (PNG/JPG/WebP, max 2MB) | `200 { "url": "/uploads/banner.png" }` |
+| `DELETE` | `/api/v1/settings/banner` | admin | — | `200 { "message": "banner deleted" }` |
 
-```go
-// Serve uploaded logo from data directory
-if dataDir != "" {
-    router.Static("/uploads", dataDir+"/uploads")
-}
-```
+Error responses follow the same pattern as logo:
+- `400 { "error": "missing banner field" }` — field name wrong or absent
+- `400 { "error": "unsupported file type: text/xml" }` — bad MIME
+- `413 { "error": "file exceeds 2 MB limit" }` — file too large
+- `401` / `403` — auth failures
 
-**`NewRouter` signature change** — needs `dataDir string` parameter so it can serve `/uploads`. Current signature is `NewRouter(frontendDir string)`. New signature: `NewRouter(frontendDir, dataDir string)`.
+File is stored as `data/uploads/banner.<ext>`. Setting keys: `ui.banner_url` = `/uploads/banner.png`, `ui.banner_type` = `"upload"`.
 
-**`dataDir` derivation (NB-2):** In `backend/cmd/api/main.go`, pass `filepath.Dir(cfg.DatabasePath)` as the `dataDir` argument to `server.NewRouter`. Do NOT add a new `DataDir` field to the config struct — derive it from `cfg.DatabasePath` at the call site.
+#### 3.1.4 Frontend — API Client
 
-**`backend/internal/api/routes/routes.go` AutoMigrate** — no schema change needed (uses existing `Setting` model).
+**File:** `frontend/src/api/settings.ts` (extend)
 
-**Updated `frontend/src/api/settings.ts`:**
+Add after `deleteLogo`:
 
 ```typescript
-// New function
-export const uploadLogo = async (file: File): Promise<{ url: string }> => {
+/**
+ * Uploads a banner image file.
+ * Accepted types: image/png, image/jpeg, image/webp (max 2 MB).
+ * @param file - The image file to upload
+ * @returns Promise resolving to the served URL of the uploaded banner
+ */
+export const uploadBanner = async (file: File): Promise<{ url: string }> => {
   const form = new FormData()
-  form.append('logo', file)
-  const response = await client.post('/settings/logo', form, {
+  form.append('banner', file)
+  const response = await client.post('/settings/banner', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
   return response.data
 }
 
-export const deleteLogo = async (): Promise<void> => {
-  await client.delete('/settings/logo')
+/**
+ * Deletes the custom banner, restoring the default banner image.
+ */
+export const deleteBanner = async (): Promise<void> => {
+  await client.delete('/settings/banner')
 }
 ```
 
-### 3.10 Logo Source of Truth in `Layout.tsx`
+#### 3.1.5 Frontend — `BannerCustomizer.tsx` (New Component)
 
-`Layout.tsx` must read `ui.logo_url` from the settings API and use it in place of the hardcoded `/logo.png` and `/banner.png`:
+**File:** `frontend/src/components/theme/BannerCustomizer.tsx`
+
+This component is structurally identical to `LogoCustomizer.tsx` but:
+- Uses `alt="Banner preview"` on the preview image.
+- Uses `id="banner-file-input"` on the file input.
+- Props: `currentBannerUrl`, `onUpload`, `onUrlSave`, `onReset`, `isSaving`.
+- Preview renders the banner in a wide aspect-ratio container (`max-w-full h-16 object-contain`) to match the sidebar's expanded state.
+- Translation keys use `appearance.banner*` prefix (see Section 3.1.8).
+- Admin check: shows read-only notice for non-admins, same pattern as `LogoCustomizer`.
+
+**URL tab security requirements:**
+
+The URL tab input for entering a banner URL MUST enforce `https://`-only URLs:
+
+1. The input element MUST have `type="url"` and `pattern="https://.*"` attributes.
+2. A helper function `isValidBannerUrl(url: string): boolean` MUST be defined in `BannerCustomizer.tsx`:
+   ```typescript
+   function isValidBannerUrl(url: string): boolean {
+     return url.startsWith('https://')
+   }
+   ```
+3. When the user submits the URL form, client-side validation MUST call `isValidBannerUrl`. If it returns `false`, show an inline error message (e.g., `t('appearance.bannerUrlHttpsRequired')`) and do NOT call `onUrlSave`.
+4. Schemes `http://`, `javascript:`, `data:`, and bare paths are all rejected — only `https://` is accepted.
+
+**Important note on server-side URL validation:** The `saveBannerUrlMutation` in `AppearanceSettings.tsx` calls `updateSetting('ui.banner_url', url, ...)` directly. This path does NOT pass through the banner MIME/size enforcement — it is a URL stored as a setting value, not a server-side fetch. The backend settings handler does not validate `ui.*_url` key values for URL scheme. The client-side `https://` guard in `BannerCustomizer.tsx` is the minimum required security control for this PR. A complete server-side fix (validating `ui.*_url` keys in the settings handler to reject non-`https://` schemes) is a future enhancement tracked as a separate issue.
+
+**Analogous requirement for `LogoCustomizer.tsx`:** The existing `LogoCustomizer.tsx` already uses `type="url"` on its URL input, but it does NOT enforce `https://`-only. The same `https://` client-side validation MUST be added to `LogoCustomizer.tsx`:
+- Add an `isValidLogoUrl(url: string): boolean` helper (identical logic: `url.startsWith('https://')`)
+- Show an inline error if the submitted URL is not `https://`
+- The `BannerCustomizer.test.tsx` test suite (Section 4 unit tests) MUST include a test that verifies `http://` URLs are rejected with an inline error. A corresponding note about adding the same test to `LogoCustomizer` tests should be added alongside.
 
 ```typescript
-// In Layout.tsx
-const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
-const customLogoUrl = settings?.['ui.logo_url'] || null
+export interface BannerCustomizerProps {
+  currentBannerUrl: string | null
+  onUpload: (file: File) => void
+  onUrlSave: (url: string) => void
+  onReset: () => void
+  isSaving: boolean
+}
+
+export function BannerCustomizer({ currentBannerUrl, onUpload, onUrlSave, onReset, isSaving }: BannerCustomizerProps)
+```
+
+#### 3.1.6 Frontend — `Layout.tsx` Update
+
+**File:** `frontend/src/components/Layout.tsx`
+
+Current line 74: `const bannerSrc = customLogoUrl || undefined`
+
+Replace lines 72-74 with:
+
+```typescript
+const customLogoUrl = settings?.['ui.logo_url'] ?? null
+const customBannerUrl = settings?.['ui.banner_url'] ?? null
 const logoSrc = customLogoUrl || '/logo.png'
-const bannerSrc = customLogoUrl || undefined  // custom logo used for both positions if set
 ```
 
-When a custom logo URL is set, both the collapsed icon and expanded banner use it. Default behavior (no setting) remains exactly as before.
+Sidebar header conditional (lines 177-186) updated to use `customBannerUrl`:
 
-### 3.11 Settings.tsx — Add Appearance Tab
+```tsx
+{isCollapsed ? (
+  <img src={logoSrc} alt="Charon" className="h-12 w-auto" fetchPriority="high" decoding="async" />
+) : customBannerUrl ? (
+  <img src={customBannerUrl} alt="Charon" className="h-14 w-auto max-w-[200px] object-contain" fetchPriority="high" decoding="async" />
+) : (
+  <picture>
+    <source srcSet="/banner.webp" type="image/webp" />
+    <img src="/banner.png" alt="Charon" className="h-14 w-auto max-w-[200px] object-contain" fetchPriority="high" decoding="async" />
+  </picture>
+)}
+```
 
-**File: `frontend/src/pages/Settings.tsx`**
+This cleanly separates the two customization surfaces. A custom logo only affects the collapsed state; a custom banner only affects the expanded state.
+
+#### 3.1.7 Frontend — `AppearanceSettings.tsx` Update
+
+**File:** `frontend/src/pages/AppearanceSettings.tsx`
+
+Add `BannerCustomizer` section below the existing Logo Customization card. New imports and mutations:
 
 ```typescript
-// Add to navItems:
-{ path: '/settings/appearance', label: t('settings.appearance'), icon: Palette }
+import { BannerCustomizer } from '../components/theme/BannerCustomizer'
+import { deleteBanner, uploadBanner } from '../api/settings'
+
+// In component body:
+const currentBannerUrl = settings?.['ui.banner_url'] ?? null
+
+const uploadBannerMutation = useMutation({
+  mutationFn: uploadBanner,
+  onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['settings'] }) },
+})
+
+// NOTE: saveBannerUrlMutation stores the URL as a plain setting value.
+// It does NOT perform a server-side fetch of the URL, so it bypasses MIME/size
+// enforcement. Client-side https:// validation in BannerCustomizer.tsx is the
+// security boundary for this code path. Server-side url-scheme validation is a
+// future enhancement (see Section 3.1.5 security note).
+const saveBannerUrlMutation = useMutation({
+  mutationFn: async (url: string) => {
+    await updateSetting('ui.banner_url', url, 'ui', 'string')
+    await updateSetting('ui.banner_type', 'url', 'ui', 'string')
+  },
+  onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['settings'] }) },
+})
+
+const deleteBannerMutation = useMutation({
+  mutationFn: deleteBanner,
+  onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['settings'] }) },
+})
+
+const isSavingBanner =
+  uploadBannerMutation.isPending ||
+  saveBannerUrlMutation.isPending ||
+  deleteBannerMutation.isPending
 ```
 
-**File: `frontend/src/App.tsx`**
+New Card rendered immediately after the existing Logo Customization card:
 
-Add the following lazy import alongside the other page lazy imports:
-
-```typescript
-const AppearanceSettings = lazy(() => import('./pages/AppearanceSettings'))
+```tsx
+<Card>
+  <CardHeader>
+    <div className="flex items-center gap-2">
+      <ImageIcon className="h-5 w-5 text-content-secondary" />
+      <CardTitle>{t('appearance.bannerCustomization')}</CardTitle>
+    </div>
+    <CardDescription>{t('appearance.bannerCustomizationDescription')}</CardDescription>
+  </CardHeader>
+  <CardContent>
+    <BannerCustomizer
+      currentBannerUrl={currentBannerUrl}
+      onUpload={(file) => uploadBannerMutation.mutate(file)}
+      onUrlSave={(url) => saveBannerUrlMutation.mutate(url)}
+      onReset={() => deleteBannerMutation.mutate()}
+      isSaving={isSavingBanner}
+    />
+  </CardContent>
+</Card>
 ```
 
-Then add the route inside the Settings nested routes:
+#### 3.1.8 Translation Keys Required
 
-```typescript
-<Route path="appearance" element={<AppearanceSettings />} />
-```
+Add to all locale files. The correct paths are:
+- `frontend/src/locales/en/translation.json`
+- `frontend/src/locales/de/translation.json`
+- `frontend/src/locales/es/translation.json`
+- `frontend/src/locales/fr/translation.json`
+- `frontend/src/locales/zh/translation.json`
 
-### 3.12 i18n Keys Required
-
-New keys to add to `frontend/src/locales/en/translation.json` (and all other locale files):
+New banner translation keys to add:
 
 ```json
+"appearance.bannerCustomization": "Sidebar Banner",
+"appearance.bannerCustomizationDescription": "Upload a wide banner image shown in the expanded sidebar. Recommended aspect ratio 4:1 or wider.",
+"appearance.bannerPreview": "Banner Preview",
+"appearance.bannerUploadTab": "Upload File",
+"appearance.bannerUrlTab": "Enter URL",
+"appearance.bannerUrlPlaceholder": "https://example.com/banner.png",
+"appearance.bannerSaveButton": "Save Banner",
+"appearance.bannerResetButton": "Reset to Default",
+"appearance.bannerUploadHint": "PNG, JPG or WebP — max 2 MB",
+"appearance.bannerUrlHttpsRequired": "URL must start with https://"
+```
+
+---
+
+### 3.2 Feature 2: Custom User-Created Named Themes
+
+#### 3.2.1 Backend — New `CustomTheme` Model
+
+**File:** `backend/internal/models/custom_theme.go` (New)
+
+```go
+package models
+
+import (
+    "time"
+    "github.com/google/uuid"
+    "gorm.io/gorm"
+)
+
+// CustomTheme stores a user-created named color-scheme theme.
+// Colors is stored as a JSON text blob matching the frontend CustomThemeColors type.
+type CustomTheme struct {
+    ID        string    `json:"id"         gorm:"primaryKey;type:text"`
+    Name      string    `json:"name"       gorm:"type:text;not null;uniqueIndex"`
+    Colors    string    `json:"colors"     gorm:"type:text;not null"`
+    CreatedAt time.Time `json:"created_at"`
+    UpdatedAt time.Time `json:"updated_at"`
+}
+
+// BeforeCreate generates a UUID if ID is empty.
+func (ct *CustomTheme) BeforeCreate(tx *gorm.DB) error {
+    if ct.ID == "" {
+        ct.ID = uuid.New().String()
+    }
+    return nil
+}
+```
+
+**GORM notes:**
+- `Colors` is `gorm:"type:text"` — SQLite stores JSON as TEXT. The backend stores the raw JSON string produced by the frontend and returns it verbatim. The backend does not parse or validate the color token structure beyond valid JSON.
+- `Name` has `uniqueIndex` to enforce uniqueness at the DB level.
+- `ID` is `gorm:"type:text"` (UUID string) consistent with other models using string primary keys.
+
+**File:** `backend/internal/api/routes/routes.go` (AutoMigrate update)
+
+Add `&models.CustomTheme{}` to the `db.AutoMigrate(...)` call list, after `&models.RequestLog{}`.
+
+#### 3.2.2 Backend — `custom_theme_handler.go` (New)
+
+**File:** `backend/internal/api/handlers/custom_theme_handler.go`
+
+```go
+package handlers
+
+// CustomThemeHandler handles CRUD for user-created named themes.
+type CustomThemeHandler struct {
+    db *gorm.DB
+}
+
+func NewCustomThemeHandler(db *gorm.DB) *CustomThemeHandler
+
+// ListThemes handles GET /api/v1/themes
+// Returns all user-created themes ordered by created_at ASC.
+// Always returns a JSON array (never null) — empty array when no themes exist.
+func (h *CustomThemeHandler) ListThemes(c *gin.Context)
+
+// CreateTheme handles POST /api/v1/themes
+// Body: { "name": string, "colors": string (JSON) }
+// Validates: name non-empty, max 100 chars; colors is valid JSON string.
+// Returns: 201 with the created CustomTheme record.
+func (h *CustomThemeHandler) CreateTheme(c *gin.Context)
+
+// UpdateTheme handles PUT /api/v1/themes/:id
+// Body: { "name"?: string, "colors"?: string (JSON) }
+// Partial update — name and/or colors can be provided.
+// Returns: 200 with the updated record.
+func (h *CustomThemeHandler) UpdateTheme(c *gin.Context)
+
+// DeleteTheme handles DELETE /api/v1/themes/:id
+// Returns: 200 { "message": "theme deleted" }
+func (h *CustomThemeHandler) DeleteTheme(c *gin.Context)
+```
+
+**Request binding types (unexported, in handler file):**
+
+```go
+type createThemeRequest struct {
+    Name   string `json:"name"   binding:"required,max=100"`
+    Colors string `json:"colors" binding:"required"`
+}
+
+type updateThemeRequest struct {
+    Name   *string `json:"name"`
+    Colors *string `json:"colors"`
+}
+```
+
+Note: `Colors` is `string` in the request body (the frontend serializes `CustomThemeColors` to a JSON string before sending). The handler validates it is non-empty and parses as valid JSON with `json.Valid([]byte(req.Colors))`.
+
+**Error handling:**
+- `GET` — returns `[]models.CustomTheme{}` (empty slice, serializes to `[]`) on zero rows. Never returns null.
+- `POST` — `400` if `binding:"required"` fails or `colors` is not valid JSON; `409` if name already exists (detect UNIQUE constraint error); `201` on success.
+- `PUT` — `404` if `:id` not found; `400` on invalid JSON in colors; `400` if `req.Name` is non-nil but empty or exceeds 100 chars; `409` on name collision; `200` on success.
+- `DELETE` — `404` if not found; `200` otherwise.
+
+**UNIQUE constraint error detection:** GORM wraps SQLite errors. Use the dual-check pattern that combines GORM's sentinel error with a string fallback for SQLite driver compatibility. Both `CreateTheme` and `UpdateTheme` handlers MUST use this pattern:
+
+```go
+if errors.Is(err, gorm.ErrDuplicatedKey) || strings.Contains(err.Error(), "UNIQUE constraint failed") {
+    c.JSON(http.StatusConflict, gin.H{"error": "a theme with that name already exists"})
+    return
+}
+```
+
+The import list for `custom_theme_handler.go` MUST include `"errors"` and `"gorm.io/gorm"` in addition to the existing imports.
+
+**`UpdateTheme` empty-name validation:** If `req.Name` is non-nil (i.e., the client explicitly sent a `"name"` key), it must pass the same validation as `createThemeRequest`. A provided but empty `req.Name` (client sent `"name": ""`) or a name longer than 100 characters MUST return `400 { "error": "name cannot be empty" }` or `400 { "error": "name exceeds 100 characters" }` respectively. The validation logic:
+
+```go
+if req.Name != nil && (len(*req.Name) == 0 || len(*req.Name) > 100) {
+    c.JSON(http.StatusBadRequest, gin.H{"error": "name cannot be empty"})
+    return
+}
+```
+
+#### 3.2.3 Backend — Route Registration
+
+**File:** `backend/internal/api/routes/routes.go`
+
+Under the `management` group (after banner routes):
+
+```go
+// User-created named themes — available to all management users (not admin-only)
+themeHandler := handlers.NewCustomThemeHandler(db)
+management.GET("/themes", themeHandler.ListThemes)
+management.POST("/themes", themeHandler.CreateTheme)
+management.PUT("/themes/:id", themeHandler.UpdateTheme)
+management.DELETE("/themes/:id", themeHandler.DeleteTheme)
+```
+
+Note: These routes are under `management` (requires `RequireManagementAccess`) but NOT under `securityAdmin` (not admin-only). Any authenticated non-passthrough user can manage their themes.
+
+#### 3.2.4 Backend — API Contract
+
+| Method | Path | Auth | Body | Success |
+|--------|------|------|------|---------|
+| `GET` | `/api/v1/themes` | management | — | `200 [{ id, name, colors, created_at, updated_at }]` |
+| `POST` | `/api/v1/themes` | management | `{ "name": string, "colors": string }` | `201 { id, name, colors, created_at, updated_at }` |
+| `PUT` | `/api/v1/themes/:id` | management | `{ "name"?: string, "colors"?: string }` | `200 { id, name, colors, created_at, updated_at }` |
+| `DELETE` | `/api/v1/themes/:id` | management | — | `200 { "message": "theme deleted" }` |
+
+The `colors` field in all responses is the raw JSON string stored in the DB. The frontend deserializes it into `CustomThemeColors`.
+
+**Example POST request body:**
+```json
 {
-  "settings": {
-    "appearance": "Appearance"
-  },
-  "appearance": {
-    "title": "Appearance",
-    "description": "Customize the look and feel of Charon",
-    "themeGallery": "Theme Gallery",
-    "themeGalleryDescription": "Choose a built-in theme or create your own",
-    "followSystem": "Follow System",
-    "followSystemDescription": "Automatically match your OS light/dark preference",
-    "customTheme": "Custom Theme",
-    "customThemeDescription": "Fine-tune colors to create your own theme",
-    "colorPickerBgBase": "Background",
-    "colorPickerBgSubtle": "Subtle Background",
-    "colorPickerBgMuted": "Muted Background",
-    "colorPickerBgElevated": "Elevated Surface",
-    "colorPickerBorderDefault": "Border",
-    "colorPickerBorderStrong": "Strong Border",
-    "colorPickerTextPrimary": "Primary Text",
-    "colorPickerTextSecondary": "Secondary Text",
-    "colorPickerTextMuted": "Muted Text",
-    "colorPickerBrandPrimary": "Accent Color",
-    "colorPickerColorScheme": "Base Scheme",
-    "importExport": "Import / Export",
-    "importExportDescription": "Share themes between Charon instances",
-    "exportButton": "Export Theme",
-    "importButton": "Import Theme",
-    "importError": "Invalid theme file",
-    "logoCustomization": "Logo Customization",
-    "logoCustomizationDescription": "Replace the Charon logo with your own",
-    "logoUploadTab": "Upload File",
-    "logoUrlTab": "Enter URL",
-    "logoResetButton": "Reset to Default",
-    "logoSaveButton": "Save Logo",
-    "logoPreview": "Logo Preview",
-    "logoUploadHint": "PNG, JPG or WebP — max 2 MB",
-    "logoUrlPlaceholder": "https://example.com/logo.png"
+  "name": "My Dark Theme",
+  "colors": "{\"bgBase\":\"15 23 42\",\"bgSubtle\":\"30 41 59\",\"colorScheme\":\"dark\",...}"
+}
+```
+
+**Example GET response:**
+```json
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "My Dark Theme",
+    "colors": "{\"bgBase\":\"15 23 42\",...}",
+    "created_at": "2026-06-21T10:00:00Z",
+    "updated_at": "2026-06-21T10:00:00Z"
+  }
+]
+```
+
+#### 3.2.5 Frontend — Type System Extensions
+
+**File:** `frontend/src/context/ThemeContextValue.ts` (extend)
+
+**Canonical type location:** The `UserTheme` interface (defined below, with `colors: CustomThemeColors`) is the canonical definition and lives exclusively in `ThemeContextValue.ts`. Do NOT declare a second `UserTheme` type anywhere else in the codebase (including `themes.ts`). The `UserThemeDTO` type in `themes.ts` (see Section 3.2.6) is a separate wire-format type with `colors: string` and is intentionally distinct from `UserTheme`.
+
+```typescript
+// Branded string for user-created theme IDs stored in localStorage
+export type UserThemeId = `user:${string}`
+
+// Type guard — narrows string to UserThemeId
+export function isUserThemeId(id: string): id is UserThemeId {
+  return id.startsWith('user:')
+}
+
+// Full theme identifier — now includes user theme IDs
+// Replace the existing: export type ThemeId = BuiltInTheme | MetaTheme
+export type ThemeId = BuiltInTheme | MetaTheme | UserThemeId
+
+// A user-created named theme (fetched from and stored in the backend)
+export interface UserTheme {
+  id: string               // UUID
+  name: string
+  colors: CustomThemeColors
+  created_at: string       // ISO 8601
+  updated_at: string
+}
+
+// Extend ThemeContextType — add user theme fields
+// The existing fields are unchanged; add below the existing importTheme field:
+//   userThemes: UserTheme[]
+//   activeUserTheme: UserTheme | null
+//   setUserTheme: (theme: UserTheme) => void
+```
+
+**`DataThemeValue` stays unchanged** — user themes always use `data-theme="custom"` (they inject colors via CSS custom properties, exactly like the existing single-slot custom theme).
+
+**`ThemeExport` version stays at `1`** — named theme export/import is a separate future feature.
+
+`resolveDataTheme` is updated: `isUserThemeId(theme)` resolves to `'custom'`.
+
+#### 3.2.6 Frontend — API Client
+
+**File:** `frontend/src/api/themes.ts` (New)
+
+**Type discipline:** `themes.ts` imports `UserTheme` from `ThemeContextValue.ts` — it does NOT redeclare it. The `UserThemeDTO` interface defined here is a wire-format type only (`colors: string`) and is intentionally separate from the domain `UserTheme` type (`colors: CustomThemeColors`). See Section 3.2.5 for the canonical location rule.
+
+```typescript
+import client from './client'
+import type { CustomThemeColors, UserTheme } from '../context/ThemeContextValue'
+
+// DTO as returned by the backend (colors is a JSON string, NOT a parsed object)
+export interface UserThemeDTO {
+  id: string
+  name: string
+  colors: string   // Raw JSON string — must be parsed before use
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateThemePayload {
+  name: string
+  colors: CustomThemeColors
+}
+
+export interface UpdateThemePayload {
+  name?: string
+  colors?: CustomThemeColors
+}
+
+// Parse a backend DTO into a typed UserTheme.
+// NOTE: JSON.parse is intentionally not wrapped in try/catch here.
+// React Query's queryFn wrapper will catch any parse error and surface it as a
+// query error state. Silent failure (returning a default) would hide data corruption.
+export function parseUserThemeDTO(dto: UserThemeDTO): UserTheme {
+  return {
+    id: dto.id,
+    name: dto.name,
+    colors: JSON.parse(dto.colors) as CustomThemeColors,
+    created_at: dto.created_at,
+    updated_at: dto.updated_at,
+  }
+}
+
+export const listUserThemes = async (): Promise<UserThemeDTO[]> => {
+  const response = await client.get('/themes')
+  return response.data
+}
+
+export const createUserTheme = async (payload: CreateThemePayload): Promise<UserThemeDTO> => {
+  const response = await client.post('/themes', {
+    name: payload.name,
+    colors: JSON.stringify(payload.colors),
+  })
+  return response.data
+}
+
+export const updateUserTheme = async (id: string, payload: UpdateThemePayload): Promise<UserThemeDTO> => {
+  const body: Record<string, unknown> = {}
+  if (payload.name !== undefined) body.name = payload.name
+  if (payload.colors !== undefined) body.colors = JSON.stringify(payload.colors)
+  const response = await client.put(`/themes/${id}`, body)
+  return response.data
+}
+
+export const deleteUserTheme = async (id: string): Promise<void> => {
+  await client.delete(`/themes/${id}`)
+}
+```
+
+#### 3.2.7 Frontend — `useUserThemes` Hook
+
+**File:** `frontend/src/hooks/useUserThemes.ts` (New)
+
+```typescript
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import {
+  listUserThemes,
+  createUserTheme,
+  updateUserTheme,
+  deleteUserTheme,
+  parseUserThemeDTO,
+} from '../api/themes'
+import type { UserTheme, CustomThemeColors } from '../context/ThemeContextValue'
+
+export function useUserThemes() {
+  const queryClient = useQueryClient()
+
+  const { data: userThemes = [], isLoading, error } = useQuery({
+    queryKey: ['user-themes'],
+    queryFn: async (): Promise<UserTheme[]> => {
+      const dtos = await listUserThemes()
+      return dtos.map(parseUserThemeDTO)
+    },
+    staleTime: 1000 * 60 * 5,  // 5 minutes
+  })
+
+  const createMutation = useMutation({
+    mutationFn: createUserTheme,
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['user-themes'] }),
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: { name?: string; colors?: CustomThemeColors } }) =>
+      updateUserTheme(id, payload),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['user-themes'] }),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteUserTheme,
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['user-themes'] }),
+  })
+
+  return {
+    userThemes,
+    isLoading,
+    error,
+    createTheme: (name: string, colors: CustomThemeColors) =>
+      createMutation.mutateAsync({ name, colors }),
+    updateTheme: (id: string, payload: { name?: string; colors?: CustomThemeColors }) =>
+      updateMutation.mutateAsync({ id, payload }),
+    deleteTheme: (id: string) => deleteMutation.mutateAsync(id),
+    isCreating: createMutation.isPending,
+    isUpdating: updateMutation.isPending,
+    isDeleting: deleteMutation.isPending,
   }
 }
 ```
 
-### 3.13 File Inventory
+#### 3.2.8 Frontend — `ThemeContext.tsx` Update
 
-| File | Change Type | Description |
+**File:** `frontend/src/context/ThemeContext.tsx`
+
+The `ThemeProvider` is extended to incorporate user themes from the backend.
+
+**Key changes:**
+
+1. `ThemeProvider` calls `useUserThemes()` internally. Since `ThemeProvider` lives inside `QueryClientProvider` (confirmed by `main.tsx` structure), this is valid.
+
+2. `resolveDataTheme` updated: any `UserThemeId` resolves to `'custom'`.
+
+3. New `setUserTheme(theme: UserTheme)` function:
+   ```typescript
+   const setUserTheme = useCallback((theme: UserTheme) => {
+     const id: UserThemeId = `user:${theme.id}`
+     setThemeState(id)
+     applyCustomTokens(theme.colors)
+     document.documentElement.setAttribute('data-theme', 'custom')
+     try {
+       localStorage.setItem(THEME_STORAGE_KEY, id)
+     } catch { /* silently ignore */ }
+   }, [])
+   ```
+
+4. `activeUserTheme` computed value:
+   ```typescript
+   const activeUserTheme: UserTheme | null = isUserThemeId(theme)
+     ? userThemes.find(t => `user:${t.id}` === theme) ?? null
+     : null
+   ```
+
+5. Extended `useEffect` that handles `UserThemeId` in the theme change effect. **Critical:** the fallback logic MUST guard on `isLoading` from `useUserThemes()` to avoid a race condition where the fallback fires before the query has resolved, permanently clobbering `localStorage` with `'dark'`. Add `isLoading` to the `useEffect` dependency array.
+
+   ```typescript
+   // Only run fallback logic after the query has settled (isLoading = false)
+   if (isUserThemeId(theme as string)) {
+     if (isLoading) return  // Wait for query to settle before applying fallback
+     const ut = userThemes.find(t => `user:${t.id}` === theme)
+     if (ut) {
+       document.documentElement.setAttribute('data-theme', 'custom')
+       applyCustomTokens(ut.colors)
+     } else {
+       // Theme was deleted or DB unavailable — fall back to dark
+       document.documentElement.setAttribute('data-theme', 'dark')
+       clearCustomTokens()
+       setThemeState('dark')
+       try { localStorage.setItem(THEME_STORAGE_KEY, 'dark') } catch { /* ignore */ }
+     }
+     return
+   }
+   ```
+
+   Behavior on initial load with a `user:*` theme: the page renders dark (set by the inline script fallback in `index.html`), stays dark while the query loads (`isLoading === true` → early return), then correctly applies the user theme colors after the query resolves — all without permanently clobbering `localStorage` during the loading phase.
+
+6. Context value extended with `userThemes`, `activeUserTheme`, `setUserTheme`.
+
+7. **Backward compatibility**: the existing `setCustomTheme(colors, name)` is unchanged. Users on `theme === 'custom'` (without `user:` prefix) continue to work exactly as before. The `customTheme` state and `CUSTOM_THEME_STORAGE_KEY` are untouched.
+
+#### 3.2.9 Frontend — `index.html` Inline Script Update
+
+**File:** `frontend/index.html`
+
+The existing inline FOUC-fix script must handle `user:*` theme IDs by falling back to `dark`. The updated script MUST preserve the existing legacy `'theme'` key fallback chain — this is the key-reading logic and is NOT changed:
+
+```javascript
+var k = 'charon-theme';
+var t = localStorage.getItem(k) || localStorage.getItem('theme') || 'dark';
+```
+
+The `user:*` branch is added ONLY to the theme resolution logic (`var r = ...`), NOT to the key-reading logic. The complete updated resolution block:
+
+```javascript
+var r;
+if (t === 'system') {
+  r = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+} else if (t === 'custom') {
+  r = 'custom';
+} else if (t.indexOf('user:') === 0) {
+  // Cannot fetch user theme colors at paint time — fall back to dark.
+  // React will apply the correct colors after hydration.
+  r = 'dark';
+} else {
+  r = t; // built-in theme: 'dark', 'light', 'solarized', etc.
+}
+```
+
+**Legacy key note:** If the legacy `'theme'` key (the fallback in `localStorage.getItem('theme')`) happens to contain a `user:*` value (an edge case that is near-impossible in practice but theoretically possible if a user manually set it), the new `user:*` branch correctly falls back to `'dark'` — which is the desired behavior.
+
+The custom token application block (when `r === 'custom'`) is only reached when the stored theme is exactly `'custom'`, not for `user:*` IDs (since those now resolve to `'dark'` in the script). The minified version of the complete script replaces the existing inline script in `<head>`.
+
+For `user:*` themes, the page initially renders in dark mode. React corrects this within one render cycle after `useUserThemes` query resolves. This is an acceptable transient state (styled with dark mode, not unstyled).
+
+#### 3.2.10 Frontend — `UserThemeManager.tsx` (New Component)
+
+**File:** `frontend/src/components/theme/UserThemeManager.tsx`
+
+```typescript
+export interface UserThemeManagerProps {
+  activeThemeId: ThemeId
+  onActivate: (theme: UserTheme) => void
+}
+
+export function UserThemeManager({ activeThemeId, onActivate }: UserThemeManagerProps)
+```
+
+**UI layout description:**
+
+The component renders:
+1. A header row with the section label and a "+ Create New Theme" button.
+2. A grid of user theme cards (same grid class as `ThemeGallery`: `grid grid-cols-2 gap-3 sm:grid-cols-3`).
+3. An empty state message when no themes exist: `t('appearance.noUserThemes')`.
+4. A "Create New Theme" dialog/modal (controlled by `createDialogOpen` state).
+5. An "Edit Theme" dialog/modal (controlled by `editingThemeId` state).
+6. A delete confirmation (controlled by `confirmDeleteId` state).
+
+Each user theme card shows:
+- Theme name (truncated with `truncate` class if long)
+- A color swatch bar: 5 `<span>` elements with inline `background: rgb(${color})` for `bgBase`, `bgSubtle`, `brandPrimary`, `textPrimary`, `borderDefault`
+- An "Activate" button (or active checkmark if `activeThemeId === 'user:' + theme.id`)
+- An "Edit" icon button
+- A "Delete" icon button
+
+The "Create New Theme" and "Edit Theme" dialogs contain:
+- An `<input type="text">` for the theme name (labeled `t('appearance.themeNameLabel')`)
+- A `<CustomColorPicker>` component for color selection
+- Pre-filled with `DARK_THEME_DEFAULTS` for new themes; pre-filled with existing colors for edit
+
+The component uses `useUserThemes()` hook internally for all mutations.
+
+**Accessibility:**
+- Dialog uses `role="dialog"` with `aria-modal="true"` and `aria-labelledby`.
+- Delete confirm uses a `role="alertdialog"`.
+- All interactive elements have descriptive `aria-label` attributes.
+
+#### 3.2.11 Frontend — `AppearanceSettings.tsx` Update
+
+**File:** `frontend/src/pages/AppearanceSettings.tsx`
+
+Additions:
+- Import `UserThemeManager` from `'../components/theme/UserThemeManager'`
+- Destructure `setUserTheme` from `useTheme()`
+- Add a new "Your Themes" Card section between the Theme Gallery card and the Custom Theme (color picker) card
+
+```tsx
+{/* Your Themes Section */}
+<Card>
+  <CardHeader>
+    <div className="flex items-center gap-2">
+      <Palette className="h-5 w-5 text-content-secondary" />
+      <CardTitle>{t('appearance.userThemes')}</CardTitle>
+    </div>
+    <CardDescription>{t('appearance.userThemesDescription')}</CardDescription>
+  </CardHeader>
+  <CardContent>
+    <UserThemeManager
+      activeThemeId={theme}
+      onActivate={(userTheme) => {
+        setPreviewTheme(null)
+        setUserTheme(userTheme)
+      }}
+    />
+  </CardContent>
+</Card>
+```
+
+The existing "Custom Theme" card (single-slot color picker) is already conditionally rendered only when `theme === 'custom'`. User themes use `theme === 'user:<uuid>'`, so the old picker card is hidden when a user theme is active — no change needed to that condition.
+
+#### 3.2.12 Translation Keys Required
+
+```json
+"appearance.userThemes": "Your Themes",
+"appearance.userThemesDescription": "Create and save named color themes that persist across devices.",
+"appearance.createNewTheme": "Create New Theme",
+"appearance.saveTheme": "Save Theme",
+"appearance.editTheme": "Edit Theme",
+"appearance.deleteTheme": "Delete Theme",
+"appearance.confirmDeleteTheme": "Delete this theme? This cannot be undone.",
+"appearance.themeNameLabel": "Theme Name",
+"appearance.themeNamePlaceholder": "e.g. My Dark Theme",
+"appearance.noUserThemes": "No saved themes yet. Create one to get started.",
+"appearance.activateTheme": "Activate"
+```
+
+#### 3.2.13 localStorage / Persistence Contract
+
+| Scenario | `localStorage['charon-theme']` | Behavior |
 |---|---|---|
-| `frontend/index.html` | Modify | Move `<script>` to last in `<head>`; switch to `data-theme` attribute and `charon-theme` key |
-| `frontend/src/context/ThemeContextValue.ts` | Replace | Expanded types: `ThemeId`, `CustomTheme`, `ThemeExport`, context shape |
-| `frontend/src/context/ThemeContext.tsx` | Replace | Full rewrite: `useEffect` + `useRef` skip, system mode, custom tokens |
-| `frontend/src/context/__tests__/ThemeContext.test.tsx` | New | Unit tests for `ThemeProvider` |
-| `frontend/src/hooks/useTheme.ts` | Modify | Return full `ThemeContextType` |
-| `frontend/src/hooks/__tests__/useTheme.test.tsx` | Extend | Happy-path and new API tests |
-| `frontend/src/index.css` | Modify | Replace `.light` class with `[data-theme]` selectors; add 5 theme blocks |
-| `frontend/tailwind.config.js` | Modify | `darkMode` changed to selector mode |
-| `frontend/src/components/Layout.tsx` | Modify | Migrate dark: Tailwind classes to semantic; read logo from settings |
-| `frontend/src/components/ThemeToggle.tsx` | Replace | Navigate to `/settings/appearance`; icon reflects resolved theme |
-| `frontend/src/components/theme/ThemeGallery.tsx` | New | Theme grid component |
-| `frontend/src/components/theme/ThemeCard.tsx` | New | Individual theme preview card |
-| `frontend/src/components/theme/CustomColorPicker.tsx` | New | Color input form |
-| `frontend/src/components/theme/ThemeImportExport.tsx` | New | Export/import buttons |
-| `frontend/src/components/theme/LogoCustomizer.tsx` | New | Logo upload/URL component |
-| `frontend/src/components/theme/ThemePreviewOverlay.tsx` | New | Transient preview controller |
-| `frontend/src/components/theme/__tests__/ThemeGallery.test.tsx` | New | Unit tests |
-| `frontend/src/components/theme/__tests__/ThemeCard.test.tsx` | New | Unit tests |
-| `frontend/src/components/theme/__tests__/CustomColorPicker.test.tsx` | New | Unit tests (hex↔RGB conversion + rendering) |
-| `frontend/src/components/theme/__tests__/ThemeImportExport.test.tsx` | New | Unit tests (export download, import parsing, validation) |
-| `frontend/src/components/theme/__tests__/LogoCustomizer.test.tsx` | New | Unit tests (file input, URL input, reset) |
-| `frontend/src/components/theme/__tests__/ThemePreviewOverlay.test.tsx` | New | Unit tests |
-| `frontend/src/pages/AppearanceSettings.tsx` | New | `/settings/appearance` page |
-| `frontend/src/pages/Settings.tsx` | Modify | Add Appearance tab to nav |
-| `frontend/src/pages/__tests__/AppearanceSettings.test.tsx` | New | Unit tests |
-| `frontend/src/App.tsx` | Modify | Add `<Route path="appearance" element={<AppearanceSettings />} />` |
-| `frontend/src/api/settings.ts` | Modify | Add `uploadLogo`, `deleteLogo` |
-| `frontend/src/api/__tests__/settings.test.ts` | Extend | Tests for new functions |
-| `frontend/src/locales/en/translation.json` | Modify | Add i18n keys |
-| `frontend/src/locales/*/translation.json` | Modify | Add i18n keys (5 locale files) |
-| `backend/internal/api/handlers/logo_handler.go` | New | `UploadLogo`, `DeleteLogo` |
-| `backend/internal/api/handlers/logo_handler_test.go` | New | Unit tests |
-| `backend/internal/api/routes/routes.go` | Modify | Register logo routes |
-| `backend/internal/server/server.go` | Modify | Add `/uploads` static route; update `NewRouter` signature |
-| `backend/internal/server/server_test.go` | Modify | Update `NewRouter` call with data dir arg |
-| `docs/features.md` | Modify | Expand "Dark Mode & Modern UI" section |
-| `ARCHITECTURE.md` | Modify | Note theme system in Frontend section |
+| Built-in theme active | `"dark"` / `"light"` / etc. | Existing behavior — unchanged |
+| Single-slot custom theme active | `"custom"` | Existing behavior — unchanged |
+| User-created theme active | `"user:550e8400-..."` | React fetches user themes, applies matching theme's colors |
+| User theme deleted after activation | `"user:550e8400-..."` but DB row gone | ThemeContext falls back to `dark`, updates localStorage to `"dark"` |
+| Fresh browser (no localStorage) | absent | Falls back to `"dark"` — existing behavior |
+| `user:*` in localStorage on page paint | script sets `data-theme="dark"` | React corrects after hydration (first render after query resolves) |
 
 ---
 
 ## 4. Implementation Plan
 
-### Phase 1 — Foundation: CSS, Types, and Tailwind Migration
+### Phase 1: Playwright E2E Tests (Spec Behavior First)
 
-**Goal:** Establish the `data-theme` CSS foundation and migrate `Layout.tsx` from hardcoded dark: classes to semantic tokens. No visible UI change for existing dark/light users. This is the riskiest refactor because Layout.tsx is the outermost shell.
+Write failing E2E tests in `tests/theme-extensions.spec.ts` that define the expected behavior before implementation.
 
-**Files changed:**
-- `frontend/src/index.css` — Replace `.light` block with `[data-theme="light"]`, add `[data-theme="dark"]`, `[data-theme="high-contrast-dark"]`, `[data-theme="high-contrast-light"]`, `[data-theme="solarized"]`. Update scrollbar CSS to `[data-theme]` selectors.
-- `frontend/tailwind.config.js` — Change `darkMode` to selector mode.
-- `frontend/src/components/Layout.tsx` — Migrate all `dark:bg-*`, `dark:border-*`, `dark:text-*` hardcoded classes to semantic classes (`bg-surface-elevated`, `border-border`, `text-content-secondary`, etc.) that already work via CSS custom properties. This is a mechanical find-replace of approximately 30 class-name occurrences.
+**Banner tests:**
+- `banner-customization-section-visible` — navigate to `/settings/appearance`, assert "Sidebar Banner" section card is present
+- `banner-upload-applies` — upload a valid PNG to banner, assert expanded sidebar `<img>` src changes to `/uploads/banner.png`
+- `banner-delete-restores-default` — after banner upload and delete, assert sidebar returns to `<picture>` / `<img src="/banner.png">`
+- `banner-logo-independent` — upload both logo and banner, assert logo only affects collapsed state and banner only affects expanded state
 
-**Known limitation of Phase 1 (scope boundary):** The frontend codebase contains 214+ `dark:` class usages outside of `Layout.tsx` (e.g., `CSPBuilder.tsx`, `NotificationCenter.tsx`, `PasswordStrengthMeter.tsx`, `SetupGuard.tsx`, `PermissionsPolicyBuilder.tsx`, and others). With Tailwind `['selector', '[data-theme="dark"]']`, these `dark:` utilities only activate for the `dark` theme — they do NOT activate for `high-contrast-dark` or `solarized`. As a result, under non-dark themes, those components will render with their light-mode fallback styles rather than a fully themed appearance. This is an accepted limitation of this PR. A separate follow-up PR will audit and migrate all remaining `dark:` usages to semantic CSS custom property classes. See AC-18.
+**Named theme tests:**
+- `user-themes-section-visible` — navigate to `/settings/appearance`, assert "Your Themes" card is present with "+ Create New Theme" button
+- `user-theme-create` — click "Create New Theme", enter name "Test Theme", adjust colors, click "Save Theme", assert card appears in list
+- `user-theme-activate` — click "Activate" on a user theme card, assert `data-theme="custom"` on `<html>` and at least one CSS custom property is set via `getComputedStyle`
+- `user-theme-rename` — click Edit on a user theme, change name, save, assert new name visible
+- `user-theme-delete` — click Delete, confirm, assert card no longer in list
+- `user-theme-persists-after-reload` — activate user theme, reload page, assert `data-theme="custom"` after hydration
+- `user-theme-fallback-when-deleted` — set `localStorage['charon-theme']` to `user:nonexistent-uuid`, reload, assert `data-theme="dark"`
 
-**Validation:** Run `npm run build` and visually confirm dark and light modes still work.
+### Phase 2: Backend Implementation (TDD)
 
-### Phase 2 — Core Theme System with FOUC Fix
+Order (each step followed by `go test ./...`):
 
-**Goal:** Replace the binary theme system with the full `ThemeId` system, fix the FOUC, and wire up `ThemeProvider` with the new context shape.
+1. Write `image_upload_handler.go` with `AssetConfig`, `ImageUploadHandler`, shared logic moved from `logo_handler.go`.
+2. Refactor `logo_handler.go` to delegate to `ImageUploadHandler`. Run `logo_handler_test.go` — all must pass unchanged.
+3. Write `banner_handler.go` thin wrapper.
+4. Write `banner_handler_test.go` — full test suite.
+5. Write `custom_theme.go` model.
+6. Write `custom_theme_test.go` — model-level tests (UUID generation in `BeforeCreate`, field constraints).
+7. Write `custom_theme_handler.go` CRUD handler.
+8. Write `custom_theme_handler_test.go` — handler tests for all four endpoints.
+9. Update `routes.go` — banner routes, theme CRUD routes, `CustomTheme` in AutoMigrate.
+10. Run `./scripts/scan-gorm-security.sh --check` — zero CRITICAL/HIGH.
 
-**Files changed:**
-- `frontend/index.html` — Move `<script>` to last in `<head>`; update script to use `data-theme` and `charon-theme` key.
-- `frontend/src/context/ThemeContextValue.ts` — Full type expansion.
-- `frontend/src/context/ThemeContext.tsx` — Full rewrite.
-- `frontend/src/hooks/useTheme.ts` — Return full context type.
-- `frontend/src/components/ThemeToggle.tsx` — Navigate to `/settings/appearance`.
-- `frontend/src/pages/Settings.tsx` — Add Appearance tab.
-- `frontend/src/App.tsx` — Add appearance route.
-- `frontend/src/context/__tests__/ThemeContext.test.tsx` — New unit tests.
-- `frontend/src/hooks/__tests__/useTheme.test.tsx` — Extended tests.
+### Phase 3: Frontend Implementation
 
-**Key test scenarios for `ThemeContext.test.tsx`:**
+Order (each step followed by `npm run type-check`):
 
-| Test ID | Scenario | Assertion |
-|---|---|---|
-| TC-01 | Default theme is `dark` (no localStorage) | `theme === 'dark'` |
-| TC-02 | Reads saved `light` from storage | `theme === 'light'` |
-| TC-03 | Reads saved `system` from storage | `theme === 'system'` |
-| TC-04 | On mount, does NOT set `data-theme` (inline script owns it) | `setAttribute` spy not called on first render |
-| TC-05 | `setTheme('light')` updates state and sets `data-theme="light"` | After call, attribute set |
-| TC-06 | `setTheme('high-contrast-dark')` sets `data-theme="high-contrast-dark"` | Attribute correct |
-| TC-07 | `setTheme('system')` resolves to OS preference | Mocked `matchMedia` returns `dark` → attribute `dark` |
-| TC-08 | `setTheme('custom')` with `customTheme` applies inline styles | `style.setProperty` called for `--color-bg-base` |
-| TC-09 | `setCustomTheme(colors)` sets theme to 'custom' | `theme === 'custom'` |
-| TC-10 | `exportTheme()` returns valid `ThemeExport` | `version === 1`, correct theme |
-| TC-11 | `importTheme(export)` restores theme | `theme` matches exported value |
-| TC-12 | Invalid localStorage value falls back to `dark` | `theme === 'dark'` |
-| TC-13 | `setTheme` persists to localStorage | `localStorage.getItem('charon-theme') === 'light'` |
+1. `frontend/src/api/themes.ts` — API client, `parseUserThemeDTO`, types.
+2. `frontend/src/hooks/useUserThemes.ts` — React Query hook.
+3. `frontend/src/context/ThemeContextValue.ts` — `UserThemeId`, `isUserThemeId`, `UserTheme`, extend `ThemeContextType`.
+4. `frontend/src/context/ThemeContext.tsx` — integrate `useUserThemes`, `setUserTheme`, `activeUserTheme`.
+5. `frontend/index.html` — update inline FOUC script for `user:*` fallback.
+6. `frontend/src/api/settings.ts` — add `uploadBanner`, `deleteBanner`.
+7. `frontend/src/components/theme/BannerCustomizer.tsx` — new component.
+8. `frontend/src/components/theme/UserThemeManager.tsx` — new component.
+9. `frontend/src/components/Layout.tsx` — split `customBannerUrl` from `customLogoUrl`.
+10. `frontend/src/pages/AppearanceSettings.tsx` — add banner and user themes sections.
+11. Add translation keys to locale files.
 
-### Phase 3 — Theme Gallery UI
+### Phase 4: Unit Tests
 
-**Goal:** Ship the built-in theme gallery in `/settings/appearance` so users can select any of the five pre-built themes plus system mode.
+**Backend tests** (in `backend/internal/api/handlers/` package):
+- `banner_handler_test.go` — mirrors `logo_handler_test.go` pattern: valid upload, file too large, SVG rejected, spoofed Content-Type, no field, DELETE clears file and settings, unauthenticated → 401, non-admin → 403.
+- `custom_theme_handler_test.go` — GET returns empty array, POST creates with UUID, POST duplicate name → 409, POST empty name → 400, PUT updates, PUT non-existent → 404, DELETE removes, DELETE non-existent → 404, unauthenticated → 401.
+- `custom_theme_test.go` (model) — `BeforeCreate` sets UUID when ID is empty, does not overwrite existing ID.
 
-**Files changed:**
-- `frontend/src/components/theme/ThemeGallery.tsx` — New
-- `frontend/src/components/theme/ThemeCard.tsx` — New
-- `frontend/src/components/theme/ThemePreviewOverlay.tsx` — New
-- `frontend/src/pages/AppearanceSettings.tsx` — New (initial version with gallery + system toggle only)
-- `frontend/src/components/theme/__tests__/ThemeGallery.test.tsx` — New
-- `frontend/src/components/theme/__tests__/ThemeCard.test.tsx` — New
-- `frontend/src/components/theme/__tests__/ThemePreviewOverlay.test.tsx` — New
-- `frontend/src/pages/__tests__/AppearanceSettings.test.tsx` — New
-- `frontend/src/locales/en/translation.json` + other locales — Add i18n keys
+**Frontend tests** (Vitest + Testing Library):
+- `frontend/src/components/theme/__tests__/BannerCustomizer.test.tsx` — mirrors `LogoCustomizer.test.tsx`: admin sees file input, non-admin sees notice, file too large shows error, wrong MIME shows error, valid file calls `onUpload`, URL tab works, reset button calls `onReset`.
+- `frontend/src/components/theme/__tests__/UserThemeManager.test.tsx` — empty state shows message, themes list renders cards, activate calls `onActivate`, edit dialog opens with existing values, delete confirm dialog appears, create dialog opens with defaults.
+- `frontend/src/hooks/__tests__/useUserThemes.test.ts` — mocks `listUserThemes`, verifies `parseUserThemeDTO` parses colors, verifies mutation invalidates `['user-themes']` query.
+- `frontend/src/api/__tests__/themes.test.ts` — mocks `client`, verifies `colors` is JSON-stringified in POST body, verifies `parseUserThemeDTO` parses colors from string to object.
 
-**ThemeGallery test scenarios:**
+### Phase 5: Integration and DoD
 
-| Test ID | Scenario | Assertion |
-|---|---|---|
-| TG-01 | Renders all 5 built-in themes + system | 6 cards visible |
-| TG-02 | Selected card has `aria-checked="true"`; others have `aria-checked="false"` | Correct a11y attribute on each card; `role="radiogroup"` on container |
-| TG-03 | Hovering a card calls `onPreview` | Spy called with correct ThemeId |
-| TG-04 | Clicking a card calls `onChange` | Spy called with correct ThemeId |
-| TG-05 | Preview overlay restores original after hover end | `data-theme` reverts |
-| TG-06 | Rapid hover-then-click: `setPreviewTheme(null)` is called before `setTheme` in the `onChange` handler | Call order verified via mock — preview cleared first, theme set second |
-
-### Phase 4 — Custom Color Picker
-
-**Goal:** Add the custom color picker section to `AppearanceSettings`. Selecting "Custom" in the gallery reveals the picker.
-
-**Files changed:**
-- `frontend/src/components/theme/CustomColorPicker.tsx` — New
-- `frontend/src/components/theme/__tests__/CustomColorPicker.test.tsx` — New
-- `frontend/src/pages/AppearanceSettings.tsx` — Add custom picker section
-
-**CustomColorPicker test scenarios:**
-
-| Test ID | Scenario | Assertion |
-|---|---|---|
-| CP-01 | `hexToRgb('#3b82f6')` returns `'59 130 246'` | Exact string match |
-| CP-02 | `rgbToHex('59 130 246')` returns `'#3b82f6'` | Exact string match |
-| CP-03 | Changing bgBase color input triggers `onChange` | Spy called with updated colors |
-| CP-04 | Renders all 10 color inputs | 10 `<input type="color">` elements |
-| CP-05 | Color scheme toggle switches between dark/light | `colorScheme` in output changes |
-
-### Phase 5 — Theme Import/Export
-
-**Goal:** Add import/export functionality.
-
-**Files changed:**
-- `frontend/src/components/theme/ThemeImportExport.tsx` — New
-- `frontend/src/components/theme/__tests__/ThemeImportExport.test.tsx` — New
-- `frontend/src/pages/AppearanceSettings.tsx` — Add import/export section
-
-**ThemeImportExport test scenarios:**
-
-| Test ID | Scenario | Assertion |
-|---|---|---|
-| IE-01 | Export button creates downloadable JSON | `URL.createObjectURL` called; filename `charon-theme.json` |
-| IE-02 | Import with valid JSON calls `importTheme` | Context `importTheme` spy called |
-| IE-03 | Import with invalid JSON shows toast error | `toast.error` called |
-| IE-04 | Import with missing `version` field shows error | Validation rejects |
-| IE-05 | Import with wrong `version` shows error | Validation rejects |
-| IE-06 | Import with malformed color field (e.g., `bgBase: 'red; --injected: val'`) is rejected with validation error | `toast.error` called; `importTheme` not called |
-
-### Phase 6 — Logo Customization
-
-**Goal:** Allow admins to upload a custom logo or point to an external URL. Requires a backend endpoint.
-
-**Files changed:**
-- `backend/internal/api/handlers/logo_handler.go` — New
-- `backend/internal/api/handlers/logo_handler_test.go` — New
-- `backend/internal/api/routes/routes.go` — Register routes
-- `backend/internal/server/server.go` — Add `/uploads` static route, update `NewRouter` signature
-- `backend/internal/server/server_test.go` — Update test
-- `frontend/src/api/settings.ts` — Add `uploadLogo`, `deleteLogo`
-- `frontend/src/api/__tests__/settings.test.ts` — New tests
-- `frontend/src/components/theme/LogoCustomizer.tsx` — New
-- `frontend/src/components/theme/__tests__/LogoCustomizer.test.tsx` — New
-- `frontend/src/components/Layout.tsx` — Read `ui.logo_url` setting
-- `frontend/src/pages/AppearanceSettings.tsx` — Add logo section
-
-**LogoCustomizer test scenarios:**
-
-| Test ID | Scenario | Assertion |
-|---|---|---|
-| LC-01 | Upload tab renders file input | `<input type="file">` present |
-| LC-02 | File too large (>2MB) shows error before upload | Error message visible |
-| LC-03 | Non-image file rejected | Error message visible |
-| LC-04 | Valid file triggers `onSave('upload')` | Prop called |
-| LC-05 | URL tab renders text input | `<input type="url">` present |
-| LC-06 | Valid URL triggers `onSave('url')` | Prop called |
-| LC-07 | Reset button calls `onSave('')` | Prop called with empty string |
-| LC-08 | Non-admin user sees 'admin access required' notice and no upload/URL form | Notice rendered; no file input or URL input present |
-
-**Backend `logo_handler.go` test scenarios:**
-
-| Test ID | Scenario | Assertion |
-|---|---|---|
-| BL-01 | Valid PNG upload writes file and returns URL | HTTP 200, `url` field present |
-| BL-02 | File exceeds 2MB | HTTP 413 |
-| BL-03 | Non-image MIME type (e.g., text/html) — detected via `DetectContentType` | HTTP 400 |
-| BL-04 | SVG file upload (any extension) — detected via `DetectContentType` | HTTP 400 (SVG uploads not accepted) |
-| BL-04b | Spoofed Content-Type: file has `.svg` extension but multipart header declares `image/png` — server detects SVG bytes and rejects | HTTP 400 |
-| BL-04c | Content-Type header omitted in multipart — server detects bytes and accepts valid PNG | HTTP 200 |
-| BL-05 | DELETE logo clears setting and removes file | HTTP 200, file removed |
-| BL-06 | Unauthenticated upload | HTTP 401 |
-| BL-07 | Non-admin upload | HTTP 403 |
-
-### Phase 7 — E2E Playwright Tests and DoD
-
-**Goal:** Write Playwright E2E tests that cover the new theme system user flows.
-
-**File:** `tests/theme.spec.ts` (new)
-
-**E2E Test Scenarios:**
-
-| Test | Description | Assertion |
-|---|---|---|
-| `no-fouc-warning` | Page load produces no "Layout was forced" console warning | Console listener not triggered |
-| `dark-theme-on-fresh-load` | No stored theme → `<html>` has `data-theme="dark"` | Attribute present |
-| `light-theme-from-storage` | `localStorage['charon-theme'] = 'light'` → `data-theme="light"` | Attribute present |
-| `theme-persists-after-reload` | Select `solarized`, reload → `data-theme="solarized"` | Persisted |
-| `system-mode-respects-os` | Set `'system'`, mocked dark OS → `data-theme="dark"` | Attribute correct |
-| `theme-gallery-visible` | Navigate to `/settings/appearance` → gallery visible | Cards rendered |
-| `select-theme-from-gallery` | Click `high-contrast-dark` card → UI updates | `data-theme` changes |
-| `preview-on-hover` | Hover over theme card → transient preview applies | `data-theme` changes |
-| `preview-reverts-on-leave` | Leave hover → `data-theme` reverts | Original restored |
-| `custom-color-picker-visible` | Select custom → picker section appears | Section visible |
-| `export-downloads-json` | Click export → file download triggered | Download event |
-| `logo-upload-applies` | Upload image → logo in sidebar updates | `src` attribute changes |
-
-**DoD Checklist execution order:**
-1. `npx playwright test --project=firefox tests/theme.spec.ts`
-2. GORM Security Scan: `./scripts/scan-gorm-security.sh --check` (logo handler touches DB via settings)
-3. `bash scripts/local-patch-report.sh`
+In order:
+1. `npx playwright test --project=firefox` (tests from `tests/theme-extensions.spec.ts`)
+2. `./scripts/scan-gorm-security.sh --check` (zero CRITICAL/HIGH)
+3. `bash scripts/local-patch-report.sh` (produces `test-results/local-patch-report.md`)
 4. `lefthook run pre-commit`
-5. `make lint-fast` (backend)
-6. `cd frontend && npm run type-check`
-7. `scripts/go-test-coverage.sh` (≥85%)
-8. `scripts/frontend-test-coverage.sh` (≥85%)
+5. `make lint-fast`
+6. `scripts/go-test-coverage.sh` (≥85%)
+7. `scripts/frontend-test-coverage.sh` (≥85%)
+8. `cd frontend && npm run type-check`
 9. `cd backend && go build ./...`
 10. `cd frontend && npm run build`
-11. Inspect `frontend/dist/index.html` — stylesheet `<link>` must precede the inline `<script>`.
 
 ---
 
 ## 5. Acceptance Criteria
 
-### AC-01 — FOUC Eliminated
-The browser console must not emit "Layout was forced before the page was fully loaded" on any page load in Firefox. The warning must be absent on both initial load and navigation.
+### Feature 1: Banner Image Upload
 
-### AC-02 — Inline Script Positioned After Stylesheet
-In the built `frontend/dist/index.html`, all `<link rel="stylesheet">` tags appear before the inline `<script>`. Verified by `grep -n 'stylesheet\|!function' frontend/dist/index.html`.
+| ID | Criterion |
+|----|-----------|
+| BN-01 | `POST /api/v1/settings/banner` with valid PNG returns `200 { "url": "/uploads/banner.png" }` and writes file to `data/uploads/banner.png` |
+| BN-02 | `POST /api/v1/settings/banner` with valid WebP returns `200 { "url": "/uploads/banner.webp" }` |
+| BN-03 | `POST /api/v1/settings/banner` with file > 2MB returns `413` |
+| BN-04 | `POST /api/v1/settings/banner` with SVG bytes returns `400` (byte-sniff detection) |
+| BN-05 | `POST /api/v1/settings/banner` with spoofed Content-Type (SVG bytes, `image/png` header) returns `400` |
+| BN-06 | `POST /api/v1/settings/banner` with missing `banner` field returns `400` |
+| BN-07 | `DELETE /api/v1/settings/banner` removes the uploaded file and clears `ui.banner_url` and `ui.banner_type` settings |
+| BN-08 | Unauthenticated `POST /api/v1/settings/banner` returns `401` |
+| BN-09 | Non-admin `POST /api/v1/settings/banner` returns `403` |
+| BN-10 | After banner upload, the expanded sidebar renders `<img src="/uploads/banner.png">` |
+| BN-11 | After banner delete, the expanded sidebar returns to the default `<picture>` element |
+| BN-12 | Logo and banner settings are independent: uploading a banner does not change `ui.logo_url`; uploading a logo does not change `ui.banner_url` |
+| BN-13 | `BannerCustomizer` renders a file input with `id="banner-file-input"` for admin users |
+| BN-14 | `BannerCustomizer` shows a read-only notice for non-admin users, no file input rendered |
+| BN-15 | All `BannerCustomizer` unit tests pass |
+| BN-16 | `banner_handler_test.go` achieves ≥85% coverage of the banner handler code paths |
 
-### AC-03 — `data-theme` Attribute (Not Class)
-`<html>` receives `data-theme="dark"` (or other theme value) instead of `class="dark"`. The `.dark` and `.light` CSS class selectors are removed from `index.css`. Verified by `grep -n 'classList\|\.dark\|\.light' frontend/src/context/ThemeContext.tsx` returning no theme-manipulation matches.
+### Feature 2: Custom User-Created Named Themes
 
-### AC-04 — No `useLayoutEffect` in ThemeContext
-`frontend/src/context/ThemeContext.tsx` does not import or use `useLayoutEffect`. Verified by grep.
-
-### AC-05 — Five Built-In Themes Work
-The following `data-theme` values produce distinct visible styling changes across the full UI:
-- `dark` (default)
-- `light`
-- `high-contrast-dark`
-- `high-contrast-light`
-- `solarized`
-
-### AC-06 — Follow System Mode
-Setting theme to `system` makes the UI match the OS preference. Changing the OS preference updates the UI without a page reload.
-
-### AC-07 — Theme Gallery UI
-`/settings/appearance` renders a gallery of theme cards. Hovering previews the theme transiently. Clicking selects and persists it.
-
-### AC-08 — Custom Color Picker
-Selecting "Custom" in the gallery shows a color picker with at least 10 inputs (bg-base, bg-subtle, bg-muted, bg-elevated, border-default, border-strong, text-primary, text-secondary, text-muted, brand-primary). Changes apply to the UI in real time.
-
-### AC-09 — Theme Import/Export
-Export produces a valid `charon-theme.json` file. Importing that file on another Charon instance (or after clearing storage) restores the same theme and custom colors.
-
-### AC-10 — Logo Customization
-Admin can upload an image file (PNG, JPG, or WebP — max 2 MB; SVG is not accepted for upload) or provide an external URL (any format, including SVG, at the user's responsibility). The custom logo replaces the default Charon logo in the sidebar (both collapsed and expanded states) and mobile header. Reset to default clears the customization. Non-admin users see a read-only notice and cannot access the upload or URL form.
-
-### AC-11 — Settings Tab Added
-`/settings/appearance` is accessible as a new tab in the Settings page, visible to all authenticated non-passthrough users.
-
-### AC-12 — Existing Themes Persist on Upgrade
-Users with `localStorage['theme'] = 'dark'` or `'light'` from the old system have their preference preserved on upgrade. The inline script (canonical text in section 3.4) reads `localStorage.getItem('charon-theme') || localStorage.getItem('theme') || 'dark'`. This means:
-- If `charon-theme` is set (returning user after upgrade), it takes precedence.
-- If only the old `theme` key is set (first load after upgrade), it is used as the fallback so light-mode users are not reset to dark.
-- If neither key is set (brand-new user), `dark` is the default.
-
-The old `theme` key is left in storage (not deleted). `ThemeProvider` writes only to `charon-theme`. No data loss occurs.
-
-### AC-13 — Type Safety
-`cd frontend && npm run type-check` exits zero with no TypeScript errors.
-
-### AC-14 — Test Coverage ≥ 85%
-`scripts/go-test-coverage.sh` and `scripts/frontend-test-coverage.sh` both report ≥ 85%. All new files have accompanying unit tests.
-
-### AC-15 — Build Succeeds
-`cd backend && go build ./...` and `cd frontend && npm run build` both succeed with no errors.
-
-### AC-16 — GORM Security Scan Clean
-`./scripts/scan-gorm-security.sh --check` reports zero CRITICAL/HIGH findings for the new `logo_handler.go`.
-
-### AC-17 — Logo Upload Security
-The server detects the MIME type of uploaded files using `net/http.DetectContentType()` on the actual file bytes — the multipart `Content-Type` header is not trusted. Only `image/png`, `image/jpeg`, and `image/webp` are accepted for file uploads; SVG uploads are rejected with HTTP 400. Files exceeding 2 MB are rejected with HTTP 413. Files with a spoofed Content-Type (e.g., an SVG file claiming to be `image/png`) are detected and rejected based on byte content.
-
-### AC-18 — Follow-Up Issue for Remaining `dark:` Class Migration
-A GitHub issue is created to track the migration of all remaining 214+ `dark:` class usages (outside `Layout.tsx`) to semantic CSS custom property classes, enabling full theme support for `high-contrast-dark`, `solarized`, and future themes in every component. The issue is referenced in the PR description.
+| ID | Criterion |
+|----|-----------|
+| UT-01 | `GET /api/v1/themes` returns `[]` (not null) when no user themes exist |
+| UT-02 | `POST /api/v1/themes` with valid `{ name, colors }` returns `201` with a non-empty UUID `id` and persists to DB |
+| UT-03 | `POST /api/v1/themes` with a duplicate name returns `409` |
+| UT-04 | `POST /api/v1/themes` with empty name returns `400` |
+| UT-05 | `POST /api/v1/themes` with invalid JSON in `colors` returns `400` |
+| UT-06 | `PUT /api/v1/themes/:id` updates name and/or colors, returns `200` with updated record |
+| UT-07 | `PUT /api/v1/themes/:nonexistent-id` returns `404` |
+| UT-08 | `DELETE /api/v1/themes/:id` removes the DB row, returns `200 { "message": "theme deleted" }` |
+| UT-09 | `DELETE /api/v1/themes/:nonexistent-id` returns `404` |
+| UT-10 | Unauthenticated calls to all `/api/v1/themes` endpoints return `401` |
+| UT-11 | `useUserThemes` hook fetches themes from backend, calls `parseUserThemeDTO`, returns typed `UserTheme[]` with parsed colors |
+| UT-12 | Creating a theme via `UserThemeManager` "Create New Theme" dialog saves to backend and the new card appears in the grid |
+| UT-13 | Activating a user theme sets `data-theme="custom"` on `<html>` and applies the theme's colors as CSS custom properties |
+| UT-14 | `localStorage['charon-theme']` is set to `user:<uuid>` when a user theme is activated |
+| UT-15 | Reloading with `user:<uuid>` in localStorage restores `data-theme="custom"` and correct colors after React hydration |
+| UT-16 | Reloading with `user:nonexistent-uuid` in localStorage results in `data-theme="dark"` after hydration |
+| UT-17 | The existing single-slot `custom` theme behavior (localStorage only, `setCustomTheme`) is unchanged — no regression |
+| UT-18 | Renaming a user theme via the Edit dialog updates the card label in `UserThemeManager` |
+| UT-19 | Deleting the active user theme causes the theme to fall back to `dark` |
+| UT-20 | `UserThemeManager` renders `t('appearance.noUserThemes')` when no user themes exist |
+| UT-21 | GORM security scan reports zero CRITICAL/HIGH findings for `CustomTheme` model and handler queries |
+| UT-22 | `custom_theme_handler_test.go` achieves ≥85% coverage |
+| UT-23 | Frontend unit tests for `UserThemeManager`, `useUserThemes`, and `themes.ts` all pass |
+| UT-24 | The inline `index.html` script sets `data-theme="dark"` (not `"custom"`) when `localStorage['charon-theme']` is a `user:*` ID |
 
 ---
 
 ## 6. Commit Slicing Strategy
 
-**Decision:** Single PR with six ordered logical commits. The PR is frontend-primary with one backend addition (logo upload). Commits are sized to be independently reviewable and reverted without cascading failures.
+**Decision: Single PR (`feature/theme`), three ordered logical commits.**
+
+Each commit is self-consistent: the backend compiles and passes tests before the frontend is wired up; the frontend compiles (with feature-flagged hooks that return empty state) before full integration is tested.
 
 ---
 
-### Commit 1: `fix(theme): migrate CSS to data-theme selectors and update Tailwind config`
+### Commit 1: Backend — Shared Image Handler Refactor + Banner + Named Themes CRUD
 
-**Scope:** Pure CSS/config refactor — no behavior change for existing dark/light users. Foundation for all subsequent work.
+**Scope:** Backend only. Zero frontend changes. All existing logo tests continue to pass unchanged.
 
-**Files:**
-- `frontend/src/index.css` — Replace `.light` with `[data-theme="light"]`; add `[data-theme="dark"]`, `[data-theme="high-contrast-dark"]`, `[data-theme="high-contrast-light"]`, `[data-theme="solarized"]`; update scrollbar CSS
-- `frontend/tailwind.config.js` — `darkMode` → selector mode
-- `frontend/src/components/Layout.tsx` — Migrate hardcoded dark: classes to semantic token classes
+**Files changed:**
 
-**Dependencies:** None.
+| File | Change |
+|------|--------|
+| `backend/internal/api/handlers/image_upload_handler.go` | NEW — shared `ImageUploadHandler`, `AssetConfig`, `acceptedMIME`, `upsertSetting`, constants |
+| `backend/internal/api/handlers/logo_handler.go` | REFACTORED — delegates to `ImageUploadHandler`; public API unchanged |
+| `backend/internal/api/handlers/banner_handler.go` | NEW — `BannerHandler` thin wrapper |
+| `backend/internal/api/handlers/banner_handler_test.go` | NEW — full test suite |
+| `backend/internal/api/handlers/logo_handler_test.go` | NO CHANGE — must remain green |
+| `backend/internal/models/custom_theme.go` | NEW — `CustomTheme` model with `BeforeCreate` UUID hook |
+| `backend/internal/models/custom_theme_test.go` | NEW — model unit tests |
+| `backend/internal/api/handlers/custom_theme_handler.go` | NEW — CRUD handler |
+| `backend/internal/api/handlers/custom_theme_handler_test.go` | NEW — handler tests |
+| `backend/internal/api/routes/routes.go` | EXTENDED — banner routes, theme CRUD routes, `CustomTheme` in AutoMigrate |
+
+**Dependencies:** None (first commit).
 
 **Validation gates:**
-```bash
-cd frontend && npm run build          # must succeed
-cd frontend && npm run type-check     # zero errors
-cd frontend && npm run test           # no regressions
-```
+- `cd backend && go build ./...` — must succeed
+- `go test ./...` — all tests pass including new handler and model tests
+- `make lint-fast` — zero errors
+- `./scripts/scan-gorm-security.sh --check` — zero CRITICAL/HIGH
 
-**Rollback:** `git revert HEAD`. CSS reverts to class-based system. No functional impact on users still seeing `class="dark"`.
+**Commit message:** `feat(theme): add banner upload endpoint and named themes backend CRUD`
 
 ---
 
-### Commit 2: `fix(theme): replace useLayoutEffect with useEffect + data-theme attribute; fix FOUC`
+### Commit 2: Frontend — Banner Customizer + Named Theme Manager
 
-**Scope:** Core FOUC fix and theme system rewire. Replaces binary toggle with full ThemeId system.
+**Scope:** Frontend only. Requires Commit 1 deployed for full E2E behavior, but compiles independently (hooks return empty state when backend is unavailable).
 
-**Files:**
-- `frontend/index.html` — Move `<script>` to last in `<head>`; update to `data-theme` and `charon-theme` key
-- `frontend/src/context/ThemeContextValue.ts` — Expanded types
-- `frontend/src/context/ThemeContext.tsx` — Full rewrite
-- `frontend/src/hooks/useTheme.ts` — Updated return type
-- `frontend/src/components/ThemeToggle.tsx` — Navigate to appearance settings
-- `frontend/src/context/__tests__/ThemeContext.test.tsx` — New unit tests (TC-01 through TC-13)
-- `frontend/src/hooks/__tests__/useTheme.test.tsx` — Extended tests
+**Files changed:**
 
-**Dependencies:** Commit 1 (CSS selectors must exist before `data-theme` is applied).
+| File | Change |
+|------|--------|
+| `frontend/src/api/themes.ts` | NEW — themes API client with `parseUserThemeDTO` |
+| `frontend/src/hooks/useUserThemes.ts` | NEW — React Query hook |
+| `frontend/src/context/ThemeContextValue.ts` | EXTENDED — `UserThemeId`, `isUserThemeId`, `UserTheme`, `ThemeContextType` additions |
+| `frontend/src/context/ThemeContext.tsx` | EXTENDED — `setUserTheme`, `activeUserTheme`, `userThemes` in context value |
+| `frontend/index.html` | UPDATED — inline script `user:*` fallback to `dark` |
+| `frontend/src/api/settings.ts` | EXTENDED — `uploadBanner`, `deleteBanner` |
+| `frontend/src/components/theme/BannerCustomizer.tsx` | NEW |
+| `frontend/src/components/theme/UserThemeManager.tsx` | NEW |
+| `frontend/src/components/Layout.tsx` | UPDATED — `customBannerUrl` read from `ui.banner_url` |
+| `frontend/src/pages/AppearanceSettings.tsx` | EXTENDED — banner card, user themes card |
+| `frontend/src/locales/en/translation.json` | EXTENDED — new banner and user theme keys |
+| `frontend/src/locales/de/translation.json` | EXTENDED — new banner and user theme keys |
+| `frontend/src/locales/es/translation.json` | EXTENDED — new banner and user theme keys |
+| `frontend/src/locales/fr/translation.json` | EXTENDED — new banner and user theme keys |
+| `frontend/src/locales/zh/translation.json` | EXTENDED — new banner and user theme keys |
+| `frontend/src/components/theme/__tests__/BannerCustomizer.test.tsx` | NEW |
+| `frontend/src/components/theme/__tests__/UserThemeManager.test.tsx` | NEW |
+| `frontend/src/hooks/__tests__/useUserThemes.test.ts` | NEW |
+| `frontend/src/api/__tests__/themes.test.ts` | NEW |
+
+**Dependencies:** Commit 1 (backend endpoints must exist for React Query to succeed; frontend compiles without it).
 
 **Validation gates:**
-```bash
-cd frontend && npm run build
-grep -n 'stylesheet\|!function' frontend/dist/index.html   # stylesheet must appear first
-cd frontend && npm run test        # all ThemeProvider tests pass
-cd frontend && npm run type-check
-lefthook run pre-commit
-```
+- `cd frontend && npm test -- --run` — all unit tests pass (run FIRST, before coverage check)
+- `cd frontend && npm run type-check` — zero type errors
+- `cd frontend && npm run build` — succeeds
+- `scripts/frontend-test-coverage.sh` — ≥85% coverage, all tests pass
 
-**Note:** Between Commit 2 and Commit 3, the `ThemeToggle` navigates to `/settings/appearance`, but the route has no component yet. This means clicking the theme toggle renders a blank `<Outlet>` — the Settings shell renders correctly, but the appearance tab content is empty. This is acceptable for the rollout window since these commits land in the same PR. Commit 3 must follow immediately.
-
-**Rollback:** `git revert HEAD`. FOUC returns; binary toggle restores. Theme gallery not yet added so no orphaned routes.
+**Commit message:** `feat(theme): add banner customizer and named user themes frontend`
 
 ---
 
-### Commit 3: `feat(theme): add Settings Appearance tab, theme gallery, and preview`
+### Commit 3: E2E Tests + Docs Update
 
-**Scope:** Theme gallery UI — five built-in themes + system mode selectable from `/settings/appearance`.
+**Scope:** Playwright tests + documentation only. No production code changes.
 
-**Files:**
-- `frontend/src/components/theme/ThemeGallery.tsx`
-- `frontend/src/components/theme/ThemeCard.tsx`
-- `frontend/src/components/theme/ThemePreviewOverlay.tsx`
-- `frontend/src/pages/AppearanceSettings.tsx` (gallery + system sections only)
-- `frontend/src/pages/Settings.tsx` — Add Appearance tab
-- `frontend/src/App.tsx` — Add appearance route
-- `frontend/src/locales/*/translation.json` — New i18n keys
-- `frontend/src/components/theme/__tests__/ThemeGallery.test.tsx`
-- `frontend/src/components/theme/__tests__/ThemeCard.test.tsx`
-- `frontend/src/components/theme/__tests__/ThemePreviewOverlay.test.tsx`
-- `frontend/src/pages/__tests__/AppearanceSettings.test.tsx`
-- `frontend/src/pages/__tests__/Settings.test.tsx` — Extend to cover new Appearance tab
+**Files changed:**
 
-**Dependencies:** Commit 2 (ThemeProvider must expose `setTheme` and `resolvedTheme`).
+| File | Change |
+|------|--------|
+| `tests/theme-extensions.spec.ts` | NEW — E2E tests for banner upload and named themes (per Phase 1 list) |
+| `ARCHITECTURE.md` | UPDATED — note `CustomTheme` model, `/api/v1/themes` routes, `/api/v1/settings/banner` routes, `UserThemeManager` component |
+| `docs/features.md` | UPDATED — one-line mention of banner image upload and named themes |
+
+**Dependencies:** Commits 1 and 2 (tests require both backend and frontend to be implemented).
 
 **Validation gates:**
-```bash
-cd frontend && npm run test
-cd frontend && npm run type-check
-cd frontend && npm run build
-```
+- `npx playwright test --project=firefox tests/theme-extensions.spec.ts` — all new tests pass
+- `npx playwright test --project=firefox tests/theme.spec.ts` — existing theme tests still pass (no regression)
+
+**Commit message:** `test(theme): add E2E tests for banner upload and named user themes`
 
 ---
 
-### Commit 4: `feat(theme): add custom color picker and theme import/export`
+### Rollback and Contingency
 
-**Scope:** Custom theme creation and portability.
+**If Commit 1 introduces a regression in logo upload:**
+The refactored `LogoHandler` is a pure delegation layer. The `UploadLogo` and `DeleteLogo` public method signatures are unchanged. The test file `logo_handler_test.go` is not modified and must remain green. If `image_upload_handler.go` has a defect, it is isolated — revert only that file and restore the original private methods in `logo_handler.go`.
 
-**Files:**
-- `frontend/src/components/theme/CustomColorPicker.tsx`
-- `frontend/src/components/theme/ThemeImportExport.tsx`
-- `frontend/src/pages/AppearanceSettings.tsx` — Add custom + import/export sections
-- `frontend/src/components/theme/__tests__/CustomColorPicker.test.tsx`
-- `frontend/src/components/theme/__tests__/ThemeImportExport.test.tsx`
-- `frontend/src/pages/__tests__/AppearanceSettings.test.tsx` — Extend
+**If `CustomTheme` AutoMigrate causes a startup failure:**
+SQLite `AutoMigrate` is additive-only — it creates new tables, never drops columns or tables. A new `custom_themes` table cannot break existing functionality. If table creation fails (e.g., disk full), the application logs the error but continues. `/api/v1/themes` endpoints return `500`; all other endpoints are unaffected.
 
-**Dependencies:** Commit 3 (AppearanceSettings page must exist).
+**If `user:*` theme IDs cause visible flash on page load:**
+The fallback (`data-theme="dark"`) renders the page fully styled in dark mode, not unstyled. This is acceptable. The React correction happens within one render cycle after the `useUserThemes` query resolves (typically under 100ms on a local instance). If this flash is deemed unacceptable in a future iteration, a `localStorage['charon-user-theme-colors']` key can be introduced for the inline script to apply colors synchronously — this is explicitly out of scope for this PR.
 
-**Validation gates:**
-```bash
-cd frontend && npm run test
-cd frontend && npm run type-check
-cd frontend && npm run build
-scripts/frontend-test-coverage.sh      # ≥85%
-```
+**If a user theme is deleted while another browser session has it active:**
+On the next navigation or page load, `ThemeContext` detects `activeUserTheme === null` (theme ID not found in fetched list) and falls back to `dark`, clearing the stale `localStorage` key. No error is shown to the user.
 
 ---
 
-### Commit 5: `feat(theme): add logo customization — backend upload endpoint and frontend UI`
+## Appendix A: File Change Summary
 
-**Scope:** Logo upload/URL feature. Only commit that touches the backend.
-
-**Files:**
-- `backend/internal/api/handlers/logo_handler.go`
-- `backend/internal/api/handlers/logo_handler_test.go`
-- `backend/internal/api/routes/routes.go` — Register `/settings/logo` routes
-- `backend/internal/server/server.go` — Add `/uploads` static route; update `NewRouter`
-- `backend/internal/server/server_test.go` — Update call site
-- `frontend/src/api/settings.ts` — `uploadLogo`, `deleteLogo`
-- `frontend/src/api/__tests__/settings.test.ts` — Extended
-- `frontend/src/components/theme/LogoCustomizer.tsx`
-- `frontend/src/components/theme/__tests__/LogoCustomizer.test.tsx`
-- `frontend/src/pages/AppearanceSettings.tsx` — Add logo section
-- `frontend/src/components/Layout.tsx` — Read `ui.logo_url`
-
-**Dependencies:** Commit 3 (AppearanceSettings exists), Commit 1 (Layout.tsx already cleaned up).
-
-**Validation gates:**
-```bash
-cd backend && go build ./...
-cd backend && go test ./...
-./scripts/scan-gorm-security.sh --check    # zero CRITICAL/HIGH
-cd frontend && npm run test
-cd frontend && npm run type-check
-cd frontend && npm run build
-scripts/go-test-coverage.sh               # ≥85%
-lefthook run pre-commit
-```
-
-**Rollback:** `git revert HEAD`. Logo upload endpoint disappears; Layout falls back to `/logo.png` default. No data loss (uploaded file stays in `data/uploads/` but setting is cleared).
-
----
-
-### Commit 6: `test(e2e): add Playwright theme system E2E tests + docs updates`
-
-**Scope:** E2E test suite and documentation.
-
-**Files:**
-- `tests/theme.spec.ts` — New E2E tests
-- `docs/features.md` — Expand "Dark Mode & Modern UI" section
-- `ARCHITECTURE.md` — Note theme system in Frontend / State Management section
-
-**Dependencies:** Commits 1–5 (tests exercise the full system).
-
-**Validation gates:**
-```bash
-npx playwright test --project=firefox tests/theme.spec.ts
-bash scripts/local-patch-report.sh
-```
+| File | Change Type | Feature |
+|------|------------|---------|
+| `backend/internal/api/handlers/image_upload_handler.go` | NEW | Banner (shared) |
+| `backend/internal/api/handlers/logo_handler.go` | REFACTOR | Banner (shared) |
+| `backend/internal/api/handlers/banner_handler.go` | NEW | Banner |
+| `backend/internal/api/handlers/banner_handler_test.go` | NEW | Banner |
+| `backend/internal/models/custom_theme.go` | NEW | Named Themes |
+| `backend/internal/models/custom_theme_test.go` | NEW | Named Themes |
+| `backend/internal/api/handlers/custom_theme_handler.go` | NEW | Named Themes |
+| `backend/internal/api/handlers/custom_theme_handler_test.go` | NEW | Named Themes |
+| `backend/internal/api/routes/routes.go` | EXTEND | Both |
+| `frontend/src/api/settings.ts` | EXTEND | Banner |
+| `frontend/src/api/themes.ts` | NEW | Named Themes |
+| `frontend/src/hooks/useUserThemes.ts` | NEW | Named Themes |
+| `frontend/src/context/ThemeContextValue.ts` | EXTEND | Named Themes |
+| `frontend/src/context/ThemeContext.tsx` | EXTEND | Named Themes |
+| `frontend/index.html` | UPDATE | Named Themes |
+| `frontend/src/components/theme/BannerCustomizer.tsx` | NEW | Banner |
+| `frontend/src/components/theme/UserThemeManager.tsx` | NEW | Named Themes |
+| `frontend/src/components/Layout.tsx` | UPDATE | Banner |
+| `frontend/src/pages/AppearanceSettings.tsx` | EXTEND | Both |
+| `frontend/src/locales/en/translation.json` | EXTEND | Both |
+| `frontend/src/locales/de/translation.json` | EXTEND | Both |
+| `frontend/src/locales/es/translation.json` | EXTEND | Both |
+| `frontend/src/locales/fr/translation.json` | EXTEND | Both |
+| `frontend/src/locales/zh/translation.json` | EXTEND | Both |
+| `frontend/src/components/theme/__tests__/BannerCustomizer.test.tsx` | NEW | Banner |
+| `frontend/src/components/theme/__tests__/UserThemeManager.test.tsx` | NEW | Named Themes |
+| `frontend/src/hooks/__tests__/useUserThemes.test.ts` | NEW | Named Themes |
+| `frontend/src/api/__tests__/themes.test.ts` | NEW | Named Themes |
+| `tests/theme-extensions.spec.ts` | NEW | Both |
+| `ARCHITECTURE.md` | UPDATE | Both |
+| `docs/features.md` | UPDATE | Both |
 
 ---
 
-### PR-Level Contingency Notes
+## Appendix B: GORM Security Notes
 
-- **Rollback sequence:** Commits are ordered so each builds on the previous. To roll back to a partially shipped state, revert from the most recent commit backward. Commit 1 (CSS) can be kept while reverting 2–6 if needed.
-- **Known limitation — `dark:` class migration scope:** This PR migrates only `Layout.tsx` away from hardcoded Tailwind `dark:` classes. The 214+ `dark:` usages in other components (e.g., `CSPBuilder.tsx`, `NotificationCenter.tsx`, etc.) are out of scope. `high-contrast-dark` and `solarized` themes will have mixed styling in those components — they will render with their light-mode fallback styles. A separate PR will complete the migration. See AC-18.
-- **React 18 Strict Mode:** The `useRef(true)` first-render skip will fire once in dev (double-invoke), then `false`. Tests must wrap `ThemeProvider` without `React.StrictMode` or account for the double-invoke when asserting `setAttribute` call counts.
-- **localStorage migration:** The canonical inline script is specified in section 3.4 and reads `charon-theme` first, falls back to the old `'theme'` key, then defaults to `'dark'`. Section 3.4 is the single source of truth for the script — do not diverge from it. See AC-12 for the behavior contract.
-- **Layout.tsx class migration risk:** Layout.tsx is the highest-risk file in Commit 1 — it has ~30 hardcoded dark: class occurrences. The implementation must verify each migrated class has a corresponding CSS custom property mapping in Tailwind config before committing. A visual regression test (screenshot comparison) is strongly recommended.
-- **Backend `NewRouter` signature change:** `server.go` `NewRouter` gains a `dataDir string` parameter. Pass `filepath.Dir(cfg.DatabasePath)` at the call site in `backend/cmd/api/main.go` — do NOT add a new `DataDir` config field. See section 3.9 for the exact derivation. The implementation agent must grep for all `NewRouter` call sites.
-- **No new npm packages** are introduced. All components use existing React, Lucide icons, and the existing `@testing-library/react` + Vitest stack.
-- **GORM Security Scan** is required for Commit 5 because `logo_handler.go` calls GORM to save settings.
+The `CustomTheme` model uses only `db.Find`, `db.Create`, `db.Save`, and `db.Delete` with primary key or unique index lookups. No raw SQL is constructed. All user-controlled values (`name`, `colors`) are bound parameters via GORM's safe query API — they are never interpolated into query strings. The `colors` field stores a JSON string; no dynamic query construction occurs on any field value.
+
+The GORM security scan (`./scripts/scan-gorm-security.sh --check`) must be run and pass before the PR is merged.
+
+---
+
+## Appendix C: `.gitignore` / `.dockerignore` Impact
+
+The banner file is stored in `data/uploads/banner.<ext>`. The `data/` directory is already excluded from git (`.gitignore` line `140: /data/`) and from the Docker build context (`.dockerignore` line `96: data/`). No new ignore rules are needed for the banner feature.
+
+All new source files (`frontend/src/api/themes.ts`, `frontend/src/hooks/useUserThemes.ts`, `backend/internal/models/custom_theme.go`, etc.) are committed source code — no changes to ignore files required.

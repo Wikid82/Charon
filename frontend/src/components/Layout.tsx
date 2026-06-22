@@ -70,8 +70,8 @@ export default function Layout({ children }: LayoutProps) {
     staleTime: 1000 * 60 * 5, // 5 minutes
   })
   const customLogoUrl = settings?.['ui.logo_url'] ?? null
+  const customBannerUrl = settings?.['ui.banner_url'] ?? null
   const logoSrc = customLogoUrl || '/logo.png'
-  const bannerSrc = customLogoUrl || undefined
 
   const navigation: NavItem[] = [
     { name: t('navigation.dashboard'), path: '/', icon: '📊' },
@@ -176,8 +176,8 @@ export default function Layout({ children }: LayoutProps) {
         <div className={`h-20 flex items-center justify-center border-b border-border`}>
            {isCollapsed ? (
              <img src={logoSrc} alt="Charon" className="h-12 w-auto" fetchPriority="high" decoding="async" />
-           ) : bannerSrc ? (
-             <img src={bannerSrc} alt="Charon" className="h-14 w-auto max-w-[200px] object-contain" fetchPriority="high" decoding="async" />
+           ) : customBannerUrl ? (
+             <img src={customBannerUrl} alt="Charon" className="h-14 w-auto max-w-[200px] object-contain" fetchPriority="high" decoding="async" />
            ) : (
              <picture>
                <source srcSet="/banner.webp" type="image/webp" />

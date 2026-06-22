@@ -7,9 +7,13 @@ import {
   type CustomTheme,
   type CustomThemeColors,
   type ThemeExport,
+  type UserTheme,
+  type UserThemeId,
+  isUserThemeId,
   THEME_STORAGE_KEY,
   CUSTOM_THEME_STORAGE_KEY,
 } from './ThemeContextValue'
+import { useUserThemes } from '../hooks/useUserThemes'
 
 // Resolves 'system' to a concrete data-theme value
 function resolveSystemTheme(): DataThemeValue {
@@ -21,6 +25,7 @@ function resolveSystemTheme(): DataThemeValue {
 function resolveDataTheme(theme: ThemeId): DataThemeValue {
   if (theme === 'system') return resolveSystemTheme()
   if (theme === 'custom') return 'custom'
+  if (isUserThemeId(theme)) return 'custom'
   return theme
 }
 
@@ -68,6 +73,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   })
 
+  const { userThemes, isLoading } = useUserThemes()
+
   // isFirstRender: on mount the inline script in index.html already set data-theme.
   // Skip the initial DOM write to avoid a redundant attribute mutation.
   const isFirstRender = useRef(true)
@@ -77,6 +84,25 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       isFirstRender.current = false
       return
     }
+
+    // Handle user:* theme IDs
+    if (isUserThemeId(theme as string)) {
+      // Wait for query to settle before applying fallback
+      if (isLoading) return
+      const ut = userThemes.find(t => `user:${t.id}` === theme)
+      if (ut) {
+        document.documentElement.setAttribute('data-theme', 'custom')
+        applyCustomTokens(ut.colors)
+      } else {
+        // Theme was deleted or DB unavailable — fall back to dark
+        document.documentElement.setAttribute('data-theme', 'dark')
+        clearCustomTokens()
+        setThemeState('dark')
+        try { localStorage.setItem(THEME_STORAGE_KEY, 'dark') } catch { /* ignore */ }
+      }
+      return
+    }
+
     const resolved = resolveDataTheme(theme)
     document.documentElement.setAttribute('data-theme', resolved)
 
@@ -91,7 +117,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     } catch {
       // localStorage unavailable (private browsing) — silently ignore
     }
-  }, [theme, customTheme])
+  }, [theme, customTheme, userThemes, isLoading])
 
   // Listen for system preference changes when in 'system' mode
   useEffect(() => {
@@ -119,6 +145,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setThemeState('custom')
   }, [])
 
+  const setUserTheme = useCallback((userTheme: UserTheme) => {
+    const id: UserThemeId = `user:${userTheme.id}`
+    setThemeState(id)
+    applyCustomTokens(userTheme.colors)
+    document.documentElement.setAttribute('data-theme', 'custom')
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, id)
+    } catch { /* silently ignore */ }
+  }, [])
+
   const exportTheme = useCallback((): ThemeExport => ({
     version: 1,
     exportedAt: new Date().toISOString(),
@@ -140,6 +176,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const resolvedTheme = resolveDataTheme(theme)
 
+  const activeUserTheme: UserTheme | null = isUserThemeId(theme as string)
+    ? userThemes.find(t => `user:${t.id}` === theme) ?? null
+    : null
+
   return (
     <ThemeContext.Provider value={{
       theme,
@@ -149,6 +189,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       setCustomTheme,
       exportTheme,
       importTheme,
+      userThemes,
+      activeUserTheme,
+      setUserTheme,
     }}>
       {children}
     </ThemeContext.Provider>
