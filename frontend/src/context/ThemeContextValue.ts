@@ -9,8 +9,25 @@ export type MetaTheme = 'system' | 'custom'
 // All valid data-theme attribute values
 export type DataThemeValue = BuiltInTheme | 'custom'
 
+// Branded string for user-created theme IDs stored in localStorage
+export type UserThemeId = `user:${string}`
+
+// Type guard — narrows string to UserThemeId
+export function isUserThemeId(id: string): id is UserThemeId {
+  return id.startsWith('user:')
+}
+
+// A user-created named theme (fetched from and stored in the backend)
+export interface UserTheme {
+  id: string
+  name: string
+  colors: CustomThemeColors
+  created_at: string
+  updated_at: string
+}
+
 // Full theme identifier (includes 'system' which resolves to a DataThemeValue)
-export type ThemeId = BuiltInTheme | MetaTheme
+export type ThemeId = BuiltInTheme | MetaTheme | UserThemeId
 
 // A custom color token set
 export interface CustomThemeColors {
@@ -59,6 +76,12 @@ export interface ThemeContextType {
   exportTheme: () => ThemeExport
   // Import theme from JSON
   importTheme: (data: ThemeExport) => void
+  // All user-created named themes (fetched from backend)
+  userThemes: UserTheme[]
+  // The currently active user theme (if a user:* theme is active)
+  activeUserTheme: UserTheme | null
+  // Activate a user-created named theme
+  setUserTheme: (theme: UserTheme) => void
 }
 
 export const ThemeContext = createContext<ThemeContextType | undefined>(undefined)

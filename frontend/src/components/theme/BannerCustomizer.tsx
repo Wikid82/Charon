@@ -6,15 +6,15 @@ import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { Label } from '../ui/Label'
 
-const MAX_LOGO_SIZE_BYTES = 2 * 1024 * 1024 // 2 MB
+const MAX_BANNER_SIZE_BYTES = 2 * 1024 * 1024 // 2 MB
 const ACCEPTED_MIME_TYPES = 'image/png,image/jpeg,image/webp'
 
-function isValidLogoUrl(url: string): boolean {
+function isValidBannerUrl(url: string): boolean {
   return url.startsWith('https://')
 }
 
-export interface LogoCustomizerProps {
-  currentLogoUrl: string | null
+export interface BannerCustomizerProps {
+  currentBannerUrl: string | null
   onUpload: (file: File) => void
   onUrlSave: (url: string) => void
   onReset: () => void
@@ -23,13 +23,13 @@ export interface LogoCustomizerProps {
 
 type ActiveTab = 'upload' | 'url'
 
-export function LogoCustomizer({
-  currentLogoUrl,
+export function BannerCustomizer({
+  currentBannerUrl,
   onUpload,
   onUrlSave,
   onReset,
   isSaving,
-}: LogoCustomizerProps) {
+}: BannerCustomizerProps) {
   const { t } = useTranslation()
   const { user } = useAuth()
   const [activeTab, setActiveTab] = useState<ActiveTab>('upload')
@@ -39,15 +39,13 @@ export function LogoCustomizer({
 
   const isAdmin = user?.role === 'admin'
 
-  const previewSrc = currentLogoUrl || '/logo.png'
-
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFileError(null)
     const file = e.target.files?.[0]
     if (!file) return
 
-    if (file.size > MAX_LOGO_SIZE_BYTES) {
-      setFileError(t('appearance.logoUploadHint'))
+    if (file.size > MAX_BANNER_SIZE_BYTES) {
+      setFileError(t('appearance.bannerUploadHint'))
       e.target.value = ''
       return
     }
@@ -55,7 +53,7 @@ export function LogoCustomizer({
     // Client-side MIME type check (server also validates with byte sniffing)
     const accepted = ['image/png', 'image/jpeg', 'image/webp']
     if (!accepted.includes(file.type)) {
-      setFileError(t('appearance.logoUploadHint'))
+      setFileError(t('appearance.bannerUploadHint'))
       e.target.value = ''
       return
     }
@@ -68,8 +66,8 @@ export function LogoCustomizer({
     setUrlError(null)
     const trimmed = urlInput.trim()
     if (!trimmed) return
-    if (!isValidLogoUrl(trimmed)) {
-      setUrlError(t('appearance.logoUrlHttpsRequired'))
+    if (!isValidBannerUrl(trimmed)) {
+      setUrlError(t('appearance.bannerUrlHttpsRequired'))
       return
     }
     onUrlSave(trimmed)
@@ -78,19 +76,21 @@ export function LogoCustomizer({
   if (!isAdmin) {
     return (
       <div className="space-y-4">
-        {/* Logo preview - always visible */}
-        <div>
-          <p className="text-sm font-medium text-content-secondary mb-2">
-            {t('appearance.logoPreview')}
-          </p>
-          <img
-            src={previewSrc}
-            alt="Logo preview"
-            className="h-16 w-auto object-contain rounded border border-border p-2"
-          />
-        </div>
+        {/* Banner preview - always visible */}
+        {currentBannerUrl && (
+          <div>
+            <p className="text-sm font-medium text-content-secondary mb-2">
+              {t('appearance.bannerPreview')}
+            </p>
+            <img
+              src={currentBannerUrl}
+              alt="Banner preview"
+              className="max-w-full h-16 object-contain rounded border border-border p-2"
+            />
+          </div>
+        )}
         <p className="text-sm text-content-muted">
-          Logo customization requires admin access
+          Banner customization requires admin access
         </p>
       </div>
     )
@@ -98,17 +98,19 @@ export function LogoCustomizer({
 
   return (
     <div className="space-y-4">
-      {/* Logo preview */}
-      <div>
-        <p className="text-sm font-medium text-content-secondary mb-2">
-          {t('appearance.logoPreview')}
-        </p>
-        <img
-          src={previewSrc}
-          alt="Logo preview"
-          className="h-16 w-auto object-contain rounded border border-border p-2"
-        />
-      </div>
+      {/* Banner preview */}
+      {currentBannerUrl && (
+        <div>
+          <p className="text-sm font-medium text-content-secondary mb-2">
+            {t('appearance.bannerPreview')}
+          </p>
+          <img
+            src={currentBannerUrl}
+            alt="Banner preview"
+            className="max-w-full h-16 object-contain rounded border border-border p-2"
+          />
+        </div>
+      )}
 
       {/* Tab switcher */}
       <div className="flex gap-2 border-b border-border">
@@ -121,7 +123,7 @@ export function LogoCustomizer({
               : 'border-transparent text-content-secondary hover:text-content-primary'
           }`}
         >
-          {t('appearance.logoUploadTab')}
+          {t('appearance.bannerUploadTab')}
         </button>
         <button
           type="button"
@@ -132,18 +134,18 @@ export function LogoCustomizer({
               : 'border-transparent text-content-secondary hover:text-content-primary'
           }`}
         >
-          {t('appearance.logoUrlTab')}
+          {t('appearance.bannerUrlTab')}
         </button>
       </div>
 
       {/* Upload tab */}
       {activeTab === 'upload' && (
         <div className="space-y-2">
-          <Label htmlFor="logo-file-input">
-            {t('appearance.logoUploadTab')}
+          <Label htmlFor="banner-file-input">
+            {t('appearance.bannerUploadTab')}
           </Label>
           <input
-            id="logo-file-input"
+            id="banner-file-input"
             type="file"
             accept={ACCEPTED_MIME_TYPES}
             onChange={handleFileChange}
@@ -158,7 +160,7 @@ export function LogoCustomizer({
           {fileError ? (
             <p className="text-xs text-error">{fileError}</p>
           ) : (
-            <p className="text-xs text-content-muted">{t('appearance.logoUploadHint')}</p>
+            <p className="text-xs text-content-muted">{t('appearance.bannerUploadHint')}</p>
           )}
         </div>
       )}
@@ -166,17 +168,17 @@ export function LogoCustomizer({
       {/* URL tab */}
       {activeTab === 'url' && (
         <div className="space-y-2">
-          <Label htmlFor="logo-url-input">
-            {t('appearance.logoUrlTab')}
+          <Label htmlFor="banner-url-input">
+            {t('appearance.bannerUrlTab')}
           </Label>
           <div className="flex gap-2">
             <Input
-              id="logo-url-input"
+              id="banner-url-input"
               type="url"
               pattern="https://.*"
               value={urlInput}
               onChange={(e) => { setUrlInput(e.target.value); setUrlError(null) }}
-              placeholder={t('appearance.logoUrlPlaceholder')}
+              placeholder={t('appearance.bannerUrlPlaceholder')}
               disabled={isSaving}
               className="flex-1"
             />
@@ -186,7 +188,7 @@ export function LogoCustomizer({
               onClick={handleUrlSave}
               disabled={isSaving || !urlInput.trim()}
             >
-              {t('appearance.logoSaveButton')}
+              {t('appearance.bannerSaveButton')}
             </Button>
           </div>
           {urlError && (
@@ -204,7 +206,7 @@ export function LogoCustomizer({
           disabled={isSaving}
           className="text-content-muted hover:text-content-primary"
         >
-          {t('appearance.logoResetButton')}
+          {t('appearance.bannerResetButton')}
         </Button>
       </div>
     </div>
