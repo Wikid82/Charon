@@ -133,6 +133,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		&models.TunnelConfig{},          // Issue #368: Hecate tunnel provider configs
 		&models.OrthrusAgent{},          // Issue #369: Orthrus reverse-proxy agent registry
 		&models.RequestLog{},            // Issue #25: Enhanced dashboard statistics
+		&models.CustomTheme{},           // User-created named color-scheme themes
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -347,6 +348,18 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		logoHandler := handlers.NewLogoHandler(db, dataRoot)
 		management.POST("/settings/logo", logoHandler.UploadLogo)
 		management.DELETE("/settings/logo", logoHandler.DeleteLogo)
+
+		// Banner upload/delete — admin only (enforced inside ImageUploadHandler)
+		bannerHandler := handlers.NewBannerHandler(db, dataRoot)
+		management.POST("/settings/banner", bannerHandler.UploadBanner)
+		management.DELETE("/settings/banner", bannerHandler.DeleteBanner)
+
+		// User-created named themes — available to all management users (not admin-only)
+		themeHandler := handlers.NewCustomThemeHandler(db)
+		management.GET("/themes", themeHandler.ListThemes)
+		management.POST("/themes", themeHandler.CreateTheme)
+		management.PUT("/themes/:id", themeHandler.UpdateTheme)
+		management.DELETE("/themes/:id", themeHandler.DeleteTheme)
 
 		// SMTP Configuration
 		management.GET("/settings/smtp", middleware.RequireRole(models.RoleAdmin), settingsHandler.GetSMTPConfig)
