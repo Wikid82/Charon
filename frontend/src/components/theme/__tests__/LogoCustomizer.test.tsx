@@ -21,6 +21,7 @@ vi.mock('react-i18next', () => ({
         'appearance.logoSaveButton': 'Save Logo',
         'appearance.logoUploadHint': 'PNG, JPG or WebP — max 2 MB',
         'appearance.logoUrlPlaceholder': 'https://example.com/logo.png',
+        'appearance.logoUrlHttpsRequired': 'URL must start with https://',
       }
       return translations[key] ?? key
     },
@@ -180,6 +181,41 @@ describe('LogoCustomizer', () => {
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
     expect(document.querySelector('input[type="file"]')).not.toBeInTheDocument()
     expect(screen.queryByText('Reset to Default')).not.toBeInTheDocument()
+  })
+
+  // LC-09: Invalid URL (http://) shows error and does NOT call onUrlSave
+  it('LC-09: rejects http:// URL with inline error and does NOT call onUrlSave', async () => {
+    const onUrlSave = vi.fn()
+    renderAdmin({ onUrlSave })
+
+    const urlTab = screen.getByText('Enter URL')
+    await userEvent.click(urlTab)
+
+    const input = screen.getByPlaceholderText('https://example.com/logo.png')
+    await userEvent.type(input, 'http://example.com/logo.png')
+
+    const saveButton = screen.getByText('Save Logo')
+    await userEvent.click(saveButton)
+
+    expect(onUrlSave).not.toHaveBeenCalled()
+    await waitFor(() => {
+      expect(screen.getByText('URL must start with https://')).toBeInTheDocument()
+    })
+  })
+
+  // LC-10: Switching from URL tab back to Upload tab restores file input
+  it('LC-10: switching from URL tab back to Upload tab shows file input', async () => {
+    renderAdmin()
+
+    const urlTab = screen.getByText('Enter URL')
+    await userEvent.click(urlTab)
+    expect(screen.getByRole('textbox')).toBeInTheDocument()
+
+    const uploadTab = screen.getByText('Upload File')
+    await userEvent.click(uploadTab)
+
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(document.querySelector('input[type="file"]')).toBeInTheDocument()
   })
 
   // Shows current logo preview

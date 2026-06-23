@@ -336,6 +336,34 @@ describe('ThemeImportExport', () => {
     window.Blob = originalBlob
   })
 
+  it('shows error toast when FileReader result is not a string', () => {
+    renderThemeImportExport()
+    const fileInput = screen.getByTestId('theme-file-input') as HTMLInputElement
+
+    let capturedOnload: ((e: { target: { result: unknown } }) => void) | null = null
+    class NonStringFileReader {
+      onload: ((e: { target: { result: unknown } }) => void) | null = null
+      readAsText(_file: File) {
+        capturedOnload = this.onload
+      }
+    }
+    const OriginalFileReader = window.FileReader
+    ;(window as any).FileReader = NonStringFileReader
+
+    const file = new File(['dummy'], 'theme.json', { type: 'application/json' })
+    fireEvent.change(fileInput, { target: { files: [file] } })
+
+    act(() => {
+      if (capturedOnload) {
+        capturedOnload({ target: { result: new ArrayBuffer(0) } })
+      }
+    })
+
+    ;(window as any).FileReader = OriginalFileReader
+
+    expect(mockToastError).toHaveBeenCalledWith('Invalid theme file')
+  })
+
   it('does not call toast.error when no file is selected', () => {
     renderThemeImportExport()
     const fileInput = screen.getByTestId('theme-file-input') as HTMLInputElement

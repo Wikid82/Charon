@@ -188,6 +188,21 @@ describe('BannerCustomizer', () => {
     expect(img.src).toContain('/uploads/banner.png')
   })
 
+  // BC-12: Switching from URL tab back to Upload tab restores file input
+  it('BC-12: switching from URL tab back to Upload tab shows file input', async () => {
+    renderAdmin()
+
+    const urlTab = screen.getByText('Enter URL')
+    await userEvent.click(urlTab)
+    expect(screen.getByRole('textbox')).toBeInTheDocument()
+
+    const uploadTab = screen.getByText('Upload File')
+    await userEvent.click(uploadTab)
+
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(document.querySelector('#banner-file-input')).toBeInTheDocument()
+  })
+
   // BC-11: javascript: URL is rejected
   it('BC-11: rejects javascript: URL', async () => {
     const onUrlSave = vi.fn()
