@@ -261,6 +261,45 @@ func TestBannerHandler_UploadBanner_NonAdmin(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 
+// BN-11: Valid JPEG upload returns 200 (covers acceptedMIME JPEG branch).
+func TestBannerHandler_UploadBanner_ValidJPEG(t *testing.T) {
+	db := setupBannerTestDB(t)
+	dataDir := t.TempDir()
+	r := buildBannerRouter(db, dataDir, "admin")
+
+	// Minimal JPEG magic bytes: SOI marker (FF D8) + APP0 marker (FF E0)
+	minimalJPEG := []byte{
+		0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, // SOI + APP0 marker + length
+		0x4A, 0x46, 0x49, 0x46, 0x00,       // "JFIF\0"
+		0x01, 0x01, 0x00, 0x00, 0x01,       // version, aspect ratio units, X density
+		0x00, 0x01, 0x00, 0x00,             // Y density, thumbnail dimensions
+	}
+
+	req := buildBannerUploadRequest(t, "banner.jpg", minimalJPEG, "")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), `/uploads/banner.jpg`)
+}
+
+// BN-12: Upload with closed DB returns 500 (upsertSetting failure).
+func TestBannerHandler_UploadBanner_DBClosed(t *testing.T) {
+	db := setupBannerTestDB(t)
+	dataDir := t.TempDir()
+	r := buildBannerRouter(db, dataDir, "admin")
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	req := buildBannerUploadRequest(t, "banner.png", minimalPNG, "")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
 // BN-10: Unauthenticated DELETE returns 401.
 func TestBannerHandler_DeleteBanner_Unauthenticated(t *testing.T) {
 	db := setupBannerTestDB(t)
