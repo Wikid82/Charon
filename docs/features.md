@@ -337,9 +337,19 @@ Charon speaks your language. The interface is available in English, Spanish, Fre
 
 ---
 
-### 🎨 Dark Mode & Modern UI
+### 🎨 Themes & Personalization
 
-Easy on the eyes, day or night. Toggle between light and dark themes to match your preference. The clean, modern interface makes managing complex setups feel simple.
+Make Charon look exactly the way you want. Choose from five built-in themes — Dark, Light, High Contrast Dark, High Contrast Light, and Solarized — or design your own with a full color picker. Your theme is remembered and applied the instant the page loads, with no flicker or flash.
+
+**What you can do:**
+
+- **Theme Gallery** — Open Settings > Appearance to browse all themes as visual preview cards. Hover over any card to see it applied live before you commit to it.
+- **Follow System** — Turn this on and Charon automatically switches between light and dark to match your operating system's setting.
+- **Custom Colors** — Not happy with the built-in options? Pick any color you like for every part of the interface.
+- **Import & Export** — Save your custom theme as a file and share it with others, or load a theme someone else created. Great for backups too.
+- **Logo Customization** — Upload your own image or paste a URL to replace the Charon logo in the sidebar with something that feels like home.
+- **Banner Image** — Upload a custom banner image (PNG, JPG, GIF, or WebP, up to 5 MB) to display across the top of the app. Preview it before saving, and remove it any time — all from Settings > Appearance.
+- **Named Custom Themes** — Build your own color theme from scratch, give it a name, and save it. You can create as many as you like, switch between them, edit them later, or delete ones you no longer need. Find it under Settings > Appearance.
 
 → [Learn More](features/ui-themes.md)
 

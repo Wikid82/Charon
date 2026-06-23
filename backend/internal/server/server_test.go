@@ -20,8 +20,9 @@ func TestNewRouter(t *testing.T) {
 	err := os.WriteFile(filepath.Join(tempDir, "index.html"), []byte("<html></html>"), 0o644)
 	assert.NoError(t, err)
 
-	router := NewRouter(tempDir)
+	router := NewRouter(tempDir, "")
 	assert.NotNil(t, router)
+
 
 	// Test static file serving
 	req, _ := http.NewRequest("GET", "/", http.NoBody)
@@ -38,6 +39,13 @@ func TestNewRouter(t *testing.T) {
 	assert.NotContains(t, apiW.Body.String(), "<html></html>")
 	assert.Contains(t, apiW.Body.String(), "not found")
 
+	// Test /unknown-path SPA fallback: return HTML for non-API paths
+	spaReq, _ := http.NewRequest("GET", "/some/deep/route", http.NoBody)
+	spaW := httptest.NewRecorder()
+	router.ServeHTTP(spaW, spaReq)
+	assert.Equal(t, http.StatusOK, spaW.Code)
+	assert.Contains(t, spaW.Body.String(), "<html></html>")
+
 	// Test WebP/SVG static routes return 200 when the file exists
 	for _, asset := range []struct{ route, file string }{
 		{"/banner.webp", "banner.webp"},
@@ -52,4 +60,23 @@ func TestNewRouter(t *testing.T) {
 		router.ServeHTTP(rw, r)
 		assert.Equal(t, http.StatusOK, rw.Code, "route %s should return 200", asset.route)
 	}
+}
+
+// TestNewRouter_WithDataDir verifies that /uploads is served from dataDir/uploads when dataDir is set.
+func TestNewRouter_WithDataDir(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	dataDir := t.TempDir()
+	uploadsDir := filepath.Join(dataDir, "uploads")
+	assert.NoError(t, os.MkdirAll(uploadsDir, 0o755))
+	// #nosec G306 -- Test fixture needs to be world-readable for HTTP serving test
+	assert.NoError(t, os.WriteFile(filepath.Join(uploadsDir, "logo.png"), []byte("fake-png"), 0o644))
+
+	router := NewRouter("", dataDir)
+	assert.NotNil(t, router)
+
+	req, _ := http.NewRequest("GET", "/uploads/logo.png", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
 }

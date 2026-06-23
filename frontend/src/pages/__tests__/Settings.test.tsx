@@ -11,6 +11,7 @@ const translations: Record<string, string> = {
   'settings.system': 'System',
   'navigation.notifications': 'Notifications',
   'settings.smtp': 'Email (SMTP)',
+  'settings.appearance': 'Appearance',
   'navigation.users': 'Users',
 }
 
@@ -57,6 +58,6 @@ describe('Settings page', () => {
     const links = screen.getAllByRole('link')
     const labels = links.map(link => link.textContent)
 
-    expect(labels).toEqual(['System', 'Notifications', 'Email (SMTP)', 'Users'])
+    expect(labels).toEqual(['System', 'Notifications', 'Email (SMTP)', 'Appearance', 'Users'])
   })
 })
