@@ -767,6 +767,79 @@ ignore:
     # 2. If migrated: rebuild, confirm clean, remove this entry AND GHSA-jqcq-xjh3-6g23 / CVE-2026-4427 / CVE-2026-32286
     # 3. If not: Extend expiry by 30 days
 
+  # GO-2026-5024 / CVE-2026-39824: golang.org/x/sys/windows NewNTUnicodeString integer overflow
+  # Severity: HIGH — Package: golang.org/x/sys v0.46.0 (embedded in /app/charon)
+  # Published: 2026-05-22
+  #
+  # Vulnerability Details:
+  # - NewNTUnicodeString in golang.org/x/sys/windows does not validate that the input string
+  #   fits within the 16-bit byte-length field of NTUnicodeString. Oversized strings are
+  #   silently truncated rather than returning an error (CWE-190: Integer Overflow).
+  # - Affected function lives exclusively in the /windows sub-package; Charon is a Linux-only
+  #   application and this code path is never compiled into nor executed by the charon binary.
+  #
+  # Root Cause of Suppression (Database Discrepancy):
+  # - Go vulndb (pkg.go.dev/vuln/GO-2026-5024) marks this FIXED at golang.org/x/sys v0.44.0.
+  #   Charon ships v0.46.0 — above the fix threshold. govulncheck reports clean.
+  # - NVD currently shows "no confirmed patch", causing Trivy v0.71.2+ to flag v0.46.0 as
+  #   vulnerable. Local Trivy v0.52.2 with fresh DB (2026-06-23) finds no issue.
+  # - No golang.org/x/sys version > v0.46.0 (current latest) exists to upgrade to.
+  #
+  # Risk Assessment: ACCEPTED (Windows-only code path; database discrepancy; no upgrade path)
+  # - Attack surface is zero on Linux: the vulnerable function is in the windows package which
+  #   Go's build constraints exclude from Linux builds entirely.
+  # - Charon does not ship Windows builds; no Windows runtime is present in the Docker image.
+  # - Per Go's own advisory, we are already running the patched version.
+  #
+  # Mitigation:
+  # - Monitor golang.org/x/sys releases; upgrade as soon as a version > v0.46.0 is available.
+  # - Monitor NVD for database update that aligns fixed version with Go vulndb (v0.44.0).
+  # - Remove suppression and upgrade once NVD converges or x/sys v0.47.0+ ships.
+  #
+  # Review:
+  # - Initial suppression 2026-06-23: NVD/Trivy discrepancy; no upgrade path exists.
+  # - Next review: 2026-09-23. Remove if x/sys > v0.46.0 is available OR NVD/Trivy divergence
+  #   is resolved and Trivy no longer flags v0.46.0.
+  #
+  # Removal Criteria:
+  # - golang.org/x/sys v0.47.0+ is released: upgrade go.mod and verify clean scan
+  # - OR NVD updates fixed version to v0.44.0+, Trivy stops flagging v0.46.0
+  #
+  # References:
+  # - GO-2026-5024: https://pkg.go.dev/vuln/GO-2026-5024
+  # - CVE-2026-39824: https://nvd.nist.gov/vuln/detail/CVE-2026-39824
+  # - Go issue: https://go.dev/issue/78916
+  # - Fix CL: https://go.dev/cl/770080
+  - vulnerability: GO-2026-5024
+    package:
+      name: golang.org/x/sys
+      version: "v0.46.0"
+      type: go-module
+    reason: |
+      HIGH — Integer overflow in golang.org/x/sys/windows.NewNTUnicodeString v0.46.0 in /app/charon.
+      Go vulndb considers fixed at v0.44.0; we ship v0.46.0 (above threshold). The affected
+      function is Windows-only; Charon is Linux-only and this code path is never executed.
+      NVD database discrepancy causes Trivy v0.71.2+ to flag despite Go vulndb reporting clean.
+      No x/sys > v0.46.0 (current latest) exists to upgrade to. govulncheck reports clean.
+    expiry: "2026-09-23"  # Review: Initial suppression 2026-06-23. Next review: 2026-09-23.
+
+    # Action items when this suppression expires:
+    # 1. Check if golang.org/x/sys v0.47.0+ is available: upgrade go.mod and run Trivy v0.71.2+
+    # 2. Check NVD CVE-2026-39824: if fixed version now shows v0.44.0, Trivy will stop flagging
+    # 3. If neither: extend expiry 30 days
+  - vulnerability: CVE-2026-39824
+    package:
+      name: golang.org/x/sys
+      version: "v0.46.0"
+      type: go-module
+    reason: |
+      HIGH — CVE alias for GO-2026-5024. Integer overflow in golang.org/x/sys/windows.NewNTUnicodeString.
+      Go vulndb considers fixed at v0.44.0; we ship v0.46.0. Windows-only function; Charon is
+      Linux-only. NVD/Trivy discrepancy; no upgrade path (v0.46.0 is latest). govulncheck clean.
+    expiry: "2026-09-23"  # Review: Initial suppression 2026-06-23. Remove when Trivy/NVD converge.
+
+    # Action items: same as GO-2026-5024 entry above.
+
 # Match exclusions (patterns to ignore during scanning)
 # Use sparingly - prefer specific CVE suppressions above
 match:

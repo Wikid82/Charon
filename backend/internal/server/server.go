@@ -9,12 +9,19 @@ import (
 )
 
 // NewRouter creates a new Gin router with frontend static file serving.
-func NewRouter(frontendDir string) *gin.Engine {
+// dataDir is the application data directory (e.g. filepath.Dir(cfg.DatabasePath)).
+// When non-empty, /uploads is served from dataDir/uploads for custom logo files.
+func NewRouter(frontendDir string, dataDir string) *gin.Engine {
 	router := gin.Default()
 	// Gin trusts all proxies by default. In v1.11.x, SetTrustedProxies(nil) disables
 	// trusting forwarded headers entirely, making Context.ClientIP() use the remote
 	// socket address. Only enable trusted proxies via an explicit allow-list.
 	_ = router.SetTrustedProxies(nil)
+
+	// Serve uploaded logo files from data directory
+	if dataDir != "" {
+		router.Static("/uploads", dataDir+"/uploads")
+	}
 
 	// Serve frontend static files
 	if frontendDir != "" {
