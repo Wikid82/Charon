@@ -13,11 +13,8 @@
  */
 
 import { test, expect } from './fixtures/test';
-import { loginUser } from './fixtures/auth-fixtures';
-import { TestDataManager } from './utils/TestDataManager';
 import { STORAGE_STATE } from './constants';
-import { existsSync, readFileSync } from 'fs';
-import { request as playwrightRequest } from '@playwright/test';
+import { existsSync } from 'fs';
 
 // ---------------------------------------------------------------------------
 // Helpers
