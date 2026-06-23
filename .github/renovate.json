@@ -10,7 +10,8 @@
     "development"
   ],
   "postUpdateOptions": [
-    "npmDedupe"
+    "npmDedupe",
+    "gomodTidy"
   ],
   "timezone": "America/New_York",
   "dependencyDashboard": true,
@@ -25,7 +26,8 @@
   ],
 
   "ignoreDeps": [
-    "github.com/gorilla/websocket"
+    "github.com/gorilla/websocket",
+    "github.com/golang-jwt/jwt/v5"
   ],
 
   "minimumReleaseAge": null,
@@ -379,6 +381,20 @@
     },
     {
       "customType": "regex",
+      "description": "Track golang-jwt/jwt v5 in go.mod via github-tags (workaround: Renovate go datasource no-result for /vN module paths)",
+      "managerFilePatterns": [
+        "/^backend/go\\.mod$/"
+      ],
+      "matchStrings": [
+        "github\\.com/golang-jwt/jwt/v5 v(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "golang-jwt/jwt",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
       "description": "Track coraza-caddy version ARG in Dockerfile",
       "managerFilePatterns": [
         "/^Dockerfile$/"
@@ -397,6 +413,16 @@
     ]
   },
   "packageRules": [
+    {
+      "description": "Pin js-yaml to v4.x — transitive dependents (@eslint/eslintrc, markdownlint-cli2) use v4 API internally; v5 is a breaking rewrite incompatible with their pinned calls",
+      "matchDatasources": [
+        "npm"
+      ],
+      "matchPackageNames": [
+        "js-yaml"
+      ],
+      "allowedVersions": "<5.0.0"
+    },
     {
       "description": "Group GitHub Actions non-major updates into one PR",
       "matchManagers": [
@@ -598,13 +624,14 @@
       "sourceUrl": "https://github.com/google/uuid"
     },
     {
-      "description": "Fix Renovate lookup for golang-jwt/jwt v5 module path",
+      "description": "golang-jwt/jwt via github-tags custom manager: constrain to v5.x and provide changelog source",
       "matchDatasources": [
-        "go"
+        "github-tags"
       ],
       "matchPackageNames": [
-        "github.com/golang-jwt/jwt/v5"
+        "golang-jwt/jwt"
       ],
+      "allowedVersions": ">=5.0.0 <6.0.0",
       "sourceUrl": "https://github.com/golang-jwt/jwt"
     },
     {

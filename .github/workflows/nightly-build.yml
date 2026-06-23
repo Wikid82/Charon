@@ -16,7 +16,7 @@ on:
 
 env:
   GO_VERSION: '1.26.4'
-  NODE_VERSION: '24.12.0'
+  NODE_VERSION: '24.17.0'
   GOTOOLCHAIN: local
   GHCR_REGISTRY: ghcr.io
   DOCKERHUB_REGISTRY: docker.io
@@ -35,7 +35,7 @@ jobs:
 
     steps:
       - name: Checkout nightly branch
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           ref: nightly
           fetch-depth: 0
@@ -166,7 +166,7 @@ jobs:
           tool-cache: false
 
       - name: Checkout nightly branch
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
           fetch-depth: 0
@@ -420,7 +420,7 @@ jobs:
           tool-cache: false
 
       - name: Checkout nightly branch
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
           fetch-depth: 0
@@ -498,7 +498,7 @@ jobs:
 
     steps:
       - name: Checkout nightly branch
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
 
@@ -567,7 +567,7 @@ jobs:
 
     steps:
       - name: Checkout nightly branch
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
 
@@ -592,7 +592,7 @@ jobs:
           image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}
           format: 'sarif'
           output: 'trivy-nightly.sarif'
-          version: 'v0.71.0'
+          version: 'v0.71.2'
           trivyignores: '.trivyignore'
 
       - name: Upload Trivy results

@@ -13,7 +13,7 @@ ARG BUILD_DEBUG=0
 ARG GO_VERSION=1.26.4
 
 # renovate: datasource=docker depName=alpine versioning=docker
-ARG ALPINE_IMAGE=alpine:3.24.0@sha256:a2d49ea686c2adfe3c992e47dc3b5e7fa6e6b5055609400dc2acaeb241c829f4
+ARG ALPINE_IMAGE=alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
 
 # ---- Shared CrowdSec Version ----
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
@@ -94,7 +94,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.16.0-alpine3.24@sha256:fb71d01345f11b708a3553c66e7c74074f2d506400ea81973343d915cb64eef0 AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.17.0-alpine3.24@sha256:156b55f92e98ccd5ef49578a8cea0df4679826564bad1c9d4ef04462b9f0ded6 AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -480,7 +480,7 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
     go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.13 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.75.2 && \
+    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.77.0 && \
     go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7 && \
     go get github.com/aws/aws-sdk-go-v2/service/s3@v1.102.1 && \
     # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
@@ -593,7 +593,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=11b88595d026953920668d91f6d531057b397f05170237fc98a13a8b051ab861
+ARG GEOLITE2_COUNTRY_SHA256=6e9212f23d3279a2454404d3b2a7ac30159fddbb9870ba33763014877296455c
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
