@@ -199,4 +199,104 @@ describe('UserThemeManager', () => {
     const swatches = document.querySelectorAll('[aria-hidden="true"]')
     expect(swatches.length).toBeGreaterThanOrEqual(5)
   })
+
+  // UTM-12: Typing in create dialog name input changes the value
+  it('UTM-12: typing in create dialog name input updates the field', async () => {
+    render(<UserThemeManager activeThemeId="dark" onActivate={vi.fn()} />)
+
+    await userEvent.click(screen.getByRole('button', { name: /create new theme/i }))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+
+    const nameInput = screen.getByLabelText('Theme Name') as HTMLInputElement
+    await userEvent.type(nameInput, 'Midnight')
+    expect(nameInput.value).toBe('Midnight')
+  })
+
+  // UTM-13: Cancel button in create dialog closes it without calling createTheme
+  it('UTM-13: cancel in create dialog closes dialog without creating theme', async () => {
+    const createTheme = vi.fn()
+    setupMock({ createTheme })
+    render(<UserThemeManager activeThemeId="dark" onActivate={vi.fn()} />)
+
+    await userEvent.click(screen.getByRole('button', { name: /create new theme/i }))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+
+    await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(createTheme).not.toHaveBeenCalled()
+  })
+
+  // UTM-14: Saving the create form calls createTheme and closes the dialog
+  it('UTM-14: submitting create dialog calls createTheme with the entered name', async () => {
+    const createTheme = vi.fn().mockResolvedValue(undefined)
+    setupMock({ createTheme })
+    render(<UserThemeManager activeThemeId="dark" onActivate={vi.fn()} />)
+
+    await userEvent.click(screen.getByRole('button', { name: /create new theme/i }))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+
+    await userEvent.type(screen.getByLabelText('Theme Name'), 'Midnight Blue')
+    await userEvent.click(screen.getByRole('button', { name: /save theme/i }))
+
+    await waitFor(() => expect(createTheme).toHaveBeenCalledWith('Midnight Blue', expect.any(Object)))
+  })
+
+  // UTM-15: Edit dialog: change name + cancel without saving
+  it('UTM-15: cancel in edit dialog closes it without calling updateTheme', async () => {
+    const updateTheme = vi.fn()
+    setupMock({ userThemes: [sampleTheme], updateTheme })
+    render(<UserThemeManager activeThemeId="dark" onActivate={vi.fn()} />)
+
+    await userEvent.click(screen.getByRole('button', { name: /edit theme my dark theme/i }))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+
+    const nameInput = screen.getByLabelText('Theme Name') as HTMLInputElement
+    await userEvent.clear(nameInput)
+    await userEvent.type(nameInput, 'Renamed')
+    expect(nameInput.value).toBe('Renamed')
+
+    await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(updateTheme).not.toHaveBeenCalled()
+  })
+
+  // UTM-16: Saving the edit dialog calls updateTheme with the new name
+  it('UTM-16: submitting edit dialog calls updateTheme with updated name', async () => {
+    const updateTheme = vi.fn().mockResolvedValue(undefined)
+    setupMock({ userThemes: [sampleTheme], updateTheme })
+    render(<UserThemeManager activeThemeId="dark" onActivate={vi.fn()} />)
+
+    await userEvent.click(screen.getByRole('button', { name: /edit theme my dark theme/i }))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+
+    const nameInput = screen.getByLabelText('Theme Name') as HTMLInputElement
+    await userEvent.clear(nameInput)
+    await userEvent.type(nameInput, 'Updated Name')
+
+    await userEvent.click(screen.getByRole('button', { name: /save theme/i }))
+
+    await waitFor(() =>
+      expect(updateTheme).toHaveBeenCalledWith('uuid-1', expect.objectContaining({ name: 'Updated Name' }))
+    )
+  })
+
+  // UTM-17: Cancel button in delete confirm dialog closes it without calling deleteTheme
+  it('UTM-17: cancel in delete confirm dialog does not call deleteTheme', async () => {
+    const deleteTheme = vi.fn()
+    setupMock({ userThemes: [sampleTheme], deleteTheme })
+    render(<UserThemeManager activeThemeId="dark" onActivate={vi.fn()} />)
+
+    await userEvent.click(screen.getByRole('button', { name: /delete theme my dark theme/i }))
+    await waitFor(() => expect(screen.getByText('Delete this theme? This cannot be undone.')).toBeInTheDocument())
+
+    const cancelBtn = screen.getAllByRole('button', { name: /^cancel$/i })[0]
+    await userEvent.click(cancelBtn)
+
+    await waitFor(() =>
+      expect(screen.queryByText('Delete this theme? This cannot be undone.')).not.toBeInTheDocument()
+    )
+    expect(deleteTheme).not.toHaveBeenCalled()
+  })
 })

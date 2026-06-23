@@ -257,6 +257,61 @@ func TestLogoHandler_UploadLogo_NonAdmin(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 
+// TestLogoHandler_UploadLogo_EmptyFile uploads a 0-byte file and expects HTTP 400 "failed to read file".
+// An empty multipart file causes io.ReadFull to return io.EOF (not io.ErrUnexpectedEOF),
+// which the handler treats as a read error.
+func TestLogoHandler_UploadLogo_EmptyFile(t *testing.T) {
+	db := setupLogoTestDB(t)
+	dataDir := t.TempDir()
+	r := buildLogoRouter(db, dataDir, "admin")
+
+	req := buildUploadRequest(t, "empty.png", []byte{}, "")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "failed to read file")
+}
+
+// TestLogoHandler_UploadLogo_MkdirAllFailure places a regular file where the uploads directory
+// should be so that os.MkdirAll returns "not a directory", exercising the 500 error path.
+func TestLogoHandler_UploadLogo_MkdirAllFailure(t *testing.T) {
+	db := setupLogoTestDB(t)
+	dataDir := t.TempDir()
+
+	// Block directory creation: write a regular file at the "uploads" path
+	uploadsPath := filepath.Join(dataDir, "uploads")
+	require.NoError(t, os.WriteFile(uploadsPath, []byte("block"), 0o644))
+
+	r := buildLogoRouter(db, dataDir, "admin")
+	req := buildUploadRequest(t, "logo.png", minimalPNG, "")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "failed to create uploads directory")
+}
+
+// TestLogoHandler_UploadLogo_WriteFileFailure creates a read-only uploads directory so that
+// os.WriteFile returns a permission error, exercising the 500 "failed to write" path.
+func TestLogoHandler_UploadLogo_WriteFileFailure(t *testing.T) {
+	db := setupLogoTestDB(t)
+	dataDir := t.TempDir()
+
+	// Create uploads dir but make it non-writable
+	uploadsDir := filepath.Join(dataDir, "uploads")
+	require.NoError(t, os.MkdirAll(uploadsDir, 0o555))
+	t.Cleanup(func() { _ = os.Chmod(uploadsDir, 0o755) })
+
+	r := buildLogoRouter(db, dataDir, "admin")
+	req := buildUploadRequest(t, "logo.png", minimalPNG, "")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "failed to write")
+}
+
 // TestLogoHandler_UploadLogo_MissingField ensures missing "logo" field returns 400.
 func TestLogoHandler_UploadLogo_MissingField(t *testing.T) {
 	db := setupLogoTestDB(t)
