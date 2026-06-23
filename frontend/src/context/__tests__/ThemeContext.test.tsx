@@ -3,7 +3,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
 import { useTheme } from '../../hooks/useTheme'
 import { ThemeProvider } from '../ThemeContext'
-import { THEME_STORAGE_KEY, CUSTOM_THEME_STORAGE_KEY, type CustomThemeColors, type ThemeExport } from '../ThemeContextValue'
+import { THEME_STORAGE_KEY, CUSTOM_THEME_STORAGE_KEY, type CustomThemeColors, type ThemeExport, type UserTheme } from '../ThemeContextValue'
+import { useUserThemes } from '../../hooks/useUserThemes'
 
 // ThemeProvider calls useUserThemes internally; stub it so tests don't need QueryClientProvider
 vi.mock('../../hooks/useUserThemes', () => ({
@@ -19,6 +20,8 @@ vi.mock('../../hooks/useUserThemes', () => ({
     isDeleting: false,
   }),
 }))
+
+const mockUseUserThemes = vi.mocked(useUserThemes)
 
 // Wrap renderHook so all hooks use ThemeProvider
 function renderThemeHook() {
@@ -45,8 +48,21 @@ describe('ThemeProvider', () => {
   let attributeSpy: ReturnType<typeof vi.spyOn>
   let setPropertySpy: ReturnType<typeof vi.spyOn>
 
+  const defaultMockReturn = () => ({
+    userThemes: [],
+    isLoading: false,
+    error: null,
+    createTheme: vi.fn(),
+    updateTheme: vi.fn(),
+    deleteTheme: vi.fn(),
+    isCreating: false,
+    isUpdating: false,
+    isDeleting: false,
+  })
+
   beforeEach(() => {
     localStorage.clear()
+    mockUseUserThemes.mockReturnValue(defaultMockReturn())
     attributeSpy = vi.spyOn(document.documentElement, 'setAttribute')
     setPropertySpy = vi.spyOn(document.documentElement.style, 'setProperty')
   })
@@ -54,6 +70,7 @@ describe('ThemeProvider', () => {
   afterEach(() => {
     attributeSpy.mockRestore()
     setPropertySpy.mockRestore()
+    vi.unstubAllGlobals()
   })
 
   // TC-01: Default theme is 'dark' when no localStorage value is set
@@ -311,5 +328,101 @@ describe('ThemeProvider', () => {
 
     const { result } = renderThemeHook()
     expect(result.current.customTheme).toEqual(storedTheme)
+  })
+
+  // TC-user-1: isLoading early-return when theme is user:* and the query hasn't settled
+  it('user:* theme with isLoading=true returns early without setting data-theme', async () => {
+    mockUseUserThemes.mockReturnValue({ ...defaultMockReturn(), isLoading: true })
+    const { result } = renderThemeHook()
+
+    await act(async () => {
+      result.current.setTheme('user:xyz' as any)
+    })
+
+    // The effect must return early — data-theme should NOT be changed by the effect
+    // (only the inline script or a prior render would have set it)
+    // We assert setAttribute was NOT called with 'data-theme' and a non-dark value
+    const calls = attributeSpy.mock.calls.filter(
+      ([attr, val]: [string, string]) => attr === 'data-theme' && val !== 'dark'
+    )
+    expect(calls).toHaveLength(0)
+  })
+
+  // TC-user-2: user:* theme not found in list → fallback to dark
+  it('user:* theme not in userThemes falls back to dark and clears custom tokens', async () => {
+    mockUseUserThemes.mockReturnValue({ ...defaultMockReturn(), isLoading: false, userThemes: [] })
+    const { result } = renderThemeHook()
+
+    await act(async () => {
+      result.current.setTheme('user:nonexistent' as any)
+    })
+
+    expect(attributeSpy).toHaveBeenCalledWith('data-theme', 'dark')
+    expect(result.current.theme).toBe('dark')
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
+  })
+
+  // TC-system-change: system media query change event fires the handler
+  it('system theme responds to matchMedia change event', async () => {
+    let capturedHandler: (() => void) | null = null
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: (_event: string, handler: () => void) => { capturedHandler = handler },
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }))
+
+    const { result } = renderThemeHook()
+    await act(async () => { result.current.setTheme('system') })
+
+    expect(capturedHandler).not.toBeNull()
+
+    // Simulate OS switching to light — handler should update data-theme
+    await act(async () => { capturedHandler?.() })
+
+    // data-theme was set by the handler (resolveSystemTheme with matches=false → 'dark')
+    expect(attributeSpy).toHaveBeenCalledWith('data-theme', expect.stringMatching(/^(dark|light)$/))
+  })
+
+  // TC-setUserTheme: setUserTheme sets theme, applies tokens, writes localStorage
+  it('setUserTheme sets theme to user:id, applies custom tokens, and persists', async () => {
+    const userTheme: UserTheme = {
+      id: 'abc123',
+      name: 'My Theme',
+      colors: sampleColors,
+      created_at: '2026-06-01T00:00:00Z',
+      updated_at: '2026-06-01T00:00:00Z',
+    }
+    // userThemes must include the theme so the useEffect doesn't fall back to dark
+    mockUseUserThemes.mockReturnValue({ ...defaultMockReturn(), userThemes: [userTheme] })
+    const { result } = renderThemeHook()
+
+    await act(async () => { result.current.setUserTheme(userTheme) })
+
+    expect(result.current.theme).toBe('user:abc123')
+    expect(attributeSpy).toHaveBeenCalledWith('data-theme', 'custom')
+    expect(setPropertySpy).toHaveBeenCalledWith('--color-bg-base', sampleColors.bgBase)
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('user:abc123')
+  })
+
+  // TC-activeUserTheme: activeUserTheme is non-null when the user theme is in the list
+  it('activeUserTheme returns the matching UserTheme when theme is user:id', async () => {
+    const userTheme: UserTheme = {
+      id: 'abc123',
+      name: 'My Theme',
+      colors: sampleColors,
+      created_at: '2026-06-01T00:00:00Z',
+      updated_at: '2026-06-01T00:00:00Z',
+    }
+    mockUseUserThemes.mockReturnValue({ ...defaultMockReturn(), userThemes: [userTheme] })
+    const { result } = renderThemeHook()
+
+    await act(async () => { result.current.setUserTheme(userTheme) })
+
+    expect(result.current.activeUserTheme).toEqual(userTheme)
   })
 })

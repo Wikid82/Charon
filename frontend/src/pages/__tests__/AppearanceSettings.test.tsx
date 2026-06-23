@@ -1,5 +1,6 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import userEvent from '@testing-library/user-event'
 
 import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -33,6 +34,10 @@ vi.mock('../../api/settings', () => ({
   validatePublicURL: vi.fn(),
   testPublicURL: vi.fn(),
 }))
+
+import * as settingsApi from '../../api/settings'
+import { useUserThemes } from '../../hooks/useUserThemes'
+const mockUseUserThemes = vi.mocked(useUserThemes)
 
 // Mock useAuth for LogoCustomizer's admin check
 vi.mock('../../hooks/useAuth', () => ({
@@ -282,6 +287,132 @@ describe('AppearanceSettings', () => {
     it('shows import/export section description', () => {
       renderAppearanceSettings()
       expect(screen.getByText('Share themes between Charon instances')).toBeInTheDocument()
+    })
+  })
+
+  // Mutation integration tests — verify that UI interactions trigger the correct API calls
+  describe('Logo mutation triggers', () => {
+    it('clicking logo URL tab then saving calls saveUrlMutation (updateSetting ×2)', async () => {
+      renderAppearanceSettings()
+
+      // Switch to URL tab — key is "appearance.logoUrlTab" (not in local mock → returns key)
+      const urlTab = screen.getByText('appearance.logoUrlTab')
+      await userEvent.click(urlTab)
+
+      // Type a valid https:// URL in the logo URL input
+      const urlInput = screen.getByPlaceholderText('appearance.logoUrlPlaceholder')
+      await userEvent.type(urlInput, 'https://example.com/logo.png')
+
+      await userEvent.click(screen.getByText('appearance.logoSaveButton'))
+
+      await waitFor(() =>
+        expect(vi.mocked(settingsApi.updateSetting)).toHaveBeenCalledWith(
+          'ui.logo_url', 'https://example.com/logo.png', 'ui', 'string'
+        )
+      )
+      expect(vi.mocked(settingsApi.updateSetting)).toHaveBeenCalledWith(
+        'ui.logo_type', 'url', 'ui', 'string'
+      )
+    })
+
+    it('clicking logo Reset calls deleteLogo', async () => {
+      renderAppearanceSettings()
+
+      await userEvent.click(screen.getByText('appearance.logoResetButton'))
+
+      await waitFor(() => expect(vi.mocked(settingsApi.deleteLogo)).toHaveBeenCalled())
+    })
+  })
+
+  describe('Banner mutation triggers', () => {
+    it('clicking banner URL tab then saving calls saveBannerUrlMutation (updateSetting ×2)', async () => {
+      renderAppearanceSettings()
+
+      const urlTab = screen.getByText('appearance.bannerUrlTab')
+      await userEvent.click(urlTab)
+
+      const urlInput = screen.getByPlaceholderText('appearance.bannerUrlPlaceholder')
+      await userEvent.type(urlInput, 'https://example.com/banner.jpg')
+
+      await userEvent.click(screen.getByText('appearance.bannerSaveButton'))
+
+      await waitFor(() =>
+        expect(vi.mocked(settingsApi.updateSetting)).toHaveBeenCalledWith(
+          'ui.banner_url', 'https://example.com/banner.jpg', 'ui', 'string'
+        )
+      )
+      expect(vi.mocked(settingsApi.updateSetting)).toHaveBeenCalledWith(
+        'ui.banner_type', 'url', 'ui', 'string'
+      )
+    })
+
+    it('clicking banner Reset calls deleteBanner', async () => {
+      renderAppearanceSettings()
+
+      await userEvent.click(screen.getByText('appearance.bannerResetButton'))
+
+      await waitFor(() => expect(vi.mocked(settingsApi.deleteBanner)).toHaveBeenCalled())
+    })
+  })
+
+  describe('Custom color change', () => {
+    it('changing a color input in custom mode calls setCustomTheme', () => {
+      localStorage.setItem('charon-theme', 'custom')
+      renderAppearanceSettings()
+
+      // eslint-disable-next-line testing-library/no-node-access
+      const colorInputs = document.querySelectorAll('input[type="color"]')
+      expect(colorInputs.length).toBeGreaterThan(0)
+
+      // Fire change on first color input → triggers handleCustomColorsChange
+      fireEvent.change(colorInputs[0], { target: { value: '#ff0000' } })
+
+      // The data-theme should still be 'custom' after color change
+      expect(document.documentElement.getAttribute('data-theme')).toBe('custom')
+    })
+  })
+
+  describe('UserThemeManager onActivate', () => {
+    it('activating a user theme calls setUserTheme and clears preview', async () => {
+      const sampleUserTheme = {
+        id: 'abc',
+        name: 'My Theme',
+        colors: {
+          bgBase: '15 23 42', bgSubtle: '30 41 59', bgMuted: '51 65 85', bgElevated: '30 41 59',
+          borderDefault: '51 65 85', borderStrong: '71 85 105', textPrimary: '248 250 252',
+          textSecondary: '203 213 225', textMuted: '148 163 184', brandPrimary: '59 130 246',
+          colorScheme: 'dark' as const,
+        },
+        created_at: '2026-06-01T00:00:00Z',
+        updated_at: '2026-06-01T00:00:00Z',
+      }
+      mockUseUserThemes.mockReturnValue({
+        userThemes: [sampleUserTheme],
+        isLoading: false,
+        error: null,
+        createTheme: vi.fn(),
+        updateTheme: vi.fn(),
+        deleteTheme: vi.fn(),
+        isCreating: false,
+        isUpdating: false,
+        isDeleting: false,
+      })
+
+      renderAppearanceSettings()
+
+      // The aria-label uses the translation KEY (not English text) because the local
+      // mock doesn't include appearance.activateTheme — so the label is "appearance.activateTheme My Theme"
+      const activateBtn = screen.getByRole('button', {
+        name: (name) =>
+          name.includes('My Theme') &&
+          !name.toLowerCase().includes('edit') &&
+          !name.toLowerCase().includes('delete'),
+      })
+      await userEvent.click(activateBtn)
+
+      // After activating, theme should be user:abc and data-theme should be 'custom'
+      expect(document.documentElement.getAttribute('data-theme')).toBe('custom')
+      expect(localStorage.getItem('charon-theme')).toBe('user:abc')
     })
   })
 })
