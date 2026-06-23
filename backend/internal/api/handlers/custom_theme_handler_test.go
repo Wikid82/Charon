@@ -316,6 +316,205 @@ func TestCustomThemeHandler_Unauthenticated(t *testing.T) {
 	}
 }
 
+// UT-11: ListThemes returns 500 when DB is unavailable.
+func TestCustomThemeHandler_ListThemes_DBError(t *testing.T) {
+	db := setupCustomThemeHandlerDB(t)
+	r := buildThemeRouter(db, true)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	req, _ := http.NewRequest(http.MethodGet, "/themes", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "failed to list themes")
+}
+
+// UT-12: CreateTheme with malformed request body returns 400.
+func TestCustomThemeHandler_CreateTheme_MalformedBody(t *testing.T) {
+	db := setupCustomThemeHandlerDB(t)
+	r := buildThemeRouter(db, true)
+
+	req, _ := http.NewRequest(http.MethodPost, "/themes", bytes.NewBufferString("not json {{{"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// UT-13: CreateTheme returns 500 when DB is unavailable (non-duplicate error).
+func TestCustomThemeHandler_CreateTheme_DBError(t *testing.T) {
+	db := setupCustomThemeHandlerDB(t)
+	r := buildThemeRouter(db, true)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	body := jsonBody(t, map[string]string{"name": "Theme", "colors": `{"bgBase":"0 0 0"}`})
+	req, _ := http.NewRequest(http.MethodPost, "/themes", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// UT-14: UpdateTheme with malformed JSON body returns 400.
+func TestCustomThemeHandler_UpdateTheme_MalformedBody(t *testing.T) {
+	db := setupCustomThemeHandlerDB(t)
+	r := buildThemeRouter(db, true)
+
+	createBody := jsonBody(t, map[string]string{"name": "Original2", "colors": `{"bgBase":"0 0 0"}`})
+	createReq, _ := http.NewRequest(http.MethodPost, "/themes", createBody)
+	createReq.Header.Set("Content-Type", "application/json")
+	createW := httptest.NewRecorder()
+	r.ServeHTTP(createW, createReq)
+	require.Equal(t, http.StatusCreated, createW.Code)
+
+	var created models.CustomTheme
+	require.NoError(t, json.Unmarshal(createW.Body.Bytes(), &created))
+
+	req, _ := http.NewRequest(http.MethodPut, "/themes/"+created.ID, bytes.NewBufferString("not json"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// UT-15: UpdateTheme with name > 100 chars returns 400.
+func TestCustomThemeHandler_UpdateTheme_NameTooLong(t *testing.T) {
+	db := setupCustomThemeHandlerDB(t)
+	r := buildThemeRouter(db, true)
+
+	createBody := jsonBody(t, map[string]string{"name": "Short Name", "colors": `{"bgBase":"0 0 0"}`})
+	createReq, _ := http.NewRequest(http.MethodPost, "/themes", createBody)
+	createReq.Header.Set("Content-Type", "application/json")
+	createW := httptest.NewRecorder()
+	r.ServeHTTP(createW, createReq)
+	require.Equal(t, http.StatusCreated, createW.Code)
+
+	var created models.CustomTheme
+	require.NoError(t, json.Unmarshal(createW.Body.Bytes(), &created))
+
+	longName := string(make([]byte, 101))
+	for i := range longName {
+		longName = longName[:i] + "a" + longName[i+1:]
+	}
+	body := jsonBody(t, map[string]any{"name": longName})
+	req, _ := http.NewRequest(http.MethodPut, "/themes/"+created.ID, body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "name cannot be empty")
+}
+
+// UT-16: UpdateTheme with invalid colors JSON returns 400.
+func TestCustomThemeHandler_UpdateTheme_InvalidColorsJSON(t *testing.T) {
+	db := setupCustomThemeHandlerDB(t)
+	r := buildThemeRouter(db, true)
+
+	createBody := jsonBody(t, map[string]string{"name": "ColorTest2", "colors": `{"bgBase":"0 0 0"}`})
+	createReq, _ := http.NewRequest(http.MethodPost, "/themes", createBody)
+	createReq.Header.Set("Content-Type", "application/json")
+	createW := httptest.NewRecorder()
+	r.ServeHTTP(createW, createReq)
+	require.Equal(t, http.StatusCreated, createW.Code)
+
+	var created models.CustomTheme
+	require.NoError(t, json.Unmarshal(createW.Body.Bytes(), &created))
+
+	badColors := `{invalid json}`
+	body := jsonBody(t, map[string]any{"colors": badColors})
+	req, _ := http.NewRequest(http.MethodPut, "/themes/"+created.ID, body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "colors must be valid JSON")
+}
+
+// UT-17: UpdateTheme returns 500 when DB is unavailable on fetch.
+func TestCustomThemeHandler_UpdateTheme_DBFetchError(t *testing.T) {
+	db := setupCustomThemeHandlerDB(t)
+	r := buildThemeRouter(db, true)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	newName := "Ghost"
+	body := jsonBody(t, map[string]any{"name": newName})
+	req, _ := http.NewRequest(http.MethodPut, "/themes/some-uuid", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "failed to fetch theme")
+}
+
+// UT-18: UpdateTheme with duplicate name on rename returns 409.
+func TestCustomThemeHandler_UpdateTheme_DuplicateName(t *testing.T) {
+	db := setupCustomThemeHandlerDB(t)
+	r := buildThemeRouter(db, true)
+
+	// Create theme A
+	bodyA := jsonBody(t, map[string]string{"name": "Theme A", "colors": `{"bgBase":"0 0 0"}`})
+	reqA, _ := http.NewRequest(http.MethodPost, "/themes", bodyA)
+	reqA.Header.Set("Content-Type", "application/json")
+	wA := httptest.NewRecorder()
+	r.ServeHTTP(wA, reqA)
+	require.Equal(t, http.StatusCreated, wA.Code)
+
+	// Create theme B
+	bodyB := jsonBody(t, map[string]string{"name": "Theme B", "colors": `{"bgBase":"255 255 255"}`})
+	reqB, _ := http.NewRequest(http.MethodPost, "/themes", bodyB)
+	reqB.Header.Set("Content-Type", "application/json")
+	wB := httptest.NewRecorder()
+	r.ServeHTTP(wB, reqB)
+	require.Equal(t, http.StatusCreated, wB.Code)
+
+	var themeB models.CustomTheme
+	require.NoError(t, json.Unmarshal(wB.Body.Bytes(), &themeB))
+
+	// Try to rename B → "Theme A" (already exists)
+	nameA := "Theme A"
+	updateBody := jsonBody(t, map[string]any{"name": nameA})
+	updateReq, _ := http.NewRequest(http.MethodPut, "/themes/"+themeB.ID, updateBody)
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateW := httptest.NewRecorder()
+	r.ServeHTTP(updateW, updateReq)
+
+	assert.Equal(t, http.StatusConflict, updateW.Code)
+	assert.Contains(t, updateW.Body.String(), "a theme with that name already exists")
+}
+
+// UT-19: DeleteTheme returns 500 when DB is unavailable.
+func TestCustomThemeHandler_DeleteTheme_DBError(t *testing.T) {
+	db := setupCustomThemeHandlerDB(t)
+	r := buildThemeRouter(db, true)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	req, _ := http.NewRequest(http.MethodDelete, "/themes/some-uuid", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "failed to delete theme")
+}
+
 // Verify ListThemes returns populated array after create.
 func TestCustomThemeHandler_ListThemes_AfterCreate(t *testing.T) {
 	db := setupCustomThemeHandlerDB(t)
