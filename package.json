@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@typescript/analyze-trace": "^0.11.0",
-    "tldts": "^7.4.3",
+    "tldts": "^7.4.4",
     "type-check": "^0.4.0"
   },
   "overrides": {
@@ -20,7 +20,7 @@
     "markdown-it": "^14.2.0"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.11.3",
+    "@axe-core/playwright": "^4.12.1",
     "@bgotink/playwright-coverage": "^0.3.2",
     "@playwright/test": "^1.61.0",
     "@types/eslint-plugin-jsx-a11y": "^6.10.1",
@@ -31,7 +31,7 @@
     "prettier-plugin-tailwindcss": "^0.8.0",
     "tar": "^7.5.16",
     "typescript": "^6.0.3",
-    "vite": "^8.0.16",
+    "vite": "^8.1.0",
     "vitest": "^4.1.9"
   }
 }
