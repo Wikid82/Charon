@@ -94,7 +94,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.16.0-alpine3.24@sha256:fb71d01345f11b708a3553c66e7c74074f2d506400ea81973343d915cb64eef0 AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.17.0-alpine3.24@sha256:156b55f92e98ccd5ef49578a8cea0df4679826564bad1c9d4ef04462b9f0ded6 AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -117,6 +117,11 @@ RUN apk upgrade --no-cache && \
 # Remove when a patched Node.js 24 image is available.
 # hadolint ignore=DL3059
 RUN npm install -g picomatch@4.0.4 --no-fund --no-audit
+
+# Patch CVE-2026-12151: undici DoS via unbounded memory (fixed in 6.27.0) — bundled in Node.js 24.17.0 npm.
+# Remove when a patched Node.js 24 image ships undici >=6.27.0.
+# hadolint ignore=DL3059
+RUN npm install -g undici@6.27.0 --no-fund --no-audit
 
 RUN npm ci --ignore-scripts
 
