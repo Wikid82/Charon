@@ -35,8 +35,9 @@ for MODULE in "${MODULES[@]}"; do
         # Update only the flat top-level override; skip nested object entries.
         npx npm-check-updates -u --dep overrides --filter typescript
     else
-        # Root package.json has only flat string overrides — safe to update all.
-        npx npm-check-updates -u --dep overrides
+        # Root package.json has only flat string overrides — safe to update all
+        # except js-yaml, which has breaking changes in v6+; keep pinned to ^5.
+        npx npm-check-updates -u --dep overrides --reject js-yaml
     fi
 
     rm -rf node_modules package-lock.json
