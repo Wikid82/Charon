@@ -25,7 +25,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  NODE_VERSION: '24.17.0'
+  NODE_VERSION: '24.18.0'
   SOURCE_BRANCH: 'nightly'
   TARGET_BRANCH: 'main'
 
