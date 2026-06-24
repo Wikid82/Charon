@@ -17,7 +17,7 @@ permissions:
 
 env:
   GO_VERSION: '1.26.4'
-  NODE_VERSION: '24.17.0'
+  NODE_VERSION: '24.18.0'
   GOTOOLCHAIN: local
 
 jobs:
