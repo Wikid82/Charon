@@ -108,7 +108,9 @@ async function completeImportFlow(
     await page.getByRole('button', { name: /commit/i }).click();
     await commitPromise;
 
-    await expect(page.getByTestId('import-success-modal')).toBeVisible();
+    // Firefox CI can take >5s to render the modal after the API response;
+    // use an explicit 10s timeout to prevent flaky failures.
+    await expect(page.getByTestId('import-success-modal')).toBeVisible({ timeout: 10000 });
   });
 }
 
