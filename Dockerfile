@@ -118,6 +118,11 @@ RUN apk upgrade --no-cache && \
 # hadolint ignore=DL3059
 RUN npm install -g picomatch@4.0.4 --no-fund --no-audit
 
+# Patch CVE-2026-12151: undici DoS via unbounded memory (fixed in 6.27.0) — bundled in Node.js 24.17.0 npm.
+# Remove when a patched Node.js 24 image ships undici >=6.27.0.
+# hadolint ignore=DL3059
+RUN npm install -g undici@6.27.0 --no-fund --no-audit
+
 RUN npm ci --ignore-scripts
 
 # Copy frontend source and build
