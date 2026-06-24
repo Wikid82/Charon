@@ -22,7 +22,7 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
     "@bgotink/playwright-coverage": "^0.3.2",
-    "@playwright/test": "^1.61.0",
+    "@playwright/test": "^1.61.1",
     "@types/eslint-plugin-jsx-a11y": "^6.10.1",
     "@types/node": "^26.0.0",
     "dotenv": "^17.4.2",

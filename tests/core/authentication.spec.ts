@@ -392,8 +392,10 @@ test.describe('Authentication Flows', () => {
 
       await test.step('Verify redirect to login or error message', async () => {
         // Wait for potential redirect to login page
+        // 15s timeout matches the sister test 'should redirect to login when session expires'.
+        // Firefox under CI can take >5s for: useEffect → fetch /auth/me → 401 → React update → navigate.
         try {
-          await page.waitForURL(/\/login/, { timeout: 5000 });
+          await page.waitForURL(/\/login/, { timeout: 15000 });
         } catch {
           // If no redirect, check for session expired message
         }
