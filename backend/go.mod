@@ -25,7 +25,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.1
-	software.sslmate.com/src/go-pkcs12 v0.7.2
+	software.sslmate.com/src/go-pkcs12 v0.7.3
 )
 
 require (
