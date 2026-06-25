@@ -176,7 +176,7 @@ RUN set -eux; \
 # When dlv IS needed, we build it inside a temporary module that pins
 # golang.org/x/sys to the patched version used by the rest of the project.
 # renovate: datasource=go depName=github.com/go-delve/delve
-ARG DLV_VERSION=1.26.3
+ARG DLV_VERSION=1.27.0
 # hadolint ignore=DL3059,DL4006
 RUN if [ "$BUILD_DEBUG" = "1" ]; then \
         echo "DEBUG build: installing Delve v${DLV_VERSION} with patched golang.org/x/sys..."; \
