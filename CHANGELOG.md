@@ -69,6 +69,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- chore(security): verify CVE-2026-39824 (golang.org/x/sys) is not present — golang.org/x/sys already at v0.46.0, exceeding the v0.44.0 fix; no action required
+
 - **CVE-2026-44982 / GHSA-rw47-hm26-6wr7**: Resolved high-severity CrowdSec AppSec vulnerability where HTTP request bodies were silently dropped for chunked/HTTP-2 requests, allowing WAF bypass
   - Upgraded `CROWDSEC_VERSION` to `v1.7.8` in the Dockerfile
   - Upgraded `caddy-crowdsec-bouncer` to `v0.12.1` to align with the updated crowdsec API
