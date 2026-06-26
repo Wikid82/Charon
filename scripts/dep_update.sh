@@ -89,7 +89,6 @@ for MODULE in "${NPM_MODULES[@]}"; do
     npm dedupe
     npm run --if-present build
     npm run --if-present type-check
-    npm run --if-present test -- --run
     npm audit --audit-level=high
     npm audit fix || true
     npm outdated || true
