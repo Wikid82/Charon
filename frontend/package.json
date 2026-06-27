@@ -40,7 +40,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
-    "i18next": "^26.3.2",
+    "i18next": "^26.3.3",
     "i18next-browser-languagedetector": "^8.2.1",
     "lucide-react": "^1.21.0",
     "react": "^19.2.7",
@@ -75,7 +75,7 @@
     "@vitest/coverage-v8": "^4.1.9",
     "@vitest/eslint-plugin": "^1.6.20",
     "@vitest/ui": "^4.1.9",
-    "eslint": "^10.5.0",
+    "eslint": "^10.6.0",
     "eslint-formatter-compact": "^9.0.1",
     "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-import-x": "^4.17.0",
@@ -90,7 +90,7 @@
     "eslint-plugin-unicorn": "^69.0.0",
     "eslint-plugin-unused-imports": "^4.4.1",
     "jsdom": "29.1.1",
-    "knip": "^6.20.0",
+    "knip": "^6.21.0",
     "postcss": "^8.5.15",
     "tailwindcss": "^4.3.1",
     "typescript": "^6.0.3",
@@ -102,7 +102,7 @@
   "overrides": {
     "typescript": "^6.0.3",
     "eslint-plugin-react-hooks": {
-      "eslint": "^10.5.0"
+      "eslint": "^10.6.0"
     },
     "eslint-plugin-jsx-a11y": {
       "eslint": "^10.5.0"
