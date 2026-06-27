@@ -10,7 +10,7 @@
     "lint:md:fix": "markdownlint-cli2 --fix '**/*.md' '#node_modules/**' '#.venv/**' '#test-results/**' '#codeql-db/**' '#codeql-agent-results/**'"
   },
   "dependencies": {
-    "@typescript/analyze-trace": "^0.11.0",
+    "@typescript/analyze-trace": "^0.11.1",
     "tldts": "^7.4.4",
     "type-check": "^0.4.0"
   },
@@ -27,7 +27,7 @@
     "@types/node": "^26.0.1",
     "dotenv": "^17.4.2",
     "markdownlint-cli2": "^0.22.1",
-    "prettier": "^3.8.4",
+    "prettier": "^3.8.5",
     "prettier-plugin-tailwindcss": "^0.8.0",
     "tar": "^7.5.17",
     "typescript": "^6.0.3",
