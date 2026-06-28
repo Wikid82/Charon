@@ -744,6 +744,16 @@
         "github.com/gin-contrib/sse"
       ],
       "sourceUrl": "https://github.com/gin-contrib/sse"
+    },
+    {
+      "description": "Fix Renovate lookup for prometheus/client_golang",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/prometheus/client_golang"
+      ],
+      "sourceUrl": "https://github.com/prometheus/client_golang"
     }
   ]
 }
