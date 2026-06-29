@@ -41,8 +41,8 @@ jobs:
           # Use a pattern that will never match to prevent automated major bumps
           major_pattern: "/__MANUAL_MAJOR_BUMP_ONLY__/"
           # Regex pattern for minor version bump (new features)
-          # Matches: "feat:" prefix in commit messages (Conventional Commits)
-          minor_pattern: "/^feat(\\(.+\\))?:/"
+          # Matches "feat:" at line start, including "* feat:" bullet lines in squash-merge commit bodies
+          minor_pattern: "/^(\\* )?feat(\\(.+\\))?:/"
           # Patch bumps: All other commits (fix:, chore:, etc.) are treated as patches by default
           # Pattern to determine formatting
           version_format: "${major}.${minor}.${patch}"
@@ -87,13 +87,69 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Generate Release Changelog
+        id: changelog
+        if: ${{ steps.semver.outputs.changed == 'true' && steps.check_release.outputs.exists == 'false' }}
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
+          NEW_TAG="${{ steps.determine_tag.outputs.tag }}"
+          REPO="${{ github.repository }}"
+
+          rm -f /tmp/feat.txt /tmp/fix.txt
+          touch /tmp/feat.txt /tmp/fix.txt
+
+          # Extract feat/fix lines from commit messages, including squash-merge bullet bodies ("* feat: ...")
+          process_lines() {
+            while IFS= read -r line; do
+              clean="${line#\* }"
+              if echo "$clean" | grep -qE '^feat(\([^)]+\))?!?:'; then
+                echo "$clean" | sed -E 's/^feat(\([^)]+\))?!?: //' >> /tmp/feat.txt
+              elif echo "$clean" | grep -qE '^(fix|perf)(\([^)]+\))?!?:'; then
+                echo "$clean" | sed -E 's/^(fix|perf)(\([^)]+\))?!?: //' >> /tmp/fix.txt
+              fi
+            done
+          }
+
+          if [ -n "$PREV_TAG" ]; then
+            process_lines < <(git log --format="%B" "${PREV_TAG}..HEAD")
+          else
+            process_lines < <(git log --format="%B" -50 HEAD)
+          fi
+
+          {
+            echo "## What's Changed"
+            echo ""
+            if [ -s /tmp/feat.txt ]; then
+              echo "### 🚀 Features"
+              sed 's/^/- /' /tmp/feat.txt
+              echo ""
+            fi
+            if [ -s /tmp/fix.txt ]; then
+              echo "### 🐛 Bug Fixes & Improvements"
+              sed 's/^/- /' /tmp/fix.txt
+              echo ""
+            fi
+            if [ ! -s /tmp/feat.txt ] && [ ! -s /tmp/fix.txt ]; then
+              echo "_Dependency updates and maintenance._"
+              echo ""
+            fi
+            echo "---"
+            echo ""
+            if [ -n "$PREV_TAG" ]; then
+              echo "**Full Changelog**: https://github.com/${REPO}/compare/${PREV_TAG}...${NEW_TAG}"
+            fi
+          } > /tmp/release_body.md
+
+          echo "Generated changelog:"
+          cat /tmp/release_body.md
+
       - name: Create GitHub Release (creates tag via API)
         if: ${{ steps.semver.outputs.changed == 'true' && steps.check_release.outputs.exists == 'false' }}
         uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3
         with:
           tag_name: ${{ steps.determine_tag.outputs.tag }}
           name: Release ${{ steps.determine_tag.outputs.tag }}
-          generate_release_notes: true
+          body_path: /tmp/release_body.md
           make_latest: true
           draft: false
           prerelease: false
