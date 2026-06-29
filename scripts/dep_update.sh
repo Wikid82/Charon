@@ -85,7 +85,7 @@ for MODULE in "${NPM_MODULES[@]}"; do
     fi
 
     rm -rf node_modules package-lock.json
-    npm install --ignore-scripts
+    npm install
     npm dedupe
     npm run --if-present build
     npm run --if-present type-check
