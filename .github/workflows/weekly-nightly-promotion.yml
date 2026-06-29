@@ -333,13 +333,19 @@ jobs:
             - [ ] Changelog is up-to-date (auto-generated via workflow)
             - [ ] Version bump is appropriate (if applicable)
 
-            ## Merge Instructions
+            ## ⚠️ Merge Instructions — CRITICAL
 
-            This PR promotes changes from \`nightly\` to \`main\`. Once all checks pass:
+            > **You MUST use "Create a merge commit" — NOT squash or rebase.**
+            >
+            > Squash merging collapses all \`feat:\`/\`fix:\` commits into a single bullet-list body.
+            > The auto-versioning workflow cannot parse these bullets, so minor version bumps are
+            > silently skipped and release notes only show the weekly PR title instead of real changes.
+
+            Once all checks pass:
 
             1. **Review** the commit summary above
             2. **Approve** if changes look correct
-            3. **Merge** using "Merge commit" to preserve history
+            3. **Merge** → click the dropdown arrow → select **"Create a merge commit"**
 
             ---
 
@@ -430,6 +436,8 @@ jobs:
     steps:
       - name: Dispatch missing required workflows on nightly head
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          PR_NUMBER: ${{ needs.create-promotion-pr.outputs.pr_number }}
         with:
           script: |
             const owner = context.repo.owner;
@@ -443,7 +451,7 @@ jobs:
             const nightlyHeadSha = nightlyBranch.commit.sha;
             core.info(`Current nightly HEAD for dispatch fallback: ${nightlyHeadSha}`);
 
-            const prNumber = '${{ needs.create-promotion-pr.outputs.pr_number }}';
+            const prNumber = process.env.PR_NUMBER;
             const requiredWorkflows = [
               { id: 'e2e-tests-split.yml' },
               { id: 'codeql.yml' },
