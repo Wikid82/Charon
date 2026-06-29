@@ -339,7 +339,7 @@ jobs:
 
             1. **Review** the commit summary above
             2. **Approve** if changes look correct
-            3. **Merge** using "Merge commit" to preserve history
+            3. **Merge** using "Squash merge" or "Rebase merge" — do **NOT** use "Merge commit" (merge commits cause divergence that breaks the next weekly promotion)
 
             ---
 
@@ -430,6 +430,8 @@ jobs:
     steps:
       - name: Dispatch missing required workflows on nightly head
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          PR_NUMBER: ${{ needs.create-promotion-pr.outputs.pr_number }}
         with:
           script: |
             const owner = context.repo.owner;
@@ -443,7 +445,7 @@ jobs:
             const nightlyHeadSha = nightlyBranch.commit.sha;
             core.info(`Current nightly HEAD for dispatch fallback: ${nightlyHeadSha}`);
 
-            const prNumber = '${{ needs.create-promotion-pr.outputs.pr_number }}';
+            const prNumber = process.env.PR_NUMBER;
             const requiredWorkflows = [
               { id: 'e2e-tests-split.yml' },
               { id: 'codeql.yml' },
