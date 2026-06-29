@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@typescript/analyze-trace": "^0.11.1",
-    "tldts": "^7.4.4",
+    "tldts": "^7.4.5",
     "type-check": "^0.4.0"
   },
   "overrides": {
@@ -27,7 +27,7 @@
     "@types/node": "^26.0.1",
     "dotenv": "^17.4.2",
     "markdownlint-cli2": "^0.22.1",
-    "prettier": "^3.9.1",
+    "prettier": "^3.9.3",
     "prettier-plugin-tailwindcss": "^0.8.0",
     "tar": "^7.5.19",
     "typescript": "^6.0.3",
