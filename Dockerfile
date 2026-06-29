@@ -94,7 +94,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.17.0-alpine3.24@sha256:156b55f92e98ccd5ef49578a8cea0df4679826564bad1c9d4ef04462b9f0ded6 AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.18.0-alpine3.24@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -117,6 +117,11 @@ RUN apk upgrade --no-cache && \
 # Remove when a patched Node.js 24 image is available.
 # hadolint ignore=DL3059
 RUN npm install -g picomatch@4.0.4 --no-fund --no-audit
+
+# Patch CVE-2026-12151: undici DoS via unbounded memory (fixed in 6.27.0) — bundled in Node.js 24.17.0 npm.
+# Remove when a patched Node.js 24 image ships undici >=6.27.0.
+# hadolint ignore=DL3059
+RUN npm install -g undici@6.27.0 --no-fund --no-audit
 
 RUN npm ci --ignore-scripts
 
@@ -171,7 +176,7 @@ RUN set -eux; \
 # When dlv IS needed, we build it inside a temporary module that pins
 # golang.org/x/sys to the patched version used by the rest of the project.
 # renovate: datasource=go depName=github.com/go-delve/delve
-ARG DLV_VERSION=1.26.3
+ARG DLV_VERSION=1.27.0
 # hadolint ignore=DL3059,DL4006
 RUN if [ "$BUILD_DEBUG" = "1" ]; then \
         echo "DEBUG build: installing Delve v${DLV_VERSION} with patched golang.org/x/sys..."; \
@@ -480,7 +485,7 @@ RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
     go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.13 && \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.77.0 && \
+    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.78.0 && \
     go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7 && \
     go get github.com/aws/aws-sdk-go-v2/service/s3@v1.102.1 && \
     # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
@@ -593,7 +598,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=6e9212f23d3279a2454404d3b2a7ac30159fddbb9870ba33763014877296455c
+ARG GEOLITE2_COUNTRY_SHA256=1522faf7b5f6a96c3a0128bca813bd4b0ae24dce38e9d37acdff0efaa75fcdd9
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \

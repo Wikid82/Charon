@@ -368,6 +368,7 @@ func TestOrthrusServer_HandleWebSocket_ExternalProxyFails(t *testing.T) {
 	assert.False(t, status.Active)
 	assert.NotEmpty(t, status.Error)
 }
+
 // TestHandleWebSocket_DisplacesExistingSession covers server.go:98-100 —
 // the displacement block that closes the old session when a new connection
 // arrives for an agent UUID that already has an active session in the map.

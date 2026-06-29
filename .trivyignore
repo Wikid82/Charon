@@ -151,3 +151,15 @@ CVE-2024-21495
 # See also: .grype.yaml for full justification
 # exp: 2026-09-05
 CVE-2024-21492
+
+# GO-2026-5024 / CVE-2026-39824: golang.org/x/sys/windows NewNTUnicodeString integer overflow
+# Severity: HIGH — Package: golang.org/x/sys v0.46.0 in /app/charon
+# Go vulndb (pkg.go.dev/vuln/GO-2026-5024) considers this fixed at v0.44.0; we ship v0.46.0 (above
+# threshold). The affected function (windows.NewNTUnicodeString) is Windows-only and is not reachable
+# in Charon's Linux-only deployment. NVD shows "no confirmed patch", causing a discrepancy with
+# Trivy v0.71.2+; govulncheck and Trivy v0.52.2 (fresh DB 2026-06-23) both report clean. No
+# golang.org/x/sys version > v0.46.0 (current latest) exists to upgrade to at time of suppression.
+# Review by: 2026-09-23
+# See also: .grype.yaml for full justification
+# exp: 2026-09-23
+CVE-2026-39824

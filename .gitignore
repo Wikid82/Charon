@@ -332,3 +332,4 @@ backend/***_cov.txt
 charon-scan.tar
 .claude/scheduled_tasks.lock
 .claude/worktrees/
+scripts/tempCodeRunnerFile.sh

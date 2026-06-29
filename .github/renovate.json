@@ -27,7 +27,8 @@
 
   "ignoreDeps": [
     "github.com/gorilla/websocket",
-    "github.com/golang-jwt/jwt/v5"
+    "github.com/golang-jwt/jwt/v5",
+    "js-yaml"
   ],
 
   "minimumReleaseAge": null,
@@ -414,16 +415,6 @@
   },
   "packageRules": [
     {
-      "description": "Pin js-yaml to v4.x — transitive dependents (@eslint/eslintrc, markdownlint-cli2) use v4 API internally; v5 is a breaking rewrite incompatible with their pinned calls",
-      "matchDatasources": [
-        "npm"
-      ],
-      "matchPackageNames": [
-        "js-yaml"
-      ],
-      "allowedVersions": "<5.0.0"
-    },
-    {
       "description": "Group GitHub Actions non-major updates into one PR",
       "matchManagers": [
         "github-actions"
@@ -753,6 +744,23 @@
         "github.com/gin-contrib/sse"
       ],
       "sourceUrl": "https://github.com/gin-contrib/sse"
+    },
+    {
+      "description": "Fix Renovate lookup for prometheus/client_golang",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/prometheus/client_golang"
+      ],
+      "sourceUrl": "https://github.com/prometheus/client_golang"
+    },
+    {
+      "description": "Disable js-yaml updates — pinned in overrides for security; managed manually",
+      "matchPackageNames": [
+        "js-yaml"
+      ],
+      "enabled": false
     }
   ]
 }
