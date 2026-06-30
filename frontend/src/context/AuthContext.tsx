@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode, type FC } from 'react';
+import { toast } from 'react-hot-toast';
 
 import { AuthContext, type User } from './AuthContextValue';
 import client, { setAuthToken, setAuthErrorHandler } from '../api/client';
@@ -19,12 +20,15 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
 
   // Handle session expiry by clearing auth state and redirecting to login
   const handleAuthError = useCallback(() => {
-    console.warn('Session expired, clearing auth state');
     invalidateAuthRequests();
     localStorage.removeItem('charon_auth_token');
     setAuthToken(null);
     setUser(null);
     setIsLoading(false);
+    toast.error('Session expired. Please log in again.', {
+      id: 'auth-session-expired',
+      duration: 10000,
+    });
   }, [invalidateAuthRequests]);
 
   // Register auth error handler on mount; unregister on unmount so the axios
@@ -76,6 +80,7 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
     const requestVersion = authRequestVersionRef.current + 1;
     authRequestVersionRef.current = requestVersion;
     setIsLoading(true);
+    toast.dismiss('auth-session-expired');
 
     if (token) {
       localStorage.setItem('charon_auth_token', token);
