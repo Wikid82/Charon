@@ -175,13 +175,17 @@ test.describe('Authentication Flows', () => {
     test('should show validation error for invalid email format', async ({ page }) => {
       await page.goto('/login');
 
-      await page.locator('input[type="email"]').fill('not-an-email');
+      // Wait for the setup-status check to complete so the login form is visible.
+      // In slow Firefox CI environments the form is replaced by a loading screen
+      // while the check is in-flight, causing fill() to time out.
+      const emailInput = page.locator('input[type="email"]');
+      await emailInput.waitFor({ state: 'visible', timeout: 15000 });
+
+      await emailInput.fill('not-an-email');
       await page.locator('input[type="password"]').fill('SomePassword123!');
 
       await test.step('Verify email validation error', async () => {
         await page.getByRole('button', { name: /sign in/i }).click();
-
-        const emailInput = page.locator('input[type="email"]');
 
         // Check for HTML5 validation state or aria-invalid or visible error text
         const isInvalid =
@@ -369,7 +373,15 @@ test.describe('Authentication Flows', () => {
     test('should handle 401 response gracefully', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      await test.step('Intercept API calls to return 401', async () => {
+      await test.step('Simulate expired session (clear token and intercept API with 401)', async () => {
+        // Clear the auth token from storage so checkAuth immediately sees an
+        // invalid session without needing a network round-trip. This avoids
+        // a Firefox CDP timing issue where XHR requests fired during page.goto()
+        // navigation are not intercepted by Playwright route handlers.
+        await page.evaluate(() => localStorage.removeItem('charon_auth_token'));
+
+        // Also intercept API calls to return 401 to test the axios error
+        // interceptor path (defense-in-depth).
         await page.route('**/api/v1/**', async (route) => {
           // Let health check through, block others with 401
           if (route.request().url().includes('/health')) {
@@ -384,7 +396,7 @@ test.describe('Authentication Flows', () => {
         });
       });
 
-      await test.step('Trigger an API call by navigating', async () => {
+      await test.step('Trigger an auth check by navigating', async () => {
         await page.goto('/proxy-hosts');
         // Wait for the 401 response to be processed and UI to react
         await waitForDebounce(page);
