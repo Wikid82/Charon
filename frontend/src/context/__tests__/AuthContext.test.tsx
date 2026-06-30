@@ -1,4 +1,5 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
+import { toast } from 'react-hot-toast'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 import client, { setAuthToken, setAuthErrorHandler } from '../../api/client'
@@ -6,6 +7,13 @@ import { AuthProvider } from '../AuthContext'
 import { useAuth } from '../../hooks/useAuth'
 
 const TOKEN_KEY = 'charon_auth_token'
+
+vi.mock('react-hot-toast', () => ({
+  toast: {
+    error: vi.fn(),
+    dismiss: vi.fn(),
+  },
+}))
 
 vi.mock('../../api/client', () => ({
   default: {
@@ -19,6 +27,7 @@ vi.mock('../../api/client', () => ({
 const mockClient = vi.mocked(client)
 const mockSetAuthToken = vi.mocked(setAuthToken)
 const mockSetAuthErrorHandler = vi.mocked(setAuthErrorHandler)
+const mockToast = vi.mocked(toast)
 
 const AuthStateProbe = () => {
   const { user, isAuthenticated, isLoading } = useAuth()
@@ -83,10 +92,9 @@ describe('<AuthProvider /> session validation on mount (page reload)', () => {
     expect(mockSetAuthToken).toHaveBeenCalledWith('valid-token')
   })
 
-  it('registers an auth-error handler that clears the session, and unregisters it on unmount', async () => {
+  it('registers an auth-error handler that clears the session, shows a toast, and unregisters on unmount', async () => {
     localStorage.setItem(TOKEN_KEY, 'valid-token')
     mockClient.get.mockResolvedValue({ data: sessionUser, status: 200 })
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     const { unmount } = renderProvider()
     await waitFor(() => expect(screen.getByTestId('authenticated').textContent).toBe('true'))
@@ -99,10 +107,39 @@ describe('<AuthProvider /> session validation on mount (page reload)', () => {
     await waitFor(() => expect(screen.getByTestId('authenticated').textContent).toBe('false'))
     expect(localStorage.getItem(TOKEN_KEY)).toBeNull()
     expect(mockSetAuthToken).toHaveBeenLastCalledWith(null)
+    expect(mockToast.error).toHaveBeenCalledWith(
+      'Session expired. Please log in again.',
+      expect.objectContaining({ id: 'auth-session-expired' })
+    )
 
     unmount()
     expect(mockSetAuthErrorHandler).toHaveBeenLastCalledWith(null)
+  })
 
-    warnSpy.mockRestore()
+  it('dismisses the session-expired toast when login succeeds', async () => {
+    mockClient.get.mockResolvedValue({ data: sessionUser, status: 200 })
+
+    let loginFn: ((token?: string) => Promise<void>) | undefined
+    const LoginProbe = () => {
+      const { login } = useAuth()
+      loginFn = login
+      return null
+    }
+
+    render(
+      <AuthProvider>
+        <LoginProbe />
+        <AuthStateProbe />
+      </AuthProvider>
+    )
+
+    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'))
+
+    await act(async () => {
+      await loginFn?.('new-token')
+    })
+
+    expect(mockToast.dismiss).toHaveBeenCalledWith('auth-session-expired')
+    expect(screen.getByTestId('authenticated').textContent).toBe('true')
   })
 })
