@@ -105,7 +105,7 @@ jobs:
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '1' # Fail workflow if vulnerabilities found
-          version: 'v0.71.2'
+          version: 'v0.72.0'
         continue-on-error: true
 
       - name: Run Trivy vulnerability scanner (SARIF)
@@ -116,7 +116,7 @@ jobs:
           format: 'sarif'
           output: 'trivy-weekly-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
-          version: 'v0.71.2'
+          version: 'v0.72.0'
           trivyignores: '.trivyignore'
 
       - name: Upload Trivy results to GitHub Security
@@ -156,7 +156,7 @@ jobs:
           format: 'json'
           output: 'trivy-weekly-results.json'
           severity: 'CRITICAL,HIGH,MEDIUM,LOW'
-          version: 'v0.71.2'
+          version: 'v0.72.0'
 
       - name: Upload Trivy JSON results
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
