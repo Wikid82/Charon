@@ -718,9 +718,23 @@ jobs:
           syft-version: v1.45.1
 
       # Create verifiable attestation for the SBOM
+      # (actions/attest-sbom is deprecated; actions/attest supports sbom-path natively)
+      # GitHub's OIDC token endpoint occasionally fails transiently
+      # ("CI: no tokens available"), so retry once before failing the build
       - name: Attest SBOM
-        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        id: attest-sbom
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
         if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        continue-on-error: true
+        with:
+          subject-name: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build-and-push.outputs.digest }}
+          sbom-path: sbom.cyclonedx.json
+          push-to-registry: true
+
+      - name: Attest SBOM (retry)
+        if: steps.attest-sbom.outcome == 'failure'
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
         with:
           subject-name: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.build-and-push.outputs.digest }}
