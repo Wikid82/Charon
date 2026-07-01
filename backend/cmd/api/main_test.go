@@ -14,6 +14,18 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 )
 
+func TestMain(m *testing.M) {
+	// Force Connect's background integrity check to run synchronously so it
+	// completes before t.TempDir() cleanup (os.RemoveAll) runs. Otherwise the
+	// check's background SQLite connection can still be reading/writing
+	// WAL/SHM files when a test's temp directory is removed, causing
+	// intermittent "TempDir RemoveAll cleanup: ... directory not empty"
+	// failures (see backend/internal/database/database_test.go's TestMain
+	// for the same fix applied to that package's own tests).
+	database.SyncIntegrityCheckForTesting()
+	os.Exit(m.Run())
+}
+
 func TestResetPasswordCommand_Succeeds(t *testing.T) {
 	if os.Getenv("CHARON_TEST_RUN_MAIN") == "1" {
 		// Child process: emulate CLI args and run main().
@@ -35,6 +47,10 @@ func TestResetPasswordCommand_Succeeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect db: %v", err)
 	}
+	t.Cleanup(func() {
+		sqlDB, _ := db.DB()
+		_ = sqlDB.Close()
+	})
 	if err = db.AutoMigrate(&models.User{}); err != nil {
 		t.Fatalf("automigrate: %v", err)
 	}
@@ -83,6 +99,10 @@ func TestMigrateCommand_Succeeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect db: %v", err)
 	}
+	t.Cleanup(func() {
+		sqlDB, _ := db.DB()
+		_ = sqlDB.Close()
+	})
 	// Only migrate User table to simulate old database
 	if err = db.AutoMigrate(&models.User{}); err != nil {
 		t.Fatalf("automigrate user: %v", err)
@@ -112,6 +132,10 @@ func TestMigrateCommand_Succeeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconnect db: %v", err)
 	}
+	t.Cleanup(func() {
+		sqlDB, _ := db2.DB()
+		_ = sqlDB.Close()
+	})
 
 	securityModels := []any{
 		&models.SecurityConfig{},
@@ -159,6 +183,10 @@ func TestStartupVerification_MissingTables(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconnect db: %v", err)
 	}
+	t.Cleanup(func() {
+		sqlDB, _ := db.DB()
+		_ = sqlDB.Close()
+	})
 
 	// Simulate startup verification logic from main.go
 	securityModels := []any{
@@ -206,6 +234,10 @@ func TestMain_MigrateCommand_InProcess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect db: %v", err)
 	}
+	t.Cleanup(func() {
+		sqlDB, _ := db.DB()
+		_ = sqlDB.Close()
+	})
 	if err = db.AutoMigrate(&models.User{}); err != nil {
 		t.Fatalf("automigrate user: %v", err)
 	}
@@ -224,6 +256,10 @@ func TestMain_MigrateCommand_InProcess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconnect db: %v", err)
 	}
+	t.Cleanup(func() {
+		sqlDB, _ := db2.DB()
+		_ = sqlDB.Close()
+	})
 
 	securityModels := []any{
 		&models.SecurityConfig{},
@@ -252,6 +288,10 @@ func TestMain_ResetPasswordCommand_InProcess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect db: %v", err)
 	}
+	t.Cleanup(func() {
+		sqlDB, _ := db.DB()
+		_ = sqlDB.Close()
+	})
 	if err = db.AutoMigrate(&models.User{}); err != nil {
 		t.Fatalf("automigrate: %v", err)
 	}

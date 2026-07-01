@@ -17,6 +17,26 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+func TestSyncIntegrityCheckForTesting(t *testing.T) {
+	t.Parallel()
+
+	// Sanity: the exported wrapper assigns launchQuickCheck to the
+	// synchronous runQuickCheck implementation, and Connect still succeeds
+	// normally afterwards (mirrors what TestMain already does package-wide).
+	SyncIntegrityCheckForTesting()
+
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "sync-check.db")
+
+	db, err := Connect(dbPath)
+	require.NoError(t, err)
+	require.NotNil(t, db)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+}
+
 func TestConnect(t *testing.T) {
 	t.Parallel()
 	// Test with memory DB

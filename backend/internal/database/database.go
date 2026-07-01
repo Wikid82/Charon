@@ -18,6 +18,34 @@ import (
 // Tests override this with a synchronous version to avoid cleanup races.
 var launchQuickCheck = func(dbPath string) { go runQuickCheck(dbPath) }
 
+// SyncIntegrityCheckForTesting forces the background integrity check that
+// Connect launches (see launchQuickCheck) to run synchronously instead of
+// in a goroutine. Callers in other packages' test suites that call Connect
+// against paths under t.TempDir() should invoke this once, from a TestMain,
+// mirroring this package's own TestMain in database_test.go:
+//
+//	func TestMain(m *testing.M) {
+//	    database.SyncIntegrityCheckForTesting()
+//	    os.Exit(m.Run())
+//	}
+//
+// Without this, Connect's background integrity-check connection can still be
+// reading/writing the SQLite WAL/SHM files when a caller's t.TempDir()
+// cleanup (os.RemoveAll) runs after the test returns, which surfaces as an
+// intermittent "TempDir RemoveAll cleanup: ... directory not empty" failure.
+//
+// There is no restore function: Go test binaries are single-process,
+// one-shot invocations (the process exits after m.Run()), so there is
+// nothing to revert before exit — the same reasoning internal/database's
+// own TestMain already relies on.
+//
+// Production code paths are unaffected: Connect's default behavior (async
+// integrity check) is unchanged unless a test explicitly opts in by calling
+// this function.
+func SyncIntegrityCheckForTesting() {
+	launchQuickCheck = runQuickCheck
+}
+
 // Connect opens a SQLite database connection with optimized settings.
 // Uses WAL mode for better concurrent read/write performance.
 func Connect(dbPath string) (*gorm.DB, error) {
