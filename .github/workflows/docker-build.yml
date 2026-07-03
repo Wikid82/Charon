@@ -183,7 +183,7 @@ jobs:
 
       - name: Log in to GitHub Container Registry
         if: steps.skip.outputs.skip_build != 'true'
-        uses: docker/login-action@c99871dec2022cc055c062a10cc1a1310835ceb4 # v4.3.0
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           registry: ${{ env.GHCR_REGISTRY }}
           username: ${{ github.actor }}
@@ -191,7 +191,7 @@ jobs:
 
       - name: Log in to Docker Hub
         if: steps.skip.outputs.skip_build != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
-        uses: docker/login-action@c99871dec2022cc055c062a10cc1a1310835ceb4 # v4.3.0
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           registry: docker.io
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -847,7 +847,7 @@ jobs:
           echo "Using immutable digest reference: ${IMAGE_REF}"
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@c99871dec2022cc055c062a10cc1a1310835ceb4 # v4.3.0
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           registry: ${{ env.GHCR_REGISTRY }}
           username: ${{ github.actor }}
