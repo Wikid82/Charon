@@ -10,6 +10,8 @@
  * - Log Content Display (2 tests): show columns, highlight error entries
  * - Pagination (3 tests): navigate pages, page info, button states
  * - Search/Filter (2 tests): text search, level filter
+ * - Sorting (7 tests, fixme until issue #686 lands): column header sorting,
+ *   aria-sort indication, page reset on sort change
  * - Download (2 tests): download file, error handling
  *
  * Route: /tasks/logs
@@ -172,6 +174,7 @@ async function setupLogMocks(
           total,
           limit,
           offset,
+          skipped_lines: 0,
         },
       });
     });
@@ -565,6 +568,189 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
 
       // Verify level parameter was sent
       expect(capturedLevel.toLowerCase()).toBe('error');
+    });
+  });
+
+  test.describe('Sorting', () => {
+    /**
+     * Sortable columns and their backend `sort_by` values (spec §5.4.4):
+     * Time→ts, Level→level, Status→status, Method→method, Path→uri.
+     * Each sortable header exposes a button with data-testid `sort-header-<field>`.
+     *
+     * All tests are marked test.fixme until the sorting feature (issue #686)
+     * is implemented in the backend and frontend; the fixme flags are removed
+     * in the final integration commit.
+     */
+
+    /** Latest sort-related query params captured by the mock route */
+    interface CapturedSortParams {
+      sortBy: string | null;
+      sortDir: string | null;
+      offset: number;
+    }
+
+    /**
+     * Mock the log endpoints and record the sorting/pagination query params
+     * of every content request into `captured` (same pattern as the
+     * pagination tests above).
+     */
+    async function setupSortCaptureMocks(
+      page: Page,
+      captured: CapturedSortParams,
+      entries = mockLogEntries,
+      totalCount?: number
+    ) {
+      await page.route('**/api/v1/logs', async (route) => {
+        await route.fulfill({ status: 200, json: mockLogFiles });
+      });
+
+      await page.route('**/api/v1/logs/access.log*', async (route) => {
+        const url = new URL(route.request().url());
+        captured.sortBy = url.searchParams.get('sort_by');
+        captured.sortDir = url.searchParams.get('sort');
+        captured.offset = parseInt(url.searchParams.get('offset') || '0');
+        const limit = parseInt(url.searchParams.get('limit') || '50');
+
+        await route.fulfill({
+          status: 200,
+          json: {
+            filename: 'access.log',
+            logs: entries.slice(captured.offset, captured.offset + limit),
+            total: totalCount ?? entries.length,
+            limit,
+            offset: captured.offset,
+            skipped_lines: 0,
+          },
+        });
+      });
+    }
+
+    /** Click a sort header and wait for the resulting content request */
+    async function clickSortHeader(page: Page, field: string) {
+      await Promise.all([
+        page.waitForResponse(
+          (resp) => resp.url().includes('/api/v1/logs/access.log') && resp.status() === 200
+        ),
+        page.getByTestId(`sort-header-${field}`).click(),
+      ]);
+    }
+
+    test.fixme('should sort by timestamp via Time header', async ({ page, authenticatedUser }) => {
+      await loginUser(page, authenticatedUser);
+
+      const captured: CapturedSortParams = { sortBy: null, sortDir: null, offset: 0 };
+      await setupSortCaptureMocks(page, captured);
+
+      const initialContentPromise = waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
+      await waitForLoadingComplete(page);
+      await initialContentPromise;
+
+      await test.step('Toggle the active Time column to ascending', async () => {
+        // Default sort is ts desc, so clicking the active Time header flips direction
+        await clickSortHeader(page, 'ts');
+        expect(captured.sortBy).toBe('ts');
+        expect(captured.sortDir).toBe('asc');
+      });
+
+      await test.step('Toggle the Time column back to descending', async () => {
+        await clickSortHeader(page, 'ts');
+        expect(captured.sortBy).toBe('ts');
+        expect(captured.sortDir).toBe('desc');
+      });
+    });
+
+    for (const field of ['status', 'level', 'method', 'uri'] as const) {
+      test.fixme(`should sort by ${field} via its column header`, async ({ page, authenticatedUser }) => {
+        await loginUser(page, authenticatedUser);
+
+        const captured: CapturedSortParams = { sortBy: null, sortDir: null, offset: 0 };
+        await setupSortCaptureMocks(page, captured);
+
+        const initialContentPromise = waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+        await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
+        await waitForLoadingComplete(page);
+        await initialContentPromise;
+
+        await test.step(`Sort by the ${field} column`, async () => {
+          await clickSortHeader(page, field);
+
+          // A newly activated column starts in descending order (spec R7)
+          expect(captured.sortBy).toBe(field);
+          expect(captured.sortDir).toBe('desc');
+        });
+      });
+    }
+
+    test.fixme('should indicate active sort with aria-sort', async ({ page, authenticatedUser }) => {
+      await loginUser(page, authenticatedUser);
+
+      const captured: CapturedSortParams = { sortBy: null, sortDir: null, offset: 0 };
+      await setupSortCaptureMocks(page, captured);
+
+      const initialContentPromise = waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
+      await waitForLoadingComplete(page);
+      await initialContentPromise;
+
+      const timeHeader = page.getByRole('columnheader', { name: /time/i });
+      const statusHeader = page.getByRole('columnheader', { name: /status/i });
+
+      await test.step('Verify sortable header structure is accessible', async () => {
+        // Accessible names must stay Time/Level/Status/Method (spec §5.4.4)
+        await expect(page.getByTestId('log-table')).toMatchAriaSnapshot(`
+          - table:
+            - rowgroup:
+              - row:
+                - columnheader "Time"
+                - columnheader "Level"
+                - columnheader "Status"
+                - columnheader "Method"
+        `);
+      });
+
+      await test.step('Default sort is Time descending', async () => {
+        await expect(timeHeader).toHaveAttribute('aria-sort', 'descending');
+      });
+
+      await test.step('Clicking the active Time header flips aria-sort to ascending', async () => {
+        await clickSortHeader(page, 'ts');
+        await expect(timeHeader).toHaveAttribute('aria-sort', 'ascending');
+      });
+
+      await test.step('Activating the Status column moves the aria-sort indicator', async () => {
+        await clickSortHeader(page, 'status');
+        await expect(statusHeader).toHaveAttribute('aria-sort', 'descending');
+        await expect(timeHeader).not.toHaveAttribute('aria-sort', /ascending|descending/);
+      });
+    });
+
+    test.fixme('should reset to first page when sorting changes', async ({ page, authenticatedUser }) => {
+      await loginUser(page, authenticatedUser);
+
+      const captured: CapturedSortParams = { sortBy: null, sortDir: null, offset: 0 };
+      await setupSortCaptureMocks(page, captured, generateMockEntries(150), 150);
+
+      const initialContentPromise = waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+      await page.goto('/tasks/logs', { waitUntil: 'domcontentloaded' });
+      await waitForLoadingComplete(page);
+      await initialContentPromise;
+
+      await test.step('Navigate to the second page', async () => {
+        await Promise.all([
+          page.waitForResponse(
+            (resp) => resp.url().includes('/api/v1/logs/access.log') && resp.status() === 200
+          ),
+          getNextButton(page).click(),
+        ]);
+        expect(captured.offset).toBe(50);
+      });
+
+      await test.step('Sorting by a column resets to the first page', async () => {
+        await clickSortHeader(page, 'status');
+        expect(captured.sortBy).toBe('status');
+        expect(captured.offset).toBe(0);
+      });
     });
   });
 
