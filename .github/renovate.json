@@ -67,7 +67,7 @@
         "/^Dockerfile$/"
       ],
       "matchStrings": [
-        "#\\s*renovate:\\s*datasource=go\\s+depName=(?<depName>[^\\s]+)\\s*\\n\\s*go get (?<depName2>[^@]+)@v(?<currentValue>[^\\s|]+)"
+        "#\\s*renovate:\\s*datasource=go\\s+depName=(?<depName>[^\\s]+)\\s*\\n\\s*(?:_retry )?go get (?<depName2>[^@]+)@v(?<currentValue>[^\\s|]+)"
       ],
       "datasourceTemplate": "go",
       "versioningTemplate": "semver"
@@ -79,7 +79,7 @@
         "/^Dockerfile$/"
       ],
       "matchStrings": [
-        "#\\s*renovate:\\s*datasource=github-tags\\s+depName=(?<depName>[^\\s]+)\\s*\\n\\s*go get [^@]+@v(?<currentValue>[^\\s|]+)"
+        "#\\s*renovate:\\s*datasource=github-tags\\s+depName=(?<depName>[^\\s]+)\\s*\\n\\s*(?:_retry )?go get [^@]+@v(?<currentValue>[^\\s|]+)"
       ],
       "datasourceTemplate": "github-tags",
       "versioningTemplate": "semver",
