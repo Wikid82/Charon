@@ -65,7 +65,7 @@ func TestLogService(t *testing.T) {
 	assert.Equal(t, "access.log", logs[0].Name)
 
 	// Test QueryLogs - All
-	results, total, err := service.QueryLogs("access.log", models.LogFilter{Limit: 10})
+	results, total, _, err := service.QueryLogs("access.log", models.LogFilter{Limit: 10})
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), total)
 	assert.Len(t, results, 2)
@@ -74,21 +74,21 @@ func TestLogService(t *testing.T) {
 	assert.Equal(t, 200, results[1].Status)
 
 	// Test QueryLogs - Filter Status
-	results, total, err = service.QueryLogs("access.log", models.LogFilter{Status: "5xx", Limit: 10})
+	results, total, _, err = service.QueryLogs("access.log", models.LogFilter{Status: "5xx", Limit: 10})
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), total)
 	assert.Len(t, results, 1)
 	assert.Equal(t, 500, results[0].Status)
 
 	// Test QueryLogs - Filter Host
-	results, total, err = service.QueryLogs("access.log", models.LogFilter{Host: "api.example.com", Limit: 10})
+	results, total, _, err = service.QueryLogs("access.log", models.LogFilter{Host: "api.example.com", Limit: 10})
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), total)
 	assert.Len(t, results, 1)
 	assert.Equal(t, "api.example.com", results[0].Request.Host)
 
 	// Test QueryLogs - Search
-	results, total, err = service.QueryLogs("access.log", models.LogFilter{Search: "submit", Limit: 10})
+	results, total, _, err = service.QueryLogs("access.log", models.LogFilter{Search: "submit", Limit: 10})
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), total)
 	assert.Len(t, results, 1)
@@ -123,45 +123,46 @@ func TestLogService(t *testing.T) {
 	err = os.WriteFile(filepath.Join(logsDir, "app.log"), []byte(plainContent), 0o600) // #nosec G306 -- test fixture
 	require.NoError(t, err)
 
-	results, total, err = service.QueryLogs("app.log", models.LogFilter{Limit: 10})
+	results, total, _, err = service.QueryLogs("app.log", models.LogFilter{Limit: 10})
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), total)
-	// Reverse order check
-	assert.Equal(t, "Just a plain line", results[0].Msg)
-	assert.Equal(t, "Application started", results[1].Msg)
-	assert.Equal(t, "INFO", results[1].Level)
+	// Default sort is ts desc: the line with a parsed timestamp sorts before
+	// the plain line whose timestamp could not be parsed (Ts=0 ranks last).
+	assert.Equal(t, "Application started", results[0].Msg)
+	assert.Equal(t, "Just a plain line", results[1].Msg)
+	assert.Equal(t, "INFO", results[0].Level)
 
 	// Test QueryLogs - Pagination
 	// We have 2 logs in access.log
-	results, _, err = service.QueryLogs("access.log", models.LogFilter{Limit: 1, Offset: 0})
+	results, _, _, err = service.QueryLogs("access.log", models.LogFilter{Limit: 1, Offset: 0})
 	require.NoError(t, err)
 	assert.Len(t, results, 1)
 	assert.Equal(t, 500, results[0].Status) // Newest first
 
-	results, _, err = service.QueryLogs("access.log", models.LogFilter{Limit: 1, Offset: 1})
+	results, _, _, err = service.QueryLogs("access.log", models.LogFilter{Limit: 1, Offset: 1})
 	require.NoError(t, err)
 	assert.Len(t, results, 1)
 	assert.Equal(t, 200, results[0].Status) // Second newest
 
-	results, _, err = service.QueryLogs("access.log", models.LogFilter{Limit: 10, Offset: 5})
+	results, _, _, err = service.QueryLogs("access.log", models.LogFilter{Limit: 10, Offset: 5})
 	require.NoError(t, err)
 	assert.Empty(t, results)
 
 	// Test QueryLogs - Exact Status Match
-	results, total, err = service.QueryLogs("access.log", models.LogFilter{Status: "200", Limit: 10})
+	results, total, _, err = service.QueryLogs("access.log", models.LogFilter{Status: "200", Limit: 10})
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), total)
 	assert.Equal(t, 200, results[0].Status)
 
 	// Test QueryLogs - Search Fields
 	// Search Method
-	results, total, err = service.QueryLogs("access.log", models.LogFilter{Search: "POST", Limit: 10})
+	results, total, _, err = service.QueryLogs("access.log", models.LogFilter{Search: "POST", Limit: 10})
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), total)
 	assert.Equal(t, "POST", results[0].Request.Method)
 
 	// Search RemoteIP
-	results, total, err = service.QueryLogs("access.log", models.LogFilter{Search: "5.6.7.8", Limit: 10})
+	results, total, _, err = service.QueryLogs("access.log", models.LogFilter{Search: "5.6.7.8", Limit: 10})
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), total)
 	assert.Equal(t, "5.6.7.8", results[0].Request.RemoteIP)

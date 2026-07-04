@@ -144,6 +144,126 @@ func TestLogsLifecycle(t *testing.T) {
 	require.Empty(t, emptyLogs)
 }
 
+func TestRead_SortByParam(t *testing.T) {
+	router, tmpDir := setupLogsTest(t)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	// Fixture has status 200 (ts=1600000000) and 500 (ts=1600000060).
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/logs/access.log?sort_by=status&sort=asc", http.NoBody)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var body struct {
+		Logs []struct {
+			Status int `json:"status"`
+		} `json:"logs"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &body))
+	require.Len(t, body.Logs, 2)
+	require.Equal(t, 200, body.Logs[0].Status)
+	require.Equal(t, 500, body.Logs[1].Status)
+
+	// Same field descending.
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs/access.log?sort_by=status&sort=desc", http.NoBody)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &body))
+	require.Len(t, body.Logs, 2)
+	require.Equal(t, 500, body.Logs[0].Status)
+}
+
+func TestRead_InvalidSortBy(t *testing.T) {
+	router, tmpDir := setupLogsTest(t)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/logs/access.log?sort_by=password", http.NoBody)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+	var body struct {
+		Error string `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &body))
+	require.Equal(t, "invalid sort_by: must be one of ts, level, method, uri, status", body.Error)
+}
+
+func TestRead_SkippedLinesInResponse(t *testing.T) {
+	router, tmpDir := setupLogsTest(t)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	// One valid JSON line, one corrupted line (NUL byte, not valid JSON).
+	logsDir := filepath.Join(tmpDir, "data", "logs")
+	content := "{\"level\":\"info\",\"ts\":1,\"msg\":\"ok\"}\ncorrupt\x00line\n"
+	require.NoError(t, os.WriteFile(filepath.Join(logsDir, "corrupt.log"), []byte(content), 0o600)) // #nosec G306 -- test fixture
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/logs/corrupt.log", http.NoBody)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var body struct {
+		Total        int64 `json:"total"`
+		SkippedLines int64 `json:"skipped_lines"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &body))
+	require.Equal(t, int64(1), body.Total)
+	require.Equal(t, int64(1), body.SkippedLines)
+}
+
+// Compat pin (spec §5.1.2 change 1): non-numeric limit was silently discarded
+// (empty page); it is now an explicit 400.
+func TestRead_LimitNonNumeric_Returns400(t *testing.T) {
+	router, tmpDir := setupLogsTest(t)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/logs/access.log?limit=abc", http.NoBody)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+	require.Contains(t, resp.Body.String(), "error")
+}
+
+// Compat pin (spec §5.1.2 change 2): limit=0 used to produce an empty page;
+// it is now treated as unset and defaults to 50.
+func TestRead_LimitZero_DefaultsTo50(t *testing.T) {
+	router, tmpDir := setupLogsTest(t)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/logs/access.log?limit=0", http.NoBody)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var body struct {
+		Limit int   `json:"limit"`
+		Total int64 `json:"total"`
+		Logs  []any `json:"logs"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &body))
+	require.Equal(t, 50, body.Limit)
+	require.Len(t, body.Logs, 2)
+}
+
+func TestRead_LimitClampedTo500(t *testing.T) {
+	router, tmpDir := setupLogsTest(t)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/logs/access.log?limit=9999", http.NoBody)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var body struct {
+		Limit int `json:"limit"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &body))
+	require.Equal(t, 500, body.Limit)
+}
+
 func TestLogsHandler_PathTraversal(t *testing.T) {
 	_, tmpDir := setupLogsTest(t)
 	defer func() { _ = os.RemoveAll(tmpDir) }()

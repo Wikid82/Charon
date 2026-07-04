@@ -1,10 +1,10 @@
 package handlers
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -35,23 +35,19 @@ func (h *LogsHandler) List(c *gin.Context) {
 func (h *LogsHandler) Read(c *gin.Context) {
 	filename := c.Param("filename")
 
-	// Parse query parameters
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
-	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
-
-	filter := models.LogFilter{
-		Search: c.Query("search"),
-		Host:   c.Query("host"),
-		Status: c.Query("status"),
-		Level:  c.Query("level"),
-		Limit:  limit,
-		Offset: offset,
-		Sort:   c.DefaultQuery("sort", "desc"),
+	var filter models.LogFilter
+	if err := c.ShouldBindQuery(&filter); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid query parameters: " + err.Error()})
+		return
+	}
+	if err := filter.Validate(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
 
-	logs, total, err := h.service.QueryLogs(filename, filter)
+	logs, total, skipped, err := h.service.QueryLogs(filename, filter)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Log file not found"})
 			return
 		}
@@ -60,11 +56,12 @@ func (h *LogsHandler) Read(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"filename": filename,
-		"logs":     logs,
-		"total":    total,
-		"limit":    limit,
-		"offset":   offset,
+		"filename":      filename,
+		"logs":          logs,
+		"total":         total,
+		"limit":         filter.Limit,
+		"offset":        filter.Offset,
+		"skipped_lines": skipped,
 	})
 }
 
