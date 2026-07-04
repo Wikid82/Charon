@@ -73,7 +73,7 @@
     "@vitejs/plugin-react": "^6.0.3",
     "@vitest/coverage-istanbul": "^4.1.9",
     "@vitest/coverage-v8": "^4.1.9",
-    "@vitest/eslint-plugin": "^1.6.20",
+    "@vitest/eslint-plugin": "^1.6.21",
     "@vitest/ui": "^4.1.9",
     "eslint": "^10.6.0",
     "eslint-formatter-compact": "^9.0.1",
