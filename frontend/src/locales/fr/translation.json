@@ -813,7 +813,21 @@
     "noLogSelected": "Aucun Journal Sélectionné",
     "selectLogDescription": "Sélectionnez un fichier journal dans la liste pour voir son contenu",
     "showingEntries": "Affichage de {{from}} à {{to}} sur {{total}} entrées",
-    "pageOf": "Page {{current}} sur {{total}}"
+    "pageOf": "Page {{current}} sur {{total}}",
+    "loading": "Chargement des journaux...",
+    "noLogsFound": "Aucun journal ne correspond aux critères.",
+    "downloadFailed": "Échec du téléchargement du fichier journal",
+    "skippedLines_one": "{{count}} ligne corrompue ou trop longue a été ignorée",
+    "skippedLines_other": "{{count}} lignes corrompues ou trop longues ont été ignorées",
+    "columnTime": "Heure",
+    "columnLevel": "Niveau",
+    "columnStatus": "Statut",
+    "columnMethod": "Méthode",
+    "columnHost": "Hôte",
+    "columnPath": "Chemin",
+    "columnIp": "IP",
+    "columnLatency": "Latence",
+    "columnMessage": "Message"
   },
   "account": {
     "title": "Paramètres du Compte",

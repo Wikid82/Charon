@@ -1,10 +1,9 @@
-import { useQuery } from '@tanstack/react-query';
-import { FileText, ChevronLeft, ChevronRight, ScrollText } from 'lucide-react';
+import { FileText, ChevronLeft, ChevronRight, ScrollText, AlertTriangle } from 'lucide-react';
 import { useState, useEffect, type FC } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 
-import { getLogs, getLogContent, downloadLog, type LogFilter } from '../api/logs';
+import { type LogFilter, type LogSortField } from '../api/logs';
 import { PageShell } from '../components/layout/PageShell';
 import { LogFilters } from '../components/LogFilters';
 import { LogTable } from '../components/LogTable';
@@ -16,6 +15,8 @@ import {
   Skeleton,
   SkeletonList,
 } from '../components/ui';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
+import { useDownloadLog, useLogContent, useLogFiles } from '../hooks/useLogs';
 
 const Logs: FC = () => {
   const { t } = useTranslation();
@@ -27,14 +28,21 @@ const Logs: FC = () => {
   const [host, setHost] = useState('');
   const [status, setStatus] = useState('');
   const [level, setLevel] = useState('');
-  const [sort, setSort] = useState<'asc' | 'desc'>('desc');
+  const [sortBy, setSortBy] = useState<LogSortField>('ts');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [page, setPage] = useState(0);
   const limit = 50;
 
-  const { data: logs, isLoading: isLoadingLogs } = useQuery({
-    queryKey: ['logs'],
-    queryFn: getLogs,
-  });
+  const debouncedSearch = useDebouncedValue(search);
+  const debouncedHost = useDebouncedValue(host);
+
+  // Reset pagination only once the debounced values change, so a keystroke
+  // doesn't reset the page before the query actually fires.
+  useEffect(() => {
+    setPage(0);
+  }, [debouncedSearch, debouncedHost]);
+
+  const { data: logs, isLoading: isLoadingLogs } = useLogFiles();
 
   // Select first log by default if none selected
   useEffect(() => {
@@ -44,23 +52,37 @@ const Logs: FC = () => {
   }, [logs, selectedLog]);
 
   const filter: LogFilter = {
-    search,
-    host,
+    search: debouncedSearch,
+    host: debouncedHost,
     status,
     level,
     limit,
     offset: page * limit,
-    sort,
+    sort: sortDir,
+    sortBy,
   };
 
-  const { data: logData, isLoading: isLoadingContent, refetch: refetchContent } = useQuery({
-    queryKey: ['logContent', selectedLog, search, host, status, level, page, sort],
-    queryFn: () => (selectedLog ? getLogContent(selectedLog, filter) : Promise.resolve(null)),
-    enabled: !!selectedLog,
-  });
+  const {
+    data: logData,
+    isLoading: isLoadingContent,
+    isFetching: isFetchingContent,
+    refetch: refetchContent,
+  } = useLogContent(selectedLog, filter);
+
+  const downloadMutation = useDownloadLog();
 
   const handleDownload = () => {
-    if (selectedLog) downloadLog(selectedLog);
+    if (selectedLog) downloadMutation.mutate(selectedLog);
+  };
+
+  const handleSortChange = (field: LogSortField) => {
+    if (field === sortBy) {
+      setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
+    } else {
+      setSortBy(field);
+      setSortDir('desc');
+    }
+    setPage(0);
   };
 
   const totalPages = logData ? Math.ceil(logData.total / limit) : 0;
@@ -113,15 +135,9 @@ const Logs: FC = () => {
             <>
               <LogFilters
                 search={search}
-                onSearchChange={(v) => {
-                  setSearch(v);
-                  setPage(0);
-                }}
+                onSearchChange={setSearch}
                 host={host}
-                onHostChange={(v) => {
-                  setHost(v);
-                  setPage(0);
-                }}
+                onHostChange={setHost}
                 status={status}
                 onStatusChange={(v) => {
                   setStatus(v);
@@ -132,15 +148,21 @@ const Logs: FC = () => {
                   setLevel(v);
                   setPage(0);
                 }}
-                sort={sort}
-                onSortChange={(v) => {
-                  setSort(v);
-                  setPage(0);
-                }}
                 onRefresh={refetchContent}
                 onDownload={handleDownload}
-                isLoading={isLoadingContent}
+                isLoading={isFetchingContent}
               />
+
+              {logData && logData.skipped_lines > 0 && (
+                <div
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-yellow-50 text-yellow-800 border border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-200 dark:border-yellow-800"
+                  data-testid="skipped-lines-warning"
+                  role="status"
+                >
+                  <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden="true" />
+                  {t('logs.skippedLines', { count: logData.skipped_lines })}
+                </div>
+              )}
 
               <Card className="overflow-hidden">
                 {isLoadingContent ? (
@@ -151,7 +173,14 @@ const Logs: FC = () => {
                   </div>
                 ) : (
                   <div data-testid="log-table">
-                    <LogTable logs={logData?.logs || []} isLoading={isLoadingContent} />
+                    <LogTable
+                      logs={logData?.logs || []}
+                      isLoading={isLoadingContent}
+                      isFetching={isFetchingContent}
+                      sortBy={sortBy}
+                      sortDir={sortDir}
+                      onSortChange={handleSortChange}
+                    />
                   </div>
                 )}
 
@@ -174,7 +203,7 @@ const Logs: FC = () => {
                           variant="secondary"
                           size="sm"
                           onClick={() => setPage((p) => Math.max(0, p - 1))}
-                          disabled={page === 0 || isLoadingContent}
+                          disabled={page === 0 || isFetchingContent}
                           data-testid="prev-page-button"
                           aria-label="Previous page"
                         >
@@ -184,7 +213,7 @@ const Logs: FC = () => {
                           variant="secondary"
                           size="sm"
                           onClick={() => setPage((p) => p + 1)}
-                          disabled={page >= totalPages - 1 || isLoadingContent}
+                          disabled={page >= totalPages - 1 || isFetchingContent}
                           data-testid="next-page-button"
                           aria-label="Next page"
                         >

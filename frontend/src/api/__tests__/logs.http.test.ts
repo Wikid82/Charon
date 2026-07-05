@@ -24,7 +24,7 @@ describe('logs api http helpers', () => {
     expect(logs[0].name).toBe('access.log')
     expect(client.get).toHaveBeenCalledWith('/logs')
 
-    vi.mocked(client.get).mockResolvedValueOnce({ data: { filename: 'access.log', logs: [], total: 0, limit: 100, offset: 0 } })
+    vi.mocked(client.get).mockResolvedValueOnce({ data: { filename: 'access.log', logs: [], total: 0, limit: 100, offset: 0, skipped_lines: 0 } })
     const resp = await getLogContent('access.log', {
       search: 'bot',
       host: 'example.com',
@@ -33,13 +33,32 @@ describe('logs api http helpers', () => {
       limit: 50,
       offset: 5,
       sort: 'asc',
+      sortBy: 'uri',
     })
     expect(resp.filename).toBe('access.log')
-    expect(client.get).toHaveBeenCalledWith('/logs/access.log?search=bot&host=example.com&status=500&level=error&limit=50&offset=5&sort=asc')
+    expect(client.get).toHaveBeenCalledWith('/logs/access.log?search=bot&host=example.com&status=500&level=error&limit=50&offset=5&sort=asc&sort_by=uri')
   })
 
-  it('downloads log via window location', () => {
-    downloadLog('access.log')
-    expect(window.location.href).toBe('/api/v1/logs/access.log/download')
+  it('downloads log as a blob without navigating', async () => {
+    const originalCreateObjectURL = URL.createObjectURL
+    const originalRevokeObjectURL = URL.revokeObjectURL
+    URL.createObjectURL = vi.fn().mockReturnValue('blob:mock-url')
+    URL.revokeObjectURL = vi.fn()
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    try {
+      vi.mocked(client.get).mockResolvedValueOnce({ data: new Blob(['log content']) })
+
+      await downloadLog('access.log')
+
+      expect(client.get).toHaveBeenCalledWith('/logs/access.log/download', { responseType: 'blob' })
+      expect(clickSpy).toHaveBeenCalledTimes(1)
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url')
+      expect(window.location.href).toBe('http://localhost')
+    } finally {
+      clickSpy.mockRestore()
+      URL.createObjectURL = originalCreateObjectURL
+      URL.revokeObjectURL = originalRevokeObjectURL
+    }
   })
 })

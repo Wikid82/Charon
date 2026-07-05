@@ -32,7 +32,12 @@ export interface LogResponse {
   total: number;
   limit: number;
   offset: number;
+  /** Number of corrupted/oversized lines skipped during parsing. */
+  skipped_lines: number;
 }
+
+/** Columns the backend can sort log entries by. */
+export type LogSortField = 'ts' | 'level' | 'method' | 'uri' | 'status';
 
 /** Filter options for log queries. */
 export interface LogFilter {
@@ -43,6 +48,7 @@ export interface LogFilter {
   limit?: number;
   offset?: number;
   sort?: 'asc' | 'desc';
+  sortBy?: LogSortField;
 }
 
 /**
@@ -71,20 +77,35 @@ export const getLogContent = async (filename: string, filter: LogFilter = {}): P
   if (filter.limit) params.append('limit', filter.limit.toString());
   if (filter.offset) params.append('offset', filter.offset.toString());
   if (filter.sort) params.append('sort', filter.sort);
+  if (filter.sortBy) params.append('sort_by', filter.sortBy);
 
-  const response = await client.get<LogResponse>(`/logs/${filename}?${params.toString()}`);
+  const response = await client.get<LogResponse>(`/logs/${encodeURIComponent(filename)}?${params.toString()}`);
   return response.data;
 };
 
 /**
- * Initiates a log file download by redirecting the browser.
+ * Downloads a log file as a blob and saves it via a temporary anchor element.
+ * Goes through the shared axios client so auth interceptors apply and HTTP
+ * errors reject instead of navigating the SPA to a JSON error body.
  * @param filename - The log file name to download
+ * @throws {AxiosError} If the download request fails
  */
-export const downloadLog = (filename: string) => {
-  // Direct window location change to trigger download
-  // We need to use the base URL from the client config if possible,
-  // but for now we assume relative path works with the proxy setup
-  window.location.href = `/api/v1/logs/${filename}/download`;
+export const downloadLog = async (filename: string): Promise<void> => {
+  const response = await client.get<Blob>(`/logs/${encodeURIComponent(filename)}/download`, {
+    responseType: 'blob',
+  });
+
+  const url = URL.createObjectURL(response.data);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  try {
+    anchor.click();
+  } finally {
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  }
 };
 
 /** Live log entry from WebSocket stream. */
@@ -162,11 +183,9 @@ export const connectLiveLogs = (
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${window.location.host}/api/v1/logs/live?${params.toString()}`;
 
-  console.log('Connecting to WebSocket:', wsUrl);
   const ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
-    console.log('WebSocket connection established');
     onOpen?.();
   };
 
@@ -184,8 +203,7 @@ export const connectLiveLogs = (
     onError?.(error);
   };
 
-  ws.onclose = (event: CloseEvent) => {
-    console.log('WebSocket connection closed', { code: event.code, reason: event.reason, wasClean: event.wasClean });
+  ws.onclose = () => {
     onClose?.();
   };
 
@@ -227,11 +245,9 @@ export const connectSecurityLogs = (
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${window.location.host}/api/v1/cerberus/logs/ws?${params.toString()}`;
 
-  console.log('Connecting to Cerberus logs WebSocket:', wsUrl);
   const ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
-    console.log('Cerberus logs WebSocket connection established');
     onOpen?.();
   };
 
@@ -249,8 +265,7 @@ export const connectSecurityLogs = (
     onError?.(error);
   };
 
-  ws.onclose = (event: CloseEvent) => {
-    console.log('Cerberus logs WebSocket closed', { code: event.code, reason: event.reason, wasClean: event.wasClean });
+  ws.onclose = () => {
     onClose?.();
   };
 
