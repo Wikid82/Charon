@@ -7,8 +7,10 @@ const (
 )
 
 var (
-	// Version is the semantic version
-	Version = "0.3.0"
+	// Version is the semantic version, set during release builds via ldflags.
+	// The "dev" fallback marks local/untagged builds so they are never
+	// mistaken for a release.
+	Version = "dev"
 	// BuildTime is set during build via ldflags
 	BuildTime = "unknown"
 	// GitCommit is set during build via ldflags

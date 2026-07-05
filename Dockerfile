@@ -134,9 +134,14 @@ RUN npm install -g undici@6.27.0 --no-fund --no-audit \
 
 RUN npm ci --ignore-scripts --fetch-retries=5 --fetch-retry-mintimeout=10000
 
-# Copy frontend source and build
+# Copy frontend source and build.
+# Sync package.json to the release version for semver builds; skip for
+# non-semver values like "dev" or branch names, which npm version rejects.
 COPY frontend/ ./
 RUN --mount=type=cache,target=/app/frontend/node_modules/.cache \
+    if echo "${VERSION}" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+'; then \
+        npm version "${VERSION#v}" --no-git-tag-version --allow-same-version; \
+    fi && \
     npm run build
 
 # ---- Backend Builder ----
