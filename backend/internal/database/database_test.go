@@ -18,7 +18,12 @@ func TestMain(m *testing.M) {
 }
 
 func TestSyncIntegrityCheckForTesting(t *testing.T) {
-	t.Parallel()
+	// Deliberately NOT parallel: SyncIntegrityCheckForTesting writes the
+	// package-level launchQuickCheck variable, which every parallel test
+	// reads via Connect. Running this test in the sequential phase keeps
+	// the write happens-before all parallel readers (the race detector
+	// flags it otherwise), matching the helper's own contract of being
+	// called before tests run.
 
 	// Sanity: the exported wrapper assigns launchQuickCheck to the
 	// synchronous runQuickCheck implementation, and Connect still succeeds
