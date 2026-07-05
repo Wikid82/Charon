@@ -141,6 +141,24 @@ describe('LogTable', () => {
     expect(container.querySelector('tbody')).not.toHaveClass('opacity-50')
   })
 
+  it('marks the table aria-busy while a background refetch is in flight', () => {
+    const { rerender } = render(
+      <LogTable {...defaultProps} logs={[accessLog()]} isFetching />
+    )
+    expect(screen.getByRole('table')).toHaveAttribute('aria-busy', 'true')
+
+    rerender(<LogTable {...defaultProps} logs={[accessLog()]} isFetching={false} />)
+    expect(screen.getByRole('table')).toHaveAttribute('aria-busy', 'false')
+  })
+
+  it('sets scope="col" on every column header', () => {
+    render(<LogTable {...defaultProps} logs={[accessLog()]} />)
+
+    const headers = screen.getAllByRole('columnheader')
+    expect(headers).toHaveLength(9)
+    headers.forEach((th) => expect(th).toHaveAttribute('scope', 'col'))
+  })
+
   it('renders request details in access log rows', () => {
     render(<LogTable {...defaultProps} logs={[accessLog()]} />)
 

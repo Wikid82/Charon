@@ -47,7 +47,7 @@ const SortableHeader: React.FC<SortableHeaderProps> = ({ field, label, sortBy, s
   const Icon = isActive ? (sortDir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
 
   return (
-    <th className={HEADER_CELL_CLASS} aria-sort={ariaSort}>
+    <th scope="col" className={HEADER_CELL_CLASS} aria-sort={ariaSort}>
       <button
         type="button"
         onClick={() => onSortChange(field)}
@@ -93,18 +93,21 @@ export const LogTable: React.FC<LogTableProps> = ({
 
   return (
     <div className="overflow-x-auto">
-      <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+      <table
+        className="min-w-full divide-y divide-gray-200 dark:divide-gray-700"
+        aria-busy={isFetching}
+      >
         <thead className="bg-gray-50 dark:bg-gray-800">
           <tr>
             <SortableHeader field="ts" label={t('logs.columnTime')} {...sortProps} />
             <SortableHeader field="level" label={t('logs.columnLevel')} {...sortProps} />
             <SortableHeader field="status" label={t('logs.columnStatus')} {...sortProps} />
             <SortableHeader field="method" label={t('logs.columnMethod')} {...sortProps} />
-            <th className={HEADER_CELL_CLASS}>{t('logs.columnHost')}</th>
+            <th scope="col" className={HEADER_CELL_CLASS}>{t('logs.columnHost')}</th>
             <SortableHeader field="uri" label={t('logs.columnPath')} {...sortProps} />
-            <th className={HEADER_CELL_CLASS}>{t('logs.columnIp')}</th>
-            <th className={HEADER_CELL_CLASS}>{t('logs.columnLatency')}</th>
-            <th className={HEADER_CELL_CLASS}>{t('logs.columnMessage')}</th>
+            <th scope="col" className={HEADER_CELL_CLASS}>{t('logs.columnIp')}</th>
+            <th scope="col" className={HEADER_CELL_CLASS}>{t('logs.columnLatency')}</th>
+            <th scope="col" className={HEADER_CELL_CLASS}>{t('logs.columnMessage')}</th>
           </tr>
         </thead>
         <tbody
