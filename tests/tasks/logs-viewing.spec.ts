@@ -10,7 +10,7 @@
  * - Log Content Display (2 tests): show columns, highlight error entries
  * - Pagination (3 tests): navigate pages, page info, button states
  * - Search/Filter (2 tests): text search, level filter
- * - Sorting (7 tests, fixme until issue #686 lands): column header sorting,
+ * - Sorting (7 tests): column header sorting,
  *   aria-sort indication, page reset on sort change
  * - Download (2 tests): download file, error handling
  *
@@ -576,10 +576,6 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
      * Sortable columns and their backend `sort_by` values (spec §5.4.4):
      * Time→ts, Level→level, Status→status, Method→method, Path→uri.
      * Each sortable header exposes a button with data-testid `sort-header-<field>`.
-     *
-     * All tests are marked test.fixme until the sorting feature (issue #686)
-     * is implemented in the backend and frontend; the fixme flags are removed
-     * in the final integration commit.
      */
 
     /** Latest sort-related query params captured by the mock route */
@@ -635,7 +631,7 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
       ]);
     }
 
-    test.fixme('should sort by timestamp via Time header', async ({ page, authenticatedUser }) => {
+    test('should sort by timestamp via Time header', async ({ page, authenticatedUser }) => {
       await loginUser(page, authenticatedUser);
 
       const captured: CapturedSortParams = { sortBy: null, sortDir: null, offset: 0 };
@@ -654,14 +650,19 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
       });
 
       await test.step('Toggle the Time column back to descending', async () => {
-        await clickSortHeader(page, 'ts');
-        expect(captured.sortBy).toBe('ts');
-        expect(captured.sortDir).toBe('desc');
+        // The ts/desc page was fetched on initial load and is still fresh in
+        // the React Query cache (30s staleTime), so toggling back is served
+        // from cache without a network request — assert the UI state instead.
+        await page.getByTestId('sort-header-ts').click();
+        await expect(page.getByRole('columnheader', { name: /time/i })).toHaveAttribute(
+          'aria-sort',
+          'descending'
+        );
       });
     });
 
     for (const field of ['status', 'level', 'method', 'uri'] as const) {
-      test.fixme(`should sort by ${field} via its column header`, async ({ page, authenticatedUser }) => {
+      test(`should sort by ${field} via its column header`, async ({ page, authenticatedUser }) => {
         await loginUser(page, authenticatedUser);
 
         const captured: CapturedSortParams = { sortBy: null, sortDir: null, offset: 0 };
@@ -682,7 +683,7 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
       });
     }
 
-    test.fixme('should indicate active sort with aria-sort', async ({ page, authenticatedUser }) => {
+    test('should indicate active sort with aria-sort', async ({ page, authenticatedUser }) => {
       await loginUser(page, authenticatedUser);
 
       const captured: CapturedSortParams = { sortBy: null, sortDir: null, offset: 0 };
@@ -725,7 +726,7 @@ test.describe('Logs Page - WebKit Compatible Tests', () => {
       });
     });
 
-    test.fixme('should reset to first page when sorting changes', async ({ page, authenticatedUser }) => {
+    test('should reset to first page when sorting changes', async ({ page, authenticatedUser }) => {
       await loginUser(page, authenticatedUser);
 
       const captured: CapturedSortParams = { sortBy: null, sortDir: null, offset: 0 };
