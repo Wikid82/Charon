@@ -284,3 +284,103 @@ func TestLogsHandler_PathTraversal(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.Contains(t, w.Body.String(), "invalid filename")
 }
+
+// Sentinel mapping (spec §5.3.2): the service returns a wrapped
+// ErrInvalidFilename and the Read handler maps it via errors.Is -> 400
+// (no string matching).
+func TestRead_InvalidFilename_400_ViaErrorsIs(t *testing.T) {
+	_, tmpDir := setupLogsTest(t)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "filename", Value: "../access.log"}}
+	c.Request = httptest.NewRequest(http.MethodGet, "/logs/x", http.NoBody)
+
+	svc := services.NewLogService(&config.Config{DatabasePath: filepath.Join(tmpDir, "data", "charon.db")})
+	h := NewLogsHandler(svc)
+
+	h.Read(c)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Contains(t, w.Body.String(), "invalid filename")
+}
+
+func TestDownload_InvalidFilename_400_ViaErrorsIs(t *testing.T) {
+	_, tmpDir := setupLogsTest(t)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "filename", Value: "..%2Fsecret"}}
+	c.Request = httptest.NewRequest(http.MethodGet, "/logs/x/download", http.NoBody)
+
+	svc := services.NewLogService(&config.Config{DatabasePath: filepath.Join(tmpDir, "data", "charon.db")})
+	h := NewLogsHandler(svc)
+
+	h.Download(c)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Contains(t, w.Body.String(), "invalid filename")
+}
+
+func TestDownload_ContentDispositionQuoted(t *testing.T) {
+	router, tmpDir := setupLogsTest(t)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/logs/access.log/download", http.NoBody)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusOK, resp.Code)
+	require.Equal(t, `attachment; filename="access.log"`, resp.Header().Get("Content-Disposition"))
+}
+
+func TestDownload_ContentType(t *testing.T) {
+	router, tmpDir := setupLogsTest(t)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/logs/access.log/download", http.NoBody)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusOK, resp.Code)
+	require.Equal(t, "text/plain; charset=utf-8", resp.Header().Get("Content-Type"))
+}
+
+func TestDownload_TraversalRejected(t *testing.T) {
+	router, tmpDir := setupLogsTest(t)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	// Unknown (not in the raw log-directory listing) -> 404.
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/logs/unknown.log/download", http.NoBody)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusNotFound, resp.Code)
+
+	// Traversal-shaped via direct invocation (router would clean the path).
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "filename", Value: "/etc/passwd"}}
+	c.Request = httptest.NewRequest(http.MethodGet, "/logs/x/download", http.NoBody)
+
+	svc := services.NewLogService(&config.Config{DatabasePath: filepath.Join(tmpDir, "data", "charon.db")})
+	h := NewLogsHandler(svc)
+	h.Download(c)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// Alias servability end-to-end: both names of the charon.log/cpmp.log symlink
+// pair must download successfully (allowlist is built pre-symlink-dedup).
+func TestDownload_SymlinkAliasesBothServable(t *testing.T) {
+	router, tmpDir := setupLogsTest(t)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	for _, name := range []string{"charon.log", "cpmp.log"} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/logs/"+name+"/download", http.NoBody)
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+		require.Equal(t, http.StatusOK, resp.Code, "alias %q must be servable", name)
+		require.Contains(t, resp.Body.String(), "app log line 1")
+	}
+}

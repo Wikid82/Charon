@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -47,6 +46,10 @@ func (h *LogsHandler) Read(c *gin.Context) {
 
 	logs, total, skipped, err := h.service.QueryLogs(filename, filter)
 	if err != nil {
+		if errors.Is(err, services.ErrInvalidFilename) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		if errors.Is(err, os.ErrNotExist) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Log file not found"})
 			return
@@ -69,7 +72,7 @@ func (h *LogsHandler) Download(c *gin.Context) {
 	filename := c.Param("filename")
 	path, err := h.service.GetLogPath(filename)
 	if err != nil {
-		if strings.Contains(err.Error(), "invalid filename") {
+		if errors.Is(err, services.ErrInvalidFilename) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -90,8 +93,11 @@ func (h *LogsHandler) Download(c *gin.Context) {
 		}
 	}()
 
-	// #nosec G304 -- path is validated via LogService.GetLogPath which enforces
-	// filepath.Base equality check and path prefix validation.
+	// #nosec G304 -- path is the symlink-RESOLVED location returned by
+	// LogService.GetLogPath, which enforces filepath.Base equality, a raw
+	// directory-entry allowlist, and both-sides EvalSymlinks containment
+	// inside the configured log directories; opening the resolved path closes
+	// the TOCTOU window between validation and open.
 	srcFile, err := os.Open(path) //nolint:gosec // nosemgrep: go.gin.path-traversal.gin-path-traversal-taint.gin-path-traversal-taint
 	if err != nil {
 		if err := tmpFile.Close(); err != nil {
@@ -117,6 +123,8 @@ func (h *LogsHandler) Download(c *gin.Context) {
 		logger.Log().WithError(err).Warn("failed to close temp file after copy")
 	}
 
-	c.Header("Content-Disposition", "attachment; filename="+filename)
-	c.File(tmpFile.Name())
+	// Explicit text/plain prevents HTML content-sniffing of attacker-influenced
+	// log content; FileAttachment emits an RFC 6266 quoted Content-Disposition.
+	c.Header("Content-Type", "text/plain; charset=utf-8")
+	c.FileAttachment(tmpFile.Name(), filename)
 }

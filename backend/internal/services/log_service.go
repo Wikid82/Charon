@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -80,8 +81,7 @@ func (s *LogService) ListLogs() ([]LogFile, error) {
 		}
 
 		for _, entry := range entries {
-			hasLogExtension := strings.HasSuffix(entry.Name(), ".log") || strings.Contains(entry.Name(), ".log.")
-			if entry.IsDir() || !hasLogExtension {
+			if entry.IsDir() || !isLogName(entry.Name()) {
 				continue
 			}
 
@@ -109,27 +109,125 @@ func (s *LogService) ListLogs() ([]LogFile, error) {
 	return logs, nil
 }
 
-// GetLogPath returns the absolute path to a log file if it exists and is valid
+// ErrInvalidFilename is the sentinel for traversal-shaped or
+// containment-violating filename rejections. Handlers map it to 400 via
+// errors.Is instead of matching error strings.
+var ErrInvalidFilename = errors.New("invalid filename: path traversal attempt detected")
+
+// isLogName reports whether a directory entry name follows the servable
+// log-file naming rules (".log" suffix or ".log." infix, e.g. rotations).
+func isLogName(name string) bool {
+	return strings.HasSuffix(name, ".log") || strings.Contains(name, ".log.")
+}
+
+// listServableNames returns the allowlist of servable filenames built from
+// RAW directory entries of every log dir. It deliberately does NOT reuse
+// ListLogs(): that method dedups symlink aliases by resolved path, which
+// would nondeterministically drop one name of a legitimate alias pair such
+// as charon.log/cpmp.log. Both alias names must remain servable.
+func (s *LogService) listServableNames() (map[string]bool, error) {
+	names := make(map[string]bool)
+	for _, dir := range s.logDirs() {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("read log dir %q: %w", dir, err)
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || !isLogName(entry.Name()) {
+				continue
+			}
+			names[entry.Name()] = true
+		}
+	}
+	return names, nil
+}
+
+// GetLogPath validates a client-supplied filename and returns the
+// symlink-RESOLVED absolute path to the log file. Callers must open exactly
+// the returned path: because it contains no client-influenced symlink
+// component, a post-check symlink swap cannot redirect the open (TOCTOU).
+//
+// Defense-in-depth layers (spec §5.7):
+//  1. shape check (filepath.Base equality; empty/"."/".."/percent-encoded
+//     separators rejected) -> ErrInvalidFilename;
+//  2. allowlist against raw directory entries -> unknown names get
+//     os.ErrNotExist without opening any file;
+//  3. joined-path prefix containment in a cleaned log dir;
+//  4. both-sides EvalSymlinks containment: the resolved file must live inside
+//     a resolved log dir. This invariant is never relaxed under any
+//     configuration (R6).
 func (s *LogService) GetLogPath(filename string) (string, error) {
-	cleanName := filepath.Base(filename)
-	if filename != cleanName {
-		return "", fmt.Errorf("invalid filename: path traversal attempt detected")
+	invalid := func() (string, error) {
+		return "", fmt.Errorf("get log path %q: %w", filename, ErrInvalidFilename)
+	}
+	if filename == "" || filename == "." || filename == ".." {
+		return invalid()
+	}
+	if filename != filepath.Base(filename) {
+		return invalid()
+	}
+	// Reject literal percent-encoded path separators: they cannot appear in a
+	// legitimate log filename and only serve double-decode traversal attempts.
+	if lower := strings.ToLower(filename); strings.Contains(lower, "%2f") || strings.Contains(lower, "%5c") {
+		return invalid()
 	}
 
+	servable, err := s.listServableNames()
+	if err != nil {
+		return "", fmt.Errorf("list servable log names: %w", err)
+	}
+	if !servable[filename] {
+		return "", fmt.Errorf("log file %q not found: %w", filename, os.ErrNotExist)
+	}
+
+	var containmentErr error
 	for _, dir := range s.logDirs() {
 		baseDir := filepath.Clean(dir)
-		path := filepath.Join(baseDir, cleanName)
+		path := filepath.Join(baseDir, filename)
 		if !strings.HasPrefix(path, baseDir+string(os.PathSeparator)) {
 			continue
 		}
 
-		// Verify file exists
-		if _, err := os.Stat(path); err == nil {
-			return path, nil
+		resolved, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			continue // missing in this dir, or dangling symlink
 		}
+		info, err := os.Stat(resolved)
+		if err != nil || !info.Mode().IsRegular() {
+			continue // never serve directories or special files
+		}
+		if s.resolvedInLogDirs(resolved) {
+			return resolved, nil
+		}
+		// Found but resolves outside every resolved log dir: refuse (R6).
+		containmentErr = fmt.Errorf("log file %q resolves outside the log directories: %w", filename, ErrInvalidFilename)
 	}
 
-	return "", os.ErrNotExist
+	if containmentErr != nil {
+		return "", containmentErr
+	}
+	return "", fmt.Errorf("log file %q not found: %w", filename, os.ErrNotExist)
+}
+
+// resolvedInLogDirs reports whether the already-resolved file path lies
+// inside the EvalSymlinks-resolved form of one of the log dirs. Resolving
+// BOTH sides also covers layouts where a log dir itself (or an ancestor)
+// is a symlink.
+func (s *LogService) resolvedInLogDirs(resolved string) bool {
+	parent := filepath.Dir(resolved)
+	for _, dir := range s.logDirs() {
+		resolvedDir, err := filepath.EvalSymlinks(filepath.Clean(dir))
+		if err != nil {
+			continue
+		}
+		if parent == resolvedDir || strings.HasPrefix(parent, resolvedDir+string(os.PathSeparator)) {
+			return true
+		}
+	}
+	return false
 }
 
 // QueryLogs parses, filters, sorts, and paginates logs from a specific file.

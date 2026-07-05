@@ -88,6 +88,25 @@ func TestQueryLogs_SortBy(t *testing.T) {
 	}
 }
 
+func TestQueryLogs_EqualTsIsStable(t *testing.T) {
+	// Entries with identical timestamps keep file order (sort.SliceStable):
+	// the ts comparator returns equal and the ts-desc tiebreaker is also equal.
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	logsDir := filepath.Join(dataDir, "logs")
+	require.NoError(t, os.MkdirAll(logsDir, 0o750))
+	content := `{"level":"info","ts":100,"msg":"first"}` + "\n" +
+		`{"level":"info","ts":100,"msg":"second"}` + "\n"
+	require.NoError(t, os.WriteFile(filepath.Join(logsDir, "equal.log"), []byte(content), 0o600)) // #nosec G306 -- test fixture
+
+	service := NewLogService(&config.Config{DatabasePath: filepath.Join(dataDir, "charon.db")})
+	for _, dir := range []string{"asc", "desc"} {
+		results, _, _, err := service.QueryLogs("equal.log", models.LogFilter{Limit: 10, Sort: dir, SortBy: "ts"})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"first", "second"}, msgs(results), "direction %s must be stable", dir)
+	}
+}
+
 func TestQueryLogs_LevelRank(t *testing.T) {
 	assert.Equal(t, 0, levelRank("debug"))
 	assert.Equal(t, 1, levelRank("info"))
@@ -138,10 +157,10 @@ func TestQueryLogs_CorruptedLines(t *testing.T) {
 
 	var content strings.Builder
 	content.WriteString(`{"level":"info","ts":1,"msg":"json before"}` + "\n")
-	content.WriteString("plain text fallback line\n")                 // valid UTF-8, no NUL -> fallback, NOT skipped
-	content.WriteString("corrupt\x00with nul\n")                      // JSON-fail + NUL byte -> skipped
-	content.WriteString("bad utf8 \xff\xfe\xfd here\n")               // JSON-fail + invalid UTF-8 -> skipped
-	content.WriteString(oversized + "\n")                             // over per-line cap -> skipped, loop continues
+	content.WriteString("plain text fallback line\n")   // valid UTF-8, no NUL -> fallback, NOT skipped
+	content.WriteString("corrupt\x00with nul\n")        // JSON-fail + NUL byte -> skipped
+	content.WriteString("bad utf8 \xff\xfe\xfd here\n") // JSON-fail + invalid UTF-8 -> skipped
+	content.WriteString(oversized + "\n")               // over per-line cap -> skipped, loop continues
 	content.WriteString(`{"level":"info","ts":2,"msg":"json after"}` + "\n")
 
 	require.NoError(t, os.WriteFile(filepath.Join(logsDir, "mixed.log"), []byte(content.String()), 0o600)) // #nosec G306 -- test fixture
