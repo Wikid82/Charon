@@ -13,7 +13,7 @@ ARG BUILD_DEBUG=0
 ARG GO_VERSION=1.26.4
 
 # renovate: datasource=docker depName=alpine versioning=docker
-ARG ALPINE_IMAGE=alpine:3.24.0@sha256:a2d49ea686c2adfe3c992e47dc3b5e7fa6e6b5055609400dc2acaeb241c829f4
+ARG ALPINE_IMAGE=alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
 
 # ---- Shared CrowdSec Version ----
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
@@ -29,7 +29,7 @@ ARG XNET_VERSION=0.56.0
 # renovate: datasource=go depName=golang.org/x/crypto
 ARG XCRYPTO_VERSION=0.53.0
 # renovate: datasource=npm depName=npm
-ARG NPM_VERSION=11.17.0
+ARG NPM_VERSION=11.18.0
 
 # Allow pinning Caddy version - Renovate will update this
 # Build the most recent Caddy 2.x release (keeps major pinned under v3).
@@ -45,7 +45,7 @@ ARG CADDY_CANDIDATE_VERSION=2.11.4
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
-ARG CADDY_SECURITY_VERSION=1.1.62
+ARG CADDY_SECURITY_VERSION=1.1.64
 # renovate: datasource=go depName=github.com/corazawaf/coraza-caddy/v2
 ARG CORAZA_CADDY_VERSION=2.5.0
 ## When an official caddy image tag isn't available on the host, use a
@@ -82,7 +82,14 @@ RUN apk add --no-cache git clang lld
 RUN xx-apk add --no-cache gcc musl-dev musl
 
 # Clone and build gosu from source with modern Go
-RUN git clone --depth 1 --branch "${GOSU_VERSION}" https://github.com/tianon/gosu.git .
+# Retry: survive transient network failures during clone.
+RUN for _attempt in 1 2 3; do \
+        git clone --depth 1 --branch "${GOSU_VERSION}" https://github.com/tianon/gosu.git . && break; \
+        [ "${_attempt}" -lt 3 ] || exit 1; \
+        echo "git clone gosu attempt ${_attempt}/3 failed; retrying in $((_attempt * 15))s..." >&2; \
+        rm -rf ./.git ./*; \
+        sleep $((_attempt * 15)); \
+    done
 
 # Build gosu for target architecture with patched Go stdlib
 # hadolint ignore=DL3059
@@ -94,7 +101,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.16.0-alpine3.24@sha256:fb71d01345f11b708a3553c66e7c74074f2d506400ea81973343d915cb64eef0 AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.18.0-alpine3.24@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -116,13 +123,25 @@ RUN apk upgrade --no-cache && \
 # Patch CVE-2026-33671: picomatch ReDoS (fixed in 4.0.4) — bundled in Node.js 24.15.0 npm toolchain.
 # Remove when a patched Node.js 24 image is available.
 # hadolint ignore=DL3059
-RUN npm install -g picomatch@4.0.4 --no-fund --no-audit
+RUN npm install -g picomatch@4.0.4 --no-fund --no-audit \
+        --fetch-retries=5 --fetch-retry-mintimeout=10000
 
-RUN npm ci --ignore-scripts
+# Patch CVE-2026-12151: undici DoS via unbounded memory (fixed in 6.27.0) — bundled in Node.js 24.17.0 npm.
+# Remove when a patched Node.js 24 image ships undici >=6.27.0.
+# hadolint ignore=DL3059
+RUN npm install -g undici@6.27.0 --no-fund --no-audit \
+        --fetch-retries=5 --fetch-retry-mintimeout=10000
 
-# Copy frontend source and build
+RUN npm ci --ignore-scripts --fetch-retries=5 --fetch-retry-mintimeout=10000
+
+# Copy frontend source and build.
+# Sync package.json to the release version for semver builds; skip for
+# non-semver values like "dev" or branch names, which npm version rejects.
 COPY frontend/ ./
 RUN --mount=type=cache,target=/app/frontend/node_modules/.cache \
+    if echo "${VERSION}" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+'; then \
+        npm version "${VERSION#v}" --no-git-tag-version --allow-same-version; \
+    fi && \
     npm run build
 
 # ---- Backend Builder ----
@@ -171,7 +190,7 @@ RUN set -eux; \
 # When dlv IS needed, we build it inside a temporary module that pins
 # golang.org/x/sys to the patched version used by the rest of the project.
 # renovate: datasource=go depName=github.com/go-delve/delve
-ARG DLV_VERSION=1.26.3
+ARG DLV_VERSION=1.27.0
 # hadolint ignore=DL3059,DL4006
 RUN if [ "$BUILD_DEBUG" = "1" ]; then \
         echo "DEBUG build: installing Delve v${DLV_VERSION} with patched golang.org/x/sys..."; \
@@ -193,7 +212,14 @@ RUN if [ "$BUILD_DEBUG" = "1" ]; then \
 
 # Copy Go module files
 COPY backend/go.mod backend/go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod go mod download
+# Retry: survive transient module proxy failures (e.g. stream INTERNAL_ERROR).
+RUN --mount=type=cache,target=/go/pkg/mod \
+    for _attempt in 1 2 3; do \
+        go mod download && break; \
+        [ "${_attempt}" -lt 3 ] || exit 1; \
+        echo "go mod download attempt ${_attempt}/3 failed; retrying in $((_attempt * 15))s..." >&2; \
+        sleep $((_attempt * 15)); \
+    done
 
 # Copy backend source
 COPY backend/ ./
@@ -261,8 +287,14 @@ ARG CROWDSEC_VERSION
 # hadolint ignore=DL3018
 RUN apk add --no-cache bash git
 # hadolint ignore=DL3062
+# Retry: survive transient module proxy / sum.golang.org network failures.
 RUN --mount=type=cache,target=/go/pkg/mod \
-    go install github.com/caddyserver/xcaddy/cmd/xcaddy@v${XCADDY_VERSION}
+    for _attempt in 1 2 3; do \
+        go install github.com/caddyserver/xcaddy/cmd/xcaddy@v${XCADDY_VERSION} && break; \
+        [ "${_attempt}" -lt 3 ] || exit 1; \
+        echo "go install xcaddy attempt ${_attempt}/3 failed; retrying in $((_attempt * 15))s..." >&2; \
+        sleep $((_attempt * 15)); \
+    done
 
 # Build Caddy for the target architecture with security plugins.
 # Two-stage approach: xcaddy generates go.mod, we patch it, then build from scratch.
@@ -272,6 +304,21 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     bash -c 'set -e; \
+        # Retry helper: survive transient network failures (module proxy or
+        # sum.golang.org timeouts) without weakening checksum verification.
+        # 3 attempts with incremental backoff (15s, 30s).
+        _retry() { \
+            local _attempt; \
+            for _attempt in 1 2 3; do \
+                "$@" && return 0; \
+                if [ "${_attempt}" -lt 3 ]; then \
+                    echo "Attempt ${_attempt}/3 failed: $*; retrying in $((_attempt * 15))s..." >&2; \
+                    sleep $((_attempt * 15)); \
+                fi; \
+            done; \
+            echo "ERROR: command failed after 3 attempts: $*" >&2; \
+            return 1; \
+        }; \
         # Restore any module cache files patched by a previous build run.
         # xcaddy Stage 1 resolves crowdsec to its native version (v1.6.x, IPEquals *string).
         # If a prior build left IPEquals: value, (plain string) in the cache, xcaddy fails.
@@ -293,7 +340,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         export XCADDY_SKIP_CLEANUP=1; \
         echo "Stage 1: Generate go.mod with xcaddy..."; \
         # Run xcaddy to generate the build directory and go.mod
-        GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_TARGET_VERSION} \
+        _retry env GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_TARGET_VERSION} \
             --with github.com/caddyserver/caddy/v2@v${CADDY_TARGET_VERSION} \
             --with github.com/greenpau/caddy-security@v${CADDY_SECURITY_VERSION} \
             --with github.com/corazawaf/coraza-caddy/v2@v${CORAZA_CADDY_VERSION} \
@@ -313,52 +360,52 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Patch ALL dependencies BEFORE building the final binary
         # These patches fix CVEs in transitive dependencies
         # Renovate tracks these via regex manager in renovate.json
-        go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION}; \
+        _retry go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION}; \
         # renovate: datasource=go depName=github.com/hslatman/ipstore
-        go get github.com/hslatman/ipstore@v0.4.0; \
-        go get golang.org/x/crypto@v${XCRYPTO_VERSION}; \
-        go get golang.org/x/net@v${XNET_VERSION}; \
+        _retry go get github.com/hslatman/ipstore@v0.4.0; \
+        _retry go get golang.org/x/crypto@v${XCRYPTO_VERSION}; \
+        _retry go get golang.org/x/net@v${XNET_VERSION}; \
         # CVE-2026-33186: gRPC-Go auth bypass (fixed in v1.79.3)
         # CVE-2026-34986: go-jose/v4 transitive fix (requires grpc >= v1.80.0)
         # Pin here so the Caddy binary is patched immediately;
         # remove once Caddy ships a release built with grpc >= v1.80.0.
         # renovate: datasource=go depName=google.golang.org/grpc
-        go get google.golang.org/grpc@v1.80.0; \
+        _retry go get google.golang.org/grpc@v1.80.0; \
         # CVE-2026-34986: go-jose JOSE/JWT validation bypass
         # renovate: datasource=go depName=github.com/go-jose/go-jose/v3
-        go get github.com/go-jose/go-jose/v3@v3.0.5; \
+        _retry go get github.com/go-jose/go-jose/v3@v3.0.5; \
         # renovate: datasource=go depName=github.com/go-jose/go-jose/v4
-        go get github.com/go-jose/go-jose/v4@v4.1.4; \
+        _retry go get github.com/go-jose/go-jose/v4@v4.1.4; \
         # CVE-2026-39883: OTel SDK resource leak
         # renovate: datasource=go depName=go.opentelemetry.io/otel/sdk
-        go get go.opentelemetry.io/otel/sdk@v1.43.0; \
+        _retry go get go.opentelemetry.io/otel/sdk@v1.43.0; \
         # CVE-2026-39882: OTel HTTP exporter request smuggling
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp
-        go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp@v0.19.0; \
+        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp@v0.19.0; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp
-        go get go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.43.0; \
+        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.43.0; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp
-        go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.43.0; \
+        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.43.0; \
         # GHSA-479m-364c-43vc: goxmldsig XML signature validation bypass (loop variable capture)
         # Fix available at v1.6.0. Pin here so the Caddy binary is patched immediately;
         # remove once caddy-security ships a release built with goxmldsig >= v1.6.0.
         # renovate: datasource=go depName=github.com/russellhaering/goxmldsig
-        go get github.com/russellhaering/goxmldsig@v1.6.0; \
+        _retry go get github.com/russellhaering/goxmldsig@v1.6.0; \
         # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
         # Affects /usr/bin/caddy (transitive dependency). Fix available at v0.1.1.
         # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
-        go get github.com/Azure/go-ntlmssp@v0.1.1; \
+        _retry go get github.com/Azure/go-ntlmssp@v0.1.1; \
         # buger/jsonparser Delete() panic via negative slice index on malformed JSON.
         # Affects /usr/bin/caddy (transitive via caddy-crowdsec-bouncer -> crowdsec). Fix available at v1.2.0.
         # renovate: datasource=go depName=github.com/buger/jsonparser
-        go get github.com/buger/jsonparser@v1.2.0; \
+        _retry go get github.com/buger/jsonparser@v1.2.0; \
         # CVE-2026-44982 (GHSA-rw47-hm26-6wr7): CrowdSec AppSec silently drops HTTP request
         # body for chunked/HTTP-2 requests, bypassing WAF body inspection rules.
         # caddy-crowdsec-bouncer@v0.12.1 was built against crowdsec v1.6.3 whose
         # DecisionsListOpts fields were *string; v1.7.8 changed them to plain string.
         # The source-level incompatibility is patched below via local copy + go.mod replace.
         # Remove once bouncer ships against crowdsec >= v1.7.8.
-        go get github.com/crowdsecurity/crowdsec@v${CROWDSEC_VERSION}; \
+        _retry go get github.com/crowdsecurity/crowdsec@v${CROWDSEC_VERSION}; \
         if [ "${CADDY_PATCH_SCENARIO}" = "A" ]; then \
             # Rollback scenario: keep explicit nebula pin if upstream compatibility regresses.
             # NOTE: smallstep/certificates (pulled by caddy-security stack) currently
@@ -366,7 +413,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
             # failures in authority/provisioner. Keep this pinned to a known-compatible
             # v1.9.x release until upstream stack supports nebula v1.10+.
             # renovate: datasource=go depName=github.com/slackhq/nebula
-            go get github.com/slackhq/nebula@v1.9.7; \
+            _retry go get github.com/slackhq/nebula@v1.9.7; \
         elif [ "${CADDY_PATCH_SCENARIO}" = "B" ] || [ "${CADDY_PATCH_SCENARIO}" = "C" ]; then \
             # Default PR-2 posture: retire explicit nebula pin and use upstream resolution.
             echo "Skipping nebula pin for scenario ${CADDY_PATCH_SCENARIO}"; \
@@ -375,16 +422,16 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
             exit 1; \
         fi; \
         # Final re-pin: enforce requested Caddy core version after plugin/security updates.
-        go get github.com/caddyserver/caddy/v2@v${CADDY_TARGET_VERSION}; \
+        _retry go get github.com/caddyserver/caddy/v2@v${CADDY_TARGET_VERSION}; \
         # Clean up go.mod and ensure all dependencies are resolved
-        go mod tidy; \
+        _retry go mod tidy; \
         # Patch DecisionsListOpts API: crowdsec v1.7.8 changed fields (IPEquals, ScopeEquals,
         # etc.) from *string to plain string. caddy-crowdsec-bouncer@v0.12.1 and its transitive
         # dep go-cs-bouncer@v0.0.14 still use the old pointer form.
         # Strategy: copy modules to ephemeral /tmp dirs and use go.mod replace directives.
         # This avoids modifying the shared BuildKit module cache, which would corrupt xcaddy
         # Stage 1 of subsequent builds (where these modules are compiled with crowdsec v1.6.x).
-        go mod download github.com/hslatman/caddy-crowdsec-bouncer@v0.12.1; \
+        _retry go mod download github.com/hslatman/caddy-crowdsec-bouncer@v0.12.1; \
         BOUNCER_CACHE="${_GOMC}/github.com/hslatman/caddy-crowdsec-bouncer@v0.12.1"; \
         BOUNCER_LOCAL="/tmp/bouncer-patched"; \
         rm -rf "${BOUNCER_LOCAL}"; \
@@ -454,49 +501,70 @@ RUN apk add --no-cache git clang lld
 RUN xx-apk add --no-cache gcc musl-dev musl
 
 # Clone CrowdSec source
-RUN git clone --depth 1 --branch "v${CROWDSEC_VERSION}" https://github.com/crowdsecurity/crowdsec.git .
+# Retry: survive transient network failures during clone.
+RUN for _attempt in 1 2 3; do \
+        git clone --depth 1 --branch "v${CROWDSEC_VERSION}" https://github.com/crowdsecurity/crowdsec.git . && break; \
+        [ "${_attempt}" -lt 3 ] || exit 1; \
+        echo "git clone crowdsec attempt ${_attempt}/3 failed; retrying in $((_attempt * 15))s..." >&2; \
+        rm -rf ./.git ./*; \
+        sleep $((_attempt * 15)); \
+    done
 
 # Patch dependencies to fix CVEs in transitive dependencies
 # This follows the same pattern as Caddy's dependency patches
-# renovate: datasource=go depName=golang.org/x/crypto
-RUN go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION} && \
-    go get golang.org/x/crypto@v0.52.0 && \
-    go get golang.org/x/net@v${XNET_VERSION} && \
+# Each fetch is retried to survive transient module proxy / sum.golang.org
+# network failures without weakening checksum verification.
+RUN set -e; \
+    _retry() { \
+        for _attempt in 1 2 3; do \
+            "$@" && return 0; \
+            if [ "${_attempt}" -lt 3 ]; then \
+                echo "Attempt ${_attempt}/3 failed: $*; retrying in $((_attempt * 15))s..." >&2; \
+                sleep $((_attempt * 15)); \
+            fi; \
+        done; \
+        echo "ERROR: command failed after 3 attempts: $*" >&2; \
+        return 1; \
+    }; \
+    _retry go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION}; \
+    # renovate: datasource=go depName=golang.org/x/crypto
+    _retry go get golang.org/x/crypto@v0.52.0; \
+    _retry go get golang.org/x/net@v${XNET_VERSION}; \
     # CVE-2026-33186 (GHSA-p77j-4mvh-x3m3): gRPC-Go auth bypass via missing leading slash
     # Fix available at v1.79.3. Pin here so the CrowdSec binary is patched immediately;
     # remove once CrowdSec ships a release built with grpc >= v1.79.3.
     # renovate: datasource=go depName=google.golang.org/grpc
-    go get google.golang.org/grpc@v1.81.1 && \
+    _retry go get google.golang.org/grpc@v1.82.0; \
     # CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
     # renovate: datasource=github-tags depName=jackc/pgx
-    go get github.com/jackc/pgx/v4@v4.18.3 && \
+    _retry go get github.com/jackc/pgx/v4@v4.18.3; \
     # CVE-2026-29181 (GHSA-mh2q-q3fh-2475): OpenTelemetry-Go baggage header multi-value DoS
     # go.opentelemetry.io/otel >= 1.36.0 and <= 1.40.0 is vulnerable; fix available at v1.41.0.
     # Pin here so the CrowdSec binary is patched immediately;
     # remove once CrowdSec ships a release built with go.opentelemetry.io/otel >= v1.41.0.
     # renovate: datasource=go depName=go.opentelemetry.io/otel
-    go get go.opentelemetry.io/otel@v1.44.0 && \
+    _retry go get go.opentelemetry.io/otel@v1.44.0; \
     # GHSA-xmrv-pmrh-hhx2: AWS SDK v2 event stream injection
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
-    go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.13 && \
+    _retry go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.14; \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.75.2 && \
-    go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7 && \
-    go get github.com/aws/aws-sdk-go-v2/service/s3@v1.102.1 && \
+    _retry go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.78.2; \
+    _retry go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7; \
+    _retry go get github.com/aws/aws-sdk-go-v2/service/s3@v1.102.1; \
     # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
     # Affects /usr/local/bin/cscli (transitive dependency). Fix available at v0.1.1.
     # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
-    go get github.com/Azure/go-ntlmssp@v0.1.1 && \
+    _retry go get github.com/Azure/go-ntlmssp@v0.1.1; \
     # CVE-2026-40898 (GHSA-vvgj-x9jq-8cj9): quic-go HTTP/3 QPACK Trailer Expansion Memory Exhaustion.
     # Affects /usr/local/bin/crowdsec and /usr/local/bin/cscli (CrowdSec embeds quic-go v0.57.0).
     # Fix available at v0.59.1. Caddy already resolves v0.59.1 through its own graph.
     # renovate: datasource=go depName=github.com/quic-go/quic-go
-    go get github.com/quic-go/quic-go@v0.60.0 && \
+    _retry go get github.com/quic-go/quic-go@v0.60.0; \
     # buger/jsonparser Delete() panic via negative slice index on malformed JSON.
     # Fix available at v1.2.0.
     # renovate: datasource=go depName=github.com/buger/jsonparser
-    go get github.com/buger/jsonparser@v1.2.0 && \
-    go mod tidy
+    _retry go get github.com/buger/jsonparser@v1.2.0; \
+    _retry go mod tidy
 
 # Fix compatibility issues with expr-lang v1.17.7
 # In v1.17.7, program.Source() returns file.Source struct instead of string
@@ -545,7 +613,8 @@ RUN set -eux; \
     mkdir -p /crowdsec-out/bin /crowdsec-out/config; \
     if [ "$TARGETARCH" = "amd64" ]; then \
         echo "Downloading CrowdSec binaries for amd64 (fallback)..."; \
-        curl -fSL "https://github.com/crowdsecurity/crowdsec/releases/download/v${CROWDSEC_VERSION}/crowdsec-release.tgz" \
+        curl -fSL --retry 3 --retry-delay 5 --retry-all-errors \
+            "https://github.com/crowdsecurity/crowdsec/releases/download/v${CROWDSEC_VERSION}/crowdsec-release.tgz" \
             -o /tmp/crowdsec.tar.gz && \
         echo "${CROWDSEC_RELEASE_SHA256}  /tmp/crowdsec.tar.gz" | sha256sum -c - && \
         tar -xzf /tmp/crowdsec.tar.gz -C /tmp && \
@@ -593,7 +662,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=11b88595d026953920668d91f6d531057b397f05170237fc98a13a8b051ab861
+ARG GEOLITE2_COUNTRY_SHA256=4cb8b4959ba77c53c2bed74982ee07ce514d360afa9ef5df0cd90000321253f6
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \

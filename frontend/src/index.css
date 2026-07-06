@@ -228,36 +228,129 @@
 }
 
 /* ========================================
- * LIGHT MODE OVERRIDES
+ * BUILT-IN THEMES
  * ======================================== */
-.light {
-  background-color: #f0f4f8;
-  color-scheme: light;
-  color: rgba(0, 0, 0, 0.87);
-  /* Surfaces */
-  --color-bg-base: 248 250 252;        /* slate-50 */
-  --color-bg-subtle: 241 245 249;      /* slate-100 */
-  --color-bg-muted: 226 232 240;       /* slate-200 */
-  --color-bg-elevated: 255 255 255;    /* white */
-  --color-bg-overlay: 15 23 42;        /* slate-900 */
 
-  /* Borders */
-  --color-border-default: 226 232 240; /* slate-200 */
-  --color-border-muted: 241 245 249;   /* slate-100 */
-  --color-border-strong: 203 213 225;  /* slate-300 */
-
-  /* Text */
-  --color-text-primary: 15 23 42;      /* slate-900 */
-  --color-text-secondary: 71 85 105;   /* slate-600 */
-  --color-text-muted: 148 163 184;     /* slate-400 */
-  --color-text-inverted: 255 255 255;  /* white */
-
-  /* States - Light mode muted variants */
-  --color-success-muted: 220 252 231;  /* green-100 */
-  --color-warning-muted: 254 249 195;  /* yellow-100 */
-  --color-error-muted: 254 226 226;    /* red-100 */
-  --color-info-muted: 219 234 254;     /* blue-100 */
+[data-theme="dark"] {
+  /* Same as :root defaults — explicit for clarity */
+  --color-bg-base: 15 23 42;
+  --color-bg-subtle: 30 41 59;
+  --color-bg-muted: 51 65 85;
+  --color-bg-elevated: 30 41 59;
+  --color-bg-overlay: 2 6 23;
+  --color-border-default: 51 65 85;
+  --color-border-muted: 30 41 59;
+  --color-border-strong: 71 85 105;
+  --color-text-primary: 248 250 252;
+  --color-text-secondary: 203 213 225;
+  --color-text-muted: 148 163 184;
+  --color-text-inverted: 15 23 42;
+  --color-success-muted: 20 83 45;
+  --color-warning-muted: 113 63 18;
+  --color-error-muted: 127 29 29;
+  --color-info-muted: 30 58 138;
+  color-scheme: dark;
+  color: rgb(var(--color-text-primary));
+  background-color: rgb(var(--color-bg-base));
 }
+
+[data-theme="light"] {
+  --color-bg-base: 248 250 252;
+  --color-bg-subtle: 241 245 249;
+  --color-bg-muted: 226 232 240;
+  --color-bg-elevated: 255 255 255;
+  --color-bg-overlay: 15 23 42;
+  --color-border-default: 226 232 240;
+  --color-border-muted: 241 245 249;
+  --color-border-strong: 203 213 225;
+  --color-text-primary: 15 23 42;
+  --color-text-secondary: 71 85 105;
+  --color-text-muted: 148 163 184;
+  --color-text-inverted: 255 255 255;
+  --color-success-muted: 220 252 231;
+  --color-warning-muted: 254 249 195;
+  --color-error-muted: 254 226 226;
+  --color-info-muted: 219 234 254;
+  color-scheme: light;
+  color: rgb(var(--color-text-primary));
+  background-color: rgb(var(--color-bg-base));
+}
+
+[data-theme="high-contrast-dark"] {
+  --color-bg-base: 0 0 0;
+  --color-bg-subtle: 17 17 17;
+  --color-bg-muted: 34 34 34;
+  --color-bg-elevated: 25 25 25;
+  --color-bg-overlay: 0 0 0;
+  --color-border-default: 85 85 85;
+  --color-border-muted: 51 51 51;
+  --color-border-strong: 128 128 128;
+  --color-text-primary: 255 255 255;
+  --color-text-secondary: 220 220 220;
+  --color-text-muted: 170 170 170;
+  --color-text-inverted: 0 0 0;
+  --color-brand-500: 0 217 255;
+  --color-success-muted: 0 40 0;
+  --color-warning-muted: 50 40 0;
+  --color-error-muted: 50 0 0;
+  --color-info-muted: 0 30 60;
+  color-scheme: dark;
+  color: rgb(var(--color-text-primary));
+  background-color: rgb(var(--color-bg-base));
+}
+
+[data-theme="high-contrast-light"] {
+  --color-bg-base: 255 255 255;
+  --color-bg-subtle: 245 245 245;
+  --color-bg-muted: 230 230 230;
+  --color-bg-elevated: 255 255 255;
+  --color-bg-overlay: 0 0 0;
+  --color-border-default: 170 170 170;
+  --color-border-muted: 200 200 200;
+  --color-border-strong: 128 128 128;
+  --color-text-primary: 0 0 0;
+  --color-text-secondary: 50 50 50;
+  --color-text-muted: 100 100 100;
+  --color-text-inverted: 255 255 255;
+  --color-brand-500: 0 86 179;
+  --color-success-muted: 200 240 200;
+  --color-warning-muted: 255 240 180;
+  --color-error-muted: 255 200 200;
+  --color-info-muted: 200 220 255;
+  color-scheme: light;
+  color: rgb(var(--color-text-primary));
+  background-color: rgb(var(--color-bg-base));
+}
+
+[data-theme="solarized"] {
+  /* Solarized intentionally uses tight contrast; these values are based on the Solarized Dark palette */
+  --color-bg-base: 0 43 54;
+  --color-bg-subtle: 7 54 66;
+  --color-bg-muted: 14 63 75;
+  --color-bg-elevated: 7 54 66;
+  --color-bg-overlay: 0 43 54;
+  --color-border-default: 42 75 86;
+  --color-border-muted: 0 43 54;
+  --color-border-strong: 88 110 117;
+  --color-text-primary: 131 148 150;
+  --color-text-secondary: 101 123 131;
+  --color-text-muted: 88 110 117;
+  --color-text-inverted: 0 43 54;
+  --color-brand-500: 38 139 210;
+  --color-success: 133 153 0;
+  --color-warning: 181 137 0;
+  --color-error: 220 50 47;
+  --color-success-muted: 10 30 0;
+  --color-warning-muted: 40 30 0;
+  --color-error-muted: 50 5 5;
+  --color-info-muted: 0 30 50;
+  color-scheme: dark;
+  color: rgb(var(--color-text-primary));
+  background-color: rgb(var(--color-bg-base));
+}
+
+/* [data-theme="custom"] uses inline styles set by ThemeProvider.
+   The base :root values act as fallback. No static block needed. */
 
 body {
   margin: 0;
@@ -270,25 +363,28 @@ body {
 }
 
 /* Custom Scrollbar Styles for Sidebar Navigation */
-.overflow-y-auto::-webkit-scrollbar {
-  width: 8px;
-}
+/* Guarded so Firefox skips the block rather than rejecting the compound pseudo-element selectors */
+@supports selector(::-webkit-scrollbar) {
+  .overflow-y-auto::-webkit-scrollbar {
+    width: 8px;
+  }
 
-.overflow-y-auto::-webkit-scrollbar-track {
-  background: transparent;
-}
+  .overflow-y-auto::-webkit-scrollbar-track {
+    background: transparent;
+  }
 
-.overflow-y-auto::-webkit-scrollbar-thumb {
-  background-color: rgba(148, 163, 184, 0.3);
-  border-radius: 4px;
-}
+  .overflow-y-auto::-webkit-scrollbar-thumb {
+    background-color: rgba(148, 163, 184, 0.3);
+    border-radius: 4px;
+  }
 
-.dark .overflow-y-auto::-webkit-scrollbar-thumb {
-  background-color: rgba(148, 163, 184, 0.5);
-}
+  [data-theme="dark"] .overflow-y-auto::-webkit-scrollbar-thumb {
+    background-color: rgba(148, 163, 184, 0.5);
+  }
 
-.overflow-y-auto::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(148, 163, 184, 0.6);
+  .overflow-y-auto::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(148, 163, 184, 0.6);
+  }
 }
 
 /* Firefox support */
@@ -297,6 +393,6 @@ body {
   scrollbar-color: rgba(148, 163, 184, 0.5) transparent;
 }
 
-.dark .overflow-y-auto {
+[data-theme="dark"] .overflow-y-auto {
   scrollbar-color: rgba(148, 163, 184, 0.5) transparent;
 }

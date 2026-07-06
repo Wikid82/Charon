@@ -192,7 +192,7 @@ test.describe('Navigation', () => {
       await waitForLoadingComplete(page);
 
       await test.step('Find expandable sidebar sections', async () => {
-        const expandButtons = page.locator('[aria-expanded]');
+        const expandButtons = page.locator('aside [aria-expanded]');
 
         if ((await expandButtons.count()) > 0) {
           const firstExpandable = expandButtons.first();

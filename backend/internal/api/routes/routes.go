@@ -132,6 +132,8 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		&models.CrowdSecWhitelist{},     // Issue #939: CrowdSec IP whitelist management
 		&models.TunnelConfig{},          // Issue #368: Hecate tunnel provider configs
 		&models.OrthrusAgent{},          // Issue #369: Orthrus reverse-proxy agent registry
+		&models.RequestLog{},            // Issue #25: Enhanced dashboard statistics
+		&models.CustomTheme{},           // User-created named color-scheme themes
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -341,6 +343,23 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management.POST("/settings", settingsHandler.UpdateSetting)
 		management.PATCH("/settings", settingsHandler.UpdateSetting) // E2E tests use PATCH
 		management.PATCH("/config", settingsHandler.PatchConfig)     // Bulk configuration update
+
+		// Logo upload/delete — admin only
+		logoHandler := handlers.NewLogoHandler(db, dataRoot)
+		management.POST("/settings/logo", logoHandler.UploadLogo)
+		management.DELETE("/settings/logo", logoHandler.DeleteLogo)
+
+		// Banner upload/delete — admin only (enforced inside ImageUploadHandler)
+		bannerHandler := handlers.NewBannerHandler(db, dataRoot)
+		management.POST("/settings/banner", bannerHandler.UploadBanner)
+		management.DELETE("/settings/banner", bannerHandler.DeleteBanner)
+
+		// User-created named themes — available to all management users (not admin-only)
+		themeHandler := handlers.NewCustomThemeHandler(db)
+		management.GET("/themes", themeHandler.ListThemes)
+		management.POST("/themes", themeHandler.CreateTheme)
+		management.PUT("/themes/:id", themeHandler.UpdateTheme)
+		management.DELETE("/themes/:id", themeHandler.DeleteTheme)
 
 		// SMTP Configuration
 		management.GET("/settings/smtp", middleware.RequireRole(models.RoleAdmin), settingsHandler.GetSMTPConfig)
@@ -703,11 +722,35 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		}
 
 		logWatcher := services.NewLogWatcher(accessLogPath)
+
+		// Stats pipeline: ingester fan-out from LogWatcher, hub for WebSocket push.
+		statsIngester := services.NewStatsIngester(db)
+		logWatcher.RegisterIngester(statsIngester)
+		statsWSHub := handlers.NewStatsWSHub()
+		statsIngester.RegisterHub(statsWSHub)
+
+		go statsWSHub.Run(ctx)
+		go statsIngester.Run(ctx)
+
 		if err := logWatcher.Start(context.Background()); err != nil {
 			logger.Log().WithError(err).Error("Failed to start security log watcher")
+		} else {
+			logger.Log().WithField("path", accessLogPath).Info("Security log watcher started - stats collection enabled")
 		}
 		cerberusLogsHandler := handlers.NewCerberusLogsHandler(logWatcher, wsTracker)
 		management.GET("/cerberus/logs/ws", cerberusLogsHandler.LiveLogs)
+
+		// Stats API routes (Issue #25)
+		statsService := services.NewStatsService(db)
+		statsHandler := handlers.NewStatsHandlerFull(statsService, statsIngester, statsWSHub)
+		management.GET("/stats/summary", statsHandler.GetStatsSummary)
+		management.GET("/stats/top-hosts", statsHandler.GetTopHosts)
+		management.GET("/stats/status-distribution", statsHandler.GetStatusDistribution)
+		management.GET("/stats/traffic-volume", statsHandler.GetTrafficVolume)
+		management.GET("/stats/cert-expiry", statsHandler.GetCertExpiry)
+		management.GET("/stats/requests", statsHandler.GetRequests)
+		management.GET("/stats/health", statsHandler.GetStatsHealth)
+		management.GET("/stats/ws", statsHandler.StatsWS)
 
 		// Access Lists
 		accessListHandler := handlers.NewAccessListHandler(db)

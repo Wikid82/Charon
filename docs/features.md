@@ -285,6 +285,22 @@ Watch requests flow through your proxy in real-time. Filter by domain, status co
 
 ---
 
+### 📈 Dashboard Statistics
+
+See exactly how your sites are performing — right from the home screen. The Dashboard Statistics section shows request counts, which of your sites are busiest, how your traffic breaks down by response type, and a heads-up when any SSL certificate is getting close to its expiry date.
+
+**Highlights:**
+
+- **Live updates** — Charts refresh automatically as new traffic arrives; no manual refresh needed
+- **Traffic overview** — Total requests over the last 24 hours, 7 days, and 30 days
+- **Top sites** — Ranked list of your busiest proxy hosts
+- **Response health** — Breakdown of successful responses versus errors at a glance
+- **Cert expiry warnings** — See which certificates are expiring soon before visitors notice
+- **Service health** — A single indicator showing whether stats collection is running normally
+- **Privacy-safe** — Visitor IP addresses are never stored; only an anonymized fingerprint is kept
+
+---
+
 ### 🔔 Notifications
 
 Get alerted when it matters. Charon sends notifications through Discord, Gotify, Ntfy, Pushover, Slack, Email, and Custom Webhook providers. Choose a built-in JSON template or write your own to control exactly what your alerts look like.
@@ -321,9 +337,19 @@ Charon speaks your language. The interface is available in English, Spanish, Fre
 
 ---
 
-### 🎨 Dark Mode & Modern UI
+### 🎨 Themes & Personalization
 
-Easy on the eyes, day or night. Toggle between light and dark themes to match your preference. The clean, modern interface makes managing complex setups feel simple.
+Make Charon look exactly the way you want. Choose from five built-in themes — Dark, Light, High Contrast Dark, High Contrast Light, and Solarized — or design your own with a full color picker. Your theme is remembered and applied the instant the page loads, with no flicker or flash.
+
+**What you can do:**
+
+- **Theme Gallery** — Open Settings > Appearance to browse all themes as visual preview cards. Hover over any card to see it applied live before you commit to it.
+- **Follow System** — Turn this on and Charon automatically switches between light and dark to match your operating system's setting.
+- **Custom Colors** — Not happy with the built-in options? Pick any color you like for every part of the interface.
+- **Import & Export** — Save your custom theme as a file and share it with others, or load a theme someone else created. Great for backups too.
+- **Logo Customization** — Upload your own image or paste a URL to replace the Charon logo in the sidebar with something that feels like home.
+- **Banner Image** — Upload a custom banner image (PNG, JPG, GIF, or WebP, up to 5 MB) to display across the top of the app. Preview it before saving, and remove it any time — all from Settings > Appearance.
+- **Named Custom Themes** — Build your own color theme from scratch, give it a name, and save it. You can create as many as you like, switch between them, edit them later, or delete ones you no longer need. Find it under Settings > Appearance.
 
 → [Learn More](features/ui-themes.md)
 

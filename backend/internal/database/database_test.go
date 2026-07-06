@@ -9,6 +9,39 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestMain(m *testing.M) {
+	// Run quick_check synchronously in tests so it completes before t.TempDir
+	// cleanup runs. The goroutine version creates a race: the background
+	// connection may still hold WAL/SHM files open when the temp dir is removed.
+	launchQuickCheck = runQuickCheck
+	os.Exit(m.Run())
+}
+
+func TestSyncIntegrityCheckForTesting(t *testing.T) {
+	// Deliberately NOT parallel: SyncIntegrityCheckForTesting writes the
+	// package-level launchQuickCheck variable, which every parallel test
+	// reads via Connect. Running this test in the sequential phase keeps
+	// the write happens-before all parallel readers (the race detector
+	// flags it otherwise), matching the helper's own contract of being
+	// called before tests run.
+
+	// Sanity: the exported wrapper assigns launchQuickCheck to the
+	// synchronous runQuickCheck implementation, and Connect still succeeds
+	// normally afterwards (mirrors what TestMain already does package-wide).
+	SyncIntegrityCheckForTesting()
+
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "sync-check.db")
+
+	db, err := Connect(dbPath)
+	require.NoError(t, err)
+	require.NotNil(t, db)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+}
+
 func TestConnect(t *testing.T) {
 	t.Parallel()
 	// Test with memory DB

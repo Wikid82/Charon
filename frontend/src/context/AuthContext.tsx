@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode, type FC } from 'react';
+import { toast } from 'react-hot-toast';
 
 import { AuthContext, type User } from './AuthContextValue';
 import client, { setAuthToken, setAuthErrorHandler } from '../api/client';
@@ -9,23 +10,8 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
   const authRequestVersionRef = useRef(0);
 
   const fetchSessionUser = useCallback(async (): Promise<User> => {
-    const headers: Record<string, string> = { Accept: 'application/json' };
-    const stored = localStorage.getItem('charon_auth_token');
-    if (stored) {
-      headers['Authorization'] = `Bearer ${stored}`;
-    }
-
-    const response = await fetch('/api/v1/auth/me', {
-      method: 'GET',
-      credentials: 'include',
-      headers,
-    });
-
-    if (!response.ok) {
-      throw new Error('Session validation failed');
-    }
-
-    return response.json() as Promise<User>;
+    const response = await client.get<User>('/auth/me');
+    return response.data;
   }, []);
 
   const invalidateAuthRequests = useCallback(() => {
@@ -34,12 +20,15 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
 
   // Handle session expiry by clearing auth state and redirecting to login
   const handleAuthError = useCallback(() => {
-    console.warn('Session expired, clearing auth state');
     invalidateAuthRequests();
     localStorage.removeItem('charon_auth_token');
     setAuthToken(null);
     setUser(null);
     setIsLoading(false);
+    toast.error('Session expired. Please log in again.', {
+      id: 'auth-session-expired',
+      duration: 10000,
+    });
   }, [invalidateAuthRequests]);
 
   // Register auth error handler on mount; unregister on unmount so the axios
@@ -91,6 +80,7 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
     const requestVersion = authRequestVersionRef.current + 1;
     authRequestVersionRef.current = requestVersion;
     setIsLoading(true);
+    toast.dismiss('auth-session-expired');
 
     if (token) {
       localStorage.setItem('charon_auth_token', token);
@@ -118,15 +108,23 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
 
   const logout = useCallback(async () => {
     invalidateAuthRequests();
-    localStorage.removeItem('charon_auth_token');
+    // Revoke the axios Authorization header immediately so no new API calls
+    // are made with the old token while the backend invalidates the session.
     setAuthToken(null);
-    setUser(null);
-    setIsLoading(false);
 
     try {
+      // Invalidate the server-side session BEFORE clearing local state.
+      // The browser still sends the auth_token cookie with this request,
+      // so it authenticates correctly even without the Authorization header.
+      // Doing this first closes the window where local state appears cleared
+      // but the server-side session (and cookie) is still valid.
       await client.post('/auth/logout');
     } catch (error) {
       console.error("Logout failed", error);
+    } finally {
+      localStorage.removeItem('charon_auth_token');
+      setUser(null);
+      setIsLoading(false);
     }
   }, [invalidateAuthRequests]);
 

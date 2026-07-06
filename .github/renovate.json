@@ -10,7 +10,8 @@
     "development"
   ],
   "postUpdateOptions": [
-    "npmDedupe"
+    "npmDedupe",
+    "gomodTidy"
   ],
   "timezone": "America/New_York",
   "dependencyDashboard": true,
@@ -25,7 +26,9 @@
   ],
 
   "ignoreDeps": [
-    "github.com/gorilla/websocket"
+    "github.com/gorilla/websocket",
+    "github.com/golang-jwt/jwt/v5",
+    "js-yaml"
   ],
 
   "minimumReleaseAge": null,
@@ -64,7 +67,7 @@
         "/^Dockerfile$/"
       ],
       "matchStrings": [
-        "#\\s*renovate:\\s*datasource=go\\s+depName=(?<depName>[^\\s]+)\\s*\\n\\s*go get (?<depName2>[^@]+)@v(?<currentValue>[^\\s|]+)"
+        "#\\s*renovate:\\s*datasource=go\\s+depName=(?<depName>[^\\s]+)\\s*\\n\\s*(?:_retry )?go get (?<depName2>[^@]+)@v(?<currentValue>[^\\s|]+)"
       ],
       "datasourceTemplate": "go",
       "versioningTemplate": "semver"
@@ -76,7 +79,7 @@
         "/^Dockerfile$/"
       ],
       "matchStrings": [
-        "#\\s*renovate:\\s*datasource=github-tags\\s+depName=(?<depName>[^\\s]+)\\s*\\n\\s*go get [^@]+@v(?<currentValue>[^\\s|]+)"
+        "#\\s*renovate:\\s*datasource=github-tags\\s+depName=(?<depName>[^\\s]+)\\s*\\n\\s*(?:_retry )?go get [^@]+@v(?<currentValue>[^\\s|]+)"
       ],
       "datasourceTemplate": "github-tags",
       "versioningTemplate": "semver",
@@ -379,6 +382,20 @@
     },
     {
       "customType": "regex",
+      "description": "Track golang-jwt/jwt v5 in go.mod via github-tags (workaround: Renovate go datasource no-result for /vN module paths)",
+      "managerFilePatterns": [
+        "/^backend/go\\.mod$/"
+      ],
+      "matchStrings": [
+        "github\\.com/golang-jwt/jwt/v5 v(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "golang-jwt/jwt",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
       "description": "Track coraza-caddy version ARG in Dockerfile",
       "managerFilePatterns": [
         "/^Dockerfile$/"
@@ -598,13 +615,14 @@
       "sourceUrl": "https://github.com/google/uuid"
     },
     {
-      "description": "Fix Renovate lookup for golang-jwt/jwt v5 module path",
+      "description": "golang-jwt/jwt via github-tags custom manager: constrain to v5.x and provide changelog source",
       "matchDatasources": [
-        "go"
+        "github-tags"
       ],
       "matchPackageNames": [
-        "github.com/golang-jwt/jwt/v5"
+        "golang-jwt/jwt"
       ],
+      "allowedVersions": ">=5.0.0 <6.0.0",
       "sourceUrl": "https://github.com/golang-jwt/jwt"
     },
     {
@@ -726,6 +744,23 @@
         "github.com/gin-contrib/sse"
       ],
       "sourceUrl": "https://github.com/gin-contrib/sse"
+    },
+    {
+      "description": "Fix Renovate lookup for prometheus/client_golang",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/prometheus/client_golang"
+      ],
+      "sourceUrl": "https://github.com/prometheus/client_golang"
+    },
+    {
+      "description": "Disable js-yaml updates — pinned in overrides for security; managed manually",
+      "matchPackageNames": [
+        "js-yaml"
+      ],
+      "enabled": false
     }
   ]
 }

@@ -148,6 +148,7 @@ graph TB
 | **Internationalization** | i18next | Latest | 5 language support |
 | **Unit Testing** | Vitest | 4.1.0-beta.6 | Fast unit test runner |
 | **E2E Testing** | Playwright | 1.58.2 | Browser automation |
+| **Theme System** | CSS Custom Properties + data-theme | N/A | `data-theme` attribute on `<html>` drives 5 built-in themes, custom colors, system mode, and logo customization |
 
 ### Infrastructure
 
@@ -212,7 +213,7 @@ graph TB
 │   │   │   └── layout/         # Layout components
 │   │   ├── api/                # API client functions
 │   │   ├── hooks/              # Custom React hooks
-│   │   ├── context/            # React context providers
+│   │   ├── context/            # React context providers (ThemeContext, AuthContext)
 │   │   ├── locales/            # i18n translation files
 │   │   ├── App.tsx             # Root component
 │   │   └── main.tsx            # Application entry point
@@ -329,6 +330,40 @@ graph TB
 
 **Design Pattern:** Services contain business logic and call multiple repositories/managers
 
+#### Stats Subsystem (`internal/services/stats_*`, `internal/api/handlers/stats_*`)
+
+The stats subsystem collects, aggregates, and broadcasts request metrics for the Dashboard Statistics feature.
+
+**Components:**
+
+- **`RequestLog` model** (`internal/models/request_log.go`): GORM model persisted to the `request_logs` SQLite table. Fields: `HostID`, `Timestamp`, `Method`, `StatusCode`, `BytesSent`, `DurationMs`, `ClientIPHash`. Client IPs are stored as the first 16 bytes of a SHA-256 hash (GDPR-compliant; not reversible).
+
+- **`StatsIngester`** (`internal/services/stats_ingester.go`): Taps the existing `LogWatcher` fan-out channel. Buffers incoming entries and flushes to SQLite in batches (every 500 ms or when 100 entries accumulate). The ingester channel is non-blocking; if the buffer is full, entries are dropped and tracked via `dropped_count` (visible at `GET /api/stats/health`).
+
+- **`StatsService`** (`internal/services/stats_service.go`): Runs aggregation queries against `request_logs` for summary counts, top hosts, status distribution, traffic volume, and request volume. All query results are cached with a 30-second TTL to limit read pressure on SQLite.
+
+- **`StatsWSHub`** (`internal/api/handlers/stats_ws_hub.go`): Implements the `BroadcastHub` interface. Maintains a registry of active WebSocket connections and broadcasts a `StatsPushMessage` to all subscribers whenever the ingester commits a new batch. Clients receive a push signal and re-fetch aggregated data via REST.
+
+**API Endpoints** (all require JWT authentication, mounted under `/api/stats/`):
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/summary` | 24 h / 7 d / 30 d request counts |
+| `GET` | `/top-hosts` | Top hosts by request count (`period`, `limit`) |
+| `GET` | `/status-distribution` | HTTP status code breakdown (`period`) |
+| `GET` | `/traffic-volume` | Bytes sent over time (`bucket`) |
+| `GET` | `/cert-expiry` | Upcoming SSL cert expirations (`within_days`) |
+| `GET` | `/requests` | Request volume over time (`bucket`) |
+| `GET` | `/health` | Ingester health including `dropped_count` |
+| `WS` | `/ws` | Real-time stats push (upgrade) |
+
+**Frontend:**
+
+- `frontend/src/api/stats.ts` — typed API client and WebSocket helper
+- `frontend/src/hooks/useStats.ts` — 6 TanStack Query hooks (one per REST endpoint)
+- `frontend/src/hooks/useStatsWebSocket.ts` — WebSocket hook that triggers query invalidation on push
+- `frontend/src/components/stats/` — 8 components: `RequestCountWidget`, `TopHostsChart`, `StatusDistributionChart`, `TrafficVolumeChart`, `CertExpiryList`, `ServiceHealthWidget`, `PeriodSelector`, `BucketSelector`
+
 #### Caddy Manager (`internal/caddy/`)
 
 - **Manager:** Orchestrates Caddy configuration updates
@@ -373,6 +408,7 @@ graph TB
 - **User:** Authentication and authorization
 - **Setting:** Key-value configuration storage
 - **ImportSession:** Import job tracking
+- **RequestLog:** Per-request stats record (HostID, Timestamp, Method, StatusCode, BytesSent, DurationMs, ClientIPHash)
 
 ### 2. Frontend (React + TypeScript)
 
@@ -821,6 +857,30 @@ sequenceDiagram
     end
     F->>B: Close WebSocket
     B->>L: Unsubscribe
+```
+
+### Stats Ingestion & Push
+
+```mermaid
+sequenceDiagram
+    participant C as Caddy Proxy
+    participant LW as LogWatcher (fan-out)
+    participant SI as StatsIngester
+    participant DB as SQLite (request_logs)
+    participant SS as StatsService (30s TTL cache)
+    participant WS as StatsWSHub
+    participant F as Frontend (React)
+
+    C->>LW: Log entry (access log)
+    LW->>SI: Fan-out channel (non-blocking)
+    SI->>SI: Buffer (500ms or 100 entries)
+    SI->>DB: Batch INSERT request_logs
+    SI->>WS: Notify hub (stats changed)
+    WS->>F: Push StatsPushMessage (WebSocket)
+    F->>SS: GET /api/stats/summary (poll or on push)
+    SS->>DB: Aggregation query (cached 30s)
+    DB-->>SS: Results
+    SS-->>F: StatsSummary JSON
 ```
 
 ---
