@@ -212,7 +212,14 @@ RUN if [ "$BUILD_DEBUG" = "1" ]; then \
 
 # Copy Go module files
 COPY backend/go.mod backend/go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod go mod download
+# Retry: survive transient module proxy failures (e.g. stream INTERNAL_ERROR).
+RUN --mount=type=cache,target=/go/pkg/mod \
+    for _attempt in 1 2 3; do \
+        go mod download && break; \
+        [ "${_attempt}" -lt 3 ] || exit 1; \
+        echo "go mod download attempt ${_attempt}/3 failed; retrying in $((_attempt * 15))s..." >&2; \
+        sleep $((_attempt * 15)); \
+    done
 
 # Copy backend source
 COPY backend/ ./
