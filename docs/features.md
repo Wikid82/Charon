@@ -279,7 +279,7 @@ Know immediately when something goes wrong. Charon continuously monitors your ap
 
 ### 📋 Real-Time Logs
 
-Watch requests flow through your proxy in real-time. Filter by domain, status code, or time range to troubleshoot issues quickly. All the visibility you need without diving into container logs.
+Watch requests flow through your proxy in real-time. Filter by domain, status code, or time range to troubleshoot issues quickly. All the visibility you need without diving into container logs. Need to look back? The Log Viewer on the Tasks → Logs page lets you browse saved log files — click any column header to sort them, and download a file with one click.
 
 → [Learn More](features/logs.md)
 

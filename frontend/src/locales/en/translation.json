@@ -981,7 +981,21 @@
     "noLogSelected": "No Log Selected",
     "selectLogDescription": "Select a log file from the list to view its contents",
     "showingEntries": "Showing {{from}} to {{to}} of {{total}} entries",
-    "pageOf": "Page {{current}} of {{total}}"
+    "pageOf": "Page {{current}} of {{total}}",
+    "loading": "Loading logs...",
+    "noLogsFound": "No logs found matching criteria.",
+    "downloadFailed": "Failed to download log file",
+    "skippedLines_one": "{{count}} corrupted or oversized line was skipped",
+    "skippedLines_other": "{{count}} corrupted or oversized lines were skipped",
+    "columnTime": "Time",
+    "columnLevel": "Level",
+    "columnStatus": "Status",
+    "columnMethod": "Method",
+    "columnHost": "Host",
+    "columnPath": "Path",
+    "columnIp": "IP",
+    "columnLatency": "Latency",
+    "columnMessage": "Message"
   },
   "account": {
     "title": "Account Settings",

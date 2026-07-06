@@ -813,7 +813,21 @@
     "noLogSelected": "Ningún Registro Seleccionado",
     "selectLogDescription": "Seleccione un archivo de registro de la lista para ver su contenido",
     "showingEntries": "Mostrando {{from}} a {{to}} de {{total}} entradas",
-    "pageOf": "Página {{current}} de {{total}}"
+    "pageOf": "Página {{current}} de {{total}}",
+    "loading": "Cargando registros...",
+    "noLogsFound": "No se encontraron registros que coincidan con los criterios.",
+    "downloadFailed": "Error al descargar el archivo de registro",
+    "skippedLines_one": "Se omitió {{count}} línea dañada o demasiado grande",
+    "skippedLines_other": "Se omitieron {{count}} líneas dañadas o demasiado grandes",
+    "columnTime": "Tiempo",
+    "columnLevel": "Nivel",
+    "columnStatus": "Estado",
+    "columnMethod": "Método",
+    "columnHost": "Host",
+    "columnPath": "Ruta",
+    "columnIp": "IP",
+    "columnLatency": "Latencia",
+    "columnMessage": "Mensaje"
   },
   "account": {
     "title": "Configuración de Cuenta",

@@ -80,7 +80,7 @@ describe('logs api', () => {
   })
 
   it('fetches log content with filters applied', async () => {
-    mockedClient.get.mockResolvedValue({ data: { filename: 'access.log', logs: [], total: 0, limit: 50, offset: 0 } })
+    mockedClient.get.mockResolvedValue({ data: { filename: 'access.log', logs: [], total: 0, limit: 50, offset: 0, skipped_lines: 0 } })
 
     await getLogContent('access.log', {
       search: 'error',
@@ -90,16 +90,81 @@ describe('logs api', () => {
       limit: 50,
       offset: 10,
       sort: 'asc',
+      sortBy: 'status',
     })
 
     expect(mockedClient.get).toHaveBeenCalledWith(
-      '/logs/access.log?search=error&host=example.com&status=500&level=error&limit=50&offset=10&sort=asc'
+      '/logs/access.log?search=error&host=example.com&status=500&level=error&limit=50&offset=10&sort=asc&sort_by=status'
     )
   })
 
-  it('sets window location when downloading logs', () => {
-    downloadLog('access.log')
-    expect(window.location.href).toBe('/api/v1/logs/access.log/download')
+  it('omits sort_by when not set and encodes the filename', async () => {
+    mockedClient.get.mockResolvedValue({ data: { filename: 'my log.log', logs: [], total: 0, limit: 50, offset: 0, skipped_lines: 0 } })
+
+    await getLogContent('my log.log', {})
+
+    expect(mockedClient.get).toHaveBeenCalledWith('/logs/my%20log.log?')
+  })
+
+  describe('downloadLog', () => {
+    const originalCreateObjectURL = URL.createObjectURL
+    const originalRevokeObjectURL = URL.revokeObjectURL
+
+    beforeEach(() => {
+      URL.createObjectURL = vi.fn().mockReturnValue('blob:mock-url')
+      URL.revokeObjectURL = vi.fn()
+    })
+
+    afterEach(() => {
+      URL.createObjectURL = originalCreateObjectURL
+      URL.revokeObjectURL = originalRevokeObjectURL
+    })
+
+    it('downloads the log as a blob via a temporary anchor', async () => {
+      const blob = new Blob(['log content'], { type: 'text/plain' })
+      mockedClient.get.mockResolvedValue({ data: blob })
+      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+      await downloadLog('access.log')
+
+      expect(mockedClient.get).toHaveBeenCalledWith('/logs/access.log/download', { responseType: 'blob' })
+      expect(URL.createObjectURL).toHaveBeenCalledWith(blob)
+      expect(clickSpy).toHaveBeenCalledTimes(1)
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url')
+
+      clickSpy.mockRestore()
+    })
+
+    it('encodes the filename in the download URL', async () => {
+      mockedClient.get.mockResolvedValue({ data: new Blob(['x']) })
+      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+      await downloadLog('my log.log')
+
+      expect(mockedClient.get).toHaveBeenCalledWith('/logs/my%20log.log/download', { responseType: 'blob' })
+      clickSpy.mockRestore()
+    })
+
+    it('propagates errors to the caller without navigating', async () => {
+      const failure = new Error('Log file not found')
+      mockedClient.get.mockRejectedValue(failure)
+
+      await expect(downloadLog('missing.log')).rejects.toThrow('Log file not found')
+      expect(URL.createObjectURL).not.toHaveBeenCalled()
+      expect(window.location.href).toBe('')
+    })
+
+    it('revokes the object URL even when the anchor click throws', async () => {
+      mockedClient.get.mockResolvedValue({ data: new Blob(['x']) })
+      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {
+        throw new Error('click failed')
+      })
+
+      await expect(downloadLog('access.log')).rejects.toThrow('click failed')
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url')
+
+      clickSpy.mockRestore()
+    })
   })
 
   it('connects to live logs websocket and handles lifecycle events', () => {

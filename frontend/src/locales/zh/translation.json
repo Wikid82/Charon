@@ -813,7 +813,20 @@
     "noLogSelected": "未选择日志",
     "selectLogDescription": "从列表中选择一个日志文件以查看其内容",
     "showingEntries": "显示 {{from}} 到 {{to}} 共 {{total}} 条",
-    "pageOf": "第 {{current}} 页，共 {{total}} 页"
+    "pageOf": "第 {{current}} 页，共 {{total}} 页",
+    "loading": "正在加载日志...",
+    "noLogsFound": "未找到符合条件的日志。",
+    "downloadFailed": "日志文件下载失败",
+    "skippedLines_other": "已跳过 {{count}} 行损坏或过大的日志",
+    "columnTime": "时间",
+    "columnLevel": "级别",
+    "columnStatus": "状态",
+    "columnMethod": "方法",
+    "columnHost": "主机",
+    "columnPath": "路径",
+    "columnIp": "IP",
+    "columnLatency": "延迟",
+    "columnMessage": "消息"
   },
   "account": {
     "title": "账户设置",
