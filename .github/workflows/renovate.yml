@@ -11,7 +11,12 @@ concurrency:
 
 # Renovate authenticates via the RENOVATE_TOKEN PAT; GITHUB_TOKEN is only used by checkout.
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
+  issues: write
+
+env:
+  GO_VERSION: '1.26.5'
 
 jobs:
   renovate:
