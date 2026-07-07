@@ -1,6 +1,6 @@
 module github.com/Wikid82/charon/backend
 
-go 1.26.4
+go 1.26.5
 
 require (
 	github.com/gin-contrib/gzip v1.2.6
