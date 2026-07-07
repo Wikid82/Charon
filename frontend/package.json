@@ -51,7 +51,7 @@
     "react-router-dom": "^7.18.1",
     "recharts": "^3.9.2",
     "tailwind-merge": "^3.6.0",
-    "tldts": "^7.4.6"
+    "tldts": "^7.4.7"
   },
   "devDependencies": {
     "@eslint/css": "^1.4.0",
@@ -90,7 +90,7 @@
     "eslint-plugin-unicorn": "^71.1.0",
     "eslint-plugin-unused-imports": "^4.4.1",
     "jsdom": "29.1.1",
-    "knip": "^6.24.0",
+    "knip": "^6.25.0",
     "postcss": "^8.5.16",
     "tailwindcss": "^4.3.2",
     "typescript": "^6.0.3",
