@@ -51,7 +51,7 @@ func TestBackupService_CreateAndList(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop() // Prevent goroutine leaks
 
 	// Test Create
@@ -159,7 +159,7 @@ func TestBackupService_RunScheduledBackup(t *testing.T) {
 	createSQLiteTestDB(t, dbPath)
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop() // Prevent goroutine leaks
 
 	// Run scheduled backup manually
@@ -175,7 +175,7 @@ func TestBackupService_CreateBackup_Errors(t *testing.T) {
 	t.Run("missing database file", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		cfg := &config.Config{DatabasePath: filepath.Join(tmpDir, "nonexistent.db")}
-		service := NewBackupService(cfg)
+		service := NewBackupService(cfg, nil, nil)
 		defer service.Stop() // Prevent goroutine leaks
 
 		_, err := service.CreateBackup()
@@ -378,7 +378,7 @@ func TestBackupService_GetLastBackupTime(t *testing.T) {
 		createSQLiteTestDB(t, dbPath)
 
 		cfg := &config.Config{DatabasePath: dbPath}
-		service := NewBackupService(cfg)
+		service := NewBackupService(cfg, nil, nil)
 		defer service.Stop() // Prevent goroutine leaks
 
 		// Create a backup
@@ -425,7 +425,7 @@ func TestNewBackupService_BackupDirCreationError(t *testing.T) {
 
 	cfg := &config.Config{DatabasePath: dbPath}
 	// Should not panic even if backup dir creation fails (error is logged, not returned)
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop() // Prevent goroutine leaks
 	assert.NotNil(t, service)
 	// Service is created but backup dir creation failed (logged as error)
@@ -442,7 +442,7 @@ func TestNewBackupService_CronScheduleError(t *testing.T) {
 	cfg := &config.Config{DatabasePath: dbPath}
 	// Service should initialize without panic even if cron has issues
 	// (error is logged, not returned)
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop() // Prevent goroutine leaks
 	assert.NotNil(t, service)
 	assert.NotNil(t, service.Cron)
@@ -459,7 +459,7 @@ func TestRunScheduledBackup_CreateBackupFails(t *testing.T) {
 	// when it tries to verify the database exists
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop() // Prevent goroutine leaks
 
 	// Should not panic when backup fails
@@ -487,7 +487,7 @@ func TestRunScheduledBackup_CleanupFails(t *testing.T) {
 	createSQLiteTestDB(t, dbPath)
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop() // Prevent goroutine leaks
 
 	createCalled := false
@@ -534,7 +534,7 @@ func TestRunScheduledBackup_CleanupDeletesZero(t *testing.T) {
 	createSQLiteTestDB(t, dbPath)
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop() // Prevent goroutine leaks
 
 	// RunScheduledBackup creates 1 backup and tries to cleanup
@@ -589,7 +589,7 @@ func TestCreateBackup_CaddyDirMissing(t *testing.T) {
 
 	// Explicitly NOT creating caddy directory
 	cfg := &config.Config{DatabasePath: dbPath}
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop() // Prevent goroutine leaks
 
 	// Should succeed with warning logged
@@ -617,7 +617,7 @@ func TestCreateBackup_CaddyDirUnreadable(t *testing.T) {
 	defer func() { _ = os.Chmod(caddyDir, 0o700) }() // #nosec G302 -- Test restores permissions / Restore for cleanup
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop() // Prevent goroutine leaks
 
 	// Should succeed with warning logged about caddy dir
@@ -689,7 +689,7 @@ func TestBackupService_Start(t *testing.T) {
 	createSQLiteTestDB(t, dbPath)
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 
 	// Test Start
 	service.Start()
@@ -757,7 +757,7 @@ func TestRunScheduledBackup_CleanupSucceedsWithDeletions(t *testing.T) {
 	createSQLiteTestDB(t, dbPath)
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop()
 
 	// Create more backups than DefaultBackupRetention to trigger cleanup
@@ -1122,7 +1122,7 @@ func TestCreateBackup_ZipWriterCloseError(t *testing.T) {
 	createSQLiteTestDB(t, dbPath)
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop()
 
 	// Create a backup successfully
@@ -1254,7 +1254,7 @@ func TestBackupService_FullCycle(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(caddyDir, "config.json"), []byte(`{"original": true}`), 0o600) // #nosec G306 -- test fixture
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop()
 
 	// Create backup

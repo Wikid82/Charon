@@ -77,7 +77,7 @@ func TestDBHealthHandler_Check_WithBackupService(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	backupService := services.NewBackupService(cfg)
+	backupService := services.NewBackupService(cfg, nil, nil)
 	defer backupService.Stop() // Prevent goroutine leaks
 
 	// Create a backup so we have a last backup time
@@ -186,7 +186,7 @@ func TestNewDBHealthHandler(t *testing.T) {
 	_ = os.WriteFile(dbPath, []byte("test"), 0o600) // #nosec G306 -- test fixture
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	backupSvc := services.NewBackupService(cfg)
+	backupSvc := services.NewBackupService(cfg, nil, nil)
 	defer backupSvc.Stop() // Prevent goroutine leaks
 
 	handler2 := NewDBHealthHandler(db, backupSvc)
@@ -258,7 +258,7 @@ func TestDBHealthHandler_Check_BackupServiceError(t *testing.T) {
 	_ = os.WriteFile(dbPath, []byte("test"), 0o600) // #nosec G306 -- test fixture
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	backupService := services.NewBackupService(cfg)
+	backupService := services.NewBackupService(cfg, nil, nil)
 
 	// Make backup directory unreadable to trigger error in GetLastBackupTime
 	_ = os.Chmod(backupService.BackupDir, 0o000)
@@ -299,7 +299,7 @@ func TestDBHealthHandler_Check_BackupTimeZero(t *testing.T) {
 	_ = os.WriteFile(dbPath, []byte("test"), 0o600) // #nosec G306 -- test fixture
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	backupService := services.NewBackupService(cfg)
+	backupService := services.NewBackupService(cfg, nil, nil)
 
 	handler := NewDBHealthHandler(db, backupService)
 

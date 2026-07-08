@@ -10,10 +10,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/util"
 	"github.com/robfig/cron/v3"
@@ -86,6 +88,26 @@ type BackupService struct {
 	restoreDBPath string
 	createBackup  func() (string, error)
 	cleanupOld    func(int) (int, error)
+
+	// CrowdSecDir is the source directory backed up into the archive's
+	// crowdsec/** entries (spec §3.2). Wiring into CreateBackup happens in
+	// Commit 3; this commit only threads the field through the constructor.
+	CrowdSecDir string
+
+	// db and encryption are threaded through so Commit 3's manifest
+	// (EncryptionKeyRequired), settings-driven reschedule, and
+	// remote-upload/BackupRecord persistence have what they need without a
+	// second constructor-signature change. encryption is nilable — backups
+	// are unencrypted by default and when CHARON_ENCRYPTION_KEY is unset.
+	db         *gorm.DB
+	encryption *crypto.EncryptionService
+
+	// scheduleEntry identifies the cron.Cron entry created at construction so
+	// a future Reschedule (Commit 3) can cron.Remove it before re-adding.
+	scheduleEntry cron.EntryID
+
+	// mu serializes create/restore operations (spec §3.10 concurrency guard).
+	mu sync.Mutex
 }
 
 func checkpointSQLiteDatabase(dbPath string) error {
@@ -141,7 +163,14 @@ type BackupFile struct {
 	Time     time.Time `json:"time"`
 }
 
-func NewBackupService(cfg *config.Config) *BackupService {
+// NewBackupService constructs a BackupService. db and enc are nilable: many
+// unit tests and standalone tooling construct a BackupService without a live
+// database or without CHARON_ENCRYPTION_KEY configured, and those remain
+// supported — behavior identical to v1 in that case. When db is non-nil, any
+// legacy backup.interval/backup.retention Setting rows are translated to the
+// canonical backup.* keys and removed (see migrateLegacyBackupSettings); this
+// is best-effort and logged, never fatal to construction.
+func NewBackupService(cfg *config.Config, db *gorm.DB, enc *crypto.EncryptionService) *BackupService {
 	// Ensure backup directory exists
 	backupDir := filepath.Join(filepath.Dir(cfg.DatabasePath), "backups")
 	// Use 0700 for backup directory (contains complete database dumps with sensitive data)
@@ -153,17 +182,29 @@ func NewBackupService(cfg *config.Config) *BackupService {
 		DataDir:      filepath.Dir(cfg.DatabasePath), // e.g. /app/data
 		BackupDir:    backupDir,
 		DatabaseName: filepath.Base(cfg.DatabasePath),
+		CrowdSecDir:  cfg.Security.CrowdSecConfigDir,
 		Cron:         cron.New(),
+		db:           db,
+		encryption:   enc,
 	}
 	s.createBackup = s.CreateBackup
 	s.cleanupOld = s.CleanupOldBackups
 
-	// Schedule daily backup at 3 AM
-	_, err := s.Cron.AddFunc("0 3 * * *", s.RunScheduledBackup)
+	// Schedule daily backup at 3 AM. Commit 3's Reschedule reads the persisted
+	// backup.schedule_cron setting instead; the hardcoded spec stays the
+	// default here so this commit makes no behavior change.
+	entryID, err := s.Cron.AddFunc("0 3 * * *", s.RunScheduledBackup)
 	if err != nil {
 		logger.Log().WithError(err).Error("Failed to schedule backup")
 	}
+	s.scheduleEntry = entryID
 	// Note: Cron scheduler must be explicitly started via Start() method
+
+	if db != nil {
+		if migrateErr := migrateLegacyBackupSettings(db); migrateErr != nil {
+			logger.Log().WithError(migrateErr).Warn("Failed to migrate legacy backup settings")
+		}
+	}
 
 	return s
 }
@@ -293,8 +334,14 @@ func (s *BackupService) ListBackups() ([]BackupFile, error) {
 	return backups, nil
 }
 
-// CreateBackup creates a zip archive of the database and caddy data
+// CreateBackup creates a zip archive of the database and caddy data.
+// Serialized against RestoreBackup via mu so a create cannot race a restore
+// touching the same DataDir (spec §3.10 concurrency guard; the handler-level
+// 409 response for a second concurrent request is Commit 3's job).
 func (s *BackupService) CreateBackup() (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 	filename := fmt.Sprintf("backup_%s.zip", timestamp)
 	zipPath := filepath.Join(s.BackupDir, filename)
@@ -412,8 +459,12 @@ func (s *BackupService) GetBackupPath(filename string) (string, error) {
 	return path, nil
 }
 
-// RestoreBackup restores the database and caddy data from a zip archive
+// RestoreBackup restores the database and caddy data from a zip archive.
+// Serialized against CreateBackup via mu (see CreateBackup's comment).
 func (s *BackupService) RestoreBackup(filename string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	cleanName := filepath.Base(filename)
 	if filename != cleanName {
 		return fmt.Errorf("invalid filename: path traversal attempt detected")

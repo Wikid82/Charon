@@ -134,6 +134,9 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		&models.OrthrusAgent{},          // Issue #369: Orthrus reverse-proxy agent registry
 		&models.RequestLog{},            // Issue #25: Enhanced dashboard statistics
 		&models.CustomTheme{},           // User-created named color-scheme themes
+		&models.RemoteStorageTarget{},   // Issue #32: S3/SFTP remote backup targets
+		&models.BackupRecord{},          // Issue #32: backup history (must precede BackupRemoteCopy FK)
+		&models.BackupRemoteCopy{},      // Issue #32: per-target remote upload status
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -214,7 +217,15 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	api.Use(cerb.Middleware())
 
 	// Backup routes
-	backupService := services.NewBackupService(&cfg)
+	var backupEncryptionService *crypto.EncryptionService
+	if cfg.EncryptionKey != "" {
+		if svc, err := crypto.NewEncryptionService(cfg.EncryptionKey); err == nil {
+			backupEncryptionService = svc
+		} else {
+			logger.Log().WithError(err).Warn("Failed to initialize backup encryption service")
+		}
+	}
+	backupService := services.NewBackupService(&cfg, db, backupEncryptionService)
 	backupService.Start() // Start cron scheduler for scheduled backups
 	securityService := services.NewSecurityService(db)
 	backupHandler := handlers.NewBackupHandlerWithDeps(backupService, securityService, db)

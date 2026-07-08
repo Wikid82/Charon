@@ -77,7 +77,7 @@ func setupBackupTest(t *testing.T) (*gin.Engine, *services.BackupService, string
 		DatabasePath: dbPath,
 	}
 
-	svc := services.NewBackupService(cfg)
+	svc := services.NewBackupService(cfg, nil, nil)
 	h := NewBackupHandler(svc)
 
 	r := gin.New()

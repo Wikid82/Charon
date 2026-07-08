@@ -51,7 +51,7 @@ func TestBackupService_RehydrateLiveDatabase(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&seedUser).Error)
 
-	svc := NewBackupService(&config.Config{DatabasePath: dbPath})
+	svc := NewBackupService(&config.Config{DatabasePath: dbPath}, nil, nil)
 	defer svc.Stop()
 
 	backupFile, err := svc.CreateBackup()
@@ -97,7 +97,7 @@ func TestBackupService_RehydrateLiveDatabase_FromBackupWithWAL(t *testing.T) {
 	_, err = os.Stat(walPath)
 	require.NoError(t, err)
 
-	svc := NewBackupService(&config.Config{DatabasePath: dbPath})
+	svc := NewBackupService(&config.Config{DatabasePath: dbPath}, nil, nil)
 	defer svc.Stop()
 
 	backupName := "backup_with_wal.zip"
@@ -234,7 +234,7 @@ func TestBackupService_RunScheduledBackup_CreateBackupAndCleanupHooks(t *testing
 	require.NoError(t, os.MkdirAll(dataDir, 0o700))
 
 	cfg := &config.Config{DatabasePath: filepath.Join(dataDir, "charon.db")}
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop()
 
 	createCalls := 0

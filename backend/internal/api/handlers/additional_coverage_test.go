@@ -339,7 +339,7 @@ func TestBackupHandler_List_DBError(t *testing.T) {
 		DatabasePath: filepath.Join(tmpDir, "nonexistent", "charon.db"),
 	}
 
-	svc := services.NewBackupService(cfg)
+	svc := services.NewBackupService(cfg, nil, nil)
 	defer svc.Stop() // Prevent goroutine leaks
 	h := NewBackupHandler(svc)
 
@@ -564,7 +564,7 @@ func TestBackupHandler_List_ServiceError(t *testing.T) {
 		DatabasePath: dbPath,
 	}
 
-	svc := services.NewBackupService(cfg)
+	svc := services.NewBackupService(cfg, nil, nil)
 	h := NewBackupHandler(svc)
 
 	// Make backup dir a file to cause ReadDir error
@@ -596,7 +596,7 @@ func TestBackupHandler_Delete_PathTraversal(t *testing.T) {
 		DatabasePath: dbPath,
 	}
 
-	svc := services.NewBackupService(cfg)
+	svc := services.NewBackupService(cfg, nil, nil)
 	defer svc.Stop() // Prevent goroutine leaks
 	h := NewBackupHandler(svc)
 
@@ -628,7 +628,7 @@ func TestBackupHandler_Delete_InternalError2(t *testing.T) {
 		DatabasePath: dbPath,
 	}
 
-	svc := services.NewBackupService(cfg)
+	svc := services.NewBackupService(cfg, nil, nil)
 	defer svc.Stop() // Prevent goroutine leaks
 	h := NewBackupHandler(svc)
 
@@ -754,7 +754,7 @@ func TestBackupHandler_Create_Error(t *testing.T) {
 		DatabasePath: dbPath,
 	}
 
-	svc := services.NewBackupService(cfg)
+	svc := services.NewBackupService(cfg, nil, nil)
 	defer svc.Stop() // Prevent goroutine leaks
 	h := NewBackupHandler(svc)
 
