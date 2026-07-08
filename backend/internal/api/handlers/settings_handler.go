@@ -101,6 +101,10 @@ func isSensitiveSettingKey(key string) bool {
 		"api_key",
 		"apikey",
 		"webhook",
+		// Covers backup.encryption_passphrase_enc (Issue #32 spec §3.4.4)
+		// and any future *.passphrase* setting without special-casing one
+		// key name.
+		"passphrase",
 	}
 
 	for _, fragment := range sensitiveFragments {
@@ -128,6 +132,19 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 	var req UpdateSettingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// backup.* settings carry side effects (BackupService.Reschedule, cron
+	// validation) that only the typed /api/v1/backups/settings endpoint
+	// owns (Issue #32 spec §3.4.4) — reject generic writes so a write here
+	// can never silently desync the persisted value from what the cron
+	// scheduler is actually running.
+	if strings.HasPrefix(req.Key, "backup.") {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":      "backup settings must be updated via PUT /api/v1/backups/settings",
+			"error_code": "use_typed_backup_settings_endpoint",
+		})
 		return
 	}
 

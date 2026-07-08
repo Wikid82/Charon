@@ -26,8 +26,16 @@ func createValidSQLiteDB(t *testing.T, dbPath string) error {
 	}
 	defer func() { _ = sqlDB.Close() }()
 
-	// Create a simple table to make it a valid database
-	return db.Exec("CREATE TABLE IF NOT EXISTS test (id INTEGER PRIMARY KEY, data TEXT)").Error
+	// Create a simple table to make it a valid database, plus the "users"
+	// and "proxy_hosts" tables RestoreBackupSafe's V6 sanity check (spec
+	// §3.5) requires of anything it restores.
+	if err := db.Exec("CREATE TABLE IF NOT EXISTS test (id INTEGER PRIMARY KEY, data TEXT)").Error; err != nil {
+		return err
+	}
+	if err := db.Exec("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, email TEXT)").Error; err != nil {
+		return err
+	}
+	return db.Exec("CREATE TABLE IF NOT EXISTS proxy_hosts (id INTEGER PRIMARY KEY, domain_names TEXT)").Error
 }
 
 // Use a real BackupService, but point it at tmpDir for isolation

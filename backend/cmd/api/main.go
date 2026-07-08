@@ -205,6 +205,16 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
+	// Consume any durable pending-restore marker left by a prior
+	// RestoreBackupSafe call whose live rehydrate could not complete (Issue
+	// #32 spec §3.5). Must run before database.Connect so the swap happens
+	// with no live WAL pool to corrupt. Deliberately not wired into the
+	// migrate/reset-password CLI subcommands above — this is the
+	// running-server startup path only.
+	if pendingRestoreErr := database.ApplyPendingRestore(cfg.DatabasePath); pendingRestoreErr != nil {
+		logger.Log().WithError(pendingRestoreErr).Error("Failed to apply pending database restore; continuing with existing database")
+	}
+
 	db, err := database.Connect(cfg.DatabasePath)
 	if err != nil {
 		log.Fatalf("connect database: %v", err)

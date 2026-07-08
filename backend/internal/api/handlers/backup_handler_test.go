@@ -18,6 +18,31 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// TestBackupHandler_RespondCreateError_ConcurrentInProgress_Returns409 and
+// TestBackupHandler_RespondRestoreError_ConcurrentInProgress_Returns409
+// prove the spec §3.10 concurrency guard's ErrBackupInProgress is mapped to
+// 409 at the handler layer (services.BackupService.mu.TryLock's own
+// service-level tests prove the guard fires in the first place).
+func TestBackupHandler_RespondCreateError_ConcurrentInProgress_Returns409(t *testing.T) {
+	h := NewBackupHandler(&services.BackupService{})
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/backups", http.NoBody)
+
+	h.respondCreateError(c, services.ErrBackupInProgress)
+	require.Equal(t, http.StatusConflict, w.Code)
+}
+
+func TestBackupHandler_RespondRestoreError_ConcurrentInProgress_Returns409(t *testing.T) {
+	h := NewBackupHandler(&services.BackupService{})
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/backups/x/restore", http.NoBody)
+
+	h.respondRestoreError(c, services.ErrBackupInProgress)
+	require.Equal(t, http.StatusConflict, w.Code)
+}
+
 func TestIsSQLiteTransientRehydrateError(t *testing.T) {
 	t.Parallel()
 
@@ -71,6 +96,13 @@ func setupBackupTest(t *testing.T) (*gin.Engine, *services.BackupService, string
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS healthcheck (id INTEGER PRIMARY KEY, value TEXT)")
 	require.NoError(t, err)
 	_, err = db.Exec("INSERT INTO healthcheck (value) VALUES (?)", "ok")
+	require.NoError(t, err)
+	// RestoreBackupSafe's V6 sanity check (spec §3.5) requires the
+	// extracted database to look like a Charon database, i.e. contain
+	// "users" and "proxy_hosts" tables.
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, email TEXT)")
+	require.NoError(t, err)
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS proxy_hosts (id INTEGER PRIMARY KEY, domain_names TEXT)")
 	require.NoError(t, err)
 
 	cfg := &config.Config{

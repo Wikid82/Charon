@@ -1,20 +1,15 @@
 // Package remotestorage defines the interface used to upload backup
-// archives to off-host destinations (S3-compatible object storage, SFTP).
-//
-// This file (Commit 2 of Issue #32) lands only the interface, the shared
-// RemoteObject type, and the New factory — no behavior. The factory
-// currently returns a "not yet implemented" error for every known target
-// type so callers get a clear, typed failure rather than a nil-pointer panic
-// if wired up prematurely. Concrete implementations (s3.go, sftp.go) land in
-// Commit 3, at which point New dispatches to them instead of erroring.
+// archives to off-host destinations (S3-compatible object storage, SFTP),
+// and the concrete s3/sftp implementations (spec §3.7, Commit 3).
 //
 // Kept as its own package (rather than living directly in internal/services)
 // so the uploader contract can be tested — and later faked — without pulling
-// in GORM or the rest of the services package (spec §3.7).
+// in GORM or the rest of the services package.
 package remotestorage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -41,11 +36,8 @@ type RemoteObject struct {
 }
 
 // New constructs the Uploader implementation for target.Type ("s3" or
-// "sftp"), decrypting/using secrets as needed.
-//
-// TODO(Commit 3, Issue #32): dispatch to s3.New / sftp.New once those land;
-// today every branch returns an explicit "not yet implemented" error so this
-// package compiles and is importable by Commit 3 without restructuring.
+// "sftp"), parsing target.ConfigJSON into the type-specific config struct
+// and combining it with the already-decrypted secrets map (spec §3.7).
 func New(target *models.RemoteStorageTarget, secrets map[string]string) (Uploader, error) {
 	if target == nil {
 		return nil, fmt.Errorf("remotestorage: target is required")
@@ -53,9 +45,28 @@ func New(target *models.RemoteStorageTarget, secrets map[string]string) (Uploade
 
 	switch target.Type {
 	case "s3":
-		return nil, fmt.Errorf("remotestorage: s3 uploader not yet implemented")
+		var cfg S3Config
+		if target.ConfigJSON != "" {
+			if err := json.Unmarshal([]byte(target.ConfigJSON), &cfg); err != nil {
+				return nil, fmt.Errorf("remotestorage: parse s3 config: %w", err)
+			}
+		}
+		return newS3Uploader(cfg, S3Secrets{
+			AccessKeyID:     secrets["access_key_id"],
+			SecretAccessKey: secrets["secret_access_key"],
+		})
 	case "sftp":
-		return nil, fmt.Errorf("remotestorage: sftp uploader not yet implemented")
+		var cfg SFTPConfig
+		if target.ConfigJSON != "" {
+			if err := json.Unmarshal([]byte(target.ConfigJSON), &cfg); err != nil {
+				return nil, fmt.Errorf("remotestorage: parse sftp config: %w", err)
+			}
+		}
+		return newSFTPUploader(cfg, SFTPSecrets{
+			Password:      secrets["password"],
+			PrivateKeyPEM: secrets["private_key_pem"],
+			Passphrase:    secrets["passphrase"],
+		})
 	default:
 		return nil, fmt.Errorf("remotestorage: unknown remote storage target type %q", target.Type)
 	}

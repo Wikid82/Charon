@@ -205,6 +205,35 @@ func TestSettingsHandler_GetSettings_MasksSensitiveValues(t *testing.T) {
 	assert.False(t, hasRaw)
 }
 
+// TestSettingsHandler_GetSettings_MasksBackupPassphrase is the required
+// regression test for the Issue #32 credential-leak fix: before this fix,
+// backup.encryption_passphrase_enc matched none of isSensitiveSettingKey's
+// fragments, so GET /api/v1/settings (management-level, not admin-gated)
+// echoed the AES-256-GCM ciphertext of the backup passphrase verbatim to
+// any authenticated management-role user.
+func TestSettingsHandler_GetSettings_MasksBackupPassphrase(t *testing.T) {
+	db := setupSettingsTestDB(t)
+
+	db.Create(&models.Setting{Key: "backup.encryption_passphrase_enc", Value: "ciphertext-should-never-leak", Category: "backup", Type: "string"})
+
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.GET("/settings", handler.GetSettings)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/settings", http.NoBody)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]any
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Equal(t, "********", response["backup.encryption_passphrase_enc"])
+	assert.Equal(t, true, response["backup.encryption_passphrase_enc.has_secret"])
+	assert.NotContains(t, w.Body.String(), "ciphertext-should-never-leak")
+}
+
 func TestSettingsHandler_GetSettings_DatabaseError(t *testing.T) {
 	db := setupSettingsTestDB(t)
 
@@ -452,6 +481,40 @@ func TestSettingsHandler_UpdateSetting_EmptyValueAccepted(t *testing.T) {
 	require.NoError(t, db.Where("key = ?", "some.setting").First(&setting).Error)
 	assert.Equal(t, "some.setting", setting.Key)
 	assert.Equal(t, "", setting.Value)
+}
+
+// TestSettingsHandler_UpdateSetting_RejectsBackupPrefix is the required
+// regression test for the Issue #32 generic-settings-bypass fix: a write to
+// any backup.* key through the generic endpoint must be rejected so the
+// cron-reschedule side effect stays owned by exactly one code path
+// (PUT /api/v1/backups/settings).
+func TestSettingsHandler_UpdateSetting_RejectsBackupPrefix(t *testing.T) {
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.POST("/settings", handler.UpdateSetting)
+
+	payload := map[string]string{
+		"key":   "backup.schedule_cron",
+		"value": "* * * * *",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/settings", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var response map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	assert.Equal(t, "use_typed_backup_settings_endpoint", response["error_code"])
+
+	var count int64
+	db.Model(&models.Setting{}).Where("key = ?", "backup.schedule_cron").Count(&count)
+	assert.Equal(t, int64(0), count, "the generic endpoint must never write a backup.* key")
 }
 
 func TestSettingsHandler_UpdateSetting_MissingKeyRejected(t *testing.T) {
@@ -1581,7 +1644,7 @@ func TestSettingsHandler_TestPublicURL_EmbeddedCredentials(t *testing.T) {
 	// Test URL with embedded credentials (parser differential attack)
 	body := map[string]string{"url": "http://evil.com@127.0.0.1/"}
 	jsonBody, _ := json.Marshal(body)
-	req, _ := http.NewRequest("POST", "/settings/test-url", bytes.NewBuffer(jsonBody))
+	req, _ := http.NewRequest("POST", "/settings/test-url", bytes.NewBuffer(jsonBody)) // nosemgrep: go.secrets.gorm.gorm-hardcoded-secret.gorm-hardcoded-secret -- fixture URL intentionally embeds fake userinfo (user@host) to exercise the SSRF parser-differential guard; not a real credential.
 	req.Header.Set("Content-Type", "application/json")
 
 	w := httptest.NewRecorder()

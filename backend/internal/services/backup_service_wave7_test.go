@@ -47,6 +47,14 @@ func TestBackupServiceWave7_CreateBackup_SnapshotFailureForNonSQLiteDB(t *testin
 }
 
 func TestBackupServiceWave7_ExtractDatabaseFromBackup_DBEntryOverLimit(t *testing.T) {
+	// See TestBackupService_UnzipWithSkip_RejectsExcessiveUncompressedSize:
+	// the flat legacy per-entry cap is now 2GiB (spec §3.9), so temporarily
+	// lower it to prove the enforcement path still fires without
+	// allocating a multi-gigabyte fixture.
+	originalCap := legacyPerEntryDecompressionCap
+	legacyPerEntryDecompressionCap = 100 * 1024 * 1024
+	t.Cleanup(func() { legacyPerEntryDecompressionCap = originalCap })
+
 	tmpDir := t.TempDir()
 	zipPath := filepath.Join(tmpDir, "db-over-limit.zip")
 
@@ -67,6 +75,10 @@ func TestBackupServiceWave7_ExtractDatabaseFromBackup_DBEntryOverLimit(t *testin
 }
 
 func TestBackupServiceWave7_ExtractDatabaseFromBackup_WALEntryOverLimit(t *testing.T) {
+	originalCap := legacyPerEntryDecompressionCap
+	legacyPerEntryDecompressionCap = 100 * 1024 * 1024
+	t.Cleanup(func() { legacyPerEntryDecompressionCap = originalCap })
+
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "charon.db")
 	createSQLiteTestDB(t, dbPath)

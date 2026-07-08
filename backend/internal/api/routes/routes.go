@@ -226,9 +226,13 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		}
 	}
 	backupService := services.NewBackupService(&cfg, db, backupEncryptionService)
-	backupService.Start() // Start cron scheduler for scheduled backups
+	backupService.SetCaddyReloader(caddyManager) // spec §3.5 R1 post-restore reload
+	backupRemoteService := services.NewBackupRemoteService(db, backupEncryptionService, backupService.BackupDir)
+	backupService.SetRemoteUploadHook(backupRemoteService.TriggerUpload) // spec §3.7
+	backupService.Start()                                                // Start cron scheduler for scheduled backups
 	securityService := services.NewSecurityService(db)
 	backupHandler := handlers.NewBackupHandlerWithDeps(backupService, securityService, db)
+	backupRemoteHandler := handlers.NewBackupRemoteHandler(backupRemoteService)
 
 	// DB Health endpoint (uses backup service for last backup time)
 	dbHealthHandler := handlers.NewDBHealthHandler(db, backupService)
@@ -312,12 +316,25 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management := protected.Group("/")
 		management.Use(middleware.RequireManagementAccess())
 
-		// Backups
+		// Backups. Static routes (settings, remote-targets, upload) are
+		// registered alongside the pre-existing /:filename[...] wildcard
+		// routes — see routes_backup_test.go for the required regression
+		// test proving Gin's router resolves them to their intended
+		// handlers rather than the :filename wildcard (spec §3.3).
 		management.GET("/backups", backupHandler.List)
 		management.POST("/backups", backupHandler.Create)
+		management.POST("/backups/upload", backupHandler.Upload)
+		management.GET("/backups/settings", backupHandler.GetSettings)      // management-level
+		management.PUT("/backups/settings", backupHandler.UpdateSettings)   // admin (checked in-handler)
+		management.GET("/backups/remote-targets", backupRemoteHandler.List) // admin (checked in-handler)
+		management.POST("/backups/remote-targets", backupRemoteHandler.Create)
+		management.PUT("/backups/remote-targets/:uuid", backupRemoteHandler.Update)
+		management.DELETE("/backups/remote-targets/:uuid", backupRemoteHandler.Delete)
+		management.POST("/backups/remote-targets/:uuid/test", backupRemoteHandler.Test)
 		management.DELETE("/backups/:filename", backupHandler.Delete)
 		management.GET("/backups/:filename/download", backupHandler.Download)
 		management.POST("/backups/:filename/restore", backupHandler.Restore)
+		management.POST("/backups/:filename/validate", backupHandler.Validate)
 
 		// Logs
 		// WebSocket endpoints

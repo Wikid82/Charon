@@ -16,15 +16,15 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestCreateBackup_V1ByteCompatible_WithNewConstructorWiring is the Commit 2
-// regression test required by spec §6 / the commit's must-not-regress list:
-// NewBackupService's signature now threads a *gorm.DB and an
-// *crypto.EncryptionService through, but CreateBackup()'s produced archive
-// must remain structurally identical to what v1 produced — still just
-// charon.db + caddy/**, with no manifest.json and no crowdsec/ entries, since
-// wiring the manifest and crowdsec directory into archive creation is
-// Commit 3's job, not this one (no behavior change in this commit).
-func TestCreateBackup_V1ByteCompatible_WithNewConstructorWiring(t *testing.T) {
+// TestCreateBackup_V2Format_IncludesManifestAndCrowdsec is the Commit 3
+// successor to the former Commit 2 "byte compatible" regression test: now
+// that CreateBackupWithOptions wires the manifest and crowdsec/** into
+// archive creation (spec §3.2), CreateBackup() (its thin v1-signature
+// wrapper) produces a full format-v2 archive — charon.db + caddy/** +
+// crowdsec/** + manifest.json written last — while still returning just a
+// filename, keeping the certificate handler's BackupServiceInterface
+// satisfied.
+func TestCreateBackup_V2Format_IncludesManifestAndCrowdsec(t *testing.T) {
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
 	require.NoError(t, os.MkdirAll(dataDir, 0o700))
@@ -59,7 +59,7 @@ func TestCreateBackup_V1ByteCompatible_WithNewConstructorWiring(t *testing.T) {
 
 	filename, err := svc.CreateBackup()
 	require.NoError(t, err)
-	assert.True(t, strings.HasSuffix(filename, ".zip"), "v1 filenames end in .zip, got %s", filename)
+	assert.True(t, strings.HasSuffix(filename, ".zip"), "unencrypted filenames end in .zip, got %s", filename)
 
 	zipPath := filepath.Join(svc.BackupDir, filename)
 	r, err := zip.OpenReader(zipPath) // #nosec G304 -- test-controlled path
@@ -71,6 +71,6 @@ func TestCreateBackup_V1ByteCompatible_WithNewConstructorWiring(t *testing.T) {
 		names = append(names, f.Name)
 	}
 
-	assert.ElementsMatch(t, []string{"charon.db", "caddy/caddy.json"}, names,
-		"v2 additions (manifest.json, crowdsec/**) must not appear until Commit 3")
+	assert.ElementsMatch(t, []string{"charon.db", "caddy/caddy.json", "crowdsec/profiles.yaml", "manifest.json"}, names,
+		"format-v2 archives include manifest.json (written last) and crowdsec/** alongside charon.db and caddy/**")
 }
