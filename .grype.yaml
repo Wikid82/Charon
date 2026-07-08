@@ -840,6 +840,61 @@ ignore:
 
     # Action items: same as GO-2026-5024 entry above.
 
+  # GO-2026-5932: golang.org/x/crypto/openpgp is unmaintained, unsafe by design
+  # Severity: UNKNOWN in Go vulndb (Trivy substitutes another vendor's rating) —
+  # Package: golang.org/x/crypto v0.53.0, flagged in /app/charon, /usr/bin/caddy,
+  # /usr/local/bin/crowdsec, /usr/local/bin/cscli
+  #
+  # Vulnerability Details:
+  # - Go's advisory database flags golang.org/x/crypto/openpgp as unmaintained and unsafe by
+  #   design (not a specific exploitable bug) and recommends migrating to a maintained fork
+  #   such as github.com/ProtonMail/go-crypto.
+  # - No fixed version is recorded — this cannot be resolved by upgrading golang.org/x/crypto.
+  #
+  # Root Cause of Suppression (No Fix Path):
+  # - Trivy's gobinary scanner flags based on module versions embedded in the compiled binary's
+  #   buildinfo, not on which subpackages are actually imported/linked.
+  # - Verified via `go list -deps ./...` in backend: the openpgp subpackage is not imported
+  #   anywhere in Charon's own code. app/charon is a false positive.
+  # - caddy, crowdsec, and cscli are third-party binaries built in the Dockerfile; x/crypto is
+  #   a transitive dependency of theirs that we don't control the internals of.
+  #
+  # Risk Assessment: ACCEPTED (no fix exists; not reachable via Charon's own code)
+  # - Charon's own binary does not call any x/crypto/openpgp API.
+  # - No upstream action can resolve this short of the vendor projects dropping the dependency.
+  #
+  # Mitigation:
+  # - Monitor whether caddy/crowdsec/cscli upstream drop their dependency on x/crypto/openpgp.
+  # - Re-run govulncheck periodically to confirm Charon's own code stays clean.
+  #
+  # Review:
+  # - Initial suppression 2026-07-08: no fixed version exists; false positive for app/charon.
+  # - Next review: 2026-08-08.
+  #
+  # Removal Criteria:
+  # - Go vulndb publishes a fixed version for golang.org/x/crypto, OR
+  # - Trivy adds subpackage-aware (symbol-level) matching instead of module-level matching
+  #
+  # References:
+  # - GO-2026-5932: https://pkg.go.dev/vuln/GO-2026-5932
+  - vulnerability: GO-2026-5932
+    package:
+      name: golang.org/x/crypto
+      version: "v0.53.0"
+      type: go-module
+    reason: |
+      UNKNOWN/HIGH — golang.org/x/crypto/openpgp is flagged as unmaintained and unsafe by design.
+      No fixed version exists; this is not a patchable bug. Verified via `go list -deps ./...`
+      that Charon's own code (app/charon) does not import the openpgp subpackage — false positive
+      from Trivy's module-level (not symbol-level) binary scanning. caddy/crowdsec/cscli are
+      third-party binaries with their own transitive dependency on x/crypto.
+    expiry: "2026-08-08"  # Review: Initial suppression 2026-07-08. Next review: 2026-08-08.
+
+    # Action items when this suppression expires:
+    # 1. Check if Go vulndb has published a fixed version for golang.org/x/crypto
+    # 2. Re-run `go list -deps ./...` in backend to confirm openpgp is still not imported
+    # 3. If neither changes: extend expiry by 30 days
+
 # Match exclusions (patterns to ignore during scanning)
 # Use sparingly - prefer specific CVE suppressions above
 match:

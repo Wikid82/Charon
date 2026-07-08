@@ -368,6 +368,53 @@ decode path. Charon defaults to SQLite, so standard deployments do not expose th
 Track upstream CrowdSec dependency updates and remove suppression once pgx/v4 is no longer
 present in bundled components.
 
+---
+
+### [HIGH] GO-2026-5932 · golang.org/x/crypto/openpgp Unmaintained, Unsafe by Design
+
+| Field        | Value |
+|--------------|-------|
+| **ID**       | GO-2026-5932 |
+| **Severity** | Reported Unknown by Go vulndb; Trivy substitutes another vendor's rating |
+| **Status**   | Awaiting Upstream (no fixed version exists) |
+
+**What**
+`golang.org/x/crypto/openpgp` v0.53.0 is flagged by the Go vulnerability database as
+unmaintained and unsafe by design — this is not a specific patchable bug, it is Go's standing
+recommendation to migrate off the openpgp subpackage entirely (superseded by
+`github.com/ProtonMail/go-crypto`). No fixed `golang.org/x/crypto` version resolves this.
+
+**Who**
+
+- Discovered by: Automated scan (Trivy image scan, PR #1133)
+- Reported: 2026-07-08
+- Affects: `app/charon`, `usr/bin/caddy`, `usr/local/bin/crowdsec`, `usr/local/bin/cscli`
+
+**Where**
+
+- Component: `golang.org/x/crypto` v0.53.0 (declared dependency; embedded across all four binaries)
+- Versions affected: all versions containing the `openpgp` subpackage — no fix exists
+
+**When**
+
+- Discovered: 2026-07-08
+- Disclosed (if public): Public
+- Target fix: N/A — no fixed version will be published; suppression is permanent absent a
+  Trivy scanner change to symbol-level (rather than module-level) matching
+
+**How**
+Trivy's `gobinary` scanner flags based on module versions recorded in the binary's embedded
+build info, not on which subpackages are actually imported and linked. Verified via
+`go list -deps ./...` in `backend`: the `openpgp` subpackage is not imported anywhere in
+Charon's own code, so the `app/charon` finding is a false positive. `caddy`, `crowdsec`, and
+`cscli` are third-party binaries built in the Dockerfile; `golang.org/x/crypto` is a transitive
+dependency of theirs that Charon does not control.
+
+**Planned Remediation**
+No remediation path exists upstream. Monitor whether caddy/crowdsec/cscli drop their dependency
+on `x/crypto/openpgp`, and periodically re-run `govulncheck` to confirm Charon's own code stays
+clean. Suppressed in `.trivyignore` and `.grype.yaml`; review 2026-08-08.
+
 ## Patched Vulnerabilities
 
 ### ✅ [HIGH] CVE-2026-34040 · Docker AuthZ Plugin Bypass via Oversized Request Body
