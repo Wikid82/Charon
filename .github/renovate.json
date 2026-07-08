@@ -478,6 +478,26 @@
       ]
     },
     {
+      "description": "Keep the Dockerfile's golang builder image in lockstep with go.mod/GO_VERSION bumps — prevents the Docker build failing when go.mod requires a newer Go than the pinned builder image (overrides the broader Dockerfile ARG grouping above since it matches later)",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchFileNames": [
+        "Dockerfile"
+      ],
+      "matchDepNames": [
+        "golang"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "groupName": "go-non-major",
+      "groupSlug": "go-non-major"
+    },
+    {
       "description": "Development branch: Auto-merge non-major updates after proven stable",
       "matchBaseBranches": [
         "development"
