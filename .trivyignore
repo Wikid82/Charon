@@ -163,3 +163,18 @@ CVE-2024-21492
 # See also: .grype.yaml for full justification
 # exp: 2026-09-23
 CVE-2026-39824
+
+# GO-2026-5932: golang.org/x/crypto/openpgp is unmaintained, unsafe by design
+# Severity: reported UNKNOWN by Go vulndb; Trivy falls back to another vendor's severity rating
+# Package: golang.org/x/crypto v0.53.0 — flagged in /app/charon, /usr/bin/caddy,
+# /usr/local/bin/crowdsec, /usr/local/bin/cscli
+# No fixed version exists: this advisory does not describe a patchable bug, it is Go's standing
+# recommendation to stop using the openpgp subpackage entirely (superseded by
+# github.com/ProtonMail/go-crypto). No golang.org/x/crypto version resolves this.
+# Verified `go list -deps ./...` in backend: the openpgp subpackage is not imported anywhere in
+# Charon's own code — app/charon is flagged purely because Trivy's gobinary scan checks module
+# versions embedded in the binary, not which subpackages are actually linked in.
+# caddy/crowdsec/cscli are third-party binaries; x/crypto is a transitive dependency we don't control.
+# Review by: 2026-08-08
+# exp: 2026-08-08
+GO-2026-5932
