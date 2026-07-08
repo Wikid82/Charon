@@ -16,6 +16,19 @@ export interface BackupFile {
   filename: string;
   size: number;
   time: string;
+  // Optional fields added by the Issue #32 backup v2 format (see docs/plans/current_spec.md §3.3.1).
+  // Kept optional so existing mocks/tests that only set filename/size/time keep passing unmodified.
+  uuid?: string;
+  type?: 'manual' | 'scheduled' | 'pre_restore' | 'uploaded';
+  encrypted?: boolean;
+  format_version?: number;
+  status?: string;
+  remote_copies?: Array<{
+    target_uuid: string;
+    target_name: string;
+    status: string;
+    uploaded_at?: string;
+  }>;
 }
 
 export interface LogFile {
@@ -143,8 +156,8 @@ export interface SecurityLogEntry {
  */
 export async function setupBackupsList(page: Page, backups?: BackupFile[]): Promise<void> {
   const defaultBackups: BackupFile[] = backups || [
-    { filename: 'backup_2024-01-15_120000.tar.gz', size: 1048576, time: '2024-01-15T12:00:00Z' },
-    { filename: 'backup_2024-01-14_120000.tar.gz', size: 2097152, time: '2024-01-14T12:00:00Z' },
+    { filename: 'backup_2024-01-15_120000.zip', size: 1048576, time: '2024-01-15T12:00:00Z' },
+    { filename: 'backup_2024-01-14_120000.zip', size: 2097152, time: '2024-01-14T12:00:00Z' },
   ];
 
   await page.route('**/api/v1/backups', async (route) => {
@@ -160,7 +173,7 @@ export async function setupBackupsList(page: Page, backups?: BackupFile[]): Prom
  * Completes a full backup restore flow for testing post-restore behavior
  */
 export async function completeRestoreFlow(page: Page, filename?: string): Promise<void> {
-  const targetFilename = filename || 'backup_2024-01-15_120000.tar.gz';
+  const targetFilename = filename || 'backup_2024-01-15_120000.zip';
 
   await page.route(`**/api/v1/backups/${targetFilename}/restore`, (route) => {
     route.fulfill({ status: 200, json: { message: 'Restore completed successfully' } });
@@ -363,7 +376,7 @@ export async function mockCrowdSecImportAPI(page: Page): Promise<void> {
     if (route.request().method() === 'POST') {
       await route.fulfill({
         status: 201,
-        json: { filename: 'pre-import-backup.tar.gz', size: 1000, time: new Date().toISOString() },
+        json: { filename: 'pre-import-backup.zip', size: 1000, time: new Date().toISOString() },
       });
     } else {
       await route.continue();

@@ -19,8 +19,8 @@ import { waitForToast, waitForLoadingComplete, waitForAPIResponse } from '../uti
  * Mock backup data for testing
  */
 const mockBackups: BackupFile[] = [
-  { filename: 'backup_2024-01-15_120000.tar.gz', size: 1048576, time: '2024-01-15T12:00:00Z' },
-  { filename: 'backup_2024-01-14_120000.tar.gz', size: 2097152, time: '2024-01-14T12:00:00Z' },
+  { filename: 'backup_2024-01-15_120000.zip', size: 1048576, time: '2024-01-15T12:00:00Z' },
+  { filename: 'backup_2024-01-14_120000.zip', size: 2097152, time: '2024-01-14T12:00:00Z' },
 ];
 
 /**
@@ -157,7 +157,7 @@ test.describe('Backups Page - Restore', () => {
     test('should restore backup successfully after confirmation', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      const filename = 'backup_2024-01-15_120000.tar.gz';
+      const filename = 'backup_2024-01-15_120000.zip';
       let restoreRequested = false;
 
       await page.route('**/api/v1/backups', async (route) => {
@@ -208,7 +208,7 @@ test.describe('Backups Page - Restore', () => {
     test('should show success toast after successful restoration', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      const filename = 'backup_2024-01-15_120000.tar.gz';
+      const filename = 'backup_2024-01-15_120000.zip';
 
       await page.route('**/api/v1/backups', async (route) => {
         if (route.request().method() === 'GET') {
@@ -250,7 +250,7 @@ test.describe('Backups Page - Restore', () => {
     test('should handle restore failure gracefully with error toast', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      const filename = 'backup_2024-01-15_120000.tar.gz';
+      const filename = 'backup_2024-01-15_120000.zip';
 
       await page.route('**/api/v1/backups', async (route) => {
         if (route.request().method() === 'GET') {
@@ -297,7 +297,7 @@ test.describe('Backups Page - Restore', () => {
     test('should disable restore button while restore is in progress', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      const filename = 'backup_2024-01-15_120000.tar.gz';
+      const filename = 'backup_2024-01-15_120000.zip';
 
       await page.route('**/api/v1/backups', async (route) => {
         if (route.request().method() === 'GET') {
@@ -352,7 +352,7 @@ test.describe('Backups Page - Restore', () => {
     }) => {
       await loginUser(page, adminUser);
 
-      const filename = 'backup_2024-01-15_120000.tar.gz';
+      const filename = 'backup_2024-01-15_120000.zip';
 
       await page.route('**/api/v1/backups', async (route) => {
         if (route.request().method() === 'GET') {

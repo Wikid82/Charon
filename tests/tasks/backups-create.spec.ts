@@ -20,8 +20,8 @@ import { waitForToast, waitForLoadingComplete, waitForAPIResponse } from '../uti
  * Mock backup data for testing
  */
 const mockBackups: BackupFile[] = [
-  { filename: 'backup_2024-01-15_120000.tar.gz', size: 1048576, time: '2024-01-15T12:00:00Z' },
-  { filename: 'backup_2024-01-14_120000.tar.gz', size: 2097152, time: '2024-01-14T12:00:00Z' },
+  { filename: 'backup_2024-01-15_120000.zip', size: 1048576, time: '2024-01-15T12:00:00Z' },
+  { filename: 'backup_2024-01-14_120000.zip', size: 2097152, time: '2024-01-14T12:00:00Z' },
 ];
 
 /**
@@ -118,8 +118,8 @@ test.describe('Backups Page - Creation and List', () => {
       await waitForLoadingComplete(page);
 
       // Verify both backups are displayed
-      await expect(page.getByText('backup_2024-01-15_120000.tar.gz')).toBeVisible();
-      await expect(page.getByText('backup_2024-01-14_120000.tar.gz')).toBeVisible();
+      await expect(page.getByText('backup_2024-01-15_120000.zip')).toBeVisible();
+      await expect(page.getByText('backup_2024-01-14_120000.zip')).toBeVisible();
 
       // Verify size is displayed (formatted)
       await expect(page.getByText('1.00 MB')).toBeVisible();
@@ -131,9 +131,9 @@ test.describe('Backups Page - Creation and List', () => {
 
       // Mock backup list with specific order
       const sortedBackups: BackupFile[] = [
-        { filename: 'backup_2024-01-16_120000.tar.gz', size: 512000, time: '2024-01-16T12:00:00Z' },
-        { filename: 'backup_2024-01-15_120000.tar.gz', size: 1048576, time: '2024-01-15T12:00:00Z' },
-        { filename: 'backup_2024-01-14_120000.tar.gz', size: 2097152, time: '2024-01-14T12:00:00Z' },
+        { filename: 'backup_2024-01-16_120000.zip', size: 512000, time: '2024-01-16T12:00:00Z' },
+        { filename: 'backup_2024-01-15_120000.zip', size: 1048576, time: '2024-01-15T12:00:00Z' },
+        { filename: 'backup_2024-01-14_120000.zip', size: 2097152, time: '2024-01-14T12:00:00Z' },
       ];
 
       await page.route('**/api/v1/backups', async (route) => {
@@ -190,7 +190,7 @@ test.describe('Backups Page - Creation and List', () => {
       await loginUser(page, adminUser);
 
       const newBackup: BackupFile = {
-        filename: 'backup_2024-01-16_120000.tar.gz',
+        filename: 'backup_2024-01-16_120000.zip',
         size: 512000,
         time: new Date().toISOString(),
       };
@@ -225,7 +225,7 @@ test.describe('Backups Page - Creation and List', () => {
       await loginUser(page, adminUser);
 
       const newBackup: BackupFile = {
-        filename: 'backup_2024-01-16_120000.tar.gz',
+        filename: 'backup_2024-01-16_120000.zip',
         size: 512000,
         time: new Date().toISOString(),
       };
@@ -254,7 +254,7 @@ test.describe('Backups Page - Creation and List', () => {
       await loginUser(page, adminUser);
 
       const newBackup: BackupFile = {
-        filename: 'backup_2024-01-16_120000.tar.gz',
+        filename: 'backup_2024-01-16_120000.zip',
         size: 512000,
         time: new Date().toISOString(),
       };
@@ -278,7 +278,7 @@ test.describe('Backups Page - Creation and List', () => {
       await waitForLoadingComplete(page);
 
       // Initial state - should not show new backup
-      await expect(page.getByText('backup_2024-01-16_120000.tar.gz')).not.toBeVisible();
+      await expect(page.getByText('backup_2024-01-16_120000.zip')).not.toBeVisible();
 
       // Click create backup button
       await page.click(SELECTORS.createBackupButton);
@@ -287,7 +287,7 @@ test.describe('Backups Page - Creation and List', () => {
       await waitForToast(page, /success|created/i, { type: 'success' });
 
       // New backup should now be visible after list refresh
-      await expect(page.getByText('backup_2024-01-16_120000.tar.gz')).toBeVisible({ timeout: 5000 });
+      await expect(page.getByText('backup_2024-01-16_120000.zip')).toBeVisible({ timeout: 5000 });
     });
 
     test('should disable create button while in progress', async ({ page, adminUser }) => {
@@ -299,7 +299,7 @@ test.describe('Backups Page - Creation and List', () => {
           await new Promise((resolve) => setTimeout(resolve, 1000));
           await route.fulfill({
             status: 201,
-            json: { filename: 'test.tar.gz', size: 100, time: new Date().toISOString() },
+            json: { filename: 'test.zip', size: 100, time: new Date().toISOString() },
           });
         } else if (route.request().method() === 'GET') {
           await route.fulfill({ status: 200, json: mockBackups });
@@ -392,7 +392,7 @@ test.describe('Backups Page - Creation and List', () => {
     test('should delete backup after confirmation', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      const filename = 'backup_2024-01-15_120000.tar.gz';
+      const filename = 'backup_2024-01-15_120000.zip';
       let deleteRequested = false;
 
       await page.route('**/api/v1/backups', async (route) => {
@@ -481,7 +481,7 @@ test.describe('Backups Page - Creation and List', () => {
       expect(deleteRequested).toBe(false);
 
       // Backup should still be visible
-      await expect(page.getByText('backup_2024-01-15_120000.tar.gz')).toBeVisible();
+      await expect(page.getByText('backup_2024-01-15_120000.zip')).toBeVisible();
     });
   });
 
@@ -492,7 +492,7 @@ test.describe('Backups Page - Creation and List', () => {
     test('should download backup file successfully', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      const filename = 'backup_2024-01-15_120000.tar.gz';
+      const filename = 'backup_2024-01-15_120000.zip';
 
       await page.route('**/api/v1/backups', async (route) => {
         if (route.request().method() === 'GET') {
@@ -507,7 +507,7 @@ test.describe('Backups Page - Creation and List', () => {
         await route.fulfill({
           status: 200,
           headers: {
-            'Content-Type': 'application/gzip',
+            'Content-Type': 'application/zip',
             'Content-Disposition': `attachment; filename="${filename}"`,
           },
           body: Buffer.from('mock backup content'),
@@ -538,7 +538,7 @@ test.describe('Backups Page - Creation and List', () => {
     test('should show error toast when download fails', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      const filename = 'backup_2024-01-15_120000.tar.gz';
+      const filename = 'backup_2024-01-15_120000.zip';
 
       await page.route('**/api/v1/backups', async (route) => {
         if (route.request().method() === 'GET') {
