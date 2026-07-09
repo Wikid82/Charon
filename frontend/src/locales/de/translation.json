@@ -803,7 +803,106 @@
     "auto": "Auto",
     "manual": "Manuell",
     "noBackups": "Keine Sicherungen",
-    "noBackupsDescription": "Erstellen Sie Ihre erste Sicherung, um Ihre Konfiguration zu schützen"
+    "noBackupsDescription": "Erstellen Sie Ihre erste Sicherung, um Ihre Konfiguration zu schützen",
+    "encryptedColumn": "Verschlüsselt",
+    "remoteCopiesColumn": "Remote-Kopien",
+    "encryptThisBackup": "Dieses Backup verschlüsseln",
+    "types": {
+      "manual": "Manuell",
+      "scheduled": "Geplant",
+      "preRestore": "Vor Wiederherstellung",
+      "uploaded": "Hochgeladen"
+    },
+    "schedule": {
+      "title": "Backup-Zeitplan",
+      "enabled": "Automatische Backups aktiviert",
+      "frequency": "Häufigkeit",
+      "daily": "Täglich",
+      "weekly": "Wöchentlich",
+      "custom": "Benutzerdefiniert",
+      "time": "Uhrzeit",
+      "dayOfWeek": "Wochentag",
+      "days": {
+        "sunday": "Sonntag",
+        "monday": "Montag",
+        "tuesday": "Dienstag",
+        "wednesday": "Mittwoch",
+        "thursday": "Donnerstag",
+        "friday": "Freitag",
+        "saturday": "Samstag"
+      },
+      "cronExpression": "Cron-Ausdruck",
+      "cronHelp": "Standard-5-Felder-Cron-Syntax (Minute Stunde Tag Monat Wochentag).",
+      "cronInvalid": "Ungültiger Cron-Ausdruck",
+      "retentionCount": "Lokale Aufbewahrungsanzahl",
+      "remoteRetentionCount": "Remote-Aufbewahrungsanzahl",
+      "save": "Zeitplan speichern",
+      "saveSuccess": "Zeitplan aktualisiert"
+    },
+    "encryption": {
+      "title": "Backup-Verschlüsselung",
+      "enabled": "Backups verschlüsseln",
+      "warningTitle": "Dies kann nicht rückgängig gemacht werden",
+      "warningBody": "Wenn diese Passphrase verloren geht, können verschlüsselte Backups nicht wiederhergestellt werden. Bewahren Sie sie sicher auf.",
+      "passphraseSet": "Eine Passphrase ist festgelegt",
+      "passphraseLabel": "Passphrase",
+      "passphraseChangeLabel": "Neue Passphrase",
+      "passphraseKeepCurrent": "Leer lassen, um die aktuelle Passphrase beizubehalten"
+    },
+    "upload": {
+      "button": "Backup hochladen",
+      "formatVersion2": "Formatversion 2. Keine Warnungen.",
+      "legacyFormatWarning": "Backup im alten Format (v1) — mit eingeschränkter Validierung wiederhergestellt.",
+      "encryptionKeyRequiredWarning": "Dieses Backup enthält Daten, die mit CHARON_ENCRYPTION_KEY verschlüsselt wurden. Legen Sie vor der Wiederherstellung denselben Schlüssel auf diesem Host fest."
+    },
+    "validate": {
+      "action": "Validieren",
+      "databaseIntegrity": "Datenbankintegrität: {{status}}"
+    },
+    "restoreWarnings": {
+      "legacyFormat": "Dies ist ein Backup im alten Format (v1) — die Prüfsummenverifizierung wurde übersprungen.",
+      "encryptionKeyRequired": "Für dieses Backup ist derselbe CHARON_ENCRYPTION_KEY erforderlich, um verschlüsselte Daten vollständig wiederherzustellen.",
+      "restartRequired": "Backup wiederhergestellt. Ein Neustart ist erforderlich, um die Datenbank vollständig zu übernehmen."
+    },
+    "remoteTargets": {
+      "title": "Remote-Speicherziele",
+      "add": "Remote-Ziel hinzufügen",
+      "editTitle": "Remote-Ziel bearbeiten",
+      "createTitle": "Remote-Ziel hinzufügen",
+      "type": "Speichertyp",
+      "typeS3": "S3",
+      "typeSftp": "SFTP",
+      "endpoint": "Endpunkt",
+      "region": "Region",
+      "bucket": "Bucket",
+      "pathPrefix": "Pfadpräfix",
+      "useSsl": "SSL verwenden",
+      "forcePathStyle": "Path-Style erzwingen",
+      "accessKeyId": "Access Key ID",
+      "secretAccessKey": "Secret Access Key",
+      "host": "Host",
+      "port": "Port",
+      "path": "Pfad",
+      "username": "Benutzername",
+      "password": "Passwort",
+      "hostKeyFingerprint": "Gepinnter SSH-Host-Key-Fingerabdruck",
+      "discoverHostKey": "Host-Key ermitteln",
+      "confirmHostKey": "Host-Key bestätigen",
+      "keepCurrent": "Leer lassen, um aktuellen Wert beizubehalten",
+      "leaveBlankToKeepCurrent": "Leer lassen, um aktuelle Geheimnisse beizubehalten",
+      "emptyTitle": "Keine Remote-Ziele",
+      "emptyDescription": "Fügen Sie ein Remote-Speicherziel hinzu, um Offsite-Kopien Ihrer Backups aufzubewahren.",
+      "deleteTitle": "Remote-Ziel löschen",
+      "deleteConfirm": "Möchten Sie \"{{name}}\" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
+      "test": "Verbindung testen",
+      "testSuccess": "Verbindung erfolgreich",
+      "testFailed": "Verbindung fehlgeschlagen",
+      "status": {
+        "ok": "OK",
+        "failed": "Fehlgeschlagen",
+        "never": "Nie getestet"
+      }
+    }
   },
   "logs": {
     "title": "Protokolle",

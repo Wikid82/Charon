@@ -803,7 +803,106 @@
     "auto": "自动",
     "manual": "手动",
     "noBackups": "无备份",
-    "noBackupsDescription": "创建您的第一个备份以保护您的配置"
+    "noBackupsDescription": "创建您的第一个备份以保护您的配置",
+    "encryptedColumn": "已加密",
+    "remoteCopiesColumn": "远程副本",
+    "encryptThisBackup": "加密此备份",
+    "types": {
+      "manual": "手动",
+      "scheduled": "定时",
+      "preRestore": "还原前",
+      "uploaded": "已上传"
+    },
+    "schedule": {
+      "title": "备份计划",
+      "enabled": "已启用自动备份",
+      "frequency": "频率",
+      "daily": "每天",
+      "weekly": "每周",
+      "custom": "自定义",
+      "time": "时间",
+      "dayOfWeek": "星期",
+      "days": {
+        "sunday": "星期日",
+        "monday": "星期一",
+        "tuesday": "星期二",
+        "wednesday": "星期三",
+        "thursday": "星期四",
+        "friday": "星期五",
+        "saturday": "星期六"
+      },
+      "cronExpression": "Cron 表达式",
+      "cronHelp": "标准的 5 段式 cron 语法（分 时 日 月 星期）。",
+      "cronInvalid": "无效的 cron 表达式",
+      "retentionCount": "本地保留数量",
+      "remoteRetentionCount": "远程保留数量",
+      "save": "保存计划",
+      "saveSuccess": "计划已更新"
+    },
+    "encryption": {
+      "title": "备份加密",
+      "enabled": "加密备份",
+      "warningTitle": "此操作无法撤销",
+      "warningBody": "如果丢失此密码,加密的备份将无法恢复。请妥善保管。",
+      "passphraseSet": "已设置密码",
+      "passphraseLabel": "密码",
+      "passphraseChangeLabel": "新密码",
+      "passphraseKeepCurrent": "留空以保留当前密码"
+    },
+    "upload": {
+      "button": "上传备份",
+      "formatVersion2": "格式版本 2。没有警告。",
+      "legacyFormatWarning": "旧格式(v1)备份 — 已以简化验证方式还原。",
+      "encryptionKeyRequiredWarning": "此备份包含使用 CHARON_ENCRYPTION_KEY 加密的数据。还原前请在此主机上设置相同的密钥。"
+    },
+    "validate": {
+      "action": "验证",
+      "databaseIntegrity": "数据库完整性: {{status}}"
+    },
+    "restoreWarnings": {
+      "legacyFormat": "这是一个旧格式(v1)备份 — 已跳过校验和验证。",
+      "encryptionKeyRequired": "此备份需要相同的 CHARON_ENCRYPTION_KEY 才能完全还原加密数据。",
+      "restartRequired": "备份已还原。需要重启以完成数据库应用。"
+    },
+    "remoteTargets": {
+      "title": "远程存储目标",
+      "add": "添加远程目标",
+      "editTitle": "编辑远程目标",
+      "createTitle": "添加远程目标",
+      "type": "存储类型",
+      "typeS3": "S3",
+      "typeSftp": "SFTP",
+      "endpoint": "端点",
+      "region": "区域",
+      "bucket": "存储桶",
+      "pathPrefix": "路径前缀",
+      "useSsl": "使用 SSL",
+      "forcePathStyle": "强制路径样式",
+      "accessKeyId": "访问密钥 ID",
+      "secretAccessKey": "访问密钥密钥",
+      "host": "主机",
+      "port": "端口",
+      "path": "路径",
+      "username": "用户名",
+      "password": "密码",
+      "hostKeyFingerprint": "已固定的 SSH 主机密钥指纹",
+      "discoverHostKey": "发现主机密钥",
+      "confirmHostKey": "确认主机密钥",
+      "keepCurrent": "留空以保留当前值",
+      "leaveBlankToKeepCurrent": "留空以保留当前密钥信息",
+      "emptyTitle": "没有远程目标",
+      "emptyDescription": "添加远程存储目标以保留备份的异地副本。",
+      "deleteTitle": "删除远程目标",
+      "deleteConfirm": "确定要删除“{{name}}”吗?此操作无法撤销。",
+      "test": "测试连接",
+      "testSuccess": "连接成功",
+      "testFailed": "连接失败",
+      "status": {
+        "ok": "正常",
+        "failed": "失败",
+        "never": "从未测试"
+      }
+    }
   },
   "logs": {
     "title": "日志",

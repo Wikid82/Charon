@@ -803,7 +803,106 @@
     "auto": "Auto",
     "manual": "Manuel",
     "noBackups": "Aucune Sauvegarde",
-    "noBackupsDescription": "Créez votre première sauvegarde pour protéger votre configuration"
+    "noBackupsDescription": "Créez votre première sauvegarde pour protéger votre configuration",
+    "encryptedColumn": "Chiffré",
+    "remoteCopiesColumn": "Copies distantes",
+    "encryptThisBackup": "Chiffrer cette sauvegarde",
+    "types": {
+      "manual": "Manuelle",
+      "scheduled": "Planifiée",
+      "preRestore": "Avant restauration",
+      "uploaded": "Téléversée"
+    },
+    "schedule": {
+      "title": "Planification des sauvegardes",
+      "enabled": "Sauvegardes automatiques activées",
+      "frequency": "Fréquence",
+      "daily": "Quotidienne",
+      "weekly": "Hebdomadaire",
+      "custom": "Personnalisée",
+      "time": "Heure",
+      "dayOfWeek": "Jour de la semaine",
+      "days": {
+        "sunday": "Dimanche",
+        "monday": "Lundi",
+        "tuesday": "Mardi",
+        "wednesday": "Mercredi",
+        "thursday": "Jeudi",
+        "friday": "Vendredi",
+        "saturday": "Samedi"
+      },
+      "cronExpression": "Expression cron",
+      "cronHelp": "Syntaxe cron standard à 5 champs (minute heure jour mois jour de la semaine).",
+      "cronInvalid": "Expression cron invalide",
+      "retentionCount": "Nombre de rétention locale",
+      "remoteRetentionCount": "Nombre de rétention distante",
+      "save": "Enregistrer la planification",
+      "saveSuccess": "Planification mise à jour"
+    },
+    "encryption": {
+      "title": "Chiffrement des sauvegardes",
+      "enabled": "Chiffrer les sauvegardes",
+      "warningTitle": "Cette action est irréversible",
+      "warningBody": "Si cette phrase secrète est perdue, les sauvegardes chiffrées ne pourront pas être récupérées. Conservez-la en lieu sûr.",
+      "passphraseSet": "Une phrase secrète est définie",
+      "passphraseLabel": "Phrase secrète",
+      "passphraseChangeLabel": "Nouvelle phrase secrète",
+      "passphraseKeepCurrent": "Laisser vide pour conserver la phrase secrète actuelle"
+    },
+    "upload": {
+      "button": "Téléverser une sauvegarde",
+      "formatVersion2": "Version de format 2. Aucun avertissement.",
+      "legacyFormatWarning": "Sauvegarde au format ancien (v1) — restaurée avec une validation réduite.",
+      "encryptionKeyRequiredWarning": "Cette sauvegarde contient des données chiffrées avec CHARON_ENCRYPTION_KEY. Définissez la même clé sur cet hôte avant de restaurer."
+    },
+    "validate": {
+      "action": "Valider",
+      "databaseIntegrity": "Intégrité de la base de données : {{status}}"
+    },
+    "restoreWarnings": {
+      "legacyFormat": "Il s'agit d'une sauvegarde au format ancien (v1) — la vérification de somme de contrôle a été ignorée.",
+      "encryptionKeyRequired": "Cette sauvegarde nécessite la même CHARON_ENCRYPTION_KEY pour restaurer entièrement les données chiffrées.",
+      "restartRequired": "Sauvegarde restaurée. Un redémarrage est nécessaire pour terminer l'application de la base de données."
+    },
+    "remoteTargets": {
+      "title": "Cibles de stockage distant",
+      "add": "Ajouter une cible distante",
+      "editTitle": "Modifier la cible distante",
+      "createTitle": "Ajouter une cible distante",
+      "type": "Type de stockage",
+      "typeS3": "S3",
+      "typeSftp": "SFTP",
+      "endpoint": "Point de terminaison",
+      "region": "Région",
+      "bucket": "Bucket",
+      "pathPrefix": "Préfixe de chemin",
+      "useSsl": "Utiliser SSL",
+      "forcePathStyle": "Forcer le style de chemin",
+      "accessKeyId": "ID de clé d'accès",
+      "secretAccessKey": "Clé d'accès secrète",
+      "host": "Hôte",
+      "port": "Port",
+      "path": "Chemin",
+      "username": "Nom d'utilisateur",
+      "password": "Mot de passe",
+      "hostKeyFingerprint": "Empreinte épinglée de la clé hôte SSH",
+      "discoverHostKey": "Découvrir la clé hôte",
+      "confirmHostKey": "Confirmer la clé hôte",
+      "keepCurrent": "Laisser vide pour conserver la valeur actuelle",
+      "leaveBlankToKeepCurrent": "Laisser vide pour conserver les secrets actuels",
+      "emptyTitle": "Aucune cible distante",
+      "emptyDescription": "Ajoutez une cible de stockage distante pour conserver des copies hors site de vos sauvegardes.",
+      "deleteTitle": "Supprimer la cible distante",
+      "deleteConfirm": "Voulez-vous vraiment supprimer \"{{name}}\" ? Cette action est irréversible.",
+      "test": "Tester la connexion",
+      "testSuccess": "Connexion réussie",
+      "testFailed": "Échec de la connexion",
+      "status": {
+        "ok": "OK",
+        "failed": "Échec",
+        "never": "Jamais testée"
+      }
+    }
   },
   "logs": {
     "title": "Journaux",

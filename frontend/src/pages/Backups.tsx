@@ -1,18 +1,16 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Download, RotateCcw, Plus, Archive, Trash2, Save } from 'lucide-react'
+import { Download, Lock, Plus, RotateCcw, Trash2, Archive } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { getBackups, createBackup, restoreBackup, deleteBackup, type BackupFile } from '../api/backups'
-import { getSettings, updateSetting } from '../api/settings'
+import { BackupEncryptionCard } from '../components/backups/BackupEncryptionCard'
+import { BackupScheduleCard } from '../components/backups/BackupScheduleCard'
+import { RemoteTargetsCard } from '../components/backups/RemoteTargetsCard'
+import { RestoreDialog } from '../components/backups/RestoreDialog'
+import { UploadBackupButton } from '../components/backups/UploadBackupButton'
 import { PageShell } from '../components/layout/PageShell'
 import {
   Button,
   Input,
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
   Badge,
   DataTable,
   EmptyState,
@@ -22,8 +20,11 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  Label,
+  Switch,
   type Column,
 } from '../components/ui'
+import { useBackups, useCreateBackup, useDeleteBackup, useBackupSettingsForm, type BackupFile } from '../hooks/useBackups'
 import { useAuth } from '../hooks/useAuth'
 import { toast } from '../utils/toast'
 
@@ -33,87 +34,60 @@ const formatSize = (bytes: number): string => {
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`
 }
 
+const BACKUP_TYPE_KEYS: Record<string, string> = {
+  manual: 'manual',
+  scheduled: 'scheduled',
+  pre_restore: 'preRestore',
+  uploaded: 'uploaded',
+}
+
 export default function Backups() {
   const { t } = useTranslation()
   const { user } = useAuth()
-  const queryClient = useQueryClient()
-  const [interval, setInterval] = useState('7')
-  const [retention, setRetention] = useState('30')
-  const [restoreConfirm, setRestoreConfirm] = useState<BackupFile | null>(null)
+  const isAdmin = user?.role === 'admin'
+
+  const { data: backups, isLoading: isLoadingBackups } = useBackups()
+  const settingsForm = useBackupSettingsForm()
+
+  const [restoreTarget, setRestoreTarget] = useState<BackupFile | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<BackupFile | null>(null)
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [createEncrypt, setCreateEncrypt] = useState(false)
+  const [createPassphrase, setCreatePassphrase] = useState('')
 
-  // Fetch Backups
-  const { data: backups, isLoading: isLoadingBackups } = useQuery({
-    queryKey: ['backups'],
-    queryFn: getBackups,
-  })
+  const createMutation = useCreateBackup()
+  const deleteMutation = useDeleteBackup()
 
-  // Fetch Settings
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: getSettings,
-  })
+  const handleOpenCreateDialog = () => {
+    setCreateEncrypt(false)
+    setCreatePassphrase('')
+    setCreateDialogOpen(true)
+  }
 
-  // Update local state when settings load
-  useState(() => {
-    if (settings) {
-      if (settings['backup.interval']) setInterval(settings['backup.interval'])
-      if (settings['backup.retention']) setRetention(settings['backup.retention'])
-    }
-  })
-
-  const createMutation = useMutation({
-    mutationFn: createBackup,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['backups'] })
-      toast.success(t('backups.createSuccess'))
-    },
-    onError: (error: Error) => {
-      toast.error(t('backups.createFailed', { error: error.message }))
-    },
-  })
-
-  const restoreMutation = useMutation({
-    mutationFn: restoreBackup,
-    onSuccess: () => {
-      setRestoreConfirm(null)
-      toast.success(t('backups.restoreSuccess'))
-    },
-    onError: (error: Error) => {
-      toast.error(t('backups.restoreFailed', { error: error.message }))
-    },
-  })
-
-  const deleteMutation = useMutation({
-    mutationFn: deleteBackup,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['backups'] })
-      setDeleteConfirm(null)
-      toast.success(t('backups.deleteSuccess'))
-    },
-    onError: (error: Error) => {
-      toast.error(t('backups.deleteFailed', { error: error.message }))
-    },
-  })
-
-  const saveSettingsMutation = useMutation({
-    mutationFn: async () => {
-      await updateSetting('backup.interval', interval, 'system', 'int')
-      await updateSetting('backup.retention', retention, 'system', 'int')
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings'] })
-      toast.success(t('backups.settingsSaved'))
-    },
-    onError: (error: Error) => {
-      toast.error(t('backups.settingsFailed', { error: error.message }))
-    },
-  })
+  const handleCreateConfirm = () => {
+    createMutation.mutate(createEncrypt ? { encrypt: true, passphrase: createPassphrase } : undefined, {
+      onSuccess: () => {
+        toast.success(t('backups.createSuccess'))
+        setCreateDialogOpen(false)
+      },
+      onError: (error: Error) => toast.error(t('backups.createFailed', { error: error.message })),
+    })
+  }
 
   const handleDownload = (filename: string) => {
-    // Trigger download via browser navigation
-    // The browser will send the auth cookie automatically
+    // Trigger download via browser navigation; the browser sends the auth cookie automatically.
     window.location.href = `/api/v1/backups/${filename}/download`
+  }
+
+  const handleDelete = () => {
+    if (!deleteConfirm) return
+    deleteMutation.mutate(deleteConfirm.filename, {
+      onSuccess: () => {
+        setDeleteConfirm(null)
+        toast.success(t('backups.deleteSuccess'))
+      },
+      onError: (error: Error) => toast.error(t('backups.deleteFailed', { error: error.message })),
+    })
   }
 
   const columns: Column<BackupFile>[] = [
@@ -147,61 +121,90 @@ export default function Backups() {
       key: 'type',
       header: t('common.type'),
       cell: (backup) => {
-        const isAuto = backup.filename.includes('auto')
+        const typeKey = BACKUP_TYPE_KEYS[backup.type ?? 'manual'] ?? 'manual'
         return (
-          <Badge variant={isAuto ? 'default' : 'primary'} size="sm">
-            {isAuto ? t('backups.auto') : t('backups.manual')}
+          <Badge data-testid="backup-type-badge" variant={backup.type === 'uploaded' ? 'primary' : 'default'} size="sm">
+            {t(`backups.types.${typeKey}`)}
           </Badge>
         )
       },
     },
     {
+      key: 'encrypted',
+      header: t('backups.encryptedColumn'),
+      cell: (backup) =>
+        backup.encrypted ? (
+          <Lock data-testid="backup-encrypted-icon" className="w-4 h-4 text-content-secondary" aria-label={t('backups.encryption.title')} />
+        ) : null,
+    },
+    {
+      key: 'remoteCopies',
+      header: t('backups.remoteCopiesColumn'),
+      cell: (backup) =>
+        backup.remote_copies && backup.remote_copies.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {backup.remote_copies.map((copy) => (
+              <Badge
+                key={copy.target_uuid}
+                size="sm"
+                variant={copy.status === 'uploaded' ? 'success' : copy.status === 'failed' ? 'destructive' : 'outline'}
+              >
+                {copy.target_name}: {copy.status}
+              </Badge>
+            ))}
+          </div>
+        ) : (
+          <span className="text-content-muted text-sm">—</span>
+        ),
+    },
+    {
       key: 'actions',
       header: t('common.actions'),
-      cell: (backup) => (
-        <div className="flex items-center justify-end gap-2" data-testid="backup-row">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => handleDownload(backup.filename)}
-            title={t('backups.download')}
-            data-testid="backup-download-btn"
-          >
-            <Download className="w-4 h-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setRestoreConfirm(backup)}
-            title={t('backups.restore')}
-            disabled={restoreMutation.isPending}
-            data-testid="backup-restore-btn"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setDeleteConfirm(backup)}
-            title={t('common.delete')}
-            disabled={deleteMutation.isPending}
-            data-testid="backup-delete-btn"
-          >
-            <Trash2 className="w-4 h-4 text-error" />
-          </Button>
-        </div>
-      ),
+      cell: (backup) =>
+        isAdmin ? (
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => handleDownload(backup.filename)}
+              title={t('backups.download')}
+              data-testid="backup-download-btn"
+            >
+              <Download className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setRestoreTarget(backup)}
+              title={t('backups.restore')}
+              data-testid="backup-restore-btn"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setDeleteConfirm(backup)}
+              title={t('common.delete')}
+              disabled={deleteMutation.isPending}
+              data-testid="backup-delete-btn"
+            >
+              <Trash2 className="w-4 h-4 text-error" />
+            </Button>
+          </div>
+        ) : null,
     },
   ]
 
-  const canCreateBackup = user?.role === 'admin' || user?.role === 'user'
-
-  // Header actions (visible only to admin and user roles)
-  const headerActions = canCreateBackup ? (
-    <Button onClick={() => createMutation.mutate()} isLoading={createMutation.isPending}>
-      <Plus className="w-4 h-4 mr-2" />
-      {t('backups.createBackup')}
-    </Button>
+  // Header actions — admin-only (backend gates create/upload/download/restore/delete to admin; spec §3.9).
+  const headerActions = isAdmin ? (
+    <div className="flex items-center gap-2">
+      <UploadBackupButton />
+      <Button onClick={handleOpenCreateDialog}>
+        <Plus className="w-4 h-4 mr-2" />
+        {t('backups.createBackup')}
+      </Button>
+    </div>
   ) : null
 
   return (
@@ -210,54 +213,24 @@ export default function Backups() {
       description={t('backups.description')}
       actions={headerActions}
     >
-      {/* Settings Section */}
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('backups.configuration')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-            <Input
-              label={t('backups.intervalDays')}
-              type="number"
-              value={interval}
-              onChange={(e) => setInterval(e.target.value)}
-              min="1"
-            />
-            <Input
-              label={t('backups.retentionDays')}
-              type="number"
-              value={retention}
-              onChange={(e) => setRetention(e.target.value)}
-              min="1"
-            />
-            <Button
-              onClick={() => saveSettingsMutation.mutate()}
-              isLoading={saveSettingsMutation.isPending}
-            >
-              <Save className="w-4 h-4 mr-2" />
-              {t('backups.saveSettings')}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      {isAdmin && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <BackupScheduleCard form={settingsForm} />
+          <BackupEncryptionCard form={settingsForm} />
+        </div>
+      )}
+
+      {isAdmin && <RemoteTargetsCard />}
 
       {/* Backup List */}
       {isLoadingBackups ? (
-        <SkeletonTable rows={5} columns={5} data-testid="loading-skeleton" />
+        <SkeletonTable rows={5} columns={6} data-testid="loading-skeleton" />
       ) : !backups || backups.length === 0 ? (
         <EmptyState
           icon={<Archive className="h-12 w-12" />}
           title={t('backups.noBackups')}
           description={t('backups.noBackupsDescription')}
-          action={
-            canCreateBackup
-              ? {
-                  label: t('backups.createBackup'),
-                  onClick: () => createMutation.mutate(),
-                }
-              : undefined
-          }
+          action={isAdmin ? { label: t('backups.createBackup'), onClick: handleOpenCreateDialog } : undefined}
           data-testid="empty-state"
         />
       ) : (
@@ -265,48 +238,64 @@ export default function Backups() {
           data={backups}
           columns={columns}
           rowKey={(backup) => backup.filename}
+          rowTestId={() => 'backup-row'}
           data-testid="backup-table"
           emptyState={
             <EmptyState
               icon={<Archive className="h-12 w-12" />}
               title={t('backups.noBackups')}
               description={t('backups.noBackupsDescription')}
-              action={
-                canCreateBackup
-                  ? {
-                      label: t('backups.createBackup'),
-                      onClick: () => createMutation.mutate(),
-                    }
-                  : undefined
-              }
+              action={isAdmin ? { label: t('backups.createBackup'), onClick: handleOpenCreateDialog } : undefined}
             />
           }
         />
       )}
 
-      {/* Restore Confirmation Dialog */}
-      <Dialog open={restoreConfirm !== null} onOpenChange={() => setRestoreConfirm(null)}>
+      {/* Create Backup Dialog */}
+      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t('backups.restoreBackup')}</DialogTitle>
+            <DialogTitle>{t('backups.createBackup')}</DialogTitle>
           </DialogHeader>
-          <p className="text-content-secondary py-4">
-            {t('backups.restoreConfirmMessage')}
-          </p>
+          <div className="space-y-4 px-6 pb-2">
+            <div className="flex items-center gap-3">
+              <Switch
+                id="backup-create-encrypt"
+                data-testid="backup-create-encrypt-toggle"
+                checked={createEncrypt}
+                onCheckedChange={setCreateEncrypt}
+              />
+              <Label htmlFor="backup-create-encrypt">{t('backups.encryptThisBackup')}</Label>
+            </div>
+            {createEncrypt && (
+              <Input
+                id="backup-create-passphrase"
+                data-testid="backup-create-passphrase-input"
+                type="password"
+                label={t('backups.encryption.passphraseLabel')}
+                value={createPassphrase}
+                onChange={(e) => setCreatePassphrase(e.target.value)}
+                autoComplete="new-password"
+              />
+            )}
+          </div>
           <DialogFooter>
-            <Button variant="secondary" onClick={() => setRestoreConfirm(null)} disabled={restoreMutation.isPending}>
+            <Button variant="secondary" onClick={() => setCreateDialogOpen(false)} disabled={createMutation.isPending}>
               {t('common.cancel')}
             </Button>
             <Button
               variant="primary"
-              onClick={() => restoreConfirm && restoreMutation.mutate(restoreConfirm.filename)}
-              isLoading={restoreMutation.isPending}
+              onClick={handleCreateConfirm}
+              isLoading={createMutation.isPending}
+              disabled={createEncrypt && !createPassphrase}
             >
-              {t('backups.restore')}
+              {t('common.create')}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <RestoreDialog backup={restoreTarget} onClose={() => setRestoreTarget(null)} />
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={deleteConfirm !== null} onOpenChange={() => setDeleteConfirm(null)}>
@@ -323,7 +312,7 @@ export default function Backups() {
             </Button>
             <Button
               variant="danger"
-              onClick={() => deleteConfirm && deleteMutation.mutate(deleteConfirm.filename)}
+              onClick={handleDelete}
               isLoading={deleteMutation.isPending}
             >
               {t('common.delete')}

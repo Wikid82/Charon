@@ -803,7 +803,106 @@
     "auto": "Auto",
     "manual": "Manual",
     "noBackups": "Sin Respaldos",
-    "noBackupsDescription": "Cree su primer respaldo para proteger su configuración"
+    "noBackupsDescription": "Cree su primer respaldo para proteger su configuración",
+    "encryptedColumn": "Cifrado",
+    "remoteCopiesColumn": "Copias remotas",
+    "encryptThisBackup": "Cifrar esta copia de seguridad",
+    "types": {
+      "manual": "Manual",
+      "scheduled": "Programada",
+      "preRestore": "Previa a restauración",
+      "uploaded": "Subida"
+    },
+    "schedule": {
+      "title": "Programación de copias de seguridad",
+      "enabled": "Copias de seguridad automáticas activadas",
+      "frequency": "Frecuencia",
+      "daily": "Diaria",
+      "weekly": "Semanal",
+      "custom": "Personalizada",
+      "time": "Hora",
+      "dayOfWeek": "Día de la semana",
+      "days": {
+        "sunday": "Domingo",
+        "monday": "Lunes",
+        "tuesday": "Martes",
+        "wednesday": "Miércoles",
+        "thursday": "Jueves",
+        "friday": "Viernes",
+        "saturday": "Sábado"
+      },
+      "cronExpression": "Expresión cron",
+      "cronHelp": "Sintaxis cron estándar de 5 campos (minuto hora día mes día de la semana).",
+      "cronInvalid": "Expresión cron no válida",
+      "retentionCount": "Número de retención local",
+      "remoteRetentionCount": "Número de retención remota",
+      "save": "Guardar programación",
+      "saveSuccess": "Programación actualizada"
+    },
+    "encryption": {
+      "title": "Cifrado de copias de seguridad",
+      "enabled": "Cifrar copias de seguridad",
+      "warningTitle": "Esto no se puede deshacer",
+      "warningBody": "Si se pierde esta frase de contraseña, las copias de seguridad cifradas no se podrán recuperar. Guárdela en un lugar seguro.",
+      "passphraseSet": "Se ha establecido una frase de contraseña",
+      "passphraseLabel": "Frase de contraseña",
+      "passphraseChangeLabel": "Nueva frase de contraseña",
+      "passphraseKeepCurrent": "Déjelo en blanco para mantener la frase de contraseña actual"
+    },
+    "upload": {
+      "button": "Subir copia de seguridad",
+      "formatVersion2": "Versión de formato 2. Sin advertencias.",
+      "legacyFormatWarning": "Copia de seguridad en formato antiguo (v1) — restaurada con validación reducida.",
+      "encryptionKeyRequiredWarning": "Esta copia de seguridad contiene datos cifrados con CHARON_ENCRYPTION_KEY. Configure la misma clave en este host antes de restaurar."
+    },
+    "validate": {
+      "action": "Validar",
+      "databaseIntegrity": "Integridad de la base de datos: {{status}}"
+    },
+    "restoreWarnings": {
+      "legacyFormat": "Esta es una copia de seguridad en formato antiguo (v1) — se omitió la verificación de suma de comprobación.",
+      "encryptionKeyRequired": "Esta copia de seguridad requiere la misma CHARON_ENCRYPTION_KEY para restaurar completamente los datos cifrados.",
+      "restartRequired": "Copia de seguridad restaurada. Se requiere un reinicio para terminar de aplicar la base de datos."
+    },
+    "remoteTargets": {
+      "title": "Destinos de almacenamiento remoto",
+      "add": "Añadir destino remoto",
+      "editTitle": "Editar destino remoto",
+      "createTitle": "Añadir destino remoto",
+      "type": "Tipo de almacenamiento",
+      "typeS3": "S3",
+      "typeSftp": "SFTP",
+      "endpoint": "Extremo",
+      "region": "Región",
+      "bucket": "Bucket",
+      "pathPrefix": "Prefijo de ruta",
+      "useSsl": "Usar SSL",
+      "forcePathStyle": "Forzar estilo de ruta",
+      "accessKeyId": "ID de clave de acceso",
+      "secretAccessKey": "Clave de acceso secreta",
+      "host": "Host",
+      "port": "Puerto",
+      "path": "Ruta",
+      "username": "Usuario",
+      "password": "Contraseña",
+      "hostKeyFingerprint": "Huella digital fijada de la clave del host SSH",
+      "discoverHostKey": "Descubrir clave del host",
+      "confirmHostKey": "Confirmar clave del host",
+      "keepCurrent": "Déjelo en blanco para mantener el valor actual",
+      "leaveBlankToKeepCurrent": "Déjelo en blanco para mantener los secretos actuales",
+      "emptyTitle": "Sin destinos remotos",
+      "emptyDescription": "Añada un destino de almacenamiento remoto para conservar copias externas de sus copias de seguridad.",
+      "deleteTitle": "Eliminar destino remoto",
+      "deleteConfirm": "¿Seguro que desea eliminar \"{{name}}\"? Esta acción no se puede deshacer.",
+      "test": "Probar conexión",
+      "testSuccess": "Conexión correcta",
+      "testFailed": "Conexión fallida",
+      "status": {
+        "ok": "OK",
+        "failed": "Fallida",
+        "never": "Nunca probada"
+      }
+    }
   },
   "logs": {
     "title": "Registros",

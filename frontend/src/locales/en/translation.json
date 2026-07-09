@@ -971,7 +971,106 @@
     "auto": "Auto",
     "manual": "Manual",
     "noBackups": "No Backups",
-    "noBackupsDescription": "Create your first backup to protect your configuration"
+    "noBackupsDescription": "Create your first backup to protect your configuration",
+    "encryptedColumn": "Encrypted",
+    "remoteCopiesColumn": "Remote Copies",
+    "encryptThisBackup": "Encrypt this backup",
+    "types": {
+      "manual": "Manual",
+      "scheduled": "Scheduled",
+      "preRestore": "Pre-restore",
+      "uploaded": "Uploaded"
+    },
+    "schedule": {
+      "title": "Backup Schedule",
+      "enabled": "Automatic backups enabled",
+      "frequency": "Frequency",
+      "daily": "Daily",
+      "weekly": "Weekly",
+      "custom": "Custom",
+      "time": "Time",
+      "dayOfWeek": "Day of Week",
+      "days": {
+        "sunday": "Sunday",
+        "monday": "Monday",
+        "tuesday": "Tuesday",
+        "wednesday": "Wednesday",
+        "thursday": "Thursday",
+        "friday": "Friday",
+        "saturday": "Saturday"
+      },
+      "cronExpression": "Cron Expression",
+      "cronHelp": "Standard 5-field cron syntax (minute hour day month weekday).",
+      "cronInvalid": "Invalid cron expression",
+      "retentionCount": "Local Retention Count",
+      "remoteRetentionCount": "Remote Retention Count",
+      "save": "Save Schedule",
+      "saveSuccess": "Schedule updated"
+    },
+    "encryption": {
+      "title": "Backup Encryption",
+      "enabled": "Encrypt backups",
+      "warningTitle": "This cannot be undone",
+      "warningBody": "If this passphrase is lost, encrypted backups cannot be recovered. Store it somewhere safe.",
+      "passphraseSet": "A passphrase is set",
+      "passphraseLabel": "Passphrase",
+      "passphraseChangeLabel": "New Passphrase",
+      "passphraseKeepCurrent": "Leave blank to keep the current passphrase"
+    },
+    "upload": {
+      "button": "Upload Backup",
+      "formatVersion2": "Format version 2. No warnings.",
+      "legacyFormatWarning": "Legacy format (v1) backup — restored with reduced validation.",
+      "encryptionKeyRequiredWarning": "This backup contains data encrypted with CHARON_ENCRYPTION_KEY. Set the same key on this host before restoring."
+    },
+    "validate": {
+      "action": "Validate",
+      "databaseIntegrity": "Database integrity: {{status}}"
+    },
+    "restoreWarnings": {
+      "legacyFormat": "This is a legacy (v1) backup — checksum verification was skipped.",
+      "encryptionKeyRequired": "This backup requires the same CHARON_ENCRYPTION_KEY to fully restore encrypted data.",
+      "restartRequired": "Backup restored. A restart is required to finish applying the database."
+    },
+    "remoteTargets": {
+      "title": "Remote Storage Targets",
+      "add": "Add Remote Target",
+      "editTitle": "Edit Remote Target",
+      "createTitle": "Add Remote Target",
+      "type": "Storage Type",
+      "typeS3": "S3",
+      "typeSftp": "SFTP",
+      "endpoint": "Endpoint",
+      "region": "Region",
+      "bucket": "Bucket",
+      "pathPrefix": "Path Prefix",
+      "useSsl": "Use SSL",
+      "forcePathStyle": "Force Path Style",
+      "accessKeyId": "Access Key ID",
+      "secretAccessKey": "Secret Access Key",
+      "host": "Host",
+      "port": "Port",
+      "path": "Path",
+      "username": "Username",
+      "password": "Password",
+      "hostKeyFingerprint": "Pinned SSH Host Key Fingerprint",
+      "discoverHostKey": "Discover Host Key",
+      "confirmHostKey": "Confirm Host Key",
+      "keepCurrent": "Leave blank to keep current",
+      "leaveBlankToKeepCurrent": "Leave blank to keep current secrets",
+      "emptyTitle": "No Remote Targets",
+      "emptyDescription": "Add a remote storage target to keep off-site copies of your backups.",
+      "deleteTitle": "Delete Remote Target",
+      "deleteConfirm": "Are you sure you want to delete \"{{name}}\"? This action cannot be undone.",
+      "test": "Test Connection",
+      "testSuccess": "Connection successful",
+      "testFailed": "Connection failed",
+      "status": {
+        "ok": "OK",
+        "failed": "Failed",
+        "never": "Never tested"
+      }
+    }
   },
   "logs": {
     "title": "Logs",
