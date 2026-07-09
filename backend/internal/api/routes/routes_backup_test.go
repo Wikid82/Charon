@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -129,6 +130,53 @@ func TestBackupRoutes_SettingsAndRemoteTargets_RuntimeDispatch(t *testing.T) {
 	require.Equal(t, http.StatusOK, remoteResp.Code)
 	var remoteBody []any
 	require.NoError(t, json.Unmarshal(remoteResp.Body.Bytes(), &remoteBody))
+}
+
+// TestBackupRoutes_TestDraftDoesNotCollideWithUUIDTestRoute is the required
+// routing regression test for the Issue #32 gap-closing fix: registering
+// the new static POST /api/v1/backups/remote-targets/test-draft route
+// alongside the pre-existing POST /api/v1/backups/remote-targets/:uuid/test
+// param route must not panic at router build time and must resolve each
+// path to its own distinct handler — Gin's router successfully building
+// this tree (asserted via setupBackupRoutingTestRouter, which panics on any
+// route-conflict error from routes.Register) is itself part of the proof.
+//
+// Handler names are compared with exact equality rather than
+// strings.Contains: reflect-derived names are
+// ".../BackupRemoteHandler).Test-fm" and
+// ".../BackupRemoteHandler).TestDraft-fm" — "Test-fm" is not a substring of
+// "TestDraft-fm", but a naive Contains("...).Test") check would spuriously
+// match both routes, masking a real collision.
+func TestBackupRoutes_TestDraftDoesNotCollideWithUUIDTestRoute(t *testing.T) {
+	router, _, token := setupBackupRoutingTestRouter(t)
+
+	registered := map[string]string{}
+	for _, r := range router.Routes() {
+		registered[r.Method+" "+r.Path] = r.Handler
+	}
+
+	testDraftHandler, ok := registered["POST /api/v1/backups/remote-targets/test-draft"]
+	require.True(t, ok, "POST /backups/remote-targets/test-draft must be registered")
+	assert.True(t, strings.HasSuffix(testDraftHandler, "BackupRemoteHandler).TestDraft-fm"), testDraftHandler)
+
+	uuidTestHandler, ok := registered["POST /api/v1/backups/remote-targets/:uuid/test"]
+	require.True(t, ok, "POST /backups/remote-targets/:uuid/test must still be registered")
+	assert.True(t, strings.HasSuffix(uuidTestHandler, "BackupRemoteHandler).Test-fm"), uuidTestHandler)
+
+	assert.NotEqual(t, testDraftHandler, uuidTestHandler)
+
+	// Runtime dispatch: a request for the literal segment "test-draft" must
+	// never be captured by the :uuid wildcard used by PUT/DELETE
+	// /backups/remote-targets/:uuid.
+	resp := doAuthedRequest(router, http.MethodPost, "/api/v1/backups/remote-targets/test-draft", token)
+	assert.NotEqual(t, http.StatusNotFound, resp.Code, "test-draft must resolve to TestDraft, not 404 via a misrouted :uuid branch")
+
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &body))
+	// No config/type in the request body ⇒ TestDraft's own validation
+	// rejects it (400) — proves this request actually reached TestDraft's
+	// logic, not some other handler.
+	assert.Equal(t, http.StatusBadRequest, resp.Code)
 }
 
 // TestBackupRoutes_DeleteSettingsFallsThroughSafely is required test #9

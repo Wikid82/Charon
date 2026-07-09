@@ -9,6 +9,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/services/remotestorage"
 	"github.com/Wikid82/charon/backend/internal/util"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -163,6 +164,66 @@ func (h *BackupRemoteHandler) Test(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Connection successful", "latency_ms": latencyMs})
+}
+
+// testDraftRequest is the request body for POST
+// /api/v1/backups/remote-targets/test-draft. Config reuses the exact same
+// services.RemoteTargetConfig shape (and json tags) accepted by
+// Create/Update, so the frontend can build the request from the same draft
+// form state it already holds before the target has been saved/has a UUID.
+type testDraftRequest struct {
+	Type   string                      `json:"type"`
+	Config services.RemoteTargetConfig `json:"config"`
+}
+
+// TestDraft handles POST /api/v1/backups/remote-targets/test-draft (admin).
+// It is the stateless counterpart of Test: unlike Test, it never looks up a
+// persisted RemoteStorageTarget, so it can run SFTP host-key discovery
+// against a draft config the user hasn't saved yet (spec §3.7). Only
+// type "sftp" is supported — S3 has no host-key-pinning discovery step, so
+// draft-testing an S3 config already works via the create/update SSRF
+// validation and needs no stateless endpoint.
+//
+// remotestorage.DiscoverSFTPHostKey never attempts authentication (it
+// aborts the SSH handshake as soon as the host key is offered) and applies
+// the same SSRF policy as every other remote-target entry point before
+// dialing — see TestBackupRemoteHandler_TestDraft_NeverAuthenticates and
+// TestBackupRemoteHandler_TestDraft_SSRFRejected.
+func (h *BackupRemoteHandler) TestDraft(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
+	var req testDraftRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if req.Type != "sftp" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": `test-draft only supports type "sftp"`})
+		return
+	}
+
+	start := time.Now()
+	fingerprint, err := remotestorage.DiscoverSFTPHostKey(remotestorage.SFTPConfig{
+		Host:     req.Config.Host,
+		Port:     req.Config.Port,
+		Path:     req.Config.Path,
+		Username: req.Config.Username,
+	})
+	latencyMs := time.Since(start).Milliseconds()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":                true,
+		"message":                "Host key discovered — confirm the fingerprint before saving",
+		"discovered_fingerprint": fingerprint,
+		"latency_ms":             latencyMs,
+	})
 }
 
 func (h *BackupRemoteHandler) respondRemoteTargetError(c *gin.Context, err error) {

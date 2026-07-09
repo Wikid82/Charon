@@ -331,6 +331,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management.PUT("/backups/remote-targets/:uuid", backupRemoteHandler.Update)
 		management.DELETE("/backups/remote-targets/:uuid", backupRemoteHandler.Delete)
 		management.POST("/backups/remote-targets/:uuid/test", backupRemoteHandler.Test)
+		management.POST("/backups/remote-targets/test-draft", backupRemoteHandler.TestDraft) // admin (checked in-handler); stateless SFTP host-key discovery for draft configs
 		management.DELETE("/backups/:filename", backupHandler.Delete)
 		management.GET("/backups/:filename/download", backupHandler.Download)
 		management.POST("/backups/:filename/restore", backupHandler.Restore)
