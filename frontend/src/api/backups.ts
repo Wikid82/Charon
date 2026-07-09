@@ -302,3 +302,28 @@ export const testRemoteTarget = async (uuid: string): Promise<TestRemoteTargetRe
   const response = await client.post<TestRemoteTargetResponse>(`/backups/remote-targets/${uuid}/test`)
   return response.data
 }
+
+/**
+ * Payload for POST /backups/remote-targets/test-draft (spec §3.7) — stateless
+ * SFTP host-key discovery for a target that hasn't been saved yet (no UUID).
+ * Only `type: 'sftp'` is supported; S3 has no host-key-pinning discovery step.
+ */
+export interface TestDraftRemoteTargetPayload {
+  type: 'sftp'
+  config: Pick<RemoteTargetConfig, 'host' | 'port' | 'path' | 'username'>
+}
+
+/**
+ * Runs SFTP host-key discovery against a draft (unsaved) remote target
+ * config, without ever authenticating (spec §3.7). Stateless counterpart to
+ * `testRemoteTarget`, used when creating a brand-new SFTP target that has no
+ * UUID/persisted record to test against yet.
+ * @param payload - The draft SFTP type + host/port/path/username
+ * @throws {AxiosError} If the request itself fails
+ */
+export const testDraftRemoteTarget = async (
+  payload: TestDraftRemoteTargetPayload
+): Promise<TestRemoteTargetResponse> => {
+  const response = await client.post<TestRemoteTargetResponse>('/backups/remote-targets/test-draft', payload)
+  return response.data
+}

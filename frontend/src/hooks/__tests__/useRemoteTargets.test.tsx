@@ -10,6 +10,7 @@ import {
   useUpdateRemoteTarget,
   useDeleteRemoteTarget,
   useTestRemoteTarget,
+  useTestDraftRemoteTarget,
   REMOTE_TARGETS_QUERY_KEY,
 } from '../useRemoteTargets'
 
@@ -127,5 +128,36 @@ describe('useTestRemoteTarget', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(result.current.data?.discovered_fingerprint).toBe('SHA256:abcdef')
+  })
+})
+
+describe('useTestDraftRemoteTarget', () => {
+  it('tests a draft SFTP config and returns the discovered fingerprint', async () => {
+    vi.mocked(api.testDraftRemoteTarget).mockResolvedValue({
+      success: true,
+      message: 'Host key discovered — confirm the fingerprint before saving',
+      discovered_fingerprint: 'SHA256:abcdef',
+      latency_ms: 12,
+    })
+    const { result } = renderHook(() => useTestDraftRemoteTarget(), { wrapper: createWrapper() })
+
+    const payload: api.TestDraftRemoteTargetPayload = {
+      type: 'sftp',
+      config: { host: 'nas.lan', port: 22, path: '/backups', username: 'charon' },
+    }
+    result.current.mutate(payload)
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(api.testDraftRemoteTarget).toHaveBeenCalledWith(payload)
+    expect(result.current.data?.discovered_fingerprint).toBe('SHA256:abcdef')
+  })
+
+  it('surfaces an error when draft discovery fails', async () => {
+    vi.mocked(api.testDraftRemoteTarget).mockRejectedValue(new Error('dial failed'))
+    const { result } = renderHook(() => useTestDraftRemoteTarget(), { wrapper: createWrapper() })
+
+    result.current.mutate({ type: 'sftp', config: { host: 'nas.lan', port: 22, path: '/backups', username: 'charon' } })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
   })
 })

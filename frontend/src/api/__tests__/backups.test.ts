@@ -15,6 +15,7 @@ import {
   updateRemoteTarget,
   deleteRemoteTarget,
   testRemoteTarget,
+  testDraftRemoteTarget,
 } from '../backups'
 
 describe('backups api', () => {
@@ -162,5 +163,15 @@ describe('backups api', () => {
     const res = await testRemoteTarget('r1')
     expect(spy).toHaveBeenCalledWith('/backups/remote-targets/r1/test')
     expect(res.success).toBe(true)
+  })
+
+  it('testDraftRemoteTarget POSTs the draft config to the test-draft endpoint', async () => {
+    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({
+      data: { success: true, message: 'Host key discovered', discovered_fingerprint: 'SHA256:abc' },
+    })
+    const payload = { type: 'sftp' as const, config: { host: 'nas.lan', port: 22, path: '/backups', username: 'charon' } }
+    const res = await testDraftRemoteTarget(payload)
+    expect(spy).toHaveBeenCalledWith('/backups/remote-targets/test-draft', payload)
+    expect(res.discovered_fingerprint).toBe('SHA256:abc')
   })
 })

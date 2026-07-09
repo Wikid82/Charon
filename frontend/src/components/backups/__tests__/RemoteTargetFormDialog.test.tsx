@@ -8,9 +8,11 @@ import type { RemoteTarget } from '../../../hooks/useRemoteTargets'
 const mockCreateMutate = vi.fn()
 const mockUpdateMutate = vi.fn()
 const mockTestMutate = vi.fn()
+const mockTestDraftMutate = vi.fn()
 let createPending = false
 let updatePending = false
 let testPending = false
+let testDraftPending = false
 
 vi.mock('../../../hooks/useRemoteTargets', async () => {
   const actual = await vi.importActual<typeof import('../../../hooks/useRemoteTargets')>('../../../hooks/useRemoteTargets')
@@ -19,6 +21,7 @@ vi.mock('../../../hooks/useRemoteTargets', async () => {
     useCreateRemoteTarget: () => ({ mutate: mockCreateMutate, isPending: createPending }),
     useUpdateRemoteTarget: () => ({ mutate: mockUpdateMutate, isPending: updatePending }),
     useTestRemoteTarget: () => ({ mutate: mockTestMutate, isPending: testPending }),
+    useTestDraftRemoteTarget: () => ({ mutate: mockTestDraftMutate, isPending: testDraftPending }),
   }
 })
 
@@ -60,6 +63,7 @@ describe('RemoteTargetFormDialog', () => {
     createPending = false
     updatePending = false
     testPending = false
+    testDraftPending = false
   })
 
   it('renders nothing visible when closed', () => {
@@ -93,8 +97,8 @@ describe('RemoteTargetFormDialog', () => {
     expect(payload.secrets.secret_access_key).toBe('super-secret-key')
   })
 
-  it('submits an SFTP target with host/port/path/username/password and supports host-key discovery', async () => {
-    mockTestMutate.mockImplementation((_uuid, { onSuccess }) => {
+  it('submits an SFTP target with host/port/path/username/password and supports host-key discovery on a draft (new) target', async () => {
+    mockTestDraftMutate.mockImplementation((_payload, { onSuccess }) => {
       onSuccess({ success: false, message: 'host key not yet trusted', discovered_fingerprint: 'SHA256:abcdef1234567890' })
     })
     const user = userEvent.setup()
@@ -111,6 +115,15 @@ describe('RemoteTargetFormDialog', () => {
     await user.type(within(dialog).getByLabelText(/^password/i), 'super-secret-password')
 
     await user.click(within(dialog).getByRole('button', { name: /discover host key/i }))
+
+    expect(mockTestDraftMutate).toHaveBeenCalledTimes(1)
+    const [draftPayload] = mockTestDraftMutate.mock.calls[0]
+    expect(draftPayload).toEqual({
+      type: 'sftp',
+      config: { host: 'nas.lan', port: 22, path: '/backups/charon', username: 'charon' },
+    })
+    expect(mockTestMutate).not.toHaveBeenCalled()
+
     expect(within(dialog).getByTestId('backup-remote-target-host-key-fingerprint')).toHaveTextContent(
       'SHA256:abcdef1234567890'
     )
@@ -125,6 +138,25 @@ describe('RemoteTargetFormDialog', () => {
     expect(payload.config.port).toBe(22)
     expect(payload.config.username).toBe('charon')
     expect(payload.secrets.password).toBe('super-secret-password')
+  })
+
+  it('supports host-key discovery via the by-uuid test endpoint when editing an existing target', async () => {
+    mockTestMutate.mockImplementation((_uuid, { onSuccess }) => {
+      onSuccess({ success: false, message: 'host key not yet trusted', discovered_fingerprint: 'SHA256:existing1234567890' })
+    })
+    const user = userEvent.setup()
+    render(<RemoteTargetFormDialog open target={nas} onClose={vi.fn()} />)
+
+    const dialog = screen.getByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: /discover host key/i }))
+
+    expect(mockTestMutate).toHaveBeenCalledTimes(1)
+    expect(mockTestMutate.mock.calls[0][0]).toBe('r1')
+    expect(mockTestDraftMutate).not.toHaveBeenCalled()
+
+    expect(within(dialog).getByTestId('backup-remote-target-host-key-fingerprint')).toHaveTextContent(
+      'SHA256:existing1234567890'
+    )
   })
 
   it('renders secret fields as type="password" and blank on edit, with a keep-current hint', () => {
@@ -198,14 +230,26 @@ describe('RemoteTargetFormDialog', () => {
     expect(toast.error).toHaveBeenCalledWith('create failed')
   })
 
-  it('shows an error toast when host-key discovery fails', async () => {
+  it('shows an error toast when draft host-key discovery fails', async () => {
     const { toast } = await import('../../../utils/toast')
-    mockTestMutate.mockImplementationOnce((_uuid, { onError }) => onError(new Error('dial failed')))
+    mockTestDraftMutate.mockImplementationOnce((_payload, { onError }) => onError(new Error('dial failed')))
     const user = userEvent.setup()
     render(<RemoteTargetFormDialog open target={null} onClose={vi.fn()} />)
 
     const dialog = screen.getByRole('dialog')
     await user.click(within(dialog).getByRole('radio', { name: /sftp/i }))
+    await user.click(within(dialog).getByRole('button', { name: /discover host key/i }))
+
+    expect(toast.error).toHaveBeenCalledWith('dial failed')
+  })
+
+  it('shows an error toast when by-uuid host-key discovery fails on an existing target', async () => {
+    const { toast } = await import('../../../utils/toast')
+    mockTestMutate.mockImplementationOnce((_uuid, { onError }) => onError(new Error('dial failed')))
+    const user = userEvent.setup()
+    render(<RemoteTargetFormDialog open target={nas} onClose={vi.fn()} />)
+
+    const dialog = screen.getByRole('dialog')
     await user.click(within(dialog).getByRole('button', { name: /discover host key/i }))
 
     expect(toast.error).toHaveBeenCalledWith('dial failed')

@@ -5,9 +5,11 @@ import {
   useCreateRemoteTarget,
   useUpdateRemoteTarget,
   useTestRemoteTarget,
+  useTestDraftRemoteTarget,
   type RemoteTarget,
   type RemoteTargetConfig,
   type RemoteTargetSecrets,
+  type TestRemoteTargetResponse,
 } from '../../hooks/useRemoteTargets'
 import {
   Button,
@@ -36,14 +38,13 @@ export interface RemoteTargetFormDialogProps {
  * blank-on-edit ("leave blank to keep current") — never pre-populated from
  * the API, since the API never returns secrets.
  *
- * SFTP host-key discovery: `POST .../remote-targets/:uuid/test` is also used
- * (with no `host_key_fingerprint` stored yet) to discover the remote host's
- * key without ever authenticating (spec §3.7). NOTE: the current backend's
- * `Test` handler looks up an existing persisted `RemoteStorageTarget` by
- * UUID, so pre-create discovery (before the target has a UUID) uses a
- * placeholder id and will 404 against a real server today; this only
- * exercises the mocked E2E flow until a backend follow-up adds a stateless
- * "test this draft config" endpoint.
+ * SFTP host-key discovery: when editing an existing target, `POST
+ * .../remote-targets/:uuid/test` is used (with no `host_key_fingerprint`
+ * stored yet) to discover the remote host's key without ever authenticating
+ * (spec §3.7). When creating a brand-new target (no UUID/nothing saved yet),
+ * the stateless `POST .../remote-targets/test-draft` endpoint is used
+ * instead, built from the in-progress form fields. Both paths surface the
+ * result the same way via `discoveredFingerprint`.
  */
 export function RemoteTargetFormDialog({ open, target, onClose }: RemoteTargetFormDialogProps) {
   const { t } = useTranslation()
@@ -51,6 +52,7 @@ export function RemoteTargetFormDialog({ open, target, onClose }: RemoteTargetFo
   const createMutation = useCreateRemoteTarget()
   const updateMutation = useUpdateRemoteTarget()
   const testMutation = useTestRemoteTarget()
+  const testDraftMutation = useTestDraftRemoteTarget()
 
   const [type, setType] = useState<'s3' | 'sftp'>(target?.type ?? 's3')
   const [name, setName] = useState(target?.name ?? '')
@@ -142,15 +144,24 @@ export function RemoteTargetFormDialog({ open, target, onClose }: RemoteTargetFo
     }
   }
 
+  const handleDiscoverHostKeyCallbacks = {
+    onSuccess: (result: TestRemoteTargetResponse) => {
+      if (result.discovered_fingerprint) {
+        setDiscoveredFingerprint(result.discovered_fingerprint)
+      }
+    },
+    onError: (error: Error) => toast.error(error.message),
+  }
+
   const handleDiscoverHostKey = () => {
-    testMutation.mutate(target?.uuid ?? 'draft', {
-      onSuccess: (result) => {
-        if (result.discovered_fingerprint) {
-          setDiscoveredFingerprint(result.discovered_fingerprint)
-        }
-      },
-      onError: (error: Error) => toast.error(error.message),
-    })
+    if (isEdit && target) {
+      testMutation.mutate(target.uuid, handleDiscoverHostKeyCallbacks)
+    } else {
+      testDraftMutation.mutate(
+        { type: 'sftp', config: { host, port: parseInt(port, 10) || 0, path, username } },
+        handleDiscoverHostKeyCallbacks
+      )
+    }
   }
 
   return (
@@ -314,7 +325,7 @@ export function RemoteTargetFormDialog({ open, target, onClose }: RemoteTargetFo
                   type="button"
                   variant="secondary"
                   onClick={handleDiscoverHostKey}
-                  isLoading={testMutation.isPending}
+                  isLoading={testMutation.isPending || testDraftMutation.isPending}
                 >
                   {t('backups.remoteTargets.discoverHostKey')}
                 </Button>

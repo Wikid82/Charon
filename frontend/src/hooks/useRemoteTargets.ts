@@ -6,11 +6,13 @@ import {
   updateRemoteTarget,
   deleteRemoteTarget,
   testRemoteTarget,
+  testDraftRemoteTarget,
   type RemoteTarget,
   type RemoteTargetConfig,
   type RemoteTargetSecrets,
   type RemoteTargetPayload,
   type TestRemoteTargetResponse,
+  type TestDraftRemoteTargetPayload,
 } from '../api/backups'
 
 /** Query key for the remote storage target list (spec §3.8). */
@@ -71,4 +73,21 @@ export function useTestRemoteTarget() {
   })
 }
 
-export type { RemoteTarget, RemoteTargetConfig, RemoteTargetSecrets, RemoteTargetPayload, TestRemoteTargetResponse }
+/**
+ * Runs stateless SFTP host-key discovery for a draft (unsaved, no UUID yet)
+ * remote target. No invalidation — read-only probe, nothing persists.
+ */
+export function useTestDraftRemoteTarget() {
+  return useMutation({
+    mutationFn: (payload: TestDraftRemoteTargetPayload) => testDraftRemoteTarget(payload),
+  })
+}
+
+export type {
+  RemoteTarget,
+  RemoteTargetConfig,
+  RemoteTargetSecrets,
+  RemoteTargetPayload,
+  TestRemoteTargetResponse,
+  TestDraftRemoteTargetPayload,
+}
