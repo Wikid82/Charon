@@ -29,7 +29,7 @@ ARG XNET_VERSION=0.57.0
 # renovate: datasource=go depName=golang.org/x/crypto
 ARG XCRYPTO_VERSION=0.54.0
 # renovate: datasource=npm depName=npm
-ARG NPM_VERSION=12.0.0
+ARG NPM_VERSION=12.0.1
 
 # Allow pinning Caddy version - Renovate will update this
 # Build the most recent Caddy 2.x release (keeps major pinned under v3).
