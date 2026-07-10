@@ -1,16 +1,13 @@
 /**
- * Backups Page - Remote Storage Targets E2E Tests (Issue #32 — target behavior, not yet implemented)
+ * Backups Page - Remote Storage Targets E2E Tests (Issue #32)
  *
- * Encodes the target behavior for `RemoteTargetsCard.tsx` +
- * `RemoteTargetFormDialog.tsx` and the remote-target API described in
- * docs/plans/current_spec.md §3.3.2 (New routes — remote targets) and §3.7
- * (Remote Storage Design).
+ * Verifies `RemoteTargetsCard.tsx` + `RemoteTargetFormDialog.tsx` and the
+ * remote-target API described in docs/plans/current_spec.md §3.3.2 (New
+ * routes — remote targets) and §3.7 (Remote Storage Design): S3/SFTP
+ * targets, credentials, test-connection, SFTP host-key discovery.
  *
- * All tests in this file are `test.fixme` because remote storage (S3/SFTP
- * targets, credentials, test-connection, SFTP host-key discovery) does not
- * exist yet — backend lands in Commit 3, frontend in Commit 4. Written now
- * (Commit 1) per the CLAUDE.md Commit Slicing convention. Flip to live tests
- * in Commit 5.
+ * Written as `test.fixme` in Commit 1, then flipped to live tests in
+ * Commit 5 once Commit 3 (backend) and Commit 4 (frontend) landed.
  *
  * See docs/plans/current_spec.md §6 Commit 1 / Commit 3 / Commit 4 / Commit 5.
  */
@@ -87,7 +84,7 @@ async function setupRemoteTargets(
 
 test.describe('Backups Page - Remote Targets', () => {
   test.describe('Listing targets', () => {
-    test.fixme(
+    test(
       'should list remote targets with a status badge reflecting last_test_status',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -105,7 +102,7 @@ test.describe('Backups Page - Remote Targets', () => {
       }
     );
 
-    test.fixme('should show an empty state when no remote targets are configured', async ({ page, adminUser }) => {
+    test('should show an empty state when no remote targets are configured', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
       await setupRemoteTargets(page, []);
 
@@ -117,7 +114,7 @@ test.describe('Backups Page - Remote Targets', () => {
   });
 
   test.describe('Creating an S3 target', () => {
-    test.fixme(
+    test(
       'should submit endpoint/region/bucket/path_prefix/use_ssl/force_path_style + access key secrets',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -139,7 +136,11 @@ test.describe('Backups Page - Remote Targets', () => {
         await page.goto('/tasks/backups');
         await waitForLoadingComplete(page);
 
-        await page.getByRole('button', { name: /add remote target/i }).click();
+        // The header "Add Remote Target" button and the empty-state CTA share the
+        // same accessible name when the target list is empty (both open the same
+        // create dialog) — disambiguate with .first() to avoid a strict-mode
+        // violation.
+        await page.getByRole('button', { name: /add remote target/i }).first().click();
         const dialog = page.getByRole('dialog');
         await dialog.getByRole('radio', { name: /s3/i }).check();
 
@@ -168,13 +169,13 @@ test.describe('Backups Page - Remote Targets', () => {
   });
 
   test.describe('Creating an SFTP target', () => {
-    test.fixme(
+    test(
       'should submit host/port/path/username + password and support the host-key discovery flow',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
         await setupRemoteTargets(page, []);
 
-        await page.route('**/api/v1/backups/remote-targets/*/test', async (route) => {
+        await page.route('**/api/v1/backups/remote-targets/test-draft', async (route) => {
           // Discovery test: no fingerprint stored yet, server discovers and returns it
           // without ever authenticating (spec §3.7 — HostKeyCallback aborts before auth).
           await route.fulfill({
@@ -190,7 +191,11 @@ test.describe('Backups Page - Remote Targets', () => {
         await page.goto('/tasks/backups');
         await waitForLoadingComplete(page);
 
-        await page.getByRole('button', { name: /add remote target/i }).click();
+        // The header "Add Remote Target" button and the empty-state CTA share the
+        // same accessible name when the target list is empty (both open the same
+        // create dialog) — disambiguate with .first() to avoid a strict-mode
+        // violation.
+        await page.getByRole('button', { name: /add remote target/i }).first().click();
         const dialog = page.getByRole('dialog');
         await dialog.getByRole('radio', { name: /sftp/i }).check();
 
@@ -214,7 +219,7 @@ test.describe('Backups Page - Remote Targets', () => {
   });
 
   test.describe('Secret field conventions', () => {
-    test.fixme(
+    test(
       'should render secret fields as type="password" and leave them blank on edit',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -236,7 +241,7 @@ test.describe('Backups Page - Remote Targets', () => {
   });
 
   test.describe('Test connection', () => {
-    test.fixme('should show a success state when the connection test succeeds', async ({ page, adminUser }) => {
+    test('should show a success state when the connection test succeeds', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
       await setupRemoteTargets(page);
 
@@ -253,7 +258,7 @@ test.describe('Backups Page - Remote Targets', () => {
       await waitForToast(page, /connected|success/i, { type: 'success' });
     });
 
-    test.fixme('should show a failure state when the connection test fails', async ({ page, adminUser }) => {
+    test('should show a failure state when the connection test fails', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
       await setupRemoteTargets(page);
 
@@ -272,7 +277,7 @@ test.describe('Backups Page - Remote Targets', () => {
   });
 
   test.describe('Deleting a target', () => {
-    test.fixme('should delete a target after confirmation', async ({ page, adminUser }) => {
+    test('should delete a target after confirmation', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
       await setupRemoteTargets(page);
 

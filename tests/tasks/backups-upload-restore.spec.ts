@@ -1,15 +1,13 @@
 /**
- * Backups Page - Upload & Restore E2E Tests (Issue #32 — target behavior, not yet implemented)
+ * Backups Page - Upload & Restore E2E Tests (Issue #32)
  *
- * Encodes the target behavior for `UploadBackupButton.tsx` +
- * `POST /api/v1/backups/upload` (spec §3.3.2) and the v0/v1/v2 format
- * detection described in docs/plans/current_spec.md §3.2 (Backup Archive
- * Format v2 — backward compatibility table).
+ * Verifies `UploadBackupButton.tsx` + `POST /api/v1/backups/upload` (spec
+ * §3.3.2) and the v0/v1/v2 format detection described in
+ * docs/plans/current_spec.md §3.2 (Backup Archive Format v2 — backward
+ * compatibility table), plus the extracted `RestoreDialog.tsx`.
  *
- * All tests in this file are `test.fixme` because upload, validate, and the
- * extracted `RestoreDialog.tsx` do not exist yet — backend lands in Commit 3,
- * frontend in Commit 4. Written now (Commit 1) per the CLAUDE.md Commit
- * Slicing convention. Flip to live tests in Commit 5.
+ * Written as `test.fixme` in Commit 1, then flipped to live tests in
+ * Commit 5 once Commit 3 (backend) and Commit 4 (frontend) landed.
  *
  * See docs/plans/current_spec.md §6 Commit 1 / Commit 3 / Commit 4 / Commit 5.
  */
@@ -20,7 +18,7 @@ import { waitForToast, waitForLoadingComplete } from '../utils/wait-helpers';
 
 test.describe('Backups Page - Upload & Restore', () => {
   test.describe('File picker', () => {
-    test.fixme('should accept .zip, .age, and .db files', async ({ page, adminUser }) => {
+    test('should accept .zip, .age, and .db files', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
       await setupBackupsList(page, []);
 
@@ -33,7 +31,7 @@ test.describe('Backups Page - Upload & Restore', () => {
   });
 
   test.describe('Upload validation feedback', () => {
-    test.fixme(
+    test(
       'should show format_version and no warnings for a valid v2 archive',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -66,7 +64,7 @@ test.describe('Backups Page - Upload & Restore', () => {
       }
     );
 
-    test.fixme(
+    test(
       'should flag a legacy_format v1 archive with a warning banner',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -98,7 +96,7 @@ test.describe('Backups Page - Upload & Restore', () => {
       }
     );
 
-    test.fixme(
+    test(
       'should surface an encryption_key_required warning when the uploaded archive needs CHARON_ENCRYPTION_KEY',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -133,7 +131,7 @@ test.describe('Backups Page - Upload & Restore', () => {
       }
     );
 
-    test.fixme(
+    test(
       'should reject an upload rejected by the server with a clear error toast',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -162,7 +160,7 @@ test.describe('Backups Page - Upload & Restore', () => {
   });
 
   test.describe('Uploaded backup appears in list', () => {
-    test.fixme(
+    test(
       'should show the uploaded backup with type "uploaded" in the backup table',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -225,7 +223,7 @@ test.describe('Backups Page - Upload & Restore', () => {
   });
 
   test.describe('Restore flow after upload', () => {
-    test.fixme(
+    test(
       'should open the passphrase-aware RestoreDialog and show validate results before confirming restore',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);

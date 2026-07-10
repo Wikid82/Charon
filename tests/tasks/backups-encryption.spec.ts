@@ -1,15 +1,14 @@
 /**
- * Backups Page - Encryption E2E Tests (Issue #32 — target behavior, not yet implemented)
+ * Backups Page - Encryption E2E Tests (Issue #32)
  *
- * Encodes the target behavior for `BackupEncryptionCard.tsx` and the encryption
- * surface of the backup API described in docs/plans/current_spec.md §3.6
- * (Encryption Design) and §3.8 (Frontend Design).
+ * Verifies `BackupEncryptionCard.tsx` and the encryption surface of the
+ * backup API described in docs/plans/current_spec.md §3.6 (Encryption
+ * Design) and §3.8 (Frontend Design): age/scrypt passphrase encryption,
+ * `.zip.age` archives, encrypted-lock badges, and the passphrase prompt in
+ * `RestoreDialog.tsx`.
  *
- * All tests in this file are `test.fixme` because encryption (age/scrypt
- * passphrase encryption, `.zip.age` archives, encrypted-lock badges, and the
- * passphrase prompt in RestoreDialog.tsx) does not exist yet — backend lands in
- * Commit 3, frontend in Commit 4. Written now (Commit 1) per the CLAUDE.md
- * Commit Slicing convention. Flip to live tests in Commit 5.
+ * Written as `test.fixme` in Commit 1, then flipped to live tests in
+ * Commit 5 once Commit 3 (backend) and Commit 4 (frontend) landed.
  *
  * See docs/plans/current_spec.md §6 Commit 1 / Commit 3 / Commit 4 / Commit 5.
  */
@@ -17,6 +16,7 @@
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { setupBackupsList, BackupFile } from '../utils/phase5-helpers';
 import { waitForToast, waitForLoadingComplete } from '../utils/wait-helpers';
+import { clickSwitch } from '../utils/ui-helpers';
 
 const mockBackups: BackupFile[] = [
   {
@@ -43,7 +43,7 @@ const mockBackups: BackupFile[] = [
 
 test.describe('Backups Page - Encryption', () => {
   test.describe('Enabling encryption', () => {
-    test.fixme(
+    test(
       'should require a passphrase before encryption can be enabled',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -70,7 +70,7 @@ test.describe('Backups Page - Encryption', () => {
         await page.goto('/tasks/backups');
         await waitForLoadingComplete(page);
 
-        await page.getByTestId('backup-encryption-toggle').click();
+        await clickSwitch(page.getByTestId('backup-encryption-toggle'));
 
         // Enabling without a passphrase should surface an inline requirement,
         // not silently enable encryption with no passphrase stored.
@@ -79,7 +79,7 @@ test.describe('Backups Page - Encryption', () => {
       }
     );
 
-    test.fixme(
+    test(
       'should never echo the passphrase back, only a "passphrase is set" indicator',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -118,7 +118,7 @@ test.describe('Backups Page - Encryption', () => {
       }
     );
 
-    test.fixme(
+    test(
       'should display an explicit "cannot be recovered" warning',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -145,7 +145,7 @@ test.describe('Backups Page - Encryption', () => {
         await page.goto('/tasks/backups');
         await waitForLoadingComplete(page);
 
-        await page.getByTestId('backup-encryption-toggle').click();
+        await clickSwitch(page.getByTestId('backup-encryption-toggle'));
 
         await expect(page.getByTestId('backup-encryption-warning')).toBeVisible();
         await expect(page.getByTestId('backup-encryption-warning')).toContainText(
@@ -156,7 +156,7 @@ test.describe('Backups Page - Encryption', () => {
   });
 
   test.describe('Encrypted backup creation', () => {
-    test.fixme(
+    test(
       'should produce a .zip.age file shown with an encrypted lock icon in the table',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -178,7 +178,7 @@ test.describe('Backups Page - Encryption', () => {
       }
     );
 
-    test.fixme(
+    test(
       'should create an encrypted backup on demand when a passphrase is supplied',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -205,7 +205,7 @@ test.describe('Backups Page - Encryption', () => {
         await waitForLoadingComplete(page);
 
         await page.getByRole('button', { name: /create backup/i }).click();
-        await page.getByTestId('backup-create-encrypt-toggle').click();
+        await clickSwitch(page.getByTestId('backup-create-encrypt-toggle'));
         await page.getByTestId('backup-create-passphrase-input').fill('correct-horse-battery-staple');
 
         await Promise.all([
@@ -222,7 +222,7 @@ test.describe('Backups Page - Encryption', () => {
   });
 
   test.describe('Restoring an encrypted backup', () => {
-    test.fixme(
+    test(
       'should prompt for a passphrase when restoring a .zip.age backup',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -242,7 +242,7 @@ test.describe('Backups Page - Encryption', () => {
       }
     );
 
-    test.fixme(
+    test(
       'should not prompt for a passphrase when restoring an unencrypted backup',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -262,7 +262,7 @@ test.describe('Backups Page - Encryption', () => {
       }
     );
 
-    test.fixme(
+    test(
       'should show a clear error for a wrong passphrase without side effects',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);

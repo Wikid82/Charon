@@ -1,15 +1,13 @@
 /**
- * Backups Page - Schedule Settings E2E Tests (Issue #32 — target behavior, not yet implemented)
+ * Backups Page - Schedule Settings E2E Tests (Issue #32)
  *
- * Encodes the target behavior for `BackupScheduleCard.tsx` + the
+ * Verifies the behavior of `BackupScheduleCard.tsx` + the
  * `GET/PUT /api/v1/backups/settings` API described in
  * docs/plans/current_spec.md §3.3.1 (API Contracts) and §3.8 (Frontend Design).
  *
- * All tests in this file are `test.fixme` because the schedule settings UI/API
- * do not exist yet — they land in Commit 4 (frontend). This spec is written now
- * (Commit 1) so the target behavior is explicit before implementation, per the
- * CLAUDE.md Commit Slicing convention ("E2E specs for new behavior as
- * test.fixme until implemented"). Flip to live tests in Commit 5.
+ * Written as `test.fixme` in Commit 1 (before the schedule settings UI/API
+ * existed), then flipped to live tests in Commit 5 once Commits 3 (backend)
+ * and 4 (frontend) landed.
  *
  * See docs/plans/current_spec.md §6 Commit 1 / Commit 4 / Commit 5.
  */
@@ -66,7 +64,7 @@ async function setupBackupSettings(
 
 test.describe('Backups Page - Schedule Settings', () => {
   test.describe('Viewing current schedule', () => {
-    test.fixme(
+    test(
       'should display the current schedule enabled toggle, cron string, and retention counts',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -90,7 +88,7 @@ test.describe('Backups Page - Schedule Settings', () => {
       }
     );
 
-    test.fixme(
+    test(
       'should reflect a disabled schedule by unchecking the enabled toggle',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -105,7 +103,7 @@ test.describe('Backups Page - Schedule Settings', () => {
   });
 
   test.describe('Frequency presets', () => {
-    test.fixme(
+    test(
       'should switch to the Daily preset and populate a daily cron expression',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -122,7 +120,7 @@ test.describe('Backups Page - Schedule Settings', () => {
       }
     );
 
-    test.fixme(
+    test(
       'should switch to the Weekly preset and populate a weekly cron expression with day + time',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -139,7 +137,7 @@ test.describe('Backups Page - Schedule Settings', () => {
       }
     );
 
-    test.fixme(
+    test(
       'should reveal a custom cron escape hatch and accept a raw cron expression',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -159,7 +157,7 @@ test.describe('Backups Page - Schedule Settings', () => {
   });
 
   test.describe('Validation feedback', () => {
-    test.fixme(
+    test(
       'should show inline validation feedback for an invalid cron string before saving',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -181,7 +179,7 @@ test.describe('Backups Page - Schedule Settings', () => {
       }
     );
 
-    test.fixme(
+    test(
       'should surface a server-side backup_invalid_cron error if validation is bypassed',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -207,7 +205,7 @@ test.describe('Backups Page - Schedule Settings', () => {
       }
     );
 
-    test.fixme(
+    test(
       'should reject a retention count below 1 with backup_invalid_retention_count',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -239,7 +237,7 @@ test.describe('Backups Page - Schedule Settings', () => {
   });
 
   test.describe('Saving triggers a reschedule', () => {
-    test.fixme(
+    test(
       'should PUT the updated schedule and show a success toast confirming no restart is needed',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -268,7 +266,7 @@ test.describe('Backups Page - Schedule Settings', () => {
       }
     );
 
-    test.fixme(
+    test(
       'should update retention_count and remote_retention_count independently',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);

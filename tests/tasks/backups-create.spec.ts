@@ -211,10 +211,15 @@ test.describe('Backups Page - Creation and List', () => {
       await page.goto('/tasks/backups');
       await waitForLoadingComplete(page);
 
-      // Click create backup button and wait for API response concurrently
+      // Clicking "Create Backup" opens a confirmation dialog (encryption option,
+      // spec §3.8) rather than submitting immediately — confirm inside the dialog.
+      await page.click(SELECTORS.createBackupButton);
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible();
+
       await Promise.all([
         page.waitForResponse(r => r.url().includes('/api/v1/backups') && r.request().method() === 'POST' && r.status() === 201),
-        page.click(SELECTORS.createBackupButton),
+        dialog.getByRole('button', { name: /^create$/i }).click(),
       ]);
 
       // Verify POST was called
@@ -243,8 +248,12 @@ test.describe('Backups Page - Creation and List', () => {
       await page.goto('/tasks/backups');
       await waitForLoadingComplete(page);
 
-      // Click create backup button
+      // Clicking "Create Backup" opens a confirmation dialog (encryption option,
+      // spec §3.8) rather than submitting immediately — confirm inside the dialog.
       await page.click(SELECTORS.createBackupButton);
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole('button', { name: /^create$/i }).click();
 
       // Wait for success toast
       await waitForToast(page, /success|created/i, { type: 'success' });
@@ -280,8 +289,12 @@ test.describe('Backups Page - Creation and List', () => {
       // Initial state - should not show new backup
       await expect(page.getByText('backup_2024-01-16_120000.zip')).not.toBeVisible();
 
-      // Click create backup button
+      // Clicking "Create Backup" opens a confirmation dialog (encryption option,
+      // spec §3.8) rather than submitting immediately — confirm inside the dialog.
       await page.click(SELECTORS.createBackupButton);
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole('button', { name: /^create$/i }).click();
 
       // Wait for success toast (which indicates the backup was created)
       await waitForToast(page, /success|created/i, { type: 'success' });
@@ -311,7 +324,14 @@ test.describe('Backups Page - Creation and List', () => {
       await page.goto('/tasks/backups');
       await waitForLoadingComplete(page);
 
-      const createButton = page.getByRole('button', { name: /create backup/i }).first();
+      // Clicking "Create Backup" opens a confirmation dialog (encryption option,
+      // spec §3.8) — the in-progress disabled state lives on the dialog's
+      // "Create" confirm button, not the header button that opens it.
+      await page.click(SELECTORS.createBackupButton);
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible();
+      const confirmButton = dialog.getByRole('button', { name: /^create$/i });
+
       const createResponsePromise = page.waitForResponse(
         (response) =>
           response.url().includes('/api/v1/backups') &&
@@ -320,16 +340,16 @@ test.describe('Backups Page - Creation and List', () => {
       );
 
       // Click create button
-      await createButton.click();
+      await confirmButton.click();
 
       // Button should be disabled during request
-      await expect(createButton).toBeDisabled();
+      await expect(confirmButton).toBeDisabled();
 
       // Wait for API response
       await createResponsePromise;
 
-      // After completion, button should be enabled again
-      await expect(createButton).toBeEnabled({ timeout: 5000 });
+      // On success the dialog closes (Backups.tsx handleCreateConfirm onSuccess).
+      await expect(dialog).not.toBeVisible();
     });
 
     test('should handle backup creation failure', async ({ page, adminUser }) => {
@@ -351,8 +371,12 @@ test.describe('Backups Page - Creation and List', () => {
       await page.goto('/tasks/backups');
       await waitForLoadingComplete(page);
 
-      // Click create backup button
+      // Clicking "Create Backup" opens a confirmation dialog (encryption option,
+      // spec §3.8) rather than submitting immediately — confirm inside the dialog.
       await page.click(SELECTORS.createBackupButton);
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole('button', { name: /^create$/i }).click();
 
       // Wait for error toast
       await waitForToast(page, /error|failed/i, { type: 'error' });
