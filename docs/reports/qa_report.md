@@ -1,153 +1,126 @@
-# QA Report — TrafficVolumeChart Stroke Fix (feature/stats)
+# QA Report — Configuration Backup & Restore (Issue #32, Gap-Closing Plan)
 
-**Date:** 2026-06-17
-**Branch:** `feature/stats`
-**Scope:** Bug fix replacing CSS variable `var(--color-brand-500, #6366f1)` with hex literal `#3b82f6` in SVG `stroke` prop, plus associated test updates.
-
-**Changed Files:**
-- `frontend/src/components/stats/TrafficVolumeChart.tsx`
-- `frontend/src/components/stats/__tests__/TrafficVolumeChart.test.tsx`
-- `tests/stats.spec.ts`
+**Date:** 2026-07-10
+**Branch:** `feature/backuprestore`
+**Commit range audited:** `ce82032b..HEAD` (HEAD = `d5b0cc31`, 10 commits since the base)
+**Spec:** `docs/plans/current_spec.md` (§5 Acceptance Criteria, §3.9 Security Considerations, §3.10 Error Handling, §3.3 Auth Policy, §7 Ignore-File Review)
+**Auditor:** QA & Security Engineer — independent, whole-PR sweep (does not rely on prior per-commit agent reports; every finding below was independently re-verified)
 
 ---
 
-## DoD Checklist Results
+## Executive Summary
 
-### Step 1 — Playwright E2E Tests
+This is a large, security-sensitive feature (backup format v2, validated safe-restore pipeline, passphrase encryption, cron scheduling, S3/SFTP remote storage with SSRF protection and host-key pinning). Every security property called out as high-stakes in the task brief was independently verified in code and confirmed correct. All functional gates that could be run in this sandbox (E2E, GORM scan, CodeQL Go+JS, dependency vulnerability scan, lint/staticcheck, backend+frontend builds, backend+frontend full test suites, backend+frontend coverage) **passed**.
 
-**Status: PASS**
+However, **local patch coverage is 67.4% overall / 62.1% backend**, well under the mandatory ≥90% gate, and two specific "Behavior checks" named explicitly in spec §5 are implemented correctly but have **no automated test proving they work**:
 
-Command: `PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 npx playwright test tests/stats.spec.ts --project=firefox`
+1. Legacy v1 (no-manifest) zip archives restoring successfully with a warning.
+2. The pending-restore boot-swap actually running via a real process restart (only simulated by calling the function directly in-process).
 
-All 12 tests passed in 32.3 seconds.
-
-```
-12 passed
-  [firefox] Dashboard Statistics - should display the Statistics section heading
-  [firefox] Dashboard Statistics - should mark the selected period tab as active
-  [firefox] Dashboard Statistics - should allow switching back to the 24h period tab
-  [firefox] Dashboard Statistics - should mark the selected bucket tab as active
-  [firefox] Dashboard Statistics - should render the Request Counts card with period labels
-  [firefox] Dashboard Statistics - should render the Stats Service Health widget
-  [firefox] Dashboard Statistics - should render the Certificate Expiry section
-  [firefox] Dashboard Statistics - should render the Traffic Volume chart container
-  [firefox] Dashboard Statistics - should render the Top Hosts chart container
-  [firefox] Dashboard Statistics - should render the Status Distribution chart container
-  [firefox] Dashboard Statistics - should expose all stats selector controls as accessible radio buttons
-```
-
-Note: The `.env` file sets `PLAYWRIGHT_BASE_URL=http://127.0.0.1:8787` which points to the non-E2E `charon` container with different credentials. Tests must be run with `PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080` (the `charon-e2e` container) or the `.env` value updated. This is a pre-existing environment configuration issue unrelated to the bug fix.
-
-### Step 1.5 — GORM Security Scan
-
-**Status: SKIP**
-
-Justification: Frontend-only change. No backend models, GORM queries, or migrations were modified.
-
-### Step 2 — Local Patch Coverage Preflight
-
-**Status: PASS (frontend); WARN (backend/overall)**
-
-Artifacts generated:
-- `test-results/local-patch-report.md`
-- `test-results/local-patch-report.json`
-
-| Scope | Changed Lines | Covered Lines | Patch Coverage | Status |
-|---|---|---|---|---|
-| Overall | 520 | 370 | 71.2% | WARN |
-| Backend | 505 | 355 | 70.3% | WARN |
-| Frontend | 15 | 15 | 100.0% | PASS |
-
-The frontend patch (the 3 files in scope for this bug fix) achieved 100% coverage. The backend warnings are pre-existing coverage gaps in the broader `feature/stats` branch work — `stats_ws_hub.go` (WebSocket hub, 0%), `stats_handler.go` (68%), and related services — none of which are part of this bug fix.
-
-The required threshold for the frontend patch is met. The backend shortfall is a known gap on the broader feature branch.
-
-### Step 3 — Security Scans
-
-**Status: PASS**
-
-`lefthook run pre-commit` ran successfully. All hooks skipped (no staged files), which is correct since no new commit was staged. Individual checks verified:
-
-- Frontend lint: 0 errors, 1098 warnings (pre-existing warnings; none in changed files).
-- No new CRITICAL/HIGH security findings introduced.
-- No Gotify tokens found in changed files.
-
-### Step 4 — Coverage Testing
-
-**Status: PASS**
-
-Frontend overall coverage (from `scripts/frontend-test-coverage.sh` run before test fix was applied):
-```
-Statements   : 88.23%
-Branches     : 81.22%
-Functions    : 85.69%
-Lines        : 89.22%
-```
-
-Overall statement, function, and line coverage all exceed the 85% minimum. Branch coverage at 81.22% is below 85% but this is a pre-existing condition on the branch unrelated to the 3-file change.
-
-TrafficVolumeChart.tsx specifically:
-```
-Statements   : 100%
-Branches     : 95.45%
-Functions    : 100%
-Lines        : 100%
-```
-
-### Step 5 — Type Safety
-
-**Status: PASS**
-
-`cd frontend && npm run type-check` completed with zero errors.
-
-### Step 6 — Verify Build
-
-**Status: PASS**
-
-`cd frontend && npm run build` completed successfully in 1.58 seconds, producing a valid `dist/` bundle.
-
-### Step 7 — Final Unit Test Run
-
-**Status: PASS (with one pre-existing unrelated failure noted)**
-
-After fixing the recharts mock in `TrafficVolumeChart.test.tsx`:
-
-```
-Test Files  229 passed | 5 skipped (234)
-     Tests  2716 passed | 88 skipped | 2 todo (2806)
-```
-
-Root cause of pre-fix failures (2 tests): The test file mocked `Line`, `YAxis`, and `Tooltip` from recharts but did not mock `LineChart`. Recharts' `LineChart` uses an internal registration/composition system that bypasses JSX children rendering in JSDOM, so the mocked child components never appeared in the DOM. Fix: added a `LineChart` mock that renders its children directly, which causes the mocked `Line`, `Tooltip`, and `YAxis` to render as expected.
-
-Pre-existing unrelated failure (1 test, not on this branch's changed files):
-- `src/components/__tests__/ProxyHostForm-uptime.test.tsx > shows uptime sync fallback error toast when monitor request fails with empty string error` — this test was not modified on `feature/stats` and exists identically on the base branch.
+**Verdict: NOT ready to open as-is. Needs one more hardening commit (tests only, no behavior change) before it meets CLAUDE.md's Definition of Done.** See the final section for exact reasoning and a scoped punch list.
 
 ---
 
-## Defects Found and Remediated
+## Definition of Done Checklist
 
-### DEF-001 — Recharts mock incomplete in TrafficVolumeChart unit tests
-
-**Severity:** Medium (test reliability)
-**File:** `frontend/src/components/stats/__tests__/TrafficVolumeChart.test.tsx`
-**Root Cause:** `vi.mock('recharts')` patched `Line`, `YAxis`, and `Tooltip` but not `LineChart`. Recharts' `generateCategoricalChart`-based `LineChart` renders children via an internal context/registration mechanism, not as standard JSX children in JSDOM. The mocked components were never rendered.
-**Fix Applied:** Added `LineChart: ({ children }) => <svg>{children}</svg>` to the mock block.
-**Tests After Fix:** 9/9 pass.
-
-### DEF-002 — PLAYWRIGHT_BASE_URL misconfigured in .env
-
-**Severity:** Low (environment configuration, no code defect)
-**File:** `.env`
-**Root Cause:** `PLAYWRIGHT_BASE_URL` points to `http://127.0.0.1:8787` (the production `charon` container) instead of `http://127.0.0.1:8080` (the `charon-e2e` container). The E2E container has the expected test credentials; the production container does not.
-**Remediation:** Update `.env` to set `PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080` or document that E2E tests must override this variable.
-**Impact on DoD:** Tests pass when run with the correct URL override. This is not introduced by the current bug fix.
+| # | Item | Status | Evidence |
+|---|---|---|---|
+| 1 | Playwright E2E (backup-scoped) | **PASS** | 81/81 tests passed across `tests/tasks/backups-{create,encryption,remote-targets,restore,schedule,upload-restore}.spec.ts` + `tests/integration/backup-restore-e2e.spec.ts` (9.2 min). Zero failures, zero skips. Scope was intentionally targeted to backup-related suites per this agent's own testing policy ("target specific suites/files based on scope and risk") and per the task's explicit file list — the full ~924-test E2E corpus (including the pre-existing `certificate-delete.spec.ts` / `orthrus-agent-install.spec.ts` flakiness) was **not** re-run by this QA pass, so any figure suggesting a full-suite run should not be attributed to this audit. |
+| 1.5 | GORM security scan | **PASS** | `./scripts/scan-gorm-security.sh --check` → 0 CRITICAL, 0 HIGH, 0 MEDIUM, 2 INFO (both pre-existing, unrelated: missing indexes on `UserPermittedHost.UserID`/`ProxyHostID`). |
+| 2 | Local patch coverage artifacts | **PASS (artifacts)** / **FAIL (threshold)** | Both `test-results/local-patch-report.md` and `.json` produced. Overall patch coverage **67.4%** (need ≥90%), backend **62.1%** (need ≥85%), frontend 97.1% (pass). See "Patch Coverage Detail" below. |
+| 3 | CodeQL Go + JS | **PASS** | 0 findings, either language, security-and-quality query suite. Go: 242/605 files scanned matches CI's own extraction-parity baseline exactly (`compiled baseline=242, extracted=242, raw=605`). Confirmed via the project's own `codeql-check-findings.sh`: "✅ All CodeQL checks passed." (Local CodeQL CLI was initially too old (`v2.16.0`, an unmanaged `gh codeql` extension) to run this repo's scan scripts at all — fixed by installing a current CLI via `gh extension install github/gh-codeql`, v2.26.0, as a non-root user install. No code changes involved.) |
+| 3b | Trivy | **PASS (substituted scope)** | Full container-image build/scan is blocked in this sandbox — the rootless Docker daemon's own network namespace cannot resolve `registry-1.docker.io` (confirmed via repeated `docker pull` failures with consistent DNS timeout, while the host's own `curl`/`codeql`/`gh` all reach the internet fine — this is a sandbox networking limitation, not a PR defect). Substituted a `trivy fs` dependency scan against `backend/go.mod`+`go.sum` and `frontend/package-lock.json`: **0 CRITICAL/HIGH**, including all three new Go deps (`filippo.io/age`, `github.com/minio/minio-go/v7`, `github.com/pkg/sftp`). Neither `.trivyignore` nor `.grype.yaml` contains any suppression touching these three packages. |
+| 4 | Semgrep, gitleaks (compensating for lefthook `security-full`, which needs staged files) | **PASS (reviewed)** | Semgrep (`--config auto`) on the touched backend/frontend files: 5 findings, all verified as false positives on inspection — 3× "decompression bomb" flags on `io.Copy` calls that are already reading from a pre-bounded `io.LimitedReader` (the semgrep rule doesn't see the wrapping); 2× "SQL string-formatted query" flags on table-name concatenation that is already passed through `quoteSQLiteIdentifier`'s alphanumeric-only allowlist before use (`backup_service.go:60-76`). Gitleaks (tuned scan): 482 total repo findings, **0 in any file this PR touched** (cross-checked every finding's file path against `git diff --stat ce82032b..HEAD --name-only`). |
+| 5 | Lefthook full triage | **PASS** | Working tree is clean (nothing staged), so `lefthook run pre-commit` no-ops every glob-gated hook. Ran the equivalent checks directly instead (see rows 3, 3b, 4, 6) since lefthook's `{staged_files}` gating gives no signal against a clean tree. |
+| 6 | Staticcheck / `make lint-fast` | **PASS** | `golangci-lint run --config .golangci-fast.yml ./...` → **0 issues** (staticcheck, govet, errcheck, ineffassign, unused). |
+| 7a | Backend coverage ≥85% | **PASS** | `scripts/go-test-coverage.sh` → Statement coverage 87.1%, Line coverage 87.3% (gate: ≥87%). "Coverage requirement met." |
+| 7b | Frontend coverage ≥85% | **PASS** | `scripts/frontend-test-coverage.sh` → Statements 89.16%, Branches 82.27%, Functions 86.59%, **Lines 90.28%** (gate: ≥87% lines). "Coverage gate: PASS." |
+| 8 | Frontend type safety | **PASS** | `npm run type-check` (`tsc --noEmit`) → clean, zero errors. |
+| 9 | Backend build | **PASS** | `cd backend && go build ./...` → success. |
+| 9 | Frontend build | **PASS** | `cd frontend && npm run build` → success (7-9s). First attempt hit a transient Rolldown/vite module-resolution error; root-caused to a race between my own concurrently-running `npm ci` (from a parallel type-check invocation) rewriting `node_modules` mid-build — **not a product defect**. Confirmed by re-running the build in isolation immediately after: clean pass. |
+| 10 | Backend full test suite | **PASS** | `go test -race -mod=readonly ./...` (invoked by `go-test-coverage.sh`, which runs under `set -euo pipefail` so any test failure would have aborted before reaching the coverage-gate line) → all packages passed, including `-race`. |
+| 10 | Frontend full test suite | **PASS** | Vitest: **3101 passed**, 88 skipped, 2 todo, 0 failed, across 257 test files (5 files skipped). |
+| 11 | Clean-up (debug prints / dead code) | **PASS** | `grep` for `console.log`/`debugger`/`fmt.Println`/`log.Println(`/`TODO`/`FIXME`/`XXX` across every backup-related backend and frontend file touched by this PR → zero hits. |
 
 ---
 
-## Final Verdict
+## Specific Security Properties (independently verified in code, not just trusted from prior reports)
 
-**SHIP** (with DEF-002 remediation tracked)
+| Property | Result |
+|---|---|
+| `grep -rn "InsecureIgnoreHostKey" backend/` | **Zero matches**, confirmed. |
+| SFTP host-key discovery never authenticates against an unpinned/mismatched host | **Confirmed**, both at the library level and the handler level. `remotestorage/sftp.go`'s `DiscoverSFTPHostKey` sets `Auth` to empty and its `HostKeyCallback` unconditionally returns an abort error the instant a key is offered — before any auth method could run (KEX/host-key verification always precedes auth in `golang.org/x/crypto/ssh`). Proven by a dedicated test that spins up a real local SSH server whose `PasswordCallback`/`PublicKeyCallback` record if they were ever invoked: `TestDiscoverSFTPHostKey_NeverAuthenticates` (`remotestorage/sftp_discovery_test.go:102`) asserts `authAttempted() == false`. The stateless draft-discovery endpoint (`POST /api/v1/backups/remote-targets/test-draft`, `backup_remote_handler.go:192`) calls the exact same `DiscoverSFTPHostKey`, and is separately covered by `TestBackupRemoteHandler_TestDraft_NeverAuthenticates` and `TestBackupRemoteHandler_TestDraft_SSRFRejected` in `backup_remote_handler_test.go`. The verified (non-discovery) dial path uses `fingerprintPinnedHostKeyCallback`, which rejects any key not matching the stored SHA-256 fingerprint exactly (`sftp.go:58-66`, tested by `TestFingerprintPinnedHostKeyCallback_RejectsMismatch`). |
+| Passphrases / remote-target secrets never echoed or logged | **Confirmed** by direct code read of `backup_handler.go`, `backup_remote_handler.go`, `backup_encryption.go`, `backup_remote_service.go`. All API responses expose only `secrets_set`/`encryption_passphrase_set` booleans, never the raw values. All log statements (`logger.Log().WithField(...)`) log sanitized names/keys/errors only — no code path logs a `Passphrase`, `Password`, `SecretAccessKey`, or `PrivateKeyPEM` field value. Frontend: all passphrase transport is via POST body/multipart form fields (`frontend/src/api/backups.ts`), never query strings, so nothing lands in access logs either. Frontend secret inputs are `type="password"` with `autoComplete="new-password"` (`RemoteTargetFormDialog.tsx`), and left blank on edit. |
+| Auth policy matches spec §3.3 exactly | **Confirmed** in `backend/internal/api/routes/routes.go:317-338` + inline `requireAdmin(c)` checks in each handler: `Download` is admin-gated (`backup_handler.go:212`, changed from management per spec); **all** `remote-targets` routes including `GET`/list are admin-gated (`backup_remote_handler.go:64`); `GET /backups/settings` is management-level (no `requireAdmin` call, `backup_handler.go:438`), `PUT /backups/settings` is admin (`:456`). |
+| `isSensitiveSettingKey` `"passphrase"` fragment + `backup.*` prefix guard on generic `UpdateSetting` | **Confirmed present and tested.** `settings_handler.go:94-117` includes `"passphrase"` in `sensitiveFragments`; `settings_handler.go:143` rejects any `UpdateSetting` call where `req.Key` has prefix `"backup."` with `error_code: "use_typed_backup_settings_endpoint"`. Both behaviors have dedicated tests in `settings_handler_test.go` (line 210 comment referencing the passphrase-fragment case, line 513 asserting the `use_typed_backup_settings_endpoint` error code). |
+| Extraction hardening (symlink rejection, forced 0o600/0o700, scaled per-entry caps, total-bytes + entry-count caps) | **Confirmed present and tested**, all in `backup_service.go`'s shared `extractZip` (lines 1237-1349+): symlink entries rejected before extraction (`f.Mode()&os.ModeSymlink != 0` → hard error); archive-claimed mode bits ignored entirely — every extracted file forced to `0o600`, every directory to `0o700`, regardless of `f.Mode()`; per-entry cap scales to the v2 manifest-declared size + 64 KiB slack (flat 2 GiB fallback for v1/legacy, up from the old 100 MB); independent `maxTotalExtractedSize` (4 GiB) and `maxExtractedEntryCount` (10 000) caps enforced regardless of manifest claims. Tests: `TestExtractZip_RejectsSymlinkEntry`, `TestExtractZip_ClampsExtractedFileMode`, `TestRestoreBackupSafe_LargeDatabaseRoundTrip` (constructs a genuine >100 MB synthetic `charon.db`, backs it up, restores it, asserts success — all in `backup_service_v2_hardening_test.go`). |
+| Pending-restore boot-swap (`backend/internal/database/pending_restore.go`) | **Confirmed wired correctly** — `backend/cmd/api/main.go:214` calls `database.ApplyPendingRestore(cfg.DatabasePath)` immediately before `database.Connect(cfg.DatabasePath)` at `:218`, and deliberately **not** wired into the `migrate`/`reset-password` CLI subcommands (correct per the code comment's own reasoning — those are maintenance tools, not the `docker restart` boot path). `ApplyPendingRestore` independently re-runs `PRAGMA integrity_check` on the pending file (not trusting the check that already ran when the backup was created) before ever renaming it over the live `dbPath`; on failure it quarantines to `.pending-restore.failed` and leaves the prior database completely untouched and authoritative. **Gap:** see Finding 2 below — this correctness is only proven by tests that call `ApplyPendingRestore` directly in-process, not by a test that actually restarts a process. |
 
-The three-file bug fix (CSS variable to hex literal in TrafficVolumeChart) is correct, well-tested, and does not regress any passing tests. The recharts mock fix (DEF-001) was applied and all 9 TrafficVolumeChart unit tests now pass. All E2E tests pass. Type checking and build succeed. Frontend patch coverage is 100%.
+---
 
-The environment misconfiguration (DEF-002) should be tracked as a follow-up but does not block shipping this fix.
+## Findings
+
+### Finding 1 — Local patch coverage well under the mandatory 90% gate (MEDIUM, blocking per CLAUDE.md)
+
+**Overall patch coverage: 67.4%** (need ≥90%). **Backend patch coverage: 62.1%** (need ≥85%). Frontend patch coverage is fine (97.1%). This is a stable, reproducible number — re-ran `bash scripts/local-patch-report.sh` at the very end of the audit with fresh coverage data from the full backend `-race` run and the full frontend Vitest run; the number moved by only 0.3 points (67.1% → 67.4%) between the two runs, confirming it isn't an artifact of stale coverage files.
+
+Worst-covered changed files (`test-results/local-patch-report.md`):
+
+| File | Patch coverage | Uncovered lines |
+|---|---:|---:|
+| `backend/internal/services/backup_upload.go` | **0.0%** | 61 |
+| `backend/internal/services/remotestorage/sftp.go` | 21.4% | 169 |
+| `backend/internal/services/remotestorage/s3.go` | 25.6% | 61 |
+| `backend/internal/services/backup_remote_service.go` | 42.5% | 164 |
+| `backend/internal/services/backup_encryption.go` | 46.5% | 38 |
+| `backend/internal/services/backup_restore_safe.go` | 58.9% | 134 |
+| `backend/internal/api/handlers/backup_handler.go` | 66.5% | 86 |
+| `backend/internal/database/pending_restore.go` | 74.5% | 13 |
+
+`backup_upload.go` (`WrapRawDatabaseAsBackup` — the code that wraps a raw uploaded `.db` file into a live backup archive) has **zero** test coverage: no `backup_upload_test.go` exists at all. This is a security-relevant path (it accepts arbitrary uploaded bytes, detected by magic header, and writes them straight into a format-v2 archive that later gets restored). It should not ship untested.
+
+The SFTP/S3 uploader files (169 and 61 uncovered lines respectively) do have *some* coverage on their security-critical paths — `newS3Uploader`/`newSFTPUploader`'s SSRF-validation call and the SFTP host-key discovery/pinning logic are covered (confirmed above) — but the bulk of `Upload`/`Delete`/`List`/`Test` request/response handling, error paths, and `backup_remote_service.go`'s CRUD/retention-pruning logic are not exercised by any test using the fake-uploader seam that's already built for exactly this purpose (`uploaderFactory`, `backup_remote_service.go:83`).
+
+**Remediation:** Add unit tests for `backup_upload.go` (happy path + temp-file/write-failure paths) and expand fake-uploader-backed tests in `backup_remote_service_test.go` / `sftp_test.go` / `s3_test.go` to close the biggest gaps. This does not require new product code — only tests — so it is a low-risk, fast follow-up commit.
+
+### Finding 2 — Two explicit spec §5 "Behavior checks" are correctly implemented but have no automated test proving it (MEDIUM)
+
+**2a. "legacy v1 zip restores with warning."** The backend logic is correct on inspection: `readBackupManifest` returns `legacyFormat=true` when no `manifest.json` entry exists, `validateBackupArchive` propagates it into `result.legacyFormat`, and a warning is logged (`backup_restore_safe.go:133-160`, `"Restoring/validating a legacy v1 backup archive with no manifest; skipping checksum verification"`). But:
+- The only test that exercises this scenario is the Playwright spec `tests/tasks/backups-upload-restore.spec.ts:67` ("should flag a legacy_format v1 archive with a warning banner") — and it **fully mocks** `POST /api/v1/backups/upload` with `page.route(...).fulfill(...)`, so it only proves the frontend renders a warning banner when the API says `legacy_format: true`. It never touches the real backend legacy-detection code.
+- No backend Go test constructs a genuine no-manifest zip and calls `RestoreBackupSafe`/`ValidateBackup` against it. `grep -rn readBackupManifest backend/internal/services/*_test.go` → zero matches. This lines up exactly with the coverage gaps in `backup_restore_safe.go` (lines 96-104, 116-122, 129-130 — right in the manifest-detection/legacy-warning region).
+
+**2b. Pending-restore "verified by an integration test that restarts the process in-test."** `pending_restore_test.go`'s tests (`TestApplyPendingRestore_ValidPendingFile_SwapsIntoPlace`, etc.) call `ApplyPendingRestore` directly and comment that this "simulates" a restart — it does not restart a process. `main.go:214-218`'s ordering (`ApplyPendingRestore` before `database.Connect`) was verified correct by direct code read, but there is no regression test that would catch a future refactor silently reordering those two lines (e.g., during an unrelated main.go edit). Neither the Go test suite nor the Playwright integration spec (`tests/integration/backup-restore-e2e.spec.ts` — grepped for "restart"/"pending" — zero hits) exercises an actual process boundary.
+
+**Remediation:** (a) add a backend test that builds a real legacy (no-`manifest.json`) zip fixture and restores it end-to-end, asserting `LegacyFormat: true` and no error; (b) add either a Go test using `os/exec` to spawn the compiled binary (or a small test-harness binary sharing the same startup sequence) across two invocations, or an E2E test that actually restarts the `charon-e2e` container between triggering the pending-restore fallback and verifying the swap landed. Neither requires product-code changes.
+
+### Reviewed and cleared (not filed as findings)
+
+- **Semgrep** decompression-bomb and SQL-string-format flags in `backup_restore_safe.go`/`backup_service.go` — false positives, mitigations already present (see DoD row 4).
+- **Gitleaks** 482 repo-wide findings — none in files this PR touched.
+- No `.codecov.yml` exists anywhere in this repo (pre-existing state, not introduced by this PR); coverage gating is via `scripts/go-test-coverage.sh`/`scripts/frontend-test-coverage.sh` instead, both of which passed. The spec §7 item about verifying `remotestorage/` is inside coverage paths doesn't apply to this repo's tooling.
+- No `CHANGELOG.md` entry for Issue #32 — minor, likely a `docs-writer` follow-up, non-blocking for this QA pass.
+- Ignore-file hygiene (spec §7): all three fixes present and correct — `.gitignore:145` uses unanchored `**/data/backups/`, `.dockerignore:102` mirrors it, `scripts/pre-commit-hooks/block-data-backups-commit.sh:13` matches `*data/backups/*`.
+
+---
+
+## Overall Verdict
+
+**This PR is not ready to open as-is.** Every functional and security gate that can be objectively pass/failed — E2E, GORM, CodeQL, dependency scanning, lint/staticcheck, both builds, both full test suites, both coverage thresholds, and every named security property — passed cleanly, and the implementation itself is sound (I read every code path named in Finding 2 and found no bugs, only missing tests). But CLAUDE.md's Definition of Done is explicit and non-negotiable on two fronts this PR currently fails:
+
+1. **"All new code MUST include accompanying unit tests"** — `backup_upload.go` has none at all, and patch coverage overall (67.4%) is nowhere near the spec's own stated ≥90% bar.
+2. Spec §5 lists "legacy v1 zip restores with warning" and the pending-restore restart behavior as explicit, named acceptance-criteria **behavior checks** — not suggestions. Neither is actually verified by any test today; both are currently "trust the code review," which is exactly what an independent QA pass exists to not do.
+
+**Recommendation to Management:** delegate one small, test-only follow-up commit to Backend Dev before declaring this done:
+- Unit tests for `backup_upload.go` (`WrapRawDatabaseAsBackup` happy path + failure paths).
+- A backend test restoring a genuine no-manifest legacy zip end-to-end, asserting `legacy_format: true` + the warning log.
+- A process-boundary test (or container-restart E2E test) proving the pending-restore boot-swap actually fires on a real restart, not just a direct function call.
+- Time permitting, expand `remotestorage/sftp.go`, `remotestorage/s3.go`, and `backup_remote_service.go` coverage using the existing `uploaderFactory` fake-uploader seam, to close the gap toward the 90% patch-coverage target.
+
+None of this requires a behavior/product-code change — it is exactly the kind of fast, low-risk, test-only commit CLAUDE.md's "Suggested Commit Sequence" step 5 ("Hardening + enable E2E + docs") anticipates. Once patch coverage clears the bar and both named behavior checks have real tests, this PR is ready to open — the underlying implementation does not need further changes based on this audit.
+
+---
+
+## Environment Notes (not PR defects)
+
+- The E2E Docker image (`charon:local`) could not be rebuilt in this sandbox: the rootless Docker daemon's own network namespace cannot resolve `registry-1.docker.io` (confirmed reproducible across repeated `docker pull` attempts), even though the host environment itself has working internet access. E2E was run against the existing image, which pre-dates two small commits (`bb089c5a` go.work.sum sync, `517bdc20` go.mod/go.sum tidy) that the commit messages themselves describe as mechanical/no-behavior-change. This was independently cross-checked by running `go build ./...` and the full `go test -race ./...` suite directly against current HEAD outside the container — both passed, giving high confidence the tidy commits didn't introduce any regression the stale image would have masked.
+- The local CodeQL CLI available at session start (`v2.16.0`, an unmanaged root-owned `gh codeql` extension) was too old to run this repo's CodeQL scan scripts (schema/flag mismatches with current query packs). Fixed mid-audit by installing a fresh CLI (`gh extension install github/gh-codeql`, resolves to v2.26.0) as the non-root user — no product or CI configuration changes were made.
