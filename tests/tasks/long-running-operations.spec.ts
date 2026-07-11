@@ -296,11 +296,22 @@ test.describe('Long-Running Operations', () => {
           (response.status() === 200 || response.status() === 201)
       );
 
+      // Clicking "Create Backup" opens a confirmation dialog (encryption option,
+      // spec §3.8) rather than submitting immediately — confirm inside the dialog,
+      // matching the fix applied to backups-create.spec.ts's "should disable
+      // create button while in progress" test.
       await backupButton.click();
-      await expect(backupButton).toBeDisabled();
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible();
+      const confirmButton = dialog.getByRole('button', { name: /^create$/i });
+
+      await confirmButton.click();
+      await expect(confirmButton).toBeDisabled();
       await createResponsePromise;
       await waitForToast(page, /success|created/i, { type: 'success' });
-      await expect(backupButton).toBeEnabled();
+
+      // On success the dialog closes (Backups.tsx handleCreateConfirm onSuccess).
+      await expect(dialog).not.toBeVisible();
     });
 
     await test.step('Verify created backup is actionable', async () => {

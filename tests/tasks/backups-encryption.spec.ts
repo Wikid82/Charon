@@ -204,15 +204,21 @@ test.describe('Backups Page - Encryption', () => {
         await page.goto('/tasks/backups');
         await waitForLoadingComplete(page);
 
-        await page.getByRole('button', { name: /create backup/i }).click();
-        await clickSwitch(page.getByTestId('backup-create-encrypt-toggle'));
-        await page.getByTestId('backup-create-passphrase-input').fill('correct-horse-battery-staple');
+        // The header "Create Backup" button and the empty-state CTA share the same
+        // accessible name when the backup list is empty (both open the same create
+        // dialog) — disambiguate with .first() to avoid a strict-mode violation,
+        // matching the "Add Remote Target" fix in backups-remote-targets.spec.ts.
+        await page.getByRole('button', { name: /create backup/i }).first().click();
+        const dialog = page.getByRole('dialog');
+        await expect(dialog).toBeVisible();
+        await clickSwitch(dialog.getByTestId('backup-create-encrypt-toggle'));
+        await dialog.getByTestId('backup-create-passphrase-input').fill('correct-horse-battery-staple');
 
         await Promise.all([
           page.waitForResponse(
             (r) => r.url().includes('/api/v1/backups') && r.request().method() === 'POST' && r.status() === 201
           ),
-          page.getByRole('button', { name: /^create$/i }).click(),
+          dialog.getByRole('button', { name: /^create$/i }).click(),
         ]);
 
         expect(createBody?.encrypt).toBe(true);
