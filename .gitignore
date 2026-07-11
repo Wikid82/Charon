@@ -49,6 +49,7 @@ frontend/*.tsbuildinfo
 # Go/Backend - Build artifacts & coverage
 # -----------------------------------------------------------------------------
 backend/api
+backend/pending-restore-harness
 backend/bin/
 backend/*.out
 backend/*.cover

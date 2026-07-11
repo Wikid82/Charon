@@ -200,11 +200,15 @@ func TestBackupHandler_Validate_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, resp.Code)
 }
 
-func buildMultipartUpload(t *testing.T, fieldName, filename string, content []byte, extraFields map[string]string) (*bytes.Buffer, string) {
+// buildMultipartUpload always writes to the "file" form field (every
+// current and historical caller uploads under that field name, matching
+// the backup handler's own c.FormFile("file") lookup), so the field name
+// isn't parameterized.
+func buildMultipartUpload(t *testing.T, filename string, content []byte, extraFields map[string]string) (*bytes.Buffer, string) {
 	t.Helper()
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
-	part, err := writer.CreateFormFile(fieldName, filename)
+	part, err := writer.CreateFormFile("file", filename)
 	require.NoError(t, err)
 	_, err = part.Write(content)
 	require.NoError(t, err)
@@ -226,7 +230,7 @@ func TestBackupHandler_Upload_RawSQLite_Success(t *testing.T) {
 	content, err := os.ReadFile(dbPath) // #nosec G304 -- test fixture path
 	require.NoError(t, err)
 
-	body, contentType := buildMultipartUpload(t, "file", "upload.db", content, nil)
+	body, contentType := buildMultipartUpload(t, "upload.db", content, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups/upload", body)
 	req.Header.Set("Content-Type", contentType)
@@ -245,7 +249,7 @@ func TestBackupHandler_Upload_UnrecognizedFileType(t *testing.T) {
 	router, _, tmpDir := setupBackupTestV2(t)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	body, contentType := buildMultipartUpload(t, "file", "not-a-backup.txt", []byte("plain text content"), nil)
+	body, contentType := buildMultipartUpload(t, "not-a-backup.txt", []byte("plain text content"), nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups/upload", body)
 	req.Header.Set("Content-Type", contentType)
