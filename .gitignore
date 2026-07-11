@@ -60,6 +60,8 @@ backend/coverage*.txt
 backend/*.coverage.out
 backend/handler_coverage.txt
 backend/handlers.out
+backend/.harness-covdata/
+backend/.harness-coverage.txt
 backend/services.test
 backend/*.test
 backend/test-output.txt

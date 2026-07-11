@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
@@ -21,8 +21,21 @@ vi.mock('../../../hooks/useRemoteTargets', async () => {
 })
 
 vi.mock('../RemoteTargetFormDialog', () => ({
-  RemoteTargetFormDialog: ({ open, target }: { open: boolean; target?: RemoteTarget | null }) =>
-    open ? <div data-testid="mock-form-dialog">{target ? `edit:${target.name}` : 'create'}</div> : null,
+  RemoteTargetFormDialog: ({
+    open,
+    target,
+    onClose,
+  }: {
+    open: boolean
+    target?: RemoteTarget | null
+    onClose: () => void
+  }) =>
+    open ? (
+      <div data-testid="mock-form-dialog">
+        {target ? `edit:${target.name}` : 'create'}
+        <button onClick={onClose}>mock-form-dialog-close</button>
+      </div>
+    ) : null,
 }))
 
 vi.mock('../../../utils/toast', () => ({
@@ -201,5 +214,31 @@ describe('RemoteTargetsCard', () => {
     await user.click(within(emptyState).getByRole('button', { name: /add remote target/i }))
 
     expect(screen.getByTestId('mock-form-dialog')).toHaveTextContent('create')
+  })
+
+  it('resets editingTarget back to undefined when the form dialog calls onClose', async () => {
+    const user = userEvent.setup()
+    render(<RemoteTargetsCard />)
+
+    await user.click(screen.getByRole('button', { name: /add remote target/i }))
+    expect(screen.getByTestId('mock-form-dialog')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /mock-form-dialog-close/i }))
+    expect(screen.queryByTestId('mock-form-dialog')).not.toBeInTheDocument()
+  })
+
+  it('closes the delete confirmation dialog via onOpenChange (e.g. Escape) without deleting', async () => {
+    const user = userEvent.setup()
+    render(<RemoteTargetsCard />)
+
+    const rows = screen.getAllByTestId('backup-remote-target-row')
+    const nasRow = rows.find((row) => within(row).queryByText('Home NAS'))!
+    await user.click(within(nasRow).getByTestId('backup-remote-target-delete-btn'))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(mockDeleteMutate).not.toHaveBeenCalled()
   })
 })

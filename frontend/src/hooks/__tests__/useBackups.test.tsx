@@ -10,6 +10,7 @@ import {
   useRestoreBackup,
   useDeleteBackup,
   useUploadBackup,
+  useValidateBackup,
   useBackupSettings,
   useUpdateBackupSettings,
   useBackupSettingsForm,
@@ -108,6 +109,44 @@ describe('useRestoreBackup', () => {
   it('surfaces restore errors (e.g. wrong passphrase) without throwing', async () => {
     vi.mocked(api.restoreBackup).mockRejectedValue(new Error('wrong passphrase'))
     const { result } = renderHook(() => useRestoreBackup(), { wrapper: createWrapper() })
+
+    result.current.mutate({ filename: 'b.zip.age', passphrase: 'wrong' })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(result.current.error).toEqual(new Error('wrong passphrase'))
+  })
+})
+
+describe('useValidateBackup', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('dry-run validates a backup with filename and passphrase, without invalidating the backup list', async () => {
+    const validationResult: api.ValidateBackupResponse = {
+      valid: true,
+      format_version: 2,
+      legacy_format: false,
+      database_integrity: 'ok',
+      encryption_key_required: true,
+    }
+    vi.mocked(api.validateBackup).mockResolvedValue(validationResult)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    )
+
+    const { result } = renderHook(() => useValidateBackup(), { wrapper })
+    result.current.mutate({ filename: 'b.zip.age', passphrase: 'hunter2' })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(api.validateBackup).toHaveBeenCalledWith('b.zip.age', 'hunter2')
+    expect(result.current.data).toEqual(validationResult)
+    expect(invalidateSpy).not.toHaveBeenCalled()
+  })
+
+  it('surfaces validation errors (e.g. wrong passphrase) without throwing', async () => {
+    vi.mocked(api.validateBackup).mockRejectedValue(new Error('wrong passphrase'))
+    const { result } = renderHook(() => useValidateBackup(), { wrapper: createWrapper() })
 
     result.current.mutate({ filename: 'b.zip.age', passphrase: 'wrong' })
 

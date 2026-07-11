@@ -360,3 +360,27 @@ func TestNewS3Uploader_ForcePathStyle(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, uploader)
 }
+
+// TestNewS3Uploader_ClientCreationFails proves minio.New's own error branch
+// (s3.go's "s3: create client" wrap) is reachable and wrapped: an endpoint
+// containing a raw control byte passes SSRF validation (which only
+// resolves/inspects the host, done here via withPermissiveSSRFForLocalTest
+// so the test targets client construction specifically) but fails
+// minio-go's own internal URL parsing, which happens inside minio.New
+// itself before any network I/O.
+func TestNewS3Uploader_ClientCreationFails(t *testing.T) {
+	withPermissiveSSRFForLocalTest(t)
+
+	_, err := newS3Uploader(S3Config{Endpoint: "bad endpoint with a\x00null byte", Bucket: "b"}, S3Secrets{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "s3: create client")
+}
+
+// NOTE: Upload's f.Stat() error branch (s3.go ~104-105) is not covered here.
+// Upload takes only a localPath string and always performs its own
+// successful os.Open internally, so forcing the immediately-following
+// f.Stat() to fail on that freshly (and successfully) opened descriptor
+// would require either a TOCTOU race on the underlying inode (Linux does
+// not invalidate fstat() on an open fd even after unlink, so deleting the
+// file mid-flight does not reproduce this) or a production-code seam to
+// inject a pre-broken file handle, which this test-only pass must not add.

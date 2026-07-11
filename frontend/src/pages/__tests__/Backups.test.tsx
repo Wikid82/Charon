@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import Backups from '../Backups'
+import { toast } from '../../utils/toast'
 
 const mockUseAuth = vi.fn()
 vi.mock('../../hooks/useAuth', () => ({
@@ -63,8 +64,13 @@ vi.mock('../../components/backups/UploadBackupButton', () => ({
   UploadBackupButton: () => <div data-testid="mock-upload-button" />,
 }))
 vi.mock('../../components/backups/RestoreDialog', () => ({
-  RestoreDialog: ({ backup }: { backup: { filename: string } | null }) =>
-    backup ? <div data-testid="mock-restore-dialog">{backup.filename}</div> : null,
+  RestoreDialog: ({ backup, onClose }: { backup: { filename: string } | null; onClose: () => void }) =>
+    backup ? (
+      <div data-testid="mock-restore-dialog">
+        {backup.filename}
+        <button onClick={onClose}>mock-restore-dialog-close</button>
+      </div>
+    ) : null,
 }))
 
 const mockBackups = [
@@ -225,5 +231,86 @@ describe('Backups page', () => {
     render(<Backups />)
     await waitFor(() => expect(screen.getAllByTestId('backup-row')).toHaveLength(2))
     expect(mockDeleteMutate).not.toHaveBeenCalled()
+  })
+
+  it('closes the create dialog without mutating when Cancel is clicked', async () => {
+    const user = userEvent.setup()
+    render(<Backups />)
+
+    await user.click(screen.getAllByRole('button', { name: /create backup/i })[0])
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /^cancel$/i }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(mockCreateMutate).not.toHaveBeenCalled()
+  })
+
+  it('shows a success toast and closes the create dialog when backup creation succeeds', async () => {
+    const toastSuccessSpy = vi.spyOn(toast, 'success')
+    mockCreateMutate.mockImplementation((_options, { onSuccess }) => onSuccess())
+    const user = userEvent.setup()
+    render(<Backups />)
+
+    await user.click(screen.getAllByRole('button', { name: /create backup/i })[0])
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^create$/i }))
+
+    expect(toastSuccessSpy).toHaveBeenCalledWith('Backup created successfully')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('shows an error toast with the failure reason when backup creation fails', async () => {
+    const toastErrorSpy = vi.spyOn(toast, 'error')
+    mockCreateMutate.mockImplementation((_options, { onError }) => onError(new Error('disk full')))
+    const user = userEvent.setup()
+    render(<Backups />)
+
+    await user.click(screen.getAllByRole('button', { name: /create backup/i })[0])
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^create$/i }))
+
+    expect(toastErrorSpy).toHaveBeenCalledWith('Failed to create backup: disk full')
+    // The dialog stays open so the admin can retry rather than losing their input.
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('shows a success toast and clears the confirmation state when delete succeeds', async () => {
+    const toastSuccessSpy = vi.spyOn(toast, 'success')
+    mockDeleteMutate.mockImplementation((_filename, { onSuccess }) => onSuccess())
+    const user = userEvent.setup()
+    render(<Backups />)
+
+    const rows = screen.getAllByTestId('backup-row')
+    await user.click(within(rows[0]).getByTestId('backup-delete-btn'))
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^delete$/i }))
+
+    expect(toastSuccessSpy).toHaveBeenCalledWith('Backup deleted successfully')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('shows an error toast with the failure reason when delete fails', async () => {
+    const toastErrorSpy = vi.spyOn(toast, 'error')
+    mockDeleteMutate.mockImplementation((_filename, { onError }) => onError(new Error('file locked')))
+    const user = userEvent.setup()
+    render(<Backups />)
+
+    const rows = screen.getAllByTestId('backup-row')
+    await user.click(within(rows[0]).getByTestId('backup-delete-btn'))
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^delete$/i }))
+
+    expect(toastErrorSpy).toHaveBeenCalledWith('Failed to delete backup: file locked')
+    // The confirmation dialog stays open on failure since deleteConfirm is only cleared on success.
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('resets restoreTarget to null when RestoreDialog calls onClose', async () => {
+    const user = userEvent.setup()
+    render(<Backups />)
+
+    const rows = screen.getAllByTestId('backup-row')
+    await user.click(within(rows[0]).getByTestId('backup-restore-btn'))
+    expect(screen.getByTestId('mock-restore-dialog')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /mock-restore-dialog-close/i }))
+    expect(screen.queryByTestId('mock-restore-dialog')).not.toBeInTheDocument()
   })
 })

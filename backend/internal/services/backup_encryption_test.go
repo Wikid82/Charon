@@ -68,6 +68,42 @@ func TestEncryptArchiveWithPassphrase_DestinationUnwritable(t *testing.T) {
 	assert.Contains(t, err.Error(), "create encrypted archive")
 }
 
+// TestEncryptArchiveWithPassphrase_StreamInitFails_DestinationOutOfSpace
+// proves the "initialize age encryption stream" error branch: age.Encrypt
+// writes its STREAM header to dst as part of setting up the writer, before
+// any of the archive's own content is copied, so a destination that always
+// rejects writes (Linux's /dev/full — a real device that returns ENOSPC on
+// every write(2), the standard technique for deterministically simulating
+// a full disk) fails at that header write rather than requiring a real
+// disk-space exhaustion race.
+func TestEncryptArchiveWithPassphrase_StreamInitFails_DestinationOutOfSpace(t *testing.T) {
+	if _, err := os.Stat("/dev/full"); err != nil {
+		t.Skip("/dev/full not available on this platform")
+	}
+
+	tmpDir := t.TempDir()
+	srcPath := filepath.Join(tmpDir, "archive.zip")
+	require.NoError(t, os.WriteFile(srcPath, []byte("archive contents"), 0o600))
+
+	err := encryptArchiveWithPassphrase(srcPath, "/dev/full", "pass")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "initialize age encryption stream")
+}
+
+// NOTE on branches intentionally left uncovered in this file:
+//   - age.NewScryptRecipient/age.NewScryptIdentity's own error returns
+//     (encrypt ~31-32, decrypt ~83-84): filippo.io/age's scrypt recipient
+//     and identity constructors do not reject any non-empty Go string
+//     passphrase — both already-empty-string branches are covered above by
+//     the ErrPassphraseRequired tests, which is the only input this
+//     package ever fails to validate before reaching these constructors.
+//   - io.Copy/w.Close/dst.Sync failing *after* a successful stream-header
+//     write (encrypt ~56-57, ~60-61, ~64-65; decrypt's dst.Sync ~115-116):
+//     /dev/full fails every write including the header, so it cannot
+//     isolate a failure to only the later writes/close/sync without a
+//     custom capacity-limited io.Writer seam this test-only pass must not
+//     add to production code.
+
 // TestDecryptArchiveWithPassphrase_EmptyPassphrase proves decryption
 // requires a non-empty passphrase, surfacing ErrPassphraseRequired so the
 // handler can map it to a specific error_code.
