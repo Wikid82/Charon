@@ -164,6 +164,21 @@ func (s *BackupRemoteService) Create(name, targetType string, enabled bool, conf
 		return nil, fmt.Errorf("create remote storage target: %w", err)
 	}
 
+	// GORM parses the `default:true` tag on Enabled into a schema-level
+	// DefaultValueInterface and, on Create, unconditionally substitutes that
+	// value for ANY zero Go value (false) before the INSERT is built — this
+	// happens during struct-to-values conversion itself, so neither
+	// Select("*") nor Omit() can suppress it (verified empirically against
+	// the installed gorm.io/gorm version). A caller-supplied enabled:false
+	// is therefore silently upgraded to true by Create alone. Update has no
+	// equivalent substitution logic, so force the real value with a
+	// follow-up statement whenever the caller asked for false.
+	if !enabled {
+		if err := s.db.Model(target).Update("enabled", false).Error; err != nil {
+			return nil, fmt.Errorf("persist enabled=false for remote storage target: %w", err)
+		}
+	}
+
 	return target, nil
 }
 

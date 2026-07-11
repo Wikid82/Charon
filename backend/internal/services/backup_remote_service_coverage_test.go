@@ -119,6 +119,47 @@ func TestBackupRemoteService_Create_Success(t *testing.T) {
 	assert.Equal(t, "hunter2", secrets.Password)
 }
 
+// TestBackupRemoteService_Create_EnabledFalse_PersistsAsDisabled is a
+// regression test for a bug where models.RemoteStorageTarget.Enabled carries
+// a GORM `default:true` tag: a plain db.Create sees the Go zero value
+// (false) for that column and silently omits it from the INSERT, so the row
+// falls back to the DB-level default (true) even though the caller
+// explicitly asked for enabled: false. The row is re-queried by UUID
+// (rather than trusting the in-memory struct Create may have written back
+// into) to prove what actually landed in the database.
+func TestBackupRemoteService_Create_EnabledFalse_PersistsAsDisabled(t *testing.T) {
+	db := newRemoteServiceTestDB(t)
+	svc := NewBackupRemoteService(db, newRemoteServiceCoverageEncryption(t), t.TempDir())
+
+	target, err := svc.Create("NAS", "sftp", false, RemoteTargetConfig{Host: "203.0.113.20"}, RemoteTargetSecrets{Password: "x"})
+	require.NoError(t, err)
+	require.NotNil(t, target)
+
+	// The in-memory struct returned by Create.
+	assert.False(t, target.Enabled, "in-memory struct after Create should reflect enabled:false")
+
+	// The persisted row, re-queried independently from the DB.
+	var persisted models.RemoteStorageTarget
+	require.NoError(t, db.Where("uuid = ?", target.UUID).First(&persisted).Error)
+	assert.False(t, persisted.Enabled, "persisted row must have enabled=false, not the DB default")
+}
+
+// TestBackupRemoteService_Create_EnabledTrue_PersistsAsEnabled is the
+// companion case for the above: enabled:true must still persist correctly.
+func TestBackupRemoteService_Create_EnabledTrue_PersistsAsEnabled(t *testing.T) {
+	db := newRemoteServiceTestDB(t)
+	svc := NewBackupRemoteService(db, newRemoteServiceCoverageEncryption(t), t.TempDir())
+
+	target, err := svc.Create("NAS", "sftp", true, RemoteTargetConfig{Host: "203.0.113.20"}, RemoteTargetSecrets{Password: "x"})
+	require.NoError(t, err)
+	require.NotNil(t, target)
+	assert.True(t, target.Enabled)
+
+	var persisted models.RemoteStorageTarget
+	require.NoError(t, db.Where("uuid = ?", target.UUID).First(&persisted).Error)
+	assert.True(t, persisted.Enabled)
+}
+
 // --- Update ---
 
 func TestBackupRemoteService_Update_NotFound(t *testing.T) {
@@ -186,6 +227,29 @@ func TestBackupRemoteService_Update_Success(t *testing.T) {
 	secrets, err := svc.decryptSecrets(updated)
 	require.NoError(t, err)
 	assert.Equal(t, "new-password", secrets.Password)
+}
+
+// TestBackupRemoteService_Update_EnabledFalse_PersistsAsDisabled checks
+// Update for the same zero-value/GORM-default bug class as Create: Update
+// goes through db.Save, which (unlike a plain db.Create) always writes every
+// field regardless of the `default:true` tag, so this is expected to pass
+// even before the Create fix — re-querying the row from the DB proves it.
+func TestBackupRemoteService_Update_EnabledFalse_PersistsAsDisabled(t *testing.T) {
+	db := newRemoteServiceTestDB(t)
+	enc := newRemoteServiceCoverageEncryption(t)
+	svc := NewBackupRemoteService(db, enc, t.TempDir())
+
+	created, err := svc.Create("NAS", "sftp", true, RemoteTargetConfig{Host: "203.0.113.20"}, RemoteTargetSecrets{Password: "x"})
+	require.NoError(t, err)
+
+	disabled := false
+	updated, err := svc.Update(created.UUID, nil, &disabled, nil, nil)
+	require.NoError(t, err)
+	assert.False(t, updated.Enabled)
+
+	var persisted models.RemoteStorageTarget
+	require.NoError(t, db.Where("uuid = ?", created.UUID).First(&persisted).Error)
+	assert.False(t, persisted.Enabled, "persisted row must have enabled=false after Update, not the DB default")
 }
 
 // TestBackupRemoteService_Update_EmptySecretsKeepsExisting proves an empty
@@ -452,4 +516,48 @@ func TestBackupRemoteService_List_DatabaseError(t *testing.T) {
 	_, err = svc.List()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "list remote storage targets")
+}
+
+// TestBackupRemoteService_Create_DatabaseWriteFails proves Create's own
+// db.Create error branch (distinct from every other Create failure mode
+// already covered — encryption-key-missing, invalid config): validation
+// and encryption both succeed here, only the final persist fails.
+func TestBackupRemoteService_Create_DatabaseWriteFails(t *testing.T) {
+	db := newRemoteServiceTestDB(t)
+	svc := NewBackupRemoteService(db, newRemoteServiceCoverageEncryption(t), t.TempDir())
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	target, err := svc.Create("NAS", "sftp", true, RemoteTargetConfig{Host: "203.0.113.20"}, RemoteTargetSecrets{Password: "hunter2"})
+	require.Error(t, err)
+	assert.Nil(t, target)
+	assert.Contains(t, err.Error(), "create remote storage target")
+}
+
+// TestBackupRemoteService_Update_DatabaseWriteFails proves Update's own
+// db.Save error branch: the target is found and every field validates
+// fine, only the final persist fails. The connection is closed only after
+// the Get lookup that Update itself performs internally would otherwise
+// need, so a fresh single-connection DB with query_only enabled is used
+// instead of a fully-closed connection, letting the SELECT succeed while
+// the UPDATE fails.
+func TestBackupRemoteService_Update_DatabaseWriteFails(t *testing.T) {
+	db := newRemoteServiceTestDB(t)
+	svc := NewBackupRemoteService(db, newRemoteServiceCoverageEncryption(t), t.TempDir())
+
+	target, err := svc.Create("NAS", "sftp", true, RemoteTargetConfig{Host: "203.0.113.20"}, RemoteTargetSecrets{Password: "hunter2"})
+	require.NoError(t, err)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, db.Exec("PRAGMA query_only = ON").Error)
+
+	newName := "Renamed NAS"
+	updated, err := svc.Update(target.UUID, &newName, nil, nil, nil)
+	require.Error(t, err)
+	assert.Nil(t, updated)
+	assert.Contains(t, err.Error(), "update remote storage target")
 }
