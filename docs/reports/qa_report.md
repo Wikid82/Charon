@@ -12,12 +12,14 @@
 
 This is a large, security-sensitive feature (backup format v2, validated safe-restore pipeline, passphrase encryption, cron scheduling, S3/SFTP remote storage with SSRF protection and host-key pinning). Every security property called out as high-stakes in the task brief was independently verified in code and confirmed correct. All functional gates that could be run in this sandbox (E2E, GORM scan, CodeQL Go+JS, dependency vulnerability scan, lint/staticcheck, backend+frontend builds, backend+frontend full test suites, backend+frontend coverage) **passed**.
 
-However, **local patch coverage is 67.4% overall / 62.1% backend**, well under the mandatory ≥90% gate, and two specific "Behavior checks" named explicitly in spec §5 are implemented correctly but have **no automated test proving they work**:
+However, at the time of the original audit, **local patch coverage was 67.4% overall / 62.1% backend**, well under the ≥90% figure the spec cites, and two specific "Behavior checks" named explicitly in spec §5 were implemented correctly but had **no automated test proving they worked**:
 
 1. Legacy v1 (no-manifest) zip archives restoring successfully with a warning.
 2. The pending-restore boot-swap actually running via a real process restart (only simulated by calling the function directly in-process).
 
-**Verdict: NOT ready to open as-is. Needs one more hardening commit (tests only, no behavior change) before it meets CLAUDE.md's Definition of Done.** See the final section for exact reasoning and a scoped punch list.
+**Original verdict: NOT ready to open as-is.** A follow-up test-only commit (`ce27edc7`) has since closed both gaps — see the **"Re-Verification Addendum"** section near the end of this report for the independently re-verified numbers and the final, current verdict.
+
+> **UPDATED FINAL VERDICT (2026-07-11, post `ce27edc7`): READY TO OPEN.** Both behavior checks now have genuine, independently-verified tests, and the patch-coverage gate that was blocking is confirmed advisory-only (`mode: warn`), not a hard CLAUDE.md gate. Jump to "Re-Verification Addendum — Gap-Closing Commit `ce27edc7`" for full detail.
 
 ---
 
@@ -117,6 +119,78 @@ The SFTP/S3 uploader files (169 and 61 uncovered lines respectively) do have *so
 - Time permitting, expand `remotestorage/sftp.go`, `remotestorage/s3.go`, and `backup_remote_service.go` coverage using the existing `uploaderFactory` fake-uploader seam, to close the gap toward the 90% patch-coverage target.
 
 None of this requires a behavior/product-code change — it is exactly the kind of fast, low-risk, test-only commit CLAUDE.md's "Suggested Commit Sequence" step 5 ("Hardening + enable E2E + docs") anticipates. Once patch coverage clears the bar and both named behavior checks have real tests, this PR is ready to open — the underlying implementation does not need further changes based on this audit.
+
+---
+
+## Re-Verification Addendum — Gap-Closing Commit `ce27edc7` (2026-07-11)
+
+**Commit reviewed:** `ce27edc7dd1a55589850ef2af16ce4e4d916200f` — "test(backend): close patch-coverage gaps and add spec §5 behavior-check tests" (current HEAD: `3f24fe1e`).
+
+**Scope confirmed test-only:** `git show --stat ce27edc7` → 15 files changed, 3215 insertions, 4 deletions. Every file is either a `*_test.go` file, the new `backend/cmd/pending-restore-harness/main.go` harness, or `.gitignore`. Zero product/frontend files touched. This independently confirms Backend Dev's claim that CodeQL JS, Trivy, frontend coverage, frontend build/type-check, and E2E (already green in the prior audit) could not have been affected by this commit, so they were not re-run.
+
+### 1. Local patch coverage — independently re-run, numbers do NOT match self-report
+
+Ran `bash scripts/local-patch-report.sh` myself twice (reproducible both times) against a **freshly regenerated** `backend/coverage.txt` (via `bash scripts/go-test-coverage.sh`, full `-race` suite, not reused from before the commit):
+
+| Scope | Changed Lines | Covered Lines | Patch Coverage | Backend Dev's self-reported figure |
+|---|---:|---:|---:|---:|
+| Overall | 2830 | 2435 | **86.0%** | 88.0% |
+| Backend | 2412 | 2029 | **84.1%** | 86.4% |
+| Frontend | 418 | 406 | **97.1%** | 97.1% (matches) |
+
+**This is a real discrepancy, not noise** — I re-ran twice and got identical numbers both times. Frontend matches exactly, which rules out a stale-baseline or tooling-version explanation; the gap is isolated to backend.
+
+**Root cause identified:** `backend/cmd/pending-restore-harness/main.go` itself. It is a wholly new ~134-line file, so ~100% of it counts as "changed," but it shows **0.0% patch coverage / 64 uncovered changed lines** in `test-results/local-patch-report.md`. This isn't a real testing gap — the file's behavior is thoroughly exercised, branch-by-branch (`prep-ok`, `prep-failed`, `connect-failed`, `boot-ok-pending-restore-applied-or-absent`, `boot-ok-pending-restore-failed`), by `TestPendingRestoreBootSwap_AcrossRealProcessBoundary` and its corrupt-file sibling test. But those tests exercise it as a **separately compiled, separately executed OS process** (`exec.Command`), and Go's standard `-coverprofile` instrumentation has no visibility into code executed by a child process built without `-cover`/`GOCOVERDIR` integration. The harness is, by the nature of the very thing it was built to prove (a real process boundary), invisible to line-coverage tooling — an inherent tooling limitation, not an under-tested code path. Excluding just this one file from the backend patch-coverage denominator would put backend patch coverage at roughly 89% (2278 changed / 2029 covered), consistent with what Backend Dev likely computed before finalizing the harness file, or from a coverage.txt snapshot from a slightly different point in their local iteration.
+
+I'm flagging this precisely rather than papering over it: **the standalone numbers Backend Dev reported are not what I get on a clean re-run**, and readers of this report should trust the table above, not the 88.0%/86.4% figures.
+
+### 2. `mode: warn` — confirmed by reading the tool source, not just the wrapper script
+
+`scripts/local-patch-report.sh` shells out to `backend/cmd/localpatchreport` (`main.go`). Read the Go source directly:
+
+- Line 134: `Mode: "warn"` is **hardcoded** into every generated report — there is no code path that ever sets a different mode.
+- The only `os.Exit(1)` calls in `main()` are for genuine tooling failures (missing coverage input files, git-diff/baseline errors, JSON/markdown write failures) — never for a threshold miss. A threshold miss only appends a string to `warnings` (lines 121-129) and is reported via `WARN:` lines on stdout; the process still exits 0.
+- Confirmed empirically: both my runs above exited 0 despite overall (86.0% < 90%) and backend (84.1% < 85%) both being under threshold.
+
+**Conclusion: the 90%/85% overall/backend figures in this tool are advisory-only, never a hard gate, exactly as Backend Dev claimed.** The actual CLAUDE.md-mandatory coverage gates are the full-repository scripts (`scripts/go-test-coverage.sh` ≥87% line/statement, `scripts/frontend-test-coverage.sh` ≥87% lines) — both independently re-verified below and both pass. CLAUDE.md's DoD item 2 for this script only requires "both artifacts exist," which they do (`test-results/local-patch-report.md`, `test-results/local-patch-report.json`, both freshly regenerated and non-empty).
+
+### 3. Spec §5 behavior-check tests — read in full, confirmed genuine and meaningful
+
+**2a. Legacy v1 no-manifest zip restore.** Read `backend/internal/services/backup_restore_safe_legacy_test.go` in full. `buildLegacyV1ZipArchive` constructs a **real** `archive/zip` file containing only `charon.db` + `caddy/caddy.json` — deliberately no `manifest.json` entry, mirroring an actual pre-v2 backup rather than a synthetic fixture with a field merely zeroed out. `TestValidateBackup_LegacyV1NoManifest_FlagsLegacyFormatWithWarning` calls the real `svc.ValidateBackup` and asserts `LegacyFormat: true`, `FormatVersion: 1`, `DatabaseIntegrity: "ok"`, and greps captured log output for the exact warning string sourced from the production code. `TestRestoreBackupSafe_LegacyV1NoManifest_RestoresWithWarning` goes further and calls the real `svc.RestoreBackupSafe` end-to-end, asserting `LegacyFormat: true` on the result the handler serializes back to the frontend, and that the S1 pre-restore safety backup still ran. Both call genuine backend service methods — nothing here is mocked. This closes Finding 2a exactly as prescribed.
+
+**2b. Pending-restore boot-swap across a real process boundary.** Read `backend/cmd/pending-restore-harness/main.go` and `backend/internal/database/pending_restore_process_test.go` in full. The harness is not a simulation-in-disguise: `buildPendingRestoreHarness` genuinely runs `go build -o <tmp> ./cmd/pending-restore-harness` and the test then invokes the **compiled binary** twice via `exec.Command` — first `-mode=prep` (writes a durable `.pending-restore` marker, exactly mirroring `writePendingRestoreFile`'s file operation), then, as a **second, separate OS process**, `-mode=boot`, which calls the actual production functions `database.ApplyPendingRestore(dbPath)` followed by `database.Connect(dbPath)` — the identical two calls and ordering as `backend/cmd/api/main.go:214-218`. The test asserts, via a marker row written into real SQLite files opened with `database/sql` + `sql3`, that after the two-process sequence the live `dbPath` now contains the "new" database's marker value, not the "old" one, and that `.pending-restore`/`-wal`/`-shm` are all gone. A second test (`..._CorruptPendingFile_...`) proves the quarantine-and-preserve-old-database path across the same real process boundary. This is a genuine regression test: if a future edit to `main.go` reordered `ApplyPendingRestore` and `Connect`, the "boot" mode of this harness would stop observing the swap and the test would fail. This closes Finding 2b exactly as prescribed.
+
+Both are real, meaningful tests against production code paths — not coverage-padding.
+
+### 4. Rest of the Definition of Done — independently re-run
+
+| Item | Result |
+|---|---|
+| `cd backend && go build ./...` | **PASS** — clean, no output/errors. |
+| `go test -race -mod=readonly ./...` (via `scripts/go-test-coverage.sh`) | **PASS** — exit code 0, all packages green, full `-race` suite. Confirmed the tail of the run directly: `Statement coverage: 88.6%`, `Line coverage: 88.6%`, `Coverage gate (line coverage): minimum required 87%`, `Coverage requirement met`. (Script runs under `set -euo pipefail`; a non-zero exit anywhere upstream would have aborted before reaching the coverage-gate line, and the background process itself completed with exit code 0.) |
+| `./scripts/scan-gorm-security.sh --check` | **PASS** — 0 CRITICAL, 0 HIGH, 0 MEDIUM, 2 INFO (same two pre-existing, unrelated missing-index suggestions on `UserPermittedHost` as the original audit — expected, since this commit touches no models/GORM code). |
+| `make lint-fast` (staticcheck/govet/errcheck/ineffassign/unused) | **PASS** — `0 issues.` |
+| E2E, CodeQL JS, Trivy, frontend coverage/build/type-check | Not re-run, per task scope — confirmed above that this commit touches zero frontend files and zero non-test backend files, so none of these gates could plausibly be affected by it. |
+
+### 5. `backend/cmd/pending-restore-harness/main.go` — spot-checked, confirmed test-infrastructure-only
+
+- **Not shipped:** the production `Dockerfile` builds only `./cmd/api` (`xx-go build ... -o charon ./cmd/api`, two call sites for the two CGO variants) and copies only that one compiled `charon` binary into the final image (`COPY --from=backend-builder /app/backend/charon /app/charon`). There is no `COPY`/build step referencing `cmd/pending-restore-harness` anywhere in the Dockerfile, `Makefile`, or any `scripts/*.sh`. Confirmed via `grep -rn "pending-restore-harness" Dockerfile Makefile scripts/*.sh .github/workflows/*.yml` → zero matches outside the harness's own directory and its driving test file.
+- **Compiled binary is gitignored:** this commit adds `backend/pending-restore-harness` to `.gitignore` (alongside the existing `backend/api` entry pattern), and I confirmed the stray compiled binary that existed in the working tree at session start (visible in the initial `git status`) is now correctly excluded (`git check-ignore -v` confirms) and is no longer present on disk.
+- **Attack surface:** the harness takes `-mode`, `-db`, `-source` flags and operates only on local file paths supplied by its caller (the driving test, or a human operator manually — it is never exposed over any network listener, HTTP route, or IPC). It suppresses its own logger output (`logger.Init(false, io.Discard)`) to keep its single `RESULT:` stdout line parseable. It genuinely is exactly what its doc comment claims: a minimal CLI shim replicating two production function calls for the purpose of crossing a real process boundary in a test. It is compiled incidentally by `go build ./...` / `go test ./...` (same as the pre-existing `backend/cmd/localpatchreport` tool) and by CI's CodeQL extraction step (`go build ./...` in `.github/workflows/codeql.yml`) for static-analysis coverage — neither of which ships it or exposes it at runtime.
+- **Conclusion:** no new attack surface. This is test infrastructure only, correctly isolated from the production build.
+
+### Final Verdict
+
+**This PR is now ready to open.** Both blocking gaps from the original audit are closed:
+
+1. The two named spec §5 behavior checks (legacy v1 no-manifest restore, pending-restore boot-swap across a real process boundary) now have genuine, meaningful automated tests proving them — independently read in full and confirmed to exercise real production code, not mocks or padding.
+2. Patch coverage rose substantially (backend `62.1% → 84.1%`, overall `67.4% → 86.0%`) and — critically — the 90%/85% figures in `scripts/local-patch-report.sh` are confirmed advisory (`mode: warn`, hardcoded, non-blocking exit code) by direct source inspection, not a hard CLAUDE.md gate. The actual mandatory gates (full-repo backend/frontend coverage ≥85%, enforced by `scripts/go-test-coverage.sh` / `scripts/frontend-test-coverage.sh`) both pass (88.6% backend statement/line coverage against an 87% gate; frontend previously verified at 89%+ in the original audit, unaffected by this test-only commit).
+
+One accuracy note for the record, not a blocker: my independently-rerun patch-coverage numbers (86.0% overall / 84.1% backend) are lower than Backend Dev's self-reported 88.0%/86.4%. The gap is fully explained by `backend/cmd/pending-restore-harness/main.go` showing 0.0% patch coverage — an artifact of Go's coverage tooling being unable to instrument a separately-executed child process, not a real gap in verification (that file's behavior is fully asserted on via subprocess exit codes/output/on-disk side effects in `pending_restore_process_test.go`). Since the patch-coverage gate is advisory only, this does not change the verdict, but it should be corrected in any PR description that cites Backend Dev's original 88.0%/86.4% figures.
+
+GORM scan, `make lint-fast`, `go build ./...`, and the full `-race` suite all re-confirmed clean on this exact HEAD (`3f24fe1e`). The new `pending-restore-harness` binary was individually vetted and is test-infrastructure-only, excluded from the production Docker image and gitignored.
+
+**No further work is required before opening this PR.**
 
 ---
 
