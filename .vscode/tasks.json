@@ -4,7 +4,7 @@
                 {
             "label": "Docker Compose Up",
             "type": "shell",
-            "command": "docker compose -f /home/jeremy/docker/containers/charon/docker-compose.yml up -d && echo 'Charon running at http://localhost:8787'",
+            "command": "docker compose -f /home/jeremy/docker/containers/docker-compose.yml up -d ",
             "options": {
                 "env": {
                     "DOCKER_HOST": "unix:///run/user/1001/docker.sock"
