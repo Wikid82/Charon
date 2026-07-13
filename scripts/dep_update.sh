@@ -63,7 +63,9 @@ for MODULE in "${NPM_MODULES[@]}"; do
     cd "$MODULE" || exit 1
 
     # Update prod, dev, optional, peer, and packageManager dependencies.
-    npx npm-check-updates -u
+    # Exclude typescript: v7 crashes @typescript-eslint until upstream
+    # catches up; keep pinned to ^6.0.3 until that's resolved.
+    npx npm-check-updates -u --reject typescript
 
     # Also update flat (string-valued) entries in the "overrides" section.
     # npm-check-updates excludes "overrides" from its default --dep list, so
@@ -72,13 +74,10 @@ for MODULE in "${NPM_MODULES[@]}"; do
     #
     # The frontend package.json contains nested object overrides
     # (e.g. { "eslint-plugin-react-hooks": { "eslint": "^x.y" } }) which
-    # cause ncu to crash when --dep overrides is used without a filter.
-    # To avoid that, we run a separate targeted pass that only touches the
-    # known flat top-level override ("typescript") in the frontend.
-    if [ "$MODULE" = "$REPO_ROOT/frontend" ]; then
-        # Update only the flat top-level override; skip nested object entries.
-        npx npm-check-updates -u --dep overrides --filter typescript
-    else
+    # cause ncu to crash when --dep overrides is used without a filter, and
+    # its only flat override (typescript) is already pinned above — so
+    # there's nothing left to safely update there; skip frontend entirely.
+    if [ "$MODULE" != "$REPO_ROOT/frontend" ]; then
         # Root package.json has only flat string overrides — safe to update all
         # except js-yaml, which has breaking changes in v6+; keep pinned to ^5.
         npx npm-check-updates -u --dep overrides --reject js-yaml
