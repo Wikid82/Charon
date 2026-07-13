@@ -343,17 +343,32 @@ export interface MockOAuthRoundTripOptions {
 export async function mockOAuthProviderRoundTrip(page: Page, options: MockOAuthRoundTripOptions): Promise<void> {
   const { provider, targetUuid, outcome, denyMessage } = options;
 
-  const callbackUrl = `/api/v1/backups/remote-targets/oauth/${provider}/callback?code=mock-auth-code&state=mock-state`;
+  // playwright.config.js guarantees process.env.PLAYWRIGHT_BASE_URL is
+  // always set (it back-fills its own default), so this is safe to read
+  // directly rather than threading the base URL through every call site.
+  const appBaseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
+  const callbackUrl = `${appBaseURL}/api/v1/backups/remote-targets/oauth/${provider}/callback?code=mock-auth-code&state=mock-state`;
   const finalRedirectUrl =
     outcome === 'approved'
       ? `/backups?oauth_result=success&provider=${provider}&target=${targetUuid}`
       : `/backups?oauth_result=error&message=${encodeURIComponent(denyMessage ?? 'authorization_denied')}`;
 
-  // Hop 1: the provider's consent screen. Mocked to immediately redirect back
-  // to Charon's callback route, standing in for a real user clicking
-  // "Allow"/"Deny".
+  // Hop 1: the provider's consent screen, standing in for a real user
+  // clicking "Allow"/"Deny". Fulfilled as an HTML document that immediately
+  // navigates onward via a client-side script rather than an HTTP 3xx
+  // redirect: browser engines' same-navigation redirect-follow for a
+  // *cross-origin* Location target does not reliably re-enter Playwright's
+  // request interception in this harness (verified empirically — the
+  // follow-up request bypasses every registered page/context route and
+  // hits the real backend directly), whereas a JS-driven
+  // `window.location.href` navigation — exactly how the app itself got here
+  // (spec §3.6's full-page-redirect design) — is reliably intercepted.
   await page.route(OAUTH_PROVIDER_AUTHORIZE_HOST_PATTERNS[provider], async (route) => {
-    await route.fulfill({ status: 302, headers: { location: callbackUrl } });
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: `<script>window.location.href = ${JSON.stringify(callbackUrl)};</script>`,
+    });
   });
 
   // Hop 2: Charon's own callback route, which (once implemented) validates

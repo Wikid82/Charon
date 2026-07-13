@@ -2,12 +2,14 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -173,6 +175,65 @@ func TestOAuthCallback_State_IsSingleUse(t *testing.T) {
 	var resp2 map[string]any
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
 	assert.Equal(t, "invalid_oauth_state", resp2["error_code"])
+}
+
+// TestOAuthCallback_TokenExchangeFailure_RedirectsWithSentinelMessage_NoRawErrorLeak
+// is a Commit 5 hardening-pass test (spec §3.8 "error-path information
+// leakage", §3.9 "token exchange failed"). A valid, unexpired, single-use
+// `state` reaches CompleteOAuth, but the authorization code is bogus, so the
+// real token exchange against Dropbox's real endpoint fails (there is no
+// injectable fake endpoint without changing production wiring — the
+// interesting thing to verify here is what the *redirect* exposes, not the
+// exchange transport). Whatever the underlying failure looks like — Dropbox
+// rejecting the bogus code/secret with a real error body, or a network
+// failure — the callback handler MUST reduce it to the fixed
+// "token_exchange_failed" sentinel and never let any fragment of the real
+// error (provider response body, the submitted code, wrapped Go error
+// prefixes) leak into the URL the browser is redirected to.
+func TestOAuthCallback_TokenExchangeFailure_RedirectsWithSentinelMessage_NoRawErrorLeak(t *testing.T) {
+	router, db := setupBackupRemoteHandlerTest(t, newOAuthHandlerTestEncryption(t))
+	setPublicURL(t, db)
+
+	uuid := createOAuthTarget(t, router, "dropbox",
+		map[string]any{"dropbox": map[string]any{"app_key": "app-key"}},
+		map[string]any{"oauth_client_secret": "app-secret"})
+
+	startReq := httptest.NewRequest(http.MethodPost, "/api/v1/backups/remote-targets/"+uuid+"/oauth/start", nil)
+	startRec := httptest.NewRecorder()
+	router.ServeHTTP(startRec, startReq)
+	require.Equal(t, http.StatusOK, startRec.Code)
+	var startResp map[string]any
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	authorizeURL, _ := startResp["authorize_url"].(string)
+	parsed, err := url.Parse(authorizeURL)
+	require.NoError(t, err)
+	state := parsed.Query().Get("state")
+	require.NotEmpty(t, state)
+
+	// Bound the real outbound token-exchange call so this test can't hang
+	// in a network-restricted CI runner.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/backups/remote-targets/oauth/dropbox/callback?state="+url.QueryEscape(state)+"&code=bogus-authorization-code-value",
+		nil,
+	).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusFound, rec.Code)
+	location := rec.Header().Get("Location")
+	assert.True(t, strings.HasPrefix(location, "https://charon.example.com/backups?"))
+	assert.Contains(t, location, "oauth_result=error")
+	assert.Contains(t, location, "message=token_exchange_failed")
+
+	// The actual leakage check: none of the raw exchange-failure detail
+	// (the bogus code we sent, common OAuth2 provider/error-wrapping
+	// vocabulary) may appear anywhere in the redirect target.
+	for _, leaked := range []string{"bogus-authorization-code-value", "invalid_grant", "oauth2:", "dropbox:", "exchange oauth code"} {
+		assert.NotContains(t, location, leaked, "callback redirect must not leak raw provider/exchange error detail")
+	}
 }
 
 func TestOAuthDisconnect_Success(t *testing.T) {

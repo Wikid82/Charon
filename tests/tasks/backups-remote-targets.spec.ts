@@ -347,7 +347,7 @@ test.describe('Backups Page - Remote Targets', () => {
   // ==========================================================================
 
   test.describe('Creating a WebDAV target (single-step save, no OAuth)', () => {
-    test.fixme(
+    test(
       'should submit url/username/base_path/insecure_skip_verify + password secret',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -371,11 +371,17 @@ test.describe('Backups Page - Remote Targets', () => {
           const dialog = page.getByRole('dialog');
           await dialog.getByRole('radio', { name: /webdav/i }).check();
 
-          await dialog.getByLabel(/name/i).fill('Nextcloud');
-          await dialog.getByLabel(/^url/i).fill('https://nas.example.com/remote.php/dav/files/charon/');
+          // "/name/i" would also match the WebDAV form's "Username" label
+          // (contains "name" as a substring), so anchor to the start.
+          await dialog.getByLabel(/^name/i).fill('Nextcloud');
+          // The WebDAV URL field's label is "WebDAV URL" (i18n
+          // webdavUrl), not "URL" — an anchored /^url/i never matches it.
+          await dialog.getByLabel(/webdav url/i).fill('https://nas.example.com/remote.php/dav/files/charon/');
           await dialog.getByLabel(/username/i).fill('charon');
           await dialog.getByLabel(/base path/i).fill('/charon-backups');
-          await dialog.getByLabel(/insecure/i).uncheck();
+          // i18n label is "Skip TLS Certificate Verification" (no literal
+          // "insecure" substring) — match the actual copy.
+          await dialog.getByLabel(/skip tls certificate verification/i).uncheck();
           await dialog.getByLabel(/^password/i).fill('super-secret-password');
 
           await Promise.all([
@@ -400,7 +406,7 @@ test.describe('Backups Page - Remote Targets', () => {
       }
     );
 
-    test.fixme(
+    test(
       'should leave the password blank on edit and preserve existing WebDAV config values',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -413,7 +419,7 @@ test.describe('Backups Page - Remote Targets', () => {
         await row.getByTestId('backup-remote-target-edit-btn').click();
 
         const dialog = page.getByRole('dialog');
-        await expect(dialog.getByLabel(/^url/i)).toHaveValue('https://nas.example.com/remote.php/dav/files/charon/');
+        await expect(dialog.getByLabel(/webdav url/i)).toHaveValue('https://nas.example.com/remote.php/dav/files/charon/');
         await expect(dialog.getByLabel(/base path/i)).toHaveValue('/charon-backups');
 
         const passwordField = dialog.getByLabel(/^password/i);
@@ -423,7 +429,7 @@ test.describe('Backups Page - Remote Targets', () => {
       }
     );
 
-    test.fixme('should show a success state when the WebDAV connection test succeeds', async ({ page, adminUser }) => {
+    test('should show a success state when the WebDAV connection test succeeds', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
       await setupRemoteTargets(page, [buildWebDAVTargetFixture()]);
 
@@ -440,7 +446,7 @@ test.describe('Backups Page - Remote Targets', () => {
       await waitForToast(page, /connected|success/i, { type: 'success' });
     });
 
-    test.fixme(
+    test(
       'should show a failure state when the WebDAV connection test fails (e.g. SSRF-rejected host)',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -465,7 +471,7 @@ test.describe('Backups Page - Remote Targets', () => {
   });
 
   test.describe('Creating a Dropbox target (two-step OAuth create->connect lifecycle)', () => {
-    test.fixme(
+    test(
       'should save config + client secret without a token, then redirect to the Dropbox authorize URL on Save & Connect',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -526,7 +532,7 @@ test.describe('Backups Page - Remote Targets', () => {
       }
     );
 
-    test.fixme(
+    test(
       'should show a connected status badge after a successful OAuth callback redirect',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -544,7 +550,7 @@ test.describe('Backups Page - Remote Targets', () => {
         await waitForToast(page, /connected|success/i, { type: 'success' });
 
         const row = page.getByTestId('backup-remote-target-row').filter({ hasText: 'Dropbox' });
-        await expect(row.getByTestId('backup-remote-target-oauth-badge')).toContainText(/connected/i);
+        await expect(row.getByTestId('backup-remote-target-oauth-status-badge')).toContainText(/connected/i);
 
         // The query string is stripped via history.replaceState once handled
         // (spec §3.6) so a page refresh doesn't re-show the toast.
@@ -552,7 +558,7 @@ test.describe('Backups Page - Remote Targets', () => {
       }
     );
 
-    test.fixme(
+    test(
       'should show a not_connected badge and a Connect button before any OAuth round trip has occurred',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -562,7 +568,7 @@ test.describe('Backups Page - Remote Targets', () => {
         await waitForLoadingComplete(page);
 
         const row = page.getByTestId('backup-remote-target-row').filter({ hasText: 'Dropbox' });
-        await expect(row.getByTestId('backup-remote-target-oauth-badge')).toContainText(/not connected/i);
+        await expect(row.getByTestId('backup-remote-target-oauth-status-badge')).toContainText(/not connected/i);
         await expect(row.getByRole('button', { name: /^connect$/i })).toBeVisible();
         await expect(row.getByRole('button', { name: /reconnect/i })).toHaveCount(0);
       }
@@ -570,7 +576,7 @@ test.describe('Backups Page - Remote Targets', () => {
   });
 
   test.describe('Creating a Google Drive target (two-step OAuth create->connect lifecycle)', () => {
-    test.fixme(
+    test(
       'should save config + client secret without a token, then redirect to the Google authorize URL on Save & Connect',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -628,7 +634,7 @@ test.describe('Backups Page - Remote Targets', () => {
       }
     );
 
-    test.fixme(
+    test(
       'should show a connected status badge after a successful OAuth callback redirect',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -642,13 +648,13 @@ test.describe('Backups Page - Remote Targets', () => {
         await waitForToast(page, /connected|success/i, { type: 'success' });
 
         const row = page.getByTestId('backup-remote-target-row').filter({ hasText: 'Google Drive' });
-        await expect(row.getByTestId('backup-remote-target-oauth-badge')).toContainText(/connected/i);
+        await expect(row.getByTestId('backup-remote-target-oauth-status-badge')).toContainText(/connected/i);
       }
     );
   });
 
   test.describe('OAuth error paths', () => {
-    test.fixme(
+    test(
       'should surface an error toast and leave the target not_connected when oauth_result=error (consent denied)',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -662,11 +668,11 @@ test.describe('Backups Page - Remote Targets', () => {
         await waitForToast(page, /denied|authorization|failed/i, { type: 'error' });
 
         const row = page.getByTestId('backup-remote-target-row').filter({ hasText: 'Dropbox' });
-        await expect(row.getByTestId('backup-remote-target-oauth-badge')).toContainText(/not connected/i);
+        await expect(row.getByTestId('backup-remote-target-oauth-status-badge')).toContainText(/not connected/i);
       }
     );
 
-    test.fixme(
+    test(
       'should surface the oauth_not_connected error code via the Test button toast path',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -691,7 +697,7 @@ test.describe('Backups Page - Remote Targets', () => {
       }
     );
 
-    test.fixme(
+    test(
       'should surface the oauth_revoked error code via the Test button toast path',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -713,16 +719,25 @@ test.describe('Backups Page - Remote Targets', () => {
       }
     );
 
-    test.fixme(
+    test(
       'should surface public_url_not_configured when Save & Connect is clicked with no app.public_url Setting configured',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
-        await setupRemoteTargets(page, []);
 
         const created = buildDropboxTargetFixture({ oauth_status: 'not_connected' });
+        // Stateful mock (not the fixed-empty-list setupRemoteTargets helper):
+        // the target is genuinely persisted by Create (spec R2 — "pending"
+        // targets are saved even before OAuth completes), so a subsequent
+        // GET after oauth/start fails must reflect it, or this test can never
+        // observe the "row still exists for a later retry" behavior (spec §3.9)
+        // it's asserting.
+        let targets: Record<string, unknown>[] = [];
         await page.route('**/api/v1/backups/remote-targets', async (route) => {
           if (route.request().method() === 'POST') {
+            targets = [...targets, created];
             await route.fulfill({ status: 201, json: created });
+          } else if (route.request().method() === 'GET') {
+            await route.fulfill({ status: 200, json: targets });
           } else {
             await route.continue();
           }
@@ -756,7 +771,7 @@ test.describe('Backups Page - Remote Targets', () => {
   });
 
   test.describe('OAuth status badge and Connect/Reconnect visibility (RemoteTargetsCard)', () => {
-    test.fixme(
+    test(
       'should render accessible Connect/Reconnect controls consistently across not_connected/connected/revoked states',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -769,18 +784,30 @@ test.describe('Backups Page - Remote Targets', () => {
         await page.goto('/tasks/backups');
         await waitForLoadingComplete(page);
 
+        // Actual RemoteTargetsCard row structure (verified against the real
+        // component, not the Commit 1 guess): name/type are two <p> elements
+        // (accessible as "paragraph", not a bare "text" node), the
+        // last-test-status Badge and the OAuth-status Badge carry no
+        // distinguishing ARIA role so they collapse into a single "text"
+        // node, and the Test button's accessible name is its i18n label
+        // ("Test Connection"), not the bare "Test" the guess assumed —
+        // there is also no distinct "status" role since Badge renders a
+        // plain styled <span>, not role="status".
         const notConnectedRow = page.getByTestId('backup-remote-target-row').filter({ hasText: 'Dropbox Not Connected' });
         await expect(notConnectedRow).toMatchAriaSnapshot(`
           - listitem:
-            - text: Dropbox Not Connected
-            - status: /not connected/i
+            - paragraph: Dropbox Not Connected
+            - paragraph: DROPBOX
+            - text: Never tested Not Connected
             - button "Connect"
-            - button "Test"
+            - button "Test Connection"
+            - button "Edit"
+            - button "Delete"
         `);
       }
     );
 
-    test.fixme(
+    test(
       'should show a Reconnect button (not Connect) and a revoked badge for a target whose OAuth was revoked out-of-band',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -790,13 +817,13 @@ test.describe('Backups Page - Remote Targets', () => {
         await waitForLoadingComplete(page);
 
         const row = page.getByTestId('backup-remote-target-row').filter({ hasText: 'Google Drive' });
-        await expect(row.getByTestId('backup-remote-target-oauth-badge')).toContainText(/revoked/i);
+        await expect(row.getByTestId('backup-remote-target-oauth-status-badge')).toContainText(/revoked/i);
         await expect(row.getByRole('button', { name: /reconnect/i })).toBeVisible();
         await expect(row.getByRole('button', { name: /^connect$/i })).toHaveCount(0);
       }
     );
 
-    test.fixme(
+    test(
       'should hide the Connect/Reconnect button for a fully connected OAuth target',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -808,7 +835,7 @@ test.describe('Backups Page - Remote Targets', () => {
         await waitForLoadingComplete(page);
 
         const row = page.getByTestId('backup-remote-target-row').filter({ hasText: 'Dropbox' });
-        await expect(row.getByTestId('backup-remote-target-oauth-badge')).toContainText(/connected/i);
+        await expect(row.getByTestId('backup-remote-target-oauth-status-badge')).toContainText(/connected/i);
         await expect(row.getByRole('button', { name: /^connect$/i })).toHaveCount(0);
         await expect(row.getByRole('button', { name: /reconnect/i })).toHaveCount(0);
         // Test button remains available regardless of OAuth state (spec §3.6).
