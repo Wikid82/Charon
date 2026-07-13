@@ -417,6 +417,36 @@ func TestSecurityService_Upsert_RateLimitFieldsPersist(t *testing.T) {
 	assert.Equal(t, "custom-rules", got.WAFRulesSource, "WAFRulesSource should be updated")
 }
 
+func TestSecurityService_Flush_WaitsForSlowWrites(t *testing.T) {
+	db := setupSecurityTestDB(t)
+
+	// Simulate a slow CI runner: each SecurityAudit INSERT takes 150ms, so
+	// three writes (450ms) exceed the old Flush cap of 200ms. Flush must
+	// still wait for every accepted audit to be persisted.
+	err := db.Callback().Create().Before("gorm:create").Register("test_slow_audit_insert", func(tx *gorm.DB) {
+		if _, ok := tx.Statement.Dest.(*models.SecurityAudit); ok {
+			time.Sleep(150 * time.Millisecond)
+		}
+	})
+	assert.NoError(t, err)
+
+	svc := newTestSecurityService(t, db)
+
+	for i := 0; i < 3; i++ {
+		assert.NoError(t, svc.LogAudit(&models.SecurityAudit{
+			Action:        fmt.Sprintf("slow_write_%d", i),
+			EventCategory: "flush_test",
+		}))
+	}
+
+	svc.Flush()
+
+	var count int64
+	assert.NoError(t, db.Model(&models.SecurityAudit{}).
+		Where("event_category = ?", "flush_test").Count(&count).Error)
+	assert.EqualValues(t, 3, count, "Flush returned before all pending audits were persisted")
+}
+
 func TestSecurityService_LogAudit(t *testing.T) {
 	db := setupSecurityTestDB(t)
 	svc := newTestSecurityService(t, db)

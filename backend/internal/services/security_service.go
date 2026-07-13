@@ -8,6 +8,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,12 +25,13 @@ var (
 )
 
 type SecurityService struct {
-	db        *gorm.DB
-	auditChan chan *models.SecurityAudit
-	done      chan struct{}  // Channel to signal goroutine to stop
-	wg        sync.WaitGroup // WaitGroup to track goroutine completion
-	closed    bool           // Flag to prevent double-close
-	mu        sync.Mutex     // Mutex to protect closed flag
+	db            *gorm.DB
+	auditChan     chan *models.SecurityAudit
+	done          chan struct{}  // Channel to signal goroutine to stop
+	wg            sync.WaitGroup // WaitGroup to track goroutine completion
+	closed        bool           // Flag to prevent double-close
+	mu            sync.Mutex     // Mutex to protect closed flag
+	pendingAudits atomic.Int64   // Audits accepted by LogAudit but not yet persisted
 }
 
 // NewSecurityService returns a SecurityService using the provided DB
@@ -60,17 +62,14 @@ func (s *SecurityService) Close() {
 	s.wg.Wait()        // Wait for the goroutine to finish
 }
 
-// Flush processes all pending audit logs synchronously (useful for testing)
+// Flush blocks until every audit accepted by LogAudit has been persisted
+// (useful for testing). A generous deadline prevents hanging on a wedged
+// database; channel length is not a reliable signal because an audit the
+// worker has dequeued but not yet written is in neither the channel nor the DB.
 func (s *SecurityService) Flush() {
-	// Wait for all pending audits to be processed
-	// In practice, we wait for the channel to be empty and then a bit more
-	// to ensure the database write completes
-	for i := 0; i < 20; i++ { // Max 200ms wait
-		if len(s.auditChan) == 0 {
-			time.Sleep(10 * time.Millisecond) // Extra wait for DB write
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+	deadline := time.Now().Add(5 * time.Second)
+	for s.pendingAudits.Load() > 0 && time.Now().Before(deadline) {
+		time.Sleep(2 * time.Millisecond)
 	}
 }
 
@@ -248,11 +247,16 @@ func (s *SecurityService) LogAudit(a *models.SecurityAudit) error {
 		a.CreatedAt = time.Now()
 	}
 
+	// Count before enqueueing so Flush never observes a gap between an
+	// audit being accepted and the worker picking it up.
+	s.pendingAudits.Add(1)
+
 	// Non-blocking send to avoid blocking main operations
 	select {
 	case s.auditChan <- a:
 		return nil
 	default:
+		defer s.pendingAudits.Add(-1)
 		if err := s.persistAuditWithRetry(a); err != nil {
 			return fmt.Errorf("persist audit synchronously: %w", err)
 		}
@@ -300,27 +304,27 @@ func (s *SecurityService) processAuditEvents() {
 				// Channel closed, exit goroutine
 				return
 			}
-			if err := s.persistAuditWithRetry(audit); err != nil {
-				// Silently ignore errors from closed databases (common in tests)
-				// Only log for other types of errors
-				errMsg := err.Error()
-				if !strings.Contains(errMsg, "no such table") &&
-					!strings.Contains(errMsg, "database is closed") {
-					fmt.Printf("Failed to write audit log: %v\n", err)
-				}
-			}
+			s.handleAudit(audit)
 		case <-s.done:
 			// Service is shutting down - drain remaining audit events before exiting
 			for audit := range s.auditChan {
-				if err := s.persistAuditWithRetry(audit); err != nil {
-					errMsg := err.Error()
-					if !strings.Contains(errMsg, "no such table") &&
-						!strings.Contains(errMsg, "database is closed") {
-						fmt.Printf("Failed to write audit log: %v\n", err)
-					}
-				}
+				s.handleAudit(audit)
 			}
 			return
+		}
+	}
+}
+
+// handleAudit persists a dequeued audit and marks it no longer pending.
+func (s *SecurityService) handleAudit(audit *models.SecurityAudit) {
+	defer s.pendingAudits.Add(-1)
+	if err := s.persistAuditWithRetry(audit); err != nil {
+		// Silently ignore errors from closed databases (common in tests)
+		// Only log for other types of errors
+		errMsg := err.Error()
+		if !strings.Contains(errMsg, "no such table") &&
+			!strings.Contains(errMsg, "database is closed") {
+			fmt.Printf("Failed to write audit log: %v\n", err)
 		}
 	}
 }

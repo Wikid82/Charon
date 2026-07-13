@@ -1,18 +1,82 @@
 import { format } from 'date-fns';
+import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
-import { type CaddyAccessLog } from '../api/logs';
+import { type CaddyAccessLog, type LogSortField } from '../api/logs';
+
+type SortDirection = 'asc' | 'desc';
 
 interface LogTableProps {
   logs: CaddyAccessLog[];
   isLoading: boolean;
+  /** True while a background refetch is in flight (previous page still shown). */
+  isFetching?: boolean;
+  sortBy: LogSortField;
+  sortDir: SortDirection;
+  onSortChange: (field: LogSortField) => void;
 }
 
-export const LogTable: React.FC<LogTableProps> = ({ logs, isLoading }) => {
+const HEADER_CELL_CLASS =
+  'px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 tracking-wider';
+
+/** Badge color classes per log level (unknown levels fall back to gray). */
+const LEVEL_BADGE_CLASSES: Record<string, string> = {
+  error: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
+  warn: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
+  info: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
+  debug: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200',
+};
+
+interface SortableHeaderProps {
+  field: LogSortField;
+  label: string;
+  sortBy: LogSortField;
+  sortDir: SortDirection;
+  onSortChange: (field: LogSortField) => void;
+}
+
+/**
+ * Clickable column header for server-side sorting. The header keeps the
+ * plain label as its accessible name (button text only), exposes the active
+ * sort via aria-sort on the th, and shows a direction icon.
+ */
+const SortableHeader: React.FC<SortableHeaderProps> = ({ field, label, sortBy, sortDir, onSortChange }) => {
+  const isActive = sortBy === field;
+  const ariaSort = isActive ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined;
+  const Icon = isActive ? (sortDir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
+
+  return (
+    <th scope="col" className={HEADER_CELL_CLASS} aria-sort={ariaSort}>
+      <button
+        type="button"
+        onClick={() => onSortChange(field)}
+        data-testid={`sort-header-${field}`}
+        className={`inline-flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200 transition-colors ${
+          isActive ? 'text-gray-900 dark:text-white' : ''
+        }`}
+      >
+        {label}
+        <Icon className="w-3.5 h-3.5" aria-hidden="true" />
+      </button>
+    </th>
+  );
+};
+
+export const LogTable: React.FC<LogTableProps> = ({
+  logs,
+  isLoading,
+  isFetching = false,
+  sortBy,
+  sortDir,
+  onSortChange,
+}) => {
+  const { t } = useTranslation();
+
   if (isLoading) {
     return (
       <div className="w-full h-64 flex items-center justify-center text-gray-500">
-        Loading logs...
+        {t('logs.loading')}
       </div>
     );
   }
@@ -20,27 +84,37 @@ export const LogTable: React.FC<LogTableProps> = ({ logs, isLoading }) => {
   if (!logs || logs.length === 0) {
     return (
       <div className="w-full h-64 flex items-center justify-center text-gray-500">
-        No logs found matching criteria.
+        {t('logs.noLogsFound')}
       </div>
     );
   }
 
+  const sortProps = { sortBy, sortDir, onSortChange };
+
   return (
     <div className="overflow-x-auto">
-      <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+      <table
+        className="min-w-full divide-y divide-gray-200 dark:divide-gray-700"
+        aria-busy={isFetching}
+      >
         <thead className="bg-gray-50 dark:bg-gray-800">
           <tr>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Time</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Method</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Host</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Path</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">IP</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Latency</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Message</th>
+            <SortableHeader field="ts" label={t('logs.columnTime')} {...sortProps} />
+            <SortableHeader field="level" label={t('logs.columnLevel')} {...sortProps} />
+            <SortableHeader field="status" label={t('logs.columnStatus')} {...sortProps} />
+            <SortableHeader field="method" label={t('logs.columnMethod')} {...sortProps} />
+            <th scope="col" className={HEADER_CELL_CLASS}>{t('logs.columnHost')}</th>
+            <SortableHeader field="uri" label={t('logs.columnPath')} {...sortProps} />
+            <th scope="col" className={HEADER_CELL_CLASS}>{t('logs.columnIp')}</th>
+            <th scope="col" className={HEADER_CELL_CLASS}>{t('logs.columnLatency')}</th>
+            <th scope="col" className={HEADER_CELL_CLASS}>{t('logs.columnMessage')}</th>
           </tr>
         </thead>
-        <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+        <tbody
+          className={`bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700 transition-opacity ${
+            isFetching ? 'opacity-50' : ''
+          }`}
+        >
           {logs.map((log, idx) => {
             // Check if this is a structured access log or a plain text system log
             const isAccessLog = log.status > 0 || (log.request && log.request.method);
@@ -51,7 +125,7 @@ export const LogTable: React.FC<LogTableProps> = ({ logs, isLoading }) => {
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                     {format(new Date(log.ts * 1000), 'MMM d HH:mm:ss')}
                   </td>
-                  <td colSpan={7} className="px-6 py-4 text-sm text-gray-900 dark:text-white font-mono whitespace-pre-wrap break-all">
+                  <td colSpan={8} className="px-6 py-4 text-sm text-gray-900 dark:text-white font-mono whitespace-pre-wrap break-all">
                     {log.msg}
                   </td>
                 </tr>
@@ -62,6 +136,18 @@ export const LogTable: React.FC<LogTableProps> = ({ logs, isLoading }) => {
             <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                 {format(new Date(log.ts * 1000), 'MMM d HH:mm:ss')}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm">
+                {log.level && (
+                  <span
+                    className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full uppercase ${
+                      LEVEL_BADGE_CLASSES[log.level.toLowerCase()] ?? LEVEL_BADGE_CLASSES.debug
+                    }`}
+                    data-testid={`level-${log.level.toLowerCase()}`}
+                  >
+                    {log.level}
+                  </span>
+                )}
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm">
                 {log.status > 0 && (

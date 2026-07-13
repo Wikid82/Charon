@@ -1062,7 +1062,7 @@
         {
             "label": "Utility: Update Go Version",
             "type": "shell",
-            "command": "go env -w GOTOOLCHAIN=go$(go list -m -f '{{.Version}}' go@latest)+auto && go list -m -f '{{.Version}}' go@latest && go version",
+            "command": "./scripts/update-go-toolchain.sh",
             "group": "none",
             "problemMatcher": [],
             "presentation": {

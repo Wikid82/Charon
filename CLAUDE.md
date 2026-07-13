@@ -103,16 +103,17 @@ Before proposing ANY code change or fix, build a mental map of the feature:
 - **Weekly Promotion PRs** (`nightly → main`): ALWAYS merge using **"Create a merge commit"** — NEVER squash or rebase. Squash merging collapses all commits into bullet lines that the `auto-versioning` workflow cannot parse, silently preventing minor version bumps and producing empty release notes.
 - **History-Rewrite PRs**: If a PR touches files in `scripts/history-rewrite/` or `docs/plans/history_rewrite.md`, the PR description MUST include the history-rewrite checklist from `.github/PULL_REQUEST_TEMPLATE/history-rewrite.md`.
 
-## PR Sizing & Decomposition
+## Commit Slicing & PR Strategy
 
-- **Default Rule**: Prefer smaller, reviewable PRs over one large PR when work spans multiple domains.
-- **Split into Multiple PRs When**: the change touches backend + frontend + infrastructure/security; the diff is large enough to reduce review quality; work can be delivered in independently testable slices; a foundational refactor is needed before feature delivery.
-- **Suggested PR Sequence**:
-  1. Foundation PR (types/contracts/refactors, no behavior change)
-  2. Backend PR (API/model/service changes + tests)
-  3. Frontend PR (UI integration + tests)
-  4. Hardening PR (security/CI/docs/follow-up fixes)
-- **Per-PR Requirement**: Every PR must remain deployable, pass DoD checks, and include a clear dependency note on prior PRs.
+- **One Feature = One PR**: A feature merges only when it is complete. NEVER split a single feature across multiple PRs (e.g., separate backend/frontend/security PRs) — plans must produce a **Commit Slicing Strategy**, not a PR slicing strategy.
+- **Slice Commits, Not PRs**: Decompose the work into ordered, logical commits within the single feature PR. Each commit defines its scope, files, dependencies, and validation gate.
+- **Suggested Commit Sequence** within the PR:
+  1. E2E specs for new behavior (as `test.fixme` until implemented)
+  2. Foundation (types/contracts/refactors, no behavior change)
+  3. Backend (API/model/service changes + tests)
+  4. Frontend (UI integration + tests)
+  5. Hardening + enable E2E + docs
+- **Per-Commit Requirement**: Each commit should build and pass its validation gate; the PR as a whole must pass the full Definition of Done before merge.
 
 ## ✅ Task Completion Protocol (Definition of Done)
 

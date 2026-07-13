@@ -813,7 +813,21 @@
     "noLogSelected": "Kein Protokoll ausgewählt",
     "selectLogDescription": "Wählen Sie eine Protokolldatei aus der Liste, um deren Inhalt anzuzeigen",
     "showingEntries": "Zeige {{from}} bis {{to}} von {{total}} Einträgen",
-    "pageOf": "Seite {{current}} von {{total}}"
+    "pageOf": "Seite {{current}} von {{total}}",
+    "loading": "Protokolle werden geladen...",
+    "noLogsFound": "Keine passenden Protokolleinträge gefunden.",
+    "downloadFailed": "Protokolldatei konnte nicht heruntergeladen werden",
+    "skippedLines_one": "{{count}} beschädigte oder übergroße Zeile wurde übersprungen",
+    "skippedLines_other": "{{count}} beschädigte oder übergroße Zeilen wurden übersprungen",
+    "columnTime": "Zeit",
+    "columnLevel": "Stufe",
+    "columnStatus": "Status",
+    "columnMethod": "Methode",
+    "columnHost": "Host",
+    "columnPath": "Pfad",
+    "columnIp": "IP",
+    "columnLatency": "Latenz",
+    "columnMessage": "Nachricht"
   },
   "account": {
     "title": "Kontoeinstellungen",
