@@ -18,7 +18,7 @@ Backups are `.zip` archives (optionally encrypted, see [Encrypting Backups](#enc
 - **Disaster Recovery**: Restore your entire configuration after a failure
 - **Migration Made Easy**: Move to new hardware without reconfiguring
 - **Change Confidence**: Make changes knowing you can roll back
-- **Off-Site Copies**: Push backups to S3 or SFTP storage automatically
+- **Off-Site Copies**: Push backups to S3, SFTP, WebDAV, Dropbox, or Google Drive automatically
 
 ## What Gets Backed Up
 
@@ -92,12 +92,17 @@ Separately from archive encryption, sensitive database fields (DNS provider cred
 
 ## Remote Storage
 
-Charon can copy every scheduled (and manual) backup to an S3-compatible bucket or an SFTP server automatically. Configure this under **Tasks** → **Backups** → **Remote Storage Targets**:
+Charon can copy every scheduled (and manual) backup to off-site storage automatically. Configure this under **Tasks** → **Backups** → **Remote Storage Targets**:
 
 - **S3**: works with AWS S3 and S3-compatible services (MinIO, Backblaze B2, Cloudflare R2, etc.)
 - **SFTP**: connects to any SSH server; the server's host key must be confirmed once before Charon will send any credentials to it, so a spoofed or swapped server can't intercept your login
+- **WebDAV**: connects to any WebDAV server, including self-hosted ones like Nextcloud, ownCloud, or a plain Apache/nginx WebDAV folder — sign in with a username/password or a bearer token
+- **Dropbox**: click **Connect**, sign in to Dropbox, and approve access — no password ever touches Charon directly (see [Connecting Dropbox or Google Drive](backup-remote-oauth-setup.md) for the one-time setup an admin does first)
+- **Google Drive**: same **Connect**-and-approve flow as Dropbox (see [Connecting Dropbox or Google Drive](backup-remote-oauth-setup.md))
 
 Use **Test Connection** after saving a target to confirm Charon can reach it before relying on it. Upload failures never block or fail the underlying backup — they're recorded against that backup's remote-copy status so you can see at a glance whether your off-site copy actually landed.
+
+Dropbox and Google Drive both require a small amount of one-time setup in the provider's own developer console before the **Connect** button will work — this is a per-instance registration step described in [Connecting Dropbox or Google Drive to Charon](backup-remote-oauth-setup.md).
 
 This Beta release does not yet have an in-app "restore straight from a remote target" button — see [Disaster Recovery: Getting a Backup Down From Remote Storage](disaster-recovery.md#getting-a-backup-down-from-remote-storage) for how to fetch a file down manually and restore it.
 
@@ -110,6 +115,7 @@ This Beta release does not yet have an in-app "restore straight from a remote ta
 
 ## Related
 
+- [Connecting Dropbox or Google Drive](backup-remote-oauth-setup.md) — one-time setup for OAuth-based remote storage
 - [Disaster Recovery](disaster-recovery.md) — cold restores, moving to new hardware, and recovering from remote storage
 - [Encryption Key Rotation](key-rotation.md)
 - [Zero-Downtime Updates](live-reload.md)

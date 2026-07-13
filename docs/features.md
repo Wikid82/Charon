@@ -313,9 +313,9 @@ Get alerted when it matters. Charon sends notifications through Discord, Gotify,
 
 ### 💾 Backup & Restore
 
-Your configuration is valuable. Charon makes it easy to backup your entire setup and restore it when needed—whether you're migrating to new hardware or recovering from a problem. Backups include a validated, checksummed archive format, configurable scheduling, optional passphrase encryption, and automatic copies to S3 or SFTP remote storage.
+Your configuration is valuable. Charon makes it easy to backup your entire setup and restore it when needed—whether you're migrating to new hardware or recovering from a problem. Backups include a validated, checksummed archive format, configurable scheduling, optional passphrase encryption, and automatic copies to S3, SFTP, WebDAV, Dropbox, or Google Drive.
 
-→ [Learn More](features/backup-restore.md) • [Disaster Recovery Guide](features/disaster-recovery.md)
+→ [Learn More](features/backup-restore.md) • [Connecting Dropbox/Google Drive](features/backup-remote-oauth-setup.md) • [Disaster Recovery Guide](features/disaster-recovery.md)
 
 ---
 
