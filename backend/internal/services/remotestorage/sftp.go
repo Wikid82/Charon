@@ -242,8 +242,15 @@ func (u *sftpUploader) List(ctx context.Context, prefix string) ([]RemoteObject,
 		if prefix != "" && !strings.HasPrefix(entry.Name(), prefix) {
 			continue
 		}
+		// Name mirrors Key here (SFTP's List already scopes to a single
+		// directory and Key is already a bare filename, not a full path) —
+		// still explicitly set so retention-candidate filtering
+		// (BackupRemoteService.pruneRemoteRetention) keeps matching
+		// "backup_*.zip*" via Name rather than Key (spec §3.2, Issue #32
+		// Phase 2).
 		objects = append(objects, RemoteObject{
 			Key:          entry.Name(),
+			Name:         entry.Name(),
 			Size:         entry.Size(),
 			LastModified: entry.ModTime(),
 		})

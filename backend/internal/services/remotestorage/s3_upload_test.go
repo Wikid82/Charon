@@ -218,6 +218,13 @@ func TestS3Uploader_UploadListDeleteTest_Roundtrip(t *testing.T) {
 	for _, o := range objects {
 		names = append(names, o.Key)
 		assert.Greater(t, o.Size, int64(0))
+		if o.Key == "backups/backup_1.zip" {
+			// Regression guard (spec §3.2, Issue #32 Phase 2): Name must be
+			// the basename, not empty and not the full Key, or retention
+			// pruning's obj.Name filter silently stops matching every
+			// existing S3 target.
+			assert.Equal(t, "backup_1.zip", o.Name)
+		}
 	}
 	assert.Contains(t, names, "backups/backup_1.zip")
 

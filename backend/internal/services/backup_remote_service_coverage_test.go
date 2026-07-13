@@ -442,7 +442,8 @@ func TestPruneRemoteRetention_NonPositiveRetentionCount_UsesDefault(t *testing.T
 
 	fake := &fakeUploader{}
 	for i := 0; i < defaultRemoteRetentionCount+3; i++ {
-		fake.objects = append(fake.objects, remotestorage.RemoteObject{Key: "backup_" + string(rune('a'+i)) + ".zip"})
+		name := "backup_" + string(rune('a'+i)) + ".zip"
+		fake.objects = append(fake.objects, remotestorage.RemoteObject{Key: name, Name: name})
 	}
 
 	svc.pruneRemoteRetention(context.Background(), fake, "", 0)
@@ -470,8 +471,8 @@ func TestPruneRemoteRetention_DeleteError_LoggedNotPanicked(t *testing.T) {
 
 	now := time.Now()
 	fake := &fakeUploader{objects: []remotestorage.RemoteObject{
-		{Key: "backup_1.zip", LastModified: now.Add(-time.Hour)},
-		{Key: "backup_2.zip", LastModified: now},
+		{Key: "backup_1.zip", Name: "backup_1.zip", LastModified: now.Add(-time.Hour)},
+		{Key: "backup_2.zip", Name: "backup_2.zip", LastModified: now},
 	}}
 	deleteErrUploader := &deleteErrorUploader{fakeUploader: fake, err: assertAnError}
 

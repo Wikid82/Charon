@@ -8,7 +8,8 @@ import (
 )
 
 // RemoteStorageTarget stores a configured off-host backup destination
-// (S3-compatible or SFTP). It mirrors the DNSProviderCredential secret
+// (S3-compatible, SFTP, WebDAV, Dropbox, or Google Drive). It mirrors the
+// DNSProviderCredential secret
 // pattern: non-secret config lives in ConfigJSON, secrets are AES-256-GCM
 // encrypted (crypto.EncryptionService) into SecretsEncrypted, and neither
 // field is ever serialized to JSON — handlers decode ConfigJSON into a typed
@@ -19,7 +20,12 @@ type RemoteStorageTarget struct {
 	UUID string `json:"uuid" gorm:"uniqueIndex;size:36"`
 
 	Name string `json:"name" gorm:"not null;size:255"`
-	Type string `json:"type" gorm:"index;not null;size:10"` // s3|sftp
+	// Type: s3|sftp|webdav|dropbox|google_drive. Widened from size:10 to
+	// size:20 (Issue #32 Phase 2) — "google_drive" is 12 characters and the
+	// original size:10 hint silently truncated it on any backend that
+	// enforces VARCHAR(n) (SQLite itself ignores the hint, but the model
+	// must stop lying about the constraint for portability/correctness).
+	Type string `json:"type" gorm:"index;not null;size:20"`
 
 	Enabled bool `json:"enabled" gorm:"default:true;index"`
 
@@ -37,6 +43,16 @@ type RemoteStorageTarget struct {
 	// LastTestStatus: ok|failed|never.
 	LastTestStatus string `json:"last_test_status" gorm:"size:20"`
 	LastError      string `json:"last_error,omitempty" gorm:"type:text"`
+
+	// OAuthStatus: ""|not_connected|connected|revoked — "" for non-OAuth
+	// types (s3/sftp/webdav). Promoted to a plaintext column (rather than
+	// living only inside SecretsEncrypted) so the list-view status badge
+	// can read it without a decrypt round-trip per row — mirrors the
+	// existing LastTestStatus/LastTestAt pattern on this same model, for
+	// the same reason (Issue #32 Phase 2, spec §3.4).
+	OAuthStatus string `json:"oauth_status,omitempty" gorm:"size:20"`
+	// OAuthConnectedAt is set when OAuthStatus transitions to "connected".
+	OAuthConnectedAt *time.Time `json:"oauth_connected_at,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

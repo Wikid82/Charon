@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"path"
 	"sync"
 	"testing"
 	"time"
@@ -34,7 +35,7 @@ func (f *fakeUploader) Upload(_ context.Context, _, remoteKey string) error {
 		return f.uploadErr
 	}
 	f.uploaded = append(f.uploaded, remoteKey)
-	f.objects = append(f.objects, remotestorage.RemoteObject{Key: remoteKey, Size: 1, LastModified: time.Now()})
+	f.objects = append(f.objects, remotestorage.RemoteObject{Key: remoteKey, Name: path.Base(remoteKey), Size: 1, LastModified: time.Now()})
 	return nil
 }
 
@@ -173,11 +174,11 @@ func TestBackupRemoteService_PruneRemoteRetention(t *testing.T) {
 
 	now := time.Now()
 	fake := &fakeUploader{objects: []remotestorage.RemoteObject{
-		{Key: "backup_1.zip", LastModified: now.Add(-5 * time.Hour)},
-		{Key: "backup_2.zip", LastModified: now.Add(-4 * time.Hour)},
-		{Key: "backup_3.zip", LastModified: now.Add(-3 * time.Hour)},
-		{Key: "backup_4.zip", LastModified: now.Add(-2 * time.Hour)},
-		{Key: "not-a-charon-file.txt", LastModified: now.Add(-10 * time.Hour)},
+		{Key: "backup_1.zip", Name: "backup_1.zip", LastModified: now.Add(-5 * time.Hour)},
+		{Key: "backup_2.zip", Name: "backup_2.zip", LastModified: now.Add(-4 * time.Hour)},
+		{Key: "backup_3.zip", Name: "backup_3.zip", LastModified: now.Add(-3 * time.Hour)},
+		{Key: "backup_4.zip", Name: "backup_4.zip", LastModified: now.Add(-2 * time.Hour)},
+		{Key: "not-a-charon-file.txt", Name: "not-a-charon-file.txt", LastModified: now.Add(-10 * time.Hour)},
 	}}
 
 	svc.pruneRemoteRetention(context.Background(), fake, "", 2)
@@ -193,6 +194,34 @@ func TestBackupRemoteService_PruneRemoteRetention(t *testing.T) {
 	}
 	assert.ElementsMatch(t, []string{"backup_4.zip", "backup_3.zip", "not-a-charon-file.txt"}, remainingKeys)
 	assert.ElementsMatch(t, []string{"backup_1.zip", "backup_2.zip"}, fake.deleted)
+}
+
+// TestBackupRemoteService_PruneRemoteRetention_KeyDiffersFromName proves the
+// Locator abstraction (spec §3.2, Issue #32 Phase 2): candidate filtering
+// must use Name (human-readable filename) while deletion must use Key (the
+// provider-native locator) — this is the exact split Google Drive's opaque
+// file IDs require in Commit 3, and this test locks in that
+// pruneRemoteRetention already respects it even though every provider wired
+// up so far (S3/SFTP) happens to have Key derived from Name.
+func TestBackupRemoteService_PruneRemoteRetention_KeyDiffersFromName(t *testing.T) {
+	db := newRemoteServiceTestDB(t)
+	svc := NewBackupRemoteService(db, nil, t.TempDir())
+
+	now := time.Now()
+	fake := &fakeUploader{objects: []remotestorage.RemoteObject{
+		{Key: "opaque-id-1", Name: "backup_1.zip", LastModified: now.Add(-2 * time.Hour)},
+		{Key: "opaque-id-2", Name: "backup_2.zip", LastModified: now.Add(-1 * time.Hour)},
+	}}
+
+	svc.pruneRemoteRetention(context.Background(), fake, "", 1)
+
+	remaining, err := fake.List(context.Background(), "")
+	require.NoError(t, err)
+	require.Len(t, remaining, 1)
+	assert.Equal(t, "opaque-id-2", remaining[0].Key)
+	assert.Equal(t, "backup_2.zip", remaining[0].Name)
+	// Deletion must use the opaque Key, never Name.
+	assert.Equal(t, []string{"opaque-id-1"}, fake.deleted)
 }
 
 // TestBackupRemoteService_TestConnection_RecordsOutcome proves Test()

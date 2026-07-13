@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -125,7 +126,12 @@ func (u *s3Uploader) List(ctx context.Context, prefix string) ([]RemoteObject, e
 		if obj.Err != nil {
 			return nil, fmt.Errorf("s3: list objects: %w", obj.Err)
 		}
-		objects = append(objects, RemoteObject{Key: obj.Key, Size: obj.Size, LastModified: obj.LastModified})
+		// Name is the human-readable basename, always populated so
+		// retention-candidate filtering (BackupRemoteService.pruneRemoteRetention)
+		// keeps matching "backup_*.zip*" — see RemoteObject's doc comment
+		// (spec §3.2, Issue #32 Phase 2) for why this must never be left
+		// empty for an existing, already-shipped provider.
+		objects = append(objects, RemoteObject{Key: obj.Key, Name: path.Base(obj.Key), Size: obj.Size, LastModified: obj.LastModified})
 	}
 	return objects, nil
 }

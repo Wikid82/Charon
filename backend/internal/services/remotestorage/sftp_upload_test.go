@@ -155,6 +155,12 @@ func TestSFTPUploader_UploadListDeleteTest_Roundtrip(t *testing.T) {
 	for _, o := range objects {
 		names = append(names, o.Key)
 		assert.Greater(t, o.Size, int64(0))
+		if o.Key == "backup_1.zip" {
+			// Regression guard (spec §3.2, Issue #32 Phase 2): Name must be
+			// populated (mirrors Key here) or retention pruning's obj.Name
+			// filter silently stops matching every existing SFTP target.
+			assert.Equal(t, "backup_1.zip", o.Name)
+		}
 	}
 	assert.Contains(t, names, "backup_1.zip")
 

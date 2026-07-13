@@ -15,6 +15,7 @@ import (
 func TestRemoteObject_JSONTags(t *testing.T) {
 	obj := RemoteObject{
 		Key:          "backups/backup_x.zip",
+		Name:         "backup_x.zip",
 		Size:         2048,
 		LastModified: time.Date(2026, 7, 8, 3, 0, 0, 0, time.UTC),
 	}
@@ -26,6 +27,7 @@ func TestRemoteObject_JSONTags(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 
 	assert.Equal(t, "backups/backup_x.zip", decoded["key"])
+	assert.Equal(t, "backup_x.zip", decoded["name"])
 	assert.Equal(t, float64(2048), decoded["size"])
 	assert.Contains(t, decoded, "last_modified")
 }

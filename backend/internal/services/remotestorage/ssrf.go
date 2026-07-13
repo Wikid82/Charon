@@ -82,3 +82,26 @@ func safeDialer(timeout time.Duration) *net.Dialer {
 func dialContext(ctx context.Context, dialNetwork, address string, timeout time.Duration) (net.Conn, error) {
 	return safeDialer(timeout).DialContext(ctx, dialNetwork, address)
 }
+
+// WithPermissiveSSRFForTesting temporarily relaxes both the config-save-time
+// and dial-time SSRF checks package-wide, returning a restore func that
+// undoes it. It exists solely so tests in OTHER packages that must
+// construct a *real* Uploader through the exported New() entry point
+// against a local (loopback) test fixture can do so — e.g.
+// backup_remote_service's retention-pruning regression test (spec §3.2,
+// Issue #32 Phase 2), which proves pruneRemoteRetention still works against
+// the actual s3Uploader/sftpUploader List() implementations, not a
+// hand-rolled fake Uploader. It wraps the exact same
+// ssrfValidateHost/ssrfValidateDialAddress seam the in-package tests already
+// use via withPermissiveSSRFForLocalTest — tests within this package should
+// keep using that helper instead; this exported wrapper is for cross-package
+// test use only. Production code never calls this.
+func WithPermissiveSSRFForTesting() (restore func()) {
+	origHost, origDial := ssrfValidateHost, ssrfValidateDialAddress
+	ssrfValidateHost = func(string) error { return nil }
+	ssrfValidateDialAddress = func(net.IP) error { return nil }
+	return func() {
+		ssrfValidateHost = origHost
+		ssrfValidateDialAddress = origDial
+	}
+}

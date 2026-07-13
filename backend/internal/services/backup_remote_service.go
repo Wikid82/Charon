@@ -17,6 +17,36 @@ import (
 	"gorm.io/gorm"
 )
 
+// WebDAVConfig is the non-secret configuration for a webdav-type
+// RemoteStorageTarget (spec §3.2, Issue #32 Phase 2). Structurally mirrors
+// (but is intentionally a separate type from) remotestorage.WebDAVConfig —
+// same dual-definition-bridged-by-JSON pattern already used for S3/SFTP
+// between this API-facing package and the remotestorage package.
+type WebDAVConfig struct {
+	URL                string `json:"url"`
+	Username           string `json:"username,omitempty"`
+	BasePath           string `json:"base_path,omitempty"`
+	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"`
+}
+
+// DropboxConfig is the non-secret configuration for a dropbox-type
+// RemoteStorageTarget (spec §3.2). The uploader that consumes this config
+// (dropbox.go, remotestorage.New's "dropbox" case) lands in a later commit
+// (Issue #32 Phase 2, Commit 3); the config shape is added now so
+// RemoteTargetConfig's wire format is stable and additive across commits.
+type DropboxConfig struct {
+	AppKey     string `json:"app_key"`
+	FolderPath string `json:"folder_path,omitempty"`
+}
+
+// GoogleDriveConfig is the non-secret configuration for a google_drive-type
+// RemoteStorageTarget (spec §3.2). Same "config shape now, uploader later"
+// rationale as DropboxConfig above.
+type GoogleDriveConfig struct {
+	ClientID   string `json:"client_id"`
+	FolderPath string `json:"folder_path,omitempty"`
+}
+
 // RemoteTargetConfig is the non-secret configuration accepted/returned by
 // the remote-targets API (spec §3.3.2). Fields not relevant to Type are
 // simply left zero; handlers decode/encode only the fields relevant to a
@@ -36,6 +66,14 @@ type RemoteTargetConfig struct {
 	Path               string `json:"path,omitempty"`
 	Username           string `json:"username,omitempty"`
 	HostKeyFingerprint string `json:"host_key_fingerprint,omitempty"`
+
+	// WebDAV / Dropbox / Google Drive (spec §3.2, Issue #32 Phase 2) — one
+	// nested pointer sub-config per provider, so this struct grows by one
+	// field per future provider forever, instead of by every provider's
+	// individual settings forever.
+	WebDAV      *WebDAVConfig      `json:"webdav,omitempty"`
+	Dropbox     *DropboxConfig     `json:"dropbox,omitempty"`
+	GoogleDrive *GoogleDriveConfig `json:"google_drive,omitempty"`
 }
 
 // RemoteTargetSecrets is the secret blob accepted by the remote-targets API
@@ -48,6 +86,17 @@ type RemoteTargetSecrets struct {
 	Password        string `json:"password,omitempty"`
 	PrivateKeyPEM   string `json:"private_key_pem,omitempty"`
 	Passphrase      string `json:"passphrase,omitempty"`
+
+	// WebDAV bearer-auth alternative to Password.
+	BearerToken string `json:"bearer_token,omitempty"`
+	// Dropbox/Google Drive OAuth2 fields (spec §3.2, Issue #32 Phase 2).
+	// OAuthClientSecret is the Dropbox "App secret" / Google Client Secret.
+	// OAuthExpiresAt is RFC3339; empty means the OAuth flow hasn't been
+	// completed yet. Populated/consumed starting in Commit 3.
+	OAuthClientSecret string `json:"oauth_client_secret,omitempty"`
+	OAuthAccessToken  string `json:"oauth_access_token,omitempty"`
+	OAuthRefreshToken string `json:"oauth_refresh_token,omitempty"`
+	OAuthExpiresAt    string `json:"oauth_expires_at,omitempty"`
 }
 
 func (s RemoteTargetSecrets) isEmpty() bool {
@@ -56,11 +105,16 @@ func (s RemoteTargetSecrets) isEmpty() bool {
 
 func (s RemoteTargetSecrets) toMap() map[string]string {
 	return map[string]string{
-		"access_key_id":     s.AccessKeyID,
-		"secret_access_key": s.SecretAccessKey,
-		"password":          s.Password,
-		"private_key_pem":   s.PrivateKeyPEM,
-		"passphrase":        s.Passphrase,
+		"access_key_id":       s.AccessKeyID,
+		"secret_access_key":   s.SecretAccessKey,
+		"password":            s.Password,
+		"private_key_pem":     s.PrivateKeyPEM,
+		"passphrase":          s.Passphrase,
+		"bearer_token":        s.BearerToken,
+		"oauth_client_secret": s.OAuthClientSecret,
+		"oauth_access_token":  s.OAuthAccessToken,
+		"oauth_refresh_token": s.OAuthRefreshToken,
+		"oauth_expires_at":    s.OAuthExpiresAt,
 	}
 }
 
@@ -81,13 +135,25 @@ type BackupRemoteService struct {
 	// this package (a fake Uploader — required test #10) so upload/retention
 	// flow logic can be exercised without a real S3/SFTP endpoint.
 	uploaderFactory func(target *models.RemoteStorageTarget, secrets map[string]string) (remotestorage.Uploader, error)
+
+	// states is the in-memory OAuth CSRF state store (spec §3.4/§3.5) shared
+	// by the Dropbox/Google Drive oauth/start + oauth/:provider/callback
+	// handlers landing in Commit 3. Constructed once here so its 10-minute
+	// TTL entries survive across requests within this process's lifetime.
+	states *OAuthStateStore
 }
 
 // NewBackupRemoteService constructs a BackupRemoteService. encryption is
 // nilable: without CHARON_ENCRYPTION_KEY, remote-target secret storage is
 // unavailable and Create/Update return ErrEncryptionKeyMissing (spec R9).
 func NewBackupRemoteService(db *gorm.DB, encryption *crypto.EncryptionService, backupDir string) *BackupRemoteService {
-	return &BackupRemoteService{db: db, encryption: encryption, backupDir: backupDir, uploaderFactory: remotestorage.New}
+	return &BackupRemoteService{
+		db:              db,
+		encryption:      encryption,
+		backupDir:       backupDir,
+		uploaderFactory: remotestorage.New,
+		states:          NewOAuthStateStore(),
+	}
 }
 
 // reconcileStuckUploadingCopies transitions any BackupRemoteCopy rows left
@@ -433,7 +499,11 @@ func (s *BackupRemoteService) pruneRemoteRetention(ctx context.Context, uploader
 
 	var candidates []remotestorage.RemoteObject
 	for _, obj := range objects {
-		base := path.Base(obj.Key)
+		// Filter on Name (human-readable filename), never Key — Key is an
+		// opaque, provider-native locator (e.g. a Google Drive file ID,
+		// Commit 3) that may have no relationship to the filename at all.
+		// See RemoteObject's doc comment (spec §3.2, Issue #32 Phase 2).
+		base := obj.Name
 		if strings.HasPrefix(base, "backup_") && strings.Contains(base, ".zip") {
 			candidates = append(candidates, obj)
 		}
