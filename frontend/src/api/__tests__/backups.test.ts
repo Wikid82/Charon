@@ -16,6 +16,8 @@ import {
   deleteRemoteTarget,
   testRemoteTarget,
   testDraftRemoteTarget,
+  startRemoteTargetOAuth,
+  disconnectRemoteTargetOAuth,
 } from '../backups'
 
 describe('backups api', () => {
@@ -173,5 +175,47 @@ describe('backups api', () => {
     const res = await testDraftRemoteTarget(payload)
     expect(spy).toHaveBeenCalledWith('/backups/remote-targets/test-draft', payload)
     expect(res.discovered_fingerprint).toBe('SHA256:abc')
+  })
+
+  it('createRemoteTarget POSTs a webdav target with nested config', async () => {
+    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({ data: { uuid: 'r2' } })
+    const payload = {
+      name: 'Nextcloud',
+      type: 'webdav' as const,
+      config: { webdav: { url: 'https://nas.example.com/dav/', username: 'charon', base_path: '/backups' } },
+      secrets: { password: 'hunter2' },
+    }
+    await createRemoteTarget(payload)
+    expect(spy).toHaveBeenCalledWith('/backups/remote-targets', payload)
+  })
+
+  it('createRemoteTarget POSTs a dropbox target with app_key/folder_path config', async () => {
+    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({ data: { uuid: 'r3' } })
+    const payload = {
+      name: 'Dropbox',
+      type: 'dropbox' as const,
+      config: { dropbox: { app_key: 'abc123', folder_path: '/charon-backups' } },
+      secrets: { oauth_client_secret: 'dropbox-secret' },
+    }
+    await createRemoteTarget(payload)
+    expect(spy).toHaveBeenCalledWith('/backups/remote-targets', payload)
+  })
+
+  it('startRemoteTargetOAuth POSTs to the oauth/start endpoint and returns the authorize_url', async () => {
+    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({
+      data: { authorize_url: 'https://www.dropbox.com/oauth2/authorize?client_id=abc123' },
+    })
+    const res = await startRemoteTargetOAuth('r3')
+    expect(spy).toHaveBeenCalledWith('/backups/remote-targets/r3/oauth/start')
+    expect(res.authorize_url).toBe('https://www.dropbox.com/oauth2/authorize?client_id=abc123')
+  })
+
+  it('disconnectRemoteTargetOAuth POSTs to the oauth/disconnect endpoint and returns the updated target', async () => {
+    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({
+      data: { uuid: 'r3', oauth_status: 'not_connected', oauth_connected_at: null },
+    })
+    const res = await disconnectRemoteTargetOAuth('r3')
+    expect(spy).toHaveBeenCalledWith('/backups/remote-targets/r3/oauth/disconnect')
+    expect(res.oauth_status).toBe('not_connected')
   })
 })

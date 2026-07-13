@@ -3,16 +3,19 @@ import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import { RemoteTargetFormDialog } from '../RemoteTargetFormDialog'
+
 import type { RemoteTarget } from '../../../hooks/useRemoteTargets'
 
 const mockCreateMutate = vi.fn()
 const mockUpdateMutate = vi.fn()
 const mockTestMutate = vi.fn()
 const mockTestDraftMutate = vi.fn()
+const mockStartOAuthMutate = vi.fn()
 let createPending = false
 let updatePending = false
 let testPending = false
 let testDraftPending = false
+let startOAuthPending = false
 
 vi.mock('../../../hooks/useRemoteTargets', async () => {
   const actual = await vi.importActual<typeof import('../../../hooks/useRemoteTargets')>('../../../hooks/useRemoteTargets')
@@ -22,6 +25,7 @@ vi.mock('../../../hooks/useRemoteTargets', async () => {
     useUpdateRemoteTarget: () => ({ mutate: mockUpdateMutate, isPending: updatePending }),
     useTestRemoteTarget: () => ({ mutate: mockTestMutate, isPending: testPending }),
     useTestDraftRemoteTarget: () => ({ mutate: mockTestDraftMutate, isPending: testDraftPending }),
+    useStartRemoteTargetOAuth: () => ({ mutate: mockStartOAuthMutate, isPending: startOAuthPending }),
   }
 })
 
@@ -39,6 +43,8 @@ const nas: RemoteTarget = {
   last_test_at: '2026-07-07T09:00:00Z',
   last_test_status: 'ok',
   last_error: '',
+  oauth_status: '',
+  oauth_connected_at: null,
   created_at: '2026-07-01T00:00:00Z',
   updated_at: '2026-07-07T09:00:00Z',
 }
@@ -53,8 +59,26 @@ const b2: RemoteTarget = {
   last_test_at: '2026-07-06T09:00:00Z',
   last_test_status: 'failed',
   last_error: 'connection timed out',
+  oauth_status: '',
+  oauth_connected_at: null,
   created_at: '2026-07-01T00:00:00Z',
   updated_at: '2026-07-06T09:00:00Z',
+}
+
+const dropboxTarget: RemoteTarget = {
+  uuid: 'r3',
+  name: 'Dropbox',
+  type: 'dropbox',
+  enabled: true,
+  config: { dropbox: { app_key: 'abc123', folder_path: '/charon-backups' } },
+  secrets_set: true,
+  last_test_at: null,
+  last_test_status: 'never',
+  last_error: '',
+  oauth_status: 'not_connected',
+  oauth_connected_at: null,
+  created_at: '2026-07-01T00:00:00Z',
+  updated_at: '2026-07-01T00:00:00Z',
 }
 
 describe('RemoteTargetFormDialog', () => {
@@ -64,6 +88,11 @@ describe('RemoteTargetFormDialog', () => {
     updatePending = false
     testPending = false
     testDraftPending = false
+    startOAuthPending = false
+    // @ts-expect-error -- jsdom's window.location is not directly assignable; test-only override
+    delete window.location
+    // @ts-expect-error -- see above
+    window.location = { href: '', search: '', pathname: '/backups' }
   })
 
   it('renders nothing visible when closed', () => {
@@ -302,5 +331,133 @@ describe('RemoteTargetFormDialog', () => {
     await user.clear(input)
     await user.type(input, 'SHA256:manual')
     expect(input).toHaveValue('SHA256:manual')
+  })
+
+  it('submits a WebDAV target with url/username/base_path/insecure-skip-verify/password', async () => {
+    const user = userEvent.setup()
+    render(<RemoteTargetFormDialog open target={null} onClose={vi.fn()} />)
+
+    const dialog = screen.getByRole('dialog')
+    await user.click(within(dialog).getByRole('radio', { name: /webdav/i }))
+
+    await user.type(within(dialog).getByLabelText(/webdav url/i), 'https://nas.example.com/remote.php/dav/files/charon/')
+    await user.type(within(dialog).getByLabelText(/username/i), 'charon')
+    await user.type(within(dialog).getByLabelText(/base path/i), '/charon-backups')
+    await user.click(within(dialog).getByLabelText(/skip tls certificate verification/i))
+    await user.type(within(dialog).getByLabelText(/^password/i), 'webdav-secret')
+
+    await user.click(within(dialog).getByRole('button', { name: /create/i }))
+
+    expect(mockCreateMutate).toHaveBeenCalledTimes(1)
+    const [payload] = mockCreateMutate.mock.calls[0]
+    expect(payload.type).toBe('webdav')
+    expect(payload.config.webdav).toEqual({
+      url: 'https://nas.example.com/remote.php/dav/files/charon/',
+      username: 'charon',
+      base_path: '/charon-backups',
+      insecure_skip_verify: true,
+    })
+    expect(payload.secrets).toEqual({ password: 'webdav-secret' })
+  })
+
+  it('renders "Save & Connect" for Dropbox, creates the target, then redirects to the authorize_url', async () => {
+    mockStartOAuthMutate.mockImplementation((_uuid, { onSuccess }) => {
+      onSuccess({ authorize_url: 'https://www.dropbox.com/oauth2/authorize?client_id=abc123' })
+    })
+    mockCreateMutate.mockImplementation((_payload, { onSuccess }) => {
+      onSuccess({ uuid: 'new-uuid', name: 'Dropbox' })
+    })
+    const onClose = vi.fn()
+    const user = userEvent.setup()
+    render(<RemoteTargetFormDialog open target={null} onClose={onClose} />)
+
+    const dialog = screen.getByRole('dialog')
+    await user.click(within(dialog).getByRole('radio', { name: /dropbox/i }))
+
+    expect(within(dialog).getByRole('button', { name: /save & connect/i })).toBeInTheDocument()
+
+    await user.type(within(dialog).getByLabelText(/app key/i), 'abc123')
+    await user.type(within(dialog).getByLabelText(/app secret/i), 'dropbox-app-secret')
+    await user.type(within(dialog).getByLabelText(/folder path/i), '/charon-backups')
+
+    await user.click(within(dialog).getByRole('button', { name: /save & connect/i }))
+
+    expect(mockCreateMutate).toHaveBeenCalledTimes(1)
+    const [payload] = mockCreateMutate.mock.calls[0]
+    expect(payload.type).toBe('dropbox')
+    expect(payload.config.dropbox).toEqual({ app_key: 'abc123', folder_path: '/charon-backups' })
+    expect(payload.secrets).toEqual({ oauth_client_secret: 'dropbox-app-secret' })
+
+    expect(mockStartOAuthMutate).toHaveBeenCalledWith('new-uuid', expect.any(Object))
+    expect(window.location.href).toBe('https://www.dropbox.com/oauth2/authorize?client_id=abc123')
+    // Full-page redirect — onClose is intentionally not called (spec §3.6).
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('submits a Google Drive target with client_id/client_secret/folder_path and starts OAuth', async () => {
+    mockStartOAuthMutate.mockImplementation((_uuid, { onSuccess }) => {
+      onSuccess({ authorize_url: 'https://accounts.google.com/o/oauth2/v2/auth?client_id=xyz' })
+    })
+    mockCreateMutate.mockImplementation((_payload, { onSuccess }) => {
+      onSuccess({ uuid: 'gdrive-uuid', name: 'Google Drive' })
+    })
+    const user = userEvent.setup()
+    render(<RemoteTargetFormDialog open target={null} onClose={vi.fn()} />)
+
+    const dialog = screen.getByRole('dialog')
+    await user.click(within(dialog).getByRole('radio', { name: /google drive/i }))
+
+    await user.type(within(dialog).getByLabelText(/client id/i), 'xyz')
+    await user.type(within(dialog).getByLabelText(/client secret/i), 'gdrive-secret')
+    await user.type(within(dialog).getByLabelText(/folder path/i), 'Charon/Backups')
+
+    await user.click(within(dialog).getByRole('button', { name: /save & connect/i }))
+
+    const [payload] = mockCreateMutate.mock.calls[0]
+    expect(payload.type).toBe('google_drive')
+    expect(payload.config.google_drive).toEqual({ client_id: 'xyz', folder_path: 'Charon/Backups' })
+    expect(payload.secrets).toEqual({ oauth_client_secret: 'gdrive-secret' })
+    expect(mockStartOAuthMutate).toHaveBeenCalledWith('gdrive-uuid', expect.any(Object))
+    expect(window.location.href).toBe('https://accounts.google.com/o/oauth2/v2/auth?client_id=xyz')
+  })
+
+  it('shows a toast and closes the dialog (without redirecting) when oauth/start fails, e.g. public_url_not_configured', async () => {
+    const { toast } = await import('../../../utils/toast')
+    mockStartOAuthMutate.mockImplementation((_uuid, { onError }) => {
+      onError(new Error('app.public_url is not configured'))
+    })
+    mockCreateMutate.mockImplementation((_payload, { onSuccess }) => {
+      onSuccess({ uuid: 'new-uuid', name: 'Dropbox' })
+    })
+    const onClose = vi.fn()
+    const user = userEvent.setup()
+    render(<RemoteTargetFormDialog open target={null} onClose={onClose} />)
+
+    const dialog = screen.getByRole('dialog')
+    await user.click(within(dialog).getByRole('radio', { name: /dropbox/i }))
+    await user.type(within(dialog).getByLabelText(/app key/i), 'abc123')
+
+    await user.click(within(dialog).getByRole('button', { name: /save & connect/i }))
+
+    expect(toast.error).toHaveBeenCalledWith('app.public_url is not configured')
+    // The target was already created server-side; the dialog just closes
+    // (no redirect) so the admin can retry Connect later (spec §3.9).
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('does not trigger the OAuth flow when editing an existing Dropbox target (renders "Save", not "Save & Connect")', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    render(<RemoteTargetFormDialog open target={dropboxTarget} onClose={onClose} />)
+
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).queryByRole('button', { name: /save & connect/i })).not.toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: /^save$/i })).toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: /^save$/i }))
+
+    expect(mockUpdateMutate).toHaveBeenCalledTimes(1)
+    expect(mockStartOAuthMutate).not.toHaveBeenCalled()
+    expect(mockCreateMutate).not.toHaveBeenCalled()
   })
 })

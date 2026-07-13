@@ -11,6 +11,8 @@ import {
   useDeleteRemoteTarget,
   useTestRemoteTarget,
   useTestDraftRemoteTarget,
+  useStartRemoteTargetOAuth,
+  useDisconnectRemoteTargetOAuth,
   REMOTE_TARGETS_QUERY_KEY,
 } from '../useRemoteTargets'
 
@@ -26,6 +28,24 @@ const mockTarget: api.RemoteTarget = {
   last_test_at: null,
   last_test_status: 'never',
   last_error: '',
+  oauth_status: '',
+  oauth_connected_at: null,
+  created_at: '2026-07-01T00:00:00Z',
+  updated_at: '2026-07-01T00:00:00Z',
+}
+
+const mockDropboxTarget: api.RemoteTarget = {
+  uuid: 'r2',
+  name: 'Dropbox',
+  type: 'dropbox',
+  enabled: true,
+  config: { dropbox: { app_key: 'abc123', folder_path: '/charon-backups' } },
+  secrets_set: true,
+  last_test_at: null,
+  last_test_status: 'never',
+  last_error: '',
+  oauth_status: 'not_connected',
+  oauth_connected_at: null,
   created_at: '2026-07-01T00:00:00Z',
   updated_at: '2026-07-01T00:00:00Z',
 }
@@ -157,6 +177,77 @@ describe('useTestDraftRemoteTarget', () => {
     const { result } = renderHook(() => useTestDraftRemoteTarget(), { wrapper: createWrapper() })
 
     result.current.mutate({ type: 'sftp', config: { host: 'nas.lan', port: 22, path: '/backups', username: 'charon' } })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+  })
+})
+
+describe('useStartRemoteTargetOAuth', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('starts the OAuth flow and returns the authorize_url', async () => {
+    vi.mocked(api.startRemoteTargetOAuth).mockResolvedValue({
+      authorize_url: 'https://www.dropbox.com/oauth2/authorize?client_id=abc123',
+    })
+    const { result } = renderHook(() => useStartRemoteTargetOAuth(), { wrapper: createWrapper() })
+
+    result.current.mutate('r2')
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(api.startRemoteTargetOAuth).toHaveBeenCalledWith('r2')
+    expect(result.current.data?.authorize_url).toBe('https://www.dropbox.com/oauth2/authorize?client_id=abc123')
+  })
+
+  it('does not invalidate the target list on success (starting OAuth changes no persisted state)', async () => {
+    vi.mocked(api.startRemoteTargetOAuth).mockResolvedValue({ authorize_url: 'https://example.com/authorize' })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    )
+
+    const { result } = renderHook(() => useStartRemoteTargetOAuth(), { wrapper })
+    result.current.mutate('r2')
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(invalidateSpy).not.toHaveBeenCalled()
+  })
+
+  it('surfaces an error, e.g. public_url_not_configured', async () => {
+    vi.mocked(api.startRemoteTargetOAuth).mockRejectedValue(new Error('app.public_url is not configured'))
+    const { result } = renderHook(() => useStartRemoteTargetOAuth(), { wrapper: createWrapper() })
+
+    result.current.mutate('r2')
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(result.current.error?.message).toBe('app.public_url is not configured')
+  })
+})
+
+describe('useDisconnectRemoteTargetOAuth', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('disconnects OAuth and invalidates the target list', async () => {
+    vi.mocked(api.disconnectRemoteTargetOAuth).mockResolvedValue({ ...mockDropboxTarget, oauth_status: 'not_connected' })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    )
+
+    const { result } = renderHook(() => useDisconnectRemoteTargetOAuth(), { wrapper })
+    result.current.mutate('r2')
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(api.disconnectRemoteTargetOAuth).toHaveBeenCalledWith('r2')
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: REMOTE_TARGETS_QUERY_KEY })
+  })
+
+  it('surfaces an error when disconnect fails', async () => {
+    vi.mocked(api.disconnectRemoteTargetOAuth).mockRejectedValue(new Error('disconnect failed'))
+    const { result } = renderHook(() => useDisconnectRemoteTargetOAuth(), { wrapper: createWrapper() })
+
+    result.current.mutate('r2')
 
     await waitFor(() => expect(result.current.isError).toBe(true))
   })

@@ -872,6 +872,9 @@
       "type": "存储类型",
       "typeS3": "S3",
       "typeSftp": "SFTP",
+      "typeWebdav": "WebDAV",
+      "typeDropbox": "Dropbox",
+      "typeGoogleDrive": "Google 云端硬盘",
       "endpoint": "端点",
       "region": "区域",
       "bucket": "存储桶",
@@ -890,6 +893,21 @@
       "confirmHostKey": "确认主机密钥",
       "keepCurrent": "留空以保留当前值",
       "leaveBlankToKeepCurrent": "留空以保留当前密钥信息",
+      "webdavUrl": "WebDAV 网址",
+      "basePath": "基础路径",
+      "insecureSkipVerify": "跳过 TLS 证书验证",
+      "dropboxAppKey": "应用密钥",
+      "dropboxAppSecret": "应用密钥密码",
+      "googleDriveClientId": "客户端 ID",
+      "googleDriveClientSecret": "客户端密钥",
+      "folderPath": "文件夹路径",
+      "saveAndConnect": "保存并连接",
+      "connect": "连接",
+      "reconnect": "重新连接",
+      "disconnect": "断开连接",
+      "disconnectTitle": "断开 OAuth 授权",
+      "disconnectConfirm": "确定要断开“{{name}}”吗?在重新连接之前,计划备份到此目标将失败。",
+      "disconnectSuccess": "已成功断开连接",
       "emptyTitle": "没有远程目标",
       "emptyDescription": "添加远程存储目标以保留备份的异地副本。",
       "deleteTitle": "删除远程目标",
@@ -901,7 +919,15 @@
         "ok": "正常",
         "failed": "失败",
         "never": "从未测试"
-      }
+      },
+      "oauthStatus": {
+        "notConnected": "未连接",
+        "connected": "已连接",
+        "revoked": "已撤销"
+      },
+      "oauthConnectSuccess": "{{provider}} 连接成功",
+      "oauthConnectDenied": "授权被拒绝",
+      "oauthConnectError": "授权失败,请重试。"
     }
   },
   "logs": {

@@ -872,6 +872,9 @@
       "type": "Type de stockage",
       "typeS3": "S3",
       "typeSftp": "SFTP",
+      "typeWebdav": "WebDAV",
+      "typeDropbox": "Dropbox",
+      "typeGoogleDrive": "Google Drive",
       "endpoint": "Point de terminaison",
       "region": "Région",
       "bucket": "Bucket",
@@ -890,6 +893,21 @@
       "confirmHostKey": "Confirmer la clé hôte",
       "keepCurrent": "Laisser vide pour conserver la valeur actuelle",
       "leaveBlankToKeepCurrent": "Laisser vide pour conserver les secrets actuels",
+      "webdavUrl": "URL WebDAV",
+      "basePath": "Chemin de base",
+      "insecureSkipVerify": "Ignorer la vérification du certificat TLS",
+      "dropboxAppKey": "Clé de l'application",
+      "dropboxAppSecret": "Secret de l'application",
+      "googleDriveClientId": "ID client",
+      "googleDriveClientSecret": "Secret client",
+      "folderPath": "Chemin du dossier",
+      "saveAndConnect": "Enregistrer et connecter",
+      "connect": "Connecter",
+      "reconnect": "Reconnecter",
+      "disconnect": "Déconnecter",
+      "disconnectTitle": "Déconnecter l'autorisation OAuth",
+      "disconnectConfirm": "Voulez-vous vraiment déconnecter \"{{name}}\" ? Les sauvegardes planifiées vers cette cible échoueront jusqu'à ce que vous vous reconnectiez.",
+      "disconnectSuccess": "Déconnecté avec succès",
       "emptyTitle": "Aucune cible distante",
       "emptyDescription": "Ajoutez une cible de stockage distante pour conserver des copies hors site de vos sauvegardes.",
       "deleteTitle": "Supprimer la cible distante",
@@ -901,7 +919,15 @@
         "ok": "OK",
         "failed": "Échec",
         "never": "Jamais testée"
-      }
+      },
+      "oauthStatus": {
+        "notConnected": "Non connecté",
+        "connected": "Connecté",
+        "revoked": "Révoqué"
+      },
+      "oauthConnectSuccess": "{{provider}} connecté avec succès",
+      "oauthConnectDenied": "L'autorisation a été refusée",
+      "oauthConnectError": "Échec de l'autorisation. Veuillez réessayer."
     }
   },
   "logs": {

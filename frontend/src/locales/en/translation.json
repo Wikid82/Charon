@@ -1040,6 +1040,9 @@
       "type": "Storage Type",
       "typeS3": "S3",
       "typeSftp": "SFTP",
+      "typeWebdav": "WebDAV",
+      "typeDropbox": "Dropbox",
+      "typeGoogleDrive": "Google Drive",
       "endpoint": "Endpoint",
       "region": "Region",
       "bucket": "Bucket",
@@ -1058,6 +1061,21 @@
       "confirmHostKey": "Confirm Host Key",
       "keepCurrent": "Leave blank to keep current",
       "leaveBlankToKeepCurrent": "Leave blank to keep current secrets",
+      "webdavUrl": "WebDAV URL",
+      "basePath": "Base Path",
+      "insecureSkipVerify": "Skip TLS Certificate Verification",
+      "dropboxAppKey": "App Key",
+      "dropboxAppSecret": "App Secret",
+      "googleDriveClientId": "Client ID",
+      "googleDriveClientSecret": "Client Secret",
+      "folderPath": "Folder Path",
+      "saveAndConnect": "Save & Connect",
+      "connect": "Connect",
+      "reconnect": "Reconnect",
+      "disconnect": "Disconnect",
+      "disconnectTitle": "Disconnect OAuth Authorization",
+      "disconnectConfirm": "Are you sure you want to disconnect \"{{name}}\"? Scheduled backups to this target will fail until you reconnect.",
+      "disconnectSuccess": "Disconnected successfully",
       "emptyTitle": "No Remote Targets",
       "emptyDescription": "Add a remote storage target to keep off-site copies of your backups.",
       "deleteTitle": "Delete Remote Target",
@@ -1069,7 +1087,15 @@
         "ok": "OK",
         "failed": "Failed",
         "never": "Never tested"
-      }
+      },
+      "oauthStatus": {
+        "notConnected": "Not Connected",
+        "connected": "Connected",
+        "revoked": "Revoked"
+      },
+      "oauthConnectSuccess": "{{provider}} connected successfully",
+      "oauthConnectDenied": "Authorization was denied",
+      "oauthConnectError": "Authorization failed. Please try again."
     }
   },
   "logs": {

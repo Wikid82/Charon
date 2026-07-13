@@ -872,6 +872,9 @@
       "type": "Speichertyp",
       "typeS3": "S3",
       "typeSftp": "SFTP",
+      "typeWebdav": "WebDAV",
+      "typeDropbox": "Dropbox",
+      "typeGoogleDrive": "Google Drive",
       "endpoint": "Endpunkt",
       "region": "Region",
       "bucket": "Bucket",
@@ -890,6 +893,21 @@
       "confirmHostKey": "Host-Key bestätigen",
       "keepCurrent": "Leer lassen, um aktuellen Wert beizubehalten",
       "leaveBlankToKeepCurrent": "Leer lassen, um aktuelle Geheimnisse beizubehalten",
+      "webdavUrl": "WebDAV-URL",
+      "basePath": "Basispfad",
+      "insecureSkipVerify": "TLS-Zertifikatsprüfung überspringen",
+      "dropboxAppKey": "App-Schlüssel",
+      "dropboxAppSecret": "App-Geheimnis",
+      "googleDriveClientId": "Client-ID",
+      "googleDriveClientSecret": "Client-Geheimnis",
+      "folderPath": "Ordnerpfad",
+      "saveAndConnect": "Speichern & Verbinden",
+      "connect": "Verbinden",
+      "reconnect": "Erneut verbinden",
+      "disconnect": "Trennen",
+      "disconnectTitle": "OAuth-Autorisierung trennen",
+      "disconnectConfirm": "Möchten Sie \"{{name}}\" wirklich trennen? Geplante Backups zu diesem Ziel schlagen fehl, bis Sie die Verbindung wiederherstellen.",
+      "disconnectSuccess": "Erfolgreich getrennt",
       "emptyTitle": "Keine Remote-Ziele",
       "emptyDescription": "Fügen Sie ein Remote-Speicherziel hinzu, um Offsite-Kopien Ihrer Backups aufzubewahren.",
       "deleteTitle": "Remote-Ziel löschen",
@@ -901,7 +919,15 @@
         "ok": "OK",
         "failed": "Fehlgeschlagen",
         "never": "Nie getestet"
-      }
+      },
+      "oauthStatus": {
+        "notConnected": "Nicht verbunden",
+        "connected": "Verbunden",
+        "revoked": "Widerrufen"
+      },
+      "oauthConnectSuccess": "{{provider}} erfolgreich verbunden",
+      "oauthConnectDenied": "Autorisierung wurde abgelehnt",
+      "oauthConnectError": "Autorisierung fehlgeschlagen. Bitte versuchen Sie es erneut."
     }
   },
   "logs": {

@@ -872,6 +872,9 @@
       "type": "Tipo de almacenamiento",
       "typeS3": "S3",
       "typeSftp": "SFTP",
+      "typeWebdav": "WebDAV",
+      "typeDropbox": "Dropbox",
+      "typeGoogleDrive": "Google Drive",
       "endpoint": "Extremo",
       "region": "Región",
       "bucket": "Bucket",
@@ -890,6 +893,21 @@
       "confirmHostKey": "Confirmar clave del host",
       "keepCurrent": "Déjelo en blanco para mantener el valor actual",
       "leaveBlankToKeepCurrent": "Déjelo en blanco para mantener los secretos actuales",
+      "webdavUrl": "URL de WebDAV",
+      "basePath": "Ruta base",
+      "insecureSkipVerify": "Omitir verificación de certificado TLS",
+      "dropboxAppKey": "Clave de la app",
+      "dropboxAppSecret": "Secreto de la app",
+      "googleDriveClientId": "ID de cliente",
+      "googleDriveClientSecret": "Secreto de cliente",
+      "folderPath": "Ruta de la carpeta",
+      "saveAndConnect": "Guardar y conectar",
+      "connect": "Conectar",
+      "reconnect": "Reconectar",
+      "disconnect": "Desconectar",
+      "disconnectTitle": "Desconectar autorización OAuth",
+      "disconnectConfirm": "¿Seguro que desea desconectar \"{{name}}\"? Las copias de seguridad programadas a este destino fallarán hasta que vuelva a conectar.",
+      "disconnectSuccess": "Desconectado correctamente",
       "emptyTitle": "Sin destinos remotos",
       "emptyDescription": "Añada un destino de almacenamiento remoto para conservar copias externas de sus copias de seguridad.",
       "deleteTitle": "Eliminar destino remoto",
@@ -901,7 +919,15 @@
         "ok": "OK",
         "failed": "Fallida",
         "never": "Nunca probada"
-      }
+      },
+      "oauthStatus": {
+        "notConnected": "No conectado",
+        "connected": "Conectado",
+        "revoked": "Revocado"
+      },
+      "oauthConnectSuccess": "{{provider}} conectado correctamente",
+      "oauthConnectDenied": "Se denegó la autorización",
+      "oauthConnectError": "Error de autorización. Inténtelo de nuevo."
     }
   },
   "logs": {

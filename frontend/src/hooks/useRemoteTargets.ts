@@ -7,12 +7,15 @@ import {
   deleteRemoteTarget,
   testRemoteTarget,
   testDraftRemoteTarget,
+  startRemoteTargetOAuth,
+  disconnectRemoteTargetOAuth,
   type RemoteTarget,
   type RemoteTargetConfig,
   type RemoteTargetSecrets,
   type RemoteTargetPayload,
   type TestRemoteTargetResponse,
   type TestDraftRemoteTargetPayload,
+  type StartRemoteTargetOAuthResponse,
 } from '../api/backups'
 
 /** Query key for the remote storage target list (spec §3.8). */
@@ -83,6 +86,30 @@ export function useTestDraftRemoteTarget() {
   })
 }
 
+/**
+ * Starts the OAuth2 authorization flow for a Dropbox/Google Drive target
+ * (spec §3.6). No invalidation — starting the flow doesn't change any
+ * persisted target state; `oauth_status` only transitions once the callback
+ * completes server-side, which is picked up by `RemoteTargetsCard`'s
+ * query-param handling on the redirect back.
+ */
+export function useStartRemoteTargetOAuth() {
+  return useMutation({
+    mutationFn: (uuid: string) => startRemoteTargetOAuth(uuid),
+  })
+}
+
+/** Disconnects a Dropbox/Google Drive target's OAuth authorization; invalidates the target list on success. */
+export function useDisconnectRemoteTargetOAuth() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (uuid: string) => disconnectRemoteTargetOAuth(uuid),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: REMOTE_TARGETS_QUERY_KEY })
+    },
+  })
+}
+
 export type {
   RemoteTarget,
   RemoteTargetConfig,
@@ -90,4 +117,5 @@ export type {
   RemoteTargetPayload,
   TestRemoteTargetResponse,
   TestDraftRemoteTargetPayload,
+  StartRemoteTargetOAuthResponse,
 }

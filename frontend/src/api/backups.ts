@@ -187,6 +187,29 @@ export const updateBackupSettings = async (payload: UpdateBackupSettingsPayload)
   return response.data
 }
 
+/** Every remote storage target type the API accepts (spec §3.3, Issue #32 Phase 2). */
+export type RemoteTargetType = 's3' | 'sftp' | 'webdav' | 'dropbox' | 'google_drive'
+
+/** Non-secret WebDAV configuration, mirrors backend `services.WebDAVConfig` exactly. */
+export interface WebDAVConfig {
+  url: string
+  username?: string
+  base_path?: string
+  insecure_skip_verify?: boolean
+}
+
+/** Non-secret Dropbox configuration, mirrors backend `services.DropboxConfig` exactly. */
+export interface DropboxConfig {
+  app_key: string
+  folder_path?: string
+}
+
+/** Non-secret Google Drive configuration, mirrors backend `services.GoogleDriveConfig` exactly. */
+export interface GoogleDriveConfig {
+  client_id: string
+  folder_path?: string
+}
+
 /** Non-secret remote-target configuration (spec §3.3.2) — fields not relevant to `type` are omitted. */
 export interface RemoteTargetConfig {
   // s3
@@ -202,6 +225,11 @@ export interface RemoteTargetConfig {
   path?: string
   username?: string
   host_key_fingerprint?: string
+  // webdav / dropbox / google_drive (spec §3.2, Issue #32 Phase 2) — one nested
+  // sub-config per provider, mirroring the backend's nested pointer fields.
+  webdav?: WebDAVConfig
+  dropbox?: DropboxConfig
+  google_drive?: GoogleDriveConfig
 }
 
 /** Secret blob accepted by the remote-targets API — never returned by the server. */
@@ -211,19 +239,28 @@ export interface RemoteTargetSecrets {
   password?: string
   private_key_pem?: string
   passphrase?: string
+  // WebDAV bearer-auth alternative to password.
+  bearer_token?: string
+  // Dropbox "App secret" / Google Client Secret (spec §3.2, Issue #32 Phase 2).
+  oauth_client_secret?: string
 }
+
+/** OAuth connection lifecycle status (spec §3.3/§3.4) — `""` for non-OAuth types (s3/sftp/webdav). */
+export type RemoteTargetOAuthStatus = 'not_connected' | 'connected' | 'revoked' | ''
 
 /** Remote storage target as returned by the API — `secrets` are never included (spec §3.3.2). */
 export interface RemoteTarget {
   uuid: string
   name: string
-  type: 's3' | 'sftp'
+  type: RemoteTargetType
   enabled: boolean
   config: RemoteTargetConfig
   secrets_set: boolean
   last_test_at: string | null
   last_test_status: 'ok' | 'failed' | 'never'
   last_error: string
+  oauth_status: RemoteTargetOAuthStatus
+  oauth_connected_at: string | null
   created_at: string
   updated_at: string
 }
@@ -231,7 +268,7 @@ export interface RemoteTarget {
 /** Create/update request body for remote targets (spec §3.3.2). */
 export interface RemoteTargetPayload {
   name: string
-  type: 's3' | 'sftp'
+  type: RemoteTargetType
   enabled?: boolean
   config: RemoteTargetConfig
   secrets?: RemoteTargetSecrets
@@ -325,5 +362,36 @@ export const testDraftRemoteTarget = async (
   payload: TestDraftRemoteTargetPayload
 ): Promise<TestRemoteTargetResponse> => {
   const response = await client.post<TestRemoteTargetResponse>('/backups/remote-targets/test-draft', payload)
+  return response.data
+}
+
+/** Response of POST /backups/remote-targets/:uuid/oauth/start (spec §3.3, R3). */
+export interface StartRemoteTargetOAuthResponse {
+  authorize_url: string
+}
+
+/**
+ * Starts the OAuth2 authorization flow for a Dropbox/Google Drive remote
+ * target: the backend issues a single-use CSRF `state` token and returns the
+ * provider's authorize URL. Callers full-page-redirect to it (spec §3.6) —
+ * this never opens a popup.
+ * @param uuid - Target UUID (must already be persisted, spec §3.3 two-step lifecycle)
+ * @throws {AxiosError} If the target's `type` doesn't support OAuth, or if
+ *   `app.public_url` is not configured (`error_code: "public_url_not_configured"`)
+ */
+export const startRemoteTargetOAuth = async (uuid: string): Promise<StartRemoteTargetOAuthResponse> => {
+  const response = await client.post<StartRemoteTargetOAuthResponse>(`/backups/remote-targets/${uuid}/oauth/start`)
+  return response.data
+}
+
+/**
+ * Disconnects a Dropbox/Google Drive remote target's OAuth authorization —
+ * clears the stored tokens and resets `oauth_status` to `"not_connected"`.
+ * Does not delete the target itself (spec §3.3).
+ * @param uuid - Target UUID
+ * @throws {AxiosError} If the request fails
+ */
+export const disconnectRemoteTargetOAuth = async (uuid: string): Promise<RemoteTarget> => {
+  const response = await client.post<RemoteTarget>(`/backups/remote-targets/${uuid}/oauth/disconnect`)
   return response.data
 }
