@@ -196,6 +196,265 @@ export async function completeRestoreFlow(page: Page, filename?: string): Promis
 }
 
 // ============================================================================
+// Remote Storage Target — OAuth Helpers (Issue #32 Phase 2: WebDAV / Dropbox /
+// Google Drive)
+//
+// See docs/plans/current_spec.md §3.2 (config/secrets shapes), §3.3 (OAuth API
+// contracts), §3.6 (frontend two-step create->connect lifecycle), §3.9 (error
+// paths). Consumed by tests/tasks/backups-remote-targets.spec.ts.
+//
+// Written in Commit 1 to back `test.fixme` specs — no backend/frontend code
+// implementing these routes exists yet (lands in Commits 2-4). Flipped to live
+// assertions in Commit 5.
+// ============================================================================
+
+/** Mirrors backend `WebDAVConfig` (spec §3.2) — no OAuth, single-step save. */
+export interface WebDAVTargetConfig {
+  url: string;
+  username?: string;
+  base_path?: string;
+  insecure_skip_verify?: boolean;
+}
+
+/** Mirrors backend `DropboxConfig` (spec §3.2) — `app_key` is not secret. */
+export interface DropboxTargetConfig {
+  app_key: string;
+  folder_path?: string;
+}
+
+/** Mirrors backend `GoogleDriveConfig` (spec §3.2) — `client_id` is not secret. */
+export interface GoogleDriveTargetConfig {
+  client_id: string;
+  folder_path?: string;
+}
+
+/** Mirrors the new `RemoteTarget.oauth_status` enum (spec §3.4) — `''` for s3/sftp/webdav. */
+export type RemoteTargetOAuthStatus = 'not_connected' | 'connected' | 'revoked' | '';
+
+/** Fields every `RemoteTarget` API response gains regardless of provider type (spec §3.4). */
+export interface RemoteTargetOAuthFields {
+  oauth_status: RemoteTargetOAuthStatus;
+  oauth_connected_at: string | null;
+}
+
+/** `error_code` values the OAuth surface can return (spec §3.3, §3.9). */
+export type RemoteTargetOAuthErrorCode =
+  | 'oauth_not_connected'
+  | 'oauth_revoked'
+  | 'public_url_not_configured';
+
+/**
+ * Mocks `POST /api/v1/backups/remote-targets/:uuid/oauth/start` — the
+ * "Save & Connect" step that returns the provider's `authorize_url` (spec §3.3).
+ */
+export async function setupRemoteTargetOAuthStart(
+  page: Page,
+  targetUuid: string,
+  response: { authorize_url: string },
+  status: number = 200
+): Promise<void> {
+  await page.route(`**/api/v1/backups/remote-targets/${targetUuid}/oauth/start`, async (route) => {
+    if (route.request().method() === 'POST') {
+      await route.fulfill({ status, json: response });
+    } else {
+      await route.continue();
+    }
+  });
+}
+
+/**
+ * Mocks a failed `oauth/start` call — e.g. `400 public_url_not_configured` when
+ * the admin hasn't set `app.public_url` yet (spec §3.3 R10, §3.9).
+ */
+export async function setupRemoteTargetOAuthStartError(
+  page: Page,
+  targetUuid: string,
+  errorCode: RemoteTargetOAuthErrorCode,
+  message: string,
+  status: number = 400
+): Promise<void> {
+  await page.route(`**/api/v1/backups/remote-targets/${targetUuid}/oauth/start`, async (route) => {
+    if (route.request().method() === 'POST') {
+      await route.fulfill({ status, json: { error: message, error_code: errorCode } });
+    } else {
+      await route.continue();
+    }
+  });
+}
+
+/** Mocks `POST /api/v1/backups/remote-targets/:uuid/oauth/disconnect` (spec §3.3). */
+export async function setupRemoteTargetOAuthDisconnect(page: Page, targetUuid: string): Promise<void> {
+  await page.route(`**/api/v1/backups/remote-targets/${targetUuid}/oauth/disconnect`, async (route) => {
+    if (route.request().method() === 'POST') {
+      await route.fulfill({ status: 200, json: { success: true } });
+    } else {
+      await route.continue();
+    }
+  });
+}
+
+/**
+ * Mocks `POST /api/v1/backups/remote-targets/:uuid/test` returning one of the
+ * OAuth-specific `409` sentinel errors (spec §3.3, §3.9) — surfaced through the
+ * existing generic `toast.error(error.message)` path already used by
+ * `ErrEncryptionKeyMissing` today, so no new UI concept is required.
+ */
+export async function setupRemoteTargetOAuthTestError(
+  page: Page,
+  targetUuid: string,
+  errorCode: Extract<RemoteTargetOAuthErrorCode, 'oauth_not_connected' | 'oauth_revoked'>,
+  message: string
+): Promise<void> {
+  await page.route(`**/api/v1/backups/remote-targets/${targetUuid}/test`, async (route) => {
+    await route.fulfill({ status: 409, json: { error: message, error_code: errorCode } });
+  });
+}
+
+/**
+ * Real provider consent-screen hosts are not reachable in CI (spec §4 Phase 1,
+ * §6 Commit 1) — glob patterns used to intercept the full-page redirect instead.
+ */
+export const OAUTH_PROVIDER_AUTHORIZE_HOST_PATTERNS: Record<'dropbox' | 'google_drive', string> = {
+  dropbox: 'https://www.dropbox.com/oauth2/authorize**',
+  google_drive: 'https://accounts.google.com/o/oauth2/v2/auth**',
+};
+
+export interface MockOAuthRoundTripOptions {
+  provider: 'dropbox' | 'google_drive';
+  /** UUID of the already-saved (not-yet-connected) target being connected. */
+  targetUuid: string;
+  /** Whether the mocked consent screen "approves" or "denies" the request. */
+  outcome: 'approved' | 'denied';
+  /** Only used when outcome === 'denied' — becomes the callback's `message` query param. */
+  denyMessage?: string;
+}
+
+/**
+ * Simulates the full OAuth round trip a real browser makes for the Dropbox/
+ * Google Drive Connect flow: full-page redirect to the provider's
+ * `authorize_url` -> (mocked) consent screen -> Charon's
+ * `oauth/:provider/callback` -> final redirect back into the app with
+ * `oauth_result` on the query string (spec §3.3, §3.7).
+ *
+ * Both hops are intercepted via Playwright route interception rather than
+ * driven for real, since real Dropbox/Google consent screens aren't reachable
+ * in CI (spec §6 Commit 1).
+ */
+export async function mockOAuthProviderRoundTrip(page: Page, options: MockOAuthRoundTripOptions): Promise<void> {
+  const { provider, targetUuid, outcome, denyMessage } = options;
+
+  const callbackUrl = `/api/v1/backups/remote-targets/oauth/${provider}/callback?code=mock-auth-code&state=mock-state`;
+  const finalRedirectUrl =
+    outcome === 'approved'
+      ? `/backups?oauth_result=success&provider=${provider}&target=${targetUuid}`
+      : `/backups?oauth_result=error&message=${encodeURIComponent(denyMessage ?? 'authorization_denied')}`;
+
+  // Hop 1: the provider's consent screen. Mocked to immediately redirect back
+  // to Charon's callback route, standing in for a real user clicking
+  // "Allow"/"Deny".
+  await page.route(OAUTH_PROVIDER_AUTHORIZE_HOST_PATTERNS[provider], async (route) => {
+    await route.fulfill({ status: 302, headers: { location: callbackUrl } });
+  });
+
+  // Hop 2: Charon's own callback route, which (once implemented) validates
+  // `state`, exchanges `code` for tokens, and 302s back into the app (spec §3.3).
+  await page.route(`**/api/v1/backups/remote-targets/oauth/${provider}/callback**`, async (route) => {
+    await route.fulfill({ status: 302, headers: { location: finalRedirectUrl } });
+  });
+}
+
+/** Builds a mock WebDAV `RemoteTarget` fixture (no OAuth — `oauth_status: ''`, spec §3.4). */
+export function buildWebDAVTargetFixture(
+  overrides: Partial<{ uuid: string; name: string; enabled: boolean; config: WebDAVTargetConfig }> = {}
+) {
+  return {
+    uuid: overrides.uuid ?? 'wd1',
+    name: overrides.name ?? 'Nextcloud',
+    type: 'webdav' as const,
+    enabled: overrides.enabled ?? true,
+    config: {
+      webdav: overrides.config ?? {
+        url: 'https://nas.example.com/remote.php/dav/files/charon/',
+        username: 'charon',
+        base_path: '/charon-backups',
+        insecure_skip_verify: false,
+      },
+    },
+    secrets_set: true,
+    oauth_status: '' as RemoteTargetOAuthStatus,
+    oauth_connected_at: null,
+    last_test_at: null,
+    last_test_status: 'never' as const,
+    last_error: '',
+    created_at: '2026-07-01T00:00:00Z',
+    updated_at: '2026-07-01T00:00:00Z',
+  };
+}
+
+/** Builds a mock Dropbox `RemoteTarget` fixture in a given OAuth lifecycle state (spec §3.3). */
+export function buildDropboxTargetFixture(
+  overrides: Partial<{
+    uuid: string;
+    name: string;
+    enabled: boolean;
+    config: DropboxTargetConfig;
+    oauth_status: RemoteTargetOAuthStatus;
+    oauth_connected_at: string | null;
+  }> = {}
+) {
+  return {
+    uuid: overrides.uuid ?? 'db1',
+    name: overrides.name ?? 'Dropbox',
+    type: 'dropbox' as const,
+    enabled: overrides.enabled ?? true,
+    config: {
+      dropbox: overrides.config ?? { app_key: 'abc123', folder_path: '/charon-backups' },
+    },
+    secrets_set: true,
+    oauth_status: overrides.oauth_status ?? ('not_connected' as RemoteTargetOAuthStatus),
+    oauth_connected_at: overrides.oauth_connected_at ?? null,
+    last_test_at: null,
+    last_test_status: 'never' as const,
+    last_error: '',
+    created_at: '2026-07-01T00:00:00Z',
+    updated_at: '2026-07-01T00:00:00Z',
+  };
+}
+
+/** Builds a mock Google Drive `RemoteTarget` fixture in a given OAuth lifecycle state (spec §3.3). */
+export function buildGoogleDriveTargetFixture(
+  overrides: Partial<{
+    uuid: string;
+    name: string;
+    enabled: boolean;
+    config: GoogleDriveTargetConfig;
+    oauth_status: RemoteTargetOAuthStatus;
+    oauth_connected_at: string | null;
+  }> = {}
+) {
+  return {
+    uuid: overrides.uuid ?? 'gd1',
+    name: overrides.name ?? 'Google Drive',
+    type: 'google_drive' as const,
+    enabled: overrides.enabled ?? true,
+    config: {
+      google_drive: overrides.config ?? {
+        client_id: 'client-abc123.apps.googleusercontent.com',
+        folder_path: 'Charon/Backups',
+      },
+    },
+    secrets_set: true,
+    oauth_status: overrides.oauth_status ?? ('not_connected' as RemoteTargetOAuthStatus),
+    oauth_connected_at: overrides.oauth_connected_at ?? null,
+    last_test_at: null,
+    last_test_status: 'never' as const,
+    last_error: '',
+    created_at: '2026-07-01T00:00:00Z',
+    updated_at: '2026-07-01T00:00:00Z',
+  };
+}
+
+// ============================================================================
 // Log Helpers
 // ============================================================================
 

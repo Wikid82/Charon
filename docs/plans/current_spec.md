@@ -1,28 +1,34 @@
-# Configuration Backup & Restore — Gap-Closing Plan (Issue #32)
+# Remote Backup Storage — WebDAV, Dropbox, Google Drive Providers (Issue #32 Phase 2)
 
 **Author:** Planning Agent (Principal Architect)
-**Date:** 2026-07-07
+**Date:** 2026-07-13
 **Branch:** `feature/backuprestore`
-**Issue:** #32 "Configuration Backup & Restore" (Priority: High, Milestone: Beta)
-**Type:** Extension of an existing v1 backup system — NOT a greenfield design.
+**Type:** Extension of the just-shipped S3/SFTP remote-storage-target system — NOT a
+greenfield design. Prior plan archived at
+`docs/plans/archive/current_spec.backup-remote-s3-sftp_2026-07-13.md` (§ references
+below to "the S3/SFTP plan" point there).
 
 ---
 
 ## Table of Contents
 
 1. [Introduction](#1-introduction)
-2. [Research Findings — Current State & Gap Matrix](#2-research-findings--current-state--gap-matrix)
+2. [Research Findings](#2-research-findings)
+   - 2.1 [Existing architecture (verified in source)](#21-existing-architecture-verified-in-source)
+   - 2.2 [The "DNS-provider precedent" — corrected](#22-the-dns-provider-precedent--corrected)
+   - 2.3 [Existing "test connection" flow](#23-existing-test-connection-flow)
+   - 2.4 [Public-URL gap for OAuth redirect_uri](#24-public-url-gap-for-oauth-redirect_uri)
+   - 2.5 [External dependency research](#25-external-dependency-research)
 3. [Technical Specifications](#3-technical-specifications)
    - 3.1 [EARS Requirements](#31-ears-requirements)
-   - 3.2 [Backup Archive Format v2](#32-backup-archive-format-v2)
+   - 3.2 [Config/Secrets Design & the Locator Abstraction](#32-configsecrets-design--the-locator-abstraction)
    - 3.3 [API Contracts](#33-api-contracts)
-   - 3.4 [GORM Models](#34-gorm-models)
-   - 3.5 [Safe-Restore Strategy](#35-safe-restore-strategy)
-   - 3.6 [Encryption Design](#36-encryption-design)
-   - 3.7 [Remote Storage Design](#37-remote-storage-design)
-   - 3.8 [Frontend Design](#38-frontend-design)
-   - 3.9 [Security Considerations](#39-security-considerations)
-   - 3.10 [Error Handling & Edge Cases](#310-error-handling--edge-cases)
+   - 3.4 [GORM Model Changes](#34-gorm-model-changes)
+   - 3.5 [Backend Component Design](#35-backend-component-design)
+   - 3.6 [Frontend Component Design](#36-frontend-component-design)
+   - 3.7 [Data Flow](#37-data-flow)
+   - 3.8 [Security Considerations](#38-security-considerations)
+   - 3.9 [Error Handling & Edge Cases](#39-error-handling--edge-cases)
 4. [Implementation Plan (Phases)](#4-implementation-plan-phases)
 5. [Acceptance Criteria](#5-acceptance-criteria)
 6. [Commit Slicing Strategy](#6-commit-slicing-strategy)
@@ -35,194 +41,257 @@
 
 ### 1.1 Overview
 
-Charon already ships a working v1 backup system: zip archives containing a
-`VACUUM INTO` SQLite snapshot plus the Caddy data directory, created manually via the
-UI or by a **hardcoded** daily 03:00 cron, restorable with a live database rehydrate.
-Issue #32 asks for the full Beta feature: complete backup contents, configurable
-scheduling, validated restore, optional encryption, remote storage (S3/SFTP), backup
-history, and a disaster recovery guide.
+Charon just shipped `RemoteStorageTarget` with two provider types, `s3` and `sftp`
+(`backend/internal/services/remotestorage/{s3,sftp}.go`). This plan adds three more
+provider types to the same abstraction — **generic WebDAV**, **Dropbox**, and
+**Google Drive** — as one feature in one PR (CLAUDE.md "One Feature = One PR"). All
+three are additive: existing `s3`/`sftp` targets, config shapes, and API responses
+are unaffected byte-for-byte.
 
-This plan closes the gap between the two. Every section below states explicitly what
-**exists** (and is reused), what is **modified**, and what is **new**.
+WebDAV is a same-shape extension of the existing pattern (admin-entered
+host/credentials, SSRF-checked, no new architecture). Dropbox and Google Drive
+introduce something Charon has never had: an **OAuth2 authorization-code flow**, and
+Google Drive additionally introduces a storage model with **no path concept**
+(parent-file-ID trees instead), which the retention/pruning logic must generalize to
+handle without regressing S3/SFTP/WebDAV.
 
 ### 1.2 Objectives
 
-1. Versioned archive format v2 with `manifest.json`, SHA-256 checksums, and CrowdSec
-   config included; v1 archives remain restorable.
-2. User-configurable schedule and retention that the backend actually honors (today the
-   UI writes `backup.interval` / `backup.retention` Settings that **no backend code reads**).
-3. Restore pipeline with pre-validation (manifest, checksums, `PRAGMA integrity_check`),
-   pre-restore safety backup, and rollback.
-4. Optional passphrase encryption (age/scrypt) for archives at rest and in transit.
-5. Interface-based remote storage with S3 and SFTP implementations, retention pruning,
-   and test-connection endpoint.
-6. `BackupRecord` history persisted in SQLite (type, checksum, encryption flag, remote
-   copy status).
-7. Disaster recovery guide + correction of `docs/features/backup-restore.md`, which
-   currently **overstates** capability.
+1. `remotestorage.Uploader` implementations for WebDAV (`webdav.go`), Dropbox
+   (`dropbox.go`), and Google Drive (`googledrive.go`), matching the existing
+   S3/SFTP style, error-handling, and SSRF conventions.
+2. A shared OAuth2 token-lifecycle subsystem (authorize, callback, encrypted
+   token storage, transparent refresh) used identically by Dropbox and Google
+   Drive.
+3. A generalized `RemoteObject` (`Key` vs. `Name`) so retention pruning works
+   whether the provider addresses objects by path (S3/SFTP/WebDAV/Dropbox) or by
+   opaque file ID (Google Drive).
+4. Extend `RemoteTargetConfig`/`RemoteTargetSecrets` and the two switch statements
+   (`validateRemoteTargetConfig`, `remotestorage.New`) without turning the config
+   struct into an unbounded flat bag for every future provider.
+5. Frontend: extend `RemoteTargetFormDialog` with three new type options, an
+   OAuth "Connect" step for Dropbox/Google Drive, and a connection-status badge.
+6. Zero regression to `s3`/`sftp` targets, zero change to their wire format.
 
 ### 1.3 Non-Goals
 
-- No backup of Docker volumes / host OS state — Charon data dir only.
-- No point-in-time / incremental backups — full snapshots only.
-- No restore *into a running cluster* semantics — single-instance app.
-- No GUI-driven off-host restore bootstrap (documented manually in the DR guide).
+- No Dropbox Business / Team-space or Google Shared Drive support — personal/App
+  Folder scope only (see §8 Open Questions).
+- No support for WebDAV `Digest` auth (Basic auth + bearer token only) — matches
+  what self-hosted WebDAV servers (Nextcloud, ownCloud, generic Apache/nginx
+  `mod_dav`) commonly expose over Basic auth today.
+- Charon does not ship a bundled Dropbox/Google OAuth "app" — each self-hosted
+  instance's admin registers their own App/Project in the respective developer
+  console and pastes the resulting Client ID/Secret into Charon (§2.4, §8). This
+  is a deployment/setup **documentation** requirement, not code.
+- No multi-instance/HA support for the OAuth CSRF state store (in-memory,
+  single-process — matches Charon's existing single-binary architecture).
 
 ---
 
-## 2. Research Findings — Current State & Gap Matrix
+## 2. Research Findings
 
-### 2.1 What exists today (verified in source)
+### 2.1 Existing architecture (verified in source)
 
-**Service — `backend/internal/services/backup_service.go`:**
+**Model — `backend/internal/models/remote_storage_target.go`:** `Type string
+gorm:"index;not null;size:10"` (⚠ **too narrow for `google_drive` — 12 chars — must
+widen, §3.4**), `ConfigJSON`/`SecretsEncrypted` both `json:"-"`, `KeyVersion int`,
+`LastTestAt`/`LastTestStatus`/`LastError`. `BeforeCreate` server-generates `UUID`.
 
-- `BackupService` struct: `DataDir`, `BackupDir`, `DatabaseName`, `Cron *cron.Cron`
-  (`robfig/cron/v3`, already in `backend/go.mod`), `restoreDBPath`, and test seams
-  `createBackup` / `cleanupOld` (lines 81–89).
-- `NewBackupService(cfg *config.Config)` — derives `BackupDir` =
-  `filepath.Dir(cfg.DatabasePath) + "/backups"` (0700), **hardcodes** cron
-  `"0 3 * * *"` (line 162). Scheduler lifecycle via `Start()` / `Stop()` (graceful,
-  waits on `cron.Stop()` context).
-- `CreateBackup()` — writes `backup_<2006-01-02_15-04-05>.zip` containing:
-  1. SQLite snapshot via `createSQLiteSnapshot` → `VACUUM INTO` a temp file (line 126)
-     — already the correct online-backup method for a WAL-mode DB (the prompt's claim
-     of "raw file copy" is **outdated**; verified against source).
-  2. `caddy/` directory walk via `addDirToZip` (certificates included).
-  - **Missing:** manifest, checksums, `data/crowdsec/`, encryption, history record.
-- `ListBackups()` — filesystem scan of `BackupDir`, filters `.zip` only (line 275),
-  returns `BackupFile{Filename, Size, Time}` (json: `filename`, `size`, `time`),
-  newest first.
-- `RunScheduledBackup()` — create + `CleanupOldBackups(DefaultBackupRetention)` where
-  `DefaultBackupRetention = 7` (count-based, line 172).
-- `DeleteBackup` / `GetBackupPath` — path-traversal guards (`filepath.Base` equality +
-  prefix check). Covered by `backend/internal/api/handlers/backup_handler_sanitize_test.go`.
-- `RestoreBackup(filename)` — extracts DB (+`-wal`/`-shm`, checkpointed) to a temp file
-  via `extractDatabaseFromBackup`, then `unzipWithSkip` extracts everything else into
-  `DataDir` using `SafeJoinPath` (zip-slip protection, lines 45–79) with a **100 MB
-  per-entry decompression-bomb limit** (lines 654, 756).
-- `RehydrateLiveDatabase(db *gorm.DB)` — live restore without restart:
-  `ATTACH DATABASE` a temp copy, `DELETE FROM` + `INSERT INTO ... SELECT` per table
-  (identifiers validated by `quoteSQLiteIdentifier`), `sqlite_sequence` sync,
-  `DETACH`, `wal_checkpoint(TRUNCATE)`.
-- `GetAvailableSpace()` — `syscall.Statfs` on `BackupDir`.
-- Test files: `backup_service_test.go`, `_disk_test.go`, `_rehydrate_test.go`,
-  `_wave3..7_test.go` — substantial existing coverage to keep green.
+**Model — `backend/internal/models/backup_remote_copy.go`:** `RemoteKey string` is a
+**display label only** — retention pruning never reads it back as a delete key (see
+below), so nothing here needs to change for opaque-ID providers.
 
-**Handler — `backend/internal/api/handlers/backup_handler.go`:**
+**Service — `backend/internal/services/backup_remote_service.go`** (464 lines):
 
-- `BackupHandler{service, securityService, db}`; constructors `NewBackupHandler`,
-  `NewBackupHandlerWithDeps`.
-- `List`, `Create`, `Delete`, `Download`, `Restore`. `Create`/`Delete`/`Restore` call
-  `requireAdmin(c)` (`permission_helpers.go:16`). **`List` and `Download` do NOT**
-  (see §3.9 — Download of a full DB dump should be admin-gated).
-- `Restore` retries `RehydrateLiveDatabase` up to 5× on transient SQLite lock errors
-  (`isSQLiteTransientRehydrateError`), responds
-  `{"message", "restart_required", "live_rehydrate_applied"}`.
-- Structured errors via `gin.H{"error": ...}`; logging via
-  `middleware.GetRequestLogger` + `util.SanitizeForLog`.
+- `RemoteTargetConfig` (lines 24–39) and `RemoteTargetSecrets` (line 45) are flat
+  structs; handlers decode/encode only the fields relevant to `Type`.
+- `validateRemoteTargetConfig` (line ~313): `switch targetType { case "s3": ...;
+  case "sftp": ...; default: error }`.
+- `ErrEncryptionKeyMissing` sentinel (line ~72) with a comment citing the
+  "DNS-provider precedent" — **see §2.2, this needs correcting**.
+- `TriggerUpload` → `uploadToTarget` → computes `remoteKey :=
+  joinRemotePrefix(config.PathPrefix, record.Filename)`, calls
+  `uploader.Upload(ctx, localPath, remoteKey)`, then
+  `pruneRemoteRetention(ctx, uploader, config.PathPrefix, retentionCount)`.
+- `pruneRemoteRetention` (line ~380): calls `uploader.List(ctx, pathPrefix)`,
+  filters candidates via `base := path.Base(obj.Key); strings.HasPrefix(base,
+  "backup_") && strings.Contains(base, ".zip")`, sorts by `LastModified` desc,
+  deletes everything past `retentionCount` via `uploader.Delete(ctx, obj.Key)`.
+  **This is the exact spot that breaks for Google Drive** — `obj.Key` there would
+  be a Drive file ID, not something `path.Base` + a `"backup_"` prefix check can
+  filter on. Fixed by the `Key`/`Name` split in §3.2.
+- **Existing SFTP precedent worth reusing exactly, not reinventing:** for
+  `sftp`-type targets, `config.PathPrefix` (the outer struct's S3 field) is always
+  empty — SFTP's own `SFTPConfig.Path` (parsed independently, inside
+  `remotestorage.New`) supplies the directory, and the `remoteKey`/`prefix`
+  arguments passed through the shared orchestration code are effectively just the
+  bare filename. WebDAV, Dropbox, and Google Drive follow this same precedent:
+  their folder scope lives in their own nested sub-config (§3.2), consumed
+  entirely inside their own `Uploader` implementation — **no changes are needed to
+  `uploadToTarget`/`pruneRemoteRetention`'s call signatures**, only to
+  `RemoteObject` itself (§3.2).
 
-**Routing — `backend/internal/api/routes/routes.go`:**
+**`backend/internal/services/remotestorage/`:**
 
-- Lines 216–223: `services.NewBackupService(&cfg)` + `backupService.Start()`;
-  `NewDBHealthHandler(db, backupService)` (exposes `last_backup` in
-  `db_health_handler.go:26,60-61`).
-- Lines 304–309: routes mounted under `management := protected.Group("/")` with
-  `middleware.RequireManagementAccess()` (JWT-protected, passthrough users blocked):
-  `GET/POST /api/v1/backups`, `DELETE /backups/:filename`,
-  `GET /backups/:filename/download`, `POST /backups/:filename/restore`.
-- Line 787: `handlers.NewCertificateHandler(certService, backupService, ...)` — the
-  certificate handler depends on `BackupServiceInterface`
-  (`certificate_handler.go:21-33`); interface must stay satisfied.
-- AutoMigrate list at lines 100–137 (registration point for new models).
+- `remotestorage.go`: `Uploader` interface (`Upload`, `Delete`, `List`, `Test`),
+  `RemoteObject{Key, Size, LastModified}`, `New(target, secrets map[string]string)`
+  factory switching on `target.Type`.
+- `ssrf.go`: `ValidateHostSSRF` (config-save-time) + `safeDialer`/`dialContext`
+  (dial-time, defeats DNS-rebinding TOCTOU) — RFC1918 allowed, loopback/link-local
+  /metadata/reserved blocked. Indirected through package-level vars
+  (`ssrfValidateHost`, `ssrfValidateDialAddress`) purely for test substitution.
+- `s3.go` (152 lines): `minio-go/v7`, SSRF-checked endpoint, SSRF-safe HTTP
+  transport `DialContext`, `Test` = `BucketExists` + put/delete marker object.
+- `sftp.go` (337 lines): `pkg/sftp` + `x/crypto/ssh`, two-phase host-key model
+  (unauthenticated discovery dial that aborts before any credential is sent, then
+  a verified dial pinned via `ssh.FixedHostKey`).
 
-**Crypto (reuse) — `backend/internal/crypto/`:**
+**Frontend:** `RemoteTargetFormDialog.tsx` (364 lines) — local `useState` per
+field, a `type: 's3' | 'sftp'` radio switch, `buildConfig()`/`buildSecrets()`
+functions that branch on `type`, secret inputs always blank-on-edit
+("leave blank to keep current"). `RemoteTargetsCard.tsx` — list with a status
+Badge (`ok|failed|never`) and a lightning-bolt "Test" button
+(`useTestRemoteTarget` → `POST .../:uuid/test`). `frontend/src/api/backups.ts`
+holds the `RemoteTarget*` types/functions (NOT `frontend/src/api/remoteServers.ts`,
+which is an unrelated Docker-remote-host feature — confirmed by reading both
+files; do not confuse the two).
 
-- `encryption.go`: `EncryptionService` — AES-256-GCM, base64 32-byte key,
-  nonce-prepended, constructed from `cfg.EncryptionKey`
-  (`config.go:102` ← `CHARON_ENCRYPTION_KEY`). Wired in `routes.go` at 169–171,
-  413–416, 778–780.
-- `rotation_service.go`: key rotation via `CHARON_ENCRYPTION_KEY_NEXT` /
-  `CHARON_ENCRYPTION_KEY_V1..V10`.
-- Storage pattern for secrets: `models.DNSProviderCredential.CredentialsEncrypted`
-  (`json:"-"`, AES-256-GCM JSON blob) + `KeyVersion int` — reused verbatim for
-  `RemoteStorageTarget` (§3.4).
+### 2.2 The "DNS-provider precedent" — corrected
 
-**SSRF (reuse) — `backend/internal/network/safeclient.go`:**
+The task brief for this plan assumed the DNS-provider code establishes an
+"OAuth-like credential-flow" pattern (callback routes, token refresh, state-param
+CSRF) that Dropbox/Google Drive should follow for consistency. **This is not what
+exists.** Reading `backend/internal/models/dns_provider.go`,
+`dns_provider_credential.go`, and `backend/internal/services/dns_provider_service.go`
+(711 lines) confirms DNS providers use **static API-token credentials** exactly like
+S3/SFTP: a `CredentialsEncrypted` AES-256-GCM blob, no OAuth, no callback route, no
+token refresh. A repo-wide grep for `oauth2|/callback|redirect_uri` across
+`backend/internal` and `backend/cmd` returns **zero matches**, and `backend/go.mod`
+has no `golang.org/x/oauth2` or any OAuth-shaped dependency.
 
-- `privateCIDRs` blocklist (RFC1918, loopback, link-local/cloud-metadata
-  `169.254.0.0/16`, reserved, IPv6 ULA/link-local) with an explicit `AllowRFC1918`
-  bypass path (`rfc1918CIDRs`, `IsRFC1918`) for homelab targets.
+**Conclusion:** the only real precedent is the encrypted-secrets-blob storage
+pattern itself (`SecretsEncrypted` / `CredentialsEncrypted`, `crypto.EncryptionService`,
+`ErrEncryptionKeyMissing` degrade-gracefully behavior) — which Dropbox/Google Drive
+do reuse (§3.2). The OAuth authorization flow, callback routes, CSRF state
+protection, and token-refresh subsystem have **no prior art in this codebase** and
+are designed fresh in this plan (§3.5). This is flagged explicitly so the
+implementing engineer doesn't go looking for an OAuth pattern to copy that isn't
+there.
 
-**Config — `backend/internal/config/config.go`:**
+### 2.3 Existing "test connection" flow
 
-- `DatabasePath` (line 94, `CHARON_DB_PATH`, default `data/charon.db`),
-  `EncryptionKey` (line 102), `CrowdSecConfigDir` (line 167,
-  `CHARON_CROWDSEC_CONFIG_DIR`, default `data/crowdsec`).
+`POST /api/v1/backups/remote-targets/:uuid/test` → `BackupRemoteService.Test` →
+builds an `Uploader` from decrypted secrets → calls `uploader.Test(ctx)` → records
+`LastTestAt`/`LastTestStatus`/`LastError` on the target row.
+`respondRemoteTargetError` (handler, line ~228) maps sentinel errors to specific
+HTTP status + `error_code` (today only `ErrEncryptionKeyMissing` → `503
+encryption_key_missing`). There's also a stateless `TestDraft` endpoint
+(SFTP-only today) for host-key discovery before a target has been saved. This
+sentinel-error → `error_code` pattern is exactly what generalizes cleanly to "test
+requires a completed OAuth flow, not just network reachability" (§3.5, §3.9) — no
+new UI concept needed, just a new sentinel error consumed by the same generic
+`toast.error(error.message)` path already in `RemoteTargetsCard.tsx`.
 
-**Version:** `backend/internal/version/version.go` — `Version` (ldflags) → manifest
-`app_version`.
+### 2.4 Public-URL source for OAuth redirect_uri — corrected (was: "no concept exists")
 
-**Caddy reload:** `backend/internal/caddy/manager.go:105` —
-`(*Manager).ApplyConfig(ctx)` with built-in snapshot/rollback (`saveSnapshot`,
-`rollback`). This is the post-restore reload hook.
+**Correction to an earlier draft of this plan:** Charon already has a configured
+public-URL concept — it does not need to be invented. Verified in source:
 
-**Frontend:**
+- `backend/internal/models/setting.go` — generic `Setting{Key, Value, Type,
+  Category}` key-value table (already `AutoMigrate`d, already used pervasively).
+- `backend/internal/utils/url.go` — `GetConfiguredPublicURL(db *gorm.DB) (string,
+  bool)` reads the `Setting` row keyed `"app.public_url"` and normalizes it via
+  `normalizeConfiguredPublicURL`, which explicitly **rejects** userinfo, query,
+  fragment, and any path beyond `/` and returns `scheme://host` only — exactly the
+  shape an OAuth `redirect_uri` base needs, already built and already validated on
+  write.
+- `backend/internal/api/handlers/settings_handler.go` — `ValidatePublicURL` (format
+  check) and `TestPublicURL` (SSRF-safe connectivity probe) handlers, wired at
+  `backend/internal/api/routes/routes.go:400-401` as `POST
+  /api/v1/settings/validate-url` and `POST /api/v1/settings/test-url`.
+- `frontend/src/pages/SystemSettings.tsx` — existing admin UI to enter/validate
+  this value.
+- Already in production use for invite-email links —
+  `backend/internal/api/handlers/user_handler.go:583,634,1013` all call
+  `utils.GetConfiguredPublicURL(h.DB)`.
+- Stored in the DB (`Setting` row), not an env var — **hot-reloadable, no process
+  restart needed** to pick up a change, unlike `backend/internal/config/config.go`
+  env vars.
 
-- `frontend/src/api/backups.ts` — `BackupFile{filename,size,time}`, `getBackups`,
-  `createBackup`, `restoreBackup`, `deleteBackup` (+ `__tests__/backups.test.ts`).
-- `frontend/src/pages/Backups.tsx` — table, create button, restore/delete dialogs,
-  download via `window.location.href`, data-testids (`backup-table`, `backup-row`,
-  `backup-download-btn`, `backup-restore-btn`, `backup-delete-btn`, `empty-state`,
-  `loading-skeleton`). **Bug:** writes Settings keys `backup.interval` /
-  `backup.retention` via `src/api/settings.ts:updateSetting` — grep confirms **no
-  backend code reads these keys**; they are dead knobs. Also `useState(() => {...})`
-  at line 58 is a misuse (never re-runs on settings load).
-- No `useBackups` hook exists (page uses `useQuery` inline — deviates from the
-  `src/hooks/use*.ts` convention in CLAUDE.md).
-- i18n: `frontend/src/locales/{de,en,es,fr,zh}/translation.json` with existing
-  `backups.*` keys (28 keys in `en`).
+**Resolution:** Dropbox/Google Drive's `oauth/start` handler calls the existing
+`utils.GetConfiguredPublicURL(h.DB)` exactly like `user_handler.go` already does,
+and returns `400 public_url_not_configured` when it returns `false` (§3.3, R10).
+**No new env var, no new config field, no new admin-UI surface — this reuses an
+existing, already-validated, already-SSRF-tested piece of infrastructure
+end-to-end.** The `X-Charon-URL` header precedent from `orthrus_handler.go:161`
+remains irrelevant for the reasons the earlier draft gave (request-supplied,
+unauthenticated callback context) — it's simply moot now that a proper configured
+value already exists.
 
-**E2E:** `tests/tasks/backups-create.spec.ts` (17 mocked tests via
-`tests/utils/phase5-helpers.ts:setupBackupsList`), `tests/tasks/backups-restore.spec.ts`
-(8 tests), `tests/integration/backup-restore-e2e.spec.ts`. Note: mock fixtures use
-`.tar.gz` filenames although the real format is `.zip` (harmless because mocked, but
-fixtures will be corrected to `.zip`).
+### 2.5 External dependency research
 
-**Docs:** `docs/features/backup-restore.md` **overstates** reality: claims CrowdSec
-config is included (it is not), claims pre-upgrade/pre-change automatic backups
-(not implemented), claims day-based retention 30/90 days (actual: count-based, 7),
-claims manual-backup labels (not implemented).
+**WebDAV client.** `golang.org/x/net/webdav` (already an indirect dep via
+`golang.org/x/net`) is a **server**-side handler, not a client — not usable here.
+Evaluated client candidates:
 
-**Repo hygiene:** `.gitignore:141` has `/data/backups/` (root-anchored) — it does
-**not** cover `backend/data/backups/`. The stray file
-`backend/data/backups/charon_backup_20251217_144822.db` exists **on disk but is NOT
-committed** (verified via `git ls-files`). The guard hook
-`scripts/pre-commit-hooks/block-data-backups-commit.sh` only matches `data/backups/*`,
-so it would not block `backend/data/backups/*` either. See §7.
-
-### 2.2 Gap Matrix vs Issue #32
-
-| # | Issue #32 requirement | Status | Exists / Reused | Gap (New work) |
-|---|---|---|---|---|
-| 1 | Backup format: DB + configs + certificates | **Partial** | zip + `VACUUM INTO` snapshot + `caddy/` dir | `manifest.json` (version, checksums, app_version), include `data/crowdsec/`, format versioning, `.zip` v1 compat |
-| 2 | One-click backup button | **Done** | `POST /backups` + `Backups.tsx` button | Extend response with record UUID/type |
-| 3 | Scheduled automatic backups | **Partial** | cron wired, `Start()/Stop()`, retention cleanup | Schedule/retention **configurable** (backend must read settings; runtime reschedule via `cron.Remove(EntryID)` + `AddFunc`); dead UI knobs fixed |
-| 4 | Restore with validation | **Partial** | traversal/zip-slip/bomb guards, live rehydrate (`ATTACH`-based) | Manifest+checksum verification, `PRAGMA integrity_check` on temp copy, pre-restore safety backup, rollback, Caddy `ApplyConfig` after restore, upload-and-restore, **durable pending-restore file + boot-time swap consumer** (v1's "restart completes the restore" story has no working code behind it today — see §3.5) |
-| 5 | Optional backup encryption | **Missing** | `crypto.EncryptionService` reused only for stored secrets | age (scrypt) passphrase encryption of archives (§3.6) |
-| 6 | Remote storage (S3, SFTP) | **Missing** | `network` SSRF validation reused | `RemoteStorageTarget` model, uploader interface, minio-go + pkg/sftp impls, test-connection, remote retention pruning |
-| 7 | Backup history management | **Partial** | filesystem `ListBackups` | `BackupRecord` + `BackupRemoteCopy` GORM models, reconciliation with filesystem, richer list API |
-| 8 | Disaster recovery guide | **Missing** | `docs/features/backup-restore.md` (inaccurate) | New `docs/features/disaster-recovery.md`; correct existing doc |
-
-### 2.3 External dependencies (new)
-
-| Dependency | Purpose | Justification |
+| Candidate | License | Notes |
 |---|---|---|
-| `filippo.io/age` | Passphrase archive encryption | Audited (Trail of Bits 2024), pure Go, streaming STREAM/ChaCha20-Poly1305 construction, scrypt recipient built in; avoids hand-rolled chunked AES-GCM (§3.6) |
-| `github.com/minio/minio-go/v7` | S3 client | Single module (vs aws-sdk-go-v2's multi-module tree), first-class support for S3-compatible endpoints (MinIO, Backblaze B2, Cloudflare R2) that self-hosters actually use; path-style addressing |
-| `github.com/pkg/sftp` | SFTP client | De-facto standard; pairs with already-present `golang.org/x/crypto` v0.53.0 (`x/crypto/ssh`) |
+| `github.com/studio-b12/gowebdav` | MIT | Long-running project (2014–present), minimal transitive deps (stdlib + already-present `x/net`), imperative API (`Mkdir`, `MkdirAll`, `Remove`, `ReadDir`, `Stat`, `Read`/`ReadStream`, `Write`/`WriteStream`) that maps almost 1:1 onto Charon's `Uploader` interface |
+| `github.com/emersion/go-webdav` | MIT | Part of the well-regarded emersion mail/groupware suite (`go-imap`, `go-smtp`); more general (shared CalDAV/CardDAV abstractions Charon doesn't need), client surface less mature than its server side, more moving parts for the same four operations |
+| Hand-rolled `net/http` PROPFIND/MKCOL/PUT/DELETE | — | Rejected: WebDAV's XML multistatus response parsing, `Depth` header semantics, and `423 Locked` handling are exactly the kind of "don't hand-roll a protocol a library already gets right" case CLAUDE.md's LEVERAGE principle calls out |
 
-Existing deps reused: `robfig/cron/v3`, `mattn/go-sqlite3`, `google/uuid`,
-`golang.org/x/crypto`.
+**Recommendation: `github.com/studio-b12/gowebdav`.** Its API surface is the
+closest match to the four `Uploader` methods, keeping the adapter code (and the
+audit surface of unused features) minimal. **Action item for the implementing
+commit:** re-verify the pinned version's current maintenance status/license at
+`go get` time — this recommendation is based on the library's design fit, not a
+live star-count/commit-date check performed during planning.
+
+**Dropbox API.** No Dropbox-maintained Go SDK exists;
+`github.com/dropbox/dropbox-sdk-go-unofficial` is community-maintained, generates
+the *entire* Dropbox API surface (Paper, Team, Sharing, Business — far beyond
+upload/delete/list), and pulls a correspondingly large dependency tree for four
+endpoints Charon needs. **Recommendation: hand-roll a thin REST client** over
+`net/http` against `content.dropboxapi.com` (upload) and `api.dropboxapi.com`
+(delete/list/account) — these are plain JSON/HTTP-header-encoded-argument calls,
+not a protocol worth a library. Confirmed current (per training-data knowledge,
+**re-verify at implementation time**) single-request upload limit:
+**`/2/files/upload` caps at 150 MiB**; above that, use the chunked
+**upload session** flow: `upload_session/start` → repeated
+`upload_session/append_v2` → `upload_session/finish` (commit with
+`mode: "overwrite"`, target path). Recommend an 8 MiB chunk size (safely under the
+150 MiB per-call cap, small enough to keep memory bounded while streaming a large
+archive).
+
+**Google Drive API.** The official `google.golang.org/api/drive/v3` module is part
+of the umbrella `google.golang.org/api` package — a single generated client
+covering hundreds of Google APIs, far heavier than the four calls Charon needs
+(`files.create`, `files.list`, `files.get`/delete, resumable upload).
+**Recommendation: hand-roll a thin REST client** over `net/http` against
+`www.googleapis.com/drive/v3/...`, using the **resumable upload** protocol
+(`POST .../upload/drive/v3/files?uploadType=resumable` → session URI → `PUT` the
+body) for all uploads regardless of size — Google explicitly supports and
+recommends resumable upload for any file size, so there is no need for a
+small-file/large-file branch (unlike Dropbox, where the API itself imposes a hard
+per-call cap that forces branching).
+
+**OAuth2 token lifecycle (shared by both).** **Recommendation: use the official
+`golang.org/x/oauth2` module** (new direct dependency; the module itself has no
+further heavy transitive deps) for both providers' authorize-URL construction,
+code-for-token exchange, and — critically — transparent refresh via
+`oauth2.Config.TokenSource`, which already implements "refresh if `Expiry` has
+passed" correctly. This is the one piece of the OAuth flow that **is** worth
+leveraging a library for (correct, security-sensitive expiry/refresh handling);
+everything else (the REST upload/list/delete calls) is thin and provider-specific
+enough that hand-rolling is the leaner choice. `oauth2.TokenSource` does not
+persist refreshed tokens itself — Charon wraps it in a small
+`persistingTokenSource` (§3.5) that re-encrypts and saves whenever the token
+changes.
+
+**Net new dependencies:** `golang.org/x/oauth2`, `github.com/studio-b12/gowebdav`.
+No new dependency for Dropbox/Google Drive REST calls (plain `net/http`, already a
+transitive/stdlib dependency).
 
 ---
 
@@ -232,1023 +301,952 @@ Existing deps reused: `robfig/cron/v3`, `mattn/go-sqlite3`, `google/uuid`,
 
 | ID | Requirement (EARS) |
 |---|---|
-| R1 | WHEN an admin triggers a backup, THE SYSTEM SHALL produce a format-v2 archive containing the SQLite snapshot, `caddy/`, `crowdsec/`, and a `manifest.json` with SHA-256 checksums, and SHALL persist a `BackupRecord`. |
-| R2 | WHILE backup encryption is enabled, THE SYSTEM SHALL encrypt every produced archive with the configured passphrase before it touches `data/backups/` or any remote target. |
-| R3 | WHEN the configured schedule fires, THE SYSTEM SHALL create a `scheduled` backup, prune local backups beyond the retention count, upload to all enabled remote targets, and prune remote copies beyond the remote retention count. |
-| R4 | WHEN a restore is requested, THE SYSTEM SHALL validate the archive (manifest version, checksums, `PRAGMA integrity_check` on a temp copy) and SHALL refuse to modify live data if validation fails. |
-| R5 | WHEN validation passes, THE SYSTEM SHALL create a `pre_restore` safety backup before modifying any live data, and SHALL restore from it if the restore fails partway. |
-| R6 | WHEN a restore completes, THE SYSTEM SHALL rehydrate the live database (existing `RehydrateLiveDatabase`), reload Caddy via `ApplyConfig`, and report `restart_required` when rehydrate was not possible. |
-| R7 | WHEN a legacy v1 archive (no manifest) is restored, THE SYSTEM SHALL restore it with a logged warning and skip checksum verification. |
-| R8 | WHEN a user submits a remote target, THE SYSTEM SHALL store credentials AES-256-GCM-encrypted (existing `crypto.EncryptionService`), SHALL never echo secrets in any response, and SHALL validate the endpoint against the `network` package's SSRF rules (RFC1918 allowed, loopback/link-local/metadata blocked). |
-| R9 | IF `CHARON_ENCRYPTION_KEY` is absent, THEN THE SYSTEM SHALL disable remote-target credential storage and scheduled-encryption passphrase storage, degrading gracefully with a clear API error (mirrors `routes.go:523` behavior for DNS providers). |
-| R10 | WHEN an archive is uploaded for restore, THE SYSTEM SHALL enforce a request size limit, validate it as R4 before it becomes restorable, and store it under a sanitized server-generated filename. |
+| R1 | WHEN an admin creates a `webdav` target, THE SYSTEM SHALL validate the supplied URL's host against the same SSRF policy as S3/SFTP (RFC1918 allowed; loopback/link-local/metadata/reserved blocked) at both config-save and dial time. |
+| R2 | WHEN an admin creates a `dropbox` or `google_drive` target, THE SYSTEM SHALL persist the target in a "pending" (not-yet-connected) state accepting only non-secret config + OAuth client credentials, and SHALL NOT require an access/refresh token to exist at creation time. |
+| R3 | WHEN an admin initiates OAuth for a `dropbox`/`google_drive` target, THE SYSTEM SHALL generate a single-use, time-bound (10 min) CSRF `state` token bound to that target's UUID, and SHALL reject any callback whose `state` does not match an unexpired, unconsumed value it issued. |
+| R4 | WHEN the OAuth callback completes successfully, THE SYSTEM SHALL exchange the authorization code for an access + refresh token, encrypt and store both (plus expiry) in the target's existing `SecretsEncrypted` blob, set `oauth_status = "connected"`, and redirect the browser to a frontend URL that surfaces success without ever placing tokens in the URL or in frontend-visible state. |
+| R5 | WHEN an access token is expired or near-expiry at the time of Test/Upload/List/Delete, THE SYSTEM SHALL transparently refresh it using the stored refresh token before the operation proceeds, and SHALL persist the refreshed token back to encrypted storage. |
+| R6 | IF a refresh attempt fails because the refresh token itself was revoked (provider returns `invalid_grant`), THEN THE SYSTEM SHALL set `oauth_status = "revoked"` and SHALL surface a distinct, actionable error (not a generic connectivity failure) instructing the admin to reconnect. |
+| R7 | WHEN retention pruning runs against a Google Drive target, THE SYSTEM SHALL filter delete-candidates by the human-readable `Name` field (never the opaque `Key`/file-ID), across **every page** of a paginated `List` result (R12), so the existing `backup_*.zip*` filename convention keeps working identically to S3/SFTP/WebDAV/Dropbox regardless of how many backups exist in the target folder. |
+| R8 | WHEN a Google Drive target's configured folder path does not yet exist, THE SYSTEM SHALL create the full parent-folder chain on first upload, and SHALL treat a not-yet-existing folder as an empty listing (not an error) for `List`/retention purposes — mirroring the existing SFTP `os.IsNotExist` → empty-list behavior. |
+| R9 | IF `CHARON_ENCRYPTION_KEY` is absent, THEN remote-target credential storage SHALL remain unavailable for all five provider types identically (existing `ErrEncryptionKeyMissing` behavior, unchanged). |
+| R10 | IF `utils.GetConfiguredPublicURL(db)` (existing `Setting` key `app.public_url`, §2.4) returns `false`, THEN THE SYSTEM SHALL refuse to start a Dropbox/Google Drive OAuth flow with a `400 public_url_not_configured` error rather than construct a redirect_uri that cannot possibly match the provider's registered value. |
+| R11 | WHEN a Dropbox upload exceeds 150 MiB, THE SYSTEM SHALL use the chunked upload-session flow instead of the single-request endpoint. |
+| R12 | WHEN a Dropbox or Google Drive `List` call's response indicates more results exist (Dropbox `has_more`/`cursor`; Drive `nextPageToken`), THE SYSTEM SHALL follow the cursor/page-token chain and accumulate entries across **all** pages before returning, so retention pruning never silently misses objects once a target folder exceeds one page — this MUST be implemented in the initial release, not deferred as a documented limitation, because an invisible retention candidate is a silent correctness failure rather than a visible error. |
 
-### 3.2 Backup Archive Format v2
+### 3.2 Config/Secrets Design & the Locator Abstraction
 
-**Decision: stay on zip** (`archive/zip`), not tar.gz. Rationale: all v1 hardening
-(`SafeJoinPath`, per-entry bomb limits, skip-list extraction) already targets zip;
-v1 archives stay restorable through one code path; zips are double-clickable for
-novice users downloading them. Versioning lives in the manifest, not the container.
-
-**Filenames** (all produced in `BackupDir`, listed by extension):
-
-- Unencrypted: `backup_<2006-01-02_15-04-05>.zip` (unchanged from v1)
-- Encrypted: `backup_<2006-01-02_15-04-05>.zip.age` (age-encrypted whole archive)
-- Uploaded: `uploaded_<ts>.zip[.age]` (server-generated on upload; client name discarded)
-
-**Archive layout (v2):**
-
-```
-charon.db                      ← VACUUM INTO snapshot (existing createSQLiteSnapshot)
-caddy/**                       ← certificates + Caddy state (existing addDirToZip)
-crowdsec/**                    ← cfg.CrowdSecConfigDir contents (NEW)
-manifest.json                  ← MUST be the LAST entry written
-```
-
-`manifest.json` is written **last**, not first: each preceding entry's
-`ManifestEntry.SHA256` is accumulated in a single pass via
-`io.MultiWriter(zipEntry, sha256.New())` as that entry streams into the archive, so
-the checksums cannot exist until every other entry has already been written. Zip's
-central directory makes entry *position* irrelevant for reading — a reader locates
-`manifest.json` by name, not offset — so writing it last has no downside and is the
-only order compatible with single-pass streaming (re-reading already-written entries
-to backfill checksums would double the I/O of every backup).
-
-**`ListBackups`, `CleanupOldBackups`, and `GetLastBackupTime` scan for both `.zip`
-and `.zip.age` suffixes.** Today's `ListBackups` filters
-`strings.HasSuffix(entry.Name(), ".zip")` only (`backup_service.go:275`) — this is a
-required **code change**, not just documentation: without it, an encrypted backup
-would be invisible to listing, retention pruning, and the DB-health `last_backup`
-timestamp the moment encryption is enabled.
-
-**`manifest.json` schema** (new Go type in `backup_service.go` or new
-`backup_manifest.go` in the same package):
+**Decision on `RemoteTargetConfig` growth (cross-cutting question 2).** The
+existing flat S3/SFTP fields (`Endpoint`, `Region`, `Bucket`, `Host`, `Port`, ...)
+are **left exactly as-is** — no wire-format change, no migration, zero risk to
+already-configured production targets. Every new provider gets its own **nested,
+pointer-typed sub-config field**, so the struct grows by one field per provider
+forever, instead of by every provider's individual settings forever:
 
 ```go
-// BackupManifest describes the contents of a format-v2 backup archive.
-type BackupManifest struct {
-    FormatVersion int              `json:"format_version"` // 2
-    CreatedAt     time.Time        `json:"created_at"`
-    AppVersion    string           `json:"app_version"`    // version.Version
-    BackupType    string           `json:"backup_type"`    // manual|scheduled|pre_restore|uploaded
-    DatabaseName  string           `json:"database_name"`  // e.g. "charon.db"
-    Contents      []ManifestEntry  `json:"contents"`
-    EncryptionKeyRequired bool     `json:"encryption_key_required"` // DB rows encrypted with CHARON_ENCRYPTION_KEY exist
+type RemoteTargetConfig struct {
+	// --- existing s3/sftp flat fields, unchanged ---
+	Endpoint, Region, Bucket, PathPrefix       string
+	UseSSL, ForcePathStyle                     bool
+	Host, Path, Username, HostKeyFingerprint   string
+	Port                                       int
+
+	// --- new: one nested pointer per new provider type ---
+	WebDAV      *WebDAVConfig      `json:"webdav,omitempty"`
+	Dropbox     *DropboxConfig     `json:"dropbox,omitempty"`
+	GoogleDrive *GoogleDriveConfig `json:"google_drive,omitempty"`
 }
 
-type ManifestEntry struct {
-    Path   string `json:"path"`   // archive-relative, forward slashes
-    Size   int64  `json:"size"`
-    SHA256 string `json:"sha256"` // hex
+type WebDAVConfig struct {
+	URL                string `json:"url"`
+	Username           string `json:"username,omitempty"`
+	BasePath           string `json:"base_path,omitempty"`
+	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"`
+}
+
+type DropboxConfig struct {
+	AppKey     string `json:"app_key"`               // Dropbox "App key" — not secret
+	FolderPath string `json:"folder_path,omitempty"` // e.g. "/charon-backups"
+}
+
+type GoogleDriveConfig struct {
+	ClientID   string `json:"client_id"`             // Google OAuth Client ID — not secret
+	FolderPath string `json:"folder_path,omitempty"` // e.g. "Charon/Backups"; resolved/created as a parent-ID chain
 }
 ```
 
-`EncryptionKeyRequired` is computed by checking whether any rows exist in
-`dns_provider_credentials`, `tunnel_configs`, or other `*Encrypted`-bearing tables —
-it powers a restore-time warning that the target host needs the same
-`CHARON_ENCRYPTION_KEY` (§3.6).
+`validateRemoteTargetConfig`/`remotestorage.New` read from `config.WebDAV` /
+`.Dropbox` / `.GoogleDrive`, nil-checked with a "config required" error — see §3.5
+for the exact switch diffs. A future 6th provider adds one more nested field and
+one more struct; it never touches the existing four.
 
-**Backward compatibility:**
+**`RemoteTargetSecrets` additions** (flat — justified because these five fields
+are a fixed, provider-agnostic shape every OAuth2/bearer-auth provider needs, not
+an unbounded per-provider set):
 
-| Format | Detection | Restore behavior |
-|---|---|---|
-| v2 `.zip` / `.zip.age` | `manifest.json` present (age suffix ⇒ decrypt first) | Full validation (checksums + integrity_check) |
-| v1 `.zip` | zip, no `manifest.json` | Restore allowed; warning logged + `"legacy_format": true` in validate response; checksum step skipped; integrity_check still runs on the extracted DB |
-| v0 raw `.db` (e.g. `charon_backup_20251217_144822.db`) | SQLite magic header `SQLite format 3\x00` | Accepted **only** via the upload endpoint; server wraps it into a v2 archive (DB-only) then restores. Never listed from disk (`ListBackups` keeps filtering by extension). See Open Question Q4. |
+```go
+type RemoteTargetSecrets struct {
+	// --- existing s3/sftp fields, unchanged ---
+	AccessKeyID, SecretAccessKey, Password, PrivateKeyPEM, Passphrase string
 
-**Service changes (`backend/internal/services/backup_service.go`):**
+	// --- new ---
+	BearerToken       string `json:"bearer_token,omitempty"`        // WebDAV bearer-auth alternative to Password
+	OAuthClientSecret string `json:"oauth_client_secret,omitempty"` // Dropbox "App secret" / Google Client Secret
+	OAuthAccessToken  string `json:"oauth_access_token,omitempty"`
+	OAuthRefreshToken string `json:"oauth_refresh_token,omitempty"`
+	OAuthExpiresAt    string `json:"oauth_expires_at,omitempty"`    // RFC3339; empty = not yet obtained
+}
+```
 
-- `CreateBackup()` → becomes a thin wrapper for `CreateBackupWithOptions(opts BackupOptions) (*models.BackupRecord, error)` where
-  `BackupOptions{Type string, Encrypt bool, Passphrase string}`. The existing
-  signature `CreateBackup() (string, error)` is **kept** (certificate handler's
-  `BackupServiceInterface` at `certificate_handler.go:21` and the cron test seams
-  depend on it).
-- New: `writeManifest`, checksum computation while streaming entries
-  (`io.MultiWriter(zipEntry, sha256.New())` — single pass, no re-read).
-- New: `addDirToZip` call for `crowdsec/` (source: `cfg.CrowdSecConfigDir`, tolerate
-  absence exactly like the existing caddy-dir warning path, line 334–337).
-- `NewBackupService(cfg)` gains fields: `CrowdSecDir string`, `db *gorm.DB`,
-  `encryption *crypto.EncryptionService` (nilable), `scheduleEntry cron.EntryID`,
-  `mu sync.Mutex`. Constructor signature change to
-  `NewBackupService(cfg *config.Config, db *gorm.DB, enc *crypto.EncryptionService)`
-  — single call site (`routes.go:217`) plus tests.
-- New: `Reschedule(cronSpec string) error` — validates via `cron.ParseStandard`,
-  `s.Cron.Remove(s.scheduleEntry)`, re-adds; called on settings save and at startup
-  from persisted settings (falls back to `"0 3 * * *"`).
+WebDAV reuses the existing `Password` field for Basic auth (no new field needed —
+username is non-secret and lives in `WebDAVConfig.Username`, exactly mirroring how
+SFTP's `Username` already lives in config, not secrets).
 
-**Complexity:** Medium (service refactor touches many existing tests).
+**The Locator abstraction (cross-cutting question 5's "generalized key/locator"
+ask).** `RemoteObject` gains one field:
+
+```go
+type RemoteObject struct {
+	// Key is the provider-native locator passed back into Delete: a path for
+	// S3/SFTP/WebDAV/Dropbox, or an opaque file ID for Google Drive. Never
+	// assume Key is human-readable or contains the filename.
+	Key          string
+	// Name is always the human-readable backup filename (e.g.
+	// "backup_2026-07-13_03-00-00.zip"), independent of how Key addresses the
+	// object. Retention-candidate filtering in pruneRemoteRetention MUST use
+	// Name, never Key, so the "backup_*.zip*" convention works identically
+	// across every provider including Google Drive's opaque IDs.
+	Name         string
+	Size         int64
+	LastModified time.Time
+}
+```
+
+Required one-line diff in `backup_remote_service.go`'s `pruneRemoteRetention`:
+`base := path.Base(obj.Key)` → `base := obj.Name`. WebDAV/Dropbox's new `List`
+implementations set `Name: path.Base(Key)`; Google Drive's `List` sets `Name` from
+the Drive API's `files.name` field and `Key` from `files.id`. This is the
+**entire** generalization needed — no interface method signatures change,
+`Upload`/`Delete` still take/return a single opaque string exactly as today.
+
+**Correctness-critical consequence — `s3.go`/`sftp.go` MUST be edited in the same
+commit as this diff, not left "unchanged."** Verified in source:
+`s3.go:128`/`sftp.go:245` construct `RemoteObject{Key, Size, LastModified}` today
+with **no `Name` field at all**. The instant `pruneRemoteRetention` switches its
+filter from `path.Base(obj.Key)` to `obj.Name`, every object returned by the
+*existing, unmodified* `s3.go`/`sftp.go` `List()` methods would have `Name == ""`
+— `strings.HasPrefix("", "backup_")` is always false, so **no retention candidate
+would ever match again for any already-configured S3/SFTP target**, and old
+backups would silently accumulate on every remote target in production forever
+(pruning fails permanently open, not closed — no error, no log, nothing visible).
+This is exactly the kind of regression the "no behavior change to s3/sftp" goal
+exists to prevent, so `s3.go`'s and `sftp.go`'s `List()` methods **must** also add
+`Name: path.Base(obj.Key)` / `Name: entry.Name()` respectively, landing in the
+same commit as the `RemoteObject.Name` field itself (§6 Commit 2) — never split
+across commits, since an intermediate commit boundary with the field added but
+`s3.go`/`sftp.go` not yet updated would itself be a broken intermediate state.
 
 ### 3.3 API Contracts
 
-All routes live under the existing `management` group
-(`RequireManagementAccess`) in `backend/internal/api/routes/routes.go`; mutating
-routes additionally call `requireAdmin` inside handlers (existing pattern). All JSON
-is snake_case. UUIDs are server-generated (`BeforeCreate` hook pattern, cf.
-`models/notification_provider.go:48`). Errors: `gin.H{"error": "..."}` (+
-`error_code` where the existing helpers add it).
+All new routes live under the existing `management` group in `routes.go`
+(`RequireManagementAccess` + `requireAdmin` inside handlers), same as S3/SFTP,
+**except** the OAuth callback route (see below — it cannot require Charon auth,
+since the browser arrives there directly from Dropbox/Google with no Charon
+session).
 
-**Auth policy summary (definitive — §3.3.1/§3.3.2/§3.9 all reference this table so
-the auth decision is stated exactly once):**
+**No new config.** `redirect_uri` for both OAuth providers is built from the
+already-existing `utils.GetConfiguredPublicURL(db)` (`Setting` key
+`app.public_url`, §2.4) — the same value the admin already sets in
+`SystemSettings.tsx` for invite-email links. It must match a URI registered in the
+provider's app console (§8) but requires zero new config surface: no new env var,
+no new `Setting` key, no new admin-UI field.
+
+**Auth policy summary (extends the S3/SFTP plan's table):**
 
 | Route | Auth |
 |---|---|
-| `GET /api/v1/backups` | management (existing; unchanged) |
-| `POST /api/v1/backups` | admin |
-| `DELETE /api/v1/backups/:filename` | admin |
-| `GET /api/v1/backups/:filename/download` | **admin (changed from management — full-DB exfiltration risk, §3.9)** |
-| `POST /api/v1/backups/:filename/restore` | admin |
-| `POST /api/v1/backups/upload` | admin |
-| `POST /api/v1/backups/:filename/validate` | admin |
-| `GET /api/v1/backups/settings` | management |
-| `PUT /api/v1/backups/settings` | admin |
-| `GET /api/v1/backups/remote-targets` | **admin — reveals NAS hostnames/usernames/bucket names even with secrets omitted, so it is not management-level like plain backup listing** |
-| `POST` / `PUT` / `DELETE /api/v1/backups/remote-targets[/:uuid]` | admin |
-| `POST /api/v1/backups/remote-targets/:uuid/test` | admin |
+| `POST /api/v1/backups/remote-targets/:uuid/oauth/start` | admin |
+| `GET /api/v1/backups/remote-targets/oauth/:provider/callback` | **none at the gin-middleware level** — protected instead by the single-use, time-bound `state` CSRF token (§3.5, §3.8); `:provider` is `dropbox` or `google_drive` |
+| `POST /api/v1/backups/remote-targets/:uuid/oauth/disconnect` | admin |
 
-#### 3.3.1 Existing routes (extended, backward-compatible)
+Every other remote-target route (`GET/POST/PUT/DELETE .../remote-targets[/:uuid]`,
+`.../test`, `.../test-draft`) is unchanged and now also accepts
+`type: "webdav" \| "dropbox" \| "google_drive"`.
 
-**`GET /api/v1/backups`** — list (now DB-backed, reconciled with filesystem):
-
-```json
-[
-  {
-    "filename": "backup_2026-07-07_03-00-00.zip",
-    "size": 1048576,
-    "time": "2026-07-07T03:00:00Z",
-    "uuid": "0b6f…",
-    "type": "scheduled",
-    "encrypted": false,
-    "format_version": 2,
-    "sha256": "ab12…",
-    "status": "completed",
-    "app_version": "1.42.0",
-    "remote_copies": [
-      {"target_uuid": "…", "target_name": "NAS", "status": "uploaded", "uploaded_at": "…"}
-    ]
-  }
-]
-```
-
-`filename`/`size`/`time` keys unchanged → existing frontend and the mocked E2E
-helpers keep working during the transition. Files on disk without a `BackupRecord`
-(pre-upgrade backups) are listed with `"type": "manual"`, `"format_version": 1`,
-null `uuid`. The underlying filesystem scan (and `CleanupOldBackups` /
-`GetLastBackupTime`) matches both `.zip` and `.zip.age` files (§3.2) so encrypted
-backups are listed, pruned, and reflected in DB-health status identically to
-unencrypted ones.
-
-**`POST /api/v1/backups`** — create (admin). Optional body:
-
-```json
-{ "encrypt": true, "passphrase": "…" }   // both optional; defaults from settings
-```
-
-Response `201`: `{ "filename": "…", "uuid": "…", "message": "Backup created successfully" }`
-(`filename` key kept).
-
-**`DELETE /api/v1/backups/:filename`** (admin) — also deletes the `BackupRecord`
-and (best-effort, logged) remote copies. Response unchanged.
-
-**`GET /api/v1/backups/:filename/download`** — **now admin-gated** (`requireAdmin`;
-see the auth policy summary above) — backups contain the full DB including password
-hashes (§3.9). Response unchanged.
-
-**`POST /api/v1/backups/:filename/restore`** (admin). Optional body:
-
-```json
-{ "passphrase": "…" }        // required iff filename ends in .age
-```
-
-Response `200` (extends existing keys):
+**Create/Update request — WebDAV example (no OAuth, single-call save, same
+lifecycle as S3/SFTP today):**
 
 ```json
 {
-  "message": "Backup restored successfully",
-  "restart_required": false,
-  "database_swap_pending": false,
-  "live_rehydrate_applied": true,
-  "caddy_reloaded": true,
-  "pre_restore_backup": "backup_2026-07-07_10-00-00.zip",
-  "legacy_format": false
-}
-```
-
-`database_swap_pending` is `true` only when live rehydrate was exhausted and a
-durable `.pending-restore` file was written for the next process boot to consume
-(§3.5) — it always accompanies `restart_required: true` and is the field the UI uses
-to show "restart to finish restoring" rather than a generic restart hint. Once the
-next boot completes the swap (or rejects a corrupt pending file), the corresponding
-`BackupRecord.status` transitions to `restore_completed` or `restore_failed` and is
-visible on the next `GET /api/v1/backups`.
-
-Errors: `400` invalid/corrupt archive or checksum mismatch (`error_code:
-"backup_validation_failed"`), `400` missing/wrong passphrase
-(`"backup_passphrase_required"` / `"backup_passphrase_invalid"`), `404` not found,
-`500` restore failure (safety backup restored; message says so).
-
-#### 3.3.2 New routes
-
-**`POST /api/v1/backups/upload`** (admin, multipart) — field `file`; optional field
-`passphrase` (validates an encrypted upload immediately). Enforce
-`c.Request.ParseMultipartForm` limit + `http.MaxBytesReader` of **512 MB**
-(constant `maxBackupUploadSize`; precedent: `image_upload_handler.go:55`).
-Validates (§3.5 step V) before persisting as `uploaded_<ts>.zip[.age]` +
-`BackupRecord{type: "uploaded"}`. Response `201`:
-
-```json
-{ "filename": "uploaded_2026-07-07_10-12-00.zip", "uuid": "…", "legacy_format": false, "message": "Backup uploaded and validated" }
-```
-
-Restore then goes through the normal restore endpoint (two-step keeps the dangerous
-action explicit and re-uses one restore path).
-
-**`POST /api/v1/backups/:filename/validate`** (admin) — dry-run validation, body
-optional `{ "passphrase": "…" }`. Response `200`:
-
-```json
-{
-  "valid": true,
-  "format_version": 2,
-  "legacy_format": false,
-  "app_version": "1.41.0",
-  "created_at": "…",
-  "database_integrity": "ok",
-  "encryption_key_required": true,
-  "warnings": ["archive app_version (1.41.0) is older than running version (1.42.0)"]
-}
-```
-
-**`GET /api/v1/backups/settings`** (management) / **`PUT /api/v1/backups/settings`** (admin) —
-typed facade over `models.Setting` rows, category `"backup"` (§3.4.4):
-
-```json
-// GET response / PUT request (PUT: all fields optional, partial update)
-{
-  "schedule_enabled": true,
-  "schedule_cron": "0 3 * * *",
-  "retention_count": 7,
-  "remote_retention_count": 7,
-  "encryption_enabled": false,
-  "encryption_passphrase_set": true      // GET only; passphrase itself is write-only
-}
-```
-
-PUT additionally accepts `"encryption_passphrase": "…"` (never returned). PUT
-validates `schedule_cron` with `cron.ParseStandard`, `retention_count >= 1`, and
-`remote_retention_count >= 1`, and calls `BackupService.Reschedule`. `400` on
-invalid cron (`"backup_invalid_cron"`) or either retention count `< 1`
-(`"backup_invalid_retention_count"`).
-
-**Remote targets:**
-
-| Method & path | Purpose |
-|---|---|
-| `GET /api/v1/backups/remote-targets` | List (admin; secrets omitted — but hostnames/buckets/usernames are still sensitive, so this route is admin-gated like every other remote-target route, not management-level) |
-| `POST /api/v1/backups/remote-targets` | Create (admin) |
-| `PUT /api/v1/backups/remote-targets/:uuid` | Update (admin; secret fields optional — omitted ⇒ keep existing) |
-| `DELETE /api/v1/backups/remote-targets/:uuid` | Delete (admin) |
-| `POST /api/v1/backups/remote-targets/:uuid/test` | Test connection (admin) |
-
-Create/Update request:
-
-```json
-{
-  "name": "Home NAS",
-  "type": "sftp",                        // "s3" | "sftp"
+  "name": "Nextcloud",
+  "type": "webdav",
   "enabled": true,
   "config": {
-    // s3: endpoint, region, bucket, path_prefix, use_ssl, force_path_style
-    // sftp: host, port, path, username
-    "host": "nas.lan", "port": 22, "path": "/backups/charon", "username": "charon"
+    "webdav": {
+      "url": "https://nas.example.com/remote.php/dav/files/charon/",
+      "username": "charon",
+      "base_path": "/charon-backups",
+      "insecure_skip_verify": false
+    }
   },
-  "secrets": {
-    // s3: access_key_id, secret_access_key
-    // sftp: password OR private_key_pem (+ optional passphrase), host_key_fingerprint (SHA256:…)
-    "password": "…"
-  }
+  "secrets": { "password": "…" }
 }
 ```
 
-Response (GET/POST/PUT — **never** includes `secrets`):
+**Create request — Dropbox / Google Drive (two-step lifecycle, see §3.6 for why):**
+
+Step 1 — `POST /api/v1/backups/remote-targets` (saves config + client
+credentials, **no token yet**):
 
 ```json
 {
-  "uuid": "…", "name": "Home NAS", "type": "sftp", "enabled": true,
-  "config": { "host": "nas.lan", "port": 22, "path": "/backups/charon", "username": "charon" },
+  "name": "Dropbox",
+  "type": "dropbox",
+  "enabled": true,
+  "config": { "dropbox": { "app_key": "abc123", "folder_path": "/charon-backups" } },
+  "secrets": { "oauth_client_secret": "…" }
+}
+```
+
+Response (`oauth_status: "not_connected"` — new field, all types):
+
+```json
+{
+  "uuid": "…", "name": "Dropbox", "type": "dropbox", "enabled": true,
+  "config": { "dropbox": { "app_key": "abc123", "folder_path": "/charon-backups" } },
   "secrets_set": true,
-  "last_test_at": "…", "last_test_status": "ok", "last_error": "",
+  "oauth_status": "not_connected", "oauth_connected_at": null,
+  "last_test_at": null, "last_test_status": "never", "last_error": "",
   "created_at": "…", "updated_at": "…"
 }
 ```
 
-Test response `200`: `{ "success": true, "message": "…", "latency_ms": 84 }`;
-`400/502` with `gin.H{"error": …}` on failure. `503` +
-`"error_code": "encryption_key_missing"` when `CHARON_ENCRYPTION_KEY` unset (R9).
+Step 2 — `POST /api/v1/backups/remote-targets/:uuid/oauth/start`:
 
-**Routing regression coverage (new static routes vs. the existing `:filename`
-wildcard):** `GET/PUT /api/v1/backups/settings` and the
-`/api/v1/backups/remote-targets*` routes are static siblings of the pre-existing
-`/api/v1/backups/:filename[...]` wildcard routes. Gin's radix-tree router
-(httprouter-derived) matches static segments with priority over a param segment at
-the same position, so `GET /api/v1/backups/settings` resolves to the static route,
-never to `:filename="settings"` — but this must be **asserted by a router-level
-test, not assumed**, since a future refactor could reorder registration and silently
-invert that priority. Required `httptest`-based regression test: (a) `GET`/`PUT
-/api/v1/backups/settings` and every `/api/v1/backups/remote-targets*` method hit
-their intended handlers, never `backupHandler.List`/`.Download`/etc.; (b) for
-methods with no static sibling (e.g. `DELETE /api/v1/backups/settings`, which falls
-through to `DELETE /api/v1/backups/:filename` with `filename="settings"`), the
-existing sanitize/not-found logic in `DeleteBackup` handles the literal segment
-`"settings"` safely — asserts `404 backup not found`, never any interaction with the
-`Setting` GORM model (there is no code path from this route to it, but the test
-makes that explicit rather than implicit).
+```json
+// 200 response
+{ "authorize_url": "https://www.dropbox.com/oauth2/authorize?client_id=abc123&response_type=code&redirect_uri=…&state=…" }
+// 400 if the "app.public_url" Setting is unset/unconfigured (utils.GetConfiguredPublicURL returns false):
+{ "error": "...", "error_code": "public_url_not_configured" }
+```
 
-**Handler placement:** extend `backup_handler.go` for backups/settings; new
-`backend/internal/api/handlers/backup_remote_handler.go` for targets. New service
-`backend/internal/services/backup_remote_service.go`.
+Frontend does a **full-page redirect** (`window.location.href = authorize_url`,
+§3.6 rationale) to that URL. After user approval, the provider redirects the
+browser to:
 
-**Complexity:** Medium.
+```
+GET /api/v1/backups/remote-targets/oauth/dropbox/callback?code=…&state=…
+```
 
-### 3.4 GORM Models
+which — after validating `state` and exchanging `code` for tokens — issues a
+**302** to `${configuredPublicURL}/backups?oauth_result=success&provider=dropbox&target=<uuid>`
+(`configuredPublicURL` = `utils.GetConfiguredPublicURL(db)`'s value — the same one
+used to build the authorize URL in step 2, guaranteeing the two are byte-identical
+as OAuth2 requires) (or `oauth_result=error&message=…` on failure; message is a
+short, non-sensitive code, never a raw provider error body). Google Drive's step
+2/callback are identical, mounted at `.../oauth/google_drive/callback`.
 
-New file per model in `backend/internal/models/`; all registered in the AutoMigrate
-block at `routes.go:100` (append after `&models.CustomTheme{}`), per CLAUDE.md
-Migrations rule.
+`POST .../:uuid/oauth/disconnect` clears the four OAuth secret fields, sets
+`oauth_status = "not_connected"`, `oauth_connected_at = null`. Does not delete the
+target itself (matches the existing "leave blank to keep current" secret-update
+philosophy — disconnecting is a deliberate, separate action from deleting).
 
-#### 3.4.1 `backup_record.go`
+**Test response generalization:** `POST .../:uuid/test` on a `dropbox`/
+`google_drive` target with `oauth_status != "connected"` returns:
+
+```json
+// 409
+{ "error": "target has not completed OAuth authorization", "error_code": "oauth_not_connected" }
+```
+
+A target whose refresh token was revoked out-of-band (user revoked Charon's
+access in their Dropbox/Google account settings) surfaces:
+
+```json
+// 409
+{ "error": "OAuth authorization was revoked; reconnect this target", "error_code": "oauth_revoked" }
+```
+
+Both follow the exact `respondRemoteTargetError` sentinel-error pattern already
+used for `ErrEncryptionKeyMissing` (§2.3) — no new response-shaping code, two new
+`case` branches.
+
+**Complexity:** Medium (WebDAV is a same-shape addition; the OAuth routes are the
+genuinely new surface).
+
+### 3.4 GORM Model Changes
+
+`backend/internal/models/remote_storage_target.go`:
 
 ```go
-type BackupRecord struct {
-    ID            uint       `json:"-" gorm:"primaryKey"`
-    UUID          string     `json:"uuid" gorm:"uniqueIndex;size:36"`
-    Filename      string     `json:"filename" gorm:"uniqueIndex;not null;size:255"`
-    Size          int64      `json:"size"`
-    SHA256        string     `json:"sha256" gorm:"size:64"`         // of the final on-disk file (post-encryption)
-    Type          string     `json:"type" gorm:"index;size:20"`     // manual|scheduled|pre_restore|uploaded
-    FormatVersion int        `json:"format_version" gorm:"default:2"`
-    Encrypted     bool       `json:"encrypted" gorm:"default:false"`
-    AppVersion    string     `json:"app_version" gorm:"size:50"`
-    Status        string     `json:"status" gorm:"index;size:20"`   // completed|failed|deleted|restore_pending|restore_completed|restore_failed
-    ErrorMessage  string     `json:"error_message,omitempty" gorm:"type:text"`
-    RemoteCopies  []BackupRemoteCopy `json:"remote_copies,omitempty" gorm:"foreignKey:BackupRecordID"`
-    CreatedAt     time.Time  `json:"created_at"`
-    UpdatedAt     time.Time  `json:"updated_at"`
-}
-func (BackupRecord) TableName() string { return "backup_records" }
-// BeforeCreate sets UUID via google/uuid (pattern: notification_provider.go:48)
+// widened: "google_drive" is 12 chars, the existing size:10 truncates it on any
+// backend enforcing the column-size hint (SQLite itself ignores VARCHAR(n), but
+// the model must stop lying about the constraint for portability/correctness)
+Type string `json:"type" gorm:"index;not null;size:20"` // s3|sftp|webdav|dropbox|google_drive
+
+// new — additive, nullable/zero-value-safe columns
+OAuthStatus      string     `json:"oauth_status,omitempty" gorm:"size:20"`   // ""|not_connected|connected|revoked — "" for non-OAuth types (s3/sftp/webdav)
+OAuthConnectedAt *time.Time `json:"oauth_connected_at,omitempty"`
 ```
 
-#### 3.4.2 `backup_remote_copy.go`
+`&models.RemoteStorageTarget{}` is **already registered** in the `AutoMigrate` call
+in `backend/internal/api/routes/routes.go` (line 137) — no change needed there;
+GORM's `AutoMigrate` adds new columns to an existing table idempotently. This is a
+plain additive migration: existing rows get `OAuthStatus = ""`,
+`OAuthConnectedAt = NULL`, both harmless defaults for `s3`/`sftp`/`webdav` targets
+that never touch these fields.
+
+**Why not put OAuth expiry/status only inside `SecretsEncrypted`?** `oauth_status`
+needs to be readable by `GET /remote-targets` (list view badge) without a
+decrypt round-trip per row — mirrors the existing `LastTestStatus`/`LastTestAt`
+plaintext-column pattern already on this exact model for the same reason (cheap
+list-view status without touching secrets). The actual token
+material/expiry-for-refresh-purposes stays inside `SecretsEncrypted` exactly like
+every other credential (§3.2) — only the coarse status enum is promoted to a
+plaintext column, matching precedent, not inventing a new one.
+
+**No new tables.** The OAuth CSRF `state` store (§3.5) is deliberately **in-memory,
+not persisted** — it's short-lived (10 min TTL), single-use, and Charon is a
+single-process binary (no multi-replica deployment to coordinate across), so a DB
+table would add persistence-layer overhead for zero durability benefit (a lost
+in-flight OAuth handshake across a restart is a harmless "please click Connect
+again," not a state-loss risk to anything durable, since the DB-side no target
+data is written until the callback where completes the exchange).
+
+### 3.5 Backend Component Design
+
+**Package layout** (all new files in the existing `remotestorage` package, no new
+package boundary needed beyond it):
+
+```
+backend/internal/services/remotestorage/
+├── remotestorage.go       (extend: RemoteObject.Name, New() switch +3 cases)
+├── ssrf.go                (unchanged; reused by webdav.go)
+├── s3.go, sftp.go         (⚠ MODIFIED, not unchanged — their List() implementations
+│                           must each start setting RemoteObject.Name: path.Base(Key)
+│                           the moment RemoteObject gains that field, or every
+│                           existing S3/SFTP target's retention pruning silently
+│                           stops matching any candidate — see the correctness
+│                           argument below and §6 Commit 2's file list)
+├── webdav.go              (new)
+├── dropbox.go             (new)
+├── googledrive.go         (new)
+└── oauthtoken.go          (new — shared token-lifecycle helper for dropbox.go/googledrive.go)
+```
+
+```
+backend/internal/services/
+├── backup_remote_service.go   (extend: pruneRemoteRetention uses obj.Name; +OAuth methods)
+└── oauth_state_store.go        (new)
+```
+
+```
+backend/internal/api/handlers/
+└── backup_remote_handler.go    (extend: +OAuth start/callback/disconnect handlers, +2 error_code cases)
+```
+
+**`webdav.go`** — mirrors `sftp.go`'s shape: `newWebDAVUploader(cfg WebDAVConfig,
+secrets WebDAVSecrets) (Uploader, error)` validates `cfg.URL`'s host via
+`ssrfValidateHost` (same indirected var as `s3.go`/`sftp.go`, so the existing
+test-substitution seam covers WebDAV for free), constructs a `gowebdav.Client`
+whose underlying `http.Client.Transport` dials through `dialContext` (the same
+SSRF-safe dial-time re-check `s3.go` already uses for its `http.Transport`).
+`Upload` = `client.MkdirAll(dir) + client.WriteStream(path, file, mode)`. `Delete`
+= `client.Remove(path)`. `List` = `client.ReadDir(basePath)` filtered to
+non-directory entries, `Name`/`Key` both set to the entry's path (WebDAV has real
+paths, so no Key/Name divergence here — same as S3/SFTP). `Test` = `MkdirAll` +
+write/delete a `charon-connection-test` marker file, identical semantics to
+`sftp.go`'s `Test`.
+
+**`dropbox.go`** — `newDropboxUploader(cfg DropboxConfig, secrets
+RemoteTargetSecrets, tokenSaver TokenSaver) (Uploader, error)`. No SSRF check
+(fixed vendor hosts `content.dropboxapi.com`/`api.dropboxapi.com`, never
+user-supplied — see §3.8 for the explicit "no user-supplied host sneaks in"
+verification). Constructs an `*http.Client` from `oauthtoken.NewClient(ctx, cfg
+oauth2.Config, tokenSet, tokenSaver)` (§ below). `Upload`: if local file size ≤
+150 MiB, single `POST content.dropboxapi.com/2/files/upload` with the
+`Dropbox-API-Arg` header carrying `{path, mode:"overwrite"}`; else chunked
+upload-session flow (`start`/`append_v2`/`finish`, 8 MiB chunks, R11). `Delete`:
+`POST api.dropboxapi.com/2/files/delete_v2 {"path": key}`. `List`: **paginated —
+must be built as a cursor-follow loop, not a single call.** `list_folder` is
+documented to page its results (a `has_more: true` + `cursor` in the response
+means more entries exist); a single-call implementation would silently make
+older-than-page-1 objects invisible to retention pruning the moment a Dropbox
+folder holds enough backups to span a second page — a silent correctness failure
+(R7), not a visible error, so it must be built now rather than deferred like the
+chunked-upload-resume limitation (§3.9). `List` therefore issues
+`POST .../2/files/list_folder {"path": cfg.FolderPath}`, then while the response's
+`has_more` is `true`, repeats `POST .../2/files/list_folder/continue
+{"cursor": cursor}` and accumulates entries across all pages before returning,
+mapping each entry to `RemoteObject{Key: entry.path_lower, Name: entry.name, Size,
+LastModified: entry.server_modified}` — folder-not-found (`path/not_found` API
+error on the first call) is treated as an empty list, mirroring SFTP's
+`os.IsNotExist` behavior (R8's sibling case for Dropbox). `Test`:
+`POST .../2/users/get_current_account` (cheap, token-validating, no side effects,
+single call — no pagination concern for this endpoint) — this is the "test
+requires a valid token, not just reachability" generalization (cross-cutting Q3)
+made concrete.
+
+**`googledrive.go`** — `newGoogleDriveUploader(cfg GoogleDriveConfig, secrets
+RemoteTargetSecrets, tokenSaver TokenSaver) (Uploader, error)`. No SSRF check
+(fixed `www.googleapis.com`). **Folder resolution** (the "no path concept" gap,
+R8): `resolveOrCreateFolderChain(ctx, client, cfg.FolderPath)` splits
+`cfg.FolderPath` on `/`, and for each segment issues `GET
+/drive/v3/files?q='{parentId}' in parents and name='{segment}' and
+mimeType='application/vnd.google-apps.folder' and trashed=false` — if found, use
+that ID as the next `parentId`; if not found, `POST /drive/v3/files
+{name, mimeType: folder, parents:[parentId]}` and use the new ID. Root parent
+starts at `"root"`. This chain is walked fresh on every `Upload`/`List` call (no
+caching of resolved folder IDs across calls — infrequent daily-backup cadence
+makes the extra round trips immaterial, and caching would reintroduce a staleness
+bug if the user renames/deletes the folder out-of-band). `Upload`: resolve
+parent chain, then resumable-upload protocol
+(`POST .../upload/drive/v3/files?uploadType=resumable` with
+`{name, parents:[parentId]}` metadata → `PUT` the file body to the returned
+session URI). `Delete(key)`: `DELETE /drive/v3/files/{key}` (permanent delete, not
+trash — matches the "actually free space" intent of retention pruning, same
+argument as why S3/SFTP/WebDAV/Dropbox deletes are permanent). `List`: resolve
+parent chain (if any segment is missing, per R8 return `nil, nil` — empty, not an
+error), then **paginated — must be built as a page-token-follow loop, not a
+single call.** `files.list` defaults to a page size on the order of 100–1000 and
+returns a `nextPageToken` when more results exist; exactly like Dropbox above, a
+single-call `List` would silently make objects beyond page 1 invisible to
+retention pruning once a Drive folder holds enough backups, a silent correctness
+failure (R7) rather than a visible error, so this is built now, not deferred.
+`List` issues `GET /drive/v3/files?q='{leafId}' in parents and trashed=false&
+pageSize=1000`, then while the response includes a non-empty `nextPageToken`,
+repeats the same query with `&pageToken={token}` and accumulates `files` entries
+across all pages before returning, mapping each to `RemoteObject{Key: file.id,
+Name: file.name, Size: file.size, LastModified: parsed file.modifiedTime}` —
+**this is the provider where `Key != Name` actually matters** (§3.2). `Test`:
+resolve the folder chain (validates both a working token and folder access) +
+`GET /drive/v3/about?fields=user` (cheap token-validating call, single page, no
+pagination concern for this endpoint).
+
+**`oauthtoken.go`** — shared by both OAuth providers:
 
 ```go
-type BackupRemoteCopy struct {
-    ID              uint       `json:"-" gorm:"primaryKey"`
-    BackupRecordID  uint       `json:"-" gorm:"index;not null"`
-    RemoteTargetID  uint       `json:"-" gorm:"index;not null"`
-    RemoteTarget    *RemoteStorageTarget `json:"-" gorm:"foreignKey:RemoteTargetID"`
-    TargetUUID      string     `json:"target_uuid" gorm:"-"`   // populated in handler from RemoteTarget
-    TargetName      string     `json:"target_name" gorm:"-"`
-    RemoteKey       string     `json:"remote_key" gorm:"size:512"`   // object key / remote path
-    Status          string     `json:"status" gorm:"index;size:20"`  // pending|uploading|uploaded|failed|pruned
-    ErrorMessage    string     `json:"error_message,omitempty" gorm:"type:text"`
-    UploadedAt      *time.Time `json:"uploaded_at,omitempty"`
-    CreatedAt       time.Time  `json:"created_at"`
-    UpdatedAt       time.Time  `json:"updated_at"`
+// TokenSaver persists a refreshed token back to the encrypted secrets blob.
+// Implemented by BackupRemoteService so remotestorage stays GORM-free (mirrors
+// why remotestorage is its own package at all — see remotestorage.go's package doc).
+type TokenSaver interface {
+	SaveToken(ctx context.Context, accessToken, refreshToken string, expiresAt time.Time) error
 }
+
+// NewClient wraps oauth2.Config.TokenSource in a persisting layer: every call
+// to Token() that returns a *different* AccessToken than the one that came in
+// (i.e. a refresh happened) triggers saver.SaveToken before the HTTP call
+// proceeds. This is the standard idiom recommended for golang.org/x/oauth2
+// consumers that need refreshed tokens to survive process restarts.
+func NewClient(ctx context.Context, conf oauth2.Config, tok *oauth2.Token, saver TokenSaver) *http.Client
 ```
 
-#### 3.4.3 `remote_storage_target.go` (mirrors `DNSProviderCredential` secret pattern)
+Sentinel errors (consumed by `respondRemoteTargetError`, §2.3/§3.3):
 
 ```go
-type RemoteStorageTarget struct {
-    ID              uint      `json:"-" gorm:"primaryKey"`
-    UUID            string    `json:"uuid" gorm:"uniqueIndex;size:36"`
-    Name            string    `json:"name" gorm:"not null;size:255"`
-    Type            string    `json:"type" gorm:"index;not null;size:10"` // s3|sftp
-    Enabled         bool      `json:"enabled" gorm:"default:true;index"`
-    ConfigJSON      string    `json:"-" gorm:"type:text"`      // non-secret config (endpoint/bucket/host/port/…)
-    SecretsEncrypted string   `json:"-" gorm:"type:text"`      // AES-256-GCM via crypto.EncryptionService
-    KeyVersion      int       `json:"key_version" gorm:"default:1"`
-    LastTestAt      *time.Time `json:"last_test_at,omitempty"`
-    LastTestStatus  string    `json:"last_test_status" gorm:"size:20"` // ok|failed|never
-    LastError       string    `json:"last_error,omitempty" gorm:"type:text"`
-    CreatedAt       time.Time `json:"created_at"`
-    UpdatedAt       time.Time `json:"updated_at"`
-}
+var ErrOAuthNotConnected = errors.New("oauth authorization required before this target can be used")
+var ErrOAuthRevoked      = errors.New("oauth refresh token was revoked")
 ```
 
-Handlers decode `ConfigJSON` into the typed `config` response object; `secrets` never
-leave the backend (only `secrets_set` boolean).
+`newDropboxUploader`/`newGoogleDriveUploader` return `ErrOAuthNotConnected` when
+`secrets.OAuthAccessToken == ""`; a refresh call failing with the provider's
+`invalid_grant` response is translated to `ErrOAuthRevoked` and the caller
+(`BackupRemoteService`) sets `OAuthStatus = "revoked"` before propagating.
 
-#### 3.4.4 Schedule settings — decision: reuse `models.Setting` (no new model)
-
-The UI already writes Settings keys; a dedicated `BackupSchedule` table would be a
-second source of truth for four scalars. Canonical keys (category `"backup"`),
-read/written **only** through the typed `/backups/settings` endpoints and
-`BackupService`:
-
-| Key | Type | Default | Notes |
-|---|---|---|---|
-| `backup.schedule_enabled` | bool | `true` | |
-| `backup.schedule_cron` | string | `"0 3 * * *"` | validated by `cron.ParseStandard` |
-| `backup.retention_count` | int | `7` | local, count-based (matches `DefaultBackupRetention`) |
-| `backup.remote_retention_count` | int | `7` | per target |
-| `backup.encryption_enabled` | bool | `false` | |
-| `backup.encryption_passphrase_enc` | string | `""` | AES-256-GCM-encrypted via `crypto.EncryptionService`; required for scheduled encrypted backups; write-only |
-
-**Generic Settings API leak (fix required).**
-`backend/internal/api/handlers/settings_handler.go`'s `isSensitiveSettingKey`
-(line 94) matches only the fragments `password`, `secret`, `token`, `api_key`,
-`apikey`, `webhook` — **`backup.encryption_passphrase_enc` matches none of them**,
-so `GET /api/v1/settings` (management-level, not admin-gated) would echo the
-AES-256-GCM ciphertext of the backup passphrase verbatim to any authenticated
-management-role user. Fix: add `"passphrase"` to `sensitiveFragments` — this covers
-the key today and any future `*.passphrase*` setting without special-casing one
-key name.
-
-**Generic Settings API bypass (fix required).** The existing generic
-`PUT /api/v1/settings` → `(*SettingsHandler).UpdateSetting` upserts any key/value
-pair with no awareness of `backup.*` semantics. The handler already has precedent
-for key-specific validation (`req.Key == "security.admin_whitelist"` at
-`settings_handler.go:132`, `validateOptionalKeepaliveSetting`), so a write to
-`backup.schedule_cron` through this generic endpoint today would skip
-`cron.ParseStandard` validation entirely and would never call
-`BackupService.Reschedule` — the cron scheduler would silently keep running the old
-schedule while the stored setting shows a different one. Fix: add a
-`strings.HasPrefix(req.Key, "backup.")` guard to `UpdateSetting` that **rejects**
-the write with `400 {"error": "backup settings must be updated via PUT
-/api/v1/backups/settings", "error_code": "use_typed_backup_settings_endpoint"}`.
-Rejecting (rather than routing generic writes through the typed
-validation/`Reschedule` path from inside the generic handler) keeps the reschedule
-side effect owned by exactly one code path, which is simpler to reason about and
-test than duplicating it in two handlers.
-
-**Migration of dead knobs:** on startup, if legacy `backup.interval` /
-`backup.retention` Setting rows exist, translate (`interval` days →
-`schedule_cron` `"0 3 */N * *"`, `retention` → `retention_count`) and delete the
-legacy rows. Frontend stops writing them.
-
-**Complexity:** Low–Medium.
-
-### 3.5 Safe-Restore Strategy
-
-Pipeline in `BackupService.RestoreBackupSafe(filename, passphrase string) (*RestoreResult, error)`
-(new; existing `RestoreBackup` becomes the internal extraction step to preserve its
-test suite):
-
-```
- V. VALIDATE (read-only, no live data touched)
-    V1. Path sanitation (existing filepath.Base + prefix checks)
-    V2. If *.age: stream-decrypt to temp file (age scrypt identity); wrong passphrase fails here
-    V3. Open zip; read manifest.json → format_version ∈ {1(absent),2}; reject >2
-        ("backup created by a newer Charon version")
-    V4. v2: verify every ManifestEntry SHA-256 while streaming, bounding each entry's
-        read by that entry's own declared Size + 64 KiB slack (not a flat cap — §3.9);
-        reject on first checksum mismatch or size-cap overrun
-    V5. Extract DB entry to temp (existing extractDatabaseFromBackup incl. WAL checkpoint)
-    V6. sql.Open (mattn/go-sqlite3) on temp copy → PRAGMA integrity_check == "ok"
-        + sanity query: sqlite_master contains "users" and "proxy_hosts" tables
- S. SAFETY BACKUP
-    S1. CreateBackupWithOptions(Type: "pre_restore") of the CURRENT state
-        (recorded in BackupRecord; excluded from retention pruning of scheduled backups)
- A. APPLY
-    A1. unzipWithSkip → DataDir (existing zip-slip/bomb-hardened path), skipping DB files
-    A2. RehydrateLiveDatabase (existing, incl. the handler's 5× transient-lock retry)
- R. RECONCILE
-    R1. caddyManager.ApplyConfig(ctx) (manager.go:105) — has its own snapshot/rollback;
-        runs regardless of A2's outcome, since A1 already wrote the new Caddy/CrowdSec
-        files to DataDir by this point
-    R2. Write result to BackupRecord/audit log; respond
- F. FAILURE HANDLING
-    F1. Failure in V*: nothing was touched → 400, done.
-    F2. Failure in A1: re-run A1 from the pre_restore archive (its files are known-good);
-        respond 500 with "restore failed, previous state restored".
-    F3. Failure in A2 after all 5 retries exhausted: do NOT claim success and do NOT
-        rely on the in-memory temp file alone — see "Boot-time swap" below, which
-        replaces v1's non-functional restart_required story with a durable file plus
-        a real consumer. Persist the already-validated (V4/V6-passed) temp DB file to
-        `DataDir/<DatabaseName>.pending-restore` (0600, fsync'd) — distinct from
-        `os.CreateTemp`'s OS temp dir, which is not guaranteed to survive a container
-        restart. Respond `restart_required=true, database_swap_pending=true` with a
-        message stating that Caddy/CrowdSec files have already been updated but the
-        database will only finish restoring on the next process start. Do not delete
-        the pre_restore safety backup (S1) in this branch.
-    F4. Failure in R1: log + caddy_reloaded=false in response (Caddy manager already
-        rolled itself back); config will re-apply on next change/boot.
-```
-
-**Boot-time swap consumer (closes the v1 gap that made `restart_required` a
-no-op).** Verified in source: today's `RestoreBackup` writes the extracted DB only
-to an `os.CreateTemp("", "charon-restore-db-*.sqlite")` file in the **system temp
-directory**; `unzipWithSkip`'s `skipEntries` map explicitly skips the DB/WAL/SHM
-entries when extracting into `DataDir` (`backup_service.go:439-446`); and
-`s.restoreDBPath` is an **in-process field with no reader anywhere in `cmd/api` or
-`internal/server`**. Restarting the container today does nothing: the OS temp file
-is not guaranteed to survive a restart, `DataDir/<DatabaseName>` is never
-overwritten by the restore path, and no startup code looks for a pending restore —
-v1's "restart_required" response was never backed by working code. This plan adds
-the missing consumer rather than continue documenting a fallback that doesn't work:
-
-- New `backend/internal/database/pending_restore.go`: `ApplyPendingRestore(dbPath
-  string) error` — checks for `dbPath + ".pending-restore"`; if present, re-runs
-  `PRAGMA integrity_check` on it as a second, independent verification (defense in
-  depth against corruption between write and reboot), and only if that passes:
-  removes any stale `dbPath`, `dbPath+"-wal"`, `dbPath+"-shm"` siblings, renames the
-  pending file over `dbPath`, and deletes the pending marker. If integrity_check
-  fails, the pending file is renamed to `.pending-restore.failed` (kept for
-  forensic inspection, never auto-retried) and the **old `dbPath` is left
-  untouched** — boot proceeds on the pre-restore database rather than installing a
-  known-bad one.
-- Wired into `backend/cmd/api/main.go` immediately before the default startup's
-  `database.Connect(cfg.DatabasePath)` call (currently line 208) — this runs before
-  GORM ever opens the file, so there is no live WAL pool to corrupt and no
-  coordination with `RehydrateLiveDatabase` is needed on this path. **Not** wired
-  into the `migrate`/`reset-password` CLI subcommand paths (lines 113, 174) — those
-  are maintenance tools, not the running-server path a `docker restart` takes, and
-  adding the swap there would let an unrelated CLI invocation silently mutate the
-  database.
-- On successful swap (or on a rejected corrupt pending file), the code path
-  transitions the corresponding `BackupRecord.Status` from `restore_pending` to
-  `restore_completed` or `restore_failed` (new enum values on the existing `Status`
-  field, §3.4.1) so the next `GET /api/v1/backups` reflects the real outcome instead
-  of the request-time snapshot going stale.
-
-**Atomic-swap decision — live rehydrate is primary; the durable pending-file +
-boot-time swap is an honest fallback, not a redressed no-op.** The running process
-holds an open WAL-mode pool (`MaxOpenConns=1`); swapping `charon.db` under it
-corrupts the pool's view, so `ATTACH`-based live rehydrate (existing, battle-tested
-by `backup_service_rehydrate_test.go`) remains the first attempt. What changes from
-the original v1 design is that when live rehydrate is unavailable, the fallback is
-no longer a claim resting on code that doesn't exist — it is a durable file plus a
-real boot-time consumer that runs strictly before GORM opens the database (above),
-so a restart genuinely completes the restore instead of silently doing nothing. The
-DR guide (Commit 5) documents both the automatic (live rehydrate succeeds) and
-restart-required (pending-swap) paths, and states plainly that between a failed
-rehydrate and the next restart, Caddy/CrowdSec files are already on the new
-backup's state while the database is still the old one — a known, bounded,
-documented window, not a silent inconsistency.
-
-**Restore of remote-target rows:** after rehydrate, rows in
-`remote_storage_targets` / `dns_provider_credentials` decrypt only if the host has
-the same `CHARON_ENCRYPTION_KEY` — surfaced by manifest `encryption_key_required`
-warning in `/validate` (§3.6).
-
-**Complexity:** High (most intricate part of the feature).
-
-### 3.6 Encryption Design
-
-**Choice: `filippo.io/age` with an scrypt (passphrase) recipient.**
-
-- Battle-tested: audited, maintained by the Go crypto lead, used by SOPS et al.
-- Correct-by-construction streaming AEAD (STREAM, 64 KiB ChaCha20-Poly1305 chunks) —
-  a whole-file `crypto.EncryptionService.Encrypt` call would buffer the entire
-  archive in RAM and single-shot AES-GCM is unsafe/impractical for multi-hundred-MB
-  files; hand-rolling chunked AES-GCM + argon2 is exactly the custom crypto CLAUDE.md's
-  LEVERAGE rule forbids.
-- scrypt KDF is built into age's passphrase recipient (`age.NewScryptRecipient`,
-  `age.NewScryptIdentity`); work factor default is adequate, no tuning surface exposed.
-
-**What is encrypted:** the entire finished `.zip` (manifest included) →
-`backup_<ts>.zip.age`. Nothing about the backup's contents is readable without the
-passphrase (metadata lives in `BackupRecord` for the UI). Unencrypted backups remain
-the default (Open Question Q2).
-
-**Key handling:**
-
-- Manual backup/restore: passphrase supplied per-request, held in memory only, never
-  logged (`util.SanitizeForLog` is NOT enough — passphrases must never reach a log
-  call at all).
-- Scheduled encrypted backups: passphrase stored in Setting
-  `backup.encryption_passphrase_enc`, encrypted with the existing
-  `crypto.EncryptionService` (`CHARON_ENCRYPTION_KEY`). If the key is unset,
-  enabling scheduled encryption returns `503 encryption_key_missing` (R9).
-- No passphrase recovery: documented prominently (UI warning + DR guide) — a lost
-  passphrase means unrecoverable backups.
-
-**Secrets-in-backup considerations (documented in DR guide + `/validate` warning):**
-
-- The SQLite DB inside every backup contains `users.password_hash`, and
-  AES-256-GCM blobs (`dns_provider_credentials.credentials_encrypted`,
-  `remote_storage_targets.secrets_encrypted`, tunnel configs) that are useless
-  without `CHARON_ENCRYPTION_KEY`. **Restoring to a new host requires setting the
-  same `CHARON_ENCRYPTION_KEY` (and any rotation keys `CHARON_ENCRYPTION_KEY_V1..`)
-  on that host.** The manifest's `encryption_key_required` flag drives an explicit
-  warning in the validate/restore UI rather than a silent post-restore failure.
-- Because backups embed password hashes and cert private keys (`caddy/`), the DR
-  guide instructs treating even "unencrypted" backups as secrets — and this is the
-  argument for admin-gating Download (§3.9) and for encryption-by-default being an
-  open question rather than dismissed.
-
-**Complexity:** Medium.
-
-### 3.7 Remote Storage Design
-
-New package `backend/internal/services/remotestorage/` (keeps `services` tidy and
-lets the uploader be tested without GORM):
+**`oauth_state_store.go`** (new, in `services`, not `remotestorage` — it's
+gin/handler-adjacent orchestration, not an upload-protocol concern):
 
 ```go
-// Uploader is implemented by each remote storage backend.
-type Uploader interface {
-    Upload(ctx context.Context, localPath, remoteKey string) error
-    Delete(ctx context.Context, remoteKey string) error
-    List(ctx context.Context, prefix string) ([]RemoteObject, error) // for retention pruning
-    Test(ctx context.Context) error                                  // cheap connectivity+auth+write probe
+type OAuthStateStore struct {
+	mu     sync.Mutex
+	states map[string]oauthStateEntry // state -> {targetUUID, provider, expiresAt}
 }
-
-type RemoteObject struct {
-    Key          string    `json:"key"`
-    Size         int64     `json:"size"`
-    LastModified time.Time `json:"last_modified"`
-}
-
-func New(target *models.RemoteStorageTarget, secrets map[string]string) (Uploader, error) // factory by target.Type
+func NewOAuthStateStore() *OAuthStateStore
+func (s *OAuthStateStore) Issue(targetUUID, provider string) (state string)   // crypto/rand, 32 bytes, base64url
+func (s *OAuthStateStore) Consume(state string) (targetUUID, provider string, ok bool) // one-time: deletes on read; false if missing/expired
 ```
 
-- **`s3.go`** — `minio-go/v7`; honors `endpoint`, `region`, `bucket`, `path_prefix`,
-  `use_ssl`, `force_path_style`; `Test` = `BucketExists` + put/delete of a
-  `charon-connection-test` marker object.
-- **`sftp.go`** — `pkg/sftp` over `x/crypto/ssh`; auth via password or PEM private
-  key; **host key verification required**: user supplies `host_key_fingerprint`
-  (`SHA256:…`). Two distinct, never-merged code paths:
-  - **Discovery** (`POST .../test` when no fingerprint is stored yet): dial with an
-    `ssh.ClientConfig.HostKeyCallback` that records the offered key's SHA256
-    fingerprint and **unconditionally returns a non-nil error**. In
-    `golang.org/x/crypto/ssh`, the host-key callback runs during transport key
-    exchange, which completes **before** any authentication method is attempted
-    (`ssh.NewClientConn`'s handshake sequences KEX/host-key verification ahead of
-    client authentication) — returning an error from the callback aborts the dial
-    at that point, so **no password or private key is ever sent** to an unpinned
-    host. The discovered fingerprint is returned to the caller for the user to
-    confirm out of band; nothing is persisted yet.
-  - **Verified test/upload** (fingerprint already stored, or just confirmed by the
-    user): dial with `ssh.FixedHostKey(pinnedKey)` as the sole `HostKeyCallback` —
-    the handshake fails closed if the remote key ever changes, and only on a
-    matching key does authentication proceed. `ssh.InsecureIgnoreHostKey` must
-    never appear in the final code.
-  - `Test` (verified path) = connect + stat/create target dir + write/delete marker.
-  - **Required unit test:** a fake/local SSH server whose `PasswordCallback`
-    (or `PublicKeyCallback`) sets a flag if invoked; assert the flag is **never
-    set** when exercising the discovery path against a server presenting an
-    unpinned/mismatched key — proving no credentials reach the wire before pinning.
+10-minute TTL, lazy-expired on `Consume` plus an opportunistic sweep on `Issue`.
+`BackupRemoteService` gains a `states *OAuthStateStore` field, constructed once in
+`NewBackupRemoteService`.
 
-**Flow:** `RunScheduledBackup` (and manual create, fire-and-forget goroutine) → for
-each enabled target: create `BackupRemoteCopy{status: pending→uploading→
-uploaded|failed}` → upload `filename` as `<path_prefix>/<filename>` → prune remote
-objects matching `backup_*.zip*` beyond `backup.remote_retention_count` (newest by
-`LastModified`; only Charon-named keys are ever deleted). Upload failures never fail
-the backup itself — recorded on the copy row and surfaced in the list UI.
+**`validateRemoteTargetConfig` diff (concrete, cross-cutting Q4):**
 
-**Goroutine lifecycle (graceful shutdown).** `BackupService` gains `uploadCtx
-context.Context` / `uploadCancel context.CancelFunc` (created via
-`context.WithCancel(context.Background())` in `NewBackupService`) and an
-`uploadWG sync.WaitGroup`. Every remote-upload goroutine is launched with
-`uploadWG.Add(1)` / `defer uploadWG.Done()` and derives its per-upload context from
-`uploadCtx`, so an in-flight upload is canceled, not just orphaned, on shutdown.
-`(*BackupService).Stop()` (existing, `backup_service.go:183` — currently
-`s.Cron.Stop()` + wait) is extended to also call `uploadCancel()` and
-`uploadWG.Wait()` before returning, so the process does not exit mid-upload.
-**Startup reconciliation:** any `BackupRemoteCopy` rows left in status `uploading`
-from a prior process (crash, OOM-kill, forced shutdown — no graceful `Stop()` ran)
-are transitioned to `failed` once, at the next `NewBackupService` construction, so
-the UI never shows a permanently-stuck "uploading" row; the existing
-next-scheduled-run retry logic picks it up from there.
+```go
+switch targetType {
+case "s3": /* unchanged */
+case "sftp": /* unchanged */
+case "webdav":
+	if config.WebDAV == nil || strings.TrimSpace(config.WebDAV.URL) == "" {
+		return fmt.Errorf("webdav url is required")
+	}
+	host, err := hostOf(config.WebDAV.URL) // net/url.Parse + .Hostname()
+	if err != nil { return fmt.Errorf("webdav: invalid url: %w", err) }
+	if err := remotestorage.ValidateHostSSRF(host); err != nil {
+		return fmt.Errorf("webdav url failed SSRF validation: %w", err)
+	}
+case "dropbox":
+	if config.Dropbox == nil || strings.TrimSpace(config.Dropbox.AppKey) == "" {
+		return fmt.Errorf("dropbox app_key is required")
+	}
+	// no SSRF check — fixed vendor hosts, see §3.8
+case "google_drive":
+	if config.GoogleDrive == nil || strings.TrimSpace(config.GoogleDrive.ClientID) == "" {
+		return fmt.Errorf("google_drive client_id is required")
+	}
+	// no SSRF check — fixed vendor hosts, see §3.8
+default:
+	return fmt.Errorf("unknown remote storage target type %q", targetType)
+}
+```
 
-**SSRF for user-supplied endpoints:** validate the resolved host with the
-`network` package rules *with RFC1918 allowed* (`IsRFC1918` bypass — a self-hosted
-NAS is the primary use case) while still rejecting loopback, link-local/cloud
-metadata (`169.254.0.0/16`), and reserved ranges, at both config-save and dial time
-(dial-time check via a `net.Dialer.Control` hook for S3's HTTP transport and the SSH
-dialer — consistent with `safeclient.go`'s connection-time layer). Only admins can
-configure targets, which bounds the threat, but the check stays as defense in depth.
+**`remotestorage.New` diff (concrete, cross-cutting Q4):**
 
-**Complexity:** Medium–High.
+```go
+switch target.Type {
+case "s3": /* unchanged */
+case "sftp": /* unchanged */
+case "webdav":
+	var cfg RemoteTargetConfigOuter // unmarshal target.ConfigJSON as today
+	return newWebDAVUploader(*cfg.WebDAV, WebDAVSecrets{
+		Username: cfg.WebDAV.Username,
+		Password: secrets["password"],
+		BearerToken: secrets["bearer_token"],
+	})
+case "dropbox":
+	var cfg RemoteTargetConfigOuter
+	return newDropboxUploader(*cfg.Dropbox, secretsFromMap(secrets), tokenSaver)
+case "google_drive":
+	var cfg RemoteTargetConfigOuter
+	return newGoogleDriveUploader(*cfg.GoogleDrive, secretsFromMap(secrets), tokenSaver)
+default:
+	return nil, fmt.Errorf("remotestorage: unknown remote storage target type %q", target.Type)
+}
+```
 
-### 3.8 Frontend Design
+`tokenSaver` requires plumbing a `TokenSaver` implementation into
+`remotestorage.New`'s call sites — `New`'s signature gains a third parameter
+(`tokenSaver remotestorage.TokenSaver`), and `BackupRemoteService.uploaderFor` (its
+sole production caller) passes itself (implements `SaveToken` by re-encrypting
+into that target's `SecretsEncrypted` and saving). Test fakes pass `nil`
+(unused by `s3`/`sftp`/`webdav`, which ignore the parameter).
 
-All work in `frontend/` (CLAUDE.md single-frontend rule). Stack: React 18 + TS +
-TanStack Query.
+### 3.6 Frontend Component Design
 
-**API layer — extend `frontend/src/api/backups.ts`:**
+**Why a two-step lifecycle for Dropbox/Google Drive (answers cross-cutting Q1):**
+S3/SFTP/WebDAV save everything in one `Create` call because there's nothing that
+requires leaving the app. OAuth fundamentally requires a navigation to the
+provider's consent screen and back, so the target must exist (with a UUID) before
+that round trip so the callback has something to attach tokens to.
 
-- Extend `BackupFile` with optional new fields (`uuid?`, `type?`, `encrypted?`,
-  `format_version?`, `status?`, `remote_copies?`) — additive, existing tests keep
-  passing.
-- New functions: `uploadBackup(file: File, passphrase?: string)` (FormData),
-  `validateBackup(filename, passphrase?)`, `restoreBackup(filename, passphrase?)`
-  (extends existing), `getBackupSettings()`, `updateBackupSettings(payload)`,
-  `getRemoteTargets()`, `createRemoteTarget()`, `updateRemoteTarget()`,
-  `deleteRemoteTarget()`, `testRemoteTarget()` — typed request/response interfaces
-  matching §3.3 exactly (snake_case).
+**Redirect-based flow, not popup + `postMessage` (concrete recommendation, Q1):**
+A full-page redirect is preferred over popup/`window.postMessage` here for three
+concrete reasons: (1) **E2E-testability** — Playwright drives real navigations far
+more reliably than asserting on popup-window lifecycle and cross-window
+`postMessage`, and this codebase's DoD hard-requires Playwright coverage of every
+new flow; (2) **no popup-blocker fragility** — some browser configurations/
+extensions block `window.open` even from a direct click handler, especially for
+cross-origin OAuth consent screens; (3) **forward-compatibility with COOP** — Charon
+does not currently set `Cross-Origin-Opener-Policy` (verified: no COOP header in
+`security_headers_service.go`), but if that ever changes for the admin UI, a
+`same-origin` COOP severs `window.opener` on any cross-origin popup navigation,
+silently breaking `postMessage`-based flows; a full-page redirect has no such
+failure mode. In-progress form state (name, folder path — never secrets) is not
+persisted across the redirect at all: the target is already saved server-side by
+step 1, so there's nothing left to restore client-side after the round trip.
 
-**Hooks — new `frontend/src/hooks/useBackups.ts` (+ `useRemoteTargets.ts`):**
+**`RemoteTargetFormDialog.tsx`:** `type` radio group extends to five options (`s3
+| sftp | webdav | dropbox | google_drive`). WebDAV branch is structurally
+identical to the SFTP branch (URL/username/base_path/insecure-checkbox inputs +
+password field, blank-on-edit). Dropbox/Google Drive branch: App
+Key/Client ID + App/Client Secret (password input) + Folder Path fields, and the
+submit button reads **"Save & Connect"** instead of "Create" for these two types
+— `onSuccess` of the create mutation immediately calls a new
+`useStartRemoteTargetOAuth()` mutation for the just-created UUID, then does
+`window.location.href = result.authorize_url` (no `onClose()` — the page is
+navigating away regardless).
 
-- `useBackups()` (query `['backups']`), `useCreateBackup()`, `useRestoreBackup()`,
-  `useDeleteBackup()`, `useUploadBackup()`, `useBackupSettings()`,
-  `useUpdateBackupSettings()`; remote-target CRUD + `useTestRemoteTarget()`.
-  Mutations `invalidateQueries` on success (existing convention, cf.
-  `useProxyHosts.ts`). `Backups.tsx` is refactored onto these hooks (fixes the
-  inline-query deviation and the broken `useState(() => …)` settings hydration —
-  replaced by controlled form state seeded from `useBackupSettings` via `useEffect`).
+**`RemoteTargetsCard.tsx`:** on mount, reads `oauth_result`/`provider`/`target`
+(success) or `oauth_result=error`/`message` from `window.location.search`; shows
+the existing `toast.success`/`toast.error`, strips the query string via
+`history.replaceState`, and invalidates `REMOTE_TARGETS_QUERY_KEY`. Each row gains
+an OAuth status `Badge` (`not_connected|connected|revoked`, shown only when
+`type` is `dropbox`/`google_drive`) reusing the existing `Badge` component and
+`STATUS_VARIANT`-style mapping. A row with `oauth_status !== "connected"` shows a
+**"Connect"**/**"Reconnect"** button (same `useStartRemoteTargetOAuth` mutation,
+targeting the existing UUID) instead of/alongside the Test button.
 
-**Components (under `frontend/src/pages/Backups.tsx` + new
-`frontend/src/components/backups/`):**
+**Generalizing "Test connection" for OAuth (cross-cutting Q3, concrete answer):**
+no new frontend code is needed beyond the status badge above — clicking the
+existing "Test" button on a not-yet-connected target hits the existing
+`useTestRemoteTarget` mutation, gets the new `oauth_not_connected`/`oauth_revoked`
+`error_code` from the backend, and surfaces it through the **already-existing**
+generic `onError: (error) => toast.error(error.message)` path in both
+`RemoteTargetsCard.tsx` and `RemoteTargetFormDialog.tsx`. The generalization lives
+entirely server-side (sentinel error → `error_code`); the frontend's error
+handling was already generic enough to need zero changes for this specific
+concern.
 
-| Component | Purpose |
-|---|---|
-| `BackupScheduleCard.tsx` | Replaces the dead-knob "Configuration" card: enable toggle, frequency picker (Daily @ time / Weekly @ day+time / Custom cron with validation feedback), retention count, remote retention count |
-| `BackupEncryptionCard.tsx` | Enable toggle + passphrase set/change (write-only; shows "passphrase is set" state; explicit "cannot be recovered" warning) |
-| `RemoteTargetsCard.tsx` + `RemoteTargetFormDialog.tsx` | Target list with status badges + test button; form with type switch (S3/SFTP); secret inputs are `type="password"`, blank-on-edit ("leave blank to keep current"), never populated from API |
-| `RestoreDialog.tsx` | Extracted from inline dialog; adds passphrase input when `filename.endsWith('.age')`, shows validate results + `encryption_key_required` / legacy-format warnings, shows `restart_required` outcome |
-| `UploadBackupButton.tsx` | File picker (`.zip,.age,.db`) → upload → validate feedback → appears in list |
+**API layer (`frontend/src/api/backups.ts`):** extend `RemoteTargetConfig` with
+optional `webdav?/dropbox?/google_drive?` nested objects (mirrors §3.2's backend
+struct exactly — same nesting, same optionality); extend `RemoteTarget` with
+`oauth_status: 'not_connected' | 'connected' | 'revoked' | ''` and
+`oauth_connected_at: string | null`; new functions `startRemoteTargetOAuth(uuid)`,
+`disconnectRemoteTargetOAuth(uuid)`.
 
-Backup table gains columns/badges: type (`manual|scheduled|pre_restore|uploaded` —
-replaces the current filename-sniffing `includes('auto')` hack at `Backups.tsx:150`),
-encrypted lock icon, remote-copy status. All new interactive elements get
-`data-testid`s following the existing `backup-*` naming.
+**Hooks (`useRemoteTargets.ts`):** `useStartRemoteTargetOAuth()`,
+`useDisconnectRemoteTargetOAuth()` — same `useMutation` + `invalidateQueries`
+shape as every other mutation hook in this file.
 
-**i18n:** every new user-facing string added to **all 5 locales**
-(`frontend/src/locales/{de,en,es,fr,zh}/translation.json`) under `backups.*`
-(estimated ~45 new keys: `schedule.*`, `encryption.*`, `remoteTargets.*`,
-`upload.*`, `validate.*`, `restoreWarnings.*`).
+**i18n:** new keys under `backups.remoteTargets.*` for the three new type labels,
+WebDAV field labels, Dropbox/Google Drive field labels, `oauthStatus.*`
+(`notConnected|connected|revoked`), `connect`/`reconnect`/`disconnect` button
+labels, and OAuth result toast messages — added to all 5 locales
+(`de,en,es,fr,zh`), matching the existing `translation.json` structure verified in
+§2.1 (estimated ~35 new keys).
 
-**Complexity:** Medium.
+### 3.7 Data Flow
 
-### 3.9 Security Considerations
+**WebDAV upload (no OAuth — same shape as S3/SFTP today):**
+
+```mermaid
+sequenceDiagram
+    participant BS as BackupRemoteService
+    participant U as webdav.Uploader
+    participant W as WebDAV server
+
+    BS->>U: Upload(ctx, localPath, remoteKey)
+    U->>U: ssrfValidateHost(cfg.URL host) [already checked at save-time; re-checked at dial-time]
+    U->>W: MkdirAll(basePath/dir) via gowebdav (dial through SSRF-safe transport)
+    U->>W: WriteStream(basePath/remoteKey, file)
+    W-->>U: 201/204
+    U-->>BS: nil
+```
+
+**Dropbox OAuth connect + upload:**
+
+```mermaid
+sequenceDiagram
+    participant FE as Frontend
+    participant BE as Charon backend
+    participant DB as Dropbox
+
+    FE->>BE: POST remote-targets (config+client secret, no token)
+    BE-->>FE: 201 {oauth_status: "not_connected"}
+    FE->>BE: POST remote-targets/:uuid/oauth/start
+    BE->>BE: utils.GetConfiguredPublicURL(db) -> baseURL (400 public_url_not_configured if false)
+    BE->>BE: OAuthStateStore.Issue(uuid, "dropbox")
+    BE-->>FE: {authorize_url} (redirect_uri built from baseURL)
+    FE->>DB: window.location.href = authorize_url (full-page redirect)
+    DB-->>FE: user approves
+    DB->>BE: GET oauth/dropbox/callback?code&state
+    BE->>BE: OAuthStateStore.Consume(state) -> uuid, provider
+    BE->>DB: exchange code for access+refresh token (same redirect_uri/baseURL)
+    BE->>BE: encrypt+store tokens, oauth_status="connected"
+    BE-->>FE: 302 -> baseURL/backups?oauth_result=success
+    Note over BE,DB: later, on scheduled backup:
+    BE->>DB: (token near/expired?) refresh via oauth2.TokenSource
+    BE->>BE: persistingTokenSource -> SaveToken (re-encrypt+save)
+    BE->>DB: upload (single call ≤150MiB, else chunked session)
+```
+
+**Google Drive folder resolution + retention (the Locator-abstraction payoff):**
+
+```mermaid
+flowchart TD
+    A[Upload triggered] --> B[resolveOrCreateFolderChain cfg.FolderPath]
+    B --> C{each segment exists?}
+    C -->|yes| D[use existing folder id as next parent]
+    C -->|no| E[create folder, use new id as next parent]
+    D --> F[resumable upload into leaf folder id]
+    E --> F
+    F --> G[BackupRemoteCopy marked uploaded]
+    G --> H[pruneRemoteRetention: List returns RemoteObject Key=fileID Name=filename]
+    H --> I[filter candidates by Name matching backup_*.zip*]
+    I --> J[Delete by Key fileID for everything past retention count]
+```
+
+### 3.8 Security Considerations
 
 | Area | Measure |
 |---|---|
-| Path traversal | Keep the existing `filepath.Base`-equality + prefix checks and `SafeJoinPath`; `backup_handler_sanitize_test.go` must keep passing unmodified; uploaded files get server-generated names (client filename discarded) |
-| Zip-slip / tar-slip | Existing `SafeJoinPath` extraction path reused for all restores (uploads included) |
-| Symlink attacks & mode bits | New: reject zip entries whose mode has `os.ModeSymlink` set before extraction (v1 gap — `unzipWithSkip` currently writes whatever the entry claims); additionally **ignore the archive-supplied permission bits entirely** — force every extracted regular file to `0o600` and every directory to `0o700` regardless of `f.Mode()` (v1 gap — `unzipWithSkip` at `backup_service.go:740` currently calls `os.OpenFile(fpath, ..., f.Mode())`, so an uploaded/crafted archive could claim world-writable or setuid/setgid bits); add regression tests for both |
-| Decompression bombs | Per-entry cap now **scales with the declared size**: for v2 archives, each entry's `LimitedReader` is bounded by that entry's own `ManifestEntry.Size` (from the checksum-verified manifest) **+ 64 KiB slack** — not a flat 100 MB — so a `charon.db` entry larger than 100 MB (plausible today given `RequestLog` growth) is no longer permanently unrestorable. For v1/legacy archives (no manifest to consult), fall back to a generous flat cap of **2 GiB per entry**. Independent of per-entry sizing, keep a hard **total extracted bytes** cap per archive (`maxTotalExtractedSize = 4 GiB`, raised from an earlier 2 GiB to comfortably clear a >100 MB DB plus caddy/crowdsec state) and an **entry count** cap (10 000), both computed independently of the manifest's own declared sizes so a crafted manifest cannot bypass them. **Required test:** a synthetic >100 MB `charon.db` backs up and restores round-trip without hitting the decompression limit; a manifest entry whose actual streamed bytes exceed `Size + slack` is rejected. |
-| Upload limits | `http.MaxBytesReader` 512 MB on `/backups/upload`; multipart parsed with the same cap; reject non-zip/non-age/non-sqlite by magic bytes, not extension alone |
-| AuthN/AuthZ | All routes stay inside `protected` + `RequireManagementAccess`; see the auth policy summary table in §3.3 for the definitive per-route decision — key changes from v1: `Download` moves to admin-only (full-DB exfiltration risk), and **all** `remote-targets` routes including `GET` (list) are admin-only (hostnames/usernames/buckets are sensitive even without secrets); `GET /backups` and `GET /backups/settings` remain management-level; align `Backups.tsx` `canCreateBackup` (currently shows the button to `role === 'user'` although the API is admin-only — fix frontend gating) |
-| Secrets never echoed | Remote-target `secrets` and encryption passphrase are write-only; responses expose `secrets_set` / `encryption_passphrase_set` booleans only |
-| Secrets never logged | Passphrases/credentials excluded from every log field; error wrapping must not embed credential values (`fmt.Errorf("context: %w", err)` on driver errors only); code review gate in Commit 5 |
-| SSRF | Remote endpoints validated via `network` package (loopback/link-local/metadata/reserved blocked; RFC1918 allowed) at save + dial time (§3.7) |
-| SFTP MITM | Mandatory host-key pinning (`ssh.FixedHostKey`); `InsecureIgnoreHostKey` banned |
-| Rate limiting | Restore/upload/test-connection are admin actions behind existing auth middleware; test-connection additionally debounced client-side; no new public surface |
-| GORM security | New models use parameterized GORM APIs only; `./scripts/scan-gorm-security.sh --check` must report zero CRITICAL/HIGH (DoD 1.5 — triggered because `backend/internal/models/**` changes) |
-| Audit | Create/restore/delete/settings-change/target-change logged through the existing `securityService`/request-logger pattern already used in `backup_handler.go` |
+| SSRF — WebDAV | User-supplied `url` host validated via the existing `ssrfValidateHost`/`dialContext` indirection (RFC1918 allowed, loopback/link-local/metadata/reserved blocked) at both config-save and dial time — identical policy to S3/SFTP, zero new SSRF logic invented |
+| SSRF — Dropbox/Google Drive | **No SSRF check** — both target only fixed, hardcoded vendor API hostnames, never a user-supplied value. Explicitly verified no user-controlled host sneaks in anywhere in the OAuth path: the `redirect_uri` base comes from `utils.GetConfiguredPublicURL(db)` — the same admin-configured, already-`TestPublicURL`-validated value used today for invite-email links (§2.4) — set only by an admin via `SystemSettings.tsx`, not attacker- or lower-privileged-user-reachable, so it is out of scope for the SSRF policy that exists to protect against admin-entered-but-still-adversarial remote-target hosts. `TestPublicURL`'s own SSRF-safe connectivity probe (already shipped) is the relevant control on that value, not this feature's SSRF policy |
+| OAuth CSRF | Every `oauth/start` issues a fresh, single-use, 10-minute-TTL `state` token bound to the specific target UUID + provider; the callback route rejects any `state` it did not issue or that was already consumed, closing the classic OAuth login-CSRF hole (an attacker tricking a victim into authorizing the *attacker's* Dropbox account into the victim's Charon instance) |
+| Callback route auth | Deliberately outside `RequireManagementAccess` (the browser arrives with no Charon session) — its entire security rests on the unguessable, single-use `state` value; this is called out explicitly as the one route in this feature that is not JWT-gated, and is documented as such in code comments at the route registration site |
+| Token storage | Access/refresh tokens live inside the existing AES-256-GCM `SecretsEncrypted` blob — same encryption, same key, same `ErrEncryptionKeyMissing` degrade-gracefully behavior as every other credential type (R9); never serialized into any API response (only the coarse `oauth_status` enum is) |
+| Token refresh | `golang.org/x/oauth2`'s `TokenSource` (audited, standard-library-adjacent, not hand-rolled) handles expiry detection + refresh-request construction; Charon's only added logic is persisting the refreshed token, not the refresh protocol itself |
+| Secrets never echoed | `oauth_client_secret`/`oauth_access_token`/`oauth_refresh_token` follow the exact same write-only convention as `access_key_id`/`private_key_pem` today — never appear in any GET/POST/PUT response body, only derived booleans/enums do |
+| Secrets never logged | Same existing rule (S3/SFTP plan §3.9) extends unchanged: no credential/token value in any log field or wrapped error string |
+| GORM security | New/changed model fields use parameterized GORM APIs only; `./scripts/scan-gorm-security.sh --check` must report zero CRITICAL/HIGH (DoD 1.5 — triggered, `backend/internal/models/**` changes) |
+| Dropbox/Drive REST clients | Hand-rolled `net/http` clients (§2.5) must set request timeouts and reuse a bounded `http.Client` (no per-call client construction) — same hygiene as `s3.go`'s `http.Transport` |
+| Audit | OAuth connect/disconnect/token-refresh-failure events logged through the existing `securityService`/request-logger pattern already used for target create/update/delete |
 
-### 3.10 Error Handling & Edge Cases
+### 3.9 Error Handling & Edge Cases
 
-- **Disk full:** `CreateBackup` pre-checks `GetAvailableSpace()` ≥ 2× current DB size;
-  respond `507`-style `500` with `error_code: "backup_insufficient_space"` (existing
-  `respondPermissionError` path retained for EACCES).
-- **Backup dir deleted at runtime:** `MkdirAll` before every create (idempotent).
-- **Cron spec valid but pathological** (e.g. `* * * * *`): allowed but UI warns below
-  hourly; retention still bounds disk use.
-- **Concurrent restores / backup-during-restore:** `BackupService.mu` serializes
-  create/restore; second request gets `409 {"error": "another backup or restore is in progress"}`.
-- **Encrypted backup + lost passphrase:** unrecoverable by design; delete-only.
-- **Remote target unreachable during scheduled run:** copy row `failed`, local backup
-  unaffected; retried on next scheduled run only (no retry queue in Beta).
-- **Restore of a backup from a newer app version:** blocked in V3 with explicit error;
-  older-version archives restore with a warning (GORM AutoMigrate upgrades the schema
-  on next boot, and immediately after rehydrate the running AutoMigrated schema is a
-  superset — rehydrate copies only tables present in both, existing behavior).
-- **`ListBackups` vs `BackupRecord` drift** (file deleted manually on disk): list
-  endpoint reconciles — records whose file is missing are marked `status: "deleted"`
-  and hidden; files without records synthesize legacy entries (§3.3.1).
+| Scenario | Handling |
+|---|---|
+| `app.public_url` `Setting` unconfigured, admin clicks "Save & Connect" | `oauth/start` returns `400 public_url_not_configured`; frontend surfaces via existing toast path; target row still exists in `not_connected` state (not deleted) so the admin can retry immediately after setting `app.public_url` in `SystemSettings.tsx` — **no process restart needed**, since `GetConfiguredPublicURL` reads the `Setting` row fresh on every call |
+| Callback arrives with unknown/expired/reused `state` | `400` "invalid or expired authorization state" — no target mutation occurs; user is instructed to retry the Connect flow from scratch |
+| Callback arrives with a `state` valid but the provider returned an `error` param (user clicked Deny) | Redirect to `{configuredPublicURL}/backups?oauth_result=error&message=authorization_denied` — target remains `not_connected`, no partial-token state |
+| Token refresh fails with `invalid_grant` (user revoked access in Dropbox/Google's own settings) | `oauth_status -> "revoked"`; next Test/Upload surfaces `oauth_revoked` `error_code`; scheduled-backup upload failure is recorded on the `BackupRemoteCopy` row exactly like any other upload failure (existing behavior, unchanged) — it never fails the backup itself |
+| Dropbox upload session interrupted mid-chunk (network failure) | No resume-from-offset logic in v1 of this feature — the whole upload session is abandoned and the `BackupRemoteCopy` row is marked `failed`; the next scheduled run retries from scratch (documented limitation, §8) |
+| Google Drive folder segment name collides with an existing **file** (not folder) of the same name | `resolveOrCreateFolderChain`'s lookup query filters `mimeType='application/vnd.google-apps.folder'`, so a same-named file is invisible to it and a new folder is created alongside — documented as an acceptable edge case (Drive permits duplicate names by design; the folder path here is Charon-managed and expected to be a dedicated, otherwise-empty tree) |
+| Google Drive folder deleted out-of-band between uploads | Next `Upload`/`List` call re-resolves (and recreates, for `Upload`) the chain — no caching means no stale-ID failure mode (§3.5) |
+| WebDAV server returns `423 Locked` on write | Surfaced as a plain upload failure (recorded on `BackupRemoteCopy`, not retried mid-run) — no special lock-wait/retry logic in v1 (documented limitation, §8) |
+| Existing `s3`/`sftp` targets after this migration | Byte-identical behavior — `oauth_status` defaults to `""` and is simply never read/written for these two types; `Type` column widening from `size:10` to `size:20` is a no-op for values that already fit |
 
 ---
 
 ## 4. Implementation Plan (Phases)
 
-Phases map 1:1 onto the commits in §6.
+**Phase 1 — Playwright Tests (spec behavior, `test.fixme`).** New specs for
+WebDAV create/edit/test flows and Dropbox/Google Drive create→connect→callback→
+status-badge flows (mocked OAuth redirect via route interception, since real
+provider consent screens aren't reachable in CI). Extends
+`tests/tasks/backups-remote-targets.spec.ts` conventions (mock fixtures, existing
+`RemoteTargetResponse` interface extended with `oauth_status`/`oauth_connected_at`).
 
-**Phase 1 — Playwright specs (behavior first, `test.fixme`):** new specs for
-schedule settings, encryption, upload-restore, remote targets; correct `.tar.gz`
-fixture names to `.zip` in `tests/utils/phase5-helpers.ts` usage.
+**Phase 2 — Backend Foundation (no behavior change).** `RemoteObject.Name` field +
+`pruneRemoteRetention` one-line fix; `RemoteTargetConfig`/`Secrets` struct
+extensions (§3.2); `RemoteStorageTarget` model column changes (§3.4); `oauthtoken.go`
+scaffolding + `golang.org/x/oauth2`/`gowebdav` added to `go.mod`; `OAuthStateStore`.
+WebDAV implemented first within this phase's *behavior* commit since it has no
+OAuth dependency (simplest concrete provider, per the task's ordering guidance).
 
-**Phase 2 — Backend:** manifest/format v2 + models + settings + safe restore +
-encryption + remote storage, TDD per component (see Commits 2–3 for file lists).
+**Phase 3 — Backend Implementation (behavior).** `webdav.go`, `dropbox.go`,
+`googledrive.go`; `validateRemoteTargetConfig`/`remotestorage.New` switch
+extensions; OAuth start/callback/disconnect handlers + routes; `respondRemoteTargetError`
+new cases; full unit test suite per provider (fakes for Dropbox/Drive REST calls,
+a local WebDAV-compatible test server or `gowebdav` against `httptest.Server` for
+WebDAV).
 
-**Phase 3 — Frontend:** API clients → hooks → components → page refactor + i18n.
+**Phase 4 — Frontend Implementation.** `RemoteTargetFormDialog.tsx` five-way type
+switch + OAuth connect step; `RemoteTargetsCard.tsx` status badge + reconnect
+button + OAuth-result query-param handling; API client + hooks extensions; i18n
+×5.
 
-**Phase 4 — Integration & hardening:** enable E2E (`npx playwright test
---project=firefox` from repo root), symlink/bomb regression tests, coverage
-top-up to gates.
-
-**Phase 5 — Docs & deployment:** `docs/features/disaster-recovery.md` (new),
-correct `docs/features/backup-restore.md`, `docs/features.md` link,
-`ARCHITECTURE.md` (backup subsystem, new deps, data-flow), ignore-file fixes (§7).
-
-**Complexity estimates:**
-
-| Component | Complexity |
-|---|---|
-| Manifest/format v2 + service refactor | M |
-| Safe-restore pipeline | **H** |
-| Encryption (age) | M |
-| Remote storage (S3+SFTP+SSRF) | M–H |
-| Models + settings + reschedule | M |
-| Handlers/API | M |
-| Frontend | M |
-| E2E + docs | M |
+**Phase 5 — Integration, Hardening, Documentation.** Flip Playwright specs live;
+`docs/features/backup-restore.md` update (provider list); new
+`docs/features/backup-remote-oauth-setup.md` (Dropbox App Console + Google Cloud
+Console app-registration walkthrough — the deployment/setup doc the Non-Goals
+section calls out as not-code); `ARCHITECTURE.md` dependency table + directory
+tree update; ignore-file fixes (§7); full DoD sweep.
 
 ---
 
 ## 5. Acceptance Criteria
 
-Issue #32 mapping: backups contain all critical data (R1: DB + caddy certs +
-crowdsec + settings-in-DB, checksummed) ✔; restore works flawlessly (R4–R6 validated
-pipeline + rollback) ✔; automatic backups run on schedule (R3, user-configurable) ✔;
-remote backup options available (R8, S3 + SFTP) ✔.
-
-Definition of Done (CLAUDE.md, in order):
-
-- [ ] Playwright E2E: `cd /projects/Charon && npx playwright test --project=firefox`
-      — all backup specs pass (including newly-enabled ones); existing
-      `backups-create` / `backups-restore` / `backup-restore-e2e` suites green.
-- [ ] GORM security scan: `./scripts/scan-gorm-security.sh --check` — zero
-      CRITICAL/HIGH (triggered: `backend/internal/models/**` + GORM queries).
-- [ ] `bash scripts/local-patch-report.sh` produces both artifacts; patch coverage ≥ 90%.
-- [ ] CodeQL Go + JS via `lefthook run pre-commit` — zero high/critical; Trivy
-      (`make trivy`) clean incl. the three new Go deps.
-- [ ] `make lint-fast` / staticcheck clean; no `--no-verify`.
-- [ ] Coverage: `scripts/go-test-coverage.sh` ≥ 85%; `scripts/frontend-test-coverage.sh` ≥ 85%.
-- [ ] `cd frontend && npm run type-check` clean.
-- [ ] Builds: `cd backend && go build ./...`; `cd frontend && npm run build`.
-- [ ] All existing backup tests (`backup_service_*_test.go`,
-      `backup_handler*_test.go`, `frontend/src/api/__tests__/backups.test.ts`) pass —
-      sanitize tests **unmodified**.
-- [ ] Behavior checks: legacy v1 zip restores with warning; checksum-tampered v2
-      archive rejected before any live mutation; failed restore restores pre_restore
-      state; wrong age passphrase → 400 without side effects; secrets absent from all
-      API responses and logs; schedule change takes effect without restart; a restore
-      whose live rehydrate is exhausted persists a durable `.pending-restore` file and
-      a subsequent process boot actually swaps it into place before GORM opens the DB
-      (verified by an integration test that restarts the process in-test); a
-      corrupted/tampered pending-restore file is never installed and the prior
-      database remains authoritative; a >100 MB synthetic DB backs up and restores
-      round-trip without hitting the decompression cap; SFTP discovery never
-      authenticates to an unpinned/mismatched host.
-- [ ] No debug prints / console.log / dead code.
+- [ ] `s3`/`sftp` targets: zero behavior change, zero wire-format change, existing
+      tests green unmodified.
+- [ ] **Regression guard for the `RemoteObject.Name` generalization:** a test
+      exercises the *real* `s3.go`/`sftp.go` `List()` implementations (not a fake
+      `Uploader`) end-to-end through `pruneRemoteRetention`, proving retention
+      pruning still deletes candidates beyond the retention count for S3/SFTP
+      after the `Name` field is introduced — this is the regression the `Name`
+      generalization could silently cause if `s3.go`/`sftp.go` weren't updated to
+      populate it (§3.5, §6 Commit 2).
+- [ ] WebDAV target: create/edit/test/upload/delete/list round-trip against a real
+      or `httptest`-backed WebDAV server, including SSRF rejection of a
+      loopback/link-local/metadata URL at both save and dial time.
+- [ ] Dropbox target: two-step create→connect lifecycle; CSRF `state` rejected if
+      unknown/reused/expired; token refresh transparently occurs and persists on
+      an expired-token Test/Upload; chunked upload path exercised by a synthetic
+      file `> 150 MiB`; `oauth_not_connected`/`oauth_revoked` error codes surfaced
+      correctly; **multi-page `list_folder`/`list_folder/continue` cursor-follow
+      exercised by a fake backend returning `has_more: true` across ≥2 pages, with
+      retention pruning correctly seeing objects from every page.**
+- [ ] Google Drive target: folder-chain resolution creates missing segments;
+      retention pruning correctly deletes by `Key` (file ID) while filtering
+      candidates by `Name`; a not-yet-existing folder yields an empty `List`, not
+      an error; `oauth_not_connected`/`oauth_revoked` error codes surfaced
+      correctly; **multi-page `files.list`/`nextPageToken` follow exercised by a
+      fake backend returning `nextPageToken` across ≥2 pages, with retention
+      pruning correctly seeing objects from every page.**
+- [ ] `GET /remote-targets` never includes any of `oauth_client_secret`,
+      `oauth_access_token`, `oauth_refresh_token`, `bearer_token`, or WebDAV
+      password in any response, for any of the 5 types.
+- [ ] `app.public_url` `Setting` unconfigured → `oauth/start` returns `400
+      public_url_not_configured`, no partial state persisted; configuring it (no
+      restart) immediately unblocks a retry.
+- [ ] All Playwright specs pass (`npx playwright test --project=firefox`).
+- [ ] `scripts/go-test-coverage.sh` and `scripts/frontend-test-coverage.sh` ≥ 85%.
+- [ ] `./scripts/scan-gorm-security.sh --check` zero CRITICAL/HIGH.
+- [ ] `lefthook run pre-commit` clean (staticcheck, CodeQL Go/JS).
+- [ ] `go build ./...` and `npm run build` clean; `npm run type-check` clean.
+- [ ] i18n keys present in all 5 locales.
+- [ ] `docs/features/backup-restore.md`, `ARCHITECTURE.md`, and the new OAuth
+      setup doc updated.
 
 ---
 
 ## 6. Commit Slicing Strategy
 
-**Decision: ONE feature = ONE PR** (`feature/backuprestore` → default branch),
-merged only when complete. Five ordered commits per the CLAUDE.md suggested
-sequence. Each commit builds and passes its validation gate; the PR passes the full
-DoD before merge. No worktrees; all work on the current branch.
+**Decision: ONE feature = ONE PR** (stays on `feature/backuprestore`), merged only
+when complete. No worktrees (CLAUDE.md); all work on the current branch. Six
+ordered commits — one more than the S3/SFTP plan's five, because the shared
+OAuth-token-refresh subsystem needs to land as its own foundation commit before
+either OAuth provider is built on top of it (per the task's explicit guidance),
+and WebDAV (no OAuth) is sliced in right after general foundation as the simplest
+concrete provider.
 
-### Commit 1 — `test(e2e): add backup v2 specs as fixmes and fix backup fixtures`
+### Commit 1 — `test(e2e): add WebDAV/Dropbox/Google Drive remote-target specs as fixmes`
 
-- **Scope:** New Playwright specs encoding target behavior, all `test.fixme`;
-  fixture correction.
-- **Files:** `tests/tasks/backups-schedule.spec.ts` (new),
-  `tests/tasks/backups-encryption.spec.ts` (new),
-  `tests/tasks/backups-remote-targets.spec.ts` (new),
-  `tests/tasks/backups-upload-restore.spec.ts` (new),
-  `tests/tasks/backups-create.spec.ts` + `tests/tasks/backups-restore.spec.ts` +
-  `tests/utils/phase5-helpers.ts` (fixture filenames `.tar.gz` → `.zip`; additive
-  mock fields).
+- **Scope:** New/extended Playwright specs, all `test.fixme`, encoding the target
+  behavior for all three providers including the OAuth redirect+callback UX
+  (mocked via route interception).
+- **Files:** `tests/tasks/backups-remote-targets.spec.ts` (extended), new fixture
+  helpers in `tests/utils/phase5-helpers.ts` for `oauth_status`/nested
+  `webdav|dropbox|google_drive` config shapes.
 - **Dependencies:** none.
-- **Gate:** `npx playwright test --project=firefox` — existing suites green, new
-  specs skipped as fixme.
+- **Gate:** `npx playwright test --project=firefox` — existing S3/SFTP specs
+  stay green; new specs skipped as fixme.
 
-### Commit 2 — `refactor(backend): backup format v2 foundation and models (no behavior change)`
+### Commit 2 — `refactor(backend): OAuth token subsystem + Locator abstraction + WebDAV foundation (no behavior change to s3/sftp)`
 
-- **Scope:** Types/contracts/foundation. Manifest types + checksum writer; new GORM
-  models + AutoMigrate registration; `NewBackupService` signature change (db +
-  encryption + crowdsec dir threaded through, cron spec still default); settings-key
-  constants + legacy-knob migration; `remotestorage.Uploader` interface (no impls);
-  new deps in `backend/go.mod`.
-- **Files:** `backend/internal/services/backup_service.go`,
-  `backend/internal/services/backup_manifest.go` (new),
-  `backend/internal/models/{backup_record,backup_remote_copy,remote_storage_target}.go` (new),
-  `backend/internal/api/routes/routes.go` (AutoMigrate + constructor call),
-  `backend/internal/services/remotestorage/remotestorage.go` (new),
-  `backend/go.mod`/`go.sum`, existing `backup_service_*_test.go` updates + new
-  model/manifest unit tests.
+- **Scope:** Foundation/types/contracts. `RemoteObject.Name` +
+  `pruneRemoteRetention` fix **+ the matching `s3.go`/`sftp.go` `List()` updates
+  that make that fix a no-op for those two providers (see the correctness
+  argument in §3.2 — these two files are explicitly IN SCOPE for this commit,
+  not "unchanged"; omitting them silently breaks retention pruning for every
+  existing production S3/SFTP target)**; `RemoteTargetConfig`/`Secrets` struct
+  extensions (§3.2, nested pointers + flat OAuth/bearer fields);
+  `RemoteStorageTarget` model column changes (§3.4, `Type` widened to `size:20`,
+  `+OAuthStatus`, `+OAuthConnectedAt`); `oauthtoken.go` (`TokenSaver` interface,
+  `persistingTokenSource`, sentinel errors); `OAuthStateStore`; `webdav.go`
+  fully implemented (no OAuth dependency — the "simplest concrete provider
+  first" per task guidance); `go.mod`/`go.sum` gains `golang.org/x/oauth2` +
+  `github.com/studio-b12/gowebdav`.
+- **Files:** `backend/internal/services/remotestorage/{remotestorage,webdav,oauthtoken}.go`
+  (new/extended), **`backend/internal/services/remotestorage/{s3,sftp}.go`
+  (MODIFIED — add `Name: path.Base(obj.Key)` / `Name: entry.Name()` to each
+  `List()` implementation; this is the commit's one behavior-preserving-but-
+  load-bearing touch to files the earlier draft of this plan incorrectly left
+  out of scope)**, `backend/internal/services/oauth_state_store.go` (new),
+  `backend/internal/models/remote_storage_target.go`,
+  `backend/internal/services/backup_remote_service.go` (struct extensions +
+  the one-line `pruneRemoteRetention` fix only — no new OAuth methods yet),
+  `backend/go.mod`/`go.sum`, unit tests for `RemoteObject`/pruning fix,
+  `oauthtoken.go`, `OAuthStateStore`, and `webdav.go` (incl. a `httptest`-backed
+  WebDAV round-trip and an SSRF-rejection test mirroring `s3.go`'s existing
+  ones), **and a regression test that exercises the real `s3.go`/`sftp.go`
+  `List()` implementations (against a fake S3-compatible/SFTP backend, not a
+  fake `Uploader`) end-to-end through `pruneRemoteRetention`, asserting objects
+  beyond the retention count are still deleted after this commit — this is the
+  gate that catches the exact regression class described above if it recurs**.
 - **Dependencies:** Commit 1 (fixtures).
-- **Gate:** `go build ./... && go test ./...`; GORM scan clean; staticcheck clean;
-  v1 backups still create/restore byte-compatibly (regression test).
+- **Gate:** `go build ./... && go test ./...`; GORM scan clean; staticcheck
+  clean; existing S3/SFTP tests green unmodified; **the new real-`List()`
+  retention regression test passes.**
 
-### Commit 3 — `feat(backend): v2 backups — validated restore, encryption, schedule, remote storage`
+### Commit 3 — `feat(backend): Dropbox and Google Drive uploaders + OAuth routes`
 
-- **Scope:** Behavior. Manifest+crowdsec in `CreateBackupWithOptions`;
-  `RestoreBackupSafe` pipeline (validate → pre_restore → apply → Caddy
-  `ApplyConfig` → rollback); durable pending-restore file + boot-time swap consumer
-  (closes the non-functional v1 `restart_required` path); age encryption;
-  `Reschedule` + settings honored (incl. generic-settings-endpoint guard and
-  `isSensitiveSettingKey` fix); `remotestorage/{s3,sftp}.go` + SSRF checks +
-  pinned-host-key SFTP discovery; upload/validate/settings/remote-target handlers +
-  routes (incl. admin-gating all `remote-targets` routes); Download admin-gating;
-  symlink/mode-bit/total-size/scaled-per-entry extraction hardening; remote-upload
-  goroutine lifecycle tied to `Stop()`; routing regression coverage for the new
-  static routes.
-- **Files:** `backend/internal/services/backup_service.go`,
-  `backend/internal/services/backup_encryption.go` (new),
-  `backend/internal/services/backup_remote_service.go` (new),
-  `backend/internal/services/remotestorage/{s3,sftp}.go` (new),
-  `backend/internal/database/pending_restore.go` (new),
-  `backend/cmd/api/main.go` (wire `ApplyPendingRestore` before the default
-  startup's `database.Connect` call),
-  `backend/internal/api/handlers/backup_handler.go`,
-  `backend/internal/api/handlers/backup_remote_handler.go` (new),
-  `backend/internal/api/handlers/settings_handler.go` (`isSensitiveSettingKey`
-  `"passphrase"` fragment; `backup.*` prefix guard in `UpdateSetting`),
-  `backend/internal/api/routes/routes.go`, table-driven unit tests for every new
-  path, specifically including: tampered-checksum rejection, wrong-passphrase
-  rejection, SSRF-rejection, symlink-entry rejection, extracted-file-mode
-  clamping, **>100 MB synthetic-DB backup/restore round trip against the
-  scaled per-entry cap**, **pending-restore boot-swap integration test (write
-  pending file → simulate restart via `ApplyPendingRestore` → assert swap; corrupt
-  pending file → assert rejection and old DB retained)**, **SFTP discovery test
-  asserting no `PasswordCallback`/`PublicKeyCallback` invocation against an
-  unpinned host**, **`httptest` routing regression test for `/backups/settings`
-  and `/backups/remote-targets*` vs. the `:filename` wildcard**, and a fake
-  `Uploader` for remote-storage flow tests.
+- **Scope:** Behavior, built on Commit 2's subsystem. `dropbox.go`,
+  `googledrive.go` (folder-chain resolution, resumable/chunked upload,
+  Key≠Name `List`, **cursor/page-token-follow pagination loop for both — R12,
+  built now, not deferred**); `validateRemoteTargetConfig`/`remotestorage.New`
+  +3 case branches (webdav wired here too if not already exercised via routes
+  in Commit 2 — route wiring is genuinely new even though the uploader
+  existed); OAuth start/callback/disconnect handlers + routes (`oauth/start`
+  calls the **existing** `utils.GetConfiguredPublicURL(h.DB)` — no new config
+  field, §2.4); `respondRemoteTargetError` +2 cases.
+- **Files:** `backend/internal/services/remotestorage/{dropbox,googledrive}.go`
+  (new), `backend/internal/services/backup_remote_service.go` (OAuth
+  start/callback/disconnect methods, `validateRemoteTargetConfig` cases),
+  `backend/internal/api/handlers/backup_remote_handler.go` (OAuth handlers,
+  error cases — including the `public_url_not_configured` 400 built on the
+  existing `utils.GetConfiguredPublicURL`), `backend/internal/api/routes/routes.go`
+  (new routes, callback route registered outside `management` group; **no
+  `backend/internal/config/config.go` change — `app.public_url` is a `Setting`
+  row, not an env var**), table-driven unit tests for every new path: CSRF
+  state reject/accept/replay, token-refresh-persists-on-expiry,
+  chunked-upload-path for a synthetic `>150MiB` file, **multi-page
+  `list_folder`/`list_folder_continue` and `files.list`/`nextPageToken`
+  cursor-follow tests (≥2 pages, asserting all entries are accumulated)**,
+  folder-chain create-if-missing, retention pruning against Drive's opaque
+  `Key`/`Name` split, `oauth/start` returning `public_url_not_configured` when
+  no `app.public_url` `Setting` row exists, fake `Uploader`/fake HTTP
+  round-trippers for Dropbox/Drive REST calls (no live network calls in unit
+  tests).
 - **Dependencies:** Commit 2.
-- **Gate:** `go test ./...` incl. all legacy backup suites and all tests listed
-  above; sanitize tests unmodified & green; `scripts/go-test-coverage.sh` ≥ 85%;
-  GORM + CodeQL Go clean.
+- **Gate:** `go test ./...` incl. all new suites; `scripts/go-test-coverage.sh`
+  ≥ 85%; GORM + CodeQL Go clean.
 
-### Commit 4 — `feat(frontend): backup schedule, encryption, upload-restore, and remote targets UI`
+### Commit 4 — `feat(frontend): WebDAV/Dropbox/Google Drive remote-target UI`
 
-- **Scope:** API clients, hooks, components, page refactor, i18n ×5.
-- **Files:** `frontend/src/api/backups.ts` (+ tests),
-  `frontend/src/hooks/{useBackups,useRemoteTargets}.ts` (new, + tests),
-  `frontend/src/components/backups/*` (new, + Vitest/MSW tests),
-  `frontend/src/pages/Backups.tsx` (refactor onto hooks; remove dead knobs; fix
-  role gating), `frontend/src/locales/{de,en,es,fr,zh}/translation.json`.
+- **Scope:** API client, hooks, form dialog five-way type switch, OAuth
+  connect/reconnect UX, status badge, i18n ×5.
+- **Files:** `frontend/src/api/backups.ts` (+ tests), `frontend/src/hooks/useRemoteTargets.ts`
+  (+ tests), `frontend/src/components/backups/{RemoteTargetFormDialog,RemoteTargetsCard}.tsx`
+  (+ Vitest/MSW tests), `frontend/src/locales/{de,en,es,fr,zh}/translation.json`.
 - **Dependencies:** Commit 3 (real API shapes).
 - **Gate:** `npm run type-check`, `npm run build`,
   `scripts/frontend-test-coverage.sh` ≥ 85%; CodeQL JS clean.
 
-### Commit 5 — `feat: enable backup E2E, hardening pass, and disaster recovery docs`
+### Commit 5 — `feat: enable WebDAV/Dropbox/Google Drive E2E + hardening pass`
 
-- **Scope:** Flip `test.fixme` → live; end-to-end hardening fixes surfaced by E2E;
-  docs; ignore-file fixes (§7); final DoD sweep.
-- **Files:** `tests/tasks/backups-*.spec.ts`,
-  `tests/integration/backup-restore-e2e.spec.ts`,
-  `docs/features/disaster-recovery.md` (new — cold restore, off-host restore,
-  `CHARON_ENCRYPTION_KEY` migration, passphrase caveats, remote-copy retrieval,
-  and the restart-required/pending-restore boot-swap behavior including the
-  documented window where Caddy/CrowdSec files are already updated but the
-  database swap completes only on the next restart),
-  `docs/features/backup-restore.md` (corrected), `docs/features.md`,
-  `ARCHITECTURE.md`, `.gitignore`,
-  `scripts/pre-commit-hooks/block-data-backups-commit.sh`.
+- **Scope:** Flip Commit 1's `test.fixme` → live; fix whatever E2E surfaces;
+  security review pass over the OAuth callback route specifically (state
+  replay, error-path information leakage).
+- **Files:** `tests/tasks/backups-remote-targets.spec.ts`, any hardening diffs
+  surfaced by E2E across the files touched in Commits 2–4.
 - **Dependencies:** Commits 1–4.
+- **Gate:** `npx playwright test --project=firefox` fully green (no fixme
+  remaining for this feature).
+
+### Commit 6 — `docs: WebDAV/Dropbox/Google Drive remote storage documentation`
+
+- **Scope:** Docs + repo hygiene.
+- **Files:** `docs/features/backup-restore.md` (provider list correction), new
+  `docs/features/backup-remote-oauth-setup.md` (Dropbox App Console + Google
+  Cloud Console registration walkthrough, explaining that the redirect URI
+  registered there must match the `app.public_url` `Setting` already
+  configurable in `SystemSettings.tsx`),
+  `ARCHITECTURE.md` (dependency table, directory tree, subsystem description),
+  `docs/features.md`, `.gitignore`/`.dockerignore`/`.codecov.yml`/`Dockerfile`
+  per §7.
+- **Dependencies:** Commits 1–5.
 - **Gate:** Full DoD (§5), every checkbox.
 
 ### Rollback & Contingency (PR-level)
 
-- Each commit is revertible in reverse order; Commit 2's foundation keeps v1
-  behavior byte-compatible, so reverting 3–5 restores a working v1 system.
-- The archive format is forward-versioned: if v2 ships a defect, v1 restore paths
-  are untouched and every v2 archive self-identifies via manifest — a `fix:`
-  follow-up can gate v2 creation behind a setting without breaking restores.
-- If remote storage slips the Beta window (Open Question Q1), Commit 3 can land
-  with the `remotestorage` package + interface but routes/UI feature-flagged off —
-  the commit boundary is drawn so S3/SFTP files are separable.
-- Emergency: the PR merges only complete; there is no partial-merge state to roll
-  back in production.
+- Each commit is revertible in reverse order; Commit 2 keeps `s3`/`sftp`
+  byte-compatible, so reverting 3–6 restores exactly the just-shipped S3/SFTP
+  system with unused foundation types sitting idle (harmless).
+- If Dropbox/Google Drive OAuth review surfaces a blocking security concern late,
+  Commit 2's WebDAV support is independently shippable — the commit boundary is
+  drawn so WebDAV never depends on the OAuth commits, only the reverse holds.
+- If either vendor's API behaves unexpectedly against a real account during
+  Commit 3 (rate limits, undocumented response shapes), the fix is isolated to
+  `dropbox.go`/`googledrive.go` — the shared `oauthtoken.go` subsystem and the
+  `Uploader` interface itself are not expected to need changes.
+- Emergency: the PR merges only complete; there is no partial-merge state to
+  roll back in production.
 
 ---
 
 ## 7. Ignore-File & Repo Hygiene Review
 
-| File | Finding | Action (Commit 5) |
+| File | Finding | Action (Commit 6) |
 |---|---|---|
-| `.gitignore:141` | `/data/backups/` is root-anchored; `backend/data/backups/` NOT covered | Change to `data/backups/` (unanchored) or add `backend/data/backups/`; also add `*.zip.age` under data paths |
-| `backend/data/backups/charon_backup_20251217_144822.db` | Exists on disk, **NOT committed** (verified `git ls-files`) — local dev artifact only | No history rewrite needed; covered once .gitignore fixed; do not commit |
-| `scripts/pre-commit-hooks/block-data-backups-commit.sh` | Only matches `data/backups/*`; misses `backend/data/backups/*` | Extend case pattern to `*data/backups/*` |
-| `.dockerignore` | No backup-dir entry (only `.vscode.backup*/`) | Add `**/data/backups/` so local backups never enter build context |
-| `.codecov.yml` | — | Verify new `remotestorage/` package is inside coverage paths; no ignore entries needed |
-| `Dockerfile` | New Go deps (`age`, `minio-go`, `pkg/sftp`) are pure Go — no CGO/system packages needed; `mattn/go-sqlite3` CGO already configured | No change expected; verify multi-stage build still passes `make trivy` |
-| `docs/plans/current_spec.md` | Previous (completed) plan archived | Done: `docs/plans/archive/2026-07-01_flaky-testmigratecommand-tempdir-race-fix.md` |
+| `.gitignore` | No entry needed — no new local-only data directories are introduced (OAuth state is in-memory, not on disk) | No change |
+| `.dockerignore` | No entry needed for the same reason; new Go/TS source files are ordinary build inputs | No change |
+| `codecov.yml` (repo root — note: no leading dot, confirmed by directory listing; CLAUDE.md's DoD refers to it as `.codecov.yml` but the actual file is `codecov.yml`) | No `ignore:` glob excludes `backend/internal/services/remotestorage/**` or `backend/internal/services/oauth_state_store.go` today — new files land inside tracked coverage automatically. The existing precedent of excluding `backend/pkg/dnsprovider/builtin/**` ("tested via integration tests, not unit tests") does **not** apply here: unlike DNS provider plugins, the new `webdav.go`/`dropbox.go`/`googledrive.go` are exercised by real unit tests against `httptest.Server`/fake HTTP round-trippers (§6 Commit 2/3), so no new ignore entry is needed or appropriate | No change |
+| `Dockerfile` | New Go deps (`golang.org/x/oauth2`, `github.com/studio-b12/gowebdav`) are pure Go, no CGO/system packages — same conclusion the S3/SFTP plan reached for `age`/`minio-go`/`pkg/sftp` | No change expected; verify `make trivy` still passes |
+| `docs/plans/current_spec.md` | Previous (S3/SFTP) plan archived | Done: `docs/plans/archive/current_spec.backup-remote-s3-sftp_2026-07-13.md` |
 
 ---
 
 ## 8. Open Questions for the User
 
-1. **Beta scope — remote storage:** Ship S3 + SFTP together (as specced), or S3
-   first with SFTP in a fast-follow *commit* (still same PR/feature per the
-   one-feature-one-PR rule — i.e., hold the PR until both land)? Recommendation:
-   both; SFTP is small once the interface exists.
-2. **Encryption default:** Off by default (recommended for Beta — passphrase loss is
-   unrecoverable and the audience is novices), or on-by-default with forced
-   passphrase setup during onboarding?
-3. **Schedule granularity:** Is the proposed simplified UI (Daily/Weekly + custom
-   cron escape hatch) right, or should Beta expose only Daily-at-time with cron
-   deferred?
-4. **Legacy raw `.db` backups (v0):** The plan supports them only via the upload
-   endpoint (magic-byte detection → wrapped to v2). Is that sufficient, or must
-   raw `.db` files already present in `data/backups/` also be listed/restorable
-   in place? (Current `ListBackups` has never listed them — they predate v1 zips.)
-5. **Retention semantics:** Keep count-based retention (current behavior, specced)
-   or switch to the day-based retention the docs currently (incorrectly) promise?
-6. **`pre_restore` backups:** Exempt from scheduled pruning (specced) — should they
-   instead auto-expire after N days to bound disk usage?
+1. ~~**Dropbox/Google Drive scope**~~ — **resolved, no longer an open
+   question.** User confirmed personal-account App Folder / My Drive scope
+   only for v1 (no Dropbox Business/Team-space, no Google Shared Drives) —
+   the plan's "self-hosted homelab" assumption stands as designed. No spec
+   changes required; Commit 3 proceeds on this basis.
+2. **Chunked-upload resume:** should an interrupted Dropbox upload-session or
+   Google Drive resumable-upload be resumed from its last acknowledged byte
+   offset (both APIs support this) rather than restarted from scratch on the
+   next scheduled run? Flagged as a documented v1 limitation (§3.9) rather than
+   built now — confirm this is acceptable for the initial release or should be
+   pulled into scope.
+3. ~~`CHARON_PUBLIC_URL` UX~~ — **resolved, no longer an open question.** An
+   earlier draft of this plan incorrectly assumed no public-URL config existed
+   and proposed a new restart-requiring env var. §2.4 corrects this: Charon
+   already has `utils.GetConfiguredPublicURL(db)` backed by a `Setting` row
+   (`app.public_url`), which is hot-reloadable (no restart) and already
+   surfaced in `SystemSettings.tsx`. This plan reuses it as-is; nothing further
+   to confirm here.
+4. ~~**WebDAV auth breadth**~~ — **resolved, no longer an open question.**
+   User confirmed Basic auth + bearer token is sufficient coverage for v1 (no
+   Digest auth), matching the plan's assumption that target self-hosted WebDAV
+   servers (Nextcloud/ownCloud/generic Apache `mod_dav`) predominantly support
+   Basic over HTTPS. No spec changes required; Non-Goals (§1.3) stands as
+   designed.
 
----
-
-**Next step:** on approval, hand off to the `supervisor` agent to review this spec,
-then to `management`/implementation agents following §6.
+**Remaining open question for implementation:** #2 (chunked-upload resume) is
+still open — not yet confirmed by the user. Proceeding with the documented v1
+limitation (no resume, restart-from-scratch on next scheduled run, §3.9) as
+the default unless the user says otherwise; this is a non-blocking, additive
+enhancement that can be pulled into a future iteration without touching the
+shipped interface.
