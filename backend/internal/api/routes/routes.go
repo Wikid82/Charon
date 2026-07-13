@@ -295,6 +295,19 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	api.GET("/invite/validate", userHandler.ValidateInvite)
 	api.POST("/invite/accept", userHandler.AcceptInvite)
 
+	// Dropbox/Google Drive OAuth2 callback (spec §3.3/§3.8, Issue #32 Phase 2
+	// Commit 3). Deliberately registered here, OUTSIDE both `protected` (auth
+	// middleware) and `management` (RequireManagementAccess) — the browser
+	// arrives at this URL directly from Dropbox/Google after the user
+	// approves access, with no Charon session/cookie/JWT of any kind. A
+	// session check here cannot succeed and is not the real control: this
+	// route's entire security rests on the single-use, time-bound `state`
+	// CSRF token issued by OAuthStart and consumed inside OAuthCallback
+	// (BackupRemoteService.ConsumeOAuthState) — an unrecognized, reused, or
+	// expired state is rejected outright before any target is looked up or
+	// mutated. Do not add auth middleware to this route.
+	api.GET("/backups/remote-targets/oauth/:provider/callback", backupRemoteHandler.OAuthCallback)
+
 	// Uptime Service - define early so it can be used during route registration
 	uptimeService := services.NewUptimeService(db, notificationService)
 
@@ -331,7 +344,9 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management.PUT("/backups/remote-targets/:uuid", backupRemoteHandler.Update)
 		management.DELETE("/backups/remote-targets/:uuid", backupRemoteHandler.Delete)
 		management.POST("/backups/remote-targets/:uuid/test", backupRemoteHandler.Test)
-		management.POST("/backups/remote-targets/test-draft", backupRemoteHandler.TestDraft) // admin (checked in-handler); stateless SFTP host-key discovery for draft configs
+		management.POST("/backups/remote-targets/test-draft", backupRemoteHandler.TestDraft)                   // admin (checked in-handler); stateless SFTP host-key discovery for draft configs
+		management.POST("/backups/remote-targets/:uuid/oauth/start", backupRemoteHandler.OAuthStart)           // admin (checked in-handler)
+		management.POST("/backups/remote-targets/:uuid/oauth/disconnect", backupRemoteHandler.OAuthDisconnect) // admin (checked in-handler)
 		management.DELETE("/backups/:filename", backupHandler.Delete)
 		management.GET("/backups/:filename/download", backupHandler.Download)
 		management.POST("/backups/:filename/restore", backupHandler.Restore)

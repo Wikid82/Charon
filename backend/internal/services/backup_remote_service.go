@@ -3,7 +3,9 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/url"
 	"path"
 	"sort"
 	"strings"
@@ -14,6 +16,8 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services/remotestorage"
 	"github.com/Wikid82/charon/backend/internal/util"
+	"github.com/Wikid82/charon/backend/internal/utils"
+	"golang.org/x/oauth2"
 	"gorm.io/gorm"
 )
 
@@ -123,6 +127,16 @@ func (s RemoteTargetSecrets) toMap() map[string]string {
 // unset — mirrors the DNS-provider precedent (routes.go, spec R9).
 var ErrEncryptionKeyMissing = fmt.Errorf("encryption key is not configured")
 
+// ErrPublicURLNotConfigured is returned by StartOAuth when the "app.public_url"
+// Setting (spec §2.4) has not been configured — without it there is no safe
+// base to build an OAuth redirect_uri from (spec R10).
+var ErrPublicURLNotConfigured = errors.New("app.public_url setting is not configured")
+
+// oauthProviderTypes lists the RemoteStorageTarget.Type values that go
+// through the OAuth2 authorization-code flow (spec §3.5 Commit 3) — s3,
+// sftp, and webdav all use static/basic credentials instead.
+var oauthProviderTypes = map[string]bool{"dropbox": true, "google_drive": true}
+
 // BackupRemoteService owns remote storage target CRUD, connection testing,
 // and the upload/retention orchestration triggered after each backup is
 // created (spec §3.7).
@@ -134,7 +148,7 @@ type BackupRemoteService struct {
 	// uploaderFactory defaults to remotestorage.New; overridden by tests in
 	// this package (a fake Uploader — required test #10) so upload/retention
 	// flow logic can be exercised without a real S3/SFTP endpoint.
-	uploaderFactory func(target *models.RemoteStorageTarget, secrets map[string]string) (remotestorage.Uploader, error)
+	uploaderFactory func(target *models.RemoteStorageTarget, secrets map[string]string, tokenSaver remotestorage.TokenSaver) (remotestorage.Uploader, error)
 
 	// states is the in-memory OAuth CSRF state store (spec §3.4/§3.5) shared
 	// by the Dropbox/Google Drive oauth/start + oauth/:provider/callback
@@ -224,6 +238,11 @@ func (s *BackupRemoteService) Create(name, targetType string, enabled bool, conf
 		SecretsEncrypted: encryptedSecrets,
 		KeyVersion:       1,
 		LastTestStatus:   "never",
+	}
+	if oauthProviderTypes[targetType] {
+		// R2: created in a "pending" state — no access/refresh token exists
+		// yet, and none is required at creation time.
+		target.OAuthStatus = "not_connected"
 	}
 
 	if err := s.db.Create(target).Error; err != nil {
@@ -324,7 +343,10 @@ func (s *BackupRemoteService) decryptSecrets(target *models.RemoteStorageTarget)
 }
 
 // uploaderFor builds a remotestorage.Uploader for target, decrypting its
-// secrets first.
+// secrets first. A remoteTargetTokenSaver bound to this specific target is
+// always passed through — s3/sftp/webdav simply ignore it (spec §3.5
+// Commit 3); only dropbox/google_drive invoke SaveToken, when a transparent
+// mid-flight refresh occurs.
 func (s *BackupRemoteService) uploaderFor(target *models.RemoteStorageTarget) (remotestorage.Uploader, error) {
 	secrets, err := s.decryptSecrets(target)
 	if err != nil {
@@ -334,11 +356,53 @@ func (s *BackupRemoteService) uploaderFor(target *models.RemoteStorageTarget) (r
 	if factory == nil {
 		factory = remotestorage.New
 	}
-	uploader, err := factory(target, secrets.toMap())
+	uploader, err := factory(target, secrets.toMap(), &remoteTargetTokenSaver{svc: s, target: target})
 	if err != nil {
 		return nil, fmt.Errorf("construct uploader for target %q: %w", target.Name, err)
 	}
 	return uploader, nil
+}
+
+// remoteTargetTokenSaver implements remotestorage.TokenSaver for a single
+// target, persisting a transparently-refreshed OAuth2 token back into that
+// target's encrypted secrets blob (spec R5/§3.5 Commit 3). Constructed fresh
+// per uploaderFor call — cheap, and avoids holding a stale *target pointer
+// across requests.
+type remoteTargetTokenSaver struct {
+	svc    *BackupRemoteService
+	target *models.RemoteStorageTarget
+}
+
+// SaveToken implements remotestorage.TokenSaver.
+func (t *remoteTargetTokenSaver) SaveToken(_ context.Context, accessToken, refreshToken string, expiresAt time.Time) error {
+	if t.svc.encryption == nil {
+		return ErrEncryptionKeyMissing
+	}
+
+	secrets, err := t.svc.decryptSecrets(t.target)
+	if err != nil {
+		return err
+	}
+	secrets.OAuthAccessToken = accessToken
+	secrets.OAuthRefreshToken = refreshToken
+	secrets.OAuthExpiresAt = expiresAt.UTC().Format(time.RFC3339)
+
+	secretsJSON, err := json.Marshal(secrets)
+	if err != nil {
+		return fmt.Errorf("marshal refreshed oauth secrets: %w", err)
+	}
+	encrypted, err := t.svc.encryption.Encrypt(secretsJSON)
+	if err != nil {
+		return fmt.Errorf("encrypt refreshed oauth secrets: %w", err)
+	}
+
+	if err := t.svc.db.Model(&models.RemoteStorageTarget{}).
+		Where("uuid = ?", t.target.UUID).
+		Update("secrets_encrypted", encrypted).Error; err != nil {
+		return fmt.Errorf("persist refreshed oauth token: %w", err)
+	}
+	t.target.SecretsEncrypted = encrypted
+	return nil
 }
 
 // Test performs the connectivity+auth+write probe for a target (spec
@@ -400,6 +464,34 @@ func validateRemoteTargetConfig(targetType string, config RemoteTargetConfig) er
 		}
 		if err := remotestorage.ValidateHostSSRF(config.Host); err != nil {
 			return fmt.Errorf("sftp host failed SSRF validation: %w", err)
+		}
+	case "webdav":
+		if config.WebDAV == nil || strings.TrimSpace(config.WebDAV.URL) == "" {
+			return fmt.Errorf("webdav url is required")
+		}
+		parsedURL, err := url.Parse(config.WebDAV.URL)
+		if err != nil {
+			return fmt.Errorf("webdav: invalid url: %w", err)
+		}
+		host := parsedURL.Hostname()
+		if host == "" {
+			return fmt.Errorf("webdav: url must include a host")
+		}
+		if err := remotestorage.ValidateHostSSRF(host); err != nil {
+			return fmt.Errorf("webdav url failed SSRF validation: %w", err)
+		}
+	case "dropbox":
+		// No SSRF check — Dropbox's uploader only ever dials fixed vendor
+		// hosts (content.dropboxapi.com/api.dropboxapi.com), never a
+		// user-supplied value (spec §3.8).
+		if config.Dropbox == nil || strings.TrimSpace(config.Dropbox.AppKey) == "" {
+			return fmt.Errorf("dropbox app_key is required")
+		}
+	case "google_drive":
+		// No SSRF check — same rationale as dropbox above (fixed
+		// www.googleapis.com host).
+		if config.GoogleDrive == nil || strings.TrimSpace(config.GoogleDrive.ClientID) == "" {
+			return fmt.Errorf("google_drive client_id is required")
 		}
 	default:
 		return fmt.Errorf("unknown remote storage target type %q", targetType)
@@ -531,4 +623,196 @@ func joinRemotePrefix(prefix, filename string) string {
 		return filename
 	}
 	return prefix + "/" + filename
+}
+
+// --- OAuth2 authorization-code flow (dropbox/google_drive only, Commit 3) ---
+
+// oauthCallbackPath is appended to the configured public URL to build the
+// redirect_uri passed to both the authorize-URL (StartOAuth) and the
+// token-exchange call (CompleteOAuth) — these two MUST be byte-identical,
+// as OAuth2 requires (spec §3.3).
+func oauthCallbackPath(provider string) string {
+	return "/api/v1/backups/remote-targets/oauth/" + provider + "/callback"
+}
+
+// ConfiguredPublicURL exposes utils.GetConfiguredPublicURL(db) to handlers
+// without giving BackupRemoteHandler its own *gorm.DB (spec §2.4) — used by
+// the OAuth callback route to build its redirect target.
+func (s *BackupRemoteService) ConfiguredPublicURL() (string, bool) {
+	return utils.GetConfiguredPublicURL(s.db)
+}
+
+// ConsumeOAuthState is a thin passthrough to the service's in-memory
+// OAuthStateStore (spec R3/§3.5), kept here so the handler never needs
+// direct access to the store itself.
+func (s *BackupRemoteService) ConsumeOAuthState(state string) (targetUUID, provider string, ok bool) {
+	return s.states.Consume(state)
+}
+
+// StartOAuth issues a fresh CSRF state token and builds the provider's
+// authorize URL for target uuidStr (spec §3.3/§3.5). Returns
+// ErrPublicURLNotConfigured (→ 400 public_url_not_configured, R10) when the
+// "app.public_url" Setting has not been configured — there is no safe
+// redirect_uri base to build without it.
+func (s *BackupRemoteService) StartOAuth(uuidStr string) (authorizeURL string, err error) {
+	target, err := s.Get(uuidStr)
+	if err != nil {
+		return "", err
+	}
+	if !oauthProviderTypes[target.Type] {
+		return "", fmt.Errorf("oauth is only supported for dropbox/google_drive targets, got %q", target.Type)
+	}
+
+	baseURL, ok := utils.GetConfiguredPublicURL(s.db)
+	if !ok {
+		return "", ErrPublicURLNotConfigured
+	}
+
+	var config RemoteTargetConfig
+	if unmarshalErr := json.Unmarshal([]byte(target.ConfigJSON), &config); unmarshalErr != nil {
+		return "", fmt.Errorf("parse remote target config: %w", unmarshalErr)
+	}
+
+	state, err := s.states.Issue(target.UUID, target.Type)
+	if err != nil {
+		return "", fmt.Errorf("issue oauth state: %w", err)
+	}
+
+	redirectURL := strings.TrimSuffix(baseURL, "/") + oauthCallbackPath(target.Type)
+
+	switch target.Type {
+	case "dropbox":
+		if config.Dropbox == nil {
+			return "", fmt.Errorf("dropbox config missing")
+		}
+		conf := remotestorage.DropboxOAuthConfig(config.Dropbox.AppKey, "", redirectURL)
+		return conf.AuthCodeURL(state, remotestorage.DropboxAuthCodeOptions()...), nil
+	case "google_drive":
+		if config.GoogleDrive == nil {
+			return "", fmt.Errorf("google_drive config missing")
+		}
+		conf := remotestorage.GoogleDriveOAuthConfig(config.GoogleDrive.ClientID, "", redirectURL)
+		return conf.AuthCodeURL(state, remotestorage.GoogleDriveAuthCodeOptions()...), nil
+	default:
+		return "", fmt.Errorf("unsupported oauth provider %q", target.Type)
+	}
+}
+
+// CompleteOAuth exchanges code for an access+refresh token and persists it
+// (spec R4). baseURL must be the exact same configured public URL value
+// StartOAuth used to build the authorize URL's redirect_uri (the handler
+// passes the same ConfiguredPublicURL() call site for both).
+func (s *BackupRemoteService) CompleteOAuth(ctx context.Context, targetUUID, provider, code, baseURL string) error {
+	target, err := s.Get(targetUUID)
+	if err != nil {
+		return err
+	}
+	if target.Type != provider {
+		return fmt.Errorf("oauth callback provider %q does not match target type %q", provider, target.Type)
+	}
+	if s.encryption == nil {
+		return ErrEncryptionKeyMissing
+	}
+
+	var config RemoteTargetConfig
+	if unmarshalErr := json.Unmarshal([]byte(target.ConfigJSON), &config); unmarshalErr != nil {
+		return fmt.Errorf("parse remote target config: %w", unmarshalErr)
+	}
+	secrets, err := s.decryptSecrets(target)
+	if err != nil {
+		return err
+	}
+
+	redirectURL := strings.TrimSuffix(baseURL, "/") + oauthCallbackPath(provider)
+
+	var tok *oauth2.Token
+	switch provider {
+	case "dropbox":
+		if config.Dropbox == nil {
+			return fmt.Errorf("dropbox config missing")
+		}
+		conf := remotestorage.DropboxOAuthConfig(config.Dropbox.AppKey, secrets.OAuthClientSecret, redirectURL)
+		tok, err = conf.Exchange(ctx, code)
+		if err != nil {
+			return fmt.Errorf("dropbox: exchange oauth code: %w", err)
+		}
+	case "google_drive":
+		if config.GoogleDrive == nil {
+			return fmt.Errorf("google_drive config missing")
+		}
+		conf := remotestorage.GoogleDriveOAuthConfig(config.GoogleDrive.ClientID, secrets.OAuthClientSecret, redirectURL)
+		tok, err = conf.Exchange(ctx, code)
+		if err != nil {
+			return fmt.Errorf("google_drive: exchange oauth code: %w", err)
+		}
+	default:
+		return fmt.Errorf("unsupported oauth provider %q", provider)
+	}
+
+	secrets.OAuthAccessToken = tok.AccessToken
+	secrets.OAuthRefreshToken = tok.RefreshToken
+	secrets.OAuthExpiresAt = tok.Expiry.UTC().Format(time.RFC3339)
+
+	secretsJSON, err := json.Marshal(secrets)
+	if err != nil {
+		return fmt.Errorf("marshal oauth secrets: %w", err)
+	}
+	encrypted, err := s.encryption.Encrypt(secretsJSON)
+	if err != nil {
+		return fmt.Errorf("encrypt oauth secrets: %w", err)
+	}
+
+	now := time.Now().UTC()
+	target.SecretsEncrypted = encrypted
+	target.OAuthStatus = "connected"
+	target.OAuthConnectedAt = &now
+	if err := s.db.Save(target).Error; err != nil {
+		return fmt.Errorf("persist oauth token: %w", err)
+	}
+	return nil
+}
+
+// DisconnectOAuth clears a target's OAuth token fields and resets its
+// oauth_status to "not_connected" (spec §3.3) without deleting the target
+// itself — disconnecting is a deliberate, separate action from deleting,
+// matching the existing "leave blank to keep current" secret-update
+// philosophy.
+func (s *BackupRemoteService) DisconnectOAuth(uuidStr string) (*models.RemoteStorageTarget, error) {
+	target, err := s.Get(uuidStr)
+	if err != nil {
+		return nil, err
+	}
+	if !oauthProviderTypes[target.Type] {
+		return nil, fmt.Errorf("oauth disconnect is only supported for dropbox/google_drive targets, got %q", target.Type)
+	}
+
+	if target.SecretsEncrypted != "" {
+		if s.encryption == nil {
+			return nil, ErrEncryptionKeyMissing
+		}
+		secrets, err := s.decryptSecrets(target)
+		if err != nil {
+			return nil, err
+		}
+		secrets.OAuthAccessToken = ""
+		secrets.OAuthRefreshToken = ""
+		secrets.OAuthExpiresAt = ""
+
+		secretsJSON, err := json.Marshal(secrets)
+		if err != nil {
+			return nil, fmt.Errorf("marshal oauth secrets: %w", err)
+		}
+		encrypted, err := s.encryption.Encrypt(secretsJSON)
+		if err != nil {
+			return nil, fmt.Errorf("encrypt oauth secrets: %w", err)
+		}
+		target.SecretsEncrypted = encrypted
+	}
+
+	target.OAuthStatus = "not_connected"
+	target.OAuthConnectedAt = nil
+	if err := s.db.Save(target).Error; err != nil {
+		return nil, fmt.Errorf("persist oauth disconnect: %w", err)
+	}
+	return target, nil
 }

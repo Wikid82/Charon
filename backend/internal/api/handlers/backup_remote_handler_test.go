@@ -48,6 +48,14 @@ func setupBackupRemoteHandlerTest(t *testing.T, enc *crypto.EncryptionService) (
 	api.DELETE("/:uuid", h.Delete)
 	api.POST("/:uuid/test", h.Test)
 	api.POST("/test-draft", h.TestDraft)
+	api.POST("/:uuid/oauth/start", h.OAuthStart)
+	api.POST("/:uuid/oauth/disconnect", h.OAuthDisconnect)
+	// OAuthCallback is deliberately registered without the admin-role
+	// middleware group above in production (routes.go) — here it shares the
+	// same test router/middleware stack for convenience, since these tests
+	// only exercise handler logic downstream of routing (state validation,
+	// redirect construction), not gin's route-auth wiring itself.
+	router.GET("/api/v1/backups/remote-targets/oauth/:provider/callback", h.OAuthCallback)
 
 	return router, db
 }

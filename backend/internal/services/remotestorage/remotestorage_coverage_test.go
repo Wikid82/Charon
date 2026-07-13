@@ -13,7 +13,7 @@ import (
 // "parse s3 config" error rather than a generic/blank one.
 func TestNew_S3_MalformedConfigJSON_ReturnsParseError(t *testing.T) {
 	target := &models.RemoteStorageTarget{Type: "s3", ConfigJSON: "not valid json"}
-	uploader, err := New(target, nil)
+	uploader, err := New(target, nil, nil)
 	require.Error(t, err)
 	assert.Nil(t, uploader)
 	assert.Contains(t, err.Error(), "parse s3 config")
@@ -23,7 +23,7 @@ func TestNew_S3_MalformedConfigJSON_ReturnsParseError(t *testing.T) {
 // for the sftp branch.
 func TestNew_SFTP_MalformedConfigJSON_ReturnsParseError(t *testing.T) {
 	target := &models.RemoteStorageTarget{Type: "sftp", ConfigJSON: "not valid json"}
-	uploader, err := New(target, nil)
+	uploader, err := New(target, nil, nil)
 	require.Error(t, err)
 	assert.Nil(t, uploader)
 	assert.Contains(t, err.Error(), "parse sftp config")

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
@@ -37,17 +39,19 @@ func toRemoteTargetResponse(target *models.RemoteStorageTarget) gin.H {
 	}
 
 	return gin.H{
-		"uuid":             target.UUID,
-		"name":             target.Name,
-		"type":             target.Type,
-		"enabled":          target.Enabled,
-		"config":           config,
-		"secrets_set":      target.SecretsEncrypted != "",
-		"last_test_at":     target.LastTestAt,
-		"last_test_status": target.LastTestStatus,
-		"last_error":       target.LastError,
-		"created_at":       target.CreatedAt,
-		"updated_at":       target.UpdatedAt,
+		"uuid":               target.UUID,
+		"name":               target.Name,
+		"type":               target.Type,
+		"enabled":            target.Enabled,
+		"config":             config,
+		"secrets_set":        target.SecretsEncrypted != "",
+		"last_test_at":       target.LastTestAt,
+		"last_test_status":   target.LastTestStatus,
+		"last_error":         target.LastError,
+		"oauth_status":       target.OAuthStatus,
+		"oauth_connected_at": target.OAuthConnectedAt,
+		"created_at":         target.CreatedAt,
+		"updated_at":         target.UpdatedAt,
 	}
 }
 
@@ -230,6 +234,12 @@ func (h *BackupRemoteHandler) respondRemoteTargetError(c *gin.Context, err error
 	switch {
 	case errors.Is(err, services.ErrEncryptionKeyMissing):
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error(), "error_code": "encryption_key_missing"})
+	case errors.Is(err, services.ErrPublicURLNotConfigured):
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "error_code": "public_url_not_configured"})
+	case errors.Is(err, remotestorage.ErrOAuthNotConnected):
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "error_code": "oauth_not_connected"})
+	case errors.Is(err, remotestorage.ErrOAuthRevoked):
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "error_code": "oauth_revoked"})
 	default:
 		code := http.StatusBadRequest
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -237,4 +247,106 @@ func (h *BackupRemoteHandler) respondRemoteTargetError(c *gin.Context, err error
 		}
 		c.JSON(code, gin.H{"error": err.Error()})
 	}
+}
+
+// OAuthStart handles POST /api/v1/backups/remote-targets/:uuid/oauth/start
+// (admin). Issues a fresh CSRF state token and returns the provider's
+// authorize URL (spec §3.3/R3).
+func (h *BackupRemoteHandler) OAuthStart(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
+	authorizeURL, err := h.service.StartOAuth(c.Param("uuid"))
+	if err != nil {
+		h.respondRemoteTargetError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"authorize_url": authorizeURL})
+}
+
+// OAuthCallback handles
+// GET /api/v1/backups/remote-targets/oauth/:provider/callback.
+//
+// SECURITY: this route is deliberately registered OUTSIDE
+// RequireManagementAccess (see routes.go) — the browser arrives here
+// directly from Dropbox/Google with no Charon session at all, so a
+// session/JWT check here cannot succeed and is not the actual control. Its
+// entire security rests on the single-use, time-bound `state` CSRF token
+// issued by OAuthStart and consumed below (spec §3.8, R3) — never add an
+// auth check to this handler; it is unreachable in the flow this route
+// exists to serve.
+func (h *BackupRemoteHandler) OAuthCallback(c *gin.Context) {
+	provider := c.Param("provider")
+	state := c.Query("state")
+	code := c.Query("code")
+	providerErr := c.Query("error")
+
+	// provider is a path segment supplied by whatever redirected the
+	// browser here — never trust it as-is. Pin it to the fixed, known
+	// provider set before it's used anywhere else in this handler
+	// (including the redirect URLs built below): an unrecognized value is
+	// rejected outright, the same way an invalid `state` is.
+	if provider != "dropbox" && provider != "google_drive" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported oauth provider", "error_code": "invalid_oauth_state"})
+		return
+	}
+
+	targetUUID, stateProvider, ok := h.service.ConsumeOAuthState(state)
+	if !ok || stateProvider != provider {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid or expired authorization state", "error_code": "invalid_oauth_state"})
+		return
+	}
+
+	baseURL, hasURL := h.service.ConfiguredPublicURL()
+	if !hasURL {
+		// Extremely unlikely (oauth/start already required this to exist),
+		// but if the setting was cleared mid-flow there is no safe base to
+		// redirect to.
+		c.JSON(http.StatusBadRequest, gin.H{"error": "app.public_url is not configured", "error_code": "public_url_not_configured"})
+		return
+	}
+	redirectBase := strings.TrimSuffix(baseURL, "/") + "/backups"
+
+	if providerErr != "" {
+		// User clicked "Deny" at the provider's consent screen — never a
+		// partial-token state, target remains not_connected (spec §3.9).
+		// nosemgrep: go.gin.ssrf.gin-tainted-url-host.gin-tainted-url-host -- redirectBase's host comes entirely from utils.GetConfiguredPublicURL (an admin-configured Setting row, never request-derived); provider is already pinned to the "dropbox"/"google_drive" allowlist above and is url.QueryEscape'd into the query string only, never the host, so no attacker input can redirect the browser off-origin.
+		c.Redirect(http.StatusFound, redirectBase+"?oauth_result=error&provider="+url.QueryEscape(provider)+"&message=authorization_denied")
+		return
+	}
+
+	if err := h.service.CompleteOAuth(c.Request.Context(), targetUUID, provider, code, baseURL); err != nil {
+		// Never echo the raw provider error body into the redirect URL
+		// (spec §3.8) — only a short, non-sensitive message code. The real
+		// error is logged server-side for diagnosis.
+		middleware.GetRequestLogger(c).WithField("action", "oauth_callback_failed").
+			WithField("provider", util.SanitizeForLog(provider)).WithField("error", util.SanitizeForLog(err.Error())).
+			Warn("OAuth callback token exchange failed")
+		// nosemgrep: go.gin.ssrf.gin-tainted-url-host.gin-tainted-url-host -- see justification above; same allowlisted provider, same admin-configured redirectBase host.
+		c.Redirect(http.StatusFound, redirectBase+"?oauth_result=error&provider="+url.QueryEscape(provider)+"&message=token_exchange_failed")
+		return
+	}
+
+	// nosemgrep: go.gin.ssrf.gin-tainted-url-host.gin-tainted-url-host -- see justification above; targetUUID is server-generated (uuid.New(), BeforeCreate) not request-supplied, and provider is allowlisted; redirectBase's host is never attacker-influenced.
+	c.Redirect(http.StatusFound, redirectBase+"?oauth_result=success&provider="+url.QueryEscape(provider)+"&target="+url.QueryEscape(targetUUID))
+}
+
+// OAuthDisconnect handles
+// POST /api/v1/backups/remote-targets/:uuid/oauth/disconnect (admin).
+func (h *BackupRemoteHandler) OAuthDisconnect(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
+	target, err := h.service.DisconnectOAuth(c.Param("uuid"))
+	if err != nil {
+		h.respondRemoteTargetError(c, err)
+		return
+	}
+
+	middleware.GetRequestLogger(c).WithField("action", "disconnect_remote_target_oauth").
+		WithField("target", util.SanitizeForLog(target.Name)).Info("Remote storage target OAuth disconnected")
+	c.JSON(http.StatusOK, toRemoteTargetResponse(target))
 }

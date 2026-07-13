@@ -83,7 +83,7 @@ func TestBackupRemoteService_UploadFailure_DoesNotFailBackup(t *testing.T) {
 	svc := NewBackupRemoteService(db, nil, t.TempDir())
 
 	fake := &fakeUploader{uploadErr: assertAnError}
-	svc.uploaderFactory = func(*models.RemoteStorageTarget, map[string]string) (remotestorage.Uploader, error) {
+	svc.uploaderFactory = func(*models.RemoteStorageTarget, map[string]string, remotestorage.TokenSaver) (remotestorage.Uploader, error) {
 		return fake, nil
 	}
 
@@ -116,7 +116,7 @@ func TestBackupRemoteService_UploadSuccess_RecordsUploadedCopy(t *testing.T) {
 	svc := NewBackupRemoteService(db, nil, t.TempDir())
 
 	fake := &fakeUploader{}
-	svc.uploaderFactory = func(*models.RemoteStorageTarget, map[string]string) (remotestorage.Uploader, error) {
+	svc.uploaderFactory = func(*models.RemoteStorageTarget, map[string]string, remotestorage.TokenSaver) (remotestorage.Uploader, error) {
 		return fake, nil
 	}
 
@@ -142,7 +142,7 @@ func TestBackupRemoteService_DisabledTarget_NeverUploaded(t *testing.T) {
 	svc := NewBackupRemoteService(db, nil, t.TempDir())
 
 	fake := &fakeUploader{}
-	svc.uploaderFactory = func(*models.RemoteStorageTarget, map[string]string) (remotestorage.Uploader, error) {
+	svc.uploaderFactory = func(*models.RemoteStorageTarget, map[string]string, remotestorage.TokenSaver) (remotestorage.Uploader, error) {
 		return fake, nil
 	}
 
@@ -231,7 +231,7 @@ func TestBackupRemoteService_TestConnection_RecordsOutcome(t *testing.T) {
 	svc := NewBackupRemoteService(db, nil, t.TempDir())
 
 	fake := &fakeUploader{}
-	svc.uploaderFactory = func(*models.RemoteStorageTarget, map[string]string) (remotestorage.Uploader, error) {
+	svc.uploaderFactory = func(*models.RemoteStorageTarget, map[string]string, remotestorage.TokenSaver) (remotestorage.Uploader, error) {
 		return fake, nil
 	}
 

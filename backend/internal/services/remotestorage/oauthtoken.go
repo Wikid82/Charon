@@ -22,6 +22,35 @@ type TokenSaver interface {
 	SaveToken(ctx context.Context, accessToken, refreshToken string, expiresAt time.Time) error
 }
 
+// RemoteTargetSecrets is the subset of a target's decrypted secrets needed
+// by the OAuth-based providers (dropbox.go/googledrive.go, Commit 3). It
+// mirrors (but is intentionally a separate, package-local type from)
+// services.RemoteTargetSecrets — remotestorage.New's "dropbox"/"google_drive"
+// cases adapt the plain map[string]string secrets bag BackupRemoteService
+// already decrypts into this shape via secretsFromMap (remotestorage.go).
+type RemoteTargetSecrets struct {
+	OAuthClientSecret string
+	OAuthAccessToken  string
+	OAuthRefreshToken string
+	OAuthExpiresAt    string // RFC3339; empty means the OAuth flow hasn't completed yet.
+}
+
+// parseOAuthExpiry parses raw (expected RFC3339, RemoteTargetSecrets.OAuthExpiresAt's
+// format) into a time.Time. An empty or unparsable value returns the zero
+// time, which oauth2.Token treats as "already expired" — the safe default,
+// forcing an immediate refresh attempt rather than silently reusing a token
+// whose real expiry is unknown.
+func parseOAuthExpiry(raw string) time.Time {
+	if raw == "" {
+		return time.Time{}
+	}
+	parsed, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return time.Time{}
+	}
+	return parsed
+}
+
 // ErrOAuthNotConnected is returned when a dropbox/google_drive uploader is
 // constructed for a target that has not yet completed its OAuth
 // authorization flow (spec §3.5/§3.9, Commit 3).

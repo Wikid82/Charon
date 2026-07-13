@@ -38,7 +38,7 @@ func TestRemoteObject_JSONTags(t *testing.T) {
 // required") surfaces rather than a generic "not yet implemented" stub.
 func TestNew_S3_MissingConfig_ReturnsDescriptiveError(t *testing.T) {
 	target := &models.RemoteStorageTarget{Type: "s3"}
-	uploader, err := New(target, map[string]string{"access_key_id": "x", "secret_access_key": "y"})
+	uploader, err := New(target, map[string]string{"access_key_id": "x", "secret_access_key": "y"}, nil)
 	require.Error(t, err)
 	assert.Nil(t, uploader)
 	assert.Contains(t, err.Error(), "s3")
@@ -48,7 +48,7 @@ func TestNew_S3_MissingConfig_ReturnsDescriptiveError(t *testing.T) {
 // TestNew_S3_MissingConfig_ReturnsDescriptiveError for the sftp backend.
 func TestNew_SFTP_MissingConfig_ReturnsDescriptiveError(t *testing.T) {
 	target := &models.RemoteStorageTarget{Type: "sftp"}
-	uploader, err := New(target, map[string]string{"password": "x"})
+	uploader, err := New(target, map[string]string{"password": "x"}, nil)
 	require.Error(t, err)
 	assert.Nil(t, uploader)
 	assert.Contains(t, err.Error(), "sftp")
@@ -68,7 +68,7 @@ func TestNew_S3_ValidConfig_ConstructsUploader(t *testing.T) {
 	require.NoError(t, err)
 
 	target := &models.RemoteStorageTarget{Type: "s3", ConfigJSON: string(raw)}
-	uploader, err := New(target, map[string]string{"access_key_id": "x", "secret_access_key": "y"})
+	uploader, err := New(target, map[string]string{"access_key_id": "x", "secret_access_key": "y"}, nil)
 	require.NoError(t, err)
 	assert.NotNil(t, uploader)
 }
@@ -82,7 +82,7 @@ func TestNew_SFTP_ValidConfig_ConstructsUploader(t *testing.T) {
 	require.NoError(t, err)
 
 	target := &models.RemoteStorageTarget{Type: "sftp", ConfigJSON: string(raw)}
-	uploader, err := New(target, map[string]string{"password": "x"})
+	uploader, err := New(target, map[string]string{"password": "x"}, nil)
 	require.NoError(t, err)
 	assert.NotNil(t, uploader)
 }
@@ -97,7 +97,7 @@ func TestNew_SFTP_MissingHostKeyFingerprint_ReturnsError(t *testing.T) {
 	require.NoError(t, err)
 
 	target := &models.RemoteStorageTarget{Type: "sftp", ConfigJSON: string(raw)}
-	uploader, err := New(target, map[string]string{"password": "x"})
+	uploader, err := New(target, map[string]string{"password": "x"}, nil)
 	require.Error(t, err)
 	assert.Nil(t, uploader)
 	assert.Contains(t, err.Error(), "fingerprint")
@@ -105,14 +105,14 @@ func TestNew_SFTP_MissingHostKeyFingerprint_ReturnsError(t *testing.T) {
 
 func TestNew_UnknownType_ReturnsError(t *testing.T) {
 	target := &models.RemoteStorageTarget{Type: "ftp"}
-	uploader, err := New(target, nil)
+	uploader, err := New(target, nil, nil)
 	require.Error(t, err)
 	assert.Nil(t, uploader)
 	assert.Contains(t, err.Error(), "ftp")
 }
 
 func TestNew_NilTarget_ReturnsError(t *testing.T) {
-	uploader, err := New(nil, nil)
+	uploader, err := New(nil, nil, nil)
 	require.Error(t, err)
 	assert.Nil(t, uploader)
 }
@@ -124,4 +124,89 @@ func TestNew_NilTarget_ReturnsError(t *testing.T) {
 func TestUploaderInterface_Exists(t *testing.T) {
 	var uploader Uploader
 	assert.Nil(t, uploader)
+}
+
+// --- New() dispatch: webdav/dropbox/google_drive (spec §3.5 Commit 3) ---
+
+func TestNew_WebDAV_MissingConfig_ReturnsDescriptiveError(t *testing.T) {
+	target := &models.RemoteStorageTarget{Type: "webdav"}
+	uploader, err := New(target, nil, nil)
+	require.Error(t, err)
+	assert.Nil(t, uploader)
+	assert.Contains(t, err.Error(), "webdav")
+}
+
+func TestNew_WebDAV_ValidConfig_ConstructsUploader(t *testing.T) {
+	cfg := remoteTargetConfigOuter{WebDAV: &WebDAVConfig{URL: "https://203.0.113.20/dav/"}}
+	raw, err := json.Marshal(cfg)
+	require.NoError(t, err)
+
+	target := &models.RemoteStorageTarget{Type: "webdav", ConfigJSON: string(raw)}
+	uploader, err := New(target, map[string]string{"password": "x"}, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, uploader)
+}
+
+func TestNew_Dropbox_MissingConfig_ReturnsDescriptiveError(t *testing.T) {
+	target := &models.RemoteStorageTarget{Type: "dropbox"}
+	uploader, err := New(target, nil, nil)
+	require.Error(t, err)
+	assert.Nil(t, uploader)
+	assert.Contains(t, err.Error(), "dropbox")
+}
+
+func TestNew_Dropbox_ValidConfig_NotConnected_ReturnsErrOAuthNotConnected(t *testing.T) {
+	cfg := remoteTargetConfigOuter{Dropbox: &DropboxConfig{AppKey: "app-key"}}
+	raw, err := json.Marshal(cfg)
+	require.NoError(t, err)
+
+	target := &models.RemoteStorageTarget{Type: "dropbox", ConfigJSON: string(raw)}
+	uploader, err := New(target, map[string]string{}, nil)
+	require.ErrorIs(t, err, ErrOAuthNotConnected)
+	assert.Nil(t, uploader)
+}
+
+func TestNew_Dropbox_ValidConfig_ConnectedSecrets_ConstructsUploader(t *testing.T) {
+	cfg := remoteTargetConfigOuter{Dropbox: &DropboxConfig{AppKey: "app-key"}}
+	raw, err := json.Marshal(cfg)
+	require.NoError(t, err)
+
+	target := &models.RemoteStorageTarget{Type: "dropbox", ConfigJSON: string(raw)}
+	uploader, err := New(target, map[string]string{"oauth_access_token": "tok"}, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, uploader)
+}
+
+func TestNew_GoogleDrive_MissingConfig_ReturnsDescriptiveError(t *testing.T) {
+	target := &models.RemoteStorageTarget{Type: "google_drive"}
+	uploader, err := New(target, nil, nil)
+	require.Error(t, err)
+	assert.Nil(t, uploader)
+	assert.Contains(t, err.Error(), "google_drive")
+}
+
+func TestNew_GoogleDrive_ValidConfig_ConnectedSecrets_ConstructsUploader(t *testing.T) {
+	cfg := remoteTargetConfigOuter{GoogleDrive: &GoogleDriveConfig{ClientID: "client-id"}}
+	raw, err := json.Marshal(cfg)
+	require.NoError(t, err)
+
+	target := &models.RemoteStorageTarget{Type: "google_drive", ConfigJSON: string(raw)}
+	uploader, err := New(target, map[string]string{"oauth_access_token": "tok"}, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, uploader)
+}
+
+func TestSecretsFromMap_MapsOAuthFields(t *testing.T) {
+	secrets := secretsFromMap(map[string]string{
+		"oauth_client_secret": "cs",
+		"oauth_access_token":  "at",
+		"oauth_refresh_token": "rt",
+		"oauth_expires_at":    "2026-01-01T00:00:00Z",
+	})
+	assert.Equal(t, RemoteTargetSecrets{
+		OAuthClientSecret: "cs",
+		OAuthAccessToken:  "at",
+		OAuthRefreshToken: "rt",
+		OAuthExpiresAt:    "2026-01-01T00:00:00Z",
+	}, secrets)
 }

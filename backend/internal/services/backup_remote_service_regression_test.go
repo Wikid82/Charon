@@ -160,7 +160,7 @@ func TestPruneRemoteRetention_RealS3List_StillDeletesCandidatesAfterNameFieldAdd
 	require.NoError(t, err)
 
 	target := &models.RemoteStorageTarget{Type: "s3", ConfigJSON: string(cfgJSON)}
-	uploader, err := remotestorage.New(target, map[string]string{"access_key_id": "x", "secret_access_key": "y"})
+	uploader, err := remotestorage.New(target, map[string]string{"access_key_id": "x", "secret_access_key": "y"}, nil)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -294,7 +294,7 @@ func TestPruneRemoteRetention_RealSFTPList_StillDeletesCandidatesAfterNameFieldA
 	require.NoError(t, err)
 
 	target := &models.RemoteStorageTarget{Type: "sftp", ConfigJSON: string(cfgJSON)}
-	uploader, err := remotestorage.New(target, map[string]string{"password": regressionSFTPPassword})
+	uploader, err := remotestorage.New(target, map[string]string{"password": regressionSFTPPassword}, nil)
 	require.NoError(t, err)
 
 	ctx := context.Background()

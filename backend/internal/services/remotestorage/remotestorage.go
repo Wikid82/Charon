@@ -49,10 +49,26 @@ type RemoteObject struct {
 	LastModified time.Time `json:"last_modified"`
 }
 
-// New constructs the Uploader implementation for target.Type ("s3" or
-// "sftp"), parsing target.ConfigJSON into the type-specific config struct
-// and combining it with the already-decrypted secrets map (spec §3.7).
-func New(target *models.RemoteStorageTarget, secrets map[string]string) (Uploader, error) {
+// remoteTargetConfigOuter is the subset of the API-facing
+// services.RemoteTargetConfig this package needs to unmarshal in order to
+// reach the webdav/dropbox/google_drive nested sub-config out of
+// target.ConfigJSON (spec §3.2/§3.5). It intentionally mirrors only the
+// three new nested fields — the s3/sftp cases below keep parsing their own
+// flat config structs directly, unchanged.
+type remoteTargetConfigOuter struct {
+	WebDAV      *WebDAVConfig      `json:"webdav,omitempty"`
+	Dropbox     *DropboxConfig     `json:"dropbox,omitempty"`
+	GoogleDrive *GoogleDriveConfig `json:"google_drive,omitempty"`
+}
+
+// New constructs the Uploader implementation for target.Type ("s3", "sftp",
+// "webdav", "dropbox", or "google_drive"), parsing target.ConfigJSON into
+// the type-specific config struct and combining it with the
+// already-decrypted secrets map (spec §3.7, §3.5 Commit 3). tokenSaver is
+// used only by the two OAuth providers (dropbox/google_drive) to persist a
+// transparently-refreshed token back to encrypted storage; s3/sftp/webdav
+// ignore it entirely — passing nil from tests/those callers is fine.
+func New(target *models.RemoteStorageTarget, secrets map[string]string, tokenSaver TokenSaver) (Uploader, error) {
 	if target == nil {
 		return nil, fmt.Errorf("remotestorage: target is required")
 	}
@@ -81,7 +97,56 @@ func New(target *models.RemoteStorageTarget, secrets map[string]string) (Uploade
 			PrivateKeyPEM: secrets["private_key_pem"],
 			Passphrase:    secrets["passphrase"],
 		})
+	case "webdav":
+		var outer remoteTargetConfigOuter
+		if target.ConfigJSON != "" {
+			if err := json.Unmarshal([]byte(target.ConfigJSON), &outer); err != nil {
+				return nil, fmt.Errorf("remotestorage: parse webdav config: %w", err)
+			}
+		}
+		if outer.WebDAV == nil {
+			return nil, fmt.Errorf("remotestorage: webdav config is required")
+		}
+		return newWebDAVUploader(*outer.WebDAV, WebDAVSecrets{
+			Password:    secrets["password"],
+			BearerToken: secrets["bearer_token"],
+		})
+	case "dropbox":
+		var outer remoteTargetConfigOuter
+		if target.ConfigJSON != "" {
+			if err := json.Unmarshal([]byte(target.ConfigJSON), &outer); err != nil {
+				return nil, fmt.Errorf("remotestorage: parse dropbox config: %w", err)
+			}
+		}
+		if outer.Dropbox == nil {
+			return nil, fmt.Errorf("remotestorage: dropbox config is required")
+		}
+		return newDropboxUploader(*outer.Dropbox, secretsFromMap(secrets), tokenSaver)
+	case "google_drive":
+		var outer remoteTargetConfigOuter
+		if target.ConfigJSON != "" {
+			if err := json.Unmarshal([]byte(target.ConfigJSON), &outer); err != nil {
+				return nil, fmt.Errorf("remotestorage: parse google_drive config: %w", err)
+			}
+		}
+		if outer.GoogleDrive == nil {
+			return nil, fmt.Errorf("remotestorage: google_drive config is required")
+		}
+		return newGoogleDriveUploader(*outer.GoogleDrive, secretsFromMap(secrets), tokenSaver)
 	default:
 		return nil, fmt.Errorf("remotestorage: unknown remote storage target type %q", target.Type)
+	}
+}
+
+// secretsFromMap adapts the plain map[string]string secrets bag (the shape
+// BackupRemoteService.uploaderFor already decrypts into) into a
+// RemoteTargetSecrets struct for the OAuth providers, which need more than
+// one or two named fields (spec §3.5 Commit 3).
+func secretsFromMap(secrets map[string]string) RemoteTargetSecrets {
+	return RemoteTargetSecrets{
+		OAuthClientSecret: secrets["oauth_client_secret"],
+		OAuthAccessToken:  secrets["oauth_access_token"],
+		OAuthRefreshToken: secrets["oauth_refresh_token"],
+		OAuthExpiresAt:    secrets["oauth_expires_at"],
 	}
 }
