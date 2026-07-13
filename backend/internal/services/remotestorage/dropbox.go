@@ -26,21 +26,23 @@ type DropboxConfig struct {
 
 const (
 	dropboxAuthURL         = "https://www.dropbox.com/oauth2/authorize"
-	dropboxTokenURL        = "https://api.dropboxapi.com/oauth2/token" // #nosec G101 -- public OAuth2 token endpoint URL, not a credential
-	dropboxChunkSize       = 8 * 1024 * 1024                           // 8 MiB (spec §2.5/R11)
-	dropboxMaxSingleUpload = 150 * 1024 * 1024                         // Dropbox's /2/files/upload hard cap (spec §2.5)
+	dropboxChunkSize       = 8 * 1024 * 1024   // 8 MiB (spec §2.5/R11)
+	dropboxMaxSingleUpload = 150 * 1024 * 1024 // Dropbox's /2/files/upload hard cap (spec §2.5)
 	dropboxHTTPTimeout     = 60 * time.Second
 )
 
-// dropboxContentHost / dropboxAPIHost are indirected through package-level
-// vars (rather than consts) purely so white-box tests in this package can
-// point Upload/Delete/List/Test at a local httptest.Server instead of the
-// real Dropbox API — mirrors the ssrfValidateHost test-substitution seam in
-// ssrf.go. Production code never reassigns these; tests restore the
-// original via t.Cleanup.
+// dropboxContentHost / dropboxAPIHost / dropboxTokenURL are indirected
+// through package-level vars (rather than consts) purely so white-box tests
+// in this package (and, for dropboxTokenURL, the oauth handler tests in
+// internal/api/handlers) can point Upload/Delete/List/Test/the OAuth
+// token exchange at a local httptest.Server instead of the real Dropbox
+// API — mirrors the ssrfValidateHost test-substitution seam in ssrf.go.
+// Production code never reassigns these; tests restore the original via
+// t.Cleanup.
 var (
 	dropboxContentHost = "https://content.dropboxapi.com"
 	dropboxAPIHost     = "https://api.dropboxapi.com"
+	dropboxTokenURL    = "https://api.dropboxapi.com/oauth2/token" // #nosec G101 -- public OAuth2 token endpoint URL, not a credential
 )
 
 // DropboxOAuthConfig returns the oauth2.Config for the Dropbox authorization
@@ -68,6 +70,22 @@ func DropboxOAuthConfig(appKey, appSecret, redirectURL string) oauth2.Config {
 // token).
 func DropboxAuthCodeOptions() []oauth2.AuthCodeOption {
 	return []oauth2.AuthCodeOption{oauth2.SetAuthURLParam("token_access_type", "offline")}
+}
+
+// SetDropboxTokenURLForTesting temporarily points the Dropbox OAuth2 token
+// endpoint (as returned by DropboxOAuthConfig) at an arbitrary URL, returning
+// a restore func that undoes it. It exists solely so tests in OTHER packages
+// — e.g. the oauth callback handler tests in internal/api/handlers, which
+// exercise CompleteOAuth's real oauth2.Config.Exchange call — can redirect
+// the token exchange at a local httptest.Server instead of Dropbox's real
+// API. Mirrors WithPermissiveSSRFForTesting's cross-package test-seam
+// pattern in ssrf.go. Production code never calls this.
+func SetDropboxTokenURLForTesting(url string) (restore func()) {
+	orig := dropboxTokenURL
+	dropboxTokenURL = url
+	return func() {
+		dropboxTokenURL = orig
+	}
 }
 
 // dropboxUploader implements Uploader against the Dropbox v2 HTTP API

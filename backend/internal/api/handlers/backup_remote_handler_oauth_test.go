@@ -2,14 +2,12 @@ package handlers
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,6 +15,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services/remotestorage"
 )
 
 func newOAuthHandlerTestEncryption(t *testing.T) *crypto.EncryptionService {
@@ -181,16 +180,25 @@ func TestOAuthCallback_State_IsSingleUse(t *testing.T) {
 // is a Commit 5 hardening-pass test (spec §3.8 "error-path information
 // leakage", §3.9 "token exchange failed"). A valid, unexpired, single-use
 // `state` reaches CompleteOAuth, but the authorization code is bogus, so the
-// real token exchange against Dropbox's real endpoint fails (there is no
-// injectable fake endpoint without changing production wiring — the
-// interesting thing to verify here is what the *redirect* exposes, not the
-// exchange transport). Whatever the underlying failure looks like — Dropbox
-// rejecting the bogus code/secret with a real error body, or a network
-// failure — the callback handler MUST reduce it to the fixed
-// "token_exchange_failed" sentinel and never let any fragment of the real
-// error (provider response body, the submitted code, wrapped Go error
-// prefixes) leak into the URL the browser is redirected to.
+// token exchange fails. The token exchange is redirected at a local
+// httptest.Server (via remotestorage.SetDropboxTokenURLForTesting) that
+// returns a synthetic RFC 6749 §5.2 error response — no live network call
+// to Dropbox's real API. Whatever the underlying failure looks like — the
+// fake server rejecting the bogus code with an error body — the callback
+// handler MUST reduce it to the fixed "token_exchange_failed" sentinel and
+// never let any fragment of the real error (provider response body, the
+// submitted code, wrapped Go error prefixes) leak into the URL the browser
+// is redirected to.
 func TestOAuthCallback_TokenExchangeFailure_RedirectsWithSentinelMessage_NoRawErrorLeak(t *testing.T) {
+	fakeDropboxOAuth := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"authorization code is invalid or expired"}`))
+	}))
+	defer fakeDropboxOAuth.Close()
+	restoreTokenURL := remotestorage.SetDropboxTokenURLForTesting(fakeDropboxOAuth.URL)
+	defer restoreTokenURL()
+
 	router, db := setupBackupRemoteHandlerTest(t, newOAuthHandlerTestEncryption(t))
 	setPublicURL(t, db)
 
@@ -210,15 +218,11 @@ func TestOAuthCallback_TokenExchangeFailure_RedirectsWithSentinelMessage_NoRawEr
 	state := parsed.Query().Get("state")
 	require.NotEmpty(t, state)
 
-	// Bound the real outbound token-exchange call so this test can't hang
-	// in a network-restricted CI runner.
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 	req := httptest.NewRequest(
 		http.MethodGet,
 		"/api/v1/backups/remote-targets/oauth/dropbox/callback?state="+url.QueryEscape(state)+"&code=bogus-authorization-code-value",
 		nil,
-	).WithContext(ctx)
+	)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 

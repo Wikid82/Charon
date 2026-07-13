@@ -62,6 +62,62 @@ func TestValidateRemoteTargetConfig_SFTP_SSRFRejected(t *testing.T) {
 	assert.Contains(t, err.Error(), "SSRF validation")
 }
 
+func TestValidateRemoteTargetConfig_WebDAV_MissingURL(t *testing.T) {
+	err := validateRemoteTargetConfig("webdav", RemoteTargetConfig{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "webdav url is required")
+}
+
+func TestValidateRemoteTargetConfig_WebDAV_InvalidURL(t *testing.T) {
+	// A control character makes url.Parse itself fail (as opposed to just
+	// producing an empty host), exercising the "invalid url" branch
+	// distinctly from the "must include a host" branch below.
+	err := validateRemoteTargetConfig("webdav", RemoteTargetConfig{
+		WebDAV: &WebDAVConfig{URL: "http://ex ample.com/\x7f"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "webdav: invalid url")
+}
+
+func TestValidateRemoteTargetConfig_WebDAV_MissingHost(t *testing.T) {
+	err := validateRemoteTargetConfig("webdav", RemoteTargetConfig{
+		WebDAV: &WebDAVConfig{URL: "/no-host-here"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "webdav: url must include a host")
+}
+
+func TestValidateRemoteTargetConfig_WebDAV_SSRFRejected(t *testing.T) {
+	// Save-time SSRF rejection inside validateRemoteTargetConfig itself,
+	// distinct from the dial-time rejection already covered inside
+	// newWebDAVUploader — a loopback URL must never be persisted.
+	err := validateRemoteTargetConfig("webdav", RemoteTargetConfig{
+		WebDAV: &WebDAVConfig{URL: "http://169.254.169.254/remote.php/webdav/"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "SSRF validation")
+}
+
+func TestValidateRemoteTargetConfig_WebDAV_Valid(t *testing.T) {
+	// 203.0.113.0/24 is RFC 5737 TEST-NET-3, safe/deterministic for SSRF checks.
+	err := validateRemoteTargetConfig("webdav", RemoteTargetConfig{
+		WebDAV: &WebDAVConfig{URL: "https://203.0.113.10/remote.php/webdav/"},
+	})
+	require.NoError(t, err)
+}
+
+func TestValidateRemoteTargetConfig_Dropbox_MissingAppKey(t *testing.T) {
+	err := validateRemoteTargetConfig("dropbox", RemoteTargetConfig{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "dropbox app_key is required")
+}
+
+func TestValidateRemoteTargetConfig_GoogleDrive_MissingClientID(t *testing.T) {
+	err := validateRemoteTargetConfig("google_drive", RemoteTargetConfig{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "google_drive client_id is required")
+}
+
 func TestValidateRemoteTargetConfig_UnknownType(t *testing.T) {
 	err := validateRemoteTargetConfig("ftp", RemoteTargetConfig{})
 	require.Error(t, err)
