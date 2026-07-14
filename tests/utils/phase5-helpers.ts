@@ -373,8 +373,17 @@ export async function mockOAuthProviderRoundTrip(page: Page, options: MockOAuthR
 
   // Hop 2: Charon's own callback route, which (once implemented) validates
   // `state`, exchanges `code` for tokens, and 302s back into the app (spec §3.3).
+  // Mocked the same way as Hop 1 (200 + JS navigation, not a real 3xx fulfill):
+  // WebKit's route implementation throws "Cannot fulfill with redirect status"
+  // for any fulfill() in the 300-399 range (Chromium/Firefox allow it), so a
+  // real redirect status here would pass locally (--project=firefox) but fail
+  // deterministically in CI's WebKit shard.
   await page.route(`**/api/v1/backups/remote-targets/oauth/${provider}/callback**`, async (route) => {
-    await route.fulfill({ status: 302, headers: { location: finalRedirectUrl } });
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: `<script>window.location.href = ${JSON.stringify(finalRedirectUrl)};</script>`,
+    });
   });
 }
 
