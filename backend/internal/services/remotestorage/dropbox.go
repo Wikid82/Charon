@@ -193,19 +193,26 @@ func (u *dropboxUploader) uploadSingle(ctx context.Context, r io.Reader, remoteP
 // chunk. Called only when the local file exceeds dropboxMaxSingleUpload, so
 // the first chunk read is always non-final.
 func (u *dropboxUploader) uploadChunked(ctx context.Context, f *os.File, size int64, remotePath string) error {
-	buf := make([]byte, dropboxChunkSize)
-
-	n, err := io.ReadFull(f, buf)
+	// A fresh buffer is allocated per chunk rather than reusing one buffer
+	// across iterations: an HTTP request's body reader keeps referencing its
+	// backing array until the transport's write goroutine finishes with it,
+	// which can outlive u.client.Do() returning (e.g. a server that responds
+	// with an error before fully draining the request body) — reusing the
+	// same array for the next chunk's read would then race with that
+	// in-flight write.
+	first := make([]byte, dropboxChunkSize)
+	n, err := io.ReadFull(f, first)
 	if err != nil {
 		return fmt.Errorf("dropbox: read first chunk: %w", err)
 	}
-	sessionID, err := u.uploadSessionStart(ctx, buf[:n])
+	sessionID, err := u.uploadSessionStart(ctx, first[:n])
 	if err != nil {
 		return err
 	}
 	offset := int64(n)
 
 	for offset < size {
+		buf := make([]byte, dropboxChunkSize)
 		n, err = io.ReadFull(f, buf)
 		if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
 			return fmt.Errorf("dropbox: read chunk at offset %d: %w", offset, err)

@@ -401,3 +401,311 @@ func TestGoogleDriveAuthCodeOptions_RequestsOfflineAccessAndConsent(t *testing.T
 	opts := GoogleDriveAuthCodeOptions()
 	assert.Len(t, opts, 2)
 }
+
+// TestGoogleDriveUploader_ResolveFolderChain_SkipsEmptySegment covers a
+// double-slash FolderPath (e.g. mistyped config) producing an empty
+// "/"-split segment, which resolveFolderChain must skip rather than trying
+// to resolve/create a folder literally named "".
+func TestGoogleDriveUploader_ResolveFolderChain_SkipsEmptySegment(t *testing.T) {
+	backend := newDriveFakeBackend()
+	withGoogleDriveTestServer(t, backend.server(t))
+
+	uploader, err := newGoogleDriveUploader(GoogleDriveConfig{ClientID: "client", FolderPath: "Charon//Backups"}, googleDriveTestSecrets(), nil)
+	require.NoError(t, err)
+
+	local := filepath.Join(t.TempDir(), "backup_1.zip")
+	require.NoError(t, os.WriteFile(local, []byte("a"), 0o600))
+	require.NoError(t, uploader.Upload(context.Background(), local, "backup_1.zip"))
+
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	require.Contains(t, backend.folders[googleDriveRootParent], "Charon")
+	charonID := backend.folders[googleDriveRootParent]["Charon"]
+	require.Contains(t, backend.folders[charonID], "Backups", "empty segment from the double slash must be skipped, not created as a literal folder")
+}
+
+func TestGoogleDriveUploader_ResolveFolderChain_FindFolderError(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/drive/v3/files", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":{"message":"internal"}}`))
+	})
+	server := httptest.NewServer(mux)
+	withGoogleDriveTestServer(t, server)
+
+	uploader, err := newGoogleDriveUploader(GoogleDriveConfig{ClientID: "client", FolderPath: "Charon"}, googleDriveTestSecrets(), nil)
+	require.NoError(t, err)
+
+	err = uploader.Test(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "internal")
+}
+
+func TestGoogleDriveUploader_ResolveFolderChain_CreateFolderError(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/drive/v3/files", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodGet:
+			_, _ = w.Write([]byte(`{"files":[]}`))
+		case http.MethodPost:
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":{"message":"create_failed"}}`))
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	})
+	server := httptest.NewServer(mux)
+	withGoogleDriveTestServer(t, server)
+
+	uploader, err := newGoogleDriveUploader(GoogleDriveConfig{ClientID: "client", FolderPath: "Charon"}, googleDriveTestSecrets(), nil)
+	require.NoError(t, err)
+
+	local := filepath.Join(t.TempDir(), "backup_1.zip")
+	require.NoError(t, os.WriteFile(local, []byte("a"), 0o600))
+	err = uploader.Upload(context.Background(), local, "backup_1.zip")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "create_failed")
+}
+
+func TestGoogleDriveUploader_Upload_OpenFileError(t *testing.T) {
+	backend := newDriveFakeBackend()
+	withGoogleDriveTestServer(t, backend.server(t))
+
+	uploader, err := newGoogleDriveUploader(GoogleDriveConfig{ClientID: "client"}, googleDriveTestSecrets(), nil)
+	require.NoError(t, err)
+
+	err = uploader.Upload(context.Background(), filepath.Join(t.TempDir(), "does-not-exist.zip"), "backup_1.zip")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "open local file")
+}
+
+func TestGoogleDriveUploader_Upload_StartResumableUploadError(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/upload/drive/v3/files", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":{"message":"session_start_failed"}}`))
+	})
+	server := httptest.NewServer(mux)
+	withGoogleDriveTestServer(t, server)
+
+	uploader, err := newGoogleDriveUploader(GoogleDriveConfig{ClientID: "client"}, googleDriveTestSecrets(), nil)
+	require.NoError(t, err)
+
+	local := filepath.Join(t.TempDir(), "backup_1.zip")
+	require.NoError(t, os.WriteFile(local, []byte("a"), 0o600))
+	err = uploader.Upload(context.Background(), local, "backup_1.zip")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "session_start_failed")
+}
+
+func TestGoogleDriveUploader_Upload_MissingLocationHeader(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/upload/drive/v3/files", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK) // no Location header set
+	})
+	server := httptest.NewServer(mux)
+	withGoogleDriveTestServer(t, server)
+
+	uploader, err := newGoogleDriveUploader(GoogleDriveConfig{ClientID: "client"}, googleDriveTestSecrets(), nil)
+	require.NoError(t, err)
+
+	local := filepath.Join(t.TempDir(), "backup_1.zip")
+	require.NoError(t, os.WriteFile(local, []byte("a"), 0o600))
+	err = uploader.Upload(context.Background(), local, "backup_1.zip")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing Location header")
+}
+
+func TestGoogleDriveUploader_Upload_ResumablePutBuildError(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/upload/drive/v3/files", func(w http.ResponseWriter, r *http.Request) {
+		// An unterminated IPv6 literal is a valid (printable-ASCII) HTTP
+		// header value but fails net/url parsing, so the subsequent PUT's
+		// http.NewRequestWithContext fails to build the request — as
+		// opposed to a raw control character, which breaks MIME header
+		// parsing in client.Do first and never reaches NewRequestWithContext.
+		w.Header().Set("Location", "http://[::1/session")
+		w.WriteHeader(http.StatusOK)
+	})
+	server := httptest.NewServer(mux)
+	withGoogleDriveTestServer(t, server)
+
+	uploader, err := newGoogleDriveUploader(GoogleDriveConfig{ClientID: "client"}, googleDriveTestSecrets(), nil)
+	require.NoError(t, err)
+
+	local := filepath.Join(t.TempDir(), "backup_1.zip")
+	require.NoError(t, os.WriteFile(local, []byte("a"), 0o600))
+	err = uploader.Upload(context.Background(), local, "backup_1.zip")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "build resumable upload request")
+}
+
+func TestGoogleDriveUploader_Upload_ResumablePutClientDoError(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/upload/drive/v3/files", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "http://127.0.0.1:1/session") // closed port
+		w.WriteHeader(http.StatusOK)
+	})
+	server := httptest.NewServer(mux)
+	withGoogleDriveTestServer(t, server)
+
+	uploader, err := newGoogleDriveUploader(GoogleDriveConfig{ClientID: "client"}, googleDriveTestSecrets(), nil)
+	require.NoError(t, err)
+
+	local := filepath.Join(t.TempDir(), "backup_1.zip")
+	require.NoError(t, os.WriteFile(local, []byte("a"), 0o600))
+	err = uploader.Upload(context.Background(), local, "backup_1.zip")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "resumable upload request")
+}
+
+func TestGoogleDriveUploader_Upload_ResumablePutNonOKStatus(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/upload/drive/v3/files", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "http://"+r.Host+"/upload/session/x")
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/upload/session/x", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":{"message":"put_failed"}}`))
+	})
+	server := httptest.NewServer(mux)
+	withGoogleDriveTestServer(t, server)
+
+	uploader, err := newGoogleDriveUploader(GoogleDriveConfig{ClientID: "client"}, googleDriveTestSecrets(), nil)
+	require.NoError(t, err)
+
+	local := filepath.Join(t.TempDir(), "backup_1.zip")
+	require.NoError(t, os.WriteFile(local, []byte("a"), 0o600))
+	err = uploader.Upload(context.Background(), local, "backup_1.zip")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "put_failed")
+}
+
+func TestGoogleDriveUploader_Delete_NonOKStatus(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/drive/v3/files/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":{"message":"delete_failed"}}`))
+	})
+	server := httptest.NewServer(mux)
+	withGoogleDriveTestServer(t, server)
+
+	uploader, err := newGoogleDriveUploader(GoogleDriveConfig{ClientID: "client"}, googleDriveTestSecrets(), nil)
+	require.NoError(t, err)
+
+	err = uploader.Delete(context.Background(), "file-1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "delete_failed")
+}
+
+func TestGoogleDriveUploader_Delete_ClientDoError(t *testing.T) {
+	orig := googleDriveAPIHost
+	googleDriveAPIHost = "http://127.0.0.1:1"
+	t.Cleanup(func() { googleDriveAPIHost = orig })
+
+	uploader, err := newGoogleDriveUploader(GoogleDriveConfig{ClientID: "client"}, googleDriveTestSecrets(), nil)
+	require.NoError(t, err)
+
+	err = uploader.Delete(context.Background(), "file-1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "delete request")
+}
+
+func TestGoogleDriveUploader_ApiGet_RequestBuildError(t *testing.T) {
+	orig := googleDriveAPIHost
+	googleDriveAPIHost = "http://\x7f"
+	t.Cleanup(func() { googleDriveAPIHost = orig })
+
+	uploader, err := newGoogleDriveUploader(GoogleDriveConfig{ClientID: "client"}, googleDriveTestSecrets(), nil)
+	require.NoError(t, err)
+
+	err = uploader.Test(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "build request")
+}
+
+func TestGoogleDriveUploader_List_ResolveFolderChainError_NotFolderNotFound(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/drive/v3/files", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":{"message":"internal"}}`))
+	})
+	server := httptest.NewServer(mux)
+	withGoogleDriveTestServer(t, server)
+
+	uploader, err := newGoogleDriveUploader(GoogleDriveConfig{ClientID: "client", FolderPath: "Charon"}, googleDriveTestSecrets(), nil)
+	require.NoError(t, err)
+
+	objects, err := uploader.List(context.Background(), "")
+	require.Error(t, err)
+	assert.Nil(t, objects)
+	assert.Contains(t, err.Error(), "internal")
+}
+
+func TestGoogleDriveUploader_List_PageRequestError(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/drive/v3/files", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":{"message":"list_failed"}}`))
+	})
+	server := httptest.NewServer(mux)
+	withGoogleDriveTestServer(t, server)
+
+	// No FolderPath configured, so resolveFolderChain short-circuits to the
+	// synthetic root without ever calling the server — the failure exercised
+	// here is List's own page-fetch call.
+	uploader, err := newGoogleDriveUploader(GoogleDriveConfig{ClientID: "client"}, googleDriveTestSecrets(), nil)
+	require.NoError(t, err)
+
+	objects, err := uploader.List(context.Background(), "")
+	require.Error(t, err)
+	assert.Nil(t, objects)
+	assert.Contains(t, err.Error(), "list_failed")
+}
+
+func TestGoogleDriveUploader_ApiGet_DecodeError(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/drive/v3/files", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`not valid json`))
+	})
+	server := httptest.NewServer(mux)
+	withGoogleDriveTestServer(t, server)
+
+	uploader, err := newGoogleDriveUploader(GoogleDriveConfig{ClientID: "client"}, googleDriveTestSecrets(), nil)
+	require.NoError(t, err)
+
+	objects, err := uploader.List(context.Background(), "")
+	require.Error(t, err)
+	assert.Nil(t, objects)
+	assert.Contains(t, err.Error(), "decode response")
+}
+
+func TestGoogleDriveUploader_ApiPostJSON_DecodeError(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/drive/v3/files", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodGet:
+			_, _ = w.Write([]byte(`{"files":[]}`))
+		case http.MethodPost:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`not valid json`))
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	})
+	server := httptest.NewServer(mux)
+	withGoogleDriveTestServer(t, server)
+
+	uploader, err := newGoogleDriveUploader(GoogleDriveConfig{ClientID: "client", FolderPath: "Charon"}, googleDriveTestSecrets(), nil)
+	require.NoError(t, err)
+
+	local := filepath.Join(t.TempDir(), "backup_1.zip")
+	require.NoError(t, os.WriteFile(local, []byte("a"), 0o600))
+	err = uploader.Upload(context.Background(), local, "backup_1.zip")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "decode response")
+}

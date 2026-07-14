@@ -313,3 +313,316 @@ func TestDropboxAuthCodeOptions_RequestsOfflineAccess(t *testing.T) {
 	opts := DropboxAuthCodeOptions()
 	require.Len(t, opts, 1)
 }
+
+func TestSetDropboxTokenURLForTesting_RestoresOriginal(t *testing.T) {
+	orig := dropboxTokenURL
+	restore := SetDropboxTokenURLForTesting("http://example.invalid/token")
+	assert.Equal(t, "http://example.invalid/token", dropboxTokenURL)
+	restore()
+	assert.Equal(t, orig, dropboxTokenURL)
+}
+
+func TestDropboxUploader_Upload_OpenFileError(t *testing.T) {
+	uploader, err := newDropboxUploader(DropboxConfig{AppKey: "key"}, dropboxTestSecrets(), nil)
+	require.NoError(t, err)
+
+	err = uploader.Upload(context.Background(), filepath.Join(t.TempDir(), "does-not-exist.zip"), "backup_1.zip")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "open local file")
+}
+
+func TestDropboxUploader_UploadSingle_NonOKStatus_ReturnsError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error_summary": "internal_error/..."}`))
+	}))
+	withDropboxTestServer(t, server)
+
+	uploader, err := newDropboxUploader(DropboxConfig{AppKey: "key"}, dropboxTestSecrets(), nil)
+	require.NoError(t, err)
+
+	local := filepath.Join(t.TempDir(), "backup_1.zip")
+	require.NoError(t, os.WriteFile(local, []byte("hi"), 0o600))
+
+	err = uploader.Upload(context.Background(), local, "backup_1.zip")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "internal_error")
+}
+
+func TestDropboxUploader_UploadSingle_RequestBuildError(t *testing.T) {
+	origContent, origAPI := dropboxContentHost, dropboxAPIHost
+	dropboxContentHost = "http://\x7f"
+	dropboxAPIHost = "http://\x7f"
+	t.Cleanup(func() {
+		dropboxContentHost = origContent
+		dropboxAPIHost = origAPI
+	})
+
+	uploader, err := newDropboxUploader(DropboxConfig{AppKey: "key"}, dropboxTestSecrets(), nil)
+	require.NoError(t, err)
+
+	local := filepath.Join(t.TempDir(), "backup_1.zip")
+	require.NoError(t, os.WriteFile(local, []byte("hi"), 0o600))
+
+	err = uploader.Upload(context.Background(), local, "backup_1.zip")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "build upload request")
+}
+
+func TestDropboxUploader_UploadSingle_ClientDoError(t *testing.T) {
+	origContent, origAPI := dropboxContentHost, dropboxAPIHost
+	dropboxContentHost = "http://127.0.0.1:1" // reserved, closed port: connection refused
+	dropboxAPIHost = "http://127.0.0.1:1"
+	t.Cleanup(func() {
+		dropboxContentHost = origContent
+		dropboxAPIHost = origAPI
+	})
+
+	uploader, err := newDropboxUploader(DropboxConfig{AppKey: "key"}, dropboxTestSecrets(), nil)
+	require.NoError(t, err)
+
+	local := filepath.Join(t.TempDir(), "backup_1.zip")
+	require.NoError(t, os.WriteFile(local, []byte("hi"), 0o600))
+
+	err = uploader.Upload(context.Background(), local, "backup_1.zip")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "upload request")
+}
+
+// TestDropboxUploader_UploadChunked_FirstChunkReadError covers the "read
+// first chunk" error branch: closing the local file out from under
+// uploadChunked before it reads guarantees a deterministic read error,
+// without relying on OS-specific I/O failure injection.
+func TestDropboxUploader_UploadChunked_FirstChunkReadError(t *testing.T) {
+	uploader, err := newDropboxUploader(DropboxConfig{AppKey: "key"}, dropboxTestSecrets(), nil)
+	require.NoError(t, err)
+	du := uploader.(*dropboxUploader)
+
+	local := filepath.Join(t.TempDir(), "backup_big.zip")
+	require.NoError(t, os.WriteFile(local, make([]byte, dropboxChunkSize), 0o600))
+	f, err := os.Open(local) // #nosec G304 -- test fixture path
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	err = du.uploadChunked(context.Background(), f, dropboxMaxSingleUpload+1, "/backup_big.zip")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "read first chunk")
+}
+
+// TestDropboxUploader_UploadChunked_ExactChunkSizeFile_ReturnsNil directly
+// exercises uploadChunked (not reachable via the public Upload, which only
+// calls it when size > dropboxMaxSingleUpload) with a file whose length
+// exactly equals size and exactly fills the first chunk read: the loop
+// condition `offset < size` is false on the very first check, falling
+// through to the trailing `return nil` rather than any in-loop return.
+func TestDropboxUploader_UploadChunked_ExactChunkSizeFile_ReturnsNil(t *testing.T) {
+	var sessionStarted bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/2/files/upload_session/start") {
+			sessionStarted = true
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprint(w, `{"session_id":"session-1"}`)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	withDropboxTestServer(t, server)
+
+	uploader, err := newDropboxUploader(DropboxConfig{AppKey: "key"}, dropboxTestSecrets(), nil)
+	require.NoError(t, err)
+	du := uploader.(*dropboxUploader)
+
+	local := filepath.Join(t.TempDir(), "backup_exact.zip")
+	require.NoError(t, os.WriteFile(local, make([]byte, dropboxChunkSize), 0o600))
+	f, err := os.Open(local) // #nosec G304 -- test fixture path
+	require.NoError(t, err)
+	defer func() { _ = f.Close() }()
+
+	err = du.uploadChunked(context.Background(), f, dropboxChunkSize, "/backup_exact.zip")
+	require.NoError(t, err)
+	assert.True(t, sessionStarted, "must still start an upload session for the single, exactly-sized chunk")
+}
+
+func TestDropboxUploader_UploadChunked_SessionStartError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error_summary": "internal_error/..."}`))
+	}))
+	withDropboxTestServer(t, server)
+
+	uploader, err := newDropboxUploader(DropboxConfig{AppKey: "key"}, dropboxTestSecrets(), nil)
+	require.NoError(t, err)
+
+	local := filepath.Join(t.TempDir(), "backup_big.zip")
+	require.NoError(t, os.WriteFile(local, make([]byte, dropboxMaxSingleUpload+1024), 0o600))
+
+	err = uploader.Upload(context.Background(), local, "backup_big.zip")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "internal_error")
+}
+
+func TestDropboxUploader_UploadChunked_SessionStartDecodeError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`not valid json`))
+	}))
+	withDropboxTestServer(t, server)
+
+	uploader, err := newDropboxUploader(DropboxConfig{AppKey: "key"}, dropboxTestSecrets(), nil)
+	require.NoError(t, err)
+
+	local := filepath.Join(t.TempDir(), "backup_big.zip")
+	require.NoError(t, os.WriteFile(local, make([]byte, dropboxMaxSingleUpload+1024), 0o600))
+
+	err = uploader.Upload(context.Background(), local, "backup_big.zip")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "decode upload_session/start response")
+}
+
+func TestDropboxUploader_UploadChunked_AppendError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/2/files/upload_session/start"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprint(w, `{"session_id":"session-1"}`)
+		case strings.HasSuffix(r.URL.Path, "/2/files/upload_session/append_v2"):
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error_summary": "internal_error/..."}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	withDropboxTestServer(t, server)
+
+	uploader, err := newDropboxUploader(DropboxConfig{AppKey: "key"}, dropboxTestSecrets(), nil)
+	require.NoError(t, err)
+
+	// Large enough to require at least one append_v2 call beyond the initial
+	// session-start chunk (dropboxMaxSingleUpload + 3 chunk-widths).
+	size := int64(dropboxMaxSingleUpload) + 3*dropboxChunkSize
+	local := filepath.Join(t.TempDir(), "backup_big.zip")
+	require.NoError(t, os.WriteFile(local, make([]byte, size), 0o600))
+
+	err = uploader.Upload(context.Background(), local, "backup_big.zip")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "internal_error")
+}
+
+func TestDropboxUploader_UploadChunked_FinishError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/2/files/upload_session/start"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprint(w, `{"session_id":"session-1"}`)
+		case strings.HasSuffix(r.URL.Path, "/2/files/upload_session/append_v2"):
+			w.WriteHeader(http.StatusOK)
+		case strings.HasSuffix(r.URL.Path, "/2/files/upload_session/finish"):
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error_summary": "internal_error/..."}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	withDropboxTestServer(t, server)
+
+	uploader, err := newDropboxUploader(DropboxConfig{AppKey: "key"}, dropboxTestSecrets(), nil)
+	require.NoError(t, err)
+
+	size := int64(dropboxMaxSingleUpload) + 3*1024*1024
+	local := filepath.Join(t.TempDir(), "backup_big.zip")
+	require.NoError(t, os.WriteFile(local, make([]byte, size), 0o600))
+
+	err = uploader.Upload(context.Background(), local, "backup_big.zip")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "internal_error")
+}
+
+func TestDropboxUploader_Delete_RequestBuildError(t *testing.T) {
+	origContent, origAPI := dropboxContentHost, dropboxAPIHost
+	dropboxContentHost = "http://\x7f"
+	dropboxAPIHost = "http://\x7f"
+	t.Cleanup(func() {
+		dropboxContentHost = origContent
+		dropboxAPIHost = origAPI
+	})
+
+	uploader, err := newDropboxUploader(DropboxConfig{AppKey: "key"}, dropboxTestSecrets(), nil)
+	require.NoError(t, err)
+
+	err = uploader.Delete(context.Background(), "/backup_1.zip")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "build request")
+}
+
+func TestDropboxUploader_Delete_ClientDoError(t *testing.T) {
+	origContent, origAPI := dropboxContentHost, dropboxAPIHost
+	dropboxContentHost = "http://127.0.0.1:1"
+	dropboxAPIHost = "http://127.0.0.1:1"
+	t.Cleanup(func() {
+		dropboxContentHost = origContent
+		dropboxAPIHost = origAPI
+	})
+
+	uploader, err := newDropboxUploader(DropboxConfig{AppKey: "key"}, dropboxTestSecrets(), nil)
+	require.NoError(t, err)
+
+	err = uploader.Delete(context.Background(), "/backup_1.zip")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "request /2/files/delete_v2")
+}
+
+func TestDropboxUploader_List_InitialCallError_NotPathNotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error_summary": "internal_error/..."}`))
+	}))
+	withDropboxTestServer(t, server)
+
+	uploader, err := newDropboxUploader(DropboxConfig{AppKey: "key"}, dropboxTestSecrets(), nil)
+	require.NoError(t, err)
+
+	objects, err := uploader.List(context.Background(), "")
+	require.Error(t, err)
+	assert.Nil(t, objects)
+	assert.Contains(t, err.Error(), "internal_error")
+}
+
+func TestDropboxUploader_List_ContinuePageError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/2/files/list_folder"):
+			_, _ = w.Write([]byte(`{"entries":[],"cursor":"cursor-1","has_more":true}`))
+		case strings.HasSuffix(r.URL.Path, "/2/files/list_folder/continue"):
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error_summary": "internal_error/..."}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	withDropboxTestServer(t, server)
+
+	uploader, err := newDropboxUploader(DropboxConfig{AppKey: "key"}, dropboxTestSecrets(), nil)
+	require.NoError(t, err)
+
+	objects, err := uploader.List(context.Background(), "")
+	require.Error(t, err)
+	assert.Nil(t, objects)
+	assert.Contains(t, err.Error(), "internal_error")
+}
+
+func TestDropboxUploader_List_DecodeError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`not valid json`))
+	}))
+	withDropboxTestServer(t, server)
+
+	uploader, err := newDropboxUploader(DropboxConfig{AppKey: "key"}, dropboxTestSecrets(), nil)
+	require.NoError(t, err)
+
+	objects, err := uploader.List(context.Background(), "")
+	require.Error(t, err)
+	assert.Nil(t, objects)
+	assert.Contains(t, err.Error(), "decode response")
+}
