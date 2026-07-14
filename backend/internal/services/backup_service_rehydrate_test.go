@@ -2,6 +2,7 @@ package services
 
 import (
 	"archive/zip"
+	"database/sql"
 	"fmt"
 	"io"
 	"os"
@@ -226,6 +227,80 @@ func TestBackupService_CreateSQLiteSnapshot_TempDirInvalid(t *testing.T) {
 	_, _, err := createSQLiteSnapshot(dbPath)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "create sqlite snapshot file")
+}
+
+// TestBackupService_RehydrateLiveDatabase_MidLoopFailure_RollsBackAtomically
+// is required coverage for H1 (spec §3.4.2): a mid-loop INSERT failure on a
+// table that comes AFTER at least one other table has already been fully
+// swapped must leave every table's live data byte-for-byte/row-for-row
+// identical to its pre-rehydrate state (full rollback) — not "an error was
+// returned" while some tables silently kept the new data and others were
+// left empty.
+//
+// first_table is processed before second_table (SQLite returns
+// sqlite_master rows in creation order, and no ORDER BY is present in the
+// production query), so by the time second_table's INSERT fails,
+// first_table's DELETE+INSERT has already fully completed. Before the H1
+// fix (no transaction wrap), that leaves first_table on the NEW data and
+// second_table emptied (its old row deleted, the new rows rejected by its
+// own UNIQUE constraint) — proven by this test failing against pre-fix code
+// (see PR history/commit description). After the H1 fix (the whole loop
+// wrapped in db.Transaction), the same failure rolls back atomically and
+// both tables are restored to their exact pre-rehydrate contents.
+func TestBackupService_RehydrateLiveDatabase_MidLoopFailure_RollsBackAtomically(t *testing.T) {
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	require.NoError(t, os.MkdirAll(dataDir, 0o700))
+
+	activeDBPath := filepath.Join(dataDir, "charon.db")
+	activeDB, err := gorm.Open(sqlite.Open(activeDBPath), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, activeDB.Exec(`CREATE TABLE first_table (id INTEGER PRIMARY KEY, value TEXT)`).Error)
+	require.NoError(t, activeDB.Exec(`INSERT INTO first_table (value) VALUES ('old-first')`).Error)
+	require.NoError(t, activeDB.Exec(`CREATE TABLE second_table (id INTEGER PRIMARY KEY, value TEXT UNIQUE)`).Error)
+	require.NoError(t, activeDB.Exec(`INSERT INTO second_table (value) VALUES ('old-second')`).Error)
+
+	// The restore source: first_table has new, distinct data (its swap will
+	// succeed); second_table has two duplicate values, which will violate
+	// the LIVE table's UNIQUE(value) constraint when INSERT ... SELECT runs
+	// against it, failing the statement partway through second_table's copy.
+	restoreDBPath := filepath.Join(tmpDir, "restore.sqlite")
+	restoreDB, err := sql.Open("sqlite3", restoreDBPath)
+	require.NoError(t, err)
+	_, err = restoreDB.Exec(`CREATE TABLE first_table (id INTEGER PRIMARY KEY, value TEXT)`)
+	require.NoError(t, err)
+	_, err = restoreDB.Exec(`INSERT INTO first_table (value) VALUES ('new-first')`)
+	require.NoError(t, err)
+	_, err = restoreDB.Exec(`CREATE TABLE second_table (id INTEGER PRIMARY KEY, value TEXT)`)
+	require.NoError(t, err)
+	_, err = restoreDB.Exec(`INSERT INTO second_table (value) VALUES ('dup')`)
+	require.NoError(t, err)
+	_, err = restoreDB.Exec(`INSERT INTO second_table (value) VALUES ('dup')`)
+	require.NoError(t, err)
+	require.NoError(t, restoreDB.Close())
+
+	svc := &BackupService{
+		DataDir:       dataDir,
+		DatabaseName:  "charon.db",
+		restoreDBPath: restoreDBPath,
+	}
+
+	err = svc.RehydrateLiveDatabase(activeDB)
+	require.Error(t, err, "the mid-loop UNIQUE constraint violation on second_table must still surface as an error")
+	assert.Contains(t, err.Error(), "copy table second_table")
+
+	// The real assertion (H1): every table's live data, INCLUDING
+	// first_table which was already fully swapped before second_table
+	// failed, must be identical to its pre-rehydrate state. A partial
+	// rollback (first_table left on new data, or second_table left empty)
+	// must not be possible.
+	var firstValues []string
+	require.NoError(t, activeDB.Raw(`SELECT value FROM first_table ORDER BY id`).Scan(&firstValues).Error)
+	assert.Equal(t, []string{"old-first"}, firstValues, "first_table must be rolled back to its pre-rehydrate state even though its own swap had already succeeded")
+
+	var secondValues []string
+	require.NoError(t, activeDB.Raw(`SELECT value FROM second_table ORDER BY id`).Scan(&secondValues).Error)
+	assert.Equal(t, []string{"old-second"}, secondValues, "second_table must retain its pre-rehydrate row, not be left empty")
 }
 
 func TestBackupService_RunScheduledBackup_CreateBackupAndCleanupHooks(t *testing.T) {

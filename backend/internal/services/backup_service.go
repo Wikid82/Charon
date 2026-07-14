@@ -915,6 +915,18 @@ func (s *BackupService) RehydrateLiveDatabase(db *gorm.DB) error {
 		return fmt.Errorf("database handle is required")
 	}
 
+	// H1 defensive addition: ATTACH DATABASE is connection-scoped in
+	// SQLite, and the transaction below must execute on that SAME
+	// connection or restore_src.<table> becomes invisible ("no such
+	// table"). Production already pins this via
+	// internal/database/database.go's sqlDB.SetMaxOpenConns(1) on the
+	// handle passed in here, but enforce it locally too so this function
+	// is correct independent of how its caller wired the *gorm.DB —
+	// idempotent/cheap if already 1.
+	if sqlDB, sqlErr := db.DB(); sqlErr == nil {
+		sqlDB.SetMaxOpenConns(1)
+	}
+
 	restoredDBPath := filepath.Join(s.DataDir, s.DatabaseName)
 	rehydrateSourcePath := restoredDBPath
 	if s.restoreDBPath != "" {
@@ -1007,37 +1019,53 @@ func (s *BackupService) RehydrateLiveDatabase(db *gorm.DB) error {
 		restoredTableSet[tableName] = struct{}{}
 	}
 
-	for _, tableName := range currentTables {
-		quotedTable, err := quoteSQLiteIdentifier(tableName)
-		if err != nil {
-			return fmt.Errorf("quote table identifier: %w", err)
+	// H1 fix: the swap must be atomic. Previously each DELETE/INSERT ran as
+	// its own autocommit statement; a mid-loop failure (constraint
+	// violation, disk-full, interrupted connection) left tables 1..N-1
+	// already on the NEW data, table N empty, and the rest still on OLD
+	// data — a mixed state visible to every request against the live,
+	// currently-serving *gorm.DB until the process restarts. Wrapping the
+	// per-table loop and the sqlite_sequence handling in a single
+	// transaction ensures a mid-loop failure rolls the live database back
+	// to its exact pre-rehydrate state. ATTACH/DETACH DATABASE must stay
+	// outside this transaction — SQLite disallows ATTACH/DETACH inside an
+	// open transaction.
+	if txErr := db.Transaction(func(tx *gorm.DB) error {
+		for _, tableName := range currentTables {
+			quotedTable, err := quoteSQLiteIdentifier(tableName)
+			if err != nil {
+				return fmt.Errorf("quote table identifier: %w", err)
+			}
+
+			if err := tx.Exec("DELETE FROM " + quotedTable).Error; err != nil {
+				return fmt.Errorf("clear table %s: %w", tableName, err)
+			}
+
+			if _, exists := restoredTableSet[tableName]; !exists {
+				continue
+			}
+
+			if err := tx.Exec("INSERT INTO " + quotedTable + " SELECT * FROM restore_src." + quotedTable).Error; err != nil {
+				return fmt.Errorf("copy table %s: %w", tableName, err)
+			}
 		}
 
-		if err := db.Exec("DELETE FROM " + quotedTable).Error; err != nil {
-			return fmt.Errorf("clear table %s: %w", tableName, err)
+		hasSQLiteSequence := false
+		if err := tx.Raw(`SELECT COUNT(*) > 0 FROM restore_src.sqlite_master WHERE type='table' AND name='sqlite_sequence'`).Scan(&hasSQLiteSequence).Error; err != nil {
+			return fmt.Errorf("check sqlite_sequence presence: %w", err)
 		}
 
-		if _, exists := restoredTableSet[tableName]; !exists {
-			continue
+		if hasSQLiteSequence {
+			if err := tx.Exec("DELETE FROM sqlite_sequence").Error; err != nil {
+				return fmt.Errorf("clear sqlite_sequence: %w", err)
+			}
+			if err := tx.Exec("INSERT INTO sqlite_sequence SELECT * FROM restore_src.sqlite_sequence").Error; err != nil {
+				return fmt.Errorf("copy sqlite_sequence: %w", err)
+			}
 		}
-
-		if err := db.Exec("INSERT INTO " + quotedTable + " SELECT * FROM restore_src." + quotedTable).Error; err != nil {
-			return fmt.Errorf("copy table %s: %w", tableName, err)
-		}
-	}
-
-	hasSQLiteSequence := false
-	if err := db.Raw(`SELECT COUNT(*) > 0 FROM restore_src.sqlite_master WHERE type='table' AND name='sqlite_sequence'`).Scan(&hasSQLiteSequence).Error; err != nil {
-		return fmt.Errorf("check sqlite_sequence presence: %w", err)
-	}
-
-	if hasSQLiteSequence {
-		if err := db.Exec("DELETE FROM sqlite_sequence").Error; err != nil {
-			return fmt.Errorf("clear sqlite_sequence: %w", err)
-		}
-		if err := db.Exec("INSERT INTO sqlite_sequence SELECT * FROM restore_src.sqlite_sequence").Error; err != nil {
-			return fmt.Errorf("copy sqlite_sequence: %w", err)
-		}
+		return nil
+	}); txErr != nil {
+		return txErr // rolled back atomically; live db is byte-for-byte its pre-rehydrate state
 	}
 
 	if err := db.Exec("DETACH DATABASE restore_src").Error; err != nil {
