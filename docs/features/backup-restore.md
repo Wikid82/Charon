@@ -60,6 +60,8 @@ To restore a previous configuration:
 
 Charon validates the archive, takes a safety backup of your current state, restores the new data, and reloads Caddy and CrowdSec. Most restores finish without any downtime. Occasionally a restore can't finish live and reports that a restart is required to complete it — see [Disaster Recovery: Restart-Required Restores](disaster-recovery.md#restart-required-restores-boot-swap-behavior) for exactly what that means and why it's expected behavior, not a failure.
 
+In the rare case where Charon can't complete the restore at all — for example, disk space or file-permission problems that stop it from even queuing the finish-on-restart step — you'll see a clear error message instead of a false "success." Nothing was restored in that case. See [Disaster Recovery: If a Restore Fails Completely](disaster-recovery.md#if-a-restore-fails-completely) for what to do next.
+
 Have a backup file that isn't in the list — downloaded from remote storage, or from another machine? Use **Upload Backup** on the same page instead of steps 1–2; see [Disaster Recovery](disaster-recovery.md) for the full off-host and legacy-file walkthroughs.
 
 > **Note**: Restoring a backup overwrites your current configuration. Charon takes an automatic safety backup first, but if you're unsure, create your own manual backup before restoring too.

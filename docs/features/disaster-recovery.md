@@ -19,6 +19,7 @@ see [Backup & Restore](backup-restore.md); this page covers the harder cases.
 - [The Encryption Key Problem](#the-encryption-key-problem)
 - [Lost Your Archive Passphrase? Read This First](#lost-your-archive-passphrase-read-this-first)
 - [Restart-Required Restores (Boot-Swap Behavior)](#restart-required-restores-boot-swap-behavior)
+- [If a Restore Fails Completely](#if-a-restore-fails-completely)
 - [Legacy and Upload-Only Backups](#legacy-and-upload-only-backups)
 - [Quick Reference](#quick-reference)
 
@@ -203,6 +204,29 @@ You'll be able to see the outcome of a pending swap by checking **Tasks → Back
 again after the restart — the backup entry's status updates to reflect whether the
 swap completed successfully.
 
+## If a Restore Fails Completely
+
+Restores are designed to always land in one of two good outcomes: finished live, or
+queued to finish on your next restart (see above). In a genuine double-failure —
+for example, the disk is full or a permissions problem stops Charon from even
+writing the "finish this on restart" marker — Charon shows you a clear error
+message instead of telling you the restore succeeded. Nothing was restored in
+that case, and you'll know it.
+
+If you see this error:
+
+1. Check what stopped it — usually free disk space or file permissions on your
+   data directory.
+2. Fix the underlying problem.
+3. Try the restore again from the same backup file.
+4. If you'd rather back out entirely, Charon already made an automatic safety
+   backup of your previous state right before the restore attempt (see
+   [Backup Retention](backup-restore.md#backup-retention)) — restore that to get
+   back to exactly where you were before you started.
+
+That safety backup is never deleted by Charon's automatic cleanup, no matter how
+aggressive your retention settings are, so it will still be there if you need it.
+
 ## Legacy and Upload-Only Backups
 
 Charon has gone through a few backup formats over time. All of them can still be
@@ -224,6 +248,7 @@ restored, but only through specific paths:
 | DNS/remote-storage credentials didn't come back after restore | [Encryption key mismatch](#the-encryption-key-problem) — re-enter them, or set the matching key and restore again |
 | Forgot the archive passphrase | [Unrecoverable](#lost-your-archive-passphrase-read-this-first) — use an older backup instead |
 | Restore says "restart required" | [Restart once](#restart-required-restores-boot-swap-behavior) — the database finishes swapping in on boot |
+| Restore shows an error instead of success | [Real failure](#if-a-restore-fails-completely) — fix the underlying problem (often disk space or permissions) and retry, or restore the automatic safety backup |
 | Only have an old `.db` file | [Use Upload Backup](#legacy-and-upload-only-backups) |
 
 ## Related
