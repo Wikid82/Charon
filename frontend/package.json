@@ -85,7 +85,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
     "eslint-plugin-security": "^4.0.1",
-    "eslint-plugin-sonarjs": "^4.1.0",
+    "eslint-plugin-sonarjs": "^4.2.0",
     "eslint-plugin-testing-library": "^7.16.2",
     "eslint-plugin-unicorn": "^71.1.0",
     "eslint-plugin-unused-imports": "^4.4.1",
