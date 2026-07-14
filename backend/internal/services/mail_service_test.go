@@ -1007,6 +1007,7 @@ func TestMailService_TestConnection_StartTLSSuccessWithAuth(t *testing.T) {
 		Encryption:  "starttls",
 	}))
 
+	logCertTrustDiagnostics(t, tlsConf)
 	require.NoError(t, svc.TestConnection())
 }
 
@@ -1059,6 +1060,7 @@ func TestMailService_SendEmail_STARTTLSSuccess(t *testing.T) {
 	}))
 
 	// With fixed cert trust, STARTTLS connection and email send succeed
+	logCertTrustDiagnostics(t, tlsConf)
 	err = svc.SendEmail(context.Background(), []string{"recipient@example.com"}, "Subject", "Body")
 	require.NoError(t, err)
 }
@@ -1088,6 +1090,7 @@ func TestMailService_SendEmail_SSLSuccess(t *testing.T) {
 	}))
 
 	// With fixed cert trust, SSL connection and email send succeed
+	logCertTrustDiagnostics(t, tlsConf)
 	err = svc.SendEmail(context.Background(), []string{"recipient@example.com"}, "Subject", "Body")
 	require.NoError(t, err)
 }
@@ -1186,6 +1189,50 @@ func trustTestCertificate(t *testing.T, _ []byte) {
 	// SSL_CERT_FILE is already set globally by TestMain.
 	// This function kept for API compatibility but no longer needs to set environment.
 	initTestCA(t) // Ensure CA is initialized (already done by TestMain, but safe to call)
+}
+
+// logCertTrustDiagnostics independently verifies the shared leaf certificate
+// against the process-wide system cert pool and logs SSL_CERT_FILE state.
+// It exists to gather evidence if the rare "certificate signed by unknown
+// authority" flake in the STARTTLS/SSL success tests recurs (observed
+// 2026-07-13, not reproducible across 3 targeted rerun attempts). Output is
+// only shown by `go test` on failure or with -v, so it adds no noise to
+// normal passing runs.
+func logCertTrustDiagnostics(t *testing.T, tlsConf *tls.Config) {
+	t.Helper()
+
+	sslCertFile := os.Getenv("SSL_CERT_FILE")
+	t.Logf("cert-trust-diagnostics: SSL_CERT_FILE=%q", sslCertFile)
+
+	if sslCertFile != "" {
+		data, err := os.ReadFile(sslCertFile)
+		if err != nil {
+			t.Logf("cert-trust-diagnostics: failed to read SSL_CERT_FILE: %v", err)
+		} else {
+			t.Logf("cert-trust-diagnostics: SSL_CERT_FILE is %d bytes, matches in-memory shared CA: %v",
+				len(data), bytes.Equal(data, testCAPEM))
+		}
+	}
+
+	pool, err := x509.SystemCertPool()
+	if err != nil {
+		t.Logf("cert-trust-diagnostics: x509.SystemCertPool() error: %v", err)
+		return
+	}
+
+	if len(tlsConf.Certificates) == 0 || len(tlsConf.Certificates[0].Certificate) == 0 {
+		t.Logf("cert-trust-diagnostics: no leaf certificate available to verify")
+		return
+	}
+
+	leaf, err := x509.ParseCertificate(tlsConf.Certificates[0].Certificate[0])
+	if err != nil {
+		t.Logf("cert-trust-diagnostics: failed to parse leaf cert: %v", err)
+		return
+	}
+
+	_, verifyErr := leaf.Verify(x509.VerifyOptions{DNSName: "localhost", Roots: pool})
+	t.Logf("cert-trust-diagnostics: leaf cert verify against process system pool: %v", verifyErr)
 }
 
 func startMockSMTPServer(t *testing.T, tlsConf *tls.Config, supportStartTLS, requireAuth bool) (addr string, stop func()) {
