@@ -146,6 +146,7 @@ describe('RestoreDialog', () => {
   })
 
   it('keeps the dialog open and does not call onClose when restore fails', async () => {
+    const { toast } = await import('../../../utils/toast')
     const user = userEvent.setup()
     const onClose = vi.fn()
     mockRestoreMutate.mockImplementation((_vars, { onError }) => {
@@ -158,6 +159,7 @@ describe('RestoreDialog', () => {
 
     expect(onClose).not.toHaveBeenCalled()
     expect(screen.getByRole('dialog')).toBeVisible()
+    expect(toast.error).toHaveBeenCalledWith('Failed to restore backup: wrong passphrase')
   })
 
   it('shows an error toast when validate fails', async () => {

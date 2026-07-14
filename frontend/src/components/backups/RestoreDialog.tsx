@@ -54,7 +54,7 @@ export function RestoreDialog({ backup, onClose }: RestoreDialogProps) {
           )
           onClose()
         },
-        onError: (error: Error) => toast.error(error.message),
+        onError: (error: Error) => toast.error(t('backups.restoreFailed', { error: error.message })),
       }
     )
   }
