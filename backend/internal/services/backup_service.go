@@ -55,6 +55,14 @@ var (
 	// ErrNewerBackupFormat is returned when a manifest declares a
 	// format_version greater than the version this build understands.
 	ErrNewerBackupFormat = errors.New("backup created by a newer Charon version")
+	// ErrRestoreUnrecoverable is returned by RestoreBackupSafe when the live
+	// rehydrate could not be applied (A2) AND the durable pending-restore
+	// fallback (F3) also failed to persist — spec §3.5's guarantee that a
+	// restore either completes live or is durably queued for next-boot is
+	// broken, so this must never be reported as success (audit finding C1).
+	// The pre-restore safety backup (S1) still exists on disk and is named
+	// in the wrapped error for manual recovery.
+	ErrRestoreUnrecoverable = errors.New("restore could not be completed and no recovery mechanism succeeded")
 )
 
 func quoteSQLiteIdentifier(identifier string) (string, error) {

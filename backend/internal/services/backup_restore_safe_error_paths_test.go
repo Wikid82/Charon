@@ -2,9 +2,11 @@ package services
 
 import (
 	"archive/zip"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -86,6 +88,67 @@ func TestRestoreBackupSafe_RehydrateFails_NonTransient_WritesPendingFileAndWarns
 	assert.True(t, result.RestartRequired)
 	assert.True(t, result.DatabaseSwapPending, "F3's pending-restore file must still be written even though the live db connection is dead")
 	assert.Equal(t, "Backup restored; the database will finish restoring on the next process restart", result.Message)
+}
+
+// TestRestoreBackupSafe_RehydrateFails_AndPendingFileWriteFails_ReturnsUnrecoverableError
+// is required coverage for C1 (spec §3.4.1): when BOTH the live rehydrate
+// (A2) AND the durable pending-restore fallback (F3) fail in the same
+// RestoreBackupSafe call, the double-failure must never be reported as
+// success. Rehydrate failure is forced deterministically by closing the
+// live db's underlying *sql.DB (reusing newLiveDBRestoreErrorTestService, as
+// TestRestoreBackupSafe_RehydrateFails_NonTransient_WritesPendingFileAndWarns
+// does); the pending-file write is forced to fail by pre-creating its
+// target path as a directory, so writePendingRestoreFile's
+// os.OpenFile(..., O_CREATE|O_TRUNC) fails with "is a directory" — an
+// isolated, single-purpose failure injection that doesn't disturb A1's
+// unrelated DataDir writes.
+func TestRestoreBackupSafe_RehydrateFails_AndPendingFileWriteFails_ReturnsUnrecoverableError(t *testing.T) {
+	svc, db := newLiveDBRestoreErrorTestService(t)
+
+	record, err := svc.CreateBackupWithOptions(BackupOptions{Type: "manual"})
+	require.NoError(t, err)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	// Force F3 (writePendingRestoreFile) to also fail: pre-create its
+	// target path as a directory.
+	pendingPath := filepath.Join(svc.DataDir, svc.DatabaseName+".pending-restore")
+	require.NoError(t, os.MkdirAll(pendingPath, 0o700))
+
+	before, err := svc.ListBackups()
+	require.NoError(t, err)
+	beforeNames := make(map[string]struct{}, len(before))
+	for _, b := range before {
+		beforeNames[b.Filename] = struct{}{}
+	}
+
+	// createBackupLocked's filename derives from time.Now() at
+	// second-granularity; sleep past the second boundary so S1's
+	// pre-restore backup (created moments later, inside RestoreBackupSafe)
+	// gets a distinct filename from the original manual backup above,
+	// rather than colliding and silently overwriting it.
+	time.Sleep(1100 * time.Millisecond)
+
+	result, restoreErr := svc.RestoreBackupSafe(record.Filename, "")
+
+	require.Error(t, restoreErr, "a double failure (rehydrate AND pending-file write) must never be reported as success")
+	assert.Nil(t, result, "err != nil must imply result == nil, matching every other early-failure path in RestoreBackupSafe")
+	assert.True(t, errors.Is(restoreErr, ErrRestoreUnrecoverable), "got: %v", restoreErr)
+
+	// S1 (the pre-restore safety backup) still ran before A2/F3 failed; the
+	// error must name that backup's filename for manual recovery.
+	after, listErr := svc.ListBackups()
+	require.NoError(t, listErr)
+	var preRestoreFilename string
+	for _, b := range after {
+		if _, existed := beforeNames[b.Filename]; !existed {
+			preRestoreFilename = b.Filename
+		}
+	}
+	require.NotEmpty(t, preRestoreFilename, "S1 must have created a pre-restore safety backup before the double failure occurred")
+	assert.Contains(t, restoreErr.Error(), preRestoreFilename, "the error must name the pre-restore safety backup for manual recovery")
 }
 
 // --- writePendingRestoreFile: direct unit tests of every error branch,

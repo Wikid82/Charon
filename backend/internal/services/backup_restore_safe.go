@@ -269,8 +269,12 @@ func (s *BackupService) RestoreBackupSafe(filename, passphrase string) (*Restore
 	// own directly (now centralized here so RestoreBackupSafe is the single
 	// place that decides restart_required/database_swap_pending).
 	rehydrated := false
+	// Hoisted above the `if s.db != nil` block (rather than declared inside
+	// it) so it remains in scope below for the unrecoverableErr
+	// construction — a real, necessary scope change for the C1 fix, not a
+	// no-op (Supervisor review, 2026-07-14).
+	var rehydrateErr error
 	if s.db != nil {
-		var rehydrateErr error
 		for attempt := 0; attempt < 5; attempt++ {
 			rehydrateErr = s.RehydrateLiveDatabase(s.db)
 			if rehydrateErr == nil {
@@ -289,11 +293,21 @@ func (s *BackupService) RestoreBackupSafe(filename, passphrase string) (*Restore
 	result.LiveRehydrateApplied = rehydrated
 	result.RestartRequired = !rehydrated
 
+	// unrecoverableErr tracks the C1 double-failure condition (rehydrate
+	// failed AND the pending-restore fallback also failed) without
+	// discarding the existing single-failure (F3-succeeds) behavior.
+	var unrecoverableErr error
 	if !rehydrated {
 		// F3: persist a durable pending-restore file for the next boot,
 		// since the in-memory temp file alone does not survive a restart.
 		if pendingErr := s.writePendingRestoreFile(validated.restoreDBPath); pendingErr != nil {
-			logger.Log().WithError(pendingErr).Error("failed to persist pending-restore file")
+			logger.Log().WithError(pendingErr).
+				WithField("pre_restore_backup", util.SanitizeForLog(preRestoreRecord.Filename)).
+				Error("restore could not be completed: live rehydrate failed and the pending-restore fallback also failed")
+			unrecoverableErr = fmt.Errorf(
+				"%w: live database rehydrate failed (%v) and the durable pending-restore fallback also failed (%v); a pre-restore safety backup %q was created before this attempt and can be restored manually",
+				ErrRestoreUnrecoverable, rehydrateErr, pendingErr, preRestoreRecord.Filename,
+			)
 		} else {
 			result.DatabaseSwapPending = true
 			if s.db != nil {
@@ -307,8 +321,8 @@ func (s *BackupService) RestoreBackupSafe(filename, passphrase string) (*Restore
 	}
 
 	// R1: reload Caddy — it has its own snapshot/rollback, so this runs
-	// regardless of A2's outcome (A1 already wrote the new Caddy/CrowdSec
-	// files to DataDir by this point).
+	// regardless of A2/F3's outcome (A1 already wrote the new Caddy/CrowdSec
+	// files to DataDir by this point), even in the unrecoverable case below.
 	if s.caddyReloader != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		if reloadErr := s.caddyReloader.ApplyConfig(ctx); reloadErr != nil {
@@ -319,6 +333,11 @@ func (s *BackupService) RestoreBackupSafe(filename, passphrase string) (*Restore
 			result.CaddyReloaded = true
 		}
 		cancel()
+	}
+
+	// C1 fix: never return (result, nil) for the double-failure condition.
+	if unrecoverableErr != nil {
+		return nil, unrecoverableErr
 	}
 
 	// R2.

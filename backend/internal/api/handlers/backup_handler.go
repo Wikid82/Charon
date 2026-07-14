@@ -273,6 +273,13 @@ func (h *BackupHandler) respondRestoreError(c *gin.Context, err error) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "error_code": "backup_validation_failed"})
 	case os.IsNotExist(err):
 		c.JSON(http.StatusNotFound, gin.H{"error": "Backup not found"})
+	case errors.Is(err, services.ErrRestoreUnrecoverable):
+		// C1: rehydrate (A2) and the durable pending-restore fallback (F3)
+		// both failed — an internal, non-client-actionable failure (like
+		// default's 500), but with an explicit error_code so operators/the
+		// frontend/log-scrapers can key off it instead of string-matching
+		// err.Error().
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "error_code": "backup_restore_unrecoverable"})
 	default:
 		if respondPermissionError(c, h.securityService, "backup_restore_failed", err, h.service.BackupDir) {
 			return

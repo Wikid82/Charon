@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -41,6 +42,33 @@ func TestBackupHandler_RespondRestoreError_ConcurrentInProgress_Returns409(t *te
 
 	h.respondRestoreError(c, services.ErrBackupInProgress)
 	require.Equal(t, http.StatusConflict, w.Code)
+}
+
+// TestBackupHandler_RespondRestoreError_Unrecoverable_Returns500WithErrorCode
+// is required coverage for C1 (spec §3.2): once RestoreBackupSafe surfaces
+// ErrRestoreUnrecoverable for the double-failure case (rehydrate AND the
+// pending-restore fallback both failed), respondRestoreError must map it to
+// HTTP 500 with the explicit error_code "backup_restore_unrecoverable" so
+// the frontend/operators/log-scrapers can key off it instead of
+// string-matching err.Error().
+func TestBackupHandler_RespondRestoreError_Unrecoverable_Returns500WithErrorCode(t *testing.T) {
+	h := NewBackupHandler(&services.BackupService{})
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/backups/x/restore", http.NoBody)
+
+	restoreErr := fmt.Errorf(
+		"%w: live database rehydrate failed (disable foreign keys: sql: database is closed) and the durable pending-restore fallback also failed (create pending-restore file: is a directory); a pre-restore safety backup %q was created before this attempt and can be restored manually",
+		services.ErrRestoreUnrecoverable, "backup_2026-07-14_12-00-00.zip",
+	)
+
+	h.respondRestoreError(c, restoreErr)
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Equal(t, "backup_restore_unrecoverable", body["error_code"])
+	require.Contains(t, body["error"], "backup_2026-07-14_12-00-00.zip")
 }
 
 func TestIsSQLiteTransientRehydrateError(t *testing.T) {
