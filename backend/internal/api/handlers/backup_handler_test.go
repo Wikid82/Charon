@@ -207,6 +207,14 @@ func TestBackupLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, restoreResult, "restart_required")
 	require.Contains(t, restoreResult, "live_rehydrate_applied")
+	// RestoreBackupSafe always creates a "pre_restore" safety snapshot (S1)
+	// before applying the restore, so it must be cleaned up alongside the
+	// original backup below or the list-should-be-empty assertion in step 7
+	// would depend on it coincidentally sharing the same second-granularity
+	// timestamp as the original backup (see randomFilenameSuffix in
+	// backup_service.go, which now makes that collision impossible).
+	preRestoreBackup, _ := restoreResult["pre_restore_backup"].(string)
+	require.NotEmpty(t, preRestoreBackup)
 
 	// 5. Download backup
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/backups/"+filename+"/download", http.NoBody)
@@ -216,8 +224,13 @@ func TestBackupLifecycle(t *testing.T) {
 	// Content-Type might vary depending on implementation (application/octet-stream or zip)
 	// require.Equal(t, "application/zip", resp.Header().Get("Content-Type"))
 
-	// 6. Delete backup
+	// 6. Delete backup (and the pre_restore safety snapshot it left behind)
 	req = httptest.NewRequest(http.MethodDelete, "/api/v1/backups/"+filename, http.NoBody)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/backups/"+preRestoreBackup, http.NoBody)
 	resp = httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)

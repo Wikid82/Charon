@@ -251,6 +251,32 @@ func TestRestoreBackupSafe_ConcurrentRestore_SecondRequestGetsInProgress(t *test
 	assert.True(t, errors.Is(err, ErrBackupInProgress))
 }
 
+// TestCreateBackupWithOptions_SameSecond_NeverCollide proves two backups
+// created back-to-back within the same wall-clock second (the exact
+// sequence RestoreBackupSafe triggers: a manual backup immediately followed
+// by its internal "pre_restore" safety snapshot, S1) get distinct filenames
+// and never silently overwrite one another's archive on disk. Before
+// randomFilenameSuffix was added, both backups shared the same
+// second-granularity timestamp filename and the second write clobbered the
+// first — masked in fast local runs but exposed on slower CI runners.
+func TestCreateBackupWithOptions_SameSecond_NeverCollide(t *testing.T) {
+	svc := newHardeningTestService(t)
+
+	first, err := svc.CreateBackupWithOptions(BackupOptions{Type: "manual"})
+	require.NoError(t, err)
+	second, err := svc.CreateBackupWithOptions(BackupOptions{Type: "pre_restore"})
+	require.NoError(t, err)
+
+	require.NotEqual(t, first.Filename, second.Filename)
+
+	firstPath := filepath.Join(svc.BackupDir, first.Filename)
+	secondPath := filepath.Join(svc.BackupDir, second.Filename)
+	_, err = os.Stat(firstPath)
+	require.NoError(t, err, "first backup archive must still exist on disk")
+	_, err = os.Stat(secondPath)
+	require.NoError(t, err, "second backup archive must still exist on disk")
+}
+
 // TestSetRemoteUploadHookAndCaddyReloader exercise the small setter methods
 // wiring optional collaborators into BackupService.
 func TestSetRemoteUploadHookAndCaddyReloader(t *testing.T) {

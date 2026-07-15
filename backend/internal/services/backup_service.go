@@ -3,6 +3,7 @@ package services
 import (
 	"archive/zip"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -509,6 +510,19 @@ func isBackupArchiveFilename(name string) bool {
 	return strings.HasSuffix(name, ".zip") || strings.HasSuffix(name, ".zip.age")
 }
 
+// randomFilenameSuffix returns a short random hex string appended to backup
+// filenames so two backups created within the same wall-clock second (e.g. a
+// manual backup immediately followed by RestoreBackupSafe's internal
+// pre_restore safety snapshot, S1) never collide on the second-granularity
+// timestamp and silently overwrite each other's archive on disk.
+func randomFilenameSuffix() (string, error) {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("read random bytes: %w", err)
+	}
+	return hex.EncodeToString(b), nil
+}
+
 // BackupOptions configures a single CreateBackupWithOptions call (spec §3.2).
 type BackupOptions struct {
 	// Type identifies why the backup is being created:
@@ -590,7 +604,11 @@ func (s *BackupService) createBackupLocked(opts BackupOptions) (*models.BackupRe
 	}
 
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
-	baseFilename := fmt.Sprintf("backup_%s.zip", timestamp)
+	suffix, sfxErr := randomFilenameSuffix()
+	if sfxErr != nil {
+		return nil, fmt.Errorf("generate unique backup filename: %w", sfxErr)
+	}
+	baseFilename := fmt.Sprintf("backup_%s-%s.zip", timestamp, suffix)
 	zipPath := filepath.Join(s.BackupDir, baseFilename)
 
 	manifest := &BackupManifest{
