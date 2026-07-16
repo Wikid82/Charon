@@ -21,7 +21,7 @@
 
 ## 1. Introduction
 
-### 1.1 Overview
+### 1.1 Objective
 
 PR #1136 (`feature/backuprestore`) already passed a full Definition-of-Done QA pass (`docs/reports/qa_report.md`, 2026-07-13, **READY TO MERGE**). The user deliberately held the merge to soak the branch and commissioned a second, adversarial audit (`docs/reports/pre_merge_audit_2026-07-14.md`, 2026-07-14) specifically hunting for defects that pass today's CI gates but would only surface in production — especially during a real restore under stress. That audit found one **Critical**, two **High**, and identified a "Restore Reliability" bucket as the user's top concern.
 
@@ -37,7 +37,7 @@ This plan implements fixes/tests for exactly five of those findings, in priority
 
 C1 and H1 are **coupled by the audit's own analysis**: H1's non-transactional swap is *why* C1's rehydrate-failure path exists in the first place, and fixing C1's reporting alone (without H1) would only make the failure "loud" for a half-applied live database that can still occur. Per the task brief, this plan treats them as one tightly-sequenced unit (§6, Commits 4+5) — they must never land independently of each other.
 
-### 1.2 Objectives
+### 1.2 Non-goals
 
 - **O1 (C1):** `RestoreBackupSafe` must never return `(result, nil)` with a "success" message when the restore did not actually complete. The double-failure branch must return a real, non-nil `error`, mapped by the handler to a 5xx, surfaced honestly to the operator.
 - **O2 (H1):** `RehydrateLiveDatabase`'s per-table swap must be atomic. A mid-loop failure must roll the live database back to its exact pre-rehydrate state — never a mixed old/new/empty state — regardless of how the failure is subsequently reported.
@@ -45,14 +45,14 @@ C1 and H1 are **coupled by the audit's own analysis**: H1's non-transactional sw
 - **O4 (M4):** Prove `CleanupOldBackups` never deletes a `pre_restore`-type backup, regardless of age or retention count, when `s.db` is wired.
 - **O5 (M5):** Prove `computeEncryptionKeyRequired` returns `true` when encrypted-secret-bearing rows exist, and that this propagates end-to-end into `BackupManifest.EncryptionKeyRequired` and `ValidateBackup`'s response.
 
-### 1.3 Non-Goals
+### 1.3 Why this is safe / low-risk
 
 - No fixes for M1 (Google Drive SSRF on `Location` header), M2 (OAuth token-refresh context/timeout), M3 (error-body leakage), H3 (OAuth token-refresh concurrency), or the L1-L4/lint/DRY findings — see §8.
 - No new database migrations, models, or GORM schema changes — this is a bug-fix/test-coverage plan against existing code.
 - No new REST endpoints. One existing endpoint's error-response shape gains one new `error_code` value (§3.3).
 - No change to the V1-V6 validation pipeline's overall structure, S1 pre-restore-backup mechanics, A1 apply-and-rollback (F2) mechanics, or R1 Caddy-reload mechanics — only the specific branches named above.
 
----
+**Note on a related, distinct prior finding — requires an erratum, not just a mention**: `docs/security/vulnerability-analysis-2026-06-26.md` documents a *separate* instance of this same CVE ID for `backend/go.mod`'s indirect `golang.org/x/sys` dependency (resolved at `v0.46.0` via transitive upgrade, no action needed there). That document's "Decision" and "Reported vs Actual Version" sections went further, though, and concluded the `v0.13.0` Trivy finding was a **"scanner false positive"** caused by a stale SBOM/cache snapshot, recommending an SBOM regeneration. That conclusion is factually wrong, not merely superseded: `v0.13.0` was a real, correctly-scanned version — of `/usr/sbin/gosu` (vendored via upstream `tianon/gosu@1.17`'s own `go.sum`), a binary that investigation never checked because it stopped after confirming `backend/go.mod`. **Required action** (see Section 3.3 for exact placement): append a dated `## Erratum (2026-07-16)` section to the *end* of the existing `docs/security/vulnerability-analysis-2026-06-26.md` file itself — do not just describe the distinction in the new doc — stating plainly that the "scanner false positive" claim was incorrect, explaining the real two-location split (backend/go.mod vs. gosu-builder's vendored go.sum), and linking to the new `2026-07-16` doc.
 
 ## 2. Research Findings
 
@@ -189,6 +189,13 @@ This was verified directly (not assumed) using a throwaway probe against `mattn/
 - `frontend/src/hooks/useBackups.ts:51-60` (`useRestoreBackup`) — no change needed. It's a thin TanStack Query wrapper; `mutationFn` already propagates any thrown/rejected error to the caller's `onError`.
 - `frontend/src/api/backups.ts:63-72` (`RestoreResult` interface) — **no new field needed**. See §3.2 for the reasoning: the double-failure case now returns `(nil, error)` from the Go layer, which the handler serializes as `gin.H{"error":..., "error_code":...}`, never as a `RestoreResult` body — so the TS interface describing the *success* body doesn't need to change to describe a failure.
 
+```yaml
+---
+post_title: "GO-2026-5024 / CVE-2026-39824 Remediation: golang.org/x/sys in gosu-builder Stage"
+categories: ["security", "dependency", "docker"]
+tags: ["go-2026-5024", "cve-2026-39824", "golang.org/x/sys", "gosu", "docker-build", "scanner-hygiene"]
+summary: "Pinned golang.org/x/sys to v0.46.0 during the gosu-builder Dockerfile stage to resolve a Grype-flagged low-severity CVE in gosu's vendored dependency, matching the same version already used by the Delve stage for this advisory. Windows-only vulnerable code path is never compiled for this Linux-only binary; fix applied for scanner hygiene."
+post_date: "2026-07-16"
 ---
 
 ## 3. Technical Specifications

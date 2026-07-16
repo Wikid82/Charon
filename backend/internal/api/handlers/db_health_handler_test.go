@@ -121,6 +121,9 @@ func TestDBHealthHandler_Check_WALMode(t *testing.T) {
 
 	db, err := database.Connect(dbPath)
 	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	defer func() { _ = sqlDB.Close() }()
 
 	handler := NewDBHealthHandler(db, nil)
 

@@ -288,7 +288,7 @@ jobs:
       - name: Install Grype
         if: steps.set-target.outputs.image_name != ''
         run: |
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.115.0
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.116.0
 
       - name: Scan for vulnerabilities
         if: steps.set-target.outputs.image_name != ''
@@ -365,7 +365,7 @@ jobs:
 
       - name: Upload SARIF to GitHub Security
         if: steps.set-target.outputs.image_name != ''
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4
+        uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4
         continue-on-error: true
         with:
           sarif_file: grype-results.sarif
