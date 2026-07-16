@@ -12,11 +12,11 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/services"
-	_ "github.com/mattn/go-sqlite3"
 )
 
 // TestBackupHandler_RespondCreateError_ConcurrentInProgress_Returns409 and
@@ -116,7 +116,7 @@ func setupBackupTest(t *testing.T) (*gin.Engine, *services.BackupService, string
 	require.NoError(t, err)
 
 	dbPath := filepath.Join(dataDir, "charon.db")
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open(sqlite.DriverName, dbPath)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_ = db.Close()

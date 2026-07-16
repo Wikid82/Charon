@@ -26,10 +26,9 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/util"
 	"github.com/Wikid82/charon/backend/internal/version"
+	"github.com/glebarez/sqlite"
 	"github.com/robfig/cron/v3"
 	"gorm.io/gorm"
-
-	_ "github.com/mattn/go-sqlite3"
 )
 
 // Sentinel errors surfaced by CreateBackupWithOptions / RestoreBackupSafe so
@@ -198,7 +197,7 @@ func (s *BackupService) SetCaddyReloader(reloader CaddyReloader) {
 }
 
 func checkpointSQLiteDatabase(dbPath string) error {
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open(sqlite.DriverName, dbPath)
 	if err != nil {
 		return fmt.Errorf("open sqlite database for checkpoint: %w", err)
 	}
@@ -214,7 +213,7 @@ func checkpointSQLiteDatabase(dbPath string) error {
 }
 
 func createSQLiteSnapshot(dbPath string) (snapshotPath string, cleanup func(), err error) {
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open(sqlite.DriverName, dbPath)
 	if err != nil {
 		return "", nil, fmt.Errorf("open sqlite database for snapshot: %w", err)
 	}

@@ -18,6 +18,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/util"
 	"github.com/Wikid82/charon/backend/internal/version"
+	"github.com/glebarez/sqlite"
 )
 
 // RestoreResult is the outcome of RestoreBackupSafe, serialized directly by
@@ -477,7 +478,7 @@ func verifyManifestChecksums(archivePath string, manifest *BackupManifest) error
 // tables, so a restore is rejected before any live mutation if the
 // extracted file isn't actually a Charon database.
 func sanityCheckSQLiteFile(dbPath string) error {
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open(sqlite.DriverName, dbPath)
 	if err != nil {
 		return fmt.Errorf("open extracted database: %w", err)
 	}

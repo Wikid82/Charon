@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/glebarez/sqlite"
 )
 
 // ApplyPendingRestore consumes the durable pending-restore marker written by
@@ -81,7 +81,7 @@ func ApplyPendingRestore(dbPath string) error {
 // sqliteIntegrityCheck runs PRAGMA integrity_check against the sqlite file
 // at path and returns an error unless the result is exactly "ok".
 func sqliteIntegrityCheck(path string) error {
-	db, err := sql.Open("sqlite3", path)
+	db, err := sql.Open(sqlite.DriverName, path)
 	if err != nil {
 		return fmt.Errorf("open pending-restore database: %w", err)
 	}
@@ -105,7 +105,7 @@ func sqliteIntegrityCheck(path string) error {
 // intentionally swallowed: this is a UX nicety for the backup history list,
 // never a reason to fail or block startup.
 func markPendingRestoreOutcome(dbPath, status string) {
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open(sqlite.DriverName, dbPath)
 	if err != nil {
 		return
 	}
