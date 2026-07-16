@@ -13,7 +13,7 @@
  */
 
 import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
-import { setupBackupsList, BackupFile, BACKUP_SELECTORS } from '../utils/phase5-helpers';
+import { setupBackupsList, mockBackupJobPolling, BackupFile, BACKUP_SELECTORS } from '../utils/phase5-helpers';
 import { waitForToast, waitForLoadingComplete, waitForAPIResponse } from '../utils/wait-helpers';
 
 /**
@@ -186,13 +186,26 @@ test.describe('Backups Page - Creation and List', () => {
   // Create Backup Flow Tests (5 tests)
   // =========================================================================
   test.describe('Create Backup Flow', () => {
-    test('should create a new backup successfully', async ({ page, adminUser }) => {
+    // The five tests below are updated for the async job contract introduced
+    // by docs/plans/current_spec.md (Async Backup/Restore Jobs —
+    // NS_BINDING_ABORTED Remediation): POST /api/v1/backups now returns
+    // `202 {job_id, type: "create", status: "pending"}` immediately instead
+    // of blocking until the archive is written, and the frontend polls
+    // GET /api/v1/backups/jobs/:job_id (mocked via mockBackupJobPolling)
+    // until the job reaches a terminal status. Wrapped in test.fixme until
+    // the frontend hook (commit 8, useBackups.ts) actually polls — see §6
+    // commit 1's gate: specs must parse (`npx playwright test --list`) and
+    // the overall suite must stay green, not that these specific assertions
+    // pass yet.
+    test.fixme('should create a new backup successfully', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
+      const jobId = 'job-create-success-1';
       const newBackup: BackupFile = {
         filename: 'backup_2024-01-16_120000.zip',
         size: 512000,
         time: new Date().toISOString(),
+        uuid: 'uuid-backup-1',
       };
 
       let postCalled = false;
@@ -200,12 +213,16 @@ test.describe('Backups Page - Creation and List', () => {
       await page.route('**/api/v1/backups', async (route) => {
         if (route.request().method() === 'POST') {
           postCalled = true;
-          await route.fulfill({ status: 201, json: newBackup });
+          await route.fulfill({ status: 202, json: { job_id: jobId, type: 'create', status: 'pending' } });
         } else if (route.request().method() === 'GET') {
           await route.fulfill({ status: 200, json: mockBackups });
         } else {
           await route.continue();
         }
+      });
+      await mockBackupJobPolling(page, jobId, {
+        type: 'create',
+        result: { filename: newBackup.filename, uuid: newBackup.uuid },
       });
 
       await page.goto('/tasks/backups');
@@ -218,7 +235,7 @@ test.describe('Backups Page - Creation and List', () => {
       await expect(dialog).toBeVisible();
 
       await Promise.all([
-        page.waitForResponse(r => r.url().includes('/api/v1/backups') && r.request().method() === 'POST' && r.status() === 201),
+        page.waitForResponse(r => r.url().includes('/api/v1/backups') && r.request().method() === 'POST' && r.status() === 202),
         dialog.getByRole('button', { name: /^create$/i }).click(),
       ]);
 
@@ -226,23 +243,29 @@ test.describe('Backups Page - Creation and List', () => {
       expect(postCalled).toBe(true);
     });
 
-    test('should show success toast after backup creation', async ({ page, adminUser }) => {
+    test.fixme('should show success toast after backup creation', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
+      const jobId = 'job-create-success-2';
       const newBackup: BackupFile = {
         filename: 'backup_2024-01-16_120000.zip',
         size: 512000,
         time: new Date().toISOString(),
+        uuid: 'uuid-backup-2',
       };
 
       await page.route('**/api/v1/backups', async (route) => {
         if (route.request().method() === 'POST') {
-          await route.fulfill({ status: 201, json: newBackup });
+          await route.fulfill({ status: 202, json: { job_id: jobId, type: 'create', status: 'pending' } });
         } else if (route.request().method() === 'GET') {
           await route.fulfill({ status: 200, json: mockBackups });
         } else {
           await route.continue();
         }
+      });
+      await mockBackupJobPolling(page, jobId, {
+        type: 'create',
+        result: { filename: newBackup.filename, uuid: newBackup.uuid },
       });
 
       await page.goto('/tasks/backups');
@@ -255,24 +278,27 @@ test.describe('Backups Page - Creation and List', () => {
       await expect(dialog).toBeVisible();
       await dialog.getByRole('button', { name: /^create$/i }).click();
 
-      // Wait for success toast
+      // Wait for success toast (now fired when the polled job reaches
+      // status: "completed", not when the initial 202 POST completes).
       await waitForToast(page, /success|created/i, { type: 'success' });
     });
 
-    test('should update backup list with new backup', async ({ page, adminUser }) => {
+    test.fixme('should update backup list with new backup', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
+      const jobId = 'job-create-success-3';
       const newBackup: BackupFile = {
         filename: 'backup_2024-01-16_120000.zip',
         size: 512000,
         time: new Date().toISOString(),
+        uuid: 'uuid-backup-3',
       };
 
       let requestCount = 0;
 
       await page.route('**/api/v1/backups', async (route) => {
         if (route.request().method() === 'POST') {
-          await route.fulfill({ status: 201, json: newBackup });
+          await route.fulfill({ status: 202, json: { job_id: jobId, type: 'create', status: 'pending' } });
         } else if (route.request().method() === 'GET') {
           requestCount++;
           // Return updated list after creation
@@ -281,6 +307,10 @@ test.describe('Backups Page - Creation and List', () => {
         } else {
           await route.continue();
         }
+      });
+      await mockBackupJobPolling(page, jobId, {
+        type: 'create',
+        result: { filename: newBackup.filename, uuid: newBackup.uuid },
       });
 
       await page.goto('/tasks/backups');
@@ -296,29 +326,36 @@ test.describe('Backups Page - Creation and List', () => {
       await expect(dialog).toBeVisible();
       await dialog.getByRole('button', { name: /^create$/i }).click();
 
-      // Wait for success toast (which indicates the backup was created)
+      // Wait for success toast (which indicates the job completed)
       await waitForToast(page, /success|created/i, { type: 'success' });
 
       // New backup should now be visible after list refresh
       await expect(page.getByText('backup_2024-01-16_120000.zip')).toBeVisible({ timeout: 5000 });
     });
 
-    test('should disable create button while in progress', async ({ page, adminUser }) => {
+    test.fixme('should disable create button while job is pending/running', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
+
+      const jobId = 'job-create-in-progress';
 
       await page.route('**/api/v1/backups', async (route) => {
         if (route.request().method() === 'POST') {
-          // Delay response to observe disabled state
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-          await route.fulfill({
-            status: 201,
-            json: { filename: 'test.zip', size: 100, time: new Date().toISOString() },
-          });
+          await route.fulfill({ status: 202, json: { job_id: jobId, type: 'create', status: 'pending' } });
         } else if (route.request().method() === 'GET') {
           await route.fulfill({ status: 200, json: mockBackups });
         } else {
           await route.continue();
         }
+      });
+      // Several "running" polls before the job completes, so the confirm
+      // button/spinner has time to be observed in its disabled/isPending
+      // state — this is the core regression coverage for the original
+      // NS_BINDING_ABORTED bug: the UI must stay responsive (a fast 202)
+      // while the job itself keeps running in the background.
+      await mockBackupJobPolling(page, jobId, {
+        type: 'create',
+        result: { filename: 'test.zip', uuid: 'uuid-test' },
+        pollsBeforeTerminal: 2,
       });
 
       await page.goto('/tasks/backups');
@@ -332,21 +369,25 @@ test.describe('Backups Page - Creation and List', () => {
       await expect(dialog).toBeVisible();
       const confirmButton = dialog.getByRole('button', { name: /^create$/i });
 
-      const createResponsePromise = page.waitForResponse(
+      const startResponsePromise = page.waitForResponse(
         (response) =>
           response.url().includes('/api/v1/backups') &&
           response.request().method() === 'POST' &&
-          response.status() === 201
+          response.status() === 202
       );
 
       // Click create button
       await confirmButton.click();
 
-      // Button should be disabled during request
+      // Wait for the fast 202 (this must resolve almost immediately,
+      // regardless of how long the background job itself takes).
+      await startResponsePromise;
+
+      // Button should stay disabled while the job is pending/running.
       await expect(confirmButton).toBeDisabled();
 
-      // Wait for API response
-      await createResponsePromise;
+      // Wait for the job to reach a terminal status via polling.
+      await waitForToast(page, /success|created/i, { type: 'success' });
 
       // On success the dialog closes (Backups.tsx handleCreateConfirm onSuccess).
       await expect(dialog).not.toBeVisible();

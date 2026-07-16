@@ -152,6 +152,90 @@ export interface SecurityLogEntry {
 // ============================================================================
 
 /**
+ * BackupJobStartResponse mirrors the backend's new 202 body for
+ * POST /api/v1/backups and POST /api/v1/backups/:filename/restore
+ * (docs/plans/current_spec.md §3.2.1/§3.2.2 — Async Backup/Restore Jobs).
+ */
+export interface BackupJobStartResponse {
+  job_id: string;
+  type: 'create' | 'restore';
+  status: 'pending';
+}
+
+/**
+ * BackupJobPollResponse mirrors GET /api/v1/backups/jobs/:job_id (spec
+ * §3.2.3).
+ */
+export interface BackupJobPollResponse {
+  job_id: string;
+  type: 'create' | 'restore';
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  stage?: string;
+  created_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  result?: unknown;
+  error?: { message: string; error_code?: string } | null;
+}
+
+/**
+ * Mocks GET /api/v1/backups/jobs/:job_id so it reports "running" for the
+ * first `pollsBeforeTerminal` polls, then reports a terminal
+ * "completed"/"failed" status carrying `result`/`error` (spec §3.2.3). Used
+ * alongside a mocked POST /api/v1/backups or
+ * POST /api/v1/backups/:filename/restore route that returns
+ * BackupJobStartResponse's 202 body with a matching jobId, so tests can
+ * exercise the new async job-polling contract without a real backend.
+ */
+export async function mockBackupJobPolling(
+  page: Page,
+  jobId: string,
+  options: {
+    type: 'create' | 'restore';
+    result?: unknown;
+    error?: { message: string; error_code?: string };
+    pollsBeforeTerminal?: number;
+    stage?: string;
+  }
+): Promise<void> {
+  let pollCount = 0;
+  const pollsBeforeTerminal = options.pollsBeforeTerminal ?? 1;
+
+  await page.route(`**/api/v1/backups/jobs/${jobId}`, async (route) => {
+    pollCount += 1;
+    const terminal = pollCount > pollsBeforeTerminal;
+    const base = {
+      job_id: jobId,
+      type: options.type,
+      created_at: new Date().toISOString(),
+      started_at: new Date().toISOString(),
+    };
+
+    if (!terminal) {
+      const running: BackupJobPollResponse = {
+        ...base,
+        status: 'running',
+        stage: options.stage ?? (options.type === 'create' ? 'archiving_files' : 'applying_files'),
+        finished_at: null,
+        result: null,
+        error: null,
+      };
+      await route.fulfill({ status: 200, json: running });
+      return;
+    }
+
+    const terminalResponse: BackupJobPollResponse = {
+      ...base,
+      status: options.error ? 'failed' : 'completed',
+      finished_at: new Date().toISOString(),
+      result: options.error ? null : options.result ?? null,
+      error: options.error ?? null,
+    };
+    await route.fulfill({ status: 200, json: terminalResponse });
+  });
+}
+
+/**
  * Sets up mock backup list for testing
  */
 export async function setupBackupsList(page: Page, backups?: BackupFile[]): Promise<void> {
