@@ -1,428 +1,243 @@
-# Fix: Flaky `TestMigrateCommand_Succeeds` TempDir Cleanup Race in `backend/cmd/api`
+# Infra Fix: Pin `gosu`'s `golang.org/x/sys` to v0.46.0 (GO-2026-5024 / CVE-2026-39824)
 
-**Author:** Planning Agent
-**Date:** 2026-07-01
-**Branch:** development
-**Scope:** Backend test-only fix, `backend/cmd/api` (+ small exported test helper in `backend/internal/database`)
-**Related:** Triggered by `scripts/dep_update.sh` bumping `github.com/klauspost/cpuid/v2` (v2.3.0 → v2.4.0) and `github.com/prometheus/procfs` (v0.21.0 → v0.21.1) in `backend/go.mod`/`backend/go.sum` (already staged, NOT part of this fix's commit).
-
----
-
-## Table of Contents
-
-1. [Introduction](#1-introduction)
-2. [Research Findings](#2-research-findings)
-3. [Technical Specifications](#3-technical-specifications)
-4. [Implementation Plan](#4-implementation-plan)
-5. [Acceptance Criteria](#5-acceptance-criteria)
-6. [Commit Slicing Strategy](#6-commit-slicing-strategy)
+**Type**: Infra / supply-chain hygiene fix (NOT a feature — reduced scope, see `Scope & Definition of Done` below)
+**Branch**: `development` (current working branch; no worktree, no new branch, per `CLAUDE.md`)
+**Target commit count**: 1 (single commit; see Commit Slicing Strategy)
+**Owner (implementation)**: `devops` agent
+**Owner (docs polish, optional)**: `docs-writer` agent
+**Review**: `supervisor` agent after implementation
 
 ---
 
 ## 1. Introduction
 
-### 1.1 Overview
+### 1.1 Objective
 
-`scripts/dep_update.sh`'s validation step (`go test ./...`) failed after bumping two **indirect** dependencies:
+Grype / GitHub security scanning flags `GO-2026-5024` (`CVE-2026-39824`) inside the Charon container image, pointing at `golang.org/x/sys` embedded in `/usr/sbin/gosu`. `gosu` is already built from source in the `gosu-builder` Dockerfile stage specifically to dodge CVEs baked into Debian's precompiled binary (see `Dockerfile:62-65`). The scanner is picking up the version of `golang.org/x/sys` that upstream `tianon/gosu@1.17` pins in its own `go.mod`/`go.sum` (`v0.13.0`), not anything Charon's own Go modules pull in.
 
-```
---- FAIL: TestMigrateCommand_Succeeds (0.10s)
-    testing.go:1464: TempDir RemoveAll cleanup: unlinkat /tmp/TestMigrateCommand_Succeeds.../001/data: directory not empty
-FAIL    github.com/Wikid82/charon/backend/cmd/api    0.635s
-```
+The objective of this change is narrow: force the `golang.org/x/sys` dependency resolved during the `gosu-builder` stage's build up to **`v0.46.0`**, so the scanner stops flagging the image, while leaving `gosu`'s own release version (`GOSU_VERSION=1.17`) untouched.
 
-This is a **pre-existing, intermittent (racy) test bug** in `backend/cmd/api/main_test.go`, unrelated to the two dependency bumps. This plan documents the confirmed root cause and specifies an exact, minimal, root-cause fix.
+**Why v0.46.0 and not the advisory's minimum fix version (v0.44.0)**: the authoritative GO-2026-5024 advisory (confirmed against `vuln.go.dev/ID/GO-2026-5024.json`) fixes the vulnerability at `v0.44.0`. However, this same Dockerfile already has an established, unrelated precedent for handling `golang.org/x/sys` version pins: the Delve (`dlv`) debug-binary stage (`Dockerfile:186-211`) runs `go get golang.org/x/sys@v0.46.0` in its own temp module (`Dockerfile:199`) for debug builds. Pinning the `gosu-builder` stage to the same `v0.46.0` (rather than the bare-minimum `v0.44.0`) keeps a single consistent "patched x/sys version" convention across the file, comfortably clears the `v0.44.0` fix floor, and avoids having two different pinned versions for the same advisory living a few dozen lines apart for no functional reason.
 
-### 1.2 Objectives
+### 1.2 Non-goals
 
-1. Confirm (not assume) the root cause of the `TempDir RemoveAll cleanup: ... directory not empty` failure.
-2. Confirm the two staged dependency bumps (`cpuid/v2`, `procfs`) are not implicated.
-3. Inventory every test in `backend/cmd/api` (and note related occurrences elsewhere) that opens a DB connection via `database.Connect` without deterministically closing/synchronizing it.
-4. Specify the exact code changes needed to eliminate the race, reusing the codebase's own existing, documented convention for this exact problem (`internal/database/database_test.go`'s `TestMain`).
-5. Define a single, scoped, low-risk commit and a validation plan appropriate for a backend-test-only change.
+- This is **not** a `GOSU_VERSION` bump. Upstream tag `1.19` was checked and rejected: its `go.mod` pins `golang.org/x/sys` at the older `v0.1.0`, which is a regression, not a fix.
+- This does **not** touch `backend/`, `frontend/`, `internal/models`, migrations, or any application code. It is a Dockerfile change (one new pin in `gosu-builder`, plus two comment corrections in the unrelated Delve stage — see 1.4) plus documentation.
+- This does **not** invoke the full application Definition of Done (no Playwright E2E, no 85% coverage gate, no frontend type-check — see `Scope & Definition of Done` below for the reduced gate set that applies instead).
 
-### 1.3 Non-Goals
+### 1.3 Why this is safe / low-risk
 
-- Does **not** touch `backend/go.mod` / `backend/go.sum` (already staged separately by the user; not part of this commit).
-- Does **not** change any production runtime behavior — `backend/internal/database/database.go`'s `Connect()` behavior for the actual running server is unchanged (background integrity check remains async in production; only test binaries opt into synchronous mode).
-- Does **not** fix the same *latent* pattern found in `backend/internal/api/handlers/db_health_handler_test.go` and `backend/internal/server/emergency_server_test.go` (see §2.4) — flagged as a follow-up, deliberately out of scope to keep this commit small (see §6).
+The vulnerable code (`NewNTUnicodeString` string-length overflow, fixed in `x/sys v0.44.0`) lives entirely in `golang.org/x/sys/windows`. `gosu` is a Unix-only tool, and the Charon image only ever cross-compiles Linux targets in this stage (`CGO_ENABLED=0 xx-go build`, `Dockerfile:98`). Go's build-constraint system (`GOOS`-gated files) means the Windows-only source file is never compiled into the binary Charon ships. Real-world exploitability is effectively zero — this is a scanner limitation (dependency-graph/go.sum version scanning does not evaluate `GOOS` build tags), not a live vulnerability. It is still worth fixing because it is cheap, keeps automated scanning quiet, and avoids repeatedly re-triaging the same non-issue.
 
----
+**Note on a related, distinct prior finding — requires an erratum, not just a mention**: `docs/security/vulnerability-analysis-2026-06-26.md` documents a *separate* instance of this same CVE ID for `backend/go.mod`'s indirect `golang.org/x/sys` dependency (resolved at `v0.46.0` via transitive upgrade, no action needed there). That document's "Decision" and "Reported vs Actual Version" sections went further, though, and concluded the `v0.13.0` Trivy finding was a **"scanner false positive"** caused by a stale SBOM/cache snapshot, recommending an SBOM regeneration. That conclusion is factually wrong, not merely superseded: `v0.13.0` was a real, correctly-scanned version — of `/usr/sbin/gosu` (vendored via upstream `tianon/gosu@1.17`'s own `go.sum`), a binary that investigation never checked because it stopped after confirming `backend/go.mod`. **Required action** (see Section 3.3 for exact placement): append a dated `## Erratum (2026-07-16)` section to the *end* of the existing `docs/security/vulnerability-analysis-2026-06-26.md` file itself — do not just describe the distinction in the new doc — stating plainly that the "scanner false positive" claim was incorrect, explaining the real two-location split (backend/go.mod vs. gosu-builder's vendored go.sum), and linking to the new `2026-07-16` doc.
 
-## 2. Research Findings
+### 1.4 Related fix folded into this commit: stale CVE-description comments in the Delve stage
 
-### 2.1 What `database.Connect` actually does
+While researching this fix, comments were found at `Dockerfile:189` and `Dockerfile:751-754` — both in the **unrelated** Delve (`dlv`) debug-binary stage, not the `gosu-builder` stage — that reference "GO-2026-5024" but describe the vulnerable range inaccurately as "< v0.27.0" / "v0.26.0". The real advisory (confirmed against the official Go vulnerability database) is `golang.org/x/sys/windows`'s `NewNTUnicodeString` string-length overflow, fixed in `v0.44.0+`, with no `v0.27.0`/`v0.26.0` boundary anywhere in the authoritative record. This is stale/inaccurate comment text, not a functional defect: the Delve stage's actual code (`go get golang.org/x/sys@v0.46.0`, originally at `Dockerfile:199` before this commit's insertion shifts line numbers) already resolves well above the real fix version, and production builds ship a stub instead of the real `dlv` binary regardless, so nothing vulnerable ever ships either way.
 
-`backend/internal/database/database.go`:
-
-```go
-// launchQuickCheck is called by Connect to run the integrity check goroutine.
-// Tests override this with a synchronous version to avoid cleanup races.
-var launchQuickCheck = func(dbPath string) { go runQuickCheck(dbPath) }   // line 19
-
-func Connect(dbPath string) (*gorm.DB, error) {
-    db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{...})          // line 26
-    ...
-    sqlDB, err := db.DB()
-    configurePool(sqlDB)                                                 // MaxOpenConns=1, MaxIdleConns=1
-    ...
-    // pragmas: journal_mode=WAL, busy_timeout=5000, synchronous=NORMAL, cache_size=-64000
-    ...
-    launchQuickCheck(dbPath)   // line 76 — spawns `go runQuickCheck(dbPath)` by default
-    return db, nil
-}
-
-func runQuickCheck(dbPath string) {   // line 85
-    checkDB, err := sql.Open(sqlite.DriverName, dbPath)   // a SEPARATE, independent connection
-    ...
-    defer checkDB.Close()
-    checkDB.QueryRow("PRAGMA quick_check").Scan(&quickCheckResult)
-    ...
-}
-```
-
-Key facts:
-
-- `Connect()` returns a `*gorm.DB` opened in **WAL mode** with a pool capped at 1 open/1 idle connection.
-- Every successful `Connect()` call **also** spawns a background goroutine (`go runQuickCheck(dbPath)`) that opens its **own independent** `*sql.DB` handle to the same file path (not sharing the gorm pool) and runs `PRAGMA quick_check` before closing that handle.
-- This goroutine is **untracked** — `Connect()` does not wait for it, expose a handle to it, or provide any way for a caller to know when it has finished. It is fire-and-forget by design (comment at line 74: "on its own connection... never blocks startup or migrations").
-
-### 2.2 The package already documents and fixes this exact race — for itself only
-
-`backend/internal/database/database_test.go`:
-
-```go
-func TestMain(m *testing.M) {
-    // Run quick_check synchronously in tests so it completes before t.TempDir
-    // cleanup runs. The goroutine version creates a race: the background
-    // connection may still hold WAL/SHM files open when the temp dir is removed.
-    launchQuickCheck = runQuickCheck
-    os.Exit(m.Run())
-}
-```
-
-This confirms, **in the codebase's own words**, that the race is: the background `quick_check` connection can still be reading/writing SQLite WAL/SHM files inside a `t.TempDir()`-managed directory at the moment `t.TempDir()`'s registered cleanup (`os.RemoveAll`) fires when the test function returns, producing exactly the observed `unlinkat ... directory not empty` error (`ENOTEMPTY`, `os.RemoveAll` losing a race against a file being (re)created concurrently).
-
-Critically, `launchQuickCheck` is an **unexported** package-level variable. `database_test.go` is a white-box (`package database`) test file, so it can assign to it directly. **`backend/cmd/api` is a different package and has no `TestMain`**, so it never gets this override — it is fully exposed to the async race the `database` package's own tests were specifically written to avoid.
-
-### 2.3 `backend/cmd/api/main_test.go` — confirmed leak inventory
-
-No test in this file closes the `*gorm.DB` returned by `database.Connect`, and none overrides `launchQuickCheck` (impossible from this package today — see §2.2). Exact call sites:
-
-| Line | Test | Variable | Closed? | Notes |
-|---|---|---|---|---|
-| 34 | `TestResetPasswordCommand_Succeeds` | `db` | No | Used to seed a user, then a subprocess is spawned; `db` handle + its background quick-check goroutine outlive the function body |
-| 82 | `TestMigrateCommand_Succeeds` | `db` | No | Opened to pre-seed an "old" DB before spawning `migrate` subprocess |
-| 111 | `TestMigrateCommand_Succeeds` | `db2` | No | Reconnect after subprocess, to assert migrated tables exist — **this is the connection most likely implicated in the reported failure**, since it is the last DB handle opened in the failing test |
-| 140 | `TestStartupVerification_MissingTables` | `db` | **Yes**, explicitly, at lines 155–156 (`sqlDB, _ := db.DB(); _ = sqlDB.Close()`) | Intentional close+reopen to simulate a startup scenario — leave this pair untouched |
-| 158 | `TestStartupVerification_MissingTables` | `db` (reassigned) | No | The *second* connection (post-reopen) is never closed at test end |
-| 205 | `TestMain_MigrateCommand_InProcess` | `db` | No | Seeds `User` table before calling `main()` in-process |
-| 223 | `TestMain_MigrateCommand_InProcess` | `db2` | No | Reconnect after in-process `main()` call to assert migrated tables |
-| 251 | `TestMain_ResetPasswordCommand_InProcess` | `db` | No | Used through line 278 (`db.Where("email = ?", email).First(&updated)`) after `main()` runs in-process |
-
-`TestMain_DefaultStartupGracefulShutdown_Subprocess` (line 289) and `TestMain_DefaultStartupGracefulShutdown_InProcess` (line 339) do **not** call `database.Connect` directly in test code — they invoke `main()`, which connects internally. They are still exposed to the same async-goroutine race (any `Connect()` call anywhere in the process is affected by the package-level `launchQuickCheck` var), but carry no separate leaked handle to close. The `TestMain` fix in §3 covers them automatically since it is a process-wide override, not a per-call change.
-
-### 2.4 Same pattern found elsewhere (out of scope for this commit — see §1.3/§6)
-
-```
-backend/internal/api/handlers/db_health_handler_test.go:122   db, err := database.Connect(dbPath)   // file-based, t.TempDir(), not closed
-backend/internal/api/handlers/db_health_handler_test.go:205   db, err := database.Connect(dbPath)   // file-based, closed manually at 211-212 (intentional)
-backend/internal/api/handlers/db_health_handler_test.go:218   db2, err := database.Connect(dbPath)  // file-based, not closed
-backend/internal/server/emergency_server_test.go:27           db, err := database.Connect(tmpFile)  // file-based, via setupTestDB helper, not closed
-```
-
-Neither package has a `TestMain` overriding `launchQuickCheck` either. These are latent instances of the identical race; they simply have not (yet) been observed failing in this run. Not modified here — flagged as a follow-up (see §6.5).
-
-### 2.5 Root-cause confirmation: reproduction evidence
-
-Running the specific failing test in isolation is expected to pass most of the time locally (it is a genuine race, not a deterministic failure) — confirmed:
-
-```
-$ go test ./cmd/api/... -run TestMigrateCommand_Succeeds -count=5 -v
---- PASS: TestMigrateCommand_Succeeds (0.06s)   x5
-```
-
-Log ordering across runs shows the two "SQLite database integrity check passed" background-goroutine log lines interleaving unpredictably relative to the "SQLite database connected" lines of subsequent `Connect()` calls — direct evidence the quick-check goroutine is not synchronized with the caller's control flow. The original CI-style failure occurs under `go test ./...` (many packages/tests scheduled concurrently, higher system load), which widens the scheduling window for the background goroutine to still be running when `t.TempDir()`'s `RemoveAll` fires. This is consistent with a scheduler-timing-sensitive race, not a deterministic bug — which is exactly the class of bug `internal/database/database_test.go`'s own `TestMain` comment was written to eliminate.
-
-### 2.6 Dependency bump relevance — confirmed NOT implicated
-
-```
-$ go mod why github.com/klauspost/cpuid/v2
-github.com/Wikid82/charon/backend/cmd/api
-github.com/gin-gonic/gin
-github.com/gin-gonic/gin/codec/json
-github.com/bytedance/sonic
-github.com/bytedance/sonic/ast
-github.com/bytedance/sonic/internal/native
-github.com/bytedance/sonic/internal/cpu
-github.com/klauspost/cpuid/v2
-
-$ go mod why github.com/prometheus/procfs
-github.com/Wikid82/charon/backend/internal/api/routes
-github.com/prometheus/client_golang/prometheus
-github.com/prometheus/procfs
-```
-
-- `cpuid/v2` is pulled in via `gin` → `bytedance/sonic` (gin's optional high-performance JSON codec, CPU feature detection for SIMD dispatch). No relationship to `glebarez/sqlite`, `modernc.org/sqlite`, or `gorm.io/gorm`.
-- `procfs` is pulled in via `prometheus/client_golang` (Prometheus metrics collection). Same — no relationship to the SQLite/GORM dependency chain.
-
-**Conclusion: the two staged dependency bumps are confirmed unrelated.** The `go test ./...` failure is a pre-existing, order/timing-sensitive flaky test that the dependency-bump validation step happened to surface.
+Since this commit is already touching `golang.org/x/sys`/GO-2026-5024 documentation in this file, correct these two comments in the same commit (small, same-file doc fix — not a separate PR) to accurately state: `golang.org/x/sys/windows`, `CVE-2026-39824` (`GO-2026-5024`), `NewNTUnicodeString` string-length overflow, fixed in `v0.44.0+`. Note: because this fix's own `RUN` insertion (Section 3.1) lands *before* the Delve stage in the file, all line numbers below it shift by the size of the inserted block — verify current line numbers before editing rather than trusting the numbers cited in this plan literally.
 
 ---
 
-## 3. Technical Specifications
+## 2. Research Findings (confirmed — not re-derived in this plan)
 
-This is a test-only change. No API contracts, database schema, or production request/response flows are affected. The "component design" here is the test-support surface added to `internal/database` plus the exact edits to `cmd/api`'s test file.
-
-### 3.1 New exported test-support function — `backend/internal/database/database.go`
-
-Add directly below the existing `launchQuickCheck` var declaration (after line 19):
-
-```go
-// SyncIntegrityCheckForTesting forces the background integrity check that
-// Connect launches (see launchQuickCheck) to run synchronously instead of
-// in a goroutine. Callers in other packages' test suites that call Connect
-// against paths under t.TempDir() should invoke this once, from a TestMain,
-// mirroring this package's own TestMain in database_test.go:
-//
-//	func TestMain(m *testing.M) {
-//	    database.SyncIntegrityCheckForTesting()
-//	    os.Exit(m.Run())
-//	}
-//
-// Without this, Connect's background integrity-check connection can still be
-// reading/writing the SQLite WAL/SHM files when a caller's t.TempDir()
-// cleanup (os.RemoveAll) runs after the test returns, which surfaces as an
-// intermittent "TempDir RemoveAll cleanup: ... directory not empty" failure.
-//
-// There is no restore function: Go test binaries are single-process,
-// one-shot invocations (the process exits after m.Run()), so there is
-// nothing to revert before exit — the same reasoning internal/database's
-// own TestMain already relies on.
-//
-// Production code paths are unaffected: Connect's default behavior (async
-// integrity check) is unchanged unless a test explicitly opts in by calling
-// this function.
-func SyncIntegrityCheckForTesting() {
-	launchQuickCheck = runQuickCheck
-}
-```
-
-**Design decision (documented per CLAUDE.md "consider edge cases"):** this small function lives in a regular (non-`_test.go`) file rather than an `export_test.go`, because Go does not compile a package's `_test.go` files into the archive that *other* packages' tests import — `cmd/api`'s test binary needs a genuinely exported symbol to reach across the package boundary. This mirrors common Go idioms for test-support hooks exposed from production packages (e.g. `httptest`), adds a single 3-line function with zero runtime cost unless called, and is never invoked from any non-test code path. Alternative considered and rejected: a build-tag-gated file (`//go:build testhelpers`) — rejected as unnecessary complexity for a 3-line function, and it would require every consumer to remember a non-default build tag, which is easy to silently get wrong (defeats the purpose).
-
-`database_test.go`'s existing `TestMain` is **left as-is** (still assigns `launchQuickCheck = runQuickCheck` directly) rather than rewritten to call the new exported wrapper — it is same-package (white-box) code, the direct assignment is simpler, and changing working, unrelated test code would be scope creep for this fix. Both now encode the same behavior; the new function's doc comment cross-references `database_test.go` explicitly to keep the two in sync conceptually.
-
-### 3.2 `backend/cmd/api/main_test.go` — add `TestMain`
-
-Insert near the top of the file, after the existing `import` block (after line 15, before line 17 `func TestResetPasswordCommand_Succeeds`):
-
-```go
-func TestMain(m *testing.M) {
-	// Force Connect's background integrity check to run synchronously so it
-	// completes before t.TempDir() cleanup (os.RemoveAll) runs. Otherwise the
-	// check's background SQLite connection can still be reading/writing
-	// WAL/SHM files when a test's temp directory is removed, causing
-	// intermittent "TempDir RemoveAll cleanup: ... directory not empty"
-	// failures (see backend/internal/database/database_test.go's TestMain
-	// for the same fix applied to that package's own tests).
-	database.SyncIntegrityCheckForTesting()
-	os.Exit(m.Run())
-}
-```
-
-No new imports are required — `os` (line 6) and `database` (line 13) are already imported in `main_test.go`. This single, process-wide override eliminates the async race for **every** test in the `cmd/api` package, including the subprocess/in-process `main()`-invoking tests (`TestMain_DefaultStartupGracefulShutdown_*`) that call `database.Connect` indirectly through production code, since `launchQuickCheck` is a package-level var affecting all `Connect()` calls within the process — no per-call changes needed for those two tests.
-
-**Subprocess consideration:** `TestResetPasswordCommand_Succeeds`, `TestMigrateCommand_Succeeds`, and `TestMain_DefaultStartupGracefulShutdown_Subprocess` spawn `exec.Command(os.Args[0], "-test.run=...")` to re-invoke the same compiled test binary in a child process. The child process also runs through `TestMain` before `m.Run()` executes the requested test, so the synchronous override applies identically in both the parent test process and any spawned child test process — no special-casing needed.
-
-### 3.3 `backend/cmd/api/main_test.go` — close leaked connections (defense in depth)
-
-Reuses the repository's existing, established pattern (already used in `backend/internal/api/handlers/credential_handler_test.go:42-44`, `logo_handler_test.go:48-50`, `custom_theme_handler_test.go:29-31`, `banner_handler_test.go:47-49`, `pr_coverage_test.go:567-569`, and others):
-
-```go
-t.Cleanup(func() {
-	sqlDB, _ := db.DB()
-	_ = sqlDB.Close()
-})
-```
-
-Per Go's documented `t.Cleanup` LIFO ordering, a cleanup registered *after* `tmp := t.TempDir()` runs *before* `t.TempDir()`'s own cleanup — so this pattern deterministically closes each SQLite connection pool before the temp directory is removed, for every connection opened after the `t.TempDir()` call in each test (true for all cases below). This is secondary/hygiene: it does not by itself fix the async-goroutine race (§3.1/§3.2 does), but it removes leaked GORM connection pools and matches CLAUDE.md's DRY principle (reuse existing convention rather than inventing a new one).
-
-Exact insertion points (variable name substituted per call site):
-
-| Insert after line(s) | Test | Variable |
-|---|---|---|
-| 34–37 | `TestResetPasswordCommand_Succeeds` | `db` |
-| 82–85 | `TestMigrateCommand_Succeeds` | `db` |
-| 111–114 | `TestMigrateCommand_Succeeds` | `db2` |
-| 158–161 | `TestStartupVerification_MissingTables` | `db` (second/reopened connection only — do not touch the first connection's existing manual close at 155–156) |
-| 205–208 | `TestMain_MigrateCommand_InProcess` | `db` |
-| 223–226 | `TestMain_MigrateCommand_InProcess` | `db2` |
-| 251–254 | `TestMain_ResetPasswordCommand_InProcess` | `db` |
-
-Example — `TestMigrateCommand_Succeeds` (lines 81–89 today) becomes:
-
-```go
-	// Create database without security tables
-	db, err := database.Connect(dbPath)
-	if err != nil {
-		t.Fatalf("connect db: %v", err)
-	}
-	t.Cleanup(func() {
-		sqlDB, _ := db.DB()
-		_ = sqlDB.Close()
-	})
-	// Only migrate User table to simulate old database
-	if err = db.AutoMigrate(&models.User{}); err != nil {
-		t.Fatalf("automigrate user: %v", err)
-	}
-```
-
-...and the `db2` reconnect (lines 111–114 today) becomes:
-
-```go
-	// Reconnect and verify security tables were created
-	db2, err := database.Connect(dbPath)
-	if err != nil {
-		t.Fatalf("reconnect db: %v", err)
-	}
-	t.Cleanup(func() {
-		sqlDB, _ := db2.DB()
-		_ = sqlDB.Close()
-	})
-```
-
-### 3.4 New unit test — `backend/internal/database/database_test.go`
-
-Add a small test for the new exported function to satisfy CLAUDE.md's "always create unit tests for new code coverage" and the 85% backend coverage gate:
-
-```go
-func TestSyncIntegrityCheckForTesting(t *testing.T) {
-	t.Parallel()
-
-	// Sanity: the exported wrapper assigns launchQuickCheck to the
-	// synchronous runQuickCheck implementation, and Connect still succeeds
-	// normally afterwards (mirrors what TestMain already does package-wide).
-	SyncIntegrityCheckForTesting()
-
-	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "sync-check.db")
-
-	db, err := Connect(dbPath)
-	require.NoError(t, err)
-	require.NotNil(t, db)
-
-	sqlDB, err := db.DB()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = sqlDB.Close() })
-}
-```
-
-`TestMain` in the same file already forces `launchQuickCheck = runQuickCheck` for the whole package, so this test is intentionally a smoke/regression test proving the exported entry point itself is wired correctly and doesn't panic or change `Connect`'s success behavior — not a race-reproduction test (races are not reliably unit-testable). `filepath` and `require` are already imported in this file (verified: `path/filepath` and `github.com/stretchr/testify/require` — confirm on implementation and add if not already present at file scope).
-
-### 3.5 Error Handling / Edge Cases Considered
-
-- **Double-close:** `TestStartupVerification_MissingTables` already closes its first `db` handle manually at lines 155–156; the new `t.Cleanup` is added only for the *second* (reopened) handle to avoid a redundant/no-op double-close of the first.
-- **Connection still in use at cleanup time:** `t.Cleanup` runs after the test function body returns, so it cannot close a connection still mid-use within the same test (e.g., `TestMain_ResetPasswordCommand_InProcess`'s `db.Where(...)` call at line 278 happens before the function returns, hence before any `t.Cleanup` fires) — safe by construction.
-- **Subprocess DB contention:** Adding `t.Cleanup` does not change *when* within the test body connections close relative to spawned subprocesses (cleanup still only fires at test-function return, identical timing to today's implicit "never closed until process exit" behavior for the portion of the test before return) — no new lock-contention risk is introduced between the parent test process and spawned subprocess.
-- **Production behavior:** `Connect()`'s default (async) behavior is completely unchanged; `SyncIntegrityCheckForTesting()` is opt-in and only ever called from test code.
+| Item | Finding |
+|---|---|
+| Flagged CVE | `GO-2026-5024` / `CVE-2026-39824`, low severity |
+| Location | `golang.org/x/sys` embedded in `/usr/sbin/gosu` inside the built image |
+| Root cause | Upstream `tianon/gosu` tag `1.17` pins `golang.org/x/sys v0.13.0` directly in its own `go.mod`/`go.sum` |
+| Fixed upstream at (advisory floor) | `golang.org/x/sys v0.44.0` — confirmed against `vuln.go.dev/ID/GO-2026-5024.json` |
+| Version this plan pins to | `golang.org/x/sys v0.46.0` — matches the existing convention already used by the Delve stage (`Dockerfile:199`) for the same advisory; clears the `v0.44.0` floor with margin, see Section 1.1 |
+| Unrelated stale comments found (same file) | `Dockerfile:189` and `Dockerfile:751-754` (Delve stage) cite "GO-2026-5024" but describe an inaccurate "< v0.27.0"/"v0.26.0" vulnerable range; corrected as part of this commit (see Section 1.4) — the Delve stage's actual pin (`v0.46.0`) was already fine, only the comment text was wrong |
+| Vulnerable function | `NewNTUnicodeString`, in `golang.org/x/sys/windows` only |
+| Why not exploitable here | `gosu` is Unix-only; image only builds Linux targets (`CGO_ENABLED=0`, `Dockerfile:98`); Windows-only file never compiled |
+| `GOSU_VERSION` bump viable? | **No** — upstream tag `1.19`'s `go.mod` requires an *older* `golang.org/x/sys v0.1.0`; do not bump `GOSU_VERSION` |
+| Toolchain compatibility | `ARG GO_VERSION=1.26.5` (`Dockerfile:13`), used as `golang:${GO_VERSION}-alpine` for `gosu-builder` (`Dockerfile:66`), comfortably exceeds the `go 1.25.0` directive in `x/sys v0.44.0`'s own `go.mod` |
+| Exact `gosu-builder` stage bounds | `Dockerfile:66` (`FROM ... AS gosu-builder`) through `Dockerfile:99` (`xx-verify /gosu-out/gosu`); `WORKDIR /tmp/gosu` set at `Dockerfile:69` |
+| Insertion point confirmed | Between the git-clone retry loop (`Dockerfile:86-92`, closes with `done` at line 92) and the build comment/`RUN --mount` block (`Dockerfile:94-99`) |
+| `.hadolint.yaml` | Exists at repo root; ignores `DL3008` (apt version pinning) and `DL3059` (consecutive RUNs) — the new RUN does not trip either rule, no new ignores needed |
+| `tools/dockerfile_check.sh` | Exists; checks for Alpine/Debian package-manager mismatches (`apk` vs `apt`) per stage. The new RUN uses `go get`/`go mod tidy`, not `apk`/`apt`, so it will not be flagged |
+| Relevant local skills | `.github/skills/security-scan-docker-image.SKILL.md` (builds image + runs Grype/Syft — matches the exact scanner that raised this finding); `.github/skills/security-scan-go-vuln.SKILL.md` (runs `govulncheck` against `backend/go.mod` only — does **not** cover the vendored `gosu` module, noted explicitly so it isn't mistaken for equivalent coverage) |
+| Docs precedent | `docs/security/` uses dated filenames (`vulnerability-analysis-YYYY-MM-DD.md`) with YAML front matter (`post_title`, `categories`, `tags`, `summary`, `post_date`) — see `docs/security/vulnerability-analysis-2026-06-26.md` as the template |
+| `SECURITY.md` precedent | `### [RESOLVED] <id> · <title>` heading pattern with `What/Who/Where/When/How/Resolution` subsections (see the CrowdSec entry, `SECURITY.md:32-55`) |
+| `CHANGELOG.md` precedent | `[Unreleased]` section already has a `### Security` subsection (`CHANGELOG.md:70`) with an existing one-line entry for the *other* CVE-2026-39824 finding — the new entry is added alongside it, clearly distinguished |
+| `.gitignore` / `.dockerignore` / `codecov.yml` | Reviewed — **no changes needed**. This change adds no new file types, build artifacts, or source directories that need exclusion; `codecov.yml` gates test coverage, which is not applicable to a Dockerfile-only change |
 
 ---
 
-## 4. Implementation Plan
+## 3. Technical Specification
 
-### Phase 1: Playwright Tests
+### 3.1 Dockerfile change
 
-**Not applicable.** This is a backend-test-only fix with no frontend or user-facing API behavior change (see §5 rationale). No Playwright tests are added or modified.
+**File**: `Dockerfile`
+**Stage**: `gosu-builder`
+**Insertion point**: immediately after line 92 (the `done` closing the git-clone retry loop) and before line 94 (`# Build gosu for target architecture with patched Go stdlib`)
 
-### Phase 2: Backend Implementation
+New content to insert (exact commands; version pinned, not `@latest`, for reproducibility):
 
-1. `backend/internal/database/database.go` — add `SyncIntegrityCheckForTesting()` (§3.1).
-2. `backend/internal/database/database_test.go` — add `TestSyncIntegrityCheckForTesting` (§3.4).
-3. `backend/cmd/api/main_test.go` — add `TestMain` (§3.2) and the 7 `t.Cleanup` blocks (§3.3).
-
-### Phase 3: Frontend Implementation
-
-**Not applicable.** No frontend changes.
-
-### Phase 4: Integration and Testing
-
-Run the flake-reproduction loop before and after the fix to build confidence (not just a single green run):
-
-```bash
-cd backend
-go test ./cmd/api/... -run TestMigrateCommand_Succeeds -count=20 -v
-go test ./... -count=1
+```dockerfile
+# Pin golang.org/x/sys to a patched version for scanner hygiene (GO-2026-5024 / CVE-2026-39824).
+# Upstream tianon/gosu@1.17's own go.sum resolves golang.org/x/sys to v0.13.0, which Grype/GitHub
+# code scanning flags. The vulnerable code (NewNTUnicodeString overflow) lives only in
+# golang.org/x/sys/windows; gosu is Unix-only and this stage only cross-compiles Linux targets
+# (CGO_ENABLED=0 xx-go build below), so the flagged code path is never compiled into this binary.
+# Fixed regardless, since it's cheap and keeps the scanner quiet. Pinned to v0.46.0 (above the
+# advisory's v0.44.0 fix floor) to match the same x/sys version already used by the Delve debug
+# stage below for this identical advisory. Do NOT bump GOSU_VERSION instead:
+# upstream tag 1.19's go.mod actually requires an OLDER golang.org/x/sys v0.1.0.
+RUN go get golang.org/x/sys@v0.46.0 && \
+    go mod tidy && \
+    go mod verify
 ```
 
-### Phase 5: Documentation and Deployment
+**Required: wrap the above in this Dockerfile's existing retry pattern.** Every other network-touching `RUN`/loop in this Dockerfile's neighborhood already retries on transient failure — the git-clone retry loop immediately above this insertion point (`Dockerfile:86-92`), the `go mod download` retry (`Dockerfile:216-222` pre-edit numbering), and the `xcaddy` install retry (`Dockerfile:291-297` pre-edit numbering). `go get`/`go mod tidy` hit the network (module proxy) exactly like those do, so this step should not be the one exception. Match whichever retry idiom (attempt counter + backoff loop, or shell `until`/`for` construct) this Dockerfile already uses at those call sites — implementers should read the actual surrounding retry blocks and mirror the same style/variable-naming convention rather than inventing a new one, so the Dockerfile stays internally consistent.
 
-No `ARCHITECTURE.md` update needed — this does not change system architecture, tech stack, deployment model, or directory structure (test-only bugfix). No `docs/features.md` update needed — no user-facing capability changed. This decision is stated explicitly per the plan template's requirement to show it was considered.
+Notes:
+- Runs inside `WORKDIR /tmp/gosu` (already set at `Dockerfile:69`, still in effect — no `WORKDIR` change needed).
+- Must run **after** the `git clone` (needs `go.mod`/`go.sum` from the cloned `gosu` source to exist) and **before** `xx-go build` (so the build picks up the tidied `go.sum`).
+- `go mod verify` is included as a lightweight integrity check on the resulting module cache; it exits non-zero if checksums don't match `go.sum`, which will fail the Docker build loudly if something is wrong, rather than silently shipping a bad module.
+- Pin is exact (`@v0.46.0`), not `@latest` — reproducible builds, consistent with how every other dependency in this Dockerfile (`GOSU_VERSION`, `CROWDSEC_VERSION`, `XNET_VERSION`, `XCRYPTO_VERSION`, etc.) is pinned to an explicit version rather than a floating tag, and consistent with the existing Delve-stage pin at the same version.
+- No `# renovate:` comment is added for this line — it is a one-time remediation pin tied to a specific CVE fix version, not an upstream release Renovate should track independently (unlike `GOSU_VERSION`, `GO_VERSION`, etc.). If `gosu`'s own `go.mod` eventually adopts `x/sys >= v0.46.0` upstream, this override becomes a no-op and can be removed in a future cleanup.
+- Line numbers throughout this plan (e.g. "`Dockerfile:199`" for the Delve stage's pin, "`Dockerfile:751-754`" for its comment block) are pre-edit references. Once this stage's new RUN block (and its retry wrapper) is inserted, every line number below the insertion point shifts down by the size of the inserted block — implementers must re-locate targets by content/context, not by trusting these literal numbers.
+
+### 3.1a Comment corrections in the (unrelated) Delve stage
+
+**File**: `Dockerfile`
+**Lines**: `189` and `751-754`
+
+Both currently describe the GO-2026-5024 vulnerable range inaccurately (e.g. "< v0.27.0", "v0.26.0"). Replace with accurate language reflecting the real advisory:
+
+- `Dockerfile:189` — change to state the vulnerability is in `golang.org/x/sys/windows`'s `NewNTUnicodeString` (string-length overflow), fixed in `v0.44.0+`, and that the Delve stage already pins `v0.46.0` (`Dockerfile:199`), above that floor.
+- `Dockerfile:751-754` — same correction applied to the production-stub comment block; state the binary this stage would otherwise ship is compiled against `golang.org/x/sys v0.46.0` (patched, above the `v0.44.0` advisory floor), rather than referencing the incorrect "v0.26.0 vulnerable" framing.
+
+This is a same-file documentation correction discovered incidentally while implementing the `gosu-builder` pin above — it is not a functional change (the Delve stage's actual pinned version, `v0.46.0`, was already correct), and is folded into this same single commit rather than filed separately.
+
+### 3.2 No database, API, or model changes
+
+Not applicable — this is a build-time Dockerfile change only. No `internal/models`, no `routes.go`, no frontend API clients are touched.
+
+### 3.3 Documentation changes
+
+**File 1 (new)**: `docs/security/vulnerability-analysis-2026-07-16.md`
+
+Follow the existing template (`docs/security/vulnerability-analysis-2026-06-26.md`) with YAML front matter:
+
+```yaml
+---
+post_title: "GO-2026-5024 / CVE-2026-39824 Remediation: golang.org/x/sys in gosu-builder Stage"
+categories: ["security", "dependency", "docker"]
+tags: ["go-2026-5024", "cve-2026-39824", "golang.org/x/sys", "gosu", "docker-build", "scanner-hygiene"]
+summary: "Pinned golang.org/x/sys to v0.46.0 during the gosu-builder Dockerfile stage to resolve a Grype-flagged low-severity CVE in gosu's vendored dependency, matching the same version already used by the Delve stage for this advisory. Windows-only vulnerable code path is never compiled for this Linux-only binary; fix applied for scanner hygiene."
+post_date: "2026-07-16"
+---
+```
+
+Body must cover (per the `supply-chain-remediation` skill's documentation phase pattern):
+- CVE id (`GO-2026-5024` / `CVE-2026-39824`), affected package (`golang.org/x/sys`), affected version (`v0.13.0`, resolved via upstream `tianon/gosu@1.17`'s `go.sum`), advisory fix floor (`v0.44.0`), version pinned to (`v0.46.0`, chosen to match the existing Delve-stage convention — see below), severity (low).
+- Why real-world exploitability is near-zero: vulnerable function `NewNTUnicodeString` lives in `golang.org/x/sys/windows`; `gosu` is Unix-only; this stage builds only Linux targets (`CGO_ENABLED=0`); Go build constraints mean the file is never compiled.
+- Explicit note distinguishing this from the `2026-06-26` doc's finding (same CVE ID, different location — `backend/go.mod` vs. vendored `gosu` build stage — and different resolution mechanism — transitive upgrade vs. explicit pin in the Dockerfile).
+- A short note that this same advisory ID also appears in this Dockerfile's Delve (`dlv`) debug stage (`Dockerfile:186-211`), which already pins `golang.org/x/sys@v0.46.0` (`Dockerfile:199`) correctly, but had stale/inaccurate comment text (fixed as part of this same commit — see Dockerfile comment corrections below) describing the vulnerable range as "< v0.27.0"/"v0.26.0" instead of the real `NewNTUnicodeString`/`v0.44.0` detail. Mention this so a future reader who greps the Dockerfile for "GO-2026-5024" understands why two stages reference it and why the versions differ slightly (v0.46.0 pin chosen deliberately to match, not coincidentally).
+- The fix applied: `go get golang.org/x/sys@v0.46.0 && go mod tidy && go mod verify` added to the `gosu-builder` stage, with the exact Dockerfile location, plus the two comment corrections at `Dockerfile:189` and `751-754`.
+- Why `GOSU_VERSION` was not bumped (upstream `1.19` regresses to `x/sys v0.1.0`).
+- Validation performed (see Section 4 below) and its results.
+
+**File 1a (edit to an existing file — not merely a mention in the new doc)**: `docs/security/vulnerability-analysis-2026-06-26.md`
+
+Append a new `## Erratum (2026-07-16)` section to the **end** of this existing file (do not rewrite or remove its original content — this is a dated correction appended after the fact, preserving the historical record of what was originally concluded). The erratum must state plainly that the original "scanner false positive"/"stale SBOM cache" conclusion (in that doc's "Reported vs Actual Version" and "Decision" sections) was incorrect — `v0.13.0` was a real, correctly-scanned version of a *different* binary (`/usr/sbin/gosu`, vendored via upstream `tianon/gosu@1.17`'s own `go.sum`) that the original investigation never checked because it stopped after confirming `backend/go.mod` resolved to `v0.46.0`. Explain the corrected two-location finding (backend/go.mod, already fine; gosu-builder's vendored go.sum, fixed by this commit) and link to the new `vulnerability-analysis-2026-07-16.md` doc.
+
+**File 2**: `SECURITY.md`
+
+Add a new entry under **`## Patched Vulnerabilities`** (not `## Known Vulnerabilities`) — this file has two conventions for resolved findings, and this fix matches the majority pattern (5 entries) and the specific precedent of `### ✅ [LOW] CVE-2026-26958 · edwards25519 MultiScalarMult Invalid Results` (a LOW-severity, version-pin-only fix with no residual risk, the closest analog to this one) rather than the minority `### [RESOLVED]`/`## Known Vulnerabilities` style (only 2 entries: CrowdSec, CVE-2026-45135). Use heading `### ✅ [LOW] GO-2026-5024 / CVE-2026-39824 · golang.org/x/sys in gosu Build Stage`, with the `| Field | Value |` table using a **`**Patched**: <date>`** row (not `**Status**`), matching the edwards25519 entry's exact structure (`What`/`Who`/`Where`/`When`/`How`/`Resolution`, `When` using `Discovered`/`Patched`/`Time to patch` rows). Body should mirror the analysis doc at a summary level, link to `docs/security/vulnerability-analysis-2026-07-16.md` for full detail, and explicitly note the erratum added to the 2026-06-26 doc (see File 1 above) so a reader following that link isn't confused by the now-corrected "false positive" claim there.
+
+Also bump the `Last reviewed: <date>` line near the top of `SECURITY.md` (under `## Known Vulnerabilities`) to `2026-07-16` as part of this same commit, since the file is already being edited.
+
+**File 3**: `CHANGELOG.md`
+
+Add one line under the existing `### Security` subsection of `## [Unreleased]` (`CHANGELOG.md:70`), alongside — not replacing — the existing `CVE-2026-39824` line for the unrelated `backend/go.mod` finding. Suggested entry, matching the terse one-line style already used there:
+
+```
+- chore(security): pin gosu-builder's golang.org/x/sys to v0.46.0 (GO-2026-5024 / CVE-2026-39824) — upstream tianon/gosu@1.17 vendors v0.13.0; vulnerable code is Windows-only and never compiled for this Linux-only binary; v0.46.0 matches the existing Delve-stage pin for the same advisory
+```
+
+**Files NOT changed (confirmed, stated explicitly per plan requirements)**:
+- `.gitignore` — no new file patterns introduced.
+- `.dockerignore` — no new build context files introduced.
+- `codecov.yml` — no test/coverage surface affected; this is a Dockerfile-only change.
 
 ---
 
-## 5. Acceptance Criteria
+## 4. Scope & Definition of Done (reduced — infra fix, not a feature)
 
-- [ ] `TestMigrateCommand_Succeeds` and all other tests in `backend/cmd/api` pass reliably across at least 20 repeated runs (`-count=20`), with no `TempDir RemoveAll cleanup` failures.
-- [ ] `go test ./...` (full backend suite) passes with zero failures.
-- [ ] `go vet ./...` reports no issues.
-- [ ] `go build ./...` succeeds.
-- [ ] `govulncheck ./...` reports no new vulnerabilities.
-- [ ] `./scripts/scan-gorm-security.sh --check` reports zero CRITICAL/HIGH findings (triggered because this touches `backend/internal/database` and GORM-adjacent test code, per CLAUDE.md §1.5).
-- [ ] `bash scripts/local-patch-report.sh` produces `test-results/local-patch-report.md` and `test-results/local-patch-report.json` with the new/changed lines covered.
-- [ ] `lefthook run pre-commit` passes with zero blocking findings (staticcheck, CodeQL Go/JS per CLAUDE.md).
-- [ ] `make lint-fast` / `make lint-staticcheck-only` clean.
-- [ ] `scripts/go-test-coverage.sh` — backend coverage remains ≥ 85% (`CHARON_MIN_COVERAGE`).
-- [ ] No debug prints, commented-out code, or unused imports introduced.
-- [ ] **Explicitly out of scope, deliberately excluded (documented per DoD, not overlooked):**
-  - Playwright E2E tests (`npx playwright test --project=firefox`) — not relevant; no frontend or HTTP-facing API behavior changed by this fix.
-  - `scripts/frontend-test-coverage.sh` / `cd frontend && npm run type-check` — not relevant; no frontend files touched.
-  - `.gitignore`, `.dockerignore`, `.codecov.yml`, `Dockerfile` — no changes needed; no new files, artifacts, or build outputs are introduced by this fix.
-  - `backend/go.mod` / `backend/go.sum` (the already-staged `cpuid`/`procfs` bumps) — confirmed unrelated (§2.6) and explicitly excluded from this commit; will be committed separately by the user.
+This is explicitly **not** subject to the full application Definition of Done in `CLAUDE.md` (no Playwright E2E suite, no 85% backend/frontend coverage gate, no frontend `type-check`, no GORM security scan — none of those apply to a Dockerfile-only change with zero app-code touch). Instead, the validation gates for this change are:
+
+| # | Gate | Command | Pass condition |
+|---|---|---|---|
+| 1 | Isolated stage build | `docker build --target gosu-builder -t charon-gosu-builder-check .` (run from repo root) | Build completes with exit code 0; the new `RUN go get ... && go mod tidy && go mod verify` step succeeds (non-zero exit on checksum mismatch would fail the build here) |
+| 2 | Embedded module version check | `docker run --rm --entrypoint sh charon-gosu-builder-check -c "go version -m /gosu-out/gosu | grep golang.org/x/sys"` | Output shows `golang.org/x/sys` at `v0.46.0` (or, at minimum, `>= v0.44.0`) |
+| 3 | Dockerfile lint | `hadolint Dockerfile` (if `hadolint` binary available locally; `.hadolint.yaml` config already present at repo root) **and** `bash tools/dockerfile_check.sh Dockerfile` | Both exit 0; no new hadolint findings introduced by the added `RUN` line (it is plain `go` tooling, not `apk`/`apt`, so `tools/dockerfile_check.sh`'s package-manager-mismatch check is unaffected) |
+| 4 | Local re-scan | `.github/skills/scripts/skill-runner.sh security-scan-docker-image` (builds full image + runs Grype/Syft — the scanner that originally raised `GO-2026-5024`) | No `golang.org/x/sys` finding for the `gosu` binary in the Grype output. If Docker/Grype/Syft are unavailable in the local environment, note this in the PR/commit and rely on CI's next scheduled scan to confirm; do not block the commit on unavailable local tooling |
+
+`security-scan-go-vuln` (`govulncheck` against `backend/go.mod`) is **not** a valid substitute for gate 4 — it does not scan the vendored `gosu` module built in a separate Docker stage — and should not be cited as evidence this fix worked.
 
 ---
 
-## 6. Commit Slicing Strategy
+## 5. Commit Slicing Strategy
 
-### 6.1 Decision
+**Decision**: Single commit, on the current `development` branch, inside one PR (per `CLAUDE.md`: "One Feature = One PR" and no worktrees). This is a small infra fix — splitting it into multiple commits would add review overhead without improving reviewability.
 
-**Single PR, single commit.** This is a small, mechanically-scoped, single-domain (backend test code only) bug fix — it does not touch backend API/model behavior, frontend, or infrastructure, so CLAUDE.md's multi-PR decomposition triggers ("touches backend + frontend + infra," "diff large enough to reduce review quality," "independently testable slices," "foundational refactor needed") do not apply. One commit is the correct grain: the `TestMain` addition, the exported test helper it depends on, and the `t.Cleanup` hygiene fixes are one indivisible logical change — splitting them would leave intermediate commits in a state where the actual race is not yet fixed.
+### Commit 1 (only commit): `fix(deps): pin gosu's golang.org/x/sys to v0.46.0 (GO-2026-5024)`
 
-### 6.2 Commit 1 (only commit)
+**Scope**: Dockerfile dependency pin + two same-file comment corrections + accompanying security documentation.
 
-- **Type/prefix:** `fix:` (per CLAUDE.md Conventional Commits and CI/CD triggers — `fix:` triggers a Docker build; this is acceptable/expected for a merged test-suite fix, though this branch is not `feature/beta-release` so verify current branch's build-trigger policy before pushing).
-- **Scope:** Backend test suite only.
-- **Files:**
-  - `backend/internal/database/database.go` — add `SyncIntegrityCheckForTesting()`.
-  - `backend/internal/database/database_test.go` — add `TestSyncIntegrityCheckForTesting`.
-  - `backend/cmd/api/main_test.go` — add `TestMain`; add 7 `t.Cleanup` blocks.
-- **Explicitly NOT included in this commit:** `backend/go.mod`, `backend/go.sum` (already staged separately by the user — confirmed unrelated, see §2.6). Do not `git add` these files as part of this commit.
-- **Dependencies:** None — this fix is independent of the staged dependency bump and can be committed before, after, or interleaved with it without ordering constraints.
-- **Validation gate before commit:** All items in §5 Acceptance Criteria.
+**Files touched**:
+- `Dockerfile` — insert the retry-wrapped `go get golang.org/x/sys@v0.46.0 && go mod tidy && go mod verify` block (with comment) into the `gosu-builder` stage (see Section 3.1); correct the stale CVE-range comments in the unrelated Delve stage (see Section 3.1a; locate by content, not literal line numbers — they shift once the RUN block above is inserted).
+- `docs/security/vulnerability-analysis-2026-07-16.md` — new file (see Section 3.3, File 1).
+- `docs/security/vulnerability-analysis-2026-06-26.md` — append `## Erratum (2026-07-16)` section (see Section 3.3, File 1a). Do not remove or rewrite existing content.
+- `SECURITY.md` — new `### ✅ [LOW]` entry under `## Patched Vulnerabilities`, plus bump `Last reviewed:` to `2026-07-16` (see Section 3.3, File 2).
+- `CHANGELOG.md` — one new line under `## [Unreleased]` → `### Security` (see Section 3.3, File 3).
 
-### 6.3 Suggested commit message
+**Dependencies**: None — this is a self-contained, atomic change. No prior commit needed.
 
+**Validation gate for this commit** (must all pass before considering the commit done):
+1. Gate 1 and Gate 2 from Section 4 (stage build + embedded version check) — functional proof the fix works.
+2. Gate 3 from Section 4 (hadolint + `tools/dockerfile_check.sh`) — style/consistency check on the Dockerfile edit.
+3. Gate 4 from Section 4 (local Grype re-scan via `security-scan-docker-image` skill, or explicit note deferring to CI if local tooling unavailable).
+4. `lefthook run pre-commit` — standard repo-wide pre-commit hooks still apply (markdown lint on the new/edited `.md` files, any Dockerfile-aware hooks, secret scanning, etc.) even though this is an infra-only change; this is not part of the reduced application DoD, it's baseline repo hygiene for every commit.
+5. Manual read-through confirming `SECURITY.md` and `CHANGELOG.md` entries clearly distinguish this fix from the pre-existing, unrelated `CVE-2026-39824` / `backend/go.mod` entry already present in both files, so a future reader doesn't conflate the two.
+
+**Commit message** (conventional commits, per `CLAUDE.md`):
 ```
-fix(test): eliminate TempDir cleanup race in cmd/api DB tests
-
-Connect() launches an untracked background goroutine (PRAGMA quick_check
-on its own SQLite connection) that can still be touching WAL/SHM files
-when t.TempDir() removes the test directory, causing an intermittent
-"directory not empty" cleanup failure. internal/database's own tests
-already work around this via TestMain; cmd/api had no equivalent.
-
-Adds database.SyncIntegrityCheckForTesting() and a cmd/api TestMain that
-uses it, plus t.Cleanup-based connection closing for defense in depth.
+fix(deps): pin gosu's golang.org/x/sys to v0.46.0 (GO-2026-5024)
 ```
 
-### 6.4 Rollback / Contingency
+### Rollback / contingency notes (for the PR as a whole)
 
-- **Rollback:** `git revert` the single commit — it is additive-only (a new exported function, a new test, `t.Cleanup` blocks, one new `TestMain`); reverting cannot reintroduce a build break, only restore the prior (racy but previously "working most of the time") test state.
-- **Contingency if the race still reproduces after this fix:** Re-run the Phase 4 `-count=20` loop under `go test ./... -race` and under simulated load (`go test ./... -p 1` vs default parallelism) to rule out a second, distinct source of background file I/O (e.g., a WAL checkpoint triggered by GORM's connection-pool idle-timeout behavior). If reproduced, the next investigation step is `configurePool`'s `SetConnMaxLifetime(0)` combined with SQLite's own WAL auto-checkpoint background thread — but do not preemptively change `configurePool` in this commit without first confirming that is in fact still happening post-fix (Root Cause Analysis Protocol: fix the confirmed cause first, re-measure, only then investigate further if the symptom persists).
+- **Rollback**: This is a single, additive `RUN` step in one Dockerfile stage. Reverting is a one-line-block removal (`git revert <sha>`); no migration, no data, no running-system state is affected.
+- **Contingency — Gate 1/2 failure (build breaks or the resolved version doesn't clear `v0.44.0`)**: The primary target for this fix is **`v0.46.0`** — that is the version to pin to, matching the existing Delve-stage convention (Section 1.1). `v0.44.0` is cited here only as the advisory's *fix floor*, i.e. the minimum acceptable fallback if `v0.46.0` itself turns out to be unreachable. If `go get golang.org/x/sys@v0.46.0` surfaces a hard transitive dependency conflict with `gosu`'s other direct dependencies at tag `1.17` (unlikely — `gosu` has a minimal dependency graph, but `go mod tidy` will reveal it if so), fall back to the next available patched version that still satisfies `>= v0.44.0` (the floor), and update the pin plus the security doc accordingly — still do not bump `GOSU_VERSION`.
+- **Contingency — Gate 4 unavailable locally (no Docker/Grype/Syft)**: Do not block the commit. Note this explicitly in the analysis doc and PR description; CI's regularly scheduled Grype/Trivy scan will confirm on the next run. This is called out in Section 4, gate 4, as an accepted condition, not a blocker.
+- **Contingency — hadolint not installed locally**: `tools/dockerfile_check.sh` still runs (it's a plain bash script with no external binary dependency) and covers the specific class of error (Alpine/Debian package-manager mismatch) most relevant to Dockerfile stage edits. Note in the commit if `hadolint` itself could not be run locally; CI's Dockerfile lint step will still catch anything `tools/dockerfile_check.sh` doesn't.
 
-### 6.5 Follow-up (not part of this commit)
+---
 
-Open a follow-up issue/PR to apply the same `TestMain` + `SyncIntegrityCheckForTesting()` pattern to:
-- `backend/internal/api/handlers` (covers `db_health_handler_test.go` and any other file-based `database.Connect` usage in that package)
-- `backend/internal/server` (covers `emergency_server_test.go`)
+## 6. Acceptance Criteria
 
-These carry the identical latent race (§2.4) but have not been observed failing in this run; deferring them keeps this commit minimal and focused on the confirmed, reported failure.
+1. `Dockerfile`'s `gosu-builder` stage contains the new pinned `go get golang.org/x/sys@v0.46.0 && go mod tidy && go mod verify` step, correctly placed between the git-clone retry block and the `xx-go build` step, with an inline comment explaining the CVE, the Windows-only/never-compiled rationale, why `v0.46.0` was chosen (matches the Delve stage's existing pin for this advisory), and why `GOSU_VERSION` was not bumped instead.
+2. `docker build --target gosu-builder .` succeeds, and the resulting `gosu` binary's embedded module info (`go version -m`) reports `golang.org/x/sys` at `v0.46.0` (or, at minimum, `>= v0.44.0`).
+3. `Dockerfile:189` and `751-754` (Delve stage) are corrected to accurately describe GO-2026-5024/CVE-2026-39824 (`golang.org/x/sys/windows`, `NewNTUnicodeString`, fixed `v0.44.0+`) instead of the stale "< v0.27.0"/"v0.26.0" language.
+4. `hadolint Dockerfile` (if available) and `tools/dockerfile_check.sh Dockerfile` both pass with no new findings attributable to this change.
+5. A local Grype/Syft re-scan (via `security-scan-docker-image` skill) no longer reports the `golang.org/x/sys` finding against `gosu`, or — if local scanning tooling is unavailable — this is explicitly noted and deferred to CI's next scan.
+6. `docs/security/vulnerability-analysis-2026-07-16.md` exists, follows the repo's existing front-matter/template convention, clearly distinguishes this finding from the unrelated pre-existing `CVE-2026-39824` entry for `backend/go.mod`, and notes the Delve-stage comment correction.
+7. `docs/security/vulnerability-analysis-2026-06-26.md` has a new `## Erratum (2026-07-16)` section appended, correcting its original "scanner false positive" conclusion and linking to the new doc.
+8. `SECURITY.md` has a new `### ✅ [LOW]` entry under `## Patched Vulnerabilities` for this finding, and its `Last reviewed:` line is bumped to `2026-07-16`.
+9. `CHANGELOG.md`'s `[Unreleased]` → `### Security` section has a new one-line entry for this fix, clearly worded to avoid conflation with the existing adjacent `CVE-2026-39824` line.
+10. `.gitignore`, `.dockerignore`, and `codecov.yml` are confirmed unchanged (explicitly verified, not silently skipped).
+11. All changes land in a single commit on `development`, with the exact conventional-commit message `fix(deps): pin gosu's golang.org/x/sys to v0.46.0 (GO-2026-5024)`.
+12. `lefthook run pre-commit` passes on the commit.
+
+---
+
+## 7. Handoff
+
+Implementation is assigned to the **`devops`** agent — this is Dockerfile/CI/CD/build-infrastructure work, not backend Go application code or frontend TypeScript code, and falls squarely within that agent's remit (Docker builds, dependency pinning, build-stage debugging). The **`docs-writer`** agent may be pulled in afterward only if the security-doc/SECURITY.md/CHANGELOG prose needs a polish pass for tone/clarity — the technical content and required sections are fully specified above so this should be optional.
+
+Once implemented, hand off to the **`supervisor`** agent for review against this spec before merge, per the standard workflow.
