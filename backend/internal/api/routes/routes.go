@@ -234,8 +234,10 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	backupHandler := handlers.NewBackupHandlerWithDeps(backupService, securityService, db)
 	backupRemoteHandler := handlers.NewBackupRemoteHandler(backupRemoteService)
 
-	// DB Health endpoint (uses backup service for last backup time)
-	dbHealthHandler := handlers.NewDBHealthHandler(db, backupService)
+	// DB Health endpoint (uses backup service for last backup time). dbPath
+	// is threaded through so Check runs its integrity scan on a dedicated
+	// connection, not the shared db pool (spec §2.5d/§3.9).
+	dbHealthHandler := handlers.NewDBHealthHandler(db, backupService, cfg.DatabasePath)
 	router.GET("/api/v1/health/db", dbHealthHandler.Check)
 
 	// Log routes
