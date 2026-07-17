@@ -5,6 +5,7 @@ import {
   getBackups,
   createBackup,
   restoreBackup,
+  getBackupJob,
   deleteBackup,
   uploadBackup,
   validateBackup,
@@ -32,16 +33,21 @@ describe('backups api', () => {
     expect(res).toEqual(mockData)
   })
 
-  it('createBackup returns filename', async () => {
-    vi.spyOn(client, 'post').mockResolvedValueOnce({ data: { filename: 'b2.zip' } })
+  it('createBackup returns the started job (202 job_id/type/status, plan §3.4.1)', async () => {
+    vi.spyOn(client, 'post').mockResolvedValueOnce({
+      data: { job_id: 'job-1', type: 'create', status: 'pending' },
+    })
     const res = await createBackup()
-    expect(res).toEqual({ filename: 'b2.zip' })
+    expect(res).toEqual({ job_id: 'job-1', type: 'create', status: 'pending' })
   })
 
-  it('restoreBackup posts to restore endpoint', async () => {
-    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({})
-    await restoreBackup('b3.zip')
+  it('restoreBackup posts to restore endpoint and returns the started job', async () => {
+    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({
+      data: { job_id: 'job-2', type: 'restore', status: 'pending' },
+    })
+    const res = await restoreBackup('b3.zip')
     expect(spy).toHaveBeenCalledWith('/backups/b3.zip/restore')
+    expect(res).toEqual({ job_id: 'job-2', type: 'restore', status: 'pending' })
   })
 
   it('deleteBackup deletes backup', async () => {
@@ -51,16 +57,50 @@ describe('backups api', () => {
   })
 
   it('createBackup posts encrypt/passphrase options when provided', async () => {
-    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({ data: { filename: 'b4.zip.age', uuid: 'u1' } })
+    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({
+      data: { job_id: 'job-3', type: 'create', status: 'pending' },
+    })
     const res = await createBackup({ encrypt: true, passphrase: 'hunter2' })
     expect(spy).toHaveBeenCalledWith('/backups', { encrypt: true, passphrase: 'hunter2' })
-    expect(res).toEqual({ filename: 'b4.zip.age', uuid: 'u1' })
+    expect(res).toEqual({ job_id: 'job-3', type: 'create', status: 'pending' })
   })
 
   it('restoreBackup includes the passphrase in the body when provided', async () => {
-    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({ data: { message: 'ok', restart_required: false } })
+    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({
+      data: { job_id: 'job-4', type: 'restore', status: 'pending' },
+    })
     await restoreBackup('b3.zip.age', 'hunter2')
     expect(spy).toHaveBeenCalledWith('/backups/b3.zip.age/restore', { passphrase: 'hunter2' })
+  })
+
+  it('getBackupJob fetches a create job by id and returns its CreateBackupResponse result', async () => {
+    const jobData = {
+      job_id: 'job-5',
+      type: 'create' as const,
+      status: 'completed' as const,
+      created_at: '2026-07-16T10:00:00Z',
+      started_at: '2026-07-16T10:00:00Z',
+      finished_at: '2026-07-16T10:00:05Z',
+      result: { filename: 'b5.zip', uuid: 'u5' },
+    }
+    const spy = vi.spyOn(client, 'get').mockResolvedValueOnce({ data: jobData })
+    const res = await getBackupJob('job-5')
+    expect(spy).toHaveBeenCalledWith('/backups/jobs/job-5')
+    expect(res).toEqual(jobData)
+  })
+
+  it('getBackupJob returns a failed restore job with its error shape', async () => {
+    const jobData = {
+      job_id: 'job-6',
+      type: 'restore' as const,
+      status: 'failed' as const,
+      created_at: '2026-07-16T10:00:00Z',
+      error: { message: 'wrong passphrase', error_code: 'backup_passphrase_invalid' },
+    }
+    vi.spyOn(client, 'get').mockResolvedValueOnce({ data: jobData })
+    const res = await getBackupJob('job-6')
+    expect(res.status).toBe('failed')
+    expect(res.error).toEqual({ message: 'wrong passphrase', error_code: 'backup_passphrase_invalid' })
   })
 
   it('uploadBackup sends a multipart FormData request', async () => {

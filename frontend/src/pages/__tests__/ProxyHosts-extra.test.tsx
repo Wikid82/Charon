@@ -351,7 +351,7 @@ describe('ProxyHosts page extra tests', () => {
   it('bulk delete modal lists hosts to be deleted', async () => {
     const host = sampleHost({ uuid: 'd2', name: 'DeleteMe2' })
     vi.mocked(useProxyHosts).mockReturnValue(createProxyHostsHookValue({ hosts: [host] }))
-    vi.mocked(createBackup).mockResolvedValue({ filename: 'backup-2' })
+    vi.mocked(createBackup).mockResolvedValue({ job_id: 'job-2', type: 'create', status: 'pending' })
     const confirmMock = vi.spyOn(window, 'confirm').mockImplementation(() => true)
     renderWithProviders(<ProxyHosts />)
 
@@ -373,7 +373,7 @@ describe('ProxyHosts page extra tests', () => {
     expect(getByTextWithin('(a.example.com)')).toBeInTheDocument()
     // Confirm delete
     await userEvent.click(screen.getByRole('button', { name: /Delete Permanently/i }))
-    await waitFor(() => expect(vi.mocked(toast.success)).toHaveBeenCalledWith(expect.stringContaining('Backup created')))
+    await waitFor(() => expect(vi.mocked(toast.success)).toHaveBeenCalledWith(expect.stringContaining('Backup started')))
     confirmMock.mockRestore()
   })
 
@@ -403,7 +403,7 @@ describe('ProxyHosts page extra tests', () => {
     const deleteHostMock = vi.fn().mockResolvedValue(undefined) as unknown as ProxyHostsHookValue['deleteHost']
 
     vi.mocked(useProxyHosts).mockReturnValue(createProxyHostsHookValue({ hosts: [host], deleteHost: deleteHostMock }))
-    vi.mocked(createBackup).mockResolvedValue({ filename: 'backup-1' })
+    vi.mocked(createBackup).mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' })
 
     const confirmMock = vi.spyOn(window, 'confirm')
     // First confirm to delete overall, returned true for deletion
@@ -427,7 +427,7 @@ describe('ProxyHosts page extra tests', () => {
     await userEvent.click(screen.getByRole('button', { name: /Delete Permanently/i }))
 
     await waitFor(() =>
-      expect(toast.success as unknown as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(expect.stringContaining('Backup created')),
+      expect(toast.success as unknown as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(expect.stringContaining('Backup started')),
     )
     confirmMock.mockRestore()
   })

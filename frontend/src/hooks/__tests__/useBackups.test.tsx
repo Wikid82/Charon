@@ -59,8 +59,16 @@ describe('useBackups', () => {
 describe('useCreateBackup', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('creates a backup and invalidates the backup list', async () => {
-    vi.mocked(api.createBackup).mockResolvedValue({ filename: 'b.zip', uuid: 'u1' })
+  it('starts a create job, stays isPending while polling, and invokes onSuccess with the job result on completion', async () => {
+    vi.mocked(api.createBackup).mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' })
+    vi.mocked(api.getBackupJob).mockResolvedValue({
+      job_id: 'job-1',
+      type: 'create',
+      status: 'completed',
+      created_at: '2026-07-16T10:00:00Z',
+      result: { filename: 'b.zip', uuid: 'u1' },
+    })
+
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     const wrapper = ({ children }: { children: React.ReactNode }) => (
@@ -68,52 +76,130 @@ describe('useCreateBackup', () => {
     )
 
     const { result } = renderHook(() => useCreateBackup(), { wrapper })
-    result.current.mutate({ encrypt: true, passphrase: 'x' })
+    const onSuccess = vi.fn()
+    act(() => result.current.mutate({ encrypt: true, passphrase: 'x' }, { onSuccess }))
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.isPending).toBe(true)
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledWith({ filename: 'b.zip', uuid: 'u1' }))
     expect(api.createBackup).toHaveBeenCalledWith({ encrypt: true, passphrase: 'x' })
+    expect(api.getBackupJob).toHaveBeenCalledWith('job-1')
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: BACKUPS_QUERY_KEY })
+    await waitFor(() => expect(result.current.isPending).toBe(false))
   })
 
-  it('surfaces creation errors', async () => {
-    vi.mocked(api.createBackup).mockRejectedValue(new Error('insufficient space'))
+  it('surfaces an error and clears isPending when the initial POST itself fails (e.g. 409 in-progress)', async () => {
+    vi.mocked(api.createBackup).mockRejectedValue(new Error('another backup or restore is in progress'))
     const { result } = renderHook(() => useCreateBackup(), { wrapper: createWrapper() })
 
-    result.current.mutate(undefined)
+    const onError = vi.fn()
+    act(() => result.current.mutate(undefined, { onError }))
 
-    await waitFor(() => expect(result.current.isError).toBe(true))
-    expect(result.current.error).toEqual(new Error('insufficient space'))
+    await waitFor(() => expect(onError).toHaveBeenCalledWith(new Error('another backup or restore is in progress')))
+    expect(result.current.isPending).toBe(false)
+    expect(api.getBackupJob).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a job failure via onError once polling reaches status:"failed"', async () => {
+    vi.mocked(api.createBackup).mockResolvedValue({ job_id: 'job-2', type: 'create', status: 'pending' })
+    vi.mocked(api.getBackupJob).mockResolvedValue({
+      job_id: 'job-2',
+      type: 'create',
+      status: 'failed',
+      created_at: '2026-07-16T10:00:00Z',
+      error: { message: 'insufficient disk space', error_code: 'backup_insufficient_space' },
+    })
+
+    const { result } = renderHook(() => useCreateBackup(), { wrapper: createWrapper() })
+    const onError = vi.fn()
+    act(() => result.current.mutate(undefined, { onError }))
+
+    await waitFor(() => expect(onError).toHaveBeenCalledWith(new Error('insufficient disk space')))
+    await waitFor(() => expect(result.current.isPending).toBe(false))
+  })
+
+  it('exposes the polled job (including stage) while running', async () => {
+    vi.mocked(api.createBackup).mockResolvedValue({ job_id: 'job-3', type: 'create', status: 'pending' })
+    vi.mocked(api.getBackupJob).mockResolvedValue({
+      job_id: 'job-3',
+      type: 'create',
+      status: 'running',
+      stage: 'archiving_files',
+      created_at: '2026-07-16T10:00:00Z',
+    })
+
+    const { result } = renderHook(() => useCreateBackup(), { wrapper: createWrapper() })
+    act(() => result.current.mutate(undefined))
+
+    await waitFor(() => expect(result.current.job?.stage).toBe('archiving_files'))
+    expect(result.current.isPending).toBe(true)
   })
 })
 
 describe('useRestoreBackup', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('restores a backup with the given filename and passphrase', async () => {
-    vi.mocked(api.restoreBackup).mockResolvedValue({
-      message: 'ok',
-      restart_required: false,
-      database_swap_pending: false,
-      live_rehydrate_applied: true,
-      caddy_reloaded: true,
-      legacy_format: false,
+  it('starts a restore job with the given filename/passphrase and invokes onSuccess with the job result', async () => {
+    vi.mocked(api.restoreBackup).mockResolvedValue({ job_id: 'job-4', type: 'restore', status: 'pending' })
+    vi.mocked(api.getBackupJob).mockResolvedValue({
+      job_id: 'job-4',
+      type: 'restore',
+      status: 'completed',
+      created_at: '2026-07-16T10:00:00Z',
+      result: {
+        message: 'ok',
+        restart_required: false,
+        database_swap_pending: false,
+        live_rehydrate_applied: true,
+        caddy_reloaded: true,
+        legacy_format: false,
+      },
     })
+
     const { result } = renderHook(() => useRestoreBackup(), { wrapper: createWrapper() })
+    const onSuccess = vi.fn()
+    act(() => result.current.mutate({ filename: 'b.zip.age', passphrase: 'hunter2' }, { onSuccess }))
 
-    result.current.mutate({ filename: 'b.zip.age', passphrase: 'hunter2' })
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.isPending).toBe(true)
+    await waitFor(() => expect(onSuccess).toHaveBeenCalled())
     expect(api.restoreBackup).toHaveBeenCalledWith('b.zip.age', 'hunter2')
+    expect(api.getBackupJob).toHaveBeenCalledWith('job-4')
   })
 
-  it('surfaces restore errors (e.g. wrong passphrase) without throwing', async () => {
+  it('surfaces restore-start errors (e.g. wrong passphrase) via onError without throwing', async () => {
     vi.mocked(api.restoreBackup).mockRejectedValue(new Error('wrong passphrase'))
     const { result } = renderHook(() => useRestoreBackup(), { wrapper: createWrapper() })
 
-    result.current.mutate({ filename: 'b.zip.age', passphrase: 'wrong' })
+    const onError = vi.fn()
+    act(() => result.current.mutate({ filename: 'b.zip.age', passphrase: 'wrong' }, { onError }))
 
-    await waitFor(() => expect(result.current.isError).toBe(true))
-    expect(result.current.error).toEqual(new Error('wrong passphrase'))
+    await waitFor(() => expect(onError).toHaveBeenCalledWith(new Error('wrong passphrase')))
+    expect(result.current.isPending).toBe(false)
+  })
+
+  it('surfaces a restore job failure via onError once polling reaches status:"failed"', async () => {
+    vi.mocked(api.restoreBackup).mockResolvedValue({ job_id: 'job-5', type: 'restore', status: 'pending' })
+    vi.mocked(api.getBackupJob).mockResolvedValue({
+      job_id: 'job-5',
+      type: 'restore',
+      status: 'failed',
+      created_at: '2026-07-16T10:00:00Z',
+      error: { message: 'wrong passphrase', error_code: 'backup_passphrase_invalid' },
+    })
+
+    const { result } = renderHook(() => useRestoreBackup(), { wrapper: createWrapper() })
+    const onError = vi.fn()
+    act(() => result.current.mutate({ filename: 'b.zip.age', passphrase: 'wrong' }, { onError }))
+
+    await waitFor(() => expect(onError).toHaveBeenCalledWith(new Error('wrong passphrase')))
+  })
+
+  it('exposes reset() to clear job/callback state (mirrors useMutation.reset, used by RestoreDialog)', async () => {
+    const { result } = renderHook(() => useRestoreBackup(), { wrapper: createWrapper() })
+    expect(typeof result.current.reset).toBe('function')
+    act(() => result.current.reset())
+    expect(result.current.job).toBeUndefined()
+    expect(result.current.isPending).toBe(false)
   })
 })
 

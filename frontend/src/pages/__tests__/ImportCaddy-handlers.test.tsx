@@ -60,9 +60,7 @@ describe('ImportCaddy - Handlers and Interactions', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockUseImport.mockReturnValue(defaultMockReturn)
-    mockCreateBackup.mockResolvedValue({
-      filename: 'backup.db',
-    })
+    mockCreateBackup.mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' })
     // Reset confirm mock
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     vi.spyOn(window, 'alert').mockImplementation(() => {})
@@ -557,9 +555,7 @@ describe('ImportCaddy - Commit Handler', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    mockCreateBackup.mockResolvedValue({
-      filename: 'backup.db',
-    })
+    mockCreateBackup.mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' })
   })
 
   it('shows commit button in review table when reviewing', async () => {

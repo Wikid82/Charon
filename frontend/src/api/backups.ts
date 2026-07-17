@@ -40,27 +40,70 @@ export interface CreateBackupOptions {
   passphrase?: string
 }
 
-/** Response of POST /backups (spec §3.3.1). */
+/**
+ * Result shape of a completed create-backup job (`BackupJob.result` when
+ * `type === "create"` and `status === "completed"`, plan §3.2.3). Was
+ * previously the direct `POST /backups` response body before the async-job
+ * conversion (plan §3.4.1) — now describes the polled job's result instead.
+ */
 export interface CreateBackupResponse {
   filename: string
   uuid?: string
   message?: string
 }
 
+/** create → the archive being built; restore → the archive being applied (plan §3.4.1). */
+export type BackupJobType = 'create' | 'restore'
+/** Async job lifecycle state (plan §3.2.3). */
+export type BackupJobStatus = 'pending' | 'running' | 'completed' | 'failed'
+
+/** `BackupJob.error` shape when `status === "failed"` (plan §3.2.3). */
+export interface BackupJobError {
+  message: string
+  error_code?: string
+}
+
+/** Immediate `202 Accepted` body returned by `POST /backups` / `POST /backups/:filename/restore` (plan §3.4.1). */
+export interface BackupJobStartResponse {
+  job_id: string
+  type: BackupJobType
+  status: BackupJobStatus
+}
+
+/** Polled job resource returned by `GET /backups/jobs/:job_id` (plan §3.2.3/§3.4.1). */
+export interface BackupJob<TResult = unknown> {
+  job_id: string
+  type: BackupJobType
+  status: BackupJobStatus
+  stage?: string
+  created_at: string
+  started_at?: string
+  finished_at?: string
+  result?: TResult
+  error?: BackupJobError
+}
+
 /**
- * Creates a new backup of the current configuration.
+ * Starts an async create-backup job; the archive is built in a background
+ * goroutine (plan §2/§3.2.1) — poll `getBackupJob(job_id)` for progress and
+ * the final `CreateBackupResponse` result.
  * @param options - Optional encryption request (`encrypt`/`passphrase`)
- * @returns Promise resolving to object containing the new backup filename
- * @throws {AxiosError} If backup creation fails
+ * @returns Promise resolving to the started job's id/type/status
+ * @throws {AxiosError} If the job cannot be started (e.g. another backup/restore in progress)
  */
-export const createBackup = async (options?: CreateBackupOptions): Promise<CreateBackupResponse> => {
+export const createBackup = async (options?: CreateBackupOptions): Promise<BackupJobStartResponse> => {
   const response = await (options
-    ? client.post<CreateBackupResponse>('/backups', options)
-    : client.post<CreateBackupResponse>('/backups'))
+    ? client.post<BackupJobStartResponse>('/backups', options)
+    : client.post<BackupJobStartResponse>('/backups'))
   return response.data
 }
 
-/** Response of POST /backups/:filename/restore (spec §3.3.1). */
+/**
+ * Result shape of a completed restore job (`BackupJob.result` when
+ * `type === "restore"` and `status === "completed"`, plan §3.2.3). Was
+ * previously the direct `POST /backups/:filename/restore` response body
+ * before the async-job conversion (plan §3.4.1).
+ */
 export interface RestoreResult {
   message: string
   restart_required: boolean
@@ -72,15 +115,29 @@ export interface RestoreResult {
 }
 
 /**
- * Restores configuration from a backup file.
+ * Starts an async restore job; the V→S→A→R→F pipeline runs in a background
+ * goroutine (plan §2.3/§3.2.2) — poll `getBackupJob(job_id)` for progress and
+ * the final `RestoreResult`.
  * @param filename - The name of the backup file to restore
  * @param passphrase - Required only when `filename` ends in `.age`
- * @throws {AxiosError} If restoration fails or file not found
+ * @returns Promise resolving to the started job's id/type/status
+ * @throws {AxiosError} If the job cannot be started (not found, or another backup/restore in progress)
  */
-export const restoreBackup = async (filename: string, passphrase?: string): Promise<RestoreResult> => {
+export const restoreBackup = async (filename: string, passphrase?: string): Promise<BackupJobStartResponse> => {
   const response = await (passphrase
-    ? client.post<RestoreResult>(`/backups/${filename}/restore`, { passphrase })
-    : client.post<RestoreResult>(`/backups/${filename}/restore`))
+    ? client.post<BackupJobStartResponse>(`/backups/${filename}/restore`, { passphrase })
+    : client.post<BackupJobStartResponse>(`/backups/${filename}/restore`))
+  return response.data
+}
+
+/**
+ * Fetches the current status/progress/result of an async backup or restore
+ * job (plan §3.2.3). Admin-gated on the backend.
+ * @param jobId - The `job_id` returned by `createBackup`/`restoreBackup`
+ * @throws {AxiosError} 404 if the job id is unknown
+ */
+export const getBackupJob = async (jobId: string): Promise<BackupJob<CreateBackupResponse | RestoreResult>> => {
+  const response = await client.get<BackupJob<CreateBackupResponse | RestoreResult>>(`/backups/jobs/${jobId}`)
   return response.data
 }
 

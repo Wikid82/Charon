@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -6,6 +6,7 @@ import {
   getBackups,
   createBackup,
   restoreBackup,
+  getBackupJob,
   deleteBackup,
   uploadBackup,
   validateBackup,
@@ -16,6 +17,8 @@ import {
   type CreateBackupOptions,
   type CreateBackupResponse,
   type RestoreResult,
+  type BackupJob,
+  type BackupJobStartResponse,
   type UploadBackupResponse,
   type ValidateBackupResponse,
   type BackupSettings,
@@ -36,27 +39,131 @@ export function useBackups() {
   })
 }
 
-/** Creates a new backup (optionally encrypted); invalidates the backup list on success. */
-export function useCreateBackup() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (options?: CreateBackupOptions) => createBackup(options),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: BACKUPS_QUERY_KEY })
+/**
+ * Poll interval for `GET /backups/jobs/:job_id` — matches `useImport.ts`'s
+ * `statusQuery.refetchInterval` precedent exactly (`useImport.ts:30-37`
+ * returns `3000`, not `2000` — plan §3.4.2/ASSUMPTION-002).
+ */
+const BACKUP_JOB_POLL_INTERVAL_MS = 3000
+
+/**
+ * Polls `GET /backups/jobs/:job_id` every `BACKUP_JOB_POLL_INTERVAL_MS`
+ * while `status` is `"pending"`/`"running"`; stops (`refetchInterval:
+ * false`) once terminal. Mirrors `useImport.ts`'s established
+ * `statusQuery` polling pattern (refetchInterval as a function of the
+ * latest query data) for consistency (plan §3.4.2). Internal — not exported.
+ */
+function useBackupJobPolling<TResult>(jobId: string | null) {
+  return useQuery<BackupJob<TResult>>({
+    queryKey: ['backup-job', jobId],
+    queryFn: () => getBackupJob(jobId as string) as unknown as Promise<BackupJob<TResult>>,
+    enabled: jobId !== null,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      return status === 'pending' || status === 'running' ? BACKUP_JOB_POLL_INTERVAL_MS : false
     },
   })
 }
 
-/** Restores a backup (with an optional passphrase for `.age` archives). */
-export function useRestoreBackup() {
+/** Callbacks accepted by a `useBackupJob(...)`-instantiated hook's `mutate()` (plan §3.4.2). */
+export interface UseBackupJobCallbacks<TResult> {
+  onSuccess?: (result: TResult) => void
+  onError?: (error: Error) => void
+}
+
+/** Shape shared by `useCreateBackup()`/`useRestoreBackup()` (plan §3.4.2). */
+export interface UseBackupJobResult<TArg, TResult> {
+  mutate: (arg: TArg, callbacks?: UseBackupJobCallbacks<TResult>) => void
+  isPending: boolean
+  job: BackupJob<TResult> | undefined
+  reset: () => void
+}
+
+/**
+ * Shared start+poll implementation behind `useCreateBackup()` and
+ * `useRestoreBackup()` (plan §3.4.2 — DRY, both need identical start+poll
+ * logic). `start` is either `createBackup` or `restoreBackup` — both now
+ * return a `BackupJobStartResponse` (202) instead of blocking for the full
+ * pipeline (plan §2/§3.2).
+ *
+ * **Public surface preserved**: callers keep using `.mutate(arg,
+ * {onSuccess, onError})` and `.isPending` exactly as before the async-job
+ * conversion — `onSuccess`/`onError` now fire when the polled *job* reaches
+ * `completed`/`failed` (not when the initial POST resolves), via an effect
+ * keyed on `job?.status`. A ref holds the latest callbacks so a poll
+ * landing after a re-render never invokes a stale closure. `isPending`
+ * stays `true` from the initial `mutate()` call until the job reaches a
+ * terminal status, so existing `isLoading={mutation.isPending}` wiring in
+ * `Backups.tsx`/`RestoreDialog.tsx` keeps working unchanged.
+ */
+function useBackupJob<TArg, TResult>(start: (arg: TArg) => Promise<BackupJobStartResponse>): UseBackupJobResult<
+  TArg,
+  TResult
+> {
   const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: ({ filename, passphrase }: { filename: string; passphrase?: string }) =>
-      restoreBackup(filename, passphrase),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: BACKUPS_QUERY_KEY })
+  const [jobId, setJobId] = useState<string | null>(null)
+  const [isPending, setIsPending] = useState(false)
+  const callbacksRef = useRef<UseBackupJobCallbacks<TResult>>({})
+  const settledJobIdRef = useRef<string | null>(null)
+
+  const startMutation = useMutation({
+    mutationFn: start,
+    onSuccess: (response) => {
+      setJobId(response.job_id)
+    },
+    onError: (error) => {
+      setIsPending(false)
+      callbacksRef.current.onError?.(error as Error)
     },
   })
+
+  const jobQuery = useBackupJobPolling<TResult>(jobId)
+  const job = jobQuery.data
+
+  useEffect(() => {
+    if (!job || !jobId || settledJobIdRef.current === jobId) return
+    if (job.status === 'completed') {
+      settledJobIdRef.current = jobId
+      setIsPending(false)
+      queryClient.invalidateQueries({ queryKey: BACKUPS_QUERY_KEY })
+      callbacksRef.current.onSuccess?.(job.result as TResult)
+    } else if (job.status === 'failed') {
+      settledJobIdRef.current = jobId
+      setIsPending(false)
+      callbacksRef.current.onError?.(new Error(job.error?.message ?? 'Job failed'))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job?.status, jobId])
+
+  const mutate: UseBackupJobResult<TArg, TResult>['mutate'] = (arg, callbacks) => {
+    callbacksRef.current = callbacks ?? {}
+    settledJobIdRef.current = null
+    setJobId(null)
+    setIsPending(true)
+    startMutation.mutate(arg)
+  }
+
+  const reset = () => {
+    callbacksRef.current = {}
+    settledJobIdRef.current = null
+    setJobId(null)
+    setIsPending(false)
+    startMutation.reset()
+  }
+
+  return { mutate, isPending, job, reset }
+}
+
+/** Creates a new backup (optionally encrypted); invalidates the backup list once the job completes. */
+export function useCreateBackup(): UseBackupJobResult<CreateBackupOptions | undefined, CreateBackupResponse> {
+  return useBackupJob<CreateBackupOptions | undefined, CreateBackupResponse>((options) => createBackup(options))
+}
+
+/** Restores a backup (with an optional passphrase for `.age` archives). */
+export function useRestoreBackup(): UseBackupJobResult<{ filename: string; passphrase?: string }, RestoreResult> {
+  return useBackupJob<{ filename: string; passphrase?: string }, RestoreResult>(({ filename, passphrase }) =>
+    restoreBackup(filename, passphrase)
+  )
 }
 
 /** Deletes a backup; invalidates the backup list on success. */
@@ -258,6 +365,8 @@ export type {
   CreateBackupOptions,
   CreateBackupResponse,
   RestoreResult,
+  BackupJob,
+  BackupJobStartResponse,
   UploadBackupResponse,
   ValidateBackupResponse,
   BackupSettings,

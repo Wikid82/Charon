@@ -110,7 +110,7 @@ describe('CrowdSecConfig', () => {
       lapi_ready: true,
     })
 
-    vi.mocked(backupsApi.createBackup).mockResolvedValue({ filename: 'backup.tar.gz' })
+    vi.mocked(backupsApi.createBackup).mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' })
     vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({ presets: [] })
     vi.mocked(presetsApi.pullCrowdsecPreset).mockResolvedValue({
       status: 'pulled',
