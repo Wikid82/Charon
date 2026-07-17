@@ -314,9 +314,9 @@ func TestBackupService_RunScheduledBackup_CreateBackupAndCleanupHooks(t *testing
 
 	createCalls := 0
 	cleanupCalls := 0
-	service.createBackup = func() (string, error) {
+	service.createBackupOpts = func(opts BackupOptions) (*models.BackupRecord, error) {
 		createCalls++
-		return fmt.Sprintf("backup-%d.zip", createCalls), nil
+		return &models.BackupRecord{Filename: fmt.Sprintf("backup-%d.zip", createCalls)}, nil
 	}
 	service.cleanupOld = func(keep int) (int, error) {
 		cleanupCalls++

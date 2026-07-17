@@ -139,13 +139,13 @@ func SafeJoinPath(baseDir, userPath string) (string, error) {
 }
 
 type BackupService struct {
-	DataDir       string
-	BackupDir     string
-	DatabaseName  string
-	Cron          *cron.Cron
-	restoreDBPath string
-	createBackup  func() (string, error)
-	cleanupOld    func(int) (int, error)
+	DataDir          string
+	BackupDir        string
+	DatabaseName     string
+	Cron             *cron.Cron
+	restoreDBPath    string
+	createBackupOpts func(BackupOptions) (*models.BackupRecord, error)
+	cleanupOld       func(int) (int, error)
 
 	// CrowdSecDir is the source directory backed up into the archive's
 	// crowdsec/** entries (spec §3.2). Wiring into CreateBackup happens in
@@ -351,7 +351,7 @@ func NewBackupService(cfg *config.Config, db *gorm.DB, enc *crypto.EncryptionSer
 		uploadCtx:    uploadCtx,
 		uploadCancel: uploadCancel,
 	}
-	s.createBackup = s.CreateBackup
+	s.createBackupOpts = s.CreateBackupWithOptions
 	s.cleanupOld = s.CleanupOldBackups
 
 	// defaultScheduleCron is used until/unless a persisted backup.schedule_cron
@@ -445,9 +445,9 @@ func (s *BackupService) Reschedule(cronSpec string) error {
 
 func (s *BackupService) RunScheduledBackup() {
 	logger.Log().Info("Starting scheduled backup")
-	createBackup := s.CreateBackup
-	if s.createBackup != nil {
-		createBackup = s.createBackup
+	createBackupOpts := s.CreateBackupWithOptions
+	if s.createBackupOpts != nil {
+		createBackupOpts = s.createBackupOpts
 	}
 
 	cleanupOld := s.CleanupOldBackups
@@ -455,10 +455,16 @@ func (s *BackupService) RunScheduledBackup() {
 		cleanupOld = s.cleanupOld
 	}
 
-	if name, err := createBackup(); err != nil {
+	opts, err := s.resolveScheduledBackupOptions()
+	if err != nil {
+		logger.Log().WithError(err).Error("Scheduled backup: failed to resolve encryption settings")
+		return
+	}
+
+	if record, err := createBackupOpts(opts); err != nil {
 		logger.Log().WithError(err).Error("Scheduled backup failed")
 	} else {
-		logger.Log().WithField("backup", name).Info("Scheduled backup created")
+		logger.Log().WithField("backup", record.Filename).Info("Scheduled backup created")
 
 		// Clean up old backups after successful creation
 		if deleted, err := cleanupOld(DefaultBackupRetention); err != nil {
@@ -652,6 +658,24 @@ func (s *BackupService) resolveBackupPassphrase(opts BackupOptions) (BackupOptio
 	}
 	opts.Passphrase = string(plaintext)
 	return opts, nil
+}
+
+// resolveScheduledBackupOptions builds the BackupOptions for a
+// cron-triggered backup, applying the persisted encryption setting (spec
+// §12.3) — previously RunScheduledBackup always created unencrypted
+// backups regardless of the "Enable backup encryption" setting. Reuses
+// resolveBackupPassphrase (§12.2.2) for the identical stored-passphrase
+// decrypt path the manual-create flow now also uses; no new decrypt logic.
+func (s *BackupService) resolveScheduledBackupOptions() (BackupOptions, error) {
+	opts := BackupOptions{Type: "scheduled"} // was "manual" — see spec §12.3.3
+	if s.db == nil {
+		return opts, nil
+	}
+	opts.Encrypt = readBackupSettingBool(s.db, SettingKeyBackupEncryptionEnabled, false)
+	if !opts.Encrypt {
+		return opts, nil
+	}
+	return s.resolveBackupPassphrase(opts)
 }
 
 // CreateBackup creates an unencrypted, manual-type format-v2 archive of the
