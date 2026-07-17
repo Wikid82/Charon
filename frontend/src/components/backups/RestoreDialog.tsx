@@ -82,6 +82,12 @@ export function RestoreDialog({ backup, onClose }: RestoreDialogProps) {
             />
           )}
 
+          {restoreMutation.isPending && restoreMutation.job?.stage && (
+            <p className="text-sm text-content-secondary" data-testid="backup-restore-stage">
+              {t(`backups.stage.${restoreMutation.job.stage}`)}
+            </p>
+          )}
+
           {validateMutation.data && (
             <Alert
               variant={validateMutation.data.valid ? 'info' : 'error'}

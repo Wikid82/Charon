@@ -864,6 +864,22 @@
       "encryptionKeyRequired": "此备份需要相同的 CHARON_ENCRYPTION_KEY 才能完全还原加密数据。",
       "restartRequired": "备份已还原。需要重启以完成数据库应用。"
     },
+    "stage": {
+      "checking_integrity": "正在检查数据库完整性…",
+      "archiving_files": "正在归档文件…",
+      "encrypting": "正在加密…",
+      "computing_checksum": "正在计算校验和…",
+      "finalizing": "正在完成…",
+      "validating_archive": "正在验证备份文件…",
+      "creating_safety_backup": "正在创建安全备份…",
+      "applying_files": "正在应用文件…",
+      "rehydrating_database": "正在恢复数据库…",
+      "reloading_proxy_config": "正在重新加载代理配置…"
+    },
+    "corruption": {
+      "title": "检测到数据库完整性问题",
+      "body": "Charon 的数据库未通过完整性检查。在数据库修复或从早期备份恢复之前，备份操作将会失败。"
+    },
     "remoteTargets": {
       "title": "远程存储目标",
       "add": "添加远程目标",

@@ -864,6 +864,22 @@
       "encryptionKeyRequired": "Esta copia de seguridad requiere la misma CHARON_ENCRYPTION_KEY para restaurar completamente los datos cifrados.",
       "restartRequired": "Copia de seguridad restaurada. Se requiere un reinicio para terminar de aplicar la base de datos."
     },
+    "stage": {
+      "checking_integrity": "Comprobando la integridad de la base de datos…",
+      "archiving_files": "Archivando archivos…",
+      "encrypting": "Cifrando…",
+      "computing_checksum": "Calculando la suma de comprobación…",
+      "finalizing": "Finalizando…",
+      "validating_archive": "Validando el archivo…",
+      "creating_safety_backup": "Creando copia de seguridad de protección…",
+      "applying_files": "Aplicando archivos…",
+      "rehydrating_database": "Rehidratando la base de datos…",
+      "reloading_proxy_config": "Recargando la configuración del proxy…"
+    },
+    "corruption": {
+      "title": "Problema de integridad de la base de datos detectado",
+      "body": "La base de datos de Charon no superó una comprobación de integridad. Las copias de seguridad fallarán hasta que la base de datos se repare o se restaure desde una copia de seguridad anterior."
+    },
     "remoteTargets": {
       "title": "Destinos de almacenamiento remoto",
       "add": "Añadir destino remoto",

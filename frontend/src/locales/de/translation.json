@@ -864,6 +864,22 @@
       "encryptionKeyRequired": "Für dieses Backup ist derselbe CHARON_ENCRYPTION_KEY erforderlich, um verschlüsselte Daten vollständig wiederherzustellen.",
       "restartRequired": "Backup wiederhergestellt. Ein Neustart ist erforderlich, um die Datenbank vollständig zu übernehmen."
     },
+    "stage": {
+      "checking_integrity": "Datenbankintegrität wird geprüft…",
+      "archiving_files": "Dateien werden archiviert…",
+      "encrypting": "Wird verschlüsselt…",
+      "computing_checksum": "Prüfsumme wird berechnet…",
+      "finalizing": "Wird abgeschlossen…",
+      "validating_archive": "Archiv wird validiert…",
+      "creating_safety_backup": "Sicherheits-Backup wird erstellt…",
+      "applying_files": "Dateien werden angewendet…",
+      "rehydrating_database": "Datenbank wird wiederhergestellt…",
+      "reloading_proxy_config": "Proxy-Konfiguration wird neu geladen…"
+    },
+    "corruption": {
+      "title": "Datenbankintegritätsproblem erkannt",
+      "body": "Die Datenbank von Charon hat eine Integritätsprüfung nicht bestanden. Backups schlagen fehl, bis die Datenbank repariert oder aus einem früheren Backup wiederhergestellt wurde."
+    },
     "remoteTargets": {
       "title": "Remote-Speicherziele",
       "add": "Remote-Ziel hinzufügen",

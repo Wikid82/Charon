@@ -12,6 +12,7 @@ const mockRestoreReset = vi.fn()
 let validateData: unknown
 let validatePending = false
 let restorePending = false
+let restoreJob: { stage?: string } | undefined
 
 vi.mock('../../../hooks/useBackups', async () => {
   const actual = await vi.importActual<typeof import('../../../hooks/useBackups')>('../../../hooks/useBackups')
@@ -27,6 +28,7 @@ vi.mock('../../../hooks/useBackups', async () => {
       mutate: mockRestoreMutate,
       reset: mockRestoreReset,
       isPending: restorePending,
+      job: restoreJob,
     }),
   }
 })
@@ -54,6 +56,7 @@ describe('RestoreDialog', () => {
     validateData = undefined
     validatePending = false
     restorePending = false
+    restoreJob = undefined
   })
 
   it('renders nothing when no backup is selected', () => {
@@ -202,5 +205,21 @@ describe('RestoreDialog', () => {
 
     await user.keyboard('{Escape}')
     expect(onClose).toHaveBeenCalled()
+  })
+
+  it('shows the job stage caption under the spinner while a restore job is running', () => {
+    restorePending = true
+    restoreJob = { stage: 'rehydrating_database' }
+    render(<RestoreDialog backup={plainBackup} onClose={vi.fn()} />)
+
+    expect(screen.getByTestId('backup-restore-stage')).toHaveTextContent('Rehydrating database')
+  })
+
+  it('does not show a stage caption when the restore job has no stage yet', () => {
+    restorePending = true
+    restoreJob = undefined
+    render(<RestoreDialog backup={plainBackup} onClose={vi.fn()} />)
+
+    expect(screen.queryByTestId('backup-restore-stage')).not.toBeInTheDocument()
   })
 })

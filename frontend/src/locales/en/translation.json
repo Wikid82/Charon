@@ -1032,6 +1032,22 @@
       "encryptionKeyRequired": "This backup requires the same CHARON_ENCRYPTION_KEY to fully restore encrypted data.",
       "restartRequired": "Backup restored. A restart is required to finish applying the database."
     },
+    "stage": {
+      "checking_integrity": "Checking database integrity…",
+      "archiving_files": "Archiving files…",
+      "encrypting": "Encrypting…",
+      "computing_checksum": "Computing checksum…",
+      "finalizing": "Finalizing…",
+      "validating_archive": "Validating archive…",
+      "creating_safety_backup": "Creating safety backup…",
+      "applying_files": "Applying files…",
+      "rehydrating_database": "Rehydrating database…",
+      "reloading_proxy_config": "Reloading proxy configuration…"
+    },
+    "corruption": {
+      "title": "Database integrity issue detected",
+      "body": "Charon's database failed an integrity check. Backups will fail until the database is repaired or restored from an earlier backup."
+    },
     "remoteTargets": {
       "title": "Remote Storage Targets",
       "add": "Add Remote Target",

@@ -11,15 +11,22 @@ vi.mock('../../hooks/useAuth', () => ({
 }))
 
 const mockUseBackups = vi.fn()
+const mockUseDbHealth = vi.fn()
 const mockCreateMutate = vi.fn()
 const mockDeleteMutate = vi.fn()
+let createIsPending = false
+let createJob: { stage?: string } | undefined
+
+vi.mock('../../hooks/useDbHealth', () => ({
+  useDbHealth: () => mockUseDbHealth(),
+}))
 
 vi.mock('../../hooks/useBackups', async () => {
   const actual = await vi.importActual<typeof import('../../hooks/useBackups')>('../../hooks/useBackups')
   return {
     ...actual,
     useBackups: () => mockUseBackups(),
-    useCreateBackup: () => ({ mutate: mockCreateMutate, isPending: false }),
+    useCreateBackup: () => ({ mutate: mockCreateMutate, isPending: createIsPending, job: createJob }),
     useDeleteBackup: () => ({ mutate: mockDeleteMutate, isPending: false }),
     useBackupSettingsForm: () => ({
       settings: undefined,
@@ -100,6 +107,9 @@ describe('Backups page', () => {
     vi.clearAllMocks()
     mockUseAuth.mockReturnValue({ user: { role: 'admin' } })
     mockUseBackups.mockReturnValue({ data: mockBackups, isLoading: false })
+    mockUseDbHealth.mockReturnValue({ data: { status: 'healthy' } })
+    createIsPending = false
+    createJob = undefined
   })
 
   it('renders the backup table with type badges, encrypted icon, and remote copy status', () => {
@@ -312,5 +322,49 @@ describe('Backups page', () => {
 
     await user.click(screen.getByRole('button', { name: /mock-restore-dialog-close/i }))
     expect(screen.queryByTestId('mock-restore-dialog')).not.toBeInTheDocument()
+  })
+
+  it('shows a DB corruption warning banner when db health reports status:"corrupted"', () => {
+    mockUseDbHealth.mockReturnValue({ data: { status: 'corrupted' } })
+    render(<Backups />)
+
+    expect(screen.getByTestId('db-corruption-banner')).toBeInTheDocument()
+    expect(screen.getByTestId('db-corruption-banner')).toHaveTextContent(/integrity/i)
+  })
+
+  it('does not show a DB corruption banner when db health is healthy', () => {
+    mockUseDbHealth.mockReturnValue({ data: { status: 'healthy' } })
+    render(<Backups />)
+
+    expect(screen.queryByTestId('db-corruption-banner')).not.toBeInTheDocument()
+  })
+
+  it('does not show a DB corruption banner while db health is still loading', () => {
+    mockUseDbHealth.mockReturnValue({ data: undefined })
+    render(<Backups />)
+
+    expect(screen.queryByTestId('db-corruption-banner')).not.toBeInTheDocument()
+  })
+
+  it('shows the job stage caption under the spinner while a create job is running', async () => {
+    createIsPending = true
+    createJob = { stage: 'archiving_files' }
+    const user = userEvent.setup()
+    render(<Backups />)
+
+    await user.click(screen.getAllByRole('button', { name: /create backup/i })[0])
+
+    expect(screen.getByTestId('backup-create-stage')).toHaveTextContent('Archiving files')
+  })
+
+  it('does not show a stage caption when the create job has no stage yet', async () => {
+    createIsPending = true
+    createJob = undefined
+    const user = userEvent.setup()
+    render(<Backups />)
+
+    await user.click(screen.getAllByRole('button', { name: /create backup/i })[0])
+
+    expect(screen.queryByTestId('backup-create-stage')).not.toBeInTheDocument()
   })
 })

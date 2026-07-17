@@ -9,6 +9,7 @@ import { RestoreDialog } from '../components/backups/RestoreDialog'
 import { UploadBackupButton } from '../components/backups/UploadBackupButton'
 import { PageShell } from '../components/layout/PageShell'
 import {
+  Alert,
   Button,
   Input,
   Badge,
@@ -26,6 +27,7 @@ import {
 } from '../components/ui'
 import { useBackups, useCreateBackup, useDeleteBackup, useBackupSettingsForm, type BackupFile } from '../hooks/useBackups'
 import { useAuth } from '../hooks/useAuth'
+import { useDbHealth } from '../hooks/useDbHealth'
 import { toast } from '../utils/toast'
 
 const formatSize = (bytes: number): string => {
@@ -48,6 +50,7 @@ export default function Backups() {
 
   const { data: backups, isLoading: isLoadingBackups } = useBackups()
   const settingsForm = useBackupSettingsForm()
+  const { data: dbHealth } = useDbHealth()
 
   const [restoreTarget, setRestoreTarget] = useState<BackupFile | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<BackupFile | null>(null)
@@ -213,6 +216,12 @@ export default function Backups() {
       description={t('backups.description')}
       actions={headerActions}
     >
+      {dbHealth?.status === 'corrupted' && (
+        <Alert variant="error" title={t('backups.corruption.title')} data-testid="db-corruption-banner">
+          <p>{t('backups.corruption.body')}</p>
+        </Alert>
+      )}
+
       {isAdmin && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <BackupScheduleCard form={settingsForm} />
@@ -277,6 +286,11 @@ export default function Backups() {
                 onChange={(e) => setCreatePassphrase(e.target.value)}
                 autoComplete="new-password"
               />
+            )}
+            {createMutation.isPending && createMutation.job?.stage && (
+              <p className="text-sm text-content-secondary" data-testid="backup-create-stage">
+                {t(`backups.stage.${createMutation.job.stage}`)}
+              </p>
             )}
           </div>
           <DialogFooter>
