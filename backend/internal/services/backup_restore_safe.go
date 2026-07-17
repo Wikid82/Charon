@@ -457,10 +457,18 @@ func (s *BackupService) runRestoreBackupJob(job *models.BackupJob, filename, pas
 
 	updates := map[string]interface{}{"finished_at": timePtr(time.Now())}
 	if err != nil {
-		logger.Log().WithError(err).WithField("job_uuid", job.UUID).Error("async restore job failed")
+		// err can wrap the user-supplied restore filename verbatim (e.g. via
+		// os.Stat's *PathError), so its raw text is never written to the log
+		// stream (a log-injection sink) — only the closed-enum error code
+		// (backupErrorCode, a fixed set of known strings, not user input) is
+		// logged. The full error detail is still preserved for operators via
+		// the job's persisted error_message column below (GET .../jobs/:id),
+		// which is a data store, not a log sink.
+		errCode := backupErrorCode(err)
+		logger.Log().WithField("job_uuid", job.UUID).WithField("error_code", errCode).Error("async restore job failed")
 		updates["status"] = "failed"
 		updates["error_message"] = err.Error()
-		updates["error_code"] = backupErrorCode(err)
+		updates["error_code"] = errCode
 		s.auditBackupJobPermissionFailure("backup_restore_failed", err, audit)
 	} else {
 		updates["status"] = "completed"
