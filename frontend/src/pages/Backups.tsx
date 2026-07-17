@@ -28,6 +28,7 @@ import {
 import { useBackups, useCreateBackup, useDeleteBackup, useBackupSettingsForm, type BackupFile } from '../hooks/useBackups'
 import { useAuth } from '../hooks/useAuth'
 import { useDbHealth } from '../hooks/useDbHealth'
+import { useRemoteTargets } from '../hooks/useRemoteTargets'
 import { toast } from '../utils/toast'
 
 const formatSize = (bytes: number): string => {
@@ -51,30 +52,46 @@ export default function Backups() {
   const { data: backups, isLoading: isLoadingBackups } = useBackups()
   const settingsForm = useBackupSettingsForm()
   const { data: dbHealth } = useDbHealth()
+  const { data: remoteTargets } = useRemoteTargets()
 
   const [restoreTarget, setRestoreTarget] = useState<BackupFile | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<BackupFile | null>(null)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [createEncrypt, setCreateEncrypt] = useState(false)
   const [createPassphrase, setCreatePassphrase] = useState('')
+  const [createUploadToRemote, setCreateUploadToRemote] = useState(true)
 
   const createMutation = useCreateBackup()
   const deleteMutation = useDeleteBackup()
 
   const handleOpenCreateDialog = () => {
-    setCreateEncrypt(false)
+    const hasStoredPassphrase = settingsForm.encryptionPassphraseSet
+    setCreateEncrypt(hasStoredPassphrase)
     setCreatePassphrase('')
+    setCreateUploadToRemote((remoteTargets ?? []).some((t) => t.enabled))
     setCreateDialogOpen(true)
   }
 
   const handleCreateConfirm = () => {
-    createMutation.mutate(createEncrypt ? { encrypt: true, passphrase: createPassphrase } : undefined, {
-      onSuccess: () => {
-        toast.success(t('backups.createSuccess'))
-        setCreateDialogOpen(false)
-      },
-      onError: (error: Error) => toast.error(t('backups.createFailed', { error: error.message })),
-    })
+    const hasTargets = (remoteTargets ?? []).some((t) => t.enabled)
+    createMutation.mutate(
+      createEncrypt
+        ? {
+            encrypt: true,
+            ...(settingsForm.encryptionPassphraseSet ? {} : { passphrase: createPassphrase }),
+            ...(hasTargets ? { upload_to_remote: createUploadToRemote } : {}),
+          }
+        : hasTargets
+          ? { upload_to_remote: createUploadToRemote }
+          : undefined,
+      {
+        onSuccess: () => {
+          toast.success(t('backups.createSuccess'))
+          setCreateDialogOpen(false)
+        },
+        onError: (error: Error) => toast.error(t('backups.createFailed', { error: error.message })),
+      }
+    )
   }
 
   const handleDownload = (filename: string) => {
@@ -276,7 +293,7 @@ export default function Backups() {
               />
               <Label htmlFor="backup-create-encrypt">{t('backups.encryptThisBackup')}</Label>
             </div>
-            {createEncrypt && (
+            {createEncrypt && !settingsForm.encryptionPassphraseSet && (
               <Input
                 id="backup-create-passphrase"
                 data-testid="backup-create-passphrase-input"
@@ -286,6 +303,22 @@ export default function Backups() {
                 onChange={(e) => setCreatePassphrase(e.target.value)}
                 autoComplete="new-password"
               />
+            )}
+            {createEncrypt && settingsForm.encryptionPassphraseSet && (
+              <p data-testid="backup-create-passphrase-set-indicator" className="text-sm text-content-secondary">
+                {t('backups.encryption.passphraseSet')}
+              </p>
+            )}
+            {(remoteTargets ?? []).some((t) => t.enabled) && (
+              <div className="flex items-center gap-3">
+                <Switch
+                  id="backup-create-upload-to-remote"
+                  data-testid="backup-create-upload-toggle"
+                  checked={createUploadToRemote}
+                  onCheckedChange={setCreateUploadToRemote}
+                />
+                <Label htmlFor="backup-create-upload-to-remote">{t('backups.uploadToRemote')}</Label>
+              </div>
             )}
             {createMutation.isPending && createMutation.job?.stage && (
               <p className="text-sm text-content-secondary" data-testid="backup-create-stage">
@@ -301,7 +334,7 @@ export default function Backups() {
               variant="primary"
               onClick={handleCreateConfirm}
               isLoading={createMutation.isPending}
-              disabled={createEncrypt && !createPassphrase}
+              disabled={createEncrypt && !settingsForm.encryptionPassphraseSet && !createPassphrase}
             >
               {t('common.create')}
             </Button>

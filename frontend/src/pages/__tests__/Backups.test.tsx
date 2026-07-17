@@ -12,13 +12,19 @@ vi.mock('../../hooks/useAuth', () => ({
 
 const mockUseBackups = vi.fn()
 const mockUseDbHealth = vi.fn()
+const mockUseRemoteTargets = vi.fn()
 const mockCreateMutate = vi.fn()
 const mockDeleteMutate = vi.fn()
 let createIsPending = false
 let createJob: { stage?: string } | undefined
+let encryptionPassphraseSet = false
 
 vi.mock('../../hooks/useDbHealth', () => ({
   useDbHealth: () => mockUseDbHealth(),
+}))
+
+vi.mock('../../hooks/useRemoteTargets', () => ({
+  useRemoteTargets: () => mockUseRemoteTargets(),
 }))
 
 vi.mock('../../hooks/useBackups', async () => {
@@ -50,7 +56,7 @@ vi.mock('../../hooks/useBackups', async () => {
       setEncryptionEnabled: vi.fn(),
       encryptionPassphrase: '',
       setEncryptionPassphrase: vi.fn(),
-      encryptionPassphraseSet: false,
+      encryptionPassphraseSet,
       isSaving: false,
       saveDisabled: false,
       save: vi.fn(),
@@ -108,8 +114,10 @@ describe('Backups page', () => {
     mockUseAuth.mockReturnValue({ user: { role: 'admin' } })
     mockUseBackups.mockReturnValue({ data: mockBackups, isLoading: false })
     mockUseDbHealth.mockReturnValue({ data: { status: 'healthy' } })
+    mockUseRemoteTargets.mockReturnValue({ data: [] })
     createIsPending = false
     createJob = undefined
+    encryptionPassphraseSet = false
   })
 
   it('renders the backup table with type badges, encrypted icon, and remote copy status', () => {
@@ -197,6 +205,71 @@ describe('Backups page', () => {
       { encrypt: true, passphrase: 'correct-horse-battery-staple' },
       expect.any(Object)
     )
+  })
+
+  it('defaults the encrypt toggle on and hides the passphrase input when a passphrase is already stored', async () => {
+    encryptionPassphraseSet = true
+    const user = userEvent.setup()
+    render(<Backups />)
+
+    await user.click(screen.getAllByRole('button', { name: /create backup/i })[0])
+    const dialog = screen.getByRole('dialog')
+
+    expect(within(dialog).getByTestId('backup-create-encrypt-toggle')).toBeChecked()
+    expect(within(dialog).queryByTestId('backup-create-passphrase-input')).not.toBeInTheDocument()
+    expect(within(dialog).getByTestId('backup-create-passphrase-set-indicator')).toBeInTheDocument()
+  })
+
+  it('submits without a passphrase field when confirming an encrypted backup with a stored passphrase', async () => {
+    encryptionPassphraseSet = true
+    const user = userEvent.setup()
+    render(<Backups />)
+
+    await user.click(screen.getAllByRole('button', { name: /create backup/i })[0])
+    const dialog = screen.getByRole('dialog')
+
+    await user.click(within(dialog).getByRole('button', { name: /^create$/i }))
+
+    expect(mockCreateMutate).toHaveBeenCalledWith({ encrypt: true }, expect.any(Object))
+    const payload = mockCreateMutate.mock.calls[0][0]
+    expect(payload).not.toHaveProperty('passphrase')
+  })
+
+  it('shows and defaults on the upload-to-remote toggle when an enabled remote target exists', async () => {
+    mockUseRemoteTargets.mockReturnValue({ data: [{ uuid: 'r1', name: 'NAS', enabled: true }] })
+    const user = userEvent.setup()
+    render(<Backups />)
+
+    await user.click(screen.getAllByRole('button', { name: /create backup/i })[0])
+    const dialog = screen.getByRole('dialog')
+
+    expect(within(dialog).getByTestId('backup-create-upload-toggle')).toBeChecked()
+  })
+
+  it('hides the upload-to-remote toggle when there are no enabled remote targets', async () => {
+    mockUseRemoteTargets.mockReturnValue({ data: [{ uuid: 'r1', name: 'NAS', enabled: false }] })
+    const user = userEvent.setup()
+    render(<Backups />)
+
+    await user.click(screen.getAllByRole('button', { name: /create backup/i })[0])
+    const dialog = screen.getByRole('dialog')
+
+    expect(within(dialog).queryByTestId('backup-create-upload-toggle')).not.toBeInTheDocument()
+  })
+
+  it('omits upload_to_remote from the payload when there are no enabled remote targets', async () => {
+    mockUseRemoteTargets.mockReturnValue({ data: [] })
+    const user = userEvent.setup()
+    render(<Backups />)
+
+    await user.click(screen.getAllByRole('button', { name: /create backup/i })[0])
+    const dialog = screen.getByRole('dialog')
+
+    await user.click(within(dialog).getByRole('button', { name: /^create$/i }))
+
+    expect(mockCreateMutate).toHaveBeenCalledWith(undefined, expect.any(Object))
+    const payload = mockCreateMutate.mock.calls[0][0]
+    expect(payload).toBeUndefined()
   })
 
   it('opens the restore dialog for the clicked row', async () => {

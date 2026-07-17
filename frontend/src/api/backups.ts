@@ -34,10 +34,11 @@ export const getBackups = async (): Promise<BackupFile[]> => {
   return response.data
 }
 
-/** Optional body for POST /backups (spec §3.3.1) — both fields optional. */
+/** Optional body for POST /backups (spec §3.3.1) — all fields optional. */
 export interface CreateBackupOptions {
   encrypt?: boolean
   passphrase?: string
+  upload_to_remote?: boolean
 }
 
 /**

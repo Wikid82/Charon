@@ -975,6 +975,7 @@
     "encryptedColumn": "Encrypted",
     "remoteCopiesColumn": "Remote Copies",
     "encryptThisBackup": "Encrypt this backup",
+    "uploadToRemote": "Upload to remote storage",
     "types": {
       "manual": "Manual",
       "scheduled": "Scheduled",
