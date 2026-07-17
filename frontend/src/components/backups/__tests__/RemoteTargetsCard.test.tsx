@@ -395,6 +395,27 @@ describe('RemoteTargetsCard', () => {
 
       expect(toast.error).toHaveBeenCalledWith('disconnect failed')
     })
+
+    it('hides the Test button for a not_connected Dropbox target', () => {
+      render(<RemoteTargetsCard />)
+      const rows = screen.getAllByTestId('backup-remote-target-row')
+      const row = rows.find((r) => within(r).queryByText('Dropbox'))!
+      expect(within(row).queryByTestId('backup-remote-target-test-btn')).not.toBeInTheDocument()
+    })
+
+    it('hides the Test button for a revoked Google Drive target', () => {
+      render(<RemoteTargetsCard />)
+      const rows = screen.getAllByTestId('backup-remote-target-row')
+      const row = rows.find((r) => within(r).queryByText('Google Drive'))!
+      expect(within(row).queryByTestId('backup-remote-target-test-btn')).not.toBeInTheDocument()
+    })
+
+    it('shows the Test button for a connected Dropbox target', () => {
+      render(<RemoteTargetsCard />)
+      const rows = screen.getAllByTestId('backup-remote-target-row')
+      const row = rows.find((r) => within(r).queryByText('Dropbox Connected'))!
+      expect(within(row).getByTestId('backup-remote-target-test-btn')).toBeInTheDocument()
+    })
   })
 
   describe('OAuth callback query-param handling on mount', () => {

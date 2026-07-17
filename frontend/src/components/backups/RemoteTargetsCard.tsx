@@ -214,16 +214,18 @@ export function RemoteTargetsCard() {
                       {t('backups.remoteTargets.disconnect')}
                     </Button>
                   )}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    data-testid="backup-remote-target-test-btn"
-                    onClick={() => handleTest(target)}
-                    isLoading={testMutation.isPending && testMutation.variables === target.uuid}
-                    title={t('backups.remoteTargets.test')}
-                  >
-                    <Zap className="w-4 h-4" />
-                  </Button>
+                  {(!OAUTH_TYPES.has(target.type) || target.oauth_status === 'connected') && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      data-testid="backup-remote-target-test-btn"
+                      onClick={() => handleTest(target)}
+                      isLoading={testMutation.isPending && testMutation.variables === target.uuid}
+                      title={t('backups.remoteTargets.test')}
+                    >
+                      <Zap className="w-4 h-4" />
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"
