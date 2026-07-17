@@ -415,6 +415,17 @@ func (s *BackupRemoteService) Test(ctx context.Context, uuidStr string) error {
 
 	uploader, err := s.uploaderFor(target)
 	if err != nil {
+		if errors.Is(err, remotestorage.ErrOAuthNotConnected) {
+			// OAuth precondition not met — no real probe was ever attempted
+			// against the provider, so there is no "outcome" to record.
+			// Recording this as "failed" is what produces a stale
+			// LastTestStatus="failed" that survives a subsequent successful
+			// OAuth connect, showing a contradictory "Connected" +
+			// "Failed" badge pair (spec §11). Any OTHER uploaderFor error
+			// (config/setup problem — see §11.1) still falls through to
+			// recordTestOutcome below, unchanged.
+			return err
+		}
 		s.recordTestOutcome(target, err)
 		return err
 	}

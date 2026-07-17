@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"path"
 	"sync"
 	"testing"
@@ -251,6 +252,65 @@ func TestBackupRemoteService_TestConnection_RecordsOutcome(t *testing.T) {
 
 	require.NoError(t, db.Where("uuid = ?", target.UUID).First(&reloaded).Error)
 	assert.Equal(t, "failed", reloaded.LastTestStatus)
+	assert.Contains(t, reloaded.LastError, "boom")
+}
+
+// TestBackupRemoteService_Test_OAuthNotConnected_DoesNotRecordFailedStatus
+// proves the spec §11 bug fix: when uploaderFor fails with
+// ErrOAuthNotConnected, no real probe was ever attempted, so Test() must not
+// persist LastTestStatus="failed" — doing so previously produced a
+// contradictory "Connected" + "Failed" badge pair once OAuth was later
+// completed successfully.
+func TestBackupRemoteService_Test_OAuthNotConnected_DoesNotRecordFailedStatus(t *testing.T) {
+	db := newRemoteServiceTestDB(t)
+	svc := NewBackupRemoteService(db, nil, t.TempDir())
+
+	svc.uploaderFactory = func(*models.RemoteStorageTarget, map[string]string, remotestorage.TokenSaver) (remotestorage.Uploader, error) {
+		return nil, remotestorage.ErrOAuthNotConnected
+	}
+
+	target := models.RemoteStorageTarget{
+		Name:           "My Google Drive",
+		Type:           "google_drive",
+		ConfigJSON:     "{}",
+		LastTestStatus: "never",
+		OAuthStatus:    "not_connected",
+	}
+	require.NoError(t, db.Create(&target).Error)
+
+	err := svc.Test(context.Background(), target.UUID)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, remotestorage.ErrOAuthNotConnected))
+
+	var reloaded models.RemoteStorageTarget
+	require.NoError(t, db.Where("uuid = ?", target.UUID).First(&reloaded).Error)
+	assert.Equal(t, "never", reloaded.LastTestStatus)
+	assert.Nil(t, reloaded.LastTestAt)
+	assert.Empty(t, reloaded.LastError)
+}
+
+// TestBackupRemoteService_Test_UploaderForGenuineError_StillRecordsFailedStatus
+// is the regression guard proving the §11 fix is scoped to exactly
+// ErrOAuthNotConnected, not broadened to "any uploaderFor error."
+func TestBackupRemoteService_Test_UploaderForGenuineError_StillRecordsFailedStatus(t *testing.T) {
+	db := newRemoteServiceTestDB(t)
+	svc := NewBackupRemoteService(db, nil, t.TempDir())
+
+	svc.uploaderFactory = func(*models.RemoteStorageTarget, map[string]string, remotestorage.TokenSaver) (remotestorage.Uploader, error) {
+		return nil, assertAnError
+	}
+
+	target := models.RemoteStorageTarget{Name: "Home NAS", Type: "sftp", ConfigJSON: `{"host":"nas.lan"}`}
+	require.NoError(t, db.Create(&target).Error)
+
+	err := svc.Test(context.Background(), target.UUID)
+	require.Error(t, err)
+	assert.False(t, errors.Is(err, remotestorage.ErrOAuthNotConnected))
+
+	var reloaded models.RemoteStorageTarget
+	require.NoError(t, db.Where("uuid = ?", target.UUID).First(&reloaded).Error)
+	assert.Equal(t, "failed", reloaded.LastTestStatus)
+	assert.NotNil(t, reloaded.LastTestAt)
 	assert.Contains(t, reloaded.LastError, "boom")
 }
 
