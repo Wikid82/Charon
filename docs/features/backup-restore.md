@@ -48,6 +48,8 @@ To create a manual backup:
 3. Optionally check **Encrypt this backup** and set a passphrase (see [Encrypting Backups](#encrypting-backups))
 4. Optionally download the backup file for off-site storage
 
+Once you click **Create Backup**, the button shows a spinner with a short status message (like "Archiving files…") that updates as Charon works, and the page tells you when it's finished. This work happens in the background, so it's safe to leave the page open even on a large installation with a lot of data — Charon keeps going until it's done instead of your browser giving up partway through.
+
 ## Restoring from Backup
 
 To restore a previous configuration:
@@ -58,13 +60,24 @@ To restore a previous configuration:
 4. Click **Validate** to check the archive is intact before committing (recommended, not required)
 5. Click **Restore** to confirm
 
-Charon validates the archive, takes a safety backup of your current state, restores the new data, and reloads Caddy and CrowdSec. Most restores finish without any downtime. Occasionally a restore can't finish live and reports that a restart is required to complete it — see [Disaster Recovery: Restart-Required Restores](disaster-recovery.md#restart-required-restores-boot-swap-behavior) for exactly what that means and why it's expected behavior, not a failure.
+Charon validates the archive, takes a safety backup of your current state, restores the new data, and reloads Caddy and CrowdSec. Just like creating a backup, restoring shows a progress spinner with status messages (like "Rehydrating database…") while Charon works in the background, so a large restore won't make the page look stuck or time out — leave it open and wait for the success message. Most restores finish without any downtime. Occasionally a restore can't finish live and reports that a restart is required to complete it — see [Disaster Recovery: Restart-Required Restores](disaster-recovery.md#restart-required-restores-boot-swap-behavior) for exactly what that means and why it's expected behavior, not a failure.
 
 In the rare case where Charon can't complete the restore at all — for example, disk space or file-permission problems that stop it from even queuing the finish-on-restart step — you'll see a clear error message instead of a false "success." Nothing was restored in that case. See [Disaster Recovery: If a Restore Fails Completely](disaster-recovery.md#if-a-restore-fails-completely) for what to do next.
 
 Have a backup file that isn't in the list — downloaded from remote storage, or from another machine? Use **Upload Backup** on the same page instead of steps 1–2; see [Disaster Recovery](disaster-recovery.md) for the full off-host and legacy-file walkthroughs.
 
 > **Note**: Restoring a backup overwrites your current configuration. Charon takes an automatic safety backup first, but if you're unsure, create your own manual backup before restoring too.
+
+## If Backups Are Failing with a Database Error
+
+In rare cases — usually after an unexpected power loss or a hard shutdown — Charon's database can become damaged. When this happens, backups will fail every time until it's fixed, and the **Backups** page shows a clear warning banner explaining that your database needs attention.
+
+If you see this warning:
+
+1. **Restore from an earlier backup.** If you have a backup from before the problem started, follow the [Restoring from Backup](#restoring-from-backup) steps above — this replaces the damaged database with a working one and clears the warning.
+2. **No backup available?** Don't keep making changes in Charon. Get in touch via [GitHub Issues](https://github.com/Wikid82/charon/issues) for help recovering your data.
+
+This warning only appears on the Backups page, and only when Charon detects a real problem — it won't show up during normal use.
 
 ## Backup Retention
 
