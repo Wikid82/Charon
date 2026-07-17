@@ -13,8 +13,9 @@
  */
 
 import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
-import { setupBackupsList, mockBackupJobPolling, BackupFile, BACKUP_SELECTORS } from '../utils/phase5-helpers';
+import { setupBackupsList, mockBackupJobPolling, pollBackupJobViaAPI, BackupFile, BACKUP_SELECTORS } from '../utils/phase5-helpers';
 import { waitForToast, waitForLoadingComplete, waitForAPIResponse } from '../utils/wait-helpers';
+import { getStorageStateAuthHeaders } from '../utils/api-helpers';
 
 /**
  * Mock backup data for testing
@@ -553,47 +554,43 @@ test.describe('Backups Page - Creation and List', () => {
     test('should download backup file successfully', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      const filename = 'backup_2024-01-15_120000.zip';
+      // No page.route mocks here: this test deliberately hits the REAL backend
+      // for both backup creation and the download itself, so it exercises the
+      // real cookie-based navigation auth path that `handleDownload` in
+      // Backups.tsx relies on (`window.location.href = ".../download"`, which
+      // depends on the browser sending the auth cookie automatically — the
+      // exact path broken by the Secure-cookie bug fixed in auth_handler.go's
+      // `setSecureCookie`/`isLocalOrPrivateHost`). A mocked route would never
+      // have caught that regression.
+      const headers = getStorageStateAuthHeaders();
 
-      await page.route('**/api/v1/backups', async (route) => {
-        if (route.request().method() === 'GET') {
-          await route.fulfill({ status: 200, json: mockBackups });
-        } else {
-          await route.continue();
-        }
-      });
+      // Create a real backup via the API so there is a real file to download.
+      const createResponse = await page.request.post('/api/v1/backups', { headers, data: {} });
+      expect(createResponse.status()).toBe(202);
+      const { job_id: jobId } = (await createResponse.json()) as { job_id: string };
+      const job = await pollBackupJobViaAPI(page, headers, jobId);
+      expect(job.status).toBe('completed');
+      const filename = (job.result as { filename?: string } | undefined)?.filename;
+      expect(filename).toBeTruthy();
 
-      // Mock download endpoint
-      await page.route(`**/api/v1/backups/${filename}/download`, async (route) => {
-        await route.fulfill({
-          status: 200,
-          headers: {
-            'Content-Type': 'application/zip',
-            'Content-Disposition': `attachment; filename="${filename}"`,
-          },
-          body: Buffer.from('mock backup content'),
-        });
-      });
+      try {
+        await page.goto('/tasks/backups');
+        await waitForLoadingComplete(page);
 
-      await page.goto('/tasks/backups');
-      await waitForLoadingComplete(page);
+        // `rowTestId={() => 'backup-row'}` (Backups.tsx) puts the same testid
+        // on every row; narrow to the row for the backup we just created.
+        const row = page.getByTestId('backup-row').filter({ hasText: filename as string });
+        const downloadButton = row.locator(SELECTORS.downloadBtn);
+        await expect(downloadButton).toBeVisible();
 
-      // Track download event - The component uses window.location.href for downloads
-      // Since Playwright can't track navigation-based downloads directly,
-      // we verify the download button triggers the correct action
-      const downloadButton = page.locator(SELECTORS.downloadBtn).first();
-      await expect(downloadButton).toBeVisible();
-      await expect(downloadButton).toBeEnabled();
-
-      // For actual download verification in a real scenario, we'd use:
-      // const downloadPromise = page.waitForEvent('download');
-      // await downloadButton.click();
-      // const download = await downloadPromise;
-      // expect(download.suggestedFilename()).toBe(filename);
-
-      // For this test, we verify the button is clickable and properly rendered
-      const buttonTitle = await downloadButton.getAttribute('title');
-      expect(buttonTitle).toBeTruthy();
+        // Track the real navigation-triggered download against the real backend.
+        const downloadPromise = page.waitForEvent('download');
+        await downloadButton.click();
+        const download = await downloadPromise;
+        expect(download.suggestedFilename()).toBe(filename);
+      } finally {
+        await page.request.delete(`/api/v1/backups/${encodeURIComponent(filename as string)}`, { headers });
+      }
     });
 
     test('should show error toast when download fails', async ({ page, adminUser }) => {
