@@ -22,6 +22,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/database"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/util"
@@ -63,6 +64,22 @@ var (
 	// The pre-restore safety backup (S1) still exists on disk and is named
 	// in the wrapped error for manual recovery.
 	ErrRestoreUnrecoverable = errors.New("restore could not be completed and no recovery mechanism succeeded")
+	// ErrDatabaseCorrupted is returned by the pre-flight integrity check
+	// (checkDatabaseIntegrity, this plan's §3.9) when a dedicated-connection
+	// PRAGMA quick_check fails before a VACUUM INTO snapshot is attempted,
+	// and also by backupErrorCode's classification of a raw VACUUM INTO
+	// failure via database.IsCorruptionError (§2.5) for defense-in-depth
+	// (the pre-check should catch this first, but a TOCTOU corruption event
+	// between the check and the VACUUM INTO must still be classified
+	// correctly, not surfaced as an unclassified 500).
+	ErrDatabaseCorrupted = errors.New("database integrity check failed; the backup was not created")
+	// ErrBackupNotFound is returned synchronously by StartRestoreJob (before
+	// any job row is created) when the requested filename does not exist in
+	// BackupDir — preserves today's synchronous 404 behavior
+	// (backup_handler.go's respondRestoreError os.IsNotExist branch) now
+	// that the equivalent os.Stat inside validateBackupArchive runs inside
+	// the async job for every other purpose (this plan's §3.2.2/§3.3.1).
+	ErrBackupNotFound = errors.New("backup not found")
 )
 
 func quoteSQLiteIdentifier(identifier string) (string, error) {
@@ -157,6 +174,25 @@ type BackupService struct {
 	uploadCancel context.CancelFunc
 	uploadWG     sync.WaitGroup
 
+	// jobWG tracks in-flight async create/restore job goroutines (this
+	// plan's §3.3.1 — Async Backup/Restore Jobs). Deliberately no
+	// jobCtx/jobCancel: unlike remote uploads (safe to cancel mid-transfer),
+	// a create/restore job interrupted mid-filepath.Walk/mid-
+	// unzipWithSkipManifest could leave a partially-written archive or
+	// partially-restored DataDir. Stop() waits for in-flight jobs to finish
+	// rather than cancelling them (documented risk, RISK-001).
+	jobWG sync.WaitGroup
+
+	// securityService is used by the job goroutine to write a
+	// SecurityAudit row on a permission-denied failure — a gin.Context is
+	// not available from a background goroutine, so the request-scoped
+	// fields logPermissionAudit would normally read are captured up front
+	// into a RequestAuditInfo by the handler instead (this plan's §3.3.1).
+	// Nilable, wired once via SetSecurityService from routes.go; a nil
+	// value makes the audit-log call a no-op, matching
+	// logPermissionAudit's own guard.
+	securityService *SecurityService
+
 	// remoteUploadHook is invoked (in a tracked goroutine) after a backup is
 	// successfully created, so enabled remote targets receive a copy. Wired
 	// by routes.go via SetRemoteUploadHook; nil is a no-op (many unit tests
@@ -194,6 +230,29 @@ func (s *BackupService) SetRemoteUploadHook(hook RemoteUploadHook) {
 // SetCaddyReloader wires the post-restore Caddy reload hook (spec §3.5 R1).
 func (s *BackupService) SetCaddyReloader(reloader CaddyReloader) {
 	s.caddyReloader = reloader
+}
+
+// RequestAuditInfo carries the request-scoped values a Start*Job goroutine
+// needs to write a permission-denied SecurityAudit row from inside the job
+// (where no gin.Context is available) — captured synchronously by the
+// handler, from the exact same gin.Context fields
+// handlers.logPermissionAudit already reads today (c.Get("userID"),
+// c.ClientIP(), c.Request.UserAgent()). Admin is not carried here —
+// Create/Restore are already requireAdmin-gated before a Start*Job call is
+// reached, so it is always true in this context.
+type RequestAuditInfo struct {
+	Actor     string
+	IPAddress string
+	UserAgent string
+}
+
+// SetSecurityService wires the security-audit-logging dependency (mirrors
+// the existing SetCaddyReloader/SetRemoteUploadHook pattern) — nilable,
+// wired once from routes.go. A nil securityService makes the job
+// goroutine's audit-log call a no-op, matching logPermissionAudit's own
+// `if securityService == nil { return }` guard.
+func (s *BackupService) SetSecurityService(svc *SecurityService) {
+	s.securityService = svc
 }
 
 func checkpointSQLiteDatabase(dbPath string) error {
@@ -241,6 +300,21 @@ func createSQLiteSnapshot(dbPath string) (snapshotPath string, cleanup func(), e
 	}
 
 	return tmpPath, cleanup, nil
+}
+
+// checkDatabaseIntegrity runs a fast PRAGMA quick_check on dbPath via its
+// own dedicated connection (never the caller's shared pool — mirrors
+// database.runQuickCheck's rationale: a corruption scan must not block the
+// app's single-connection pool). Returns ErrDatabaseCorrupted wrapping the
+// PRAGMA result if it isn't exactly "ok" (this plan's §3.9). Reuses
+// database.CheckIntegrityDedicated (§2.5d/§3.9, commit 3) rather than
+// duplicating the dedicated-connection logic a second time.
+func checkDatabaseIntegrity(dbPath string) error {
+	healthy, message := database.CheckIntegrityDedicated(dbPath)
+	if !healthy {
+		return fmt.Errorf("%w: %s", ErrDatabaseCorrupted, message)
+	}
+	return nil
 }
 
 type BackupFile struct {
@@ -301,6 +375,10 @@ func NewBackupService(cfg *config.Config, db *gorm.DB, enc *crypto.EncryptionSer
 		if reconcileErr := reconcileStuckUploadingCopies(db); reconcileErr != nil {
 			logger.Log().WithError(reconcileErr).Warn("Failed to reconcile stuck remote upload copies")
 		}
+
+		if reconcileErr := reconcileStuckBackupJobs(db); reconcileErr != nil {
+			logger.Log().WithError(reconcileErr).Warn("Failed to reconcile stuck backup jobs")
+		}
 	}
 
 	entryID, err := s.Cron.AddFunc(scheduleCron, s.RunScheduledBackup)
@@ -333,6 +411,11 @@ func (s *BackupService) Stop() {
 		s.uploadCancel()
 	}
 	s.uploadWG.Wait()
+	// No cancellation signal is sent for in-flight create/restore jobs
+	// (jobWG) — see the field's doc comment: an interrupted mid-archive/
+	// mid-restore job could leave a partially-written file. Stop() waits
+	// for them to finish instead (RISK-001).
+	s.jobWG.Wait()
 
 	logger.Log().Info("Backup service cron scheduler stopped")
 }
@@ -581,7 +664,204 @@ func (s *BackupService) CreateBackupWithOptions(opts BackupOptions) (*models.Bac
 	return record, nil
 }
 
+// StartCreateBackupJob is the async entry point for POST /api/v1/backups
+// (this plan's §3.2.1/§3.3.1). It runs the same fast, synchronous
+// pre-checks CreateBackupWithOptions/createBackupLocked already perform
+// (encrypt-without-passphrase, s.mu.TryLock()) — hoisted up so they still
+// short-circuit before any BackupJob row is created — then creates the job
+// row and spawns a tracked goroutine that runs the actual archive pipeline
+// in the background, returning immediately (before that goroutine's work is
+// done).
+func (s *BackupService) StartCreateBackupJob(opts BackupOptions, audit RequestAuditInfo) (*models.BackupJob, error) {
+	if opts.Type == "" {
+		opts.Type = "manual"
+	}
+	if opts.Encrypt && strings.TrimSpace(opts.Passphrase) == "" {
+		return nil, fmt.Errorf("passphrase is required to encrypt backup")
+	}
+	if s.db == nil {
+		return nil, fmt.Errorf("backup job tracking requires a database connection")
+	}
+
+	if !s.mu.TryLock() {
+		return nil, ErrBackupInProgress
+	}
+
+	now := time.Now()
+	job := &models.BackupJob{
+		Type:      "create",
+		Status:    "pending",
+		StartedAt: &now,
+	}
+	// Lock-leak fix (spec §3.3.1): TryLock() has already succeeded here,
+	// but no goroutine exists yet to own s.mu.Unlock() — if persisting the
+	// job row itself fails (disk full, GORM error), this function must
+	// unlock synchronously before returning, since nothing else will.
+	if err := s.db.Create(job).Error; err != nil {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("create backup job record: %w", err)
+	}
+
+	s.jobWG.Add(1)
+	go func() {
+		defer s.jobWG.Done()
+		defer s.mu.Unlock()
+		s.runCreateBackupJob(job, opts, audit)
+	}()
+
+	return job, nil
+}
+
+// runCreateBackupJob executes the create-backup pipeline for job in the
+// background (called from the goroutine StartCreateBackupJob spawns, which
+// owns s.mu for the duration via its own defer). Persists the job's
+// progress (best-effort) and terminal outcome, and — for a permission-
+// denied failure — a SecurityAudit row (spec §3.3.1's security-audit fix).
+func (s *BackupService) runCreateBackupJob(job *models.BackupJob, opts BackupOptions, audit RequestAuditInfo) {
+	if updErr := s.db.Model(&models.BackupJob{}).Where("id = ?", job.ID).Update("status", "running").Error; updErr != nil {
+		logger.Log().WithError(updErr).WithField("job_uuid", job.UUID).Warn("failed to mark backup job running")
+	}
+
+	progress := func(stage string) {
+		if updErr := s.db.Model(&models.BackupJob{}).Where("id = ?", job.ID).Update("stage", stage).Error; updErr != nil {
+			logger.Log().WithError(updErr).WithField("job_uuid", job.UUID).Warn("failed to update backup job stage")
+		}
+	}
+
+	record, err := s.createBackupLockedWithProgress(opts, progress)
+
+	finishedAt := time.Now()
+	updates := map[string]interface{}{
+		"finished_at": &finishedAt,
+	}
+
+	if err != nil {
+		logger.Log().WithError(err).WithField("job_uuid", job.UUID).Error("async backup job failed")
+		updates["status"] = "failed"
+		updates["error_message"] = err.Error()
+		updates["error_code"] = backupErrorCode(err)
+
+		// Security-audit fix (spec §3.3.1): respondPermissionError's
+		// logPermissionAudit call is unreachable from this goroutine (no
+		// gin.Context exists here) — restore the same audit trail using the
+		// RequestAuditInfo the handler captured before this job started.
+		if code, ok := util.MapSaveErrorCode(err); ok && s.securityService != nil {
+			detailsJSON, _ := json.Marshal(map[string]any{"error_code": code, "admin": true, "path": s.BackupDir})
+			if auditErr := s.securityService.LogAudit(&models.SecurityAudit{
+				Actor:         audit.Actor,
+				Action:        "backup_create_failed",
+				EventCategory: "permissions",
+				Details:       string(detailsJSON),
+				IPAddress:     audit.IPAddress,
+				UserAgent:     audit.UserAgent,
+			}); auditErr != nil {
+				logger.Log().WithError(auditErr).Warn("failed to write security audit row for backup job failure")
+			}
+		}
+	} else {
+		updates["status"] = "completed"
+		updates["filename"] = record.Filename
+		updates["result_uuid"] = record.UUID
+	}
+
+	if updErr := s.db.Model(&models.BackupJob{}).Where("id = ?", job.ID).Updates(updates).Error; updErr != nil {
+		logger.Log().WithError(updErr).WithField("job_uuid", job.UUID).Warn("failed to persist backup job outcome")
+	}
+}
+
+// backupErrorCode maps a CreateBackupWithOptions/RestoreBackupSafe sentinel
+// error to the stable error_code string the frontend already keys UI copy
+// off of (spec §3.10/§3.5). Falls back, in order, to (1)
+// util.MapSaveErrorCode(err) — the same permission/readonly/locked
+// classifier respondPermissionError already uses — so a permission-denied
+// failure inside the job still gets its proper
+// permissions_db_readonly/permissions_db_locked/permissions_write_denied
+// code instead of ""; then (2) database.IsCorruptionError(err) to classify
+// a raw VACUUM INTO error as "backup_database_corrupted" even if it wasn't
+// caught by the pre-flight check (§3.9). Returns "" for a genuinely
+// unclassified error.
+func backupErrorCode(err error) string {
+	switch {
+	case err == nil:
+		return ""
+	case errors.Is(err, ErrInsufficientSpace):
+		return "backup_insufficient_space"
+	case errors.Is(err, ErrPassphraseRequired):
+		return "backup_passphrase_required"
+	case errors.Is(err, ErrPassphraseInvalid):
+		return "backup_passphrase_invalid"
+	case errors.Is(err, ErrNewerBackupFormat), errors.Is(err, ErrBackupValidationFailed):
+		return "backup_validation_failed"
+	case errors.Is(err, ErrRestoreUnrecoverable):
+		return "backup_restore_unrecoverable"
+	case errors.Is(err, ErrDatabaseCorrupted):
+		return "backup_database_corrupted"
+	}
+
+	if code, ok := util.MapSaveErrorCode(err); ok {
+		return code
+	}
+	if database.IsCorruptionError(err) {
+		return "backup_database_corrupted"
+	}
+	return ""
+}
+
+// GetBackupJob looks up a BackupJob by its UUID (spec §3.2.3) —
+// gorm.ErrRecordNotFound is returned untouched for the handler to map to a
+// 404.
+func (s *BackupService) GetBackupJob(jobUUID string) (*models.BackupJob, error) {
+	var job models.BackupJob
+	if err := s.db.Where("uuid = ?", jobUUID).First(&job).Error; err != nil {
+		return nil, err
+	}
+	return &job, nil
+}
+
+// WaitForJobs blocks until every in-flight create/restore job goroutine has
+// finished. Exported specifically for test determinism (mirrors how Stop()
+// already awaits uploadWG) — not required by any production call site.
+func (s *BackupService) WaitForJobs() {
+	s.jobWG.Wait()
+}
+
+// reconcileStuckBackupJobs marks any BackupJob row left "running" or
+// "pending" by a previous process (crashed/killed mid-job) as "failed" with
+// a fixed ErrorMessage/ErrorCode, so a stale row is never polled forever.
+// Mirrors reconcileStuckUploadingCopies (backup_remote_service.go) exactly;
+// called once from NewBackupService, same place.
+func reconcileStuckBackupJobs(db *gorm.DB) error {
+	if db == nil {
+		return nil
+	}
+	now := time.Now()
+	if err := db.Model(&models.BackupJob{}).
+		Where("status IN ?", []string{"pending", "running"}).
+		Updates(map[string]interface{}{
+			"status":        "failed",
+			"error_message": "process restarted while this job was in progress",
+			"error_code":    "backup_job_interrupted",
+			"finished_at":   &now,
+		}).Error; err != nil {
+		return fmt.Errorf("reconcile stuck backup jobs: %w", err)
+	}
+	return nil
+}
+
+// createBackupLocked is createBackupLockedWithProgress with no progress
+// reporting — the pre-existing behavior every synchronous caller
+// (CreateBackupWithOptions, RestoreBackupSafe's S1 step) continues to get
+// unmodified (this plan's §3.3.1).
 func (s *BackupService) createBackupLocked(opts BackupOptions) (*models.BackupRecord, error) {
+	return s.createBackupLockedWithProgress(opts, nil)
+}
+
+// createBackupLockedWithProgress is createBackupLocked's body, with
+// progress(stage) invoked at each checkpoint in this plan's §3.3.2 table
+// (nil-safe: passing progress == nil, as createBackupLocked does, is a true
+// no-op — every existing test for this pipeline is unaffected). Callers
+// must already hold s.mu.
+func (s *BackupService) createBackupLockedWithProgress(opts BackupOptions, progress func(stage string)) (*models.BackupRecord, error) {
 	if opts.Encrypt && strings.TrimSpace(opts.Passphrase) == "" {
 		return nil, fmt.Errorf("passphrase is required to encrypt backup")
 	}
@@ -619,6 +899,22 @@ func (s *BackupService) createBackupLocked(opts BackupOptions) (*models.BackupRe
 		EncryptionKeyRequired: s.computeEncryptionKeyRequired(),
 	}
 
+	// checking_integrity (NEW, this plan's §2.5/§3.9): a fast,
+	// dedicated-connection PRAGMA quick_check pre-flight, before
+	// writeV2Archive's VACUUM INTO snapshot is attempted, so a corrupted
+	// live database fails fast with a clear, classifiable error instead of
+	// however long VACUUM INTO takes to hit the same corruption on its own
+	// (the original production log this plan investigates, §2.5).
+	if progress != nil {
+		progress("checking_integrity")
+	}
+	if err := checkDatabaseIntegrity(dbPath); err != nil {
+		return nil, err
+	}
+
+	if progress != nil {
+		progress("archiving_files")
+	}
 	if err := s.writeV2Archive(zipPath, dbPath, manifest); err != nil {
 		_ = os.Remove(zipPath)
 		return nil, err
@@ -629,6 +925,9 @@ func (s *BackupService) createBackupLocked(opts BackupOptions) (*models.BackupRe
 	encrypted := false
 
 	if opts.Encrypt {
+		if progress != nil {
+			progress("encrypting")
+		}
 		encPath := zipPath + ".age"
 		if err := encryptArchiveWithPassphrase(zipPath, encPath, opts.Passphrase); err != nil {
 			_ = os.Remove(zipPath)
@@ -641,6 +940,9 @@ func (s *BackupService) createBackupLocked(opts BackupOptions) (*models.BackupRe
 		encrypted = true
 	}
 
+	if progress != nil {
+		progress("computing_checksum")
+	}
 	sum, size, err := sha256File(finalPath)
 	if err != nil {
 		return nil, fmt.Errorf("checksum final backup archive: %w", err)
@@ -657,6 +959,9 @@ func (s *BackupService) createBackupLocked(opts BackupOptions) (*models.BackupRe
 		Status:        "completed",
 	}
 
+	if progress != nil {
+		progress("finalizing")
+	}
 	if s.db != nil {
 		if createErr := s.db.Create(record).Error; createErr != nil {
 			logger.Log().WithError(createErr).WithField("filename", util.SanitizeForLog(finalFilename)).
