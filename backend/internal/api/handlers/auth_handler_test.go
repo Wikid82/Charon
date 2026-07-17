@@ -105,7 +105,7 @@ func TestSetSecureCookie_HTTP_Loopback_Insecure(t *testing.T) {
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
-	assert.True(t, cookie.Secure)
+	assert.False(t, cookie.Secure)
 	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
 }
 
@@ -196,7 +196,7 @@ func TestSetSecureCookie_HTTP_PrivateIP_Insecure(t *testing.T) {
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
-	assert.True(t, cookie.Secure)
+	assert.False(t, cookie.Secure)
 	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
 }
 
@@ -213,7 +213,7 @@ func TestSetSecureCookie_HTTP_10Network_Insecure(t *testing.T) {
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
-	assert.True(t, cookie.Secure)
+	assert.False(t, cookie.Secure)
 	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
 }
 
@@ -230,7 +230,7 @@ func TestSetSecureCookie_HTTP_172Network_Insecure(t *testing.T) {
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
-	assert.True(t, cookie.Secure)
+	assert.False(t, cookie.Secure)
 	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
 }
 
@@ -264,7 +264,7 @@ func TestSetSecureCookie_HTTP_IPv6ULA_Insecure(t *testing.T) {
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
-	assert.True(t, cookie.Secure)
+	assert.False(t, cookie.Secure)
 	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
 }
 
@@ -282,6 +282,28 @@ func TestSetSecureCookie_HTTP_PublicIP_Secure(t *testing.T) {
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
 	assert.True(t, cookie.Secure)
+	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
+}
+
+// TestSetSecureCookie_HTTP_TailscaleCGNAT_Insecure is the direct regression
+// test for the reported bug: a plain-HTTP request from a Tailscale-assigned
+// address (100.64.0.0/10, RFC 6598 carrier-grade NAT) must downgrade Secure
+// to false so the browser actually persists the auth_token cookie, restoring
+// the cookie-fallback auth path used by navigation-triggered downloads.
+func TestSetSecureCookie_HTTP_TailscaleCGNAT_Insecure(t *testing.T) {
+	t.Parallel()
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest("POST", "http://100.98.12.109:8787/login", http.NoBody)
+	req.Host = "100.98.12.109:8787"
+	req.Header.Set("X-Forwarded-Proto", "http")
+	ctx.Request = req
+
+	setSecureCookie(ctx, "auth_token", "abc", 60)
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	cookie := cookies[0]
+	assert.False(t, cookie.Secure)
 	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
 }
 
@@ -363,6 +385,15 @@ func TestHostHelpers(t *testing.T) {
 		assert.True(t, isLocalOrPrivateHost("fd12::1"))
 		assert.False(t, isLocalOrPrivateHost("203.0.113.5"))
 		assert.False(t, isLocalOrPrivateHost("example.com"))
+	})
+
+	// Pins the 100.64.0.0/10 (RFC 6598 Tailscale/CGNAT) boundary so a future
+	// edit can't silently widen or shrink the block.
+	t.Run("isLocalOrPrivateHost tailscaleCGNAT boundary", func(t *testing.T) {
+		assert.True(t, isLocalOrPrivateHost("100.64.0.1"), "100.64.0.1 is inside 100.64.0.0/10")
+		assert.True(t, isLocalOrPrivateHost("100.127.255.254"), "100.127.255.254 is inside 100.64.0.0/10")
+		assert.False(t, isLocalOrPrivateHost("100.63.255.255"), "100.63.255.255 is just below the block")
+		assert.False(t, isLocalOrPrivateHost("100.128.0.1"), "100.128.0.1 is just above the block")
 	})
 }
 
@@ -689,7 +720,7 @@ func TestAuthHandler_Verify_InvalidToken(t *testing.T) {
 	r.GET("/verify", handler.Verify)
 
 	req := httptest.NewRequest("GET", "/verify", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "invalid-token"})
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "invalid-token", Secure: true, HttpOnly: true})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -718,7 +749,7 @@ func TestAuthHandler_Verify_ValidToken(t *testing.T) {
 	r.GET("/verify", handler.Verify)
 
 	req := httptest.NewRequest("GET", "/verify", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, Secure: true, HttpOnly: true})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -776,7 +807,7 @@ func TestAuthHandler_Verify_DisabledUser(t *testing.T) {
 	r.GET("/verify", handler.Verify)
 
 	req := httptest.NewRequest("GET", "/verify", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, Secure: true, HttpOnly: true})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -815,7 +846,7 @@ func TestAuthHandler_Verify_ForwardAuthDenied(t *testing.T) {
 	r.GET("/verify", handler.Verify)
 
 	req := httptest.NewRequest("GET", "/verify", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, Secure: true, HttpOnly: true})
 	req.Header.Set("X-Forwarded-Host", "app.example.com")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -846,7 +877,7 @@ func TestAuthHandler_VerifyStatus_InvalidToken(t *testing.T) {
 	r.GET("/status", handler.VerifyStatus)
 
 	req := httptest.NewRequest("GET", "/status", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "invalid"})
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "invalid", Secure: true, HttpOnly: true})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -876,7 +907,7 @@ func TestAuthHandler_VerifyStatus_Authenticated(t *testing.T) {
 	r.GET("/status", handler.VerifyStatus)
 
 	req := httptest.NewRequest("GET", "/status", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, Secure: true, HttpOnly: true})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -909,7 +940,7 @@ func TestAuthHandler_VerifyStatus_DisabledUser(t *testing.T) {
 	r.GET("/status", handler.VerifyStatus)
 
 	req := httptest.NewRequest("GET", "/status", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, Secure: true, HttpOnly: true})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -1216,6 +1247,69 @@ func TestAuthHandler_Logout_InvalidatesBearerSession(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, meAfterLogoutRes.Code)
 }
 
+// TestAuthHandler_Logout_InvalidatesSessionBeforeClearingCookie documents the
+// §9.7 known-limitation mitigation (docs/plans/current_spec.md): Logout calls
+// h.authService.InvalidateSessions(userID) (auth_handler.go:214) before
+// clearSecureCookie (auth_handler.go:221). If the logout request arrives over
+// a local/Tailscale plain-HTTP origin, setSecureCookie's clearing cookie is
+// non-Secure, which the browser may refuse to apply on top of an
+// earlier-Secure cookie (RFC 6265bis "Leave Secure Cookies Alone"), leaving a
+// stale client-side cookie. This test proves that scenario is inert: session
+// invalidation happens server-side regardless, so the stale/original token is
+// rejected on the very next request even if the client-side cookie clear
+// silently failed.
+func TestAuthHandler_Logout_InvalidatesSessionBeforeClearingCookie(t *testing.T) {
+	t.Parallel()
+	handler, db := setupAuthHandler(t)
+
+	user := &models.User{
+		UUID:    uuid.NewString(),
+		Email:   "cross-scheme-logout@example.com",
+		Name:    "Cross Scheme Logout",
+		Role:    models.RoleUser,
+		Enabled: true,
+	}
+	require.NoError(t, user.SetPassword("password123"))
+	require.NoError(t, db.Create(user).Error)
+
+	token, err := handler.authService.GenerateToken(user)
+	require.NoError(t, err)
+
+	r := gin.New()
+	protected := r.Group("/")
+	protected.Use(middleware.AuthMiddleware(handler.authService))
+	protected.POST("/auth/logout", handler.Logout)
+
+	// Simulate an admin logging out over the instance's local/Tailscale
+	// plain-HTTP address (the reported bug's origin) after an earlier HTTPS
+	// session — this is exactly the request shape that makes
+	// clearSecureCookie emit a non-Secure cookie.
+	logoutReq := httptest.NewRequest(http.MethodPost, "/auth/logout", http.NoBody)
+	logoutReq.Host = "100.98.12.109:8787"
+	logoutReq.Header.Set("Authorization", "Bearer "+token)
+	logoutReq.Header.Set("X-Forwarded-Proto", "http")
+	logoutRes := httptest.NewRecorder()
+	r.ServeHTTP(logoutRes, logoutReq)
+	require.Equal(t, http.StatusOK, logoutRes.Code)
+
+	// The clearing cookie itself is non-Secure per the local/HTTP downgrade...
+	cookies := logoutRes.Result().Cookies()
+	require.Len(t, cookies, 1)
+	assert.False(t, cookies[0].Secure)
+
+	// ...but InvalidateSessions already ran server-side (bumping
+	// session_version) before that cookie was ever written, so the pre-logout
+	// token is rejected regardless of whether the browser actually applies the
+	// (possibly-refused) clearing cookie — the stale cookie is inert, not a
+	// live session.
+	var reloaded models.User
+	require.NoError(t, db.First(&reloaded, user.ID).Error)
+	assert.Equal(t, user.SessionVersion+1, reloaded.SessionVersion, "InvalidateSessions must have run and bumped session_version")
+
+	_, _, err = handler.authService.AuthenticateToken(token)
+	assert.Error(t, err, "the pre-logout token must be rejected once InvalidateSessions has run, regardless of the clearing cookie's Secure attribute")
+}
+
 func TestAuthHandler_Me_RequiresUserContext(t *testing.T) {
 	t.Parallel()
 	handler, _ := setupAuthHandler(t)
@@ -1399,7 +1493,7 @@ func TestAuthHandler_Verify_UsesOriginalHostFallback(t *testing.T) {
 	r.GET("/verify", handler.Verify)
 
 	req := httptest.NewRequest(http.MethodGet, "/verify", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, Secure: true, HttpOnly: true})
 	req.Header.Set("X-Original-Host", "original-host.example.com")
 	res := httptest.NewRecorder()
 	r.ServeHTTP(res, req)

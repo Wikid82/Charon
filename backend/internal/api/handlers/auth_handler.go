@@ -77,16 +77,42 @@ func originHost(rawURL string) string {
 	return normalizeHost(parsedURL.Host)
 }
 
+// tailscaleCGNAT is Tailscale's default address range (RFC 6598 "Shared
+// Address Space" / carrier-grade NAT) — not covered by net.IP.IsPrivate(),
+// which only implements RFC 1918 + IPv6 ULA. Self-hosted access over a
+// Tailscale mesh without TLS termination is a legitimate, expected Charon
+// deployment mode (Big Picture, CLAUDE.md), so it must be treated the same
+// as any other private-network origin for the Secure-cookie downgrade below.
+//
+// Risk acceptance: unlike RFC 1918 space, a CGNAT pool can in principle be
+// shared with mutually-untrusting tenants (mobile carriers, some ISPs) — the
+// IP alone can't distinguish "this admin's own Tailscale mesh" from "another
+// CGNAT tenant." This is an inherent limitation of the address family, not a
+// code defect, and is accepted here as consistent with Charon's self-hosted/
+// LAN/VPN-mesh threat model (see docs/plans/current_spec.md §9.1.5).
+var tailscaleCGNAT = func() *net.IPNet {
+	_, block, err := net.ParseCIDR("100.64.0.0/10")
+	if err != nil {
+		panic(err) // unreachable: constant, valid CIDR
+	}
+	return block
+}()
+
 func isLocalOrPrivateHost(host string) bool {
 	if strings.EqualFold(host, "localhost") {
 		return true
 	}
 
-	if ip := net.ParseIP(host); ip != nil && (ip.IsLoopback() || ip.IsPrivate()) {
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+
+	if ip.IsLoopback() || ip.IsPrivate() {
 		return true
 	}
 
-	return false
+	return tailscaleCGNAT.Contains(ip)
 }
 
 func isLocalRequest(c *gin.Context) bool {
@@ -127,12 +153,22 @@ func isLocalRequest(c *gin.Context) bool {
 
 // setSecureCookie sets an auth cookie with security best practices
 //   - HttpOnly: prevents JavaScript access (XSS protection)
-//   - Secure: always true (all major browsers honour Secure on localhost HTTP;
-//     HTTP-on-private-IP without TLS is an unsupported deployment)
+//   - Secure: true for HTTPS, or for any request whose origin is not
+//     local/private (fail-safe: a plain-HTTP request from a public host still
+//     gets Secure=true, so the browser silently drops the cookie rather than
+//     transmit it unencrypted — the Authorization-header/localStorage token
+//     path in extractAuthToken remains available regardless). Secure is false
+//     only when scheme != "https" AND isLocalRequest(c) is true (loopback,
+//     RFC 1918, IPv6 ULA, or Tailscale/CGNAT 100.64.0.0/10) — this is what
+//     lets the cookie-fallback auth path (used by navigation-triggered
+//     downloads, §9 of docs/plans/current_spec.md) work for Charon's
+//     documented self-hosted LAN/VPN-mesh deployment mode without TLS
+//     termination.
 //   - SameSite: Lax for any local/private-network request (regardless of scheme),
 //     Strict otherwise (public HTTPS only)
 func setSecureCookie(c *gin.Context, name, value string, maxAge int) {
 	scheme := requestScheme(c)
+	secure := true
 	sameSite := http.SameSiteStrictMode
 	if scheme != "https" {
 		sameSite = http.SameSiteLaxMode
@@ -140,19 +176,26 @@ func setSecureCookie(c *gin.Context, name, value string, maxAge int) {
 
 	if isLocalRequest(c) {
 		sameSite = http.SameSiteLaxMode
+		if scheme != "https" {
+			secure = false
+		}
 	}
 
 	// Use the host without port for domain
 	domain := ""
 
 	c.SetSameSite(sameSite)
-	c.SetCookie(
+	c.SetCookie( // codeql[go/cookie-secure-not-set] Safe: secure is false only
+		// when isLocalRequest(c) AND scheme != "https" (loopback/RFC1918/
+		// IPv6-ULA/Tailscale-CGNAT origin over plain HTTP) — every other path
+		// (HTTPS, or plain HTTP from a public host) still gets secure=true.
+		// See the truth table in docs/plans/current_spec.md §9.2.
 		name,   // name
 		value,  // value
 		maxAge, // maxAge in seconds
 		"/",    // path
 		domain, // domain (empty = current host)
-		true,   // secure
+		secure, // secure
 		true,   // httpOnly (no JS access)
 	)
 }
