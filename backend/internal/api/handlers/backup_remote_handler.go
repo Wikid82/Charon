@@ -307,7 +307,7 @@ func (h *BackupRemoteHandler) OAuthCallback(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "app.public_url is not configured", "error_code": "public_url_not_configured"})
 		return
 	}
-	redirectBase := strings.TrimSuffix(baseURL, "/") + "/backups"
+	redirectBase := strings.TrimSuffix(baseURL, "/") + "/tasks/backups"
 
 	if providerErr != "" {
 		// User clicked "Deny" at the provider's consent screen — never a

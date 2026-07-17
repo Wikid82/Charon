@@ -136,7 +136,7 @@ func TestOAuthCallback_ProviderDenied_RedirectsWithErrorMessage(t *testing.T) {
 
 	require.Equal(t, http.StatusFound, rec.Code)
 	location := rec.Header().Get("Location")
-	assert.True(t, strings.HasPrefix(location, "https://charon.example.com/backups?"))
+	assert.True(t, strings.HasPrefix(location, "https://charon.example.com/tasks/backups?"))
 	assert.Contains(t, location, "oauth_result=error")
 	assert.Contains(t, location, "message=authorization_denied")
 }
@@ -228,7 +228,7 @@ func TestOAuthCallback_TokenExchangeFailure_RedirectsWithSentinelMessage_NoRawEr
 
 	require.Equal(t, http.StatusFound, rec.Code)
 	location := rec.Header().Get("Location")
-	assert.True(t, strings.HasPrefix(location, "https://charon.example.com/backups?"))
+	assert.True(t, strings.HasPrefix(location, "https://charon.example.com/tasks/backups?"))
 	assert.Contains(t, location, "oauth_result=error")
 	assert.Contains(t, location, "message=token_exchange_failed")
 
@@ -238,6 +238,58 @@ func TestOAuthCallback_TokenExchangeFailure_RedirectsWithSentinelMessage_NoRawEr
 	for _, leaked := range []string{"bogus-authorization-code-value", "invalid_grant", "oauth2:", "dropbox:", "exchange oauth code"} {
 		assert.NotContains(t, location, leaked, "callback redirect must not leak raw provider/exchange error detail")
 	}
+}
+
+// TestOAuthCallback_Success_RedirectsToTasksBackupsPath is the addendum
+// (spec §10) regression test for the OAuth callback redirect-path bug: the
+// frontend route is nested at /tasks/backups (App.tsx), not a top-level
+// /backups, so a successful token exchange must redirect there — previously
+// untested branch (line ~333 of backup_remote_handler.go).
+func TestOAuthCallback_Success_RedirectsToTasksBackupsPath(t *testing.T) {
+	fakeDropboxOAuth := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"access_token":"fake-access-token","token_type":"bearer","refresh_token":"fake-refresh-token","expires_in":14400}`))
+	}))
+	defer fakeDropboxOAuth.Close()
+	restoreTokenURL := remotestorage.SetDropboxTokenURLForTesting(fakeDropboxOAuth.URL)
+	defer restoreTokenURL()
+
+	router, db := setupBackupRemoteHandlerTest(t, newOAuthHandlerTestEncryption(t))
+	setPublicURL(t, db)
+
+	uuid := createOAuthTarget(t, router, "dropbox",
+		map[string]any{"dropbox": map[string]any{"app_key": "app-key"}},
+		map[string]any{"oauth_client_secret": "app-secret"})
+
+	startReq := httptest.NewRequest(http.MethodPost, "/api/v1/backups/remote-targets/"+uuid+"/oauth/start", nil)
+	startRec := httptest.NewRecorder()
+	router.ServeHTTP(startRec, startReq)
+	require.Equal(t, http.StatusOK, startRec.Code)
+	var startResp map[string]any
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	authorizeURL, _ := startResp["authorize_url"].(string)
+	parsed, err := url.Parse(authorizeURL)
+	require.NoError(t, err)
+	state := parsed.Query().Get("state")
+	require.NotEmpty(t, state)
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/backups/remote-targets/oauth/dropbox/callback?state="+url.QueryEscape(state)+"&code=valid-authorization-code",
+		nil,
+	)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusFound, rec.Code, rec.Body.String())
+	location := rec.Header().Get("Location")
+	assert.True(t, strings.HasPrefix(location, "https://charon.example.com/tasks/backups?oauth_result=success"), "unexpected redirect: %s", location)
+	assert.Contains(t, location, "provider=dropbox")
+
+	parsedLocation, err := url.Parse(location)
+	require.NoError(t, err)
+	assert.NotEmpty(t, parsedLocation.Query().Get("target"))
 }
 
 func TestOAuthDisconnect_Success(t *testing.T) {
