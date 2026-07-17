@@ -167,6 +167,8 @@ Before marking an implementation task as complete, perform the following in orde
 
 ## Subagents
 
+**MANDATORY**: All work performed in this repository — features, bug fixes, refactors, and investigations alike — MUST go through the **management** agent pipeline. Do not implement changes directly in the main session; dispatch to the `management` agent, which orchestrates planning, implementation, review, and QA via the other subagents below.
+
 Use the specialized agents in `.claude/agents/` for complex tasks:
 
 - **management** — Engineering Director; orchestrates all other agents for large features
