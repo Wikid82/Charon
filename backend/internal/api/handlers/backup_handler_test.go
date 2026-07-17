@@ -1,16 +1,20 @@
 package handlers
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
@@ -435,6 +439,37 @@ func TestBackupHandler_Create_ServiceError(t *testing.T) {
 	job, err := svc.GetBackupJob(body.JobID)
 	require.NoError(t, err)
 	require.Equal(t, "failed", job.Status)
+}
+
+// TestBackupHandler_Create_UploadToRemoteFalse_DecodesAndSkipsUpload proves
+// {"upload_to_remote": false} decodes into a *bool pointing at false (not a
+// nil-vs-false ambiguity) and is threaded all the way through
+// StartCreateBackupJob/runCreateBackupJob to gate the remote-upload hook
+// (spec §12.2.4's handler-test note).
+func TestBackupHandler_Create_UploadToRemoteFalse_DecodesAndSkipsUpload(t *testing.T) {
+	router, svc, tmpDir := setupBackupTest(t)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	var called atomic.Bool
+	svc.SetRemoteUploadHook(func(ctx context.Context, record *models.BackupRecord) {
+		called.Store(true)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups", bytes.NewBufferString(`{"upload_to_remote": false}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusAccepted, resp.Code, resp.Body.String())
+
+	var body createJobResponse
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &body))
+
+	svc.WaitForJobs()
+	job, err := svc.GetBackupJob(body.JobID)
+	require.NoError(t, err)
+	require.Equal(t, "completed", job.Status, "error_message=%q error_code=%q", job.ErrorMessage, job.ErrorCode)
+
+	assert.False(t, called.Load(), "upload_to_remote:false in the request body must skip the remote-upload hook")
 }
 
 func TestBackupHandler_Delete_InternalError(t *testing.T) {

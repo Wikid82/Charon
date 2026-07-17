@@ -122,8 +122,9 @@ func (h *BackupHandler) List(c *gin.Context) {
 }
 
 type createBackupRequest struct {
-	Encrypt    bool   `json:"encrypt"`
-	Passphrase string `json:"passphrase"`
+	Encrypt        bool   `json:"encrypt"`
+	Passphrase     string `json:"passphrase"`
+	UploadToRemote *bool  `json:"upload_to_remote,omitempty"`
 }
 
 // buildRequestAuditInfo captures the request-scoped values a Start*Job
@@ -169,9 +170,10 @@ func (h *BackupHandler) Create(c *gin.Context) {
 
 	audit := buildRequestAuditInfo(c)
 	job, err := h.service.StartCreateBackupJob(services.BackupOptions{
-		Type:       "manual",
-		Encrypt:    req.Encrypt,
-		Passphrase: req.Passphrase,
+		Type:           "manual",
+		Encrypt:        req.Encrypt,
+		Passphrase:     req.Passphrase,
+		UploadToRemote: req.UploadToRemote,
 	}, audit)
 	if err != nil {
 		middleware.GetRequestLogger(c).WithField("action", "create_backup").WithError(err).Error("Failed to start backup job")

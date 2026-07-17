@@ -616,6 +616,42 @@ type BackupOptions struct {
 	// Passphrase is used only in memory for this call and is never logged
 	// or persisted in plaintext (spec §3.6, §3.9).
 	Passphrase string
+	// UploadToRemote controls whether CreateBackupWithOptions fires the
+	// remote-upload hook for this backup. nil means "default to the
+	// pre-existing unconditional-upload behavior" (true) — preserves every
+	// existing caller (CreateBackup's "manual" wrapper, RunScheduledBackup,
+	// RestoreBackupSafe's S1 pre_restore step) unchanged without needing to
+	// touch them (spec §12.2.2).
+	UploadToRemote *bool
+}
+
+// resolveBackupPassphrase fills opts.Passphrase from the stored, encrypted
+// backup.encryption_passphrase_enc setting when the caller requested
+// encryption without supplying one explicitly (spec §12.2 — the Create
+// dialog's "use the already-configured passphrase" default). Reuses the
+// exact decrypt primitive backup_remote_service.go:335 already uses for
+// stored target secrets. No-op (opts returned unmodified) when Encrypt is
+// false, Passphrase is already non-empty, or no passphrase is stored —
+// callers still get the existing "passphrase is required" error in that
+// last case, from the unchanged check that already exists at the call
+// site (backup_service.go:900, :679-681).
+func (s *BackupService) resolveBackupPassphrase(opts BackupOptions) (BackupOptions, error) {
+	if !opts.Encrypt || strings.TrimSpace(opts.Passphrase) != "" {
+		return opts, nil
+	}
+	if s.db == nil || s.encryption == nil {
+		return opts, nil
+	}
+	stored, ok := readBackupSettingString(s.db, SettingKeyBackupEncryptionPassphraseEnc)
+	if !ok || strings.TrimSpace(stored) == "" {
+		return opts, nil
+	}
+	plaintext, err := s.encryption.Decrypt(stored)
+	if err != nil {
+		return opts, fmt.Errorf("decrypt stored backup passphrase: %w", err)
+	}
+	opts.Passphrase = string(plaintext)
+	return opts, nil
 }
 
 // CreateBackup creates an unencrypted, manual-type format-v2 archive of the
@@ -653,15 +689,38 @@ func (s *BackupService) CreateBackupWithOptions(opts BackupOptions) (*models.Bac
 		return nil, err
 	}
 
-	if s.remoteUploadHook != nil && record != nil {
-		s.uploadWG.Add(1)
-		go func() {
-			defer s.uploadWG.Done()
-			s.remoteUploadHook(s.uploadCtx, record)
-		}()
-	}
+	s.fireRemoteUploadIfEnabled(opts, record)
 
 	return record, nil
+}
+
+// fireRemoteUploadIfEnabled fires s.remoteUploadHook for record in a
+// tracked goroutine, gated on opts.UploadToRemote (spec §12.2.2): nil or
+// true fires (preserves the pre-existing unconditional-upload behavior for
+// every caller that never sets the field — CreateBackup()'s legacy
+// wrapper, RunScheduledBackup), explicit false skips. Shared by
+// CreateBackupWithOptions (the synchronous legacy/scheduled path, fired
+// after s.mu.Unlock()) and runCreateBackupJob (the async manual-create job
+// path — fired here instead, since that path never calls
+// CreateBackupWithOptions and, even if it wanted to, cannot: it already
+// holds s.mu via StartCreateBackupJob's deferred unlock, and
+// CreateBackupWithOptions's own TryLock() would fail fast on the
+// already-held, non-reentrant s.mu). The upload itself always runs in a
+// new goroutine tracked by s.uploadWG, so calling this while s.mu is still
+// held (the runCreateBackupJob case) is safe — the spawned goroutine never
+// touches s.mu.
+func (s *BackupService) fireRemoteUploadIfEnabled(opts BackupOptions, record *models.BackupRecord) {
+	if s.remoteUploadHook == nil || record == nil {
+		return
+	}
+	if opts.UploadToRemote != nil && !*opts.UploadToRemote {
+		return
+	}
+	s.uploadWG.Add(1)
+	go func() {
+		defer s.uploadWG.Done()
+		s.remoteUploadHook(s.uploadCtx, record)
+	}()
 }
 
 // StartCreateBackupJob is the async entry point for POST /api/v1/backups
@@ -676,11 +735,15 @@ func (s *BackupService) StartCreateBackupJob(opts BackupOptions, audit RequestAu
 	if opts.Type == "" {
 		opts.Type = "manual"
 	}
-	if opts.Encrypt && strings.TrimSpace(opts.Passphrase) == "" {
-		return nil, fmt.Errorf("passphrase is required to encrypt backup")
-	}
 	if s.db == nil {
 		return nil, fmt.Errorf("backup job tracking requires a database connection")
+	}
+	opts, err := s.resolveBackupPassphrase(opts)
+	if err != nil {
+		return nil, err
+	}
+	if opts.Encrypt && strings.TrimSpace(opts.Passphrase) == "" {
+		return nil, fmt.Errorf("passphrase is required to encrypt backup")
 	}
 
 	if !s.mu.TryLock() {
@@ -738,6 +801,7 @@ func (s *BackupService) runCreateBackupJob(job *models.BackupJob, opts BackupOpt
 		updates["status"] = "completed"
 		updates["filename"] = record.Filename
 		updates["result_uuid"] = record.UUID
+		s.fireRemoteUploadIfEnabled(opts, record)
 	}
 
 	s.finishBackupJob(job, updates)
