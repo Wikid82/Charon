@@ -80,6 +80,7 @@ func TestBackupRoutes_StaticRoutesResolveToIntendedHandlers(t *testing.T) {
 		"DELETE /api/v1/backups/:filename":               "BackupHandler).Delete",
 		"GET /api/v1/backups/:filename/download":         "BackupHandler).Download",
 		"POST /api/v1/backups/:filename/restore":         "BackupHandler).Restore",
+		"GET /api/v1/backups/jobs/:job_id":               "BackupHandler).GetJob",
 	}
 
 	registered := map[string]string{}
@@ -91,6 +92,7 @@ func TestBackupRoutes_StaticRoutesResolveToIntendedHandlers(t *testing.T) {
 		"BackupHandler).List", "BackupHandler).Delete", "BackupHandler).Download",
 		"BackupHandler).Restore", "BackupHandler).Create", "BackupHandler).GetSettings",
 		"BackupHandler).UpdateSettings", "BackupHandler).Upload", "BackupHandler).Validate",
+		"BackupHandler).GetJob",
 		"BackupRemoteHandler).List", "BackupRemoteHandler).Create", "BackupRemoteHandler).Update",
 		"BackupRemoteHandler).Delete", "BackupRemoteHandler).Test",
 	}
@@ -130,6 +132,25 @@ func TestBackupRoutes_SettingsAndRemoteTargets_RuntimeDispatch(t *testing.T) {
 	require.Equal(t, http.StatusOK, remoteResp.Code)
 	var remoteBody []any
 	require.NoError(t, json.Unmarshal(remoteResp.Body.Bytes(), &remoteBody))
+}
+
+// TestBackupRoutes_JobsRouteDoesNotCollideWithFilenameRoute is the required
+// routing regression test for GET /api/v1/backups/jobs/:job_id (Async
+// Backup/Restore Jobs plan, §3.2.3/§3.6): a real end-to-end request proves
+// Gin's router resolves "jobs" as its own static route rather than being
+// captured by any /api/v1/backups/:filename[...] wildcard sibling. An
+// unknown job_id must 404 with GetJob's own "backup job not found" body,
+// never Download's "Backup not found" (which would indicate :filename
+// wrongly captured "jobs" as a literal filename).
+func TestBackupRoutes_JobsRouteDoesNotCollideWithFilenameRoute(t *testing.T) {
+	router, _, token := setupBackupRoutingTestRouter(t)
+
+	resp := doAuthedRequest(router, http.MethodGet, "/api/v1/backups/jobs/some-uuid-that-does-not-exist", token)
+	require.Equal(t, http.StatusNotFound, resp.Code)
+
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &body))
+	assert.Equal(t, "backup job not found", body["error"])
 }
 
 // TestBackupRoutes_TestDraftDoesNotCollideWithUUIDTestRoute is the required

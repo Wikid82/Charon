@@ -232,6 +232,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	backupService.SetRemoteUploadHook(backupRemoteService.TriggerUpload) // spec §3.7
 	backupService.Start()                                                // Start cron scheduler for scheduled backups
 	securityService := services.NewSecurityService(db)
+	backupService.SetSecurityService(securityService) // Async Backup/Restore Jobs §3.3.1: security-audit logging from inside the job goroutine
 	backupHandler := handlers.NewBackupHandlerWithDeps(backupService, securityService, db)
 	backupRemoteHandler := handlers.NewBackupRemoteHandler(backupRemoteService)
 
@@ -332,13 +333,17 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management := protected.Group("/")
 		management.Use(middleware.RequireManagementAccess())
 
-		// Backups. Static routes (settings, remote-targets, upload) are
+		// Backups. Static routes (settings, remote-targets, upload, jobs) are
 		// registered alongside the pre-existing /:filename[...] wildcard
 		// routes — see routes_backup_test.go for the required regression
 		// test proving Gin's router resolves them to their intended
-		// handlers rather than the :filename wildcard (spec §3.3).
+		// handlers rather than the :filename wildcard (spec §3.3). "jobs" is
+		// the same pattern (Async Backup/Restore Jobs plan, §3.2.3): a
+		// static first-segment sibling of :filename, and no real backup
+		// filename is ever literally "jobs".
 		management.GET("/backups", backupHandler.List)
-		management.POST("/backups", backupHandler.Create)
+		management.POST("/backups", backupHandler.Create) // 202 + {job_id,type,status}, spec §3.2.1
+		management.GET("/backups/jobs/:job_id", backupHandler.GetJob)
 		management.POST("/backups/upload", backupHandler.Upload)
 		management.GET("/backups/settings", backupHandler.GetSettings)      // management-level
 		management.PUT("/backups/settings", backupHandler.UpdateSettings)   // admin (checked in-handler)
@@ -352,7 +357,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management.POST("/backups/remote-targets/:uuid/oauth/disconnect", backupRemoteHandler.OAuthDisconnect) // admin (checked in-handler)
 		management.DELETE("/backups/:filename", backupHandler.Delete)
 		management.GET("/backups/:filename/download", backupHandler.Download)
-		management.POST("/backups/:filename/restore", backupHandler.Restore)
+		management.POST("/backups/:filename/restore", backupHandler.Restore) // 202 + {job_id,type,status}, spec §3.2.2
 		management.POST("/backups/:filename/validate", backupHandler.Validate)
 
 		// Logs

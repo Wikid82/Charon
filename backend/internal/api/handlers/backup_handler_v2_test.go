@@ -169,17 +169,12 @@ func TestBackupHandler_UpdateSettings_InvalidJSON(t *testing.T) {
 }
 
 func TestBackupHandler_Validate_Success(t *testing.T) {
-	router, _, tmpDir := setupBackupTestV2(t)
+	router, svc, tmpDir := setupBackupTestV2(t)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups", http.NoBody)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-	require.Equal(t, http.StatusCreated, resp.Code)
-	var created map[string]string
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &created))
+	filename := createBackupViaRouter(t, router, svc)
 
-	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/backups/"+created["filename"]+"/validate", http.NoBody)
+	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/backups/"+filename+"/validate", http.NoBody)
 	resp2 := httptest.NewRecorder()
 	router.ServeHTTP(resp2, req2)
 	require.Equal(t, http.StatusOK, resp2.Code)

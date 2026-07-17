@@ -765,9 +765,11 @@ func TestBackupHandler_Create_Error(t *testing.T) {
 
 	h.Create(c)
 
-	// Should fail because database file doesn't exist
+	// StartCreateBackupJob requires a database connection for job tracking
+	// (spec §3.3.1) — svc was built with db == nil above, so this fails
+	// synchronously before any job row/goroutine exists, still a 500.
 	assert.Equal(t, 500, w.Code)
-	assert.Contains(t, w.Body.String(), "Failed to create backup")
+	assert.Contains(t, w.Body.String(), "backup job tracking requires a database connection")
 }
 
 // Settings Handler coverage

@@ -21,65 +21,17 @@ import (
 	"github.com/Wikid82/charon/backend/internal/services"
 )
 
-// --- respondCreateError / respondRestoreError: direct unit tests of every
-// switch branch, mirroring the existing
-// TestBackupHandler_RespondCreateError_ConcurrentInProgress_Returns409
-// pattern already in backup_handler_test.go. Exercising these directly with
-// sentinel errors is far cheaper and more deterministic than trying to
-// force a real disk-full condition or manufacture every validation failure
-// through the full HTTP stack.
-
-func TestBackupHandler_RespondCreateError_InsufficientSpace_Returns500WithCode(t *testing.T) {
-	h := NewBackupHandler(&services.BackupService{})
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/backups", http.NoBody)
-
-	h.respondCreateError(c, services.ErrInsufficientSpace)
-	require.Equal(t, http.StatusInternalServerError, w.Code)
-
-	var body map[string]any
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	assert.Equal(t, "backup_insufficient_space", body["error_code"])
-}
-
-func TestBackupHandler_RespondRestoreError_AllBranches(t *testing.T) {
-	tests := []struct {
-		name       string
-		err        error
-		wantStatus int
-		wantCode   string
-	}{
-		{"passphrase required", services.ErrPassphraseRequired, http.StatusBadRequest, "backup_passphrase_required"},
-		{"passphrase invalid", services.ErrPassphraseInvalid, http.StatusBadRequest, "backup_passphrase_invalid"},
-		{"newer backup format", services.ErrNewerBackupFormat, http.StatusBadRequest, "backup_validation_failed"},
-		{"validation failed", services.ErrBackupValidationFailed, http.StatusBadRequest, "backup_validation_failed"},
-		{"not found", os.ErrNotExist, http.StatusNotFound, ""},
-		{"generic default", assertBoomError{}, http.StatusInternalServerError, ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			h := NewBackupHandler(&services.BackupService{})
-			w := httptest.NewRecorder()
-			c, _ := gin.CreateTestContext(w)
-			c.Request = httptest.NewRequest(http.MethodPost, "/backups/x/restore", http.NoBody)
-
-			h.respondRestoreError(c, tt.err)
-			require.Equal(t, tt.wantStatus, w.Code)
-
-			if tt.wantCode != "" {
-				var body map[string]any
-				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-				assert.Equal(t, tt.wantCode, body["error_code"])
-			}
-		})
-	}
-}
-
-type assertBoomError struct{}
-
-func (assertBoomError) Error() string { return "boom: some unmapped internal error" }
+// --- respondCreateError / respondRestoreError no longer exist (spec
+// §3.5 — Async Backup/Restore Jobs replaced both with the single
+// respondStartJobError, covered by
+// TestBackupHandler_RespondStartJobError_* in backup_handler_test.go).
+// Sentinel errors this file used to assert map to specific HTTP
+// status/error_code (ErrInsufficientSpace, ErrPassphraseRequired/Invalid,
+// ErrNewerBackupFormat/ErrBackupValidationFailed) are no longer returned
+// synchronously by a handler at all — they now occur inside the async job
+// goroutine and are classified by backupErrorCode onto the BackupJob row,
+// already covered by TestBackupErrorCode
+// (backend/internal/services/backup_service_async_create_test.go).
 
 // --- List / Delete / Upload with a real (non-nil) db, exercising the
 // h.db != nil branches these three handlers otherwise never reach in the
@@ -105,7 +57,7 @@ func setupBackupTestWithDB(t *testing.T) (*gin.Engine, *services.BackupService, 
 
 	gdb, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, gdb.AutoMigrate(&models.BackupRecord{}, &models.BackupRemoteCopy{}, &models.RemoteStorageTarget{}, &models.Setting{}))
+	require.NoError(t, gdb.AutoMigrate(&models.BackupRecord{}, &models.BackupRemoteCopy{}, &models.RemoteStorageTarget{}, &models.Setting{}, &models.BackupJob{}))
 
 	cfg := &config.Config{DatabasePath: dbPath}
 	svc := services.NewBackupService(cfg, gdb, nil)
@@ -122,6 +74,7 @@ func setupBackupTestWithDB(t *testing.T) (*gin.Engine, *services.BackupService, 
 	backups := api.Group("/backups")
 	backups.GET("", h.List)
 	backups.POST("", h.Create)
+	backups.GET("/jobs/:job_id", h.GetJob)
 	backups.POST("/upload", h.Upload)
 	backups.POST("/:filename/restore", h.Restore)
 	backups.POST("/:filename/validate", h.Validate)
@@ -358,7 +311,7 @@ func TestBackupHandler_UpdateSettings_GenericError_Returns500(t *testing.T) {
 // archives rather than mocks.
 
 func TestBackupHandler_Validate_PassphraseRequiredAndInvalid(t *testing.T) {
-	router, _, tmpDir := setupBackupTestV2(t)
+	router, svc, tmpDir := setupBackupTestV2(t)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/backups", bytes.NewReader(mustJSON(t, map[string]any{
@@ -368,11 +321,15 @@ func TestBackupHandler_Validate_PassphraseRequiredAndInvalid(t *testing.T) {
 	createReq.Header.Set("Content-Type", "application/json")
 	createResp := httptest.NewRecorder()
 	router.ServeHTTP(createResp, createReq)
-	require.Equal(t, http.StatusCreated, createResp.Code, createResp.Body.String())
+	require.Equal(t, http.StatusAccepted, createResp.Code, createResp.Body.String())
 
-	var created map[string]string
-	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &created))
-	filename := created["filename"]
+	var started createJobResponse
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &started))
+	svc.WaitForJobs()
+	job, err := svc.GetBackupJob(started.JobID)
+	require.NoError(t, err)
+	require.Equal(t, "completed", job.Status, "error_message=%q error_code=%q", job.ErrorMessage, job.ErrorCode)
+	filename := job.Filename
 	require.Contains(t, filename, ".zip.age")
 
 	// No passphrase supplied.

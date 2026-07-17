@@ -1,10 +1,8 @@
 package handlers
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,61 +12,112 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 )
 
-// TestBackupHandler_RespondCreateError_ConcurrentInProgress_Returns409 and
-// TestBackupHandler_RespondRestoreError_ConcurrentInProgress_Returns409
-// prove the spec §3.10 concurrency guard's ErrBackupInProgress is mapped to
-// 409 at the handler layer (services.BackupService.mu.TryLock's own
-// service-level tests prove the guard fires in the first place).
-func TestBackupHandler_RespondCreateError_ConcurrentInProgress_Returns409(t *testing.T) {
+// createJobResponse mirrors the 202 body Create/Restore now return (spec
+// §3.2.1/§3.2.2 — Async Backup/Restore Jobs).
+type createJobResponse struct {
+	JobID  string `json:"job_id"`
+	Type   string `json:"type"`
+	Status string `json:"status"`
+}
+
+// createBackupViaRouter POSTs to /api/v1/backups through router, waits for
+// the resulting job to finish via svc.WaitForJobs() (test determinism, spec
+// §3.3.1), and returns the completed job's filename. Fails the test if the
+// job does not reach status "completed".
+func createBackupViaRouter(t *testing.T, router *gin.Engine, svc *services.BackupService) string {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups", http.NoBody)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusAccepted, resp.Code, resp.Body.String())
+
+	var started createJobResponse
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &started))
+	require.NotEmpty(t, started.JobID)
+	require.Equal(t, "create", started.Type)
+	require.Equal(t, "pending", started.Status)
+
+	svc.WaitForJobs()
+
+	job, err := svc.GetBackupJob(started.JobID)
+	require.NoError(t, err)
+	require.Equal(t, "completed", job.Status, "error_message=%q error_code=%q", job.ErrorMessage, job.ErrorCode)
+	require.NotEmpty(t, job.Filename)
+	return job.Filename
+}
+
+// restoreBackupViaRouter POSTs to /api/v1/backups/:filename/restore through
+// router, waits for the job to finish, and returns the decoded
+// services.RestoreResult (as a generic map, matching how the frontend
+// consumes GetJob's polymorphic "result" field) once status is "completed".
+func restoreBackupViaRouter(t *testing.T, router *gin.Engine, svc *services.BackupService, filename string) map[string]any {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups/"+filename+"/restore", http.NoBody)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusAccepted, resp.Code, resp.Body.String())
+
+	var started createJobResponse
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &started))
+	require.Equal(t, "restore", started.Type)
+
+	svc.WaitForJobs()
+
+	job, err := svc.GetBackupJob(started.JobID)
+	require.NoError(t, err)
+	require.Equal(t, "completed", job.Status, "error_message=%q error_code=%q", job.ErrorMessage, job.ErrorCode)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal([]byte(job.ResultJSON), &result))
+	return result
+}
+
+// TestBackupHandler_RespondStartJobError_* replace the old
+// TestBackupHandler_RespondCreateError_*/RespondRestoreError_* tests —
+// respondCreateError/respondRestoreError no longer exist, replaced by the
+// single respondStartJobError (spec §3.5) that handles only what
+// StartCreateBackupJob/StartRestoreJob can still return synchronously.
+func TestBackupHandler_RespondStartJobError_ConcurrentInProgress_Returns409(t *testing.T) {
 	h := NewBackupHandler(&services.BackupService{})
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodPost, "/backups", http.NoBody)
 
-	h.respondCreateError(c, services.ErrBackupInProgress)
+	h.respondStartJobError(c, services.ErrBackupInProgress)
 	require.Equal(t, http.StatusConflict, w.Code)
 }
 
-func TestBackupHandler_RespondRestoreError_ConcurrentInProgress_Returns409(t *testing.T) {
+func TestBackupHandler_RespondStartJobError_NotFound_Returns404(t *testing.T) {
 	h := NewBackupHandler(&services.BackupService{})
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodPost, "/backups/x/restore", http.NoBody)
 
-	h.respondRestoreError(c, services.ErrBackupInProgress)
-	require.Equal(t, http.StatusConflict, w.Code)
-}
-
-// TestBackupHandler_RespondRestoreError_Unrecoverable_Returns500WithErrorCode
-// is required coverage for C1 (spec §3.2): once RestoreBackupSafe surfaces
-// ErrRestoreUnrecoverable for the double-failure case (rehydrate AND the
-// pending-restore fallback both failed), respondRestoreError must map it to
-// HTTP 500 with the explicit error_code "backup_restore_unrecoverable" so
-// the frontend/operators/log-scrapers can key off it instead of
-// string-matching err.Error().
-func TestBackupHandler_RespondRestoreError_Unrecoverable_Returns500WithErrorCode(t *testing.T) {
-	h := NewBackupHandler(&services.BackupService{})
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/backups/x/restore", http.NoBody)
-
-	restoreErr := fmt.Errorf(
-		"%w: live database rehydrate failed (disable foreign keys: sql: database is closed) and the durable pending-restore fallback also failed (create pending-restore file: is a directory); a pre-restore safety backup %q was created before this attempt and can be restored manually",
-		services.ErrRestoreUnrecoverable, "backup_2026-07-14_12-00-00.zip",
-	)
-
-	h.respondRestoreError(c, restoreErr)
-	require.Equal(t, http.StatusInternalServerError, w.Code)
+	h.respondStartJobError(c, services.ErrBackupNotFound)
+	require.Equal(t, http.StatusNotFound, w.Code)
 
 	var body map[string]string
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	require.Equal(t, "backup_restore_unrecoverable", body["error_code"])
-	require.Contains(t, body["error"], "backup_2026-07-14_12-00-00.zip")
+	require.Equal(t, "Backup not found", body["error"])
+}
+
+func TestBackupHandler_RespondStartJobError_Default_Returns500(t *testing.T) {
+	h := NewBackupHandler(&services.BackupService{})
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/backups", http.NoBody)
+
+	h.respondStartJobError(c, errors.New("boom: some unmapped internal error"))
+	require.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
 func TestIsSQLiteTransientRehydrateError(t *testing.T) {
@@ -96,6 +145,10 @@ func TestIsSQLiteTransientRehydrateError(t *testing.T) {
 	}
 }
 
+// setupBackupTest builds a full BackupHandler stack backed by a REAL
+// database (required since commit 7's async Create/Restore both call
+// StartCreateBackupJob/StartRestoreJob, which return an error synchronously
+// when s.db == nil — job tracking requires persistence, spec §3.3.1).
 func setupBackupTest(t *testing.T) (*gin.Engine, *services.BackupService, string) {
 	t.Helper()
 
@@ -106,38 +159,40 @@ func setupBackupTest(t *testing.T) (*gin.Engine, *services.BackupService, string
 	// Structure: tmpDir/data/charon.db
 	// BackupService expects DatabasePath to be .../data/charon.db
 	// It sets DataDir to filepath.Dir(DatabasePath) -> .../data
-	// It sets BackupDir to .../data/backups (Wait, let me check the code again)
-
-	// Code: backupDir := filepath.Join(filepath.Dir(cfg.DatabasePath), "backups")
-	// So if DatabasePath is /tmp/data/charon.db, DataDir is /tmp/data, BackupDir is /tmp/data/backups.
+	// It sets BackupDir to .../data/backups.
 
 	dataDir := filepath.Join(tmpDir, "data")
 	err = os.MkdirAll(dataDir, 0o750)
 	require.NoError(t, err)
 
 	dbPath := filepath.Join(dataDir, "charon.db")
-	db, err := sql.Open(sqlite.DriverName, dbPath)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_ = db.Close()
-	})
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS healthcheck (id INTEGER PRIMARY KEY, value TEXT)")
-	require.NoError(t, err)
-	_, err = db.Exec("INSERT INTO healthcheck (value) VALUES (?)", "ok")
-	require.NoError(t, err)
+
 	// RestoreBackupSafe's V6 sanity check (spec §3.5) requires the
 	// extracted database to look like a Charon database, i.e. contain
-	// "users" and "proxy_hosts" tables.
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, email TEXT)")
+	// "users" and "proxy_hosts" tables — created via a raw connection to
+	// the same file before it's opened via GORM below.
+	gdb, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
 	require.NoError(t, err)
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS proxy_hosts (id INTEGER PRIMARY KEY, domain_names TEXT)")
-	require.NoError(t, err)
+	require.NoError(t, gdb.Exec("CREATE TABLE IF NOT EXISTS healthcheck (id INTEGER PRIMARY KEY, value TEXT)").Error)
+	require.NoError(t, gdb.Exec("INSERT INTO healthcheck (value) VALUES (?)", "ok").Error)
+	require.NoError(t, gdb.Exec("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, email TEXT)").Error)
+	require.NoError(t, gdb.Exec("CREATE TABLE IF NOT EXISTS proxy_hosts (id INTEGER PRIMARY KEY, domain_names TEXT)").Error)
+	// Async job tracking (this plan's §3.1/§3.3.1) requires BackupJob;
+	// BackupRecord/BackupRemoteCopy/RemoteStorageTarget are needed for
+	// CreateBackupWithOptions's own persistence and List's Preload.
+	require.NoError(t, gdb.AutoMigrate(&models.BackupJob{}, &models.BackupRecord{}, &models.BackupRemoteCopy{}, &models.RemoteStorageTarget{}))
+	t.Cleanup(func() {
+		if sqlDB, dbErr := gdb.DB(); dbErr == nil {
+			_ = sqlDB.Close()
+		}
+	})
 
 	cfg := &config.Config{
 		DatabasePath: dbPath,
 	}
 
-	svc := services.NewBackupService(cfg, nil, nil)
+	svc := services.NewBackupService(cfg, gdb, nil)
+	t.Cleanup(svc.Stop)
 	h := NewBackupHandler(svc)
 
 	r := gin.New()
@@ -147,18 +202,10 @@ func setupBackupTest(t *testing.T) (*gin.Engine, *services.BackupService, string
 		c.Next()
 	})
 	api := r.Group("/api/v1")
-	// Manually register routes since we don't have a RegisterRoutes method on the handler yet?
-	// Wait, I didn't check if I added RegisterRoutes to BackupHandler.
-	// In routes.go I did:
-	// backupHandler := handlers.NewBackupHandler(backupService)
-	// backups := api.Group("/backups")
-	// backups.GET("", backupHandler.List)
-	// ...
-	// So the handler doesn't have RegisterRoutes. I'll register manually here.
-
 	backups := api.Group("/backups")
 	backups.GET("", h.List)
 	backups.POST("", h.Create)
+	backups.GET("/jobs/:job_id", h.GetJob)
 	backups.POST("/:filename/restore", h.Restore)
 	backups.DELETE("/:filename", h.Delete)
 	backups.GET("/:filename/download", h.Download)
@@ -167,7 +214,7 @@ func setupBackupTest(t *testing.T) (*gin.Engine, *services.BackupService, string
 }
 
 func TestBackupLifecycle(t *testing.T) {
-	router, _, tmpDir := setupBackupTest(t)
+	router, svc, tmpDir := setupBackupTest(t)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// 1. List backups (should be empty)
@@ -175,19 +222,9 @@ func TestBackupLifecycle(t *testing.T) {
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)
-	// Check empty list
-	// ...
 
-	// 2. Create backup
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/backups", http.NoBody)
-	resp = httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-	require.Equal(t, http.StatusCreated, resp.Code)
-
-	var result map[string]string
-	err := json.Unmarshal(resp.Body.Bytes(), &result)
-	require.NoError(t, err)
-	filename := result["filename"]
+	// 2. Create backup (async job, spec §3.2.1)
+	filename := createBackupViaRouter(t, router, svc)
 	require.NotEmpty(t, filename)
 
 	// 3. List backups (should have 1)
@@ -195,16 +232,9 @@ func TestBackupLifecycle(t *testing.T) {
 	resp = httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)
-	// Verify list contains filename
 
-	// 4. Restore backup
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/backups/"+filename+"/restore", http.NoBody)
-	resp = httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-	require.Equal(t, http.StatusOK, resp.Code)
-	var restoreResult map[string]any
-	err = json.Unmarshal(resp.Body.Bytes(), &restoreResult)
-	require.NoError(t, err)
+	// 4. Restore backup (async job, spec §3.2.2)
+	restoreResult := restoreBackupViaRouter(t, router, svc, filename)
 	require.Contains(t, restoreResult, "restart_required")
 	require.Contains(t, restoreResult, "live_rehydrate_applied")
 	// RestoreBackupSafe always creates a "pre_restore" safety snapshot (S1)
@@ -221,8 +251,6 @@ func TestBackupLifecycle(t *testing.T) {
 	resp = httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)
-	// Content-Type might vary depending on implementation (application/octet-stream or zip)
-	// require.Equal(t, "application/zip", resp.Header().Get("Content-Type"))
 
 	// 6. Delete backup (and the pre_restore safety snapshot it left behind)
 	req = httptest.NewRequest(http.MethodDelete, "/api/v1/backups/"+filename, http.NoBody)
@@ -250,7 +278,8 @@ func TestBackupLifecycle(t *testing.T) {
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusNotFound, resp.Code)
 
-	// 9. Restore non-existent backup
+	// 9. Restore non-existent backup — stays a synchronous 404 (spec
+	// §3.2.2/§3.3.1's ErrBackupNotFound fix), no job created.
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/backups/missing.zip/restore", http.NoBody)
 	resp = httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -287,18 +316,15 @@ func TestBackupHandler_Errors(t *testing.T) {
 }
 
 func TestBackupHandler_List_Success(t *testing.T) {
-	router, _, tmpDir := setupBackupTest(t)
+	router, svc, tmpDir := setupBackupTest(t)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Create a backup first
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups", http.NoBody)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-	require.Equal(t, http.StatusCreated, resp.Code)
+	createBackupViaRouter(t, router, svc)
 
 	// Now list should return it
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/backups", http.NoBody)
-	resp = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/backups", http.NoBody)
+	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)
 
@@ -310,37 +336,38 @@ func TestBackupHandler_List_Success(t *testing.T) {
 }
 
 func TestBackupHandler_Create_Success(t *testing.T) {
+	router, svc, tmpDir := setupBackupTest(t)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	filename := createBackupViaRouter(t, router, svc)
+	require.Contains(t, filename, "backup_")
+}
+
+func TestBackupHandler_Create_ReturnsAcceptedImmediately(t *testing.T) {
 	router, _, tmpDir := setupBackupTest(t)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups", http.NoBody)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
-	require.Equal(t, http.StatusCreated, resp.Code)
+	require.Equal(t, http.StatusAccepted, resp.Code, resp.Body.String())
 
-	var result map[string]string
-	_ = json.Unmarshal(resp.Body.Bytes(), &result)
-	require.NotEmpty(t, result["filename"])
-	require.Contains(t, result["filename"], "backup_")
+	var body createJobResponse
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &body))
+	require.NotEmpty(t, body.JobID)
+	require.Equal(t, "create", body.Type)
+	require.Equal(t, "pending", body.Status)
 }
 
 func TestBackupHandler_Download_Success(t *testing.T) {
-	router, _, tmpDir := setupBackupTest(t)
+	router, svc, tmpDir := setupBackupTest(t)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	// Create backup
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups", http.NoBody)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-	require.Equal(t, http.StatusCreated, resp.Code)
-
-	var result map[string]string
-	_ = json.Unmarshal(resp.Body.Bytes(), &result)
-	filename := result["filename"]
+	filename := createBackupViaRouter(t, router, svc)
 
 	// Download it
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/backups/"+filename+"/download", http.NoBody)
-	resp = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/backups/"+filename+"/download", http.NoBody)
+	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.Contains(t, resp.Header().Get("Content-Type"), "application")
@@ -396,23 +423,25 @@ func TestBackupHandler_Create_ServiceError(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups", http.NoBody)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
-	// Should fail with 500 due to permission error
-	require.Contains(t, []int{http.StatusInternalServerError, http.StatusCreated}, resp.Code)
+	// The 202 still fires immediately (the job row was created before the
+	// permission error occurs, deeper inside the goroutine) — this is the
+	// entire point of the async-job architecture (spec §3.2.1).
+	require.Equal(t, http.StatusAccepted, resp.Code, resp.Body.String())
+
+	var body createJobResponse
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &body))
+
+	svc.WaitForJobs()
+	job, err := svc.GetBackupJob(body.JobID)
+	require.NoError(t, err)
+	require.Equal(t, "failed", job.Status)
 }
 
 func TestBackupHandler_Delete_InternalError(t *testing.T) {
 	router, svc, tmpDir := setupBackupTest(t)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	// Create a backup first
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups", http.NoBody)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-	require.Equal(t, http.StatusCreated, resp.Code)
-
-	var result map[string]string
-	_ = json.Unmarshal(resp.Body.Bytes(), &result)
-	filename := result["filename"]
+	filename := createBackupViaRouter(t, router, svc)
 
 	// Make backup dir read-only to cause delete error (not NotExist)
 	// #nosec G302 -- Test intentionally sets restrictive permissions to verify error handling
@@ -420,8 +449,8 @@ func TestBackupHandler_Delete_InternalError(t *testing.T) {
 	// #nosec G302 -- Test cleanup restores directory permissions
 	defer func() { _ = os.Chmod(svc.BackupDir, 0o755) }()
 
-	req = httptest.NewRequest(http.MethodDelete, "/api/v1/backups/"+filename, http.NoBody)
-	resp = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/backups/"+filename, http.NoBody)
+	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	// Should fail with 500 due to permission error (not 404)
 	require.Contains(t, []int{http.StatusInternalServerError, http.StatusOK}, resp.Code)
@@ -431,15 +460,7 @@ func TestBackupHandler_Restore_InternalError(t *testing.T) {
 	router, svc, tmpDir := setupBackupTest(t)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	// Create a backup first
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups", http.NoBody)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-	require.Equal(t, http.StatusCreated, resp.Code)
-
-	var result map[string]string
-	_ = json.Unmarshal(resp.Body.Bytes(), &result)
-	filename := result["filename"]
+	filename := createBackupViaRouter(t, router, svc)
 
 	// Make data dir read-only to cause restore error
 	// #nosec G302 -- Test intentionally sets restrictive permissions to verify error handling
@@ -447,9 +468,15 @@ func TestBackupHandler_Restore_InternalError(t *testing.T) {
 	// #nosec G302 -- Test cleanup restores directory permissions
 	defer func() { _ = os.Chmod(svc.DataDir, 0o755) }()
 
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/backups/"+filename+"/restore", http.NoBody)
-	resp = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups/"+filename+"/restore", http.NoBody)
+	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
-	// Should fail with 500 due to permission error
-	require.Contains(t, []int{http.StatusInternalServerError, http.StatusOK}, resp.Code)
+	// In this fixture, charon.db lives directly under DataDir (mirroring
+	// production), so making DataDir read-only also makes the job-tracking
+	// db read-only — s.db.Create(&job) itself fails synchronously (the
+	// lock-leak-fix path, spec §3.3.1 — independently regression-tested at
+	// the service level by
+	// TestStartRestoreJob_LockNotLeakedOnPersistenceFailure), a 500 rather
+	// than a 202.
+	require.Equal(t, http.StatusInternalServerError, resp.Code, resp.Body.String())
 }

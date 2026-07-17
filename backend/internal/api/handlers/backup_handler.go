@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -125,12 +126,39 @@ type createBackupRequest struct {
 	Passphrase string `json:"passphrase"`
 }
 
+// buildRequestAuditInfo captures the request-scoped values a Start*Job
+// goroutine needs to write a permission-denied SecurityAudit row from
+// inside the job (where no gin.Context is available) — the exact same
+// three fields logPermissionAudit already reads (permission_helpers.go),
+// captured synchronously here while c still exists (this plan's §3.3.1/
+// §3.5).
+func buildRequestAuditInfo(c *gin.Context) services.RequestAuditInfo {
+	actor := "unknown"
+	if userID, ok := c.Get("userID"); ok { // identical pattern to logPermissionAudit
+		actor = fmt.Sprintf("%v", userID)
+	}
+	return services.RequestAuditInfo{
+		Actor:     actor,
+		IPAddress: c.ClientIP(),
+		UserAgent: c.Request.UserAgent(),
+	}
+}
+
 // Create handles POST /api/v1/backups (admin). Body is optional (spec
 // §3.3.1); when encrypt is requested without a passphrase, both settings
 // defaults and an explicit 400 are reasonable — we require the caller to
 // supply one explicitly rather than silently falling back to a stored
 // scheduled passphrase, since manual encryption is a per-request secret
 // (spec §3.6).
+//
+// Async job contract (docs/plans/current_spec.md — Async Backup/Restore
+// Jobs, §3.2.1/§3.5): the archive-creation pipeline now runs in a tracked
+// background goroutine (services.BackupService.StartCreateBackupJob) so
+// this handler returns as soon as the job row exists — 202 Accepted with
+// {job_id, type, status} — instead of blocking for the full duration and
+// risking the client's 30s axios timeout aborting the request client-side
+// (NS_BINDING_ABORTED) on a large data directory. Poll
+// GET /api/v1/backups/jobs/:job_id (GetJob) for progress/completion.
 func (h *BackupHandler) Create(c *gin.Context) {
 	if !requireAdmin(c) {
 		return
@@ -139,34 +167,35 @@ func (h *BackupHandler) Create(c *gin.Context) {
 	var req createBackupRequest
 	_ = c.ShouldBindJSON(&req) // optional body
 
-	record, err := h.service.CreateBackupWithOptions(services.BackupOptions{
+	audit := buildRequestAuditInfo(c)
+	job, err := h.service.StartCreateBackupJob(services.BackupOptions{
 		Type:       "manual",
 		Encrypt:    req.Encrypt,
 		Passphrase: req.Passphrase,
-	})
+	}, audit)
 	if err != nil {
-		h.respondCreateError(c, err)
+		middleware.GetRequestLogger(c).WithField("action", "create_backup").WithError(err).Error("Failed to start backup job")
+		h.respondStartJobError(c, err)
 		return
 	}
 
-	middleware.GetRequestLogger(c).WithField("action", "create_backup").
-		WithField("filename", util.SanitizeForLog(record.Filename)).Info("Backup created successfully")
-	c.JSON(http.StatusCreated, gin.H{"filename": record.Filename, "uuid": record.UUID, "message": "Backup created successfully"})
+	c.JSON(http.StatusAccepted, gin.H{"job_id": job.UUID, "type": job.Type, "status": job.Status})
 }
 
-func (h *BackupHandler) respondCreateError(c *gin.Context, err error) {
-	middleware.GetRequestLogger(c).WithField("action", "create_backup").WithError(err).Error("Failed to create backup")
-
+// respondStartJobError handles the small set of errors
+// StartCreateBackupJob/StartRestoreJob can still return *synchronously*
+// (this plan's §3.5) — everything else (insufficient space, passphrase
+// issues, validation/corruption failures, unrecoverable restores,
+// permission-denied) now happens inside the job goroutine and is captured
+// on the BackupJob row (ErrorMessage/ErrorCode) instead, polled via GetJob.
+func (h *BackupHandler) respondStartJobError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, services.ErrBackupInProgress):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
-	case errors.Is(err, services.ErrInsufficientSpace):
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "error_code": "backup_insufficient_space"})
+	case errors.Is(err, services.ErrBackupNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "Backup not found"})
 	default:
-		if respondPermissionError(c, h.securityService, "backup_create_failed", err, h.service.BackupDir) {
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create backup: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 	}
 }
 
@@ -233,8 +262,12 @@ type restoreRequest struct {
 	Passphrase string `json:"passphrase"`
 }
 
-// Restore handles POST /api/v1/backups/:filename/restore (admin), running
-// the full V->S->A->R->F safe-restore pipeline (spec §3.5).
+// Restore handles POST /api/v1/backups/:filename/restore (admin), starting
+// the full V->S->A->R->F safe-restore pipeline as a tracked background job
+// (spec §3.2.2/§3.5 — same async-job contract as Create; see its doc
+// comment above). Returns 202 Accepted with {job_id, type, status}; a
+// nonexistent/typo'd filename still gets a synchronous 404, unchanged from
+// before this plan (services.ErrBackupNotFound, spec §3.3.1).
 func (h *BackupHandler) Restore(c *gin.Context) {
 	if !requireAdmin(c) {
 		return
@@ -245,47 +278,96 @@ func (h *BackupHandler) Restore(c *gin.Context) {
 	var req restoreRequest
 	_ = c.ShouldBindJSON(&req) // optional body; passphrase required only for .age archives
 
-	result, err := h.service.RestoreBackupSafe(filename, req.Passphrase)
+	audit := buildRequestAuditInfo(c)
+	job, err := h.service.StartRestoreJob(filename, req.Passphrase, audit)
 	if err != nil {
 		// codeql[go/log-injection] Safe: user input sanitized via util.SanitizeForLog()
 		// which removes control characters (0x00-0x1F, 0x7F) including CRLF
 		middleware.GetRequestLogger(c).WithField("action", "restore_backup").
 			WithField("filename", util.SanitizeForLog(filepath.Base(filename))).
-			WithField("error", util.SanitizeForLog(err.Error())).Error("Failed to restore backup")
-		h.respondRestoreError(c, err)
+			WithField("error", util.SanitizeForLog(err.Error())).Error("Failed to start restore job")
+		h.respondStartJobError(c, err)
 		return
 	}
 
-	middleware.GetRequestLogger(c).WithField("action", "restore_backup").
-		WithField("filename", util.SanitizeForLog(filepath.Base(filename))).Info("Backup restored successfully")
-	c.JSON(http.StatusOK, result)
+	c.JSON(http.StatusAccepted, gin.H{"job_id": job.UUID, "type": job.Type, "status": job.Status})
 }
 
-func (h *BackupHandler) respondRestoreError(c *gin.Context, err error) {
-	switch {
-	case errors.Is(err, services.ErrBackupInProgress):
-		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
-	case errors.Is(err, services.ErrPassphraseRequired):
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "error_code": "backup_passphrase_required"})
-	case errors.Is(err, services.ErrPassphraseInvalid):
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "error_code": "backup_passphrase_invalid"})
-	case errors.Is(err, services.ErrNewerBackupFormat), errors.Is(err, services.ErrBackupValidationFailed):
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "error_code": "backup_validation_failed"})
-	case os.IsNotExist(err):
-		c.JSON(http.StatusNotFound, gin.H{"error": "Backup not found"})
-	case errors.Is(err, services.ErrRestoreUnrecoverable):
-		// C1: rehydrate (A2) and the durable pending-restore fallback (F3)
-		// both failed — an internal, non-client-actionable failure (like
-		// default's 500), but with an explicit error_code so operators/the
-		// frontend/log-scrapers can key off it instead of string-matching
-		// err.Error().
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "error_code": "backup_restore_unrecoverable"})
-	default:
-		if respondPermissionError(c, h.securityService, "backup_restore_failed", err, h.service.BackupDir) {
+// backupJobResponse is GET /api/v1/backups/jobs/:job_id's response body
+// (spec §3.2.3).
+type backupJobResponse struct {
+	JobID      string                  `json:"job_id"`
+	Type       string                  `json:"type"`
+	Status     string                  `json:"status"`
+	Stage      string                  `json:"stage,omitempty"`
+	CreatedAt  time.Time               `json:"created_at"`
+	StartedAt  *time.Time              `json:"started_at,omitempty"`
+	FinishedAt *time.Time              `json:"finished_at,omitempty"`
+	Result     any                     `json:"result,omitempty"`
+	Error      *backupJobErrorResponse `json:"error,omitempty"`
+}
+
+// backupJobErrorResponse is backupJobResponse's "error" field shape (spec
+// §3.2.3) — error_code reuses the existing stable codes
+// respondCreateError/respondRestoreError used to produce synchronously.
+type backupJobErrorResponse struct {
+	Message   string `json:"message"`
+	ErrorCode string `json:"error_code,omitempty"`
+}
+
+// backupJobCreateResult mirrors today's old 201 create response body for
+// frontend continuity (spec §3.2.3).
+type backupJobCreateResult struct {
+	Filename string `json:"filename"`
+	UUID     string `json:"uuid"`
+}
+
+// GetJob handles GET /api/v1/backups/jobs/:job_id (admin, spec §3.2.3) —
+// polled by the frontend while a create/restore job started by Create/
+// Restore is pending/running.
+func (h *BackupHandler) GetJob(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
+	jobID := c.Param("job_id")
+	job, err := h.service.GetBackupJob(jobID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "backup job not found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to restore backup: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
+
+	resp := backupJobResponse{
+		JobID:      job.UUID,
+		Type:       job.Type,
+		Status:     job.Status,
+		Stage:      job.Stage,
+		CreatedAt:  job.CreatedAt,
+		StartedAt:  job.StartedAt,
+		FinishedAt: job.FinishedAt,
+	}
+
+	switch {
+	case job.Status == "completed" && job.Type == "create":
+		resp.Result = backupJobCreateResult{Filename: job.Filename, UUID: job.ResultUUID}
+	case job.Status == "completed" && job.Type == "restore":
+		var restoreResult services.RestoreResult
+		if job.ResultJSON != "" {
+			if unmarshalErr := json.Unmarshal([]byte(job.ResultJSON), &restoreResult); unmarshalErr != nil {
+				logger.Log().WithError(unmarshalErr).WithField("job_uuid", job.UUID).Warn("failed to unmarshal restore job result")
+			} else {
+				resp.Result = restoreResult
+			}
+		}
+	case job.Status == "failed":
+		resp.Error = &backupJobErrorResponse{Message: job.ErrorMessage, ErrorCode: job.ErrorCode}
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 // Validate handles POST /api/v1/backups/:filename/validate (admin) — a
