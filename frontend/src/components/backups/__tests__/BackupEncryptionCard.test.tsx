@@ -5,6 +5,10 @@ import { describe, it, expect, vi } from 'vitest'
 import { BackupEncryptionCard } from '../BackupEncryptionCard'
 import type { UseBackupSettingsFormResult } from '../../../hooks/useBackups'
 
+vi.mock('../../../utils/toast', () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}))
+
 function makeForm(overrides: Partial<UseBackupSettingsFormResult> = {}): UseBackupSettingsFormResult {
   return {
     settings: undefined,
@@ -91,5 +95,41 @@ describe('BackupEncryptionCard', () => {
 
     await user.type(screen.getByTestId('backup-encryption-passphrase-input'), 'x')
     expect(form.setEncryptionPassphrase).toHaveBeenCalled()
+  })
+
+  it('renders a Save button that calls form.save on click', async () => {
+    const user = userEvent.setup()
+    const form = makeForm()
+    render(<BackupEncryptionCard form={form} />)
+
+    await user.click(screen.getByRole('button', { name: /save encryption settings/i }))
+    expect(form.save).toHaveBeenCalledTimes(1)
+  })
+
+  it('disables the Save button when the form reports saveDisabled', () => {
+    render(<BackupEncryptionCard form={makeForm({ saveDisabled: true })} />)
+    expect(screen.getByRole('button', { name: /save encryption settings/i })).toBeDisabled()
+  })
+
+  it('shows a loading state on the Save button while isSaving is true', () => {
+    const { container } = render(<BackupEncryptionCard form={makeForm({ isSaving: true })} />)
+
+    expect(screen.getByRole('button', { name: /save encryption settings/i })).toBeDisabled()
+    expect(container.querySelector('.animate-spin')).toBeInTheDocument()
+  })
+
+  it('shows a success toast when save succeeds', async () => {
+    const { toast } = await import('../../../utils/toast')
+    const user = userEvent.setup()
+    const form = makeForm({
+      save: vi.fn((callbacks) => {
+        callbacks?.onSuccess?.()
+      }),
+    })
+    render(<BackupEncryptionCard form={form} />)
+
+    await user.click(screen.getByRole('button', { name: /save encryption settings/i }))
+
+    expect(toast.success).toHaveBeenCalledWith('Encryption settings updated')
   })
 })

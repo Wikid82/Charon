@@ -2,7 +2,8 @@ import { ShieldAlert } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import type { UseBackupSettingsFormResult } from '../../hooks/useBackups'
-import { Alert, Card, CardHeader, CardTitle, CardContent, Input, Label, Switch } from '../ui'
+import { Alert, Button, Card, CardHeader, CardTitle, CardContent, Input, Label, Switch } from '../ui'
+import { toast } from '../../utils/toast'
 
 export interface BackupEncryptionCardProps {
   form: UseBackupSettingsFormResult
@@ -10,13 +11,20 @@ export interface BackupEncryptionCardProps {
 
 /**
  * Enable toggle + write-only passphrase set/change flow (spec §3.6, §3.8).
- * Encryption is off by default. Shares `form` (and its single "Save
- * Schedule" save action, see `BackupScheduleCard`) with the schedule card
- * since both map to the same `BackupSettings` resource — this card has no
- * save button of its own.
+ * Encryption is off by default. Shares `form` (and its underlying
+ * `BackupSettings` PUT mutation, see `BackupScheduleCard`) with the
+ * schedule card since both map to the same resource — this card has its
+ * own Save button that submits the full shared form state.
  */
 export function BackupEncryptionCard({ form }: BackupEncryptionCardProps) {
   const { t } = useTranslation()
+
+  const handleSave = () => {
+    form.save({
+      onSuccess: () => toast.success(t('backups.encryption.saveSuccess')),
+      onError: (error) => toast.error(error.message),
+    })
+  }
 
   return (
     <Card data-testid="backup-encryption-card">
@@ -72,6 +80,12 @@ export function BackupEncryptionCard({ form }: BackupEncryptionCardProps) {
             />
           </>
         )}
+
+        <div className="flex justify-end">
+          <Button onClick={handleSave} disabled={form.saveDisabled} isLoading={form.isSaving}>
+            {t('backups.encryption.save')}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   )

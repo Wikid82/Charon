@@ -1015,7 +1015,9 @@
       "passphraseSet": "A passphrase is set",
       "passphraseLabel": "Passphrase",
       "passphraseChangeLabel": "New Passphrase",
-      "passphraseKeepCurrent": "Leave blank to keep the current passphrase"
+      "passphraseKeepCurrent": "Leave blank to keep the current passphrase",
+      "save": "Save Encryption Settings",
+      "saveSuccess": "Encryption settings updated"
     },
     "upload": {
       "button": "Upload Backup",
