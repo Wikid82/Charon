@@ -137,6 +137,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		&models.RemoteStorageTarget{},   // Issue #32: S3/SFTP remote backup targets
 		&models.BackupRecord{},          // Issue #32: backup history (must precede BackupRemoteCopy FK)
 		&models.BackupRemoteCopy{},      // Issue #32: per-target remote upload status
+		&models.BackupJob{},             // Async Backup/Restore Jobs: tracks in-flight create/restore jobs
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
