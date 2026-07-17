@@ -219,12 +219,39 @@ func (s *BackupService) ValidateBackup(filename, passphrase string) (*BackupVali
 // create/restore is already running, rather than blocking indefinitely —
 // restores and creates are mutually exclusive but a caller should not hang
 // on a possibly long-running concurrent operation.
+//
+// This is now a thin wrapper — TryLock + defer Unlock + call the lock-free
+// core with progress == nil — mirroring createBackupLocked's existing
+// shape exactly (this plan's §3.3.1 "BLOCKING FIX"). The entire pipeline
+// body used to live directly in this function; StartRestoreJob needed a
+// version that does NOT acquire s.mu itself (it's called from a goroutine
+// while the external TryLock from StartRestoreJob is already held) — see
+// restoreBackupSafeLockedWithProgress below and its doc comment for why an
+// earlier draft that gave that function its own internal TryLock() would
+// have made every async restore job fail immediately with
+// ErrBackupInProgress, 100% of the time.
 func (s *BackupService) RestoreBackupSafe(filename, passphrase string) (*RestoreResult, error) {
 	if !s.mu.TryLock() {
 		return nil, ErrBackupInProgress
 	}
 	defer s.mu.Unlock()
 
+	return s.restoreBackupSafeLockedWithProgress(filename, passphrase, nil)
+}
+
+// restoreBackupSafeLockedWithProgress is RestoreBackupSafe's full V->S->A->
+// R->F pipeline body, extracted verbatim except for the progress(stage)
+// calls threaded in at the checkpoints in this plan's §3.3.2 table.
+// Callers MUST already hold s.mu — this function never calls
+// s.mu.TryLock()/Lock()/Unlock() itself, so it is safe to call from a
+// goroutine that is not the one holding the lock's stack frame (i.e.
+// StartRestoreJob's spawned goroutine). progress is nil-safe: passing nil,
+// as RestoreBackupSafe does, is a true no-op — this is exactly what makes
+// RestoreBackupSafe's existing behavior/tests unaffected by this refactor.
+func (s *BackupService) restoreBackupSafeLockedWithProgress(filename, passphrase string, progress func(stage string)) (*RestoreResult, error) {
+	if progress != nil {
+		progress("validating_archive")
+	}
 	// V1-V6.
 	validated, err := s.validateBackupArchive(filename, passphrase)
 	if err != nil {
@@ -245,6 +272,9 @@ func (s *BackupService) RestoreBackupSafe(filename, passphrase string) (*Restore
 	result := &RestoreResult{LegacyFormat: validated.legacyFormat}
 
 	// S1: safety backup of the CURRENT state before anything is mutated.
+	if progress != nil {
+		progress("creating_safety_backup")
+	}
 	preRestoreRecord, err := s.createBackupLocked(BackupOptions{Type: "pre_restore"})
 	if err != nil {
 		return nil, fmt.Errorf("create pre-restore safety backup: %w", err)
@@ -252,6 +282,9 @@ func (s *BackupService) RestoreBackupSafe(filename, passphrase string) (*Restore
 	result.PreRestoreBackup = preRestoreRecord.Filename
 
 	// A1: apply everything except the DB entries into DataDir.
+	if progress != nil {
+		progress("applying_files")
+	}
 	skipEntries := map[string]struct{}{
 		s.DatabaseName:          {},
 		s.DatabaseName + "-wal": {},
@@ -269,6 +302,9 @@ func (s *BackupService) RestoreBackupSafe(filename, passphrase string) (*Restore
 	// A2: live rehydrate, mirroring the retry policy the handler used to
 	// own directly (now centralized here so RestoreBackupSafe is the single
 	// place that decides restart_required/database_swap_pending).
+	if progress != nil {
+		progress("rehydrating_database")
+	}
 	rehydrated := false
 	// Hoisted above the `if s.db != nil` block (rather than declared inside
 	// it) so it remains in scope below for the unrecoverableErr
@@ -324,6 +360,9 @@ func (s *BackupService) RestoreBackupSafe(filename, passphrase string) (*Restore
 	// R1: reload Caddy — it has its own snapshot/rollback, so this runs
 	// regardless of A2/F3's outcome (A1 already wrote the new Caddy/CrowdSec
 	// files to DataDir by this point), even in the unrecoverable case below.
+	if progress != nil {
+		progress("reloading_proxy_config")
+	}
 	if s.caddyReloader != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		if reloadErr := s.caddyReloader.ApplyConfig(ctx); reloadErr != nil {
@@ -349,6 +388,90 @@ func (s *BackupService) RestoreBackupSafe(filename, passphrase string) (*Restore
 	}
 
 	return result, nil
+}
+
+// StartRestoreJob is the async entry point for
+// POST /api/v1/backups/:filename/restore (this plan's §3.2.2/§3.3.1). Same
+// external-TryLock/create-job-row/spawn-goroutine shape as
+// StartCreateBackupJob, plus one additional synchronous pre-check that
+// preserves today's 404 behavior for a typo'd/nonexistent filename (see
+// ErrBackupNotFound's doc comment) before any job row is created.
+func (s *BackupService) StartRestoreJob(filename, passphrase string, audit RequestAuditInfo) (*models.BackupJob, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("backup job tracking requires a database connection")
+	}
+
+	if !s.mu.TryLock() {
+		return nil, ErrBackupInProgress
+	}
+
+	// Preserve today's synchronous 404 (spec §3.3.1's "Preserving the
+	// backup-not-found 404" fix): a single os.Stat is exactly as cheap as
+	// the other synchronous pre-checks (requireAdmin/TryLock/encrypt-
+	// without-passphrase) already in this pattern. Any OTHER stat error
+	// (permission denied, etc.) falls through to today's default
+	// (unclassified) handling — the async job's own validateBackupArchive
+	// will hit the identical os.Stat call and surface it as a failed job.
+	if archivePath, pathErr := s.GetBackupPath(filename); pathErr == nil {
+		if _, statErr := os.Stat(archivePath); statErr != nil && os.IsNotExist(statErr) {
+			s.mu.Unlock()
+			return nil, ErrBackupNotFound
+		}
+	}
+
+	now := time.Now()
+	job := &models.BackupJob{
+		Type:      "restore",
+		Status:    "pending",
+		StartedAt: &now,
+		Filename:  filepath.Base(filename),
+	}
+	// Lock-leak fix (spec §3.3.1), same as StartCreateBackupJob: no
+	// goroutine exists yet to own s.mu.Unlock() if this fails.
+	if err := s.db.Create(job).Error; err != nil {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("create backup job record: %w", err)
+	}
+
+	s.jobWG.Add(1)
+	go func() {
+		defer s.jobWG.Done()
+		defer s.mu.Unlock()
+		s.runRestoreBackupJob(job, filename, passphrase, audit)
+	}()
+
+	return job, nil
+}
+
+// runRestoreBackupJob executes the restore pipeline for job in the
+// background (called from the goroutine StartRestoreJob spawns, which owns
+// s.mu for the duration via its own defer). Persists progress (best-effort)
+// and the terminal outcome — including the serialized *RestoreResult on
+// success (spec §3.2.3) — and, for a permission-denied failure, a
+// SecurityAudit row (spec §3.3.1's security-audit fix).
+func (s *BackupService) runRestoreBackupJob(job *models.BackupJob, filename, passphrase string, audit RequestAuditInfo) {
+	s.markBackupJobRunning(job)
+	progress := s.newBackupJobProgressFunc(job)
+
+	result, err := s.restoreBackupSafeLockedWithProgress(filename, passphrase, progress)
+
+	updates := map[string]interface{}{"finished_at": timePtr(time.Now())}
+	if err != nil {
+		logger.Log().WithError(err).WithField("job_uuid", job.UUID).Error("async restore job failed")
+		updates["status"] = "failed"
+		updates["error_message"] = err.Error()
+		updates["error_code"] = backupErrorCode(err)
+		s.auditBackupJobPermissionFailure("backup_restore_failed", err, audit)
+	} else {
+		updates["status"] = "completed"
+		if resultJSON, marshalErr := json.Marshal(result); marshalErr == nil {
+			updates["result_json"] = string(resultJSON)
+		} else {
+			logger.Log().WithError(marshalErr).WithField("job_uuid", job.UUID).Warn("failed to serialize restore result")
+		}
+	}
+
+	s.finishBackupJob(job, updates)
 }
 
 // writePendingRestoreFile persists the already-validated replacement

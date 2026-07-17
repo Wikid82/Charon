@@ -718,55 +718,90 @@ func (s *BackupService) StartCreateBackupJob(opts BackupOptions, audit RequestAu
 // progress (best-effort) and terminal outcome, and — for a permission-
 // denied failure — a SecurityAudit row (spec §3.3.1's security-audit fix).
 func (s *BackupService) runCreateBackupJob(job *models.BackupJob, opts BackupOptions, audit RequestAuditInfo) {
-	if updErr := s.db.Model(&models.BackupJob{}).Where("id = ?", job.ID).Update("status", "running").Error; updErr != nil {
-		logger.Log().WithError(updErr).WithField("job_uuid", job.UUID).Warn("failed to mark backup job running")
-	}
-
-	progress := func(stage string) {
-		if updErr := s.db.Model(&models.BackupJob{}).Where("id = ?", job.ID).Update("stage", stage).Error; updErr != nil {
-			logger.Log().WithError(updErr).WithField("job_uuid", job.UUID).Warn("failed to update backup job stage")
-		}
-	}
+	s.markBackupJobRunning(job)
+	progress := s.newBackupJobProgressFunc(job)
 
 	record, err := s.createBackupLockedWithProgress(opts, progress)
 
-	finishedAt := time.Now()
-	updates := map[string]interface{}{
-		"finished_at": &finishedAt,
-	}
-
+	updates := map[string]interface{}{"finished_at": timePtr(time.Now())}
 	if err != nil {
 		logger.Log().WithError(err).WithField("job_uuid", job.UUID).Error("async backup job failed")
 		updates["status"] = "failed"
 		updates["error_message"] = err.Error()
 		updates["error_code"] = backupErrorCode(err)
-
 		// Security-audit fix (spec §3.3.1): respondPermissionError's
 		// logPermissionAudit call is unreachable from this goroutine (no
 		// gin.Context exists here) — restore the same audit trail using the
 		// RequestAuditInfo the handler captured before this job started.
-		if code, ok := util.MapSaveErrorCode(err); ok && s.securityService != nil {
-			detailsJSON, _ := json.Marshal(map[string]any{"error_code": code, "admin": true, "path": s.BackupDir})
-			if auditErr := s.securityService.LogAudit(&models.SecurityAudit{
-				Actor:         audit.Actor,
-				Action:        "backup_create_failed",
-				EventCategory: "permissions",
-				Details:       string(detailsJSON),
-				IPAddress:     audit.IPAddress,
-				UserAgent:     audit.UserAgent,
-			}); auditErr != nil {
-				logger.Log().WithError(auditErr).Warn("failed to write security audit row for backup job failure")
-			}
-		}
+		s.auditBackupJobPermissionFailure("backup_create_failed", err, audit)
 	} else {
 		updates["status"] = "completed"
 		updates["filename"] = record.Filename
 		updates["result_uuid"] = record.UUID
 	}
 
+	s.finishBackupJob(job, updates)
+}
+
+// markBackupJobRunning flips job's persisted Status from "pending" to
+// "running" — best-effort, logged not fatal (spec §3.3.1: the job's
+// in-memory struct returned to the synchronous caller stays "pending",
+// matching §3.2.1's literal 202 response body; the goroutine advances it
+// once actual work begins).
+func (s *BackupService) markBackupJobRunning(job *models.BackupJob) {
+	if updErr := s.db.Model(&models.BackupJob{}).Where("id = ?", job.ID).Update("status", "running").Error; updErr != nil {
+		logger.Log().WithError(updErr).WithField("job_uuid", job.UUID).Warn("failed to mark backup job running")
+	}
+}
+
+// newBackupJobProgressFunc returns the progress(stage) callback threaded
+// into createBackupLockedWithProgress/restoreBackupSafeLockedWithProgress —
+// a best-effort Stage column update at each pipeline checkpoint (spec
+// §3.3.2), never fatal to the job on failure.
+func (s *BackupService) newBackupJobProgressFunc(job *models.BackupJob) func(stage string) {
+	return func(stage string) {
+		if updErr := s.db.Model(&models.BackupJob{}).Where("id = ?", job.ID).Update("stage", stage).Error; updErr != nil {
+			logger.Log().WithError(updErr).WithField("job_uuid", job.UUID).Warn("failed to update backup job stage")
+		}
+	}
+}
+
+// auditBackupJobPermissionFailure writes a SecurityAudit row for a
+// permission-denied job failure (spec §3.3.1's security-audit fix) — a
+// no-op unless err classifies via util.MapSaveErrorCode and a
+// securityService is wired, mirroring logPermissionAudit's own guard.
+func (s *BackupService) auditBackupJobPermissionFailure(action string, err error, audit RequestAuditInfo) {
+	code, ok := util.MapSaveErrorCode(err)
+	if !ok || s.securityService == nil {
+		return
+	}
+	detailsJSON, _ := json.Marshal(map[string]any{"error_code": code, "admin": true, "path": s.BackupDir})
+	if auditErr := s.securityService.LogAudit(&models.SecurityAudit{
+		Actor:         audit.Actor,
+		Action:        action,
+		EventCategory: "permissions",
+		Details:       string(detailsJSON),
+		IPAddress:     audit.IPAddress,
+		UserAgent:     audit.UserAgent,
+	}); auditErr != nil {
+		logger.Log().WithError(auditErr).Warn("failed to write security audit row for backup job failure")
+	}
+}
+
+// finishBackupJob persists a job's terminal outcome (best-effort, logged
+// not fatal — a failed status-column update must never crash the job
+// goroutine).
+func (s *BackupService) finishBackupJob(job *models.BackupJob, updates map[string]interface{}) {
 	if updErr := s.db.Model(&models.BackupJob{}).Where("id = ?", job.ID).Updates(updates).Error; updErr != nil {
 		logger.Log().WithError(updErr).WithField("job_uuid", job.UUID).Warn("failed to persist backup job outcome")
 	}
+}
+
+// timePtr returns a pointer to t — a small helper so map literals (which
+// cannot take the address of a composite literal field directly) can set
+// BackupJob.FinishedAt/StartedAt (*time.Time) inline.
+func timePtr(t time.Time) *time.Time {
+	return &t
 }
 
 // backupErrorCode maps a CreateBackupWithOptions/RestoreBackupSafe sentinel
@@ -1336,7 +1371,22 @@ func (s *BackupService) RehydrateLiveDatabase(db *gorm.DB) error {
 	}()
 
 	var currentTables []string
-	if err := db.Raw(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`).Scan(&currentTables).Error; err != nil {
+	// backup_jobs is deliberately excluded from the swap (discovered while
+	// implementing this plan's §3.3.1 async-job commit, via its own
+	// mandated TestStartRestoreJob_CompletesSuccessfully_DoesNotSelfDeadlock
+	// regression test): every OTHER table here is genuine application
+	// content that a restore is supposed to time-travel back to the
+	// archive's snapshot, but backup_jobs is ephemeral bookkeeping for the
+	// CURRENTLY RUNNING process's in-flight jobs — including this very
+	// restore job. Without this exclusion, the DELETE FROM backup_jobs
+	// below would wipe the row tracking this restore's own progress
+	// (and the subsequent INSERT ... SELECT * FROM restore_src.backup_jobs
+	// would only repopulate it with whatever stale rows existed when the
+	// archive being restored was originally created — never this job),
+	// so the terminal status update after this function returns would
+	// silently affect zero rows and the frontend's poll for this exact
+	// job_id would 404 right as the job finishes successfully.
+	if err := db.Raw(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != 'backup_jobs'`).Scan(&currentTables).Error; err != nil {
 		return fmt.Errorf("list current tables: %w", err)
 	}
 
