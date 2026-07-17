@@ -5,7 +5,7 @@
  * for backup, logs, import, and monitoring E2E tests.
  */
 
-import { Page } from '@playwright/test';
+import { expect, Page } from '@playwright/test';
 import { waitForAPIResponse, waitForWebSocketConnection } from './wait-helpers';
 
 // ============================================================================
@@ -233,6 +233,42 @@ export async function mockBackupJobPolling(
     };
     await route.fulfill({ status: 200, json: terminalResponse });
   });
+}
+
+/**
+ * Polls `GET /api/v1/backups/jobs/:job_id` via a raw `page.request` call
+ * against the REAL backend until the job reaches a terminal status
+ * (`"completed"`/`"failed"`) — for tests that drive the backup/restore API
+ * directly (`page.request.post('/api/v1/backups', ...)`) rather than through
+ * `page.route` mocks (spec §3.2.3). Companion to `mockBackupJobPolling`
+ * above, which serves the mocked-route case instead. Uses Playwright's
+ * `expect.poll` (not a hardcoded `page.waitForTimeout`) so a stuck job fails
+ * with a clear timeout message instead of hanging indefinitely.
+ */
+export async function pollBackupJobViaAPI(
+  page: Page,
+  headers: Record<string, string>,
+  jobId: string,
+  options: { timeout?: number } = {}
+): Promise<BackupJobPollResponse> {
+  let job: BackupJobPollResponse | undefined;
+
+  await expect
+    .poll(
+      async () => {
+        const response = await page.request.get(`/api/v1/backups/jobs/${jobId}`, { headers });
+        expect(response.ok()).toBe(true);
+        job = (await response.json()) as BackupJobPollResponse;
+        return job.status;
+      },
+      {
+        timeout: options.timeout ?? 60000,
+        message: `Backup job ${jobId} did not reach a terminal status`,
+      }
+    )
+    .toMatch(/^(completed|failed)$/);
+
+  return job as BackupJobPollResponse;
 }
 
 /**

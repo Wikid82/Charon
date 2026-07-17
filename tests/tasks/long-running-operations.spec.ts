@@ -278,7 +278,12 @@ test.describe('Long-Running Operations', () => {
       const backupButton = page.getByRole('button', { name: /create backup/i }).first();
       await expect(backupButton).toBeVisible();
 
-      // Add a small delay to the backup API response so the disabled state is observable
+      // Add a small delay to the backup API response so the disabled state is
+      // observable. POST /api/v1/backups now returns 202 + {job_id, type,
+      // status: "pending"} immediately (docs/plans/current_spec.md §3.2.1)
+      // instead of blocking until the archive is written, and the frontend
+      // polls GET /api/v1/backups/jobs/:job_id (against the real backend
+      // here, no route mock) until the job completes.
       await page.route('**/api/v1/backups', async (route) => {
         if (route.request().method() === 'POST') {
           const response = await route.fetch();
@@ -293,7 +298,7 @@ test.describe('Long-Running Operations', () => {
         (response) =>
           response.url().includes('/api/v1/backups') &&
           response.request().method() === 'POST' &&
-          (response.status() === 200 || response.status() === 201)
+          response.status() === 202
       );
 
       // Clicking "Create Backup" opens a confirmation dialog (encryption option,
@@ -308,7 +313,10 @@ test.describe('Long-Running Operations', () => {
       await confirmButton.click();
       await expect(confirmButton).toBeDisabled();
       await createResponsePromise;
-      await waitForToast(page, /success|created/i, { type: 'success' });
+      // The job itself now completes in the background against the real
+      // backend (archiving the e2e data dir + a DB integrity pre-check,
+      // §3.9) — allow more headroom than the mocked-job tests' default 10s.
+      await waitForToast(page, /success|created/i, { type: 'success', timeout: 20000 });
 
       // On success the dialog closes (Backups.tsx handleCreateConfirm onSuccess).
       await expect(dialog).not.toBeVisible();

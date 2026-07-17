@@ -13,7 +13,7 @@
 
 import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
 import { setupBackupsList, completeRestoreFlow, mockBackupJobPolling, BackupFile } from '../utils/phase5-helpers';
-import { waitForToast, waitForLoadingComplete, waitForAPIResponse } from '../utils/wait-helpers';
+import { waitForToast, waitForLoadingComplete } from '../utils/wait-helpers';
 
 /**
  * Mock backup data for testing
@@ -154,16 +154,14 @@ test.describe('Backups Page - Restore', () => {
   // Restore Execution Tests (3 tests)
   // =========================================================================
   test.describe('Restore Execution', () => {
-    // Updated for the async job contract (docs/plans/current_spec.md — Async
+    // Exercises the async job contract (docs/plans/current_spec.md — Async
     // Backup/Restore Jobs): POST /api/v1/backups/:filename/restore now
     // returns `202 {job_id, type: "restore", status: "pending"}` instead of
     // blocking for the full V->S->A->R->F pipeline; the frontend polls
     // GET /api/v1/backups/jobs/:job_id (mocked via mockBackupJobPolling)
     // until the job reaches status "completed" with the RestoreResult as
-    // `result`. Wrapped in test.fixme until the frontend hook (commit 8)
-    // actually polls — gate is `npx playwright test --list` parsing plus
-    // the overall suite staying green.
-    test.fixme('should restore backup successfully after confirmation', async ({ page, adminUser }) => {
+    // `result`.
+    test('should restore backup successfully after confirmation', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
       const filename = 'backup_2024-01-15_120000.zip';
@@ -227,7 +225,7 @@ test.describe('Backups Page - Restore', () => {
       await expect(dialog).not.toBeVisible({ timeout: 5000 });
     });
 
-    test.fixme('should show success toast after successful restoration', async ({ page, adminUser }) => {
+    test('should show success toast after successful restoration', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
       const filename = 'backup_2024-01-15_120000.zip';
@@ -328,10 +326,9 @@ test.describe('Backups Page - Restore', () => {
   // Edge Cases Tests (2 tests)
   // =========================================================================
   test.describe('Edge Cases', () => {
-    // Updated for the async job contract (see the "Restore Execution" block
-    // above) — wrapped in test.fixme until the frontend hook (commit 8)
-    // polls GET /api/v1/backups/jobs/:job_id.
-    test.fixme('should disable restore button while restore job is pending/running', async ({ page, adminUser }) => {
+    // Exercises the async job contract (see the "Restore Execution" block
+    // above) — the frontend hook polls GET /api/v1/backups/jobs/:job_id.
+    test('should disable restore button while restore job is pending/running', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
       const filename = 'backup_2024-01-15_120000.zip';
@@ -383,6 +380,17 @@ test.describe('Backups Page - Restore', () => {
       const dialog = page.locator(SELECTORS.confirmDialog);
       await expect(dialog).toBeVisible();
 
+      // Register the response listener BEFORE clicking — the mocked POST
+      // resolves near-instantly, so waiting to call page.waitForResponse
+      // until after the click risks missing the (already-fired) response
+      // event and hanging for the full default timeout.
+      const restoreResponsePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes(`/api/v1/backups/${filename}/restore`) &&
+          response.request().method() === 'POST' &&
+          response.status() === 202
+      );
+
       // Click confirm restore button
       const confirmButton = dialog.locator(SELECTORS.confirmRestoreButton);
       await confirmButton.click();
@@ -395,10 +403,10 @@ test.describe('Backups Page - Restore', () => {
       });
 
       // Wait for the fast 202 start response.
-      await waitForAPIResponse(page, `/api/v1/backups/${filename}/restore`, { status: 202 });
+      await restoreResponsePromise;
     });
 
-    test.fixme('should handle restore of corrupted backup with appropriate error message', async ({
+    test('should handle restore of corrupted backup with appropriate error message', async ({
       page,
       adminUser,
     }) => {

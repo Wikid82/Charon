@@ -186,18 +186,14 @@ test.describe('Backups Page - Creation and List', () => {
   // Create Backup Flow Tests (5 tests)
   // =========================================================================
   test.describe('Create Backup Flow', () => {
-    // The five tests below are updated for the async job contract introduced
-    // by docs/plans/current_spec.md (Async Backup/Restore Jobs —
+    // The five tests below exercise the async job contract introduced by
+    // docs/plans/current_spec.md (Async Backup/Restore Jobs —
     // NS_BINDING_ABORTED Remediation): POST /api/v1/backups now returns
     // `202 {job_id, type: "create", status: "pending"}` immediately instead
     // of blocking until the archive is written, and the frontend polls
     // GET /api/v1/backups/jobs/:job_id (mocked via mockBackupJobPolling)
-    // until the job reaches a terminal status. Wrapped in test.fixme until
-    // the frontend hook (commit 8, useBackups.ts) actually polls — see §6
-    // commit 1's gate: specs must parse (`npx playwright test --list`) and
-    // the overall suite must stay green, not that these specific assertions
-    // pass yet.
-    test.fixme('should create a new backup successfully', async ({ page, adminUser }) => {
+    // until the job reaches a terminal status.
+    test('should create a new backup successfully', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
       const jobId = 'job-create-success-1';
@@ -243,7 +239,7 @@ test.describe('Backups Page - Creation and List', () => {
       expect(postCalled).toBe(true);
     });
 
-    test.fixme('should show success toast after backup creation', async ({ page, adminUser }) => {
+    test('should show success toast after backup creation', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
       const jobId = 'job-create-success-2';
@@ -283,7 +279,7 @@ test.describe('Backups Page - Creation and List', () => {
       await waitForToast(page, /success|created/i, { type: 'success' });
     });
 
-    test.fixme('should update backup list with new backup', async ({ page, adminUser }) => {
+    test('should update backup list with new backup', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
       const jobId = 'job-create-success-3';
@@ -333,7 +329,7 @@ test.describe('Backups Page - Creation and List', () => {
       await expect(page.getByText('backup_2024-01-16_120000.zip')).toBeVisible({ timeout: 5000 });
     });
 
-    test.fixme('should disable create button while job is pending/running', async ({ page, adminUser }) => {
+    test('should disable create button while job is pending/running', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
       const jobId = 'job-create-in-progress';

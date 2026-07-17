@@ -13,7 +13,7 @@
  */
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
-import { setupBackupsList, BackupFile } from '../utils/phase5-helpers';
+import { setupBackupsList, mockBackupJobPolling, BackupFile } from '../utils/phase5-helpers';
 import { waitForToast, waitForLoadingComplete } from '../utils/wait-helpers';
 
 test.describe('Backups Page - Upload & Restore', () => {
@@ -273,19 +273,28 @@ test.describe('Backups Page - Upload & Restore', () => {
 
         await expect(dialog.getByTestId('backup-restore-validate-results')).toContainText(/database integrity: ok/i);
 
+        // POST /api/v1/backups/:filename/restore now returns 202 +
+        // {job_id, type, status: "pending"} immediately, with the frontend
+        // polling GET /api/v1/backups/jobs/:job_id until the job completes
+        // (docs/plans/current_spec.md §3.2.2).
+        const jobId = 'job-upload-restore-success';
         await page.route(`**/api/v1/backups/${uploadedEncrypted.filename}/restore`, async (route) => {
           await route.fulfill({
-            status: 200,
-            json: {
-              message: 'Backup restored successfully',
-              restart_required: false,
-              database_swap_pending: false,
-              live_rehydrate_applied: true,
-              caddy_reloaded: true,
-              pre_restore_backup: 'backup_2026-07-08_11-00-00.zip',
-              legacy_format: false,
-            },
+            status: 202,
+            json: { job_id: jobId, type: 'restore', status: 'pending' },
           });
+        });
+        await mockBackupJobPolling(page, jobId, {
+          type: 'restore',
+          result: {
+            message: 'Backup restored successfully',
+            restart_required: false,
+            database_swap_pending: false,
+            live_rehydrate_applied: true,
+            caddy_reloaded: true,
+            pre_restore_backup: 'backup_2026-07-08_11-00-00.zip',
+            legacy_format: false,
+          },
         });
 
         await dialog.getByRole('button', { name: /^restore$/i }).click();
