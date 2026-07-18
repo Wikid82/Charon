@@ -20,6 +20,7 @@
 10. [Addendum: OAuth Callback Redirect Path Mismatch (Same PR)](#10-addendum-oauth-callback-redirect-path-mismatch-same-pr)
 11. [Addendum: Stale LastTestStatus Persists Through OAuth Connect (Same PR)](#11-addendum-stale-lastteststatus-persists-through-oauth-connect-same-pr)
 12. [Addendum: Backup Encryption UX Gaps — Manual Save Button, Create-Dialog Smart Defaults, Scheduled-Backup Encryption (Same PR)](#12-addendum-backup-encryption-ux-gaps--manual-save-button-create-dialog-smart-defaults-scheduled-backup-encryption-same-pr)
+13. [Addendum: Trusted-Proxy Header Hardening for Cookie Security Decisions (Same PR)](#13-addendum-trusted-proxy-header-hardening-for-cookie-security-decisions-same-pr)
 
 ---
 
@@ -1641,5 +1642,296 @@ Skip `./scripts/scan-gorm-security.sh --check` for this addendum's commits, per 
 | F1 | `fix: apply the encryption setting to scheduled/cron backups, correct their Type to "scheduled"` | Backend | `backend/internal/services/backup_service.go` (`createBackupOpts` field rename + `resolveScheduledBackupOptions` incl. the `Type: "scheduled"` correction §12.3.3 + `RunScheduledBackup`, §12.3.2), `backend/internal/services/backup_service_test.go` and `backend/internal/services/backup_service_rehydrate_test.go` (2 existing stub updates, §12.3.4 test 1), new tests (§12.3.4 tests 2-5, including the `Type == "scheduled"` assertions and the corrupted-passphrase test) | D1 (`resolveScheduledBackupOptions` calls `resolveBackupPassphrase`, introduced in D1) | `go test ./backend/internal/services/... -run TestRunScheduledBackup -v && go test ./backend/internal/services/... -run TestBackupService_RunScheduledBackup -v` (scoped to these two test-name prefixes only — do **not** run the full backend `-race` suite; concurrent heavy test jobs are running elsewhere on this machine right now) |
 
 **Rollback/contingency:** D2 and E1 are pure frontend render/state changes — revert either independently with no data-model impact. D1 is additive at the Go type level (a new pointer field, two new private helpers) plus one behavior-restoring line added to `runCreateBackupJob`'s success branch (`s.fireRemoteUploadIfEnabled(opts, record)`) — reverting D1 restores the pre-existing passphrase-required rejection and, notably, also reverts manual dialog-triggered backups back to *never* remote-uploading (§12.2.1's corrected finding: that was already true before this PR, so reverting D1 is a true rollback to `main`'s behavior, not a new regression). No persisted-data implication either way (no new column, no migration to roll back). F1 depends on D1's `resolveBackupPassphrase` helper but is otherwise isolated to `RunScheduledBackup`/`resolveScheduledBackupOptions`; reverting F1 alone (leaving D1 in place) restores today's "scheduled backups ignore the encryption setting, and are always labeled `manual`" behavior — safe, since that is the pre-PR status quo, not a regression relative to `main`. The `Type: "manual"`→`"scheduled"` correction (§12.3.3) is folded into F1's scope and reverts along with it as a single unit; it is not independently revertible without reverting all of F1.
+
+---
+
+## 13. Addendum: Trusted-Proxy Header Hardening for Cookie Security Decisions (Same PR)
+
+**Status:** security-hardening fix for a gap QA identified and explicitly risk-accepted (non-blocking) during review of the §9 auth-cookie fix (`6e4d2c0e`) — see `docs/reports/qa_report.md`, "Security Deep-Dive — Auth Cookie Secure-Flag Fix" → "Adversarial angle: header-spoofing to force a false `Secure` downgrade". QA's own recommendation at the time: *"scope `isLocalRequest`'s header trust to only apply when the request's actual remote-socket address (`c.Request.RemoteAddr`, not headers) is itself local/private, rather than trusting `X-Forwarded-Host`/`Origin`/`Referer` unconditionally."* This addendum designs and specs exactly that fix. Same PR #1136 per CLAUDE.md's "one feature = one PR" — a bug-fix/hardening item riding along on an already-mid-flight branch, not a new architecture.
+
+### 13.1 Confirmed vulnerability (verified against current source)
+
+`backend/internal/api/handlers/auth_handler.go`:
+
+- `requestScheme` (lines 37-50) reads `c.GetHeader("X-Forwarded-Proto")` **unconditionally**, before any other fact about the request, and returns its value verbatim (lowercased) if present.
+- `isLocalRequest` (lines 118-152) builds a `candidates` list from `c.Request.Host`, `c.Request.URL.Host`, `originHost(Origin)`, `originHost(Referer)` (lines 121-131), and `X-Forwarded-Host` (lines 134-139) — **all** client-controllable, **none** gated by any trust check — and returns `true` if *any* candidate parses as loopback/RFC1918/IPv6-ULA/Tailscale-CGNAT via `isLocalOrPrivateHost` (lines 101-116).
+- `setSecureCookie` (lines 169-201) uses `requestScheme` and `isLocalRequest` together to decide `Secure`/`SameSite` on the `auth_token` cookie (all 3 call sites: `Login` line 227, `Refresh` line 291, `Logout`→`clearSecureCookie` line 264→205).
+- `backend/internal/server/server.go:19`, `_ = router.SetTrustedProxies(nil)` — Gin's own trusted-proxy mechanism, which governs only `gin.Context.ClientIP()`. It has **zero** effect on the manual `c.GetHeader`/`c.Request.Host` reads above; `requestScheme`/`isLocalRequest` don't call `ClientIP()` at all.
+
+**Net effect:** a client that opens a direct TCP connection to Charon's admin port (no real intermediary) — reachable in Charon's own documented direct-access deployment mode (Tailscale/LAN, no reverse proxy in front of the admin API; see §13.2) — can send `X-Forwarded-Proto: https` and/or `X-Forwarded-Host: <anything local>` and influence whether its own `auth_token` cookie gets `Secure: false`. QA's exploitability analysis (re-confirmed here, nothing new): this backend has no CORS middleware (repo-wide grep, none found), so this can only weaken the *attacker's own request's* cookie attributes — it cannot forge or steal another user's cookie. Severity is genuinely low, but the mechanism that's supposed to answer "is a *trusted* TLS-terminating proxy actually in front of me" is not currently trustworthy, which is a real design gap independent of today's low blast radius.
+
+### 13.2 Deployment topology (why `X-Forwarded-*` handling exists here at all)
+
+Per `ARCHITECTURE.md` ("Network Architecture" → "Dual-Port Model"):
+
+- **Management Interface (port 8080)** — Charon's own admin UI/API (the auth flow this section is about). Served directly by Gin. Explicitly **no** Cerberus middleware (rate limit/ACL/WAF/CrowdSec) — "Management interface must remain accessible even when security modules are misconfigured" / "Emergency endpoints require unrestricted access." Nothing in Charon's own bundled stack sits in front of this port.
+- **Proxy Traffic (ports 80/443)** — Caddy, Charon's own bundled reverse proxy, terminates TLS here for **user-configured hosts only** (`app.example.com → http://localhost:3000`-style entries the admin creates through the UI). Caddy never proxies Charon's own admin API.
+
+So "behind a trusted reverse proxy" for the admin API specifically means one of two things, both legitimate and both needing to keep working:
+
+1. **Direct access** — Tailscale mesh, LAN IP, or `localhost`, no TLS termination at all. This is the deployment mode §9 of this document exists to support (the original Tailscale/plain-HTTP cookie-drop bug).
+2. **A user-operated, externally-configured reverse proxy** — the admin's own nginx/Caddy/Traefik/cloud load balancer, set up outside Charon, terminating TLS and forwarding to Charon's admin port with `X-Forwarded-Proto`/`X-Forwarded-Host`. This is why the header-reading code exists in the first place — but today it's honored from *anyone*, not just an admin-attested reverse proxy.
+
+### 13.3 Design: `CHARON_TRUSTED_PROXIES` + peer-gated header trust
+
+**New config value** (`backend/internal/config/config.go`), following the exact pattern already used for `SecurityConfig.ManagementCIDRs` (comma-separated CIDR/IP list, parsed via the existing `splitAndTrim` helper, lines 178-186):
+
+```go
+// SecurityConfig holds configuration for optional security services.
+type SecurityConfig struct {
+	...
+	// TrustedProxies lists IPs/CIDRs of reverse proxies whose
+	// X-Forwarded-Proto/X-Forwarded-Host headers are honored for TLS-
+	// termination detection (setSecureCookie) and whose presence enables
+	// Gin's own ClientIP() X-Forwarded-For resolution. Empty (default)
+	// trusts nothing — forwarded headers are ignored entirely and every
+	// trust decision falls back to the raw TCP peer address
+	// (c.Request.RemoteAddr), matching Gin's own SetTrustedProxies(nil)
+	// default. See docs/plans/current_spec.md §13.
+	TrustedProxies []string
+}
+```
+
+`loadSecurityConfig()` gains, mirroring the `ManagementCIDRs` block exactly:
+
+```go
+trustedProxiesStr := getEnvAny("", "CHARON_TRUSTED_PROXIES")
+if trustedProxiesStr != "" {
+	for _, cidr := range splitAndTrim(trustedProxiesStr, ",") {
+		if cidr != "" {
+			cfg.TrustedProxies = append(cfg.TrustedProxies, cidr)
+		}
+	}
+}
+```
+
+`CHARON_TRUSTED_PROXIES` — comma-separated list of IPs and/or CIDRs (e.g. `172.20.0.5,10.0.0.0/24`). **Default: unset/empty → trust nobody.** This is a deliberate secure-by-default choice consistent with CLAUDE.md's "Big Picture" (zero-effort security) and with Gin's own current `nil` default — an admin who has genuinely put a reverse proxy in front of Charon's admin port must explicitly say so.
+
+**Why `SecurityConfig`, not a new top-level `Config` field:** `ManagementCIDRs` already establishes the convention that IP-trust-boundary lists live under `Security`; `TrustedProxies` is conceptually the same kind of value (an admin-attested network trust boundary), so it's grouped with it rather than invented as a third pattern.
+
+**Threading `isLocalOrPrivateHost`'s helper reuse — no new IP-matching code.** `backend/internal/security/whitelist.go` already has `IsIPInCIDRList(clientIP, cidrList string) bool` (comma-separated CIDR/IP string, handles bare IPs and CIDRs, canonicalizes IPv4/IPv6 loopback) — used today by `EmergencyBypass`'s `ManagementCIDRs` check. Reuse it directly rather than hand-rolling a second `[]*net.IPNet` parser (DRY, per CLAUDE.md):
+
+```go
+// isTrustedPeer reports whether the request's actual TCP peer (its raw
+// RemoteAddr — never a header) is in the configured trusted-proxy set. Only
+// a trusted peer's X-Forwarded-Proto/X-Forwarded-Host are honored by
+// requestScheme/isLocalRequest below. Empty trustedProxies => always false
+// (trust nobody), matching Gin's SetTrustedProxies(nil) default.
+func isTrustedPeer(c *gin.Context, trustedProxies []string) bool {
+	if len(trustedProxies) == 0 || c.Request == nil {
+		return false
+	}
+	peerIP := normalizeHost(c.Request.RemoteAddr)
+	if peerIP == "" {
+		return false
+	}
+	return security.IsIPInCIDRList(peerIP, strings.Join(trustedProxies, ","))
+}
+```
+
+(`normalizeHost` already strips the `:port`/`[]` from `RemoteAddr` — reused as-is, no new host-parsing logic.)
+
+**`requestScheme` — gate the one header it reads:**
+
+```go
+func requestScheme(c *gin.Context, trustedProxies []string) string {
+	if isTrustedPeer(c, trustedProxies) {
+		if proto := c.GetHeader("X-Forwarded-Proto"); proto != "" {
+			parts := strings.Split(proto, ",")
+			return strings.ToLower(strings.TrimSpace(parts[0]))
+		}
+	}
+	if c.Request != nil && c.Request.TLS != nil {
+		return "https"
+	}
+	if c.Request != nil && c.Request.URL != nil && c.Request.URL.Scheme != "" {
+		return strings.ToLower(c.Request.URL.Scheme)
+	}
+	return "http"
+}
+```
+
+**`isLocalRequest` — gate `X-Forwarded-Host`, drop `Origin`/`Referer` entirely (§13.4), and use the raw peer IP — not the client-suppliable `Host` header — as the sole locality signal when the peer is untrusted:**
+
+```go
+func isLocalRequest(c *gin.Context, trustedProxies []string) bool {
+	if c.Request == nil {
+		return false
+	}
+
+	if isTrustedPeer(c, trustedProxies) {
+		candidates := []string{normalizeHost(c.Request.Host)}
+		if c.Request.URL != nil {
+			candidates = append(candidates, normalizeHost(c.Request.URL.Host))
+		}
+		if forwardedHost := c.GetHeader("X-Forwarded-Host"); forwardedHost != "" {
+			for _, part := range strings.Split(forwardedHost, ",") {
+				candidates = append(candidates, normalizeHost(part))
+			}
+		}
+		for _, host := range candidates {
+			if host != "" && isLocalOrPrivateHost(host) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Untrusted peer: Host, X-Forwarded-Host, Origin, and Referer are all
+	// values the connecting client fully controls and the server cannot
+	// verify — a raw HTTP client hitting this port directly can set Host to
+	// anything ("curl -H 'Host: 127.0.0.1' http://public-charon:8080/") just
+	// as trivially as it can set X-Forwarded-Host. The one fact this server
+	// can actually trust is who opened the TCP connection.
+	peerIP := normalizeHost(c.Request.RemoteAddr)
+	return peerIP != "" && isLocalOrPrivateHost(peerIP)
+}
+```
+
+Note this is a **strict improvement**, not just a lateral gating change, for the untrusted-peer path: in the *legitimate* direct-access case (no proxy at all — Tailscale/LAN, §13.2 case 1), the raw TCP peer address and the browser's typed `Host` necessarily coincide (there is no intermediary to make them differ), so switching to `RemoteAddr` loses no legitimate coverage. It does, however, close the Host-header-forgery angle QA flagged, and as a side effect now also correctly recognizes direct access via a private-IP-resolved *custom* LAN hostname (e.g. `http://charon.local:8080` where `charon.local` resolves via `/etc/hosts`/mDNS to `192.168.1.50`) — today's Host-string-only check doesn't recognize `"charon.local"` as local at all (it isn't `"localhost"` or a parseable IP), so that case currently gets `Secure: true` and silently drops the cookie; under the new RemoteAddr-based check it correctly resolves via the peer's real private IP. Not the point of this fix, but worth noting as a incidental correctness win.
+
+**`setSecureCookie`/`clearSecureCookie` — thread the same list through:**
+
+```go
+func setSecureCookie(c *gin.Context, name, value string, maxAge int, trustedProxies []string) {
+	scheme := requestScheme(c, trustedProxies)
+	...
+	if isLocalRequest(c, trustedProxies) {
+	...
+}
+
+func clearSecureCookie(c *gin.Context, name string, trustedProxies []string) {
+	setSecureCookie(c, name, "", -1, trustedProxies)
+}
+```
+
+**`AuthHandler` gains the field, set once at construction** (mirrors `EmergencyBypass(managementCIDRs []string, db *gorm.DB)`'s existing "parse/store once, no global mutable state" idiom — deliberately *not* a package-level `var`, since several tests run with `t.Parallel()` and a shared mutable trust list would race):
+
+```go
+type AuthHandler struct {
+	authService    *services.AuthService
+	db             *gorm.DB
+	trustedProxies []string
+}
+
+func NewAuthHandler(authService *services.AuthService, trustedProxies []string) *AuthHandler {
+	return &AuthHandler{authService: authService, trustedProxies: trustedProxies}
+}
+
+func NewAuthHandlerWithDB(authService *services.AuthService, db *gorm.DB, trustedProxies []string) *AuthHandler {
+	return &AuthHandler{authService: authService, db: db, trustedProxies: trustedProxies}
+}
+```
+
+`Login`/`Refresh`/`Logout` change their 3 call sites from `setSecureCookie(c, "auth_token", token, 3600*24)` to `setSecureCookie(c, "auth_token", token, 3600*24, h.trustedProxies)` (and `clearSecureCookie(c, "auth_token", h.trustedProxies)` in `Logout`).
+
+**Call-site blast radius (grepped, confirmed small):**
+
+| Symbol | Non-test call sites | File:line |
+|---|---|---|
+| `NewAuthHandlerWithDB` | 1 | `backend/internal/api/routes/routes.go:208` → becomes `handlers.NewAuthHandlerWithDB(authService, db, cfg.Security.TrustedProxies)` (`cfg config.Config` is already an in-scope parameter of `RegisterWithDeps`) |
+| `NewAuthHandler` | 0 (unused outside tests today) | — |
+
+**`SetTrustedProxies` wiring — same list, one trust boundary, not two independently-configured mechanisms:**
+
+`backend/internal/server/server.go`'s `NewRouter` gains a third parameter and uses it for Gin's own mechanism instead of the hardcoded `nil`:
+
+```go
+func NewRouter(frontendDir string, dataDir string, trustedProxies []string) *gin.Engine {
+	router := gin.Default()
+	if len(trustedProxies) > 0 {
+		if err := router.SetTrustedProxies(trustedProxies); err != nil {
+			// Fail safe: an invalid entry must not silently fall through to
+			// Gin's "trust everyone" behavior. Log and trust nothing.
+			logger.Log().WithError(err).Warn("invalid CHARON_TRUSTED_PROXIES entry; trusting no proxies")
+			_ = router.SetTrustedProxies(nil)
+		}
+	} else {
+		_ = router.SetTrustedProxies(nil)
+	}
+	...
+}
+```
+
+`backend/cmd/api/main.go:253` changes from `server.NewRouter(cfg.FrontendDir, filepath.Dir(cfg.DatabasePath))` to `server.NewRouter(cfg.FrontendDir, filepath.Dir(cfg.DatabasePath), cfg.Security.TrustedProxies)`.
+
+**`ClientIP()` blast-radius check (required by task — grepped, confirmed safe and, in fact, an intentional correctness improvement, not just a side effect to tolerate):** `c.ClientIP()` is called at ~20 non-test sites (`emergency_handler.go`, `user_handler.go`, `permission_helpers.go`, `security_handler.go` ×8, `security_notifications.go`, `encryption_handler.go` ×4, `backup_handler.go`, `system_permissions_handler.go`, `middleware/emergency.go`, `middleware/request_logger.go`, `cerberus/rate_limit.go` ×2, `cerberus/cerberus.go`) — mostly for audit-log `IPAddress` fields and `ManagementCIDRs`/rate-limit keys. **When `CHARON_TRUSTED_PROXIES` is left unset (the default), behavior at every one of these call sites is byte-for-byte unchanged** — `SetTrustedProxies(nil)` continues to be called, so `ClientIP()` continues to return the raw socket peer exactly as it does on `main` today. Only when an admin *opts in* by setting `CHARON_TRUSTED_PROXIES` does `ClientIP()` start honoring `X-Forwarded-For` from that specific trusted set — and that is the **correct** behavior for that scenario: today, an admin who puts a reverse proxy in front of Charon *without* also fixing this gap gets every `ClientIP()`-based audit log entry, rate-limit key, and `ManagementCIDRs` check recording the proxy's own IP for every request, which is arguably already a latent correctness bug for that (currently unsupported) topology. This fix makes `ClientIP()` and the cookie logic share one admin-controlled trust boundary instead of Gin trusting nothing while `auth_handler.go` trusted everything — call this out explicitly in the commit message as an intentional, opt-in behavior change, not a silent one.
+
+### 13.4 `Origin`/`Referer`: investigated, recommendation is removal, not gating
+
+Per the task's explicit ask: do `Origin`/`Referer` factor into the trust decision today, and if so, do they need gating or removal?
+
+**Finding:** yes, they factor in today — `isLocalRequest`'s `candidates` list (current lines 128-131) includes `originHost(c.Request.Header.Get("Origin"))` and `originHost(c.Request.Header.Get("Referer"))`; if either resolves to a local/private host, `isLocalRequest` returns `true`, which can flip `Secure` to `false` when `scheme != "https"`.
+
+**Recommendation: remove, not gate.** Unlike `X-Forwarded-Host`/`X-Forwarded-Proto` — which, *when a real trusted reverse proxy is the peer*, at least plausibly carry proxy-verified information about the original request — `Origin` and `Referer` are ordinary browser-set request headers that reflect what page the browser was on. **No reverse proxy, trusted or not, rewrites or verifies them for this purpose**; gating them on peer trust would give them a veneer of verification they can never actually have. A "trusted proxy" configuration says "I trust this peer to tell me the truth about TLS termination and virtual-hosting," not "I trust this peer's opinion of the original browser's `Origin` header" — those are unrelated claims. Gating a signal that is unconditionally meaningless either way adds complexity with no security benefit. **Action: delete both `originHost(...)` candidates from `isLocalRequest` entirely** (both the trusted and untrusted branches, per the code in §13.3 above — neither branch references `Origin`/`Referer` anymore).
+
+**Consequence: `originHost` becomes dead code.** Grepped — its only call sites in non-test code are the two just removed (`auth_handler.go:129-130`). Per CLAUDE.md ("CLEAN: Delete dead code immediately"), **delete the `originHost` function** (current lines 67-78) along with its two direct unit-test blocks (`TestHostHelpers`'s `"originHost"` subtest, current lines 372-376, and `TestAuthHandler_HelperFunctions`'s `"originHost returns empty for invalid url"` subtest, current lines 1371-1374) — see §13.6 for the replacement regression tests that pin "Origin/Referer no longer influence this decision" instead.
+
+### 13.5 Truth table (extends §9.2's table with the new "is peer trusted" dimension)
+
+`scheme` below is `requestScheme(c, trustedProxies)`'s resolved value; `isLocalRequest` is `isLocalRequest(c, trustedProxies)`; "peer trusted" is `isTrustedPeer(c, trustedProxies)` — i.e. whether `c.Request.RemoteAddr` (never a header) matches an entry in `CHARON_TRUSTED_PROXIES`.
+
+| Peer trusted? | `X-Forwarded-Proto`/`-Host` | Raw connection facts | `scheme` resolves to | `isLocalRequest` | `Secure` | `SameSite` | Example |
+|---|---|---|---|---|---|---|---|
+| No (default — nothing configured) | *ignored entirely* | TLS nil, `RemoteAddr` = Tailscale/LAN IP | `http` | `true` (via `RemoteAddr`) | `false` | `Lax` | **§9's original bug repro, direct Tailscale access — must keep working, no proxy configured** |
+| No | *ignored entirely* | TLS nil, `RemoteAddr` = public IP | `http` | `false` | `true` (fail-safe) | `Lax` | Charon exposed directly on a public IP over plain HTTP (unsupported/discouraged) — unchanged from §9.2 |
+| No | *ignored entirely* | `c.Request.TLS != nil` | `https` | per `RemoteAddr` | `true` | `Strict`/`Lax` | Direct HTTPS to Charon's own Go TLS listener (uncommon but possible config) |
+| No | **forged** `X-Forwarded-Proto: https` / `X-Forwarded-Host: 127.0.0.1` from a public, non-proxy peer | TLS nil, `RemoteAddr` = public IP | `http` (header ignored) | `false` (`RemoteAddr` is public; forged `Host` claim ignored) | `true` | `Lax` | **The QA-identified gap, now closed** — forgery no longer has any effect |
+| **Yes** (`RemoteAddr` ∈ `CHARON_TRUSTED_PROXIES`) | `X-Forwarded-Proto: https` | (irrelevant — header wins) | `https` | per `Host`/`X-Forwarded-Host` | `true` | `Lax`/`Strict` | **Legitimate reverse-proxy-HTTPS case — behind the admin's own nginx/Caddy/Traefik in front of Charon's admin port** |
+| **Yes** | *no forwarded headers sent* | TLS nil | `http` | per raw `Host`/`URL.Host` | per locality | per locality | A configured-trusted peer that simply isn't forwarding anything (e.g. a plain TCP proxy) — falls back to the same raw-fact resolution as the untrusted branch, except `Host`/`X-Forwarded-Host` (if present) are still honored |
+
+`Origin`/`Referer` do not appear in this table — per §13.4 they are removed from the decision entirely, in every row.
+
+### 13.6 TDD test plan
+
+**New tests (write red first):**
+
+1. `TestIsTrustedPeer` — table-driven: `RemoteAddr` inside a configured CIDR → `true`; outside → `false`; empty `trustedProxies` → always `false` regardless of `RemoteAddr`; malformed `RemoteAddr` (no port, garbage string) → `false`, no panic. **New case (review finding, non-blocking):** `trustedProxies: []string{"not-a-cidr", "10.0.0.0/8"}`, `RemoteAddr` inside `10.0.0.0/8` → assert `true` (the malformed entry doesn't break matching of the valid entries after it) and, as a second sub-case in the same table, `RemoteAddr` a value that would only match if `"not-a-cidr"` were (incorrectly) treated as match-everything → assert `false`, no panic. This pins the already-fail-safe behavior of `security.IsIPInCIDRList` (`whitelist.go:45-48`: a `net.ParseCIDR` error on a malformed entry hits `continue`, silently skipping just that entry rather than erroring out of the whole list or matching everything) as exercised through `isTrustedPeer`, which was previously unverified by any test.
+2. `TestRequestScheme_ForgedForwardedProto_IgnoredFromUntrustedPeer` — `RemoteAddr` a public IP not in any trusted list, `X-Forwarded-Proto: https` set, `req.TLS == nil` → assert `requestScheme(c, nil)` (or an explicitly non-matching list) returns `"http"`. Directly proves TDD requirement (a): forgery from an untrusted peer no longer flips scheme.
+3. `TestRequestScheme_ForwardedProto_HonoredFromTrustedPeer` — same headers, but `RemoteAddr` set to an address inside `trustedProxies` passed in → assert `"https"`. Proves TDD requirement (c): the legitimate trusted-proxy case still works.
+4. `TestIsLocalRequest_UntrustedPeer_IgnoresForwardedHost` — `X-Forwarded-Host: localhost` set, `RemoteAddr` a public IP, `trustedProxies` doesn't include it → assert `false`. Companion of #2 for `isLocalRequest`.
+5. `TestIsLocalRequest_TrustedPeer_HonorsForwardedHost` — same headers, `RemoteAddr` inside `trustedProxies` → assert `true`. Companion of #3.
+6. `TestIsLocalRequest_UntrustedPeer_UsesRawPeerIPNotHostHeader` — `req.Host = "127.0.0.1:8080"` (forged/mismatched), `RemoteAddr` a public IP, no trusted proxies configured → assert `false` (proves the `Host` header alone, absent a matching real peer address, no longer grants locality — the Host-forgery half of the gap, distinct from the `X-Forwarded-Host` half covered by #4).
+7. `TestIsLocalRequest_UntrustedPeer_DirectTailscaleAccess_StillWorks` — `RemoteAddr` set to `100.98.12.109:xxxxx` (the exact §9 bug-report IP), `req.Host` matching, no `X-Forwarded-*`, no trusted proxies configured → assert `true`. **This is the mandatory non-regression proof for TDD requirement (b)** — the direct-access case this whole PR exists to support must not regress.
+8. `TestSetSecureCookie_TrustedProxyHTTPS_PublicHost_Secure` — full `setSecureCookie` integration: `RemoteAddr` inside `trustedProxies`, `X-Forwarded-Proto: https`, `X-Forwarded-Host: admin.example.com` (public) → assert `Secure: true`, `SameSite: Strict` (not local, but genuinely HTTPS via a real trusted terminator).
+9. `TestSetSecureCookie_UntrustedForgedHeaders_NoDowngrade` — full integration counterpart to #2/#9: `RemoteAddr` public/untrusted, forged `X-Forwarded-Proto: https` + `X-Forwarded-Host: 127.0.0.1`, real connection is plain HTTP from a public peer → assert `Secure: true` (unchanged fail-safe — forgery cannot downgrade it) — this is the single most important new test, directly reproducing and closing the QA-identified adversarial scenario end-to-end.
+10. `TestIsLocalRequest_OriginHeaderIgnored` (replaces the deleted `"origin loopback"` subtest of `TestIsLocalRequest`, §13.4) — `Origin: http://127.0.0.1:3000` set, `Host` a public non-local value, no trusted proxy → assert `isLocalRequest` returns `false`, pinning that `Origin` no longer grants locality even when it claims loopback.
+11. `TestSetSecureCookie_OriginHeaderIgnored_NoLongerAffectsSecurity` (replaces the repurposed `TestSetSecureCookie_OriginLoopbackForcesInsecure`, §13.4) — `Host: service.internal` (not local), `Origin: http://127.0.0.1:8080` (spoofed loopback), plain HTTP, no trusted proxy → assert `Secure: true` (public fail-safe holds; a spoofed `Origin` cannot downgrade it).
+
+**Existing tests requiring updates (enumerated by name, per CLAUDE.md's testing rigor — grouped by why):**
+
+*(a) Mechanical only — add the new trailing `trustedProxies` parameter (pass `nil`), no assertion or setup change, because the resolved outcome is peer-address-agnostic:*
+`TestSetSecureCookie_HTTPS_Strict`, `TestSetSecureCookie_HTTP_Lax`, `TestSetSecureCookie_HTTP_PublicIP_Secure`, `TestClearSecureCookie`, `TestRequestScheme`'s `"tls request"`/`"url scheme fallback"`/`"default http fallback"` subtests, `TestIsLocalRequest`'s `"non local request"` subtest, `TestAuthHandler_HelperFunctions`'s `"requestScheme uses tls..."`/`"requestScheme uses request url scheme..."`/`"requestScheme defaults to http..."`/`"normalizeHost strips brackets and port"` subtests, `TestHostHelpers`'s `"normalizeHost"`/`"isLocalOrPrivateHost"`/`"isLocalOrPrivateHost tailscaleCGNAT boundary"` subtests (these three don't call the changed functions at all — no parameter change needed either).
+
+*(b) Needs `req.RemoteAddr` added, matching the test's `Host` IP, to keep asserting the same result — because locality for an untrusted peer (the implicit default in every one of these, since none configure a trusted proxy) now comes from `RemoteAddr`, not `Host`:*
+`TestSetSecureCookie_HTTP_Loopback_Insecure` (add `req.RemoteAddr = "127.0.0.1:9999"`), `TestSetSecureCookie_HTTP_PrivateIP_Insecure` (`"192.168.1.50:9999"`), `TestSetSecureCookie_HTTP_10Network_Insecure` (`"10.0.0.5:9999"`), `TestSetSecureCookie_HTTP_172Network_Insecure` (`"172.16.0.1:9999"`), `TestSetSecureCookie_HTTP_IPv6ULA_Insecure` (`"[fd12::1]:9999"`), `TestSetSecureCookie_HTTPS_PrivateIP_Secure` (`"192.168.1.50:9999"` — needed to keep `SameSite: Lax`, since that assertion depends on `isLocalRequest` being `true`), and **`TestSetSecureCookie_HTTP_TailscaleCGNAT_Insecure`** (add `req.RemoteAddr = "100.98.12.109:9999"` — this is the direct regression test for the original §9 bug; it must be updated and must still pass, satisfying TDD requirement (b) at the original bug's own test).
+
+*(c) Needs both `req.RemoteAddr` set to a value inside an explicitly-passed `trustedProxies` list — because these specifically test forwarded-header handling, and under the new model an untrusted peer's headers are simply ignored, so leaving them unmodified would make them pass for the wrong reason (they'd stop exercising forwarded-header logic at all and coincidentally land on the same asserted values via the fail-safe/raw-fact path). Each needs e.g. `req.RemoteAddr = "203.0.113.9:443"` plus `trustedProxies: []string{"203.0.113.9/32"}` passed into the call:*
+`TestSetSecureCookie_ForwardedHTTPS_LocalhostForcesInsecure`, `TestSetSecureCookie_ForwardedHTTPS_LoopbackForcesInsecure`, `TestSetSecureCookie_ForwardedHostLocalhostForcesInsecure`, `TestRequestScheme`'s `"forwarded proto first value wins"` subtest, `TestAuthHandler_HelperFunctions`'s `"requestScheme prefers forwarded proto"` subtest, `TestIsLocalRequest`'s `"forwarded host list includes localhost"` subtest, `TestAuthHandler_HelperFunctions`'s `"isLocalOrPrivateHost and isLocalRequest"` subtest. (Asserted values are unchanged in every case — only the setup changes, to make the test actually exercise the trusted-proxy path it claims to.)
+
+*(d) Deleted / repurposed (§13.4 — Origin/Referer removed as a signal):*
+`TestSetSecureCookie_OriginLoopbackForcesInsecure` → repurpose into new test #11 above (asserted value changes from `Secure: true`-via-a-now-nonexistent-mechanism to `Secure: true`-via-fail-safe — same literal assertion, different, now-accurate, rationale/comment). `TestIsLocalRequest`'s `"origin loopback"` subtest → replaced by new test #10 (assertion flips `true` → `false`). `TestHostHelpers`'s `"originHost"` subtest and `TestAuthHandler_HelperFunctions`'s `"originHost returns empty for invalid url"` subtest → **deleted outright** (function deleted, §13.4).
+
+*(e) Signature-only passthrough in the handler-level tests* (`TestAuthHandler_Login*`, `TestAuthHandler_Refresh*`, `TestAuthHandler_Logout*`, `TestAuthHandler_VerifyStatus*`, etc.) — none call `setSecureCookie`/`isLocalRequest`/`requestScheme` directly; they go through `NewAuthHandler(WithDB)(...)`, which needs its new `trustedProxies []string` constructor argument (pass `nil`) at its 3 test call sites (`auth_handler_test.go`, `user_integration_test.go`, `additional_coverage_test.go`) — no assertion changes.
+
+*(f) `server_test.go`* — `TestNewRouter`'s two `NewRouter(...)` calls (lines 23, 75) need the new third `trustedProxies []string` parameter (pass `nil`) — no assertion changes, `SetTrustedProxies(nil)` is still what runs.
+
+**Frontend:** none — this fix is entirely backend header/cookie logic; no frontend contract changes.
+
+**E2E (Playwright):** none required — this closes a header-forgery vector against a direct backend connection, which isn't something Playwright's browser-driven flows exercise (a real browser never sends a forged `X-Forwarded-Proto`/`X-Forwarded-Host`). The existing `feature/backuprestore` Playwright coverage of the cookie-fallback download path (§9.4/§9.6 commit A2) is unaffected — it runs same-origin `localhost`, which resolves identically before and after this fix (no trusted proxy configured, `RemoteAddr` is loopback either way).
+
+### 13.7 GORM security scan applicability
+
+**Not required.** No `backend/internal/models/**` changes, no GORM queries, no migrations — this fix is confined to `internal/config` (new `SecurityConfig` field + env parsing), `internal/api/handlers/auth_handler.go` (function signatures + trust logic), `internal/api/routes/routes.go` (one constructor call-site update), `internal/server/server.go` (one `NewRouter` parameter), and `internal/cmd/api/main.go` (one call-site update). Per CLAUDE.md §1.5, skip `./scripts/scan-gorm-security.sh --check`.
+
+### 13.8 Commit Slicing Strategy (this addendum only)
+
+**Decision:** same PR (#1136, `feature/backuprestore`), one additional commit appended after §12's F1 (the branch's current final commit). This is a single, cohesive, mechanically-linked change (config field → handler trust logic → router wiring, all load-bearing on each other) with no meaningful sub-slice — unlike §9's/§12's multi-commit addenda, splitting this further would leave intermediate commits in a broken or misleading state (e.g. a config field with nothing reading it, or gated handler logic with no way to configure trust).
+
+| # | Commit | Scope | Files | Depends on | Validation gate |
+|---|---|---|---|---|---|
+| G1 | `fix(security): gate X-Forwarded-Proto/X-Forwarded-Host trust behind an explicit CHARON_TRUSTED_PROXIES allowlist, remove Origin/Referer from cookie-security decisions` | Backend | `backend/internal/config/config.go` (`SecurityConfig.TrustedProxies`, `loadSecurityConfig`), `backend/internal/api/handlers/auth_handler.go` (`isTrustedPeer` new, `requestScheme`/`isLocalRequest`/`setSecureCookie`/`clearSecureCookie` signature + logic changes, `originHost` deleted, `AuthHandler.trustedProxies` field + constructor changes), `backend/internal/api/routes/routes.go` (`NewAuthHandlerWithDB` call site), `backend/internal/server/server.go` (`NewRouter` third parameter + conditional `SetTrustedProxies`), `backend/cmd/api/main.go` (`NewRouter` call site), `backend/internal/api/handlers/auth_handler_test.go` (§13.6's full test set — 11 new tests, ~20 existing tests updated per categories (a)-(f)), `backend/internal/server/server_test.go` (2 call-site updates), `backend/internal/config/config_test.go` (new `TestLoadSecurityConfig_TrustedProxies`-style test — **note (review correction): no existing test covers `ManagementCIDRs` env parsing either** (`grep -n ManagementCIDRs config_test.go` returns nothing), so there is no specific precedent to mirror for this parsing test; write it fresh, following the general shape/style of whatever other env-var-parsing tests already exist in that file (e.g. comma-split/whitespace-trim/empty-value cases) rather than searching for a `ManagementCIDRs` test that doesn't exist) | §12's F1 (end of current PR work) | `go test ./backend/internal/api/handlers/... ./backend/internal/config/... ./backend/internal/server/... -v` (scoped to these three packages only — do **not** run the full backend `-race` suite; concurrent heavy jobs may still be running elsewhere on this machine); `make lint-fast`; `lefthook run pre-commit` (confirm CodeQL Go scan stays clean — no new `go/cookie-secure-not-set`-style finding; the existing suppression comment on the `c.SetCookie` call is untouched by this change) |
+
+**Rollback/contingency:** `git revert` of G1 alone is safe — it only touches function signatures/logic and one new config field/env var; no schema, no migration, no wire-format change, and no other commit in this PR calls any of the changed functions in a way that would break if reverted (G1 lands after all other work). If reverted, the codebase returns exactly to §9's already-shipped behavior (forwarded headers trusted unconditionally) — a known, QA-accepted-as-low-severity state, not a new regression. If CI surfaces an unexpected `ClientIP()`-dependent behavior change at one of the ~20 grepped call sites once `CHARON_TRUSTED_PROXIES` is actually configured in some environment (§13.3's blast-radius note), the contingency is to scope that call site's reliance on `ClientIP()` explicitly rather than reverting G1 wholesale — G1's default (unset env var) behavior is provably identical to today's on every one of those call sites, so this scenario can only arise for an admin who has opted in, and is a configuration-time issue, not a code defect.
 
 ---
