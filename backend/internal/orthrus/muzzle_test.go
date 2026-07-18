@@ -126,6 +126,11 @@ func TestMuzzle_DynamicPaths_Passthrough(t *testing.T) {
 		"/v1.44/volumes/myvolume",
 		"/networks/mynet",
 		"/v1.44/networks/mynet",
+		"/images/alpine/json",
+		"/v1.44/images/alpine/json",
+		"/images/nginx:latest/json",
+		"/distribution/alpine/json",
+		"/v1.44/distribution/alpine/json",
 	}
 
 	m := NewMuzzle(passthroughHandler())
@@ -145,6 +150,10 @@ func TestMuzzle_UnknownPath_Blocked(t *testing.T) {
 		"/containers/create",
 		"/exec/abc/start",
 		"/containers/abc/kill",
+		// Known limitation (see muzzle.go doc comment): path.Match's "*" does not
+		// cross "/", so namespaced image names are not matched by /images/*/json.
+		// This case documents current behavior; it is not a target of this fix.
+		"/images/library/nginx/json",
 	}
 
 	m := NewMuzzle(passthroughHandler())
@@ -152,6 +161,28 @@ func TestMuzzle_UnknownPath_Blocked(t *testing.T) {
 	for _, path := range paths {
 		t.Run(path, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, path, http.NoBody)
+			rr := httptest.NewRecorder()
+			m.ServeHTTP(rr, req)
+			assert.Equal(t, http.StatusForbidden, rr.Code)
+		})
+	}
+}
+
+// TestMuzzle_ImageAndDistributionEndpoints_POSTBlocked confirms the two new
+// read-only allowlist entries added for update-checker tools do not open a
+// write path: POST to either is still rejected, even though method-checking
+// already happens unconditionally before any path match in ServeHTTP.
+func TestMuzzle_ImageAndDistributionEndpoints_POSTBlocked(t *testing.T) {
+	m := NewMuzzle(passthroughHandler())
+
+	paths := []string{
+		"/images/alpine/json",
+		"/distribution/alpine/json",
+	}
+
+	for _, path := range paths {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, path, http.NoBody)
 			rr := httptest.NewRecorder()
 			m.ServeHTTP(rr, req)
 			assert.Equal(t, http.StatusForbidden, rr.Code)
