@@ -17,6 +17,9 @@
 7. [Ignore-File & Repo Hygiene Review](#7-ignore-file--repo-hygiene-review)
 8. [Deferred Findings (Explicitly Out of Scope)](#8-deferred-findings-explicitly-out-of-scope)
 9. [Addendum: Backup Download 401 Over Plain-HTTP/Tailscale Access (Same PR)](#9-addendum-backup-download-401-over-plain-httptailscale-access-same-pr)
+10. [Addendum: OAuth Callback Redirect Path Mismatch (Same PR)](#10-addendum-oauth-callback-redirect-path-mismatch-same-pr)
+11. [Addendum: Stale LastTestStatus Persists Through OAuth Connect (Same PR)](#11-addendum-stale-lastteststatus-persists-through-oauth-connect-same-pr)
+12. [Addendum: Backup Encryption UX Gaps — Manual Save Button, Create-Dialog Smart Defaults, Scheduled-Backup Encryption (Same PR)](#12-addendum-backup-encryption-ux-gaps--manual-save-button-create-dialog-smart-defaults-scheduled-backup-encryption-same-pr)
 
 ---
 
@@ -965,5 +968,678 @@ Login over HTTPS followed by Logout over HTTP (e.g. an admin who logs in from a 
 **Not fixed here** — genuinely solving it (e.g. detecting the scheme mismatch and returning a redirect/instruction to clear cookies via a same-scheme request, or accepting the cookie will simply expire via `maxAge`) is a separate, small-but-nontrivial UX/security question outside this bug's scope (backup downloads returning 401), and mixing an HTTPS public domain and a plain-HTTP local/Tailscale address for the *same* browser's cookie jar is itself an edge case of an edge case. Recorded here so it's an acknowledged tradeoff, not a silently-missed one.
 
 **Test coverage:** add one documentation-style test in `auth_handler_test.go`, e.g. `TestAuthHandler_Logout_InvalidatesSessionBeforeClearingCookie`, asserting the current, already-safe ordering: given a request context with `userID` set, call `Logout`, and assert (via a spy/mock `AuthService` or by checking `InvalidateSessions` was called) that session invalidation happens even when the response's `clearSecureCookie` cookie ends up non-`Secure` (local/HTTP request) — i.e. the test documents "revocation is server-side and unconditional, so a dropped/stale client cookie is inert" rather than attempting to fix or simulate actual browser cookie-jar behavior (which is out of Go's test harness's reach). Add this as an 8th item in §9.4's "New backend tests required" list, part of commit A1.
+
+---
+
+## 10. Addendum: OAuth Callback Redirect Path Mismatch (Same PR)
+
+**Status:** separate, tiny, already-diagnosed bug found via live production testing on `feature/backuprestore`, unrelated to §1-9 above. Same PR #1136 per CLAUDE.md's "one feature = one PR" — a one-line fix plus a test, not a design problem.
+
+**Root cause (verified against current source, line number unchanged):** `backend/internal/api/handlers/backup_remote_handler.go:310`:
+
+```go
+redirectBase := strings.TrimSuffix(baseURL, "/") + "/backups"
+```
+
+`redirectBase` feeds all three `OAuthCallback` redirect branches — `authorization_denied` (line 316), `token_exchange_failed` (line 328), and `success` (line 333) — for both `dropbox` and `google_drive` providers. The frontend has no top-level `/backups` route: `frontend/src/App.tsx:134-136` nests `Backups` under `tasks` (`<Route path="tasks" element={<Tasks />}><Route path="backups" element={<Backups />} /></Route>`), so the real route is `/tasks/backups`. Every OAuth callback outcome for both providers currently redirects the browser to a URL with no matching route — a blank/unstyled shell — and `RemoteTargetsCard.tsx`'s `useEffect` that reads `oauth_result` from the query string (toast + query invalidation so the "Connected" badge updates) never runs, because `Backups` never mounts. Confirmed live: a completed Google Drive OAuth landed on `.../backups?oauth_result=success&provider=google_drive&target=<uuid>` — blank page — even though `CompleteOAuth` had already succeeded server-side (the redirect only fires with `oauth_result=success` after `CompleteOAuth` returns no error). This is a redirect-URL bug, not an OAuth-flow bug.
+
+**Fix:** change line 310 to:
+
+```go
+redirectBase := strings.TrimSuffix(baseURL, "/") + "/tasks/backups"
+```
+
+**Blast radius (confirmed via grep):** `grep -rn '"/backups"' backend/internal/api/handlers/` returns line 310 and a handful of unrelated hits in test files (`backup_handler_test.go`, `backup_handler_coverage_test.go`, `additional_coverage_test.go`, `backup_remote_handler_test.go`, `backup_remote_handler_error_paths_test.go`) — these are route-group registrations and request paths for JSON payloads in unrelated tests, not OAuth redirect targets. Line 310 is the **only** hardcoded `/backups` redirect target in the codebase; no sibling call site needs the same fix.
+
+**Existing test coverage (confirmed — two tests currently pin the bug):** `backend/internal/api/handlers/backup_remote_handler_oauth_test.go` already exercises two of the three redirect branches, but both assert the *buggy* path today:
+
+| Test | Branch | Current (wrong) assertion | Line |
+|---|---|---|---|
+| `TestOAuthCallback_ProviderDenied_RedirectsWithErrorMessage` | `authorization_denied` | `strings.HasPrefix(location, "https://charon.example.com/backups?")` | 139 |
+| `TestOAuthCallback_TokenExchangeFailure_RedirectsWithSentinelMessage_NoRawErrorLeak` | `token_exchange_failed` | `strings.HasPrefix(location, "https://charon.example.com/backups?")` | 231 |
+
+The **success** branch (line 333) has no existing test asserting its `Location` header at all — `TestOAuthCallback_State_IsSingleUse` only exercises the provider-denied branch to consume state, never the success path.
+
+**Test infrastructure already in place (reuse, don't build new scaffolding):** `setupBackupRemoteHandlerTest` + `createOAuthTarget` + `setPublicURL` (all in this test file) already stand up a router, target, and `app.public_url` setting. `remotestorage.SetDropboxTokenURLForTesting` (`remotestorage/dropbox.go:83`) already redirects `CompleteOAuth`'s token exchange to a local `httptest.Server` — used today by the token-exchange-failure test to return a synthetic RFC 6749 §5.2 error body. The success-path test needs only the same seam with the fake server returning a **valid** 200 JSON token body (e.g. `{"access_token":"...","token_type":"bearer","refresh_token":"...","expires_in":14400}`) instead of an error — no new helper required. (No equivalent `SetGoogleDriveTokenURLForTesting` seam exists; the fix and its test only need to cover one provider, since `redirectBase` construction is provider-agnostic.)
+
+**TDD test plan (one commit, three assertions):**
+1. Flip `TestOAuthCallback_ProviderDenied_RedirectsWithErrorMessage` (line 139) to assert `strings.HasPrefix(location, "https://charon.example.com/tasks/backups?")`.
+2. Flip `TestOAuthCallback_TokenExchangeFailure_RedirectsWithSentinelMessage_NoRawErrorLeak` (line 231) to the same corrected prefix.
+3. Add a new test, e.g. `TestOAuthCallback_Success_RedirectsToTasksBackupsPath`, using `SetDropboxTokenURLForTesting` with a fake server returning a valid token response, asserting `Location` starts with `https://charon.example.com/tasks/backups?oauth_result=success` and contains `provider=dropbox` and a non-empty `target=` — closing the previously-untested success branch.
+
+**GORM security scan:** **not required** — this fix touches no `backend/internal/models/**`, no GORM queries, and no migrations; confined entirely to a string literal in `OAuthCallback`. Per CLAUDE.md §1.5, skip `./scripts/scan-gorm-security.sh --check`.
+
+### 10.1 Commit Slicing Strategy (this addendum only)
+
+**Decision:** same PR (#1136), one commit appended after §9's commits. Depends on nothing else in this PR and can land independently (pure string-literal fix, no interaction with the async-job or cookie-Secure work above).
+
+| # | Commit | Scope | Files | Depends on | Validation gate |
+|---|---|---|---|---|---|
+| B1 | `fix: redirect OAuth callback to /tasks/backups, not nonexistent /backups route` | Backend | `backend/internal/api/handlers/backup_remote_handler.go` (line 310), `backend/internal/api/handlers/backup_remote_handler_oauth_test.go` (2 flipped assertions + 1 new success-path test per above) | None — independent of §1-9 | `go test ./backend/internal/api/handlers/... -run TestOAuthCallback -v` (scoped to this test package and these test names only — do **not** run the full backend suite; concurrent heavy test jobs are running elsewhere) |
+
+**Rollback/contingency:** single-line literal change plus test-only edits; `git revert` of B1 is safe and fully independent of every other commit in this PR.
+
+---
+
+## 11. Addendum: Stale LastTestStatus Persists Through OAuth Connect (Same PR)
+
+**Status:** separate, tiny, already-diagnosed bug found via live production testing on `feature/backuprestore`, unrelated to §1-10 above. Same PR #1136 per CLAUDE.md's "one feature = one PR" — a service-logic fix plus one frontend render-gating condition, not a design problem.
+
+**Symptom (reproduced live):** after successfully completing Google Drive OAuth, a remote target row shows both a green "Connected" `oauth_status` badge and a red "Failed" `last_test_status` badge at the same time — a self-contradictory pair of badges on one row.
+
+### 11.1 Root cause (verified against current source)
+
+`backend/internal/services/backup_remote_service.go:410-425`, `BackupRemoteService.Test`:
+
+```go
+func (s *BackupRemoteService) Test(ctx context.Context, uuidStr string) error {
+	target, err := s.Get(uuidStr)
+	if err != nil {
+		return err
+	}
+
+	uploader, err := s.uploaderFor(target)
+	if err != nil {
+		s.recordTestOutcome(target, err)   // unconditional — the bug
+		return err
+	}
+
+	testErr := uploader.Test(ctx)
+	s.recordTestOutcome(target, testErr)
+	return testErr
+}
+```
+
+`recordTestOutcome` (`backup_remote_service.go:427-441`) unconditionally persists `LastTestStatus = "failed"` plus `LastError` for **any** `uploaderFor` error, including the OAuth-not-connected precondition. `uploaderFor` (`backup_remote_service.go:350-364`) calls `s.uploaderFactory` (`remotestorage.New`, `remotestorage.go:71-139`), which for `dropbox`/`google_drive` targets constructs the uploader via `newDropboxUploader`/`newGoogleDriveUploader`. Both perform the identical precondition check before any network call is possible:
+
+- `newGoogleDriveUploader`, `googledrive.go:95-101`: `if secrets.OAuthAccessToken == "" { return nil, ErrOAuthNotConnected }`
+- `newDropboxUploader`, `dropbox.go:101-106`: same check, same sentinel.
+
+`ErrOAuthNotConnected` is declared at `remotestorage/oauthtoken.go:57`: `var ErrOAuthNotConnected = errors.New("oauth authorization required before this target can be used")`.
+
+The handler already treats this class of error as "precondition not met," not "test failed": `backend/internal/api/handlers/backup_remote_handler.go:233-250` (`respondRemoteTargetError`):
+
+```go
+case errors.Is(err, remotestorage.ErrOAuthNotConnected):
+    c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "error_code": "oauth_not_connected"})
+case errors.Is(err, remotestorage.ErrOAuthRevoked):
+    c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "error_code": "oauth_revoked"})
+```
+
+`Test()` conflating "never actually attempted the real connection" with "attempted and it's broken" is inconsistent with how the rest of the codebase already treats this specific error class. Reproduced live: the user clicked Test (Zap button) on a target before completing OAuth → 409 `oauth_not_connected` → `LastTestStatus` persisted as `"failed"`. The user then completed OAuth (`OAuthStatus` → `"connected"`), but the stale `"failed"` `LastTestStatus` was never cleared, producing the two-contradictory-badges symptom.
+
+**Correction to the initial hypothesis — `ErrOAuthRevoked` is not reachable from the branch being fixed.** The initial bug report flagged a possible second "revoked" sentinel that might need the same skip. Verified against source: `remotestorage.ErrOAuthRevoked` (`oauthtoken.go:62`) is returned **only** from `persistingTokenSource.Token()` (`oauthtoken.go:84-92`), which fires when the RFC 6749 `invalid_grant` response comes back from a token-refresh attempt made lazily by the HTTP client **while an actual request is in flight**. `newDropboxUploader`/`newGoogleDriveUploader` never call `Token()` — they only check `secrets.OAuthAccessToken == ""` synchronously and otherwise construct the client without making a call. So within `Test()`, `ErrOAuthRevoked` can only ever surface from the **second** branch — `testErr := uploader.Test(ctx)` — never from `uploaderFor`. That second branch is explicitly required to keep recording outcomes as today (see §11.2), so `ErrOAuthRevoked` needs no special handling here: a target whose `OAuthStatus` is stale `"connected"` but whose refresh token was revoked out-of-band genuinely was tested and genuinely is broken — recording `LastTestStatus = "failed"` for it is correct, informative behavior, not the bug (it does not produce a contradictory "Connected + Failed" pair with a *never-attempted* implication — it correctly reports "you think you're connected but the live probe just failed"). The fix therefore narrows to a single `errors.Is` check against `ErrOAuthNotConnected` only, applied only to the `uploaderFor` error branch.
+
+**Other errors `uploaderFor` can return (confirmed not swallowed by the fix):** `s.decryptSecrets` errors (`ErrEncryptionKeyMissing`, decrypt/unmarshal failures), `remotestorage.New`'s config-parse errors (`json.Unmarshal` failures per type), missing-nested-config errors (e.g. `"remotestorage: webdav config is required"`), and the `default` case's `"remotestorage: unknown remote storage target type %q"`. None of these are `ErrOAuthNotConnected`, so `errors.Is` leaves every one of them going through `recordTestOutcome` exactly as today — the fix only narrows the *one* precondition case, it does not disable outcome-recording generally.
+
+### 11.2 Backend fix
+
+`backend/internal/services/backup_remote_service.go:410-425`:
+
+```go
+func (s *BackupRemoteService) Test(ctx context.Context, uuidStr string) error {
+	target, err := s.Get(uuidStr)
+	if err != nil {
+		return err
+	}
+
+	uploader, err := s.uploaderFor(target)
+	if err != nil {
+		if errors.Is(err, remotestorage.ErrOAuthNotConnected) {
+			// OAuth precondition not met — no real probe was ever attempted
+			// against the provider, so there is no "outcome" to record.
+			// Recording this as "failed" is what produces a stale
+			// LastTestStatus="failed" that survives a subsequent successful
+			// OAuth connect, showing a contradictory "Connected" +
+			// "Failed" badge pair (spec §11). Any OTHER uploaderFor error
+			// (config/setup problem — see §11.1) still falls through to
+			// recordTestOutcome below, unchanged.
+			return err
+		}
+		s.recordTestOutcome(target, err)
+		return err
+	}
+
+	testErr := uploader.Test(ctx)
+	s.recordTestOutcome(target, testErr)
+	return testErr
+}
+```
+
+No new imports required — `errors` (stdlib) and `remotestorage` are both already imported in this file (`backup_remote_service.go:6,17`).
+
+**Blast radius:** `Test` is called from exactly one handler call site (`BackupRemoteHandler.Test`, wired at `POST /api/v1/backups/remote-targets/:uuid/test`) plus this service's own tests; no other caller depends on `Test`'s outcome-recording side effect.
+
+### 11.3 Frontend fix
+
+`frontend/src/components/backups/RemoteTargetsCard.tsx:217-226` — the Test (Zap) button currently has **no gating condition at all**: it renders unconditionally for every row regardless of `oauth_status`, unlike the adjacent Connect/Reconnect (`:191-204`) and Disconnect (`:205-216`) buttons, which are both purely **conditionally rendered** based on `OAUTH_TYPES.has(target.type) && target.oauth_status === '...'` — this file has no existing "disabled + explanatory tooltip" pattern for state-gated actions anywhere (the only `disabled={...}` usage in the file, on the delete dialog's Cancel button, is a loading-state disable, not a permission/precondition gate), and no i18n string exists for a disabled-reason tooltip. Matching the file's own established convention (conditional render, not disable-with-tooltip) is both more consistent and requires zero new strings — `backups.remoteTargets.test` (`frontend/src/locales/en/translation.json:1099`, already used as the button's `title`) needs no change.
+
+Fix — wrap the Test button's render in the same boolean shape already used for Connect/Disconnect, gating it on "not an OAuth type, or OAuth and connected":
+
+```tsx
+{(!OAUTH_TYPES.has(target.type) || target.oauth_status === 'connected') && (
+  <Button
+    variant="ghost"
+    size="sm"
+    data-testid="backup-remote-target-test-btn"
+    onClick={() => handleTest(target)}
+    isLoading={testMutation.isPending && testMutation.variables === target.uuid}
+    title={t('backups.remoteTargets.test')}
+  >
+    <Zap className="w-4 h-4" />
+  </Button>
+)}
+```
+
+Effect per target type/state:
+| Target | `OAUTH_TYPES.has(type)` | `oauth_status` | Test button |
+|---|---|---|---|
+| s3, sftp, webdav (any) | false | `''` | shown (unchanged) |
+| dropbox / google_drive | true | `not_connected` | hidden (was shown — this is the fix) |
+| dropbox / google_drive | true | `revoked` | hidden (was shown — same fix, same rationale as §11.1's `ErrOAuthRevoked` note: a revoked target also can't be meaningfully probed by the button today since `uploaderFor` would hit the identical `ErrOAuthNotConnected` check — `secrets.OAuthAccessToken` is cleared by nothing yet, but `Connect`/`Reconnect` is the correct next action regardless) |
+| dropbox / google_drive | true | `connected` | shown (unchanged) |
+
+Note: no backend `OAuthStatus` transition to `"revoked"` currently exists anywhere in the codebase (`grep -rn '"revoked"' backend/internal --include=*.go` outside tests returns nothing under `services/`) — the frontend's `revoked` badge/copy is forward-defined but not yet reachable from live data. Out of scope here; not touched by this fix, noted only so the `revoked` row in the table above is understood as "currently unreachable in production, matches the reachable `not_connected` case identically once it is."
+
+### 11.4 TDD test plan
+
+**Backend — `backend/internal/services/backup_remote_service_test.go`** (the file already containing `TestBackupRemoteService_TestConnection_RecordsOutcome`, lines 227-255, which stays as-is and continues to serve as the existing control proving the `testErr := uploader.Test(ctx)` branch still records `"failed"` on a genuine post-connection failure — no changes needed to that test). Add two new tests immediately after it:
+
+1. `TestBackupRemoteService_Test_OAuthNotConnected_DoesNotRecordFailedStatus` — the bug-reproduction case. `uploaderFactory` returns `(nil, remotestorage.ErrOAuthNotConnected)`; target seeded with `LastTestStatus: "never"` (the actual `Create`-time default, `backup_remote_service.go:240`) and `OAuthStatus: "not_connected"`. Call `Test`, assert `errors.Is(err, remotestorage.ErrOAuthNotConnected)`, then reload the row and assert `LastTestStatus` is still `"never"` (not `"failed"`), `LastTestAt` is still `nil`, and `LastError` is still empty — proving no write happened.
+2. `TestBackupRemoteService_Test_UploaderForGenuineError_StillRecordsFailedStatus` — the regression guard that this fix doesn't over-broaden the skip. `uploaderFactory` returns `(nil, assertAnError)` (the file's existing generic sentinel, `backup_remote_service_test.go:277-281`) — a stand-in for a genuine `uploaderFor` config/setup error (§11.1's "other errors" list), deliberately *not* `ErrOAuthNotConnected`. Target can be a plain `sftp` target (`uploaderFor` errors aren't OAuth-specific). Call `Test`, assert the error is returned and `!errors.Is(err, remotestorage.ErrOAuthNotConnected)`, then reload and assert `LastTestStatus == "failed"`, `LastTestAt` is non-nil, and `LastError` contains `"boom"` — proving the skip is scoped to the one sentinel, not to "any `uploaderFor` error."
+
+Both reuse `newRemoteServiceTestDB`, `NewBackupRemoteService`, and the `uploaderFactory` override seam already established in this file — no new test scaffolding required.
+
+**Frontend — `frontend/src/components/backups/__tests__/RemoteTargetsCard.test.tsx`** (already has the `describe('OAuth status badge and connect/reconnect/disconnect buttons', ...)` block, lines 303-340, with `dropboxNotConnected`, `dropboxConnected`, and `gdriveRevoked` fixtures already defined at lines 91-129 — reuse them, no new fixtures needed). Add three new `it` blocks inside that `describe`:
+
+1. `it('hides the Test button for a not_connected Dropbox target', ...)` — render with `targets = [dropboxNotConnected]`, find its row, assert `within(row).queryByTestId('backup-remote-target-test-btn')` is `not.toBeInTheDocument()`.
+2. `it('hides the Test button for a revoked Google Drive target', ...)` — same, using `gdriveRevoked`.
+3. `it('shows the Test button for a connected Dropbox target', ...)` — same, using `dropboxConnected`, assert `getByTestId('backup-remote-target-test-btn')` **is** present.
+
+Non-OAuth types (s3/sftp) are already implicitly covered without any new test: the existing tests at lines 184, 200, and 261 already `click(within(...).getByTestId('backup-remote-target-test-btn'))` on the `nas` (sftp) and `b2` (s3) fixture rows — those would already fail today if the new gating condition accidentally hid the button for non-OAuth types, since `getByTestId` throws when the element is absent. No changes needed to those three tests; they serve as the non-OAuth regression guard for free.
+
+### 11.5 GORM security scan
+
+**Not required.** This fix touches no `backend/internal/models/**` file, adds no field, and changes no GORM query shape — `LastTestStatus`, `LastError`, `LastTestAt`, and `OAuthStatus` all already exist on `RemoteStorageTarget` (`backend/internal/models/remote_storage_target.go:42-55`, all present before this change). The fix is confined to a control-flow branch inside one existing service method plus a JSX conditional-render change. Per CLAUDE.md §1.5, skip `./scripts/scan-gorm-security.sh --check`.
+
+### 11.6 Backfill note
+
+No backend data-migration/backfill is in scope. For the user's own already-affected live row, the user has already been told that clicking Test again post-connection will overwrite the stale `"failed"` status with a fresh, correct outcome — no code needs to reach back and correct historical rows.
+
+### 11.7 Commit Slicing Strategy (this addendum only)
+
+**Decision:** same PR (#1136), two ordered commits appended after §10's B1, split backend/frontend since each is independently testable in isolation — same precedent as §9.6's A1 (backend) / A2 (frontend-adjacent) split, and consistent with CLAUDE.md's suggested commit sequence (backend before frontend). Both commits are small enough that further splitting (e.g. separating the two new backend tests from the fix itself) would add process overhead without improving reviewability.
+
+| # | Commit | Scope | Files | Depends on | Validation gate |
+|---|---|---|---|---|---|
+| C1 | `fix: don't record failed test status for unattempted OAuth-precondition probes` | Backend | `backend/internal/services/backup_remote_service.go` (`Test`, §11.2), `backend/internal/services/backup_remote_service_test.go` (2 new tests, §11.4) | None — independent of §1-10 | `go test ./backend/internal/services/... -run TestBackupRemoteService_Test -v` (scoped to this test-name prefix only — do **not** run the full backend `-race` suite; concurrent heavy test jobs are running elsewhere on this machine right now) |
+| C2 | `fix: hide remote-target Test button until OAuth target is connected` | Frontend | `frontend/src/components/backups/RemoteTargetsCard.tsx` (§11.3), `frontend/src/components/backups/__tests__/RemoteTargetsCard.test.tsx` (3 new tests, §11.4) | C1 (same bug, reviewed together; no code dependency — C2 would still build/pass standalone if reordered) | `cd frontend && npx vitest run src/components/backups/__tests__/RemoteTargetsCard.test.tsx` (scoped to this single test file only — do **not** run the full frontend coverage suite or Playwright; both are under heavy concurrent load elsewhere right now) |
+
+**Rollback/contingency:** each commit reverts independently — C1 is a pure backend control-flow narrowing (removing it just restores the old unconditional-record behavior, no data loss), C2 is a pure render-condition change (removing it just restores the always-visible button). Neither commit alters stored data or API contracts, so either can be reverted alone without touching the other.
+
+---
+
+## 12. Addendum: Backup Encryption UX Gaps — Manual Save Button, Create-Dialog Smart Defaults, Scheduled-Backup Encryption (Same PR)
+
+**Status:** three related findings from a UX/security audit of the encryption feature landed in §9-11, same PR #1136 per CLAUDE.md's "one feature = one PR." Larger than §9-11 (touches the `POST /backups` API contract and passphrase decryption — a security-sensitive code path), but still a bug-fix addendum, not a new design.
+
+**Items:**
+- **A** — `BackupEncryptionCard` has no save button of its own; encryption changes only persist if the user separately clicks the unrelated Schedule card's button.
+- **B** — the manual Create Backup dialog always defaults encryption off and has no remote-upload toggle at all, forcing needless re-entry of an already-stored passphrase and offering no way to skip a per-backup remote upload.
+- **C** — scheduled (cron-triggered) backups never apply the `backup.encryption_enabled` setting at all — turning on "Enable backup encryption" currently has zero effect on the backups actually produced by the schedule.
+
+### 12.1 Item A — BackupEncryptionCard needs its own Save button
+
+**Root cause (verified):** `frontend/src/components/backups/BackupEncryptionCard.tsx` (78 lines total) has no `Button`/save action anywhere in its JSX; its own doc comment (lines 12-16) states it "has no save button of its own" and shares `form.save()` with `BackupScheduleCard`. `BackupScheduleCard.tsx`'s `handleSave` (lines 37-42) calls `form.save({...})`, and its `<Button onClick={handleSave} disabled={form.saveDisabled} isLoading={form.isSaving}>` (line 145, text `t('backups.schedule.save')` = "Save Schedule") is the sole persistence path for `useBackupSettingsForm()` (`frontend/src/hooks/useBackups.ts:265-358`) today — which owns encryption fields (`encryptionEnabled`, `encryptionPassphrase`) alongside schedule fields. A user who only interacts with `BackupEncryptionCard` (fills a passphrase, toggles the switch) sees no affordance to save and gets silent data loss on navigation.
+
+**Confirmed gating logic to reuse exactly** (`useBackups.ts:302-304`):
+```ts
+const encryptionPassphraseSet = settings?.encryption_passphrase_set ?? false
+const needsPassphrase = encryptionEnabled && !encryptionPassphrase && !encryptionPassphraseSet
+const saveDisabled = updateMutation.isPending || (frequency === 'custom' && !cronValid) || needsPassphrase
+```
+`saveDisabled` is a single derived boolean already covering the correct precondition for *either* card's fields (it factors in both `cronValid`, a schedule-only concern, and `needsPassphrase`, an encryption-only concern) — exactly the value `BackupScheduleCard`'s existing button already binds to. `form.isSaving` (`isSaving: updateMutation.isPending`) is likewise shared.
+
+**Fix:** add a second `<Button onClick={handleSave} disabled={form.saveDisabled} isLoading={form.isSaving}>{t('backups.encryption.save')}</Button>` inside `BackupEncryptionCard`'s `CardContent`, in a `<div className="flex justify-end">` wrapper matching `BackupScheduleCard`'s existing footer layout (lines 144-146). The button's own `handleSave` closure is identical in shape to `BackupScheduleCard`'s (calls `form.save({ onSuccess: () => toast.success(t('backups.encryption.saveSuccess')), onError: (error) => toast.error(error.message) })`) — a distinct i18n success-toast key (`backups.encryption.saveSuccess`) rather than reusing `backups.schedule.saveSuccess`, since the two cards represent conceptually distinct settings groups to the user even though they share one PUT.
+
+**`BackupScheduleCard` keeps its own Save button too** (per the user's explicit call, confirmed correct against the hook): `useBackupSettingsForm()` models one `BackupSettings` REST resource behind one `PUT /api/v1/backups/settings`, and `form.save()` always submits the *entire* current form state (`useBackups.ts:312-320`, the `updateMutation.mutate({schedule_enabled, schedule_cron, retention_count, remote_retention_count, encryption_enabled, ...})` payload) regardless of which button triggered it — so two buttons hitting the same shared mutation is safe and requires no fork. This does mean clicking "Save Schedule" also persists any pending encryption-field edits and vice versa; that is already true today (§12's premise is that this silent cross-save is the *problem* for the encryption side, not a new side effect introduced by adding a second button) — the fix here is *making that cross-save also reachable and discoverable from the Encryption card*, not eliminating the shared-resource model.
+
+**Required i18n additions** (`frontend/src/locales/en/translation.json`, inside the existing `backups.encryption` block, `~lines 1009-1017`):
+```json
+"save": "Save Encryption Settings",
+"saveSuccess": "Encryption settings updated"
+```
+
+**New `data-testid`:** `backup-encryption-save-btn` (mirrors `BackupScheduleCard`'s convention — that card's button currently has no explicit `data-testid` either, relying on `getByText`/role queries in its tests; keep the same convention, i.e. no `data-testid` required, but querying by accessible name `t('backups.encryption.save')` in tests. Add one only if the Playwright/Vitest test authoring makes it clearly more robust — matches this file's own existing precedent of testid-only-where-ambiguous, e.g. `backup-encryption-toggle`, `backup-encryption-passphrase-input`).
+
+#### 12.1.1 TDD test plan (Item A)
+
+`frontend/src/components/backups/__tests__/BackupEncryptionCard.test.tsx` (existing `makeForm()` helper at lines 8-36 already includes `save: vi.fn()`, `saveDisabled: false`, `isSaving: false` — reused as-is, no helper changes needed):
+1. `it('renders a Save button that calls form.save on click')` — render with default `makeForm()`, click the save button (query by role/name `backups.encryption.save`), assert `form.save` was called once.
+2. `it('disables the Save button when the form reports saveDisabled')` — render with `makeForm({ saveDisabled: true })` (mirrors `BackupScheduleCard.test.tsx:95-97`'s existing pattern for the same prop), assert the button `toBeDisabled()`.
+3. `it('shows a loading state on the Save button while isSaving is true')` — render with `makeForm({ isSaving: true })`, assert the button reflects `isLoading` (existing `Button` component's loading-state assertion pattern — check how `BackupScheduleCard.test.tsx` asserts `isLoading` today, e.g. a spinner testid or `aria-busy`, and reuse that exact assertion).
+4. `it('shows a success toast when save succeeds')` — render with `makeForm({ save: vi.fn((cb) => cb?.onSuccess?.()) })` (mirrors `BackupScheduleCard.test.tsx:151-152`'s existing pattern), click save, assert `toast.success` was called with the encryption-specific message.
+
+No backend changes for Item A — `PUT /api/v1/backups/settings` already accepts and persists encryption fields; this is a pure frontend affordance fix.
+
+### 12.2 Item B — Create Backup dialog: smart encryption default + remote-upload toggle
+
+#### 12.2.1 Current behavior (verified against current source)
+
+- `frontend/src/pages/Backups.tsx`, `handleOpenCreateDialog` (lines 64-68): unconditionally resets `createEncrypt` to `false` and `createPassphrase` to `''` every time the dialog opens, ignoring `settingsForm.encryptionPassphraseSet` (already available in-component via `const settingsForm = useBackupSettingsForm()`, line 54).
+- `handleCreateConfirm` (lines 70-78): `createMutation.mutate(createEncrypt ? { encrypt: true, passphrase: createPassphrase } : undefined, {...})` — always sends whatever is in `createPassphrase`, and the Create button is `disabled={createEncrypt && !createPassphrase}` (line 304) — meaning a user with a stored passphrase is *hard-blocked* from creating an encrypted backup without retyping it.
+- No remote-upload control exists anywhere in the dialog JSX (lines 263-309) — not hidden, not defaulted, simply absent.
+- Backend: `createBackupLockedWithProgress` (`backend/internal/services/backup_service.go:899-902`) `if opts.Encrypt && strings.TrimSpace(opts.Passphrase) == "" { return nil, fmt.Errorf("passphrase is required to encrypt backup") }` — confirmed, no fallback to any stored value. `StartCreateBackupJob` (`backup_service.go:675-681`) performs the identical check synchronously before spawning the job goroutine, so today a manual create with `Encrypt:true, Passphrase:""` fails fast with a 500 before any job row is even created.
+- `CreateBackupWithOptions` (`backup_service.go:641-665`) fires `s.remoteUploadHook` unconditionally at line 656 (`if s.remoteUploadHook != nil && record != nil { ... go func(){ s.remoteUploadHook(...) }() }`) whenever a record was produced — confirmed no existing gate of any kind. `BackupRemoteService.TriggerUpload` (`backup_remote_service.go:518-533`) is the hook implementation and fans out to every `enabled=true` `RemoteStorageTarget` row unconditionally.
+- **Corrected call-graph finding (post-review):** the manual Create-dialog's actual request path — `Create` handler → `StartCreateBackupJob` (`backup_service.go:675-713`) → its spawned goroutine → `runCreateBackupJob` (`:720-745`) → `createBackupLockedWithProgress` (`:724`) — **never calls `CreateBackupWithOptions` at all**. `remoteUploadHook` has exactly one call site in the entire codebase (`grep -rn "remoteUploadHook(" backend/internal/services/*.go` outside tests: one hit, `backup_service.go:660`, inside `CreateBackupWithOptions`), which only `CreateBackup()`'s legacy synchronous wrapper (`:626-632`, used by `RunScheduledBackup`) and any hypothetical direct caller actually reach. **Net effect: manual dialog-triggered backups are never remote-uploaded via this hook today, regardless of any setting** — an independent latent gap from item B's original ask, surfaced by tracing this call graph, and one the design below now also closes as a byproduct of wiring the gate into the path that's actually executed.
+- **Confirmed: no decrypt call site for the stored passphrase exists anywhere in the codebase today.** `grep -rn "SettingKeyBackupEncryptionPassphraseEnc"` finds only the constant definition, the `hasPassphrase` presence-check in `GetSettings` (`backup_settings.go:177,185` — used only to compute the boolean `encryption_passphrase_set` field, never to decrypt), and the write path in `UpdateSettings` (`backup_settings.go:222,267` — `s.encryption.Encrypt(...)` only). The exact decrypt primitive to reuse is `(*crypto.EncryptionService).Decrypt(ciphertextB64 string) ([]byte, error)` (`backend/internal/crypto/encryption.go:78`) — the same method three *other* services already call for their own encrypted-at-rest secrets: `backup_remote_service.go:335` (`s.encryption.Decrypt(target.SecretsEncrypted)`), `certificate_service.go:775`, `credential_service.go:422`, `dns_provider_service.go:547`. `BackupService` already holds the required key material as `s.encryption *crypto.EncryptionService` (field declared `backup_service.go:161`, set in `NewBackupService`, `backup_service.go:350`) — no new key/dependency needed, this is a straight reuse of an existing field + an existing method on a sibling type, applied to a settings key nothing has decrypted before.
+- `frontend/src/hooks/useRemoteTargets.ts:25` `useRemoteTargets()` (`frontend/src/api/backups.ts:309-` `RemoteTarget` interface has `enabled: boolean`, line 313) — same hook `RemoteTargetsCard.tsx` already calls; confirmed usable from `Backups.tsx` for computing "at least one enabled target."
+
+#### 12.2.2 API contract change
+
+**`backend/internal/api/handlers/backup_handler.go:124-127`**, `createBackupRequest`:
+```go
+type createBackupRequest struct {
+	Encrypt        bool  `json:"encrypt"`
+	Passphrase     string `json:"passphrase"`
+	UploadToRemote *bool  `json:"upload_to_remote,omitempty"`
+}
+```
+`*bool` matches this codebase's established "nil = leave/default, non-nil = explicit override" convention for optional boolean request fields (`backup_handler.go:532` `ScheduleEnabled *bool`, `:536` `EncryptionEnabled *bool`; `backup_remote_handler.go:61` `Enabled *bool`; `user_handler.go:714`, `credential_service.go:45`, `dns_provider_service.go:60-61`, `models/proxy_host.go:54` `EnableStandardHeaders *bool` with the exact "nil → default true" semantics being proposed here). `Create` (handler, `~line 167-181`) threads it through unchanged:
+```go
+job, err := h.service.StartCreateBackupJob(services.BackupOptions{
+    Type:           "manual",
+    Encrypt:        req.Encrypt,
+    Passphrase:     req.Passphrase,
+    UploadToRemote: req.UploadToRemote,
+}, audit)
+```
+
+**`backend/internal/services/backup_service.go:608-619`**, `BackupOptions`:
+```go
+type BackupOptions struct {
+	Type       string
+	Encrypt    bool
+	Passphrase string
+	// UploadToRemote controls whether CreateBackupWithOptions fires the
+	// remote-upload hook for this backup. nil means "default to the
+	// pre-existing unconditional-upload behavior" (true) — preserves every
+	// existing caller (CreateBackup's "manual" wrapper, RunScheduledBackup,
+	// RestoreBackupSafe's S1 pre_restore step) unchanged without needing to
+	// touch them (spec §12.2.2).
+	UploadToRemote *bool
+}
+```
+
+**Nil-safe default semantics — verified against every call site:**
+
+| Caller | Sets `UploadToRemote`? | Resulting behavior | Verified unchanged? |
+|---|---|---|---|
+| `CreateBackup()` legacy wrapper (`backup_service.go:626-632`, `BackupOptions{Type: "manual"}`) | No (nil) | Defaults true → upload fires (existing behavior) | Yes — used by `RunScheduledBackup` pre-fix and the certificate handler's cron-adjacent seam; both keep firing uploads today |
+| `RestoreBackupSafe` S1 (`backup_restore_safe.go:278`, `s.createBackupLocked(BackupOptions{Type: "pre_restore"})`) | No (nil) — and moot regardless | **No behavior change possible**: this call goes through `createBackupLocked` directly, never through `CreateBackupWithOptions` (the only function that reads `remoteUploadHook`/`UploadToRemote` at all, line 656) — pre_restore backups have never been remote-uploaded, before or after this change. Confirmed by tracing every call site of `remoteUploadHook`/`s.uploadWG` — only reachable from `CreateBackupWithOptions`. |
+| `RunScheduledBackup` (item C, §12.3) | No (nil), unless explicitly decided otherwise in C | Defaults true → upload fires (matches today's actual behavior for scheduled backups, which are already uploaded unconditionally) | Yes — reaches `CreateBackupWithOptions` |
+| New manual-create toggle (item B, §12.2.3) | **Yes**, always explicit (`true` or `false` from the dialog toggle state) | User-controlled — but see corrected call-graph below: this must be read from inside `runCreateBackupJob`, not `CreateBackupWithOptions`, since the manual-create request path never reaches the latter | New behavior, by design — **and** a fix to the pre-existing "manual creates never upload at all" gap (§12.2.1) |
+| Existing/legacy test callers constructing `BackupOptions{...}` with no `UploadToRemote` field | No (nil, Go zero value for a pointer) | Defaults true — identical to pre-change behavior | Yes — Go struct literals with named fields are unaffected by new struct fields; no test needs to change to keep compiling |
+
+**Corrected design (post-review): a shared helper, gated at both of the two places that can actually produce a successful record.** §12.2.1's corrected call-graph finding means gating only `CreateBackupWithOptions:656` would be a no-op for the manual-create path — that function is never on the call stack for `POST /api/v1/backups`. `runCreateBackupJob` cannot simply call `CreateBackupWithOptions` itself to get the gate for free: `StartCreateBackupJob` already holds `s.mu` for the goroutine's entire duration (`:686` `TryLock()`, unlocked via the goroutine's own `defer s.mu.Unlock()` wrapping `runCreateBackupJob`, `:706-710`), and `CreateBackupWithOptions` itself calls `s.mu.TryLock()` again (`:646`) — a second, nested `TryLock()` on an already-held `sync.Mutex` would simply fail fast with `ErrBackupInProgress` (Go's `sync.Mutex` isn't reentrant), silently turning every async-job backup into a "no upload, but no visible error either" outcome. The fix is a small shared helper, called from both places instead:
+
+```go
+// fireRemoteUploadIfEnabled fires s.remoteUploadHook for record in a
+// tracked goroutine, gated on opts.UploadToRemote (spec §12.2.2): nil or
+// true fires (preserves the pre-existing unconditional-upload behavior for
+// every caller that never sets the field — CreateBackup()'s legacy
+// wrapper, RunScheduledBackup), explicit false skips. Shared by
+// CreateBackupWithOptions (the synchronous legacy/scheduled path, fired
+// after s.mu.Unlock()) and runCreateBackupJob (the async manual-create job
+// path — fired here instead, since that path never calls
+// CreateBackupWithOptions and, even if it wanted to, cannot: it already
+// holds s.mu via StartCreateBackupJob's deferred unlock, and
+// CreateBackupWithOptions's own TryLock() would fail fast on the
+// already-held, non-reentrant s.mu). The upload itself always runs in a
+// new goroutine tracked by s.uploadWG, so calling this while s.mu is still
+// held (the runCreateBackupJob case) is safe — the spawned goroutine never
+// touches s.mu.
+func (s *BackupService) fireRemoteUploadIfEnabled(opts BackupOptions, record *models.BackupRecord) {
+	if s.remoteUploadHook == nil || record == nil {
+		return
+	}
+	if opts.UploadToRemote != nil && !*opts.UploadToRemote {
+		return
+	}
+	s.uploadWG.Add(1)
+	go func() {
+		defer s.uploadWG.Done()
+		s.remoteUploadHook(s.uploadCtx, record)
+	}()
+}
+```
+
+`CreateBackupWithOptions` (`:641-665`) replaces its inline block with the helper — behavior-preserving for its existing callers (nil `UploadToRemote` → still fires unconditionally):
+```go
+func (s *BackupService) CreateBackupWithOptions(opts BackupOptions) (*models.BackupRecord, error) {
+	if opts.Type == "" {
+		opts.Type = "manual"
+	}
+	if !s.mu.TryLock() {
+		return nil, ErrBackupInProgress
+	}
+	record, err := s.createBackupLocked(opts)
+	s.mu.Unlock()
+
+	if err != nil {
+		return nil, err
+	}
+
+	s.fireRemoteUploadIfEnabled(opts, record)
+
+	return record, nil
+}
+```
+
+`runCreateBackupJob` (`:720-745`) — the actual manual-create path — gets the equivalent call added on its success branch, right where the job's `record` is known good:
+```go
+func (s *BackupService) runCreateBackupJob(job *models.BackupJob, opts BackupOptions, audit RequestAuditInfo) {
+	s.markBackupJobRunning(job)
+	progress := s.newBackupJobProgressFunc(job)
+
+	record, err := s.createBackupLockedWithProgress(opts, progress)
+
+	updates := map[string]interface{}{"finished_at": timePtr(time.Now())}
+	if err != nil {
+		logger.Log().WithError(err).WithField("job_uuid", job.UUID).Error("async backup job failed")
+		updates["status"] = "failed"
+		updates["error_message"] = err.Error()
+		updates["error_code"] = backupErrorCode(err)
+		s.auditBackupJobPermissionFailure("backup_create_failed", err, audit)
+	} else {
+		updates["status"] = "completed"
+		updates["filename"] = record.Filename
+		updates["result_uuid"] = record.UUID
+		s.fireRemoteUploadIfEnabled(opts, record)
+	}
+
+	s.finishBackupJob(job, updates)
+}
+```
+
+**Passphrase-reuse resolution** — new private helper, `backup_service.go` (near `BackupOptions`):
+```go
+// resolveBackupPassphrase fills opts.Passphrase from the stored, encrypted
+// backup.encryption_passphrase_enc setting when the caller requested
+// encryption without supplying one explicitly (spec §12.2 — the Create
+// dialog's "use the already-configured passphrase" default). Reuses the
+// exact decrypt primitive backup_remote_service.go:335 already uses for
+// stored target secrets. No-op (opts returned unmodified) when Encrypt is
+// false, Passphrase is already non-empty, or no passphrase is stored —
+// callers still get the existing "passphrase is required" error in that
+// last case, from the unchanged check that already exists at the call
+// site (backup_service.go:900, :679-681).
+func (s *BackupService) resolveBackupPassphrase(opts BackupOptions) (BackupOptions, error) {
+	if !opts.Encrypt || strings.TrimSpace(opts.Passphrase) != "" {
+		return opts, nil
+	}
+	if s.db == nil || s.encryption == nil {
+		return opts, nil
+	}
+	stored, ok := readBackupSettingString(s.db, SettingKeyBackupEncryptionPassphraseEnc)
+	if !ok || strings.TrimSpace(stored) == "" {
+		return opts, nil
+	}
+	plaintext, err := s.encryption.Decrypt(stored)
+	if err != nil {
+		return opts, fmt.Errorf("decrypt stored backup passphrase: %w", err)
+	}
+	opts.Passphrase = string(plaintext)
+	return opts, nil
+}
+```
+Called at the top of `StartCreateBackupJob` (`backup_service.go:675-681`), **after** the existing `s.db == nil` guard (moved earlier so the helper always has a non-nil `s.db` to read) and **before** the existing `opts.Encrypt && Passphrase == ""` rejection check, so a resolved stored passphrase satisfies that check instead of tripping it:
+```go
+func (s *BackupService) StartCreateBackupJob(opts BackupOptions, audit RequestAuditInfo) (*models.BackupJob, error) {
+	if opts.Type == "" {
+		opts.Type = "manual"
+	}
+	if s.db == nil {
+		return nil, fmt.Errorf("backup job tracking requires a database connection")
+	}
+	opts, err := s.resolveBackupPassphrase(opts)
+	if err != nil {
+		return nil, err
+	}
+	if opts.Encrypt && strings.TrimSpace(opts.Passphrase) == "" {
+		return nil, fmt.Errorf("passphrase is required to encrypt backup")
+	}
+	if !s.mu.TryLock() {
+		return nil, ErrBackupInProgress
+	}
+	...
+```
+`createBackupLockedWithProgress`'s own identical check (`backup_service.go:900`) is left completely unchanged — it remains a correct defense-in-depth guard for the one remaining direct caller of `CreateBackupWithOptions`/`createBackupLocked` with `Encrypt:true` (test code), and is already satisfied by the time `StartCreateBackupJob`'s goroutine reaches it in the real request path.
+
+#### 12.2.3 Frontend changes
+
+`frontend/src/api/backups.ts:38-41`, `CreateBackupOptions`:
+```ts
+export interface CreateBackupOptions {
+  encrypt?: boolean
+  passphrase?: string
+  upload_to_remote?: boolean
+}
+```
+
+`frontend/src/pages/Backups.tsx`:
+- Add `import { useRemoteTargets } from '../hooks/useRemoteTargets'` and `const { data: remoteTargets } = useRemoteTargets()` near the existing `settingsForm`/`dbHealth` reads (line ~54-55).
+- New state: `const [createUploadToRemote, setCreateUploadToRemote] = useState(true)`.
+- `handleOpenCreateDialog` (lines 64-68) becomes:
+  ```ts
+  const handleOpenCreateDialog = () => {
+    const hasStoredPassphrase = settingsForm.encryptionPassphraseSet
+    setCreateEncrypt(hasStoredPassphrase)
+    setCreatePassphrase('')
+    setCreateUploadToRemote((remoteTargets ?? []).some((t) => t.enabled))
+    setCreateDialogOpen(true)
+  }
+  ```
+  Defaults encryption **on** exactly when a passphrase is already stored (matching `BackupEncryptionCard`'s own `encryptionPassphraseSet` distinction, §12.1) and leaves it fully user-toggleable off via the existing `Switch`. Defaults remote upload on exactly when at least one enabled target exists.
+- Passphrase input becomes conditional on *not having* a stored passphrase, mirroring `BackupEncryptionCard`'s `passphraseChangeLabel`/`passphraseKeepCurrent` pattern (`BackupEncryptionCard.tsx:59-68`):
+  ```tsx
+  {createEncrypt && !settingsForm.encryptionPassphraseSet && (
+    <Input
+      id="backup-create-passphrase"
+      data-testid="backup-create-passphrase-input"
+      type="password"
+      label={t('backups.encryption.passphraseLabel')}
+      value={createPassphrase}
+      onChange={(e) => setCreatePassphrase(e.target.value)}
+      autoComplete="new-password"
+    />
+  )}
+  {createEncrypt && settingsForm.encryptionPassphraseSet && (
+    <p data-testid="backup-create-passphrase-set-indicator" className="text-sm text-content-secondary">
+      {t('backups.encryption.passphraseSet')}
+    </p>
+  )}
+  ```
+- New remote-upload toggle, hidden entirely (not just disabled) when there are zero enabled targets:
+  ```tsx
+  {(remoteTargets ?? []).some((t) => t.enabled) && (
+    <div className="flex items-center gap-3">
+      <Switch
+        id="backup-create-upload-to-remote"
+        data-testid="backup-create-upload-toggle"
+        checked={createUploadToRemote}
+        onCheckedChange={setCreateUploadToRemote}
+      />
+      <Label htmlFor="backup-create-upload-to-remote">{t('backups.uploadToRemote')}</Label>
+    </div>
+  )}
+  ```
+- `handleCreateConfirm` (lines 70-78):
+  ```ts
+  const handleCreateConfirm = () => {
+    const hasTargets = (remoteTargets ?? []).some((t) => t.enabled)
+    createMutation.mutate(
+      createEncrypt
+        ? {
+            encrypt: true,
+            ...(settingsForm.encryptionPassphraseSet ? {} : { passphrase: createPassphrase }),
+            ...(hasTargets ? { upload_to_remote: createUploadToRemote } : {}),
+          }
+        : hasTargets
+          ? { upload_to_remote: createUploadToRemote }
+          : undefined,
+      { onSuccess: ..., onError: ... }
+    )
+  }
+  ```
+- Create-button disabled condition (line 304) narrows from `createEncrypt && !createPassphrase` to `createEncrypt && !settingsForm.encryptionPassphraseSet && !createPassphrase` — a stored passphrase no longer blocks the button.
+
+**New i18n key** (`frontend/src/locales/en/translation.json`, alongside `encryptThisBackup`, `~line 977`): `"uploadToRemote": "Upload to remote storage"`.
+
+#### 12.2.4 TDD test plan (Item B)
+
+**Backend — `backend/internal/services/backup_service_test.go` / a new `backup_service_options_test.go`** (new field threading + passphrase reuse + conditional upload; `TestRestoreBackupSafe_WrongPassphrase_Rejected`-style `record.Encrypted`/filename-suffix assertions, `backup_service_v2_hardening_test.go:136-138`, are the established pattern to reuse for the encryption-success assertions):
+1. `TestStartCreateBackupJob_UsesStoredPassphraseWhenEncryptRequestedWithoutOne` — seed `SettingKeyBackupEncryptionPassphraseEnc` via `UpdateSettings` (real encrypt round-trip, not a raw DB write, so the test also proves the stored value this reads is genuinely the encrypted-at-rest column), call `StartCreateBackupJob(BackupOptions{Encrypt: true}, audit)` (no `Passphrase`), wait for job completion (existing async-job test-polling helper — find it in `backup_service_async_create_test.go`), assert `job.Status == "completed"` and the resulting `BackupRecord.Encrypted == true`.
+2. `TestStartCreateBackupJob_EncryptWithNoPassphraseAndNoneStored_Fails` — regression guard: no stored passphrase, `BackupOptions{Encrypt: true}`, assert the existing synchronous rejection still fires (`err` non-nil, no job created) — proves `resolveBackupPassphrase`'s no-op path still lets the pre-existing guard do its job.
+3. `TestCreateBackupWithOptions_UploadToRemoteFalse_SkipsHook` — set a `remoteUploadHook` spy (existing seam, `SetRemoteUploadHook`), call `CreateBackupWithOptions(BackupOptions{Type: "manual", UploadToRemote: boolPtr(false)})` directly (the synchronous legacy/scheduled path), assert the spy was never invoked (use `s.uploadWG.Wait()` — already exported behavior via `Stop()`, or a small sync channel — before asserting, to avoid a race against the (absent) goroutine). Covers `fireRemoteUploadIfEnabled`'s gate as exercised from `CreateBackupWithOptions`.
+4. `TestCreateBackupWithOptions_UploadToRemoteNil_FiresHookAsBefore` — same setup, `BackupOptions{Type: "manual"}` (nil), assert the spy **was** invoked — the explicit regression guard for the "nil means unchanged" contract on the `CreateBackupWithOptions` call site.
+5. **`TestStartCreateBackupJob_UploadToRemoteFalse_SkipsHook`** — the test that actually covers the bug fix (§12.2.1's corrected call-graph finding): spy on `remoteUploadHook`, call `StartCreateBackupJob(BackupOptions{UploadToRemote: boolPtr(false)}, audit)` (the real manual-create request path), wait for the job to reach `"completed"` and for `s.uploadWG.Wait()`, assert the spy was never invoked.
+6. **`TestStartCreateBackupJob_UploadToRemoteNil_FiresHook`** — same setup, `BackupOptions{}` (nil `UploadToRemote`), assert the spy **was** invoked. This is the regression test proving the previously-latent "manual creates never upload" gap (§12.2.1) is actually closed — before this fix, this exact scenario would have failed (spy never called) even though nothing about `UploadToRemote` was involved; it's the async-job path calling `CreateBackupWithOptions` at all that was missing.
+7. **`TestStartCreateBackupJob_CorruptedStoredPassphrase_ReturnsError`** (non-blocking finding #3 from review) — seed `SettingKeyBackupEncryptionPassphraseEnc` directly with an unparseable/corrupted ciphertext string (bypassing `UpdateSettings`'s normal `Encrypt` call, simulating bit-rot or a key-rotation mismatch), call `StartCreateBackupJob(BackupOptions{Encrypt: true}, audit)` (no `Passphrase`), assert the call returns a non-nil error (from `resolveBackupPassphrase`'s `s.encryption.Decrypt` failure path, `backup_service.go`'s new helper) and no job is created — proves the decrypt-failure path surfaces as a real synchronous error rather than silently falling through to "passphrase is required."
+
+**Backend — `backend/internal/api/handlers/backup_handler_test.go`**: extend the existing `Create` handler tests with one asserting `UploadToRemote` decodes correctly from `{"upload_to_remote": false}` JSON into `services.BackupOptions.UploadToRemote` (a `*bool` pointing at `false`, not a nil-vs-false ambiguity) — same pattern already used for `EncryptionEnabled *bool` decode tests on `updateBackupSettingsRequest`, if any exist; otherwise a minimal `httptest` round-trip against a mocked `BackupService.StartCreateBackupJob` capturing the `opts` argument.
+
+**Frontend — `frontend/src/pages/__tests__/Backups.test.tsx`**: the `useBackupSettingsForm` mock (currently a fixed object returned from a single `vi.mock` factory, lines 23-58) must become configurable per-test (mirror the existing `createIsPending`/`createJob` mutable-variable pattern already used in this same file, lines 15-16, 29) so tests can vary `encryptionPassphraseSet`. Add a parallel mock for `useRemoteTargets` (new import into `Backups.tsx`, currently unmocked in this file since it isn't imported yet) using the same mutable-variable pattern.
+1. `it('defaults the encrypt toggle on and hides the passphrase input when a passphrase is already stored')` — set mock `encryptionPassphraseSet = true`, open the create dialog, assert `backup-create-encrypt-toggle` is checked and `backup-create-passphrase-input` is absent while `backup-create-passphrase-set-indicator` is present.
+2. `it('still defaults the encrypt toggle off when no passphrase is stored (existing behavior)')` — the existing test at line 172 (`'opens the create backup dialog and submits an unencrypted backup by default'`) already covers this with the default mock (`encryptionPassphraseSet: false`); confirm it still passes unmodified — it is the regression guard for this case, not a new test.
+3. `it('submits without a passphrase field when confirming an encrypted backup with a stored passphrase')` — `encryptionPassphraseSet = true`, open dialog, confirm, assert `mockCreateMutate` was called with `{ encrypt: true, upload_to_remote: ... }` and no `passphrase` key at all (not `passphrase: ''`).
+4. `it('shows and defaults on the upload-to-remote toggle when an enabled remote target exists')` — mock `useRemoteTargets` returning one `{ enabled: true, ... }` target, open dialog, assert `backup-create-upload-toggle` present and checked.
+5. `it('hides the upload-to-remote toggle when there are no enabled remote targets')` — mock returns `[]` or all-disabled targets, open dialog, assert `backup-create-upload-toggle` absent.
+6. `it('omits upload_to_remote from the payload when there are no enabled remote targets')` — same setup as (5), confirm, assert the mutate payload has no `upload_to_remote` key.
+
+### 12.3 Item C — Scheduled (cron) backups never apply the encryption setting
+
+#### 12.3.1 Root cause (confirmed)
+
+`backend/internal/services/backup_service.go:384` (`s.Cron.AddFunc(scheduleCron, s.RunScheduledBackup)`) and `:438` (`Reschedule`, same target) wire cron directly to `RunScheduledBackup` (`:446-470`). That function's actual backup-creation call, `:458` `createBackup()`, resolves via the injectable-for-testing indirection at `:448-451`:
+```go
+createBackup := s.CreateBackup
+if s.createBackup != nil {
+	createBackup = s.createBackup
+}
+```
+— defaulting (`s.createBackup` is set to `s.CreateBackup` in `NewBackupService`, `:354`) to `CreateBackup()` (`:626-632`), which is hardcoded to `s.CreateBackupWithOptions(BackupOptions{Type: "manual"})` — **no `Encrypt`/`Passphrase` field at all**, always `false`/`""`. `SettingKeyBackupEncryptionEnabled` and `SettingKeyBackupEncryptionPassphraseEnc` (`backup_settings.go:32,35`) are read only by `GetSettings` (serves the settings-card GET) and written only by `UpdateSettings` (serves the settings-card PUT) — neither is ever consulted anywhere in the `RunScheduledBackup`/`CreateBackup` call chain. Confirmed by exhaustive grep: `SettingKeyBackupEncryptionEnabled` has exactly 3 references in non-test `.go` files (the constant declaration, one read in `GetSettings`, one write in `UpdateSettings`) — none inside `backup_service.go`'s scheduling code.
+
+**Net effect:** toggling "Enable backup encryption" on in the UI has zero effect on any backup actually produced by the cron schedule. It only affects backups created through the manual Create-dialog path today (and even there, only when the user manually re-toggles + re-types per §12.2's Item B).
+
+#### 12.3.2 Fix
+
+`RunScheduledBackup` must resolve the encryption settings and call `CreateBackupWithOptions` (or, better, `StartCreateBackupJob`-equivalent synchronous path — see note below) with `Encrypt`/`Passphrase` populated, instead of the bare no-args `createBackup()`.
+
+**Design constraint:** the `s.createBackup func() (string, error)` injectable-for-testing field (`backup_service.go:147`) is stubbed directly by two existing tests (`backup_service_test.go:495-499`, `TestRunScheduledBackup_CleanupFails`; `backup_service_rehydrate_test.go:317-321`, `TestBackupService_RunScheduledBackup_CreateBackupAndCleanupHooks`) to avoid touching disk. Changing `RunScheduledBackup` to resolve options itself and call a *different* function means these two stubs would go dead (never invoked) unless the field they patch is repurposed to match. **Resolution:** repurpose the field's signature from `func() (string, error)` to `func(BackupOptions) (*models.BackupRecord, error)` — matching `CreateBackupWithOptions`'s own signature exactly, defaulted in `NewBackupService` (`:354`) to `s.CreateBackupWithOptions` instead of `s.CreateBackup`. Both of the two existing test call sites are updated in the same commit (they already construct trivial closures; only the signature and their two `service.createBackup = func...` lines change, not their assertions on `createCalled`/`createCalls`/`cleanupCalled`).
+
+```go
+type BackupService struct {
+	...
+	createBackupOpts func(BackupOptions) (*models.BackupRecord, error) // was: createBackup func() (string, error)
+	cleanupOld       func(int) (int, error)
+	...
+}
+```
+```go
+// in NewBackupService:
+s.createBackupOpts = s.CreateBackupWithOptions
+```
+```go
+// resolveScheduledBackupOptions builds the BackupOptions for a
+// cron-triggered backup, applying the persisted encryption setting (spec
+// §12.3) — previously RunScheduledBackup always created unencrypted
+// backups regardless of the "Enable backup encryption" setting. Reuses
+// resolveBackupPassphrase (§12.2.2) for the identical stored-passphrase
+// decrypt path the manual-create flow now also uses; no new decrypt logic.
+func (s *BackupService) resolveScheduledBackupOptions() (BackupOptions, error) {
+	opts := BackupOptions{Type: "scheduled"} // was "manual" — see §12.3.3, folded into this same fix per Supervisor review
+	if s.db == nil {
+		return opts, nil
+	}
+	opts.Encrypt = readBackupSettingBool(s.db, SettingKeyBackupEncryptionEnabled, false)
+	if !opts.Encrypt {
+		return opts, nil
+	}
+	return s.resolveBackupPassphrase(opts)
+}
+```
+```go
+func (s *BackupService) RunScheduledBackup() {
+	logger.Log().Info("Starting scheduled backup")
+	createBackupOpts := s.CreateBackupWithOptions
+	if s.createBackupOpts != nil {
+		createBackupOpts = s.createBackupOpts
+	}
+
+	cleanupOld := s.CleanupOldBackups
+	if s.cleanupOld != nil {
+		cleanupOld = s.cleanupOld
+	}
+
+	opts, err := s.resolveScheduledBackupOptions()
+	if err != nil {
+		logger.Log().WithError(err).Error("Scheduled backup: failed to resolve encryption settings")
+		return
+	}
+
+	if record, err := createBackupOpts(opts); err != nil {
+		logger.Log().WithError(err).Error("Scheduled backup failed")
+	} else {
+		logger.Log().WithField("backup", record.Filename).Info("Scheduled backup created")
+		if deleted, err := cleanupOld(DefaultBackupRetention); err != nil {
+			logger.Log().WithError(err).Warn("Failed to cleanup old backups")
+		} else if deleted > 0 {
+			logger.Log().WithField("deleted_count", deleted).Info("Cleaned up old backups")
+		}
+	}
+}
+```
+If `opts.Encrypt` is true but no passphrase is stored, `resolveBackupPassphrase` returns `opts` unmodified (empty `Passphrase`) rather than erroring — the downstream `createBackupLockedWithProgress` check (`:900`) then fails the backup with the existing `"passphrase is required to encrypt backup"` error, logged exactly like any other scheduled-backup failure today (no new failure mode, just a more specific error message than an unencrypted backup silently going out).
+
+`UploadToRemote` is deliberately left unset (nil) in `resolveScheduledBackupOptions` — defaults to `true` per §12.2.2's table, preserving today's actual behavior (scheduled backups are already uploaded to all enabled remote targets unconditionally; item C does not change that).
+
+#### 12.3.3 Side question: `Type: "manual"` vs `Type: "scheduled"` — investigated, resolved (fold into F1)
+
+**Finding:** `backup_manifest.go:23` documents the type taxonomy explicitly in its own field comment — `` BackupType string `json:"backup_type"` // manual|scheduled|pre_restore|uploaded `` — i.e. `"scheduled"` is a first-class, intentionally-designed value in the same enum as `"manual"`, not something added speculatively. `git log -S'BackupOptions{Type: "manual"}'` traces the `CreateBackup()` wrapper's hardcoded `"manual"` back to commit `ff66cb5d` ("v2 backups — validated restore, encryption, schedule, remote storage"), the same commit that introduced the whole v2 type taxonomy including `"scheduled"` — nothing in that commit's message or diff suggests `"manual"` was deliberately chosen for the cron path specifically; it reads as `CreateBackup()` simply being the pre-existing, pre-v2 single entry point that `RunScheduledBackup` already called before scheduling existed, left unchanged when v2's richer `BackupOptions`/type taxonomy was added elsewhere. `frontend/src/pages/Backups.tsx:39-43`'s `BACKUP_TYPE_KEYS` maps `scheduled` to a distinct `t('backups.types.scheduled')` = "Scheduled" badge — currently dead code from the scheduled-backup path's perspective, since no scheduled backup can ever produce a record with `Type: "scheduled"` today (only a manually-crafted `BackupRecord` or a future fix would reach that branch).
+
+**Resolved (post-review): genuine bug, fixed as part of F1.** Supervisor concurred this is a genuine bug — the taxonomy was clearly designed to distinguish them, and no evidence anywhere (spec, tests, comments) indicates scheduled-as-manual was deliberate — and confirmed via grep that no existing test asserts `Type == "manual"` for a scheduled-path record, so correcting it carries no test-breakage risk. `resolveScheduledBackupOptions` (§12.3.2) now seeds `opts := BackupOptions{Type: "scheduled"}` instead of `"manual"`, folded into Commit F1 below since that function is already being touched by this same addendum. **Scope note:** this only affects backups created *after* this fix ships — existing on-disk/DB-recorded scheduled backups remain permanently labeled `"manual"` (no backfill migration is included; consistent with §12's "bug fixes riding the same PR" scope, not a data-correction project).
+
+#### 12.3.4 TDD test plan (Item C)
+
+**`backend/internal/services/backup_service_test.go`** (update the two existing stubs per §12.3.2's signature change) **+ a new test**:
+1. Update `TestRunScheduledBackup_CleanupFails` (`:495-499`) and `TestBackupService_RunScheduledBackup_CreateBackupAndCleanupHooks` (`backup_service_rehydrate_test.go:317-321`): change `service.createBackup = func() (string, error) {...}` to `service.createBackupOpts = func(BackupOptions) (*models.BackupRecord, error) {...}`, returning a minimal `&models.BackupRecord{Filename: ...}` instead of a bare string; assertions on `createCalled`/`createCalls`/`cleanupCalled` unchanged.
+2. **New** `TestRunScheduledBackup_EncryptionEnabled_ProducesEncryptedBackup` — the core regression test for this bug. Real `BackupService` (not a stubbed `createBackupOpts`, so the actual pipeline runs), seed via `UpdateSettings(BackupSettingsUpdate{EncryptionEnabled: boolPtr(true), EncryptionPassphrase: strPtr("correct-horse-battery-staple")})`, call `service.RunScheduledBackup()`, then list backups and assert (reusing the `record.Encrypted`/`.age`-suffix assertion pattern from `backup_service_v2_hardening_test.go:136-138`) the produced `BackupRecord.Encrypted == true`, its filename ends in `.age`, **and its `Type == "scheduled"`** (§12.3.3's folded-in fix — this test now also covers that correction).
+3. **New** `TestRunScheduledBackup_EncryptionEnabledNoStoredPassphrase_FailsWithClearError` — encryption enabled via settings, no passphrase ever set, `RunScheduledBackup()` logs the failure and produces no successful backup (existing "should not panic when backup fails" assertion style from the pre-existing top-of-file test) — proves the missing-passphrase case degrades to a logged failure, not a silent unencrypted backup.
+4. **New** `TestRunScheduledBackup_EncryptionDisabled_ProducesUnencryptedBackup` — explicit regression guard: default settings (`encryption_enabled` false), `RunScheduledBackup()`, assert `Encrypted == false` **and `Type == "scheduled"`** (proves the `Type` fix applies regardless of the encryption setting, since `resolveScheduledBackupOptions` sets `Type` unconditionally before branching on `Encrypt`) — the pre-fix, still-correct default path for encryption.
+5. **New** `TestRunScheduledBackup_CorruptedStoredPassphrase_LogsErrorNoUnencryptedFallback` (non-blocking finding #3 from review) — encryption enabled via settings, but `SettingKeyBackupEncryptionPassphraseEnc` seeded directly with an unparseable/corrupted ciphertext (bypassing `UpdateSettings`), call `service.RunScheduledBackup()`, assert no backup record is produced (list backups, confirm no new entry) — proves `resolveScheduledBackupOptions`'s propagated decrypt error causes `RunScheduledBackup` to log-and-return (per §12.3.2's `if err != nil { ...; return }` branch) rather than silently falling through to an unencrypted backup.
+
+### 12.4 GORM security scan applicability
+
+**Not required for §12 as a whole**, per CLAUDE.md §1.5's trigger condition (`backend/internal/models/**` changes, GORM queries, or migrations):
+- No new `models` struct or field is introduced by A, B, or C.
+- `SettingKeyBackupEncryptionEnabled` and `SettingKeyBackupEncryptionPassphraseEnc` are pre-existing keys (`backup_settings.go:32,35`, present since `ff66cb5d`) — B and C only *add new call sites that read/decrypt* an already-existing, already-encrypted-at-rest column value (`BackupSetting.Value`, via the existing `readBackupSettingString`/`upsertBackupSetting` helpers); no schema, key, or migration change.
+- `createBackupRequest.UploadToRemote` and `BackupOptions.UploadToRemote` are plain Go/JSON request-and-options-struct fields, not GORM model fields — no `AutoMigrate` impact.
+- No new or modified GORM query (`Where`, `Find`, `Create`, `Model(...).Update`) shape appears anywhere in A/B/C's design — `resolveBackupPassphrase`/`resolveScheduledBackupOptions` call the existing `readBackupSettingString`/`readBackupSettingBool` helpers unchanged.
+
+Skip `./scripts/scan-gorm-security.sh --check` for this addendum's commits, per the same reasoning as §11.5.
+
+### 12.5 Commit Slicing Strategy (this addendum only)
+
+**Decision:** same PR (#1136), four ordered commits appended after §11's C2, backend-before-frontend per CLAUDE.md's suggested sequence, with the two backend items (B and C) sharing a foundation (`resolveBackupPassphrase`) split into their own commits since each has an independently meaningful test suite and either could, in principle, be reverted alone without the other breaking (C's `resolveScheduledBackupOptions` calls B's `resolveBackupPassphrase`, so D1 must land before F1 — captured as a dependency below, not a reason to merge them into one commit).
+
+| # | Commit | Scope | Files | Depends on | Validation gate |
+|---|---|---|---|---|---|
+| D1 | `feat: thread UploadToRemote option and stored-passphrase reuse through backup creation` | Backend | `backend/internal/api/handlers/backup_handler.go` (`createBackupRequest`, `Create`, §12.2.2), `backend/internal/services/backup_service.go` (`BackupOptions.UploadToRemote`, `resolveBackupPassphrase`, `fireRemoteUploadIfEnabled` shared helper, `CreateBackupWithOptions`, `runCreateBackupJob`, §12.2.2 — corrected call-graph fix), new/extended `backend/internal/services/backup_service_options_test.go` and `backend/internal/api/handlers/backup_handler_test.go` (§12.2.4 tests 1-7) | None — independent of §1-11 | `go test ./backend/internal/services/... -run 'TestStartCreateBackupJob|TestCreateBackupWithOptions_UploadToRemote' -v && go test ./backend/internal/api/handlers/... -run TestBackupHandler_Create -v` (scoped to these test-name prefixes only — do **not** run the full backend `-race` suite; concurrent heavy test jobs are running elsewhere on this machine right now) |
+| D2 | `feat: smart defaults for encryption and remote-upload in the Create Backup dialog` | Frontend | `frontend/src/api/backups.ts` (`CreateBackupOptions.upload_to_remote`), `frontend/src/pages/Backups.tsx` (§12.2.3), `frontend/src/locales/en/translation.json` (`backups.uploadToRemote`), `frontend/src/pages/__tests__/Backups.test.tsx` (mock refactor + §12.2.4 tests 1-6) | D1 (frontend payload shape must match the now-live backend contract; UI would 400/silently-ignore against an unpatched backend otherwise) | `cd frontend && npx vitest run src/pages/__tests__/Backups.test.tsx` (scoped to this single test file only — do **not** run the full frontend coverage suite or Playwright; both are under heavy concurrent load elsewhere right now) |
+| E1 | `feat: add Save button to BackupEncryptionCard` | Frontend | `frontend/src/components/backups/BackupEncryptionCard.tsx` (§12.1), `frontend/src/locales/en/translation.json` (`backups.encryption.save`/`saveSuccess`), `frontend/src/components/backups/__tests__/BackupEncryptionCard.test.tsx` (§12.1.1) | None — independent of D1/D2, could be reordered first | `cd frontend && npx vitest run src/components/backups/__tests__/BackupEncryptionCard.test.tsx` (scoped to this single test file only) |
+| F1 | `fix: apply the encryption setting to scheduled/cron backups, correct their Type to "scheduled"` | Backend | `backend/internal/services/backup_service.go` (`createBackupOpts` field rename + `resolveScheduledBackupOptions` incl. the `Type: "scheduled"` correction §12.3.3 + `RunScheduledBackup`, §12.3.2), `backend/internal/services/backup_service_test.go` and `backend/internal/services/backup_service_rehydrate_test.go` (2 existing stub updates, §12.3.4 test 1), new tests (§12.3.4 tests 2-5, including the `Type == "scheduled"` assertions and the corrupted-passphrase test) | D1 (`resolveScheduledBackupOptions` calls `resolveBackupPassphrase`, introduced in D1) | `go test ./backend/internal/services/... -run TestRunScheduledBackup -v && go test ./backend/internal/services/... -run TestBackupService_RunScheduledBackup -v` (scoped to these two test-name prefixes only — do **not** run the full backend `-race` suite; concurrent heavy test jobs are running elsewhere on this machine right now) |
+
+**Rollback/contingency:** D2 and E1 are pure frontend render/state changes — revert either independently with no data-model impact. D1 is additive at the Go type level (a new pointer field, two new private helpers) plus one behavior-restoring line added to `runCreateBackupJob`'s success branch (`s.fireRemoteUploadIfEnabled(opts, record)`) — reverting D1 restores the pre-existing passphrase-required rejection and, notably, also reverts manual dialog-triggered backups back to *never* remote-uploading (§12.2.1's corrected finding: that was already true before this PR, so reverting D1 is a true rollback to `main`'s behavior, not a new regression). No persisted-data implication either way (no new column, no migration to roll back). F1 depends on D1's `resolveBackupPassphrase` helper but is otherwise isolated to `RunScheduledBackup`/`resolveScheduledBackupOptions`; reverting F1 alone (leaving D1 in place) restores today's "scheduled backups ignore the encryption setting, and are always labeled `manual`" behavior — safe, since that is the pre-PR status quo, not a regression relative to `main`. The `Type: "manual"`→`"scheduled"` correction (§12.3.3) is folded into F1's scope and reverts along with it as a single unit; it is not independently revertible without reverting all of F1.
 
 ---
