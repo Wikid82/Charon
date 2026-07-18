@@ -1,243 +1,423 @@
-# Infra Fix: Pin `gosu`'s `golang.org/x/sys` to v0.46.0 (GO-2026-5024 / CVE-2026-39824)
+# Hotfix: Orthrus External Docker Proxy — Allowlist Gap, Missing Docs, Hardcoded Hostname
 
-**Type**: Infra / supply-chain hygiene fix (NOT a feature — reduced scope, see `Scope & Definition of Done` below)
+**Type**: Hotfix (three verified, concrete gaps — NOT a redesign)
 **Branch**: `development` (current working branch; no worktree, no new branch, per `CLAUDE.md`)
-**Target commit count**: 1 (single commit; see Commit Slicing Strategy)
-**Owner (implementation)**: `devops` agent
-**Owner (docs polish, optional)**: `docs-writer` agent
-**Review**: `supervisor` agent after implementation
+**Target commit count**: 5 (ordered commits within a single PR; see Commit Slicing Strategy)
+**Target merge window**: Monday 2026-07-20
+**Owners (implementation)**: `backend-dev` (Commits 1–3), `docs-writer` (Commit 4)
+**Review**: `supervisor` agent — **REQUIRED before implementation begins**, because Commit 1 touches a security boundary (the Docker API allowlist that gates what a tunnelled remote Docker socket can expose). See Section 6.
 
 ---
 
 ## 1. Introduction
 
-### 1.1 Objective
+### 1.1 Background
 
-Grype / GitHub security scanning flags `GO-2026-5024` (`CVE-2026-39824`) inside the Charon container image, pointing at `golang.org/x/sys` embedded in `/usr/sbin/gosu`. `gosu` is already built from source in the `gosu-builder` Dockerfile stage specifically to dodge CVEs baked into Debian's precompiled binary (see `Dockerfile:62-65`). The scanner is picking up the version of `golang.org/x/sys` that upstream `tianon/gosu@1.17` pins in its own `go.mod`/`go.sum` (`v0.13.0`), not anything Charon's own Go modules pull in.
+Orthrus lets a remote Docker host tunnel through Charon to a third-party tool, acting as a secure drop-in replacement for a docker-socket-proxy. An `OrthrusAgent` (`backend/internal/models/orthrus_agent.go`) can have an `ExternalProxyPort` configured; when set, `AgentSession.StartExternalProxy` (`backend/internal/orthrus/session.go:254`) binds `0.0.0.0:<port>` and reverse-proxies through the yamux tunnel to the agent's real Docker socket. Every request passing through that port is filtered by `Muzzle` (`backend/internal/orthrus/muzzle.go`), a GET-only allowlist that is the sole security boundary between "read-only Docker API" and "full Docker socket access with root-equivalent capability on the remote host."
 
-The objective of this change is narrow: force the `golang.org/x/sys` dependency resolved during the `gosu-builder` stage's build up to **`v0.46.0`**, so the scanner stops flagging the image, while leaving `gosu`'s own release version (`GOSU_VERSION=1.17`) untouched.
+Three independent, already-verified gaps were found while investigating this subsystem. None require redesigning Orthrus; each is a small, targeted fix.
 
-**Why v0.46.0 and not the advisory's minimum fix version (v0.44.0)**: the authoritative GO-2026-5024 advisory (confirmed against `vuln.go.dev/ID/GO-2026-5024.json`) fixes the vulnerability at `v0.44.0`. However, this same Dockerfile already has an established, unrelated precedent for handling `golang.org/x/sys` version pins: the Delve (`dlv`) debug-binary stage (`Dockerfile:186-211`) runs `go get golang.org/x/sys@v0.46.0` in its own temp module (`Dockerfile:199`) for debug builds. Pinning the `gosu-builder` stage to the same `v0.46.0` (rather than the bare-minimum `v0.44.0`) keeps a single consistent "patched x/sys version" convention across the file, comfortably clears the `v0.44.0` fix floor, and avoids having two different pinned versions for the same advisory living a few dozen lines apart for no functional reason.
+### 1.2 Objectives
 
-### 1.2 Non-goals
+1. **Gap 1 (security-relevant, backend)** — Expand the Muzzle allowlist with two additional GET-only, read-only dynamic patterns (`/images/*/json`, `/distribution/*/json`) so that update-checker tools (Dockhand, Diun, Watchtower-style digest comparison) can function through the external proxy, without weakening the read-only guarantee in any way.
+2. **Gap 2 (docs)** — Document the External Docker Proxy feature, which currently has zero coverage in `docs/features/orthrus.md` or `docs/guides/remote-docker-setup.md`, despite already being shipped and user-facing (gear icon in `OrthrusAgentManager.tsx` → `AgentExternalProxyDialog.tsx`).
+3. **Gap 3 (correctness, backend)** — Replace the hardcoded `"charon"` hostname in the external proxy's `connection_string` with dynamic resolution, using the same `X-Charon-URL` header / `c.Request.Host` fallback pattern already proven in `OrthrusHandler.GetInstallSnippets`.
 
-- This is **not** a `GOSU_VERSION` bump. Upstream tag `1.19` was checked and rejected: its `go.mod` pins `golang.org/x/sys` at the older `v0.1.0`, which is a regression, not a fix.
-- This does **not** touch `backend/`, `frontend/`, `internal/models`, migrations, or any application code. It is a Dockerfile change (one new pin in `gosu-builder`, plus two comment corrections in the unrelated Delve stage — see 1.4) plus documentation.
-- This does **not** invoke the full application Definition of Done (no Playwright E2E, no 85% coverage gate, no frontend type-check — see `Scope & Definition of Done` below for the reduced gate set that applies instead).
+### 1.3 Non-goals (see Section 5 for full out-of-scope list)
 
-### 1.3 Why this is safe / low-risk
-
-The vulnerable code (`NewNTUnicodeString` string-length overflow, fixed in `x/sys v0.44.0`) lives entirely in `golang.org/x/sys/windows`. `gosu` is a Unix-only tool, and the Charon image only ever cross-compiles Linux targets in this stage (`CGO_ENABLED=0 xx-go build`, `Dockerfile:98`). Go's build-constraint system (`GOOS`-gated files) means the Windows-only source file is never compiled into the binary Charon ships. Real-world exploitability is effectively zero — this is a scanner limitation (dependency-graph/go.sum version scanning does not evaluate `GOOS` build tags), not a live vulnerability. It is still worth fixing because it is cheap, keeps automated scanning quiet, and avoids repeatedly re-triaging the same non-issue.
-
-**Note on a related, distinct prior finding — requires an erratum, not just a mention**: `docs/security/vulnerability-analysis-2026-06-26.md` documents a *separate* instance of this same CVE ID for `backend/go.mod`'s indirect `golang.org/x/sys` dependency (resolved at `v0.46.0` via transitive upgrade, no action needed there). That document's "Decision" and "Reported vs Actual Version" sections went further, though, and concluded the `v0.13.0` Trivy finding was a **"scanner false positive"** caused by a stale SBOM/cache snapshot, recommending an SBOM regeneration. That conclusion is factually wrong, not merely superseded: `v0.13.0` was a real, correctly-scanned version — of `/usr/sbin/gosu` (vendored via upstream `tianon/gosu@1.17`'s own `go.sum`), a binary that investigation never checked because it stopped after confirming `backend/go.mod`. **Required action** (see Section 3.3 for exact placement): append a dated `## Erratum (2026-07-16)` section to the *end* of the existing `docs/security/vulnerability-analysis-2026-06-26.md` file itself — do not just describe the distinction in the new doc — stating plainly that the "scanner false positive" claim was incorrect, explaining the real two-location split (backend/go.mod vs. gosu-builder's vendored go.sum), and linking to the new `2026-07-16` doc.
-
-### 1.4 Related fix folded into this commit: stale CVE-description comments in the Delve stage
-
-While researching this fix, comments were found at `Dockerfile:189` and `Dockerfile:751-754` — both in the **unrelated** Delve (`dlv`) debug-binary stage, not the `gosu-builder` stage — that reference "GO-2026-5024" but describe the vulnerable range inaccurately as "< v0.27.0" / "v0.26.0". The real advisory (confirmed against the official Go vulnerability database) is `golang.org/x/sys/windows`'s `NewNTUnicodeString` string-length overflow, fixed in `v0.44.0+`, with no `v0.27.0`/`v0.26.0` boundary anywhere in the authoritative record. This is stale/inaccurate comment text, not a functional defect: the Delve stage's actual code (`go get golang.org/x/sys@v0.46.0`, originally at `Dockerfile:199` before this commit's insertion shifts line numbers) already resolves well above the real fix version, and production builds ship a stub instead of the real `dlv` binary regardless, so nothing vulnerable ever ships either way.
-
-Since this commit is already touching `golang.org/x/sys`/GO-2026-5024 documentation in this file, correct these two comments in the same commit (small, same-file doc fix — not a separate PR) to accurately state: `golang.org/x/sys/windows`, `CVE-2026-39824` (`GO-2026-5024`), `NewNTUnicodeString` string-length overflow, fixed in `v0.44.0+`. Note: because this fix's own `RUN` insertion (Section 3.1) lands *before* the Delve stage in the file, all line numbers below it shift by the size of the inserted block — verify current line numbers before editing rather than trusting the numbers cited in this plan literally.
+This is explicitly **not**: a rearchitecture of Orthrus or Muzzle's matching engine, a new UI, port-collision-detection polish, or multi-hostname configuration support.
 
 ---
 
-## 2. Research Findings (confirmed — not re-derived in this plan)
+## 2. Research Findings (confirmed by reading current source — line numbers verified 2026-07-18)
 
-| Item | Finding |
-|---|---|
-| Flagged CVE | `GO-2026-5024` / `CVE-2026-39824`, low severity |
-| Location | `golang.org/x/sys` embedded in `/usr/sbin/gosu` inside the built image |
-| Root cause | Upstream `tianon/gosu` tag `1.17` pins `golang.org/x/sys v0.13.0` directly in its own `go.mod`/`go.sum` |
-| Fixed upstream at (advisory floor) | `golang.org/x/sys v0.44.0` — confirmed against `vuln.go.dev/ID/GO-2026-5024.json` |
-| Version this plan pins to | `golang.org/x/sys v0.46.0` — matches the existing convention already used by the Delve stage (`Dockerfile:199`) for the same advisory; clears the `v0.44.0` floor with margin, see Section 1.1 |
-| Unrelated stale comments found (same file) | `Dockerfile:189` and `Dockerfile:751-754` (Delve stage) cite "GO-2026-5024" but describe an inaccurate "< v0.27.0"/"v0.26.0" vulnerable range; corrected as part of this commit (see Section 1.4) — the Delve stage's actual pin (`v0.46.0`) was already fine, only the comment text was wrong |
-| Vulnerable function | `NewNTUnicodeString`, in `golang.org/x/sys/windows` only |
-| Why not exploitable here | `gosu` is Unix-only; image only builds Linux targets (`CGO_ENABLED=0`, `Dockerfile:98`); Windows-only file never compiled |
-| `GOSU_VERSION` bump viable? | **No** — upstream tag `1.19`'s `go.mod` requires an *older* `golang.org/x/sys v0.1.0`; do not bump `GOSU_VERSION` |
-| Toolchain compatibility | `ARG GO_VERSION=1.26.5` (`Dockerfile:13`), used as `golang:${GO_VERSION}-alpine` for `gosu-builder` (`Dockerfile:66`), comfortably exceeds the `go 1.25.0` directive in `x/sys v0.44.0`'s own `go.mod` |
-| Exact `gosu-builder` stage bounds | `Dockerfile:66` (`FROM ... AS gosu-builder`) through `Dockerfile:99` (`xx-verify /gosu-out/gosu`); `WORKDIR /tmp/gosu` set at `Dockerfile:69` |
-| Insertion point confirmed | Between the git-clone retry loop (`Dockerfile:86-92`, closes with `done` at line 92) and the build comment/`RUN --mount` block (`Dockerfile:94-99`) |
-| `.hadolint.yaml` | Exists at repo root; ignores `DL3008` (apt version pinning) and `DL3059` (consecutive RUNs) — the new RUN does not trip either rule, no new ignores needed |
-| `tools/dockerfile_check.sh` | Exists; checks for Alpine/Debian package-manager mismatches (`apk` vs `apt`) per stage. The new RUN uses `go get`/`go mod tidy`, not `apk`/`apt`, so it will not be flagged |
-| Relevant local skills | `.github/skills/security-scan-docker-image.SKILL.md` (builds image + runs Grype/Syft — matches the exact scanner that raised this finding); `.github/skills/security-scan-go-vuln.SKILL.md` (runs `govulncheck` against `backend/go.mod` only — does **not** cover the vendored `gosu` module, noted explicitly so it isn't mistaken for equivalent coverage) |
-| Docs precedent | `docs/security/` uses dated filenames (`vulnerability-analysis-YYYY-MM-DD.md`) with YAML front matter (`post_title`, `categories`, `tags`, `summary`, `post_date`) — see `docs/security/vulnerability-analysis-2026-06-26.md` as the template |
-| `SECURITY.md` precedent | `### [RESOLVED] <id> · <title>` heading pattern with `What/Who/Where/When/How/Resolution` subsections (see the CrowdSec entry, `SECURITY.md:32-55`) |
-| `CHANGELOG.md` precedent | `[Unreleased]` section already has a `### Security` subsection (`CHANGELOG.md:70`) with an existing one-line entry for the *other* CVE-2026-39824 finding — the new entry is added alongside it, clearly distinguished |
-| `.gitignore` / `.dockerignore` / `codecov.yml` | Reviewed — **no changes needed**. This change adds no new file types, build artifacts, or source directories that need exclusion; `codecov.yml` gates test coverage, which is not applicable to a Dockerfile-only change |
+### 2.1 Gap 1 — `backend/internal/orthrus/muzzle.go`
 
----
+Current exact allowlist contents:
 
-## 3. Technical Specification
+```go
+// lines 27-37
+var allowedDockerPaths = map[string]struct{}{
+	"/_ping":           {},
+	"/containers/json": {},
+	"/images/json":     {},
+	"/info":            {},
+	"/version":         {},
+	"/events":          {},
+	"/volumes":         {},
+	"/networks":        {},
+	"/system/df":       {},
+}
 
-### 3.1 Dockerfile change
-
-**File**: `Dockerfile`
-**Stage**: `gosu-builder`
-**Insertion point**: immediately after line 92 (the `done` closing the git-clone retry loop) and before line 94 (`# Build gosu for target architecture with patched Go stdlib`)
-
-New content to insert (exact commands; version pinned, not `@latest`, for reproducibility):
-
-```dockerfile
-# Pin golang.org/x/sys to a patched version for scanner hygiene (GO-2026-5024 / CVE-2026-39824).
-# Upstream tianon/gosu@1.17's own go.sum resolves golang.org/x/sys to v0.13.0, which Grype/GitHub
-# code scanning flags. The vulnerable code (NewNTUnicodeString overflow) lives only in
-# golang.org/x/sys/windows; gosu is Unix-only and this stage only cross-compiles Linux targets
-# (CGO_ENABLED=0 xx-go build below), so the flagged code path is never compiled into this binary.
-# Fixed regardless, since it's cheap and keeps the scanner quiet. Pinned to v0.46.0 (above the
-# advisory's v0.44.0 fix floor) to match the same x/sys version already used by the Delve debug
-# stage below for this identical advisory. Do NOT bump GOSU_VERSION instead:
-# upstream tag 1.19's go.mod actually requires an OLDER golang.org/x/sys v0.1.0.
-RUN go get golang.org/x/sys@v0.46.0 && \
-    go mod tidy && \
-    go mod verify
+// lines 42-49
+var allowedDockerPatterns = []string{
+	"/containers/*/json",
+	"/containers/*/logs",
+	"/containers/*/stats",
+	"/containers/*/top",
+	"/volumes/*",
+	"/networks/*",
+}
 ```
 
-**Required: wrap the above in this Dockerfile's existing retry pattern.** Every other network-touching `RUN`/loop in this Dockerfile's neighborhood already retries on transient failure — the git-clone retry loop immediately above this insertion point (`Dockerfile:86-92`), the `go mod download` retry (`Dockerfile:216-222` pre-edit numbering), and the `xcaddy` install retry (`Dockerfile:291-297` pre-edit numbering). `go get`/`go mod tidy` hit the network (module proxy) exactly like those do, so this step should not be the one exception. Match whichever retry idiom (attempt counter + backoff loop, or shell `until`/`for` construct) this Dockerfile already uses at those call sites — implementers should read the actual surrounding retry blocks and mirror the same style/variable-naming convention rather than inventing a new one, so the Dockerfile stays internally consistent.
+Matching is done in `Muzzle.ServeHTTP` (lines 65–103): non-GET is rejected at line 79–84 *before* any path check (method check happens first, unconditionally — this matters for Section 3.1's test plan, see below). GET requests are checked against the exact-match `allowedDockerPaths` map first (line 86), then against `allowedDockerPatterns` via `path.Match` (lines 93–98). The version-prefix stripping (`versionPrefixRe`, line 23) and `path.Clean` traversal-hardening (line 71) run before either check, so new patterns automatically inherit both protections — no changes needed there.
 
-Notes:
-- Runs inside `WORKDIR /tmp/gosu` (already set at `Dockerfile:69`, still in effect — no `WORKDIR` change needed).
-- Must run **after** the `git clone` (needs `go.mod`/`go.sum` from the cloned `gosu` source to exist) and **before** `xx-go build` (so the build picks up the tidied `go.sum`).
-- `go mod verify` is included as a lightweight integrity check on the resulting module cache; it exits non-zero if checksums don't match `go.sum`, which will fail the Docker build loudly if something is wrong, rather than silently shipping a bad module.
-- Pin is exact (`@v0.46.0`), not `@latest` — reproducible builds, consistent with how every other dependency in this Dockerfile (`GOSU_VERSION`, `CROWDSEC_VERSION`, `XNET_VERSION`, `XCRYPTO_VERSION`, etc.) is pinned to an explicit version rather than a floating tag, and consistent with the existing Delve-stage pin at the same version.
-- No `# renovate:` comment is added for this line — it is a one-time remediation pin tied to a specific CVE fix version, not an upstream release Renovate should track independently (unlike `GOSU_VERSION`, `GO_VERSION`, etc.). If `gosu`'s own `go.mod` eventually adopts `x/sys >= v0.46.0` upstream, this override becomes a no-op and can be removed in a future cleanup.
-- Line numbers throughout this plan (e.g. "`Dockerfile:199`" for the Delve stage's pin, "`Dockerfile:751-754`" for its comment block) are pre-edit references. Once this stage's new RUN block (and its retry wrapper) is inserted, every line number below the insertion point shifts down by the size of the inserted block — implementers must re-locate targets by content/context, not by trusting these literal numbers.
+`docs/features/orthrus.md:104` makes an absolute, user-facing promise: *"This restriction is enforced at every single request — there is no way to turn it off."* This guarantee must hold exactly after the change — new entries must be GET-only, read-only, no exceptions.
 
-### 3.1a Comment corrections in the (unrelated) Delve stage
+**Known limitation to document, not fix, in this hotfix**: Go's `path.Match` `*` wildcard does **not** cross `/` boundaries (per `path.Match` godoc: "matches any sequence of non-Separator characters"). Docker's real `/images/{name}/json` and `/distribution/{name}/json` endpoints accept `{name}` values containing slashes for namespaced images (e.g. `bitnami/nginx:latest`, `ghcr.io/owner/repo:tag`) — these will **not** match `/images/*/json` and will still 403. Only single-segment image references (e.g. `nginx:latest`, `alpine`) will pass. This is an accepted limitation for this hotfix (see Section 5 and Section 7 risk table) — building a correct multi-segment matcher is a matching-engine change, which is out of scope for a tight hotfix. Document it in a code comment and flag it to Supervisor.
 
-**File**: `Dockerfile`
-**Lines**: `189` and `751-754`
+Existing test file: `backend/internal/orthrus/muzzle_test.go` (160 lines), table-style tests: `TestMuzzle_AllowlistedGET_Passthrough`, `TestMuzzle_VersionPrefixStripped_Passthrough`, `TestMuzzle_POST_Blocked`, `TestMuzzle_DELETE_Blocked`, `TestMuzzle_HEAD_Ping_Passthrough`, `TestMuzzle_HEAD_NonPing_Blocked`, `TestMuzzle_DynamicPaths_Passthrough` (the pattern-list test, lines 115–141), `TestMuzzle_UnknownPath_Blocked` (lines 143–160).
 
-Both currently describe the GO-2026-5024 vulnerable range inaccurately (e.g. "< v0.27.0", "v0.26.0"). Replace with accurate language reflecting the real advisory:
+### 2.2 Gap 3 — hardcoded hostname
 
-- `Dockerfile:189` — change to state the vulnerability is in `golang.org/x/sys/windows`'s `NewNTUnicodeString` (string-length overflow), fixed in `v0.44.0+`, and that the Delve stage already pins `v0.46.0` (`Dockerfile:199`), above that floor.
-- `Dockerfile:751-754` — same correction applied to the production-stub comment block; state the binary this stage would otherwise ship is compiled against `golang.org/x/sys v0.46.0` (patched, above the `v0.44.0` advisory floor), rather than referencing the incorrect "v0.26.0 vulnerable" framing.
+`backend/internal/orthrus/session.go`:
 
-This is a same-file documentation correction discovered incidentally while implementing the `gosu-builder` pin above — it is not a functional change (the Delve stage's actual pinned version, `v0.46.0`, was already correct), and is folded into this same single commit rather than filed separately.
+- `ExternalProxyStatus` struct, lines 95–102:
+  ```go
+  type ExternalProxyStatus struct {
+  	ConfiguredPort   int    `json:"configured_port"`
+  	ActivePort       int    `json:"active_port"`
+  	BoundAddress     string `json:"bind_address"`
+  	ConnectionString string `json:"connection_string,omitempty"` // e.g. "tcp://charon:9999"
+  	Active           bool   `json:"active"`
+  	Error            string `json:"error,omitempty"`
+  }
+  ```
+- `AgentSession.GetExternalProxyStatus()`, lines 329–361. The hardcoded construction is at line 350:
+  ```go
+  connStr := ""
+  if active && activePort > 0 {
+  	connStr = fmt.Sprintf("tcp://charon:%d", activePort)   // line 350 — hardcoded hostname
+  }
+  ```
+  `AgentSession` has no `*gin.Context` or any request-scoped data available anywhere in `session.go` — it is a long-lived per-tunnel object, not a per-HTTP-request one. There is no way to fix this correctly inside `session.go`; the fix must happen at the HTTP layer, in the handler.
 
-### 3.2 No database, API, or model changes
+- **Confirmed: `ExternalProxyStatus.ConnectionString` has exactly two production call sites** (verified via repo-wide grep, excluding tests): the field definition/doc comment (`session.go:99`), the assignment (`session.go:357`), and the read site in `backend/internal/api/handlers/orthrus_handler.go:203` (`resp["connection_string"] = status.ConnectionString`). No other package reads or writes this field. It is therefore safe to remove the field from the `ExternalProxyStatus` struct entirely (see Section 3.2) rather than leave a permanently-empty dead field — consistent with `CLAUDE.md`'s CLEAN mandate ("Delete dead code immediately... unused types").
 
-Not applicable — this is a build-time Dockerfile change only. No `internal/models`, no `routes.go`, no frontend API clients are touched.
+`backend/internal/api/handlers/orthrus_handler.go`:
 
-### 3.3 Documentation changes
+- `GetInstallSnippets` (lines 152–175) is the proven pattern to replicate:
+  ```go
+  charonURL := c.GetHeader("X-Charon-URL")
+  if charonURL == "" {
+  	// NOTE: TLS detection via c.Request.TLS is unreliable when Charon runs behind a
+  	// reverse proxy (e.g., Caddy) that terminates TLS and strips or rewrites headers.
+  	// The X-Charon-URL header allows callers to pass the correct public URL explicitly;
+  	// if absent, we fall back to heuristic detection. Users deploying behind a proxy
+  	// should set the X-Charon-URL header from the frontend (window.location.origin).
+  	scheme := "https"
+  	if c.Request.TLS == nil {
+  		scheme = "http"
+  	}
+  	charonURL = scheme + "://" + c.Request.Host
+  }
+  ```
+  Note this builds a *full URL* (`scheme://host[:port]`) because install snippets embed a full HTTP(S) base URL. `GetProxyStatus` has a **different** output shape requirement: a bare **hostname only** (no scheme, no port — the docker port is independent of Charon's own web port and gets appended separately as `tcp://<host>:<activePort>`). This is why Gap 3's fix introduces a small, separate helper rather than literally reusing `GetInstallSnippets`'s block verbatim — see Section 3.3 and Section 7 for the explicit reasoning on why this isn't forced into one shared function.
 
-**File 1 (new)**: `docs/security/vulnerability-analysis-2026-07-16.md`
+- `GetProxyStatus` (lines 180–210) — the target of the fix:
+  ```go
+  func (h *OrthrusHandler) GetProxyStatus(c *gin.Context) {
+  	uuid := c.Param("uuid")
+  	agent, err := h.svc.Get(uuid)
+  	if err != nil {
+  		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+  		return
+  	}
+  	resp := gin.H{
+  		"agent_uuid":        agent.UUID,
+  		"agent_online":      false,
+  		"configured_port":   agent.ExternalProxyPort,
+  		"active":            false,
+  		"active_port":       0,
+  		"bind_address":      "",
+  		"connection_string": "",
+  		"error":             "",
+  	}
+  	if h.proxyResolver != nil {
+  		if status, ok := h.proxyResolver.GetExternalProxyStatus(uuid); ok {
+  			resp["agent_online"] = true
+  			resp["active"] = status.Active
+  			resp["active_port"] = status.ActivePort
+  			resp["bind_address"] = status.BoundAddress
+  			resp["connection_string"] = status.ConnectionString   // line 203 — currently just relays session's hardcoded value
+  			if status.Error != "" {
+  				resp["error"] = status.Error
+  			}
+  		}
+  	}
+  	c.JSON(http.StatusOK, resp)
+  }
+  ```
+  This handler has `*gin.Context` (i.e. `c.Request.Host`, `c.GetHeader(...)`) — exactly what's missing in `session.go`.
 
-Follow the existing template (`docs/security/vulnerability-analysis-2026-06-26.md`) with YAML front matter:
+- `orthrusProxyStatusResolver` interface (lines 15–18) is satisfied by `*orthrus.OrthrusServer`, whose own `GetExternalProxyStatus` (`backend/internal/orthrus/server.go:140–147`) just delegates to `AgentSession.GetExternalProxyStatus()`. No changes needed to `server.go` or the interface signature — `ExternalProxyStatus` stays the transport type between session/server/handler, just without the `ConnectionString` field.
 
-```yaml
----
-post_title: "GO-2026-5024 / CVE-2026-39824 Remediation: golang.org/x/sys in gosu-builder Stage"
-categories: ["security", "dependency", "docker"]
-tags: ["go-2026-5024", "cve-2026-39824", "golang.org/x/sys", "gosu", "docker-build", "scanner-hygiene"]
-summary: "Pinned golang.org/x/sys to v0.46.0 during the gosu-builder Dockerfile stage to resolve a Grype-flagged low-severity CVE in gosu's vendored dependency, matching the same version already used by the Delve stage for this advisory. Windows-only vulnerable code path is never compiled for this Linux-only binary; fix applied for scanner hygiene."
-post_date: "2026-07-16"
----
-```
+### 2.3 Frontend — confirmed no changes needed
 
-Body must cover (per the `supply-chain-remediation` skill's documentation phase pattern):
-- CVE id (`GO-2026-5024` / `CVE-2026-39824`), affected package (`golang.org/x/sys`), affected version (`v0.13.0`, resolved via upstream `tianon/gosu@1.17`'s `go.sum`), advisory fix floor (`v0.44.0`), version pinned to (`v0.46.0`, chosen to match the existing Delve-stage convention — see below), severity (low).
-- Why real-world exploitability is near-zero: vulnerable function `NewNTUnicodeString` lives in `golang.org/x/sys/windows`; `gosu` is Unix-only; this stage builds only Linux targets (`CGO_ENABLED=0`); Go build constraints mean the file is never compiled.
-- Explicit note distinguishing this from the `2026-06-26` doc's finding (same CVE ID, different location — `backend/go.mod` vs. vendored `gosu` build stage — and different resolution mechanism — transitive upgrade vs. explicit pin in the Dockerfile).
-- A short note that this same advisory ID also appears in this Dockerfile's Delve (`dlv`) debug stage (`Dockerfile:186-211`), which already pins `golang.org/x/sys@v0.46.0` (`Dockerfile:199`) correctly, but had stale/inaccurate comment text (fixed as part of this same commit — see Dockerfile comment corrections below) describing the vulnerable range as "< v0.27.0"/"v0.26.0" instead of the real `NewNTUnicodeString`/`v0.44.0` detail. Mention this so a future reader who greps the Dockerfile for "GO-2026-5024" understands why two stages reference it and why the versions differ slightly (v0.46.0 pin chosen deliberately to match, not coincidentally).
-- The fix applied: `go get golang.org/x/sys@v0.46.0 && go mod tidy && go mod verify` added to the `gosu-builder` stage, with the exact Dockerfile location, plus the two comment corrections at `Dockerfile:189` and `751-754`.
-- Why `GOSU_VERSION` was not bumped (upstream `1.19` regresses to `x/sys v0.1.0`).
-- Validation performed (see Section 4 below) and its results.
+- `frontend/src/api/orthrus.ts:101–104` (`getAgentProxyStatus`) calls `GET /orthrus/agents/:uuid/proxy-status` **without** an `X-Charon-URL` header (unlike `getInstallSnippets`, line 94–99, which does send it). This is fine: the handler's fallback path (`c.Request.Host`) covers this case identically to how `GetInstallSnippets` already works when the header is absent — no frontend change is required to get a correct, non-hardcoded hostname. (Optionally, a future PR could add the header here for parity/robustness behind a reverse proxy that rewrites `Host`; explicitly flagged as out of scope, Section 5.)
+- `frontend/src/components/hecate/AgentExternalProxyDialog.tsx:184–194` renders `proxyStatus.connection_string` verbatim (no parsing, no hostname logic) — any string the backend returns displays correctly with zero frontend changes.
+- `frontend/src/api/orthrus.ts:31–40` (`ExternalProxyStatus` TS interface) matches the handler's `gin.H` response shape exactly and needs no changes — the JSON key `connection_string` is unaffected by this fix; only the Go-side *value construction* moves from `session.go` to the handler.
+- Frontend/E2E tests (`frontend/src/components/hecate/__tests__/AgentExternalProxyDialog.test.tsx`, `frontend/src/api/__tests__/orthrus.test.ts`, `frontend/src/hooks/__tests__/useOrthrus.test.tsx`, `tests/orthrus-external-proxy.spec.ts`) all mock the proxy-status HTTP response directly (`route.fulfill({ json: ... })` in Playwright, `vi.mock`/manual mocks in Vitest) with a hardcoded `'tcp://charon:2375'` string as **test fixture data**, not as an assertion on backend hostname-construction logic. They will continue to pass unmodified because they never exercise the real Go handler — **confirmed, zero frontend or E2E test changes required**.
 
-**File 1a (edit to an existing file — not merely a mention in the new doc)**: `docs/security/vulnerability-analysis-2026-06-26.md`
+**Conclusion: the "frontend files are NOT expected to need changes" assumption from the task brief holds.** No file under `frontend/` is touched by this hotfix.
 
-Append a new `## Erratum (2026-07-16)` section to the **end** of this existing file (do not rewrite or remove its original content — this is a dated correction appended after the fact, preserving the historical record of what was originally concluded). The erratum must state plainly that the original "scanner false positive"/"stale SBOM cache" conclusion (in that doc's "Reported vs Actual Version" and "Decision" sections) was incorrect — `v0.13.0` was a real, correctly-scanned version of a *different* binary (`/usr/sbin/gosu`, vendored via upstream `tianon/gosu@1.17`'s own `go.sum`) that the original investigation never checked because it stopped after confirming `backend/go.mod` resolved to `v0.46.0`. Explain the corrected two-location finding (backend/go.mod, already fine; gosu-builder's vendored go.sum, fixed by this commit) and link to the new `vulnerability-analysis-2026-07-16.md` doc.
+### 2.4 Docs — confirmed current gaps
 
-**File 2**: `SECURITY.md`
+- `docs/features/orthrus.md` (122 lines) — no mention of `ExternalProxyPort`, the gear icon, or the external proxy at all. Has an existing "What Orthrus Can (and Cannot) Do" section (lines 88–104) and a "Troubleshooting" table (lines 108–116) that are the natural insertion points.
+- `docs/guides/remote-docker-setup.md` (156 lines) — same gap. Has a "Troubleshooting" table (lines 142–150) and ends with a "What's Next?" section (lines 154–156) that are natural insertion points; Step 6 ("Use Your Remote Containers", lines 111–124) is the last numbered step, so a new step can be added after it as an explicitly optional step.
+- `docs/features.md:206–210` already links to `features/orthrus.md` with a two-sentence summary — per `CLAUDE.md`'s "keep it brief, link to individual docs" instruction, this file's existing brevity is already correct and **needs no edit**.
+- `ARCHITECTURE.md` — no Orthrus-specific content to update (grepped, zero hits); this hotfix changes neither system architecture, tech stack, deployment model, nor directory structure, so no `ARCHITECTURE.md` update is required per its own trigger criteria.
 
-Add a new entry under **`## Patched Vulnerabilities`** (not `## Known Vulnerabilities`) — this file has two conventions for resolved findings, and this fix matches the majority pattern (5 entries) and the specific precedent of `### ✅ [LOW] CVE-2026-26958 · edwards25519 MultiScalarMult Invalid Results` (a LOW-severity, version-pin-only fix with no residual risk, the closest analog to this one) rather than the minority `### [RESOLVED]`/`## Known Vulnerabilities` style (only 2 entries: CrowdSec, CVE-2026-45135). Use heading `### ✅ [LOW] GO-2026-5024 / CVE-2026-39824 · golang.org/x/sys in gosu Build Stage`, with the `| Field | Value |` table using a **`**Patched**: <date>`** row (not `**Status**`), matching the edwards25519 entry's exact structure (`What`/`Who`/`Where`/`When`/`How`/`Resolution`, `When` using `Discovered`/`Patched`/`Time to patch` rows). Body should mirror the analysis doc at a summary level, link to `docs/security/vulnerability-analysis-2026-07-16.md` for full detail, and explicitly note the erratum added to the 2026-06-26 doc (see File 1 above) so a reader following that link isn't confused by the now-corrected "false positive" claim there.
+### 2.5 Config/ignore files — confirmed no updates needed
 
-Also bump the `Last reviewed: <date>` line near the top of `SECURITY.md` (under `## Known Vulnerabilities`) to `2026-07-16` as part of this same commit, since the file is already being edited.
+Checked per `CLAUDE.md`'s process requirement:
 
-**File 3**: `CHANGELOG.md`
-
-Add one line under the existing `### Security` subsection of `## [Unreleased]` (`CHANGELOG.md:70`), alongside — not replacing — the existing `CVE-2026-39824` line for the unrelated `backend/go.mod` finding. Suggested entry, matching the terse one-line style already used there:
-
-```
-- chore(security): pin gosu-builder's golang.org/x/sys to v0.46.0 (GO-2026-5024 / CVE-2026-39824) — upstream tianon/gosu@1.17 vendors v0.13.0; vulnerable code is Windows-only and never compiled for this Linux-only binary; v0.46.0 matches the existing Delve-stage pin for the same advisory
-```
-
-**Files NOT changed (confirmed, stated explicitly per plan requirements)**:
-- `.gitignore` — no new file patterns introduced.
-- `.dockerignore` — no new build context files introduced.
-- `codecov.yml` — no test/coverage surface affected; this is a Dockerfile-only change.
-
----
-
-## 4. Scope & Definition of Done (reduced — infra fix, not a feature)
-
-This is explicitly **not** subject to the full application Definition of Done in `CLAUDE.md` (no Playwright E2E suite, no 85% backend/frontend coverage gate, no frontend `type-check`, no GORM security scan — none of those apply to a Dockerfile-only change with zero app-code touch). Instead, the validation gates for this change are:
-
-| # | Gate | Command | Pass condition |
+| File | Exists? | Orthrus references? | Action |
 |---|---|---|---|
-| 1 | Isolated stage build | `docker build --target gosu-builder -t charon-gosu-builder-check .` (run from repo root) | Build completes with exit code 0; the new `RUN go get ... && go mod tidy && go mod verify` step succeeds (non-zero exit on checksum mismatch would fail the build here) |
-| 2 | Embedded module version check | `docker run --rm --entrypoint sh charon-gosu-builder-check -c "go version -m /gosu-out/gosu | grep golang.org/x/sys"` | Output shows `golang.org/x/sys` at `v0.46.0` (or, at minimum, `>= v0.44.0`) |
-| 3 | Dockerfile lint | `hadolint Dockerfile` (if `hadolint` binary available locally; `.hadolint.yaml` config already present at repo root) **and** `bash tools/dockerfile_check.sh Dockerfile` | Both exit 0; no new hadolint findings introduced by the added `RUN` line (it is plain `go` tooling, not `apk`/`apt`, so `tools/dockerfile_check.sh`'s package-manager-mismatch check is unaffected) |
-| 4 | Local re-scan | `.github/skills/scripts/skill-runner.sh security-scan-docker-image` (builds full image + runs Grype/Syft — the scanner that originally raised `GO-2026-5024`) | No `golang.org/x/sys` finding for the `gosu` binary in the Grype output. If Docker/Grype/Syft are unavailable in the local environment, note this in the PR/commit and rely on CI's next scheduled scan to confirm; do not block the commit on unavailable local tooling |
+| `.gitignore` | Yes | None | No change — no new files/directories introduced |
+| `.dockerignore` | Yes | None | No change — no new build artifacts |
+| `.codecov.yml` | **Does not exist in this repo** | N/A | No change |
+| `Dockerfile` | Yes | None | No change — no new binaries, ports, env vars, or build stages |
 
-`security-scan-go-vuln` (`govulncheck` against `backend/go.mod`) is **not** a valid substitute for gate 4 — it does not scan the vendored `gosu` module built in a separate Docker stage — and should not be cited as evidence this fix worked.
+This hotfix adds no new files, no new directories, no new container ports/env vars, and no new dependencies — only edits to existing `.go` and `.md` files.
 
 ---
 
-## 5. Commit Slicing Strategy
+## 3. Technical Specifications
 
-**Decision**: Single commit, on the current `development` branch, inside one PR (per `CLAUDE.md`: "One Feature = One PR" and no worktrees). This is a small infra fix — splitting it into multiple commits would add review overhead without improving reviewability.
+### 3.1 Gap 1 spec — `backend/internal/orthrus/muzzle.go`
 
-### Commit 1 (only commit): `fix(deps): pin gosu's golang.org/x/sys to v0.46.0 (GO-2026-5024)`
+**Change**: append two entries to `allowedDockerPatterns` (lines 42–49):
 
-**Scope**: Dockerfile dependency pin + two same-file comment corrections + accompanying security documentation.
-
-**Files touched**:
-- `Dockerfile` — insert the retry-wrapped `go get golang.org/x/sys@v0.46.0 && go mod tidy && go mod verify` block (with comment) into the `gosu-builder` stage (see Section 3.1); correct the stale CVE-range comments in the unrelated Delve stage (see Section 3.1a; locate by content, not literal line numbers — they shift once the RUN block above is inserted).
-- `docs/security/vulnerability-analysis-2026-07-16.md` — new file (see Section 3.3, File 1).
-- `docs/security/vulnerability-analysis-2026-06-26.md` — append `## Erratum (2026-07-16)` section (see Section 3.3, File 1a). Do not remove or rewrite existing content.
-- `SECURITY.md` — new `### ✅ [LOW]` entry under `## Patched Vulnerabilities`, plus bump `Last reviewed:` to `2026-07-16` (see Section 3.3, File 2).
-- `CHANGELOG.md` — one new line under `## [Unreleased]` → `### Security` (see Section 3.3, File 3).
-
-**Dependencies**: None — this is a self-contained, atomic change. No prior commit needed.
-
-**Validation gate for this commit** (must all pass before considering the commit done):
-1. Gate 1 and Gate 2 from Section 4 (stage build + embedded version check) — functional proof the fix works.
-2. Gate 3 from Section 4 (hadolint + `tools/dockerfile_check.sh`) — style/consistency check on the Dockerfile edit.
-3. Gate 4 from Section 4 (local Grype re-scan via `security-scan-docker-image` skill, or explicit note deferring to CI if local tooling unavailable).
-4. `lefthook run pre-commit` — standard repo-wide pre-commit hooks still apply (markdown lint on the new/edited `.md` files, any Dockerfile-aware hooks, secret scanning, etc.) even though this is an infra-only change; this is not part of the reduced application DoD, it's baseline repo hygiene for every commit.
-5. Manual read-through confirming `SECURITY.md` and `CHANGELOG.md` entries clearly distinguish this fix from the pre-existing, unrelated `CVE-2026-39824` / `backend/go.mod` entry already present in both files, so a future reader doesn't conflate the two.
-
-**Commit message** (conventional commits, per `CLAUDE.md`):
+```go
+var allowedDockerPatterns = []string{
+	"/containers/*/json",
+	"/containers/*/logs",
+	"/containers/*/stats",
+	"/containers/*/top",
+	"/volumes/*",
+	"/networks/*",
+	"/images/*/json",       // NEW: image inspect (RepoDigests) — read-only, used by update-checker tools
+	"/distribution/*/json", // NEW: registry digest check — read-only, used by update-checker tools
+}
 ```
-fix(deps): pin gosu's golang.org/x/sys to v0.46.0 (GO-2026-5024)
+
+Add a doc comment above the block (or extend the existing one at lines 39–41) explaining:
+- Both new patterns are GET-only (enforced upstream by the unconditional method check at lines 79–84, which runs regardless of path).
+- Neither permits any write/mutate operation — `/images/create` (image pull) is explicitly and deliberately **not** added.
+- The `path.Match` single-segment-`*` limitation for namespaced image names (Section 2.1) is a known, accepted gap for this hotfix.
+- `/distribution/*/json` causes the remote Docker daemon itself to make an outbound network request to whatever registry host is encoded in the image name — read-only with respect to local Docker state (it cannot mutate anything on the host), but callers can influence which external host the daemon contacts, so "read-only" here means "cannot mutate local Docker state," not "cannot cause outbound network activity."
+- This is a best-effort expansion (no live traffic logs available from the reporting environment); more read-only entries may be needed if real-world testing against tools like Dockhand/Diun surfaces additional 403s — expected and acceptable follow-up, not a defect in this PR.
+
+**No changes** to `allowedDockerPaths` (the exact-match map), `Muzzle.ServeHTTP`, `versionPrefixRe`, or `sanitizePath`.
+
+#### Test additions — `backend/internal/orthrus/muzzle_test.go`
+
+1. Extend `TestMuzzle_DynamicPaths_Passthrough` (lines 115–141) with:
+   ```go
+   "/images/alpine/json",
+   "/v1.44/images/alpine/json",
+   "/images/nginx:latest/json",
+   "/distribution/alpine/json",
+   "/v1.44/distribution/alpine/json",
+   ```
+2. Extend `TestMuzzle_UnknownPath_Blocked` (lines 143–160) with a case documenting the known multi-segment limitation, with an explanatory comment so it reads as an intentional regression-guard rather than an oversight:
+   ```go
+   // Known limitation (see muzzle.go doc comment): path.Match's "*" does not
+   // cross "/", so namespaced image names are not matched by /images/*/json.
+   // This case documents current behavior; it is not a target of this fix.
+   "/images/library/nginx/json",
+   ```
+3. New table-style test `TestMuzzle_ImageAndDistributionEndpoints_POSTBlocked` (or extend the existing `TestMuzzle_POST_Blocked`, lines 67–84) confirming `POST /images/alpine/json` and `POST /distribution/alpine/json` are still 403 — belt-and-suspenders regression guard for the read-only guarantee, even though method-checking already happens unconditionally before any path match.
+
+**Validation gate**: `go test ./backend/internal/orthrus/... -run TestMuzzle -v`
+
+### 3.2 Gap 3 spec — remove hardcoded hostname from `session.go`
+
+**`backend/internal/orthrus/session.go` changes:**
+
+1. `ExternalProxyStatus` struct (lines 95–102): remove the `ConnectionString` field entirely.
+   ```go
+   type ExternalProxyStatus struct {
+   	ConfiguredPort int    `json:"configured_port"`
+   	ActivePort     int    `json:"active_port"`
+   	BoundAddress   string `json:"bind_address"`
+   	Active         bool   `json:"active"`
+   	Error          string `json:"error,omitempty"`
+   }
+   ```
+   Add/adjust the doc comment on the struct to note that connection-string hostname resolution is now the API handler's responsibility (`OrthrusHandler.GetProxyStatus`), since `AgentSession` has no request context to resolve a caller-appropriate hostname from.
+
+2. `GetExternalProxyStatus()` (lines 329–361): remove the `connStr` construction block (lines 348–351) and the `ConnectionString: connStr,` field from the returned struct literal (line 357). No other logic in this method changes.
+
+**Validation gate**: `go build ./backend/...` (this alone will catch every call site that still references the removed field — see Section 3.2's test impact below).
+
+### 3.3 Gap 3 spec — hostname resolution in `orthrus_handler.go`
+
+**`backend/internal/api/handlers/orthrus_handler.go` changes:**
+
+1. Add imports: `"fmt"`, `"net"`, `"net/url"`.
+2. Add a new unexported helper, placed near `GetProxyStatus`:
+   ```go
+   // resolveExternalProxyHost determines the hostname third-party tools should use
+   // to reach this Charon instance's external Docker proxy ports. It mirrors the
+   // X-Charon-URL header pattern used by GetInstallSnippets, but — unlike that
+   // handler — returns a bare hostname only (no scheme, no port): the external
+   // proxy's TCP port is independent of Charon's own web port, so the docker
+   // port is appended separately by the caller.
+   func resolveExternalProxyHost(c *gin.Context) string {
+   	if raw := c.GetHeader("X-Charon-URL"); raw != "" {
+   		if u, err := url.Parse(raw); err == nil && u.Hostname() != "" {
+   			return u.Hostname()
+   		}
+   	}
+   	if host, _, err := net.SplitHostPort(c.Request.Host); err == nil {
+   		return host
+   	}
+   	return c.Request.Host
+   }
+   ```
+3. Update `GetProxyStatus` (lines 180–210) to build the connection string itself instead of relaying `status.ConnectionString`. **Ordering note**: this handler change (Commit 2, Section 7) lands *before* the struct field removal (Commit 3, Section 3.2/Section 7) — at this point `ExternalProxyStatus.ConnectionString` still exists on the struct, it simply becomes unread by this handler. That compiles cleanly (Go permits unused exported struct fields); the field is deleted later, once nothing references it:
+   ```go
+   if h.proxyResolver != nil {
+   	if status, ok := h.proxyResolver.GetExternalProxyStatus(uuid); ok {
+   		resp["agent_online"] = true
+   		resp["active"] = status.Active
+   		resp["active_port"] = status.ActivePort
+   		resp["bind_address"] = status.BoundAddress
+   		if status.Active && status.ActivePort > 0 {
+   			resp["connection_string"] = fmt.Sprintf("tcp://%s:%d", resolveExternalProxyHost(c), status.ActivePort)
+   		}
+   		if status.Error != "" {
+   			resp["error"] = status.Error
+   		}
+   	}
+   }
+   ```
+   This preserves the JSON response shape and key name (`connection_string`) exactly, and preserves the existing guard condition (`active && activePort > 0`, previously enforced inside `session.go`, now enforced here) that leaves `connection_string` as the zero-value `""` when the proxy isn't actually active.
+
+**Why not consolidate with `GetInstallSnippets`'s host-resolution block into one shared helper** (explicit design note for Supervisor/reviewers): `GetInstallSnippets` needs a full `scheme://host[:port]` base URL for embedding in install snippets; `GetProxyStatus` needs a bare hostname with the port stripped, since the docker port is unrelated to Charon's web port. Forcing both through one function would require parameterizing "include scheme," "include port," and "port to substitute," adding complexity disproportionate to a tight hotfix, and would touch `GetInstallSnippets`'s already-tested, working code path unnecessarily — increasing blast radius for no behavioral gain. `GetInstallSnippets` is **not modified** by this PR. Flagged as a possible future consolidation, not undertaken here (Section 5).
+
+#### Test additions/updates — `backend/internal/api/handlers/orthrus_handler_test.go`
+
+1. **Required fix (assertion break now, compile-break prevention for Commit 3)**: `TestOrthrusHandler_GetProxyStatus_Connected` (lines 678–716) currently builds `liveStatus := orthrus.ExternalProxyStatus{..., ConnectionString: "tcp://charon:2375", ...}` (line 696) and asserts `assert.Equal(t, "tcp://charon:2375", resp["connection_string"])` (line 714). At this commit (Commit 2, Section 7), the `ConnectionString` field still exists on the struct — removing it is Commit 3's job (Section 3.2) — so this literal would still *compile* as-is; left unchanged, though, the assertion would fail because the handler no longer reads `status.ConnectionString`. Update proactively now, both to fix the assertion and to avoid leaving a stale field reference that would otherwise break Commit 3's standalone build once the field is deleted:
+   - Remove `ConnectionString: "tcp://charon:2375",` from the `liveStatus` literal.
+   - The test's `c.Request` is built via `httptest.NewRequest(http.MethodGet, ".../proxy-status", http.NoBody)` with no explicit `Host` set, so `net/http/httptest` defaults `Request.Host` to `"example.com"`. Update the assertion to `assert.Equal(t, "tcp://example.com:2375", resp["connection_string"])` to reflect the new handler-side construction.
+2. New test `TestOrthrusHandler_GetProxyStatus_ConnectionString_UsesXCharonURLHeader`: set `c.Request.Header.Set("X-Charon-URL", "https://mybox.example.org:8443")` before calling `GetProxyStatus`; assert `resp["connection_string"] == "tcp://mybox.example.org:2375"` (i.e. the header's own port, `8443`, is discarded — only the hostname is taken from the header, and the docker port comes from `status.ActivePort`).
+3. New test `TestOrthrusHandler_GetProxyStatus_ConnectionString_HostPortStripped`: set `c.Request.Host = "192.168.1.50:8443"` (no `X-Charon-URL` header); assert `resp["connection_string"] == "tcp://192.168.1.50:2375"` (port stripped from `Host`, replaced with `status.ActivePort`).
+4. New test `TestOrthrusHandler_GetProxyStatus_ConnectionString_EmptyWhenInactive`: reuse the existing `errStatus`/inactive-status pattern (see `TestOrthrusHandler_GetProxyStatus_Connected_WithError`, lines 791–819) to confirm `resp["connection_string"] == ""` when `status.Active` is `false`, regardless of headers — regression guard for the `active && activePort > 0` guard condition moving from `session.go` into the handler.
+
+**No changes required** in `backend/internal/orthrus/session_coverage_test.go` or `backend/internal/orthrus/session_external_proxy_test.go` — confirmed via grep that no test in either file asserts on `ExternalProxyStatus.ConnectionString`'s value or presence (`TestGetExternalProxyStatus_ErrorFieldPopulated`, `TestGetExternalProxyStatus_NotStarted`, `TestGetExternalProxyStatus_Active`, etc. only check `Active`, `ActivePort`, `BoundAddress`, `ConfiguredPort`, `Error`). Compilation alone enforces correctness of the struct-field removal for these files.
+
+**Validation gate**: `go test ./backend/internal/orthrus/... ./backend/internal/api/handlers/... -run 'ProxyStatus|ExternalProxy' -v`
+
+### 3.4 Gap 2 spec — documentation
+
+#### `docs/features/orthrus.md`
+
+Insert a new `## External Docker Proxy (Advanced)` section, placed after the existing "What Orthrus Can (and Cannot) Do" section (after line 104) and before "Troubleshooting" (line 108), matching the file's plain-language, novice-friendly tone. Content to cover:
+
+- **What it is**: an optional TCP port that lets a *third-party tool on your network* (an update-checker like Dockhand or Diun, a monitoring dashboard, etc.) talk directly to this agent's Docker API through the same secure tunnel — without needing a separate `docker-socket-proxy` container.
+- **How to turn it on**: click the gear icon next to an agent in **Remote Agents**, set a port (1024–65535), save.
+- **Connection string format**: `tcp://<host>:<port>` — described generically ("`<host>`" is your Charon instance's own address, as reachable from wherever the third-party tool runs — Charon fills this in for you automatically"), explicitly **not** hardcoding `tcp://charon:<port>` as a literal example, consistent with Gap 3's fix.
+- **Still strictly read-only**: reiterate the existing "no way to turn it off" promise and list what the external proxy exposes, matching the updated allowlist from Gap 1 (containers, images, networks, volumes, system info/version/events, container logs/stats/top, image inspect, and registry digest checks for update-checker tools); note that for the registry digest check specifically, "read-only" means it cannot change anything on your Docker host — it does cause your agent's Docker daemon to make an outbound request to the image's registry, which is expected behavior for update-checking tools.
+- **New Troubleshooting row** appended to the existing table (lines 108–116): "Third-party tool can't reach my agent's Docker API" → Likely Cause: "Wrong port configured in the tool" → Fix: "Check the tool is using the External Proxy port shown in the gear-icon dialog — not Charon's main web port."
+
+#### `docs/guides/remote-docker-setup.md`
+
+Insert a new optional step, **Step 7 — (Optional) Let Another Tool Talk to Your Agent's Docker API**, after the existing Step 6 (ends line 124) and before "(Optional) Add Uptime Monitoring" (line 127), following the same numbered-step / screenshot-placeholder / bold-callout style as the rest of the file. Content: brief restatement of what the External Proxy port is, how to set it (gear icon), the generic `tcp://<host>:<port>` format, and a cross-reference link: *"Full detail: [Orthrus guide → External Docker Proxy](../features/orthrus.md#external-docker-proxy-advanced)."* Also add a matching row to this file's own Troubleshooting table (lines 142–150), same content as the `orthrus.md` row above.
+
+**Validation gate**: manual proofread against existing tone (no automated doc linter in this repo per current tooling); confirm both new sections render correctly as Markdown (headings, tables) and all internal links resolve.
+
+---
+
+## 4. Data Flow Summary (Gap 3, before/after)
+
+```mermaid
+sequenceDiagram
+    participant Tool as Third-party tool
+    participant FE as Frontend (AgentExternalProxyDialog)
+    participant API as OrthrusHandler.GetProxyStatus
+    participant Sess as AgentSession.GetExternalProxyStatus
+
+    Note over API,Sess: BEFORE — hostname hardcoded deep in session.go
+    FE->>API: GET /orthrus/agents/:uuid/proxy-status
+    API->>Sess: GetExternalProxyStatus()
+    Sess-->>API: connection_string: "tcp://charon:2375"
+    API-->>FE: relay verbatim
+
+    Note over API,Sess: AFTER — session reports raw state only; handler resolves hostname
+    FE->>API: GET /orthrus/agents/:uuid/proxy-status
+    API->>Sess: GetExternalProxyStatus()
+    Sess-->>API: active true, active_port 2375, no hostname
+    API->>API: resolveExternalProxyHost(c) via X-Charon-URL header or c.Request.Host
+    API-->>FE: connection_string: "tcp://resolved-host:2375"
 ```
+
+No new HTTP endpoints, no new request/response fields, no DB schema changes. `agent.ExternalProxyPort` (`backend/internal/models/orthrus_agent.go:48`) is unchanged.
+
+---
+
+## 5. Explicit Out-of-Scope
+
+- **No Muzzle matching-engine rework.** The `path.Match` single-segment `*` limitation for namespaced image names (Section 2.1) is documented, not fixed.
+- **No broader Orthrus rearchitecture.** `StartExternalProxy`, the yamux tunnel, the Muzzle wrapping mechanism, and `AgentSession`'s lifecycle are untouched beyond the one-field struct change in Section 3.2.
+- **No new UI.** `AgentExternalProxyDialog.tsx` and `OrthrusAgentManager.tsx` are not modified (Section 2.3).
+- **No port-collision-detection UI polish.** The existing "reconnect notice" behavior (tested in `tests/orthrus-external-proxy.spec.ts:240-260`) is untouched.
+- **No multi-hostname configuration.** `resolveExternalProxyHost` resolves one hostname per request from the caller's own perspective (header or `Host`), matching `GetInstallSnippets`'s existing single-hostname model exactly — no per-agent or per-network hostname overrides are introduced.
+- **No consolidation of `GetInstallSnippets` and `GetProxyStatus` hostname logic into one shared function** — see the explicit reasoning in Section 3.3.
+- **No change to `frontend/src/api/orthrus.ts`'s `getAgentProxyStatus`** to add an `X-Charon-URL` header — the fallback path already produces a correct, non-hardcoded result (Section 2.3); adding the header for extra robustness behind Host-rewriting reverse proxies is a reasonable future enhancement but is not required to close Gap 3 and is left out to keep this hotfix backend-only.
+
+---
+
+## 6. Security Review Requirement
+
+**Commit 1 (Section 7) touches a security boundary.** The Muzzle allowlist is the only mechanism preventing a tunnelled remote Docker socket from exposing write/mutate capability to whatever network the external proxy port is bound on. `docs/features/orthrus.md` makes an absolute, user-facing promise about read-only enforcement. Per this repo's governance rules, `supervisor` agent review is **required before implementation of Commit 1**, specifically to verify:
+
+1. Both new patterns (`/images/*/json`, `/distribution/*/json`) are genuinely read-only in the Docker Engine API (no known write side effects on GET).
+2. No accidental widening beyond the two intended patterns (e.g. no overly broad wildcard that also matches an unintended write endpoint).
+3. The method-check-before-path-check ordering in `Muzzle.ServeHTTP` (lines 79–84 run before lines 86–98) still holds after the change, so POST/PUT/DELETE to the new paths remains blocked unconditionally.
+4. The documented `path.Match` multi-segment limitation (Section 2.1) is an acceptable disclosed gap, not a silent security hole.
+
+Commits 2–5 (hostname fix, docs) are not security-boundary changes but should still pass through the same review pass for consistency, per this repo's supervisor workflow.
+
+---
+
+## 7. Commit Slicing Strategy
+
+**Decision: single PR on `development`, sliced into ordered commits.** One feature (this hotfix) = one PR, per `CLAUDE.md`. Conventional commit prefix `fix:` for all behavior-changing commits (Commits 1–3); `docs:` for the documentation commit (Commit 4). Each commit carries its own tests — this repo's TDD convention for backend work, not a separate test commit.
+
+| # | Commit | Scope | Files | Depends on | Validation gate |
+|---|---|---|---|---|---|
+| **1** | `fix(orthrus): allow read-only image/distribution inspect through Docker proxy muzzle` | Gap 1 — expand `allowedDockerPatterns`; add tests documenting both the new allowlist entries and the known multi-segment-name limitation | `backend/internal/orthrus/muzzle.go`, `backend/internal/orthrus/muzzle_test.go` | None (independent of Commits 2–3) | `go test ./backend/internal/orthrus/... -run TestMuzzle -v`; `make lint-staticcheck-only`; full `lefthook run pre-commit` should still be run since this is a security-boundary change (GORM scan not applicable — no model/GORM changes) |
+| **2** | `fix(orthrus): resolve external proxy hostname from request context instead of hardcoding it` | Gap 3, part A — add `resolveExternalProxyHost`, update `GetProxyStatus` to construct `connection_string` from request context instead of relaying `status.ConnectionString`; update/add handler tests. `ExternalProxyStatus.ConnectionString` still exists on the struct at this checkpoint (it is removed in Commit 3) — this commit only stops *reading* it, which compiles cleanly since Go permits unused exported struct fields | `backend/internal/api/handlers/orthrus_handler.go`, `backend/internal/api/handlers/orthrus_handler_test.go` | None (independent of Commit 1; compiles standalone against the current, unmodified `session.go` — the field it stops reading is still present) | `go build ./backend/...`; `go test ./backend/internal/api/handlers/... -run ProxyStatus -v` |
+| **3** | `fix(orthrus): remove hardcoded "charon" hostname from ExternalProxyStatus` | Gap 3, part B — remove the now-unread `ConnectionString` field and its hardcoded construction from `session.go`; pure cleanup with no observable behavior change, since Commit 2 already moved hostname resolution to the handler | `backend/internal/orthrus/session.go` | **Commit 2** (must land first: this commit deletes a struct field, so it only compiles standalone once its sole production reader — the handler — has already stopped referencing it) | `go build ./backend/...` (confirms zero remaining references to the removed field, now that Commit 2 has already migrated the only production reader); `go test ./backend/internal/orthrus/... -v`; `go test ./backend/...` (full backend suite — the riskier tail-end check for this two-commit pair, since this is where the struct itself changes shape) |
+| **4** | `docs(orthrus): document the External Docker Proxy feature` | Gap 2 — new sections in both docs files, generic (non-hardcoded) connection-string example, new troubleshooting rows | `docs/features/orthrus.md`, `docs/guides/remote-docker-setup.md` | None (independent — ordered last per this repo's suggested foundation→backend→docs sequence, and to avoid describing not-yet-merged behavior) | Manual proofread; Markdown renders correctly; both new internal cross-reference links resolve |
+| **5** | `fix(orthrus): verify muzzle + proxy-status hotfix end-to-end` *(hardening/verification — only added if the full-suite DoD pass in Section 8 surfaces something to fix; otherwise this step folds into Commit 3's validation and is not a separate commit)* | Full Definition-of-Done pass: run the complete existing `tests/orthrus-*.spec.ts` Playwright suite (expected: pass unmodified, Section 2.3), full backend coverage, full lint | None expected — placeholder only | Commits 1–4 | `npx playwright test --project=firefox tests/orthrus-*.spec.ts`; `bash scripts/local-patch-report.sh`; `scripts/go-test-coverage.sh`; full `lefthook run pre-commit` |
+
+**Rationale for ordering**: Commits 1 and 2 are independent of each other (different files, different gaps) and could technically be reordered, but are kept as separate commits because Commit 1 is the security-sensitive one that most benefits from being reviewable in isolation (small, self-contained diff). Commits 2 and 3 together form one logical "hostname fix" unit (Gap 3), but are ordered so each compiles standalone on its own: Commit 2 (the handler fix) lands first and stops `GetProxyStatus` from reading `ExternalProxyStatus.ConnectionString` — the field still exists on the struct at that point, just unused, which Go permits without error. Commit 3 (the struct field removal) lands second, once Commit 2 has already eliminated the field's only production reader, so its own `go build` also passes standalone too. Deleting the field before updating its last reader — the inverse order — would break the handler-fix commit's build at that checkpoint, which is exactly the defect this ordering avoids. Docs (Commit 4) come last since they describe the post-fix allowlist contents (Gap 1) and post-fix connection-string format (Gap 3) — writing them last avoids describing not-yet-merged behavior.
 
 ### Rollback / contingency notes (for the PR as a whole)
 
-- **Rollback**: This is a single, additive `RUN` step in one Dockerfile stage. Reverting is a one-line-block removal (`git revert <sha>`); no migration, no data, no running-system state is affected.
-- **Contingency — Gate 1/2 failure (build breaks or the resolved version doesn't clear `v0.44.0`)**: The primary target for this fix is **`v0.46.0`** — that is the version to pin to, matching the existing Delve-stage convention (Section 1.1). `v0.44.0` is cited here only as the advisory's *fix floor*, i.e. the minimum acceptable fallback if `v0.46.0` itself turns out to be unreachable. If `go get golang.org/x/sys@v0.46.0` surfaces a hard transitive dependency conflict with `gosu`'s other direct dependencies at tag `1.17` (unlikely — `gosu` has a minimal dependency graph, but `go mod tidy` will reveal it if so), fall back to the next available patched version that still satisfies `>= v0.44.0` (the floor), and update the pin plus the security doc accordingly — still do not bump `GOSU_VERSION`.
-- **Contingency — Gate 4 unavailable locally (no Docker/Grype/Syft)**: Do not block the commit. Note this explicitly in the analysis doc and PR description; CI's regularly scheduled Grype/Trivy scan will confirm on the next run. This is called out in Section 4, gate 4, as an accepted condition, not a blocker.
-- **Contingency — hadolint not installed locally**: `tools/dockerfile_check.sh` still runs (it's a plain bash script with no external binary dependency) and covers the specific class of error (Alpine/Debian package-manager mismatch) most relevant to Dockerfile stage edits. Note in the commit if `hadolint` itself could not be run locally; CI's Dockerfile lint step will still catch anything `tools/dockerfile_check.sh` doesn't.
+- **Commit 1 rollback**: revert is a two-line removal from `allowedDockerPatterns`; zero blast radius outside `muzzle.go`/`muzzle_test.go`. If Supervisor review (Section 6) flags either new pattern as unsafe, drop only that one pattern and keep the other — they are independent list entries.
+- **Commits 2+3 rollback**: revert in reverse order of application if both must be undone — Commit 3 first, then Commit 2 — since Commit 3 depends on Commit 2 having already landed. Commit 3 can also be safely reverted alone at any time: it only re-adds an unused struct field and its assignment, which nothing reads, so this is a behavioral no-op. Commit 2 should **not** be reverted while Commit 3 is still applied — the handler would go back to referencing a field that no longer exists on the struct, breaking the build. If both are reverted, `connection_string` reverts to the hardcoded `"tcp://charon:<port>"` behavior — a regression, but not a security issue, and matches current `main` behavior, so this is a safe fallback if an unexpected issue surfaces post-merge.
+- **Commit 4 rollback**: docs-only, zero functional risk; can be reverted or amended independently at any time without touching code.
+- **If Monday's merge window is missed**: no urgency-driven shortcuts (no `--no-verify`, no skipping Supervisor review) — `CLAUDE.md`'s emergency-bypass path requires a follow-up issue and is not warranted here since none of the three gaps are actively exploited or user-blocking; slipping to the next merge window is an acceptable contingency.
 
 ---
 
-## 6. Acceptance Criteria
+## 8. Acceptance Criteria (Definition of Done)
 
-1. `Dockerfile`'s `gosu-builder` stage contains the new pinned `go get golang.org/x/sys@v0.46.0 && go mod tidy && go mod verify` step, correctly placed between the git-clone retry block and the `xx-go build` step, with an inline comment explaining the CVE, the Windows-only/never-compiled rationale, why `v0.46.0` was chosen (matches the Delve stage's existing pin for this advisory), and why `GOSU_VERSION` was not bumped instead.
-2. `docker build --target gosu-builder .` succeeds, and the resulting `gosu` binary's embedded module info (`go version -m`) reports `golang.org/x/sys` at `v0.46.0` (or, at minimum, `>= v0.44.0`).
-3. `Dockerfile:189` and `751-754` (Delve stage) are corrected to accurately describe GO-2026-5024/CVE-2026-39824 (`golang.org/x/sys/windows`, `NewNTUnicodeString`, fixed `v0.44.0+`) instead of the stale "< v0.27.0"/"v0.26.0" language.
-4. `hadolint Dockerfile` (if available) and `tools/dockerfile_check.sh Dockerfile` both pass with no new findings attributable to this change.
-5. A local Grype/Syft re-scan (via `security-scan-docker-image` skill) no longer reports the `golang.org/x/sys` finding against `gosu`, or — if local scanning tooling is unavailable — this is explicitly noted and deferred to CI's next scan.
-6. `docs/security/vulnerability-analysis-2026-07-16.md` exists, follows the repo's existing front-matter/template convention, clearly distinguishes this finding from the unrelated pre-existing `CVE-2026-39824` entry for `backend/go.mod`, and notes the Delve-stage comment correction.
-7. `docs/security/vulnerability-analysis-2026-06-26.md` has a new `## Erratum (2026-07-16)` section appended, correcting its original "scanner false positive" conclusion and linking to the new doc.
-8. `SECURITY.md` has a new `### ✅ [LOW]` entry under `## Patched Vulnerabilities` for this finding, and its `Last reviewed:` line is bumped to `2026-07-16`.
-9. `CHANGELOG.md`'s `[Unreleased]` → `### Security` section has a new one-line entry for this fix, clearly worded to avoid conflation with the existing adjacent `CVE-2026-39824` line.
-10. `.gitignore`, `.dockerignore`, and `codecov.yml` are confirmed unchanged (explicitly verified, not silently skipped).
-11. All changes land in a single commit on `development`, with the exact conventional-commit message `fix(deps): pin gosu's golang.org/x/sys to v0.46.0 (GO-2026-5024)`.
-12. `lefthook run pre-commit` passes on the commit.
+This hotfix follows the full `CLAUDE.md` Definition of Done (Task Completion Protocol), scoped to the files touched:
 
----
-
-## 7. Handoff
-
-Implementation is assigned to the **`devops`** agent — this is Dockerfile/CI/CD/build-infrastructure work, not backend Go application code or frontend TypeScript code, and falls squarely within that agent's remit (Docker builds, dependency pinning, build-stage debugging). The **`docs-writer`** agent may be pulled in afterward only if the security-doc/SECURITY.md/CHANGELOG prose needs a polish pass for tone/clarity — the technical content and required sections are fully specified above so this should be optional.
-
-Once implemented, hand off to the **`supervisor`** agent for review against this spec before merge, per the standard workflow.
+1. **Playwright E2E**: `npx playwright test --project=firefox` — full suite passes; `tests/orthrus-external-proxy.spec.ts`, `tests/orthrus-proxy-paths.spec.ts`, `tests/orthrus-agent-install.spec.ts`, `tests/orthrus-agents.spec.ts`, `tests/uptime-orthrus.spec.ts` specifically confirmed to pass **unmodified** (Section 2.3).
+2. **GORM Security Scan**: not triggered — no changes under `backend/internal/models/**`, no GORM queries or migrations touched.
+3. **Local Patch Coverage Preflight**: `bash scripts/local-patch-report.sh` — artifacts generated at `test-results/local-patch-report.md` / `.json`.
+4. **Security Scans**: `lefthook run pre-commit` (CodeQL Go + JS) — zero high/critical findings; Trivy container scan — no new findings (no new dependencies).
+5. **Staticcheck**: `make lint-staticcheck-only` — zero errors on `muzzle.go`, `session.go`, `orthrus_handler.go`.
+6. **Coverage**: `scripts/go-test-coverage.sh` — overall ≥85%, with the new/changed lines in `muzzle.go`, `session.go`, `orthrus_handler.go` fully covered by the tests specified in Sections 3.1 and 3.3.
+7. **Build**: `cd backend && go build ./...` succeeds (no frontend build step required — no frontend files touched, but `cd frontend && npm run build` should still be run as a smoke check per the standard DoD).
+8. **Muzzle allowlist regression guard**: `TestMuzzle_UnknownPath_Blocked` and `TestMuzzle_POST_Blocked` continue to pass, proving no unintended widening.
+9. **Hostname regression guard**: no production code anywhere in `backend/` contains the literal string `"charon:"` inside a `fmt.Sprintf("tcp://...")`-style construction (manual grep check as a final gate: `grep -rn 'tcp://charon' backend/ --include="*.go"` should return zero matches in non-test files after Commits 2–3 land).
+10. **Docs render correctly**: both new sections in `docs/features/orthrus.md` and `docs/guides/remote-docker-setup.md` reviewed for tone-match and correct Markdown rendering; no hardcoded `tcp://charon:<port>` example anywhere in either doc.
+11. **Supervisor sign-off** obtained per Section 6 before Commit 1 is written, and again before the PR is opened for merge.
