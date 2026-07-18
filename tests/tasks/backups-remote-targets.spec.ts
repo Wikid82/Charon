@@ -676,7 +676,14 @@ test.describe('Backups Page - Remote Targets', () => {
       'should surface the oauth_not_connected error code via the Test button toast path',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
-        await setupRemoteTargets(page, [buildDropboxTargetFixture({ oauth_status: 'not_connected' })]);
+        // Per commit 297872a6, the Test button is hidden client-side for an
+        // OAuth target unless oauth_status === 'connected', so this fixture
+        // must render as connected for the button to exist to click. The
+        // scenario under test is the backend race where the token was
+        // revoked/expired server-side between the list load and the Test
+        // click — the client's last-known status is still "connected" but
+        // the test call itself now 409s with oauth_not_connected.
+        await setupRemoteTargets(page, [buildDropboxTargetFixture({ oauth_status: 'connected' })]);
         await setupRemoteTargetOAuthTestError(
           page,
           'db1',
@@ -701,7 +708,12 @@ test.describe('Backups Page - Remote Targets', () => {
       'should surface the oauth_revoked error code via the Test button toast path',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
-        await setupRemoteTargets(page, [buildGoogleDriveTargetFixture({ oauth_status: 'revoked' })]);
+        // Same reasoning as the oauth_not_connected case above: the Test
+        // button only renders when oauth_status === 'connected' (commit
+        // 297872a6), so the fixture models a target that was connected as of
+        // the last list load, but whose token was revoked server-side by the
+        // time the Test call lands — hence the 409 oauth_revoked response.
+        await setupRemoteTargets(page, [buildGoogleDriveTargetFixture({ oauth_status: 'connected' })]);
         await setupRemoteTargetOAuthTestError(
           page,
           'gd1',
@@ -789,10 +801,11 @@ test.describe('Backups Page - Remote Targets', () => {
         // (accessible as "paragraph", not a bare "text" node), the
         // last-test-status Badge and the OAuth-status Badge carry no
         // distinguishing ARIA role so they collapse into a single "text"
-        // node, and the Test button's accessible name is its i18n label
-        // ("Test Connection"), not the bare "Test" the guess assumed —
-        // there is also no distinct "status" role since Badge renders a
-        // plain styled <span>, not role="status".
+        // node — there is also no distinct "status" role since Badge
+        // renders a plain styled <span>, not role="status". Per commit
+        // 297872a6, the Test button is hidden entirely for an OAuth-type
+        // target that is not connected (`oauth_status !== 'connected'`), so
+        // a not_connected row has no "Test Connection" button at all.
         const notConnectedRow = page.getByTestId('backup-remote-target-row').filter({ hasText: 'Dropbox Not Connected' });
         await expect(notConnectedRow).toMatchAriaSnapshot(`
           - listitem:
@@ -800,7 +813,6 @@ test.describe('Backups Page - Remote Targets', () => {
             - paragraph: DROPBOX
             - text: Never tested Not Connected
             - button "Connect"
-            - button "Test Connection"
             - button "Edit"
             - button "Delete"
         `);

@@ -75,7 +75,15 @@ test.describe('Backups Page - Encryption', () => {
         // Enabling without a passphrase should surface an inline requirement,
         // not silently enable encryption with no passphrase stored.
         await expect(page.getByTestId('backup-encryption-passphrase-input')).toBeVisible();
-        await expect(page.getByRole('button', { name: /save/i })).toBeDisabled();
+        // `BackupEncryptionCard` and `BackupScheduleCard` both save the same
+        // shared form and each own a "Save ..." button (commit 67ec1681 added
+        // BackupEncryptionCard's), so a generic /save/i locator now matches
+        // both ("Save Schedule" + "Save Encryption Settings"). This test is
+        // exercising the encryption toggle, so scope to that card's button by
+        // its exact accessible name (t('backups.encryption.save')).
+        await expect(
+          page.getByTestId('backup-encryption-card').getByRole('button', { name: 'Save Encryption Settings' })
+        ).toBeDisabled();
       }
     );
 
