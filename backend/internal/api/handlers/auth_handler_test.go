@@ -28,7 +28,7 @@ func setupAuthHandler(t *testing.T) (*AuthHandler, *gorm.DB) {
 
 	cfg := config.Config{JWTSecret: "test-secret"}
 	authService := services.NewAuthService(db, cfg)
-	return NewAuthHandler(authService), db
+	return NewAuthHandler(authService, nil), db
 }
 
 func TestAuthHandler_Login(t *testing.T) {
@@ -68,7 +68,7 @@ func TestSetSecureCookie_HTTPS_Strict(t *testing.T) {
 	req := httptest.NewRequest("POST", "https://example.com/login", http.NoBody)
 	ctx.Request = req
 
-	setSecureCookie(ctx, "auth_token", "abc", 60)
+	setSecureCookie(ctx, "auth_token", "abc", 60, nil)
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	c := cookies[0]
@@ -84,7 +84,7 @@ func TestSetSecureCookie_HTTP_Lax(t *testing.T) {
 	req.Header.Set("X-Forwarded-Proto", "http")
 	ctx.Request = req
 
-	setSecureCookie(ctx, "auth_token", "abc", 60)
+	setSecureCookie(ctx, "auth_token", "abc", 60, nil)
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	c := cookies[0]
@@ -98,10 +98,11 @@ func TestSetSecureCookie_HTTP_Loopback_Insecure(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(recorder)
 	req := httptest.NewRequest("POST", "http://127.0.0.1:8080/login", http.NoBody)
 	req.Host = "127.0.0.1:8080"
+	req.RemoteAddr = "127.0.0.1:9999"
 	req.Header.Set("X-Forwarded-Proto", "http")
 	ctx.Request = req
 
-	setSecureCookie(ctx, "auth_token", "abc", 60)
+	setSecureCookie(ctx, "auth_token", "abc", 60, nil)
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
@@ -116,10 +117,11 @@ func TestSetSecureCookie_ForwardedHTTPS_LocalhostForcesInsecure(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(recorder)
 	req := httptest.NewRequest("POST", "http://localhost:8080/login", http.NoBody)
 	req.Host = "localhost:8080"
+	req.RemoteAddr = "203.0.113.9:443"
 	req.Header.Set("X-Forwarded-Proto", "https")
 	ctx.Request = req
 
-	setSecureCookie(ctx, "auth_token", "abc", 60)
+	setSecureCookie(ctx, "auth_token", "abc", 60, []string{"203.0.113.9/32"})
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
@@ -134,10 +136,11 @@ func TestSetSecureCookie_ForwardedHTTPS_LoopbackForcesInsecure(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(recorder)
 	req := httptest.NewRequest("POST", "http://127.0.0.1:8080/login", http.NoBody)
 	req.Host = "127.0.0.1:8080"
+	req.RemoteAddr = "203.0.113.9:443"
 	req.Header.Set("X-Forwarded-Proto", "https")
 	ctx.Request = req
 
-	setSecureCookie(ctx, "auth_token", "abc", 60)
+	setSecureCookie(ctx, "auth_token", "abc", 60, []string{"203.0.113.9/32"})
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
@@ -152,11 +155,12 @@ func TestSetSecureCookie_ForwardedHostLocalhostForcesInsecure(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(recorder)
 	req := httptest.NewRequest("POST", "http://charon.local/login", http.NoBody)
 	req.Host = "charon.internal:8080"
+	req.RemoteAddr = "203.0.113.9:443"
 	req.Header.Set("X-Forwarded-Proto", "https")
 	req.Header.Set("X-Forwarded-Host", "localhost:8080")
 	ctx.Request = req
 
-	setSecureCookie(ctx, "auth_token", "abc", 60)
+	setSecureCookie(ctx, "auth_token", "abc", 60, []string{"203.0.113.9/32"})
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
@@ -164,18 +168,23 @@ func TestSetSecureCookie_ForwardedHostLocalhostForcesInsecure(t *testing.T) {
 	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
 }
 
-func TestSetSecureCookie_OriginLoopbackForcesInsecure(t *testing.T) {
+// TestSetSecureCookie_OriginHeaderIgnored_NoLongerAffectsSecurity replaces
+// the old TestSetSecureCookie_OriginLoopbackForcesInsecure (§13.4): Origin
+// and Referer no longer factor into the cookie-security decision at all, so
+// a spoofed loopback Origin over plain HTTP from a non-local, untrusted peer
+// cannot downgrade Secure — the public fail-safe holds, for the same
+// asserted values as before, but now via a different (accurate) mechanism.
+func TestSetSecureCookie_OriginHeaderIgnored_NoLongerAffectsSecurity(t *testing.T) {
 	t.Parallel()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	req := httptest.NewRequest("POST", "http://service.internal/login", http.NoBody)
 	req.Host = "service.internal:8080"
-	req.Header.Set("X-Forwarded-Proto", "https")
 	req.Header.Set("Origin", "http://127.0.0.1:8080")
 	ctx.Request = req
 
-	setSecureCookie(ctx, "auth_token", "abc", 60)
+	setSecureCookie(ctx, "auth_token", "abc", 60, nil)
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
@@ -189,10 +198,11 @@ func TestSetSecureCookie_HTTP_PrivateIP_Insecure(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(recorder)
 	req := httptest.NewRequest("POST", "http://192.168.1.50:8080/login", http.NoBody)
 	req.Host = "192.168.1.50:8080"
+	req.RemoteAddr = "192.168.1.50:9999"
 	req.Header.Set("X-Forwarded-Proto", "http")
 	ctx.Request = req
 
-	setSecureCookie(ctx, "auth_token", "abc", 60)
+	setSecureCookie(ctx, "auth_token", "abc", 60, nil)
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
@@ -206,10 +216,11 @@ func TestSetSecureCookie_HTTP_10Network_Insecure(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(recorder)
 	req := httptest.NewRequest("POST", "http://10.0.0.5:8080/login", http.NoBody)
 	req.Host = "10.0.0.5:8080"
+	req.RemoteAddr = "10.0.0.5:9999"
 	req.Header.Set("X-Forwarded-Proto", "http")
 	ctx.Request = req
 
-	setSecureCookie(ctx, "auth_token", "abc", 60)
+	setSecureCookie(ctx, "auth_token", "abc", 60, nil)
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
@@ -223,10 +234,11 @@ func TestSetSecureCookie_HTTP_172Network_Insecure(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(recorder)
 	req := httptest.NewRequest("POST", "http://172.16.0.1:8080/login", http.NoBody)
 	req.Host = "172.16.0.1:8080"
+	req.RemoteAddr = "172.16.0.1:9999"
 	req.Header.Set("X-Forwarded-Proto", "http")
 	ctx.Request = req
 
-	setSecureCookie(ctx, "auth_token", "abc", 60)
+	setSecureCookie(ctx, "auth_token", "abc", 60, nil)
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
@@ -240,10 +252,11 @@ func TestSetSecureCookie_HTTPS_PrivateIP_Secure(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(recorder)
 	req := httptest.NewRequest("POST", "https://192.168.1.50:8080/login", http.NoBody)
 	req.Host = "192.168.1.50:8080"
+	req.RemoteAddr = "192.168.1.50:9999"
 	req.Header.Set("X-Forwarded-Proto", "https")
 	ctx.Request = req
 
-	setSecureCookie(ctx, "auth_token", "abc", 60)
+	setSecureCookie(ctx, "auth_token", "abc", 60, nil)
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
@@ -257,10 +270,11 @@ func TestSetSecureCookie_HTTP_IPv6ULA_Insecure(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(recorder)
 	req := httptest.NewRequest("POST", "http://[fd12::1]:8080/login", http.NoBody)
 	req.Host = "[fd12::1]:8080"
+	req.RemoteAddr = "[fd12::1]:9999"
 	req.Header.Set("X-Forwarded-Proto", "http")
 	ctx.Request = req
 
-	setSecureCookie(ctx, "auth_token", "abc", 60)
+	setSecureCookie(ctx, "auth_token", "abc", 60, nil)
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
@@ -277,7 +291,7 @@ func TestSetSecureCookie_HTTP_PublicIP_Secure(t *testing.T) {
 	req.Header.Set("X-Forwarded-Proto", "http")
 	ctx.Request = req
 
-	setSecureCookie(ctx, "auth_token", "abc", 60)
+	setSecureCookie(ctx, "auth_token", "abc", 60, nil)
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
@@ -296,15 +310,244 @@ func TestSetSecureCookie_HTTP_TailscaleCGNAT_Insecure(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(recorder)
 	req := httptest.NewRequest("POST", "http://100.98.12.109:8787/login", http.NoBody)
 	req.Host = "100.98.12.109:8787"
+	req.RemoteAddr = "100.98.12.109:9999"
 	req.Header.Set("X-Forwarded-Proto", "http")
 	ctx.Request = req
 
-	setSecureCookie(ctx, "auth_token", "abc", 60)
+	setSecureCookie(ctx, "auth_token", "abc", 60, nil)
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
 	cookie := cookies[0]
 	assert.False(t, cookie.Secure)
 	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
+}
+
+// TestIsTrustedPeer table-drives isTrustedPeer's peer/allowlist matching,
+// including the fail-safe behavior of security.IsIPInCIDRList when the
+// configured list contains a malformed entry (docs/plans/current_spec.md
+// §13.6, test #1 — the malformed-CIDR sub-cases were a Supervisor review
+// correction folded in before implementation).
+func TestIsTrustedPeer(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		remoteAddr     string
+		trustedProxies []string
+		want           bool
+	}{
+		{
+			name:           "remote addr inside configured CIDR",
+			remoteAddr:     "203.0.113.9:1234",
+			trustedProxies: []string{"203.0.113.0/24"},
+			want:           true,
+		},
+		{
+			name:           "remote addr outside configured CIDR",
+			remoteAddr:     "198.51.100.9:1234",
+			trustedProxies: []string{"203.0.113.0/24"},
+			want:           false,
+		},
+		{
+			name:           "empty trustedProxies always false",
+			remoteAddr:     "203.0.113.9:1234",
+			trustedProxies: nil,
+			want:           false,
+		},
+		{
+			name:           "malformed remote addr with no port",
+			remoteAddr:     "not-an-address",
+			trustedProxies: []string{"203.0.113.0/24"},
+			want:           false,
+		},
+		{
+			name:           "malformed remote addr garbage string",
+			remoteAddr:     "!!!garbage!!!",
+			trustedProxies: []string{"203.0.113.0/24"},
+			want:           false,
+		},
+		{
+			// A malformed CIDR entry earlier in the list must not break
+			// matching of a valid entry that follows it — IsIPInCIDRList
+			// skips (continue) a net.ParseCIDR error on just that entry.
+			name:           "malformed CIDR entry does not break a later valid entry",
+			remoteAddr:     "10.1.2.3:5555",
+			trustedProxies: []string{"not-a-cidr", "10.0.0.0/8"},
+			want:           true,
+		},
+		{
+			// ...and the malformed entry must not be silently treated as
+			// match-everything for an address outside every valid entry.
+			name:           "malformed CIDR entry is not treated as match-everything",
+			remoteAddr:     "198.51.100.9:5555",
+			trustedProxies: []string{"not-a-cidr", "10.0.0.0/8"},
+			want:           false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			req := httptest.NewRequest(http.MethodGet, "http://example.com", http.NoBody)
+			req.RemoteAddr = tt.remoteAddr
+			ctx.Request = req
+
+			var got bool
+			assert.NotPanics(t, func() {
+				got = isTrustedPeer(ctx, tt.trustedProxies)
+			})
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestRequestScheme_ForgedForwardedProto_IgnoredFromUntrustedPeer proves a
+// forged X-Forwarded-Proto from an untrusted (non-allowlisted) peer no
+// longer flips the resolved scheme — the core fix of §13.
+func TestRequestScheme_ForgedForwardedProto_IgnoredFromUntrustedPeer(t *testing.T) {
+	t.Parallel()
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest(http.MethodGet, "http://example.com", http.NoBody)
+	req.RemoteAddr = "198.51.100.9:1234"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	ctx.Request = req
+
+	assert.Equal(t, "http", requestScheme(ctx, nil))
+}
+
+// TestRequestScheme_ForwardedProto_HonoredFromTrustedPeer proves the
+// legitimate trusted-reverse-proxy case still works when the peer address
+// matches the configured allowlist.
+func TestRequestScheme_ForwardedProto_HonoredFromTrustedPeer(t *testing.T) {
+	t.Parallel()
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest(http.MethodGet, "http://example.com", http.NoBody)
+	req.RemoteAddr = "198.51.100.9:1234"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	ctx.Request = req
+
+	assert.Equal(t, "https", requestScheme(ctx, []string{"198.51.100.9/32"}))
+}
+
+// TestIsLocalRequest_UntrustedPeer_IgnoresForwardedHost is the isLocalRequest
+// companion to TestRequestScheme_ForgedForwardedProto_IgnoredFromUntrustedPeer.
+func TestIsLocalRequest_UntrustedPeer_IgnoresForwardedHost(t *testing.T) {
+	t.Parallel()
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest(http.MethodGet, "http://example.com", http.NoBody)
+	req.RemoteAddr = "198.51.100.9:1234"
+	req.Header.Set("X-Forwarded-Host", "localhost")
+	ctx.Request = req
+
+	assert.False(t, isLocalRequest(ctx, nil))
+}
+
+// TestIsLocalRequest_TrustedPeer_HonorsForwardedHost is the isLocalRequest
+// companion to TestRequestScheme_ForwardedProto_HonoredFromTrustedPeer.
+func TestIsLocalRequest_TrustedPeer_HonorsForwardedHost(t *testing.T) {
+	t.Parallel()
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest(http.MethodGet, "http://example.com", http.NoBody)
+	req.RemoteAddr = "198.51.100.9:1234"
+	req.Header.Set("X-Forwarded-Host", "localhost")
+	ctx.Request = req
+
+	assert.True(t, isLocalRequest(ctx, []string{"198.51.100.9/32"}))
+}
+
+// TestIsLocalRequest_UntrustedPeer_UsesRawPeerIPNotHostHeader proves the
+// Host-header-forgery half of the QA-identified gap is closed: a forged Host
+// claiming loopback, from a peer that is genuinely public, is not local.
+func TestIsLocalRequest_UntrustedPeer_UsesRawPeerIPNotHostHeader(t *testing.T) {
+	t.Parallel()
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080", http.NoBody)
+	req.Host = "127.0.0.1:8080"
+	req.RemoteAddr = "198.51.100.9:1234"
+	ctx.Request = req
+
+	assert.False(t, isLocalRequest(ctx, nil))
+}
+
+// TestIsLocalRequest_UntrustedPeer_DirectTailscaleAccess_StillWorks is the
+// mandatory non-regression proof: the direct-access case §9 exists to
+// support (no proxy at all, Tailscale/LAN) must not regress when no trusted
+// proxy is configured. Uses the exact §9 bug-report IP.
+func TestIsLocalRequest_UntrustedPeer_DirectTailscaleAccess_StillWorks(t *testing.T) {
+	t.Parallel()
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest(http.MethodGet, "http://100.98.12.109:8787", http.NoBody)
+	req.Host = "100.98.12.109:8787"
+	req.RemoteAddr = "100.98.12.109:9999"
+	ctx.Request = req
+
+	assert.True(t, isLocalRequest(ctx, nil))
+}
+
+// TestSetSecureCookie_TrustedProxyHTTPS_PublicHost_Secure exercises the full
+// setSecureCookie integration for a genuine trusted-proxy-terminated-HTTPS
+// request to a public host — Secure/Strict, not via the local-network path.
+func TestSetSecureCookie_TrustedProxyHTTPS_PublicHost_Secure(t *testing.T) {
+	t.Parallel()
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest("POST", "http://admin.example.com/login", http.NoBody)
+	req.RemoteAddr = "203.0.113.9:443"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("X-Forwarded-Host", "admin.example.com")
+	ctx.Request = req
+
+	setSecureCookie(ctx, "auth_token", "abc", 60, []string{"203.0.113.9/32"})
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	cookie := cookies[0]
+	assert.True(t, cookie.Secure)
+	assert.Equal(t, http.SameSiteStrictMode, cookie.SameSite)
+}
+
+// TestSetSecureCookie_UntrustedForgedHeaders_NoDowngrade is the single most
+// important new test: full end-to-end reproduction and closure of the
+// QA-identified adversarial scenario — a public, untrusted peer forging
+// X-Forwarded-Proto/X-Forwarded-Host cannot downgrade its own cookie's
+// Secure attribute.
+func TestSetSecureCookie_UntrustedForgedHeaders_NoDowngrade(t *testing.T) {
+	t.Parallel()
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest("POST", "http://public-charon.example.com/login", http.NoBody)
+	req.RemoteAddr = "198.51.100.9:1234"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("X-Forwarded-Host", "127.0.0.1")
+	ctx.Request = req
+
+	setSecureCookie(ctx, "auth_token", "abc", 60, nil)
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	cookie := cookies[0]
+	assert.True(t, cookie.Secure, "forged headers from an untrusted peer must never downgrade Secure")
+}
+
+// TestIsLocalRequest_OriginHeaderIgnored replaces the deleted "origin
+// loopback" subtest of TestIsLocalRequest (§13.4): Origin no longer grants
+// locality even when it claims loopback.
+func TestIsLocalRequest_OriginHeaderIgnored(t *testing.T) {
+	t.Parallel()
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest(http.MethodGet, "http://example.com", http.NoBody)
+	req.Host = "example.com"
+	req.Header.Set("Origin", "http://127.0.0.1:3000")
+	ctx.Request = req
+
+	assert.False(t, isLocalRequest(ctx, nil))
 }
 
 func TestIsProduction(t *testing.T) {
@@ -324,10 +567,11 @@ func TestRequestScheme(t *testing.T) {
 		recorder := httptest.NewRecorder()
 		ctx, _ := gin.CreateTestContext(recorder)
 		req := httptest.NewRequest("GET", "http://example.com", http.NoBody)
+		req.RemoteAddr = "203.0.113.9:443"
 		req.Header.Set("X-Forwarded-Proto", "HTTPS, http")
 		ctx.Request = req
 
-		assert.Equal(t, "https", requestScheme(ctx))
+		assert.Equal(t, "https", requestScheme(ctx, []string{"203.0.113.9/32"}))
 	})
 
 	t.Run("tls request", func(t *testing.T) {
@@ -337,7 +581,7 @@ func TestRequestScheme(t *testing.T) {
 		req.TLS = &tls.ConnectionState{}
 		ctx.Request = req
 
-		assert.Equal(t, "https", requestScheme(ctx))
+		assert.Equal(t, "https", requestScheme(ctx, nil))
 	})
 
 	t.Run("url scheme fallback", func(t *testing.T) {
@@ -347,7 +591,7 @@ func TestRequestScheme(t *testing.T) {
 		req.URL.Scheme = "HTTP"
 		ctx.Request = req
 
-		assert.Equal(t, "http", requestScheme(ctx))
+		assert.Equal(t, "http", requestScheme(ctx, nil))
 	})
 
 	t.Run("default http fallback", func(t *testing.T) {
@@ -357,7 +601,7 @@ func TestRequestScheme(t *testing.T) {
 		req.URL.Scheme = ""
 		ctx.Request = req
 
-		assert.Equal(t, "http", requestScheme(ctx))
+		assert.Equal(t, "http", requestScheme(ctx, nil))
 	})
 }
 
@@ -367,12 +611,6 @@ func TestHostHelpers(t *testing.T) {
 		assert.Equal(t, "example.com", normalizeHost("example.com:8080"))
 		assert.Equal(t, "::1", normalizeHost("[::1]:2020"))
 		assert.Equal(t, "localhost", normalizeHost("localhost"))
-	})
-
-	t.Run("originHost", func(t *testing.T) {
-		assert.Equal(t, "", originHost(""))
-		assert.Equal(t, "", originHost("::://bad-url"))
-		assert.Equal(t, "localhost", originHost("http://localhost:8080/path"))
 	})
 
 	t.Run("isLocalOrPrivateHost", func(t *testing.T) {
@@ -404,21 +642,16 @@ func TestIsLocalRequest(t *testing.T) {
 		ctx, _ := gin.CreateTestContext(recorder)
 		req := httptest.NewRequest("GET", "http://example.com", http.NoBody)
 		req.Host = "example.com"
+		req.RemoteAddr = "203.0.113.9:443"
 		req.Header.Set("X-Forwarded-Host", "example.com, localhost:8080")
 		ctx.Request = req
 
-		assert.True(t, isLocalRequest(ctx))
+		assert.True(t, isLocalRequest(ctx, []string{"203.0.113.9/32"}))
 	})
 
-	t.Run("origin loopback", func(t *testing.T) {
-		recorder := httptest.NewRecorder()
-		ctx, _ := gin.CreateTestContext(recorder)
-		req := httptest.NewRequest("GET", "http://example.com", http.NoBody)
-		req.Header.Set("Origin", "http://127.0.0.1:3000")
-		ctx.Request = req
-
-		assert.True(t, isLocalRequest(ctx))
-	})
+	// The "origin loopback" subtest was removed here per §13.4 (Origin/Referer
+	// no longer factor into locality) — see the standalone
+	// TestIsLocalRequest_OriginHeaderIgnored test below for its replacement.
 
 	t.Run("non local request", func(t *testing.T) {
 		recorder := httptest.NewRecorder()
@@ -427,7 +660,7 @@ func TestIsLocalRequest(t *testing.T) {
 		req.Host = "example.com"
 		ctx.Request = req
 
-		assert.False(t, isLocalRequest(ctx))
+		assert.False(t, isLocalRequest(ctx, nil))
 	})
 }
 
@@ -436,7 +669,7 @@ func TestClearSecureCookie(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest("POST", "http://example.com/logout", http.NoBody)
 
-	clearSecureCookie(ctx, "auth_token")
+	clearSecureCookie(ctx, "auth_token", nil)
 
 	cookies := recorder.Result().Cookies()
 	require.Len(t, cookies, 1)
@@ -688,7 +921,7 @@ func setupAuthHandlerWithDB(t *testing.T) (*AuthHandler, *gorm.DB) {
 
 	cfg := config.Config{JWTSecret: "test-secret"}
 	authService := services.NewAuthService(db, cfg)
-	return NewAuthHandlerWithDB(authService, db), db
+	return NewAuthHandlerWithDB(authService, db, nil), db
 }
 
 func TestNewAuthHandlerWithDB(t *testing.T) {
@@ -1286,6 +1519,7 @@ func TestAuthHandler_Logout_InvalidatesSessionBeforeClearingCookie(t *testing.T)
 	// clearSecureCookie emit a non-Secure cookie.
 	logoutReq := httptest.NewRequest(http.MethodPost, "/auth/logout", http.NoBody)
 	logoutReq.Host = "100.98.12.109:8787"
+	logoutReq.RemoteAddr = "100.98.12.109:9999"
 	logoutReq.Header.Set("Authorization", "Bearer "+token)
 	logoutReq.Header.Set("X-Forwarded-Proto", "http")
 	logoutRes := httptest.NewRecorder()
@@ -1331,9 +1565,10 @@ func TestAuthHandler_HelperFunctions(t *testing.T) {
 		recorder := httptest.NewRecorder()
 		ctx, _ := gin.CreateTestContext(recorder)
 		req := httptest.NewRequest(http.MethodGet, "http://example.com", http.NoBody)
+		req.RemoteAddr = "203.0.113.9:443"
 		req.Header.Set("X-Forwarded-Proto", "HTTPS, http")
 		ctx.Request = req
-		assert.Equal(t, "https", requestScheme(ctx))
+		assert.Equal(t, "https", requestScheme(ctx, []string{"203.0.113.9/32"}))
 	})
 
 	t.Run("requestScheme uses tls when forwarded proto missing", func(t *testing.T) {
@@ -1342,7 +1577,7 @@ func TestAuthHandler_HelperFunctions(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "http://example.com", http.NoBody)
 		req.TLS = &tls.ConnectionState{}
 		ctx.Request = req
-		assert.Equal(t, "https", requestScheme(ctx))
+		assert.Equal(t, "https", requestScheme(ctx, nil))
 	})
 
 	t.Run("requestScheme uses request url scheme when available", func(t *testing.T) {
@@ -1351,7 +1586,7 @@ func TestAuthHandler_HelperFunctions(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "http://example.com", http.NoBody)
 		req.URL.Scheme = "HTTP"
 		ctx.Request = req
-		assert.Equal(t, "http", requestScheme(ctx))
+		assert.Equal(t, "http", requestScheme(ctx, nil))
 	})
 
 	t.Run("requestScheme defaults to http when request url is nil", func(t *testing.T) {
@@ -1360,17 +1595,12 @@ func TestAuthHandler_HelperFunctions(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "http://example.com", http.NoBody)
 		req.URL = nil
 		ctx.Request = req
-		assert.Equal(t, "http", requestScheme(ctx))
+		assert.Equal(t, "http", requestScheme(ctx, nil))
 	})
 
 	t.Run("normalizeHost strips brackets and port", func(t *testing.T) {
 		assert.Equal(t, "::1", normalizeHost("[::1]:443"))
 		assert.Equal(t, "example.com", normalizeHost("example.com:8080"))
-	})
-
-	t.Run("originHost returns empty for invalid url", func(t *testing.T) {
-		assert.Equal(t, "", originHost("://bad"))
-		assert.Equal(t, "example.com", originHost("https://example.com/path"))
 	})
 
 	t.Run("isLocalOrPrivateHost and isLocalRequest", func(t *testing.T) {
@@ -1382,9 +1612,10 @@ func TestAuthHandler_HelperFunctions(t *testing.T) {
 		ctx, _ := gin.CreateTestContext(recorder)
 		req := httptest.NewRequest(http.MethodGet, "http://service.internal", http.NoBody)
 		req.Host = "service.internal:8080"
+		req.RemoteAddr = "203.0.113.9:443"
 		req.Header.Set("X-Forwarded-Host", "example.com, localhost:8080")
 		ctx.Request = req
-		assert.True(t, isLocalRequest(ctx))
+		assert.True(t, isLocalRequest(ctx, []string{"203.0.113.9/32"}))
 	})
 }
 

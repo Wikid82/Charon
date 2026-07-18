@@ -711,7 +711,7 @@ func TestAuthHandler_Register_InvalidJSON(t *testing.T) {
 
 	cfg := config.Config{JWTSecret: "test-secret"}
 	authService := services.NewAuthService(db, cfg)
-	h := NewAuthHandler(authService)
+	h := NewAuthHandler(authService, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

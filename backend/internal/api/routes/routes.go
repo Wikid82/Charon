@@ -205,7 +205,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 	// Auth routes
 	authService := services.NewAuthService(db, cfg)
-	authHandler := handlers.NewAuthHandlerWithDB(authService, db)
+	authHandler := handlers.NewAuthHandlerWithDB(authService, db, cfg.Security.TrustedProxies)
 	authMiddleware := middleware.AuthMiddleware(authService)
 
 	api := router.Group("/api/v1")

@@ -3,29 +3,30 @@ package handlers
 import (
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"strconv"
 	"strings"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
 type AuthHandler struct {
-	authService *services.AuthService
-	db          *gorm.DB
+	authService    *services.AuthService
+	db             *gorm.DB
+	trustedProxies []string
 }
 
-func NewAuthHandler(authService *services.AuthService) *AuthHandler {
-	return &AuthHandler{authService: authService}
+func NewAuthHandler(authService *services.AuthService, trustedProxies []string) *AuthHandler {
+	return &AuthHandler{authService: authService, trustedProxies: trustedProxies}
 }
 
 // NewAuthHandlerWithDB creates an AuthHandler with database access for forward auth.
-func NewAuthHandlerWithDB(authService *services.AuthService, db *gorm.DB) *AuthHandler {
-	return &AuthHandler{authService: authService, db: db}
+func NewAuthHandlerWithDB(authService *services.AuthService, db *gorm.DB, trustedProxies []string) *AuthHandler {
+	return &AuthHandler{authService: authService, db: db, trustedProxies: trustedProxies}
 }
 
 // isProduction checks if we're running in production mode
@@ -34,11 +35,29 @@ func isProduction() bool {
 	return env == "production" || env == "prod"
 }
 
-func requestScheme(c *gin.Context) string {
-	if proto := c.GetHeader("X-Forwarded-Proto"); proto != "" {
-		// Honor first entry in a comma-separated header
-		parts := strings.Split(proto, ",")
-		return strings.ToLower(strings.TrimSpace(parts[0]))
+// isTrustedPeer reports whether the request's actual TCP peer (its raw
+// RemoteAddr — never a header) is in the configured trusted-proxy set. Only
+// a trusted peer's X-Forwarded-Proto/X-Forwarded-Host are honored by
+// requestScheme/isLocalRequest below. Empty trustedProxies => always false
+// (trust nobody), matching Gin's SetTrustedProxies(nil) default.
+func isTrustedPeer(c *gin.Context, trustedProxies []string) bool {
+	if len(trustedProxies) == 0 || c.Request == nil {
+		return false
+	}
+	peerIP := normalizeHost(c.Request.RemoteAddr)
+	if peerIP == "" {
+		return false
+	}
+	return security.IsIPInCIDRList(peerIP, strings.Join(trustedProxies, ","))
+}
+
+func requestScheme(c *gin.Context, trustedProxies []string) string {
+	if isTrustedPeer(c, trustedProxies) {
+		if proto := c.GetHeader("X-Forwarded-Proto"); proto != "" {
+			// Honor first entry in a comma-separated header
+			parts := strings.Split(proto, ",")
+			return strings.ToLower(strings.TrimSpace(parts[0]))
+		}
 	}
 	if c.Request != nil && c.Request.TLS != nil {
 		return "https"
@@ -62,19 +81,6 @@ func normalizeHost(rawHost string) string {
 	}
 
 	return strings.Trim(host, "[]")
-}
-
-func originHost(rawURL string) string {
-	if rawURL == "" {
-		return ""
-	}
-
-	parsedURL, err := url.Parse(rawURL)
-	if err != nil {
-		return ""
-	}
-
-	return normalizeHost(parsedURL.Host)
 }
 
 // tailscaleCGNAT is Tailscale's default address range (RFC 6598 "Shared
@@ -115,40 +121,37 @@ func isLocalOrPrivateHost(host string) bool {
 	return tailscaleCGNAT.Contains(ip)
 }
 
-func isLocalRequest(c *gin.Context) bool {
-	candidates := []string{}
+func isLocalRequest(c *gin.Context, trustedProxies []string) bool {
+	if c.Request == nil {
+		return false
+	}
 
-	if c.Request != nil {
-		candidates = append(candidates, normalizeHost(c.Request.Host))
-
+	if isTrustedPeer(c, trustedProxies) {
+		candidates := []string{normalizeHost(c.Request.Host)}
 		if c.Request.URL != nil {
 			candidates = append(candidates, normalizeHost(c.Request.URL.Host))
 		}
-
-		candidates = append(candidates,
-			originHost(c.Request.Header.Get("Origin")),
-			originHost(c.Request.Header.Get("Referer")),
-		)
+		if forwardedHost := c.GetHeader("X-Forwarded-Host"); forwardedHost != "" {
+			for _, part := range strings.Split(forwardedHost, ",") {
+				candidates = append(candidates, normalizeHost(part))
+			}
+		}
+		for _, host := range candidates {
+			if host != "" && isLocalOrPrivateHost(host) {
+				return true
+			}
+		}
+		return false
 	}
 
-	if forwardedHost := c.GetHeader("X-Forwarded-Host"); forwardedHost != "" {
-		parts := strings.Split(forwardedHost, ",")
-		for _, part := range parts {
-			candidates = append(candidates, normalizeHost(part))
-		}
-	}
-
-	for _, host := range candidates {
-		if host == "" {
-			continue
-		}
-
-		if isLocalOrPrivateHost(host) {
-			return true
-		}
-	}
-
-	return false
+	// Untrusted peer: Host, X-Forwarded-Host, Origin, and Referer are all
+	// values the connecting client fully controls and the server cannot
+	// verify — a raw HTTP client hitting this port directly can set Host to
+	// anything ("curl -H 'Host: 127.0.0.1' http://public-charon:8080/") just
+	// as trivially as it can set X-Forwarded-Host. The one fact this server
+	// can actually trust is who opened the TCP connection.
+	peerIP := normalizeHost(c.Request.RemoteAddr)
+	return peerIP != "" && isLocalOrPrivateHost(peerIP)
 }
 
 // setSecureCookie sets an auth cookie with security best practices
@@ -166,15 +169,15 @@ func isLocalRequest(c *gin.Context) bool {
 //     termination.
 //   - SameSite: Lax for any local/private-network request (regardless of scheme),
 //     Strict otherwise (public HTTPS only)
-func setSecureCookie(c *gin.Context, name, value string, maxAge int) {
-	scheme := requestScheme(c)
+func setSecureCookie(c *gin.Context, name, value string, maxAge int, trustedProxies []string) {
+	scheme := requestScheme(c, trustedProxies)
 	secure := true
 	sameSite := http.SameSiteStrictMode
 	if scheme != "https" {
 		sameSite = http.SameSiteLaxMode
 	}
 
-	if isLocalRequest(c) {
+	if isLocalRequest(c, trustedProxies) {
 		sameSite = http.SameSiteLaxMode
 		if scheme != "https" {
 			secure = false
@@ -201,8 +204,8 @@ func setSecureCookie(c *gin.Context, name, value string, maxAge int) {
 }
 
 // clearSecureCookie removes a cookie with the same security settings
-func clearSecureCookie(c *gin.Context, name string) {
-	setSecureCookie(c, name, "", -1)
+func clearSecureCookie(c *gin.Context, name string, trustedProxies []string) {
+	setSecureCookie(c, name, "", -1, trustedProxies)
 }
 
 type LoginRequest struct {
@@ -224,7 +227,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	// Set secure cookie (scheme-aware) and return token for header fallback
-	setSecureCookie(c, "auth_token", token, 3600*24)
+	setSecureCookie(c, "auth_token", token, 3600*24, h.trustedProxies)
 
 	c.JSON(http.StatusOK, gin.H{"token": token})
 }
@@ -261,7 +264,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		}
 	}
 
-	clearSecureCookie(c, "auth_token")
+	clearSecureCookie(c, "auth_token", h.trustedProxies)
 	c.JSON(http.StatusOK, gin.H{"message": "Logged out"})
 }
 
@@ -288,7 +291,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 	}
 
 	// Set secure cookie and return new token
-	setSecureCookie(c, "auth_token", token, 3600*24)
+	setSecureCookie(c, "auth_token", token, 3600*24, h.trustedProxies)
 
 	c.JSON(http.StatusOK, gin.H{"token": token})
 }
