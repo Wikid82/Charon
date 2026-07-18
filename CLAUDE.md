@@ -76,6 +76,40 @@ Before proposing ANY code change or fix, build a mental map of the feature:
 4. **"Should replace if statement with..." (S10xx)** — Apply suggested simplification.
 5. **Emergency bypass (use sparingly)**: `git commit --no-verify -m "Emergency hotfix"` — MUST create follow-up issue.
 
+### Troubleshooting CodeQL (Local Dev / Sandbox)
+
+`lefthook run codeql` (`scripts/pre-commit-hooks/codeql-go-scan.sh` /
+`codeql-js-scan.sh`) calls a bare `codeql` binary with no version pinning —
+it assumes a working CLI is already on PATH. Sandbox/dev-container images
+can ship a stale system `codeql` (observed: 2.16.0) that fails against this
+repo's pinned query packs (`codeql/go-queries:codeql-suites/go-security-and-quality.qls`
+and the JS equivalent) with `extensions-by-pack` resolution / version-mismatch
+errors. **This is a local/dev-environment issue only** — CI
+(`.github/workflows/codeql.yml`) drives CodeQL entirely through
+`github/codeql-action@v4` (pinned by SHA), which downloads and manages its
+own CLI toolchain independent of whatever is on the runner's PATH, so CI is
+never affected by this.
+
+1. **Fix**: Run `bash scripts/install-codeql.sh`. It installs the official
+   `gh-codeql` GitHub CLI extension (if missing), pins it to a known-working
+   CodeQL CLI version for this repo's query packs, and installs a `codeql`
+   shim on PATH (`gh codeql install-stub`) that forwards to `gh codeql` —
+   every existing script that calls bare `codeql` then works unmodified.
+   Safe to re-run.
+2. **Manual equivalent**, if you need to do it by hand:
+
+   ```bash
+   gh extension install github/gh-codeql   # once
+   gh codeql set-version v2.26.0           # matches this repo's query pack pins
+   gh codeql install-stub "$HOME/.local/bin"
+   ```
+
+3. **Verify**: `codeql version` should report `2.26.0` or later and
+   `lefthook run codeql` should complete without pack-resolution errors.
+4. If a newer/older pin is ever needed, update `CODEQL_VERSION` at the top
+   of `scripts/install-codeql.sh` and re-validate `lefthook run codeql`
+   locally before committing the bump.
+
 ## Frontend Workflow
 
 - **Location**: Always work within `frontend/`.
