@@ -20,24 +20,14 @@ const MOCK_SNIPPETS = {
 };
 
 async function openOrthrusWizard(page: import('@playwright/test').Page) {
-  await page.route(REMOTE_SERVERS_API, (route) => {
-    route.fulfill({ json: [] });
-  });
-  await page.route(HECATE_STATUS_API, (route) => {
-    route.fulfill({ json: [] });
-  });
-  await page.route(ORTHRUS_AGENT_SNIPPETS_API, (route) => {
-    route.fulfill({ json: MOCK_SNIPPETS });
-  });
+  await page.route(REMOTE_SERVERS_API, (route) => route.fulfill({ json: [] }));
+  await page.route(HECATE_STATUS_API, (route) => route.fulfill({ json: [] }));
+  await page.route(ORTHRUS_AGENT_SNIPPETS_API, (route) => route.fulfill({ json: MOCK_SNIPPETS }));
   await page.route(ORTHRUS_AGENTS_API, (route) => {
     if (route.request().method() === 'POST') {
       route.fulfill({
         json: {
-          agent: {
-            uuid: MOCK_AGENT_UUID,
-            name: MOCK_AGENT_NAME,
-            enabled: true,
-          },
+          agent: { uuid: MOCK_AGENT_UUID, name: MOCK_AGENT_NAME, enabled: true },
           auth_key: MOCK_AUTH_KEY,
         },
       });
@@ -46,32 +36,33 @@ async function openOrthrusWizard(page: import('@playwright/test').Page) {
     }
   });
 
-  await page.goto('/remote-servers');
+  // Provisioning + the install wizard live on /hecate/agent (HecateAgent.tsx),
+  // not on /remote-servers — RemoteServerForm's "agent" connection mode only
+  // attaches an already-provisioned agent (see ConnectionTypeSelector.tsx),
+  // it does not provision new ones. See docs/plans/current_spec.md §9.1.
+  await page.goto('/hecate/agent');
   await waitForLoadingComplete(page);
 
-  const addButton = page.getByRole('button', { name: /add server/i }).first();
-  await expect(addButton).toBeVisible({ timeout: 10000 });
-  await addButton.click();
+  await page.getByRole('button', { name: /provision new agent/i }).click();
 
-  await expect(page.getByRole('heading', { name: /add remote server/i })).toBeVisible({ timeout: 5000 });
+  const provisionDialog = page.getByRole('dialog');
+  await expect(provisionDialog).toBeVisible({ timeout: 5000 });
 
-  const connectionTypeSelect = page.locator('#connection-type');
-  await connectionTypeSelect.selectOption('orthrus');
+  await provisionDialog.locator('#provision-name').fill(MOCK_AGENT_NAME);
 
-  await expect(page.getByRole('button', { name: /provision.*agent/i })).toBeVisible({ timeout: 5000 });
+  // Scoped to the dialog: the page's own "Provision New Agent" trigger button
+  // shares the exact same accessible name as this dialog's submit button.
+  await provisionDialog.getByRole('button', { name: /provision new agent/i }).click();
 
-  const nameInput = page.getByRole('textbox', { name: /name/i }).first();
-  if (await nameInput.isVisible()) {
-    await nameInput.fill(MOCK_AGENT_NAME);
-  }
+  // The provision dialog closes and the install wizard opens in the same
+  // batched state update, but the Dialog exit/enter animation (Dialog.tsx,
+  // data-[state=open|closed]:animate-in/out) can transiently keep both
+  // role="dialog" nodes mounted — filter on content instead of relying on
+  // there being exactly one `dialog` role element.
+  const wizardDialog = page.getByRole('dialog').filter({ hasText: /install orthrus agent/i });
+  await expect(wizardDialog).toBeVisible({ timeout: 8000 });
 
-  const provisionButton = page.getByRole('button', { name: /provision.*agent/i });
-  await provisionButton.click();
-
-  const dialog = page.getByRole('dialog');
-  await expect(dialog).toBeVisible({ timeout: 8000 });
-
-  return dialog;
+  return wizardDialog;
 }
 
 test.describe('Orthrus Agent Install Wizard', () => {
