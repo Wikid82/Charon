@@ -690,11 +690,10 @@ func TestOrthrusHandler_GetProxyStatus_Connected(t *testing.T) {
 	agentUUID := provisioned["agent"].(map[string]any)["uuid"].(string)
 
 	liveStatus := orthrus.ExternalProxyStatus{
-		ConfiguredPort:   2375,
-		ActivePort:       2375,
-		BoundAddress:     "0.0.0.0:2375",
-		ConnectionString: "tcp://charon:2375",
-		Active:           true,
+		ConfiguredPort: 2375,
+		ActivePort:     2375,
+		BoundAddress:   "0.0.0.0:2375",
+		Active:         true,
 	}
 	h.SetProxyResolver(&mockProxyResolver{status: liveStatus, ok: true})
 
@@ -711,7 +710,126 @@ func TestOrthrusHandler_GetProxyStatus_Connected(t *testing.T) {
 	assert.Equal(t, true, resp["active"])
 	assert.Equal(t, float64(2375), resp["active_port"])
 	assert.Equal(t, "0.0.0.0:2375", resp["bind_address"])
-	assert.Equal(t, "tcp://charon:2375", resp["connection_string"])
+	// httptest.NewRequest with no explicit Host set defaults Request.Host to
+	// "example.com" (net/http/httptest behavior), confirming the handler now
+	// builds connection_string from request context instead of relaying a
+	// hardcoded value from the session layer.
+	assert.Equal(t, "tcp://example.com:2375", resp["connection_string"])
+}
+
+// TestOrthrusHandler_GetProxyStatus_ConnectionString_UsesXCharonURLHeader verifies
+// that when the X-Charon-URL header is present, its hostname (not its port) is
+// used to build connection_string — the docker port always comes from
+// status.ActivePort, never from the header's own port.
+func TestOrthrusHandler_GetProxyStatus_ConnectionString_UsesXCharonURLHeader(t *testing.T) {
+	h, _ := newOrthrusTestSetup(t)
+
+	wProv := httptest.NewRecorder()
+	cProv, _ := gin.CreateTestContext(wProv)
+	cProv.Request = httptest.NewRequest(http.MethodPost, "/management/orthrus/agents",
+		bytes.NewBufferString(`{"name":"header-agent"}`))
+	cProv.Request.Header.Set("Content-Type", "application/json")
+	h.Provision(cProv)
+	require.Equal(t, http.StatusCreated, wProv.Code)
+	var provisioned map[string]any
+	require.NoError(t, json.Unmarshal(wProv.Body.Bytes(), &provisioned))
+	agentUUID := provisioned["agent"].(map[string]any)["uuid"].(string)
+
+	liveStatus := orthrus.ExternalProxyStatus{
+		ConfiguredPort: 2375,
+		ActivePort:     2375,
+		BoundAddress:   "0.0.0.0:2375",
+		Active:         true,
+	}
+	h.SetProxyResolver(&mockProxyResolver{status: liveStatus, ok: true})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/management/orthrus/agents/"+agentUUID+"/proxy-status", http.NoBody)
+	c.Request.Header.Set("X-Charon-URL", "https://mybox.example.org:8443")
+	c.Params = gin.Params{{Key: "uuid", Value: agentUUID}}
+	h.GetProxyStatus(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "tcp://mybox.example.org:2375", resp["connection_string"])
+}
+
+// TestOrthrusHandler_GetProxyStatus_ConnectionString_HostPortStripped verifies
+// that when no X-Charon-URL header is present, the port is stripped from
+// Request.Host and replaced with status.ActivePort.
+func TestOrthrusHandler_GetProxyStatus_ConnectionString_HostPortStripped(t *testing.T) {
+	h, _ := newOrthrusTestSetup(t)
+
+	wProv := httptest.NewRecorder()
+	cProv, _ := gin.CreateTestContext(wProv)
+	cProv.Request = httptest.NewRequest(http.MethodPost, "/management/orthrus/agents",
+		bytes.NewBufferString(`{"name":"hostport-agent"}`))
+	cProv.Request.Header.Set("Content-Type", "application/json")
+	h.Provision(cProv)
+	require.Equal(t, http.StatusCreated, wProv.Code)
+	var provisioned map[string]any
+	require.NoError(t, json.Unmarshal(wProv.Body.Bytes(), &provisioned))
+	agentUUID := provisioned["agent"].(map[string]any)["uuid"].(string)
+
+	liveStatus := orthrus.ExternalProxyStatus{
+		ConfiguredPort: 2375,
+		ActivePort:     2375,
+		BoundAddress:   "0.0.0.0:2375",
+		Active:         true,
+	}
+	h.SetProxyResolver(&mockProxyResolver{status: liveStatus, ok: true})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/management/orthrus/agents/"+agentUUID+"/proxy-status", http.NoBody)
+	c.Request.Host = "192.168.1.50:8443"
+	c.Params = gin.Params{{Key: "uuid", Value: agentUUID}}
+	h.GetProxyStatus(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "tcp://192.168.1.50:2375", resp["connection_string"])
+}
+
+// TestOrthrusHandler_GetProxyStatus_ConnectionString_EmptyWhenInactive verifies
+// that connection_string stays empty when status.Active is false, regardless
+// of headers — regression guard for the active && activePort > 0 guard
+// condition that moved from session.go into the handler.
+func TestOrthrusHandler_GetProxyStatus_ConnectionString_EmptyWhenInactive(t *testing.T) {
+	h, _ := newOrthrusTestSetup(t)
+
+	wProv := httptest.NewRecorder()
+	cProv, _ := gin.CreateTestContext(wProv)
+	cProv.Request = httptest.NewRequest(http.MethodPost, "/management/orthrus/agents",
+		bytes.NewBufferString(`{"name":"inactive-agent"}`))
+	cProv.Request.Header.Set("Content-Type", "application/json")
+	h.Provision(cProv)
+	require.Equal(t, http.StatusCreated, wProv.Code)
+	var provisioned map[string]any
+	require.NoError(t, json.Unmarshal(wProv.Body.Bytes(), &provisioned))
+	agentUUID := provisioned["agent"].(map[string]any)["uuid"].(string)
+
+	errStatus := orthrus.ExternalProxyStatus{
+		ConfiguredPort: 2375,
+		Active:         false,
+		Error:          "bind failed: address already in use",
+	}
+	h.SetProxyResolver(&mockProxyResolver{status: errStatus, ok: true})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/management/orthrus/agents/"+agentUUID+"/proxy-status", http.NoBody)
+	c.Request.Header.Set("X-Charon-URL", "https://mybox.example.org:8443")
+	c.Params = gin.Params{{Key: "uuid", Value: agentUUID}}
+	h.GetProxyStatus(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "", resp["connection_string"])
 }
 
 // TestOrthrusHandler_SetProxyResolver_TypedNilClearsResolver verifies that

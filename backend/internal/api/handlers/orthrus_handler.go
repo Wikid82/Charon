@@ -2,7 +2,10 @@ package handlers
 
 import (
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"reflect"
 
 	"github.com/gin-gonic/gin"
@@ -174,6 +177,24 @@ func (h *OrthrusHandler) GetInstallSnippets(c *gin.Context) {
 	c.JSON(http.StatusOK, snippets)
 }
 
+// resolveExternalProxyHost determines the hostname third-party tools should use
+// to reach this Charon instance's external Docker proxy ports. It mirrors the
+// X-Charon-URL header pattern used by GetInstallSnippets, but — unlike that
+// handler — returns a bare hostname only (no scheme, no port): the external
+// proxy's TCP port is independent of Charon's own web port, so the docker
+// port is appended separately by the caller.
+func resolveExternalProxyHost(c *gin.Context) string {
+	if raw := c.GetHeader("X-Charon-URL"); raw != "" {
+		if u, err := url.Parse(raw); err == nil && u.Hostname() != "" {
+			return u.Hostname()
+		}
+	}
+	if host, _, err := net.SplitHostPort(c.Request.Host); err == nil {
+		return host
+	}
+	return c.Request.Host
+}
+
 // GetProxyStatus returns the runtime external Docker proxy state for an agent.
 // 404 when the agent is not found in the database. When the agent exists but
 // is not currently connected, agent_online is false and live fields are zero.
@@ -200,7 +221,9 @@ func (h *OrthrusHandler) GetProxyStatus(c *gin.Context) {
 			resp["active"] = status.Active
 			resp["active_port"] = status.ActivePort
 			resp["bind_address"] = status.BoundAddress
-			resp["connection_string"] = status.ConnectionString
+			if status.Active && status.ActivePort > 0 {
+				resp["connection_string"] = fmt.Sprintf("tcp://%s:%d", resolveExternalProxyHost(c), status.ActivePort)
+			}
 			if status.Error != "" {
 				resp["error"] = status.Error
 			}
