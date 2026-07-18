@@ -421,3 +421,125 @@ This hotfix follows the full `CLAUDE.md` Definition of Done (Task Completion Pro
 9. **Hostname regression guard**: no production code anywhere in `backend/` contains the literal string `"charon:"` inside a `fmt.Sprintf("tcp://...")`-style construction (manual grep check as a final gate: `grep -rn 'tcp://charon' backend/ --include="*.go"` should return zero matches in non-test files after Commits 2–3 land).
 10. **Docs render correctly**: both new sections in `docs/features/orthrus.md` and `docs/guides/remote-docker-setup.md` reviewed for tone-match and correct Markdown rendering; no hardcoded `tcp://charon:<port>` example anywhere in either doc.
 11. **Supervisor sign-off** obtained per Section 6 before Commit 1 is written, and again before the PR is opened for merge.
+
+---
+
+## 9. Hardening Commits — Pre-existing E2E Failure Root Causes
+
+**Status**: Investigation-only addendum, appended after Commits 1–5 (backend/docs hotfix, `98a68b67`, `7f307c3c`, `1eb266d2`, `c778b53a`, `1caa4c65`) and the QA-report commit (`d70be096`) had already landed. Nothing in this section touches, reopens, or depends on any file changed by those six commits — both issues below are pre-existing, previously-out-of-scope E2E failures unrelated to the Orthrus External Docker Proxy hotfix. They are pulled in now as two additional, independent hardening commits in the same PR, per `CLAUDE.md`'s "one feature = one PR, sliced into ordered commits" rule. Root-cause tracing followed the mandatory Root Cause Analysis Protocol (entry point → transformation → persistence → exit point) for both issues before any fix was specced.
+
+**Security boundary check (both issues)**: confirmed by direct inspection — neither issue's investigation or fix touches `backend/internal/orthrus/muzzle.go`, `session.go`, `orthrus_handler.go`, or any other file in `backend/internal/orthrus/**`. Both are frontend-E2E-test-only concerns: Issue 1 concerns a Playwright helper's navigation target and the (already-shipped, already-deprecated-elsewhere) `RemoteServerForm`/`ConnectionTypeSelector` UI; Issue 2 concerns a Playwright test's locator strategy against `frontend/src/pages/Uptime.tsx`'s existing sort behavior. **No bearing on the Orthrus security boundary.**
+
+### 9.1 Issue 1 — `tests/orthrus-agent-install.spec.ts` (all 18 tests failing)
+
+**Root cause — confirmed, and it is *not* what QA's initial finding described.** QA was correct that `#connection-type` no longer exists, but wrong about the fix being a simple selector swap. Tracing the full flow (entry point → UI → exit point):
+
+- **Entry point**: `openOrthrusWizard()` (`tests/orthrus-agent-install.spec.ts:22-75`) calls `page.goto('/remote-servers')` (line 49), then `page.locator('#connection-type').selectOption('orthrus')` (line 58-59), then expects a `getByRole('button', { name: /provision.*agent/i })` (line 61) to appear inline in that same form.
+- **Transformation (live component trace)**: `/remote-servers` redirects to `/hecate/remote-servers` (`frontend/src/App.tsx:84,90`) → renders `frontend/src/pages/RemoteServers.tsx`, which renders `frontend/src/components/RemoteServerForm.tsx` (line 362) on "Add Server" click. `RemoteServerForm.tsx:195-259` delegates the connection-type UI to `frontend/src/components/hecate/ConnectionTypeSelector.tsx`, which renders a `fieldset`/`radiogroup` of three radio buttons (`direct` / `agent` / `provider`, lines 46-99) — **not** a `<select id="connection-type">`, confirming QA's first observation. But critically: when `mode === 'agent'` is selected, `ConnectionTypeSelector.tsx:101-137` renders only a `<select id="cts-agent">` **dropdown of already-provisioned agents** (populated from `useAgentList()`) — there is no name-entry field, no "Provision…Agent" button, and no install-wizard trigger anywhere in this component or its parent (`RemoteServerForm.tsx`) in "agent" mode. Confirmed via full-file read of both components: the string "provision" does not appear in either file.
+- **Why**: this is by design, not a bug. Commit `4e9c5a9e` ("fix(hecate): fix stale E2E selectors, close unit test gaps, and polish UX", 2026-05-05) — the same commit QA cited — states explicitly in its own message: *"The RemoteServerForm connection type redesign replaced a `<select>` dropdown with three radio buttons."* That redesign intentionally scoped `RemoteServerForm`'s agent mode to **attaching an existing agent**, not provisioning a new one. The provisioning + install-wizard flow was relocated to a dedicated page: `frontend/src/pages/HecateAgent.tsx` (route `/hecate/agent`, `frontend/src/App.tsx:86`), which renders `OrthrusAgentManager` plus a "Provision New Agent" button (`HecateAgent.tsx:73-76`, label from `t('hecate.page.provisionAgent')` = `"Provision New Agent"`) that opens a name-entry `Dialog` (`HecateAgent.tsx:81-124`, input `#provision-name`), whose submit button — also labeled "Provision New Agent" (`HecateAgent.tsx:116-121`) — calls `doProvision` → `getInstallSnippets` → sets `wizardData`, which mounts `frontend/src/components/hecate/OrthrusInstallWizard.tsx` (title `t('hecate.wizard.title', {name})` = **"Install Orthrus Agent"**, `#auth-key-input`, five platform tabs — structurally identical to what the rest of the spec file already asserts on). The old `Hecate.tsx` page, which historically hosted this same combined flow, carries an explicit doc-comment: `@deprecated Replaced by HecateTunnels.tsx and HecateAgent.tsx. ... Do not add new routes or functionality to this component.` (`frontend/src/pages/Hecate.tsx:1-4`).
+- **Exit point / confirmed-working precedent**: `tests/orthrus-agents.spec.ts:52-67` (`setupAgentPage()`) already exercises this exact `/hecate/agent` flow successfully (`page.goto('/hecate/agent')`, mocking the same `ORTHRUS_AGENTS_API`/`REMOTE_SERVERS_API`/`HECATE_STATUS_API` routes), and `tests/orthrus-agents.spec.ts:234-252` already opens the provision dialog with `page.getByRole('button', { name: /provision new agent/i })` and reads `dialog.locator('#provision-name')` — proving the flow itself works correctly end-to-end in the current app; only this one spec file was missed when `4e9c5a9e` migrated the other four.
+
+**Conclusion: 100% test bug (stale test authored against a UI flow that migrated to a different page), zero app-level regression.** `openOrthrusWizard()`'s target UI does not exist at `/remote-servers` anymore — not "exists under a different selector," but genuinely relocated to `/hecate/agent`. **Owner: Playwright Dev.** Do not route any part of this to Frontend Dev — the current app behavior is the intended, already-shipped design.
+
+**Exact fix spec** — replace `openOrthrusWizard()` in `tests/orthrus-agent-install.spec.ts:22-75` in full:
+
+```ts
+async function openOrthrusWizard(page: import('@playwright/test').Page) {
+  await page.route(REMOTE_SERVERS_API, (route) => route.fulfill({ json: [] }));
+  await page.route(HECATE_STATUS_API, (route) => route.fulfill({ json: [] }));
+  await page.route(ORTHRUS_AGENT_SNIPPETS_API, (route) => route.fulfill({ json: MOCK_SNIPPETS }));
+  await page.route(ORTHRUS_AGENTS_API, (route) => {
+    if (route.request().method() === 'POST') {
+      route.fulfill({
+        json: {
+          agent: { uuid: MOCK_AGENT_UUID, name: MOCK_AGENT_NAME, enabled: true },
+          auth_key: MOCK_AUTH_KEY,
+        },
+      });
+    } else {
+      route.fulfill({ json: [] });
+    }
+  });
+
+  // Provisioning + the install wizard live on /hecate/agent (HecateAgent.tsx),
+  // not on /remote-servers — RemoteServerForm's "agent" connection mode only
+  // attaches an already-provisioned agent (see ConnectionTypeSelector.tsx),
+  // it does not provision new ones. See docs/plans/current_spec.md §9.1.
+  await page.goto('/hecate/agent');
+  await waitForLoadingComplete(page);
+
+  await page.getByRole('button', { name: /provision new agent/i }).click();
+
+  const provisionDialog = page.getByRole('dialog');
+  await expect(provisionDialog).toBeVisible({ timeout: 5000 });
+
+  await provisionDialog.locator('#provision-name').fill(MOCK_AGENT_NAME);
+
+  // Scoped to the dialog: the page's own "Provision New Agent" trigger button
+  // shares the exact same accessible name as this dialog's submit button.
+  await provisionDialog.getByRole('button', { name: /provision new agent/i }).click();
+
+  // The provision dialog closes and the install wizard opens in the same
+  // batched state update, but the Dialog exit/enter animation (Dialog.tsx,
+  // data-[state=open|closed]:animate-in/out) can transiently keep both
+  // role="dialog" nodes mounted — filter on content instead of relying on
+  // there being exactly one `dialog` role element.
+  const wizardDialog = page.getByRole('dialog').filter({ hasText: /install orthrus agent/i });
+  await expect(wizardDialog).toBeVisible({ timeout: 8000 });
+
+  return wizardDialog;
+}
+```
+
+No other locator in the file needs to change — every assertion downstream of `openOrthrusWizard()`'s returned `dialog` (dialog title, `#auth-key-input`, "shown only once" text, copy buttons, five tabs, troubleshooting `<details>`, ARIA snapshots) targets `OrthrusInstallWizard.tsx`, which is unchanged and structurally matches the existing assertions exactly (verified against `frontend/src/locales/en/translation.json` keys `hecate.wizard.*` and `hecate.installWizard.tabs.*` — all match verbatim, e.g. `hecate.wizard.title` = `"Install Orthrus Agent"`, tabs = `"Docker Compose"`/`"Systemd"`/`"Tarball"`/`"Homebrew"`/`"Kubernetes"`).
+
+**Suggested commit message**: `test(orthrus): fix agent-install wizard E2E flow to target /hecate/agent`
+
+### 9.2 Issue 2 — `tests/uptime-orthrus.spec.ts:135-163`, "non-Orthrus monitor at same IP is checked independently"
+
+**Root cause — confirmed, and it is not QA's stale-data-race theory.** Traced the full flow:
+
+- **Route-mock timing (ruled out)**: `setupUptimePage()` (`tests/uptime-orthrus.spec.ts:48-71`) registers both `page.route(UPTIME_MONITOR_HISTORY_API, ...)` and `page.route(UPTIME_MONITORS_API, ...)` and `await`s both calls before `await page.goto('/uptime')` (lines 53-69). Playwright deterministically intercepts all matching requests issued after `page.goto()` once `route()` has resolved — there is no race window here. This matches the coordinator's own skepticism of the race theory.
+- **Route pattern (ruled out)**: `frontend/src/api/uptime.ts:35-36` (`getMonitors`) calls `client.get('/uptime/monitors')` with no query string, which exactly matches the mock pattern `**/api/v1/uptime/monitors` (`tests/uptime-orthrus.spec.ts:5`). No mismatch.
+- **Stale/leaked real data (ruled out)**: if real, unmocked data from a long-lived container were leaking through, the three *single*-monitor tests earlier in the same file (lines 78-133), which use unqualified `page.getByTestId('monitor-card')`/`getByTestId('status-badge')` locators with `.toBeVisible()` (a strict-mode-sensitive assertion that throws if more than one match exists), would also fail whenever extra real monitor cards were present. They do not fail — only the two-monitor test does. This rules out data leakage as the cause.
+- **True root cause — component sort order, confirmed by reading `frontend/src/pages/Uptime.tsx` in full**:
+  - Line 559-565: `sortedMonitors` sorts the entire monitor list **alphabetically by name**, case-insensitively — `[...monitors].sort((a, b) => (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase()))`. This is a deliberate, commented feature ("Sort monitors alphabetically by name"), not a bug.
+  - Lines 567-569: `sortedMonitors` is then split into three category buckets by `proxy_host_id` / `remote_server_id` (`UptimeMonitor` interface, `frontend/src/api/uptime.ts:7-8`): `proxyHostMonitors`, `remoteServerMonitors`, `otherMonitors`.
+  - The test's two mock monitors — `MOCK_ORTHRUS_MONITOR_BASE` (name `"Remote Server (Orthrus)"`) and `MOCK_TCP_MONITOR_SAME_IP` (name `"Dockhand Service"`) — **both omit `proxy_host_id` and `remote_server_id`** (`tests/uptime-orthrus.spec.ts:11-35`), so both land in the same `otherMonitors` bucket and render in the same grid (`Uptime.tsx:632-641`).
+  - Within that bucket they are sorted alphabetically: `"Dockhand Service"` (`D`) sorts **before** `"Remote Server (Orthrus)"` (`R`). So `page.getByTestId('monitor-card').first()` is the **TCP** monitor card, and `.nth(1)` is the **Orthrus** monitor card — the exact inverse of what the test's positional assertions (lines 151-162) assume.
+  - This also explains QA's own observation that `cards.toHaveCount(2)` (line 146-149) passes: sorting changes order, not count, so that assertion was never informative about the actual defect.
+  - The name `"Dockhand Service"` in the test fixture is coincidental/red-herring-adjacent to QA's "real Dockhand Service monitor" theory — it is the test's **own mock data**, not a leaked real monitor; QA misread which object was showing up first.
+- **Classification**: this is a genuine, order-dependent Playwright assertion bug colliding with an intentional, pre-existing, correctly-functioning component behavior (alphabetical sort). It is **not** a race, **not** a route-mock scoping bug, and **not** an app-level defect — `Uptime.tsx`'s sort is working exactly as designed and does not need to change.
+
+**Conclusion: test bug. Owner: Playwright Dev.** No change to `frontend/src/pages/Uptime.tsx` is warranted or in scope.
+
+**Exact fix spec** — in `tests/uptime-orthrus.spec.ts`, replace the two `test.step` blocks at lines 151-162 (leave the `cards.toHaveCount(2)` step at lines 146-149 unchanged) with content-scoped locators instead of positional (`.first()`/`.nth(1)`) ones:
+
+```ts
+await test.step('verify each monitor card shows its own independent status badge', async () => {
+  const orthrusCard = page.getByTestId('monitor-card').filter({ hasText: 'Remote Server (Orthrus)' });
+  const tcpCard = page.getByTestId('monitor-card').filter({ hasText: 'Dockhand Service' });
+  await expect(orthrusCard.getByTestId('status-badge')).toHaveAttribute('data-status', 'up');
+  await expect(tcpCard.getByTestId('status-badge')).toHaveAttribute('data-status', 'up');
+});
+
+await test.step('verify Orthrus monitor card shows ORTHRUS type and TCP monitor card shows TCP type', async () => {
+  const orthrusCard = page.getByTestId('monitor-card').filter({ hasText: 'Remote Server (Orthrus)' });
+  const tcpCard = page.getByTestId('monitor-card').filter({ hasText: 'Dockhand Service' });
+  await expect(orthrusCard).toContainText('ORTHRUS');
+  await expect(tcpCard).toContainText('TCP');
+});
+```
+
+This makes the assertions correct regardless of `Uptime.tsx`'s (intentional, unchanged) alphabetical sort order, and regardless of any future re-ordering of the mock array or additional monitors being added to the fixture.
+
+**Suggested commit message**: `test(uptime): assert Orthrus/TCP monitor cards by name, not render position`
+
+### Commit Slicing addendum (Commits 6-7, following Commits 1-5 and the QA-report commit)
+
+| # | Commit | Scope | Files | Depends on | Validation gate |
+|---|---|---|---|---|---|
+| **6** | `test(orthrus): fix agent-install wizard E2E flow to target /hecate/agent` | Issue 1 — rewrite `openOrthrusWizard()` to drive the real provisioning-dialog → install-wizard flow on `/hecate/agent` | `tests/orthrus-agent-install.spec.ts` | None (independent of Commits 1-5, 7, and the QA-report commit; test-only, no production code) | `npx playwright test --project=firefox tests/orthrus-agent-install.spec.ts` — all 18 tests pass |
+| **7** | `test(uptime): assert Orthrus/TCP monitor cards by name, not render position` | Issue 2 — replace positional (`.first()`/`.nth(1)`) card/badge assertions with name-filtered locators in the one affected test | `tests/uptime-orthrus.spec.ts` | None (independent of Commit 6 and Commits 1-5; test-only, no production code) | `npx playwright test --project=firefox tests/uptime-orthrus.spec.ts` — all 4 tests pass |
+
+Both commits are test-only (`tests/*.spec.ts`), touch no `.go`/`.tsx`/`.ts` production source, trigger no GORM security scan (no `backend/internal/models/**` changes), and have zero bearing on the Orthrus security boundary (`muzzle.go`) — confirmed above. Rollback for either commit is a no-risk single-file revert; they do not depend on each other and can be reverted independently at any time.
