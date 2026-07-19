@@ -39,6 +39,18 @@ var allowedDockerPaths = map[string]struct{}{
 // allowedDockerPatterns covers dynamic-segment paths such as
 // /containers/{id}/json, /volumes/{name}, and /networks/{id}.
 // Matching uses path.Match after the version prefix has been stripped.
+//
+// /images/*/json and /distribution/*/json are GET-only like every other entry
+// here: the unconditional method check in ServeHTTP runs before any path match,
+// so POST/PUT/DELETE to either path is rejected regardless of this list. Neither
+// permits a write/mutate operation — /images/create (image pull) is deliberately
+// not added. Go's path.Match "*" does not cross "/", so namespaced image names
+// (e.g. "bitnami/nginx:latest") will not match /images/*/json or
+// /distribution/*/json and will still 403; this is a known, accepted limitation
+// for single-segment image references only (see muzzle_test.go). Note also that
+// /distribution/*/json causes the remote Docker daemon to make its own outbound
+// request to the registry host encoded in the image name — read-only here means
+// "no local Docker mutation," not "no outbound network activity."
 var allowedDockerPatterns = []string{
 	"/containers/*/json",
 	"/containers/*/logs",
@@ -46,6 +58,8 @@ var allowedDockerPatterns = []string{
 	"/containers/*/top",
 	"/volumes/*",
 	"/networks/*",
+	"/images/*/json",       // image inspect (RepoDigests) — read-only, used by update-checker tools
+	"/distribution/*/json", // registry digest check — read-only, used by update-checker tools
 }
 
 // Muzzle is an http.Handler wrapper that restricts Docker socket access

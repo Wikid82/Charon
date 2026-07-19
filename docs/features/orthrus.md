@@ -105,6 +105,39 @@ This restriction is enforced at every single request — there is no way to turn
 
 ---
 
+## External Docker Proxy (Advanced)
+
+Some tools like to talk to Docker directly instead of going through Charon's screens — for example, an update-checker like **Dockhand** or **Diun** that watches your containers for new versions, or a monitoring dashboard. Normally you'd run a separate `docker-socket-proxy` container just to give those tools safe, read-only access. Orthrus can do that job for you.
+
+**What it is:** an optional door through the same secure tunnel your agent already uses. Turn it on, and a third-party tool anywhere on your network can talk to that agent's Docker API — read-only, same as everything else in this guide.
+
+**How to turn it on:**
+
+1. Go to **Remote Agents**
+2. Click the **gear icon** next to the agent you want
+3. Set a port (any number from 1024 to 65535)
+4. Click **Save**
+
+**Connecting your tool:** point it at:
+
+```
+tcp://<host>:<port>
+```
+
+`<host>` is your Charon instance's own address, as reachable from wherever the third-party tool runs — Charon fills this in for you automatically, so you don't need to look it up or type it yourself. `<port>` is the number you chose in Step 3 above.
+
+**Still strictly read-only.** Just like the rest of Orthrus, there is no way to turn this restriction off. Through this port, a tool can:
+
+- List containers, images, networks, and volumes
+- Read Docker system info, version, and live events
+- Read container logs, stats, and running processes (top)
+- Look up details about a specific image (image inspect)
+- Check the registry for a newer version of an image (registry digest check)
+
+One note on that last item: "read-only" means the proxy can't change anything on your Docker host — it can't start, stop, or modify a single thing. But the registry digest check does cause your agent's Docker daemon to reach out to the image's registry (e.g. Docker Hub) to check for updates. That outbound check is expected and is exactly what makes update-checker tools work — it just isn't touching your host, which is the guarantee that matters here.
+
+---
+
 ## Troubleshooting
 
 | Problem | Likely Cause | Fix |
@@ -114,6 +147,7 @@ This restriction is enforced at every single request — there is no way to turn
 | Agent goes **Offline** after reboot | Not set to start automatically | Use the systemd snippet, or add `restart: always` to Docker Compose |
 | Auth key lost | Page closed before saving | Delete the agent and create a new one — the key cannot be recovered |
 | Agent connects but no containers appear | Docker socket not mounted | Add `/var/run/docker.sock:/var/run/docker.sock:ro` to the agent's volume list |
+| Third-party tool can't reach my agent's Docker API | Wrong port configured in the tool | Check the tool is using the External Proxy port shown in the gear-icon dialog — not Charon's main web port |
 
 ---
 

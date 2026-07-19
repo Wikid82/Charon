@@ -124,6 +124,21 @@ Charon now proxies traffic through the Orthrus tunnel to reach that container. F
 
 ---
 
+## Step 7 — (Optional) Let Another Tool Talk to Your Agent's Docker API
+
+<!-- screenshot: gear icon next to an agent in Remote Agents, with the External Proxy port field visible -->
+
+**Skip this step** unless you use a third-party tool — like an update-checker (Dockhand, Diun) or a monitoring dashboard — that wants to talk to your remote machine's Docker API directly.
+
+1. Go to **Remote Agents**
+2. Click the **gear icon** next to your agent
+3. Set a port (any number from 1024 to 65535) and click **Save**
+4. In your third-party tool, use the connection string `tcp://<host>:<port>` — Charon fills in `<host>` for you automatically, so just plug in the port you chose
+
+**Full detail:** [Orthrus guide → External Docker Proxy](../features/orthrus.md#external-docker-proxy-advanced).
+
+---
+
 ## (Optional) Add Uptime Monitoring
 
 Want to know immediately if a remote service goes down? Enable uptime monitoring on any proxy host that points to a remote container:
@@ -148,6 +163,7 @@ Charon will check the service regularly and alert you through your configured no
 | No containers listed | Docker socket not mounted in agent | Add `-v /var/run/docker.sock:/var/run/docker.sock:ro` to the agent's volumes |
 | Auth key rejected | Key copied incorrectly | Delete the agent, create a new one, copy the key carefully |
 | Agent disconnects repeatedly | Network instability | Normal — the agent reconnects automatically, no action needed |
+| Third-party tool can't reach my agent's Docker API | Wrong port configured in the tool | Check the tool is using the External Proxy port shown in the gear-icon dialog — not Charon's main web port |
 
 ---
 

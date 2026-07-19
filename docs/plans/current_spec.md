@@ -1020,7 +1020,7 @@ The **success** branch (line 333) has no existing test asserting its `Location` 
 
 **Rollback/contingency:** single-line literal change plus test-only edits; `git revert` of B1 is safe and fully independent of every other commit in this PR.
 
----
+**Root cause — confirmed, and it is *not* what QA's initial finding described.** QA was correct that `#connection-type` no longer exists, but wrong about the fix being a simple selector swap. Tracing the full flow (entry point → UI → exit point):
 
 ## 11. Addendum: Stale LastTestStatus Persists Through OAuth Connect (Same PR)
 
@@ -1178,7 +1178,7 @@ No backend data-migration/backfill is in scope. For the user's own already-affec
 
 **Rollback/contingency:** each commit reverts independently — C1 is a pure backend control-flow narrowing (removing it just restores the old unconditional-record behavior, no data loss), C2 is a pure render-condition change (removing it just restores the always-visible button). Neither commit alters stored data or API contracts, so either can be reverted alone without touching the other.
 
----
+### 9.2 Issue 2 — `tests/uptime-orthrus.spec.ts:135-163`, "non-Orthrus monitor at same IP is checked independently"
 
 ## 12. Addendum: Backup Encryption UX Gaps — Manual Save Button, Create-Dialog Smart Defaults, Scheduled-Backup Encryption (Same PR)
 
@@ -1643,7 +1643,41 @@ Skip `./scripts/scan-gorm-security.sh --check` for this addendum's commits, per 
 
 **Rollback/contingency:** D2 and E1 are pure frontend render/state changes — revert either independently with no data-model impact. D1 is additive at the Go type level (a new pointer field, two new private helpers) plus one behavior-restoring line added to `runCreateBackupJob`'s success branch (`s.fireRemoteUploadIfEnabled(opts, record)`) — reverting D1 restores the pre-existing passphrase-required rejection and, notably, also reverts manual dialog-triggered backups back to *never* remote-uploading (§12.2.1's corrected finding: that was already true before this PR, so reverting D1 is a true rollback to `main`'s behavior, not a new regression). No persisted-data implication either way (no new column, no migration to roll back). F1 depends on D1's `resolveBackupPassphrase` helper but is otherwise isolated to `RunScheduledBackup`/`resolveScheduledBackupOptions`; reverting F1 alone (leaving D1 in place) restores today's "scheduled backups ignore the encryption setting, and are always labeled `manual`" behavior — safe, since that is the pre-PR status quo, not a regression relative to `main`. The `Type: "manual"`→`"scheduled"` correction (§12.3.3) is folded into F1's scope and reverts along with it as a single unit; it is not independently revertible without reverting all of F1.
 
----
+- **Route-mock timing (ruled out)**: `setupUptimePage()` (`tests/uptime-orthrus.spec.ts:48-71`) registers both `page.route(UPTIME_MONITOR_HISTORY_API, ...)` and `page.route(UPTIME_MONITORS_API, ...)` and `await`s both calls before `await page.goto('/uptime')` (lines 53-69). Playwright deterministically intercepts all matching requests issued after `page.goto()` once `route()` has resolved — there is no race window here. This matches the coordinator's own skepticism of the race theory.
+- **Route pattern (ruled out)**: `frontend/src/api/uptime.ts:35-36` (`getMonitors`) calls `client.get('/uptime/monitors')` with no query string, which exactly matches the mock pattern `**/api/v1/uptime/monitors` (`tests/uptime-orthrus.spec.ts:5`). No mismatch.
+- **Stale/leaked real data (ruled out)**: if real, unmocked data from a long-lived container were leaking through, the three *single*-monitor tests earlier in the same file (lines 78-133), which use unqualified `page.getByTestId('monitor-card')`/`getByTestId('status-badge')` locators with `.toBeVisible()` (a strict-mode-sensitive assertion that throws if more than one match exists), would also fail whenever extra real monitor cards were present. They do not fail — only the two-monitor test does. This rules out data leakage as the cause.
+- **True root cause — component sort order, confirmed by reading `frontend/src/pages/Uptime.tsx` in full**:
+  - Line 559-565: `sortedMonitors` sorts the entire monitor list **alphabetically by name**, case-insensitively — `[...monitors].sort((a, b) => (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase()))`. This is a deliberate, commented feature ("Sort monitors alphabetically by name"), not a bug.
+  - Lines 567-569: `sortedMonitors` is then split into three category buckets by `proxy_host_id` / `remote_server_id` (`UptimeMonitor` interface, `frontend/src/api/uptime.ts:7-8`): `proxyHostMonitors`, `remoteServerMonitors`, `otherMonitors`.
+  - The test's two mock monitors — `MOCK_ORTHRUS_MONITOR_BASE` (name `"Remote Server (Orthrus)"`) and `MOCK_TCP_MONITOR_SAME_IP` (name `"Dockhand Service"`) — **both omit `proxy_host_id` and `remote_server_id`** (`tests/uptime-orthrus.spec.ts:11-35`), so both land in the same `otherMonitors` bucket and render in the same grid (`Uptime.tsx:632-641`).
+  - Within that bucket they are sorted alphabetically: `"Dockhand Service"` (`D`) sorts **before** `"Remote Server (Orthrus)"` (`R`). So `page.getByTestId('monitor-card').first()` is the **TCP** monitor card, and `.nth(1)` is the **Orthrus** monitor card — the exact inverse of what the test's positional assertions (lines 151-162) assume.
+  - This also explains QA's own observation that `cards.toHaveCount(2)` (line 146-149) passes: sorting changes order, not count, so that assertion was never informative about the actual defect.
+  - The name `"Dockhand Service"` in the test fixture is coincidental/red-herring-adjacent to QA's "real Dockhand Service monitor" theory — it is the test's **own mock data**, not a leaked real monitor; QA misread which object was showing up first.
+- **Classification**: this is a genuine, order-dependent Playwright assertion bug colliding with an intentional, pre-existing, correctly-functioning component behavior (alphabetical sort). It is **not** a race, **not** a route-mock scoping bug, and **not** an app-level defect — `Uptime.tsx`'s sort is working exactly as designed and does not need to change.
+
+**Conclusion: test bug. Owner: Playwright Dev.** No change to `frontend/src/pages/Uptime.tsx` is warranted or in scope.
+
+**Exact fix spec** — in `tests/uptime-orthrus.spec.ts`, replace the two `test.step` blocks at lines 151-162 (leave the `cards.toHaveCount(2)` step at lines 146-149 unchanged) with content-scoped locators instead of positional (`.first()`/`.nth(1)`) ones:
+
+```ts
+await test.step('verify each monitor card shows its own independent status badge', async () => {
+  const orthrusCard = page.getByTestId('monitor-card').filter({ hasText: 'Remote Server (Orthrus)' });
+  const tcpCard = page.getByTestId('monitor-card').filter({ hasText: 'Dockhand Service' });
+  await expect(orthrusCard.getByTestId('status-badge')).toHaveAttribute('data-status', 'up');
+  await expect(tcpCard.getByTestId('status-badge')).toHaveAttribute('data-status', 'up');
+});
+
+await test.step('verify Orthrus monitor card shows ORTHRUS type and TCP monitor card shows TCP type', async () => {
+  const orthrusCard = page.getByTestId('monitor-card').filter({ hasText: 'Remote Server (Orthrus)' });
+  const tcpCard = page.getByTestId('monitor-card').filter({ hasText: 'Dockhand Service' });
+  await expect(orthrusCard).toContainText('ORTHRUS');
+  await expect(tcpCard).toContainText('TCP');
+});
+```
+
+This makes the assertions correct regardless of `Uptime.tsx`'s (intentional, unchanged) alphabetical sort order, and regardless of any future re-ordering of the mock array or additional monitors being added to the fixture.
+
+**Suggested commit message**: `test(uptime): assert Orthrus/TCP monitor cards by name, not render position`
 
 ## 13. Addendum: Trusted-Proxy Header Hardening for Cookie Security Decisions (Same PR)
 
