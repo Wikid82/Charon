@@ -412,14 +412,19 @@ test.describe('Authentication Flows', () => {
           // If no redirect, check for session expired message
         }
 
-        // Should either redirect to login or show session expired message
+        // Should either redirect to login or show session expired message.
+        // Don't rely on page.url() alone: Firefox can lag in reporting URL
+        // changes from React Router's client-side history.replaceState(),
+        // so also check for the rendered login form as DOM-level proof of
+        // the redirect (same pattern as the sister test above).
         const isLoginPage = page.url().includes('/login');
+        const hasLoginForm = await page.locator('input[type="email"]').isVisible().catch(() => false);
         const hasSessionExpiredMessage = await page
           .getByText(/session.*expired|please.*login|unauthorized/i)
           .isVisible()
           .catch(() => false);
 
-        expect(isLoginPage || hasSessionExpiredMessage).toBeTruthy();
+        expect(isLoginPage || hasLoginForm || hasSessionExpiredMessage).toBeTruthy();
       });
     });
   });
