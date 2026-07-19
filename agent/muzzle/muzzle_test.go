@@ -159,6 +159,27 @@ func TestFilter_Allow(t *testing.T) {
 		// --- Path traversal: path.Clean normalises before matching ---
 		{"GET", "/v1.47/../containers/json", true},     // resolves to /containers/json — allowed
 		{"GET", "/containers/../../etc/passwd", false}, // resolves to /etc/passwd — blocked
+
+		// --- Allowed: single-segment image/distribution inspect (prefix/suffix match) ---
+		{"GET", "/images/alpine/json", true},
+		{"GET", "/v1.44/images/alpine/json", true},
+		{"GET", "/distribution/alpine/json", true},
+		{"GET", "/v1.44/distribution/alpine/json", true},
+
+		// --- Blocked: non-"/json"-suffixed image/distribution endpoints stay
+		// blocked; the prefix/suffix match is intentionally narrow.
+		{"GET", "/images/create", false},
+		{"GET", "/images/ghcr.io/org/repo/history", false},
+		{"GET", "/images/ghcr.io/org/repo/get", false},
+		{"GET", "/images/ghcr.io/org/repo/changes", false},
+		{"GET", "/distribution/create", false},
+
+		// --- Blocked: non-GET on image/distribution inspect paths, including
+		// namespaced ones, confirms the unconditional GET-only check still
+		// runs before the new prefix/suffix match.
+		{"POST", "/images/ghcr.io/org/repo/json", false},
+		{"POST", "/distribution/ghcr.io/org/repo/json", false},
+		{"DELETE", "/v1.44/images/ghcr.io/org/repo/json", false},
 	}
 
 	for _, tt := range tests {
@@ -166,6 +187,62 @@ func TestFilter_Allow(t *testing.T) {
 			got := f.Allow(tt.method, tt.reqPath)
 			assert.Equal(t, tt.allowed, got)
 		})
+	}
+}
+
+// TestFilter_Allow_NamespacedImagePaths proves the fix for the same
+// namespaced-image-reference bug already found and fixed once in
+// backend/internal/orthrus/muzzle.go (commits 98a68b67 and b71cbd62):
+// /images/{name}/json and /distribution/{name}/json must match resource
+// identifiers containing multiple "/"-separated segments (the overwhelming
+// majority of real-world image references), not just single-segment names
+// like "nginx". Uses prefix/suffix matching instead of path.Match, whose
+// "*" does not cross "/".
+func TestFilter_Allow_NamespacedImagePaths(t *testing.T) {
+	f := muzzle.New()
+
+	refs := []string{
+		"ghcr.io/org/repo",
+		"lscr.io/linuxserver/prowlarr",
+		"someuser/reponame",
+		"registry.example.com/team/project/image",
+	}
+
+	for _, prefix := range []string{"/images/", "/distribution/"} {
+		for _, ref := range refs {
+			p := prefix + ref + "/json"
+			t.Run(p, func(t *testing.T) {
+				assert.True(t, f.Allow("GET", p))
+			})
+
+			vp := "/v1.44" + prefix + ref + "/json"
+			t.Run(vp, func(t *testing.T) {
+				assert.True(t, f.Allow("GET", vp))
+			})
+		}
+	}
+}
+
+// TestFilter_Allow_NamespacedImagePaths_NonGETBlocked confirms the
+// unconditional GET-only enforcement in Allow (which runs before any path
+// match) still rejects writes against namespaced image/distribution paths
+// now that they pass the allowlist's path check.
+func TestFilter_Allow_NamespacedImagePaths_NonGETBlocked(t *testing.T) {
+	f := muzzle.New()
+
+	paths := []string{
+		"/images/ghcr.io/org/repo/json",
+		"/v1.44/images/ghcr.io/org/repo/json",
+		"/distribution/ghcr.io/org/repo/json",
+		"/v1.44/distribution/ghcr.io/org/repo/json",
+	}
+
+	for _, p := range paths {
+		for _, method := range []string{"POST", "PUT", "DELETE", "PATCH"} {
+			t.Run(method+" "+p, func(t *testing.T) {
+				assert.False(t, f.Allow(method, p))
+			})
+		}
 	}
 }
 
