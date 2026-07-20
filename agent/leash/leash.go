@@ -123,7 +123,7 @@ func (l *Leash) connect(ctx context.Context) error {
 
 	l.log.WithField("server_url", l.serverURL).Info("leash: connecting to server")
 
-	wsConn, _, err := dialer.DialContext(ctx, l.serverURL, http.Header{
+	wsConn, resp, err := dialer.DialContext(ctx, l.serverURL, http.Header{
 		"Authorization":     {"Bearer " + l.authKey},
 		"X-Orthrus-Version": {"1.0.0"},
 		"X-Orthrus-Name":    {l.agentID},
@@ -131,6 +131,14 @@ func (l *Leash) connect(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("leash: websocket dial: %w", err)
 	}
+
+	// X-Orthrus-Write-Enabled is delivered atomically in the 101 Switching
+	// Protocols response that completes the handshake (server.go sets it via
+	// wsUpgrader.Upgrade's responseHeader parameter). A missing header or
+	// any value other than the literal string "true" is treated as false —
+	// fail closed, matching this package's existing "unknown stream type,
+	// closing" posture elsewhere in this file.
+	writeEnabled := resp != nil && resp.Header.Get("X-Orthrus-Write-Enabled") == "true"
 
 	cfg := yamux.DefaultConfig()
 	cfg.LogOutput = io.Discard
@@ -145,16 +153,12 @@ func (l *Leash) connect(ctx context.Context) error {
 	l.log.Info("leash: connected, accepting proxy streams")
 
 	// filter is scoped to this one connection: constructed fresh per
-	// successful dial, closed over by every stream this connection accepts,
-	// and discarded on reconnect. This is what makes a write-mode toggle
-	// take effect only on the agent's next reconnect, matching the backend's
-	// per-AgentSession Muzzle scoping.
-	//
-	// TODO(Commit 3): negotiate writeEnabled from the X-Orthrus-Write-Enabled
-	// handshake response header (see leash_test.go for the discarded *http.Response
-	// this will read). Hardcoded false here preserves today's unconditional
-	// read-only behavior until that wiring lands.
-	filter := muzzle.New(false)
+	// successful dial with the writeEnabled value negotiated above, closed
+	// over by every stream this connection accepts, and discarded on
+	// reconnect. This is what makes a write-mode toggle take effect only on
+	// the agent's next reconnect, matching the backend's per-AgentSession
+	// Muzzle scoping.
+	filter := muzzle.New(writeEnabled)
 
 	hbCtx, hbCancel := context.WithCancel(ctx)
 	defer hbCancel()

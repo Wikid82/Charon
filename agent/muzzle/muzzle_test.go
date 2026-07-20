@@ -3,11 +3,13 @@ package muzzle_test
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -184,7 +186,7 @@ func TestFilter_Allow(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.method+" "+tt.reqPath, func(t *testing.T) {
-			got := f.Allow(tt.method, tt.reqPath)
+			got := f.Allow(tt.method, tt.reqPath, nil)
 			assert.Equal(t, tt.allowed, got)
 		})
 	}
@@ -212,12 +214,12 @@ func TestFilter_Allow_NamespacedImagePaths(t *testing.T) {
 		for _, ref := range refs {
 			p := prefix + ref + "/json"
 			t.Run(p, func(t *testing.T) {
-				assert.True(t, f.Allow("GET", p))
+				assert.True(t, f.Allow("GET", p, nil))
 			})
 
 			vp := "/v1.44" + prefix + ref + "/json"
 			t.Run(vp, func(t *testing.T) {
-				assert.True(t, f.Allow("GET", vp))
+				assert.True(t, f.Allow("GET", vp, nil))
 			})
 		}
 	}
@@ -240,7 +242,7 @@ func TestFilter_Allow_NamespacedImagePaths_NonGETBlocked(t *testing.T) {
 	for _, p := range paths {
 		for _, method := range []string{"POST", "PUT", "DELETE", "PATCH"} {
 			t.Run(method+" "+p, func(t *testing.T) {
-				assert.False(t, f.Allow(method, p))
+				assert.False(t, f.Allow(method, p, nil))
 			})
 		}
 	}
@@ -439,5 +441,177 @@ func TestServeProxy_StreamingResponseTerminatesOnWriterClose(t *testing.T) {
 	case err := <-serverErr:
 		require.NoError(t, err)
 	default:
+	}
+}
+
+// --- Write-mode tests (Section 3.3.4/3.4.1 of the Orthrus write-mode spec) ---
+//
+// These mirror backend/internal/orthrus/muzzle_test.go's write-mode tests
+// exactly in intent (though this package's Allow(method, path, body) is
+// called directly rather than through the httptest-based ServeHTTP the
+// backend uses, since Filter has no http.Handler interface of its own).
+
+func TestFilter_Allow_WriteEndpoints_BlockedWhenWriteDisabled(t *testing.T) {
+	f := muzzle.New(false)
+
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{"POST", "/containers/create"},
+		{"POST", "/images/create"},
+		{"POST", "/containers/abc123/start"},
+		{"POST", "/containers/abc123/stop"},
+		{"POST", "/containers/abc123/restart"},
+		{"DELETE", "/containers/abc123"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			assert.False(t, f.Allow(tc.method, tc.path, nil))
+		})
+	}
+}
+
+func TestFilter_Allow_WriteEndpoints_AllowedWhenWriteEnabled(t *testing.T) {
+	f := muzzle.New(true)
+
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{"POST", "/images/create"},
+		{"POST", "/containers/abc123/start"},
+		{"POST", "/containers/abc123/stop"},
+		{"POST", "/containers/abc123/restart"},
+		{"DELETE", "/containers/abc123"},
+		{"POST", "/v1.44/containers/abc123/start"},
+		{"DELETE", "/v1.44/containers/abc123"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			assert.True(t, f.Allow(tc.method, tc.path, nil))
+		})
+	}
+}
+
+func TestFilter_Allow_WriteMode_NonWriteEndpointsStillBlocked(t *testing.T) {
+	f := muzzle.New(true)
+
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{"POST", "/containers/abc123/exec"},
+		{"POST", "/exec/xyz/start"},
+		{"DELETE", "/images/nginx"},
+		{"POST", "/build"},
+		{"POST", "/system/prune"},
+		{"POST", "/auth"},
+		{"POST", "/commit"},
+		{"POST", "/networks/create"},
+		{"DELETE", "/networks/mynet"},
+		{"POST", "/volumes/create"},
+		{"DELETE", "/volumes/myvol"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			assert.False(t, f.Allow(tc.method, tc.path, nil))
+		})
+	}
+}
+
+func TestFilter_Allow_ContainersCreate_SafeBodyAllowed(t *testing.T) {
+	f := muzzle.New(true)
+
+	body := []byte(`{"Image":"nginx:latest","HostConfig":{"PortBindings":{"80/tcp":[{"HostPort":"8080"}]},"RestartPolicy":{"Name":"unless-stopped"},"NetworkMode":"my-bridge"}}`)
+	assert.True(t, f.Allow("POST", "/containers/create", body))
+	assert.True(t, f.Allow("POST", "/v1.44/containers/create", body))
+}
+
+// TestFilter_Allow_ContainersCreate_DangerousBodiesRejected mirrors
+// backend/internal/orthrus/muzzle_test.go's TestMuzzle_ContainersCreate_DangerousBodiesRejected
+// case-for-case, including the local-driver bind-mount-via-volume bypass
+// (VolumeOptions.DriverConfig) that both filters must independently reject.
+func TestFilter_Allow_ContainersCreate_DangerousBodiesRejected(t *testing.T) {
+	f := muzzle.New(true)
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"Privileged", `{"Image":"nginx","HostConfig":{"Privileged":true}}`},
+		{"CapAdd", `{"Image":"nginx","HostConfig":{"CapAdd":["SYS_ADMIN"]}}`},
+		{"legacy Binds", `{"Image":"nginx","HostConfig":{"Binds":["/:/host"]}}`},
+		{"NetworkMode host", `{"Image":"nginx","HostConfig":{"NetworkMode":"host"}}`},
+		{"NetworkMode container:*", `{"Image":"nginx","HostConfig":{"NetworkMode":"container:abc"}}`},
+		{"bind-type Mounts", `{"Image":"nginx","HostConfig":{"Mounts":[{"Type":"bind","Source":"/etc","Target":"/x"}]}}`},
+		{
+			"local-driver bind-mount-via-volume bypass (VolumeOptions.DriverConfig)",
+			`{"Image":"nginx","HostConfig":{"Mounts":[{"Type":"volume","Source":"fake","Target":"/etc","VolumeOptions":{"DriverConfig":{"Name":"local","Options":{"type":"none","device":"/etc","o":"bind"}}}}]}}`,
+		},
+		{"non-empty Devices", `{"Image":"nginx","HostConfig":{"Devices":[{"PathOnHost":"/dev/sda","PathInContainer":"/dev/sda"}]}}`},
+		{"non-empty Sysctls", `{"Image":"nginx","HostConfig":{"Sysctls":{"net.ipv4.ip_forward":"1"}}}`},
+		{"unrecognized future HostConfig key", `{"Image":"nginx","HostConfig":{"SomeFutureField":true}}`},
+		{"malformed JSON", `{"Image": not valid json`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.False(t, f.Allow("POST", "/containers/create", []byte(tc.body)))
+		})
+	}
+}
+
+// --- Shared anti-drift corpus (Section 3.3.5 of the Orthrus write-mode spec) ---
+//
+// Loads the exact same testdata/muzzle_corpus.json file that
+// backend/internal/orthrus/muzzle_test.go's TestMuzzle_SharedCorpus loads,
+// via a relative path across the module boundary — agent/ is a separate Go
+// module but plain file I/O in a test isn't constrained by Go import
+// resolution, so a single JSON fixture can be the source of truth for both
+// independently-maintained allowlist implementations without duplicating
+// the data itself (only the enforcement logic is duplicated, by design —
+// see the doc comments on hostConfigAllowedKeys etc. in muzzle.go).
+
+type muzzleCorpusCase struct {
+	Description       string          `json:"description"`
+	Method            string          `json:"method"`
+	Path              string          `json:"path"`
+	Body              json.RawMessage `json:"body,omitempty"`
+	AgentWriteEnabled bool            `json:"agent_write_enabled"`
+	WantAllowed       bool            `json:"want_allowed"`
+}
+
+func loadMuzzleCorpus(t *testing.T) []muzzleCorpusCase {
+	t.Helper()
+	data, err := os.ReadFile("../../backend/internal/orthrus/testdata/muzzle_corpus.json")
+	require.NoError(t, err)
+	var cases []muzzleCorpusCase
+	require.NoError(t, json.Unmarshal(data, &cases))
+	require.NotEmpty(t, cases)
+	return cases
+}
+
+func TestFilter_SharedCorpus(t *testing.T) {
+	cases := loadMuzzleCorpus(t)
+	for _, tc := range cases {
+		t.Run(tc.Description, func(t *testing.T) {
+			f := muzzle.New(tc.AgentWriteEnabled)
+
+			// The corpus's Path field may include a query string (e.g.
+			// "/images/create?fromImage=nginx&tag=latest"), which Allow
+			// expects to have already been split off by the caller (mirrors
+			// how ServeProxy passes req.URL.Path, not req.URL.RequestURI()).
+			p := tc.Path
+			if idx := strings.IndexByte(p, '?'); idx >= 0 {
+				p = p[:idx]
+			}
+
+			got := f.Allow(tc.Method, p, tc.Body)
+			assert.Equal(t, tc.WantAllowed, got)
+		})
 	}
 }

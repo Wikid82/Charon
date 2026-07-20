@@ -1,11 +1,20 @@
 package orthrus
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
+
+	"github.com/Wikid82/charon/backend/internal/models"
 )
 
 func passthroughHandler() http.Handler {
@@ -248,6 +257,295 @@ func TestMuzzle_ImageAndDistributionEndpoints_POSTBlocked(t *testing.T) {
 			rr := httptest.NewRecorder()
 			m.ServeHTTP(rr, req)
 			assert.Equal(t, http.StatusForbidden, rr.Code)
+		})
+	}
+}
+
+// --- Write-mode tests (Section 3.3.3/3.3.4 of the Orthrus write-mode spec) ---
+
+func TestMuzzle_WriteEndpoints_BlockedWhenWriteDisabled(t *testing.T) {
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
+
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/containers/create"},
+		{http.MethodPost, "/images/create"},
+		{http.MethodPost, "/containers/abc123/start"},
+		{http.MethodPost, "/containers/abc123/stop"},
+		{http.MethodPost, "/containers/abc123/restart"},
+		{http.MethodDelete, "/containers/abc123"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, http.NoBody)
+			rr := httptest.NewRecorder()
+			m.ServeHTTP(rr, req)
+			assert.Equal(t, http.StatusForbidden, rr.Code)
+		})
+	}
+}
+
+func TestMuzzle_WriteEndpoints_AllowedWhenWriteEnabled(t *testing.T) {
+	writeLimiter := rate.NewLimiter(rate.Inf, 100)
+	m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid")
+
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/images/create"},
+		{http.MethodPost, "/containers/abc123/start"},
+		{http.MethodPost, "/containers/abc123/stop"},
+		{http.MethodPost, "/containers/abc123/restart"},
+		{http.MethodDelete, "/containers/abc123"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, http.NoBody)
+			rr := httptest.NewRecorder()
+			m.ServeHTTP(rr, req)
+			assert.Equal(t, http.StatusOK, rr.Code)
+		})
+	}
+}
+
+func TestMuzzle_WriteMode_NonWriteEndpointsStillBlocked(t *testing.T) {
+	// Even with write mode on, endpoints outside the fixed six-operation
+	// list (exec, image delete, build, prune, auth, commit, Swarm/service)
+	// must remain permanently blocked. Section 7, Explicit Out-of-Scope.
+	writeLimiter := rate.NewLimiter(rate.Inf, 100)
+	m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid")
+
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/containers/abc123/exec"},
+		{http.MethodPost, "/exec/xyz/start"},
+		{http.MethodDelete, "/images/nginx"},
+		{http.MethodPost, "/build"},
+		{http.MethodPost, "/system/prune"},
+		{http.MethodPost, "/auth"},
+		{http.MethodPost, "/commit"},
+		{http.MethodPost, "/networks/create"},
+		{http.MethodDelete, "/networks/mynet"},
+		{http.MethodPost, "/volumes/create"},
+		{http.MethodDelete, "/volumes/myvol"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, http.NoBody)
+			rr := httptest.NewRecorder()
+			m.ServeHTTP(rr, req)
+			assert.Equal(t, http.StatusForbidden, rr.Code)
+		})
+	}
+}
+
+func TestMuzzle_ContainersCreate_SafeBodyAllowed(t *testing.T) {
+	writeLimiter := rate.NewLimiter(rate.Inf, 100)
+	m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid")
+
+	body := `{"Image":"nginx:latest","HostConfig":{"PortBindings":{"80/tcp":[{"HostPort":"8080"}]},"RestartPolicy":{"Name":"unless-stopped"},"NetworkMode":"my-bridge"}}`
+	req := httptest.NewRequest(http.MethodPost, "/containers/create", bytes.NewReader([]byte(body)))
+	rr := httptest.NewRecorder()
+	m.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestMuzzle_ContainersCreate_DangerousBodiesRejected(t *testing.T) {
+	writeLimiter := rate.NewLimiter(rate.Inf, 100)
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"Privileged", `{"Image":"nginx","HostConfig":{"Privileged":true}}`},
+		{"CapAdd", `{"Image":"nginx","HostConfig":{"CapAdd":["SYS_ADMIN"]}}`},
+		{"legacy Binds", `{"Image":"nginx","HostConfig":{"Binds":["/:/host"]}}`},
+		{"NetworkMode host", `{"Image":"nginx","HostConfig":{"NetworkMode":"host"}}`},
+		{"NetworkMode container:*", `{"Image":"nginx","HostConfig":{"NetworkMode":"container:abc"}}`},
+		{"bind-type Mounts", `{"Image":"nginx","HostConfig":{"Mounts":[{"Type":"bind","Source":"/etc","Target":"/x"}]}}`},
+		{
+			"local-driver bind-mount-via-volume bypass (VolumeOptions.DriverConfig)",
+			`{"Image":"nginx","HostConfig":{"Mounts":[{"Type":"volume","Source":"fake","Target":"/etc","VolumeOptions":{"DriverConfig":{"Name":"local","Options":{"type":"none","device":"/etc","o":"bind"}}}}]}}`,
+		},
+		{"non-empty Devices", `{"Image":"nginx","HostConfig":{"Devices":[{"PathOnHost":"/dev/sda","PathInContainer":"/dev/sda"}]}}`},
+		{"non-empty Sysctls", `{"Image":"nginx","HostConfig":{"Sysctls":{"net.ipv4.ip_forward":"1"}}}`},
+		{"unrecognized future HostConfig key", `{"Image":"nginx","HostConfig":{"SomeFutureField":true}}`},
+		{"malformed JSON", `{"Image": not valid json`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid")
+			req := httptest.NewRequest(http.MethodPost, "/containers/create", bytes.NewReader([]byte(tc.body)))
+			rr := httptest.NewRecorder()
+			m.ServeHTTP(rr, req)
+			assert.Equal(t, http.StatusForbidden, rr.Code)
+		})
+	}
+}
+
+func TestMuzzle_ContainersCreate_BodyTooLarge(t *testing.T) {
+	writeLimiter := rate.NewLimiter(rate.Inf, 100)
+	m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid")
+
+	oversized := bytes.Repeat([]byte("a"), maxContainerCreateBodyBytes+1)
+	body := `{"Image":"nginx","Labels":{"padding":"` + string(oversized) + `"}}`
+	req := httptest.NewRequest(http.MethodPost, "/containers/create", bytes.NewReader([]byte(body)))
+	rr := httptest.NewRecorder()
+	m.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusForbidden, rr.Code)
+}
+
+func TestMuzzle_WriteEndpoints_RateLimited(t *testing.T) {
+	// Burst of 1, refill effectively never within the test's lifetime — the
+	// first write request consumes the only token; the second must 429.
+	writeLimiter := rate.NewLimiter(rate.Every(time.Hour), 1)
+	m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid")
+
+	req1 := httptest.NewRequest(http.MethodPost, "/containers/abc/start", http.NoBody)
+	rr1 := httptest.NewRecorder()
+	m.ServeHTTP(rr1, req1)
+	assert.Equal(t, http.StatusOK, rr1.Code)
+
+	req2 := httptest.NewRequest(http.MethodPost, "/containers/abc/start", http.NoBody)
+	rr2 := httptest.NewRecorder()
+	m.ServeHTTP(rr2, req2)
+	assert.Equal(t, http.StatusTooManyRequests, rr2.Code)
+}
+
+// mockAuditLogger records every SecurityAudit entry passed to LogAudit, for
+// assertion in tests. Safe for concurrent use.
+type mockAuditLogger struct {
+	mu      sync.Mutex
+	entries []*models.SecurityAudit
+}
+
+func (m *mockAuditLogger) LogAudit(a *models.SecurityAudit) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.entries = append(m.entries, a)
+	return nil
+}
+
+func (m *mockAuditLogger) all() []*models.SecurityAudit {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]*models.SecurityAudit, len(m.entries))
+	copy(out, m.entries)
+	return out
+}
+
+func TestMuzzle_AuditLog_AllowedWriteRecorded(t *testing.T) {
+	logger := &mockAuditLogger{}
+	writeLimiter := rate.NewLimiter(rate.Inf, 100)
+	m := NewMuzzle(passthroughHandler(), true, writeLimiter, logger, "agent-uuid-1")
+
+	req := httptest.NewRequest(http.MethodPost, "/containers/abc/start", http.NoBody)
+	rr := httptest.NewRecorder()
+	m.ServeHTTP(rr, req)
+
+	entries := logger.all()
+	require.Len(t, entries, 1)
+	assert.Equal(t, "orthrus_write_allowed", entries[0].Action)
+	assert.Equal(t, "orthrus_write", entries[0].EventCategory)
+	assert.Equal(t, "agent-uuid-1", entries[0].ResourceUUID)
+	assert.Contains(t, entries[0].Actor, "agent-uuid-1")
+}
+
+func TestMuzzle_AuditLog_BlockedWriteRecorded(t *testing.T) {
+	logger := &mockAuditLogger{}
+	writeLimiter := rate.NewLimiter(rate.Inf, 100)
+	m := NewMuzzle(passthroughHandler(), true, writeLimiter, logger, "agent-uuid-2")
+
+	body := `{"Image":"nginx","HostConfig":{"Privileged":true}}`
+	req := httptest.NewRequest(http.MethodPost, "/containers/create", bytes.NewReader([]byte(body)))
+	rr := httptest.NewRecorder()
+	m.ServeHTTP(rr, req)
+
+	entries := logger.all()
+	require.Len(t, entries, 1)
+	assert.Equal(t, "orthrus_write_blocked", entries[0].Action)
+	assert.Contains(t, entries[0].Details, "Privileged")
+}
+
+func TestMuzzle_AuditLog_RateLimitedRecorded(t *testing.T) {
+	logger := &mockAuditLogger{}
+	writeLimiter := rate.NewLimiter(rate.Every(time.Hour), 1)
+	m := NewMuzzle(passthroughHandler(), true, writeLimiter, logger, "agent-uuid-3")
+
+	req1 := httptest.NewRequest(http.MethodPost, "/containers/abc/start", http.NoBody)
+	m.ServeHTTP(httptest.NewRecorder(), req1)
+	req2 := httptest.NewRequest(http.MethodPost, "/containers/abc/start", http.NoBody)
+	m.ServeHTTP(httptest.NewRecorder(), req2)
+
+	entries := logger.all()
+	require.Len(t, entries, 2)
+	assert.Equal(t, "orthrus_write_allowed", entries[0].Action)
+	assert.Equal(t, "orthrus_write_rate_limited", entries[1].Action)
+}
+
+func TestMuzzle_AuditLog_NilLoggerIsNoop(t *testing.T) {
+	writeLimiter := rate.NewLimiter(rate.Inf, 100)
+	m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid")
+
+	req := httptest.NewRequest(http.MethodPost, "/containers/abc/start", http.NoBody)
+	rr := httptest.NewRecorder()
+	assert.NotPanics(t, func() { m.ServeHTTP(rr, req) })
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+// --- Shared anti-drift corpus (Section 3.3.5 of the Orthrus write-mode spec) ---
+//
+// muzzle_corpus.json is the single source of truth this test and
+// agent/muzzle/muzzle_test.go's TestFilter_SharedCorpus both load, so the
+// backend and agent allowlist implementations are proven to agree on every
+// case in it — the concrete mitigation for the drift class that let the
+// image/distribution read-only fix land in this package without the
+// agent-side copy (fixed later, commits 98a68b67 / eabf358d) once already.
+
+type muzzleCorpusCase struct {
+	Description       string          `json:"description"`
+	Method            string          `json:"method"`
+	Path              string          `json:"path"`
+	Body              json.RawMessage `json:"body,omitempty"`
+	AgentWriteEnabled bool            `json:"agent_write_enabled"`
+	WantAllowed       bool            `json:"want_allowed"`
+}
+
+func loadMuzzleCorpus(t *testing.T) []muzzleCorpusCase {
+	t.Helper()
+	data, err := os.ReadFile("testdata/muzzle_corpus.json")
+	require.NoError(t, err)
+	var cases []muzzleCorpusCase
+	require.NoError(t, json.Unmarshal(data, &cases))
+	require.NotEmpty(t, cases)
+	return cases
+}
+
+func TestMuzzle_SharedCorpus(t *testing.T) {
+	cases := loadMuzzleCorpus(t)
+	for _, tc := range cases {
+		t.Run(tc.Description, func(t *testing.T) {
+			var writeLimiter *rate.Limiter
+			if tc.AgentWriteEnabled {
+				writeLimiter = rate.NewLimiter(rate.Inf, 1000)
+			}
+			m := NewMuzzle(passthroughHandler(), tc.AgentWriteEnabled, writeLimiter, nil, "corpus-test-agent")
+
+			req := httptest.NewRequest(tc.Method, tc.Path, bytes.NewReader(tc.Body))
+			rr := httptest.NewRecorder()
+			m.ServeHTTP(rr, req)
+
+			allowed := rr.Code == http.StatusOK
+			assert.Equal(t, tc.WantAllowed, allowed, "got status %d", rr.Code)
 		})
 	}
 }

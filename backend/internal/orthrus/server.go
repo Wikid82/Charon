@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +34,11 @@ type OrthrusServer struct {
 	ctx              context.Context
 	cancel           context.CancelFunc
 	wg               sync.WaitGroup
+	// auditLogger records write-path audit entries for every AgentSession
+	// this server creates. nil until SetAuditLogger is called (e.g. at
+	// startup in routes.go, once the concrete *services.SecurityService is
+	// available) — a nil auditLogger is a safe no-op throughout Muzzle.
+	auditLogger AuditLogger
 }
 
 // NewOrthrusServer creates an OrthrusServer with the given database and internal CA.
@@ -45,6 +51,15 @@ func NewOrthrusServer(db *gorm.DB, ca *InternalCA) (*OrthrusServer, error) {
 		ctx:              ctx,
 		cancel:           cancel,
 	}, nil
+}
+
+// SetAuditLogger wires the write-path audit logger used by every
+// AgentSession this server creates from this point forward. Called once at
+// startup (routes.go) with the concrete *services.SecurityService, which
+// satisfies the AuditLogger interface structurally — orthrus never imports
+// services directly (see the AuditLogger doc comment in muzzle.go for why).
+func (s *OrthrusServer) SetAuditLogger(al AuditLogger) {
+	s.auditLogger = al
 }
 
 // Stop cancels the server context, closes all active agent sessions, and waits
@@ -78,13 +93,26 @@ func (s *OrthrusServer) HandleWebSocket(c *gin.Context) {
 		return
 	}
 
-	conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
+	// X-Orthrus-Write-Enabled is delivered atomically as part of the 101
+	// Switching Protocols response that completes the handshake — the agent
+	// reads it off the *http.Response returned by its dial call (see
+	// leash.go:connect) and uses it to construct a connection-scoped
+	// muzzle.Filter for the life of this one connection. This is Option A
+	// from Section 3.3.1 of the write-mode spec: no new yamux control-stream
+	// type is introduced, avoiding a third hand-maintained stream-type
+	// constant on top of the two (streamTypeDocker, streamTypePortForward)
+	// that already have to be kept in sync between this package and
+	// agent/leash/leash.go.
+	respHeader := http.Header{}
+	respHeader.Set("X-Orthrus-Write-Enabled", strconv.FormatBool(agent.WriteEnabled))
+
+	conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, respHeader)
 	if err != nil {
 		logger.Log().WithError(err).Error("orthrus: WebSocket upgrade failed")
 		return
 	}
 
-	session, err := NewAgentSession(agent.UUID, agent.Name, agent.WriteEnabled, conn)
+	session, err := NewAgentSession(agent.UUID, agent.Name, agent.WriteEnabled, s.auditLogger, conn)
 	if err != nil {
 		logger.Log().WithError(err).Error("orthrus: create agent session failed")
 		_ = conn.Close()

@@ -15,6 +15,21 @@ import (
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/gorilla/websocket"
 	"github.com/hashicorp/yamux"
+	"golang.org/x/time/rate"
+)
+
+// writeLimiterEvery and writeLimiterBurst configure the token-bucket rate
+// limiter applied to write-path traffic on any write-enabled session
+// (Section 3.3.6 of the write-mode spec). Steady-state 0.5 req/s (30/min),
+// burst of 5: a single compliant update cycle (pull → stop → remove →
+// create → start) is exactly 5 write calls, so the burst allows one full
+// update to proceed immediately, while the steady-state rate bounds
+// sustained container churn well below anything a legitimate periodic
+// update-checker would ever need. Fixed constants for v1 — no DB-backed
+// per-agent tuning (see Section 7, Explicit Out-of-Scope).
+const (
+	writeLimiterEvery = 2 * time.Second
+	writeLimiterBurst = 5
 )
 
 // streamTypeDocker identifies Docker socket proxy streams opened toward the agent.
@@ -124,11 +139,17 @@ type AgentSession struct {
 	// the life of this session, exactly like extProxyPort — a DB toggle only
 	// takes effect on the agent's next reconnect.
 	writeEnabled bool
-	mu           sync.Mutex
+	// writeLimiter bounds write-request throughput for this session; nil
+	// unless writeEnabled (lazily constructed in NewAgentSession).
+	writeLimiter *rate.Limiter
+	// auditLogger records write-path audit entries; nil is a safe no-op
+	// (see Muzzle.logAudit), used by tests and read-only sessions.
+	auditLogger AuditLogger
+	mu          sync.Mutex
 }
 
 // NewAgentSession wraps the WebSocket connection in a Yamux server session.
-func NewAgentSession(agentUUID, agentName string, writeEnabled bool, conn *websocket.Conn) (*AgentSession, error) {
+func NewAgentSession(agentUUID, agentName string, writeEnabled bool, auditLogger AuditLogger, conn *websocket.Conn) (*AgentSession, error) {
 	cfg := yamux.DefaultConfig()
 	cfg.LogOutput = io.Discard
 
@@ -139,11 +160,18 @@ func NewAgentSession(agentUUID, agentName string, writeEnabled bool, conn *webso
 
 	_, cancel := context.WithCancel(context.Background())
 
+	var writeLimiter *rate.Limiter
+	if writeEnabled {
+		writeLimiter = rate.NewLimiter(rate.Every(writeLimiterEvery), writeLimiterBurst)
+	}
+
 	return &AgentSession{
 		agentUUID:    agentUUID,
 		agentName:    agentName,
 		conn:         conn,
 		session:      session,
+		writeLimiter: writeLimiter,
+		auditLogger:  auditLogger,
 		cancel:       cancel,
 		writeEnabled: writeEnabled,
 	}, nil
@@ -309,11 +337,8 @@ func (s *AgentSession) StartExternalProxy(port int) error {
 		Transport:     baseTransport,
 	}
 
-	// writeLimiter and auditLogger are wired in Commit 3 (rate limiting +
-	// audit logging); nil is a safe no-op here since the write-endpoint
-	// allowlist branch that would consult them does not exist yet.
 	srv := &http.Server{
-		Handler:           NewMuzzle(rp, s.writeEnabled, nil, nil, s.agentUUID),
+		Handler:           NewMuzzle(rp, s.writeEnabled, s.writeLimiter, s.auditLogger, s.agentUUID),
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      0,
 	}

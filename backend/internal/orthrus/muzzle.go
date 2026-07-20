@@ -1,6 +1,9 @@
 package orthrus
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
 	"net/http"
 	"path"
 	"regexp"
@@ -103,6 +106,275 @@ var allowedDockerPrefixSuffixPatterns = []struct {
 	{prefix: "/distribution/", suffix: "/json"}, // registry digest check — read-only, used by update-checker tools
 }
 
+// allowedWriteExactPaths lists the fixed-path write endpoints permitted when
+// a session has negotiated write mode. Only consulted for POST requests, and
+// only when Muzzle.writeEnabled is true — see the write-mode gate at the top
+// of ServeHTTP. /containers/create additionally requires its body to pass
+// validateContainerCreateBody; /images/create takes its parameters via query
+// string (fromImage=, tag=) and has no body to validate.
+var allowedWriteExactPaths = map[string]struct{}{
+	"/containers/create": {},
+	"/images/create":     {},
+}
+
+// allowedWritePatterns lists the dynamic-segment write endpoints permitted
+// when write mode is on: start/stop/restart an existing container, or
+// remove one outright. Each entry pairs the exact HTTP method required with
+// a path.Match pattern — unlike allowedDockerPrefixSuffixPatterns, these
+// patterns operate on Docker-generated container IDs (a single path
+// segment, never namespaced), so path.Match's "no cross-slash" behavior is
+// the correct, sufficient tool here.
+var allowedWritePatterns = []struct {
+	method  string
+	pattern string
+}{
+	{method: http.MethodPost, pattern: "/containers/*/start"},
+	{method: http.MethodPost, pattern: "/containers/*/stop"},
+	{method: http.MethodPost, pattern: "/containers/*/restart"},
+	{method: http.MethodDelete, pattern: "/containers/*"},
+}
+
+// maxContainerCreateBodyBytes bounds the size of a /containers/create
+// request body accepted for validation. Generously larger than any
+// realistic container-create body (typically a few KB even with a long
+// env/label list) — bounds worst-case JSON-parse cost. This constant must
+// stay numerically identical to agent/muzzle's copy; the shared test corpus
+// (Section 3.3.5 of the write-mode spec) includes a boundary-size case to
+// catch drift between the two.
+const maxContainerCreateBodyBytes = 64 * 1024
+
+// hostConfigAllowedKeys is the exhaustive allowlist of HostConfig top-level
+// keys considered safe for a same-host container recreate. A key NOT in
+// this set causes the whole /containers/create request to be rejected —
+// this is what gives fail-closed behavior against Docker Engine API fields
+// this list's authors don't know about yet, rather than trying to enumerate
+// every dangerous key by name (Privileged, CapAdd, CapDrop, Binds, PidMode,
+// IpcMode, UTSMode, CgroupnsMode, Devices, DeviceCgroupRules, SecurityOpt,
+// Sysctls, Ulimits, GroupAdd, and any future field are all rejected by
+// simply not appearing here — no separate denylist is maintained).
+//
+// NetworkMode and Mounts additionally receive a value-level check (see
+// validateNetworkModeValue, validateMountsValue) beyond simple key presence,
+// since both are operationally necessary fields that cannot be blanket-excluded
+// the way the fields above are, but can still express a host-escape primitive
+// through their value rather than their mere presence.
+var hostConfigAllowedKeys = map[string]struct{}{
+	"PortBindings":   {},
+	"RestartPolicy":  {},
+	"Memory":         {},
+	"MemorySwap":     {},
+	"NanoCpus":       {},
+	"CpuShares":      {},
+	"Mounts":         {},
+	"Dns":            {},
+	"DnsSearch":      {},
+	"ExtraHosts":     {},
+	"LogConfig":      {},
+	"AutoRemove":     {},
+	"ReadonlyRootfs": {},
+	"Init":           {},
+	"NetworkMode":    {},
+}
+
+// mountEntry is the subset of Docker's Mount struct this validator inspects.
+type mountEntry struct {
+	Type          string          `json:"Type"`
+	VolumeOptions json.RawMessage `json:"VolumeOptions"`
+}
+
+// validateNetworkModeValue rejects "host" networking and container-mode
+// networking ("container:<id>", which grants access to another container's
+// network namespace) — the two NetworkMode values that carry the same class
+// of host-escape risk as the blanket-excluded HostConfig keys. Every other
+// value (a bridge network name, "bridge", "none", "default") is accepted,
+// since NetworkMode is a normal, operationally required field for any
+// container recreate that isn't on the default bridge network.
+func validateNetworkModeValue(raw json.RawMessage) bool {
+	var mode string
+	if err := json.Unmarshal(raw, &mode); err != nil {
+		return false
+	}
+	if mode == "host" {
+		return false
+	}
+	if strings.HasPrefix(mode, "container:") {
+		return false
+	}
+	return true
+}
+
+// validateMountsValue rejects any bind-type mount and any mount entry whose
+// VolumeOptions carries a DriverConfig key at all, regardless of Type.
+//
+// The DriverConfig check closes a documented bypass of the Type check
+// alone: Docker's default "local" volume driver accepts
+// {"type":"none","device":"/host/path","o":"bind"} inside
+// VolumeOptions.DriverConfig.Options, which makes a Type:"volume" mount
+// behave exactly like an arbitrary host bind mount — fully equivalent in
+// effect to the Type:"bind" mount rejected below, but reached through a
+// field one level deeper. No attempt is made to selectively allow safe
+// DriverConfig.Options key/value pairs: any DriverConfig presence at all is
+// rejected, matching this validator's hard-reject-over-silent-strip
+// philosophy.
+func validateMountsValue(raw json.RawMessage) bool {
+	var mounts []mountEntry
+	if err := json.Unmarshal(raw, &mounts); err != nil {
+		return false
+	}
+	for _, mnt := range mounts {
+		if mnt.Type != "volume" && mnt.Type != "tmpfs" {
+			// Rejects "bind" and any unrecognized/future mount type. The
+			// legacy HostConfig.Binds field is rejected separately, simply
+			// by not appearing in hostConfigAllowedKeys.
+			return false
+		}
+		if len(mnt.VolumeOptions) == 0 {
+			continue
+		}
+		var volumeOptions map[string]json.RawMessage
+		if err := json.Unmarshal(mnt.VolumeOptions, &volumeOptions); err != nil {
+			return false
+		}
+		if _, hasDriverConfig := volumeOptions["DriverConfig"]; hasDriverConfig {
+			return false
+		}
+	}
+	return true
+}
+
+// validateContainerCreateBody reads, size-caps, and validates a
+// /containers/create request body against hostConfigAllowedKeys plus the
+// NetworkMode/Mounts value-level checks, then re-buffers r.Body so the
+// downstream reverse proxy can still forward the original bytes intact —
+// reading r.Body consumes it exactly once, so it must be replaced with a
+// fresh reader over the same bytes before this function returns, regardless
+// of outcome.
+//
+// Returns (true, "") if the body is safe to forward. Returns (false, reason)
+// if the request should be rejected, with reason suitable for both the audit
+// log and the HTTP error response.
+func validateContainerCreateBody(r *http.Request) (ok bool, reason string) {
+	if r.Body == nil {
+		return true, ""
+	}
+
+	limited := io.LimitReader(r.Body, maxContainerCreateBodyBytes+1)
+	bodyBytes, err := io.ReadAll(limited)
+	_ = r.Body.Close()
+	if err != nil {
+		r.Body = http.NoBody
+		return false, "malformed request body"
+	}
+	if len(bodyBytes) > maxContainerCreateBodyBytes {
+		// Re-buffer the (oversized, rejected) bytes anyway: forwarding never
+		// happens on this path, but leaving r.Body in a consumed state would
+		// be surprising for any future caller of this function.
+		r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		r.ContentLength = int64(len(bodyBytes))
+		return false, "request body too large"
+	}
+
+	// Re-buffer before any further validation so every return path below —
+	// success or rejection — leaves r.Body forwarding-ready.
+	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	r.ContentLength = int64(len(bodyBytes))
+
+	if len(bodyBytes) == 0 {
+		return true, ""
+	}
+
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(bodyBytes, &top); err != nil {
+		return false, "malformed request body"
+	}
+
+	hostConfigRaw, hasHostConfig := top["HostConfig"]
+	if !hasHostConfig {
+		return true, ""
+	}
+
+	var hostConfig map[string]json.RawMessage
+	if err := json.Unmarshal(hostConfigRaw, &hostConfig); err != nil {
+		return false, "malformed request body"
+	}
+
+	for key, rawValue := range hostConfig {
+		if _, allowed := hostConfigAllowedKeys[key]; !allowed {
+			return false, "disallowed HostConfig field: " + key
+		}
+		switch key {
+		case "NetworkMode":
+			if !validateNetworkModeValue(rawValue) {
+				return false, "disallowed HostConfig field: NetworkMode"
+			}
+		case "Mounts":
+			if !validateMountsValue(rawValue) {
+				return false, "disallowed HostConfig field: Mounts"
+			}
+		}
+	}
+
+	return true, ""
+}
+
+// writeAuditDetails marshals a small flat field set into the JSON string
+// stored in a SecurityAudit's Details column. Marshal failure (unreachable
+// for the string-only maps this is called with) degrades to an empty JSON
+// object rather than losing the audit entry entirely.
+func writeAuditDetails(fields map[string]string) string {
+	b, err := json.Marshal(fields)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
+// logAudit is a nil-safe wrapper around m.auditLogger.LogAudit. auditLogger
+// is nil for read-only sessions and in most tests — a no-op in that case,
+// not an error, since read-only traffic was never audited before this
+// feature and isn't in scope for it now (see Section 3.3.7 of the
+// write-mode spec).
+func (m *Muzzle) logAudit(action, details string) {
+	if m.auditLogger == nil {
+		return
+	}
+	// Actor identifies the agent, not a Charon user — there is no
+	// authenticated operator in this request path, only a third-party tool
+	// on the other end of the tunnel. agentUUID (not agent name) is used
+	// here because it's what NewMuzzle actually receives; ResourceUUID
+	// carries the same value for querying, and a UUID is a more stable
+	// identifier for an audit trail than a renamable display name anyway.
+	_ = m.auditLogger.LogAudit(&models.SecurityAudit{
+		Actor:         "orthrus-agent:" + m.agentUUID,
+		Action:        action,
+		EventCategory: "orthrus_write",
+		ResourceUUID:  m.agentUUID,
+		Details:       details,
+	})
+}
+
+func (m *Muzzle) auditAllowed(r *http.Request) {
+	m.logAudit("orthrus_write_allowed", writeAuditDetails(map[string]string{
+		"method": r.Method,
+		"path":   sanitizePath(r.URL.Path),
+	}))
+}
+
+func (m *Muzzle) auditBlocked(r *http.Request, reason string) {
+	m.logAudit("orthrus_write_blocked", writeAuditDetails(map[string]string{
+		"method": r.Method,
+		"path":   sanitizePath(r.URL.Path),
+		"reason": reason,
+	}))
+}
+
+func (m *Muzzle) auditRateLimited(r *http.Request) {
+	m.logAudit("orthrus_write_rate_limited", writeAuditDetails(map[string]string{
+		"method": r.Method,
+		"path":   sanitizePath(r.URL.Path),
+	}))
+}
+
 // Muzzle is an http.Handler wrapper that restricts Docker socket access
 // to a curated allowlist of read-only, non-destructive endpoints, plus an
 // optional narrow set of write endpoints when writeEnabled is true.
@@ -159,6 +431,20 @@ func (m *Muzzle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Write-endpoint handling must run before the unconditional GET-only
+	// check below, since POST/DELETE requests would otherwise be rejected
+	// before ever reaching the write allowlist. Only consulted when this
+	// session negotiated write mode (m.writeEnabled, fixed at construction
+	// time — see NewMuzzle) — every other session's POST/DELETE traffic
+	// falls straight through, unaffected, to the same 403 it always got.
+	if m.writeEnabled && (r.Method == http.MethodPost || r.Method == http.MethodDelete) {
+		if m.tryServeWrite(w, r, stripped) {
+			return
+		}
+		// Not on the write allowlist even with write mode on — fall through
+		// to the same "Forbidden" response every other disallowed request gets.
+	}
+
 	if r.Method != http.MethodGet {
 		logger.Log().WithField("method", util.SanitizeForLog(r.Method)).WithField("path", sanitizePath(r.URL.Path)).
 			Warn("orthrus: muzzle blocked non-GET Docker request")
@@ -193,4 +479,51 @@ func (m *Muzzle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	logger.Log().WithField("method", util.SanitizeForLog(r.Method)).WithField("path", sanitizePath(r.URL.Path)).
 		Warn("orthrus: muzzle blocked disallowed Docker path")
 	http.Error(w, "Forbidden", http.StatusForbidden)
+}
+
+// tryServeWrite handles a POST/DELETE request when this session has write
+// mode enabled. Returns true if it fully handled the request — forwarded,
+// rate-limited, or rejected with a write-specific reason and audit entry —
+// false if the method/path combination isn't on the write allowlist at all,
+// in which case the caller (ServeHTTP) falls through to the same generic
+// 403 every other disallowed request receives.
+func (m *Muzzle) tryServeWrite(w http.ResponseWriter, r *http.Request, stripped string) bool {
+	if r.Method == http.MethodPost {
+		if _, ok := allowedWriteExactPaths[stripped]; ok {
+			if stripped == "/containers/create" {
+				if valid, reason := validateContainerCreateBody(r); !valid {
+					m.auditBlocked(r, reason)
+					http.Error(w, "Forbidden: "+reason, http.StatusForbidden)
+					return true
+				}
+			}
+			return m.forwardWrite(w, r)
+		}
+	}
+
+	for _, p := range allowedWritePatterns {
+		if r.Method != p.method {
+			continue
+		}
+		if matched, err := path.Match(p.pattern, stripped); err == nil && matched {
+			return m.forwardWrite(w, r)
+		}
+	}
+
+	return false
+}
+
+// forwardWrite applies the write-path rate limiter, audits the outcome, and
+// forwards the request on success. Always returns true (the caller uses the
+// return value only to distinguish "on the write allowlist" from "not"; a
+// rate-limited request is still a request tryServeWrite fully handled).
+func (m *Muzzle) forwardWrite(w http.ResponseWriter, r *http.Request) bool {
+	if m.writeLimiter != nil && !m.writeLimiter.Allow() {
+		m.auditRateLimited(r)
+		http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+		return true
+	}
+	m.auditAllowed(r)
+	m.next.ServeHTTP(w, r)
+	return true
 }
