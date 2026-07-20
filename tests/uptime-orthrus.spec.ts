@@ -149,16 +149,17 @@ test.describe('Uptime monitoring — Orthrus monitor type', () => {
     });
 
     await test.step('verify each monitor card shows its own independent status badge', async () => {
-      const badges = page.getByTestId('status-badge');
-      await expect(badges).toHaveCount(2);
-      await expect(badges.first()).toHaveAttribute('data-status', 'up');
-      await expect(badges.nth(1)).toHaveAttribute('data-status', 'up');
+      const orthrusCard = page.getByTestId('monitor-card').filter({ hasText: 'Remote Server (Orthrus)' });
+      const tcpCard = page.getByTestId('monitor-card').filter({ hasText: 'Dockhand Service' });
+      await expect(orthrusCard.getByTestId('status-badge')).toHaveAttribute('data-status', 'up');
+      await expect(tcpCard.getByTestId('status-badge')).toHaveAttribute('data-status', 'up');
     });
 
     await test.step('verify Orthrus monitor card shows ORTHRUS type and TCP monitor card shows TCP type', async () => {
-      const cards = page.getByTestId('monitor-card');
-      await expect(cards.first()).toContainText('ORTHRUS');
-      await expect(cards.nth(1)).toContainText('TCP');
+      const orthrusCard = page.getByTestId('monitor-card').filter({ hasText: 'Remote Server (Orthrus)' });
+      const tcpCard = page.getByTestId('monitor-card').filter({ hasText: 'Dockhand Service' });
+      await expect(orthrusCard).toContainText('ORTHRUS');
+      await expect(tcpCard).toContainText('TCP');
     });
   });
 });

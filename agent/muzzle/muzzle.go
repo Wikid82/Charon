@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"path"
+	"regexp"
 	"strings"
 )
 
@@ -67,6 +68,46 @@ var allowedPatterns = []string{
 	"/v*/system/df",
 }
 
+// versionPrefixRe strips a leading Docker API version segment (e.g.
+// "/v1.47") from a path before the imageDistributionPatterns prefix/suffix
+// check below, so a single comparison covers both the unversioned and
+// versioned forms of those two entries. It is used only for that check;
+// every other entry in allowedPatterns keeps its literal "/v*/..." form
+// matched via path.Match.
+var versionPrefixRe = regexp.MustCompile(`^/v\d+\.\d+`)
+
+// imageDistributionPatterns covers per-image inspect (/images/{name}/json)
+// and the registry digest check (/distribution/{name}/json). These are
+// matched by prefix/suffix string comparison rather than path.Match,
+// because Go's path.Match "*" does not cross "/", and real-world Docker
+// image references are frequently namespaced with multiple "/"-separated
+// segments (e.g. "ghcr.io/org/repo", "lscr.io/linuxserver/prowlarr"). A
+// path.Match pattern like "/images/*/json" only matches single-segment
+// names (e.g. "nginx") and would silently reject the overwhelming majority
+// of real-world images — the same bug already found and fixed once in
+// backend/internal/orthrus/muzzle.go (commits 98a68b67 and b71cbd62), which
+// this mirrors on the remote-agent side of the tunnel.
+//
+// Both entries are GET-only like every other allowlist entry: the method
+// check in Allow runs unconditionally before this check, so POST/PUT/DELETE
+// against either path are rejected regardless of this list. Neither permits
+// a write/mutate operation — /images/create (image pull) is deliberately
+// not added.
+//
+// The suffix check ("/json") stays narrow despite allowing multiple path
+// segments in the middle: real Docker Engine API endpoints under
+// /images/{name}/ that are NOT safe to expose end in a distinct final
+// segment rather than literally "json" — /images/{name}/history,
+// /images/{name}/get, and /images/{name}/changes all fail the "/json"
+// suffix check and remain blocked.
+var imageDistributionPatterns = []struct {
+	prefix string
+	suffix string
+}{
+	{prefix: "/images/", suffix: "/json"},       // per-image inspect (RepoDigests) — read-only
+	{prefix: "/distribution/", suffix: "/json"}, // registry digest check — read-only
+}
+
 // Filter is an HTTP allowlist filter for Docker socket proxy streams.
 type Filter struct{}
 
@@ -103,6 +144,17 @@ func (f *Filter) Allow(method, reqPath string) bool {
 			return true
 		}
 	}
+
+	// Check image/distribution inspect paths, which may contain namespaced
+	// references with multiple "/"-separated segments (see doc comment on
+	// imageDistributionPatterns for why path.Match is not used here).
+	unversioned := versionPrefixRe.ReplaceAllString(cleanPath, "")
+	for _, idp := range imageDistributionPatterns {
+		if strings.HasPrefix(unversioned, idp.prefix) && strings.HasSuffix(unversioned, idp.suffix) {
+			return true
+		}
+	}
+
 	return false
 }
 

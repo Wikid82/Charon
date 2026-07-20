@@ -27,7 +27,7 @@ public disclosure.
 
 ## Known Vulnerabilities
 
-Last reviewed: 2026-05-27
+Last reviewed: 2026-07-16
 
 ### [RESOLVED] GHSA-rw47-hm26-6wr7 / CVE-2026-44982 · CrowdSec AppSec Drops HTTP Request Body
 
@@ -415,7 +415,62 @@ No remediation path exists upstream. Monitor whether caddy/crowdsec/cscli drop t
 on `x/crypto/openpgp`, and periodically re-run `govulncheck` to confirm Charon's own code stays
 clean. Suppressed in `.trivyignore` and `.grype.yaml`; review 2026-08-08.
 
+---
+
 ## Patched Vulnerabilities
+
+### ✅ [LOW] GO-2026-5024 / CVE-2026-39824 · golang.org/x/sys in gosu Build Stage
+
+| Field        | Value |
+|--------------|-------|
+| **ID**       | GO-2026-5024 / CVE-2026-39824 |
+| **Severity** | Low · N/A (no CVSS published) |
+| **Patched**  | 2026-07-16 |
+
+**What**
+Grype/GitHub code scanning flagged `golang.org/x/sys` embedded in `/usr/sbin/gosu`, at version
+v0.13.0 — well below the v0.44.0 fix floor for the vulnerable `NewNTUnicodeString` string-length
+overflow. This version is not a Charon-authored dependency; it is vendored by upstream
+`tianon/gosu@1.17`'s own `go.mod`/`go.sum` and only surfaces because `gosu` is built from source
+inside Charon's Docker image (to avoid separate CVEs in Debian's precompiled `gosu` binary).
+
+**Who**
+
+- Discovered by: Automated scan (Grype)
+- Reported: 2026-07-16
+
+**Where**
+
+- Component: `golang.org/x/sys` (vendored via upstream `tianon/gosu@1.17`'s `go.sum`)
+- Versions affected: `gosu-builder` Dockerfile stage prior to this fix (resolved v0.13.0)
+
+**When**
+
+- Discovered: 2026-07-16
+- Patched: 2026-07-16
+- Time to patch: 0 days
+
+**How**
+The vulnerable function, `NewNTUnicodeString`, lives entirely in `golang.org/x/sys/windows`, which
+is excluded from compilation by Go's `GOOS` build constraints on every target this stage builds.
+`gosu` is a Unix-only tool, and the `gosu-builder` stage only ever cross-compiles Linux targets
+(`CGO_ENABLED=0`). The flagged code path is never compiled into the shipped `gosu` binary —
+real-world exploitability is effectively zero. This is a distinct finding from the CVE-2026-39824
+entry already resolved for `backend/go.mod`'s indirect dependency (see
+[vulnerability-analysis-2026-06-26.md](docs/security/vulnerability-analysis-2026-06-26.md), which
+carries a 2026-07-16 erratum correcting its original "scanner false positive" conclusion): that
+finding lives in Charon's own application module graph and was fixed by a transitive upgrade; this
+one lives in upstream `gosu`'s vendored `go.sum` inside a Docker build stage and required its own
+explicit pin.
+
+**Resolution**
+Added `go get golang.org/x/sys@v0.46.0 && go mod tidy && go mod verify` to the `gosu-builder`
+Dockerfile stage, matching the same `v0.46.0` pin already used by the Delve (`dlv`) debug-binary
+stage for this identical advisory. `GOSU_VERSION` was intentionally not bumped — upstream tag
+`1.19`'s `go.mod` regresses to an older `golang.org/x/sys v0.1.0`, which would make the finding
+worse. Full analysis: [vulnerability-analysis-2026-07-16.md](docs/security/vulnerability-analysis-2026-07-16.md).
+
+---
 
 ### ✅ [HIGH] CVE-2026-34040 · Docker AuthZ Plugin Bypass via Oversized Request Body
 

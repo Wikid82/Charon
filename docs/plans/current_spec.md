@@ -1,428 +1,545 @@
-# Fix: Flaky `TestMigrateCommand_Succeeds` TempDir Cleanup Race in `backend/cmd/api`
+# Hotfix: Orthrus External Docker Proxy — Allowlist Gap, Missing Docs, Hardcoded Hostname
 
-**Author:** Planning Agent
-**Date:** 2026-07-01
-**Branch:** development
-**Scope:** Backend test-only fix, `backend/cmd/api` (+ small exported test helper in `backend/internal/database`)
-**Related:** Triggered by `scripts/dep_update.sh` bumping `github.com/klauspost/cpuid/v2` (v2.3.0 → v2.4.0) and `github.com/prometheus/procfs` (v0.21.0 → v0.21.1) in `backend/go.mod`/`backend/go.sum` (already staged, NOT part of this fix's commit).
-
----
-
-## Table of Contents
-
-1. [Introduction](#1-introduction)
-2. [Research Findings](#2-research-findings)
-3. [Technical Specifications](#3-technical-specifications)
-4. [Implementation Plan](#4-implementation-plan)
-5. [Acceptance Criteria](#5-acceptance-criteria)
-6. [Commit Slicing Strategy](#6-commit-slicing-strategy)
+**Type**: Hotfix (three verified, concrete gaps — NOT a redesign)
+**Branch**: `development` (current working branch; no worktree, no new branch, per `CLAUDE.md`)
+**Target commit count**: 5 (ordered commits within a single PR; see Commit Slicing Strategy)
+**Target merge window**: Monday 2026-07-20
+**Owners (implementation)**: `backend-dev` (Commits 1–3), `docs-writer` (Commit 4)
+**Review**: `supervisor` agent — **REQUIRED before implementation begins**, because Commit 1 touches a security boundary (the Docker API allowlist that gates what a tunnelled remote Docker socket can expose). See Section 6.
 
 ---
 
 ## 1. Introduction
 
-### 1.1 Overview
+### 1.1 Background
 
-`scripts/dep_update.sh`'s validation step (`go test ./...`) failed after bumping two **indirect** dependencies:
+Orthrus lets a remote Docker host tunnel through Charon to a third-party tool, acting as a secure drop-in replacement for a docker-socket-proxy. An `OrthrusAgent` (`backend/internal/models/orthrus_agent.go`) can have an `ExternalProxyPort` configured; when set, `AgentSession.StartExternalProxy` (`backend/internal/orthrus/session.go:254`) binds `0.0.0.0:<port>` and reverse-proxies through the yamux tunnel to the agent's real Docker socket. Every request passing through that port is filtered by `Muzzle` (`backend/internal/orthrus/muzzle.go`), a GET-only allowlist that is the sole security boundary between "read-only Docker API" and "full Docker socket access with root-equivalent capability on the remote host."
 
-```
---- FAIL: TestMigrateCommand_Succeeds (0.10s)
-    testing.go:1464: TempDir RemoveAll cleanup: unlinkat /tmp/TestMigrateCommand_Succeeds.../001/data: directory not empty
-FAIL    github.com/Wikid82/charon/backend/cmd/api    0.635s
-```
-
-This is a **pre-existing, intermittent (racy) test bug** in `backend/cmd/api/main_test.go`, unrelated to the two dependency bumps. This plan documents the confirmed root cause and specifies an exact, minimal, root-cause fix.
+Three independent, already-verified gaps were found while investigating this subsystem. None require redesigning Orthrus; each is a small, targeted fix.
 
 ### 1.2 Objectives
 
-1. Confirm (not assume) the root cause of the `TempDir RemoveAll cleanup: ... directory not empty` failure.
-2. Confirm the two staged dependency bumps (`cpuid/v2`, `procfs`) are not implicated.
-3. Inventory every test in `backend/cmd/api` (and note related occurrences elsewhere) that opens a DB connection via `database.Connect` without deterministically closing/synchronizing it.
-4. Specify the exact code changes needed to eliminate the race, reusing the codebase's own existing, documented convention for this exact problem (`internal/database/database_test.go`'s `TestMain`).
-5. Define a single, scoped, low-risk commit and a validation plan appropriate for a backend-test-only change.
+1. **Gap 1 (security-relevant, backend)** — Expand the Muzzle allowlist with two additional GET-only, read-only dynamic patterns (`/images/*/json`, `/distribution/*/json`) so that update-checker tools (Dockhand, Diun, Watchtower-style digest comparison) can function through the external proxy, without weakening the read-only guarantee in any way.
+2. **Gap 2 (docs)** — Document the External Docker Proxy feature, which currently has zero coverage in `docs/features/orthrus.md` or `docs/guides/remote-docker-setup.md`, despite already being shipped and user-facing (gear icon in `OrthrusAgentManager.tsx` → `AgentExternalProxyDialog.tsx`).
+3. **Gap 3 (correctness, backend)** — Replace the hardcoded `"charon"` hostname in the external proxy's `connection_string` with dynamic resolution, using the same `X-Charon-URL` header / `c.Request.Host` fallback pattern already proven in `OrthrusHandler.GetInstallSnippets`.
 
-### 1.3 Non-Goals
+### 1.3 Non-goals (see Section 5 for full out-of-scope list)
 
-- Does **not** touch `backend/go.mod` / `backend/go.sum` (already staged separately by the user; not part of this commit).
-- Does **not** change any production runtime behavior — `backend/internal/database/database.go`'s `Connect()` behavior for the actual running server is unchanged (background integrity check remains async in production; only test binaries opt into synchronous mode).
-- Does **not** fix the same *latent* pattern found in `backend/internal/api/handlers/db_health_handler_test.go` and `backend/internal/server/emergency_server_test.go` (see §2.4) — flagged as a follow-up, deliberately out of scope to keep this commit small (see §6).
+This is explicitly **not**: a rearchitecture of Orthrus or Muzzle's matching engine, a new UI, port-collision-detection polish, or multi-hostname configuration support.
 
 ---
 
-## 2. Research Findings
+## 2. Research Findings (confirmed by reading current source — line numbers verified 2026-07-18)
 
-### 2.1 What `database.Connect` actually does
+### 2.1 Gap 1 — `backend/internal/orthrus/muzzle.go`
 
-`backend/internal/database/database.go`:
-
-```go
-// launchQuickCheck is called by Connect to run the integrity check goroutine.
-// Tests override this with a synchronous version to avoid cleanup races.
-var launchQuickCheck = func(dbPath string) { go runQuickCheck(dbPath) }   // line 19
-
-func Connect(dbPath string) (*gorm.DB, error) {
-    db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{...})          // line 26
-    ...
-    sqlDB, err := db.DB()
-    configurePool(sqlDB)                                                 // MaxOpenConns=1, MaxIdleConns=1
-    ...
-    // pragmas: journal_mode=WAL, busy_timeout=5000, synchronous=NORMAL, cache_size=-64000
-    ...
-    launchQuickCheck(dbPath)   // line 76 — spawns `go runQuickCheck(dbPath)` by default
-    return db, nil
-}
-
-func runQuickCheck(dbPath string) {   // line 85
-    checkDB, err := sql.Open(sqlite.DriverName, dbPath)   // a SEPARATE, independent connection
-    ...
-    defer checkDB.Close()
-    checkDB.QueryRow("PRAGMA quick_check").Scan(&quickCheckResult)
-    ...
-}
-```
-
-Key facts:
-
-- `Connect()` returns a `*gorm.DB` opened in **WAL mode** with a pool capped at 1 open/1 idle connection.
-- Every successful `Connect()` call **also** spawns a background goroutine (`go runQuickCheck(dbPath)`) that opens its **own independent** `*sql.DB` handle to the same file path (not sharing the gorm pool) and runs `PRAGMA quick_check` before closing that handle.
-- This goroutine is **untracked** — `Connect()` does not wait for it, expose a handle to it, or provide any way for a caller to know when it has finished. It is fire-and-forget by design (comment at line 74: "on its own connection... never blocks startup or migrations").
-
-### 2.2 The package already documents and fixes this exact race — for itself only
-
-`backend/internal/database/database_test.go`:
+Current exact allowlist contents:
 
 ```go
-func TestMain(m *testing.M) {
-    // Run quick_check synchronously in tests so it completes before t.TempDir
-    // cleanup runs. The goroutine version creates a race: the background
-    // connection may still hold WAL/SHM files open when the temp dir is removed.
-    launchQuickCheck = runQuickCheck
-    os.Exit(m.Run())
+// lines 27-37
+var allowedDockerPaths = map[string]struct{}{
+	"/_ping":           {},
+	"/containers/json": {},
+	"/images/json":     {},
+	"/info":            {},
+	"/version":         {},
+	"/events":          {},
+	"/volumes":         {},
+	"/networks":        {},
+	"/system/df":       {},
+}
+
+// lines 42-49
+var allowedDockerPatterns = []string{
+	"/containers/*/json",
+	"/containers/*/logs",
+	"/containers/*/stats",
+	"/containers/*/top",
+	"/volumes/*",
+	"/networks/*",
 }
 ```
 
-This confirms, **in the codebase's own words**, that the race is: the background `quick_check` connection can still be reading/writing SQLite WAL/SHM files inside a `t.TempDir()`-managed directory at the moment `t.TempDir()`'s registered cleanup (`os.RemoveAll`) fires when the test function returns, producing exactly the observed `unlinkat ... directory not empty` error (`ENOTEMPTY`, `os.RemoveAll` losing a race against a file being (re)created concurrently).
+Matching is done in `Muzzle.ServeHTTP` (lines 65–103): non-GET is rejected at line 79–84 *before* any path check (method check happens first, unconditionally — this matters for Section 3.1's test plan, see below). GET requests are checked against the exact-match `allowedDockerPaths` map first (line 86), then against `allowedDockerPatterns` via `path.Match` (lines 93–98). The version-prefix stripping (`versionPrefixRe`, line 23) and `path.Clean` traversal-hardening (line 71) run before either check, so new patterns automatically inherit both protections — no changes needed there.
 
-Critically, `launchQuickCheck` is an **unexported** package-level variable. `database_test.go` is a white-box (`package database`) test file, so it can assign to it directly. **`backend/cmd/api` is a different package and has no `TestMain`**, so it never gets this override — it is fully exposed to the async race the `database` package's own tests were specifically written to avoid.
+`docs/features/orthrus.md:104` makes an absolute, user-facing promise: *"This restriction is enforced at every single request — there is no way to turn it off."* This guarantee must hold exactly after the change — new entries must be GET-only, read-only, no exceptions.
 
-### 2.3 `backend/cmd/api/main_test.go` — confirmed leak inventory
+**Known limitation to document, not fix, in this hotfix**: Go's `path.Match` `*` wildcard does **not** cross `/` boundaries (per `path.Match` godoc: "matches any sequence of non-Separator characters"). Docker's real `/images/{name}/json` and `/distribution/{name}/json` endpoints accept `{name}` values containing slashes for namespaced images (e.g. `bitnami/nginx:latest`, `ghcr.io/owner/repo:tag`) — these will **not** match `/images/*/json` and will still 403. Only single-segment image references (e.g. `nginx:latest`, `alpine`) will pass. This is an accepted limitation for this hotfix (see Section 5 and Section 7 risk table) — building a correct multi-segment matcher is a matching-engine change, which is out of scope for a tight hotfix. Document it in a code comment and flag it to Supervisor.
 
-No test in this file closes the `*gorm.DB` returned by `database.Connect`, and none overrides `launchQuickCheck` (impossible from this package today — see §2.2). Exact call sites:
+Existing test file: `backend/internal/orthrus/muzzle_test.go` (160 lines), table-style tests: `TestMuzzle_AllowlistedGET_Passthrough`, `TestMuzzle_VersionPrefixStripped_Passthrough`, `TestMuzzle_POST_Blocked`, `TestMuzzle_DELETE_Blocked`, `TestMuzzle_HEAD_Ping_Passthrough`, `TestMuzzle_HEAD_NonPing_Blocked`, `TestMuzzle_DynamicPaths_Passthrough` (the pattern-list test, lines 115–141), `TestMuzzle_UnknownPath_Blocked` (lines 143–160).
 
-| Line | Test | Variable | Closed? | Notes |
-|---|---|---|---|---|
-| 34 | `TestResetPasswordCommand_Succeeds` | `db` | No | Used to seed a user, then a subprocess is spawned; `db` handle + its background quick-check goroutine outlive the function body |
-| 82 | `TestMigrateCommand_Succeeds` | `db` | No | Opened to pre-seed an "old" DB before spawning `migrate` subprocess |
-| 111 | `TestMigrateCommand_Succeeds` | `db2` | No | Reconnect after subprocess, to assert migrated tables exist — **this is the connection most likely implicated in the reported failure**, since it is the last DB handle opened in the failing test |
-| 140 | `TestStartupVerification_MissingTables` | `db` | **Yes**, explicitly, at lines 155–156 (`sqlDB, _ := db.DB(); _ = sqlDB.Close()`) | Intentional close+reopen to simulate a startup scenario — leave this pair untouched |
-| 158 | `TestStartupVerification_MissingTables` | `db` (reassigned) | No | The *second* connection (post-reopen) is never closed at test end |
-| 205 | `TestMain_MigrateCommand_InProcess` | `db` | No | Seeds `User` table before calling `main()` in-process |
-| 223 | `TestMain_MigrateCommand_InProcess` | `db2` | No | Reconnect after in-process `main()` call to assert migrated tables |
-| 251 | `TestMain_ResetPasswordCommand_InProcess` | `db` | No | Used through line 278 (`db.Where("email = ?", email).First(&updated)`) after `main()` runs in-process |
+### 2.2 Gap 3 — hardcoded hostname
 
-`TestMain_DefaultStartupGracefulShutdown_Subprocess` (line 289) and `TestMain_DefaultStartupGracefulShutdown_InProcess` (line 339) do **not** call `database.Connect` directly in test code — they invoke `main()`, which connects internally. They are still exposed to the same async-goroutine race (any `Connect()` call anywhere in the process is affected by the package-level `launchQuickCheck` var), but carry no separate leaked handle to close. The `TestMain` fix in §3 covers them automatically since it is a process-wide override, not a per-call change.
+`backend/internal/orthrus/session.go`:
 
-### 2.4 Same pattern found elsewhere (out of scope for this commit — see §1.3/§6)
+- `ExternalProxyStatus` struct, lines 95–102:
+  ```go
+  type ExternalProxyStatus struct {
+  	ConfiguredPort   int    `json:"configured_port"`
+  	ActivePort       int    `json:"active_port"`
+  	BoundAddress     string `json:"bind_address"`
+  	ConnectionString string `json:"connection_string,omitempty"` // e.g. "tcp://charon:9999"
+  	Active           bool   `json:"active"`
+  	Error            string `json:"error,omitempty"`
+  }
+  ```
+- `AgentSession.GetExternalProxyStatus()`, lines 329–361. The hardcoded construction is at line 350:
+  ```go
+  connStr := ""
+  if active && activePort > 0 {
+  	connStr = fmt.Sprintf("tcp://charon:%d", activePort)   // line 350 — hardcoded hostname
+  }
+  ```
+  `AgentSession` has no `*gin.Context` or any request-scoped data available anywhere in `session.go` — it is a long-lived per-tunnel object, not a per-HTTP-request one. There is no way to fix this correctly inside `session.go`; the fix must happen at the HTTP layer, in the handler.
 
-```
-backend/internal/api/handlers/db_health_handler_test.go:122   db, err := database.Connect(dbPath)   // file-based, t.TempDir(), not closed
-backend/internal/api/handlers/db_health_handler_test.go:205   db, err := database.Connect(dbPath)   // file-based, closed manually at 211-212 (intentional)
-backend/internal/api/handlers/db_health_handler_test.go:218   db2, err := database.Connect(dbPath)  // file-based, not closed
-backend/internal/server/emergency_server_test.go:27           db, err := database.Connect(tmpFile)  // file-based, via setupTestDB helper, not closed
-```
+- **Confirmed: `ExternalProxyStatus.ConnectionString` has exactly two production call sites** (verified via repo-wide grep, excluding tests): the field definition/doc comment (`session.go:99`), the assignment (`session.go:357`), and the read site in `backend/internal/api/handlers/orthrus_handler.go:203` (`resp["connection_string"] = status.ConnectionString`). No other package reads or writes this field. It is therefore safe to remove the field from the `ExternalProxyStatus` struct entirely (see Section 3.2) rather than leave a permanently-empty dead field — consistent with `CLAUDE.md`'s CLEAN mandate ("Delete dead code immediately... unused types").
 
-Neither package has a `TestMain` overriding `launchQuickCheck` either. These are latent instances of the identical race; they simply have not (yet) been observed failing in this run. Not modified here — flagged as a follow-up (see §6.5).
+`backend/internal/api/handlers/orthrus_handler.go`:
 
-### 2.5 Root-cause confirmation: reproduction evidence
+- `GetInstallSnippets` (lines 152–175) is the proven pattern to replicate:
+  ```go
+  charonURL := c.GetHeader("X-Charon-URL")
+  if charonURL == "" {
+  	// NOTE: TLS detection via c.Request.TLS is unreliable when Charon runs behind a
+  	// reverse proxy (e.g., Caddy) that terminates TLS and strips or rewrites headers.
+  	// The X-Charon-URL header allows callers to pass the correct public URL explicitly;
+  	// if absent, we fall back to heuristic detection. Users deploying behind a proxy
+  	// should set the X-Charon-URL header from the frontend (window.location.origin).
+  	scheme := "https"
+  	if c.Request.TLS == nil {
+  		scheme = "http"
+  	}
+  	charonURL = scheme + "://" + c.Request.Host
+  }
+  ```
+  Note this builds a *full URL* (`scheme://host[:port]`) because install snippets embed a full HTTP(S) base URL. `GetProxyStatus` has a **different** output shape requirement: a bare **hostname only** (no scheme, no port — the docker port is independent of Charon's own web port and gets appended separately as `tcp://<host>:<activePort>`). This is why Gap 3's fix introduces a small, separate helper rather than literally reusing `GetInstallSnippets`'s block verbatim — see Section 3.3 and Section 7 for the explicit reasoning on why this isn't forced into one shared function.
 
-Running the specific failing test in isolation is expected to pass most of the time locally (it is a genuine race, not a deterministic failure) — confirmed:
+- `GetProxyStatus` (lines 180–210) — the target of the fix:
+  ```go
+  func (h *OrthrusHandler) GetProxyStatus(c *gin.Context) {
+  	uuid := c.Param("uuid")
+  	agent, err := h.svc.Get(uuid)
+  	if err != nil {
+  		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+  		return
+  	}
+  	resp := gin.H{
+  		"agent_uuid":        agent.UUID,
+  		"agent_online":      false,
+  		"configured_port":   agent.ExternalProxyPort,
+  		"active":            false,
+  		"active_port":       0,
+  		"bind_address":      "",
+  		"connection_string": "",
+  		"error":             "",
+  	}
+  	if h.proxyResolver != nil {
+  		if status, ok := h.proxyResolver.GetExternalProxyStatus(uuid); ok {
+  			resp["agent_online"] = true
+  			resp["active"] = status.Active
+  			resp["active_port"] = status.ActivePort
+  			resp["bind_address"] = status.BoundAddress
+  			resp["connection_string"] = status.ConnectionString   // line 203 — currently just relays session's hardcoded value
+  			if status.Error != "" {
+  				resp["error"] = status.Error
+  			}
+  		}
+  	}
+  	c.JSON(http.StatusOK, resp)
+  }
+  ```
+  This handler has `*gin.Context` (i.e. `c.Request.Host`, `c.GetHeader(...)`) — exactly what's missing in `session.go`.
 
-```
-$ go test ./cmd/api/... -run TestMigrateCommand_Succeeds -count=5 -v
---- PASS: TestMigrateCommand_Succeeds (0.06s)   x5
-```
+- `orthrusProxyStatusResolver` interface (lines 15–18) is satisfied by `*orthrus.OrthrusServer`, whose own `GetExternalProxyStatus` (`backend/internal/orthrus/server.go:140–147`) just delegates to `AgentSession.GetExternalProxyStatus()`. No changes needed to `server.go` or the interface signature — `ExternalProxyStatus` stays the transport type between session/server/handler, just without the `ConnectionString` field.
 
-Log ordering across runs shows the two "SQLite database integrity check passed" background-goroutine log lines interleaving unpredictably relative to the "SQLite database connected" lines of subsequent `Connect()` calls — direct evidence the quick-check goroutine is not synchronized with the caller's control flow. The original CI-style failure occurs under `go test ./...` (many packages/tests scheduled concurrently, higher system load), which widens the scheduling window for the background goroutine to still be running when `t.TempDir()`'s `RemoveAll` fires. This is consistent with a scheduler-timing-sensitive race, not a deterministic bug — which is exactly the class of bug `internal/database/database_test.go`'s own `TestMain` comment was written to eliminate.
+### 2.3 Frontend — confirmed no changes needed
 
-### 2.6 Dependency bump relevance — confirmed NOT implicated
+- `frontend/src/api/orthrus.ts:101–104` (`getAgentProxyStatus`) calls `GET /orthrus/agents/:uuid/proxy-status` **without** an `X-Charon-URL` header (unlike `getInstallSnippets`, line 94–99, which does send it). This is fine: the handler's fallback path (`c.Request.Host`) covers this case identically to how `GetInstallSnippets` already works when the header is absent — no frontend change is required to get a correct, non-hardcoded hostname. (Optionally, a future PR could add the header here for parity/robustness behind a reverse proxy that rewrites `Host`; explicitly flagged as out of scope, Section 5.)
+- `frontend/src/components/hecate/AgentExternalProxyDialog.tsx:184–194` renders `proxyStatus.connection_string` verbatim (no parsing, no hostname logic) — any string the backend returns displays correctly with zero frontend changes.
+- `frontend/src/api/orthrus.ts:31–40` (`ExternalProxyStatus` TS interface) matches the handler's `gin.H` response shape exactly and needs no changes — the JSON key `connection_string` is unaffected by this fix; only the Go-side *value construction* moves from `session.go` to the handler.
+- Frontend/E2E tests (`frontend/src/components/hecate/__tests__/AgentExternalProxyDialog.test.tsx`, `frontend/src/api/__tests__/orthrus.test.ts`, `frontend/src/hooks/__tests__/useOrthrus.test.tsx`, `tests/orthrus-external-proxy.spec.ts`) all mock the proxy-status HTTP response directly (`route.fulfill({ json: ... })` in Playwright, `vi.mock`/manual mocks in Vitest) with a hardcoded `'tcp://charon:2375'` string as **test fixture data**, not as an assertion on backend hostname-construction logic. They will continue to pass unmodified because they never exercise the real Go handler — **confirmed, zero frontend or E2E test changes required**.
 
-```
-$ go mod why github.com/klauspost/cpuid/v2
-github.com/Wikid82/charon/backend/cmd/api
-github.com/gin-gonic/gin
-github.com/gin-gonic/gin/codec/json
-github.com/bytedance/sonic
-github.com/bytedance/sonic/ast
-github.com/bytedance/sonic/internal/native
-github.com/bytedance/sonic/internal/cpu
-github.com/klauspost/cpuid/v2
+**Conclusion: the "frontend files are NOT expected to need changes" assumption from the task brief holds.** No file under `frontend/` is touched by this hotfix.
 
-$ go mod why github.com/prometheus/procfs
-github.com/Wikid82/charon/backend/internal/api/routes
-github.com/prometheus/client_golang/prometheus
-github.com/prometheus/procfs
-```
+### 2.4 Docs — confirmed current gaps
 
-- `cpuid/v2` is pulled in via `gin` → `bytedance/sonic` (gin's optional high-performance JSON codec, CPU feature detection for SIMD dispatch). No relationship to `glebarez/sqlite`, `modernc.org/sqlite`, or `gorm.io/gorm`.
-- `procfs` is pulled in via `prometheus/client_golang` (Prometheus metrics collection). Same — no relationship to the SQLite/GORM dependency chain.
+- `docs/features/orthrus.md` (122 lines) — no mention of `ExternalProxyPort`, the gear icon, or the external proxy at all. Has an existing "What Orthrus Can (and Cannot) Do" section (lines 88–104) and a "Troubleshooting" table (lines 108–116) that are the natural insertion points.
+- `docs/guides/remote-docker-setup.md` (156 lines) — same gap. Has a "Troubleshooting" table (lines 142–150) and ends with a "What's Next?" section (lines 154–156) that are natural insertion points; Step 6 ("Use Your Remote Containers", lines 111–124) is the last numbered step, so a new step can be added after it as an explicitly optional step.
+- `docs/features.md:206–210` already links to `features/orthrus.md` with a two-sentence summary — per `CLAUDE.md`'s "keep it brief, link to individual docs" instruction, this file's existing brevity is already correct and **needs no edit**.
+- `ARCHITECTURE.md` — no Orthrus-specific content to update (grepped, zero hits); this hotfix changes neither system architecture, tech stack, deployment model, nor directory structure, so no `ARCHITECTURE.md` update is required per its own trigger criteria.
 
-**Conclusion: the two staged dependency bumps are confirmed unrelated.** The `go test ./...` failure is a pre-existing, order/timing-sensitive flaky test that the dependency-bump validation step happened to surface.
+### 2.5 Config/ignore files — confirmed no updates needed
+
+Checked per `CLAUDE.md`'s process requirement:
+
+| File | Exists? | Orthrus references? | Action |
+|---|---|---|---|
+| `.gitignore` | Yes | None | No change — no new files/directories introduced |
+| `.dockerignore` | Yes | None | No change — no new build artifacts |
+| `.codecov.yml` | **Does not exist in this repo** | N/A | No change |
+| `Dockerfile` | Yes | None | No change — no new binaries, ports, env vars, or build stages |
+
+This hotfix adds no new files, no new directories, no new container ports/env vars, and no new dependencies — only edits to existing `.go` and `.md` files.
 
 ---
 
 ## 3. Technical Specifications
 
-This is a test-only change. No API contracts, database schema, or production request/response flows are affected. The "component design" here is the test-support surface added to `internal/database` plus the exact edits to `cmd/api`'s test file.
+### 3.1 Gap 1 spec — `backend/internal/orthrus/muzzle.go`
 
-### 3.1 New exported test-support function — `backend/internal/database/database.go`
-
-Add directly below the existing `launchQuickCheck` var declaration (after line 19):
+**Change**: append two entries to `allowedDockerPatterns` (lines 42–49):
 
 ```go
-// SyncIntegrityCheckForTesting forces the background integrity check that
-// Connect launches (see launchQuickCheck) to run synchronously instead of
-// in a goroutine. Callers in other packages' test suites that call Connect
-// against paths under t.TempDir() should invoke this once, from a TestMain,
-// mirroring this package's own TestMain in database_test.go:
-//
-//	func TestMain(m *testing.M) {
-//	    database.SyncIntegrityCheckForTesting()
-//	    os.Exit(m.Run())
-//	}
-//
-// Without this, Connect's background integrity-check connection can still be
-// reading/writing the SQLite WAL/SHM files when a caller's t.TempDir()
-// cleanup (os.RemoveAll) runs after the test returns, which surfaces as an
-// intermittent "TempDir RemoveAll cleanup: ... directory not empty" failure.
-//
-// There is no restore function: Go test binaries are single-process,
-// one-shot invocations (the process exits after m.Run()), so there is
-// nothing to revert before exit — the same reasoning internal/database's
-// own TestMain already relies on.
-//
-// Production code paths are unaffected: Connect's default behavior (async
-// integrity check) is unchanged unless a test explicitly opts in by calling
-// this function.
-func SyncIntegrityCheckForTesting() {
-	launchQuickCheck = runQuickCheck
+var allowedDockerPatterns = []string{
+	"/containers/*/json",
+	"/containers/*/logs",
+	"/containers/*/stats",
+	"/containers/*/top",
+	"/volumes/*",
+	"/networks/*",
+	"/images/*/json",       // NEW: image inspect (RepoDigests) — read-only, used by update-checker tools
+	"/distribution/*/json", // NEW: registry digest check — read-only, used by update-checker tools
 }
 ```
 
-**Design decision (documented per CLAUDE.md "consider edge cases"):** this small function lives in a regular (non-`_test.go`) file rather than an `export_test.go`, because Go does not compile a package's `_test.go` files into the archive that *other* packages' tests import — `cmd/api`'s test binary needs a genuinely exported symbol to reach across the package boundary. This mirrors common Go idioms for test-support hooks exposed from production packages (e.g. `httptest`), adds a single 3-line function with zero runtime cost unless called, and is never invoked from any non-test code path. Alternative considered and rejected: a build-tag-gated file (`//go:build testhelpers`) — rejected as unnecessary complexity for a 3-line function, and it would require every consumer to remember a non-default build tag, which is easy to silently get wrong (defeats the purpose).
+Add a doc comment above the block (or extend the existing one at lines 39–41) explaining:
+- Both new patterns are GET-only (enforced upstream by the unconditional method check at lines 79–84, which runs regardless of path).
+- Neither permits any write/mutate operation — `/images/create` (image pull) is explicitly and deliberately **not** added.
+- The `path.Match` single-segment-`*` limitation for namespaced image names (Section 2.1) is a known, accepted gap for this hotfix.
+- `/distribution/*/json` causes the remote Docker daemon itself to make an outbound network request to whatever registry host is encoded in the image name — read-only with respect to local Docker state (it cannot mutate anything on the host), but callers can influence which external host the daemon contacts, so "read-only" here means "cannot mutate local Docker state," not "cannot cause outbound network activity."
+- This is a best-effort expansion (no live traffic logs available from the reporting environment); more read-only entries may be needed if real-world testing against tools like Dockhand/Diun surfaces additional 403s — expected and acceptable follow-up, not a defect in this PR.
 
-`database_test.go`'s existing `TestMain` is **left as-is** (still assigns `launchQuickCheck = runQuickCheck` directly) rather than rewritten to call the new exported wrapper — it is same-package (white-box) code, the direct assignment is simpler, and changing working, unrelated test code would be scope creep for this fix. Both now encode the same behavior; the new function's doc comment cross-references `database_test.go` explicitly to keep the two in sync conceptually.
+**No changes** to `allowedDockerPaths` (the exact-match map), `Muzzle.ServeHTTP`, `versionPrefixRe`, or `sanitizePath`.
 
-### 3.2 `backend/cmd/api/main_test.go` — add `TestMain`
+#### Test additions — `backend/internal/orthrus/muzzle_test.go`
 
-Insert near the top of the file, after the existing `import` block (after line 15, before line 17 `func TestResetPasswordCommand_Succeeds`):
+1. Extend `TestMuzzle_DynamicPaths_Passthrough` (lines 115–141) with:
+   ```go
+   "/images/alpine/json",
+   "/v1.44/images/alpine/json",
+   "/images/nginx:latest/json",
+   "/distribution/alpine/json",
+   "/v1.44/distribution/alpine/json",
+   ```
+2. Extend `TestMuzzle_UnknownPath_Blocked` (lines 143–160) with a case documenting the known multi-segment limitation, with an explanatory comment so it reads as an intentional regression-guard rather than an oversight:
+   ```go
+   // Known limitation (see muzzle.go doc comment): path.Match's "*" does not
+   // cross "/", so namespaced image names are not matched by /images/*/json.
+   // This case documents current behavior; it is not a target of this fix.
+   "/images/library/nginx/json",
+   ```
+3. New table-style test `TestMuzzle_ImageAndDistributionEndpoints_POSTBlocked` (or extend the existing `TestMuzzle_POST_Blocked`, lines 67–84) confirming `POST /images/alpine/json` and `POST /distribution/alpine/json` are still 403 — belt-and-suspenders regression guard for the read-only guarantee, even though method-checking already happens unconditionally before any path match.
 
-```go
-func TestMain(m *testing.M) {
-	// Force Connect's background integrity check to run synchronously so it
-	// completes before t.TempDir() cleanup (os.RemoveAll) runs. Otherwise the
-	// check's background SQLite connection can still be reading/writing
-	// WAL/SHM files when a test's temp directory is removed, causing
-	// intermittent "TempDir RemoveAll cleanup: ... directory not empty"
-	// failures (see backend/internal/database/database_test.go's TestMain
-	// for the same fix applied to that package's own tests).
-	database.SyncIntegrityCheckForTesting()
-	os.Exit(m.Run())
+**Validation gate**: `go test ./backend/internal/orthrus/... -run TestMuzzle -v`
+
+### 3.2 Gap 3 spec — remove hardcoded hostname from `session.go`
+
+**`backend/internal/orthrus/session.go` changes:**
+
+1. `ExternalProxyStatus` struct (lines 95–102): remove the `ConnectionString` field entirely.
+   ```go
+   type ExternalProxyStatus struct {
+   	ConfiguredPort int    `json:"configured_port"`
+   	ActivePort     int    `json:"active_port"`
+   	BoundAddress   string `json:"bind_address"`
+   	Active         bool   `json:"active"`
+   	Error          string `json:"error,omitempty"`
+   }
+   ```
+   Add/adjust the doc comment on the struct to note that connection-string hostname resolution is now the API handler's responsibility (`OrthrusHandler.GetProxyStatus`), since `AgentSession` has no request context to resolve a caller-appropriate hostname from.
+
+2. `GetExternalProxyStatus()` (lines 329–361): remove the `connStr` construction block (lines 348–351) and the `ConnectionString: connStr,` field from the returned struct literal (line 357). No other logic in this method changes.
+
+**Validation gate**: `go build ./backend/...` (this alone will catch every call site that still references the removed field — see Section 3.2's test impact below).
+
+### 3.3 Gap 3 spec — hostname resolution in `orthrus_handler.go`
+
+**`backend/internal/api/handlers/orthrus_handler.go` changes:**
+
+1. Add imports: `"fmt"`, `"net"`, `"net/url"`.
+2. Add a new unexported helper, placed near `GetProxyStatus`:
+   ```go
+   // resolveExternalProxyHost determines the hostname third-party tools should use
+   // to reach this Charon instance's external Docker proxy ports. It mirrors the
+   // X-Charon-URL header pattern used by GetInstallSnippets, but — unlike that
+   // handler — returns a bare hostname only (no scheme, no port): the external
+   // proxy's TCP port is independent of Charon's own web port, so the docker
+   // port is appended separately by the caller.
+   func resolveExternalProxyHost(c *gin.Context) string {
+   	if raw := c.GetHeader("X-Charon-URL"); raw != "" {
+   		if u, err := url.Parse(raw); err == nil && u.Hostname() != "" {
+   			return u.Hostname()
+   		}
+   	}
+   	if host, _, err := net.SplitHostPort(c.Request.Host); err == nil {
+   		return host
+   	}
+   	return c.Request.Host
+   }
+   ```
+3. Update `GetProxyStatus` (lines 180–210) to build the connection string itself instead of relaying `status.ConnectionString`. **Ordering note**: this handler change (Commit 2, Section 7) lands *before* the struct field removal (Commit 3, Section 3.2/Section 7) — at this point `ExternalProxyStatus.ConnectionString` still exists on the struct, it simply becomes unread by this handler. That compiles cleanly (Go permits unused exported struct fields); the field is deleted later, once nothing references it:
+   ```go
+   if h.proxyResolver != nil {
+   	if status, ok := h.proxyResolver.GetExternalProxyStatus(uuid); ok {
+   		resp["agent_online"] = true
+   		resp["active"] = status.Active
+   		resp["active_port"] = status.ActivePort
+   		resp["bind_address"] = status.BoundAddress
+   		if status.Active && status.ActivePort > 0 {
+   			resp["connection_string"] = fmt.Sprintf("tcp://%s:%d", resolveExternalProxyHost(c), status.ActivePort)
+   		}
+   		if status.Error != "" {
+   			resp["error"] = status.Error
+   		}
+   	}
+   }
+   ```
+   This preserves the JSON response shape and key name (`connection_string`) exactly, and preserves the existing guard condition (`active && activePort > 0`, previously enforced inside `session.go`, now enforced here) that leaves `connection_string` as the zero-value `""` when the proxy isn't actually active.
+
+**Why not consolidate with `GetInstallSnippets`'s host-resolution block into one shared helper** (explicit design note for Supervisor/reviewers): `GetInstallSnippets` needs a full `scheme://host[:port]` base URL for embedding in install snippets; `GetProxyStatus` needs a bare hostname with the port stripped, since the docker port is unrelated to Charon's web port. Forcing both through one function would require parameterizing "include scheme," "include port," and "port to substitute," adding complexity disproportionate to a tight hotfix, and would touch `GetInstallSnippets`'s already-tested, working code path unnecessarily — increasing blast radius for no behavioral gain. `GetInstallSnippets` is **not modified** by this PR. Flagged as a possible future consolidation, not undertaken here (Section 5).
+
+#### Test additions/updates — `backend/internal/api/handlers/orthrus_handler_test.go`
+
+1. **Required fix (assertion break now, compile-break prevention for Commit 3)**: `TestOrthrusHandler_GetProxyStatus_Connected` (lines 678–716) currently builds `liveStatus := orthrus.ExternalProxyStatus{..., ConnectionString: "tcp://charon:2375", ...}` (line 696) and asserts `assert.Equal(t, "tcp://charon:2375", resp["connection_string"])` (line 714). At this commit (Commit 2, Section 7), the `ConnectionString` field still exists on the struct — removing it is Commit 3's job (Section 3.2) — so this literal would still *compile* as-is; left unchanged, though, the assertion would fail because the handler no longer reads `status.ConnectionString`. Update proactively now, both to fix the assertion and to avoid leaving a stale field reference that would otherwise break Commit 3's standalone build once the field is deleted:
+   - Remove `ConnectionString: "tcp://charon:2375",` from the `liveStatus` literal.
+   - The test's `c.Request` is built via `httptest.NewRequest(http.MethodGet, ".../proxy-status", http.NoBody)` with no explicit `Host` set, so `net/http/httptest` defaults `Request.Host` to `"example.com"`. Update the assertion to `assert.Equal(t, "tcp://example.com:2375", resp["connection_string"])` to reflect the new handler-side construction.
+2. New test `TestOrthrusHandler_GetProxyStatus_ConnectionString_UsesXCharonURLHeader`: set `c.Request.Header.Set("X-Charon-URL", "https://mybox.example.org:8443")` before calling `GetProxyStatus`; assert `resp["connection_string"] == "tcp://mybox.example.org:2375"` (i.e. the header's own port, `8443`, is discarded — only the hostname is taken from the header, and the docker port comes from `status.ActivePort`).
+3. New test `TestOrthrusHandler_GetProxyStatus_ConnectionString_HostPortStripped`: set `c.Request.Host = "192.168.1.50:8443"` (no `X-Charon-URL` header); assert `resp["connection_string"] == "tcp://192.168.1.50:2375"` (port stripped from `Host`, replaced with `status.ActivePort`).
+4. New test `TestOrthrusHandler_GetProxyStatus_ConnectionString_EmptyWhenInactive`: reuse the existing `errStatus`/inactive-status pattern (see `TestOrthrusHandler_GetProxyStatus_Connected_WithError`, lines 791–819) to confirm `resp["connection_string"] == ""` when `status.Active` is `false`, regardless of headers — regression guard for the `active && activePort > 0` guard condition moving from `session.go` into the handler.
+
+**No changes required** in `backend/internal/orthrus/session_coverage_test.go` or `backend/internal/orthrus/session_external_proxy_test.go` — confirmed via grep that no test in either file asserts on `ExternalProxyStatus.ConnectionString`'s value or presence (`TestGetExternalProxyStatus_ErrorFieldPopulated`, `TestGetExternalProxyStatus_NotStarted`, `TestGetExternalProxyStatus_Active`, etc. only check `Active`, `ActivePort`, `BoundAddress`, `ConfiguredPort`, `Error`). Compilation alone enforces correctness of the struct-field removal for these files.
+
+**Validation gate**: `go test ./backend/internal/orthrus/... ./backend/internal/api/handlers/... -run 'ProxyStatus|ExternalProxy' -v`
+
+### 3.4 Gap 2 spec — documentation
+
+#### `docs/features/orthrus.md`
+
+Insert a new `## External Docker Proxy (Advanced)` section, placed after the existing "What Orthrus Can (and Cannot) Do" section (after line 104) and before "Troubleshooting" (line 108), matching the file's plain-language, novice-friendly tone. Content to cover:
+
+- **What it is**: an optional TCP port that lets a *third-party tool on your network* (an update-checker like Dockhand or Diun, a monitoring dashboard, etc.) talk directly to this agent's Docker API through the same secure tunnel — without needing a separate `docker-socket-proxy` container.
+- **How to turn it on**: click the gear icon next to an agent in **Remote Agents**, set a port (1024–65535), save.
+- **Connection string format**: `tcp://<host>:<port>` — described generically ("`<host>`" is your Charon instance's own address, as reachable from wherever the third-party tool runs — Charon fills this in for you automatically"), explicitly **not** hardcoding `tcp://charon:<port>` as a literal example, consistent with Gap 3's fix.
+- **Still strictly read-only**: reiterate the existing "no way to turn it off" promise and list what the external proxy exposes, matching the updated allowlist from Gap 1 (containers, images, networks, volumes, system info/version/events, container logs/stats/top, image inspect, and registry digest checks for update-checker tools); note that for the registry digest check specifically, "read-only" means it cannot change anything on your Docker host — it does cause your agent's Docker daemon to make an outbound request to the image's registry, which is expected behavior for update-checking tools.
+- **New Troubleshooting row** appended to the existing table (lines 108–116): "Third-party tool can't reach my agent's Docker API" → Likely Cause: "Wrong port configured in the tool" → Fix: "Check the tool is using the External Proxy port shown in the gear-icon dialog — not Charon's main web port."
+
+#### `docs/guides/remote-docker-setup.md`
+
+Insert a new optional step, **Step 7 — (Optional) Let Another Tool Talk to Your Agent's Docker API**, after the existing Step 6 (ends line 124) and before "(Optional) Add Uptime Monitoring" (line 127), following the same numbered-step / screenshot-placeholder / bold-callout style as the rest of the file. Content: brief restatement of what the External Proxy port is, how to set it (gear icon), the generic `tcp://<host>:<port>` format, and a cross-reference link: *"Full detail: [Orthrus guide → External Docker Proxy](../features/orthrus.md#external-docker-proxy-advanced)."* Also add a matching row to this file's own Troubleshooting table (lines 142–150), same content as the `orthrus.md` row above.
+
+**Validation gate**: manual proofread against existing tone (no automated doc linter in this repo per current tooling); confirm both new sections render correctly as Markdown (headings, tables) and all internal links resolve.
+
+---
+
+## 4. Data Flow Summary (Gap 3, before/after)
+
+```mermaid
+sequenceDiagram
+    participant Tool as Third-party tool
+    participant FE as Frontend (AgentExternalProxyDialog)
+    participant API as OrthrusHandler.GetProxyStatus
+    participant Sess as AgentSession.GetExternalProxyStatus
+
+    Note over API,Sess: BEFORE — hostname hardcoded deep in session.go
+    FE->>API: GET /orthrus/agents/:uuid/proxy-status
+    API->>Sess: GetExternalProxyStatus()
+    Sess-->>API: connection_string: "tcp://charon:2375"
+    API-->>FE: relay verbatim
+
+    Note over API,Sess: AFTER — session reports raw state only; handler resolves hostname
+    FE->>API: GET /orthrus/agents/:uuid/proxy-status
+    API->>Sess: GetExternalProxyStatus()
+    Sess-->>API: active true, active_port 2375, no hostname
+    API->>API: resolveExternalProxyHost(c) via X-Charon-URL header or c.Request.Host
+    API-->>FE: connection_string: "tcp://resolved-host:2375"
+```
+
+No new HTTP endpoints, no new request/response fields, no DB schema changes. `agent.ExternalProxyPort` (`backend/internal/models/orthrus_agent.go:48`) is unchanged.
+
+---
+
+## 5. Explicit Out-of-Scope
+
+- **No Muzzle matching-engine rework.** The `path.Match` single-segment `*` limitation for namespaced image names (Section 2.1) is documented, not fixed.
+- **No broader Orthrus rearchitecture.** `StartExternalProxy`, the yamux tunnel, the Muzzle wrapping mechanism, and `AgentSession`'s lifecycle are untouched beyond the one-field struct change in Section 3.2.
+- **No new UI.** `AgentExternalProxyDialog.tsx` and `OrthrusAgentManager.tsx` are not modified (Section 2.3).
+- **No port-collision-detection UI polish.** The existing "reconnect notice" behavior (tested in `tests/orthrus-external-proxy.spec.ts:240-260`) is untouched.
+- **No multi-hostname configuration.** `resolveExternalProxyHost` resolves one hostname per request from the caller's own perspective (header or `Host`), matching `GetInstallSnippets`'s existing single-hostname model exactly — no per-agent or per-network hostname overrides are introduced.
+- **No consolidation of `GetInstallSnippets` and `GetProxyStatus` hostname logic into one shared function** — see the explicit reasoning in Section 3.3.
+- **No change to `frontend/src/api/orthrus.ts`'s `getAgentProxyStatus`** to add an `X-Charon-URL` header — the fallback path already produces a correct, non-hardcoded result (Section 2.3); adding the header for extra robustness behind Host-rewriting reverse proxies is a reasonable future enhancement but is not required to close Gap 3 and is left out to keep this hotfix backend-only.
+
+---
+
+## 6. Security Review Requirement
+
+**Commit 1 (Section 7) touches a security boundary.** The Muzzle allowlist is the only mechanism preventing a tunnelled remote Docker socket from exposing write/mutate capability to whatever network the external proxy port is bound on. `docs/features/orthrus.md` makes an absolute, user-facing promise about read-only enforcement. Per this repo's governance rules, `supervisor` agent review is **required before implementation of Commit 1**, specifically to verify:
+
+1. Both new patterns (`/images/*/json`, `/distribution/*/json`) are genuinely read-only in the Docker Engine API (no known write side effects on GET).
+2. No accidental widening beyond the two intended patterns (e.g. no overly broad wildcard that also matches an unintended write endpoint).
+3. The method-check-before-path-check ordering in `Muzzle.ServeHTTP` (lines 79–84 run before lines 86–98) still holds after the change, so POST/PUT/DELETE to the new paths remains blocked unconditionally.
+4. The documented `path.Match` multi-segment limitation (Section 2.1) is an acceptable disclosed gap, not a silent security hole.
+
+Commits 2–5 (hostname fix, docs) are not security-boundary changes but should still pass through the same review pass for consistency, per this repo's supervisor workflow.
+
+---
+
+## 7. Commit Slicing Strategy
+
+**Decision: single PR on `development`, sliced into ordered commits.** One feature (this hotfix) = one PR, per `CLAUDE.md`. Conventional commit prefix `fix:` for all behavior-changing commits (Commits 1–3); `docs:` for the documentation commit (Commit 4). Each commit carries its own tests — this repo's TDD convention for backend work, not a separate test commit.
+
+| # | Commit | Scope | Files | Depends on | Validation gate |
+|---|---|---|---|---|---|
+| **1** | `fix(orthrus): allow read-only image/distribution inspect through Docker proxy muzzle` | Gap 1 — expand `allowedDockerPatterns`; add tests documenting both the new allowlist entries and the known multi-segment-name limitation | `backend/internal/orthrus/muzzle.go`, `backend/internal/orthrus/muzzle_test.go` | None (independent of Commits 2–3) | `go test ./backend/internal/orthrus/... -run TestMuzzle -v`; `make lint-staticcheck-only`; full `lefthook run pre-commit` should still be run since this is a security-boundary change (GORM scan not applicable — no model/GORM changes) |
+| **2** | `fix(orthrus): resolve external proxy hostname from request context instead of hardcoding it` | Gap 3, part A — add `resolveExternalProxyHost`, update `GetProxyStatus` to construct `connection_string` from request context instead of relaying `status.ConnectionString`; update/add handler tests. `ExternalProxyStatus.ConnectionString` still exists on the struct at this checkpoint (it is removed in Commit 3) — this commit only stops *reading* it, which compiles cleanly since Go permits unused exported struct fields | `backend/internal/api/handlers/orthrus_handler.go`, `backend/internal/api/handlers/orthrus_handler_test.go` | None (independent of Commit 1; compiles standalone against the current, unmodified `session.go` — the field it stops reading is still present) | `go build ./backend/...`; `go test ./backend/internal/api/handlers/... -run ProxyStatus -v` |
+| **3** | `fix(orthrus): remove hardcoded "charon" hostname from ExternalProxyStatus` | Gap 3, part B — remove the now-unread `ConnectionString` field and its hardcoded construction from `session.go`; pure cleanup with no observable behavior change, since Commit 2 already moved hostname resolution to the handler | `backend/internal/orthrus/session.go` | **Commit 2** (must land first: this commit deletes a struct field, so it only compiles standalone once its sole production reader — the handler — has already stopped referencing it) | `go build ./backend/...` (confirms zero remaining references to the removed field, now that Commit 2 has already migrated the only production reader); `go test ./backend/internal/orthrus/... -v`; `go test ./backend/...` (full backend suite — the riskier tail-end check for this two-commit pair, since this is where the struct itself changes shape) |
+| **4** | `docs(orthrus): document the External Docker Proxy feature` | Gap 2 — new sections in both docs files, generic (non-hardcoded) connection-string example, new troubleshooting rows | `docs/features/orthrus.md`, `docs/guides/remote-docker-setup.md` | None (independent — ordered last per this repo's suggested foundation→backend→docs sequence, and to avoid describing not-yet-merged behavior) | Manual proofread; Markdown renders correctly; both new internal cross-reference links resolve |
+| **5** | `fix(orthrus): verify muzzle + proxy-status hotfix end-to-end` *(hardening/verification — only added if the full-suite DoD pass in Section 8 surfaces something to fix; otherwise this step folds into Commit 3's validation and is not a separate commit)* | Full Definition-of-Done pass: run the complete existing `tests/orthrus-*.spec.ts` Playwright suite (expected: pass unmodified, Section 2.3), full backend coverage, full lint | None expected — placeholder only | Commits 1–4 | `npx playwright test --project=firefox tests/orthrus-*.spec.ts`; `bash scripts/local-patch-report.sh`; `scripts/go-test-coverage.sh`; full `lefthook run pre-commit` |
+
+**Rationale for ordering**: Commits 1 and 2 are independent of each other (different files, different gaps) and could technically be reordered, but are kept as separate commits because Commit 1 is the security-sensitive one that most benefits from being reviewable in isolation (small, self-contained diff). Commits 2 and 3 together form one logical "hostname fix" unit (Gap 3), but are ordered so each compiles standalone on its own: Commit 2 (the handler fix) lands first and stops `GetProxyStatus` from reading `ExternalProxyStatus.ConnectionString` — the field still exists on the struct at that point, just unused, which Go permits without error. Commit 3 (the struct field removal) lands second, once Commit 2 has already eliminated the field's only production reader, so its own `go build` also passes standalone too. Deleting the field before updating its last reader — the inverse order — would break the handler-fix commit's build at that checkpoint, which is exactly the defect this ordering avoids. Docs (Commit 4) come last since they describe the post-fix allowlist contents (Gap 1) and post-fix connection-string format (Gap 3) — writing them last avoids describing not-yet-merged behavior.
+
+### Rollback / contingency notes (for the PR as a whole)
+
+- **Commit 1 rollback**: revert is a two-line removal from `allowedDockerPatterns`; zero blast radius outside `muzzle.go`/`muzzle_test.go`. If Supervisor review (Section 6) flags either new pattern as unsafe, drop only that one pattern and keep the other — they are independent list entries.
+- **Commits 2+3 rollback**: revert in reverse order of application if both must be undone — Commit 3 first, then Commit 2 — since Commit 3 depends on Commit 2 having already landed. Commit 3 can also be safely reverted alone at any time: it only re-adds an unused struct field and its assignment, which nothing reads, so this is a behavioral no-op. Commit 2 should **not** be reverted while Commit 3 is still applied — the handler would go back to referencing a field that no longer exists on the struct, breaking the build. If both are reverted, `connection_string` reverts to the hardcoded `"tcp://charon:<port>"` behavior — a regression, but not a security issue, and matches current `main` behavior, so this is a safe fallback if an unexpected issue surfaces post-merge.
+- **Commit 4 rollback**: docs-only, zero functional risk; can be reverted or amended independently at any time without touching code.
+- **If Monday's merge window is missed**: no urgency-driven shortcuts (no `--no-verify`, no skipping Supervisor review) — `CLAUDE.md`'s emergency-bypass path requires a follow-up issue and is not warranted here since none of the three gaps are actively exploited or user-blocking; slipping to the next merge window is an acceptable contingency.
+
+---
+
+## 8. Acceptance Criteria (Definition of Done)
+
+This hotfix follows the full `CLAUDE.md` Definition of Done (Task Completion Protocol), scoped to the files touched:
+
+1. **Playwright E2E**: `npx playwright test --project=firefox` — full suite passes; `tests/orthrus-external-proxy.spec.ts`, `tests/orthrus-proxy-paths.spec.ts`, `tests/orthrus-agent-install.spec.ts`, `tests/orthrus-agents.spec.ts`, `tests/uptime-orthrus.spec.ts` specifically confirmed to pass **unmodified** (Section 2.3).
+2. **GORM Security Scan**: not triggered — no changes under `backend/internal/models/**`, no GORM queries or migrations touched.
+3. **Local Patch Coverage Preflight**: `bash scripts/local-patch-report.sh` — artifacts generated at `test-results/local-patch-report.md` / `.json`.
+4. **Security Scans**: `lefthook run pre-commit` (CodeQL Go + JS) — zero high/critical findings; Trivy container scan — no new findings (no new dependencies).
+5. **Staticcheck**: `make lint-staticcheck-only` — zero errors on `muzzle.go`, `session.go`, `orthrus_handler.go`.
+6. **Coverage**: `scripts/go-test-coverage.sh` — overall ≥85%, with the new/changed lines in `muzzle.go`, `session.go`, `orthrus_handler.go` fully covered by the tests specified in Sections 3.1 and 3.3.
+7. **Build**: `cd backend && go build ./...` succeeds (no frontend build step required — no frontend files touched, but `cd frontend && npm run build` should still be run as a smoke check per the standard DoD).
+8. **Muzzle allowlist regression guard**: `TestMuzzle_UnknownPath_Blocked` and `TestMuzzle_POST_Blocked` continue to pass, proving no unintended widening.
+9. **Hostname regression guard**: no production code anywhere in `backend/` contains the literal string `"charon:"` inside a `fmt.Sprintf("tcp://...")`-style construction (manual grep check as a final gate: `grep -rn 'tcp://charon' backend/ --include="*.go"` should return zero matches in non-test files after Commits 2–3 land).
+10. **Docs render correctly**: both new sections in `docs/features/orthrus.md` and `docs/guides/remote-docker-setup.md` reviewed for tone-match and correct Markdown rendering; no hardcoded `tcp://charon:<port>` example anywhere in either doc.
+11. **Supervisor sign-off** obtained per Section 6 before Commit 1 is written, and again before the PR is opened for merge.
+
+---
+
+## 9. Hardening Commits — Pre-existing E2E Failure Root Causes
+
+**Status**: Investigation-only addendum, appended after Commits 1–5 (backend/docs hotfix, `98a68b67`, `7f307c3c`, `1eb266d2`, `c778b53a`, `1caa4c65`) and the QA-report commit (`d70be096`) had already landed. Nothing in this section touches, reopens, or depends on any file changed by those six commits — both issues below are pre-existing, previously-out-of-scope E2E failures unrelated to the Orthrus External Docker Proxy hotfix. They are pulled in now as two additional, independent hardening commits in the same PR, per `CLAUDE.md`'s "one feature = one PR, sliced into ordered commits" rule. Root-cause tracing followed the mandatory Root Cause Analysis Protocol (entry point → transformation → persistence → exit point) for both issues before any fix was specced.
+
+**Security boundary check (both issues)**: confirmed by direct inspection — neither issue's investigation or fix touches `backend/internal/orthrus/muzzle.go`, `session.go`, `orthrus_handler.go`, or any other file in `backend/internal/orthrus/**`. Both are frontend-E2E-test-only concerns: Issue 1 concerns a Playwright helper's navigation target and the (already-shipped, already-deprecated-elsewhere) `RemoteServerForm`/`ConnectionTypeSelector` UI; Issue 2 concerns a Playwright test's locator strategy against `frontend/src/pages/Uptime.tsx`'s existing sort behavior. **No bearing on the Orthrus security boundary.**
+
+### 9.1 Issue 1 — `tests/orthrus-agent-install.spec.ts` (all 18 tests failing)
+
+**Root cause — confirmed, and it is *not* what QA's initial finding described.** QA was correct that `#connection-type` no longer exists, but wrong about the fix being a simple selector swap. Tracing the full flow (entry point → UI → exit point):
+
+- **Entry point**: `openOrthrusWizard()` (`tests/orthrus-agent-install.spec.ts:22-75`) calls `page.goto('/remote-servers')` (line 49), then `page.locator('#connection-type').selectOption('orthrus')` (line 58-59), then expects a `getByRole('button', { name: /provision.*agent/i })` (line 61) to appear inline in that same form.
+- **Transformation (live component trace)**: `/remote-servers` redirects to `/hecate/remote-servers` (`frontend/src/App.tsx:84,90`) → renders `frontend/src/pages/RemoteServers.tsx`, which renders `frontend/src/components/RemoteServerForm.tsx` (line 362) on "Add Server" click. `RemoteServerForm.tsx:195-259` delegates the connection-type UI to `frontend/src/components/hecate/ConnectionTypeSelector.tsx`, which renders a `fieldset`/`radiogroup` of three radio buttons (`direct` / `agent` / `provider`, lines 46-99) — **not** a `<select id="connection-type">`, confirming QA's first observation. But critically: when `mode === 'agent'` is selected, `ConnectionTypeSelector.tsx:101-137` renders only a `<select id="cts-agent">` **dropdown of already-provisioned agents** (populated from `useAgentList()`) — there is no name-entry field, no "Provision…Agent" button, and no install-wizard trigger anywhere in this component or its parent (`RemoteServerForm.tsx`) in "agent" mode. Confirmed via full-file read of both components: the string "provision" does not appear in either file.
+- **Why**: this is by design, not a bug. Commit `4e9c5a9e` ("fix(hecate): fix stale E2E selectors, close unit test gaps, and polish UX", 2026-05-05) — the same commit QA cited — states explicitly in its own message: *"The RemoteServerForm connection type redesign replaced a `<select>` dropdown with three radio buttons."* That redesign intentionally scoped `RemoteServerForm`'s agent mode to **attaching an existing agent**, not provisioning a new one. The provisioning + install-wizard flow was relocated to a dedicated page: `frontend/src/pages/HecateAgent.tsx` (route `/hecate/agent`, `frontend/src/App.tsx:86`), which renders `OrthrusAgentManager` plus a "Provision New Agent" button (`HecateAgent.tsx:73-76`, label from `t('hecate.page.provisionAgent')` = `"Provision New Agent"`) that opens a name-entry `Dialog` (`HecateAgent.tsx:81-124`, input `#provision-name`), whose submit button — also labeled "Provision New Agent" (`HecateAgent.tsx:116-121`) — calls `doProvision` → `getInstallSnippets` → sets `wizardData`, which mounts `frontend/src/components/hecate/OrthrusInstallWizard.tsx` (title `t('hecate.wizard.title', {name})` = **"Install Orthrus Agent"**, `#auth-key-input`, five platform tabs — structurally identical to what the rest of the spec file already asserts on). The old `Hecate.tsx` page, which historically hosted this same combined flow, carries an explicit doc-comment: `@deprecated Replaced by HecateTunnels.tsx and HecateAgent.tsx. ... Do not add new routes or functionality to this component.` (`frontend/src/pages/Hecate.tsx:1-4`).
+- **Exit point / confirmed-working precedent**: `tests/orthrus-agents.spec.ts:52-67` (`setupAgentPage()`) already exercises this exact `/hecate/agent` flow successfully (`page.goto('/hecate/agent')`, mocking the same `ORTHRUS_AGENTS_API`/`REMOTE_SERVERS_API`/`HECATE_STATUS_API` routes), and `tests/orthrus-agents.spec.ts:234-252` already opens the provision dialog with `page.getByRole('button', { name: /provision new agent/i })` and reads `dialog.locator('#provision-name')` — proving the flow itself works correctly end-to-end in the current app; only this one spec file was missed when `4e9c5a9e` migrated the other four.
+
+**Conclusion: 100% test bug (stale test authored against a UI flow that migrated to a different page), zero app-level regression.** `openOrthrusWizard()`'s target UI does not exist at `/remote-servers` anymore — not "exists under a different selector," but genuinely relocated to `/hecate/agent`. **Owner: Playwright Dev.** Do not route any part of this to Frontend Dev — the current app behavior is the intended, already-shipped design.
+
+**Exact fix spec** — replace `openOrthrusWizard()` in `tests/orthrus-agent-install.spec.ts:22-75` in full:
+
+```ts
+async function openOrthrusWizard(page: import('@playwright/test').Page) {
+  await page.route(REMOTE_SERVERS_API, (route) => route.fulfill({ json: [] }));
+  await page.route(HECATE_STATUS_API, (route) => route.fulfill({ json: [] }));
+  await page.route(ORTHRUS_AGENT_SNIPPETS_API, (route) => route.fulfill({ json: MOCK_SNIPPETS }));
+  await page.route(ORTHRUS_AGENTS_API, (route) => {
+    if (route.request().method() === 'POST') {
+      route.fulfill({
+        json: {
+          agent: { uuid: MOCK_AGENT_UUID, name: MOCK_AGENT_NAME, enabled: true },
+          auth_key: MOCK_AUTH_KEY,
+        },
+      });
+    } else {
+      route.fulfill({ json: [] });
+    }
+  });
+
+  // Provisioning + the install wizard live on /hecate/agent (HecateAgent.tsx),
+  // not on /remote-servers — RemoteServerForm's "agent" connection mode only
+  // attaches an already-provisioned agent (see ConnectionTypeSelector.tsx),
+  // it does not provision new ones. See docs/plans/current_spec.md §9.1.
+  await page.goto('/hecate/agent');
+  await waitForLoadingComplete(page);
+
+  await page.getByRole('button', { name: /provision new agent/i }).click();
+
+  const provisionDialog = page.getByRole('dialog');
+  await expect(provisionDialog).toBeVisible({ timeout: 5000 });
+
+  await provisionDialog.locator('#provision-name').fill(MOCK_AGENT_NAME);
+
+  // Scoped to the dialog: the page's own "Provision New Agent" trigger button
+  // shares the exact same accessible name as this dialog's submit button.
+  await provisionDialog.getByRole('button', { name: /provision new agent/i }).click();
+
+  // The provision dialog closes and the install wizard opens in the same
+  // batched state update, but the Dialog exit/enter animation (Dialog.tsx,
+  // data-[state=open|closed]:animate-in/out) can transiently keep both
+  // role="dialog" nodes mounted — filter on content instead of relying on
+  // there being exactly one `dialog` role element.
+  const wizardDialog = page.getByRole('dialog').filter({ hasText: /install orthrus agent/i });
+  await expect(wizardDialog).toBeVisible({ timeout: 8000 });
+
+  return wizardDialog;
 }
 ```
 
-No new imports are required — `os` (line 6) and `database` (line 13) are already imported in `main_test.go`. This single, process-wide override eliminates the async race for **every** test in the `cmd/api` package, including the subprocess/in-process `main()`-invoking tests (`TestMain_DefaultStartupGracefulShutdown_*`) that call `database.Connect` indirectly through production code, since `launchQuickCheck` is a package-level var affecting all `Connect()` calls within the process — no per-call changes needed for those two tests.
+No other locator in the file needs to change — every assertion downstream of `openOrthrusWizard()`'s returned `dialog` (dialog title, `#auth-key-input`, "shown only once" text, copy buttons, five tabs, troubleshooting `<details>`, ARIA snapshots) targets `OrthrusInstallWizard.tsx`, which is unchanged and structurally matches the existing assertions exactly (verified against `frontend/src/locales/en/translation.json` keys `hecate.wizard.*` and `hecate.installWizard.tabs.*` — all match verbatim, e.g. `hecate.wizard.title` = `"Install Orthrus Agent"`, tabs = `"Docker Compose"`/`"Systemd"`/`"Tarball"`/`"Homebrew"`/`"Kubernetes"`).
 
-**Subprocess consideration:** `TestResetPasswordCommand_Succeeds`, `TestMigrateCommand_Succeeds`, and `TestMain_DefaultStartupGracefulShutdown_Subprocess` spawn `exec.Command(os.Args[0], "-test.run=...")` to re-invoke the same compiled test binary in a child process. The child process also runs through `TestMain` before `m.Run()` executes the requested test, so the synchronous override applies identically in both the parent test process and any spawned child test process — no special-casing needed.
+**Suggested commit message**: `test(orthrus): fix agent-install wizard E2E flow to target /hecate/agent`
 
-### 3.3 `backend/cmd/api/main_test.go` — close leaked connections (defense in depth)
+### 9.2 Issue 2 — `tests/uptime-orthrus.spec.ts:135-163`, "non-Orthrus monitor at same IP is checked independently"
 
-Reuses the repository's existing, established pattern (already used in `backend/internal/api/handlers/credential_handler_test.go:42-44`, `logo_handler_test.go:48-50`, `custom_theme_handler_test.go:29-31`, `banner_handler_test.go:47-49`, `pr_coverage_test.go:567-569`, and others):
+**Root cause — confirmed, and it is not QA's stale-data-race theory.** Traced the full flow:
 
-```go
-t.Cleanup(func() {
-	sqlDB, _ := db.DB()
-	_ = sqlDB.Close()
-})
+- **Route-mock timing (ruled out)**: `setupUptimePage()` (`tests/uptime-orthrus.spec.ts:48-71`) registers both `page.route(UPTIME_MONITOR_HISTORY_API, ...)` and `page.route(UPTIME_MONITORS_API, ...)` and `await`s both calls before `await page.goto('/uptime')` (lines 53-69). Playwright deterministically intercepts all matching requests issued after `page.goto()` once `route()` has resolved — there is no race window here. This matches the coordinator's own skepticism of the race theory.
+- **Route pattern (ruled out)**: `frontend/src/api/uptime.ts:35-36` (`getMonitors`) calls `client.get('/uptime/monitors')` with no query string, which exactly matches the mock pattern `**/api/v1/uptime/monitors` (`tests/uptime-orthrus.spec.ts:5`). No mismatch.
+- **Stale/leaked real data (ruled out)**: if real, unmocked data from a long-lived container were leaking through, the three *single*-monitor tests earlier in the same file (lines 78-133), which use unqualified `page.getByTestId('monitor-card')`/`getByTestId('status-badge')` locators with `.toBeVisible()` (a strict-mode-sensitive assertion that throws if more than one match exists), would also fail whenever extra real monitor cards were present. They do not fail — only the two-monitor test does. This rules out data leakage as the cause.
+- **True root cause — component sort order, confirmed by reading `frontend/src/pages/Uptime.tsx` in full**:
+  - Line 559-565: `sortedMonitors` sorts the entire monitor list **alphabetically by name**, case-insensitively — `[...monitors].sort((a, b) => (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase()))`. This is a deliberate, commented feature ("Sort monitors alphabetically by name"), not a bug.
+  - Lines 567-569: `sortedMonitors` is then split into three category buckets by `proxy_host_id` / `remote_server_id` (`UptimeMonitor` interface, `frontend/src/api/uptime.ts:7-8`): `proxyHostMonitors`, `remoteServerMonitors`, `otherMonitors`.
+  - The test's two mock monitors — `MOCK_ORTHRUS_MONITOR_BASE` (name `"Remote Server (Orthrus)"`) and `MOCK_TCP_MONITOR_SAME_IP` (name `"Dockhand Service"`) — **both omit `proxy_host_id` and `remote_server_id`** (`tests/uptime-orthrus.spec.ts:11-35`), so both land in the same `otherMonitors` bucket and render in the same grid (`Uptime.tsx:632-641`).
+  - Within that bucket they are sorted alphabetically: `"Dockhand Service"` (`D`) sorts **before** `"Remote Server (Orthrus)"` (`R`). So `page.getByTestId('monitor-card').first()` is the **TCP** monitor card, and `.nth(1)` is the **Orthrus** monitor card — the exact inverse of what the test's positional assertions (lines 151-162) assume.
+  - This also explains QA's own observation that `cards.toHaveCount(2)` (line 146-149) passes: sorting changes order, not count, so that assertion was never informative about the actual defect.
+  - The name `"Dockhand Service"` in the test fixture is coincidental/red-herring-adjacent to QA's "real Dockhand Service monitor" theory — it is the test's **own mock data**, not a leaked real monitor; QA misread which object was showing up first.
+- **Classification**: this is a genuine, order-dependent Playwright assertion bug colliding with an intentional, pre-existing, correctly-functioning component behavior (alphabetical sort). It is **not** a race, **not** a route-mock scoping bug, and **not** an app-level defect — `Uptime.tsx`'s sort is working exactly as designed and does not need to change.
+
+**Conclusion: test bug. Owner: Playwright Dev.** No change to `frontend/src/pages/Uptime.tsx` is warranted or in scope.
+
+**Exact fix spec** — in `tests/uptime-orthrus.spec.ts`, replace the two `test.step` blocks at lines 151-162 (leave the `cards.toHaveCount(2)` step at lines 146-149 unchanged) with content-scoped locators instead of positional (`.first()`/`.nth(1)`) ones:
+
+```ts
+await test.step('verify each monitor card shows its own independent status badge', async () => {
+  const orthrusCard = page.getByTestId('monitor-card').filter({ hasText: 'Remote Server (Orthrus)' });
+  const tcpCard = page.getByTestId('monitor-card').filter({ hasText: 'Dockhand Service' });
+  await expect(orthrusCard.getByTestId('status-badge')).toHaveAttribute('data-status', 'up');
+  await expect(tcpCard.getByTestId('status-badge')).toHaveAttribute('data-status', 'up');
+});
+
+await test.step('verify Orthrus monitor card shows ORTHRUS type and TCP monitor card shows TCP type', async () => {
+  const orthrusCard = page.getByTestId('monitor-card').filter({ hasText: 'Remote Server (Orthrus)' });
+  const tcpCard = page.getByTestId('monitor-card').filter({ hasText: 'Dockhand Service' });
+  await expect(orthrusCard).toContainText('ORTHRUS');
+  await expect(tcpCard).toContainText('TCP');
+});
 ```
 
-Per Go's documented `t.Cleanup` LIFO ordering, a cleanup registered *after* `tmp := t.TempDir()` runs *before* `t.TempDir()`'s own cleanup — so this pattern deterministically closes each SQLite connection pool before the temp directory is removed, for every connection opened after the `t.TempDir()` call in each test (true for all cases below). This is secondary/hygiene: it does not by itself fix the async-goroutine race (§3.1/§3.2 does), but it removes leaked GORM connection pools and matches CLAUDE.md's DRY principle (reuse existing convention rather than inventing a new one).
+This makes the assertions correct regardless of `Uptime.tsx`'s (intentional, unchanged) alphabetical sort order, and regardless of any future re-ordering of the mock array or additional monitors being added to the fixture.
 
-Exact insertion points (variable name substituted per call site):
+**Suggested commit message**: `test(uptime): assert Orthrus/TCP monitor cards by name, not render position`
 
-| Insert after line(s) | Test | Variable |
-|---|---|---|
-| 34–37 | `TestResetPasswordCommand_Succeeds` | `db` |
-| 82–85 | `TestMigrateCommand_Succeeds` | `db` |
-| 111–114 | `TestMigrateCommand_Succeeds` | `db2` |
-| 158–161 | `TestStartupVerification_MissingTables` | `db` (second/reopened connection only — do not touch the first connection's existing manual close at 155–156) |
-| 205–208 | `TestMain_MigrateCommand_InProcess` | `db` |
-| 223–226 | `TestMain_MigrateCommand_InProcess` | `db2` |
-| 251–254 | `TestMain_ResetPasswordCommand_InProcess` | `db` |
+### Commit Slicing addendum (Commits 6-7, following Commits 1-5 and the QA-report commit)
 
-Example — `TestMigrateCommand_Succeeds` (lines 81–89 today) becomes:
+| # | Commit | Scope | Files | Depends on | Validation gate |
+|---|---|---|---|---|---|
+| **6** | `test(orthrus): fix agent-install wizard E2E flow to target /hecate/agent` | Issue 1 — rewrite `openOrthrusWizard()` to drive the real provisioning-dialog → install-wizard flow on `/hecate/agent` | `tests/orthrus-agent-install.spec.ts` | None (independent of Commits 1-5, 7, and the QA-report commit; test-only, no production code) | `npx playwright test --project=firefox tests/orthrus-agent-install.spec.ts` — all 18 tests pass |
+| **7** | `test(uptime): assert Orthrus/TCP monitor cards by name, not render position` | Issue 2 — replace positional (`.first()`/`.nth(1)`) card/badge assertions with name-filtered locators in the one affected test | `tests/uptime-orthrus.spec.ts` | None (independent of Commit 6 and Commits 1-5; test-only, no production code) | `npx playwright test --project=firefox tests/uptime-orthrus.spec.ts` — all 4 tests pass |
 
-```go
-	// Create database without security tables
-	db, err := database.Connect(dbPath)
-	if err != nil {
-		t.Fatalf("connect db: %v", err)
-	}
-	t.Cleanup(func() {
-		sqlDB, _ := db.DB()
-		_ = sqlDB.Close()
-	})
-	// Only migrate User table to simulate old database
-	if err = db.AutoMigrate(&models.User{}); err != nil {
-		t.Fatalf("automigrate user: %v", err)
-	}
-```
-
-...and the `db2` reconnect (lines 111–114 today) becomes:
-
-```go
-	// Reconnect and verify security tables were created
-	db2, err := database.Connect(dbPath)
-	if err != nil {
-		t.Fatalf("reconnect db: %v", err)
-	}
-	t.Cleanup(func() {
-		sqlDB, _ := db2.DB()
-		_ = sqlDB.Close()
-	})
-```
-
-### 3.4 New unit test — `backend/internal/database/database_test.go`
-
-Add a small test for the new exported function to satisfy CLAUDE.md's "always create unit tests for new code coverage" and the 85% backend coverage gate:
-
-```go
-func TestSyncIntegrityCheckForTesting(t *testing.T) {
-	t.Parallel()
-
-	// Sanity: the exported wrapper assigns launchQuickCheck to the
-	// synchronous runQuickCheck implementation, and Connect still succeeds
-	// normally afterwards (mirrors what TestMain already does package-wide).
-	SyncIntegrityCheckForTesting()
-
-	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "sync-check.db")
-
-	db, err := Connect(dbPath)
-	require.NoError(t, err)
-	require.NotNil(t, db)
-
-	sqlDB, err := db.DB()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = sqlDB.Close() })
-}
-```
-
-`TestMain` in the same file already forces `launchQuickCheck = runQuickCheck` for the whole package, so this test is intentionally a smoke/regression test proving the exported entry point itself is wired correctly and doesn't panic or change `Connect`'s success behavior — not a race-reproduction test (races are not reliably unit-testable). `filepath` and `require` are already imported in this file (verified: `path/filepath` and `github.com/stretchr/testify/require` — confirm on implementation and add if not already present at file scope).
-
-### 3.5 Error Handling / Edge Cases Considered
-
-- **Double-close:** `TestStartupVerification_MissingTables` already closes its first `db` handle manually at lines 155–156; the new `t.Cleanup` is added only for the *second* (reopened) handle to avoid a redundant/no-op double-close of the first.
-- **Connection still in use at cleanup time:** `t.Cleanup` runs after the test function body returns, so it cannot close a connection still mid-use within the same test (e.g., `TestMain_ResetPasswordCommand_InProcess`'s `db.Where(...)` call at line 278 happens before the function returns, hence before any `t.Cleanup` fires) — safe by construction.
-- **Subprocess DB contention:** Adding `t.Cleanup` does not change *when* within the test body connections close relative to spawned subprocesses (cleanup still only fires at test-function return, identical timing to today's implicit "never closed until process exit" behavior for the portion of the test before return) — no new lock-contention risk is introduced between the parent test process and spawned subprocess.
-- **Production behavior:** `Connect()`'s default (async) behavior is completely unchanged; `SyncIntegrityCheckForTesting()` is opt-in and only ever called from test code.
-
----
-
-## 4. Implementation Plan
-
-### Phase 1: Playwright Tests
-
-**Not applicable.** This is a backend-test-only fix with no frontend or user-facing API behavior change (see §5 rationale). No Playwright tests are added or modified.
-
-### Phase 2: Backend Implementation
-
-1. `backend/internal/database/database.go` — add `SyncIntegrityCheckForTesting()` (§3.1).
-2. `backend/internal/database/database_test.go` — add `TestSyncIntegrityCheckForTesting` (§3.4).
-3. `backend/cmd/api/main_test.go` — add `TestMain` (§3.2) and the 7 `t.Cleanup` blocks (§3.3).
-
-### Phase 3: Frontend Implementation
-
-**Not applicable.** No frontend changes.
-
-### Phase 4: Integration and Testing
-
-Run the flake-reproduction loop before and after the fix to build confidence (not just a single green run):
-
-```bash
-cd backend
-go test ./cmd/api/... -run TestMigrateCommand_Succeeds -count=20 -v
-go test ./... -count=1
-```
-
-### Phase 5: Documentation and Deployment
-
-No `ARCHITECTURE.md` update needed — this does not change system architecture, tech stack, deployment model, or directory structure (test-only bugfix). No `docs/features.md` update needed — no user-facing capability changed. This decision is stated explicitly per the plan template's requirement to show it was considered.
-
----
-
-## 5. Acceptance Criteria
-
-- [ ] `TestMigrateCommand_Succeeds` and all other tests in `backend/cmd/api` pass reliably across at least 20 repeated runs (`-count=20`), with no `TempDir RemoveAll cleanup` failures.
-- [ ] `go test ./...` (full backend suite) passes with zero failures.
-- [ ] `go vet ./...` reports no issues.
-- [ ] `go build ./...` succeeds.
-- [ ] `govulncheck ./...` reports no new vulnerabilities.
-- [ ] `./scripts/scan-gorm-security.sh --check` reports zero CRITICAL/HIGH findings (triggered because this touches `backend/internal/database` and GORM-adjacent test code, per CLAUDE.md §1.5).
-- [ ] `bash scripts/local-patch-report.sh` produces `test-results/local-patch-report.md` and `test-results/local-patch-report.json` with the new/changed lines covered.
-- [ ] `lefthook run pre-commit` passes with zero blocking findings (staticcheck, CodeQL Go/JS per CLAUDE.md).
-- [ ] `make lint-fast` / `make lint-staticcheck-only` clean.
-- [ ] `scripts/go-test-coverage.sh` — backend coverage remains ≥ 85% (`CHARON_MIN_COVERAGE`).
-- [ ] No debug prints, commented-out code, or unused imports introduced.
-- [ ] **Explicitly out of scope, deliberately excluded (documented per DoD, not overlooked):**
-  - Playwright E2E tests (`npx playwright test --project=firefox`) — not relevant; no frontend or HTTP-facing API behavior changed by this fix.
-  - `scripts/frontend-test-coverage.sh` / `cd frontend && npm run type-check` — not relevant; no frontend files touched.
-  - `.gitignore`, `.dockerignore`, `.codecov.yml`, `Dockerfile` — no changes needed; no new files, artifacts, or build outputs are introduced by this fix.
-  - `backend/go.mod` / `backend/go.sum` (the already-staged `cpuid`/`procfs` bumps) — confirmed unrelated (§2.6) and explicitly excluded from this commit; will be committed separately by the user.
-
----
-
-## 6. Commit Slicing Strategy
-
-### 6.1 Decision
-
-**Single PR, single commit.** This is a small, mechanically-scoped, single-domain (backend test code only) bug fix — it does not touch backend API/model behavior, frontend, or infrastructure, so CLAUDE.md's multi-PR decomposition triggers ("touches backend + frontend + infra," "diff large enough to reduce review quality," "independently testable slices," "foundational refactor needed") do not apply. One commit is the correct grain: the `TestMain` addition, the exported test helper it depends on, and the `t.Cleanup` hygiene fixes are one indivisible logical change — splitting them would leave intermediate commits in a state where the actual race is not yet fixed.
-
-### 6.2 Commit 1 (only commit)
-
-- **Type/prefix:** `fix:` (per CLAUDE.md Conventional Commits and CI/CD triggers — `fix:` triggers a Docker build; this is acceptable/expected for a merged test-suite fix, though this branch is not `feature/beta-release` so verify current branch's build-trigger policy before pushing).
-- **Scope:** Backend test suite only.
-- **Files:**
-  - `backend/internal/database/database.go` — add `SyncIntegrityCheckForTesting()`.
-  - `backend/internal/database/database_test.go` — add `TestSyncIntegrityCheckForTesting`.
-  - `backend/cmd/api/main_test.go` — add `TestMain`; add 7 `t.Cleanup` blocks.
-- **Explicitly NOT included in this commit:** `backend/go.mod`, `backend/go.sum` (already staged separately by the user — confirmed unrelated, see §2.6). Do not `git add` these files as part of this commit.
-- **Dependencies:** None — this fix is independent of the staged dependency bump and can be committed before, after, or interleaved with it without ordering constraints.
-- **Validation gate before commit:** All items in §5 Acceptance Criteria.
-
-### 6.3 Suggested commit message
-
-```
-fix(test): eliminate TempDir cleanup race in cmd/api DB tests
-
-Connect() launches an untracked background goroutine (PRAGMA quick_check
-on its own SQLite connection) that can still be touching WAL/SHM files
-when t.TempDir() removes the test directory, causing an intermittent
-"directory not empty" cleanup failure. internal/database's own tests
-already work around this via TestMain; cmd/api had no equivalent.
-
-Adds database.SyncIntegrityCheckForTesting() and a cmd/api TestMain that
-uses it, plus t.Cleanup-based connection closing for defense in depth.
-```
-
-### 6.4 Rollback / Contingency
-
-- **Rollback:** `git revert` the single commit — it is additive-only (a new exported function, a new test, `t.Cleanup` blocks, one new `TestMain`); reverting cannot reintroduce a build break, only restore the prior (racy but previously "working most of the time") test state.
-- **Contingency if the race still reproduces after this fix:** Re-run the Phase 4 `-count=20` loop under `go test ./... -race` and under simulated load (`go test ./... -p 1` vs default parallelism) to rule out a second, distinct source of background file I/O (e.g., a WAL checkpoint triggered by GORM's connection-pool idle-timeout behavior). If reproduced, the next investigation step is `configurePool`'s `SetConnMaxLifetime(0)` combined with SQLite's own WAL auto-checkpoint background thread — but do not preemptively change `configurePool` in this commit without first confirming that is in fact still happening post-fix (Root Cause Analysis Protocol: fix the confirmed cause first, re-measure, only then investigate further if the symptom persists).
-
-### 6.5 Follow-up (not part of this commit)
-
-Open a follow-up issue/PR to apply the same `TestMain` + `SyncIntegrityCheckForTesting()` pattern to:
-- `backend/internal/api/handlers` (covers `db_health_handler_test.go` and any other file-based `database.Connect` usage in that package)
-- `backend/internal/server` (covers `emergency_server_test.go`)
-
-These carry the identical latent race (§2.4) but have not been observed failing in this run; deferring them keeps this commit minimal and focused on the confirmed, reported failure.
+Both commits are test-only (`tests/*.spec.ts`), touch no `.go`/`.tsx`/`.ts` production source, trigger no GORM security scan (no `backend/internal/models/**` changes), and have zero bearing on the Orthrus security boundary (`muzzle.go`) — confirmed above. Rollback for either commit is a no-risk single-file revert; they do not depend on each other and can be reverted independently at any time.

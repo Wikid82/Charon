@@ -99,7 +99,10 @@ async function openManualChallengePanel(
   page: Parameters<typeof test>[0]['page']
 ): Promise<void> {
   const manualChallengeButton = page.getByRole('button', { name: /manual dns challenge/i }).first();
-  await expect(manualChallengeButton).toBeVisible();
+  // WebKit under CI load can take longer than the default 5s expect timeout
+  // to render the provider list from the mocked response; this file has a
+  // history of flaky failures here (see git log), so give it more headroom.
+  await expect(manualChallengeButton).toBeVisible({ timeout: 10000 });
   await manualChallengeButton.click();
   await expect(page.getByRole('heading', { name: /manual dns challenge/i })).toBeVisible();
 }

@@ -91,14 +91,17 @@ func (c *wsNetConn) SetWriteDeadline(t time.Time) error {
 }
 
 // ExternalProxyStatus describes the runtime state of the external Docker proxy
-// bound on 0.0.0.0 for this agent session.
+// bound on 0.0.0.0 for this agent session. It intentionally carries no
+// connection-string/hostname field: AgentSession is a long-lived per-tunnel
+// object with no request-scoped data (no *gin.Context), so it cannot resolve
+// a caller-appropriate hostname. That resolution happens one layer up, in
+// OrthrusHandler.GetProxyStatus, which does have request context.
 type ExternalProxyStatus struct {
-	ConfiguredPort   int    `json:"configured_port"`             // port passed to StartExternalProxy
-	ActivePort       int    `json:"active_port"`                 // actual bound port (0 if not active)
-	BoundAddress     string `json:"bind_address"`                // e.g. "0.0.0.0:9999"
-	ConnectionString string `json:"connection_string,omitempty"` // e.g. "tcp://charon:9999"
-	Active           bool   `json:"active"`
-	Error            string `json:"error,omitempty"` // last start error, if any
+	ConfiguredPort int    `json:"configured_port"` // port passed to StartExternalProxy
+	ActivePort     int    `json:"active_port"`     // actual bound port (0 if not active)
+	BoundAddress   string `json:"bind_address"`    // e.g. "0.0.0.0:9999"
+	Active         bool   `json:"active"`
+	Error          string `json:"error,omitempty"` // last start error, if any
 }
 
 // AgentSession represents a single connected Orthrus agent's active WebSocket
@@ -345,18 +348,12 @@ func (s *AgentSession) GetExternalProxyStatus() ExternalProxyStatus {
 		errStr = s.extErr.Error()
 	}
 
-	connStr := ""
-	if active && activePort > 0 {
-		connStr = fmt.Sprintf("tcp://charon:%d", activePort)
-	}
-
 	return ExternalProxyStatus{
-		ConfiguredPort:   s.extProxyPort,
-		ActivePort:       activePort,
-		BoundAddress:     boundAddr,
-		ConnectionString: connStr,
-		Active:           active,
-		Error:            errStr,
+		ConfiguredPort: s.extProxyPort,
+		ActivePort:     activePort,
+		BoundAddress:   boundAddr,
+		Active:         active,
+		Error:          errStr,
 	}
 }
 

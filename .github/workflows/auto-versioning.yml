@@ -33,7 +33,7 @@ jobs:
 
       - name: Calculate Semantic Version
         id: semver
-        uses: paulhatch/semantic-version@9f72830310d5ed81233b641ee59253644cd8a8fc # v6.0.2
+        uses: paulhatch/semantic-version@502226b17e3e242e4befd0a45690fcbb27dd1373 # v6.0.3
         with:
           # The prefix to use to create tags
           tag_prefix: "v"
@@ -145,7 +145,7 @@ jobs:
 
       - name: Create GitHub Release (creates tag via API)
         if: ${{ steps.semver.outputs.changed == 'true' && steps.check_release.outputs.exists == 'false' }}
-        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
         with:
           tag_name: ${{ steps.determine_tag.outputs.tag }}
           name: Release ${{ steps.determine_tag.outputs.tag }}

@@ -91,6 +91,22 @@ RUN for _attempt in 1 2 3; do \
         sleep $((_attempt * 15)); \
     done
 
+# Pin golang.org/x/sys to a patched version for scanner hygiene (GO-2026-5024 / CVE-2026-39824).
+# Upstream tianon/gosu@1.17's own go.sum resolves golang.org/x/sys to v0.13.0, which Grype/GitHub
+# code scanning flags. The vulnerable code (NewNTUnicodeString overflow) lives only in
+# golang.org/x/sys/windows; gosu is Unix-only and this stage only cross-compiles Linux targets
+# (CGO_ENABLED=0 xx-go build below), so the flagged code path is never compiled into this binary.
+# Fixed regardless, since it's cheap and keeps the scanner quiet. Pinned to v0.46.0 (above the
+# advisory's v0.44.0 fix floor) to match the same x/sys version already used by the Delve debug
+# stage below (Dockerfile:199) for this identical advisory. Do NOT bump GOSU_VERSION instead:
+# upstream tag 1.19's go.mod actually requires an OLDER golang.org/x/sys v0.1.0.
+RUN for _attempt in 1 2 3; do \
+        go get golang.org/x/sys@v0.46.0 && go mod tidy && go mod verify && break; \
+        [ "${_attempt}" -lt 3 ] || exit 1; \
+        echo "golang.org/x/sys pin attempt ${_attempt}/3 failed; retrying in $((_attempt * 15))s..." >&2; \
+        sleep $((_attempt * 15)); \
+    done
+
 # Build gosu for target architecture with patched Go stdlib
 # hadolint ignore=DL3059
 RUN --mount=type=cache,target=/root/.cache/go-build \
@@ -186,7 +202,8 @@ RUN set -eux; \
 # Install Delve (cross-compile for target) — debug builds only.
 # Security: dlv is only installed when BUILD_DEBUG=1.  Production images (BUILD_DEBUG=0,
 # the default) receive a harmless stub so the unconditional COPY below still succeeds,
-# but no Delve binary with golang.org/x/sys < v0.27.0 (GO-2026-5024) is shipped.
+# but no Delve binary with an unpatched golang.org/x/sys/windows (NewNTUnicodeString
+# string-length overflow, CVE-2026-39824 / GO-2026-5024, fixed in v0.44.0+) is shipped.
 # When dlv IS needed, we build it inside a temporary module that pins
 # golang.org/x/sys to the patched version used by the rest of the project.
 # renovate: datasource=go depName=github.com/go-delve/delve
@@ -662,7 +679,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=53941fb054c1c9c1748d5b3f271d0a26c235e207c0f2a008ccb381ef7dd26161
+ARG GEOLITE2_COUNTRY_SHA256=db73536b02d376c82d63d23aeb0fbac4795901a76b27850ea68c1fab9425270c
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
@@ -749,7 +766,8 @@ COPY --from=backend-builder /app/backend/charon /app/charon
 RUN ln -s /app/charon /app/cpmp || true
 # Copy Delve stub/binary from backend-builder.
 # Security (GO-2026-5024): production builds (BUILD_DEBUG=0) receive a harmless shell
-# stub that prints an error and exits 1 — no vulnerable golang.org/x/sys v0.26.0 binary
+# stub that prints an error and exits 1 — no golang.org/x/sys/windows binary vulnerable
+# to CVE-2026-39824 (NewNTUnicodeString string-length overflow, fixed in v0.44.0+, GO-2026-5024)
 # is present in production images.  Debug builds (BUILD_DEBUG=1) receive the real dlv
 # compiled against golang.org/x/sys v0.46.0 (patched).
 COPY --from=backend-builder /go/bin/dlv /usr/local/bin/dlv

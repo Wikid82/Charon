@@ -48,6 +48,49 @@ var allowedDockerPatterns = []string{
 	"/networks/*",
 }
 
+// allowedDockerPrefixSuffixPatterns covers /images/*/json and
+// /distribution/*/json specifically. These are matched by prefix/suffix
+// string comparison rather than path.Match because Go's path.Match "*"
+// does not cross "/", and real-world Docker image references are
+// frequently namespaced with multiple "/"-separated segments (e.g.
+// "ghcr.io/org/repo", "lscr.io/linuxserver/prowlarr"). A path.Match-based
+// pattern like "/images/*/json" only matches single-segment names (e.g.
+// "nginx") and rejects the overwhelming majority of real images, so it is
+// not used here.
+//
+// Both entries are GET-only like every other allowlist entry: the
+// unconditional method check in ServeHTTP runs before any path match, so
+// POST/PUT/DELETE to either path is rejected regardless of this list.
+// Neither permits a write/mutate operation — /images/create (image pull)
+// is deliberately not added.
+//
+// Traversal segments ("..") cannot be smuggled through the prefix/suffix
+// check: ServeHTTP runs path.Clean on stripped before any allowlist check
+// (see the comment there), so a path like "/images/../etc/json" is
+// normalized to "/etc/json" — which fails the "/images/" prefix — before
+// this matching ever runs.
+//
+// The suffix check ("/json") stays narrow despite allowing multiple path
+// segments in the middle: real Docker Engine API endpoints under
+// /images/{name}/ that are NOT safe to expose end in a distinct final
+// segment rather than literally "json" — /images/{name}/history,
+// /images/{name}/get, and /images/{name}/changes all fail the "/json"
+// suffix check and remain 403. Only paths whose final segment is exactly
+// "json" match, which corresponds to image/distribution inspect — the
+// intended read-only operation.
+//
+// /distribution/*/json causes the remote Docker daemon to make its own
+// outbound request to the registry host encoded in the image name —
+// read-only here means "no local Docker mutation," not "no outbound
+// network activity."
+var allowedDockerPrefixSuffixPatterns = []struct {
+	prefix string
+	suffix string
+}{
+	{prefix: "/images/", suffix: "/json"},       // image inspect (RepoDigests) — read-only, used by update-checker tools
+	{prefix: "/distribution/", suffix: "/json"}, // registry digest check — read-only, used by update-checker tools
+}
+
 // Muzzle is an http.Handler wrapper that restricts Docker socket access
 // to a curated allowlist of read-only, non-destructive endpoints.
 type Muzzle struct {
@@ -92,6 +135,16 @@ func (m *Muzzle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// stripped is already rooted and cleaned; use it directly.
 	for _, pat := range allowedDockerPatterns {
 		if matched, err := path.Match(pat, stripped); err == nil && matched {
+			m.next.ServeHTTP(w, r)
+			return
+		}
+	}
+
+	// Check image/distribution inspect paths, which may contain namespaced
+	// references with multiple "/"-separated segments (see doc comment on
+	// allowedDockerPrefixSuffixPatterns for why path.Match is not used here).
+	for _, ps := range allowedDockerPrefixSuffixPatterns {
+		if strings.HasPrefix(stripped, ps.prefix) && strings.HasSuffix(stripped, ps.suffix) {
 			m.next.ServeHTTP(w, r)
 			return
 		}
