@@ -66,6 +66,18 @@ async function setupAgentPage(
   await waitForLoadingComplete(page);
 }
 
+// The Switch component's underlying <input role="switch"> is visually
+// hidden (sr-only) behind a custom-styled track, with near-zero hit area.
+// A user actually clicks the wrapping <label> (which contains both the
+// input and the visible track, and natively toggles the input per standard
+// HTML label semantics); clicking the input directly — even with
+// { force: true } — can land on a clipped coordinate that never reaches the
+// input. Clicking the label is both more robust and closer to real
+// end-user interaction.
+function toggleLabel(toggle: import('@playwright/test').Locator) {
+  return toggle.locator('xpath=..');
+}
+
 async function openWriteModeDialog(page: import('@playwright/test').Page, agentName: string) {
   const writeModeButton = page.getByRole('button', {
     name: new RegExp(`write.*mode.*${agentName}`, 'i'),
@@ -82,7 +94,7 @@ test.describe('Orthrus Write Mode', () => {
     await waitForAPIHealth(request);
   });
 
-  test.fixme(
+  test(
     'write mode is off by default for a newly provisioned agent',
     async ({ page }) => {
       await setupAgentPage(page, [MOCK_AGENT_BASE], MOCK_PROXY_STATUS_WRITE_OFF);
@@ -95,13 +107,13 @@ test.describe('Orthrus Write Mode', () => {
       });
 
       await test.step('No typed-confirmation input is shown while off', async () => {
-        const confirmInput = dialog.getByRole('textbox', { name: /type.*agent.*name/i });
+        const confirmInput = dialog.getByRole('textbox', { name: /type .* to confirm/i });
         await expect(confirmInput).not.toBeVisible();
       });
     },
   );
 
-  test.fixme(
+  test(
     'enabling write mode requires typing the exact agent name before Save is enabled',
     async ({ page }) => {
       await setupAgentPage(page, [MOCK_AGENT_BASE], MOCK_PROXY_STATUS_WRITE_OFF);
@@ -110,12 +122,12 @@ test.describe('Orthrus Write Mode', () => {
 
       await test.step('Flip toggle on and reveal typed-confirmation input', async () => {
         const toggle = dialog.getByRole('switch');
-        await toggle.click();
-        await expect(dialog.getByRole('textbox', { name: /type.*agent.*name/i })).toBeVisible();
+        await toggleLabel(toggle).click();
+        await expect(dialog.getByRole('textbox', { name: /type .* to confirm/i })).toBeVisible();
       });
 
       await test.step('Save disabled with empty or mismatched confirmation text', async () => {
-        const confirmInput = dialog.getByRole('textbox', { name: /type.*agent.*name/i });
+        const confirmInput = dialog.getByRole('textbox', { name: /type .* to confirm/i });
         const saveButton = dialog.getByRole('button', { name: /save|enable/i });
 
         await expect(saveButton).toBeDisabled();
@@ -128,7 +140,7 @@ test.describe('Orthrus Write Mode', () => {
       });
 
       await test.step('Save enabled once typed value exactly matches agent name', async () => {
-        const confirmInput = dialog.getByRole('textbox', { name: /type.*agent.*name/i });
+        const confirmInput = dialog.getByRole('textbox', { name: /type .* to confirm/i });
         const saveButton = dialog.getByRole('button', { name: /save|enable/i });
 
         await confirmInput.fill(MOCK_AGENT_NAME);
@@ -137,8 +149,8 @@ test.describe('Orthrus Write Mode', () => {
     },
   );
 
-  test.fixme(
-    'enabling write mode succeeds and shows reconnect notice before agent reconnects',
+  test(
+    'enabling write mode succeeds, closes the dialog, and PATCHes write_enabled: true',
     async ({ page }) => {
       let patchBody: Record<string, unknown> | null = null;
 
@@ -156,8 +168,8 @@ test.describe('Orthrus Write Mode', () => {
 
       await test.step('Enable write mode with correct typed confirmation', async () => {
         const toggle = dialog.getByRole('switch');
-        await toggle.click();
-        await dialog.getByRole('textbox', { name: /type.*agent.*name/i }).fill(MOCK_AGENT_NAME);
+        await toggleLabel(toggle).click();
+        await dialog.getByRole('textbox', { name: /type .* to confirm/i }).fill(MOCK_AGENT_NAME);
         await dialog.getByRole('button', { name: /save|enable/i }).click();
       });
 
@@ -166,16 +178,32 @@ test.describe('Orthrus Write Mode', () => {
         expect(patchBody?.write_enabled).toBe(true);
       });
 
+      await test.step('Dialog closes on success, matching AgentExternalProxyDialog\'s pattern', async () => {
+        await expect(dialog).not.toBeVisible({ timeout: 5000 });
+      });
+    },
+  );
+
+  test(
+    'reconnect notice shown when reopening the dialog before the agent has reconnected',
+    async ({ page }) => {
+      // Simulates coming back to an agent some time after enabling write
+      // mode: the DB/list already reflects write_enabled: true (a real
+      // save always closes the dialog — see the previous test — so the
+      // only way to observe the reconnect notice is on a later open,
+      // exactly as AgentExternalProxyDialog's equivalent test does for
+      // the port setting).
+      await setupAgentPage(page, [MOCK_AGENT_WRITE_ENABLED], MOCK_PROXY_STATUS_WRITE_ON_PENDING_RECONNECT);
+
+      const dialog = await openWriteModeDialog(page, MOCK_AGENT_NAME);
+
       await test.step('Reconnect notice shown while active_write_enabled is still false', async () => {
-        await page.route(ORTHRUS_PROXY_STATUS_API, (route) =>
-          route.fulfill({ json: MOCK_PROXY_STATUS_WRITE_ON_PENDING_RECONNECT }),
-        );
         await expect(dialog.getByText(/next agent reconnect/i)).toBeVisible({ timeout: 5000 });
       });
     },
   );
 
-  test.fixme('disabling write mode requires no typed confirmation', async ({ page }) => {
+  test('disabling write mode requires no typed confirmation', async ({ page }) => {
     let patchBody: Record<string, unknown> | null = null;
 
     await setupAgentPage(page, [MOCK_AGENT_WRITE_ENABLED], {
@@ -197,12 +225,12 @@ test.describe('Orthrus Write Mode', () => {
     await test.step('Flip toggle off and save without typing anything', async () => {
       const toggle = dialog.getByRole('switch');
       await expect(toggle).toBeChecked();
-      await toggle.click();
+      await toggleLabel(toggle).click();
 
-      const confirmInput = dialog.getByRole('textbox', { name: /type.*agent.*name/i });
+      const confirmInput = dialog.getByRole('textbox', { name: /type .* to confirm/i });
       await expect(confirmInput).not.toBeVisible();
 
-      await dialog.getByRole('button', { name: /save/i }).click();
+      await dialog.getByRole('button', { name: /save|disable/i }).click();
     });
 
     await test.step('PATCH sent write_enabled: false', async () => {
@@ -210,7 +238,7 @@ test.describe('Orthrus Write Mode', () => {
     });
   });
 
-  test.fixme('WRITE badge appears in agent row when write_enabled is true', async ({ page }) => {
+  test('WRITE badge appears in agent row when write_enabled is true', async ({ page }) => {
     await setupAgentPage(page, [MOCK_AGENT_WRITE_ENABLED], null);
 
     await test.step('WRITE badge is visible in agent row', async () => {
@@ -218,7 +246,7 @@ test.describe('Orthrus Write Mode', () => {
     });
   });
 
-  test.fixme('WRITE badge absent when write_enabled is false', async ({ page }) => {
+  test('WRITE badge absent when write_enabled is false', async ({ page }) => {
     await setupAgentPage(page, [MOCK_AGENT_BASE], null);
 
     await test.step('WRITE badge is not visible', async () => {
@@ -226,7 +254,7 @@ test.describe('Orthrus Write Mode', () => {
     });
   });
 
-  test.fixme(
+  test(
     'audit log link from write-mode dialog lands on a pre-filtered view',
     async ({ page }) => {
       await setupAgentPage(page, [MOCK_AGENT_WRITE_ENABLED], {
