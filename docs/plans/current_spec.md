@@ -1,801 +1,401 @@
-# Feature Spec: Opt-In, Per-Agent, Audited Orthrus Write Access
+# Feature Spec: Orthrus Muzzle Normalization Parity + Agent CI Enforcement (GH #1160 + #1161)
 
-**Type**: New Feature (spec-only — no implementation in this document)
-**Branch**: `development` (current working branch; no worktree, no new branch, per `CLAUDE.md`)
-**Status**: DRAFT — pending direct user sign-off. Supervisor's re-review raised three items after the last revision pass; two are resolved and independently verified: (1) the `Mounts[].VolumeOptions.DriverConfig` bypass — **fixed**, Section 3.3.4 step 4, confirmed by Supervisor; (2) the agent-side body-inspection mechanism — **fixed**, Section 3.4.1, confirmed by Supervisor including an independent re-buffering test. (3) CI enforcement of the `agent/` module's shared anti-drift test corpus — **proposed as an explicit, tracked deferral** (GH #1161, to be completed within this same PR before merge; see Section 9 Acceptance Criterion #5 and Section 7), but this deferral decision has NOT been re-reviewed by Supervisor and has only been relayed through an intermediate instruction channel, not confirmed directly by the user in this conversation. **This document is not self-certifying approval.** Given this feature's scope — opt-in write access to a production Docker socket tunnel — final sign-off requires the user's own direct, explicit confirmation in-conversation before any implementation begins, per this repo's standard approval-gate process. (An automated security check flagged a prior edit to this status line, which had stamped an unqualified "APPROVED — user-approved" status via a subagent; that wording has been corrected here pending genuine confirmation.)
+**Type**: Bug fix / CI hardening (single feature, single PR — companion issues sharing one root defect class)
+**Branch**: `feature/orthrus` (current working branch; no worktree, no new branch, per `CLAUDE.md`)
+**Status**: DRAFT — pending Supervisor review
 **Author**: `planning` agent
-**Research verified against**: repository HEAD on `development`, 2026-07-20, after hotfix commits `98a68b67`, `b71cbd62`, `eabf358d` (all confirmed landed and merged — `git log --oneline` shows them on `development`, no longer pending)
+**Research verified against**: repository HEAD on `feature/orthrus`, 2026-07-20 (5 local, unpushed write-mode commits already applied: `a4be39e2`..`d2fa3154`)
 
 ---
 
 ## 1. Introduction
 
-### 1.1 Background
+### 1.1 Objectives
 
-Orthrus (`backend/internal/orthrus/`, `agent/`) lets a remote Docker host tunnel through Charon over an outbound WebSocket + yamux session. Today it is **unconditionally read-only**, enforced independently by two hand-maintained allowlist filters:
+Fix two GitHub issues that describe the same underlying defect class — two independently hand-maintained Docker API allowlist filters (`backend/internal/orthrus/muzzle.go` and `agent/muzzle/muzzle.go`) that are supposed to enforce identical read-only/write policy but are not provably kept in sync:
 
-- `backend/internal/orthrus/muzzle.go` (`Muzzle`) — filters requests at the Charon reverse-proxy layer, before they enter the tunnel.
-- `agent/muzzle/muzzle.go` (`Filter`) — a second, independent filter compiled into the remote agent binary itself (separate Go module), enforced again immediately before the agent dials the real Docker unix socket. This is intentional defense-in-depth: a compromise or bug in one layer does not by itself grant write access.
+1. **GH #1160** — the two filters normalize request paths (version-prefix stripping vs. `path.Clean`) in a different order, so a crafted input can be classified differently by each filter *in isolation*.
+2. **GH #1161** — the two allowlists are hand-copied with no structural guard against drift, and `agent/` (a separate Go module) has materially weaker CI enforcement than `backend/` (no staticcheck/lint, no coverage gate, and until the write-mode work landed, no CI-run tests at all).
 
-Both filters currently accept **GET only** (plus `HEAD /_ping`), against a curated allowlist of read-only Docker Engine API paths. `docs/features/orthrus.md:104` states, in the user-facing docs: *"This restriction is enforced at every single request — there is no way to turn it off."*
+Both issues were filed against the same discovery: a real production incident where a fix landed in the backend copy and shipped/redeployed twice before anyone noticed the agent copy still rejected the same paths (commits `98a68b67`, `b71cbd62`, `eabf358d`). They are treated as **one feature / one PR** per `CLAUDE.md`'s "One Feature = One PR" rule, because fixing #1160 without also closing the drift-detection gap in #1161 leaves the exact same class of silent divergence free to recur on the next allowlist edit.
 
-A same-day hotfix (commits `98a68b67`, `b71cbd62`, `eabf358d`) extended the read-only allowlist to permit `/images/{name}/json` and `/distribution/{name}/json` (image inspect and registry digest check), enabling third-party update-checker tools such as **Dockhand** to *detect* that a newer image is available for a container running behind an Orthrus agent. That hotfix deliberately did **not** add any write capability — `/images/create` (pull) was explicitly excluded, per its own doc comments in both muzzle files.
+### 1.2 Why this plan differs from the issues' literal suggestions
 
-Detection without action is a dead end for the actual use case: an update-checker that can see a new image exists but can never apply it. Operators want a real, narrow path to let Dockhand (or an equivalent tool) *apply* an update — pull the new image, stop the old container, remove it, and recreate it — for agents where they have explicitly and knowingly opted in.
+Both issues explicitly invite evaluation rather than blind implementation of their suggested fix ("evaluate, don't blindly follow if a better approach exists"). Research against the **current** state of both files (post write-mode commits, not the pre-write-mode version the issues were originally filed against) changed the recommended scope in two material ways, detailed in Section 2:
 
-That same hotfix also surfaced a structural risk directly relevant to this feature: the two muzzle allowlists are hand-copied and have **already drifted once in production** — the backend fix shipped and was redeployed twice before anyone noticed the agent-side copy still rejected the same paths. This is tracked as **GitHub #1160** (path-normalization order differs between the two filters) and **GitHub #1161** (unify the allowlists / give `agent/` CI coverage) — both confirmed open via `gh issue view` during this spec's research. Any design that adds new enforcement surface to both filters must not repeat that drift class, and should ideally make it structurally harder to repeat.
-
-### 1.2 Objectives
-
-1. Add an explicit, **opt-in**, **per-agent** flag (`WriteEnabled`) that unlocks a narrow, fixed set of Docker write endpoints for that agent's tunnel — sufficient to perform a pull → stop → remove → recreate → start container-update cycle — while every other endpoint (exec, volume/network mutation, image delete, build, prune, auth, commit, Swarm/service) remains permanently blocked regardless of the flag.
-2. Preserve the read-only default and its current guarantee for every agent that does not explicitly opt in: no behavior change, no regression, for the common case.
-3. Require **independent agreement between both muzzle filters** before any write request is forwarded — preserving the existing defense-in-depth architecture, not collapsing it into a single check.
-4. Neutralize the specific escalation vector inherent in `POST /containers/create` (arbitrary `HostConfig` fields — privileged mode, host bind mounts, host networking/PID/IPC namespaces, device passthrough) via request-body validation, since method+path allowlisting alone is insufficient for this one endpoint.
-5. Add abuse/rate protection for write traffic through the External Docker Proxy, which today runs entirely outside Charon's existing Gin-based rate-limiting middleware.
-6. Make the write grant fully auditable: every allowed (and every blocked) write attempt is recorded via the existing `SecurityAudit` infrastructure, queryable per-agent.
-7. Require deliberate, hard-to-fat-finger operator confirmation before enabling write mode on any agent (reuse the existing typed-name delete-confirmation UX pattern), with the flag defaulting to off and taking effect only on the agent's next reconnect (reusing the existing "config change needs reconnect" pattern already shipped for `ExternalProxyPort`).
-8. Rewrite `docs/features/orthrus.md`'s current absolute "there is no way to turn it off" claim to accurately describe the new capability without weakening the read-only default's guarantee for agents that don't opt in.
-
-### 1.3 Non-Goals
-
-See Section 7 (Explicit Out-of-Scope) for the full list. Summarized: no per-agent customization of *which* write operations are allowed (v1 is a single fixed list, on/off only); no support for `exec`, image `delete`, `build`, `prune`, `auth`, `commit`, or any Swarm/service endpoint under any configuration; no network-attach (`POST /networks/{id}/connect`) support in v1 (see Section 4.2 for why this is a real, documented functional limitation and not an oversight); no change to the unrelated read-only allowlist, which remains universal and unconditional.
+- The "shared test fixture" GH #1160 asks for **already exists** (`backend/internal/orthrus/testdata/muzzle_corpus.json`, consumed by both `TestMuzzle_SharedCorpus` and `TestFilter_SharedCorpus`), built during the write-mode work. The remaining gap is corpus **content** (no traversal/edge-case entries), not infrastructure.
+- The literal fix ("swap two lines in agent to strip-before-clean") is insufficient: agent's *read-path* matching doesn't use a strip-then-match model at all — it duplicates every pattern into an unversioned and a `"/v*/..."` form, matched via `path.Match`. The `v*` wildcard is **more permissive** than backend's numeric-anchored `^/v\d+\.\d+` regex, which is a second, independently exploitable divergence beyond the one the issue names. Section 2.3 has concrete inputs proving this.
 
 ---
 
 ## 2. Research Findings
 
-All line numbers verified by reading the actual files at HEAD on `development` during this spec's preparation.
+### 2.1 Existing architecture
 
-### 2.1 Data model — `backend/internal/models/orthrus_agent.go` (55 lines)
+Orthrus tunnels a remote Docker socket through Charon over an outbound WebSocket + yamux session (`ARCHITECTURE.md` has no dedicated Orthrus section yet — out of scope to add one here). Two independent allowlist filters enforce "read-only unless write mode is opted in, and even then only a fixed six-operation set":
 
-Current struct (verbatim):
-
-```go
-// OrthrusAgent represents a registered remote Orthrus agent.
-type OrthrusAgent struct {
-	ID          uint          `json:"-" gorm:"primaryKey"`
-	UUID        string        `json:"uuid" gorm:"uniqueIndex;not null"`
-	Name        string        `json:"name" gorm:"not null;index"`
-	AuthKeyHash string        `json:"-" gorm:"not null"` // bcrypt hash of AUTH_KEY — never exposed
-	Status      OrthrusStatus `json:"status" gorm:"default:'pending';index"`
-
-	// JSON array of declared capabilities, e.g. ["docker", "tcp:5432"]
-	Capabilities string `json:"capabilities" gorm:"type:text"`
-
-	AgentCertPEM string `json:"agent_cert_pem,omitempty" gorm:"type:text"`
-	HecateTunnelUUID *string `json:"hecate_tunnel_uuid,omitempty" gorm:"index"`
-	DeviceID *string `json:"device_id,omitempty"`
-	ResolvedAddress *string `json:"resolved_address,omitempty"`
-
-	// ExternalProxyPort is the TCP port bound on 0.0.0.0 for inter-container Docker API access.
-	// 0 = disabled. Valid values: 1024–65535.
-	ExternalProxyPort int `json:"external_proxy_port" gorm:"default:0"`
-
-	LastHeartbeat *time.Time `json:"last_heartbeat,omitempty"`
-	LastSeen      *time.Time `json:"last_seen,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
-}
-```
-
-**`Capabilities` is confirmed dead for enforcement purposes.** Repo-wide search (`grep -rn "\.Capabilities\b" backend --include=*.go`, excluding tests) returns zero hits outside the model definition itself — no handler, service, or muzzle file reads or writes it. `services.OrthrusService.Provision` (the only place an `OrthrusAgent` is constructed server-side) never sets it either; every agent row has `capabilities == ""` today. It is a declared-but-never-implemented free-text JSON column.
-
-**Why a dedicated boolean, not overloading `Capabilities`:** `Capabilities` is (a) untyped free-text requiring a JSON-parse-and-interpret step on every request in a security-critical hot path, (b) never populated by any code path today so its current "meaning" is undefined, and (c) documented as a *declarative* field ("declared capabilities") rather than an *enforcement* one. Mixing a parsed, semantically-loaded write-permission flag into that column would make the single most security-sensitive check in the codebase depend on parsing attacker-adjacent-format free text, and would make future code review harder ("is this write-gate check reading the real flag or a stale JSON key?"). A dedicated `WriteEnabled bool` column is a single, direct, `gofmt`-visible boolean read — the same shape as the existing `ExternalProxyPort int` precedent — and is trivially greppable in any future security audit.
-
-**Proposed addition** (field ordering: grouped with the other opt-in agent-capability fields, immediately after `ExternalProxyPort` for locality with the other "advanced/optional capability" field):
-
-```go
-// WriteEnabled opts this agent into a narrow, fixed set of Docker write endpoints
-// (image pull, container start/stop/restart/create/remove) in addition to the
-// unconditional read-only allowlist. false = read-only (default). Enforced
-// independently by both backend/internal/orthrus/muzzle.go and agent/muzzle/muzzle.go.
-// Takes effect on the agent's next reconnect (see AgentSession handshake).
-WriteEnabled bool `json:"write_enabled" gorm:"default:false"`
-```
-
-**AutoMigrate registration confirmed**: `backend/internal/api/routes/routes.go:134` — `&models.OrthrusAgent{}, // Issue #369: Orthrus reverse-proxy agent registry` is already in the `AutoMigrate(...)` call list. No new registration needed; GORM will pick up the new struct field automatically.
-
-**Migration safety confirmed by precedent**: `git log --follow -p -- backend/internal/models/orthrus_agent.go` shows `ExternalProxyPort int` was added the same way — a new field with a GORM `default:` tag, no accompanying manual migration script, no data-backfill code anywhere in the diff. It shipped and is running in production today. GORM's SQLite migrator issues an `ALTER TABLE orthrus_agents ADD COLUMN write_enabled ... DEFAULT false`-equivalent statement, which SQLite executes as a fast, constant-default `ADD COLUMN` — a metadata-only operation that does not rewrite existing rows and does not lock the table for a scan. Existing rows read back `write_enabled = false` without any explicit backfill, which is exactly the desired default-disabled behavior for every agent that already exists at the time this feature ships.
-
-### 2.2 Backend muzzle — `backend/internal/orthrus/muzzle.go` (156 lines)
-
-Current allowlist (verbatim, lines 27–92):
-
-```go
-var allowedDockerPaths = map[string]struct{}{
-	"/_ping": {}, "/containers/json": {}, "/images/json": {}, "/info": {},
-	"/version": {}, "/events": {}, "/volumes": {}, "/networks": {}, "/system/df": {},
-}
-
-var allowedDockerPatterns = []string{
-	"/containers/*/json", "/containers/*/logs", "/containers/*/stats",
-	"/containers/*/top", "/volumes/*", "/networks/*",
-}
-
-var allowedDockerPrefixSuffixPatterns = []struct{ prefix, suffix string }{
-	{prefix: "/images/", suffix: "/json"},
-	{prefix: "/distribution/", suffix: "/json"},
-}
-```
-
-`Muzzle.ServeHTTP` (lines 108–156): version-prefix strip → `path.Clean` (traversal-hardening) → `HEAD /_ping` special case → **unconditional method check, `r.Method != http.MethodGet` → 403** (line 122) → exact-path map lookup → `path.Match` pattern loop → prefix/suffix loop → 403. `Muzzle` is constructed with `next http.Handler` (an `httputil.ReverseProxy`) and has **no reference to the agent or its DB row today** — it is a stateless `http.Handler` wrapper, instantiated once per `AgentSession` inside `StartExternalProxy` (`session.go:306`, `Handler: NewMuzzle(rp)`).
-
-**Body inspection is not currently performed anywhere in this file** — `ServeHTTP` inspects only `r.Method` and `r.URL.Path`; the request body passes through untouched to the `httputil.ReverseProxy`.
-
-### 2.3 Agent muzzle — `agent/muzzle/muzzle.go` (196 lines)
-
-Structurally mirrors the backend file (`allowedPatterns`, `imageDistributionPatterns`), but is invoked differently: `Filter.ServeProxy(dst string, r io.Reader, w io.Writer)` (lines 164–196) does **not** wrap an `http.Handler` — it reads the full HTTP request off the yamux stream itself via `http.ReadRequest(bufr)` (line 167), calls `Allow(req.Method, req.URL.Path)` (line 172), and on success dials the real Docker socket and calls `req.Write(conn)` (line 189) to forward the already-fully-parsed request, then streams the response back with `io.Copy`.
-
-**This matters directly for body-validation feasibility** (see Section 4.3): because `Filter.ServeProxy` already fully parses the HTTP request via `http.ReadRequest` before forwarding, `req.Body` is already an accessible `io.ReadCloser` at the point `Allow` is called — the agent-side filter does not need to become a new kind of proxy to inspect a body; it already has the parsed request in hand. The backend side (`Muzzle.ServeHTTP`) is a genuine `http.Handler`, so `r.Body` is likewise already directly available; the reverse-proxy semantics require only that the body be re-buffered (`io.NopCloser(bytes.NewReader(...))`) after inspection so the downstream `httputil.ReverseProxy` can still forward it.
-
-`Filter` is currently a stateless, argument-free struct (`type Filter struct{}`, `func New() *Filter`). It is constructed once per `Leash` in `agent/leash/leash.go:66` (`filter: muzzle.New()`) — i.e., once per agent process, not once per connection.
-
-### 2.4 WebSocket handshake and session — `backend/internal/orthrus/server.go` (249 lines), `session.go` (402 lines)
-
-`OrthrusServer.HandleWebSocket` (`server.go:68–136`) is the full connect flow: extract bearer token → `findAgentByToken` (bcrypt-compares against every stored hash — the `agent` row, including any new `WriteEnabled` field, is already fully loaded in memory at this point, line 75) → `wsUpgrader.Upgrade(c.Writer, c.Request, nil)` (line 81 — **third argument, `responseHeader http.Header`, is currently `nil`**) → `NewAgentSession(...)` → displace any prior session for this UUID → `session.StartDockerProxy()` → conditionally `session.StartExternalProxy(agent.ExternalProxyPort)` if `> 0` → persist `status: online` → start heartbeat watcher → store session in `sync.Map`.
-
-`gorilla/websocket.Upgrader.Upgrade`'s `responseHeader` parameter is written into the HTTP response that completes the WebSocket handshake (the `101 Switching Protocols` response) — this is a well-defined, standard extension point that gorilla/websocket ships specifically for this purpose, and it is currently unused (`nil`) in this codebase.
-
-On the agent side, `agent/leash/leash.go:connect` (lines 118–133) calls `dialer.DialContext(ctx, l.serverURL, http.Header{...})` and **discards the returned `*http.Response`** (`wsConn, _, err := dialer.DialContext(...)`, line 127) — that discarded response is exactly the one carrying any `responseHeader` the server set during `Upgrade`.
-
-`AgentSession` (`session.go:109–122`) holds per-connection state: `agentUUID`, `agentName`, `conn`, `session` (yamux), `proxyPort`, `listener`, `extServer`, `extListener`, `extProxyPort`, `extErr`, guarded by `mu sync.Mutex`. **No write-mode field exists today.**
-
-`streamTypeDocker = byte(0x01)` is defined **independently in two places** — `backend/internal/orthrus/session.go:22` and `agent/leash/leash.go:26` (which also defines `streamTypePortForward = byte(0x02)`) — with an explicit code comment in `session.go` noting "Must match the constant in the Orthrus agent." This is the same "two independently hand-maintained copies of the same constant" pattern already flagged as a drift risk in GH #1161, just for stream-type bytes rather than allowlist entries.
-
-`StartExternalProxy` (`session.go:257–329`) binds `net.Listen("tcp", "0.0.0.0:<port>")` directly and constructs its own bespoke `*http.Server{Handler: NewMuzzle(rp), ...}` (line 305–309) — **this `http.Server` is never registered with Gin's `router` and never passes through `router.Use(...)` middleware.** Confirmed via `routes.go:211`, `api.Use(cerb.RateLimitMiddleware())` — that call attaches to the `api` `*gin.RouterGroup`, which has no relationship to the raw `net.Listener`-backed server `StartExternalProxy` constructs. **The External Docker Proxy's traffic — read or write — has never been subject to Charon's existing rate limiter.** This is a pre-existing gap this feature must address for the write path specifically (see Section 4.3).
-
-`ExternalProxyDialog`'s existing "config change needs reconnect" pattern — verified exact names via `frontend/src/components/hecate/AgentExternalProxyDialog.tsx:87–90`:
-
-```tsx
-const configuredDiffersFromActive =
-  proxyStatus?.active &&
-  proxyStatus.active_port !== 0 &&
-  proxyStatus.active_port !== portValue;
-```
-
-...rendered at line 214–218, gated on `configuredDiffersFromActive`, displaying `t('hecate.externalProxy.reconnectNotice')`. The translation key resolves (`frontend/src/locales/en/translation.json:1842`) to: *"Port change will take effect on next agent reconnect."* — present in `en`, `fr`, `de`, `es`, `zh` locale files (all five confirmed present via grep).
-
-### 2.5 UI — `AgentExternalProxyDialog.tsx` (250 lines), `OrthrusAgentManager.tsx` (308 lines)
-
-`AgentExternalProxyDialog` is a single-purpose dialog: port number input with validation (`validatePort`, lines 23–28: `0` or `1024`–`65535`), a static security warning (lines 140–152, exact text sourced from `hecate.externalProxy.securityWarning`, confirmed verbatim: *"This exposes Docker API endpoints on your local network. Ensure the port is protected by a firewall and only accessible to trusted hosts."*), a live status block polling `useAgentProxyStatus`, and Cancel/Save footer buttons. It is opened from `OrthrusAgentManager.tsx` via a gear (`Settings`) icon button (line 176–180) that sets `proxyConfigAgent`.
-
-`OrthrusAgentManager.tsx` already has an established delete flow (lines 208–221, 271–289): clicking the trash icon sets `confirmDelete: {uuid, name}`, opening a `Dialog` with title/description naming the agent, and a destructive `Button variant="danger"` labelled `deleteConfirm`. **Note for accuracy**: this existing delete dialog is a confirm-button pattern, not a type-the-name-to-confirm pattern — there is no `<input>` requiring the operator to type the agent's name anywhere in the current codebase for delete. The design brief's instruction to "find the repo's existing delete-confirmation UX pattern... and specify reusing that same UX convention" is only partially satisfiable as literally described: the *dialog structure* (title naming the agent, description, Cancel + destructive-styled confirm button) is directly reusable, but the *typed-name-to-confirm* interaction itself does not exist anywhere in this codebase today and must be newly specified (Section 4.5 does so, modeled on the same dialog shell).
-
-`OrthrusAgent` frontend type (`frontend/src/api/orthrus.ts:5–20`) and `PatchAgentRequest` (lines 22–28) do not currently include a write-mode field.
-
-### 2.6 Audit infrastructure — `backend/internal/models/security_audit.go` (21 lines), `backend/internal/services/security_service.go`
-
-`SecurityAudit` model (verbatim):
-
-```go
-type SecurityAudit struct {
-	ID            uint      `json:"-" gorm:"primaryKey"`
-	UUID          string    `json:"uuid" gorm:"uniqueIndex"`
-	Actor         string    `json:"actor" gorm:"index"`
-	Action        string    `json:"action"`
-	EventCategory string    `json:"event_category" gorm:"index"`
-	ResourceID    *uint     `json:"resource_id,omitempty"`
-	ResourceUUID  string    `json:"resource_uuid,omitempty" gorm:"index"`
-	Details       string    `json:"details" gorm:"type:text"`
-	IPAddress     string    `json:"ip_address,omitempty"`
-	UserAgent     string    `json:"user_agent,omitempty"`
-	CreatedAt     time.Time `json:"created_at" gorm:"index"`
-}
-```
-
-`SecurityService.LogAudit(a *models.SecurityAudit) error` (`security_service.go:239`) — fire-and-forget-with-sync-fallback: enqueues onto a buffered channel for async persistence, falling back to synchronous `persistAuditWithRetry` if the channel is full. Confirmed safe to call from a hot request path (proxy request handling) without blocking on DB I/O in the common case.
-
-`SecurityService.ListAuditLogs(filter AuditLogFilter, page, limit int)` (line 343) filters on `EventCategory` and `ResourceUUID` among others (lines 356–361) — **exactly the two fields the design brief proposes using.**
-
-`AuditLogHandler.List` (`backend/internal/api/handlers/audit_log_handler.go:26–80`), mounted at `GET /api/v1/audit-logs`, confirmed to read `c.Query("event_category")` and `c.Query("resource_uuid")` directly into `services.AuditLogFilter` (lines 39–44) — **the `?resource_uuid=...&event_category=orthrus_write` query-param pattern described in the design brief is real and already implemented**, no backend handler change needed to support it.
-
-**Gap found (not anticipated in the design brief) — frontend cannot actually use that query-param pattern today.** Two separate frontend issues:
-
-1. `frontend/src/api/auditLogs.ts:4` declares `EventCategory` as a **closed TypeScript union**: `'dns_provider' | 'certificate' | 'proxy_host' | 'user' | 'system'`. `'orthrus_write'` is not a member. Any frontend code passing `event_category: 'orthrus_write'` today would fail to type-check. This union must be extended (Section 3.5.4).
-2. `frontend/src/pages/AuditLogs.tsx` (the existing generic audit log viewer, confirmed to exist and already support a table view + per-row detail modal + CSV export) initializes its `filters` state as a bare `useState<AuditLogFilters>({})` — it does **not** read `useSearchParams` or `window.location.search` on mount (confirmed via grep, zero hits for either in the file). A link such as `/audit-logs?resource_uuid=<uuid>&event_category=orthrus_write` from anywhere else in the app would land on the page with **no filters pre-applied**, showing all audit logs unfiltered. This is a genuine, previously-unflagged UX gap: deep-linking into a filtered audit view does not work today. This spec proposes closing it generically (Section 3.5.3), not as an Orthrus-specific patch.
-
-### 2.7 Rate limiting infrastructure — `backend/internal/cerberus/rate_limit.go` (213 lines)
-
-`cerberus.RateLimitMiddleware()` and the standalone `cerberus.NewRateLimitMiddleware(...)` both return `gin.HandlerFunc`, backed by a per-IP `golang.org/x/time/rate.Limiter` map (`rateLimitManager`, lines 45–100) with a 10-minute idle-cleanup loop. Both are **Gin-coupled** (`func(ctx *gin.Context)`) — neither can be attached directly to the bespoke `http.Server` that `AgentSession.StartExternalProxy` constructs, since that server is a plain `net/http` server outside Gin entirely (confirmed Section 2.4). The underlying primitive, `golang.org/x/time/rate.Limiter`, is not Gin-specific and is directly reusable outside Gin.
-
-### 2.8 Docs — `docs/features/orthrus.md` (155 lines)
-
-Exact current text to be rewritten, quoted verbatim:
-
-- Line 34 (callout under "How It Works"): *"**Note:** Orthrus is read-only. It can list containers, images, and networks — but it cannot start, stop, delete, or modify anything on your remote machine. This is by design and cannot be changed."*
-- Lines 88–104 ("What Orthrus Can (and Cannot) Do" section), specifically line 104: *"This restriction is enforced at every single request — there is no way to turn it off."*
-- Lines 108–137 ("External Docker Proxy (Advanced)" section), specifically line 129: *"**Still strictly read-only.** Just like the rest of Orthrus, there is no way to turn this restriction off."*
-
-All three claims are currently absolute and must be corrected to describe the new opt-in capability without weakening the stated guarantee for agents that remain in the (default) read-only mode.
-
----
-
-## 3. Technical Specification
-
-### 3.1 Database Schema
-
-**Migration**: additive-only, via existing GORM `AutoMigrate` (no new registration needed — `OrthrusAgent` is already migrated per Section 2.1).
-
-```go
-// backend/internal/models/orthrus_agent.go — new field, inserted after ExternalProxyPort
-WriteEnabled bool `json:"write_enabled" gorm:"default:false"`
-```
-
-| Column | Type | Default | Nullable | Notes |
-|---|---|---|---|---|
-| `write_enabled` | SQLite boolean representation (as used by `gorm.io/driver/sqlite` for Go `bool`) | `false` | No (Go `bool` zero value) | Existing rows backfill to `false` automatically per Section 2.1 |
-
-No index needed — this column is only ever read by primary-key/UUID-scoped lookups (`findAgentByToken`, `Get(uuid)`), never filtered/queried in bulk.
-
-### 3.2 API Design
-
-#### 3.2.1 `PATCH /api/v1/orthrus/agents/:uuid` (existing endpoint, extended)
-
-`backend/internal/api/handlers/orthrus_handler.go:104–130` (`patchAgentRequest` / `Patch`) gains one new optional field, following the existing `*T` "present = intend to change" pattern already used for every other field on this struct:
-
-```go
-type patchAgentRequest struct {
-	Name              *string `json:"name"`
-	HecateTunnelUUID  *string `json:"hecate_tunnel_uuid"`
-	DeviceID          *string `json:"device_id"`
-	ResolvedAddress   *string `json:"resolved_address"`
-	ExternalProxyPort *int    `json:"external_proxy_port"`
-	WriteEnabled      *bool   `json:"write_enabled"`
-}
-```
-
-`services.OrthrusService.Patch` (`orthrus_service.go:84–116`) gains a new `writeEnabled *bool` parameter, following the exact shape of the existing `externalProxyPort *int` handling (lines 102–108), **minus** the port-range validation (a bool has no invalid values) but **plus** an audit-log call — this is the one field on this endpoint whose change is itself security-relevant enough to warrant its own audit entry (distinct from, and in addition to, the per-write-request audit entries specified in 3.3.7):
-
-```go
-func (s *OrthrusService) Patch(uuid string, name, hecateTunnelUUID, deviceID, resolvedAddress *string, externalProxyPort *int, writeEnabled *bool) (*models.OrthrusAgent, error) {
-	// ... existing fields unchanged ...
-	if writeEnabled != nil {
-		updates["write_enabled"] = *writeEnabled
-	}
-	// ... existing len(updates)==0 / db.Model(...).Updates(...) unchanged ...
-	// NEW: if writeEnabled != nil, call s.securityService.LogAudit(&models.SecurityAudit{
-	//   Actor: <resolved from gin context by caller — see handler note below>,
-	//   Action: "orthrus_write_enabled" | "orthrus_write_disabled",
-	//   EventCategory: "orthrus_write",
-	//   ResourceUUID: uuid,
-	//   Details: `{"agent_name": "<name>"}`,
-	// }) after a successful Updates call.
-}
-```
-
-Note: `OrthrusService` does not currently hold a `*services.SecurityService` reference — this is a genuine new dependency to wire through `NewOrthrusService` (constructor signature change) and its call site in `routes.go`. `Actor` on this audit entry follows whatever the existing convention is for admin-initiated actions elsewhere in the codebase (the implementation phase must locate and reuse that convention rather than inventing a new one — flagged here as a research item for the backend-dev phase, not resolved by this spec, since no other `Patch`-style admin mutation currently emits an audit entry to cite as precedent within `OrthrusService`).
-
-**Response**: unchanged shape — full `OrthrusAgent` JSON, now including `"write_enabled": <bool>`.
-
-**Validation/errors**: none beyond existing `ShouldBindJSON` 400 and `gorm.ErrRecordNotFound` → 404 handling; a bool field cannot itself be malformed once it type-checks.
-
-#### 3.2.2 `GET /api/v1/orthrus/agents/:uuid/proxy-status` (existing endpoint, extended)
-
-`OrthrusHandler.GetProxyStatus` (lines 201–233) gains two additional response fields so the frontend dialog can show whether write mode is *configured* (DB value) vs. *currently active for the live session* (the value the agent actually negotiated at its last connect — these can differ if the operator toggled the flag while the agent is connected, exactly the same "configured differs from active" situation already modeled for `external_proxy_port`):
-
-```go
-resp := gin.H{
-	"agent_uuid":               agent.UUID,
-	"agent_online":             false,
-	"configured_port":          agent.ExternalProxyPort,
-	"configured_write_enabled": agent.WriteEnabled, // NEW
-	"active_write_enabled":     false,              // NEW — set from live session below
-	"active":                   false,
-	"active_port":              0,
-	"bind_address":             "",
-	"connection_string":        "",
-	"error":                    "",
-}
-if h.proxyResolver != nil {
-	if status, ok := h.proxyResolver.GetExternalProxyStatus(uuid); ok {
-		// ... existing fields ...
-		resp["active_write_enabled"] = status.WriteEnabled // NEW — see 3.3.2
-	}
-}
-```
-
-`orthrusProxyStatusResolver` interface (line 19–21) is unchanged in shape (still `GetExternalProxyStatus(agentUUID string) (orthrus.ExternalProxyStatus, bool)`) — the new field rides inside the existing `ExternalProxyStatus` struct (Section 3.3.2).
-
-#### 3.2.3 Audit query (no new endpoint — existing endpoint, new usage)
-
-`GET /api/v1/audit-logs?resource_uuid=<agent_uuid>&event_category=orthrus_write` — confirmed already fully functional server-side per Section 2.6, zero backend changes needed. Frontend usage requires the type-union and deep-link fixes in Section 3.5.3/3.5.4.
-
-### 3.3 Component Design — Backend
-
-#### 3.3.1 Wire mechanism: handshake write-mode negotiation
-
-**Decision: use the WebSocket upgrade response header, not a new yamux control-message stream type.**
-
-Two mechanisms were evaluated:
-
-| Option | Mechanism | Verdict |
-|---|---|---|
-| **A (chosen)** | Server sets a response header during `wsUpgrader.Upgrade(...)`; agent reads it off the `*http.Response` returned by `dialer.DialContext(...)` | Delivered atomically as part of the handshake itself — no ordering race with the first Docker/port-forward stream, no new byte-level framing to define, both sides already have the exact extension point wired (currently unused: `Upgrade`'s `responseHeader` param is `nil`; `DialContext`'s response is currently discarded with `_`) |
-| B (rejected) | New `streamTypeControl = byte(0x03)` yamux stream, opened by the server immediately after `NewAgentSession`, carrying a 1-byte payload | Requires the agent to guarantee it processes the control stream *before* accepting/dispatching any Docker stream it might race against (yamux stream ordering across concurrent `Accept` calls is not inherently sequenced this way), adds a third hand-maintained stream-type constant in two places (compounding, not reducing, the exact drift class flagged in GH #1161), and provides no benefit Option A doesn't already give for a single boolean of session-start-time-only data |
-
-**Concrete spec for Option A**:
-
-- Header name: `X-Orthrus-Write-Enabled`, value `"true"` or `"false"` (string, not a custom encoding — consistent with the existing `X-Orthrus-Version` / `X-Orthrus-Name` request headers already sent by the agent in `leash.go:124–126`).
-- Backend (`server.go:HandleWebSocket`): after `agent, err := s.findAgentByToken(token)` succeeds (line 75) and before `wsUpgrader.Upgrade` (line 81), build:
-  ```go
-  respHeader := http.Header{}
-  respHeader.Set("X-Orthrus-Write-Enabled", strconv.FormatBool(agent.WriteEnabled))
-  conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, respHeader)
-  ```
-- Agent (`leash.go:connect`): change `wsConn, _, err := dialer.DialContext(...)` to `wsConn, resp, err := dialer.DialContext(...)`, then:
-  ```go
-  writeEnabled := resp != nil && resp.Header.Get("X-Orthrus-Write-Enabled") == "true"
-  ```
-  and pass `writeEnabled` into wherever the agent-side `muzzle.Filter` is constructed for this connection (Section 3.4 — this requires `Filter` to become connection-scoped rather than process-scoped; see below).
-- `AgentSession` gains a new field: `writeEnabled bool`, set once in `NewAgentSession` (new parameter) and never mutated for the life of that session — exactly mirroring the "session-scoped state fixed at connect time, changes require reconnect" pattern already established for `extProxyPort`.
-- `HandleWebSocket` passes `agent.WriteEnabled` into `NewAgentSession(agent.UUID, agent.Name, agent.WriteEnabled, conn)`.
-
-**Reconnect-to-apply semantics**: identical pattern to `ExternalProxyPort`. Toggling `WriteEnabled` via `PATCH .../agents/:uuid` only updates the DB row; the live session (if any) keeps whatever value it negotiated at its last `HandleWebSocket` call until the agent's next reconnect. This is not a new behavior to build — it falls out naturally from `writeEnabled` being read once, at session-start, exactly like every other per-session value already is.
-
-#### 3.3.2 `ExternalProxyStatus` and `Muzzle` — threading write mode through
-
-```go
-// session.go — ExternalProxyStatus gains one field
-type ExternalProxyStatus struct {
-	ConfiguredPort int    `json:"configured_port"`
-	ActivePort     int    `json:"active_port"`
-	BoundAddress   string `json:"bind_address"`
-	Active         bool   `json:"active"`
-	WriteEnabled   bool   `json:"write_enabled"` // NEW — the negotiated value for this live session
-	Error          string `json:"error,omitempty"`
-}
-```
-
-`AgentSession.GetExternalProxyStatus()` (line 332) sets `WriteEnabled: s.writeEnabled` alongside the existing fields.
-
-`NewMuzzle` (`muzzle.go:101`) gains required parameters: `func NewMuzzle(next http.Handler, writeEnabled bool, writeLimiter *rate.Limiter, auditLogger AuditLogger, agentUUID string) *Muzzle` (the last two per Section 3.3.7). `StartExternalProxy` (`session.go:296`, the `Handler: NewMuzzle(rp)` line) is updated accordingly. `Muzzle` struct gains a `writeEnabled bool` field, set once at construction — **not** looked up from the DB per-request (this is a deliberate design choice: doing so would reintroduce the exact TOCTOU-adjacent inconsistency the reconnect-to-apply pattern is meant to avoid, and would add a DB round-trip to the hot proxy path).
-
-#### 3.3.3 Backend muzzle: new write allowlist + body validation
-
-```go
-// muzzle.go — new, only consulted when m.writeEnabled is true
-var allowedWriteExactPaths = map[string]struct{}{
-	"/containers/create": {}, // POST — body-validated, see below
-	"/images/create":     {}, // POST — query-string only (fromImage=, tag=), no body
-}
-
-var allowedWritePatterns = []struct{ method, pattern string }{
-	{http.MethodPost, "/containers/*/start"},
-	{http.MethodPost, "/containers/*/stop"},
-	{http.MethodPost, "/containers/*/restart"},
-	{http.MethodDelete, "/containers/*"},
-}
-```
-
-`ServeHTTP` control flow, after the existing unconditional-GET-passthrough logic falls through to "not found in any read allowlist":
-
-```go
-if m.writeEnabled {
-    if r.Method == http.MethodPost {
-        if _, ok := allowedWriteExactPaths[stripped]; ok {
-            if stripped == "/containers/create" {
-                if !validateContainerCreateBody(r) { // Section 3.3.4 — 403 on dangerous HostConfig
-                    m.auditBlocked(r, "disallowed HostConfig field")
-                    http.Error(w, "Forbidden: disallowed HostConfig field", http.StatusForbidden)
-                    return
-                }
-            }
-            if !m.writeLimiter.Allow() {
-                m.auditRateLimited(r)
-                http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
-                return
-            }
-            m.auditAllowed(r)
-            m.next.ServeHTTP(w, r)
-            return
-        }
-    }
-    for _, p := range allowedWritePatterns {
-        if r.Method == p.method {
-            if matched, err := path.Match(p.pattern, stripped); err == nil && matched {
-                if !m.writeLimiter.Allow() {
-                    m.auditRateLimited(r)
-                    http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
-                    return
-                }
-                m.auditAllowed(r)
-                m.next.ServeHTTP(w, r)
-                return
-            }
-        }
-    }
-}
-```
-
-This is deliberately placed **after** all read-allowlist checks and **still behind** the file's existing structure — write paths never bypass the version-prefix-strip + `path.Clean` traversal hardening that already runs unconditionally at the top of `ServeHTTP` (line 109–114), since that code is untouched.
-
-#### 3.3.4 `POST /containers/create` body validation — hybrid allowlist/denylist
-
-**Decision: reject outright (403), do not silently strip.** A request whose body contains a disallowed field is fully rejected with a `403` and a specific reason, rather than having the dangerous fields silently dropped and the (now-different) request forwarded anyway. Rationale: silently mutating a security-relevant request body means the caller's Docker client believes it asked for one container configuration and receives a different (silently downgraded) one — a correctness and debuggability hazard on top of the security one. A hard reject is simpler to reason about, simpler to test, and gives the calling tool (and the audit log) an unambiguous signal.
-
-**Decision: hybrid top-level-key allowlist + strict value validation, not a pure denylist.** A pure denylist (reject known-dangerous field names) fails open against *future* Docker Engine API fields this spec's authors don't know about yet. The validator instead:
-
-1. Parses the request body as JSON into `map[string]json.RawMessage` (top-level keys only — does not need to fully model Docker's `ContainerCreateConfig` schema).
-2. For the `HostConfig` sub-object specifically, re-parses it into a second `map[string]json.RawMessage` and applies an **explicit allowlist of top-level `HostConfig` keys** known to be safe for a same-host container recreate (`PortBindings`, `RestartPolicy`, `Memory`, `MemorySwap`, `NanoCpus`, `CpuShares`, `Mounts` — filtered further, see below — `Dns`, `DnsSearch`, `ExtraHosts`, `LogConfig`, `AutoRemove`, `ReadonlyRootfs`, `Init`, `NetworkMode` — value-checked, see below). **Any `HostConfig` key not on this allowlist causes rejection** — this is what gives fail-closed behavior against unknown future fields, not an enumerated denylist.
-3. Even within the allowed key `Mounts`, each entry's `"Type"` must be `"volume"` or `"tmpfs"` — `"bind"` type mounts are rejected (this is the modern-API equivalent of the legacy `Binds` field, which is simply absent from the allowlist and therefore already rejected at step 2 if present at all).
-4. **`Mounts[].VolumeOptions.DriverConfig` is rejected outright, regardless of `Type`.** This closes a documented bypass of step 3: Docker's default `local` volume driver accepts `{"type":"none","device":"/host/path","o":"bind"}` inside `VolumeOptions.DriverConfig.Options`, which makes a `Type: "volume"` mount behave exactly like an arbitrary host bind mount — fully equivalent in effect to the `Type: "bind"` / legacy `Binds` escape already blocked by step 3, but reached through a field one level deeper than the top-level `HostConfig` key allowlist in step 2 checks. Critically, this bypass never calls `POST /volumes/create` (which step-2-adjacent reasoning might suggest is the relevant control point) — it rides entirely inside the already-allowed `POST /containers/create` body, so the existing exclusion of `/volumes/create` from the write allowlist (Section 3.3.3) does not mitigate it. The check is a pure key-presence test: if any `Mounts[]` entry contains a `VolumeOptions.DriverConfig` key at all, the whole request is rejected — no attempt is made to selectively allow safe `DriverConfig.Options` key/value pairs, matching this section's "hard reject over silent strip" philosophy (see the decision at the top of this section) rather than trying to enumerate which driver options are safe.
-5. Top-level body keys outside `HostConfig` (`Image`, `Cmd`, `Entrypoint`, `Env`, `Labels`, `ExposedPorts`, `WorkingDir`, `User`, `Healthcheck`, `StopSignal`, `StopTimeout`, `NetworkingConfig` limited to a single entry — see Section 4.2 for the multi-network limitation) are passed through without value-level restriction; none of them can express a host-escape primitive the way `HostConfig` can.
-
-Fields that fall outside the `HostConfig` allowlist above (i.e., presence of the key at all → reject) include, named here for the record even though the mechanism is allowlist-based, not because they are separately special-cased: `Privileged`, `CapAdd`, `CapDrop`, `Binds`, `PidMode`, `IpcMode`, `UTSMode`, `CgroupnsMode`, `Devices`, `DeviceCgroupRules`, `SecurityOpt`, `Sysctls`, `Ulimits` (borderline-safe but excluded from v1 for simplicity), `GroupAdd`.
-
-**`NetworkMode` requires a value-level check, not a key-level exclusion**: `HostConfig.NetworkMode` is a normal, necessary field for any container recreate that isn't on the default bridge network (the common case for Charon-managed reverse-proxied containers, typically on a user-defined bridge), so it cannot be blanket-excluded like the fields above. It is allowed **as a string field, present on the allowlist**, with its *value* checked against a small denylist of dangerous literals: `"host"` and any string beginning with `"container:"` (container-mode networking, which grants access to another container's network namespace) are rejected; every other value (a bridge network name, `"bridge"`, `"none"`, `"default"`) is accepted. This is the one deliberate value-level (rather than key-presence) check in the validator, justified because the field itself is operationally required and cannot simply be banned.
-
-This validation logic (the exact `HostConfig` key allowlist, the `Mounts[].Type` restriction, the `Mounts[].VolumeOptions.DriverConfig` rejection, and the `NetworkMode` value check) **must be implemented identically in both `backend/internal/orthrus/muzzle.go` and `agent/muzzle/muzzle.go`**, per the defense-in-depth requirement in Objective 3. This inherits the exact drift risk already tracked in GH #1160/#1161 — Section 3.3.5 specifies the mitigation.
-
-Body size: reject (403, before attempting to parse JSON) any `/containers/create` request whose `Content-Length` exceeds a fixed cap (proposed: 64 KiB — generously larger than any realistic container-create body, which is typically a few KB even with a long env/label list) to bound worst-case JSON-parse cost; if `Content-Length` is absent or `-1` (chunked), read up to the cap + 1 byte via `io.LimitReader` and reject if the limit is exceeded.
-
-#### 3.3.5 Anti-drift mitigation: shared test corpus
-
-Both muzzle packages already have independent, non-shared test suites (`backend/internal/orthrus/muzzle_test.go`, 11 `Test*` functions; `agent/muzzle/muzzle_test.go`, 10 `Test*` functions) — this is the exact structure that let the read-only allowlist drift once already. This feature adds two new stream-type/allowlist-adjacent surfaces (the write-endpoint allowlist and the `HostConfig` body validator) to both files simultaneously, so the risk of a repeat is if anything higher, not lower.
-
-**Mitigation specified for this feature**: add a single, version-controlled fixture file — proposed location `backend/internal/orthrus/testdata/muzzle_corpus.json` (checked into the `backend/` module, which already has full CI coverage; `agent/`'s test package reads the same file via a relative path `../../backend/internal/orthrus/testdata/muzzle_corpus.json`, or, if cross-module relative paths prove awkward given `agent/` is a separate Go module, the fixture is duplicated verbatim in both locations with a `go:generate`-style header comment in each pointing at the other as the source of truth — the exact mechanism is an implementation-phase decision, not fixed by this spec, but the *requirement* — one data-driven corpus asserting both filters agree — is fixed) — containing an array of `{method, path, body (optional), agent_write_enabled, want_allowed}` cases covering:
-
-- Every existing read-only allowlist entry (regression coverage for the read path, migrated from the existing hand-written cases in both `_test.go` files where practical).
-- Every new write-endpoint entry, once with `agent_write_enabled: true` (expect allow) and once with `agent_write_enabled: false` (expect the identical 403 outcome as before this feature existed — proving the default-off case is provably unchanged).
-- A representative set of dangerous `POST /containers/create` bodies (one per excluded `HostConfig` key, plus the `NetworkMode: "host"` case, plus the `Mounts[].Type: "bind"` case, plus the `Mounts[].VolumeOptions.DriverConfig` bypass — a `Mounts` entry with `Type: "volume"` and `VolumeOptions: {"DriverConfig": {"Options": {"type":"none","device":"/etc","o":"bind"}}}`, the exact `local`-driver bind-mount-via-volume pattern from step 4 of Section 3.3.4) — all expected `want_allowed: false` even with `agent_write_enabled: true`, and this corpus case in particular must assert **both** `TestMuzzle_SharedCorpus` and `TestFilter_SharedCorpus` reject it, since it is the one case in this list that a naive re-implementation of "reject `Type: bind`" alone would silently let through.
-- A representative safe `POST /containers/create` body — expected `want_allowed: true` only when `agent_write_enabled: true`.
-
-Both `backend/internal/orthrus/muzzle_test.go` and `agent/muzzle/muzzle_test.go` gain one new test function each (`TestMuzzle_SharedCorpus` / `TestFilter_SharedCorpus`) that loads this fixture and asserts every case. This is the concrete artifact GH #1161 asks for ("a shared test corpus... that exercises both filters identically") — this feature is the first consumer of that recommendation, not a promise to build it later.
-
-**CI enforcement (concrete, this feature's own scope — corrects an earlier draft's overclaim)**: a direct grep of every file in `.github/workflows/*.yml` (`grep -rln 'agent' .github/workflows/*.yml`, cross-checked against `grep -rn 'go test' .github/workflows/*.yml`) confirms **zero** existing workflow steps run `go test` (or anything else) inside the `agent/` Go module — every workflow that touches `agent/` (`orthrus-build.yml`, and `nightly-build.yml`'s `build-and-push-nightly-orthrus` job) goes straight from `actions/checkout` to `docker/build-push-action`, building the module's source only as an opaque `COPY . .` step inside `agent/Dockerfile`'s own multi-stage build — the module's Go test suite has genuinely never executed in CI. This matches GH #1161's own description ("agent/ has no CI-enforced quality gates") exactly. `TestFilter_SharedCorpus` (and every other existing `agent/muzzle` test) would today only ever run on a contributor's or agent's local machine.
-
-This feature closes that specific gap — test *execution* only, not the broader lint/staticcheck/coverage tooling GH #1161 also asks for (that remains out of scope, Section 7). Verified locally that `cd agent && go test ./...` runs cleanly today (`ok agent/leash`, `ok agent/muzzle`, no test files in `agent`, `agent/cert`, `agent/protocol` — exit 0), and that `agent/go.mod`/`agent/go.sum` already exist as a normal, independently buildable Go module, so `actions/setup-go` can target it exactly the same way `quality-checks.yml` already targets `backend/go.mod` (see `quality-checks.yml:33–38` for the precedent: `actions/setup-go` with `go-version-file: backend/go.mod`, `cache-dependency-path: backend/go.sum`). There is no structural blocker — this is a small, mechanical CI change, specified concretely below.
-
-**`.github/workflows/orthrus-build.yml` change** — insert two new steps into the existing `build-and-push` job, after the `Normalize image name` / `Compute branch tags` steps and **before** `Set up QEMU` (i.e., before any Docker build machinery starts, so a test failure aborts before the (currently unused-for-testing) `GO_VERSION: '1.26.5'` env var's only purpose becomes making this insertion trivial — that var is already declared in this file's `env:` block, line 32, and was previously dead/unused):
-
-```yaml
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: agent/go.mod
-          cache-dependency-path: agent/go.sum
-
-      - name: Run Orthrus agent tests
-        run: |
-          set -euo pipefail
-          cd agent
-          go test ./...
-```
-
-This gates the `build-and-push` job — which runs on `pull_request` (paths: `agent/**`), `push` to `main`/`development`, tags, and `workflow_dispatch` — so both PR-time and direct-push-time builds of the agent image now require the agent's own test suite to pass first, closing the gap for the codepath that actually reaches production image tags.
-
-**`.github/workflows/nightly-build.yml` change** — insert the identical two steps into the `build-and-push-nightly-orthrus` job, after `Checkout nightly branch` / `Set lowercase image name` and before `Set up QEMU`. Rationale for gating nightly too, not just relying on `orthrus-build.yml` having already gated the PR that got merged: `sync-development-to-nightly` (the job `build-and-push-nightly-orthrus` depends on) performs a `git reset --hard origin/nightly` followed by either a fast-forward merge or, on failure, `git reset --hard origin/development` plus a **force push** — a path that does not itself go through a reviewed PR against `nightly`, so gating only the PR-facing workflow leaves this one production image-publishing path untested. Duplicating the same two steps (rather than extracting a reusable workflow) matches this codebase's existing convention of near-identical step blocks repeated across `nightly-build.yml`'s and `orthrus-build.yml`'s otherwise-parallel jobs (e.g. the QEMU/Buildx/login steps are already duplicated verbatim between the two files today).
-
-Both insertions are additive-only (no existing step is modified or removed) and use the same pinned `actions/setup-go` SHA already used elsewhere in this repo (`quality-checks.yml`), so no new third-party action needs separate supply-chain review.
-
-#### 3.3.6 Rate limiting for write traffic
-
-**Decision**: a new, purpose-built, session-scoped token-bucket limiter, reusing the `golang.org/x/time/rate` primitive already vendored via `cerberus/rate_limit.go` (not reusing `cerberus.RateLimitMiddleware` itself, since it is Gin-coupled and the External Proxy's `http.Server` is not part of the Gin router — confirmed Section 2.7). Scope: **write requests only** — the existing unrate-limited read traffic through the External Proxy is an existing, separate, out-of-scope condition (flagged in Section 7) that predates this feature and is not worsened by it.
-
-```go
-// session.go — AgentSession gains:
-writeLimiter *rate.Limiter // nil unless writeEnabled; lazily constructed in NewAgentSession
-```
-
-Default: `rate.NewLimiter(rate.Every(2*time.Second), 5)` — steady-state 0.5 req/s (30/min), burst of 5. Rationale: a single compliant update cycle (pull → stop → remove → create → start) is exactly 5 write calls; the burst allows one full update to proceed immediately, while the steady-state rate bounds sustained container churn to well below anything a legitimate periodic update-checker (run hourly/daily) would ever need, while still comfortably tolerating a human manually triggering a couple of updates back-to-back. This is a fixed constant for v1 — no DB-backed per-agent tuning (see Section 7).
-
-`Muzzle.ServeHTTP` consults this limiter (per Section 3.3.3's control flow) only for requests that would otherwise be allowed by the write allowlist: if `!writeLimiter.Allow()`, respond `429 Too Many Requests` and emit a `SecurityAudit` entry with `Action: "orthrus_write_rate_limited"` (Section 3.3.7) rather than silently dropping — an operator investigating "why did my update fail" needs this in the audit trail, not just a server log line.
-
-#### 3.3.7 Audit logging
-
-Every request that reaches the new write-allowlist branch in `Muzzle.ServeHTTP` (backend side only — the agent-side filter has no `SecurityService` reference and should not acquire one; it is a minimal standalone binary intentionally kept free of Charon's full service graph, consistent with `agent/`'s existing "separate Go module, minimal deps" design already noted in GH #1161) results in exactly one `SecurityAudit` entry, regardless of outcome:
-
-| Scenario | `Action` | `EventCategory` | `ResourceUUID` | `Details` (JSON) |
-|---|---|---|---|---|
-| Write request forwarded | `"orthrus_write_allowed"` | `"orthrus_write"` | agent UUID | `{"method": "...", "path": "..."}` |
-| Blocked: `HostConfig` validation failed | `"orthrus_write_blocked"` | `"orthrus_write"` | agent UUID | `{"method": "...", "path": "...", "reason": "disallowed HostConfig field: <field>"}` |
-| Blocked: rate limit | `"orthrus_write_rate_limited"` | `"orthrus_write"` | agent UUID | `{"method": "...", "path": "..."}` |
-| Flag toggled via `PATCH` | `"orthrus_write_enabled"` / `"orthrus_write_disabled"` | `"orthrus_write"` | agent UUID | `{"agent_name": "..."}` |
-
-`Muzzle` requires a `LogAudit(*models.SecurityAudit) error`-shaped dependency (an interface, not a concrete `*services.SecurityService`, to keep the `orthrus` package's existing import graph — it currently imports `logger`, `util`, no `services` — from gaining a dependency on `services`, which today depends on `orthrus`: `services/orthrus_service.go` already imports `"github.com/Wikid82/charon/backend/internal/orthrus"`. An `orthrus → services` import would therefore create a cycle. **This means `Muzzle` cannot import `services.SecurityService` directly** — it must accept a narrow interface (`type AuditLogger interface { LogAudit(*models.SecurityAudit) error }`) satisfied by `*services.SecurityService` at the call site in `session.go`/`server.go`, where the concrete type is already available and no cycle exists. Note this interface still needs `models.SecurityAudit` — `orthrus` importing `models` is safe and already happens (`server.go` already imports `"github.com/Wikid82/charon/backend/internal/models"`), so only the `services` import is the concern.
-
-`Actor` for all `orthrus_write_*` entries generated by `Muzzle` itself: `"orthrus-agent:<agent-name>"` (there is no authenticated Charon user in this request path — the caller is a third-party tool through the tunnel, not a logged-in operator — so `Actor` must identify the *agent*, not a user, to keep the audit trail meaningful). The `PATCH`-triggered `orthrus_write_enabled`/`orthrus_write_disabled` entries (Section 3.2.1), by contrast, are operator-initiated and should use whatever `Actor` convention the codebase already applies to authenticated admin actions (a research item for implementation, per 3.2.1's note).
-
-### 3.4 Component Design — Agent (`agent/`)
-
-`agent/muzzle/muzzle.go`: `Filter` becomes connection-scoped instead of process-scoped (a real, load-bearing structural change — currently `muzzle.New()` is called once in `Leash.New` and reused for the life of the agent process, spanning arbitrarily many reconnects; it must become per-connection so a mid-connection DB toggle can't retroactively change an already-negotiated session, matching the backend's per-`AgentSession` scoping exactly):
-
-```go
-// agent/muzzle/muzzle.go
-func New(writeEnabled bool) *Filter { return &Filter{writeEnabled: writeEnabled} }
-```
-
-`agent/leash/leash.go`: `l.filter` is no longer set in `New()`; instead, `connect()` constructs a fresh `muzzle.New(writeEnabled)` per successful dial, after reading `X-Orthrus-Write-Enabled` off the handshake response (Section 3.3.1), and `handleDockerStream` closes over that connection-scoped filter instead of the struct-level `l.filter` field. This is a structural refactor of `Leash`/`Filter`'s lifetime coupling, not just an added parameter — flagged explicitly because it changes an invariant ("one `Filter` per agent process") that has held since the file was written, and any code elsewhere relying on that invariant (none found in this research pass, but the implementation phase must re-check) needs re-verification.
-
-#### 3.4.1 `Filter.Allow` signature change and body re-buffering (concrete)
-
-Current signature (verified verbatim, `agent/muzzle/muzzle.go:122`): `func (f *Filter) Allow(method, reqPath string) bool`. This must change to accept the request body, since the write-endpoint body validation (Section 3.3.4's `HostConfig` key allowlist, `Mounts[].Type` restriction, `Mounts[].VolumeOptions.DriverConfig` rejection, and `NetworkMode` value check) needs to inspect `POST /containers/create` bodies identically to the backend side:
-
-```go
-// agent/muzzle/muzzle.go
-func (f *Filter) Allow(method, reqPath string, body []byte) bool
-```
-
-`body` is only consulted for the one body-validated case (`method == http.MethodPost` and `reqPath`, after the same version-prefix-strip + `path.Clean` normalization `Allow` already applies, matches `/containers/create`); every other allowlist branch (all existing read-only entries, plus the five non-body-validated write entries from 3.3.3) ignores the parameter entirely — passing `nil` for those cases is safe and requires no branching at any call site outside `Allow` itself.
-
-**Body re-buffering in `ServeProxy`** (`agent/muzzle/muzzle.go:164–196`, verified current flow: `http.ReadRequest(bufr)` → `Allow(method, path)` → `net.Dial` → `req.Write(conn)` → `io.Copy` response back). Reading `req.Body` to obtain bytes for `Allow` consumes the underlying `io.ReadCloser` exactly once — `req.Write(conn)` immediately afterward would forward an empty/already-drained body unless the read bytes are wrapped back into a fresh reader first. Concrete change to `ServeProxy`:
-
-```go
-// New package-level constant, mirroring the backend's 64 KiB cap from
-// Section 3.3.4 exactly — the two values must stay numerically identical;
-// the shared corpus (3.3.5) should include a boundary-size case to catch drift.
-const maxContainerCreateBodyBytes = 64 * 1024
-
-func (f *Filter) ServeProxy(dst string, r io.Reader, w io.Writer) error {
-	bufr := bufio.NewReader(r)
-
-	req, err := http.ReadRequest(bufr)
-	if err != nil {
-		return fmt.Errorf("muzzle: read request: %w", err)
-	}
-
-	var bodyBytes []byte
-	if req.Body != nil {
-		limited := io.LimitReader(req.Body, maxContainerCreateBodyBytes+1)
-		bodyBytes, err = io.ReadAll(limited)
-		_ = req.Body.Close()
-		if err != nil {
-			return fmt.Errorf("muzzle: read body: %w", err)
-		}
-		if len(bodyBytes) > maxContainerCreateBodyBytes {
-			_, _ = io.WriteString(w, forbiddenResponse)
-			return fmt.Errorf("muzzle: blocked %s %s: body too large", req.Method, req.URL.Path)
-		}
-		// Re-buffer: req.Write below must still forward the original body intact.
-		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-		req.ContentLength = int64(len(bodyBytes))
-	}
-
-	if !f.Allow(req.Method, req.URL.Path, bodyBytes) {
-		// Fail closed: write 403 and abort the stream.
-		_, _ = io.WriteString(w, forbiddenResponse)
-		return fmt.Errorf("muzzle: blocked %s %s", req.Method, req.URL.Path)
-	}
-
-	conn, err := net.Dial("unix", dst)
-	if err != nil {
-		return fmt.Errorf("muzzle: dial docker socket: %w", err)
-	}
-	defer conn.Close()
-
-	req.Close = true
-
-	if err := req.Write(conn); err != nil {
-		return fmt.Errorf("muzzle: forward request to docker: %w", err)
-	}
-
-	_, err = io.Copy(w, conn)
-	return err
-}
-```
-
-New import required: `bytes` (for `bytes.NewReader`); `io.LimitReader`, `io.ReadAll`, and `io.NopCloser` are already reachable via the existing `io` import.
-
-This read-and-rebuffer step runs for **every** request through `ServeProxy`, not only `/containers/create` — GET requests in practice present `req.Body` as either `nil` or an already-empty, immediately-`io.EOF` reader (standard `net/http` request-parsing behavior for bodyless requests), so the added `io.ReadAll` is a cheap no-op for the overwhelming majority of traffic. This keeps `ServeProxy`'s control flow linear (one unconditional read-and-rebuffer step) instead of branching on method/path *before* deciding whether to buffer, which would duplicate the same "is this `/containers/create`" check that already has to live inside `Allow`.
-
-`Filter.Allow`'s internal write-allowlist and `POST /containers/create` body-validation logic mirrors Sections 3.3.3/3.3.4 exactly (same `HostConfig` key allowlist, `Mounts[].Type` restriction, `Mounts[].VolumeOptions.DriverConfig` rejection, `NetworkMode` value check), duplicated per the existing two-independent-copies architecture and covered by the shared corpus in 3.3.5. The agent has no rate limiter and no audit logging (see 3.3.6/3.3.7 rationale) — its role is strictly the second independent allow/deny check, identical in policy to the backend's, with no side effects beyond serving or refusing the proxy.
-
-`agent/leash/leash.go`'s call site (`leash.go:178`, `l.filter.ServeProxy(l.dockerSock, stream, stream)`) requires **no signature change** — the body re-buffering above is fully internal to `ServeProxy`; `Leash` continues to pass the same three arguments (`dst string, r io.Reader, w io.Writer`) it does today. Confirmed via direct read of `leash.go` that no other call site or field references `Filter.Allow` or relies on its two-argument form.
-
-### 3.5 Component Design — Frontend
-
-#### 3.5.1 New dialog vs. extending `AgentExternalProxyDialog`
-
-**Decision: new, separate dialog** (`AgentWriteModeDialog.tsx`), opened from its own icon button in `OrthrusAgentManager.tsx`, not a new section bolted onto `AgentExternalProxyDialog`.
-
-Justification: `AgentExternalProxyDialog` governs a *transport-layer* setting (is there a TCP port bound at all, and which one) that is a prerequisite for write mode to have any effect (write mode is meaningless without the External Proxy — or a future direct-tunnel-consumer — being reachable at all) but is conceptually a different axis of configuration. The design brief's own required UX (typed-name-to-confirm, a *distinct* warning banner, a fixed-list display of permitted operations) is substantial enough that bolting it onto the existing 250-line dialog would roughly double its size and mix two independent concerns (an unauthenticated-by-default network exposure setting, and a permissions-escalation setting) into one component's state machine — `configuredDiffersFromActive`-style reconnect-notice logic would need to independently track two different "configured vs. active" pairs (port, write-mode) with only loosely related triggers, which reads more clearly as two components each tracking one pair. A new adjacent dialog keeps each component's local state minimal and testable, consistent with the existing pattern where `OrthrusAgentManager` already orchestrates three separate dialogs (delete-confirm, `AgentProviderAssignDialog`, `AgentExternalProxyDialog`) rather than one mega-dialog.
-
-#### 3.5.2 `AgentWriteModeDialog.tsx` — new component
-
-Props: `{ agent: OrthrusAgent; open: boolean; onClose: () => void }` (mirrors `AgentExternalProxyDialogProps` exactly).
-
-State machine, off → on (the only transition requiring the typed-confirmation gate; on → off is a single confirm click, matching how disabling is strictly safety-increasing and needs no extra friction):
-
-1. Toggle switch, default reflecting `agent.write_enabled`, labelled per the fixed operation list (see below).
-2. When the operator flips it **on** from off: reveal a typed-confirmation input (new UX for this codebase, modeled on the *shell* of the existing delete-confirmation `Dialog` per Section 2.5's finding — title, description naming the agent, Cancel + destructive-styled confirm button — but adding the `<input>` requirement since no exact precedent exists): placeholder/label `t('hecate.writeMode.confirmPrompt', { name: agent.name })` ("Type **{name}** to confirm"), Save/Enable button `disabled` until the input's trimmed value strictly equals `agent.name`.
-3. When flipping **off**: no typed confirmation — a single `patch({ write_enabled: false })` on Save, consistent with "disabling is always low-friction."
-4. A **distinct** warning banner (separate `role="note"` block, not reusing `hecate.externalProxy.securityWarning`'s copy or DOM node), proposed text: *"Enabling write mode lets tools connected through this agent's External Docker Proxy pull images, and start, stop, restart, remove, and recreate containers on this machine. Every allowed action is logged. This does not grant shell access, volume/network changes, or any operation not explicitly listed below."* — visually and textually distinguishable from the External Proxy dialog's network-exposure warning, per Objective 7 / design brief.
-5. Fixed, non-editable list of the permitted operations (Section 3.3.3's allowlist, rendered as user-facing prose, not raw Docker paths): "Pull a new image", "Start a container", "Stop a container", "Restart a container", "Remove a container", "Create (recreate) a container" — rendered only when the toggle is (or is about to be) on.
-6. Reconnect notice, mirroring `configuredDiffersFromActive` exactly but comparing `agent.write_enabled` (configured) against `proxyStatus.active_write_enabled` (live, from the extended `GetProxyStatus` response, Section 3.2.2) rather than port numbers — reusing `hecate.externalProxy.reconnectNotice`'s *pattern* but a new translation key (`hecate.writeMode.reconnectNotice`) since the surrounding sentence needs to reference write mode, not the port.
-7. Link/button: "View write-access audit log" → navigates to `/audit-logs?resource_uuid=<agent.uuid>&event_category=orthrus_write` (Section 3.5.3 makes this actually pre-filter on arrival).
-
-`OrthrusAgentManager.tsx` gains: a new icon button (proposed: `ShieldCheck` or `KeyRound` from `lucide-react`, distinct from the existing `Settings` gear used for the proxy dialog) in the actions cell, a `writeModeAgent` state slot mirroring `proxyConfigAgent`'s, and a `WRITE` badge (mirroring the existing `PROXY` badge at line 141–145) rendered when `agent.write_enabled` is true.
-
-#### 3.5.3 `AuditLogs.tsx` deep-link support (new, generic fix — Section 2.6 gap)
-
-`AuditLogs.tsx`'s `filters` `useState<AuditLogFilters>({})` initializer becomes a lazy initializer reading `URLSearchParams(window.location.search)` for any of the existing `AuditLogFilters` keys present in the query string (`event_category`, `resource_uuid`, `actor`, `action`, plus date filters if present) — a generically useful fix, not Orthrus-specific, using React Router's `useSearchParams` if the app already uses React Router (needs confirming which router the app uses during implementation; if a router with search-param hooks is already in place elsewhere in the codebase, reuse it for consistency rather than raw `window.location.search` parsing).
-
-#### 3.5.4 Type changes
-
-```ts
-// frontend/src/api/orthrus.ts
-export interface OrthrusAgent {
-  // ...existing fields...
-  write_enabled: boolean; // NEW
-}
-export interface PatchAgentRequest {
-  // ...existing fields...
-  write_enabled?: boolean; // NEW
-}
-export interface ExternalProxyStatus {
-  // ...existing fields...
-  configured_write_enabled: boolean; // NEW
-  active_write_enabled: boolean;     // NEW
-}
-
-// frontend/src/api/auditLogs.ts
-export type EventCategory =
-  | 'dns_provider' | 'certificate' | 'proxy_host' | 'user' | 'system'
-  | 'orthrus_write'; // NEW
-export type AuditAction =
-  | /* ...existing... */
-  | 'orthrus_write_allowed' | 'orthrus_write_blocked'
-  | 'orthrus_write_rate_limited' | 'orthrus_write_enabled' | 'orthrus_write_disabled'; // NEW
-```
-
-### 3.6 Data Flow (end-to-end, happy path)
-
-1. Operator opens `AgentWriteModeDialog`, types the agent's name, clicks Enable → `PATCH /api/v1/orthrus/agents/:uuid { write_enabled: true }` → `OrthrusService.Patch` updates the DB row and emits an `orthrus_write_enabled` audit entry → response reflects `write_enabled: true`.
-2. Dialog shows the reconnect notice (`configured_write_enabled: true`, `active_write_enabled: false` if the agent was already connected).
-3. Agent reconnects (automatically, per its existing exponential-backoff loop in `leash.go:Run`, or the operator restarts it) → `HandleWebSocket` re-reads `agent.WriteEnabled` from the DB, sets `X-Orthrus-Write-Enabled: true` on the upgrade response, constructs `NewAgentSession(..., writeEnabled: true, ...)`.
-4. Agent's `connect()` reads the header, builds `muzzle.New(true)`, uses it for all Docker streams on this connection.
-5. Dockhand issues `GET /v1.44/containers/<id>/json` through the External Proxy port → passes both filters unconditionally (existing read allowlist, unaffected) → tool determines a new image digest is available (existing hotfix capability).
-6. Dockhand issues `POST /images/create?fromImage=...` → backend `Muzzle` (writeEnabled=true, rate limiter has burst available) → allowed, forwarded → agent `Filter` (writeEnabled=true) → allowed, forwarded to real Docker socket → audit entry `orthrus_write_allowed`.
-7. Dockhand issues `POST /containers/<id>/stop`, `DELETE /containers/<id>`, `POST /containers/create` (body validated against the `HostConfig` allowlist — passes, since it's a same-config recreate with no dangerous fields), `POST /containers/<new-id>/start` — each independently allowed/audited as in step 6.
-8. If any request in the sequence exceeds the rate limiter's burst (e.g., a runaway loop retrying rapidly), that request gets `429` and an `orthrus_write_rate_limited` audit entry instead of being forwarded.
-9. If Dockhand (or an attacker with tunnel access) sends `POST /containers/create` with `HostConfig.Privileged: true`, the backend `Muzzle` rejects it with `403` and an `orthrus_write_blocked` audit entry **before it ever reaches the agent** — the agent-side filter would independently reject the same body if it were ever reached, per 3.3.4/3.3.5, but defense-in-depth means the backend is expected to be the first line here.
-10. Operator reviews `/audit-logs?resource_uuid=<uuid>&event_category=orthrus_write` (now correctly pre-filtered per 3.5.3) and sees the full sequence.
-
-### 3.7 Error Handling Summary
-
-| Condition | HTTP status | Response | Audit entry |
+| Filter | File | Module | Runs |
 |---|---|---|---|
-| Write request, `writeEnabled=false` | `403` | `"Forbidden"` (existing generic message, unchanged code path) | none (identical to today's behavior — a disabled agent produces zero new audit volume) |
-| Write request, allowed by allowlist + body validation | pass-through | whatever the real Docker daemon returns | `orthrus_write_allowed` |
-| `POST /containers/create`, disallowed `HostConfig` field | `403` | `"Forbidden: disallowed HostConfig field"` | `orthrus_write_blocked` |
-| `POST /containers/create`, body exceeds size cap | `403` | `"Forbidden: request body too large"` | `orthrus_write_blocked` |
-| Write request, rate limit exceeded | `429` | `"Too Many Requests"` | `orthrus_write_rate_limited` |
-| `PATCH .../agents/:uuid` with `write_enabled` set, agent not found | `404` | existing `"agent not found"` (unchanged) | none |
-| Malformed JSON body on `/containers/create` while write-enabled | `403` | `"Forbidden: malformed request body"` | `orthrus_write_blocked` |
+| `Muzzle` | `backend/internal/orthrus/muzzle.go` | `backend` (imports models, logger, util, GORM-adjacent types) | Charon-side, before a request enters the tunnel |
+| `Filter` | `agent/muzzle/muzzle.go` | `agent` (standalone module, 4 direct deps, `FROM scratch` Docker image, `CGO_ENABLED=0`) | On the remote agent binary, immediately before dialing the real Docker socket |
 
----
+Both are already deliberately duplicated, not shared — `agent/muzzle/muzzle.go`'s own doc comments state this explicitly: *"Duplicated here, not shared via import, because agent/ is a separate Go module built as a minimal standalone binary and does not import backend/ packages."* This plan does not challenge that design decision (see Section 2.5 for why).
 
-## 4. Explicit Risk Treatment (per design-brief requirement — not hand-waved)
+### 2.2 What the write-mode commits already built (do not re-build)
 
-### 4.1 `HostConfig` body-inspection risk
+The five local commits on `feature/orthrus` already:
 
-**Resolved** per Section 3.3.4: both muzzle layers become body-inspecting for exactly one endpoint (`POST /containers/create`), using a hybrid allowlist-of-safe-`HostConfig`-keys + one value-level check (`NetworkMode`) + a hard size cap. Feasibility confirmed directly from the current code: the agent-side filter already fully parses the HTTP request before forwarding (Section 2.3), and the backend-side filter, being a genuine `http.Handler`, can read-and-rebuffer `r.Body` with a standard `io.NopCloser(bytes.NewReader(...))` pattern before calling `m.next.ServeHTTP`.
+1. Added `backend/internal/orthrus/testdata/muzzle_corpus.json` (263 lines, JSON array of `{description, method, path, body?, agent_write_enabled, want_allowed}` cases).
+2. Wired `TestMuzzle_SharedCorpus` (`backend/internal/orthrus/muzzle_test.go:505-551`) to load and assert against it via `NewMuzzle(...).ServeHTTP`.
+3. Wired `TestFilter_SharedCorpus` (`agent/muzzle/muzzle_test.go:568-617`) to load the **same file** via a relative cross-module path (`../../backend/internal/orthrus/testdata/muzzle_corpus.json`) and assert against `Filter.Allow`.
+4. Added a "Run Orthrus agent tests" step (`cd agent && go test ./...`) to `.github/workflows/orthrus-build.yml` and `.github/workflows/nightly-build.yml`, gating the Docker image publish on the agent module's own test suite. Comments in `orthrus-build.yml:104-111` already reference GH #1161 and this spec by name.
+5. Named `hostConfigAllowedKeys`, `allowedWriteExactPaths`, `allowedWritePatterns`, `maxContainerCreateBodyBytes`, `mountEntry`, `validateNetworkModeValue`, `validateMountsValue` **identically** in both files, with doc comments cross-referencing each other and warning future editors to keep them in sync.
 
-### 4.2 Six-endpoint allowlist sufficiency for a real update flow
+**Implication for this plan**: the corpus mechanism and one CI test-execution path for `agent/` already exist. This plan's job is to (a) fill the corpus with the edge cases that actually catch the #1160 divergence, (b) fix the divergence agent-side, (c) add a *structural* drift guard the corpus alone can't provide, and (d) extend `agent/`'s CI parity with `backend/` beyond "tests run" to "tests run, lint enforced, coverage gated" — not to re-invent the shared-fixture mechanism.
 
-**Resolved, with one documented functional limitation.** The full sequence (Section 3.6, steps 5–7) — inspect (already-allowed read) → pull → stop → remove → create → start — is fully coverable by the six endpoints in the design brief. **Gap found**: `POST /containers/create`'s `NetworkingConfig` body field accepts only **one** network endpoint per Docker Engine API semantics; a container attached to **multiple** Docker networks at recreate time requires one additional `POST /networks/{id}/connect` call per extra network, which is **not** in the six-endpoint list and is deliberately **not proposed for addition in v1** — it is a network-mutation endpoint, and the design brief's boundary ("no volume/network create-or-delete") reads as intentionally conservative about network-adjacent write access even though `connect` is not technically a create-or-delete operation. **v1 accepts this as a documented limitation**: multi-network containers can be updated via this feature only if the operator or tool re-attaches secondary networks by some other means (e.g., manually, or Charon's own existing Docker management UI, which is unaffected by this feature and already has full write access to Charon-managed Docker hosts). This is called out in Section 7 (Out-of-Scope) and should be stated plainly in the user-facing docs rewrite (Phase 5) so operators aren't surprised.
+### 2.3 GH #1160 root cause, confirmed with concrete inputs
 
-### 4.3 Rate-limiting / abuse potential
+**Backend** (`backend/internal/orthrus/muzzle.go:420-426`, `ServeHTTP`):
+```
+rawPath  := versionPrefixRe.ReplaceAllString(r.URL.Path, "")   // strip /vX.Y first (anchored, numeric only)
+stripped := path.Clean("/" + strings.TrimLeft(rawPath, "/"))   // then clean
+```
+`versionPrefixRe = ^/v\d+\.\d+` is anchored to the **start of the raw, uncleaned path** and requires two numeric groups.
 
-**Resolved** per Section 3.3.6: existing Gin-based rate limiting (`cerberus.RateLimitMiddleware`) does not and structurally cannot cover the External Proxy's raw `http.Server` (confirmed architectural fact, Section 2.7, true today independent of this feature). A new, minimal, session-scoped `rate.Limiter` (reusing the same underlying package Cerberus already depends on) is added specifically for the write path, with a concrete default (0.5 req/s, burst 5) and explicit audit-trail visibility when triggered.
+**Agent** (`agent/muzzle/muzzle.go:294-339`, `Allow`): does not use a single normalize-then-match model at all.
+- Main read-path loop matches `path.Clean(reqPath)` directly against `allowedPatterns`, a slice that lists **both** an unversioned and a literal `"/v*/..."` form of every entry (`path.Match`, where `v*` matches any single path segment starting with `v` — no digit requirement).
+- The `imageDistributionPatterns` (namespaced image inspect) branch and `allowWrite`'s exact-path branch separately compute `unversioned := versionPrefixRe.ReplaceAllString(cleanPath, "")` — i.e., **clean first, then strip** — the literal order reversal GH #1160 describes.
+- `allowWrite`'s *pattern* branch (`allowedWritePatterns`) uses neither: it matches `cleanPath` directly against `"/v*/containers/*/start"`-style entries, the same loose-`v*` mechanism as the main read loop.
 
-### 4.4 Drift-class repeat risk (the two-independent-muzzles problem)
+This produces **three independently confirmed divergences** (traced past the one example in the issue, per `CLAUDE.md`'s Root Cause Analysis Protocol — "don't stop at the first error"):
 
-**Resolved** per Section 3.3.5: this feature is specified as the first concrete implementation of the shared-test-corpus mitigation GH #1161 already recommends, rather than merely acknowledging the risk and repeating the historical pattern. GH #1160 and #1161 are confirmed open (`gh issue view 1160`/`1161`, both returned real content matching the design brief's description) and are cited by number in the corpus fixture's design (Section 3.3.5) as the origin of this requirement.
-
----
-
-## 5. Implementation Plan
-
-### Phase 1 — Playwright E2E Specs (write-only, `test.fixme`, no implementation yet)
-
-New spec file, path convention to be confirmed against the existing `e2e/` layout during implementation (not verified in this research pass — flagged for `playwright-dev`):
-
-- Agent write-mode toggle is off by default for a newly provisioned agent.
-- Enabling requires typing the agent's name; Save is disabled until the typed value matches.
-- Enabling succeeds, reconnect notice appears while the (test-double) agent session hasn't reconnected.
-- Disabling requires no typed confirmation.
-- Write-mode badge appears in the agent table when enabled.
-- Navigating to the audit-log link from the write-mode dialog lands on a pre-filtered `/audit-logs` view.
-
-All `test.fixme` until Phase 3/4 land.
-
-### Phase 2 — Backend Foundation (no behavior change)
-
-- `models.OrthrusAgent.WriteEnabled` field + doc comment (Section 3.1).
-- `AgentSession.writeEnabled` field, `NewAgentSession` signature change, `ExternalProxyStatus.WriteEnabled` field (Section 3.3.1/3.3.2) — plumbed through but not yet reachable (no caller sets it to `true` yet; `HandleWebSocket` still always constructs with the DB value, which defaults `false`, so this phase is a pure no-op for existing agents).
-- `Muzzle.writeEnabled`/`writeLimiter` fields and constructor signature change; all existing call sites updated — **must not change any existing test's expected outcome**.
-- `agent/muzzle.Filter` gains the same fields; `agent/leash` refactor to per-connection `Filter` construction (Section 3.4) — same "always constructed with `false` today" constraint.
-- Validation gate: `go build ./... && go test ./...` green in both `backend/` and `agent/` modules, zero behavior change in existing test suites.
-
-### Phase 3 — Backend Write-Path Implementation
-
-- Write allowlist entries + `NetworkMode`/`HostConfig` body validator, identically in both muzzle files (Section 3.3.3/3.3.4).
-- Shared test corpus fixture + both `TestMuzzle_SharedCorpus`/`TestFilter_SharedCorpus` (Section 3.3.5).
-- Rate limiter wiring (Section 3.3.6).
-- Audit logging: `AuditLogger` interface, `Muzzle` constructor gains it, wired at the `session.go`/`server.go` call site (Section 3.3.7).
-- `X-Orthrus-Write-Enabled` handshake header, both sides (Section 3.3.1).
-- `PATCH`/`GET proxy-status` handler + service changes (Section 3.2.1/3.2.2), including the new `OrthrusService` → `SecurityService` dependency wiring in `routes.go`.
-- Validation gate: full backend unit test suite green, `./scripts/scan-gorm-security.sh --check` zero CRITICAL/HIGH (model change trigger per `CLAUDE.md` 1.5), `make lint-fast` clean, coverage ≥85%.
-
-### Phase 4 — Frontend Implementation
-
-- Type changes (Section 3.5.4).
-- `AgentWriteModeDialog.tsx` (Section 3.5.2) + wiring into `OrthrusAgentManager.tsx`.
-- `AuditLogs.tsx` deep-link support (Section 3.5.3).
-- New i18n keys across all five locale files (`en`, `fr`, `de`, `es`, `zh` — matching the existing `hecate.externalProxy.*` convention's locale coverage).
-- Validation gate: `npm run type-check`, `npm run build`, frontend unit tests green, coverage ≥85%.
-
-### Phase 5 — Hardening, E2E Enable, Docs
-
-- Un-`fixme` the Phase 1 Playwright specs; full `npx playwright test --project=firefox` run.
-- `docs/features/orthrus.md` rewrite: correct all three absolute claims quoted in Section 2.8, describe the opt-in flow, the fixed operation list, the typed-confirmation requirement, and the multi-network limitation from Section 4.2.
-- Full `CLAUDE.md` Definition-of-Done pass (Sections 1–10 of that document) before merge.
-
----
-
-## 6. Commit Slicing Strategy
-
-**Decision: single PR, one feature, ordered commits** — per `CLAUDE.md`'s "One Feature = One PR" / "Slice Commits, Not PRs" rule. No commit here is independently mergeable or independently useful; they exist to keep review tractable, not to be split across PRs.
-
-| # | Scope | Files (representative, not exhaustive) | Depends on | Validation gate |
+| # | Input | Backend (current) | Agent (current, pre-fix) | Divergence |
 |---|---|---|---|---|
-| **1** | E2E specs, `test.fixme` | new file under `e2e/` | — | Playwright collects the file without error; all cases skipped, none fail |
-| **2** | Backend foundation — model field, session/muzzle plumbing, zero behavior change | `models/orthrus_agent.go`, `orthrus/session.go`, `orthrus/muzzle.go`, `agent/muzzle/muzzle.go`, `agent/leash/leash.go` | 1 | `go build ./...` (both modules), `go test ./...` (both modules) green, no existing test's expected output changes |
-| **3** | Backend write-path — allowlist, body validator, shared corpus, rate limiter, audit logging, handshake header | same files as #2 (deepened) + `testdata/muzzle_corpus.json`, `security_service.go` wiring | 2 | Backend unit tests green, `./scripts/scan-gorm-security.sh --check` clean, `make lint-fast` clean, coverage ≥85% |
-| **4** | Backend API — `PATCH`/`GET proxy-status` extensions, `OrthrusService.Patch` signature + audit call, `routes.go` DI wiring | `orthrus_handler.go`, `orthrus_service.go`, `routes.go` | 3 | Handler/service unit tests green, `go build ./...` |
-| **5** | Frontend — types, `AgentWriteModeDialog`, `OrthrusAgentManager` wiring, `AuditLogs` deep-link fix, i18n | `api/orthrus.ts`, `api/auditLogs.ts`, `components/hecate/AgentWriteModeDialog.tsx`, `components/hecate/OrthrusAgentManager.tsx`, `pages/AuditLogs.tsx`, `locales/*/translation.json` | 4 | `npm run type-check`, `npm run build`, Vitest suite green, coverage ≥85% |
-| **6** | Hardening + E2E enable + docs | un-skip commit-1 spec file, `docs/features/orthrus.md` | 1–5 | Full `npx playwright test --project=firefox`, full `CLAUDE.md` DoD |
+| 1 | `GET /foo/../v1.44/images/x/json` | **403** — regex doesn't match `/foo/...` (not anchored at start); after clean, `/v1.44/images/x/json` fails the `/images/` prefix check | **200** — clean-then-strip reveals `/images/x/json`, matches `imageDistributionPatterns` | The exact case GH #1160 names |
+| 2 | `GET /vFOO/containers/json` | **403** — `^/v\d+\.\d+` requires digits, doesn't match `vFOO` | **200** — `path.Match("/v*/containers/json", ...)` treats `v*` as "any segment starting with v" | New: numeric-regex vs. loose-wildcard mismatch, read path |
+| 3 | `POST /vFOO/containers/abc/start` (write mode on) | **403** — same regex mismatch, `allowedWritePatterns` pattern `/containers/*/start` doesn't match the un-stripped `/vFOO/...` path | **200** — `allowedWritePatterns` pattern `/v*/containers/*/start` matches via loose `v*` | New: same bug class, but on a **write** endpoint — higher practical severity than the read-only case the issue text discusses |
 
-**Rollback / contingency for the PR as a whole**: every commit up to and including #4 leaves default (`write_enabled=false`) behavior byte-for-byte identical to pre-feature behavior — the feature is inert until an operator explicitly flips the DB flag via the (not-yet-existing-until-commit-5) UI, or manually via the API. If a critical issue is found post-merge, the safest rollback is **not** a revert of the whole PR but an emergency DB-level or config-level disable (e.g., a temporary backend guard forcing `writeEnabled` to always evaluate `false` regardless of the DB value) — since the DB migration itself (additive column, default `false`) is safe to leave in place even if the feature is disabled. A full revert remains available as a fallback if the guard approach is judged insufficient.
+In every row, backend is strictly more conservative (fails closed); agent is strictly more permissive. This matches the issue's finding that today's real pipeline (backend always runs first) already masks the bug — but confirms it's not confined to the one read-only inspect endpoint the issue used as its example; row 3 shows the same order/looseness bug reaches a write operation once write mode is enabled, which is the higher-value target if the "backend always runs first" assumption is ever violated (e.g., a future direct-to-agent access path, exactly the risk scenario the issue names).
+
+Two traversal cases already exist in `agent/muzzle/muzzle_test.go:161-163` (`TestFilter_Allow`) but were never promoted into the shared corpus, so backend has no equivalent regression test for them:
+```
+{"GET", "/v1.47/../containers/json", true},      // resolves to /containers/json — allowed
+{"GET", "/containers/../../etc/passwd", false},  // resolves to /etc/passwd — blocked
+```
+Verified: both filters already agree on these two (traversal that doesn't disguise a version prefix isn't affected by the order bug). They belong in the shared corpus anyway, per `CLAUDE.md`'s DRY guidance — one behavioral assertion instead of two independently-maintained ones.
+
+### 2.4 GH #1161 root cause, confirmed against current tooling
+
+`lefthook.yml`'s blocking `pre-commit` stage has two Go-specific commands, both **hardcoded to `backend/`**:
+```yaml
+go-vet:
+  glob: "*.go"                              # matches agent/**/*.go too...
+  run: cd backend && go vet ./...           # ...but only ever lints backend/
+
+golangci-lint-fast:
+  glob: "*.go"
+  run: scripts/pre-commit-hooks/golangci-lint-fast.sh   # script itself: cd "$(dirname "$0")/../../backend"
+```
+The glob matches any `.go` file anywhere in the repo (including `agent/`), so editing only `agent/muzzle/muzzle.go` **does** trigger both hooks — but each is blind to `agent/` for a different reason, confirmed by reading each command's actual implementation rather than assuming they behave alike:
+
+- **`go-vet`**: the command is exactly `cd backend && go vet ./...`, with **no revision-scoping at all** — it does not consult `--new-from-rev` or any diff. It unconditionally vets the entirety of `backend/` on every trigger, regardless of what changed. It "passes trivially" for an agent-only change not because it detects zero changed files, but because it is hardcoded to `backend/` and never inspects `agent/` in the first place — full stop.
+- **`golangci-lint-fast.sh`** (confirmed at `scripts/pre-commit-hooks/golangci-lint-fast.sh:64` and `:68`): does `cd "$(dirname "$0")/../../backend"` and then runs `golangci-lint run --config .golangci-fast.yml --new-from-rev HEAD ./...`. For *this* script, "finds zero changed backend files under `--new-from-rev HEAD`, passes trivially" is the accurate mechanism, since an agent-only commit produces no backend-scoped diff for that flag to report on.
+
+Either way the net effect is identical and the conclusion is unchanged: **`agent/` is not vetted or linted by pre-commit today.** This is the exact, literal mechanism by which the original incident's agent-side omission passed local pre-commit undetected.
+
+`scripts/go-test-coverage.sh` is hardcoded to `BACKEND_DIR="$ROOT_DIR/backend"` — no coverage gate exists for `agent/` at all. `Makefile`'s `check-module-coverage` target (`scripts/check-module-coverage.sh`) is a **dangling reference** — the script does not exist on disk. Confirmed via `ls`; this predates this feature and is an unrelated pre-existing bug, fixed opportunistically in this PR's Commit 5 since it's directly on-topic (module coverage aggregation) and trivial to fix alongside the new agent script.
+
+`go test -cover ./...` in `agent/` today:
+```
+github.com/Wikid82/charon/agent          0.0% (main.go, 144 lines — CLI bootstrap/flag parsing)
+github.com/Wikid82/charon/agent/cert     0.0%, no test files (cert.go, 68 lines — real logic: generates a self-signed ECDSA cert)
+github.com/Wikid82/charon/agent/leash   44.4% (has partial test coverage already)
+github.com/Wikid82/charon/agent/muzzle  89.5% (well covered)
+github.com/Wikid82/charon/agent/protocol  no test files (37 lines, pure type/const declarations, no branches)
+```
+`agent` (root/main) is a direct structural analogue of `backend/cmd/api`, which `codecov.yml` already excludes as "entrypoints and infrastructure code... tested via integration tests instead." `cert/` is genuine, currently-untested business logic and does not get that exclusion — it needs a real test, which this plan scopes narrowly (Section 3.5).
+
+**CI test execution** (distinct from lint/coverage) for `agent/` already exists as of the write-mode commits (`orthrus-build.yml`, `nightly-build.yml` — Section 2.2, item 4), but only fires on `agent/**` path changes to pull requests, or on push/tag events — it is not part of the unconditional per-PR `quality-checks.yml` gate that `backend-quality`/`frontend-quality` already are.
+
+### 2.5 Design decision: #1161's unification question
+
+Three options were evaluated, per the task's explicit request to justify the call rather than default to the most elaborate option:
+
+**Option A — Shared importable Go package.** Move the allowlist definitions into a package both `backend/internal/orthrus` and `agent/muzzle` import. Rejected: `agent/go.mod` has 4 direct dependencies and builds to a `FROM scratch`, `CGO_ENABLED=0` image; `backend/internal/orthrus` imports `models`, `logger`, `util`, and (transitively, through `services` → `orthrus`) GORM and Gin-adjacent packages. A shared package would need to live somewhere neither module's existing import graph implies, and `agent` importing anything under `backend/` inverts the module boundary the code's own doc comments say is intentional. This is the elaborate option and was rejected on concrete dependency-graph grounds, not by default.
+
+**Option B — Codegen from a single source-of-truth data file.** A YAML/JSON policy file, code-generated into each module's native types at build time. Rejected for this PR: adds a new build-time toolchain step (`go generate` wiring in two modules, generated-file staleness as its own drift class) for policy data that changes rarely — the allowlists have been touched a handful of times total across the file's history. Disproportionate complexity relative to change frequency. Not ruled out permanently; worth revisiting if the allowlist starts changing often.
+
+**Option C — Structural CI drift-check (chosen), layered on top of the existing behavioral corpus.** The corpus (already built, Section 2.2) proves *outcome* parity for the specific inputs it contains — it cannot catch "a new pattern was added to one file's map literal and nobody thought to add a corresponding corpus case," which is precisely what happened in the original incident. A second, independent guard is needed that compares the *declared allowlist contents* themselves, not just sampled behavior. This is Option C: a small `go/parser`-based Go program (stdlib only, no new dependency) that extracts the string-literal contents of the two files' named allowlist declarations and fails if they differ, run pre-commit and in CI. Chosen because it directly closes the exact gap that caused the incident, adds no new runtime dependency or build step, and its scope (Section 3.3) is deliberately bounded to declarative data (paths, patterns, key sets, the body-size constant) rather than attempting to diff function-body *logic* (`validateNetworkModeValue`/`validateMountsValue`), which stays covered by the existing corpus and code-review cross-references — an explicitly accepted, documented limitation, not a silent gap.
+
+Sequencing note: Option C's checker is **much simpler to write correctly** if agent's allowlist declarations are first collapsed to the same *shape* as backend's (Section 3.1's refactor removes the `/v*/...` duplicate entries and renames variables to match backend 1:1). This is why the Commit Slicing Strategy (Section 5) puts the agent normalization fix (which does this collapse as a side effect) *before* the parity-checker commit, not after.
 
 ---
 
-## 7. Explicit Out-of-Scope
+## 3. Technical Specifications
 
-- Per-agent customization of *which* write operations are allowed beyond the fixed six-endpoint list — v1 is on/off only.
-- `exec`, image `delete`, `build`, `prune`, `auth`, `commit`, any Swarm/service endpoint, under any configuration, ever, regardless of `WriteEnabled`.
-- `POST /networks/{id}/connect` / multi-network container recreate support (Section 4.2) — documented v1 limitation, not silently ignored, candidate for a future v2 if real-world demand emerges.
-- DB-backed or UI-configurable tuning of the write-path rate limiter's rate/burst constants — v1 ships fixed constants (Section 3.3.6).
-- Rate limiting of *read* traffic through the External Docker Proxy — this predates the feature (Section 2.7) and is not addressed here; flagged as a separate potential follow-up, not bundled into this PR to keep scope tight.
-- Unifying the two muzzle allowlists into a single shared-code implementation (GH #1161's broader ask) — this spec implements the *test-corpus* mitigation (Section 3.3.5) as the concrete, scoped contribution to that issue, but does not attempt the larger structural unification (e.g., extracting a shared Go module both `backend/` and `agent/` import), which GH #1161 itself notes may require restructuring given `agent/`'s minimal-standalone-binary constraint.
-- **In scope for this feature**: CI *test execution* for the `agent/` module — Section 3.3.5 adds a `go test ./...` step to both `.github/workflows/orthrus-build.yml` and `.github/workflows/nightly-build.yml` (the two workflows that build/push the agent image), gating before the Docker build step. This is new CI infrastructure, added specifically because this feature's own safety argument (Section 3.3.5's shared corpus, Objective 3's defense-in-depth) depends on the `agent/` half of that corpus actually running automatically, not just locally.
-- **Out of scope for this feature**: CI-enforced *lint/staticcheck/coverage* gates for the `agent/` module (GH #1161's second, broader ask) — no `golangci-lint`, no coverage threshold, no staticcheck step is added for `agent/` by this PR. Only test *execution* is added; test *quality* tooling remains a separate, unaddressed gap tracked by GH #1161.
-- **Deferred, not blocking spec approval**: Section 3.3.5 specifies the concrete CI changes (`orthrus-build.yml`, `nightly-build.yml`) needed to actually run the `agent/` module's test suite — the shared anti-drift corpus, including the `Mounts[].VolumeOptions.DriverConfig` bypass case — but those changes are not yet implemented as of spec sign-off. This is a deliberate, tracked deferral (GH #1161), not an unresolved gap glossed over: it does not block this spec's approval, but it must land within this same PR/branch before final merge — see the binding note at Section 9, Acceptance Criterion #5.
-- Any change to the unrelated, universal, unconditional read-only allowlist — untouched by this feature.
-- Support for write mode through any transport other than the existing External Docker Proxy (`StartExternalProxy`) — e.g., no new direct-write API surface is added to Charon's own UI/API for agent-hosted containers; this feature only ungates the *tunnel* for third-party tools like Dockhand.
+### 3.1 `agent/muzzle/muzzle.go` — normalization refactor (fixes #1160)
+
+Introduce one normalization function, used everywhere a path is matched, mirroring backend's order exactly:
+
+```
+// normalizeDockerPath strips a Docker API version prefix (e.g. "/v1.47"),
+// matching backend's versionPrefixRe exactly, THEN runs path.Clean — same
+// order as backend/internal/orthrus/muzzle.go's ServeHTTP, so both filters
+// reach the same decision on the same input in isolation, not only when
+// backend happens to run first in the real request pipeline.
+func normalizeDockerPath(reqPath string) string {
+    stripped := versionPrefixRe.ReplaceAllString(reqPath, "")
+    return path.Clean("/" + strings.TrimLeft(stripped, "/"))
+}
+```
+`versionPrefixRe` (already `^/v\d+\.\d+`, already present in the file at line 79) is reused as-is — no change to the regex itself, only to when it runs relative to `Clean`.
+
+Collapse the duplicated-pattern lists to unversioned-only, matching backend's split into an exact-match set and a dynamic-pattern set, and **rename to match backend 1:1** (enables the Commit 4 parity checker to pair declarations by name):
+
+| Current agent name/shape | New name/shape | Rationale |
+|---|---|---|
+| `allowedPatterns []string` (mixed exact + dynamic + `/v*/` dupes) | `allowedDockerPaths map[string]struct{}` (exact, unversioned only) + `allowedDockerPatterns []string` (dynamic, unversioned only) | Matches backend's split exactly; halves the list length by dropping the now-redundant `/v*/` dupes |
+| `imageDistributionPatterns []struct{prefix,suffix string}` | `allowedDockerPrefixSuffixPatterns []struct{prefix,suffix string}` | Name parity with backend |
+| (HEAD `/_ping` handling: loop over `{"/_ping","/v*/_ping"}` via `path.Match`) | `normalizeDockerPath(reqPath) == "/_ping"` | Single check, same numeric-anchored regex as everywhere else — closes divergence row 2/3 above for the HEAD path too |
+
+`allowedWriteExactPaths` and `allowedWritePatterns` keep their current names (already match backend) but change internally:
+- Drop the `/v*/...` duplicate entries from `allowedWritePatterns` (4 entries → keep the unversioned form only).
+- `allowWrite`'s signature changes from `allowWrite(method, cleanPath string, body []byte) bool` to `allowWrite(method, normalizedPath string, body []byte) bool` — the caller (`Allow`) computes `normalizeDockerPath` once and passes the result in, instead of `allowWrite` separately re-deriving `unversioned` for the exact-path branch only (closing divergence row 3 — the pattern-loop branch now uses the same normalized path as the exact-path branch, not raw `cleanPath`).
+
+`Allow`'s public signature (`Allow(method, reqPath string, body []byte) bool`) is unchanged — this is an internal-only refactor. `ServeProxy`, the only caller, needs no change.
+
+No change to `backend/internal/orthrus/muzzle.go`'s runtime logic — its order is already the reference. Proposed: extract its existing two-line strip+clean sequence (`ServeHTTP` lines 420-426) into a same-named `normalizeDockerPath(rawPath string) string` helper, purely for symmetry with the agent-side helper and to give the Commit 4 parity checker (and future readers) one obviously-paired function name to look for in each file. This is a no-behavior-change refactor, verified by the existing full backend test suite passing unmodified.
+
+### 3.2 Shared corpus additions (fixes the "no shared fixture for edge cases" gap in #1160)
+
+New entries for `backend/internal/orthrus/testdata/muzzle_corpus.json` (consumed by both `TestMuzzle_SharedCorpus` and `TestFilter_SharedCorpus` — no new test-loading code needed, per Section 2.2):
+
+| Description | Method | Path | Write enabled | Want allowed | Why it belongs in the corpus |
+|---|---|---|---|---|---|
+| traversal-disguised version prefix on namespaced image inspect (GH #1160's own example) | GET | `/foo/../v1.44/images/x/json` | false | **false** | Divergence row 1 — red on agent pre-fix |
+| non-numeric fake version prefix on a plain read path | GET | `/vFOO/containers/json` | false | **false** | Divergence row 2 — red on agent pre-fix |
+| non-numeric fake version prefix on `/_ping` via HEAD | HEAD | `/vBOGUS/_ping` | false | **false** | Same bug class, HEAD special-case |
+| non-numeric fake version prefix reaching a write endpoint | POST | `/vFOO/containers/abc/start` | true | **false** | Divergence row 3 — highest-severity case found |
+| version-prefixed traversal that legitimately resolves to an allowed path | GET | `/v1.47/../containers/json` | false | true | Migrated from agent-only test; proves traversal handling isn't broken by the fix, not just that it's stricter |
+| traversal escaping to a disallowed path | GET | `/containers/../../etc/passwd` | false | false | Migrated from agent-only test; both filters already agree — regression guard |
+| double-slash with legitimate version prefix | GET | `/v1.44//containers/json` | false | true | Confirms `path.Clean`'s double-slash collapsing is unaffected by the reordering — both filters already agree, kept as an explicit regression case |
+
+All seven are single `want_allowed` values shared by both filters — by design, since the corpus format has no per-filter expected-value column (`muzzleCorpusCase` in both `_test.go` files), and the whole point of Section 3.1's fix is that both filters must agree.
+
+**Expected state after Commit 1 alone (corpus additions, before Commit 3's agent fix)**: `TestMuzzle_SharedCorpus` (backend) passes unchanged — backend's current behavior already matches every new expected value. `TestFilter_SharedCorpus` (agent) fails on the 4 divergence rows — this is the intended red state proving the bug, consistent with `CLAUDE.md`'s suggested commit sequence ("E2E specs for new behavior... as test.fixme" — the Go-test equivalent here is "corpus case added and failing, not yet fixed" — see Section 5 Commit 1 validation gate for how this red state is handled without claiming the PR is done mid-sequence).
+
+### 3.3 Structural allowlist parity checker (fixes #1161 workstream 1)
+
+New file: `scripts/ci/check_muzzle_allowlist_parity.go` (package `main`, stdlib-only: `go/ast`, `go/parser`, `go/token`).
+
+Design:
+1. Parse both `backend/internal/orthrus/muzzle.go` and `agent/muzzle/muzzle.go` with `go/parser.ParseFile`.
+2. Walk each file's top-level `var`/`const` declarations, extracting the literal contents of a fixed, named set of declarations (paired by identical name across both files, per the Section 3.1 renaming). Two distinct AST shapes are handled: composite literals (map/slice literals, and the single int constant) for seven of the eight declarations below, and — for `versionPrefixRe` specifically — the string-literal first argument of the `regexp.MustCompile(...)` call assigned to it. `versionPrefixRe` is declared as `var versionPrefixRe = regexp.MustCompile(`^/v\d+\.\d+`)` in both files (`backend/internal/orthrus/muzzle.go:38`, `agent/muzzle/muzzle.go:79`) — an `*ast.CallExpr`, not a composite literal — so the checker's extraction function special-cases this one declaration by name, unwraps the call expression's single argument, and asserts it is an `*ast.BasicLit` of kind `STRING` before comparing its literal value:
+
+| Declaration name | Extracted as | Normalization before compare |
+|---|---|---|
+| `versionPrefixRe` | regex source string (the raw literal passed to `regexp.MustCompile`) | none — must be byte-identical; this is the literal regex named in requirement R2 and is the actual root-cause artifact of GH #1160 (Section 2.3) — the class of drift a future one-sided "fix" to `^/v\w+` or similar would silently introduce if this row didn't exist |
+| `allowedDockerPaths` | set of string keys | none — already unversioned-only in both files post-3.1 |
+| `allowedDockerPatterns` | set of strings | none |
+| `allowedDockerPrefixSuffixPatterns` | set of `(prefix, suffix)` pairs | none |
+| `allowedWriteExactPaths` | set of string keys | none |
+| `allowedWritePatterns` | set of `(method, pattern)` pairs | none |
+| `hostConfigAllowedKeys` | set of string keys | none |
+| `maxContainerCreateBodyBytes` | single int literal | none — must be byte-identical, both files' doc comments already assert this |
+
+3. Diff each pair; on any mismatch, print the specific missing/extra entries (e.g. `"allowedWritePatterns: present in backend, missing in agent: {DELETE /containers/*}"`, or for the regex row, `"versionPrefixRe: backend=^/v\d+\.\d+ agent=^/v\w+ (source strings differ)"`) and exit non-zero.
+4. Explicitly out of scope, documented in the tool's own header comment: `validateNetworkModeValue`, `validateMountsValue`, and `validateContainerCreateBody`'s logic bodies are **not** structurally diffed — AST-diffing function bodies for semantic (not just textual) equivalence is a much harder problem than diffing data-literal declarations, and the existing shared corpus (Section 3.2) plus the code's own cross-referencing doc comments remain the guard for those. This limitation is called out in the plan and in the tool's usage banner, not silently accepted.
+
+Wired into:
+- `lefthook.yml` pre-commit stage, new command `muzzle-allowlist-parity`, `glob: "{backend/internal/orthrus/muzzle.go,agent/muzzle/muzzle.go}"`, `run: go run scripts/ci/check_muzzle_allowlist_parity.go`.
+- `.github/workflows/quality-checks.yml`, new small job `muzzle-allowlist-parity` (mirrors the existing `auth-route-protection-contract` job's pattern of a focused, fast, always-run contract-test job), so the guard applies on every PR regardless of whether the PR's diff happens to touch the glob (belt-and-suspenders: lefthook only catches it if a *local* commit touches the file; CI catches it even if lefthook was bypassed with `--no-verify` or the change came from a non-standard path).
+
+### 3.4 Agent CI tooling parity (fixes #1161 workstream 2)
+
+| Backend has | Agent gets |
+|---|---|
+| `backend/.golangci-fast.yml` | Moved to repo-root `.golangci-fast.yml` (shared config, one source of truth — DRY per `CLAUDE.md`); both modules' lint scripts reference it via relative path |
+| `lefthook.yml` `go-vet` (`cd backend && go vet ./...`) | New sibling command `go-vet-agent` (`cd agent && go vet ./...`), `glob: "agent/**/*.go"` — existing `go-vet` command's glob narrowed to `backend/**/*.go` so each command's failure clearly attributes to its module |
+| `scripts/pre-commit-hooks/golangci-lint-fast.sh` / `-full.sh` | Both scripts extended to loop over `("backend" "agent")`, running the (now-root) shared config against each module dir in turn |
+| `scripts/go-test-coverage.sh` (backend, 87% default gate) | New `scripts/agent-test-coverage.sh` — same coverage-gate arithmetic (line-coverage-from-coverprofile), no encryption-key bootstrapping (agent has none), `EXCLUDE_PACKAGES=("github.com/Wikid82/charon/agent")` (root/main only — mirrors `backend/cmd/api`'s exclusion precedent; `cert/` and `protocol/` are **not** excluded, see Section 3.5 for the tests that bring them into scope). Writes `agent/coverage.txt` in the standard `go test -coverprofile` format (same shape as `backend/coverage.txt`), the input both Section 3.4.1's patch-coverage extension and Section 3.4.2's Codecov upload consume. |
+| `lefthook.yml` `testing` manual pipeline (`go-test-coverage`) | New sibling command `agent-test-coverage`, `glob: "agent/**/*.go"` |
+| `quality-checks.yml` job `backend-quality` | New job `agent-quality` — `go vet`, golangci-lint (fast config, root-shared) against `agent/`, `scripts/agent-test-coverage.sh`; deliberately **not** a copy of every `backend-quality` step (no encryption-key resolution, no GORM scan — agent has no models, no Perf-assert step — agent has no equivalent benchmark suite) |
+| `Makefile` `check-module-coverage` (dangling script reference; stale `"backend + frontend"` echo text) | Implemented as a thin wrapper invoking `scripts/go-test-coverage.sh` then `scripts/agent-test-coverage.sh` in sequence, fixing the pre-existing dangling reference found during this PR's research. The target's echo string is corrected from `"backend + frontend"` to `"backend + agent"` — not `"backend + frontend + agent"` — because the wrapper genuinely only ever invokes the backend and agent scripts; frontend coverage is gated by its own separate script/target (`scripts/frontend-test-coverage.sh`) and was never actually run by this target, so the old text was wrong about what the target does, not merely under-scoped for a future third module. |
+
+`.gitignore`/`.dockerignore` need no changes: `coverage.txt`/`coverage.out` patterns in `.gitignore` (line 163, unanchored — no leading `/`) already match `agent/coverage.txt`. Verified by reading both files during research — explicitly confirmed rather than assumed.
+
+#### 3.4.1 Local patch-coverage tooling parity (closes the `local-patch-report.sh` visibility gap)
+
+`scripts/local-patch-report.sh` is the script CLAUDE.md's Definition of Done Step 2 makes MANDATORY. It is a thin wrapper: it resolves `BACKEND_COVERAGE_FILE`/`FRONTEND_COVERAGE_FILE`, checks they exist, then shells out to `go run ./cmd/localpatchreport` (from `backend/`), which does the actual diff-vs-coverage computation via `backend/internal/patchreport`. Extending it for `agent/` requires changes at both layers — the wrapper script and the Go tool it calls — not just the shell script; a shell-only fix would add an `agent/coverage.txt` existence check but the Go tool underneath would still have no way to attribute changed `agent/**` lines to a coverage scope.
+
+**`scripts/local-patch-report.sh`**:
+- Add `AGENT_COVERAGE_FILE="$ROOT_DIR/agent/coverage.txt"` alongside the existing `BACKEND_COVERAGE_FILE`/`FRONTEND_COVERAGE_FILE` (line 6-7).
+- Add the same missing-input guard pattern already used for backend/frontend (lines 81-91): if absent, call `write_preflight_artifacts` with an agent-specific reason string and exit 1.
+- Pass `--agent-coverage "$AGENT_COVERAGE_FILE"` through to the `go run ./cmd/localpatchreport` invocation (alongside the existing `--backend-coverage`/`--frontend-coverage` args, line 108-113).
+
+**`backend/cmd/localpatchreport/main.go`** (the Go tool itself):
+- New flag `agentCoverageFlag := flag.String("agent-coverage", "agent/coverage.txt", "Agent Go coverage profile")`, resolved and existence-checked the same way as `backendCoverageFlag`/`frontendCoverageFlag` (lines 50-76).
+- Parse it with the existing `patchreport.ParseGoCoverageProfile` (line 90-94) — reused as-is, since agent's coverage profile is the same `go test -coverprofile` format as backend's; no new parser needed. **Caveat requiring a real code change, not just a new flag** (see `patchreport.go` bullet below): `ParseGoCoverageProfile` internally normalizes every file path through `normalizeGoCoveragePath`, which is currently hardcoded to backend's prefix-stripping rules (`strings.Index(cleaned, "/backend/")`, and a `cmd/`/`internal/`/`pkg/`/`api/`/`integration/`/`tools/` fallback list). Calling it unmodified against an agent coverage profile would leave lines like `github.com/Wikid82/charon/agent/muzzle/muzzle.go` un-normalized (no `/backend/` substring, no matching fallback prefix) — they'd never intersect with the diff-parsed `agent/muzzle/muzzle.go` changed-line set, silently producing 0% "patch coverage" for every agent file regardless of actual test coverage. This is exactly the kind of masked-by-a-different-mechanism bug the Root Cause Analysis Protocol warns about, so it's called out explicitly rather than left for a future bug report.
+- Add `CHARON_AGENT_PATCH_COVERAGE_MIN` threshold resolution, `patchreport.ResolveThreshold("CHARON_AGENT_PATCH_COVERAGE_MIN", 85, nil)` — default 85, matching backend's and frontend's existing patch-coverage defaults (distinct from, and not to be confused with, `agent-test-coverage.sh`'s separate *aggregate*-coverage gate threshold from Section 3.4/3.5, which is calibrated to the module's actual total coverage rather than defaulted to 85).
+- Extend `thresholdJSON`, `thresholdSourcesJSON`, and `reportJSON` structs (lines 16-45) with an `Agent`/`agent` field each, alongside the existing `Backend`/`Frontend` fields.
+- Compute `agentScope := patchreport.ComputeScopeCoverage(agentChanged, agentCoverage)` and `agentFilesNeedingCoverage := patchreport.ComputeFilesNeedingCoverage(agentChanged, agentCoverage, agentThreshold.Value)` (mirrors lines 105-109 exactly). `overallScope` becomes `patchreport.MergeScopeCoverage(backendScope, frontendScope, agentScope)` — `MergeScopeCoverage` and `MergeFileCoverageDetails` are already variadic (`...ScopeCoverage` / `...[]FileCoverageDetail`), so this is an additive call-site change, not a signature break.
+- Add an "Agent patch coverage below threshold" warning branch mirroring the existing backend/frontend ones (lines 124-129).
+- `writeMarkdown` (line 229 on): add an "Agent coverage" line under `## Inputs`, an "Agent" row under `## Resolved Thresholds`, and an "Agent" row under `## Coverage Summary` (`scopeRow("Agent", report.Agent)`), mirroring the existing Backend/Frontend rows exactly.
+
+**`backend/internal/patchreport/patchreport.go`** (the actual diff-attribution and path-normalization logic — the part of the tool that needs a genuine signature change, not just a new caller-side flag):
+- `ParseUnifiedDiffChangedLines(diffContent string) (FileLineSet, FileLineSet, error)` (line 82) returns exactly two `FileLineSet`s today, hardcoded to `backend/` and `frontend/` path prefixes (lines 106-112). Extend its return arity to three: `(backendChanged, frontendChanged, agentChanged FileLineSet, err error)`, adding an `else if strings.HasPrefix(newFile, "agent/") { currentFile = newFile; currentScope = "agent" }` branch alongside the existing two. This is a breaking signature change to an exported function — every call site and every existing test that destructures its two return values must be updated (see test-file impact below); it is the one unavoidable non-additive change in this workstream.
+- `normalizeGoCoveragePath` (line 469) is backend-specific by name and by hardcoded prefix list. Generalize it to `normalizeGoCoveragePath(input, moduleDir string) string`, parameterizing the `"/" + moduleDir + "/"` substring search and the `moduleDir + "/"` prefix-check/prepend (replacing the literal `"backend/"` occurrences at lines 475, 478, 485), and drop the backend-only `cmd/`/`internal/`/`pkg/`/`api/`/`integration/`/`tools/` fallback special-case in favor of a per-module fallback prefix list passed alongside `moduleDir`, since `agent/`'s own top-level packages (`cert/`, `leash/`, `muzzle/`, `protocol/`) are a different set. `ParseGoCoverageProfile`'s single call site (line 208) becomes `normalizeGoCoveragePath(filePart, moduleDir)`, so `ParseGoCoverageProfile` itself gains a `moduleDir string` parameter, called as `patchreport.ParseGoCoverageProfile(backendCoveragePath, "backend")` and `patchreport.ParseGoCoverageProfile(agentCoveragePath, "agent")` from `main.go`. This generalization (parameterize, don't duplicate) follows CLAUDE.md's DRY guidance directly, and is what actually closes the silent-0%-coverage caveat above — a new flag alone would not.
+- `backend/internal/patchreport/patchreport_test.go`: update every test that calls `ParseUnifiedDiffChangedLines` or `ParseGoCoverageProfile`/`normalizeGoCoveragePath` for the new arity/signature, and add new test cases asserting `agent/`-prefixed diff hunks are attributed to the third return value and that an agent-module coverage profile line normalizes to a repo-relative `agent/...` path.
+- `backend/cmd/localpatchreport/main_test.go`: add `-agent-coverage` CLI-flag coverage (the many existing `-backend-coverage`/`-frontend-coverage` call sites at lines 49-50, 556-557, 766-767, 1074, 1086, 1579-1580 are flag-string literals, not Go call sites, and are unaffected by the internal signature changes above — but new tests are needed for the added `Agent` report field, the missing-agent-coverage-file error path, and the merged-overall-includes-agent behavior).
+
+#### 3.4.2 `agent-codecov` job (fixes #1161's remaining CI-dashboard-visibility gap)
+
+`.github/workflows/codecov-upload.yml` has `backend-codecov` (`flags: backend`, uploads `backend/coverage.txt`) and `frontend-codecov` (`flags: frontend`, uploads `frontend/coverage` directory via `codecov/codecov-action`). Add a third job, `agent-codecov`:
+
+- Triggered by the same `if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_agent }}` pattern as the other two, requiring a new `run_agent` `workflow_dispatch` boolean input (default `true`) alongside the existing `run_backend`/`run_frontend` inputs (lines 9-19).
+- `actions/setup-go` pointed at `go-version-file: agent/go.mod`, `cache-dependency-path: agent/go.sum` (mirrors `backend-codecov`'s Go setup, lines 47-52).
+- **No** "Resolve encryption key" step — agent has no encryption-key bootstrapping (consistent with Section 3.4's `agent-quality` job already omitting this for the same reason; agent's tests don't touch `CHARON_ENCRYPTION_KEY_TEST`).
+- Runs `bash scripts/agent-test-coverage.sh` (new in this PR, Section 3.4) in place of `bash scripts/go-test-coverage.sh`, teed to `agent/test-output.txt`, uploaded as an artifact — mirrors `backend-codecov`'s test-and-tee-output pattern (lines 132-146) minus `CGO_ENABLED: 1` (no cgo dependency in `agent/`, confirmed by its `CGO_ENABLED=0` `FROM scratch` Docker build, Section 2.1).
+- `codecov/codecov-action` step: `files: ./agent/coverage.txt`, `flags: agent`, `fail_ci_if_error: true` — same pinned action version (`@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0`) as the other two jobs, for consistency.
+
+**`codecov.yml` — one necessary addition, correcting the prior draft's blanket "no codecov.yml changes needed" claim**: `backend/cmd/api/**` (backend's bootstrap entrypoint) is explicitly excluded from Codecov's own coverage accounting via the `ignore:` list (line 115), separate from and in addition to `go-test-coverage.sh`'s local `EXCLUDE_PACKAGES` gate-arithmetic exclusion — the raw `coverage.txt` uploaded to Codecov still contains `backend/cmd/api/**` lines (`EXCLUDE_PACKAGES` only affects the local threshold calculation, not what's written to the coverprofile, confirmed by reading `scripts/go-test-coverage.sh`), so `codecov.yml`'s own ignore list is what actually keeps it out of Codecov's reported numbers. `agent/main.go` is agent's direct structural analogue (CLI bootstrap/flag parsing, already excluded from `agent-test-coverage.sh`'s local gate via `EXCLUDE_PACKAGES` per Section 3.4) and needs the same treatment for the new `agent` Codecov flag to report a meaningful, non-diluted number: add `- "agent/main.go"` to `codecov.yml`'s `ignore:` list, in the same "Main entry points (bootstrap code only)" grouping as the existing `backend/cmd/api/**` entry (line 114-115). The earlier "no `codecov.yml` changes needed" statement was correct only for the `scripts/**` ignore pattern (still true, unchanged, still needs no new entries for the new `scripts/ci/check_muzzle_allowlist_parity.go` / `scripts/agent-test-coverage.sh` files) — it did not anticipate this PR adding a new Codecov flag with its own entrypoint-dilution concern, which is a materially different question.
+
+### 3.5 New unit tests required to make the agent coverage gate meaningful (not just passing)
+
+- `agent/cert/cert_test.go` — `LoadOrGenerate` currently has zero coverage and is genuine logic (ECDSA key generation, self-signed cert templating, PEM encoding). New test asserts: no error on a normal call; returned `*tls.Config.Certificates` has exactly one entry; `MinVersion == tls.VersionTLS13`; the leaf certificate's `Subject.CommonName` contains the passed `agentID`; the certificate parses successfully via `x509.ParseCertificate` on the DER bytes recovered from the returned `tls.Certificate`.
+- `agent/protocol/message_test.go` — `protocol` has no logic (pure `MessageType` constants + a plain struct), so no behavior to assert; a minimal test asserting the four `MessageType` constants have their documented distinct byte values (`TypePing=0x00` .. `TypeError=0x04`) is added mainly so `go test ./...` doesn't report `[no test files]` for a package now in-scope for the coverage gate, and to guard against a future accidental constant-value change (wire-protocol compatibility).
+
+`agent/leash` (44.4%, pre-existing partial coverage) is explicitly **not** required to increase coverage in this PR — raising it is unrelated to #1160/#1161 and would be scope creep; the coverage gate's initial threshold (Section 5, Commit 5) is calibrated to pass at today's actual aggregate, not an arbitrary target.
 
 ---
 
-## 8. Security Review Requirement
+## 4. EARS Requirements
 
-This feature adds a **write capability to a previously strictly-read-only trust boundary** that spans an untrusted third-party tool (anything that can reach the External Proxy port on the operator's network) through Charon to a remote Docker daemon with root-equivalent host capability. Per this repo's own established practice (the same-day hotfix to this exact subsystem required `supervisor` review before implementation because it touched "the Docker API allowlist that gates what a tunnelled remote Docker socket can expose" — precedent cited directly from that plan's git history), this spec requires **mandatory `supervisor` review before any implementation begins**, with explicit sign-off on at minimum:
-
-1. The `HostConfig` allowlist in Section 3.3.4 — is the enumerated safe-key list actually exhaustive/correct against the real Docker Engine API `ContainerCreateConfig`/`HostConfig` schema (this spec's list was derived from the well-known dangerous-field set, not from a field-by-field audit of Docker's OpenAPI spec — the supervisor or implementation phase should cross-check against the actual schema for the Docker API version this codebase targets).
-2. The `NetworkMode` value-level check (`"host"` and `"container:*"` denylist) — confirm no other `NetworkMode` value carries equivalent risk.
-3. The decision to reject rather than strip malformed/dangerous bodies (Section 3.3.4) — confirm this doesn't create a usability trap that pushes operators toward workarounds that are less safe (e.g., disabling the validator, which this spec does not provide any mechanism to do — worth an explicit "there is no bypass" confirmation).
-4. The rate-limit constants (Section 3.3.6) — confirm 0.5 req/s / burst 5 is defensible, not just plausible.
-5. The audit-log `Actor` convention (`"orthrus-agent:<name>"`) — confirm this doesn't collide with or get confused for a real username elsewhere in the audit log's `Actor` column, since that column is otherwise presumably populated with authenticated-user identifiers.
-6. Whether the `services.SecurityService` dependency wiring proposed for `OrthrusService` (Section 3.2.1) introduces any import-cycle or initialization-order issue not caught by this research pass.
-
-`qa-security` involvement (per the standard agent roster) is expected during Phase 3/4 implementation for the mandatory CodeQL/Trivy/GORM scans already required by `CLAUDE.md`'s Definition of Done — called out here specifically because Section 1.5 of that DoD (`GORM Security Scan`) is unconditionally triggered by this feature's `backend/internal/models/**` change.
+| ID | Requirement |
+|---|---|
+| R1 | WHEN a request path contains a version-prefix segment revealed only after path-traversal normalization, THE agent Filter SHALL reach the same allow/deny decision as the backend Muzzle would reach on the same raw input, evaluated independently of request order. |
+| R2 | WHILE evaluating whether a path segment is a Docker API version prefix, THE agent Filter SHALL require the segment to match `^/v\d+\.\d+` (numeric major/minor), and SHALL NOT accept an arbitrary `v`-prefixed segment as a version prefix. |
+| R3 | WHERE a POST/DELETE request targets a write-mode endpoint pattern, THE agent Filter SHALL apply the identical normalized-path computation used for exact-path write matching, so pattern-matched and exact-matched write paths are not evaluated under different normalization rules within the same file. |
+| R4 | THE shared corpus (`muzzle_corpus.json`) SHALL contain at least one entry per confirmed divergence class found during this investigation (traversal-disguised version prefix, non-numeric fake version prefix on a read path, on a HEAD path, and on a write path), asserted identically against both `Muzzle.ServeHTTP` and `Filter.Allow`. |
+| R5 | WHEN a developer edits the read-only or write allowlist declarations in either `backend/internal/orthrus/muzzle.go` or `agent/muzzle/muzzle.go`, THE pre-commit hook SHALL run the structural parity checker AND SHALL block the commit if the paired declarations' literal contents differ. |
+| R6 | THE structural parity checker SHALL explicitly report, not silently skip, any declaration pair it cannot compare (e.g. a renamed or missing variable), so a refactor that breaks the checker's assumptions fails loudly rather than passing vacuously. |
+| R7 | WHEN a pull request is opened or updated, THE CI pipeline SHALL run `go vet`, golangci-lint (fast config), and a minimum test-coverage check against the `agent/` module on every PR, not only PRs whose diff touches `agent/**`. |
+| R8 | THE agent coverage gate's minimum threshold SHALL be set no higher than the module's actual coverage after this PR's new tests land, so the gate is enforced from a passing baseline rather than requiring an unrelated test-writing effort to first go green. |
+| R9 | THE structural parity checker SHALL compare the `versionPrefixRe` regex source string declared in each file byte-for-byte, in addition to the six allowlist-data declarations, so a future one-sided loosening of the version-prefix regex — the literal defect class of GH #1160 — is caught structurally rather than only by corpus luck. |
+| R10 | THE local patch-coverage tooling (`scripts/local-patch-report.sh` and `backend/cmd/localpatchreport`) SHALL compute and report patch coverage for the `agent/` module using the same changed-line-diff-and-coverage-profile-intersection mechanism already used for `backend/` and `frontend/`, so CLAUDE.md's mandatory Definition of Done Step 2 gate has visibility into `agent/muzzle/muzzle.go`, the file this PR's security fix actually lives in. |
+| R11 | WHEN backend and frontend coverage are uploaded to Codecov on a pull request, THE CI pipeline SHALL also upload `agent/` coverage under a distinct `agent` flag, so agent coverage appears on Codecov's dashboard and in PR comments alongside backend/frontend, matching R7's CI-parity requirement. |
 
 ---
 
-## 9. Acceptance Criteria
+## 5. Commit Slicing Strategy
 
-Feature is considered done when **all** of the following hold, without exception:
+**Decision**: Single PR on `feature/orthrus`, six ordered commits within it. `CLAUDE.md`'s "One Feature = One PR" rule applies — this is one feature (muzzle normalization parity + the CI enforcement gap that let it happen), not two.
 
-1. A newly provisioned `OrthrusAgent` has `write_enabled: false` by default; a pre-existing agent row (present before this feature's migration runs) also reads `write_enabled: false` after migration, with no manual intervention.
-2. With `write_enabled: false` (the default), 100% of existing Muzzle/Filter test behavior is byte-for-byte unchanged — every currently-passing test in `muzzle_test.go` and `agent/muzzle/muzzle_test.go` continues to pass with no modification to its expected outcome.
-3. With `write_enabled: true` and an agent that has reconnected since the flag was set, all six allowlisted write operations succeed end-to-end against a real (or realistically mocked) Docker daemon, verified by at least one integration-level test exercising the full pull→stop→remove→create→start sequence.
-4. A `POST /containers/create` body containing any of `Privileged: true`, non-empty `CapAdd`, non-empty `Binds`, `NetworkMode: "host"`, a `bind`-type `Mounts` entry, a `Mounts` entry with `VolumeOptions.DriverConfig` present (e.g. `{"type":"none","device":"/etc","o":"bind"}` inside `DriverConfig.Options` — the documented `local`-volume-driver bind-mount-via-volume bypass, Section 3.3.4 step 4), non-empty `Devices`, or non-empty `Sysctls` is rejected with `403` by **both** the backend and agent muzzle filters independently, even when `write_enabled: true`, each verified by its own test (not just the shared corpus, though the corpus should also cover it).
-5. The shared test corpus (Section 3.3.5) exists, is loaded by both `backend/` and `agent/` test suites, and both suites agree on every case in it — enforced by CI via the new `go test ./...` step added to `.github/workflows/orthrus-build.yml`'s `build-and-push` job and `.github/workflows/nightly-build.yml`'s `build-and-push-nightly-orthrus` job (Section 3.3.5), both of which gate before the Docker image build step, not just local runs. (`backend/`'s half of the corpus was already covered by existing backend CI, per `quality-checks.yml`; the `agent/` half was not, until this feature's CI change.)
+Adaptation from `CLAUDE.md`'s suggested 5-step shape: this change has no frontend and no user-facing E2E surface (Section 6 confirms Playwright is N/A), so "Phase 1: E2E specs as test.fixme" is replaced with "Phase 1: failing corpus cases," the Go-test equivalent of a red-first commit for backend/CI-only work.
 
-   > **Deferral note (user-approved, 2026-07-20):** CI enforcement of the `agent/` module's test suite — the shared anti-drift corpus described above, including the `Mounts[].VolumeOptions.DriverConfig` bypass test case — is accepted as a deliberate, tracked deferral, **not** resolved at spec-sign-off time. It is tracked under **GH #1161** ("unify the two hand-maintained allowlists / give `agent/` CI coverage"). This deferral does not block approval of this spec, but the CI workflow changes specified above (the `orthrus-build.yml` and `nightly-build.yml` steps) **must land within this same PR/branch, before final merge** — consistent with this repo's One-Feature-One-PR convention (`CLAUDE.md`, "Commit Slicing & PR Strategy") — not split into a separate PR, and not left as an indefinite someday-maybe. Acceptance Criterion #5 itself remains unmodified and must still be fully satisfied before merge; this note documents the timing/status of that satisfaction, not a reduction of the requirement.
-6. Exceeding the write-path rate limiter produces `429` and an `orthrus_write_rate_limited` audit entry; the request is never forwarded to the agent.
-7. Every allowed and every blocked write request produces exactly one `SecurityAudit` row with `event_category: "orthrus_write"`, queryable via `GET /api/v1/audit-logs?resource_uuid=<agent_uuid>&event_category=orthrus_write`.
-8. The frontend `AgentWriteModeDialog` cannot be used to enable write mode without the operator typing the agent's exact current name; disabling requires no such confirmation.
-9. `docs/features/orthrus.md` no longer contains the three absolute "cannot be changed" / "no way to turn it off" claims quoted in Section 2.8 in their current unqualified form; the rewritten text accurately describes the default (read-only, unconditional) and the opt-in (per-agent, audited, six-operation) states, and documents the multi-network limitation from Section 4.2.
-10. Full `CLAUDE.md` Definition of Done (Sections 1–10) passes with zero errors: Playwright E2E, GORM security scan, patch coverage preflight, CodeQL/Trivy scans, lefthook, staticcheck, ≥85% coverage (backend and frontend), type-check, both builds, and cleanup.
-11. `supervisor` sign-off obtained per Section 8 before implementation begins, and again before merge.
+---
+
+### Commit 1 — Foundation: shared corpus edge cases (no production code change)
+
+**Scope**: Add the 7 new corpus entries from Section 3.2 to `backend/internal/orthrus/testdata/muzzle_corpus.json`. No changes to `muzzle.go` in either module.
+
+**Files**: `backend/internal/orthrus/testdata/muzzle_corpus.json`
+
+**Dependencies**: None — first commit.
+
+**Expected state**: `TestMuzzle_SharedCorpus` (backend) — **passes** (backend's current behavior already correct). `TestFilter_SharedCorpus` (agent) — **fails on 4 of the 7 new cases** (the divergence rows). This is an intentionally red commit for the agent side, analogous to `CLAUDE.md`'s "E2E specs... as test.fixme" step — the failing corpus cases are the executable proof of the bug, committed before the fix. Because this commit lands inside a single feature PR (not on `main` directly — `CLAUDE.md`'s Definition of Done applies to the PR as a whole, not each intermediate commit), the red state here is expected and reviewed as such, not a violation of the "all tests pass" gate, which is evaluated at the PR's final state (post Commit 3).
+
+**Validation gate**: `cd backend && go test ./internal/orthrus/... -run TestMuzzle_SharedCorpus -v` (expect PASS). `cd agent && go test ./muzzle/... -run TestFilter_SharedCorpus -v` (expect the 4 documented failures, no others — reviewer confirms the failure list matches exactly Section 3.2's 4 divergence rows, not something unrelated).
+
+---
+
+### Commit 2 — Backend: extract `normalizeDockerPath` helper (no behavior change)
+
+**Scope**: Per Section 3.1's last paragraph — extract `ServeHTTP`'s existing two-line strip+clean sequence into a named `normalizeDockerPath(rawPath string) string` helper for naming symmetry with the forthcoming agent-side helper and to give the Commit 4 parity checker (and human reviewers) a stable, identically-named anchor in both files. Backend's runtime behavior is unchanged — this commit is a pure refactor.
+
+**Files**: `backend/internal/orthrus/muzzle.go`, `backend/internal/orthrus/muzzle_test.go` (add direct unit tests for divergence rows 1-2 using `normalizeDockerPath` directly, not only via the corpus, for fast local iteration)
+
+**Dependencies**: None functionally, but ordered after Commit 1 so its new direct unit tests can be written against the same edge cases the corpus already encodes, avoiding duplicate case invention.
+
+**Validation gate**: `cd backend && go test ./internal/orthrus/... -v` (full package, expect 100% pass — no behavior change means every pre-existing test, including the new Commit 1 corpus cases for backend, stays green). `make lint-staticcheck-only`.
+
+---
+
+### Commit 3 — Agent: normalization-order fix + allowlist renaming (fixes GH #1160)
+
+**Scope**: The refactor in Section 3.1 — add `normalizeDockerPath`, split `allowedPatterns` into `allowedDockerPaths`/`allowedDockerPatterns`, rename `imageDistributionPatterns` → `allowedDockerPrefixSuffixPatterns`, drop all `/v*/...` duplicate pattern entries (now redundant — the version prefix is stripped once, up front), change the HEAD `/_ping` check to use `normalizeDockerPath`, and change `allowWrite`'s signature to accept the pre-normalized path so its pattern branch stops using raw `cleanPath`.
+
+**Files**: `agent/muzzle/muzzle.go`, `agent/muzzle/muzzle_test.go` (update any assertions that specifically exercised the now-removed `/v*/...` duplicate-pattern mechanism — expected outcomes are unchanged for legitimate versioned paths since `normalizeDockerPath` still strips real version prefixes; add explicit regression cases for divergence rows 2-3 directly, not only via the corpus)
+
+**Dependencies**: Commit 1 (corpus cases must exist to prove this commit turns them green); conceptually follows Commit 2 for the naming-symmetry rationale, though not a hard technical dependency.
+
+**Validation gate**: `cd agent && go test ./muzzle/... -v` — **all cases now pass**, including the 4 that were red after Commit 1. `cd agent && go test ./...` (full module — confirms `ServeProxy` and `TestFilter_Allow`'s full existing table are unaffected). Full-repo regression: `cd backend && go test ./internal/orthrus/... -v` and `cd agent && go test ./... -v` both green — this is the commit where the repo returns to a fully green test state after Commit 1's intentional red.
+
+---
+
+### Commit 4 — Structural allowlist parity checker (fixes GH #1161 workstream 1)
+
+**Scope**: New `scripts/ci/check_muzzle_allowlist_parity.go` per Section 3.3, diffing all **eight** paired declarations — the seven allowlist/body-size data declarations plus `versionPrefixRe`'s regex source string (extracted via its `regexp.MustCompile(...)` call expression, not a composite literal — see Section 3.3's AST-shape note). Wire into `lefthook.yml` pre-commit stage and a new `quality-checks.yml` job.
+
+**Files**: `scripts/ci/check_muzzle_allowlist_parity.go` (new), `lefthook.yml`, `.github/workflows/quality-checks.yml`
+
+**Dependencies**: Hard dependency on Commit 3 — the checker's pairing-by-name approach relies on agent's declarations having been renamed to match backend's (`allowedDockerPaths`, `allowedDockerPatterns`, `allowedDockerPrefixSuffixPatterns`). Writing the checker against pre-Commit-3 agent code would require it to understand the now-obsolete `/v*/...` duplicate-entry convention, which is exactly the complexity Commit 3 exists to remove. `versionPrefixRe` itself is unrenamed and unchanged by Commit 3 (Section 3.1 keeps its name and regex identical in both files), so its row has no additional dependency beyond Commit 3 landing first for consistency with the rest of the table.
+
+**Validation gate**: `go run scripts/ci/check_muzzle_allowlist_parity.go` exits 0 against the post-Commit-3 state of both files. Negative-path check (manual, documented in PR description, not committed), covering **two** independent cases to prove both AST-extraction shapes actually work: (a) temporarily add an extra entry to one file's `allowedWritePatterns` locally and confirm the checker fails with a specific, correctly-attributed message before reverting; (b) temporarily loosen one file's `versionPrefixRe` (e.g. `^/v\w+`) and confirm the checker independently fails on that row with a message showing both regex source strings, before reverting. (b) is the direct regression check for this Supervisor-requested addition — without it, the checker's coverage of R9 is unverified, not just unimplemented.
+
+---
+
+### Commit 5 — Agent CI tooling parity (fixes GH #1161 workstream 2)
+
+**Scope**: Per Section 3.4/3.5 — move `.golangci-fast.yml` to repo root; extend both `golangci-lint-fast.sh`/`-full.sh` to loop over `backend`/`agent`; split `lefthook.yml`'s `go-vet` into module-scoped `go-vet`/`go-vet-agent`; add `scripts/agent-test-coverage.sh`; add `agent-test-coverage` to `lefthook.yml`'s `testing` pipeline; add `agent-quality` job to `quality-checks.yml`; implement the dangling `scripts/check-module-coverage.sh` (and its corrected `"backend + agent"` echo text); add `agent/cert/cert_test.go` and `agent/protocol/message_test.go`. **Also, per Section 3.4.1/3.4.2 (Supervisor-requested additions)**: extend `scripts/local-patch-report.sh` and `backend/cmd/localpatchreport/main.go` with agent-coverage support, generalize `backend/internal/patchreport`'s path-normalization to be module-parameterized instead of backend-only, and add the `agent-codecov` job (plus its one `codecov.yml` ignore-list entry) so agent coverage reaches both the mandatory local patch-coverage gate and Codecov's dashboard.
+
+**Files**: `.golangci-fast.yml` (moved from `backend/.golangci-fast.yml`), `scripts/pre-commit-hooks/golangci-lint-fast.sh`, `scripts/pre-commit-hooks/golangci-lint-full.sh`, `lefthook.yml`, `scripts/agent-test-coverage.sh` (new), `scripts/check-module-coverage.sh` (new — fixes dangling `Makefile` reference and its stale echo text), `Makefile`, `.github/workflows/quality-checks.yml`, `agent/cert/cert_test.go` (new), `agent/protocol/message_test.go` (new), `scripts/local-patch-report.sh`, `backend/cmd/localpatchreport/main.go`, `backend/cmd/localpatchreport/main_test.go`, `backend/internal/patchreport/patchreport.go`, `backend/internal/patchreport/patchreport_test.go`, `.github/workflows/codecov-upload.yml`, `codecov.yml`
+
+**Dependencies**: Independent of Commits 3/4 in principle, but ordered after them so the coverage/lint gate being stood up here measures the *post-fix* state of `agent/muzzle/muzzle.go`, not a mid-refactor snapshot. Must run after Commit 3 in practice to avoid the new `agent-quality` CI job (and the new `agent-codecov`/patch-coverage-visibility) flagging Commit 3's intermediate diff instead of the finished fix. The `local-patch-report.sh`/`localpatchreport` extension has an internal ordering dependency on `scripts/agent-test-coverage.sh` existing earlier in this same commit (it needs `agent/coverage.txt` to exist as an input) — both land together in Commit 5 rather than being split further, since CLAUDE.md's commit-slicing guidance is about ordering across commits, not fragmenting a single tightly-coupled tooling change into artificially smaller pieces.
+
+**Validation gate**: `make lint-staticcheck-only` (backend, unchanged behavior) and an equivalent manual run of the new agent lint loop; `bash scripts/agent-test-coverage.sh` exits 0 at the calibrated threshold (Section 3.4 — set to the actual post-`cert_test.go`/`message_test.go` aggregate, not a pre-chosen round number); `bash scripts/check-module-coverage.sh` runs both scripts in sequence, exits 0, and its output echoes `"backend + agent"`; `lefthook run pre-commit` clean on a trial commit touching only `agent/**`; `cd backend && go test ./internal/patchreport/... ./cmd/localpatchreport/... -v` green (covers the new three-way `ParseUnifiedDiffChangedLines` arity and the generalized `normalizeGoCoveragePath`/`ParseGoCoverageProfile` signatures); `bash scripts/local-patch-report.sh` run locally against a diff touching `agent/muzzle/muzzle.go` produces a `test-results/local-patch-report.md` with a populated, non-zero "Agent" row (manually confirms the module-prefix-normalization fix actually works end-to-end, not just that the new flag is accepted); `.github/workflows/quality-checks.yml`'s new `agent-quality` job and `.github/workflows/codecov-upload.yml`'s new `agent-codecov` job both reviewed by a human for correct `working-directory`/`go-version-file` wiring (cannot be locally validated without `act` or a real CI run — flagged for Supervisor/DevOps review).
+
+---
+
+### Commit 6 — Documentation
+
+**Scope**: `CHANGELOG.md` entry under `[Unreleased]` (likely `### Fixed` or `### Security` — path-normalization/allowlist-drift is a defense-in-depth hardening fix, not a new user-facing feature); `ARCHITECTURE.md`'s "Continuous Integration (GitHub Actions)" and/or "Pre-Commit Checks" sections updated to note `agent/` now has lint/vet/coverage parity with `backend/` (`CLAUDE.md` requires ARCHITECTURE.md updates for CI/testing architecture changes). No `docs/features.md` change — this PR adds no new user-facing capability, only internal robustness.
+
+**Files**: `CHANGELOG.md`, `ARCHITECTURE.md`
+
+**Dependencies**: Commits 1-5 (documents what actually landed).
+
+**Validation gate**: `markdownlint --fix .` clean (lefthook `lint-full` manual stage); human review that the CHANGELOG entry accurately reflects the merged scope, not the originally-proposed scope.
+
+---
+
+## 6. Definition of Done — gate applicability
+
+| Gate | Applicable? | Why |
+|---|---|---|
+| Playwright E2E (`npx playwright test --project=firefox`) | **No** | Zero frontend files touched; zero user-facing behavior change. Confirmed by the file list in every commit above — none are under `frontend/`. |
+| GORM Security Scan (`./scripts/scan-gorm-security.sh --check`) | **No** | Zero changes to `backend/internal/models/**`, zero GORM queries, zero migrations touched. |
+| Local Patch Coverage Preflight (`scripts/local-patch-report.sh`) | **Yes** | Standard gate, applies to all Go changes. As of Commit 5 (Section 3.4.1), it also has visibility into `agent/**` — previously it would have run "successfully" while silently reporting nothing about `agent/muzzle/muzzle.go`, the file this PR's actual security fix lives in. |
+| CodeQL Go/JS scan | **Go: Yes. JS: No** (no JS/TS files touched). |
+| Trivy container scan | **Marginal** — `agent/Dockerfile` is unchanged by this PR (no new dependencies added to `agent/go.mod`), so no new image-layer surface; still run per standard process. |
+| Staticcheck / `make lint-staticcheck-only` | **Yes**, extended in Commit 5 to also cover `agent/`. |
+| Backend coverage (85%+) | **Yes**, unchanged script/threshold — Commits 1-4 add tests, don't remove any. |
+| Agent coverage | **New in this PR** (Commit 5) — see Section 3.4/3.5 for how the initial threshold is calibrated. |
+| Frontend coverage / type-check | **No frontend files touched** — these gates trivially pass (no diff for them to evaluate) but are still run per standard process, not skipped. |
+| `go build ./...` (backend and agent) | **Yes.** |
+
+---
+
+## 7. Acceptance Criteria
+
+1. `backend/internal/orthrus/testdata/muzzle_corpus.json` contains all 7 new cases from Section 3.2; `TestMuzzle_SharedCorpus` and `TestFilter_SharedCorpus` both pass against the full corpus.
+2. `agent/muzzle/muzzle.go`'s `allowedDockerPaths`, `allowedDockerPatterns`, `allowedDockerPrefixSuffixPatterns` contain no `/v*/...`-prefixed entries (version handling is unified through `normalizeDockerPath`).
+3. `scripts/ci/check_muzzle_allowlist_parity.go` diffs all eight paired declarations (the seven data declarations plus `versionPrefixRe`), runs clean against the merged state, and is proven (via the Commit 4 manual negative-path checks, documented in the PR description — one for a data-declaration mismatch, one for a `versionPrefixRe` mismatch) to actually detect an introduced drift in either category.
+4. `lefthook run pre-commit` on a change touching only `agent/**` produces the same class of enforcement (vet, lint, and — via the manual `testing` pipeline — coverage) that a `backend/**`-only change already gets.
+5. `.github/workflows/quality-checks.yml` runs `agent-quality` unconditionally on every PR, not gated on `agent/**` paths.
+6. `scripts/check-module-coverage.sh` exists, exits 0, and its Makefile-invoked output describes its actual scope (`"backend + agent"`), fixing both the pre-existing dangling reference and the stale `"backend + frontend"` text.
+7. `go test ./...` (from repo root, exercising both `backend` and `agent` via `go.work`) is fully green.
+8. `bash scripts/local-patch-report.sh` succeeds against a diff that includes `agent/**` changes and produces a report with a populated "Agent" coverage row — not just a passing exit code with the agent column silently empty or absent.
+9. `.github/workflows/codecov-upload.yml` runs an `agent-codecov` job on every PR (gated the same way as `backend-codecov`/`frontend-codecov`), uploading `agent/coverage.txt` under `flags: agent`; `codecov.yml` excludes `agent/main.go` from that flag's reported coverage, mirroring `backend/cmd/api/**`'s existing treatment.
+10. `CHANGELOG.md` and `ARCHITECTURE.md` updated per Commit 6.
+11. No behavior change to backend's Docker API allowlist decisions for any input not in the new corpus cases — verified by 100% pre-existing backend test pass rate with zero test modifications required (only additions).
