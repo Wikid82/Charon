@@ -133,6 +133,11 @@ graph TB
 | **Notifications** | Notify (Discord-first) | Current | Discord notifications now; additional services in phased rollout |
 | **Docker Client** | Docker SDK | Latest | Container discovery |
 | **Logging** | Logrus + Lumberjack | Latest | Structured logging with rotation |
+| **Backup Archive Encryption** | filippo.io/age | Latest | Passphrase (scrypt) encryption of backup archives; audited, pure Go, streaming AEAD — avoids buffering whole archives in RAM or hand-rolling chunked AES-GCM |
+| **Remote Backup Storage (S3)** | github.com/minio/minio-go/v7 | v7 | S3-compatible client (AWS S3, MinIO, Backblaze B2, Cloudflare R2); single-module dependency, path-style addressing support |
+| **Remote Backup Storage (SFTP)** | github.com/pkg/sftp | Latest | SFTP client over `golang.org/x/crypto/ssh`; de-facto standard, pairs with the existing `x/crypto` dependency |
+| **Remote Backup Storage (WebDAV)** | github.com/studio-b12/gowebdav | v0.13.0 | WebDAV client (Nextcloud, ownCloud, generic Apache/nginx `mod_dav`); minimal transitive deps, imperative API maps directly onto the `Uploader` interface |
+| **Remote Backup Storage (OAuth)** | golang.org/x/oauth2 | v0.36.0 | Shared authorization-code flow + transparent token refresh for the Dropbox and Google Drive uploaders; Dropbox/Drive's own upload/list/delete REST calls are hand-rolled `net/http` (no vendor SDK), see `internal/services/remotestorage/` |
 
 ### Frontend
 
@@ -182,7 +187,10 @@ graph TB
 │   │   │   ├── proxy_service.go
 │   │   │   ├── certificate_service.go
 │   │   │   ├── docker_service.go
-│   │   │   └── mail_service.go
+│   │   │   ├── mail_service.go
+│   │   │   ├── backup_service.go       # Backup creation, safe-restore pipeline, scheduling
+│   │   │   ├── backup_remote_service.go
+│   │   │   └── remotestorage/          # S3 / SFTP / WebDAV / Dropbox / Google Drive uploader implementations (Uploader interface)
 │   │   ├── caddy/              # Caddy manager and config generation
 │   │   │   ├── manager.go      # Dynamic config orchestration
 │   │   │   └── templates.go    # Caddy JSON templates
@@ -193,6 +201,7 @@ graph TB
 │   │   │   └── ratelimit.go    # Rate limiting
 │   │   ├── models/             # GORM database models
 │   │   ├── database/           # DB initialization and migrations
+│   │   │   └── pending_restore.go      # Boot-time pending-restore swap consumer
 │   │   └── utils/              # Helper functions
 │   ├── pkg/                    # Public reusable packages
 │   ├── integration/            # Integration tests
@@ -327,6 +336,7 @@ graph TB
 - **DockerService:** Container discovery and monitoring
 - **MailService:** Email notifications for certificate expiry
 - **SettingsService:** Application settings management
+- **BackupService:** Format-v2 archive creation (manifest + SHA-256 checksums), configurable cron scheduling, the safe-restore pipeline (validate → pre-restore safety backup → apply → reconcile), and optional age/scrypt archive encryption — see "Backup & Restore Subsystem" below
 
 **Design Pattern:** Services contain business logic and call multiple repositories/managers
 
@@ -363,6 +373,43 @@ The stats subsystem collects, aggregates, and broadcasts request metrics for the
 - `frontend/src/hooks/useStats.ts` — 6 TanStack Query hooks (one per REST endpoint)
 - `frontend/src/hooks/useStatsWebSocket.ts` — WebSocket hook that triggers query invalidation on push
 - `frontend/src/components/stats/` — 8 components: `RequestCountWidget`, `TopHostsChart`, `StatusDistributionChart`, `TrafficVolumeChart`, `CertExpiryList`, `ServiceHealthWidget`, `PeriodSelector`, `BucketSelector`
+
+#### Backup & Restore Subsystem (`internal/services/backup_service.go`, `internal/services/remotestorage/`, `internal/database/pending_restore.go`)
+
+Format-v2 backup archives, a validated safe-restore pipeline, optional archive encryption, and remote storage to S3, SFTP, WebDAV, Dropbox, or Google Drive. Extends the original v1 backup system (zip + `VACUUM INTO` SQLite snapshot).
+
+**Components:**
+
+- **`BackupService`** (`internal/services/backup_service.go`): Creates format-v2 `.zip` archives containing the SQLite snapshot, `caddy/`, `crowdsec/`, and a `manifest.json` (SHA-256 checksum per entry, written last since checksums accumulate while each preceding entry streams into the archive). Runs the configurable `robfig/cron/v3` schedule, count-based local/remote retention pruning, and the `RestoreBackupSafe` pipeline: **validate** (manifest/checksum verification, `PRAGMA integrity_check` on a temp copy) → **safety backup** (`pre_restore`-type backup of current state, exempt from retention pruning) → **apply** (extract + `RehydrateLiveDatabase` live rehydrate via `ATTACH DATABASE`) → **reconcile** (Caddy `ApplyConfig` reload). v1 archives (no manifest) and v0 raw `.db` files (upload-only, magic-byte detected) remain restorable through the same code path. Backup creation and restore both run this way: as a tracked background goroutine (`BackupJob` model, `jobWG`, mirroring the remote-upload `sync.WaitGroup` pattern above) rather than inline on the request goroutine, with any job left `running`/`pending` at a prior crash reconciled to `failed` by `reconcileStuckBackupJobs` at the next startup. Clients get an immediate `202 Accepted` with a `job_id` and poll `GET /api/v1/backups/jobs/:job_id` for progress and the final result, instead of blocking on the original request for the archive/restore's full duration.
+
+- **Pending-restore boot-swap** (`internal/database/pending_restore.go`, `ApplyPendingRestore`): When live rehydrate can't complete after its retry budget, the already-validated restored database is written to a durable `<DatabaseName>.pending-restore` file (fsync'd, survives a container restart — unlike the OS temp dir the old code relied on). `ApplyPendingRestore` is wired into `cmd/api/main.go` immediately **before** `database.Connect`, so it runs before GORM opens any WAL pool: it re-verifies integrity, then swaps the pending file over the live database file, or renames it to `.pending-restore.failed` and leaves the old database untouched if the second integrity check fails. **Not** wired into the `migrate`/`reset-password` CLI subcommand paths — only the running-server boot path. Because Caddy/CrowdSec files are written to disk during the "apply" step regardless of whether the database rehydrate succeeded, there is a bounded window after a fallback restore where Caddy/CrowdSec already reflect the restored state while the database itself is still pre-restore, until the next process start completes the swap — see `docs/features/disaster-recovery.md`.
+
+- **`remotestorage` package** (`internal/services/remotestorage/`): `Uploader` interface (`Upload`, `Delete`, `List`, `Test`) implemented by `s3.go` (minio-go/v7, S3-compatible endpoints), `sftp.go` (pkg/sftp over `x/crypto/ssh`), `webdav.go` (gowebdav, SSRF-checked like S3/SFTP), `dropbox.go`, and `googledrive.go` (both hand-rolled `net/http` REST clients, no vendor SDK). SFTP uses a two-phase host-key model — an unauthenticated discovery dial that aborts before any credentials are sent, then a verified dial pinned to the confirmed `ssh.FixedHostKey`. Upload goroutines are tracked via `sync.WaitGroup` and canceled on `BackupService.Stop()` so shutdown doesn't leave an upload half-written; `BackupRemoteCopy` rows stuck in `uploading` from a prior crash are reconciled to `failed` at the next startup. `RemoteObject` carries both `Key` (the provider-native locator passed back into `Delete` — a path for S3/SFTP/WebDAV/Dropbox, an opaque file ID for Google Drive) and `Name` (always the human-readable backup filename), so retention pruning filters candidates by `Name` regardless of how the provider addresses objects.
+
+- **OAuth token subsystem** (`internal/services/remotestorage/oauthtoken.go`, `internal/services/oauth_state_store.go`): Dropbox and Google Drive targets connect via a browser-based OAuth2 authorization flow (`golang.org/x/oauth2`) instead of a static credential, so the admin never pastes a Dropbox/Google password into Charon. `OAuthStateStore` is an in-memory, single-use, 10-minute-TTL CSRF-state store guarding the callback route (which cannot require a Charon session, since the browser arrives there directly from the provider). Access/refresh tokens are encrypted and stored in the target's existing `SecretsEncrypted` blob; a `persistingTokenSource` wraps `oauth2.Config.TokenSource` so a transparent refresh is re-encrypted and saved back automatically. The `redirect_uri` is built from the existing `app.public_url` `Setting` (the same value already used for invite-email links) — no new config surface.
+
+- **Archive encryption:** optional age/scrypt passphrase encryption of the whole finished archive (`backup_<ts>.zip.age`), off by default. Reuses the existing `crypto.EncryptionService` (`CHARON_ENCRYPTION_KEY`) only to store a *scheduled* backup's passphrase at rest — the archive encryption itself is a separate, unrelated layer with no recovery path if the passphrase is lost.
+
+**API Endpoints** (mounted under the existing `management` group in `internal/api/routes/routes.go`; mutating routes additionally require admin):
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/backups` | List backups (DB-backed, reconciled with filesystem) |
+| `POST` | `/api/v1/backups` | Start a backup job — `202 Accepted` + `job_id` (admin) |
+| `DELETE` | `/api/v1/backups/:filename` | Delete backup (admin) |
+| `GET` | `/api/v1/backups/:filename/download` | Download archive (admin — full DB dump) |
+| `POST` | `/api/v1/backups/:filename/restore` | Start the safe-restore pipeline as a job — `202 Accepted` + `job_id` (admin) |
+| `GET` | `/api/v1/backups/jobs/:job_id` | Poll a create/restore job's status, progress stage, and result (admin) |
+| `POST` | `/api/v1/backups/upload` | Upload a backup for validation + restore (admin) |
+| `POST` | `/api/v1/backups/:filename/validate` | Dry-run validation (admin) |
+| `GET`/`PUT` | `/api/v1/backups/settings` | Schedule/retention/encryption settings |
+| `GET`/`POST`/`PUT`/`DELETE` | `/api/v1/backups/remote-targets[/:uuid]` | Remote storage target CRUD (admin) |
+| `POST` | `/api/v1/backups/remote-targets/:uuid/test` | Remote target connectivity test (admin) |
+| `POST` | `/api/v1/backups/remote-targets/:uuid/oauth/start` | Begin Dropbox/Google Drive OAuth authorization (admin) |
+| `GET` | `/api/v1/backups/remote-targets/oauth/:provider/callback` | OAuth provider callback — no session auth; guarded by a single-use CSRF `state` token instead |
+| `POST` | `/api/v1/backups/remote-targets/:uuid/oauth/disconnect` | Clear OAuth tokens for a Dropbox/Google Drive target (admin) |
+
+**Frontend:** `frontend/src/pages/Backups.tsx` plus `frontend/src/components/backups/` (`RestoreDialog`, `UploadBackupButton`, schedule/encryption/remote-target cards), backed by `frontend/src/hooks/useBackups.ts` and `frontend/src/api/backups.ts`.
 
 #### Caddy Manager (`internal/caddy/`)
 
@@ -559,9 +606,10 @@ This pattern is **intentional and valid**:
 
 **Backup Strategy:**
 
-- Automated daily backups to `data/backups/`
-- Retention: 7 daily, 4 weekly, 12 monthly backups
-- Backup during low-traffic periods
+- Configurable scheduled backups (daily/weekly presets or custom cron) to `data/backups/`, plus on-demand manual backups
+- Count-based retention (default: most recent 7 backups locally, most recent 7 per remote target) — not day-based
+- An automatic `pre_restore` safety backup is taken immediately before every restore, exempt from the regular retention count
+- See "Backup & Restore Subsystem" above for the full pipeline
 
 **Migrations:**
 
@@ -1464,10 +1512,15 @@ docker-compose up -d --pull always wikid82/charon:1.1.1
 
 **Database Rollback:**
 
+Restore is driven through the Backup & Restore API/UI, not a shell script — see
+"Backup & Restore Subsystem" above and `docs/features/disaster-recovery.md`. From
+the UI: **Tasks → Backups**, pick the archive, **Validate**, then **Restore**.
+Equivalently via the API:
+
 ```bash
-# Restore from backup
-docker exec charon /app/scripts/restore-backup.sh \
-  /app/data/backups/charon-20260127.db
+# Restore a specific archive (admin token required)
+curl -X POST https://your-charon-instance/api/v1/backups/backup_2026-01-27_03-00-00.zip/restore \
+  -H "Authorization: Bearer <admin-token>"
 ```
 
 ---

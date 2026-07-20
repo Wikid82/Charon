@@ -49,6 +49,7 @@ frontend/*.tsbuildinfo
 # Go/Backend - Build artifacts & coverage
 # -----------------------------------------------------------------------------
 backend/api
+backend/pending-restore-harness
 backend/bin/
 backend/*.out
 backend/*.cover
@@ -59,6 +60,8 @@ backend/coverage*.txt
 backend/*.coverage.out
 backend/handler_coverage.txt
 backend/handlers.out
+backend/.harness-covdata/
+backend/.harness-coverage.txt
 backend/services.test
 backend/*.test
 backend/test-output.txt
@@ -138,7 +141,14 @@ Thumbs.db
 # -----------------------------------------------------------------------------
 backend/data/caddy/
 /data/
-/data/backups/
+# Unanchored (**/) so this also covers backend/data/backups/ and
+# backend/cmd/api/data/backups/, not just the top-level data/backups/ — a
+# plain "/data/backups/" or "data/backups/" is still root-anchored in git's
+# pattern matching and misses those nested locations.
+**/data/backups/
+# Encrypted backup archives (age-encrypted, §3.6) — never commit regardless
+# of which data/ directory they land in.
+*.zip.age
 
 # -----------------------------------------------------------------------------
 # CrowdSec Runtime Data

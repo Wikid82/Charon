@@ -134,6 +134,10 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		&models.OrthrusAgent{},          // Issue #369: Orthrus reverse-proxy agent registry
 		&models.RequestLog{},            // Issue #25: Enhanced dashboard statistics
 		&models.CustomTheme{},           // User-created named color-scheme themes
+		&models.RemoteStorageTarget{},   // Issue #32: S3/SFTP remote backup targets
+		&models.BackupRecord{},          // Issue #32: backup history (must precede BackupRemoteCopy FK)
+		&models.BackupRemoteCopy{},      // Issue #32: per-target remote upload status
+		&models.BackupJob{},             // Async Backup/Restore Jobs: tracks in-flight create/restore jobs
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -201,7 +205,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 	// Auth routes
 	authService := services.NewAuthService(db, cfg)
-	authHandler := handlers.NewAuthHandlerWithDB(authService, db)
+	authHandler := handlers.NewAuthHandlerWithDB(authService, db, cfg.Security.TrustedProxies)
 	authMiddleware := middleware.AuthMiddleware(authService)
 
 	api := router.Group("/api/v1")
@@ -214,13 +218,28 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	api.Use(cerb.Middleware())
 
 	// Backup routes
-	backupService := services.NewBackupService(&cfg)
-	backupService.Start() // Start cron scheduler for scheduled backups
+	var backupEncryptionService *crypto.EncryptionService
+	if cfg.EncryptionKey != "" {
+		if svc, err := crypto.NewEncryptionService(cfg.EncryptionKey); err == nil {
+			backupEncryptionService = svc
+		} else {
+			logger.Log().WithError(err).Warn("Failed to initialize backup encryption service")
+		}
+	}
+	backupService := services.NewBackupService(&cfg, db, backupEncryptionService)
+	backupService.SetCaddyReloader(caddyManager) // spec §3.5 R1 post-restore reload
+	backupRemoteService := services.NewBackupRemoteService(db, backupEncryptionService, backupService.BackupDir)
+	backupService.SetRemoteUploadHook(backupRemoteService.TriggerUpload) // spec §3.7
+	backupService.Start()                                                // Start cron scheduler for scheduled backups
 	securityService := services.NewSecurityService(db)
+	backupService.SetSecurityService(securityService) // Async Backup/Restore Jobs §3.3.1: security-audit logging from inside the job goroutine
 	backupHandler := handlers.NewBackupHandlerWithDeps(backupService, securityService, db)
+	backupRemoteHandler := handlers.NewBackupRemoteHandler(backupRemoteService)
 
-	// DB Health endpoint (uses backup service for last backup time)
-	dbHealthHandler := handlers.NewDBHealthHandler(db, backupService)
+	// DB Health endpoint (uses backup service for last backup time). dbPath
+	// is threaded through so Check runs its integrity scan on a dedicated
+	// connection, not the shared db pool (spec §2.5d/§3.9).
+	dbHealthHandler := handlers.NewDBHealthHandler(db, backupService, cfg.DatabasePath)
 	router.GET("/api/v1/health/db", dbHealthHandler.Check)
 
 	// Log routes
@@ -280,6 +299,19 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	api.GET("/invite/validate", userHandler.ValidateInvite)
 	api.POST("/invite/accept", userHandler.AcceptInvite)
 
+	// Dropbox/Google Drive OAuth2 callback (spec §3.3/§3.8, Issue #32 Phase 2
+	// Commit 3). Deliberately registered here, OUTSIDE both `protected` (auth
+	// middleware) and `management` (RequireManagementAccess) — the browser
+	// arrives at this URL directly from Dropbox/Google after the user
+	// approves access, with no Charon session/cookie/JWT of any kind. A
+	// session check here cannot succeed and is not the real control: this
+	// route's entire security rests on the single-use, time-bound `state`
+	// CSRF token issued by OAuthStart and consumed inside OAuthCallback
+	// (BackupRemoteService.ConsumeOAuthState) — an unrecognized, reused, or
+	// expired state is rejected outright before any target is looked up or
+	// mutated. Do not add auth middleware to this route.
+	api.GET("/backups/remote-targets/oauth/:provider/callback", backupRemoteHandler.OAuthCallback)
+
 	// Uptime Service - define early so it can be used during route registration
 	uptimeService := services.NewUptimeService(db, notificationService)
 
@@ -301,12 +333,32 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management := protected.Group("/")
 		management.Use(middleware.RequireManagementAccess())
 
-		// Backups
+		// Backups. Static routes (settings, remote-targets, upload, jobs) are
+		// registered alongside the pre-existing /:filename[...] wildcard
+		// routes — see routes_backup_test.go for the required regression
+		// test proving Gin's router resolves them to their intended
+		// handlers rather than the :filename wildcard (spec §3.3). "jobs" is
+		// the same pattern (Async Backup/Restore Jobs plan, §3.2.3): a
+		// static first-segment sibling of :filename, and no real backup
+		// filename is ever literally "jobs".
 		management.GET("/backups", backupHandler.List)
-		management.POST("/backups", backupHandler.Create)
+		management.POST("/backups", backupHandler.Create) // 202 + {job_id,type,status}, spec §3.2.1
+		management.GET("/backups/jobs/:job_id", backupHandler.GetJob)
+		management.POST("/backups/upload", backupHandler.Upload)
+		management.GET("/backups/settings", backupHandler.GetSettings)      // management-level
+		management.PUT("/backups/settings", backupHandler.UpdateSettings)   // admin (checked in-handler)
+		management.GET("/backups/remote-targets", backupRemoteHandler.List) // admin (checked in-handler)
+		management.POST("/backups/remote-targets", backupRemoteHandler.Create)
+		management.PUT("/backups/remote-targets/:uuid", backupRemoteHandler.Update)
+		management.DELETE("/backups/remote-targets/:uuid", backupRemoteHandler.Delete)
+		management.POST("/backups/remote-targets/:uuid/test", backupRemoteHandler.Test)
+		management.POST("/backups/remote-targets/test-draft", backupRemoteHandler.TestDraft)                   // admin (checked in-handler); stateless SFTP host-key discovery for draft configs
+		management.POST("/backups/remote-targets/:uuid/oauth/start", backupRemoteHandler.OAuthStart)           // admin (checked in-handler)
+		management.POST("/backups/remote-targets/:uuid/oauth/disconnect", backupRemoteHandler.OAuthDisconnect) // admin (checked in-handler)
 		management.DELETE("/backups/:filename", backupHandler.Delete)
 		management.GET("/backups/:filename/download", backupHandler.Download)
-		management.POST("/backups/:filename/restore", backupHandler.Restore)
+		management.POST("/backups/:filename/restore", backupHandler.Restore) // 202 + {job_id,type,status}, spec §3.2.2
+		management.POST("/backups/:filename/validate", backupHandler.Validate)
 
 		// Logs
 		// WebSocket endpoints

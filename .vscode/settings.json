@@ -24,5 +24,6 @@
       "envManager": "ms-python.python:system",
       "packageManager": "ms-python.python:pip"
     }
-  ]
+  ],
+  "claudeCode.useTerminal": true
 }

@@ -17,6 +17,20 @@
  * - DELETE /api/v1/backups/:id
  * - POST /api/v1/backups/:id/restore
  * - GET /api/v1/backups/:id/download
+ *
+ * Async job contract audit (docs/plans/current_spec.md — Async
+ * Backup/Restore Jobs — NS_BINDING_ABORTED Remediation, §6 commit 1):
+ * POST /api/v1/backups and POST /api/v1/backups/:filename/restore now
+ * return `202 {job_id, type, status: "pending"}` instead of blocking for a
+ * `201`/`200` body, with the frontend polling
+ * GET /api/v1/backups/jobs/:job_id until the job completes. This spec runs
+ * against the REAL backend (no route mocking) and drives the flow purely
+ * through the UI (toasts/dialog visibility) rather than asserting on raw
+ * response bodies, so no test here hardcodes the old synchronous contract —
+ * confirmed by inspection (grepped for `waitForResponse`/`response.json()`,
+ * none found in this file). These tests are therefore expected to keep
+ * passing unmodified once the real async endpoints + frontend polling hook
+ * land (commits 2-9), per this plan's own Phase 1 guidance.
  */
 
 import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';

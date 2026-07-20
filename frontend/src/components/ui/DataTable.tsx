@@ -25,6 +25,8 @@ export interface DataTableProps<T> extends Omit<React.HTMLAttributes<HTMLDivElem
   stickyHeader?: boolean
   /** When provided, renders a leading drag-handle column (before checkbox). */
   renderDragHandle?: (row: T) => React.ReactNode
+  /** When provided, sets `data-testid` on each row's `<tr>` (e.g. a shared testid like "backup-row" that callers narrow with `.filter({ hasText })`). */
+  rowTestId?: (row: T) => string
 }
 
 /**
@@ -52,6 +54,7 @@ export function DataTable<T>({
   isLoading = false,
   stickyHeader = false,
   renderDragHandle,
+  rowTestId,
   className,
   ...props
 }: DataTableProps<T>) {
@@ -205,6 +208,7 @@ export function DataTable<T>({
                 return (
                   <tr
                     key={key}
+                    data-testid={rowTestId ? rowTestId(row) : undefined}
                     className={cn(
                       'transition-colors',
                       isSelected && 'bg-brand-500/5',
