@@ -358,6 +358,19 @@ func ApplyStatus(scope ScopeCoverage, minThreshold float64) ScopeCoverage {
 	return scope
 }
 
+// HasWarnStatus reports whether any of the given scopes is below its
+// threshold (Status == "warn"). Used by cmd/localpatchreport's strict mode
+// to decide the process exit code — kept in this package, not main.go,
+// so it is unit-testable independent of os.Exit and CLI flag parsing.
+func HasWarnStatus(scopes ...ScopeCoverage) bool {
+	for _, scope := range scopes {
+		if scope.Status == "warn" {
+			return true
+		}
+	}
+	return false
+}
+
 func ComputeFilesNeedingCoverage(changedLines FileLineSet, coverage CoverageData, minThreshold float64) []FileCoverageDetail {
 	details := make([]FileCoverageDetail, 0, len(changedLines))
 

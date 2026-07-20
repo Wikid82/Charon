@@ -607,3 +607,34 @@ func TestAddLine_IgnoresInvalidInputs(t *testing.T) {
 		t.Fatalf("expected no entries for invalid addLine input, got %#v", set)
 	}
 }
+
+func TestHasWarnStatus_TrueWhenAnyScopeWarn(t *testing.T) {
+	t.Parallel()
+
+	scopes := []ScopeCoverage{
+		{Status: "pass"},
+		{Status: "warn"},
+		{Status: "pass"},
+	}
+
+	if !HasWarnStatus(scopes...) {
+		t.Fatal("expected HasWarnStatus to report true when any scope is warn")
+	}
+}
+
+func TestHasWarnStatus_FalseWhenAllScopesPass(t *testing.T) {
+	t.Parallel()
+
+	scopes := []ScopeCoverage{
+		{Status: "pass"},
+		{Status: "pass"},
+	}
+
+	if HasWarnStatus(scopes...) {
+		t.Fatal("expected HasWarnStatus to report false when all scopes pass")
+	}
+
+	if HasWarnStatus() {
+		t.Fatal("expected HasWarnStatus to report false for no scopes")
+	}
+}

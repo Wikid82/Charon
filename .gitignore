@@ -71,6 +71,7 @@ backend/tr_no_cover.txt
 backend/nohup.out
 backend/charon
 backend/main
+backend/localpatchreport
 backend/codeql-db/
 backend/codeql-db-*/
 backend/.venv/

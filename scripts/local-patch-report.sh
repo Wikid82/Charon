@@ -3,6 +3,23 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BASELINE="${CHARON_PATCH_BASELINE:-}"
+
+# Advisory opt-out (F.4): default is strict (non-zero exit on any
+# below-threshold scope). Either --advisory on the command line or
+# CHARON_PATCH_REPORT_ADVISORY=1 in the environment switches to advisory
+# mode (always exit 0), forwarded to the Go tool as --advisory=true/false.
+ADVISORY="false"
+if [[ "${CHARON_PATCH_REPORT_ADVISORY:-}" == "1" ]]; then
+    ADVISORY="true"
+fi
+for arg in "$@"; do
+    case "$arg" in
+        --advisory)
+            ADVISORY="true"
+            ;;
+    esac
+done
+
 BACKEND_COVERAGE_FILE="$ROOT_DIR/backend/coverage.txt"
 FRONTEND_COVERAGE_FILE="$ROOT_DIR/frontend/coverage/lcov.info"
 AGENT_COVERAGE_FILE="$ROOT_DIR/agent/coverage.txt"
@@ -63,19 +80,32 @@ if ! command -v go >/dev/null 2>&1; then
     exit 1
 fi
 
+# Three-tier baseline resolution (F.3):
+#   Tier 1 - explicit $CHARON_PATCH_BASELINE override (handled above, already set).
+#   Tier 2 - ask gh what the current branch's actual open PR base is, so the
+#            local diff matches exactly what Codecov compares against.
+#   Tier 3 - static heuristic fallback, preferring origin/development over
+#            origin/main (per F.2: development is the default integration
+#            branch; main is only ever a target for the scheduled nightly
+#            promotion PR).
+if [[ -z "$BASELINE" ]] && command -v gh >/dev/null 2>&1; then
+    GH_BASE_REF="$(timeout 5s gh pr view --json baseRefName -q .baseRefName 2>/dev/null || true)"
+    if [[ -n "$GH_BASE_REF" ]] && git -C "$ROOT_DIR" rev-parse --verify --quiet "origin/${GH_BASE_REF}^{commit}" >/dev/null; then
+        BASELINE="origin/${GH_BASE_REF}...HEAD"
+    fi
+fi
+
 if [[ -z "$BASELINE" ]]; then
-    # Prefer origin/main to match Codecov's patch comparison baseline (Codecov
-    # uses the repository's default branch as the base for patch calculations).
-    if git -C "$ROOT_DIR" rev-parse --verify --quiet "origin/main^{commit}" >/dev/null; then
-        BASELINE="origin/main...HEAD"
-    elif git -C "$ROOT_DIR" rev-parse --verify --quiet "main^{commit}" >/dev/null; then
-        BASELINE="main...HEAD"
-    elif git -C "$ROOT_DIR" rev-parse --verify --quiet "origin/development^{commit}" >/dev/null; then
+    if git -C "$ROOT_DIR" rev-parse --verify --quiet "origin/development^{commit}" >/dev/null; then
         BASELINE="origin/development...HEAD"
     elif git -C "$ROOT_DIR" rev-parse --verify --quiet "development^{commit}" >/dev/null; then
         BASELINE="development...HEAD"
-    else
+    elif git -C "$ROOT_DIR" rev-parse --verify --quiet "origin/main^{commit}" >/dev/null; then
         BASELINE="origin/main...HEAD"
+    elif git -C "$ROOT_DIR" rev-parse --verify --quiet "main^{commit}" >/dev/null; then
+        BASELINE="main...HEAD"
+    else
+        BASELINE="origin/development...HEAD"
     fi
 fi
 
@@ -109,6 +139,12 @@ fi
 
 mkdir -p "$ROOT_DIR/test-results"
 
+# Run the Go tool with `set -e` relaxed so a strict-mode non-zero exit (a
+# scope below threshold) doesn't abort this script before the artifact
+# checks below run — the report's exit code is propagated verbatim at the
+# very end instead, after those checks have had a chance to confirm the
+# artifacts are actually on disk.
+set +e
 (
     cd "$ROOT_DIR/backend"
     go run ./cmd/localpatchreport \
@@ -118,8 +154,11 @@ mkdir -p "$ROOT_DIR/test-results"
         --frontend-coverage "$FRONTEND_COVERAGE_FILE" \
         --agent-coverage "$AGENT_COVERAGE_FILE" \
         --json-out "$JSON_OUT" \
-        --md-out "$MD_OUT"
+        --md-out "$MD_OUT" \
+        --advisory="$ADVISORY"
 )
+REPORT_STATUS=$?
+set -e
 
 if [[ ! -s "$JSON_OUT" ]]; then
     echo "Error: expected non-empty JSON artifact at $JSON_OUT" >&2
@@ -132,3 +171,5 @@ if [[ ! -s "$MD_OUT" ]]; then
 fi
 
 echo "Artifacts verified: $JSON_OUT, $MD_OUT"
+
+exit "$REPORT_STATUS"

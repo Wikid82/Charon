@@ -55,6 +55,7 @@ func main() {
 	agentCoverageFlag := flag.String("agent-coverage", "agent/coverage.txt", "Agent Go coverage profile")
 	jsonOutFlag := flag.String("json-out", "test-results/local-patch-report.json", "Path to JSON output report")
 	mdOutFlag := flag.String("md-out", "test-results/local-patch-report.md", "Path to markdown output report")
+	advisoryFlag := flag.Bool("advisory", false, "Exit 0 even if any coverage scope is below threshold (advisory-only mode). Default is strict: non-zero exit on any below-threshold scope, per CLAUDE.md's Definition of Done Step 2.")
 	flag.Parse()
 
 	repoRoot, err := filepath.Abs(*repoRootFlag)
@@ -151,10 +152,15 @@ func main() {
 		warnings = append(warnings, fmt.Sprintf("Agent patch coverage %.1f%% is below threshold %.1f%%", agentScope.PatchCoveragePct, agentThreshold.Value))
 	}
 
+	mode := "strict"
+	if *advisoryFlag {
+		mode = "advisory"
+	}
+
 	report := reportJSON{
 		Baseline:    *baselineFlag,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
-		Mode:        "warn",
+		Mode:        mode,
 		Thresholds: thresholdJSON{
 			Overall:  overallThreshold.Value,
 			Backend:  backendThreshold.Value,
@@ -202,6 +208,16 @@ func main() {
 	fmt.Printf("Markdown: %s\n", relOrAbs(repoRoot, mdOutPath))
 	for _, warning := range warnings {
 		fmt.Printf("WARN: %s\n", warning)
+	}
+
+	// Strict-mode enforcement runs last, after both artifacts are written to
+	// disk and the WARN diagnostic lines above are printed to stdout, so a
+	// failing gate still leaves a developer a full report explaining exactly
+	// which scope(s)/threshold(s) failed (Supervisor Correction 1) in
+	// addition to this stderr message and the artifacts on disk.
+	if !*advisoryFlag && patchreport.HasWarnStatus(overallScope, backendScope, frontendScope, agentScope) {
+		fmt.Fprintln(os.Stderr, "Local patch coverage below threshold in strict mode (use -advisory to bypass); see report for details.")
+		os.Exit(1)
 	}
 }
 
