@@ -175,12 +175,14 @@ lint-backend:
 	cd backend && docker run --rm -v $(PWD)/backend:/app -w /app golangci/golangci-lint:latest golangci-lint run -v
 
 lint-fast:
-	@echo "Running fast linters (staticcheck, govet, errcheck, ineffassign, unused)..."
-	cd backend && golangci-lint run --config .golangci-fast.yml ./...
+	@echo "Running fast linters (staticcheck, govet, errcheck, ineffassign, unused) — backend + agent..."
+	cd backend && golangci-lint run --config ../.golangci-fast.yml ./...
+	cd agent && golangci-lint run --config ../.golangci-fast.yml ./...
 
 lint-staticcheck-only:
-	@echo "Running staticcheck only..."
-	cd backend && golangci-lint run --config .golangci-fast.yml --disable-all --enable staticcheck ./...
+	@echo "Running staticcheck only — backend + agent..."
+	cd backend && golangci-lint run --config ../.golangci-fast.yml --enable-only staticcheck ./...
+	cd agent && golangci-lint run --config ../.golangci-fast.yml --enable-only staticcheck ./...
 
 lint-docker:
 	@echo "Running Hadolint..."
@@ -191,7 +193,7 @@ test-race:
 	cd backend && go test -race -v ./...
 
 check-module-coverage:
-	@echo "Running module-specific coverage checks (backend + frontend)"
+	@echo "Running module-specific coverage checks (backend + agent)"
 	@bash scripts/check-module-coverage.sh
 
 benchmark:

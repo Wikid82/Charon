@@ -29,7 +29,7 @@ func TestLeash_Reconnect(t *testing.T) {
 		connectCount++
 		conn, err := testUpgrader.Upgrade(w, r, nil)
 		require.NoError(t, err)
-		conn.Close()
+		_ = conn.Close()
 	}))
 	defer srv.Close()
 
@@ -61,7 +61,7 @@ func TestWsNetConn_ReadWrite(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := testUpgrader.Upgrade(w, r, nil)
 		require.NoError(t, err)
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 
 		_, msg, err := conn.ReadMessage()
 		require.NoError(t, err)
@@ -72,7 +72,7 @@ func TestWsNetConn_ReadWrite(t *testing.T) {
 	dialer := websocket.Dialer{}
 	wsConn, _, err := dialer.Dial("ws"+srv.URL[4:], nil)
 	require.NoError(t, err)
-	defer wsConn.Close()
+	defer func() { _ = wsConn.Close() }()
 
 	netConn := leash.NewWSNetConn(wsConn)
 

@@ -278,7 +278,7 @@ func TestGitDiffAndWriters(t *testing.T) {
 	}
 
 	markdownPath := filepath.Join(t.TempDir(), "report.md")
-	err = writeMarkdown(markdownPath, report, "backend/coverage.txt", "frontend/coverage/lcov.info")
+	err = writeMarkdown(markdownPath, report, "backend/coverage.txt", "frontend/coverage/lcov.info", "agent/coverage.txt")
 	if err != nil {
 		t.Fatalf("writeMarkdown should succeed: %v", err)
 	}
@@ -343,6 +343,7 @@ func createGitRepoWithCoverageInputs(t *testing.T) string {
 		filepath.Join(repoRoot, "frontend", "src"),
 		filepath.Join(repoRoot, "frontend", "coverage"),
 		filepath.Join(repoRoot, "backend"),
+		filepath.Join(repoRoot, "agent", "muzzle"),
 	}
 	for _, path := range paths {
 		if err := os.MkdirAll(path, 0o750); err != nil {
@@ -356,6 +357,9 @@ func createGitRepoWithCoverageInputs(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(repoRoot, "frontend", "src", "sample.ts"), []byte("export const sample = 1;\n"), 0o600); err != nil {
 		t.Fatalf("write frontend sample: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "agent", "muzzle", "sample.go"), []byte("package muzzle\nvar Sample = 1\n"), 0o600); err != nil {
+		t.Fatalf("write agent sample: %v", err)
+	}
 
 	backendCoverage := "mode: atomic\nbackend/internal/sample.go:1.1,2.20 1 1\n"
 	if err := os.WriteFile(filepath.Join(repoRoot, "backend", "coverage.txt"), []byte(backendCoverage), 0o600); err != nil {
@@ -365,6 +369,11 @@ func createGitRepoWithCoverageInputs(t *testing.T) string {
 	frontendCoverage := "TN:\nSF:frontend/src/sample.ts\nDA:1,1\nend_of_record\n"
 	if err := os.WriteFile(filepath.Join(repoRoot, "frontend", "coverage", "lcov.info"), []byte(frontendCoverage), 0o600); err != nil {
 		t.Fatalf("write frontend coverage: %v", err)
+	}
+
+	agentCoverage := "mode: atomic\nagent/muzzle/sample.go:1.1,2.20 1 1\n"
+	if err := os.WriteFile(filepath.Join(repoRoot, "agent", "coverage.txt"), []byte(agentCoverage), 0o600); err != nil {
+		t.Fatalf("write agent coverage: %v", err)
 	}
 
 	mustRunCommand(t, repoRoot, "add", ".")
@@ -407,7 +416,7 @@ func TestWriteMarkdownReturnsErrorWhenPathIsDirectory(t *testing.T) {
 		Warnings:             nil,
 		Artifacts:            artifactsJSON{Markdown: "a", JSON: "b"},
 	}
-	if err := writeMarkdown(dir, report, "backend/coverage.txt", "frontend/coverage/lcov.info"); err == nil {
+	if err := writeMarkdown(dir, report, "backend/coverage.txt", "frontend/coverage/lcov.info", "agent/coverage.txt"); err == nil {
 		t.Fatal("expected writeMarkdown to fail when target is a directory")
 	}
 }
@@ -547,6 +556,30 @@ func TestMain_FailsWhenFrontendCoverageIsMissing(t *testing.T) {
 	}
 }
 
+// TestMain_FailsWhenAgentCoverageIsMissing is the agent-module analogue of
+// TestMain_FailsWhenBackendCoverageIsMissing/TestMain_FailsWhenFrontendCoverageIsMissing,
+// added alongside the new -agent-coverage flag (Section 3.4.1 of the Orthrus
+// spec) so the missing-input error path has the same test coverage backend
+// and frontend already had.
+func TestMain_FailsWhenAgentCoverageIsMissing(t *testing.T) {
+	repoRoot := createGitRepoWithCoverageInputs(t)
+	if err := os.Remove(filepath.Join(repoRoot, "agent", "coverage.txt")); err != nil {
+		t.Fatalf("remove agent coverage: %v", err)
+	}
+
+	result := runMainSubprocess(t,
+		"-repo-root", repoRoot,
+		"-baseline", "HEAD...HEAD",
+	)
+
+	if result.exitCode == 0 {
+		t.Fatalf("expected non-zero exit code for missing agent coverage")
+	}
+	if !strings.Contains(result.stderr, "missing agent coverage file") {
+		t.Fatalf("expected missing agent coverage error, stderr=%s", result.stderr)
+	}
+}
+
 func TestMain_FailsWhenRepoRootInvalid(t *testing.T) {
 	nonexistentPath := filepath.Join(t.TempDir(), "missing", "repo")
 
@@ -596,7 +629,7 @@ func TestWriteMarkdownIncludesArtifactsSection(t *testing.T) {
 	}
 
 	path := filepath.Join(t.TempDir(), "report.md")
-	if err := writeMarkdown(path, report, "backend/coverage.txt", "frontend/coverage/lcov.info"); err != nil {
+	if err := writeMarkdown(path, report, "backend/coverage.txt", "frontend/coverage/lcov.info", "agent/coverage.txt"); err != nil {
 		t.Fatalf("writeMarkdown: %v", err)
 	}
 
@@ -856,7 +889,7 @@ func TestWriteMarkdownWithoutWarningsOrFiles(t *testing.T) {
 	}
 
 	path := filepath.Join(t.TempDir(), "report.md")
-	if err := writeMarkdown(path, report, "backend/coverage.txt", "frontend/coverage/lcov.info"); err != nil {
+	if err := writeMarkdown(path, report, "backend/coverage.txt", "frontend/coverage/lcov.info", "agent/coverage.txt"); err != nil {
 		t.Fatalf("writeMarkdown failed: %v", err)
 	}
 
@@ -897,7 +930,7 @@ func TestMainProducesExpectedJSONSchemaFields(t *testing.T) {
 	if err := json.Unmarshal(body, &raw); err != nil {
 		t.Fatalf("unmarshal raw json: %v", err)
 	}
-	required := []string{"baseline", "generated_at", "mode", "thresholds", "threshold_sources", "overall", "backend", "frontend", "artifacts"}
+	required := []string{"baseline", "generated_at", "mode", "thresholds", "threshold_sources", "overall", "backend", "frontend", "agent", "artifacts"}
 	for _, key := range required {
 		if _, ok := raw[key]; !ok {
 			t.Fatalf("missing required key %q in report json", key)
@@ -1041,7 +1074,7 @@ func TestWriteMarkdownContainsSummaryTable(t *testing.T) {
 	}
 
 	path := filepath.Join(t.TempDir(), "summary.md")
-	if err := writeMarkdown(path, report, "backend/coverage.txt", "frontend/coverage/lcov.info"); err != nil {
+	if err := writeMarkdown(path, report, "backend/coverage.txt", "frontend/coverage/lcov.info", "agent/coverage.txt"); err != nil {
 		t.Fatalf("write markdown: %v", err)
 	}
 	body, err := os.ReadFile(path)
@@ -1265,6 +1298,57 @@ func TestMain_WithChangedFilesProducesFilesNeedingCoverageInJSON(t *testing.T) {
 	}
 }
 
+// TestMain_AgentChangedLinesAppearInReport is the agent-module analogue of
+// TestMain_WithChangedFilesProducesFilesNeedingCoverageInJSON: it proves the
+// generalized patchreport.ParseUnifiedDiffChangedLines/ParseGoCoverageProfile
+// plumbing (Section 3.4.1 of the Orthrus spec) actually attributes changed
+// agent/** lines to the Agent report scope end-to-end through the compiled
+// binary, not just that the new -agent-coverage flag is accepted. This is
+// the regression guard for the "agent coverage silently reports 0%" bug the
+// moduleDir generalization was written to close.
+func TestMain_AgentChangedLinesAppearInReport(t *testing.T) {
+	repoRoot := createGitRepoWithCoverageInputs(t)
+	if err := os.WriteFile(filepath.Join(repoRoot, "agent", "muzzle", "sample.go"), []byte("package muzzle\nvar Sample = 42\n"), 0o600); err != nil {
+		t.Fatalf("update agent file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "agent", "coverage.txt"), []byte("mode: atomic\nagent/muzzle/sample.go:1.1,2.20 1 0\n"), 0o600); err != nil {
+		t.Fatalf("write agent coverage: %v", err)
+	}
+
+	jsonOut := filepath.Join(repoRoot, "test-results", "agent-coverage-gaps.json")
+	result := runMainSubprocess(t,
+		"-repo-root", repoRoot,
+		"-baseline", "HEAD",
+		"-json-out", jsonOut,
+	)
+	if result.exitCode != 0 {
+		t.Fatalf("expected success: %s", result.stderr)
+	}
+
+	body, err := os.ReadFile(jsonOut)
+	if err != nil {
+		t.Fatalf("read json output: %v", err)
+	}
+	var report reportJSON
+	if err := json.Unmarshal(body, &report); err != nil {
+		t.Fatalf("unmarshal json: %v", err)
+	}
+	if report.Agent.ChangedLines == 0 {
+		t.Fatalf("expected agent scope to report nonzero changed lines, got: %+v", report.Agent)
+	}
+
+	foundAgentFile := false
+	for _, fileDetail := range report.FilesNeedingCoverage {
+		if fileDetail.Path == "agent/muzzle/sample.go" {
+			foundAgentFile = true
+			break
+		}
+	}
+	if !foundAgentFile {
+		t.Fatalf("expected agent/muzzle/sample.go in files_needing_coverage, got: %+v", report.FilesNeedingCoverage)
+	}
+}
+
 func TestMain_FailsWhenMarkdownPathParentIsDirectoryFileConflict(t *testing.T) {
 	repoRoot := createGitRepoWithCoverageInputs(t)
 	conflict := filepath.Join(repoRoot, "conflict")
@@ -1336,7 +1420,7 @@ func TestMain_ReportContainsCoverageScopes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read json: %v", err)
 	}
-	for _, key := range []string{"\"overall\"", "\"backend\"", "\"frontend\""} {
+	for _, key := range []string{"\"overall\"", "\"backend\"", "\"frontend\"", "\"agent\""} {
 		if !strings.Contains(string(body), key) {
 			t.Fatalf("expected %s in json: %s", key, string(body))
 		}
@@ -1416,11 +1500,17 @@ func TestMain_FailsWhenGitRepoNotInitialized(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(repoRoot, "frontend", "coverage"), 0o750); err != nil {
 		t.Fatalf("mkdir frontend: %v", err)
 	}
+	if err := os.MkdirAll(filepath.Join(repoRoot, "agent"), 0o750); err != nil {
+		t.Fatalf("mkdir agent: %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(repoRoot, "backend", "coverage.txt"), []byte("mode: atomic\nbackend/internal/sample.go:1.1,1.2 1 1\n"), 0o600); err != nil {
 		t.Fatalf("write backend coverage: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(repoRoot, "frontend", "coverage", "lcov.info"), []byte("TN:\nSF:frontend/src/sample.ts\nDA:1,1\nend_of_record\n"), 0o600); err != nil {
 		t.Fatalf("write frontend lcov: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "agent", "coverage.txt"), []byte("mode: atomic\nagent/muzzle/sample.go:1.1,1.2 1 1\n"), 0o600); err != nil {
+		t.Fatalf("write agent coverage: %v", err)
 	}
 
 	result := runMainSubprocess(t,

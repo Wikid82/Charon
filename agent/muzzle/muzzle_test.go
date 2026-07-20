@@ -316,7 +316,7 @@ func TestServeProxy_ConnectionCloseSetOnRequest(t *testing.T) {
 	serverErr := make(chan error, 1)
 
 	sockPath, cleanup := startUnixHTTPServer(t, func(conn net.Conn) {
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 
 		req, err := http.ReadRequest(bufio.NewReader(conn))
 		if err != nil {
@@ -355,7 +355,7 @@ func TestServeProxy_CompletesAfterDockerResponse(t *testing.T) {
 	body := `{"status":"ok"}`
 
 	sockPath, cleanup := startUnixHTTPServer(t, func(conn net.Conn) {
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 
 		_, err := http.ReadRequest(bufio.NewReader(conn))
 		if err != nil {
@@ -400,7 +400,7 @@ func TestServeProxy_StreamingResponseTerminatesOnWriterClose(t *testing.T) {
 	serverErr := make(chan error, 1)
 
 	sockPath, cleanup := startUnixHTTPServer(t, func(conn net.Conn) {
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 
 		_, err := http.ReadRequest(bufio.NewReader(conn))
 		if err != nil {

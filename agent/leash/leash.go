@@ -148,7 +148,7 @@ func (l *Leash) connect(ctx context.Context) error {
 		_ = wsConn.Close()
 		return fmt.Errorf("leash: yamux client: %w", err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	l.log.Info("leash: connected, accepting proxy streams")
 
@@ -175,7 +175,7 @@ func (l *Leash) connect(ctx context.Context) error {
 
 // handleStream reads the leading type byte from a yamux stream and dispatches accordingly.
 func (l *Leash) handleStream(stream *yamux.Stream, filter *muzzle.Filter) {
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	typeBuf := make([]byte, 1)
 	if _, err := io.ReadFull(stream, typeBuf); err != nil {
@@ -229,7 +229,7 @@ func (l *Leash) handlePortForward(stream *yamux.Stream) {
 		l.log.WithError(err).WithField("target", sanitizeLogField(targetAddr)).Error("leash: port forward: dial failed")
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	proxyBidirectional(stream, conn)
 }

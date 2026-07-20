@@ -117,15 +117,23 @@ index 3333333..4444444 100644
 @@ -20,0 +21,2 @@ export default function App() {
 +new frontend line
 +another frontend line
+diff --git a/agent/muzzle/muzzle.go b/agent/muzzle/muzzle.go
+index 5555555..6666666 100644
+--- a/agent/muzzle/muzzle.go
++++ b/agent/muzzle/muzzle.go
+@@ -30,0 +31,2 @@ func Allow() {
++new agent line
++another agent line
 `
 
-	backendChanged, frontendChanged, err := ParseUnifiedDiffChangedLines(diff)
+	backendChanged, frontendChanged, agentChanged, err := ParseUnifiedDiffChangedLines(diff)
 	if err != nil {
 		t.Fatalf("ParseUnifiedDiffChangedLines returned error: %v", err)
 	}
 
 	assertHasLines(t, backendChanged, "backend/internal/app.go", []int{11, 12})
 	assertHasLines(t, frontendChanged, "frontend/src/App.tsx", []int{21, 22})
+	assertHasLines(t, agentChanged, "agent/muzzle/muzzle.go", []int{31, 32})
 }
 
 func TestParseUnifiedDiffChangedLines_InvalidHunkStartReturnsError(t *testing.T) {
@@ -139,12 +147,12 @@ index 1111111..2222222 100644
 +line
 `
 
-	backendChanged, frontendChanged, err := ParseUnifiedDiffChangedLines(diff)
+	backendChanged, frontendChanged, agentChanged, err := ParseUnifiedDiffChangedLines(diff)
 	if err != nil {
 		t.Fatalf("expected graceful handling for invalid hunk, got error: %v", err)
 	}
-	if len(backendChanged) != 0 || len(frontendChanged) != 0 {
-		t.Fatalf("expected no changed lines for invalid hunk, got backend=%v frontend=%v", backendChanged, frontendChanged)
+	if len(backendChanged) != 0 || len(frontendChanged) != 0 || len(agentChanged) != 0 {
+		t.Fatalf("expected no changed lines for invalid hunk, got backend=%v frontend=%v agent=%v", backendChanged, frontendChanged, agentChanged)
 	}
 }
 
@@ -162,13 +170,56 @@ github.com/Wikid82/charon/backend/internal/service.go:12.1,12.20 1 1
 		t.Fatalf("failed to write temp coverage file: %v", err)
 	}
 
-	coverage, err := ParseGoCoverageProfile(coverageFile)
+	coverage, err := ParseGoCoverageProfile(coverageFile, "backend")
 	if err != nil {
 		t.Fatalf("ParseGoCoverageProfile returned error: %v", err)
 	}
 
 	changed := FileLineSet{
 		"backend/internal/service.go": {10: {}, 11: {}, 15: {}},
+	}
+
+	scope := ComputeScopeCoverage(changed, coverage)
+	if scope.ChangedLines != 2 {
+		t.Fatalf("changed lines mismatch: got %d want 2", scope.ChangedLines)
+	}
+	if scope.CoveredLines != 1 {
+		t.Fatalf("covered lines mismatch: got %d want 1", scope.CoveredLines)
+	}
+	if scope.PatchCoveragePct != 50.0 {
+		t.Fatalf("coverage pct mismatch: got %.1f want 50.0", scope.PatchCoveragePct)
+	}
+}
+
+// TestAgentChangedLineCoverageComputation is the agent-module analogue of
+// TestBackendChangedLineCoverageComputation: it exercises
+// ParseGoCoverageProfile(..., "agent") end-to-end against a coverage
+// profile whose file paths use agent/'s own module import path
+// (github.com/Wikid82/charon/agent/...), confirming the generalized
+// normalizeGoCoveragePath correctly attributes them to a repo-relative
+// "agent/..." path rather than silently producing 0% coverage for every
+// agent file (the exact bug this generalization closes).
+func TestAgentChangedLineCoverageComputation(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	coverageFile := filepath.Join(tempDir, "coverage.txt")
+	coverageContent := `mode: atomic
+github.com/Wikid82/charon/agent/muzzle/muzzle.go:10.1,10.20 1 1
+github.com/Wikid82/charon/agent/muzzle/muzzle.go:11.1,11.20 1 0
+github.com/Wikid82/charon/agent/muzzle/muzzle.go:12.1,12.20 1 1
+`
+	if err := os.WriteFile(coverageFile, []byte(coverageContent), 0o600); err != nil {
+		t.Fatalf("failed to write temp coverage file: %v", err)
+	}
+
+	coverage, err := ParseGoCoverageProfile(coverageFile, "agent")
+	if err != nil {
+		t.Fatalf("ParseGoCoverageProfile returned error: %v", err)
+	}
+
+	changed := FileLineSet{
+		"agent/muzzle/muzzle.go": {10: {}, 11: {}, 15: {}},
 	}
 
 	scope := ComputeScopeCoverage(changed, coverage)
@@ -239,7 +290,7 @@ func TestParseUnifiedDiffChangedLines_AllowsLongLines(t *testing.T) {
 		"+" + longLine,
 	}, "\n")
 
-	backendChanged, _, err := ParseUnifiedDiffChangedLines(diff)
+	backendChanged, _, _, err := ParseUnifiedDiffChangedLines(diff)
 	if err != nil {
 		t.Fatalf("ParseUnifiedDiffChangedLines returned error for long line: %v", err)
 	}
@@ -259,7 +310,7 @@ func TestParseGoCoverageProfile_AllowsLongLines(t *testing.T) {
 		t.Fatalf("failed to write temp coverage file: %v", err)
 	}
 
-	_, err := ParseGoCoverageProfile(coverageFile)
+	_, err := ParseGoCoverageProfile(coverageFile, "backend")
 	if err != nil {
 		t.Fatalf("ParseGoCoverageProfile returned error for long line: %v", err)
 	}
@@ -466,12 +517,31 @@ func TestSortedWarnings_FiltersBlanksAndSorts(t *testing.T) {
 func TestNormalizePathsAndRanges(t *testing.T) {
 	t.Parallel()
 
-	if got := normalizeGoCoveragePath("internal/service.go"); got != "backend/internal/service.go" {
+	if got := normalizeGoCoveragePath("internal/service.go", "backend"); got != "backend/internal/service.go" {
 		t.Fatalf("unexpected normalized go path: %s", got)
 	}
 
-	if got := normalizeGoCoveragePath("/tmp/work/backend/internal/service.go"); got != "backend/internal/service.go" {
+	if got := normalizeGoCoveragePath("/tmp/work/backend/internal/service.go", "backend"); got != "backend/internal/service.go" {
 		t.Fatalf("unexpected backend extraction path: %s", got)
+	}
+
+	// agent/'s own top-level package set (cert/, leash/, muzzle/, protocol/)
+	// differs from backend's fallback prefix list, so both the
+	// "/<moduleDir>/" substring-extraction path and the module-specific
+	// fallback-prefix path are exercised for "agent" too.
+	if got := normalizeGoCoveragePath("muzzle/muzzle.go", "agent"); got != "agent/muzzle/muzzle.go" {
+		t.Fatalf("unexpected normalized agent path: %s", got)
+	}
+
+	if got := normalizeGoCoveragePath("/tmp/work/agent/muzzle/muzzle.go", "agent"); got != "agent/muzzle/muzzle.go" {
+		t.Fatalf("unexpected agent extraction path: %s", got)
+	}
+
+	// A backend-shaped fallback prefix must NOT be treated as an agent path
+	// when normalizing for the agent module (proves the fallback list is
+	// genuinely per-module, not still secretly shared).
+	if got := normalizeGoCoveragePath("internal/service.go", "agent"); got != "internal/service.go" {
+		t.Fatalf("expected backend-only fallback prefix to be left unmodified for agent module, got: %s", got)
 	}
 
 	frontend := normalizeFrontendCoveragePaths("/tmp/work/frontend/src/App.tsx")
@@ -507,7 +577,7 @@ func TestScopeCoverageMergeAndStatus(t *testing.T) {
 func TestParseCoverageProfiles_InvalidPath(t *testing.T) {
 	t.Parallel()
 
-	_, err := ParseGoCoverageProfile("   ")
+	_, err := ParseGoCoverageProfile("   ", "backend")
 	if err == nil {
 		t.Fatal("expected go profile path validation error")
 	}

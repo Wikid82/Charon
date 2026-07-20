@@ -79,9 +79,10 @@ func ResolveThreshold(envName string, defaultValue float64, lookup func(string) 
 	return ThresholdResolution{Value: value, Source: "env"}
 }
 
-func ParseUnifiedDiffChangedLines(diffContent string) (FileLineSet, FileLineSet, error) {
+func ParseUnifiedDiffChangedLines(diffContent string) (FileLineSet, FileLineSet, FileLineSet, error) {
 	backendChanged := make(FileLineSet)
 	frontendChanged := make(FileLineSet)
+	agentChanged := make(FileLineSet)
 
 	var currentFile string
 	currentScope := ""
@@ -103,12 +104,16 @@ func ParseUnifiedDiffChangedLines(diffContent string) (FileLineSet, FileLineSet,
 			}
 			newFile = strings.TrimPrefix(newFile, "b/")
 			newFile = normalizeRepoPath(newFile)
-			if strings.HasPrefix(newFile, "backend/") {
+			switch {
+			case strings.HasPrefix(newFile, "backend/"):
 				currentFile = newFile
 				currentScope = "backend"
-			} else if strings.HasPrefix(newFile, "frontend/") {
+			case strings.HasPrefix(newFile, "frontend/"):
 				currentFile = newFile
 				currentScope = "frontend"
+			case strings.HasPrefix(newFile, "agent/"):
+				currentFile = newFile
+				currentScope = "agent"
 			}
 			continue
 		}
@@ -116,7 +121,7 @@ func ParseUnifiedDiffChangedLines(diffContent string) (FileLineSet, FileLineSet,
 		if matches := hunkPattern.FindStringSubmatch(line); matches != nil {
 			startLine, err := strconv.Atoi(matches[1])
 			if err != nil {
-				return nil, nil, fmt.Errorf("parse hunk start line: %w", err)
+				return nil, nil, nil, fmt.Errorf("parse hunk start line: %w", err)
 			}
 			currentNewLine = startLine
 			inHunk = true
@@ -137,6 +142,8 @@ func ParseUnifiedDiffChangedLines(diffContent string) (FileLineSet, FileLineSet,
 				addLine(backendChanged, currentFile, currentNewLine)
 			case "frontend":
 				addLine(frontendChanged, currentFile, currentNewLine)
+			case "agent":
+				addLine(agentChanged, currentFile, currentNewLine)
 			}
 			currentNewLine++
 		case '-':
@@ -148,13 +155,13 @@ func ParseUnifiedDiffChangedLines(diffContent string) (FileLineSet, FileLineSet,
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, nil, fmt.Errorf("scan diff content: %w", err)
+		return nil, nil, nil, fmt.Errorf("scan diff content: %w", err)
 	}
 
-	return backendChanged, frontendChanged, nil
+	return backendChanged, frontendChanged, agentChanged, nil
 }
 
-func ParseGoCoverageProfile(profilePath string) (data CoverageData, err error) {
+func ParseGoCoverageProfile(profilePath, moduleDir string) (data CoverageData, err error) {
 	validatedPath, err := validateReadablePath(profilePath)
 	if err != nil {
 		return CoverageData{}, fmt.Errorf("validate go coverage profile path: %w", err)
@@ -205,7 +212,7 @@ func ParseGoCoverageProfile(profilePath string) (data CoverageData, err error) {
 			continue
 		}
 
-		normalizedFile := normalizeGoCoveragePath(filePart)
+		normalizedFile := normalizeGoCoveragePath(filePart, moduleDir)
 		if normalizedFile == "" {
 			continue
 		}
@@ -466,23 +473,44 @@ func normalizeRepoPath(input string) string {
 	return cleaned
 }
 
-func normalizeGoCoveragePath(input string) string {
+// moduleFallbackPrefixes maps a module directory (as passed to
+// normalizeGoCoveragePath and ParseGoCoverageProfile) to the set of
+// repo-relative top-level package prefixes that module's own coverage
+// profile lines may appear under when the profile's file path doesn't
+// contain "/<moduleDir>/" at all (e.g. a coverage tool that already
+// stripped the module prefix). Each module has a different top-level
+// package layout, so this is not a single shared list: backend has
+// cmd/internal/pkg/api/integration/tools, while agent/'s own top-level
+// packages are cert/leash/muzzle/protocol.
+var moduleFallbackPrefixes = map[string][]string{
+	"backend": {"cmd/", "internal/", "pkg/", "api/", "integration/", "tools/"},
+	"agent":   {"cert/", "leash/", "muzzle/", "protocol/"},
+}
+
+// normalizeGoCoveragePath converts a Go coverage profile's file path
+// (typically a full import path such as
+// "github.com/Wikid82/charon/<moduleDir>/internal/service.go") into a
+// repo-relative path (e.g. "<moduleDir>/internal/service.go"), so it can be
+// intersected with diff-parsed changed-line paths, which are always
+// repo-relative. moduleDir is the module's repo-relative directory name
+// ("backend" or "agent").
+func normalizeGoCoveragePath(input, moduleDir string) string {
 	cleaned := normalizeRepoPath(input)
 	if cleaned == "" {
 		return ""
 	}
 
-	if strings.HasPrefix(cleaned, "backend/") {
+	modulePrefix := moduleDir + "/"
+	if strings.HasPrefix(cleaned, modulePrefix) {
 		return cleaned
 	}
-	if idx := strings.Index(cleaned, "/backend/"); idx >= 0 {
+	if idx := strings.Index(cleaned, "/"+modulePrefix); idx >= 0 {
 		return cleaned[idx+1:]
 	}
 
-	repoRelativePrefixes := []string{"cmd/", "internal/", "pkg/", "api/", "integration/", "tools/"}
-	for _, prefix := range repoRelativePrefixes {
+	for _, prefix := range moduleFallbackPrefixes[moduleDir] {
 		if strings.HasPrefix(cleaned, prefix) {
-			return "backend/" + cleaned
+			return modulePrefix + cleaned
 		}
 	}
 

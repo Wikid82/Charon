@@ -113,6 +113,7 @@ ignore:
 
   # Main entry points (bootstrap code only)
   - "backend/cmd/api/**"
+  - "agent/main.go"
 
   # Infrastructure packages (logging, metrics, tracing)
   # These are thin wrappers around external libraries with no business logic

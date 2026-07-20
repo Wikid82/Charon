@@ -58,6 +58,16 @@ fi
 echo "Using golangci-lint: $GOLANGCI_LINT"
 echo "Version: $($GOLANGCI_LINT version)"
 
-# Change to backend directory and run golangci-lint
-cd "$(dirname "$0")/../../backend" || exit 1
-exec "$GOLANGCI_LINT" run -v ./...
+ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+
+# Lint both Go modules with the full (non-fast) linter set.
+FAILED=0
+for module in backend agent; do
+    echo "--- golangci-lint-full: $module ---"
+    cd "$ROOT_DIR/$module" || exit 1
+    if ! "$GOLANGCI_LINT" run -v ./...; then
+        FAILED=1
+    fi
+done
+
+exit "$FAILED"

@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BASELINE="${CHARON_PATCH_BASELINE:-}"
 BACKEND_COVERAGE_FILE="$ROOT_DIR/backend/coverage.txt"
 FRONTEND_COVERAGE_FILE="$ROOT_DIR/frontend/coverage/lcov.info"
+AGENT_COVERAGE_FILE="$ROOT_DIR/agent/coverage.txt"
 JSON_OUT="$ROOT_DIR/test-results/local-patch-report.json"
 MD_OUT="$ROOT_DIR/test-results/local-patch-report.md"
 
@@ -90,6 +91,12 @@ if [[ ! -f "$FRONTEND_COVERAGE_FILE" ]]; then
     exit 1
 fi
 
+if [[ ! -f "$AGENT_COVERAGE_FILE" ]]; then
+    write_preflight_artifacts "agent coverage input missing at $AGENT_COVERAGE_FILE"
+    echo "Error: agent coverage input missing at $AGENT_COVERAGE_FILE" >&2
+    exit 1
+fi
+
 BASE_REF="$BASELINE"
 if [[ "$BASELINE" == *"..."* ]]; then
     BASE_REF="${BASELINE%%...*}"
@@ -109,6 +116,7 @@ mkdir -p "$ROOT_DIR/test-results"
         --baseline "$BASELINE" \
         --backend-coverage "$BACKEND_COVERAGE_FILE" \
         --frontend-coverage "$FRONTEND_COVERAGE_FILE" \
+        --agent-coverage "$AGENT_COVERAGE_FILE" \
         --json-out "$JSON_OUT" \
         --md-out "$MD_OUT"
 )

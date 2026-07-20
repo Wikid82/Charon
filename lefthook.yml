@@ -81,8 +81,12 @@ pre-commit:
 
     # --- Go ---
     go-vet:
-      glob: "*.go"
+      glob: "backend/**/*.go"
       run: cd backend && go vet ./...
+
+    go-vet-agent:
+      glob: "agent/**/*.go"
+      run: cd agent && go vet ./...
 
     golangci-lint-fast:
       glob: "*.go"
@@ -171,6 +175,10 @@ testing:
     go-test-coverage:
       glob: "*.go"
       run: scripts/go-test-coverage.sh
+
+    agent-test-coverage:
+      glob: "agent/**/*.go"
+      run: scripts/agent-test-coverage.sh
 
     go-test-race:
       glob: "*.go"
