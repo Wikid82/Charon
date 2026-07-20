@@ -46,13 +46,18 @@ type Config struct {
 }
 
 // Leash manages the reverse WebSocket tunnel to the Charon server.
+//
+// Leash intentionally holds no *muzzle.Filter field: the filter is
+// connection-scoped, not process-scoped (see connect), so a mid-connection
+// write-mode toggle on the operator's side can't retroactively change an
+// already-negotiated session. Each call to connect constructs a fresh
+// Filter and closes over it for the lifetime of that one connection.
 type Leash struct {
 	serverURL    string
 	authKey      string
 	agentID      string
 	dockerSock   string
 	log          *logrus.Logger
-	filter       *muzzle.Filter
 	initialDelay time.Duration
 }
 
@@ -68,7 +73,6 @@ func New(cfg Config) *Leash {
 		agentID:      cfg.AgentID,
 		dockerSock:   cfg.DockerSock,
 		log:          cfg.Log,
-		filter:       muzzle.New(),
 		initialDelay: d,
 	}
 }
@@ -140,6 +144,18 @@ func (l *Leash) connect(ctx context.Context) error {
 
 	l.log.Info("leash: connected, accepting proxy streams")
 
+	// filter is scoped to this one connection: constructed fresh per
+	// successful dial, closed over by every stream this connection accepts,
+	// and discarded on reconnect. This is what makes a write-mode toggle
+	// take effect only on the agent's next reconnect, matching the backend's
+	// per-AgentSession Muzzle scoping.
+	//
+	// TODO(Commit 3): negotiate writeEnabled from the X-Orthrus-Write-Enabled
+	// handshake response header (see leash_test.go for the discarded *http.Response
+	// this will read). Hardcoded false here preserves today's unconditional
+	// read-only behavior until that wiring lands.
+	filter := muzzle.New(false)
+
 	hbCtx, hbCancel := context.WithCancel(ctx)
 	defer hbCancel()
 	go newHeartbeat(session, l.log).Run(hbCtx)
@@ -149,12 +165,12 @@ func (l *Leash) connect(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("leash: accept stream: %w", err)
 		}
-		go l.handleStream(stream)
+		go l.handleStream(stream, filter)
 	}
 }
 
 // handleStream reads the leading type byte from a yamux stream and dispatches accordingly.
-func (l *Leash) handleStream(stream *yamux.Stream) {
+func (l *Leash) handleStream(stream *yamux.Stream, filter *muzzle.Filter) {
 	defer stream.Close()
 
 	typeBuf := make([]byte, 1)
@@ -165,7 +181,7 @@ func (l *Leash) handleStream(stream *yamux.Stream) {
 
 	switch typeBuf[0] {
 	case streamTypeDocker:
-		l.handleDockerStream(stream)
+		l.handleDockerStream(stream, filter)
 	case streamTypePortForward:
 		l.handlePortForward(stream)
 	default:
@@ -173,9 +189,10 @@ func (l *Leash) handleStream(stream *yamux.Stream) {
 	}
 }
 
-// handleDockerStream proxies the stream to the local Docker socket through the Muzzle filter.
-func (l *Leash) handleDockerStream(stream *yamux.Stream) {
-	if err := l.filter.ServeProxy(l.dockerSock, stream, stream); err != nil {
+// handleDockerStream proxies the stream to the local Docker socket through
+// the connection-scoped Muzzle filter negotiated in connect.
+func (l *Leash) handleDockerStream(stream *yamux.Stream, filter *muzzle.Filter) {
+	if err := filter.ServeProxy(l.dockerSock, stream, stream); err != nil {
 		l.log.WithField("error", sanitizeLogField(err.Error())).Debug("leash: docker proxy stream closed")
 	}
 }

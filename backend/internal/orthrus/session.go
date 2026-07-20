@@ -101,6 +101,7 @@ type ExternalProxyStatus struct {
 	ActivePort     int    `json:"active_port"`     // actual bound port (0 if not active)
 	BoundAddress   string `json:"bind_address"`    // e.g. "0.0.0.0:9999"
 	Active         bool   `json:"active"`
+	WriteEnabled   bool   `json:"write_enabled"`   // negotiated value for this live session
 	Error          string `json:"error,omitempty"` // last start error, if any
 }
 
@@ -118,11 +119,16 @@ type AgentSession struct {
 	extListener  net.Listener // nil until StartExternalProxy succeeds
 	extProxyPort int          // port passed to StartExternalProxy; 0 if never started
 	extErr       error        // last error from StartExternalProxy
+	// writeEnabled is the write-mode value negotiated at connect time (from
+	// OrthrusAgent.WriteEnabled at the moment HandleWebSocket ran). Fixed for
+	// the life of this session, exactly like extProxyPort — a DB toggle only
+	// takes effect on the agent's next reconnect.
+	writeEnabled bool
 	mu           sync.Mutex
 }
 
 // NewAgentSession wraps the WebSocket connection in a Yamux server session.
-func NewAgentSession(agentUUID, agentName string, conn *websocket.Conn) (*AgentSession, error) {
+func NewAgentSession(agentUUID, agentName string, writeEnabled bool, conn *websocket.Conn) (*AgentSession, error) {
 	cfg := yamux.DefaultConfig()
 	cfg.LogOutput = io.Discard
 
@@ -134,11 +140,12 @@ func NewAgentSession(agentUUID, agentName string, conn *websocket.Conn) (*AgentS
 	_, cancel := context.WithCancel(context.Background())
 
 	return &AgentSession{
-		agentUUID: agentUUID,
-		agentName: agentName,
-		conn:      conn,
-		session:   session,
-		cancel:    cancel,
+		agentUUID:    agentUUID,
+		agentName:    agentName,
+		conn:         conn,
+		session:      session,
+		cancel:       cancel,
+		writeEnabled: writeEnabled,
 	}, nil
 }
 
@@ -302,8 +309,11 @@ func (s *AgentSession) StartExternalProxy(port int) error {
 		Transport:     baseTransport,
 	}
 
+	// writeLimiter and auditLogger are wired in Commit 3 (rate limiting +
+	// audit logging); nil is a safe no-op here since the write-endpoint
+	// allowlist branch that would consult them does not exist yet.
 	srv := &http.Server{
-		Handler:           NewMuzzle(rp),
+		Handler:           NewMuzzle(rp, s.writeEnabled, nil, nil, s.agentUUID),
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      0,
 	}
@@ -353,6 +363,7 @@ func (s *AgentSession) GetExternalProxyStatus() ExternalProxyStatus {
 		ActivePort:     activePort,
 		BoundAddress:   boundAddr,
 		Active:         active,
+		WriteEnabled:   s.writeEnabled,
 		Error:          errStr,
 	}
 }

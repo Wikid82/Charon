@@ -109,11 +109,25 @@ var imageDistributionPatterns = []struct {
 }
 
 // Filter is an HTTP allowlist filter for Docker socket proxy streams.
-type Filter struct{}
+//
+// Filter is connection-scoped, not process-scoped: a fresh Filter is
+// constructed for each successful agent connection (see leash.go's connect
+// function), carrying the writeEnabled value negotiated for that specific
+// session via the X-Orthrus-Write-Enabled handshake header. This mirrors the
+// backend's per-AgentSession Muzzle scoping exactly, so a mid-connection DB
+// toggle on the operator's side cannot retroactively change an
+// already-negotiated session — the change only takes effect on the agent's
+// next reconnect.
+type Filter struct {
+	writeEnabled bool
+}
 
-// New returns a new Muzzle filter.
-func New() *Filter {
-	return &Filter{}
+// New returns a new Muzzle filter. writeEnabled governs whether the optional
+// write-endpoint allowlist is consulted for this connection; false (the
+// default for any caller not yet passing the negotiated handshake value)
+// preserves today's unconditional read-only behavior.
+func New(writeEnabled bool) *Filter {
+	return &Filter{writeEnabled: writeEnabled}
 }
 
 // Allow returns true if method+reqPath is on the allowlist.

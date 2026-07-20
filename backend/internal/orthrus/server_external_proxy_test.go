@@ -81,7 +81,7 @@ func TestOrthrusServer_DisconnectAgent_ClosesExternalProxy(t *testing.T) {
 	serverConn, wsCleanup := testWSPair(t)
 	defer wsCleanup()
 
-	sess, err := NewAgentSession("ext-srv02-uuid", "ext-srv02-agent", serverConn)
+	sess, err := NewAgentSession("ext-srv02-uuid", "ext-srv02-agent", false, serverConn)
 	require.NoError(t, err)
 	require.NoError(t, sess.StartDockerProxy())
 

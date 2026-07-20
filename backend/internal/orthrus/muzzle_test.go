@@ -27,7 +27,7 @@ func TestMuzzle_AllowlistedGET_Passthrough(t *testing.T) {
 		"/system/df",
 	}
 
-	m := NewMuzzle(passthroughHandler())
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	for _, path := range allowed {
 		t.Run(path, func(t *testing.T) {
@@ -52,7 +52,7 @@ func TestMuzzle_VersionPrefixStripped_Passthrough(t *testing.T) {
 		"/v1.47/system/df",
 	}
 
-	m := NewMuzzle(passthroughHandler())
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	for _, path := range paths {
 		t.Run(path, func(t *testing.T) {
@@ -65,7 +65,7 @@ func TestMuzzle_VersionPrefixStripped_Passthrough(t *testing.T) {
 }
 
 func TestMuzzle_POST_Blocked(t *testing.T) {
-	m := NewMuzzle(passthroughHandler())
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	paths := []string{
 		"/containers/create",
@@ -84,7 +84,7 @@ func TestMuzzle_POST_Blocked(t *testing.T) {
 }
 
 func TestMuzzle_DELETE_Blocked(t *testing.T) {
-	m := NewMuzzle(passthroughHandler())
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 	req := httptest.NewRequest(http.MethodDelete, "/containers/abc123", http.NoBody)
 	rr := httptest.NewRecorder()
 	m.ServeHTTP(rr, req)
@@ -92,7 +92,7 @@ func TestMuzzle_DELETE_Blocked(t *testing.T) {
 }
 
 func TestMuzzle_HEAD_Ping_Passthrough(t *testing.T) {
-	m := NewMuzzle(passthroughHandler())
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	for _, path := range []string{"/_ping", "/v1.44/_ping"} {
 		t.Run(path, func(t *testing.T) {
@@ -105,7 +105,7 @@ func TestMuzzle_HEAD_Ping_Passthrough(t *testing.T) {
 }
 
 func TestMuzzle_HEAD_NonPing_Blocked(t *testing.T) {
-	m := NewMuzzle(passthroughHandler())
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 	req := httptest.NewRequest(http.MethodHead, "/containers/json", http.NoBody)
 	rr := httptest.NewRecorder()
 	m.ServeHTTP(rr, req)
@@ -133,7 +133,7 @@ func TestMuzzle_DynamicPaths_Passthrough(t *testing.T) {
 		"/v1.44/distribution/alpine/json",
 	}
 
-	m := NewMuzzle(passthroughHandler())
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	for _, p := range paths {
 		t.Run(p, func(t *testing.T) {
@@ -159,7 +159,7 @@ func TestMuzzle_UnknownPath_Blocked(t *testing.T) {
 		"/distribution/create",
 	}
 
-	m := NewMuzzle(passthroughHandler())
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	for _, path := range paths {
 		t.Run(path, func(t *testing.T) {
@@ -185,7 +185,7 @@ func TestMuzzle_NamespacedImagePaths_Passthrough(t *testing.T) {
 		"registry.example.com/team/project/image",
 	}
 
-	m := NewMuzzle(passthroughHandler())
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	for _, prefix := range []string{"/images/", "/distribution/"} {
 		for _, ref := range refs {
@@ -213,7 +213,7 @@ func TestMuzzle_NamespacedImagePaths_Passthrough(t *testing.T) {
 // ServeHTTP) still rejects writes against namespaced image paths now that
 // they pass the allowlist's path check.
 func TestMuzzle_NamespacedImagePaths_NonGET_Blocked(t *testing.T) {
-	m := NewMuzzle(passthroughHandler())
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	paths := []string{
 		"/images/ghcr.io/org/repo/json",
@@ -235,7 +235,7 @@ func TestMuzzle_NamespacedImagePaths_NonGET_Blocked(t *testing.T) {
 // write path: POST to either is still rejected, even though method-checking
 // already happens unconditionally before any path match in ServeHTTP.
 func TestMuzzle_ImageAndDistributionEndpoints_POSTBlocked(t *testing.T) {
-	m := NewMuzzle(passthroughHandler())
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	paths := []string{
 		"/images/alpine/json",

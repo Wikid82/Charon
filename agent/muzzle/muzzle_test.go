@@ -87,7 +87,7 @@ func startUnixHTTPServer(t *testing.T, handler func(net.Conn)) (string, func()) 
 }
 
 func TestFilter_Allow(t *testing.T) {
-	f := muzzle.New()
+	f := muzzle.New(false)
 
 	tests := []struct {
 		method  string
@@ -199,7 +199,7 @@ func TestFilter_Allow(t *testing.T) {
 // like "nginx". Uses prefix/suffix matching instead of path.Match, whose
 // "*" does not cross "/".
 func TestFilter_Allow_NamespacedImagePaths(t *testing.T) {
-	f := muzzle.New()
+	f := muzzle.New(false)
 
 	refs := []string{
 		"ghcr.io/org/repo",
@@ -228,7 +228,7 @@ func TestFilter_Allow_NamespacedImagePaths(t *testing.T) {
 // match) still rejects writes against namespaced image/distribution paths
 // now that they pass the allowlist's path check.
 func TestFilter_Allow_NamespacedImagePaths_NonGETBlocked(t *testing.T) {
-	f := muzzle.New()
+	f := muzzle.New(false)
 
 	paths := []string{
 		"/images/ghcr.io/org/repo/json",
@@ -247,7 +247,7 @@ func TestFilter_Allow_NamespacedImagePaths_NonGETBlocked(t *testing.T) {
 }
 
 func TestFilter_ServeProxy_Blocked_POST(t *testing.T) {
-	f := muzzle.New()
+	f := muzzle.New(false)
 
 	reqStr := "POST /v1.41/containers/create HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n"
 	var buf bytes.Buffer
@@ -258,7 +258,7 @@ func TestFilter_ServeProxy_Blocked_POST(t *testing.T) {
 }
 
 func TestFilter_ServeProxy_Blocked_DELETE(t *testing.T) {
-	f := muzzle.New()
+	f := muzzle.New(false)
 
 	reqStr := "DELETE /v1.41/containers/abc HTTP/1.1\r\nHost: localhost\r\n\r\n"
 	var buf bytes.Buffer
@@ -269,7 +269,7 @@ func TestFilter_ServeProxy_Blocked_DELETE(t *testing.T) {
 }
 
 func TestFilter_ServeProxy_Blocked_PUT(t *testing.T) {
-	f := muzzle.New()
+	f := muzzle.New(false)
 
 	reqStr := "PUT /v1.41/networks/abc HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n"
 	var buf bytes.Buffer
@@ -280,7 +280,7 @@ func TestFilter_ServeProxy_Blocked_PUT(t *testing.T) {
 }
 
 func TestFilter_ServeProxy_Blocked_UnversionedPost(t *testing.T) {
-	f := muzzle.New()
+	f := muzzle.New(false)
 
 	reqStr := "POST /containers/create HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n"
 	var buf bytes.Buffer
@@ -291,7 +291,7 @@ func TestFilter_ServeProxy_Blocked_UnversionedPost(t *testing.T) {
 }
 
 func TestServeProxy_ConnectionCloseSetOnRequest(t *testing.T) {
-	f := muzzle.New()
+	f := muzzle.New(false)
 
 	reqSeen := make(chan *http.Request, 1)
 	serverErr := make(chan error, 1)
@@ -331,7 +331,7 @@ func TestServeProxy_ConnectionCloseSetOnRequest(t *testing.T) {
 }
 
 func TestServeProxy_CompletesAfterDockerResponse(t *testing.T) {
-	f := muzzle.New()
+	f := muzzle.New(false)
 	serverErr := make(chan error, 1)
 	body := `{"status":"ok"}`
 
@@ -375,7 +375,7 @@ func TestServeProxy_CompletesAfterDockerResponse(t *testing.T) {
 }
 
 func TestServeProxy_StreamingResponseTerminatesOnWriterClose(t *testing.T) {
-	f := muzzle.New()
+	f := muzzle.New(false)
 
 	serverWriteErr := make(chan error, 1)
 	serverErr := make(chan error, 1)

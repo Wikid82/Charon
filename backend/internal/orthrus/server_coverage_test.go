@@ -25,7 +25,7 @@ func TestOrthrusServer_GetSession_KnownUUID(t *testing.T) {
 	serverConn, done := testWSPair(t)
 	defer done()
 
-	sess, err := NewAgentSession("sess-uuid", "sess-agent", serverConn)
+	sess, err := NewAgentSession("sess-uuid", "sess-agent", false, serverConn)
 	require.NoError(t, err)
 	defer func() { _ = sess.Close() }()
 
@@ -44,7 +44,7 @@ func TestOrthrusServer_GetProxyAddr_SessionExists_NoProxy(t *testing.T) {
 	serverConn, done := testWSPair(t)
 	defer done()
 
-	sess, err := NewAgentSession("no-proxy-uuid", "agent", serverConn)
+	sess, err := NewAgentSession("no-proxy-uuid", "agent", false, serverConn)
 	require.NoError(t, err)
 	defer func() { _ = sess.Close() }()
 
@@ -63,7 +63,7 @@ func TestOrthrusServer_GetProxyAddr_SessionExists_WithProxy(t *testing.T) {
 	serverConn, done := testWSPair(t)
 	defer done()
 
-	sess, err := NewAgentSession("with-proxy-uuid", "agent", serverConn)
+	sess, err := NewAgentSession("with-proxy-uuid", "agent", false, serverConn)
 	require.NoError(t, err)
 	defer func() { _ = sess.Close() }()
 
@@ -86,7 +86,7 @@ func TestOrthrusServer_DisconnectAgent_WithSession(t *testing.T) {
 	serverConn, done := testWSPair(t)
 	defer done()
 
-	sess, err := NewAgentSession("disc-uuid", "disc-agent", serverConn)
+	sess, err := NewAgentSession("disc-uuid", "disc-agent", false, serverConn)
 	require.NoError(t, err)
 
 	srv.sessions.Store("disc-uuid", sess)
@@ -194,7 +194,7 @@ func TestOrthrusServer_WatchHeartbeat_ClosedSession_ExitsAndMarksOffline(t *test
 	serverConn, done := testWSPair(t)
 	defer done()
 
-	sess, err := NewAgentSession("wh-uuid", "wh-agent", serverConn)
+	sess, err := NewAgentSession("wh-uuid", "wh-agent", false, serverConn)
 	require.NoError(t, err)
 
 	// Close session immediately so IsAlive() returns false on first tick.
@@ -394,7 +394,7 @@ func TestHandleWebSocket_DisplacesExistingSession(t *testing.T) {
 	// prior connection that has not yet been cleaned up.
 	oldConn, oldCleanup := testWSPair(t)
 	defer oldCleanup()
-	oldSess, err := NewAgentSession("displace-uuid", "displace-agent", oldConn)
+	oldSess, err := NewAgentSession("displace-uuid", "displace-agent", false, oldConn)
 	require.NoError(t, err)
 	srv.sessions.Store("displace-uuid", oldSess)
 

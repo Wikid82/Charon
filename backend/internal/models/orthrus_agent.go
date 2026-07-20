@@ -47,6 +47,13 @@ type OrthrusAgent struct {
 	// 0 = disabled. Valid values: 1024–65535.
 	ExternalProxyPort int `json:"external_proxy_port" gorm:"default:0"`
 
+	// WriteEnabled opts this agent into a narrow, fixed set of Docker write endpoints
+	// (image pull, container start/stop/restart/create/remove) in addition to the
+	// unconditional read-only allowlist. false = read-only (default). Enforced
+	// independently by both backend/internal/orthrus/muzzle.go and agent/muzzle/muzzle.go.
+	// Takes effect on the agent's next reconnect (see AgentSession handshake).
+	WriteEnabled bool `json:"write_enabled" gorm:"default:false"`
+
 	LastHeartbeat *time.Time `json:"last_heartbeat,omitempty"`
 	LastSeen      *time.Time `json:"last_seen,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`

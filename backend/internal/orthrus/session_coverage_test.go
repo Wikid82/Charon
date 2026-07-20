@@ -72,7 +72,7 @@ func TestAgentSession_GetProxyAddr_WithPort(t *testing.T) {
 	serverConn, done := testWSPair(t)
 	defer done()
 
-	sess, err := NewAgentSession("port-uuid", "port-agent", serverConn)
+	sess, err := NewAgentSession("port-uuid", "port-agent", false, serverConn)
 	require.NoError(t, err)
 	defer func() { _ = sess.Close() }()
 
@@ -105,7 +105,7 @@ func TestGetExternalProxyStatus_ErrorFieldPopulated(t *testing.T) {
 	serverConn, done := testWSPair(t)
 	defer done()
 
-	sess, err := NewAgentSession("ext-err-uuid", "ext-err-agent", serverConn)
+	sess, err := NewAgentSession("ext-err-uuid", "ext-err-agent", false, serverConn)
 	require.NoError(t, err)
 	defer func() { _ = sess.Close() }()
 

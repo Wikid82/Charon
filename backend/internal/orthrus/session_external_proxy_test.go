@@ -38,7 +38,7 @@ func sessionWithLoopback(t *testing.T) (sess *AgentSession, clientYamux *yamux.S
 	cy, err := yamux.Client(newWSNetConn(clientConn), cfg)
 	require.NoError(t, err)
 
-	s, err := NewAgentSession("ext-test-uuid", "ext-test-agent", serverConn)
+	s, err := NewAgentSession("ext-test-uuid", "ext-test-agent", false, serverConn)
 	require.NoError(t, err)
 	require.NoError(t, s.StartDockerProxy())
 
@@ -89,7 +89,7 @@ func TestStartExternalProxy_ZeroPortIsNoOp(t *testing.T) {
 	serverConn, done := testWSPair(t)
 	defer done()
 
-	sess, err := NewAgentSession("ext01-uuid", "ext01-agent", serverConn)
+	sess, err := NewAgentSession("ext01-uuid", "ext01-agent", false, serverConn)
 	require.NoError(t, err)
 	defer func() { _ = sess.Close() }()
 
@@ -103,7 +103,7 @@ func TestStartExternalProxy_LoopbackNotStarted(t *testing.T) {
 	serverConn, done := testWSPair(t)
 	defer done()
 
-	sess, err := NewAgentSession("ext02-uuid", "ext02-agent", serverConn)
+	sess, err := NewAgentSession("ext02-uuid", "ext02-agent", false, serverConn)
 	require.NoError(t, err)
 	defer func() { _ = sess.Close() }()
 

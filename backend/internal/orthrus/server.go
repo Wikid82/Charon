@@ -84,7 +84,7 @@ func (s *OrthrusServer) HandleWebSocket(c *gin.Context) {
 		return
 	}
 
-	session, err := NewAgentSession(agent.UUID, agent.Name, conn)
+	session, err := NewAgentSession(agent.UUID, agent.Name, agent.WriteEnabled, conn)
 	if err != nil {
 		logger.Log().WithError(err).Error("orthrus: create agent session failed")
 		_ = conn.Close()

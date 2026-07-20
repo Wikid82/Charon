@@ -7,8 +7,20 @@ import (
 	"strings"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/util"
+	"golang.org/x/time/rate"
 )
+
+// AuditLogger is the narrow interface Muzzle depends on for write-path audit
+// logging. Satisfied by *services.SecurityService at the call site in
+// session.go, where the concrete type is available. Muzzle cannot import
+// services directly: services/orthrus_service.go already imports
+// "github.com/Wikid82/charon/backend/internal/orthrus", so an orthrus →
+// services import would create a cycle.
+type AuditLogger interface {
+	LogAudit(a *models.SecurityAudit) error
+}
 
 // sanitizePath strips newlines and carriage returns from a path string to
 // prevent log injection (CWE-117).
@@ -92,14 +104,42 @@ var allowedDockerPrefixSuffixPatterns = []struct {
 }
 
 // Muzzle is an http.Handler wrapper that restricts Docker socket access
-// to a curated allowlist of read-only, non-destructive endpoints.
+// to a curated allowlist of read-only, non-destructive endpoints, plus an
+// optional narrow set of write endpoints when writeEnabled is true.
 type Muzzle struct {
 	next http.Handler
+	// writeEnabled is fixed at construction time (one Muzzle per AgentSession,
+	// per external-proxy start) — never re-read from the DB per-request. See
+	// NewMuzzle doc comment for why.
+	writeEnabled bool
+	// writeLimiter bounds write-request throughput; nil unless writeEnabled.
+	writeLimiter *rate.Limiter
+	// auditLogger records every write attempt (allowed or blocked); nil is
+	// tolerated (no-op) so tests and read-only sessions don't need one.
+	auditLogger AuditLogger
+	// agentUUID identifies the session this Muzzle guards, for audit entries.
+	agentUUID string
 }
 
 // NewMuzzle wraps handler with the Docker socket allowlist filter.
-func NewMuzzle(next http.Handler) *Muzzle {
-	return &Muzzle{next: next}
+//
+// writeEnabled, writeLimiter, auditLogger, and agentUUID govern the optional
+// write-endpoint allowlist (see Section 3.3.3 of the Orthrus write-mode
+// spec). writeEnabled is captured once, at construction time, and never
+// re-checked against the database on a per-request basis — StartExternalProxy
+// constructs a new Muzzle per AgentSession using the value negotiated at
+// connect time, so toggling the DB flag only takes effect on the agent's next
+// reconnect. Re-reading it per-request would both reintroduce a TOCTOU-like
+// inconsistency with that reconnect-to-apply guarantee and add a DB
+// round-trip to the hot proxy path.
+func NewMuzzle(next http.Handler, writeEnabled bool, writeLimiter *rate.Limiter, auditLogger AuditLogger, agentUUID string) *Muzzle {
+	return &Muzzle{
+		next:         next,
+		writeEnabled: writeEnabled,
+		writeLimiter: writeLimiter,
+		auditLogger:  auditLogger,
+		agentUUID:    agentUUID,
+	}
 }
 
 // ServeHTTP implements http.Handler. Only GET requests to allowlisted paths
