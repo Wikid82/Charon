@@ -504,11 +504,17 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 				hecateHandler := handlers.NewHecateHandler(hecateSvc)
 				hecateHandler.RegisterRoutes(management)
 
-				orthrusHandler := handlers.NewOrthrusHandler(orthrsuSvc)
+				orthrusHandler := handlers.NewOrthrusHandler(orthrsuSvc, securityService)
 				orthrusHandler.RegisterRoutes(management)
 
 				if orthrusServer != nil {
 					orthrusHandler.SetProxyResolver(orthrusServer)
+					// Wires write-path audit logging (Section 3.3.7 of the
+					// Orthrus write-mode spec) — securityService satisfies
+					// orthrus.AuditLogger structurally; orthrus never imports
+					// services directly (see AuditLogger's doc comment in
+					// muzzle.go for why that import direction is a cycle).
+					orthrusServer.SetAuditLogger(securityService)
 				}
 
 				hecateWSHandler := handlers.NewHecateWSHandler(hecateSvc, wsTracker)
