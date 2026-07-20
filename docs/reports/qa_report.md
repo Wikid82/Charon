@@ -1,185 +1,119 @@
-# QA Report — Orthrus External Docker Proxy Hotfix
+# QA Report — Orthrus Muzzle Normalization Parity + Agent CI Enforcement (GH #1160 + #1161)
 
-**Date:** 2026-07-18
-**Branch:** `development`
-**Base commit:** `0d81fc9e` (fix(deps): pin gosu's golang.org/x/sys to v0.46.0)
-**Head commit:** `1caa4c65`
-**Scope:** Backend-only hotfix — three verified, independent gaps in the Orthrus External Docker Proxy subsystem. Zero frontend files touched.
+**Date:** 2026-07-20
+**Branch:** `feature/orthrus` (unpushed — no upstream configured)
+**Scope of this audit:** 7 new commits `6fe7a800`..`6562a64b`, stacked on 5 pre-existing write-mode commits `a4be39e2`..`d2fa3154`
+**Correct diff base for the 7 audited commits:** `d2fa3154..HEAD` (verified `6fe7a800~1 == d2fa3154`)
+**Pipeline stage:** Final QA/Security audit, after Planning → Supervisor (plan, 2 cycles) → Backend Dev (TDD) → Supervisor (implementation, 2 cycles, both APPROVE)
 
-**Commits (5, in order):**
-1. `98a68b67` fix(orthrus): allow read-only image/distribution inspect through Docker proxy muzzle
-2. `7f307c3c` fix(orthrus): resolve external proxy hostname from request context instead of hardcoding it
-3. `1eb266d2` fix(orthrus): remove hardcoded "charon" hostname from ExternalProxyStatus
-4. `c778b53a` docs(orthrus): document the External Docker Proxy feature
-5. `1caa4c65` docs(plans): record Orthrus external proxy hotfix spec
+**Files touched by the 7 audited commits** (28 files, `d2fa3154..HEAD`):
+`.github/workflows/codecov-upload.yml`, `.github/workflows/quality-checks.yml`, `.golangci-fast.yml` (moved from `backend/`), `ARCHITECTURE.md`, `CHANGELOG.md`, `Makefile`, `agent/cert/cert_test.go` (new), `agent/leash/leash.go`, `agent/leash/leash_test.go`, `agent/muzzle/muzzle.go`, `agent/muzzle/muzzle_test.go`, `agent/protocol/message_test.go` (new), `backend/cmd/localpatchreport/main.go`, `backend/cmd/localpatchreport/main_test.go`, `backend/internal/orthrus/muzzle.go`, `backend/internal/orthrus/muzzle_test.go`, `backend/internal/orthrus/testdata/muzzle_corpus.json`, `backend/internal/patchreport/patchreport.go`, `backend/internal/patchreport/patchreport_test.go`, `codecov.yml`, `docs/plans/current_spec.md`, `lefthook.yml`, `scripts/agent-test-coverage.sh` (new), `scripts/check-module-coverage.sh` (new), `scripts/ci/check_muzzle_allowlist_parity.go` (new), `scripts/local-patch-report.sh`, `scripts/pre-commit-hooks/golangci-lint-fast.sh`, `scripts/pre-commit-hooks/golangci-lint-full.sh`.
 
-**Changed files:**
-- `backend/internal/orthrus/muzzle.go`, `backend/internal/orthrus/muzzle_test.go`
-- `backend/internal/orthrus/session.go`
-- `backend/internal/api/handlers/orthrus_handler.go`, `backend/internal/api/handlers/orthrus_handler_test.go`
-- `docs/features/orthrus.md`, `docs/guides/remote-docker-setup.md`
-- `docs/plans/current_spec.md`
+**Note on an earlier miscitation in this audit's working notes:** an initial `git diff --stat` was run against the wrong base (`30cf1c08`, one commit too early), which incorrectly attributed `docs/features/orthrus.md` and `tests/orthrus-write-mode.spec.ts` changes to the 7 audited commits. Both files actually belong to the prior, already-approved `d2fa3154` write-mode commit. This was caught and corrected before any gate conclusion was finalized; it does not change any finding below.
 
 ---
 
-## DoD Gate Results Summary
+## Gate Results Summary
 
 | # | Gate | Status | Notes |
 |---|---|---|---|
-| 1 | Backend build (`go build ./...`) | PASS | Clean build, zero errors |
-| 2 | Backend full test suite (`go test ./...`) | PASS | All packages `ok` |
-| 2b | Targeted tests (muzzle, orthrus_handler) | PASS | All new/updated test cases pass |
-| 3 | `make lint-fast` | PASS | 0 issues |
-| 3b | `make lint-staticcheck-only` | ENV-BROKEN (pre-existing) | golangci-lint v2 vs `--disable-all` flag incompatibility; not introduced by this hotfix |
-| 4 | `lefthook run pre-commit` (scoped to changed files) | PASS | go-vet, golangci-lint-fast (0 issues), semgrep (0 findings) all green |
-| 5 | GORM security scan | N/A — confirmed not triggered | Zero diff under `backend/internal/models/**`, no GORM query changes |
-| 6 | `bash scripts/local-patch-report.sh` | PASS | 100% overall/backend patch coverage (target 90%) |
-| 7 | `scripts/go-test-coverage.sh` (backend ≥85%) | PASS | 88.9% statement coverage |
-| 7b | Frontend coverage (`test:coverage`) | PASS | 88.86% statements / 90% lines (informational — zero frontend files in this patch) |
-| 8 | Playwright E2E — Orthrus/uptime specs | PARTIAL PASS (2 pre-existing, unrelated failures) | See detail below |
-| 9 | Muzzle allowlist security verification | PASS | Additive-only, GET-only, no widening |
-| 10 | `docs/features/orthrus.md` read-only promise | PASS | Textually and functionally intact |
-| 11 | `tcp://charon` literal grep | PASS | Zero matches in `backend/` |
-| — | Frontend diff check | PASS | `git diff --stat -- frontend/` empty |
+| 1 | Playwright E2E | **N/A (confirmed)** | Zero `frontend/` or `tests/` paths in the 7-commit diff (`d2fa3154..HEAD`). Skipped per CLAUDE.md's own gate-applicability allowance. |
+| 2 | GORM Security Scan | **N/A (confirmed)** | Zero `backend/internal/models/**`, zero GORM queries/migrations in the 7-commit diff. |
+| 3 | Local Patch Coverage Preflight | **PASS (artifacts) / WARN (thresholds)** | Artifacts generated; `agent/` scope now genuinely populated (see Finding 1). |
+| 4 | Security Scans — CodeQL Go | **PASS** | `lefthook run codeql` → 0 findings in `codeql-results-go.sarif` (empty results array). |
+| 4 | Security Scans — CodeQL JS | **PASS** | `lefthook run codeql` → 0 findings in `codeql-results-js.sarif`. Parity check (`4-parity-check`) also passed. |
+| 4 | Semgrep (SAST) | **PASS** | Scoped to the 28 files the 7 commits touch: 122 rules, 0 findings. Full-repo `--all-files` sweep also run for completeness (see Verification Method Notes). |
+| 4 | Trivy / govulncheck | **PASS** | No new dependencies in this PR (zero `go.mod`/`go.sum`/`Dockerfile` diff); `govulncheck ./...` clean (0 exploitable) in both `backend/` and `agent/`. Full container Trivy scan deferred to normal PR CI (see notes). |
+| 5 | Staticcheck (backend + agent) | **PASS** | `make lint-staticcheck-only` → `0 issues` for both modules. |
+| 6 | Backend coverage (≥85%) | **PASS** | 89.0% line coverage via `scripts/go-test-coverage.sh` (gate: 87%). |
+| 6 | Agent coverage (≥65%, new gate) | **PASS (thin margin — see Finding 2)** | 65.3% line coverage via `scripts/agent-test-coverage.sh` (gate: 65%). Margin is 0.3 points. |
+| 7 | Frontend type-check | **PASS (trivial)** | `tsc --noEmit` clean; zero frontend diff. |
+| 8 | Build — backend | **PASS** | `cd backend && go build ./...` clean. |
+| 8 | Build — agent | **PASS** | `cd agent && go build ./...` clean. |
+| 9 | Full test suites | **PASS** | `backend`: all packages `ok`. `agent`: all packages `ok`, including new `agent/cert`, `agent/protocol` tests. |
+| 9 | 4 corpus rows red→green | **PASS (independently verified)** | All 4 previously-failing `TestFilter_SharedCorpus` rows now pass; `TestMuzzle_SharedCorpus` (backend) unaffected (unchanged pass). |
+| 9 | Parity checker exits 0 | **PASS** | `go run scripts/ci/check_muzzle_allowlist_parity.go` → exit 0, "all 8 paired declarations match." |
+| 10 | Security-specific fix review | **PASS** | See "Security Review of the Fix" below — all 3 documented divergences closed; adversarial probing beyond the corpus found no new divergence. |
+| 11 | Git state | **PASS** | All 12 audited commits are clean/committed; no upstream configured for `feature/orthrus`; nothing pushed. (The only working-tree change at report time is this report file itself, `docs/reports/qa_report.md`, being authored as this audit's own deliverable — not part of the audited code.) |
+
+**Overall disposition: READY to hand back to the user for manual review/push**, with two non-blocking findings (below) the user should be aware of before opening the PR — neither is a security defect, and neither requires looping back to Backend Dev unless the user wants the margins widened first.
 
 ---
 
-## Detail
+## Findings
 
-### 1–2. Backend Build & Tests
+### Finding 1 — MEDIUM (process/coverage) — Local patch coverage below mandated thresholds
 
-```
-cd backend && go build ./...        → clean, no output
-go test ./...                       → ok for every package
-go test ./internal/orthrus/... -run TestMuzzle -v                    → all PASS
-go test ./internal/api/handlers/... -run 'ProxyStatus|ExternalProxy' -v → all PASS
-```
+`bash scripts/local-patch-report.sh` (baseline `origin/main...HEAD`, i.e. the full unmerged feature — all 12 commits, since nothing from this branch has merged yet) reports:
 
-New/updated tests all pass, including:
-- `TestMuzzle_DynamicPaths_Passthrough` (extended with `/images/*/json`, `/distribution/*/json` cases)
-- `TestMuzzle_UnknownPath_Blocked` (extended with the documented multi-segment-name limitation case)
-- `TestMuzzle_ImageAndDistributionEndpoints_POSTBlocked` (new — regression guard)
-- `TestOrthrusHandler_GetProxyStatus_Connected` (updated assertion for handler-resolved hostname)
-- `TestOrthrusHandler_GetProxyStatus_ConnectionString_UsesXCharonURLHeader` (new)
-- `TestOrthrusHandler_GetProxyStatus_ConnectionString_HostPortStripped` (new)
-- `TestOrthrusHandler_GetProxyStatus_ConnectionString_EmptyWhenInactive` (new)
+| Scope | Changed Lines | Covered | Patch Coverage | Threshold | Status |
+|---|---:|---:|---:|---:|---|
+| Overall | 409 | 359 | 87.8% | 90.0% | **warn** |
+| Backend | 275 | 248 | 90.2% | 85.0% | pass |
+| Frontend | 0 | 0 | 100.0% | 85.0% | pass |
+| Agent | 134 | 111 | 82.8% | 85.0% | **warn** |
 
-Per-function coverage on all new/changed code is 100%: `resolveExternalProxyHost`, `GetProxyStatus`, `Muzzle.ServeHTTP`, `GetExternalProxyStatus`.
+Files needing coverage (from `test-results/local-patch-report.md`):
 
-### 3. Lint / Staticcheck
+| Path | Patch Coverage | Uncovered Lines |
+|---|---:|---|
+| `backend/internal/orthrus/server.go` | 62.5% | 61-63 |
+| `agent/leash/leash.go` | 63.2% | 172, 177-178, 188, 198-199, 232 |
+| `agent/muzzle/muzzle.go` | 86.1% | 191-192, 205-206, 216-217, 233-234, 248-249, 409-410, 412-414, 438 |
+| `backend/internal/orthrus/session.go` | 86.7% | 165-166 |
+| `backend/internal/orthrus/muzzle.go` | 89.6% | 195-196, 222-223, 236-237, 258-259, 265-267, 283-284, 298-299, 327-328 |
+| `backend/internal/patchreport/patchreport.go` | 90.5% | 124, 158 |
+| `backend/cmd/localpatchreport/main.go` | 91.2% | 112-114 |
 
-`make lint-fast` (golangci-lint with staticcheck, govet, errcheck, ineffassign, unused): **0 issues**.
+**Root cause traced (per CLAUDE.md's Root Cause Analysis Protocol, not just the surface warning):** the tool's diff baseline is `origin/main`, which is correct — nothing in this 12-commit feature has merged, so the *whole* feature must clear 90%/85% before merge, not just today's 7 commits. Most of the gap (`server.go`, `session.go`, most of `agent/leash/leash.go`) originates in the earlier 5 write-mode commits, already through 2 rounds of Supervisor review before today. Within the 7 commits under *this* audit specifically, the relevant uncovered lines are the error-return branches of `validateNetworkModeValue`/`validateMountsValue`/`validateContainerCreateBody` in both `muzzle.go` files (malformed-JSON and oversized-body rejection paths) — these are fail-closed-by-default branches (an unmarshal error already returns `false`/reject), so the coverage gap is a test-completeness gap, not a live security gap: the untested lines cannot be coerced into the *permissive* outcome, only the already-safe one.
 
-`make lint-staticcheck-only` fails with `Error: unknown flag: --disable-all` — this is a golangci-lint **v2.11.4** incompatibility with a v1-only CLI flag baked into the Makefile target. Verified this is pre-existing and unrelated to this hotfix: `git diff 0d81fc9e..HEAD -- Makefile` is empty (Makefile untouched by this PR). `lint-fast` is authoritative for staticcheck coverage per the task brief and reports clean.
+**This is genuinely important to flag** because:
+- The local script itself is hardcoded to always report `Mode: "warn"` (`backend/cmd/localpatchreport/main.go:157`) and exits 0 regardless — it will never block a local commit. The actual enforcement point is Codecov's patch-coverage check once this PR is opened against GitHub, which may fail and block merge.
+- `agent/leash/leash.go`'s uncovered lines are pre-existing/out-of-scope per the plan's own Section 3.5 ("`agent/leash` ... explicitly not required to increase coverage in this PR"), but the tool still counts them against the *overall* number since those lines technically changed (3 `defer x.Close()` → `defer func() { _ = x.Close() }()` edits made to satisfy the new staticcheck gate) and file line-shifting causes the diff to touch nearby context.
 
-### 4. Lefthook
+**Recommendation:** before opening the PR, either (a) add a handful of targeted unit tests for the listed error-branches in `muzzle.go` (both files) to close the ~3-4 points of gap most directly attributable to this PR's own new code, or (b) accept the current state and rely on Codecov's actual PR-level patch-coverage check, understanding it may require a follow-up commit if it fails there. Not a blocker for handing back to the user — but the user should not be surprised if Codecov flags this on PR open.
 
-A full unscoped `lefthook run pre-commit` run pulls in the entire frontend lint/CodeQL suite (unrelated to this backend-only diff) and exceeds 2 minutes, confirming the prior agent's note. Scoped the run to exactly the 8 changed files using `lefthook run pre-commit --file <path>...` (glob-based job skip logic preserved, unlike `--files-from-stdin --force` which bypasses glob skipping and force-runs irrelevant jobs like `shellcheck`/`check-version-match` against files that don't match their globs).
+### Finding 2 — LOW (process) — Agent coverage gate has almost no margin
 
-Result (14.6s):
-```
-✔️ block-codeql-db / block-data-backups / check-lfs-large-files / trailing-whitespace / end-of-file-fixer
-✔️ go-vet
-✔️ golangci-lint-fast   → 0 issues
-✔️ semgrep              → 120 rules run on 5 Go files, 0 findings (secrets scan included)
-```
-All frontend/actionlint/shellcheck/check-version-match jobs correctly skip ("no matching staged files") since none of the changed files match their globs.
+`scripts/agent-test-coverage.sh` measured 65.3% against a 65% gate (`CHARON_AGENT_MIN_COVERAGE` default) — a 0.3-percentage-point margin. Verified this is a real, non-rigged calibration (not e.g. a 0% floor): the script's arithmetic is identical to backend's coverage gate, and the threshold is explicitly documented in the script as calibrated to "the module's actual aggregate line coverage after this PR's new tests landed," correctly attributing the low aggregate to `agent/leash` sitting at ~44% (pre-existing, explicitly out of scope per the plan). This is real and working as designed, but the margin is thin enough that almost any future commit touching `agent/` without a matching test could flip this gate red. Non-blocking; flagging for awareness only.
 
-### 5. GORM Security Scan
+### Finding 3 — informational — `agent-quality` CI job lint scope differs from `backend-quality`
 
-Not applicable. Confirmed via `git diff 0d81fc9e..HEAD --stat -- backend/internal/models/` (empty) and a targeted grep of the three touched Go files for GORM query patterns (only a pre-existing, unmodified `gorm.ErrRecordNotFound` check in `Patch`, outside the diff). Per CLAUDE.md's conditional gate, this scan is correctly skipped rather than run blindly.
-
-### 6. Local Patch Coverage
-
-```
-bash scripts/local-patch-report.sh
-→ Local patch report generated (mode=warn)
-→ test-results/local-patch-report.json, test-results/local-patch-report.md
-```
-
-| Scope | Changed Lines | Covered Lines | Patch Coverage | Status |
-|---|---:|---:|---:|---|
-| Overall | 17 | 17 | 100.0% | pass |
-| Backend | 17 | 17 | 100.0% | pass |
-| Frontend | 0 | 0 | 100.0% (vacuous) | pass |
-
-Well above the 90% informational target in `codecov.yml`. Baseline: `origin/main...HEAD`.
-
-Note: frontend coverage (`frontend/coverage/lcov.info`) had to be generated solely to satisfy this script's hard precondition that both backend and frontend coverage inputs exist — it contributes 0 changed lines to the patch calculation since this hotfix touches no frontend files. Frontend suite ran clean: 88.86% statements / 90% lines overall (informational, not part of this hotfix's correctness signal).
-
-### 7. Coverage Gates
-
-Backend (`scripts/go-test-coverage.sh`): **88.9%** statement / **89.0%** line coverage, gate is 87% → **PASS**.
-Frontend (`scripts/frontend-test-coverage.sh` equivalent): **88.86%** statements / **90%** lines → PASS (informational for this backend-only PR).
-
-### 8. Playwright E2E
-
-Ran the 5 named specs with `npx playwright test --project=firefox`, against the already-healthy `charon-e2e` container (no rebuild needed — test-only/backend-only change, container was already healthy).
-
-| Spec | Result | Notes |
-|---|---|---|
-| `orthrus-agents.spec.ts` | 24/24 PASS | |
-| `orthrus-external-proxy.spec.ts` | 8/8 PASS | Includes `connection_string` display/format assertions — contract unchanged, confirms Gap 3 fix is transparent to the frontend |
-| `orthrus-proxy-paths.spec.ts` | 9/9 PASS | |
-| `uptime-orthrus.spec.ts` | 3/4 PASS | 1 failure — **pre-existing, unrelated** (see below) |
-| `orthrus-agent-install.spec.ts` | **ALL FAILING** | **Pre-existing, unrelated** (see below) |
-
-**Both failures are confirmed unrelated to this hotfix.** `git diff 0d81fc9e..HEAD --stat -- frontend/ tests/` is empty — this PR touches zero files under `frontend/` or `tests/`, so neither failure can be a regression introduced by these five commits.
-
-**Finding A (non-blocking, pre-existing) — `orthrus-agent-install.spec.ts`, all 18 tests fail:**
-Every test in this file routes through a shared `openOrthrusWizard()` helper that does `page.locator('#connection-type').selectOption('orthrus')`. That element no longer exists: the actual UI on `/remote-servers` now renders a "Connection mode" **radio button group** (Direct / Agent / Provider), not a `<select id="connection-type">`. Root-caused via `git log -S "connection-type" -- frontend/`: commit `4e9c5a9e` ("fix(hecate): fix stale E2E selectors...", 2026-05-05) performed exactly this `<select>`→radio-group migration and updated the *other* affected spec (`tests/hecate-tunnel-manager.spec.ts`) to use `getByRole('radio')`, but never touched `tests/orthrus-agent-install.spec.ts`. `4e9c5a9e` is already an ancestor of this hotfix's base commit `0d81fc9e` (confirmed via `git merge-base --is-ancestor`), so this breakage predates this hotfix by roughly 2.5 months. Each test times out at 90s on the stale locator; with the file's 18 tests split across 2 workers this takes ~15 minutes to exhaust, so the full run was not driven to completion, but the failure signature is 100% consistent across every test-results artifact produced and matches the root cause exactly.
-**Recommendation:** file a follow-up issue to update `tests/orthrus-agent-install.spec.ts`'s `openOrthrusWizard()` helper to use the radio-button locator, matching the pattern already applied to `hecate-tunnel-manager.spec.ts` in `4e9c5a9e`. Not a code defect — a stale test fixture.
-
-**Finding B (non-blocking, pre-existing) — `uptime-orthrus.spec.ts:160`, "non-Orthrus monitor at same IP is checked independently":**
-Fails deterministically (reproduced twice). The test mocks `**/api/v1/uptime/monitors` via `page.route()` to return exactly 2 monitors (one Orthrus, one TCP) and asserts card order. The first `monitor-card` observed instead reads `"Dockhand Service...100.99.23.57:3001...TCP...Last Check: over 1 year ago"` — real, persisted data from the long-lived `charon-e2e` container's database (the container has been up 24h+ and accumulates cross-run state), not the mocked fixture. This points to either a route-mock race (an unmocked initial fetch or background refetch winning) or genuine test-data leakage in the shared E2E environment — not a rendering-order bug introduced by this hotfix, which touches zero uptime/monitor code (backend or frontend). `cards.toHaveCount(2)` passes in an earlier step, which is consistent with a subsequent refetch replacing the mocked data.
-**Recommendation:** follow-up to either harden the route mock (assert `route.fulfilled` before proceeding, or force a fresh `charon-e2e` container between runs) or purge stale uptime-monitor fixtures from the shared E2E environment.
-
-**Conclusion for gate 8:** the plan's Section 8 assumption that all 5 specs "pass unmodified" does not hold for 2 of the 5 files, but both are demonstrably pre-existing environment/test-fixture drift, unconnected to this hotfix's actual code changes. The specs that directly exercise this hotfix's contract — `orthrus-external-proxy.spec.ts` (connection_string shape/display) and `orthrus-proxy-paths.spec.ts`/`orthrus-agents.spec.ts` (unaffected surface) — all pass cleanly.
-
-### 9. Muzzle Allowlist Security Verification
-
-Diff of `backend/internal/orthrus/muzzle.go` is purely additive: two new entries appended to `allowedDockerPatterns` (`/images/*/json`, `/distribution/*/json`) plus an explanatory doc comment. Verified:
-- Both new endpoints are Docker Engine API `GET`-only inspect endpoints (Image Inspect, Distribution/registry digest inspect) with no documented write side effects.
-- `Muzzle.ServeHTTP`'s unconditional method check (reject non-GET before any path match) is byte-for-byte unchanged — confirmed via full-file read and diff.
-- `TestMuzzle_ImageAndDistributionEndpoints_POSTBlocked` (new) and pre-existing `TestMuzzle_POST_Blocked` (which explicitly cases `POST /images/create`) both pass, proving the write endpoint (`images/create`, image pull) was **not** accidentally exposed and the new read patterns remain GET-only.
-- No changes to `allowedDockerPaths`, `versionPrefixRe`, `sanitizePath`, or the traversal-hardening `path.Clean` call.
-- The documented `path.Match` single-segment-`*` limitation (namespaced image names like `bitnami/nginx:latest` still 403) is accurately disclosed in both the code comment and `muzzle_test.go`'s `TestMuzzle_UnknownPath_Blocked` case — a known, accepted, non-security-relevant gap (it only makes the allowlist *more* restrictive than intended, never less).
-
-**Verdict: no widening beyond the two intended, verified-read-only patterns.**
-
-### 10. `docs/features/orthrus.md` Read-Only Promise
-
-The existing sentence "This restriction is enforced at every single request — there is no way to turn it off" (line ~106) is untouched. The new "External Docker Proxy (Advanced)" section explicitly reiterates "Still strictly read-only... there is no way to turn this restriction off" and correctly describes the registry-digest-check caveat (outbound network call to the registry is expected, but it cannot mutate the Docker host). Textually and functionally consistent — the promise still holds because `Muzzle.ServeHTTP`'s enforcement logic is unchanged.
-
-### 11. Hostname Regression Guard
-
-```
-grep -rn 'tcp://charon' backend/ --include="*.go"   → zero matches
-```
-`session.go`'s `ExternalProxyStatus.ConnectionString` field and its hardcoded `fmt.Sprintf("tcp://charon:%d", ...)` construction were fully removed; `orthrus_handler.go`'s `GetProxyStatus` now builds `connection_string` from request context via the new `resolveExternalProxyHost` helper, preserving the `active && activePort > 0` guard (previously in `session.go`, now correctly relocated to the handler). Repo-wide grep for any remaining production reference to the removed `ConnectionString` struct field also returned zero matches (only test *function names* containing the substring "ConnectionString" remain, which is expected and correct).
-
-### Frontend Diff Confirmation
-
-`git diff 0d81fc9e..HEAD --stat -- frontend/` → empty. `git diff 0d81fc9e..HEAD --stat -- backend/go.mod backend/go.sum Dockerfile` → empty (no new dependencies, no Dockerfile changes) — satisfies the "Trivy: no new findings" expectation without needing a full container rescan, since no new packages were introduced and the base image/Dockerfile are untouched. Frontend type-check is correctly N/A.
+`backend-quality`'s golangci-lint step runs the **full** linter suite with `continue-on-error: true` (non-blocking/advisory — the actual blocking gate for backend is the separate staticcheck-only lefthook pre-commit hook). `agent-quality`'s equivalent step runs only the **fast/staticcheck** config (`--config ../.golangci-fast.yml`) with no `continue-on-error`, i.e. it is blocking. This isn't a security gap — if anything agent's CI is stricter — but it means the two jobs aren't a literal mirror of each other in linter scope vs. enforcement mode. Not flagged in the plan's own gate-applicability table; worth a note for whoever reviews the workflow YAML (the plan itself calls this file out as needing human review since it can't be validated locally without `act`).
 
 ---
 
-## Findings Summary
+## Security Review of the Fix (Task item 10)
 
-| ID | Severity | Category | Blocking? | Description |
-|---|---|---|---|---|
-| DEF-001 | Low | Environment | No | `make lint-staticcheck-only` broken by golangci-lint v2 vs `--disable-all` flag; pre-existing, `lint-fast` is authoritative |
-| DEF-002 | Medium | Pre-existing test drift | No — follow-up | `tests/orthrus-agent-install.spec.ts` uses a stale `#connection-type` selector removed by an unrelated May 2026 UI refactor; all 18 tests fail. Not caused by this hotfix. |
-| DEF-003 | Low | Pre-existing E2E environment | No — follow-up | `tests/uptime-orthrus.spec.ts` "non-Orthrus monitor..." test fails deterministically due to stale/leaked real data in the long-lived `charon-e2e` container outracing a route mock. Not caused by this hotfix. |
+**Question:** does the agent-side fix in `agent/muzzle/muzzle.go` close all 3 divergences from the plan's Section 2.3, not just the one named in the original GH issue?
 
-No CRITICAL or HIGH severity findings. No security regressions identified in the Muzzle allowlist expansion.
+**Verified yes, all 3, independently:**
+
+1. **Row 1 (traversal-disguised version prefix, GH #1160's own example)** — `GET /foo/../v1.44/images/x/json`. Confirmed via `TestFilter_SharedCorpus` / `TestMuzzle_SharedCorpus`: both now return `403`. Root cause fix: `normalizeDockerPath` in both files now strips the version-prefix regex against the *raw* path before `path.Clean` resolves `..` segments, so a version prefix only revealed by traversal resolution is never mistaken for a real one.
+2. **Row 2 (non-numeric fake version prefix, read path and HEAD `/_ping` variant)** — `GET /vFOO/containers/json`, `HEAD /vBOGUS/_ping`. Confirmed via corpus. Root cause fix: agent's duplicated `/v*/...` loose-wildcard pattern entries were removed entirely; all matching now goes through the single numeric-anchored `versionPrefixRe` (`^/v\d+\.\d+`), identical source string in both files (verified byte-for-byte via the parity checker).
+3. **Row 3 (fake version prefix reaching a write endpoint — the highest-severity row)** — `POST /vFOO/containers/abc/start` with write mode on. Confirmed via corpus. Root cause fix: `allowWrite`'s signature changed from re-deriving its own "unversioned" path (exact-path branch only) to accepting the caller's single pre-normalized path, so the pattern-matching branch (`allowedWritePatterns`) no longer matches against the raw un-stripped path.
+
+**Structural drift guard, independently exercised (not just trusted from the report):** I ran the parity checker against two deliberately-introduced mismatches and confirmed it fails loudly and correctly, then restored the file and re-confirmed a clean `git status`:
+- Added an extra `allowedWritePatterns` entry to `agent/muzzle/muzzle.go` only → checker output: `allowedWritePatterns: present in agent, missing in backend: {POST /networks/*/connect}`, exit 1.
+- Loosened agent's `versionPrefixRe` to `^/v\w+` → checker output: `versionPrefixRe: backend=^/v\d+\.\d+ agent=^/v\w+ (source strings differ)`, exit 1. This is the specific negative-path check for R9 (the Supervisor-requested regex-parity row), and it works.
+
+**Adversarial inputs beyond the committed corpus** (double-encoded traversal, mixed-case version segment, trailing slashes, double version-prefix nesting, case-sensitive `_PING`, encoded traversal segments) were run against both filters. One apparent divergence surfaced initially (`%2e%2e`-encoded traversal: agent said blocked, backend said allowed) — traced to a flaw in my own test harness, not the code: I had called `Filter.Allow` directly with a raw, still-percent-encoded string, bypassing the URL decoding every real request goes through. I verified with a raw HTTP request parsed via `http.ReadRequest` (the actual function `ServeProxy` uses) that `%2e%2e` decodes to `..` in `req.URL.Path` identically to how Gin's `net/url` parsing decodes it for backend — so in the real request-handling path, both filters see the same decoded string and agree (this input resolves to the already-corpus-tested "traversal that legitimately resolves to an allowed path" case). No new divergence found. All scratch test files were deleted after use; `git status` confirmed clean.
+
+**Conclusion:** the fix is not narrowly tailored to only the committed test cases — it's a structural fix (single normalization function, single regex, unversioned-only allowlist data) that closes the entire bug class, not just the 3 named instances of it.
 
 ---
 
-## Final Verdict
+## Verification Method Notes
 
-**READY FOR PR.**
+- All findings above were independently reproduced, not taken on trust from commit messages or the plan document — corpus tests were re-run and their output inspected line-by-line, the parity checker was exercised both positively and negatively, and coverage/build/lint commands were run directly rather than assumed from the plan's own validation-gate descriptions.
+- `codeql-results-go.sarif` / `codeql-results-js.sarif` (freshly generated 2026-07-20 17:31-17:33) both contain zero results at any severity (`jq '[.runs[].results[] | .level] | ...'` → `[]`), which is stronger than "zero Critical/High" — zero findings of any kind.
+- `lefthook run pre-commit` (no modifier) skips everything on a clean tree (all hooks are staged-file-scoped and nothing is staged, since these commits are already committed) — this is expected lefthook behavior, not a gap. `lefthook run pre-commit --all-files` and `lefthook run codeql` were used instead to force full-repo evaluation:
+  - `codeql` (Go + JS + parity check): clean, as above.
+  - `--all-files` sweep results: `muzzle-allowlist-parity` passed; `golangci-lint-fast` (fast config, full repo) — `0 issues` for both `backend/` and `agent/`; `dockerfile-check` passed; `frontend-lint` — 0 errors (1174 pre-existing warnings, entirely outside this PR's diff — zero frontend files touched by the 7 commits); `shellcheck`, `check-yaml`, `go-vet`, `go-vet-agent`, `end-of-file-fixer`, `block-codeql-db`, `block-data-backups`, `check-lfs-large-files` — all clean/no findings.
+  - Two incidental items surfaced by the `--all-files` sweep, neither attributable to the 7 audited commits: (a) `check-version-match` failed because `.version` (`v0.27.0`) is behind the latest git tag (`v0.34.1`) — `.version` was last touched by an unrelated commit (`d231386d`, pre-dating this branch's divergence from `main`) and is not part of this PR's diff; pre-existing branch-hygiene drift, not a defect in this fix. (b) `trailing-whitespace` auto-fixed and re-staged one file — confirmed via `git status`/`git diff --stat` immediately after that it was exclusively this QA report's own not-yet-committed draft (`docs/reports/qa_report.md`), not any committed/audited source file; no audited file was modified.
+  - `semgrep`, scoped precisely to the 28 files the 7 audited commits actually touch (`bash scripts/pre-commit-hooks/semgrep-scan.sh $(git diff d2fa3154..HEAD --name-only)`, the same script and ruleset — `p/golang`, `p/javascript`, `p/typescript`, `p/react`, `p/secrets`, `p/dockerfile` — the lefthook hook itself invokes): **122 rules run, 28/28 targets scanned, ~100% parsed, 0 findings.** (The full unscoped `--all-files` semgrep sweep covers the entire repository including unrelated pre-existing code and was still in progress after several minutes when this scoped, directly-relevant run completed with a clean result; the scoped run is the one that answers "does this PR introduce a SAST finding," which it does not.)
+- Trivy: no container/dependency scan was run to full completion (a `trivy fs` invocation returned 0 language files scanned, likely a directory-targeting issue, not re-investigated given `govulncheck` — the more precise Go-specific tool — was clean and this PR touches zero `go.mod`/`go.sum`/`Dockerfile` content). Recommend a full `make trivy`-equivalent container scan still be run as part of the normal PR CI pipeline once opened, per SECURITY.md's standard process; not expected to differ from the already-tracked, pre-existing findings in SECURITY.md's "Known Vulnerabilities" section since no new dependencies were introduced.
 
-All gates that this hotfix's own code changes can affect — backend build, backend/targeted tests, lint-fast, scoped lefthook (govet/golangci-lint/semgrep), GORM applicability check, patch coverage (100%), overall backend coverage (88.9%), the Muzzle security review, the hostname regression guard, and the two E2E specs that actually exercise this hotfix's contract (`orthrus-external-proxy.spec.ts`, `orthrus-proxy-paths.spec.ts`) plus `orthrus-agents.spec.ts` — pass cleanly.
+## Recommendation
 
-The two E2E failures (DEF-002, DEF-003) and the staticcheck tooling gap (DEF-001) are all independently confirmed, via git history and diff scope, to predate this hotfix and to be unrelated to the muzzle/session/handler changes it makes. None block this PR; DEF-002 and DEF-003 are recommended as tracked follow-up issues.
+**Ready to hand back to the user for manual review/push.** No CRITICAL or HIGH findings. The two coverage-related findings (Finding 1, Finding 2) are process observations worth the user's attention before opening the PR against GitHub (where Codecov's own patch-coverage check may be stricter than this local advisory tool), but do not indicate a defect in the security fix itself — the muzzle normalization parity fix is verified correct, complete against all 3 documented divergences, and independently confirmed by both the shared corpus and out-of-corpus adversarial testing. All 12 commits on `feature/orthrus` remain unpushed (no upstream configured); the only uncommitted change in the working tree is this report itself.
