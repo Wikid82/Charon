@@ -3,29 +3,30 @@ package handlers
 import (
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"strconv"
 	"strings"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
 type AuthHandler struct {
-	authService *services.AuthService
-	db          *gorm.DB
+	authService    *services.AuthService
+	db             *gorm.DB
+	trustedProxies []string
 }
 
-func NewAuthHandler(authService *services.AuthService) *AuthHandler {
-	return &AuthHandler{authService: authService}
+func NewAuthHandler(authService *services.AuthService, trustedProxies []string) *AuthHandler {
+	return &AuthHandler{authService: authService, trustedProxies: trustedProxies}
 }
 
 // NewAuthHandlerWithDB creates an AuthHandler with database access for forward auth.
-func NewAuthHandlerWithDB(authService *services.AuthService, db *gorm.DB) *AuthHandler {
-	return &AuthHandler{authService: authService, db: db}
+func NewAuthHandlerWithDB(authService *services.AuthService, db *gorm.DB, trustedProxies []string) *AuthHandler {
+	return &AuthHandler{authService: authService, db: db, trustedProxies: trustedProxies}
 }
 
 // isProduction checks if we're running in production mode
@@ -34,11 +35,29 @@ func isProduction() bool {
 	return env == "production" || env == "prod"
 }
 
-func requestScheme(c *gin.Context) string {
-	if proto := c.GetHeader("X-Forwarded-Proto"); proto != "" {
-		// Honor first entry in a comma-separated header
-		parts := strings.Split(proto, ",")
-		return strings.ToLower(strings.TrimSpace(parts[0]))
+// isTrustedPeer reports whether the request's actual TCP peer (its raw
+// RemoteAddr — never a header) is in the configured trusted-proxy set. Only
+// a trusted peer's X-Forwarded-Proto/X-Forwarded-Host are honored by
+// requestScheme/isLocalRequest below. Empty trustedProxies => always false
+// (trust nobody), matching Gin's SetTrustedProxies(nil) default.
+func isTrustedPeer(c *gin.Context, trustedProxies []string) bool {
+	if len(trustedProxies) == 0 || c.Request == nil {
+		return false
+	}
+	peerIP := normalizeHost(c.Request.RemoteAddr)
+	if peerIP == "" {
+		return false
+	}
+	return security.IsIPInCIDRList(peerIP, strings.Join(trustedProxies, ","))
+}
+
+func requestScheme(c *gin.Context, trustedProxies []string) string {
+	if isTrustedPeer(c, trustedProxies) {
+		if proto := c.GetHeader("X-Forwarded-Proto"); proto != "" {
+			// Honor first entry in a comma-separated header
+			parts := strings.Split(proto, ",")
+			return strings.ToLower(strings.TrimSpace(parts[0]))
+		}
 	}
 	if c.Request != nil && c.Request.TLS != nil {
 		return "https"
@@ -64,102 +83,129 @@ func normalizeHost(rawHost string) string {
 	return strings.Trim(host, "[]")
 }
 
-func originHost(rawURL string) string {
-	if rawURL == "" {
-		return ""
-	}
-
-	parsedURL, err := url.Parse(rawURL)
+// tailscaleCGNAT is Tailscale's default address range (RFC 6598 "Shared
+// Address Space" / carrier-grade NAT) — not covered by net.IP.IsPrivate(),
+// which only implements RFC 1918 + IPv6 ULA. Self-hosted access over a
+// Tailscale mesh without TLS termination is a legitimate, expected Charon
+// deployment mode (Big Picture, CLAUDE.md), so it must be treated the same
+// as any other private-network origin for the Secure-cookie downgrade below.
+//
+// Risk acceptance: unlike RFC 1918 space, a CGNAT pool can in principle be
+// shared with mutually-untrusting tenants (mobile carriers, some ISPs) — the
+// IP alone can't distinguish "this admin's own Tailscale mesh" from "another
+// CGNAT tenant." This is an inherent limitation of the address family, not a
+// code defect, and is accepted here as consistent with Charon's self-hosted/
+// LAN/VPN-mesh threat model (see docs/plans/current_spec.md §9.1.5).
+var tailscaleCGNAT = func() *net.IPNet {
+	_, block, err := net.ParseCIDR("100.64.0.0/10")
 	if err != nil {
-		return ""
+		panic(err) // unreachable: constant, valid CIDR
 	}
-
-	return normalizeHost(parsedURL.Host)
-}
+	return block
+}()
 
 func isLocalOrPrivateHost(host string) bool {
 	if strings.EqualFold(host, "localhost") {
 		return true
 	}
 
-	if ip := net.ParseIP(host); ip != nil && (ip.IsLoopback() || ip.IsPrivate()) {
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+
+	if ip.IsLoopback() || ip.IsPrivate() {
 		return true
 	}
 
-	return false
+	return tailscaleCGNAT.Contains(ip)
 }
 
-func isLocalRequest(c *gin.Context) bool {
-	candidates := []string{}
+func isLocalRequest(c *gin.Context, trustedProxies []string) bool {
+	if c.Request == nil {
+		return false
+	}
 
-	if c.Request != nil {
-		candidates = append(candidates, normalizeHost(c.Request.Host))
-
+	if isTrustedPeer(c, trustedProxies) {
+		candidates := []string{normalizeHost(c.Request.Host)}
 		if c.Request.URL != nil {
 			candidates = append(candidates, normalizeHost(c.Request.URL.Host))
 		}
-
-		candidates = append(candidates,
-			originHost(c.Request.Header.Get("Origin")),
-			originHost(c.Request.Header.Get("Referer")),
-		)
+		if forwardedHost := c.GetHeader("X-Forwarded-Host"); forwardedHost != "" {
+			for _, part := range strings.Split(forwardedHost, ",") {
+				candidates = append(candidates, normalizeHost(part))
+			}
+		}
+		for _, host := range candidates {
+			if host != "" && isLocalOrPrivateHost(host) {
+				return true
+			}
+		}
+		return false
 	}
 
-	if forwardedHost := c.GetHeader("X-Forwarded-Host"); forwardedHost != "" {
-		parts := strings.Split(forwardedHost, ",")
-		for _, part := range parts {
-			candidates = append(candidates, normalizeHost(part))
-		}
-	}
-
-	for _, host := range candidates {
-		if host == "" {
-			continue
-		}
-
-		if isLocalOrPrivateHost(host) {
-			return true
-		}
-	}
-
-	return false
+	// Untrusted peer: Host, X-Forwarded-Host, Origin, and Referer are all
+	// values the connecting client fully controls and the server cannot
+	// verify — a raw HTTP client hitting this port directly can set Host to
+	// anything ("curl -H 'Host: 127.0.0.1' http://public-charon:8080/") just
+	// as trivially as it can set X-Forwarded-Host. The one fact this server
+	// can actually trust is who opened the TCP connection.
+	peerIP := normalizeHost(c.Request.RemoteAddr)
+	return peerIP != "" && isLocalOrPrivateHost(peerIP)
 }
 
 // setSecureCookie sets an auth cookie with security best practices
 //   - HttpOnly: prevents JavaScript access (XSS protection)
-//   - Secure: always true (all major browsers honour Secure on localhost HTTP;
-//     HTTP-on-private-IP without TLS is an unsupported deployment)
+//   - Secure: true for HTTPS, or for any request whose origin is not
+//     local/private (fail-safe: a plain-HTTP request from a public host still
+//     gets Secure=true, so the browser silently drops the cookie rather than
+//     transmit it unencrypted — the Authorization-header/localStorage token
+//     path in extractAuthToken remains available regardless). Secure is false
+//     only when scheme != "https" AND isLocalRequest(c) is true (loopback,
+//     RFC 1918, IPv6 ULA, or Tailscale/CGNAT 100.64.0.0/10) — this is what
+//     lets the cookie-fallback auth path (used by navigation-triggered
+//     downloads, §9 of docs/plans/current_spec.md) work for Charon's
+//     documented self-hosted LAN/VPN-mesh deployment mode without TLS
+//     termination.
 //   - SameSite: Lax for any local/private-network request (regardless of scheme),
 //     Strict otherwise (public HTTPS only)
-func setSecureCookie(c *gin.Context, name, value string, maxAge int) {
-	scheme := requestScheme(c)
+func setSecureCookie(c *gin.Context, name, value string, maxAge int, trustedProxies []string) {
+	scheme := requestScheme(c, trustedProxies)
+	secure := true
 	sameSite := http.SameSiteStrictMode
 	if scheme != "https" {
 		sameSite = http.SameSiteLaxMode
 	}
 
-	if isLocalRequest(c) {
+	if isLocalRequest(c, trustedProxies) {
 		sameSite = http.SameSiteLaxMode
+		if scheme != "https" {
+			secure = false
+		}
 	}
 
 	// Use the host without port for domain
 	domain := ""
 
 	c.SetSameSite(sameSite)
-	c.SetCookie(
+	c.SetCookie( // codeql[go/cookie-secure-not-set] Safe: secure is false only
+		// when isLocalRequest(c) AND scheme != "https" (loopback/RFC1918/
+		// IPv6-ULA/Tailscale-CGNAT origin over plain HTTP) — every other path
+		// (HTTPS, or plain HTTP from a public host) still gets secure=true.
+		// See the truth table in docs/plans/current_spec.md §9.2.
 		name,   // name
 		value,  // value
 		maxAge, // maxAge in seconds
 		"/",    // path
 		domain, // domain (empty = current host)
-		true,   // secure
+		secure, // secure
 		true,   // httpOnly (no JS access)
 	)
 }
 
 // clearSecureCookie removes a cookie with the same security settings
-func clearSecureCookie(c *gin.Context, name string) {
-	setSecureCookie(c, name, "", -1)
+func clearSecureCookie(c *gin.Context, name string, trustedProxies []string) {
+	setSecureCookie(c, name, "", -1, trustedProxies)
 }
 
 type LoginRequest struct {
@@ -181,7 +227,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	// Set secure cookie (scheme-aware) and return token for header fallback
-	setSecureCookie(c, "auth_token", token, 3600*24)
+	setSecureCookie(c, "auth_token", token, 3600*24, h.trustedProxies)
 
 	c.JSON(http.StatusOK, gin.H{"token": token})
 }
@@ -218,7 +264,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		}
 	}
 
-	clearSecureCookie(c, "auth_token")
+	clearSecureCookie(c, "auth_token", h.trustedProxies)
 	c.JSON(http.StatusOK, gin.H{"message": "Logged out"})
 }
 
@@ -245,7 +291,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 	}
 
 	// Set secure cookie and return new token
-	setSecureCookie(c, "auth_token", token, 3600*24)
+	setSecureCookie(c, "auth_token", token, 3600*24, h.trustedProxies)
 
 	c.JSON(http.StatusOK, gin.H{"token": token})
 }

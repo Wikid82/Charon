@@ -266,7 +266,7 @@ describe('SecurityHeaders', () => {
 
     vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as SecurityHeaderProfile[]);
     vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
-    vi.mocked(createBackup).mockResolvedValue({ filename: 'backup.tar.gz' });
+    vi.mocked(createBackup).mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' });
     vi.mocked(securityHeadersApi.deleteProfile).mockResolvedValue();
 
     render(<SecurityHeaders />, { wrapper: createWrapper() });
@@ -800,7 +800,7 @@ describe('SecurityHeaders', () => {
     ];
     vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles);
     vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
-    vi.mocked(createBackup).mockResolvedValue({ filename: 'test-backup.tar.gz' });
+    vi.mocked(createBackup).mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' });
     vi.mocked(securityHeadersApi.deleteProfile).mockRejectedValue(new Error('Delete failed'));
 
     render(<SecurityHeaders />, { wrapper: createWrapper() });

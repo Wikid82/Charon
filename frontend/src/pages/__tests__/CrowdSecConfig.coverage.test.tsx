@@ -149,7 +149,7 @@ describe('CrowdSecConfig coverage', () => {
       cache_key: 'cache-123',
       etag: 'etag-123',
     })
-    vi.mocked(backupsApi.createBackup).mockResolvedValue({ filename: 'backup.tar.gz' })
+    vi.mocked(backupsApi.createBackup).mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' })
     vi.mocked(settingsApi.updateSetting).mockResolvedValue()
     vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
       'feature.crowdsec.console_enrollment': false,

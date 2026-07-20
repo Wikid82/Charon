@@ -386,11 +386,14 @@ export default function ProxyHosts() {
     setIsCreatingBackup(true)
 
     try {
-      // Create automatic backup before deletion
+      // Start an automatic backup before deletion. POST /backups now returns
+      // 202 + {job_id,type,status} immediately and builds the archive in the
+      // background (docs/plans/current_spec.md §3.2.1) rather than blocking
+      // until the archive is written, so the filename isn't known yet here.
       toast.loading('Creating backup before deletion...')
       const backup = await createBackup()
       toast.dismiss()
-      toast.success(`Backup created: ${backup.filename}`)
+      toast.success(`Backup started (job ${backup.job_id})`)
 
       // Collect certificates to potentially delete
       const certsToConsider: Map<string, { uuid: string; name: string; domain: string }> = new Map()

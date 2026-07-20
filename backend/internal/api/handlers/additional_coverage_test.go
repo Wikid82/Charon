@@ -339,7 +339,7 @@ func TestBackupHandler_List_DBError(t *testing.T) {
 		DatabasePath: filepath.Join(tmpDir, "nonexistent", "charon.db"),
 	}
 
-	svc := services.NewBackupService(cfg)
+	svc := services.NewBackupService(cfg, nil, nil)
 	defer svc.Stop() // Prevent goroutine leaks
 	h := NewBackupHandler(svc)
 
@@ -564,7 +564,7 @@ func TestBackupHandler_List_ServiceError(t *testing.T) {
 		DatabasePath: dbPath,
 	}
 
-	svc := services.NewBackupService(cfg)
+	svc := services.NewBackupService(cfg, nil, nil)
 	h := NewBackupHandler(svc)
 
 	// Make backup dir a file to cause ReadDir error
@@ -596,7 +596,7 @@ func TestBackupHandler_Delete_PathTraversal(t *testing.T) {
 		DatabasePath: dbPath,
 	}
 
-	svc := services.NewBackupService(cfg)
+	svc := services.NewBackupService(cfg, nil, nil)
 	defer svc.Stop() // Prevent goroutine leaks
 	h := NewBackupHandler(svc)
 
@@ -628,7 +628,7 @@ func TestBackupHandler_Delete_InternalError2(t *testing.T) {
 		DatabasePath: dbPath,
 	}
 
-	svc := services.NewBackupService(cfg)
+	svc := services.NewBackupService(cfg, nil, nil)
 	defer svc.Stop() // Prevent goroutine leaks
 	h := NewBackupHandler(svc)
 
@@ -711,7 +711,7 @@ func TestAuthHandler_Register_InvalidJSON(t *testing.T) {
 
 	cfg := config.Config{JWTSecret: "test-secret"}
 	authService := services.NewAuthService(db, cfg)
-	h := NewAuthHandler(authService)
+	h := NewAuthHandler(authService, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -754,7 +754,7 @@ func TestBackupHandler_Create_Error(t *testing.T) {
 		DatabasePath: dbPath,
 	}
 
-	svc := services.NewBackupService(cfg)
+	svc := services.NewBackupService(cfg, nil, nil)
 	defer svc.Stop() // Prevent goroutine leaks
 	h := NewBackupHandler(svc)
 
@@ -765,9 +765,11 @@ func TestBackupHandler_Create_Error(t *testing.T) {
 
 	h.Create(c)
 
-	// Should fail because database file doesn't exist
+	// StartCreateBackupJob requires a database connection for job tracking
+	// (spec §3.3.1) — svc was built with db == nil above, so this fails
+	// synchronously before any job row/goroutine exists, still a 500.
 	assert.Equal(t, 500, w.Code)
-	assert.Contains(t, w.Body.String(), "Failed to create backup")
+	assert.Contains(t, w.Body.String(), "backup job tracking requires a database connection")
 }
 
 // Settings Handler coverage

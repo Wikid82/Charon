@@ -12,15 +12,15 @@
  */
 
 import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
-import { setupBackupsList, completeRestoreFlow, BackupFile } from '../utils/phase5-helpers';
-import { waitForToast, waitForLoadingComplete, waitForAPIResponse } from '../utils/wait-helpers';
+import { setupBackupsList, completeRestoreFlow, mockBackupJobPolling, BackupFile } from '../utils/phase5-helpers';
+import { waitForToast, waitForLoadingComplete } from '../utils/wait-helpers';
 
 /**
  * Mock backup data for testing
  */
 const mockBackups: BackupFile[] = [
-  { filename: 'backup_2024-01-15_120000.tar.gz', size: 1048576, time: '2024-01-15T12:00:00Z' },
-  { filename: 'backup_2024-01-14_120000.tar.gz', size: 2097152, time: '2024-01-14T12:00:00Z' },
+  { filename: 'backup_2024-01-15_120000.zip', size: 1048576, time: '2024-01-15T12:00:00Z' },
+  { filename: 'backup_2024-01-14_120000.zip', size: 2097152, time: '2024-01-14T12:00:00Z' },
 ];
 
 /**
@@ -154,10 +154,18 @@ test.describe('Backups Page - Restore', () => {
   // Restore Execution Tests (3 tests)
   // =========================================================================
   test.describe('Restore Execution', () => {
+    // Exercises the async job contract (docs/plans/current_spec.md — Async
+    // Backup/Restore Jobs): POST /api/v1/backups/:filename/restore now
+    // returns `202 {job_id, type: "restore", status: "pending"}` instead of
+    // blocking for the full V->S->A->R->F pipeline; the frontend polls
+    // GET /api/v1/backups/jobs/:job_id (mocked via mockBackupJobPolling)
+    // until the job reaches status "completed" with the RestoreResult as
+    // `result`.
     test('should restore backup successfully after confirmation', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      const filename = 'backup_2024-01-15_120000.tar.gz';
+      const filename = 'backup_2024-01-15_120000.zip';
+      const jobId = 'job-restore-success-1';
       let restoreRequested = false;
 
       await page.route('**/api/v1/backups', async (route) => {
@@ -172,12 +180,23 @@ test.describe('Backups Page - Restore', () => {
         if (route.request().method() === 'POST') {
           restoreRequested = true;
           await route.fulfill({
-            status: 200,
-            json: { message: 'Restore completed successfully' },
+            status: 202,
+            json: { job_id: jobId, type: 'restore', status: 'pending' },
           });
         } else {
           await route.continue();
         }
+      });
+      await mockBackupJobPolling(page, jobId, {
+        type: 'restore',
+        result: {
+          message: 'Backup restored successfully',
+          restart_required: false,
+          database_swap_pending: false,
+          live_rehydrate_applied: true,
+          caddy_reloaded: true,
+          legacy_format: false,
+        },
       });
 
       await page.goto('/tasks/backups');
@@ -195,7 +214,8 @@ test.describe('Backups Page - Restore', () => {
       const confirmButton = dialog.locator(SELECTORS.confirmRestoreButton);
       await confirmButton.click();
 
-      // Wait for success toast (API response is already fulfilled by mock)
+      // Wait for success toast (fired once the polled job reaches
+      // status: "completed").
       await waitForToast(page, /restore|success|completed/i, { type: 'success' });
 
       // Verify restore was requested
@@ -208,7 +228,8 @@ test.describe('Backups Page - Restore', () => {
     test('should show success toast after successful restoration', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      const filename = 'backup_2024-01-15_120000.tar.gz';
+      const filename = 'backup_2024-01-15_120000.zip';
+      const jobId = 'job-restore-success-2';
 
       await page.route('**/api/v1/backups', async (route) => {
         if (route.request().method() === 'GET') {
@@ -221,12 +242,23 @@ test.describe('Backups Page - Restore', () => {
       await page.route(`**/api/v1/backups/${filename}/restore`, async (route) => {
         if (route.request().method() === 'POST') {
           await route.fulfill({
-            status: 200,
-            json: { message: 'Restore completed successfully' },
+            status: 202,
+            json: { job_id: jobId, type: 'restore', status: 'pending' },
           });
         } else {
           await route.continue();
         }
+      });
+      await mockBackupJobPolling(page, jobId, {
+        type: 'restore',
+        result: {
+          message: 'Backup restored successfully',
+          restart_required: false,
+          database_swap_pending: false,
+          live_rehydrate_applied: true,
+          caddy_reloaded: true,
+          legacy_format: false,
+        },
       });
 
       await page.goto('/tasks/backups');
@@ -250,7 +282,7 @@ test.describe('Backups Page - Restore', () => {
     test('should handle restore failure gracefully with error toast', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      const filename = 'backup_2024-01-15_120000.tar.gz';
+      const filename = 'backup_2024-01-15_120000.zip';
 
       await page.route('**/api/v1/backups', async (route) => {
         if (route.request().method() === 'GET') {
@@ -294,10 +326,13 @@ test.describe('Backups Page - Restore', () => {
   // Edge Cases Tests (2 tests)
   // =========================================================================
   test.describe('Edge Cases', () => {
-    test('should disable restore button while restore is in progress', async ({ page, adminUser }) => {
+    // Exercises the async job contract (see the "Restore Execution" block
+    // above) — the frontend hook polls GET /api/v1/backups/jobs/:job_id.
+    test('should disable restore button while restore job is pending/running', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      const filename = 'backup_2024-01-15_120000.tar.gz';
+      const filename = 'backup_2024-01-15_120000.zip';
+      const jobId = 'job-restore-in-progress';
 
       await page.route('**/api/v1/backups', async (route) => {
         if (route.request().method() === 'GET') {
@@ -309,15 +344,29 @@ test.describe('Backups Page - Restore', () => {
 
       await page.route(`**/api/v1/backups/${filename}/restore`, async (route) => {
         if (route.request().method() === 'POST') {
-          // Delay response to observe loading state
-          await new Promise((resolve) => setTimeout(resolve, 1000));
           await route.fulfill({
-            status: 200,
-            json: { message: 'Restore completed successfully' },
+            status: 202,
+            json: { job_id: jobId, type: 'restore', status: 'pending' },
           });
         } else {
           await route.continue();
         }
+      });
+      // Several "running" polls before the job completes — the core
+      // regression coverage for the original NS_BINDING_ABORTED bug: the
+      // POST itself must return fast (202) while the restore pipeline keeps
+      // running server-side, tracked only via polling.
+      await mockBackupJobPolling(page, jobId, {
+        type: 'restore',
+        pollsBeforeTerminal: 2,
+        result: {
+          message: 'Backup restored successfully',
+          restart_required: false,
+          database_swap_pending: false,
+          live_rehydrate_applied: true,
+          caddy_reloaded: true,
+          legacy_format: false,
+        },
       });
 
       await page.goto('/tasks/backups');
@@ -331,6 +380,17 @@ test.describe('Backups Page - Restore', () => {
       const dialog = page.locator(SELECTORS.confirmDialog);
       await expect(dialog).toBeVisible();
 
+      // Register the response listener BEFORE clicking — the mocked POST
+      // resolves near-instantly, so waiting to call page.waitForResponse
+      // until after the click risks missing the (already-fired) response
+      // event and hanging for the full default timeout.
+      const restoreResponsePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes(`/api/v1/backups/${filename}/restore`) &&
+          response.request().method() === 'POST' &&
+          response.status() === 202
+      );
+
       // Click confirm restore button
       const confirmButton = dialog.locator(SELECTORS.confirmRestoreButton);
       await confirmButton.click();
@@ -342,8 +402,8 @@ test.describe('Backups Page - Restore', () => {
         // This is acceptable behavior
       });
 
-      // Wait for API response
-      await waitForAPIResponse(page, `/api/v1/backups/${filename}/restore`, { status: 200 });
+      // Wait for the fast 202 start response.
+      await restoreResponsePromise;
     });
 
     test('should handle restore of corrupted backup with appropriate error message', async ({
@@ -352,7 +412,8 @@ test.describe('Backups Page - Restore', () => {
     }) => {
       await loginUser(page, adminUser);
 
-      const filename = 'backup_2024-01-15_120000.tar.gz';
+      const filename = 'backup_2024-01-15_120000.zip';
+      const jobId = 'job-restore-corrupted';
 
       await page.route('**/api/v1/backups', async (route) => {
         if (route.request().method() === 'GET') {
@@ -365,12 +426,20 @@ test.describe('Backups Page - Restore', () => {
       await page.route(`**/api/v1/backups/${filename}/restore`, async (route) => {
         if (route.request().method() === 'POST') {
           await route.fulfill({
-            status: 422,
-            json: { error: 'Backup file is corrupted or invalid' },
+            status: 202,
+            json: { job_id: jobId, type: 'restore', status: 'pending' },
           });
         } else {
           await route.continue();
         }
+      });
+      // A corrupted/invalid archive now surfaces as an async job failure
+      // (status: "failed", error_code: "backup_validation_failed" or
+      // "backup_database_corrupted") rather than a synchronous 422 — spec
+      // §3.2.2/§3.7.
+      await mockBackupJobPolling(page, jobId, {
+        type: 'restore',
+        error: { message: 'Backup file is corrupted or invalid', error_code: 'backup_validation_failed' },
       });
 
       await page.goto('/tasks/backups');

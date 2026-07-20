@@ -30,8 +30,7 @@ pre-commit:
             [ -n "$(tail -c1 "$file")" ] && echo >> "$file" && modified=1
         done
         if [ "$modified" -eq 1 ]; then
-          git add {staged_files}
-          echo "end-of-file-fixer: files modified and re-staged — review changes and commit again."
+          echo "end-of-file-fixer: files modified — review the changes, 'git add' what you want included, and commit again."
           exit 1
         fi
 
@@ -46,8 +45,7 @@ pre-commit:
           fi
         done
         if [ "$modified" -eq 1 ]; then
-          git add {staged_files}
-          echo "trailing-whitespace: trailing spaces removed and re-staged — review changes and commit again."
+          echo "trailing-whitespace: trailing spaces removed — review the changes, 'git add' what you want included, and commit again."
           exit 1
         fi
 
@@ -196,8 +194,7 @@ lint-full:
       run: |
         markdownlint --fix .; md_exit=$?
         if ! git diff --quiet; then
-          git add -A
-          echo "markdownlint: auto-fixed files and re-staged — review changes and commit again."
+          echo "markdownlint: auto-fixed files — review the changes, 'git add' what you want included, and commit again."
           exit 1
         fi
         exit $md_exit

@@ -217,6 +217,20 @@
     },
     {
       "customType": "regex",
+      "description": "Track CodeQL CLI version pin in install script",
+      "managerFilePatterns": [
+        "/^scripts\\/install-codeql\\.sh$/"
+      ],
+      "matchStrings": [
+        "CODEQL_VERSION=\"\\$\\{CODEQL_VERSION:-v(?<currentValue>[^}]+)\\}\""
+      ],
+      "depNameTemplate": "github/codeql-cli-binaries",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "customType": "regex",
       "description": "Track Go toolchain version in go.work for the dl shim",
       "managerFilePatterns": [
         "/^go\\.work$/"

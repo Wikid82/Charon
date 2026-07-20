@@ -27,7 +27,7 @@ func TestUserLoginAfterEmailChange(t *testing.T) {
 	// Setup Services and Handlers
 	cfg := config.Config{}
 	authService := services.NewAuthService(db, cfg)
-	authHandler := NewAuthHandler(authService)
+	authHandler := NewAuthHandler(authService, nil)
 	userHandler := NewUserHandler(db, nil)
 
 	// Setup Router

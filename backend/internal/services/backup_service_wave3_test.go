@@ -116,6 +116,16 @@ func TestBackupService_UnzipWithSkip_RejectsPathTraversal(t *testing.T) {
 }
 
 func TestBackupService_UnzipWithSkip_RejectsExcessiveUncompressedSize(t *testing.T) {
+	// The flat legacy per-entry cap was raised from v1's 100MB to 2GiB
+	// (spec §3.9 — a charon.db larger than 100MB must no longer be
+	// permanently unrestorable; see the >100MB round-trip test in
+	// backup_service_v2_hardening_test.go). Temporarily lower the cap so
+	// this test can still prove the enforcement path fires without
+	// allocating a multi-gigabyte fixture.
+	originalCap := legacyPerEntryDecompressionCap
+	legacyPerEntryDecompressionCap = 100 * 1024 * 1024
+	t.Cleanup(func() { legacyPerEntryDecompressionCap = originalCap })
+
 	tmp := t.TempDir()
 	destDir := filepath.Join(tmp, "data")
 	require.NoError(t, os.MkdirAll(destDir, 0o700))

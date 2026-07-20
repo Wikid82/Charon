@@ -24,7 +24,7 @@ vi.mock('react-hot-toast', () => ({
 describe('ImportCrowdSec', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(backupsApi.createBackup).mockResolvedValue({ filename: 'backup.tar.gz' })
+    vi.mocked(backupsApi.createBackup).mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' })
     vi.mocked(crowdsecApi.importCrowdsecConfig).mockResolvedValue({})
   })
 

@@ -216,6 +216,71 @@ func TestCheckIntegrity_ActualCorruption(t *testing.T) {
 	}
 }
 
+// TestCheckIntegrityDedicated proves the new dedicated-connection variant
+// (spec §2.5d/§3.9 — Async Backup/Restore Jobs, commit 3) opens its OWN
+// connection to dbPath via sqlite.DriverName rather than reusing any
+// caller-supplied *gorm.DB — mirroring database.go's runQuickCheck, which
+// deliberately avoids the shared, SetMaxOpenConns(1) main pool so a
+// multi-minute scan on a large database never blocks the rest of the app.
+func TestCheckIntegrityDedicated(t *testing.T) {
+	t.Parallel()
+
+	t.Run("healthy file-based database returns ok", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		dbPath := filepath.Join(tmpDir, "healthy.db")
+
+		db, err := Connect(dbPath)
+		require.NoError(t, err)
+		require.NoError(t, db.Exec("CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)").Error)
+		require.NoError(t, db.Exec("INSERT INTO test (name) VALUES ('test')").Error)
+
+		ok, message := CheckIntegrityDedicated(dbPath)
+		assert.True(t, ok)
+		assert.Equal(t, "ok", message)
+	})
+
+	t.Run("corrupted database is detected via its own dedicated connection", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		dbPath := filepath.Join(tmpDir, "corrupt.db")
+
+		db, err := Connect(dbPath)
+		require.NoError(t, err)
+		require.NoError(t, db.Exec("CREATE TABLE test (id INTEGER PRIMARY KEY, data TEXT)").Error)
+		require.NoError(t, db.Exec("INSERT INTO test (data) VALUES ('test1'), ('test2')").Error)
+		sqlDB, err := db.DB()
+		require.NoError(t, err)
+		require.NoError(t, sqlDB.Close())
+
+		f, err := os.OpenFile(dbPath, os.O_RDWR, 0o600) // #nosec G304 -- test fixture path
+		require.NoError(t, err)
+		stat, err := f.Stat()
+		require.NoError(t, err)
+		if stat.Size() > 100 {
+			_, err = f.WriteAt([]byte("CORRUPTED_BLOCK_DATA"), stat.Size()/2)
+			require.NoError(t, err)
+		}
+		require.NoError(t, f.Close())
+
+		ok, message := CheckIntegrityDedicated(dbPath)
+		if ok {
+			t.Skip("corruption not detected by quick_check - might be in unused pages")
+		}
+		assert.False(t, ok)
+		assert.NotEqual(t, "ok", message)
+	})
+
+	t.Run("nonexistent path reports a failure, never blocks", func(t *testing.T) {
+		t.Parallel()
+		dbPath := filepath.Join(t.TempDir(), "missing-parent", "missing.db")
+
+		ok, message := CheckIntegrityDedicated(dbPath)
+		assert.False(t, ok)
+		assert.NotEmpty(t, message)
+	})
+}
+
 func TestCheckIntegrity_PRAGMAError(t *testing.T) {
 	t.Parallel()
 	// Create database and close connection to cause PRAGMA to fail

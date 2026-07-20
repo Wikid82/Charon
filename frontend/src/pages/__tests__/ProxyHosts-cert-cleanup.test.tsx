@@ -75,7 +75,7 @@ describe('ProxyHosts - Certificate Cleanup Prompts', () => {
     vi.mocked(accessListsApi.accessListsApi.list).mockResolvedValue([])
     vi.mocked(settingsApi.getSettings).mockResolvedValue({})
     vi.mocked(uptimeApi.getMonitors).mockResolvedValue([])
-    vi.mocked(backupsApi.createBackup).mockResolvedValue({ filename: 'backup.db' })
+    vi.mocked(backupsApi.createBackup).mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' })
   })
 
   it('prompts to delete certificate when deleting proxy host with unique custom cert', async () => {

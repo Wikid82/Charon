@@ -302,6 +302,31 @@ func TestLoad_CaddyAdminAPIValidationRejectsNonAllowlistedHost(t *testing.T) {
 	assert.Contains(t, err.Error(), "validate caddy admin api url")
 }
 
+func TestLoad_TrustedProxies(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("CHARON_DB_PATH", filepath.Join(tempDir, "test.db"))
+	t.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tempDir, "caddy"))
+	t.Setenv("CHARON_IMPORT_DIR", filepath.Join(tempDir, "imports"))
+
+	// Default: unset => trust nobody.
+	t.Setenv("CHARON_TRUSTED_PROXIES", "")
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Empty(t, cfg.Security.TrustedProxies)
+
+	// Comma-separated list, with whitespace, is split and trimmed.
+	t.Setenv("CHARON_TRUSTED_PROXIES", "172.20.0.5, 10.0.0.0/24 ,192.168.1.1")
+	cfg, err = Load()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"172.20.0.5", "10.0.0.0/24", "192.168.1.1"}, cfg.Security.TrustedProxies)
+
+	// Empty entries between commas are filtered out.
+	t.Setenv("CHARON_TRUSTED_PROXIES", "10.0.0.0/8,,")
+	cfg, err = Load()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"10.0.0.0/8"}, cfg.Security.TrustedProxies)
+}
+
 // ============================================
 // splitAndTrim Tests
 // ============================================

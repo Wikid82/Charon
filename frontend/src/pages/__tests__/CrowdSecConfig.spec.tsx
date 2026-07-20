@@ -112,7 +112,7 @@ describe('CrowdSecConfig', () => {
 
   it('uploads a file and calls import on Import (backup before save)', async () => {
     vi.mocked(api.getSecurityStatus).mockResolvedValue({ crowdsec: { enabled: true, mode: 'local', api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' }, rate_limit: { enabled: false }, acl: { enabled: false } })
-    vi.mocked(backupsApi.createBackup).mockResolvedValue({ filename: 'backup.tar.gz' })
+    vi.mocked(backupsApi.createBackup).mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' })
     vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] })
     vi.mocked(crowdsecApi.importCrowdsecConfig).mockResolvedValue({ status: 'imported' })
     renderWithProviders(<CrowdSecConfig />)
@@ -237,7 +237,7 @@ describe('CrowdSecConfig', () => {
     vi.mocked(api.getSecurityStatus).mockResolvedValue(status)
     vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: ['conf.d/a.conf', 'b.conf'] })
     vi.mocked(crowdsecApi.readCrowdsecFile).mockResolvedValue({ content: 'rule1' })
-    vi.mocked(backupsApi.createBackup).mockResolvedValue({ filename: 'backup.tar.gz' })
+    vi.mocked(backupsApi.createBackup).mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' })
     vi.mocked(crowdsecApi.writeCrowdsecFile).mockResolvedValue({ status: 'written' })
 
     renderWithProviders(<CrowdSecConfig />)
@@ -277,7 +277,7 @@ describe('CrowdSecConfig', () => {
     vi.mocked(api.getSecurityStatus).mockResolvedValue(status)
     vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: ['acquis.yaml'] })
     vi.mocked(crowdsecApi.readCrowdsecFile).mockResolvedValue({ content: '' })
-    vi.mocked(backupsApi.createBackup).mockResolvedValue({ filename: 'backup.tar.gz' })
+    vi.mocked(backupsApi.createBackup).mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' })
     vi.mocked(crowdsecApi.writeCrowdsecFile).mockResolvedValue({ status: 'written' })
     const axiosError = new AxiosError('not implemented', undefined, undefined, undefined, {
       status: 501,
