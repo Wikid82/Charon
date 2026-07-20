@@ -161,6 +161,23 @@ func TestFilter_Allow(t *testing.T) {
 		// --- Path traversal: path.Clean normalises before matching ---
 		{"GET", "/v1.47/../containers/json", true},     // resolves to /containers/json — allowed
 		{"GET", "/containers/../../etc/passwd", false}, // resolves to /etc/passwd — blocked
+		{"GET", "/v1.44//containers/json", true},       // double slash after a legitimate version prefix
+
+		// --- GH #1160 regression: normalizeDockerPath strips the version
+		// prefix BEFORE path.Clean runs, so a version prefix only revealed by
+		// resolving ".." segments must NOT be treated as a version prefix
+		// (divergence row 1) — the un-normalized "/foo/../v1.44/..." is not
+		// on the allowlist even after Clean resolves it to
+		// "/v1.44/images/x/json", since versionPrefixRe already ran against
+		// the raw, traversal-disguised path and found no match there.
+		{"GET", "/foo/../v1.44/images/x/json", false},
+
+		// --- GH #1160 regression: versionPrefixRe requires a numeric
+		// major.minor segment (^/v\d+\.\d+); a "v"-prefixed segment that
+		// isn't numeric must not be accepted as a version prefix (divergence
+		// row 2, read path; row 2 HEAD variant) ---
+		{"GET", "/vFOO/containers/json", false},
+		{"HEAD", "/vBOGUS/_ping", false},
 
 		// --- Allowed: single-segment image/distribution inspect (prefix/suffix match) ---
 		{"GET", "/images/alpine/json", true},
@@ -492,6 +509,33 @@ func TestFilter_Allow_WriteEndpoints_AllowedWhenWriteEnabled(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
 			assert.True(t, f.Allow(tc.method, tc.path, nil))
+		})
+	}
+}
+
+// TestFilter_Allow_WriteMode_FakeVersionPrefixBlocked is the write-path
+// variant of the GH #1160 regression above (divergence row 3): a
+// non-numeric fake version prefix must not be accepted by allowWrite's
+// pattern branch either. Before this fix, allowWrite's pattern branch
+// matched the raw (non-version-stripped) path directly instead of the
+// same normalized path its exact-path branch used, so "/vFOO/..." was
+// wrongly treated as reaching "/containers/*/start" via the loose
+// path.Match "v*" wildcard.
+func TestFilter_Allow_WriteMode_FakeVersionPrefixBlocked(t *testing.T) {
+	f := muzzle.New(true)
+
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{"POST", "/vFOO/containers/abc/start"},
+		{"POST", "/vFOO/containers/create"},
+		{"DELETE", "/vFOO/containers/abc"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			assert.False(t, f.Allow(tc.method, tc.path, nil))
 		})
 	}
 }

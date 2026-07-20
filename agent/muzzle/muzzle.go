@@ -20,75 +20,83 @@ import (
 
 const forbiddenResponse = "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
 
-// allowedPatterns enumerates the Docker API paths that agents may access.
-// Matching uses path.Match after stripping query parameters; each pattern
-// uses `*` to match any single path segment (never crosses a slash).
-//
-// Both versioned (/v*/...) and unversioned (/...) forms are listed because
-// Docker clients such as Dockhand send unversioned requests (e.g. GET /containers/json)
-// while the canonical Docker CLI sends versioned requests (e.g. GET /v1.47/containers/json).
-var allowedPatterns = []string{
-	"/_ping",    // no version prefix (Docker < 1.24 / direct health check)
-	"/v*/_ping", // versioned ping for Docker client health checks
-
-	// Container listing and inspection — unversioned (RC8 fix) + versioned
-	"/containers/json",
-	"/v*/containers/json",
-	"/containers/*/json",
-	"/v*/containers/*/json",
-	"/containers/*/logs",
-	"/v*/containers/*/logs",
-	"/containers/*/stats",
-	"/v*/containers/*/stats",
-	"/containers/*/top",
-	"/v*/containers/*/top",
-
-	// Daemon info — unversioned + versioned
-	"/info",
-	"/v*/info",
-	"/images/json",
-	"/v*/images/json",
-	"/version",
-	"/v*/version",
-	"/events",
-	"/v*/events",
-
-	// Volumes — unversioned + versioned
-	"/volumes",
-	"/v*/volumes",
-	"/volumes/*",
-	"/v*/volumes/*",
-
-	// Networks — unversioned + versioned
-	"/networks",
-	"/v*/networks",
-	"/networks/*",
-	"/v*/networks/*",
-
-	// System disk usage — unversioned + versioned
-	"/system/df",
-	"/v*/system/df",
-}
-
 // versionPrefixRe strips a leading Docker API version segment (e.g.
-// "/v1.47") from a path before the imageDistributionPatterns prefix/suffix
-// check below, so a single comparison covers both the unversioned and
-// versioned forms of those two entries. It is used only for that check;
-// every other entry in allowedPatterns keeps its literal "/v*/..." form
-// matched via path.Match.
+// "/v1.47") from a path. Used by normalizeDockerPath, which every allowlist
+// check below is matched against — so a single normalization pass covers
+// both the unversioned form (e.g. Dockhand sends GET /containers/json) and
+// the versioned form (e.g. the canonical Docker CLI sends GET
+// /v1.47/containers/json) with one set of unversioned-only allowlist
+// entries, instead of duplicating every entry into an unversioned and a
+// "/v*/..." form.
+//
+// Must stay byte-identical to backend/internal/orthrus/muzzle.go's
+// versionPrefixRe declaration — scripts/ci/check_muzzle_allowlist_parity.go
+// structurally compares the two regex source strings.
 var versionPrefixRe = regexp.MustCompile(`^/v\d+\.\d+`)
 
-// imageDistributionPatterns covers per-image inspect (/images/{name}/json)
-// and the registry digest check (/distribution/{name}/json). These are
-// matched by prefix/suffix string comparison rather than path.Match,
-// because Go's path.Match "*" does not cross "/", and real-world Docker
-// image references are frequently namespaced with multiple "/"-separated
-// segments (e.g. "ghcr.io/org/repo", "lscr.io/linuxserver/prowlarr"). A
-// path.Match pattern like "/images/*/json" only matches single-segment
-// names (e.g. "nginx") and would silently reject the overwhelming majority
-// of real-world images — the same bug already found and fixed once in
+// normalizeDockerPath strips a Docker API version prefix (e.g. "/v1.47")
+// using versionPrefixRe, THEN runs path.Clean — matching
+// backend/internal/orthrus/muzzle.go's ServeHTTP order exactly (see that
+// file's identically-named helper), so both filters reach the same
+// allow/deny decision on the same raw input in isolation, not only when
+// backend happens to run first in the real request pipeline (GH #1160).
+//
+// Stripping first, before path.Clean has resolved any ".." segments, means
+// versionPrefixRe is evaluated against the path exactly as received: a
+// traversal-disguised version prefix (e.g. "/foo/../v1.44/images/x/json")
+// is not mistaken for a real one, since the regex is anchored to the start
+// of the raw string, not the cleaned one.
+func normalizeDockerPath(reqPath string) string {
+	stripped := versionPrefixRe.ReplaceAllString(reqPath, "")
+	return path.Clean("/" + strings.TrimLeft(stripped, "/"))
+}
+
+// allowedDockerPaths is the set of Docker API paths that are safe to expose
+// to agents, matched by exact string equality against the
+// normalizeDockerPath-normalized path. Mirrors
+// backend/internal/orthrus/muzzle.go's allowedDockerPaths declaration 1:1 —
+// scripts/ci/check_muzzle_allowlist_parity.go structurally compares the two.
+var allowedDockerPaths = map[string]struct{}{
+	"/_ping":           {},
+	"/containers/json": {},
+	"/images/json":     {},
+	"/info":            {},
+	"/version":         {},
+	"/events":          {},
+	"/volumes":         {},
+	"/networks":        {},
+	"/system/df":       {},
+}
+
+// allowedDockerPatterns covers dynamic-segment paths such as
+// /containers/{id}/json, /volumes/{name}, and /networks/{id}. Matching uses
+// path.Match against the normalizeDockerPath-normalized path. Mirrors
+// backend/internal/orthrus/muzzle.go's allowedDockerPatterns declaration
+// 1:1.
+var allowedDockerPatterns = []string{
+	"/containers/*/json",
+	"/containers/*/logs",
+	"/containers/*/stats",
+	"/containers/*/top",
+	"/volumes/*",
+	"/networks/*",
+}
+
+// allowedDockerPrefixSuffixPatterns covers per-image inspect
+// (/images/{name}/json) and the registry digest check
+// (/distribution/{name}/json), matched against the
+// normalizeDockerPath-normalized path. These are matched by prefix/suffix
+// string comparison rather than path.Match, because Go's path.Match "*"
+// does not cross "/", and real-world Docker image references are
+// frequently namespaced with multiple "/"-separated segments (e.g.
+// "ghcr.io/org/repo", "lscr.io/linuxserver/prowlarr"). A path.Match pattern
+// like "/images/*/json" only matches single-segment names (e.g. "nginx")
+// and would silently reject the overwhelming majority of real-world images
+// — the same bug already found and fixed once in
 // backend/internal/orthrus/muzzle.go (commits 98a68b67 and b71cbd62), which
-// this mirrors on the remote-agent side of the tunnel.
+// this mirrors on the remote-agent side of the tunnel. Mirrors
+// backend/internal/orthrus/muzzle.go's allowedDockerPrefixSuffixPatterns
+// declaration 1:1.
 //
 // Both entries are GET-only like every other allowlist entry: the method
 // check in Allow runs unconditionally before this check, so POST/PUT/DELETE
@@ -102,7 +110,7 @@ var versionPrefixRe = regexp.MustCompile(`^/v\d+\.\d+`)
 // segment rather than literally "json" — /images/{name}/history,
 // /images/{name}/get, and /images/{name}/changes all fail the "/json"
 // suffix check and remain blocked.
-var imageDistributionPatterns = []struct {
+var allowedDockerPrefixSuffixPatterns = []struct {
 	prefix string
 	suffix string
 }{
@@ -125,20 +133,19 @@ var allowedWriteExactPaths = map[string]struct{}{
 }
 
 // allowedWritePatterns lists the dynamic-segment write endpoints permitted
-// when write mode is on, both unversioned and versioned forms, matching
-// this file's existing convention for the read-only allowlist above.
+// when write mode is on, matched against the normalizeDockerPath-normalized
+// path — the version prefix is stripped once, up front, so no separate
+// "/v*/..." entry is needed here. Mirrors
+// backend/internal/orthrus/muzzle.go's allowedWritePatterns declaration
+// 1:1.
 var allowedWritePatterns = []struct {
 	method  string
 	pattern string
 }{
-	{http.MethodPost, "/containers/*/start"},
-	{http.MethodPost, "/v*/containers/*/start"},
-	{http.MethodPost, "/containers/*/stop"},
-	{http.MethodPost, "/v*/containers/*/stop"},
-	{http.MethodPost, "/containers/*/restart"},
-	{http.MethodPost, "/v*/containers/*/restart"},
-	{http.MethodDelete, "/containers/*"},
-	{http.MethodDelete, "/v*/containers/*"},
+	{method: http.MethodPost, pattern: "/containers/*/start"},
+	{method: http.MethodPost, pattern: "/containers/*/stop"},
+	{method: http.MethodPost, pattern: "/containers/*/restart"},
+	{method: http.MethodDelete, pattern: "/containers/*"},
 }
 
 // maxContainerCreateBodyBytes bounds the size of a /containers/create body
@@ -283,30 +290,26 @@ func New(writeEnabled bool) *Filter {
 }
 
 // Allow returns true if method+reqPath (+body, for the one body-validated
-// write endpoint) is on the allowlist. Only GET is permitted for read
-// traffic, except HEAD which is allowed on /_ping and /v*/_ping (Docker SDK
-// connectivity check); POST/DELETE are additionally permitted for the fixed
-// write-endpoint set when f.writeEnabled is true.
+// write endpoint) is on the allowlist, after normalizeDockerPath has
+// stripped any version prefix and cleaned the path. Only GET is permitted
+// for read traffic, except HEAD which is allowed on /_ping (Docker SDK
+// connectivity check, matched against the normalized path so a versioned
+// request like /v1.47/_ping is also accepted); POST/DELETE are additionally
+// permitted for the fixed write-endpoint set when f.writeEnabled is true.
 //
 // body is only consulted for the one body-validated case (POST to
-// /containers/create or /v*/containers/create); every other allowlist
-// branch ignores it entirely, so passing nil for read-only calls is safe.
+// /containers/create, versioned or not); every other allowlist branch
+// ignores it entirely, so passing nil for read-only calls is safe.
 func (f *Filter) Allow(method, reqPath string, body []byte) bool {
+	normalizedPath := normalizeDockerPath(reqPath)
+
 	// HEAD is permitted only for /_ping (Docker SDK connectivity check).
 	if strings.EqualFold(method, http.MethodHead) {
-		cleanPath := path.Clean(reqPath)
-		for _, p := range []string{"/_ping", "/v*/_ping"} {
-			if matched, _ := path.Match(p, cleanPath); matched {
-				return true
-			}
-		}
-		return false
+		return normalizedPath == "/_ping"
 	}
 
-	cleanPath := path.Clean(reqPath)
-
 	if f.writeEnabled && (strings.EqualFold(method, http.MethodPost) || strings.EqualFold(method, http.MethodDelete)) {
-		if f.allowWrite(method, cleanPath, body) {
+		if f.allowWrite(method, normalizedPath, body) {
 			return true
 		}
 		// Not on the write allowlist even with write mode on — fall through
@@ -317,9 +320,12 @@ func (f *Filter) Allow(method, reqPath string, body []byte) bool {
 		return false
 	}
 
-	// path.Clean normalises redundant separators and removes trailing slashes.
-	for _, pattern := range allowedPatterns {
-		matched, err := path.Match(pattern, cleanPath)
+	if _, ok := allowedDockerPaths[normalizedPath]; ok {
+		return true
+	}
+
+	for _, pattern := range allowedDockerPatterns {
+		matched, err := path.Match(pattern, normalizedPath)
 		if err == nil && matched {
 			return true
 		}
@@ -327,10 +333,10 @@ func (f *Filter) Allow(method, reqPath string, body []byte) bool {
 
 	// Check image/distribution inspect paths, which may contain namespaced
 	// references with multiple "/"-separated segments (see doc comment on
-	// imageDistributionPatterns for why path.Match is not used here).
-	unversioned := versionPrefixRe.ReplaceAllString(cleanPath, "")
-	for _, idp := range imageDistributionPatterns {
-		if strings.HasPrefix(unversioned, idp.prefix) && strings.HasSuffix(unversioned, idp.suffix) {
+	// allowedDockerPrefixSuffixPatterns for why path.Match is not used
+	// here).
+	for _, ps := range allowedDockerPrefixSuffixPatterns {
+		if strings.HasPrefix(normalizedPath, ps.prefix) && strings.HasSuffix(normalizedPath, ps.suffix) {
 			return true
 		}
 	}
@@ -338,14 +344,22 @@ func (f *Filter) Allow(method, reqPath string, body []byte) bool {
 	return false
 }
 
-// allowWrite checks method+cleanPath against allowedWriteExactPaths and
-// allowedWritePatterns, applying validateContainerCreateBody specifically
-// for /containers/create. Only called when f.writeEnabled is true.
-func (f *Filter) allowWrite(method, cleanPath string, body []byte) bool {
+// allowWrite checks method+normalizedPath against allowedWriteExactPaths
+// and allowedWritePatterns, applying validateContainerCreateBody
+// specifically for /containers/create. Only called when f.writeEnabled is
+// true.
+//
+// normalizedPath must already be the result of normalizeDockerPath, applied
+// once by the caller (Allow). Previously this method separately re-derived
+// an "unversioned" value for its exact-path branch only, while its pattern
+// branch matched the raw (non-version-stripped) cleanPath directly — a
+// second, independent instance of the GH #1160 normalization-order
+// divergence, reaching a write endpoint. Both branches now share the same
+// pre-normalized path.
+func (f *Filter) allowWrite(method, normalizedPath string, body []byte) bool {
 	if strings.EqualFold(method, http.MethodPost) {
-		unversioned := versionPrefixRe.ReplaceAllString(cleanPath, "")
-		if _, ok := allowedWriteExactPaths[unversioned]; ok {
-			if unversioned == "/containers/create" {
+		if _, ok := allowedWriteExactPaths[normalizedPath]; ok {
+			if normalizedPath == "/containers/create" {
 				valid, _ := validateContainerCreateBody(body)
 				return valid
 			}
@@ -357,7 +371,7 @@ func (f *Filter) allowWrite(method, cleanPath string, body []byte) bool {
 		if !strings.EqualFold(method, p.method) {
 			continue
 		}
-		if matched, err := path.Match(p.pattern, cleanPath); err == nil && matched {
+		if matched, err := path.Match(p.pattern, normalizedPath); err == nil && matched {
 			return true
 		}
 	}
