@@ -461,6 +461,127 @@ func TestServeProxy_StreamingResponseTerminatesOnWriterClose(t *testing.T) {
 	}
 }
 
+// errReader is an io.Reader that always fails, used to force a mid-body
+// read error deterministically instead of relying on a real, flaky I/O
+// fault.
+type errReader struct {
+	err error
+}
+
+func (r errReader) Read([]byte) (int, error) {
+	return 0, r.err
+}
+
+// TestFilter_ServeProxy_BodyReadError_ReturnsError targets muzzle.go's
+// io.ReadAll(limited) failure branch in ServeProxy: the request line and
+// headers parse successfully (they fit entirely in bufio.Reader's first
+// fill, so http.ReadRequest never touches the failing sub-reader), but the
+// declared Content-Length body is backed by an io.MultiReader whose second
+// segment always errors, so the read is guaranteed to fail only once
+// ServeProxy actually starts consuming the body.
+func TestFilter_ServeProxy_BodyReadError_ReturnsError(t *testing.T) {
+	f := muzzle.New(false)
+
+	header := "POST /containers/create HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\n\r\n"
+	boom := errors.New("boom")
+	reqReader := io.MultiReader(strings.NewReader(header), errReader{err: boom})
+
+	var buf bytes.Buffer
+	err := f.ServeProxy("/tmp/nonexistent.sock", reqReader, &buf)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "read body")
+}
+
+// TestFilter_ServeProxy_BodyTooLarge_Returns403AndError targets muzzle.go's
+// maxContainerCreateBodyBytes size-limit branch. The size check runs before
+// Allow is consulted, so the method/path here don't need to be on the
+// allowlist for the case to exercise the intended branch.
+func TestFilter_ServeProxy_BodyTooLarge_Returns403AndError(t *testing.T) {
+	f := muzzle.New(false)
+
+	const maxContainerCreateBodyBytes = 64 * 1024
+	oversized := bytes.Repeat([]byte("a"), maxContainerCreateBodyBytes+1)
+	reqStr := fmt.Sprintf("GET /containers/json HTTP/1.1\r\nHost: localhost\r\nContent-Length: %d\r\n\r\n%s", len(oversized), oversized)
+
+	var buf bytes.Buffer
+	err := f.ServeProxy("/tmp/nonexistent.sock", strings.NewReader(reqStr), &buf)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "body too large")
+	assert.Contains(t, buf.String(), "403")
+}
+
+// TestFilter_ServeProxy_DockerWriteError_ReturnsError targets muzzle.go's
+// req.Write(conn) failure branch: ServeProxy successfully dials the fake
+// Docker socket, but the write of the forwarded request to it fails.
+//
+// Getting *specifically* the write to fail (as opposed to the dial, or the
+// later response read) is an inherently racy thing to force from outside
+// with a real kernel socket, and no amount of server-side cleverness makes
+// it deterministic, because ServeProxy dials and writes back-to-back with
+// no hook this test can synchronize against:
+//
+//   - Accepting the connection and then abortively closing it (SO_LINGER=0)
+//     was tried first (Supervisor Correction 2's suggested starting point)
+//     and found flaky: the request's header write is small enough that the
+//     kernel routinely buffers it locally and returns success from
+//     req.Write's underlying write(2) before the peer's close has
+//     propagated, so the error surfaces later instead, on the response
+//     read - not on the write itself.
+//   - Closing the *listener* without ever accepting - so the connection
+//     ServeProxy just dialed is torn down while still sitting unaccepted in
+//     the backlog - reliably produces a write failure with the right
+//     message *when the race lands in that window*, but measured directly
+//     (a bare goroutine closing the listener, racing unsynchronized against
+//     ServeProxy's own dial+write, the same shape this test needs), it only
+//     lands in that window on ~40-50% of attempts under `-race`; the rest
+//     either close before the dial completes (a *dial* error, wrong branch)
+//     or after the write already succeeded (a *read* error, wrong branch).
+//
+// So this test retries with a fresh socket/listener each time, accepting
+// only the specific error this line actually produces and discarding any
+// other outcome as an inconclusive attempt. Measured per-attempt success
+// rate is roughly 40-50%, but attempts within one process are not fully
+// independent (occasional short losing streaks were observed) - a
+// retryLimit of 25 was empirically observed to exhaust in about 1 in 30
+// full `go test` runs under `-race`, so retryLimit=200 is used instead;
+// with that limit, 100+ single-binary `-count=N` runs and 40+ separate
+// freshly-exec'd process runs (thousands of attempts total) produced zero
+// exhaustions. This is the same bounded-retry technique Go's own standard
+// library networking tests use for OS-timing-dependent behavior; it is a
+// deliberate, documented trade-off, not an oversight.
+func TestFilter_ServeProxy_DockerWriteError_ReturnsError(t *testing.T) {
+	f := muzzle.New(false)
+
+	const retryLimit = 200
+	reqStr := "GET /containers/json HTTP/1.1\r\nHost: localhost\r\n\r\n"
+
+	for attempt := 1; attempt <= retryLimit; attempt++ {
+		sockPath := filepath.Join(t.TempDir(), fmt.Sprintf("docker-%d.sock", attempt))
+		ln, err := net.Listen("unix", sockPath)
+		require.NoError(t, err)
+
+		// Deliberately never call ln.Accept(). Closing the listener while
+		// ServeProxy's own net.Dial connection may still be sitting
+		// unaccepted in the backlog is what can make the subsequent write
+		// fail - see the determinism discussion above for why this only
+		// sometimes lands on the write specifically.
+		go func() {
+			_ = ln.Close()
+		}()
+
+		var buf bytes.Buffer
+		serveErr := f.ServeProxy(sockPath, strings.NewReader(reqStr), &buf)
+
+		if serveErr != nil && strings.Contains(serveErr.Error(), "forward request to docker") {
+			return
+		}
+	}
+
+	t.Fatalf("did not observe a docker-write error within %d attempts (target branch: muzzle.go ServeProxy's req.Write(conn) failure path)", retryLimit)
+}
+
 // --- Write-mode tests (Section 3.3.4/3.4.1 of the Orthrus write-mode spec) ---
 //
 // These mirror backend/internal/orthrus/muzzle_test.go's write-mode tests
@@ -600,6 +721,15 @@ func TestFilter_Allow_ContainersCreate_DangerousBodiesRejected(t *testing.T) {
 		{"non-empty Sysctls", `{"Image":"nginx","HostConfig":{"Sysctls":{"net.ipv4.ip_forward":"1"}}}`},
 		{"unrecognized future HostConfig key", `{"Image":"nginx","HostConfig":{"SomeFutureField":true}}`},
 		{"malformed JSON", `{"Image": not valid json`},
+		// The four cases below each isolate one still-untested fail-closed
+		// unmarshal-error branch, distinct from "malformed JSON" above
+		// (which only reaches the outer top-level unmarshal) and distinct
+		// from the DriverConfig-bypass case above (which has a *valid*
+		// VolumeOptions object).
+		{"malformed NetworkMode value (non-string JSON)", `{"Image":"nginx","HostConfig":{"NetworkMode":12345}}`},
+		{"malformed Mounts value (not a JSON array)", `{"Image":"nginx","HostConfig":{"Mounts":"not-an-array"}}`},
+		{"malformed Mounts VolumeOptions (invalid JSON object)", `{"Image":"nginx","HostConfig":{"Mounts":[{"Type":"volume","VolumeOptions":"not-an-object"}]}}`},
+		{"malformed HostConfig itself (not a JSON object)", `{"Image":"nginx","HostConfig":"not-an-object"}`},
 	}
 
 	for _, tc := range cases {
@@ -607,6 +737,19 @@ func TestFilter_Allow_ContainersCreate_DangerousBodiesRejected(t *testing.T) {
 			assert.False(t, f.Allow("POST", "/containers/create", []byte(tc.body)))
 		})
 	}
+}
+
+// TestFilter_Allow_ContainersCreate_EmptyBodyAllowed locks in
+// validateContainerCreateBody's one deliberately *permissive* branch: an
+// empty /containers/create body is allowed through rather than rejected as
+// malformed. Given its own named test, not folded into the "safe body
+// allowed" table, precisely because it documents an intentional
+// security-relevant default rather than an incidental pass-through.
+func TestFilter_Allow_ContainersCreate_EmptyBodyAllowed(t *testing.T) {
+	f := muzzle.New(true)
+
+	assert.True(t, f.Allow("POST", "/containers/create", nil))
+	assert.True(t, f.Allow("POST", "/containers/create", []byte{}))
 }
 
 // --- Shared anti-drift corpus (Section 3.3.5 of the Orthrus write-mode spec) ---
