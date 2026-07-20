@@ -55,6 +55,13 @@ describe('<AuditLogs />', () => {
       </QueryClientProvider>
     )
 
+  const renderWithDeepLink = (ui: React.ReactNode, search: string) =>
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[`/audit-logs${search}`]}>{ui}</MemoryRouter>
+      </QueryClientProvider>
+    )
+
   beforeEach(() => {
     vi.restoreAllMocks()
     queryClient.clear()
@@ -433,6 +440,55 @@ describe('<AuditLogs />', () => {
       const badge = filterButton.querySelector('.bg-brand-500')
       expect(badge).toBeInTheDocument()
       expect(badge?.textContent).toBe('1')
+    })
+  })
+
+  it('applies resource_uuid and event_category filters from the URL on mount', async () => {
+    const getAuditLogsSpy = vi
+      .spyOn(auditLogsApi, 'getAuditLogs')
+      .mockResolvedValue({ logs: [], total: 0, page: 1, limit: 50 })
+
+    renderWithDeepLink(
+      <AuditLogs />,
+      '?resource_uuid=agent-1&event_category=orthrus_write',
+    )
+
+    await waitFor(() => {
+      expect(getAuditLogsSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          resource_uuid: 'agent-1',
+          event_category: 'orthrus_write',
+        }),
+        1,
+        50,
+      )
+    })
+  })
+
+  it('auto-expands the filter panel when arriving via a deep link', async () => {
+    vi.spyOn(auditLogsApi, 'getAuditLogs').mockResolvedValue({
+      logs: [],
+      total: 0,
+      page: 1,
+      limit: 50,
+    })
+
+    renderWithDeepLink(<AuditLogs />, '?resource_uuid=agent-1')
+
+    await waitFor(() => {
+      expect(screen.getByText('Start Date')).toBeInTheDocument()
+    })
+  })
+
+  it('does not pre-apply filters when no query string is present', async () => {
+    const getAuditLogsSpy = vi
+      .spyOn(auditLogsApi, 'getAuditLogs')
+      .mockResolvedValue({ logs: [], total: 0, page: 1, limit: 50 })
+
+    renderWithProviders(<AuditLogs />)
+
+    await waitFor(() => {
+      expect(getAuditLogsSpy).toHaveBeenCalledWith({}, 1, 50)
     })
   })
 })

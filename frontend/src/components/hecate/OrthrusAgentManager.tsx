@@ -1,9 +1,10 @@
-import { Check, Link2, Pencil, Settings, Trash2, X } from 'lucide-react';
+import { Check, Link2, Pencil, Settings, ShieldCheck, Trash2, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { AgentExternalProxyDialog } from './AgentExternalProxyDialog';
 import { AgentProviderAssignDialog } from './AgentProviderAssignDialog';
+import { AgentWriteModeDialog } from './AgentWriteModeDialog';
 import { type OrthrusAgent } from '../../api/orthrus';
 import { useDeleteAgent, useRenameAgent } from '../../hooks/useOrthrus';
 import { Badge } from '../ui/Badge';
@@ -37,9 +38,16 @@ interface AgentRowProps {
   onDelete: (uuid: string, name: string) => void;
   onAssignProvider: (agent: OrthrusAgent) => void;
   onConfigureProxy: (agent: OrthrusAgent) => void;
+  onConfigureWriteMode: (agent: OrthrusAgent) => void;
 }
 
-const AgentRow = ({ agent, onDelete, onAssignProvider, onConfigureProxy }: AgentRowProps) => {
+const AgentRow = ({
+  agent,
+  onDelete,
+  onAssignProvider,
+  onConfigureProxy,
+  onConfigureWriteMode,
+}: AgentRowProps) => {
   const { t } = useTranslation();
   const { mutate: rename, isPending: isRenaming } = useRenameAgent();
   const [editing, setEditing] = useState(false);
@@ -143,6 +151,11 @@ const AgentRow = ({ agent, onDelete, onAssignProvider, onConfigureProxy }: Agent
               PROXY
             </Badge>
           )}
+          {agent.write_enabled && (
+            <Badge variant="warning" className="uppercase text-[10px]">
+              WRITE
+            </Badge>
+          )}
         </div>
       </td>
 
@@ -182,6 +195,15 @@ const AgentRow = ({ agent, onDelete, onAssignProvider, onConfigureProxy }: Agent
             variant="ghost"
             size="sm"
             className="h-7 w-7 p-0 text-content-tertiary hover:text-brand-500"
+            onClick={() => onConfigureWriteMode(agent)}
+            aria-label={t('hecate.agentManager.writeMode', { name: agent.name })}
+          >
+            <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0 text-content-tertiary hover:text-brand-500"
             onClick={() => onAssignProvider(agent)}
             aria-label={t('hecate.agentManager.assignProvider', { name: agent.name })}
           >
@@ -208,6 +230,7 @@ export const OrthrusAgentManager = ({ agents }: OrthrusAgentManagerProps) => {
   const [confirmDelete, setConfirmDelete] = useState<{ uuid: string; name: string } | null>(null);
   const [assignProviderAgent, setAssignProviderAgent] = useState<OrthrusAgent | null>(null);
   const [proxyConfigAgent, setProxyConfigAgent] = useState<OrthrusAgent | null>(null);
+  const [writeModeAgent, setWriteModeAgent] = useState<OrthrusAgent | null>(null);
 
   const handleDeleteRequest = (uuid: string, name: string) => {
     setConfirmDelete({ uuid, name });
@@ -262,6 +285,7 @@ export const OrthrusAgentManager = ({ agents }: OrthrusAgentManagerProps) => {
                 onDelete={handleDeleteRequest}
                 onAssignProvider={setAssignProviderAgent}
                 onConfigureProxy={setProxyConfigAgent}
+                onConfigureWriteMode={setWriteModeAgent}
               />
             ))}
           </tbody>
@@ -301,6 +325,14 @@ export const OrthrusAgentManager = ({ agents }: OrthrusAgentManagerProps) => {
           agent={proxyConfigAgent}
           open={!!proxyConfigAgent}
           onClose={() => setProxyConfigAgent(null)}
+        />
+      )}
+      {/* Write Mode dialog */}
+      {writeModeAgent && (
+        <AgentWriteModeDialog
+          agent={writeModeAgent}
+          open={!!writeModeAgent}
+          onClose={() => setWriteModeAgent(null)}
         />
       )}
     </>

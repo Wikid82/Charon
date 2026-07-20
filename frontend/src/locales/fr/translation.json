@@ -1280,7 +1280,8 @@
         "offline": "Hors ligne",
         "pending": "En attente"
       },
-      "configureProxy": "Configure proxy for {{name}}"
+      "configureProxy": "Configure proxy for {{name}}",
+      "writeMode": "Write mode for {{name}}"
     },
     "externalProxy": {
       "title": "Proxy Docker Externe",
@@ -1295,6 +1296,27 @@
       "copyConnectionString": "Copier la chaîne de connexion Docker",
       "reconnectNotice": "La modification du port prendra effet lors de la prochaine reconnexion de l'agent.",
       "agentOffline": "L'agent est hors ligne. État du proxy indisponible."
+    },
+    "writeMode": {
+      "title": "Write Access — {{name}}",
+      "description": "Opt this agent into a narrow, audited set of Docker write operations through its External Docker Proxy.",
+      "toggleLabel": "Enable write access",
+      "confirmPrompt": "Type {{name}} to confirm",
+      "confirmPlaceholder": "Agent name",
+      "confirmHint": "Enabling write access requires typing the agent's exact current name.",
+      "securityWarning": "Enabling write mode lets tools connected through this agent's External Docker Proxy pull images, and start, stop, restart, remove, and recreate containers on this machine. Every allowed action is logged. This does not grant shell access, volume/network changes, or any operation not explicitly listed below.",
+      "permittedOperationsHeading": "Permitted operations",
+      "operations": {
+        "pull": "Pull a new image",
+        "start": "Start a container",
+        "stop": "Stop a container",
+        "restart": "Restart a container",
+        "remove": "Remove a container",
+        "recreate": "Create (recreate) a container"
+      },
+      "reconnectNotice": "Write mode change will take effect on next agent reconnect.",
+      "viewAuditLog": "View write-access audit log",
+      "disableConfirm": "Disable"
     }
   },
   "feedback": {

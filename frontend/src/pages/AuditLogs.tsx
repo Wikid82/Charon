@@ -1,6 +1,7 @@
 import { format } from 'date-fns'
 import { Download, Filter, X } from 'lucide-react'
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 
 import { exportAuditLogsCSV } from '../api/auditLogs'
 import { PageShell } from '../components/layout/PageShell'
@@ -118,11 +119,37 @@ function AuditLogDetailModal({
   )
 }
 
+/**
+ * Reads the subset of AuditLogFilters keys present in the URL's query
+ * string, for deep-linking into a pre-filtered view (e.g. a
+ * "View write-access audit log" link from an Orthrus agent's write-mode
+ * dialog: /audit-logs?resource_uuid=<uuid>&event_category=orthrus_write).
+ * Not Orthrus-specific — any caller can deep-link with any combination of
+ * these keys.
+ */
+function filtersFromSearchParams(searchParams: URLSearchParams): AuditLogFilters {
+  const filters: AuditLogFilters = {}
+  const eventCategory = searchParams.get('event_category')
+  if (eventCategory) filters.event_category = eventCategory as AuditLogFilters['event_category']
+  const actor = searchParams.get('actor')
+  if (actor) filters.actor = actor
+  const action = searchParams.get('action')
+  if (action) filters.action = action as AuditLogFilters['action']
+  const startDate = searchParams.get('start_date')
+  if (startDate) filters.start_date = startDate
+  const endDate = searchParams.get('end_date')
+  if (endDate) filters.end_date = endDate
+  const resourceUuid = searchParams.get('resource_uuid')
+  if (resourceUuid) filters.resource_uuid = resourceUuid
+  return filters
+}
+
 export default function AuditLogs() {
+  const [searchParams] = useSearchParams()
   const [page, setPage] = useState(1)
   const [limit] = useState(50)
-  const [filters, setFilters] = useState<AuditLogFilters>({})
-  const [showFilters, setShowFilters] = useState(false)
+  const [filters, setFilters] = useState<AuditLogFilters>(() => filtersFromSearchParams(searchParams))
+  const [showFilters, setShowFilters] = useState(() => Object.keys(filtersFromSearchParams(searchParams)).length > 0)
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null)
   const [isExporting, setIsExporting] = useState(false)
 

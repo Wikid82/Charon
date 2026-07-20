@@ -18,6 +18,9 @@ export interface OrthrusAgent {
   resolved_address?: string;
   // External Docker proxy port (0 = disabled, 1024–65535 = enabled)
   external_proxy_port: number;
+  // Opt-in write access to a fixed set of Docker write endpoints through
+  // this agent's External Docker Proxy. false = read-only (default).
+  write_enabled: boolean;
 }
 
 export interface PatchAgentRequest {
@@ -26,6 +29,7 @@ export interface PatchAgentRequest {
   device_id?: string | null;
   resolved_address?: string | null;
   external_proxy_port?: number;
+  write_enabled?: boolean;
 }
 
 export interface ExternalProxyStatus {
@@ -37,6 +41,12 @@ export interface ExternalProxyStatus {
   bind_address: string;
   connection_string: string;
   error: string;
+  // configured_write_enabled reflects the DB value; active_write_enabled
+  // reflects the value the currently-connected session actually negotiated
+  // at its last reconnect. The two can differ if an operator toggled
+  // write_enabled while the agent was already connected — see reconnectNotice.
+  configured_write_enabled: boolean;
+  active_write_enabled: boolean;
 }
 
 export interface ProvisionAgentRequest {
