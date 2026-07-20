@@ -73,6 +73,61 @@ func TestMuzzle_VersionPrefixStripped_Passthrough(t *testing.T) {
 	}
 }
 
+// TestNormalizeDockerPath exercises normalizeDockerPath directly (not only
+// through ServeHTTP/the shared corpus) for fast local iteration on the two
+// GH #1160 divergence rows that motivated extracting this helper: a
+// traversal-disguised version prefix, and a non-numeric fake version prefix.
+func TestNormalizeDockerPath(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "legitimate version prefix stripped",
+			in:   "/v1.44/containers/json",
+			want: "/containers/json",
+		},
+		{
+			// Divergence row 1 (GH #1160's own example): the version prefix
+			// is only revealed after traversal resolution. versionPrefixRe
+			// must NOT match here, since it runs against the raw path before
+			// path.Clean has resolved "/foo/..".
+			name: "traversal-disguised version prefix is not treated as a version prefix",
+			in:   "/foo/../v1.44/images/x/json",
+			want: "/v1.44/images/x/json",
+		},
+		{
+			// Divergence row 2: non-numeric "version" segment must not match
+			// the numeric-anchored regex.
+			name: "non-numeric fake version prefix is left intact",
+			in:   "/vFOO/containers/json",
+			want: "/vFOO/containers/json",
+		},
+		{
+			name: "traversal escaping above root clamps to root",
+			in:   "/containers/../../etc/passwd",
+			want: "/etc/passwd",
+		},
+		{
+			name: "double slash after legitimate version prefix collapses",
+			in:   "/v1.44//containers/json",
+			want: "/containers/json",
+		},
+		{
+			name: "version-prefixed traversal resolving to an allowed path",
+			in:   "/v1.47/../containers/json",
+			want: "/containers/json",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, normalizeDockerPath(tc.in))
+		})
+	}
+}
+
 func TestMuzzle_POST_Blocked(t *testing.T) {
 	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 

@@ -414,16 +414,32 @@ func NewMuzzle(next http.Handler, writeEnabled bool, writeLimiter *rate.Limiter,
 	}
 }
 
+// normalizeDockerPath strips a Docker API version prefix (e.g. "/v1.47")
+// using versionPrefixRe, THEN runs path.Clean — in that order. Stripping
+// first means the version-prefix match runs against the raw, uncleaned
+// path, so a traversal-disguised prefix (e.g. "/foo/../v1.44/...") is not
+// mistaken for a real one: versionPrefixRe is anchored to the start of the
+// string as given, before ".." segments have been resolved away. Normalize
+// away any "." or ".." segments only after that check so that traversal-style
+// paths such as /containers/../json cannot match patterns like
+// /containers/*/json. path.Clean always returns a rooted result when given a
+// rooted input; the explicit "/" prefix guards against an empty stripped
+// value.
+//
+// agent/muzzle/muzzle.go has an identically-named helper that must apply
+// versionPrefixRe (same regex source) and path.Clean in this exact order —
+// see that file's doc comment and scripts/ci/check_muzzle_allowlist_parity.go,
+// which structurally compares the two files' versionPrefixRe declarations.
+func normalizeDockerPath(rawPath string) string {
+	stripped := versionPrefixRe.ReplaceAllString(rawPath, "")
+	return path.Clean("/" + strings.TrimLeft(stripped, "/"))
+}
+
 // ServeHTTP implements http.Handler. Only GET requests to allowlisted paths
 // are forwarded; HEAD is also permitted for /_ping (Docker client health checks).
 // All other methods or paths receive 403 Forbidden.
 func (m *Muzzle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	rawPath := versionPrefixRe.ReplaceAllString(r.URL.Path, "")
-	// Normalize away any "." or ".." segments before any allowlist check so that
-	// traversal-style paths such as /containers/../json cannot match patterns like
-	// /containers/*/json. path.Clean always returns a rooted result when given a
-	// rooted input; the explicit "/" prefix guards against an empty rawPath value.
-	stripped := path.Clean("/" + strings.TrimLeft(rawPath, "/"))
+	stripped := normalizeDockerPath(r.URL.Path)
 
 	// HEAD /_ping is permitted alongside GET for Docker client health checks.
 	if r.Method == http.MethodHead && stripped == "/_ping" {
