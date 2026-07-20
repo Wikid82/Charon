@@ -259,5 +259,54 @@
     "body": { "Image": "nginx", "HostConfig": { "SomeFutureDockerAPIField": true } },
     "agent_write_enabled": true,
     "want_allowed": false
+  },
+  {
+    "description": "traversal-disguised version prefix on namespaced image inspect (GH #1160's own example)",
+    "method": "GET",
+    "path": "/foo/../v1.44/images/x/json",
+    "agent_write_enabled": false,
+    "want_allowed": false
+  },
+  {
+    "description": "non-numeric fake version prefix on a plain read path",
+    "method": "GET",
+    "path": "/vFOO/containers/json",
+    "agent_write_enabled": false,
+    "want_allowed": false
+  },
+  {
+    "description": "non-numeric fake version prefix on /_ping via HEAD",
+    "method": "HEAD",
+    "path": "/vBOGUS/_ping",
+    "agent_write_enabled": false,
+    "want_allowed": false
+  },
+  {
+    "description": "non-numeric fake version prefix reaching a write endpoint",
+    "method": "POST",
+    "path": "/vFOO/containers/abc/start",
+    "agent_write_enabled": true,
+    "want_allowed": false
+  },
+  {
+    "description": "version-prefixed traversal that legitimately resolves to an allowed path",
+    "method": "GET",
+    "path": "/v1.47/../containers/json",
+    "agent_write_enabled": false,
+    "want_allowed": true
+  },
+  {
+    "description": "traversal escaping to a disallowed path",
+    "method": "GET",
+    "path": "/containers/../../etc/passwd",
+    "agent_write_enabled": false,
+    "want_allowed": false
+  },
+  {
+    "description": "double-slash with legitimate version prefix",
+    "method": "GET",
+    "path": "/v1.44//containers/json",
+    "agent_write_enabled": false,
+    "want_allowed": true
   }
 ]
