@@ -88,6 +88,10 @@ pre-commit:
       glob: "*.go"
       run: scripts/pre-commit-hooks/golangci-lint-fast.sh
 
+    muzzle-allowlist-parity:
+      glob: "{backend/internal/orthrus/muzzle.go,agent/muzzle/muzzle.go}"
+      run: go run scripts/ci/check_muzzle_allowlist_parity.go
+
     check-version-match:
       glob: ".version"
       run: bash scripts/check-version-match-tag.sh
