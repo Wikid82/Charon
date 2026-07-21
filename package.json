@@ -27,7 +27,7 @@
     "@types/node": "^26.1.1",
     "dotenv": "^17.4.2",
     "markdownlint-cli2": "^0.23.1",
-    "prettier": "^3.9.5",
+    "prettier": "^3.9.6",
     "prettier-plugin-tailwindcss": "^0.8.1",
     "tar": "^7.5.20",
     "typescript": "^6.0.3",
