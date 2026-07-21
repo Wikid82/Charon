@@ -1,5 +1,6 @@
 import { AlertTriangle } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { toast } from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 
@@ -64,9 +65,26 @@ export function AgentWriteModeDialog({ agent, open, onClose }: AgentWriteModeDia
 
   const handleSave = () => {
     if (!canSave) return;
+    const wasTurnedOn = requiresConfirmation; // off→on transition — same predicate
+                                                // already computed above to gate
+                                                // the typed-confirmation step; reused
+                                                // here rather than re-derived, since
+                                                // desiredEnabled/agent.write_enabled
+                                                // cannot change between this render
+                                                // and this synchronous save call.
     patch(
       { uuid: agent.uuid, req: { write_enabled: desiredEnabled } },
-      { onSuccess: onClose },
+      {
+        onSuccess: (updatedAgent) => {
+          if (wasTurnedOn && updatedAgent.status === 'online') {
+            toast.success(
+              t('hecate.writeMode.restartRequiredToast', { name: agent.name }),
+              { id: `write-mode-restart-${agent.uuid}`, duration: 8000 },
+            );
+          }
+          onClose();
+        },
+      },
     );
   };
 

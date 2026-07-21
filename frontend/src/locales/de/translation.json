@@ -1455,7 +1455,8 @@
       },
       "reconnectNotice": "Write mode change will take effect on next agent reconnect.",
       "viewAuditLog": "View write-access audit log",
-      "disableConfirm": "Disable"
+      "disableConfirm": "Disable",
+      "restartRequiredToast": "\"{{name}}\" is connected — restart the Orthrus agent on its remote machine for the write-mode change to take effect."
     }
   },
   "feedback": {

@@ -1,4 +1,5 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { toast } from 'react-hot-toast';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -19,6 +20,14 @@ vi.mock('react-i18next', () => ({
       opts?.name ? `${key}:${opts.name}` : key,
   }),
 }));
+
+vi.mock('react-hot-toast', () => ({
+  toast: {
+    success: vi.fn(),
+  },
+}));
+
+const mockToast = vi.mocked(toast);
 
 const baseAgent: OrthrusAgent = {
   uuid: 'agent-1',
@@ -43,6 +52,7 @@ const renderDialog = (agent: OrthrusAgent = baseAgent, open = true, onClose = vi
 
 beforeEach(() => {
   mockPatch.mockReset();
+  mockToast.success.mockReset();
   mockProxyStatus = undefined;
 });
 
@@ -91,9 +101,11 @@ describe('AgentWriteModeDialog', () => {
     });
 
     it('submits write_enabled: true once confirmed', async () => {
-      mockPatch.mockImplementation((_args: unknown, { onSuccess }: { onSuccess: () => void }) => {
-        onSuccess();
-      });
+      mockPatch.mockImplementation(
+        (_args: unknown, { onSuccess }: { onSuccess: (agent: OrthrusAgent) => void }) => {
+          onSuccess({ ...baseAgent, write_enabled: true, status: 'offline' });
+        },
+      );
       const onClose = vi.fn();
       renderDialog(baseAgent, true, onClose);
 
@@ -126,9 +138,11 @@ describe('AgentWriteModeDialog', () => {
     });
 
     it('submits write_enabled: false without any confirmation text', async () => {
-      mockPatch.mockImplementation((_args: unknown, { onSuccess }: { onSuccess: () => void }) => {
-        onSuccess();
-      });
+      mockPatch.mockImplementation(
+        (_args: unknown, { onSuccess }: { onSuccess: (agent: OrthrusAgent) => void }) => {
+          onSuccess({ ...enabledAgent, write_enabled: false, status: 'online' });
+        },
+      );
       renderDialog(enabledAgent);
 
       fireEvent.click(screen.getByRole('switch'));
@@ -140,6 +154,71 @@ describe('AgentWriteModeDialog', () => {
           expect.objectContaining({ onSuccess: expect.any(Function) }),
         );
       });
+    });
+  });
+
+  describe('restart-required toast', () => {
+    const patchAndResolve = (updatedAgent: OrthrusAgent) => {
+      mockPatch.mockImplementation(
+        (_args: unknown, { onSuccess }: { onSuccess: (agent: OrthrusAgent) => void }) => {
+          onSuccess(updatedAgent);
+        },
+      );
+    };
+
+    it('fires when turned on while the agent is connected', async () => {
+      patchAndResolve({ ...baseAgent, write_enabled: true, status: 'online' });
+      renderDialog(baseAgent);
+
+      fireEvent.click(screen.getByRole('switch'));
+      fireEvent.change(screen.getByLabelText('hecate.writeMode.confirmPrompt:Test Agent'), {
+        target: { value: 'Test Agent' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+
+      await waitFor(() => {
+        expect(mockToast.success).toHaveBeenCalledWith(
+          'hecate.writeMode.restartRequiredToast:Test Agent',
+          { id: 'write-mode-restart-agent-1', duration: 8000 },
+        );
+      });
+    });
+
+    it('does not fire when turned on while the agent is disconnected', async () => {
+      patchAndResolve({ ...baseAgent, write_enabled: true, status: 'offline' });
+      renderDialog(baseAgent);
+
+      fireEvent.click(screen.getByRole('switch'));
+      fireEvent.change(screen.getByLabelText('hecate.writeMode.confirmPrompt:Test Agent'), {
+        target: { value: 'Test Agent' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+
+      await waitFor(() => expect(mockPatch).toHaveBeenCalled());
+      expect(mockToast.success).not.toHaveBeenCalled();
+    });
+
+    it('does not fire when turned off', async () => {
+      const enabledAgent: OrthrusAgent = { ...baseAgent, write_enabled: true };
+      patchAndResolve({ ...enabledAgent, write_enabled: false, status: 'online' });
+      renderDialog(enabledAgent);
+
+      fireEvent.click(screen.getByRole('switch'));
+      fireEvent.click(screen.getByRole('button', { name: 'hecate.writeMode.disableConfirm' }));
+
+      await waitFor(() => expect(mockPatch).toHaveBeenCalled());
+      expect(mockToast.success).not.toHaveBeenCalled();
+    });
+
+    it('does not fire on a no-op save (already on, saved again unchanged)', async () => {
+      const enabledAgent: OrthrusAgent = { ...baseAgent, write_enabled: true };
+      patchAndResolve({ ...enabledAgent, write_enabled: true, status: 'online' });
+      renderDialog(enabledAgent);
+
+      fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+
+      await waitFor(() => expect(mockPatch).toHaveBeenCalled());
+      expect(mockToast.success).not.toHaveBeenCalled();
     });
   });
 
