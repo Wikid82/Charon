@@ -399,3 +399,413 @@ Adaptation from `CLAUDE.md`'s suggested 5-step shape: this change has no fronten
 9. `.github/workflows/codecov-upload.yml` runs an `agent-codecov` job on every PR (gated the same way as `backend-codecov`/`frontend-codecov`), uploading `agent/coverage.txt` under `flags: agent`; `codecov.yml` excludes `agent/main.go` from that flag's reported coverage, mirroring `backend/cmd/api/**`'s existing treatment.
 10. `CHANGELOG.md` and `ARCHITECTURE.md` updated per Commit 6.
 11. No behavior change to backend's Docker API allowlist decisions for any input not in the new corpus cases — verified by 100% pre-existing backend test pass rate with zero test modifications required (only additions).
+
+---
+
+## Follow-up: Coverage Tooling Baseline & Enforcement Fix (Codecov Patch-Coverage Gap on PR #1166)
+
+**Type**: Follow-up fix on the same feature/PR (`feature/orthrus`, open as PR #1166 targeting base `development`) — additional commits, not a new branch, per `CLAUDE.md`'s "no worktrees, work directly on the current branch" instruction and "One Feature = One PR."
+**Status**: DRAFT — pending Supervisor review
+**Trigger**: Codecov's real PR comment on #1166 reports patch coverage **76.92308%** (24 lines missing/partial: `agent/muzzle/muzzle.go` 81.72% — 9 Missing, 8 partials; `agent/leash/leash.go` 36.36% — 7 Missing), while `scripts/local-patch-report.sh` reported a materially better 87.8% overall / 82.8% agent locally and exited 0 regardless of threshold. `CLAUDE.md`'s Definition of Done Step 2 calls the local tool "MANDATORY," so a local pass that doesn't predict Codecov's real result is itself a defect, independent of whether the underlying coverage gap also needs closing.
+**Research verified against**: repository HEAD on `feature/orthrus` at commit `d2fa3154`(current tip after later docs/QA commits through `260c5ee8`), 2026-07-20. `gh pr view --json baseRefName` confirms PR #1166's real base is `development`, not `main`.
+
+### F.1 Root Cause — Re-Verified Against Current Code (`docs/reports/qa_report.md` Finding 1, confirmed still accurate)
+
+| # | Root cause | Confirmed at | Status |
+|---|---|---|---|
+| 1 | `scripts/local-patch-report.sh`'s baseline resolution (lines 66-80) tries `origin/main` first, `origin/development` only as a fallback that a second, unrelated ref (`main`) gets priority over. Since both `origin/main` and `origin/development` exist locally, it always resolves to `origin/main...HEAD`, never matching PR #1166's actual GitHub base. | `scripts/local-patch-report.sh:66-80` | Confirmed unchanged |
+| 2 | `backend/internal/patchreport/patchreport.go`'s `ApplyStatus` (lines 353-359) sets `Status = "warn"` below threshold but nothing downstream reads it to fail. `backend/cmd/localpatchreport/main.go` computes and prints `WARN:` lines (142-152) but always returns from `main()` normally (implicit exit 0). `scripts/local-patch-report.sh` only checks that the JSON/MD artifacts are non-empty (lines 124-133) and exits 0 if so — coverage content is never inspected. | `patchreport.go:353-359`, `main.go` (no `os.Exit(1)` on any `Status=="warn"` path), `local-patch-report.sh:124-134` | Confirmed unchanged |
+| 3 | `codecov.yml`'s patch check (`coverage.status.patch.default`) is `informational: true` (lines 12-17) — Codecov's own PR comment cannot hard-block the merge on patch coverage. `CLAUDE.md`'s DoD Step 6 nonetheless calls backend/agent coverage "MANDATORY — Non-negotiable," a stricter internal bar than Codecov enforces, which only the local tool was ever positioned to enforce — and doesn't. | `codecov.yml:12-17` | Confirmed unchanged |
+| 4 (new, found during this follow-up's research — not in the original QA report) | `backend/cmd/localpatchreport/main.go`'s own `--baseline` flag **already defaults to** `"origin/development...HEAD"` (line 52) — the *correct* value. The bug is entirely in the shell wrapper: `scripts/local-patch-report.sh` always computes an explicit `$BASELINE` (root cause #1) and always passes it via `--baseline "$BASELINE"` (line 116), so the Go tool's already-correct default is unconditionally overridden on every invocation. Fixing `main.go`'s default would have no effect; the shell script is the only file that needs the baseline-selection fix. | `main.go:52`, `local-patch-report.sh:116` | New finding |
+
+**Also re-confirmed**: `report.Mode` in `backend/cmd/localpatchreport/main.go` is hardcoded to the literal string `"warn"` (line 157) regardless of outcome — the QA report's characterization of this as misleading is accurate and is fixed as part of F.4 below (the field now reflects the tool's actual enforcement mode).
+
+### F.2 Branching Model Confirmation
+
+`gh pr list --state merged --limit 15 --json number,baseRefName,headRefName` shows **13 of 13** non-promotion merged PRs target `development` (renovate bumps, bot commits, feature PRs); only the two `nightly` PRs (#1164, #1146) target `main`. `git log --merges` corroborates: every non-nightly merge is `development`-bound. This matches `CLAUDE.md`'s documented model (feature branches → `development` → periodic promotion PRs → `main`) exactly and is the basis for F.3's fallback-order change: **`development` is the default integration branch; `main` is only ever a target for the scheduled nightly-promotion PR.**
+
+### F.3 Baseline Resolution Fix (Design)
+
+Three-tier resolution, replacing `scripts/local-patch-report.sh` lines 66-80:
+
+**Tier 1 — explicit override (unchanged)**: `$CHARON_PATCH_BASELINE`, if set, wins outright — no change to this precedence, it's already correct and is the documented manual-override escape hatch.
+
+**Tier 2 — `gh`-derived real PR base (new)**: when `CHARON_PATCH_BASELINE` is unset, attempt to ask GitHub what the *actual* open PR's base branch is, so the local number is computed against the exact same ref Codecov uses:
+
+```
+if command -v gh >/dev/null 2>&1; then
+    GH_BASE_REF="$(timeout 5s gh pr view --json baseRefName -q .baseRefName 2>/dev/null || true)"
+    if [[ -n "$GH_BASE_REF" ]] && git -C "$ROOT_DIR" rev-parse --verify --quiet "origin/${GH_BASE_REF}^{commit}" >/dev/null; then
+        BASELINE="origin/${GH_BASE_REF}...HEAD"
+    fi
+fi
+```
+
+**Tier 3 — static heuristic fallback (changed)**: only reached if `gh` is absent, unauthenticated, times out, or no PR is open for the current branch (all folded into the same `|| true` / empty-`GH_BASE_REF` path above — no separate error handling needed, it degrades silently to Tier 3). Per F.2, the preference order flips to put `development` first:
+
+```
+if [[ -z "$BASELINE" ]]; then
+    if git -C "$ROOT_DIR" rev-parse --verify --quiet "origin/development^{commit}" >/dev/null; then
+        BASELINE="origin/development...HEAD"
+    elif git -C "$ROOT_DIR" rev-parse --verify --quiet "development^{commit}" >/dev/null; then
+        BASELINE="development...HEAD"
+    elif git -C "$ROOT_DIR" rev-parse --verify --quiet "origin/main^{commit}" >/dev/null; then
+        BASELINE="origin/main...HEAD"
+    elif git -C "$ROOT_DIR" rev-parse --verify --quiet "main^{commit}" >/dev/null; then
+        BASELINE="main...HEAD"
+    else
+        BASELINE="origin/development...HEAD"
+    fi
+fi
+```
+
+| Edge case | Behavior |
+|---|---|
+| `gh` not installed | `command -v gh` fails → Tier 2 skipped entirely → Tier 3 |
+| `gh` installed, not authenticated | `gh pr view` exits non-zero, stderr suppressed, `\|\| true` prevents `set -e` abort → `GH_BASE_REF` empty → Tier 3 |
+| No PR open for current branch | Same as above (`gh pr view` errors "no pull requests found") → Tier 3 |
+| `gh` hangs (network issue) | `timeout 5s` bounds the wait → non-zero exit → Tier 3 |
+| `gh` returns a `baseRefName` whose `origin/<ref>` isn't fetched locally | The `rev-parse --verify` guard in Tier 2 rejects it, falls through to Tier 3 rather than later failing the "baseline base ref not available locally" check at line 105-108 |
+
+This satisfies task requirement 3 exactly: `gh`-exact-match primary, `development`-preferring heuristic fallback, graceful degradation on every named failure mode.
+
+### F.4 Enforcement Fix (Design)
+
+**Decision**: default to **strict** (non-zero exit on any scope below threshold), with an explicit `-advisory` opt-out flag for legitimate mid-feature use — per the task's own steer and `CLAUDE.md` DoD Step 2's "MANDATORY" language. Exit-code logic lives in the Go tool (`backend/cmd/localpatchreport/main.go`), not the shell script, since `main.go` already owns every `ScopeCoverage.Status` computation; the shell script only needs to propagate whatever exit code the Go tool returns.
+
+**New exported function**, `backend/internal/patchreport/patchreport.go` (alongside the existing `ApplyStatus`/`MergeScopeCoverage`):
+
+```go
+// HasWarnStatus reports whether any of the given scopes is below its
+// threshold (Status == "warn"). Used by cmd/localpatchreport's strict mode
+// to decide the process exit code — kept in this package, not main.go,
+// so it is unit-testable independent of os.Exit and CLI flag parsing.
+func HasWarnStatus(scopes ...ScopeCoverage) bool {
+    for _, scope := range scopes {
+        if scope.Status == "warn" {
+            return true
+        }
+    }
+    return false
+}
+```
+
+**`backend/cmd/localpatchreport/main.go` changes**:
+- New flag: `advisoryFlag := flag.Bool("advisory", false, "Exit 0 even if any coverage scope is below threshold (advisory-only mode). Default is strict: non-zero exit on any below-threshold scope, per CLAUDE.md's Definition of Done Step 2.")`
+- `report.Mode` (currently hardcoded `"warn"` at line 157) becomes `"strict"` or `"advisory"` based on `*advisoryFlag`, so the JSON/markdown artifacts themselves truthfully describe the mode that produced them (fixes the QA report's flagged "always says warn" defect as a side effect).
+- After `writeJSON`/`writeMarkdown` succeed (after line 198, before the function returns) — artifacts must be written and confirmed on disk *before* any exit-1, so a failing gate still leaves a full report for the developer to read:
+  ```go
+  if !*advisoryFlag && patchreport.HasWarnStatus(overallScope, backendScope, frontendScope, agentScope) {
+      fmt.Fprintln(os.Stderr, "Local patch coverage below threshold in strict mode (use -advisory to bypass); see report for details.")
+      os.Exit(1)
+  }
+  ```
+
+**`scripts/local-patch-report.sh` changes**:
+- New optional CLI flag `--advisory` (or `CHARON_PATCH_REPORT_ADVISORY=1` env var), forwarded to the Go tool as `--advisory=true`; unset/absent means strict (default).
+- The Go-tool invocation (lines 112-122) is restructured so the script can still run its own artifact-existence checks (lines 124-133) even when the tool exits 1, and only then propagates the real exit code — rather than letting `set -e` abort the script mid-way and skip artifact verification:
+  ```bash
+  set +e
+  (
+      cd "$ROOT_DIR/backend"
+      go run ./cmd/localpatchreport \
+          --repo-root "$ROOT_DIR" \
+          --baseline "$BASELINE" \
+          --backend-coverage "$BACKEND_COVERAGE_FILE" \
+          --frontend-coverage "$FRONTEND_COVERAGE_FILE" \
+          --agent-coverage "$AGENT_COVERAGE_FILE" \
+          --json-out "$JSON_OUT" \
+          --md-out "$MD_OUT" \
+          --advisory="$ADVISORY"
+  )
+  REPORT_STATUS=$?
+  set -e
+  ```
+  ...followed by the existing non-empty-artifact checks unchanged, and a final `exit "$REPORT_STATUS"` replacing the implicit exit-0 fallthrough at the end of the script.
+
+**Decision explicitly rejected**: flipping `codecov.yml`'s `coverage.status.patch.default.informational` from `true` to `false` so Codecov itself hard-blocks the PR. Per `CLAUDE.md`'s Governance & Precedence "stricter security requirement wins" rule this is arguable, but it was rejected for this follow-up because it changes CI-blocking behavior **repo-wide, for every PR**, not just this one — a materially larger blast radius than "make the already-mandatory local tool actually enforce what it claims to." The local strict-by-default gate (this section) already satisfies `CLAUDE.md` DoD Step 2's "MANDATORY" requirement without that side effect. Revisit as a separate, explicitly-scoped change if the team wants Codecov itself to hard-block.
+
+### F.5 Regenerated Gap Data (Correct `origin/development` Baseline)
+
+Regenerated directly via `backend/cmd/localpatchreport` (bypassing the not-yet-fixed shell script) with `--baseline "origin/development...HEAD"`, fresh `go test -coverprofile` runs for `backend/` and `agent/`:
+
+| Scope | Changed Lines | Covered | Patch Coverage | Threshold | Status |
+|---|---:|---:|---:|---:|---|
+| Overall | 168 | 142 | 84.5% | 90.0% | **warn** |
+| Backend | 34 | 31 | 91.2% | 85.0% | pass |
+| Frontend | 0 | 0 | 100.0% | 85.0% | pass |
+| Agent | 134 | 111 | 82.8% | 85.0% | **warn** |
+
+**Important caveat, stated explicitly rather than glossed over**: these agent-scope numbers are numerically identical to the QA report's `origin/main`-baseline numbers (also 134 changed / 111 covered / 82.8%). This is *expected*, not evidence the baseline bug doesn't matter: `agent/muzzle/muzzle.go` and `agent/leash/leash.go`'s changed lines in this diff are entirely new-to-this-branch content that exists on neither `origin/main` nor `origin/development` — for these two specific files, the diff is "whole relevant section is new" under either baseline, so the choice doesn't move their numbers. The baseline bug is still real and still matters (F.1, F.2) for the *overall* number and for any file that has independently changed on `development` since it diverged from `main` — it just doesn't happen to be the reason these two files look bad.
+
+**Also documented as a known residual limitation, not something F.3/F.4 claim to fix**: local numbers (82.8%/86.1%/63.2%) do not exactly match Codecov's reported numbers (76.92%/81.72%/36.36%). This is very likely because Go's standard coverage profile format records only per-statement-block hit counts ("was this block executed at least once"), while Codecov's "partial" bucket (8 partials on `muzzle.go` alone) reflects branch-level analysis — a line with an `if`/`&&` where only one branch was exercised. `ComputeScopeCoverage` in `patchreport.go` treats any line with `count > 0` as fully covered, which is systematically more generous than Codecov's hit/partial/miss model. Closing this gap exactly would require branch-level coverage instrumentation Go's standard tooling doesn't produce; out of scope for this follow-up. The baseline and enforcement fixes (F.3/F.4) make the local tool *directionally trustworthy and actually blocking* — they do not promise bit-for-bit parity with Codecov's percentage.
+
+**Files needing coverage** (from the regenerated report):
+
+| Path | Patch Coverage | Uncovered Changed Lines |
+|---|---:|---|
+| `agent/leash/leash.go` | 63.2% | 172, 177-178, 188, 198-199, 232 |
+| `agent/muzzle/muzzle.go` | 86.1% | 191-192, 205-206, 216-217, 233-234, 248-249, 409-410, 412-414, 438 |
+| `backend/cmd/localpatchreport/main.go` | 91.2% | 112-114 (pre-existing gap in the tool's own agent-coverage-missing error path; not touched by this follow-up's own new code, left as-is) |
+
+**What each uncovered line actually represents** — corrects one detail of the QA report's characterization:
+
+`agent/muzzle/muzzle.go`:
+
+| Lines | Function | Branch | Fail-closed or permissive? |
+|---|---|---|---|
+| 191-192 | `validateNetworkModeValue` | `json.Unmarshal(raw, &mode)` fails (e.g. `NetworkMode` is a JSON number, not a string) → `return false` | Fail-closed |
+| 205-206 | `validateMountsValue` | `json.Unmarshal(raw, &mounts)` fails (e.g. `Mounts` is a JSON string, not an array) → `return false` | Fail-closed |
+| 216-217 | `validateMountsValue` | per-mount `json.Unmarshal(mnt.VolumeOptions, &volumeOptions)` fails (malformed `VolumeOptions` object) → `return false` | Fail-closed |
+| **233-234** | `validateContainerCreateBody` | `len(bodyBytes) == 0` → **`return true, ""`** | **Permissive** — an empty `/containers/create` body is intentionally allowed through |
+| 248-249 | `validateContainerCreateBody` | `json.Unmarshal(hostConfigRaw, &hostConfig)` fails (`HostConfig` present but not a JSON object) → `return false, "malformed request body"` | Fail-closed |
+| 409-410 | `ServeProxy` | `io.ReadAll(limited)` fails while reading the request body → `return fmt.Errorf(...)` | Fail-closed (aborts the stream) |
+| 412-414 | `ServeProxy` | body exceeds `maxContainerCreateBodyBytes` (64KiB) → writes `forbiddenResponse`, returns error | Fail-closed |
+| 438 | `ServeProxy` | `req.Write(conn)` fails forwarding to the real Docker socket → `return fmt.Errorf(...)` | Fail-closed (I/O fault path, not a policy branch) |
+
+The QA report's claim that "most of the gap... are fail-closed error-return branches" is **still substantially accurate** (7 of 8 ranges) but **not complete**: line 233-234 is the one *permissive* branch in the set — the empty-body pass-through for `/containers/create` — and deserves its own explicit positive-outcome test (F.6) precisely because an untested permissive branch is exactly the kind of thing that should not be taken on faith, unlike the fail-closed branches where "untested" at least means "cannot be coerced into an unsafe outcome."
+
+`agent/leash/leash.go` — every uncovered line is part of the write-mode connection-scoped `*muzzle.Filter` dispatch wiring added by the earlier `a4be39e2` commit, and **none of it has ever been exercised by a test**, not even indirectly:
+
+| Lines | Location | What's uncovered |
+|---|---|---|
+| 172 | `connect`'s `AcceptStream` loop | `go l.handleStream(stream, filter)` — the real per-stream dispatch call is never reached because the only existing test (`TestLeash_Reconnect`) has the fake server close the connection immediately, before any stream is ever opened |
+| 177-178 | `handleStream` | function signature + `defer func() { _ = stream.Close() }()` — the function itself is never called by any test (it's unexported; the only test file, `leash_test.go`, is external `package leash_test`, and no test drives a stream through `connect()` far enough to invoke it) |
+| 188 | `handleStream`'s `switch` | `l.handleDockerStream(stream, filter)` case dispatch |
+| 198-199 | `handleDockerStream` | function signature + `filter.ServeProxy(l.dockerSock, stream, stream)` — the connection-scoped filter is never actually invoked from the dispatch path in any test (muzzle's own tests construct a `*Filter` directly and call `.Allow`/`.ServeProxy` on it, never through `Leash`'s wiring) |
+| 232 | `handlePortForward` | `defer func() { _ = conn.Close() }()` — only reached on a *successful* TCP dial; existing coverage of `handlePortForward` (if any, outside the diff) only exercises the early-return error paths (invalid address length, dial failure), never a real successful dial |
+
+This is a meaningful, non-cosmetic gap: it is the wiring that proves `connect()`'s per-connection `muzzle.New(writeEnabled)` filter (line 161) actually reaches `ServeProxy` for real traffic — exactly the security-relevant behavior this whole follow-up chain (#1160/#1161) depends on, not incidental scaffolding.
+
+### F.6 Test Specifications to Close the Gap (TDD — meaningful tests, not padding)
+
+**`agent/muzzle/muzzle_test.go`** (package `muzzle_test`, external — all reachable through the existing `Filter.Allow`/`ServeProxy` surface, no white-box access needed):
+
+1. Extend the existing table in `TestFilter_Allow_ContainersCreate_DangerousBodiesRejected` (currently ends around line 605) with 4 new cases, each isolating exactly one of the four still-untested fail-closed branches (distinct from the existing `"malformed JSON"` case, which only reaches the *outer* top-level unmarshal failure, a different, already-covered line):
+   - `"malformed NetworkMode value (non-string JSON)"` — body `{"Image":"nginx","HostConfig":{"NetworkMode":12345}}` → targets lines 191-192.
+   - `"malformed Mounts value (not a JSON array)"` — body `{"Image":"nginx","HostConfig":{"Mounts":"not-an-array"}}` → targets lines 205-206.
+   - `"malformed Mounts VolumeOptions (invalid JSON object)"` — body `{"Image":"nginx","HostConfig":{"Mounts":[{"Type":"volume","VolumeOptions":"not-an-object"}]}}` → targets lines 216-217 (distinct from the existing `DriverConfig`-bypass case, which has a *valid* `VolumeOptions` object).
+   - `"malformed HostConfig itself (not a JSON object)"` — body `{"Image":"nginx","HostConfig":"not-an-object"}` → targets lines 248-249 (distinct from the existing top-level `"malformed JSON"` case).
+   All four assert `f.Allow("POST", "/containers/create", []byte(tc.body))` is `false`, same pattern as every existing row in that table.
+2. New test `TestFilter_Allow_ContainersCreate_EmptyBodyAllowed` — `f := muzzle.New(true)`; asserts `f.Allow("POST", "/containers/create", nil)` and `f.Allow("POST", "/containers/create", []byte{})` are both `true`. Targets lines 233-234, the one *permissive* branch identified in F.5 — given its own named test (not folded into the "safe body allowed" table) specifically because it documents and locks in an intentional security-relevant default, not an incidental pass-through.
+3. New test `TestFilter_ServeProxy_BodyReadError_ReturnsError` — feeds `ServeProxy` an `io.Reader` that yields a well-formed HTTP request line + headers followed by a body source that returns a read error mid-stream (e.g. `io.MultiReader(validHeaderBytes, errReader{err: errors.New("boom")})`); asserts a non-nil error mentioning `"read body"` is returned and no panic occurs. Targets lines 409-410.
+4. New test `TestFilter_ServeProxy_BodyTooLarge_Returns403AndError` — sends a request (any allowed or disallowed method/path is fine, since the size check runs before `Allow` is consulted) with a body of `maxContainerCreateBodyBytes + 1` bytes; asserts `forbiddenResponse` was written to the `io.Writer` and the returned error mentions `"body too large"`. Targets lines 412-414.
+5. New test `TestFilter_ServeProxy_DockerWriteError_ReturnsError` — uses a real `net.Listen("unix", tmpSock)` fake Docker socket whose accept handler closes the accepted connection immediately (before `ServeProxy`'s `req.Write(conn)` runs), for an otherwise-allowed request (e.g. `GET /containers/json`); asserts a non-nil error mentioning `"forward request to docker"` is returned. Targets line 438.
+
+**`agent/leash/leash_test.go`** (package `leash_test`, external — extends the existing WebSocket-upgrade test harness already used by `TestLeash_Reconnect`; deliberately *not* a new white-box/internal test file, because driving the dispatch through the real exported `Run`/`Config` surface exercises the actual wiring end-to-end, which is the behavior that matters here, not merely the unexported functions in isolation):
+
+1. New test `TestLeash_Connect_DockerStreamDispatchesThroughFilter` — test WS server upgrades the connection, wraps it in a server-side `yamux.Server` session, opens one stream, writes the `streamTypeDocker` marker byte followed by a minimal valid raw HTTP request (`"GET /containers/json HTTP/1.1\r\nHost: x\r\n\r\n"`). The agent side is a real `leash.New(Config{DockerSock: <tmp unix socket>, ...})` running via `Run(ctx)` in a goroutine. `DockerSock` points at a `net.Listen("unix", ...)` fake listener that accepts and immediately closes each connection. Assertion: the fake listener's `Accept()` returns a connection within a bounded timeout, proving the full chain — `connect()`'s `AcceptStream` loop (line 172) → `handleStream` (177-178) → `handleDockerStream` (188, 198-199) → the connection-scoped `filter.ServeProxy` → `net.Dial(dockerSock)` — actually executed for a real accepted stream, not just that the individual functions don't panic in isolation.
+2. New test `TestLeash_Connect_PortForwardStreamDialsTarget` — same harness, but the opened stream writes the `streamTypePortForward` marker byte followed by a 2-byte big-endian length + address bytes encoding a `net.Listen("tcp", "127.0.0.1:0")` fake target listener's address. Assertion: the fake target listener's `Accept()` returns a connection within a bounded timeout, proving `handlePortForward` reached its successful-dial path and the deferred `conn.Close()` (line 232) executes, in addition to `handleStream`'s `streamTypePortForward` case.
+
+Both new leash tests are integration-style through the package's exported surface (`New`, `Config`, `Run`) — they need no unexported access and therefore add zero white-box test surface to maintain.
+
+### F.7 Additional EARS Requirements
+
+| ID | Requirement |
+|---|---|
+| R12 | WHEN `scripts/local-patch-report.sh` runs with `CHARON_PATCH_BASELINE` unset and the `gh` CLI is available, authenticated, and an open PR exists for the current branch, THE script SHALL resolve its diff baseline to that PR's exact `baseRefName`, matching Codecov's own comparison base. |
+| R13 | WHEN `gh` is unavailable, unauthenticated, times out, or no PR is open for the current branch, THE script SHALL fall back to a static heuristic that prefers `origin/development` over `origin/main`, without erroring out. |
+| R14 | THE local patch-coverage tool SHALL, by default (absent an explicit `-advisory`/`--advisory` opt-out), exit with a non-zero status if any computed coverage scope's `Status` is `"warn"`, after having already written both the JSON and markdown report artifacts to disk. |
+| R15 | WHEN `-advisory`/`--advisory` is explicitly passed, THE tool SHALL exit 0 regardless of any scope's status, and SHALL record `"advisory"` (not `"strict"`) as the report's `mode` field, so the artifact itself is never misleading about which mode produced it. |
+| R16 | THE new `agent/muzzle/muzzle.go` and `agent/leash/leash.go` unit tests added to close this specific Codecov-flagged gap SHALL each assert a distinct, real branch of normalization/validation/dispatch logic — not merely increment a coverage counter — verified by each new test targeting a line range named in F.5's gap table. |
+
+### F.8 Commit Slicing Strategy (Addendum)
+
+**Decision**: two additional ordered commits, landing after the six already-merged-onto-branch commits from the original plan (actual git history: `6fe7a800`..`260c5ee8`), still within the single `feature/orthrus` / PR #1166. No new branch, no new PR — this is a follow-up fix to an open PR per `CLAUDE.md`'s "One Feature = One PR."
+
+---
+
+#### Commit 7 — Foundation: fix baseline resolution + enforcement in patch-coverage tooling, with tests for the tooling itself
+
+**Scope**: F.3 (baseline resolution rewrite) + F.4 (strict-by-default enforcement, `-advisory` flag, `HasWarnStatus`, truthful `report.Mode`). No changes to `agent/muzzle/muzzle.go` or `agent/leash/leash.go` in this commit — this commit only fixes the *measurement and gating* tool, so its own validation gate can run against the still-uncovered agent code and correctly report `warn`/exit 1, proving the fix works before Commit 8 makes it pass for a genuine reason.
+
+**Files**:
+- `scripts/local-patch-report.sh` (baseline three-tier resolution; `--advisory` passthrough; restructured exit-code propagation)
+- `backend/cmd/localpatchreport/main.go` (`-advisory` flag; `report.Mode` reflects real mode; strict-mode `os.Exit(1)` after artifacts are written)
+- `backend/cmd/localpatchreport/main_test.go` (new tests using the existing `runMainSubprocess` subprocess-reexec helper (line 305) — the established pattern in this file for testing `os.Exit` paths): `TestMain_StrictModeExitsNonZeroWhenAnyScopeBelowThreshold`, `TestMain_AdvisoryModeExitsZeroWhenScopeBelowThreshold`, `TestMain_ReportModeFieldReflectsStrictOrAdvisory`
+- `backend/internal/patchreport/patchreport.go` (new `HasWarnStatus`)
+- `backend/internal/patchreport/patchreport_test.go` (new tests: `TestHasWarnStatus_TrueWhenAnyScopeWarn`, `TestHasWarnStatus_FalseWhenAllScopesPass`)
+- New `scripts/tests/local-patch-report_baseline.bats` (following the existing `scripts/history-rewrite/tests/*.bats` convention already in this repo) covering: `gh` available + PR open → uses `gh`'s `baseRefName`; `gh` absent → heuristic fallback prefers `origin/development`; `gh` present but errors/times out → same fallback; explicit `CHARON_PATCH_BASELINE` still wins over both. `gh` is stubbed via a fake executable earlier in `PATH`, the standard `bats` technique.
+
+**Dependencies**: None — first commit of this follow-up, independent of the agent-code changes in Commit 8.
+
+**Validation gate**:
+- `cd backend && go test ./internal/patchreport/... ./cmd/localpatchreport/... -v` — all green, including the new strict/advisory/`HasWarnStatus` tests.
+- `bats scripts/tests/local-patch-report_baseline.bats` — all green.
+- Manual proof the fix actually works end-to-end (documented in the PR description, not just asserted): run `bash scripts/local-patch-report.sh` on this branch (still pre-Commit-8, agent coverage still genuinely below threshold) and confirm it now (a) resolves baseline to `origin/development...HEAD`, (b) exits **non-zero**, matching what Codecov actually reported — this is the negative-path proof that closes the exact gap this whole follow-up exists to fix. Then re-run with `--advisory` and confirm exit 0, artifacts still written, `mode: "advisory"` in the JSON.
+- `make lint-staticcheck-only`; `cd backend && go build ./...`.
+
+---
+
+#### Commit 8 — Close the actual coverage gap in `agent/muzzle/muzzle.go` and `agent/leash/leash.go`
+
+**Scope**: F.6's 5 new muzzle.go test cases/functions and 2 new leash.go integration-style tests. No production-code changes — every line named in F.5's gap table is already-shipped, already-reviewed logic (from the six earlier commits); this commit only adds the tests needed to exercise it.
+
+**Files**: `agent/muzzle/muzzle_test.go`, `agent/leash/leash_test.go`
+
+**Dependencies**: Commit 7 (so this commit's validation gate can use the now-fixed, now-strict `scripts/local-patch-report.sh` against the correct `origin/development` baseline as its own proof of success, rather than eyeballing raw `go test -cover` output).
+
+**Validation gate**:
+- `cd agent && go test ./muzzle/... ./leash/... -v -coverprofile=coverage.txt` — all new and existing tests green.
+- `bash scripts/local-patch-report.sh` (now fixed, strict, correct baseline) exits **0**, with the markdown report's Agent row at or above 85% and the Overall row at or above 90% — this is the actual close-out proof for the Codecov-flagged gap, not just "new tests exist."
+- `make lint-staticcheck-only` (agent module included, per the original plan's Commit 5 CI-parity work).
+- `cd agent && go build ./...`.
+- Full regression: `cd backend && go test ./... && cd ../agent && go test ./...` both green.
+
+---
+
+**Rollback / contingency for this follow-up as a whole**: both commits are additive (new tests, new flags with safe defaults, a corrected shell fallback order) — no runtime production-code behavior changes anywhere in `agent/muzzle/muzzle.go` or `agent/leash/leash.go` (only their test files change). If Commit 7's stricter default unexpectedly blocks an unrelated in-flight local workflow, the `-advisory`/`--advisory` escape hatch is the documented, intended way to bypass it temporarily — reaching for `--no-verify` on the git hook (a different, unrelated bypass) is not needed and not appropriate here. If a reviewer finds the `gh`-based baseline resolution unreliable in some CI environment, the existing `CHARON_PATCH_BASELINE` env-var override (unchanged, highest precedence, F.3 Tier 1) is the immediate mitigation without touching the script.
+
+### F.9 Definition of Done — gate applicability (this follow-up)
+
+| Gate | Applicable? | Why |
+|---|---|---|
+| Playwright E2E | No | Zero `frontend/` files touched. |
+| GORM Security Scan | No | Zero `backend/internal/models/**`, zero GORM queries/migrations. |
+| Local Patch Coverage Preflight | **Yes — this follow-up's own subject** | Commit 7 fixes the tool; Commit 8's validation gate is a real run of the fixed tool. |
+| CodeQL Go | Yes | Both commits touch `.go` files. |
+| CodeQL JS | No | Zero frontend/TS files touched. |
+| Staticcheck | Yes | Both modules (`backend/`, `agent/`). |
+| Backend coverage (85%+) | Yes | Commit 7 adds backend tests only; no backend production code removed. |
+| Agent coverage | **Yes — this follow-up's own subject** | Commit 8 is the fix. |
+| Frontend coverage / type-check | No frontend files touched | Gates trivially pass, still run per standard process. |
+| `go build ./...` (backend and agent) | Yes | |
+
+---
+
+## Addendum: Rename allowlist gap + write-mode restart toast (PR #1166 continuation)
+
+**Type**: Two-fix addendum on the same feature/PR (`feature/orthrus`, PR #1166) — additional commits, not a new branch, per `CLAUDE.md`'s "no worktrees" instruction and "One Feature = One PR."
+**Status**: DRAFT — pending Supervisor review
+**Research verified against**: repository HEAD on `feature/orthrus`, 2026-07-20. Fix 2's frontend research verified directly against current `frontend/src` source (see file/line citations inline below), not assumed.
+
+### A.1 Fix 1 — `containers/*/rename` missing from both write allowlists (context/traceability only)
+
+No design decisions required here; recorded for PR traceability alongside Fix 2 since both land in the same PR. Backend Dev is implementing this in parallel with this addendum's authoring.
+
+- **Change**: add `{method: http.MethodPost, pattern: "/containers/*/rename"}` to `allowedWritePatterns` in both `backend/internal/orthrus/muzzle.go` and `agent/muzzle/muzzle.go` — the same two dual-maintained allowlists documented in Section 2.1/2.2 above (GH #1160/#1161 muzzle-parity work).
+- **Rationale**: Docker's rename endpoint (`POST /containers/{id}/rename?name=<new-name>`) takes the new name via a query parameter with no request body, matching the existing no-body pattern already used for `/start`, `/stop`, and `/restart` — **not** the body-validated `/containers/create` pattern (`maxContainerCreateBodyBytes`, `hostConfigAllowedKeys`, etc. do not apply).
+- **Files**: `backend/internal/orthrus/muzzle.go`, `agent/muzzle/muzzle.go`, plus corresponding corpus/test entries in `backend/internal/orthrus/testdata/muzzle_corpus.json` (shared corpus consumed by both `TestMuzzle_SharedCorpus` and `TestFilter_SharedCorpus`, per Section 2.2 above) so parity is asserted, not just implemented.
+- **Validation gate**: `cd backend && go test ./internal/orthrus/... && cd ../agent && go test ./muzzle/...`, both green; `scripts/ci/check_muzzle_allowlist_parity.go` (Section 7 item 3) stays clean.
+
+### A.2 Fix 2 — Proactive "agent needs restart" toast when write mode is turned on for a connected agent
+
+#### A.2.1 Toast mechanism (verified via `git show be0b96e7`)
+
+The codebase's one and only toast mechanism is **`react-hot-toast`**, called directly as `toast.<method>(...)` (not wrapped in a local `useToast()` hook). Precedent from `frontend/src/context/AuthContext.tsx`:
+
+```ts
+import { toast } from 'react-hot-toast';
+...
+toast.error('Session expired. Please log in again.', {
+  id: 'auth-session-expired',
+  duration: 10000,
+});
+```
+
+The `<Toaster />` mount point already lives in `frontend/src/App.tsx` (confirmed present — no new provider/mount needed). The `id` option is the established dedupe pattern (a toast with a given `id` replaces any currently-showing toast with the same `id` rather than stacking); Fix 2 reuses this with a **per-agent** id (`write-mode-restart-${agent.uuid}`) rather than a single static id, since an operator could plausibly turn write mode on for two different agents in quick succession and both notices are independently relevant.
+
+Fix 2 uses `toast.success(...)` (not `.error`) — this is a confirmation that the save succeeded plus an actionable follow-up, not a failure state.
+
+#### A.2.2 Connection-status source (verified against `frontend/src/api/orthrus.ts` and `frontend/src/hooks/useOrthrus.ts`)
+
+`OrthrusAgent` (`frontend/src/api/orthrus.ts:5-24`) already carries the connection-status field the dialog needs:
+
+```ts
+export type OrthrusStatus = 'online' | 'offline' | 'pending';
+export interface OrthrusAgent {
+  ...
+  status: OrthrusStatus;
+  ...
+}
+```
+
+`AgentWriteModeDialog.tsx:41` already derives `const isOnline = agent.status === 'online';` from this exact field for an unrelated purpose (gating the `useAgentProxyStatus` query) — Fix 2 reuses the same `status === 'online'` check, not a new field.
+
+Critically, **the source for the connection-status read at save time should be the PATCH response itself, not the cached agent-list**: `patchAgent` (`frontend/src/api/orthrus.ts:94-97`) is typed `Promise<OrthrusAgent>` and returns the full updated agent record from `PATCH /orthrus/agents/{uuid}`, which includes `status`. `usePatchAgent()` (`frontend/src/hooks/useOrthrus.ts:46-55`) is a thin `useMutation` wrapper with no `select`/transform, so its `onSuccess` handler receives that same full `OrthrusAgent` (including `status`) as its first argument. This is fresher than reading `agent.status` off the dialog's `agent` prop (a snapshot from whenever the dialog opened, potentially stale by the time Save is clicked) or than re-reading the `AGENTS_QUERY_KEY` cache (which the mutation's own `onSuccess` invalidates but does not synchronously repopulate before the dialog's callback runs). No new query or field is needed — only reading a field the response already carries.
+
+#### A.2.3 Exact change: `frontend/src/components/hecate/AgentWriteModeDialog.tsx`
+
+1. Add `import { toast } from 'react-hot-toast';` to the import block (after the `react-i18next` import, alongside the other named imports).
+
+2. Modify `handleSave` (currently lines 65-71) to pass the off→on transition flag into the mutation's `onSuccess`, and check the response's `status`:
+
+   ```ts
+   const handleSave = () => {
+     if (!canSave) return;
+     const wasTurnedOn = requiresConfirmation; // off→on transition — same predicate
+                                                 // already computed at line 61 to gate
+                                                 // the typed-confirmation step; reused
+                                                 // here rather than re-derived, since
+                                                 // desiredEnabled/agent.write_enabled
+                                                 // cannot change between this render
+                                                 // and this synchronous save call.
+     patch(
+       { uuid: agent.uuid, req: { write_enabled: desiredEnabled } },
+       {
+         onSuccess: (updatedAgent) => {
+           if (wasTurnedOn && updatedAgent.status === 'online') {
+             toast.success(
+               t('hecate.writeMode.restartRequiredToast', { name: agent.name }),
+               { id: `write-mode-restart-${agent.uuid}`, duration: 8000 },
+             );
+           }
+           onClose();
+         },
+       },
+     );
+   };
+   ```
+
+   No other function in the file changes. `requiresConfirmation` (line 61) is not renamed or repurposed in meaning — it still means "off→on transition," which is exactly the condition Fix 2 also needs, so this is a reuse, not a new parallel computation of the same boolean.
+
+3. **Why the check lives here and not in the shared `usePatchAgent()` hook**: `usePatchAgent()` (`frontend/src/hooks/useOrthrus.ts:46-55`) is also called from other write paths on `OrthrusAgent` (e.g. `AgentExternalProxyDialog.tsx` patching `external_proxy_port`, and rename/provider-assignment flows). Putting the toast trigger inside the shared hook would require the hook to inspect *which* field changed and diff against prior state for every caller — fragile and wrong-layered. Keeping the check local to `AgentWriteModeDialog.handleSave`, which already knows both the pre-save value (`agent.write_enabled`) and the intended new value (`desiredEnabled`), structurally guarantees that patches to unrelated fields from other components can never trigger this write-mode-specific toast, without needing any conditional logic in the shared hook.
+
+4. **i18n key** — add to `frontend/src/locales/en/translation.json`, inside the existing `hecate.writeMode` block (currently ends at line 2009 with `"disableConfirm": "Disable"`), a new key:
+
+   ```json
+   "restartRequiredToast": "\"{{name}}\" is connected — restart the Orthrus agent on its remote machine for the write-mode change to take effect."
+   ```
+
+   Add the same key (English text, matching the existing pattern where `reconnectNotice` is left untranslated/English in `es`/`zh`/`fr`/`de` — pre-existing translation debt in this file, not something Fix 2 needs to resolve) to the equivalent `hecate.writeMode` block in `frontend/src/locales/{es,zh,fr,de}/translation.json` for structural key-parity (some locale files likely have a translation-key-completeness test — Frontend Dev should check `frontend/src/__tests__/i18n.test.ts` and satisfy whatever parity check it runs).
+
+#### A.2.4 Vitest test cases — `frontend/src/components/hecate/__tests__/AgentWriteModeDialog.test.tsx`
+
+The existing mock at the top of this file (`vi.mock('../../../hooks/useOrthrus', () => ({ usePatchAgent: () => ({ mutate: mockPatch, isPending: false }), ... }))`, lines 8-14) needs `mockPatch` to actually invoke the `onSuccess` callback it's given, since that's now where the toast decision happens. Add a `vi.mock('react-hot-toast', ...)` block (same shape as `frontend/src/context/__tests__/AuthContext.test.tsx:11-16`, but mocking `success` instead of `error`/`dismiss`) and update `mockPatch`'s implementation per-test to call `opts.onSuccess(updatedAgentFixture)` with a controllable `status`.
+
+New `describe('restart-required toast', ...)` block, four cases:
+
+| # | Scenario | Setup | Assertion |
+|---|---|---|---|
+| 1 | Turned on while agent connected → fires | `baseAgent` (`write_enabled: false`), toggle switch on, type agent name into confirm input, click Save; `mockPatch` invokes `onSuccess` with `{ ...baseAgent, write_enabled: true, status: 'online' }` | `toast.success` called once, with a message containing `'Test Agent'` (or the mocked `t()` key form per this file's `react-i18next` mock at lines 16-21, i.e. `'hecate.writeMode.restartRequiredToast:Test Agent'`), and `{ id: 'write-mode-restart-agent-1', duration: 8000 }` |
+| 2 | Turned on while agent disconnected → does not fire | Same save flow, but `onSuccess` payload has `status: 'offline'` (or `'pending'`) | `toast.success` not called |
+| 3 | Turned off → does not fire | `baseAgent` variant with `write_enabled: true` at open; toggle switch off (no confirm text needed, `requiresConfirmation` is false); Save; `onSuccess` payload `{ write_enabled: false, status: 'online' }` | `toast.success` not called |
+| 4 | No-op save (already on, saved again unchanged) → does not fire | `baseAgent` variant with `write_enabled: true` at open; do not touch the toggle; Save; `onSuccess` payload `{ write_enabled: true, status: 'online' }` | `toast.success` not called — this is the concrete in-component equivalent of "unrelated field patched": since this dialog only ever sends `write_enabled`, and other components never import this dialog's `handleSave`, structurally no other patch call site can reach this code path (see A.2.3 point 3); this test instead pins the true→true (no transition) boundary of `requiresConfirmation`/`wasTurnedOn`. |
+
+**Files**: `frontend/src/components/hecate/AgentWriteModeDialog.tsx` (implementation), `frontend/src/components/hecate/__tests__/AgentWriteModeDialog.test.tsx` (tests), `frontend/src/locales/en/translation.json` + 4 other locale files (i18n key).
+
+### A.3 Commit Slicing Strategy (this addendum)
+
+Both fixes are small and independent of each other (different files, different layers) but ship in the same PR per "One Feature = One PR." Suggested order:
+
+1. **Commit A — Fix 1**: dual-allowlist `rename` entries + shared corpus cases (Backend Dev, already in progress). Validation gate: `cd backend && go test ./internal/orthrus/... && cd ../agent && go test ./muzzle/...`; `scripts/ci/check_muzzle_allowlist_parity.go` clean.
+2. **Commit B — Fix 2 tests first**: add the four Vitest cases in A.2.4 against the *not-yet-changed* `AgentWriteModeDialog.tsx` (expected to fail/be skipped, e.g. `it.fails` or written against the target behavior) — establishes the spec before implementation, matching this repo's suggested E2E-first commit ordering philosophy (`CLAUDE.md` "Suggested Commit Sequence") adapted to Vitest since this is unit-level, not E2E.
+3. **Commit C — Fix 2 implementation**: the `AgentWriteModeDialog.tsx` change in A.2.3 + i18n keys in A.2.4, turning Commit B's tests green. Validation gate: `cd frontend && npx vitest run src/components/hecate/__tests__/AgentWriteModeDialog.test.tsx`; `npm run type-check`.
+4. **Commit D — Hardening**: full `cd frontend && npm run build`, `npx vitest run` (full suite, coverage), `npx playwright test --project=firefox` (scoped to Orthrus/hecate specs at minimum, since Fix 2 changes an existing dialog's save flow that E2E specs already exercise per the prior write-mode commits in this branch's history).
+
+**Rollback/contingency**: both fixes are additive and behavior-scoped — Fix 1 only widens an allowlist by one already-vetted, no-body-pattern entry; Fix 2 only adds a toast on an already-existing, already-safe code path (no new API calls, no new state persisted). Neither changes existing passing behavior for any case not newly covered. If the per-agent toast `id` proves to cause unexpected duplicate-suppression issues in manual QA, the fallback is a static id (matching the auth-toast precedent) at the cost of only the most-recent agent's notice being visible if two fire in quick succession — a minor UX regression, not a functional break, and reversible in a single line.
+
+### A.4 Definition of Done — gate applicability (this addendum)
+
+| Gate | Applicable? | Why |
+|---|---|---|
+| Playwright E2E | **Yes** | Fix 2 changes an existing dialog save flow with existing E2E coverage (per branch history: `30cf1c08 feat(orthrus): add write-mode UI...`, `d2fa3154 docs(orthrus): enable write-mode E2E specs...`). Re-run relevant specs; add/adjust if the toast should be asserted at the E2E layer too (Frontend Dev/Playwright Dev to decide scope). |
+| GORM Security Scan | No | Zero `backend/internal/models/**`, zero GORM queries/migrations in either fix. |
+| Local Patch Coverage Preflight | Yes | Standard gate, both fixes touch tested source. |
+| CodeQL Go | Yes | Fix 1 touches `.go` files. |
+| CodeQL JS | Yes | Fix 2 touches `.tsx`/`.ts`/`.json` files. |
+| Staticcheck | Yes | Fix 1, both modules (`backend/`, `agent/`). |
+| Backend coverage (85%+) | Yes | Fix 1 adds backend/agent tests only. |
+| Frontend coverage (85%+) | Yes | Fix 2's own subject — new Vitest cases in A.2.4. |
+| Type-check (frontend) | Yes | Fix 2 touches `.tsx`. |
+| `go build ./...` / `npm run build` | Yes, both | Both fixes touch buildable source. |
