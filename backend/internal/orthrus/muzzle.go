@@ -118,12 +118,20 @@ var allowedWriteExactPaths = map[string]struct{}{
 }
 
 // allowedWritePatterns lists the dynamic-segment write endpoints permitted
-// when write mode is on: start/stop/restart an existing container, or
-// remove one outright. Each entry pairs the exact HTTP method required with
-// a path.Match pattern — unlike allowedDockerPrefixSuffixPatterns, these
-// patterns operate on Docker-generated container IDs (a single path
+// when write mode is on: start/stop/restart/rename an existing container,
+// or remove one outright. Each entry pairs the exact HTTP method required
+// with a path.Match pattern — unlike allowedDockerPrefixSuffixPatterns,
+// these patterns operate on Docker-generated container IDs (a single path
 // segment, never namespaced), so path.Match's "no cross-slash" behavior is
 // the correct, sufficient tool here.
+//
+// /containers/*/rename takes the new container name via a "?name=" query
+// parameter, not a request body (unlike /containers/create), so — like
+// start/stop/restart — it needs no body-validation function; the query
+// string is not even visible here, since ServeHTTP/Allow match against
+// r.URL.Path, not RequestURI. This is Dockhand's standard update pattern:
+// rename the old container out of the way (e.g. to "<name>_old") before
+// bringing up the new one under the original name.
 var allowedWritePatterns = []struct {
 	method  string
 	pattern string
@@ -131,6 +139,7 @@ var allowedWritePatterns = []struct {
 	{method: http.MethodPost, pattern: "/containers/*/start"},
 	{method: http.MethodPost, pattern: "/containers/*/stop"},
 	{method: http.MethodPost, pattern: "/containers/*/restart"},
+	{method: http.MethodPost, pattern: "/containers/*/rename"},
 	{method: http.MethodDelete, pattern: "/containers/*"},
 }
 

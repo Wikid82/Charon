@@ -138,6 +138,11 @@ var allowedWriteExactPaths = map[string]struct{}{
 // "/v*/..." entry is needed here. Mirrors
 // backend/internal/orthrus/muzzle.go's allowedWritePatterns declaration
 // 1:1.
+//
+// /containers/*/rename takes the new container name via a "?name=" query
+// parameter, not a request body, so — like start/stop/restart — it needs no
+// body-validation function; Allow only ever sees normalizedPath, never the
+// query string.
 var allowedWritePatterns = []struct {
 	method  string
 	pattern string
@@ -145,6 +150,7 @@ var allowedWritePatterns = []struct {
 	{method: http.MethodPost, pattern: "/containers/*/start"},
 	{method: http.MethodPost, pattern: "/containers/*/stop"},
 	{method: http.MethodPost, pattern: "/containers/*/restart"},
+	{method: http.MethodPost, pattern: "/containers/*/rename"},
 	{method: http.MethodDelete, pattern: "/containers/*"},
 }
 

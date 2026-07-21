@@ -601,6 +601,7 @@ func TestFilter_Allow_WriteEndpoints_BlockedWhenWriteDisabled(t *testing.T) {
 		{"POST", "/containers/abc123/start"},
 		{"POST", "/containers/abc123/stop"},
 		{"POST", "/containers/abc123/restart"},
+		{"POST", "/containers/abc123/rename"},
 		{"DELETE", "/containers/abc123"},
 	}
 
@@ -622,6 +623,7 @@ func TestFilter_Allow_WriteEndpoints_AllowedWhenWriteEnabled(t *testing.T) {
 		{"POST", "/containers/abc123/start"},
 		{"POST", "/containers/abc123/stop"},
 		{"POST", "/containers/abc123/restart"},
+		{"POST", "/containers/abc123/rename"},
 		{"DELETE", "/containers/abc123"},
 		{"POST", "/v1.44/containers/abc123/start"},
 		{"DELETE", "/v1.44/containers/abc123"},
@@ -632,6 +634,25 @@ func TestFilter_Allow_WriteEndpoints_AllowedWhenWriteEnabled(t *testing.T) {
 			assert.True(t, f.Allow(tc.method, tc.path, nil))
 		})
 	}
+}
+
+// TestFilter_Allow_ContainerRename_QueryParamNameAllowed proves the
+// Dockhand image-update rename step end-to-end on the agent side: Docker's
+// rename endpoint takes the new container name via a "?name=" query
+// parameter, not a request body (unlike /containers/create), and a real
+// Docker-generated container ID is a single path segment (no slashes) —
+// exactly what allowedWritePatterns's "/containers/*/rename" path.Match
+// pattern assumes. Allow receives req.URL.Path (query string already split
+// off by the caller, mirroring ServeProxy's real usage), so the query
+// string itself is irrelevant to the match — passing it here just documents
+// that a realistic rename call site (path plus query) is what this
+// allowlist entry exists to unblock.
+func TestFilter_Allow_ContainerRename_QueryParamNameAllowed(t *testing.T) {
+	f := muzzle.New(true)
+
+	containerID := "3f4d9e2a1b6c8f0d7e5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e"
+	assert.True(t, f.Allow("POST", "/containers/"+containerID+"/rename", nil))
+	assert.True(t, f.Allow("POST", "/v1.44/containers/"+containerID+"/rename", nil))
 }
 
 // TestFilter_Allow_WriteMode_FakeVersionPrefixBlocked is the write-path
@@ -661,6 +682,11 @@ func TestFilter_Allow_WriteMode_FakeVersionPrefixBlocked(t *testing.T) {
 	}
 }
 
+// TestFilter_Allow_WriteMode_NonWriteEndpointsStillBlocked confirms that,
+// even with write mode on, endpoints outside the fixed seven-operation list
+// (create, images/create, start, stop, restart, rename, delete) — e.g.
+// exec, image delete, build, prune, auth, commit, Swarm/service — remain
+// permanently blocked. Section 7, Explicit Out-of-Scope.
 func TestFilter_Allow_WriteMode_NonWriteEndpointsStillBlocked(t *testing.T) {
 	f := muzzle.New(true)
 

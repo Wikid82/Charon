@@ -121,6 +121,20 @@
     "want_allowed": true
   },
   {
+    "description": "write endpoint allowed when write mode on: POST /containers/{id}/rename",
+    "method": "POST",
+    "path": "/containers/abc123/rename?name=myapp_old",
+    "agent_write_enabled": true,
+    "want_allowed": true
+  },
+  {
+    "description": "write endpoint blocked when write mode off: POST /containers/{id}/rename",
+    "method": "POST",
+    "path": "/containers/abc123/rename?name=myapp_old",
+    "agent_write_enabled": false,
+    "want_allowed": false
+  },
+  {
     "description": "write endpoint allowed when write mode on: DELETE /containers/{id}",
     "method": "DELETE",
     "path": "/containers/abc123",

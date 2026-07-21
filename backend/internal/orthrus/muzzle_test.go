@@ -330,6 +330,7 @@ func TestMuzzle_WriteEndpoints_BlockedWhenWriteDisabled(t *testing.T) {
 		{http.MethodPost, "/containers/abc123/start"},
 		{http.MethodPost, "/containers/abc123/stop"},
 		{http.MethodPost, "/containers/abc123/restart"},
+		{http.MethodPost, "/containers/abc123/rename"},
 		{http.MethodDelete, "/containers/abc123"},
 	}
 
@@ -355,6 +356,7 @@ func TestMuzzle_WriteEndpoints_AllowedWhenWriteEnabled(t *testing.T) {
 		{http.MethodPost, "/containers/abc123/start"},
 		{http.MethodPost, "/containers/abc123/stop"},
 		{http.MethodPost, "/containers/abc123/restart"},
+		{http.MethodPost, "/containers/abc123/rename"},
 		{http.MethodDelete, "/containers/abc123"},
 	}
 
@@ -368,9 +370,33 @@ func TestMuzzle_WriteEndpoints_AllowedWhenWriteEnabled(t *testing.T) {
 	}
 }
 
+// TestMuzzle_ContainerRename_QueryParamNameAllowed proves the Dockhand
+// image-update rename step end-to-end: Docker's rename endpoint takes the
+// new container name via a "?name=" query parameter, not a request body
+// (unlike /containers/create), and a real Docker-generated container ID is
+// a single path segment (no slashes) — exactly what
+// allowedWritePatterns's "/containers/*/rename" path.Match pattern assumes.
+// This is Dockhand's standard update pattern: rename the old container out
+// of the way (e.g. to "<name>_old") before bringing up the new one under
+// the original name — the flow that was failing with a 403 before this fix
+// (rename was missing from the write allowlist).
+func TestMuzzle_ContainerRename_QueryParamNameAllowed(t *testing.T) {
+	writeLimiter := rate.NewLimiter(rate.Inf, 100)
+	m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid")
+
+	// A real Docker-generated container ID: 64 hex characters, single path
+	// segment.
+	containerID := "3f4d9e2a1b6c8f0d7e5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e"
+	req := httptest.NewRequest(http.MethodPost, "/containers/"+containerID+"/rename?name=myapp_old", http.NoBody)
+	rr := httptest.NewRecorder()
+	m.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
 func TestMuzzle_WriteMode_NonWriteEndpointsStillBlocked(t *testing.T) {
-	// Even with write mode on, endpoints outside the fixed six-operation
-	// list (exec, image delete, build, prune, auth, commit, Swarm/service)
+	// Even with write mode on, endpoints outside the fixed seven-operation
+	// list (create, images/create, start, stop, restart, rename, delete)
+	// — e.g. exec, image delete, build, prune, auth, commit, Swarm/service —
 	// must remain permanently blocked. Section 7, Explicit Out-of-Scope.
 	writeLimiter := rate.NewLimiter(rate.Inf, 100)
 	m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid")
