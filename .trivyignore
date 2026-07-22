@@ -51,6 +51,15 @@ CVE-2026-2673
 # exp: 2026-08-01
 CVE-2026-33186
 
+# GHSA-hrxh-6v49-42gf: grpc-go xDS RBAC and HTTP/2 vulnerabilities
+# Severity: HIGH — Package: google.golang.org/grpc, embedded in Caddy, CrowdSec, and cscli
+# Patched in grpc-go v1.82.1. Charon's Dockerfile now pins v1.82.1, but GitHub Security can
+# still report the advisory while upstream binaries are rebuilt and re-scanned.
+# Review by: 2026-08-01
+# See also: .grype.yaml for full justification
+# exp: 2026-08-01
+GHSA-hrxh-6v49-42gf
+
 # GHSA-479m-364c-43vc: goxmldsig XML signature validation bypass (loop variable capture)
 # Severity: HIGH (CVSS 7.5) — Package: github.com/russellhaering/goxmldsig v1.5.0, embedded in /usr/bin/caddy
 # Fix exists at v1.6.0 — waiting on Caddy upstream (or caddy-security plugin) to release with patched goxmldsig.
