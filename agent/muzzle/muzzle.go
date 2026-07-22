@@ -184,6 +184,8 @@ var hostConfigAllowedKeys = map[string]struct{}{
 	"ReadonlyRootfs": {},
 	"Init":           {},
 	"NetworkMode":    {},
+	"CapDrop":        {},
+	"UsernsMode":     {},
 }
 
 type mountEntry struct {
@@ -203,6 +205,17 @@ func validateNetworkModeValue(raw json.RawMessage) bool {
 		return false
 	}
 	return true
+}
+
+// validateUsernsModeValue mirrors backend/internal/orthrus/muzzle.go's copy:
+// rejects only "host" (opts out of Docker's user-namespace remapping),
+// accepts every other value including the empty string.
+func validateUsernsModeValue(raw json.RawMessage) bool {
+	var mode string
+	if err := json.Unmarshal(raw, &mode); err != nil {
+		return false
+	}
+	return mode != "host"
 }
 
 func validateMountsValue(raw json.RawMessage) bool {
@@ -266,6 +279,10 @@ func validateContainerCreateBody(bodyBytes []byte) (ok bool, reason string) {
 		case "Mounts":
 			if !validateMountsValue(rawValue) {
 				return false, "disallowed HostConfig field: Mounts"
+			}
+		case "UsernsMode":
+			if !validateUsernsModeValue(rawValue) {
+				return false, "disallowed HostConfig field: UsernsMode"
 			}
 		}
 	}

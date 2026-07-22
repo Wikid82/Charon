@@ -79,6 +79,28 @@
     "want_allowed": true
   },
   {
+    "description": "write endpoint allowed: POST /containers/create, CapDrop (reduces privilege, never grants host escape)",
+    "method": "POST",
+    "path": "/containers/create",
+    "body": {
+      "Image": "nginx:latest",
+      "HostConfig": { "CapDrop": ["ALL"] }
+    },
+    "agent_write_enabled": true,
+    "want_allowed": true
+  },
+  {
+    "description": "write endpoint allowed: POST /containers/create, UsernsMode empty (inherit daemon userns-remap default)",
+    "method": "POST",
+    "path": "/containers/create",
+    "body": {
+      "Image": "nginx:latest",
+      "HostConfig": { "UsernsMode": "" }
+    },
+    "agent_write_enabled": true,
+    "want_allowed": true
+  },
+  {
     "description": "write endpoint blocked when write mode off: POST /images/create",
     "method": "POST",
     "path": "/images/create?fromImage=nginx&tag=latest",
@@ -206,6 +228,14 @@
     "method": "POST",
     "path": "/containers/create",
     "body": { "Image": "nginx", "HostConfig": { "NetworkMode": "container:abc123" } },
+    "agent_write_enabled": true,
+    "want_allowed": false
+  },
+  {
+    "description": "dangerous body rejected even with write mode on: UsernsMode host",
+    "method": "POST",
+    "path": "/containers/create",
+    "body": { "Image": "nginx", "HostConfig": { "UsernsMode": "host" } },
     "agent_write_enabled": true,
     "want_allowed": false
   },

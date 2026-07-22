@@ -157,16 +157,23 @@ const maxContainerCreateBodyBytes = 64 * 1024
 // this set causes the whole /containers/create request to be rejected —
 // this is what gives fail-closed behavior against Docker Engine API fields
 // this list's authors don't know about yet, rather than trying to enumerate
-// every dangerous key by name (Privileged, CapAdd, CapDrop, Binds, PidMode,
-// IpcMode, UTSMode, CgroupnsMode, Devices, DeviceCgroupRules, SecurityOpt,
-// Sysctls, Ulimits, GroupAdd, and any future field are all rejected by
-// simply not appearing here — no separate denylist is maintained).
+// every dangerous key by name (Privileged, CapAdd, Binds, PidMode, IpcMode,
+// UTSMode, CgroupnsMode, Devices, DeviceCgroupRules, SecurityOpt, Sysctls,
+// Ulimits, GroupAdd, and any future field are all rejected by simply not
+// appearing here — no separate denylist is maintained). CapDrop is
+// deliberately allowed unconditionally: dropping capabilities only reduces a
+// container's privilege relative to Docker's default set and can never grant
+// a host-escape primitive, unlike CapAdd, so it carries none of the risk
+// that justifies excluding the fields above — rejecting it broke ordinary
+// container recreates whose original config had reduced capabilities (a
+// common hardening pattern), which is exactly the failure Dockhand hit.
 //
-// NetworkMode and Mounts additionally receive a value-level check (see
-// validateNetworkModeValue, validateMountsValue) beyond simple key presence,
-// since both are operationally necessary fields that cannot be blanket-excluded
-// the way the fields above are, but can still express a host-escape primitive
-// through their value rather than their mere presence.
+// NetworkMode, Mounts, and UsernsMode additionally receive a value-level
+// check (see validateNetworkModeValue, validateMountsValue,
+// validateUsernsModeValue) beyond simple key presence, since all three are
+// operationally necessary fields that cannot be blanket-excluded the way the
+// fields above are, but can still express a host-escape primitive through
+// their value rather than their mere presence.
 var hostConfigAllowedKeys = map[string]struct{}{
 	"PortBindings":   {},
 	"RestartPolicy":  {},
@@ -183,6 +190,8 @@ var hostConfigAllowedKeys = map[string]struct{}{
 	"ReadonlyRootfs": {},
 	"Init":           {},
 	"NetworkMode":    {},
+	"CapDrop":        {},
+	"UsernsMode":     {},
 }
 
 // mountEntry is the subset of Docker's Mount struct this validator inspects.
@@ -210,6 +219,20 @@ func validateNetworkModeValue(raw json.RawMessage) bool {
 		return false
 	}
 	return true
+}
+
+// validateUsernsModeValue rejects only the value "host", which opts a
+// container out of Docker's user-namespace remapping and thereby carries the
+// same class of host-escape risk as the blanket-excluded HostConfig keys.
+// Every other value — the empty string (inherit the daemon's userns-remap
+// configuration, the common case for a same-host recreate) or any other
+// named mode — is accepted, mirroring validateNetworkModeValue's shape.
+func validateUsernsModeValue(raw json.RawMessage) bool {
+	var mode string
+	if err := json.Unmarshal(raw, &mode); err != nil {
+		return false
+	}
+	return mode != "host"
 }
 
 // validateMountsValue rejects any bind-type mount and any mount entry whose
@@ -319,6 +342,10 @@ func validateContainerCreateBody(r *http.Request) (ok bool, reason string) {
 		case "Mounts":
 			if !validateMountsValue(rawValue) {
 				return false, "disallowed HostConfig field: Mounts"
+			}
+		case "UsernsMode":
+			if !validateUsernsModeValue(rawValue) {
+				return false, "disallowed HostConfig field: UsernsMode"
 			}
 		}
 	}

@@ -439,6 +439,35 @@ func TestMuzzle_ContainersCreate_SafeBodyAllowed(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Code)
 }
 
+// TestMuzzle_ContainersCreate_SafeBodiesAllowed_CapDropAndUsernsMode covers
+// two HostConfig fields a Dockhand-style recreate legitimately sends that a
+// blanket exhaustive allowlist previously rejected outright: CapDrop (which
+// only ever reduces privilege, unlike CapAdd) and a non-"host" UsernsMode
+// value (the daemon-userns-remap-inherited case, not the escape-relevant
+// one).
+func TestMuzzle_ContainersCreate_SafeBodiesAllowed_CapDropAndUsernsMode(t *testing.T) {
+	writeLimiter := rate.NewLimiter(rate.Inf, 100)
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"CapDrop", `{"Image":"nginx","HostConfig":{"CapDrop":["ALL"]}}`},
+		{"UsernsMode empty (inherit daemon default)", `{"Image":"nginx","HostConfig":{"UsernsMode":""}}`},
+		{"UsernsMode named remap", `{"Image":"nginx","HostConfig":{"UsernsMode":"default"}}`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid")
+			req := httptest.NewRequest(http.MethodPost, "/containers/create", bytes.NewReader([]byte(tc.body)))
+			rr := httptest.NewRecorder()
+			m.ServeHTTP(rr, req)
+			assert.Equal(t, http.StatusOK, rr.Code)
+		})
+	}
+}
+
 func TestMuzzle_ContainersCreate_DangerousBodiesRejected(t *testing.T) {
 	writeLimiter := rate.NewLimiter(rate.Inf, 100)
 
@@ -451,6 +480,7 @@ func TestMuzzle_ContainersCreate_DangerousBodiesRejected(t *testing.T) {
 		{"legacy Binds", `{"Image":"nginx","HostConfig":{"Binds":["/:/host"]}}`},
 		{"NetworkMode host", `{"Image":"nginx","HostConfig":{"NetworkMode":"host"}}`},
 		{"NetworkMode container:*", `{"Image":"nginx","HostConfig":{"NetworkMode":"container:abc"}}`},
+		{"UsernsMode host", `{"Image":"nginx","HostConfig":{"UsernsMode":"host"}}`},
 		{"bind-type Mounts", `{"Image":"nginx","HostConfig":{"Mounts":[{"Type":"bind","Source":"/etc","Target":"/x"}]}}`},
 		{
 			"local-driver bind-mount-via-volume bypass (VolumeOptions.DriverConfig)",

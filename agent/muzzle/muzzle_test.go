@@ -722,6 +722,27 @@ func TestFilter_Allow_ContainersCreate_SafeBodyAllowed(t *testing.T) {
 	assert.True(t, f.Allow("POST", "/v1.44/containers/create", body))
 }
 
+// TestFilter_Allow_ContainersCreate_SafeBodiesAllowed_CapDropAndUsernsMode
+// mirrors backend/internal/orthrus/muzzle_test.go's copy of the same name.
+func TestFilter_Allow_ContainersCreate_SafeBodiesAllowed_CapDropAndUsernsMode(t *testing.T) {
+	f := muzzle.New(true)
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"CapDrop", `{"Image":"nginx","HostConfig":{"CapDrop":["ALL"]}}`},
+		{"UsernsMode empty (inherit daemon default)", `{"Image":"nginx","HostConfig":{"UsernsMode":""}}`},
+		{"UsernsMode named remap", `{"Image":"nginx","HostConfig":{"UsernsMode":"default"}}`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.True(t, f.Allow("POST", "/containers/create", []byte(tc.body)))
+		})
+	}
+}
+
 // TestFilter_Allow_ContainersCreate_DangerousBodiesRejected mirrors
 // backend/internal/orthrus/muzzle_test.go's TestMuzzle_ContainersCreate_DangerousBodiesRejected
 // case-for-case, including the local-driver bind-mount-via-volume bypass
@@ -738,6 +759,7 @@ func TestFilter_Allow_ContainersCreate_DangerousBodiesRejected(t *testing.T) {
 		{"legacy Binds", `{"Image":"nginx","HostConfig":{"Binds":["/:/host"]}}`},
 		{"NetworkMode host", `{"Image":"nginx","HostConfig":{"NetworkMode":"host"}}`},
 		{"NetworkMode container:*", `{"Image":"nginx","HostConfig":{"NetworkMode":"container:abc"}}`},
+		{"UsernsMode host", `{"Image":"nginx","HostConfig":{"UsernsMode":"host"}}`},
 		{"bind-type Mounts", `{"Image":"nginx","HostConfig":{"Mounts":[{"Type":"bind","Source":"/etc","Target":"/x"}]}}`},
 		{
 			"local-driver bind-mount-via-volume bypass (VolumeOptions.DriverConfig)",
