@@ -4,6 +4,28 @@
 # Documentation: https://github.com/anchore/grype#specifying-matches-to-ignore
 
 ignore:
+  # GHSA-hrxh-6v49-42gf: grpc-go xDS RBAC and HTTP/2 vulnerabilities
+  # Severity: HIGH
+  # Package: google.golang.org/grpc (embedded in Caddy, CrowdSec, and cscli binaries)
+  # Status: Patched upstream in grpc-go v1.82.1. Charon's Dockerfile pins v1.82.1 for the
+  # Caddy and CrowdSec build paths, but GitHub Security may still report the advisory while
+  # upstream binaries are rebuilt and rescanned. The vulnerable path is not exposed through
+  # Charon's default deployment surface.
+  #
+  # Review: Revisit once the upstream binaries are rebuilt against grpc-go >= v1.82.1.
+  # Removal criteria: rebuild the image and confirm GHSA-hrxh-6v49-42gf no longer appears in
+  # the current scan output, then remove this entry and the corresponding .trivyignore entry.
+  - vulnerability: GHSA-hrxh-6v49-42gf
+    package:
+      name: google.golang.org/grpc
+      type: go-module
+    reason: |
+      HIGH — grpc-go xDS RBAC and HTTP/2 vulnerabilities in google.golang.org/grpc embedded
+      in Caddy, CrowdSec, and cscli. Charon now pins grpc-go v1.82.1 in the Dockerfile,
+      but GitHub Security may still report the advisory while upstream binaries are rebuilt and
+      rescanned. Risk accepted pending upstream rebuilds.
+    expiry: "2026-08-01"
+
   # CVE-2026-2673: OpenSSL TLS 1.3 server key exchange group downgrade
   # Severity: HIGH (CVSS 7.5)
   # Packages: libcrypto3 3.5.5-r0 and libssl3 3.5.5-r0 (Alpine apk)
