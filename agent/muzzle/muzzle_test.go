@@ -734,6 +734,15 @@ func TestFilter_Allow_ContainersCreate_SafeBodiesAllowed_CapDropAndUsernsMode(t 
 		{"CapDrop", `{"Image":"nginx","HostConfig":{"CapDrop":["ALL"]}}`},
 		{"UsernsMode empty (inherit daemon default)", `{"Image":"nginx","HostConfig":{"UsernsMode":""}}`},
 		{"UsernsMode named remap", `{"Image":"nginx","HostConfig":{"UsernsMode":"default"}}`},
+		{"ContainerIDFile empty", `{"Image":"nginx","HostConfig":{"ContainerIDFile":""}}`},
+		{
+			"CPU/memory/IO/pid resource-limit family",
+			`{"Image":"nginx","HostConfig":{"CpuPeriod":100000,"CpuQuota":50000,"CpuRealtimePeriod":1000000,"CpuRealtimeRuntime":950000,"CpusetCpus":"0-1","CpusetMems":"0","BlkioWeight":500,"KernelMemory":0,"KernelMemoryTCP":0,"MemoryReservation":1048576,"MemorySwappiness":60,"OomKillDisable":false,"OomScoreAdj":0,"PidsLimit":100,"Ulimits":[{"Name":"nofile","Soft":1024,"Hard":2048}],"StorageOpt":{"size":"10G"},"ShmSize":67108864}}`,
+		},
+		{"Tmpfs (container-internal only)", `{"Image":"nginx","HostConfig":{"Tmpfs":{"/tmp":"rw,noexec,nosuid,size=100m"}}}`},
+		{"MaskedPaths/ReadonlyPaths (restriction-only)", `{"Image":"nginx","HostConfig":{"MaskedPaths":["/proc/kcore"],"ReadonlyPaths":["/proc/sys"]}}`},
+		{"ConsoleSize/Annotations (cosmetic)", `{"Image":"nginx","HostConfig":{"ConsoleSize":[24,80],"Annotations":{"note":"x"}}}`},
+		{"Links/PublishAllPorts/DnsOptions (networking convenience)", `{"Image":"nginx","HostConfig":{"Links":["db:db"],"PublishAllPorts":false,"DnsOptions":["timeout:1"]}}`},
 	}
 
 	for _, tc := range cases {
@@ -760,6 +769,11 @@ func TestFilter_Allow_ContainersCreate_DangerousBodiesRejected(t *testing.T) {
 		{"NetworkMode host", `{"Image":"nginx","HostConfig":{"NetworkMode":"host"}}`},
 		{"NetworkMode container:*", `{"Image":"nginx","HostConfig":{"NetworkMode":"container:abc"}}`},
 		{"UsernsMode host", `{"Image":"nginx","HostConfig":{"UsernsMode":"host"}}`},
+		{"ContainerIDFile non-empty (arbitrary host file creation)", `{"Image":"nginx","HostConfig":{"ContainerIDFile":"/etc/cron.d/pwn"}}`},
+		{"Runtime", `{"Image":"nginx","HostConfig":{"Runtime":"custom-runtime"}}`},
+		{"VolumeDriver", `{"Image":"nginx","HostConfig":{"VolumeDriver":"custom-driver"}}`},
+		{"VolumesFrom", `{"Image":"nginx","HostConfig":{"VolumesFrom":["other-container"]}}`},
+		{"DeviceRequests", `{"Image":"nginx","HostConfig":{"DeviceRequests":[{"Driver":"nvidia","Count":-1}]}}`},
 		{"bind-type Mounts", `{"Image":"nginx","HostConfig":{"Mounts":[{"Type":"bind","Source":"/etc","Target":"/x"}]}}`},
 		{
 			"local-driver bind-mount-via-volume bypass (VolumeOptions.DriverConfig)",

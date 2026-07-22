@@ -168,24 +168,61 @@ const maxContainerCreateBodyBytes = 64 * 1024
 // bind-mount-via-volume bypass). Duplicated here, not shared via import,
 // because agent/ is a separate Go module built as a minimal standalone
 // binary and does not import backend/ packages.
+// See backend/internal/orthrus/muzzle.go's copy of this declaration for the
+// full rationale on which keys are safe to allow vs. deliberately excluded
+// (host-escape, host-filesystem, or ambiguous namespace/cgroup-placement
+// primitives) — duplicated here only as enforcement logic, not as
+// documentation, since agent/ is a separate Go module and cannot import
+// backend/ packages.
 var hostConfigAllowedKeys = map[string]struct{}{
-	"PortBindings":   {},
-	"RestartPolicy":  {},
-	"Memory":         {},
-	"MemorySwap":     {},
-	"NanoCpus":       {},
-	"CpuShares":      {},
-	"Mounts":         {},
-	"Dns":            {},
-	"DnsSearch":      {},
-	"ExtraHosts":     {},
-	"LogConfig":      {},
-	"AutoRemove":     {},
-	"ReadonlyRootfs": {},
-	"Init":           {},
-	"NetworkMode":    {},
-	"CapDrop":        {},
-	"UsernsMode":     {},
+	"PortBindings":         {},
+	"RestartPolicy":        {},
+	"Memory":               {},
+	"MemorySwap":           {},
+	"NanoCpus":             {},
+	"CpuShares":            {},
+	"Mounts":               {},
+	"Dns":                  {},
+	"DnsSearch":            {},
+	"DnsOptions":           {},
+	"ExtraHosts":           {},
+	"LogConfig":            {},
+	"AutoRemove":           {},
+	"ReadonlyRootfs":       {},
+	"Init":                 {},
+	"NetworkMode":          {},
+	"CapDrop":              {},
+	"UsernsMode":           {},
+	"ContainerIDFile":      {},
+	"CpuPeriod":            {},
+	"CpuQuota":             {},
+	"CpuRealtimePeriod":    {},
+	"CpuRealtimeRuntime":   {},
+	"CpusetCpus":           {},
+	"CpusetMems":           {},
+	"BlkioWeight":          {},
+	"BlkioWeightDevice":    {},
+	"BlkioDeviceReadBps":   {},
+	"BlkioDeviceWriteBps":  {},
+	"BlkioDeviceReadIOps":  {},
+	"BlkioDeviceWriteIOps": {},
+	"KernelMemory":         {},
+	"KernelMemoryTCP":      {},
+	"MemoryReservation":    {},
+	"MemorySwappiness":     {},
+	"OomKillDisable":       {},
+	"OomScoreAdj":          {},
+	"PidsLimit":            {},
+	"Ulimits":              {},
+	"StorageOpt":           {},
+	"ShmSize":              {},
+	"Tmpfs":                {},
+	"MaskedPaths":          {},
+	"ReadonlyPaths":        {},
+	"ConsoleSize":          {},
+	"Annotations":          {},
+	"Links":                {},
+	"PublishAllPorts":      {},
 }
 
 type mountEntry struct {
@@ -216,6 +253,17 @@ func validateUsernsModeValue(raw json.RawMessage) bool {
 		return false
 	}
 	return mode != "host"
+}
+
+// validateContainerIDFileValue mirrors backend/internal/orthrus/muzzle.go's
+// copy: accepts only the empty string, rejecting any non-empty host path
+// (the daemon would create a file there before the container starts).
+func validateContainerIDFileValue(raw json.RawMessage) bool {
+	var cidFile string
+	if err := json.Unmarshal(raw, &cidFile); err != nil {
+		return false
+	}
+	return cidFile == ""
 }
 
 func validateMountsValue(raw json.RawMessage) bool {
@@ -283,6 +331,10 @@ func validateContainerCreateBody(bodyBytes []byte) (ok bool, reason string) {
 		case "UsernsMode":
 			if !validateUsernsModeValue(rawValue) {
 				return false, "disallowed HostConfig field: UsernsMode"
+			}
+		case "ContainerIDFile":
+			if !validateContainerIDFileValue(rawValue) {
+				return false, "disallowed HostConfig field: ContainerIDFile"
 			}
 		}
 	}

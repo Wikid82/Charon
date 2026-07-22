@@ -101,6 +101,47 @@
     "want_allowed": true
   },
   {
+    "description": "write endpoint allowed: POST /containers/create, ContainerIDFile empty",
+    "method": "POST",
+    "path": "/containers/create",
+    "body": {
+      "Image": "nginx:latest",
+      "HostConfig": { "ContainerIDFile": "" }
+    },
+    "agent_write_enabled": true,
+    "want_allowed": true
+  },
+  {
+    "description": "write endpoint allowed: POST /containers/create, CPU/memory/IO/pid resource-limit fields",
+    "method": "POST",
+    "path": "/containers/create",
+    "body": {
+      "Image": "nginx:latest",
+      "HostConfig": {
+        "CpuPeriod": 100000,
+        "CpuQuota": 50000,
+        "CpusetCpus": "0-1",
+        "MemoryReservation": 1048576,
+        "PidsLimit": 100,
+        "Ulimits": [{ "Name": "nofile", "Soft": 1024, "Hard": 2048 }],
+        "ShmSize": 67108864
+      }
+    },
+    "agent_write_enabled": true,
+    "want_allowed": true
+  },
+  {
+    "description": "write endpoint allowed: POST /containers/create, Tmpfs (container-internal only, not a host path)",
+    "method": "POST",
+    "path": "/containers/create",
+    "body": {
+      "Image": "nginx:latest",
+      "HostConfig": { "Tmpfs": { "/tmp": "rw,noexec,nosuid,size=100m" } }
+    },
+    "agent_write_enabled": true,
+    "want_allowed": true
+  },
+  {
     "description": "write endpoint blocked when write mode off: POST /images/create",
     "method": "POST",
     "path": "/images/create?fromImage=nginx&tag=latest",
@@ -236,6 +277,30 @@
     "method": "POST",
     "path": "/containers/create",
     "body": { "Image": "nginx", "HostConfig": { "UsernsMode": "host" } },
+    "agent_write_enabled": true,
+    "want_allowed": false
+  },
+  {
+    "description": "dangerous body rejected even with write mode on: ContainerIDFile non-empty (arbitrary host file creation)",
+    "method": "POST",
+    "path": "/containers/create",
+    "body": { "Image": "nginx", "HostConfig": { "ContainerIDFile": "/etc/cron.d/pwn" } },
+    "agent_write_enabled": true,
+    "want_allowed": false
+  },
+  {
+    "description": "dangerous body rejected even with write mode on: Runtime (arbitrary OCI runtime selection)",
+    "method": "POST",
+    "path": "/containers/create",
+    "body": { "Image": "nginx", "HostConfig": { "Runtime": "custom-runtime" } },
+    "agent_write_enabled": true,
+    "want_allowed": false
+  },
+  {
+    "description": "dangerous body rejected even with write mode on: VolumesFrom (inherits another container's host mounts)",
+    "method": "POST",
+    "path": "/containers/create",
+    "body": { "Image": "nginx", "HostConfig": { "VolumesFrom": ["other-container"] } },
     "agent_write_enabled": true,
     "want_allowed": false
   },

@@ -157,41 +157,110 @@ const maxContainerCreateBodyBytes = 64 * 1024
 // this set causes the whole /containers/create request to be rejected —
 // this is what gives fail-closed behavior against Docker Engine API fields
 // this list's authors don't know about yet, rather than trying to enumerate
-// every dangerous key by name (Privileged, CapAdd, Binds, PidMode, IpcMode,
-// UTSMode, CgroupnsMode, Devices, DeviceCgroupRules, SecurityOpt, Sysctls,
-// Ulimits, GroupAdd, and any future field are all rejected by simply not
-// appearing here — no separate denylist is maintained). CapDrop is
-// deliberately allowed unconditionally: dropping capabilities only reduces a
-// container's privilege relative to Docker's default set and can never grant
-// a host-escape primitive, unlike CapAdd, so it carries none of the risk
-// that justifies excluding the fields above — rejecting it broke ordinary
-// container recreates whose original config had reduced capabilities (a
-// common hardening pattern), which is exactly the failure Dockhand hit.
+// every dangerous key by name. The keys deliberately kept OUT of this set,
+// and why, are grouped below rather than left to guesswork:
 //
-// NetworkMode, Mounts, and UsernsMode additionally receive a value-level
-// check (see validateNetworkModeValue, validateMountsValue,
-// validateUsernsModeValue) beyond simple key presence, since all three are
-// operationally necessary fields that cannot be blanket-excluded the way the
-// fields above are, but can still express a host-escape primitive through
-// their value rather than their mere presence.
+//   - Privileged, CapAdd, Devices, DeviceCgroupRules, DeviceRequests (GPU/device
+//     passthrough), SecurityOpt (SELinux/AppArmor/seccomp override), Sysctls,
+//     Runtime (arbitrary OCI runtime selection): direct host-escape or
+//     isolation-bypass primitives.
+//   - Binds, VolumeDriver (a top-level echo of the same local-driver
+//     bind-mount-via-volume bypass validateMountsValue's DriverConfig check
+//     closes for Mounts), VolumesFrom (inherits another container's mounts,
+//     including any host binds granted to it outside this muzzle's control):
+//     host-filesystem-access primitives.
+//   - PidMode, IpcMode, UTSMode, CgroupnsMode, Cgroup, CgroupParent, GroupAdd:
+//     namespace/cgroup-placement fields whose risk depends on what the named
+//     namespace, cgroup, or host GID actually grants — not blanket-safe the
+//     way a resource *limit* is, so excluded along with the rest of this
+//     group rather than guessed at.
+//   - Ulimits: NOT excluded as dangerous — see the resource-limit group
+//     below. Listed here only because earlier revisions of this comment
+//     mis-grouped it as excluded; it is allowed.
+//
+// Every key actually in the map below is safe because it either (a) only
+// limits/throttles a resource the container already has, never grants new
+// access; (b) only restricts the container's own view of itself further
+// (MaskedPaths, ReadonlyPaths); (c) is cosmetic/metadata with no runtime
+// effect (ConsoleSize, Annotations); or (d) operates entirely inside the
+// container's own namespaces (Tmpfs, ShmSize — unlike a bind mount, these
+// never touch the host filesystem). Grouped by kind, not alphabetically:
+//
+//	CPU/memory/IO/pid resource limits (Resources, embedded flat into
+//	HostConfig's JSON — CpuShares, NanoCpus, Memory, MemorySwap already
+//	present above): CpuPeriod, CpuQuota, CpuRealtimePeriod,
+//	CpuRealtimeRuntime, CpusetCpus, CpusetMems, BlkioWeight,
+//	BlkioWeightDevice, BlkioDeviceReadBps, BlkioDeviceWriteBps,
+//	BlkioDeviceReadIOps, BlkioDeviceWriteIOps, KernelMemory,
+//	KernelMemoryTCP, MemoryReservation, MemorySwappiness, OomKillDisable,
+//	OomScoreAdj, PidsLimit, Ulimits, StorageOpt, ShmSize.
+//	Container-internal-only mounts: Tmpfs (mirrors the already-allowed
+//	Type:"tmpfs" Mounts entries — never a host path).
+//	Restriction-only (narrow the container's own view, cannot grant host
+//	access): MaskedPaths, ReadonlyPaths.
+//	Cosmetic/metadata, no runtime security effect: ConsoleSize, Annotations.
+//	Networking convenience, same risk class as the already-allowed
+//	ExtraHosts/DnsSearch (hostname/port aliasing, not host filesystem or
+//	capability access): Links, PublishAllPorts, DnsOptions.
+//
+// NetworkMode, Mounts, UsernsMode, and ContainerIDFile additionally receive
+// a value-level check (see validateNetworkModeValue, validateMountsValue,
+// validateUsernsModeValue, validateContainerIDFileValue) beyond simple key
+// presence: each is operationally necessary and so cannot be
+// blanket-excluded the way the fields above are, but each can still express
+// a host-escape (NetworkMode, UsernsMode), host-filesystem (Mounts), or
+// host-file-creation (ContainerIDFile — the daemon creates a file at this
+// path on the host before the container even starts) primitive through its
+// value rather than its mere presence.
 var hostConfigAllowedKeys = map[string]struct{}{
-	"PortBindings":   {},
-	"RestartPolicy":  {},
-	"Memory":         {},
-	"MemorySwap":     {},
-	"NanoCpus":       {},
-	"CpuShares":      {},
-	"Mounts":         {},
-	"Dns":            {},
-	"DnsSearch":      {},
-	"ExtraHosts":     {},
-	"LogConfig":      {},
-	"AutoRemove":     {},
-	"ReadonlyRootfs": {},
-	"Init":           {},
-	"NetworkMode":    {},
-	"CapDrop":        {},
-	"UsernsMode":     {},
+	"PortBindings":         {},
+	"RestartPolicy":        {},
+	"Memory":               {},
+	"MemorySwap":           {},
+	"NanoCpus":             {},
+	"CpuShares":            {},
+	"Mounts":               {},
+	"Dns":                  {},
+	"DnsSearch":            {},
+	"DnsOptions":           {},
+	"ExtraHosts":           {},
+	"LogConfig":            {},
+	"AutoRemove":           {},
+	"ReadonlyRootfs":       {},
+	"Init":                 {},
+	"NetworkMode":          {},
+	"CapDrop":              {},
+	"UsernsMode":           {},
+	"ContainerIDFile":      {},
+	"CpuPeriod":            {},
+	"CpuQuota":             {},
+	"CpuRealtimePeriod":    {},
+	"CpuRealtimeRuntime":   {},
+	"CpusetCpus":           {},
+	"CpusetMems":           {},
+	"BlkioWeight":          {},
+	"BlkioWeightDevice":    {},
+	"BlkioDeviceReadBps":   {},
+	"BlkioDeviceWriteBps":  {},
+	"BlkioDeviceReadIOps":  {},
+	"BlkioDeviceWriteIOps": {},
+	"KernelMemory":         {},
+	"KernelMemoryTCP":      {},
+	"MemoryReservation":    {},
+	"MemorySwappiness":     {},
+	"OomKillDisable":       {},
+	"OomScoreAdj":          {},
+	"PidsLimit":            {},
+	"Ulimits":              {},
+	"StorageOpt":           {},
+	"ShmSize":              {},
+	"Tmpfs":                {},
+	"MaskedPaths":          {},
+	"ReadonlyPaths":        {},
+	"ConsoleSize":          {},
+	"Annotations":          {},
+	"Links":                {},
+	"PublishAllPorts":      {},
 }
 
 // mountEntry is the subset of Docker's Mount struct this validator inspects.
@@ -233,6 +302,26 @@ func validateUsernsModeValue(raw json.RawMessage) bool {
 		return false
 	}
 	return mode != "host"
+}
+
+// validateContainerIDFileValue accepts only the empty string. A non-empty
+// ContainerIDFile has the Docker daemon create a new file, containing the
+// new container's ID, at an operator-chosen path on the HOST filesystem
+// (opened O_EXCL, so it cannot clobber an existing file, but it can still
+// create one anywhere the daemon's own filesystem permissions allow) —
+// before the container itself even starts, so none of the container's own
+// isolation applies. That is a real host-filesystem-write primitive, unlike
+// every other field in hostConfigAllowedKeys, so it gets the narrowest
+// possible value-level check rather than a blanket allow: the empty string
+// (the overwhelming common case — the field is rarely set explicitly, and a
+// same-host recreate of such a container legitimately echoes it back empty)
+// is accepted, and every non-empty value is rejected.
+func validateContainerIDFileValue(raw json.RawMessage) bool {
+	var cidFile string
+	if err := json.Unmarshal(raw, &cidFile); err != nil {
+		return false
+	}
+	return cidFile == ""
 }
 
 // validateMountsValue rejects any bind-type mount and any mount entry whose
@@ -346,6 +435,10 @@ func validateContainerCreateBody(r *http.Request) (ok bool, reason string) {
 		case "UsernsMode":
 			if !validateUsernsModeValue(rawValue) {
 				return false, "disallowed HostConfig field: UsernsMode"
+			}
+		case "ContainerIDFile":
+			if !validateContainerIDFileValue(rawValue) {
+				return false, "disallowed HostConfig field: ContainerIDFile"
 			}
 		}
 	}
