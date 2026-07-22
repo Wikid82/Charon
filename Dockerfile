@@ -382,12 +382,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         _retry go get github.com/hslatman/ipstore@v0.4.0; \
         _retry go get golang.org/x/crypto@v${XCRYPTO_VERSION}; \
         _retry go get golang.org/x/net@v${XNET_VERSION}; \
-        # CVE-2026-33186: gRPC-Go auth bypass (fixed in v1.79.3)
-        # CVE-2026-34986: go-jose/v4 transitive fix (requires grpc >= v1.80.0)
-        # Pin here so the Caddy binary is patched immediately;
-        # remove once Caddy ships a release built with grpc >= v1.80.0.
+        # GHSA-hrxh-6v49-42gf: grpc-go xDS RBAC and HTTP/2 vulnerabilities
+        # Patched in grpc-go v1.82.1. Pin here so the Caddy binary is patched immediately.
         # renovate: datasource=go depName=google.golang.org/grpc
-        _retry go get google.golang.org/grpc@v1.80.0; \
+        _retry go get google.golang.org/grpc@v1.82.1; \
         # CVE-2026-34986: go-jose JOSE/JWT validation bypass
         # renovate: datasource=go depName=github.com/go-jose/go-jose/v3
         _retry go get github.com/go-jose/go-jose/v3@v3.0.5; \
@@ -547,11 +545,10 @@ RUN set -e; \
     # renovate: datasource=go depName=golang.org/x/crypto
     _retry go get golang.org/x/crypto@v0.52.0; \
     _retry go get golang.org/x/net@v${XNET_VERSION}; \
-    # CVE-2026-33186 (GHSA-p77j-4mvh-x3m3): gRPC-Go auth bypass via missing leading slash
-    # Fix available at v1.79.3. Pin here so the CrowdSec binary is patched immediately;
-    # remove once CrowdSec ships a release built with grpc >= v1.79.3.
+    # GHSA-hrxh-6v49-42gf: grpc-go xDS RBAC and HTTP/2 vulnerabilities
+    # Patched in grpc-go v1.82.1. Pin here so the CrowdSec binary is patched immediately.
     # renovate: datasource=go depName=google.golang.org/grpc
-    _retry go get google.golang.org/grpc@v1.82.0; \
+    _retry go get google.golang.org/grpc@v1.82.1; \
     # CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
     # renovate: datasource=github-tags depName=jackc/pgx
     _retry go get github.com/jackc/pgx/v4@v4.18.3; \
