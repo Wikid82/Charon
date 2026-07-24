@@ -234,9 +234,19 @@ func normalizeDockerPath(rawPath string) string {
 // checks) — every other request receives 403 Forbidden. This half is
 // unchanged from before write mode existed.
 //
-// Write-enabled sessions forward every request unconditionally, through
-// the rate limiter and audit log (see forwardWrite) — no endpoint or
-// request-body restriction. See the Muzzle doc comment for why.
+// Write-enabled sessions forward every request unconditionally — no
+// endpoint or request-body restriction (see the Muzzle doc comment for
+// why) — but only mutating methods (POST/PUT/PATCH/DELETE) go through the
+// rate limiter and audit log (see forwardWrite). GET/HEAD are forwarded
+// directly, same as a read-only session, un-rate-limited and unaudited:
+// m.writeLimiter is sized for occasional mutation bursts (see
+// writeLimiterBurst's doc comment in session.go — "one full update cycle
+// is exactly 5 write calls"), not for a Docker client's routine container
+// list/inspect polling, which can easily run many times a minute. Routing
+// that read traffic through the same limiter starved it out entirely
+// once the burst was spent, intermittently 429ing GET /containers/json
+// and making containers appear to vanish from any tool polling this proxy
+// — a real regression this fixes, not a hypothetical one.
 func (m *Muzzle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	stripped := normalizeDockerPath(r.URL.Path)
 
@@ -247,6 +257,10 @@ func (m *Muzzle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if m.writeEnabled {
+		if r.Method == http.MethodGet || r.Method == http.MethodHead {
+			m.next.ServeHTTP(w, r)
+			return
+		}
 		m.forwardWrite(w, r)
 		return
 	}
@@ -288,8 +302,10 @@ func (m *Muzzle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // forwardWrite applies the write-path rate limiter, audits the outcome, and
-// forwards the request. Only called for write-enabled sessions, for every
-// request regardless of method, path, or body.
+// forwards the request. Only called for write-enabled sessions' mutating
+// requests (POST/PUT/PATCH/DELETE) — ServeHTTP forwards GET/HEAD directly
+// without involving this method, since the rate limiter is sized for
+// mutation bursts, not routine read polling.
 func (m *Muzzle) forwardWrite(w http.ResponseWriter, r *http.Request) {
 	if m.writeLimiter != nil && !m.writeLimiter.Allow() {
 		m.auditRateLimited(r)

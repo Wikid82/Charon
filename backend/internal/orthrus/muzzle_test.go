@@ -480,6 +480,38 @@ func TestMuzzle_WriteEndpoints_RateLimited(t *testing.T) {
 	assert.Equal(t, http.StatusTooManyRequests, rr2.Code)
 }
 
+// TestMuzzle_WriteEnabled_GETNeverRateLimited is a regression test: an
+// earlier revision of ServeHTTP routed every request through forwardWrite
+// once write mode was on, including GET, so a Docker client's routine
+// container-list/inspect polling (Dockhand-style tools call GET
+// /containers/json far more than once every writeLimiterBurst*writeLimiterEvery
+// window) burned through the mutation-sized rate limiter and started
+// intermittently 429ing reads — making containers appear to vanish from
+// the polling tool's UI. GET/HEAD must always bypass the write limiter,
+// exactly like a read-only session, regardless of how many requests
+// precede them.
+func TestMuzzle_WriteEnabled_GETNeverRateLimited(t *testing.T) {
+	// Burst of 1, refill effectively never — deliberately tiny so any GET
+	// that does hit the limiter fails immediately, making a regression
+	// obvious rather than needing dozens of requests to surface it.
+	writeLimiter := rate.NewLimiter(rate.Every(time.Hour), 1)
+	m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid")
+
+	// Exhaust the single token with an unrelated mutating request first.
+	exhaustReq := httptest.NewRequest(http.MethodPost, "/containers/abc/start", http.NoBody)
+	m.ServeHTTP(httptest.NewRecorder(), exhaustReq)
+
+	// Many GETs in a row, well past the exhausted burst, must all still
+	// succeed — this is the exact traffic pattern (repeated
+	// GET /containers/json polling) that regressed.
+	for i := 0; i < 10; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/containers/json", http.NoBody)
+		rr := httptest.NewRecorder()
+		m.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusOK, rr.Code, "GET #%d was rate-limited", i+1)
+	}
+}
+
 // mockAuditLogger records every SecurityAudit entry passed to LogAudit, for
 // assertion in tests. Safe for concurrent use.
 type mockAuditLogger struct {
