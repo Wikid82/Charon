@@ -111,12 +111,13 @@ func (h *OrthrusHandler) Get(c *gin.Context) {
 
 // patchAgentRequest is the payload for partially updating an agent.
 type patchAgentRequest struct {
-	Name              *string `json:"name"`
-	HecateTunnelUUID  *string `json:"hecate_tunnel_uuid"`
-	DeviceID          *string `json:"device_id"`
-	ResolvedAddress   *string `json:"resolved_address"`
-	ExternalProxyPort *int    `json:"external_proxy_port"`
-	WriteEnabled      *bool   `json:"write_enabled"`
+	Name                      *string   `json:"name"`
+	HecateTunnelUUID          *string   `json:"hecate_tunnel_uuid"`
+	DeviceID                  *string   `json:"device_id"`
+	ResolvedAddress           *string   `json:"resolved_address"`
+	ExternalProxyPort         *int      `json:"external_proxy_port"`
+	WriteEnabled              *bool     `json:"write_enabled"`
+	AllowedVolumesFromSources *[]string `json:"allowed_volumes_from_sources"`
 }
 
 // Patch applies a partial update to an Orthrus agent. If WriteEnabled is
@@ -131,7 +132,7 @@ func (h *OrthrusHandler) Patch(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	agent, err := h.svc.Patch(uuid, req.Name, req.HecateTunnelUUID, req.DeviceID, req.ResolvedAddress, req.ExternalProxyPort, req.WriteEnabled)
+	agent, err := h.svc.Patch(uuid, req.Name, req.HecateTunnelUUID, req.DeviceID, req.ResolvedAddress, req.ExternalProxyPort, req.WriteEnabled, req.AllowedVolumesFromSources)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})

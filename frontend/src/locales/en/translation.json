@@ -2007,7 +2007,10 @@
       "reconnectNotice": "Write mode change will take effect on next agent reconnect.",
       "viewAuditLog": "View write-access audit log",
       "disableConfirm": "Disable",
-      "restartRequiredToast": "\"{{name}}\" is connected — restart the Orthrus agent on its remote machine for the write-mode change to take effect."
+      "restartRequiredToast": "\"{{name}}\" is connected — restart the Orthrus agent on its remote machine for the write-mode change to take effect.",
+      "volumesFromSourcesLabel": "Allowed VolumesFrom sources",
+      "volumesFromSourcesPlaceholder": "container-name-1, container-name-2",
+      "volumesFromSourcesHint": "Comma-separated container names or IDs this agent may reference via HostConfig.VolumesFrom when creating a container. Leave empty to reject VolumesFrom entirely (default)."
     }
   },
   "feedback": {

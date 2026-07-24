@@ -89,7 +89,7 @@ func startUnixHTTPServer(t *testing.T, handler func(net.Conn)) (string, func()) 
 }
 
 func TestFilter_Allow(t *testing.T) {
-	f := muzzle.New(false)
+	f := muzzle.New(false, nil)
 
 	tests := []struct {
 		method  string
@@ -218,7 +218,7 @@ func TestFilter_Allow(t *testing.T) {
 // like "nginx". Uses prefix/suffix matching instead of path.Match, whose
 // "*" does not cross "/".
 func TestFilter_Allow_NamespacedImagePaths(t *testing.T) {
-	f := muzzle.New(false)
+	f := muzzle.New(false, nil)
 
 	refs := []string{
 		"ghcr.io/org/repo",
@@ -247,7 +247,7 @@ func TestFilter_Allow_NamespacedImagePaths(t *testing.T) {
 // match) still rejects writes against namespaced image/distribution paths
 // now that they pass the allowlist's path check.
 func TestFilter_Allow_NamespacedImagePaths_NonGETBlocked(t *testing.T) {
-	f := muzzle.New(false)
+	f := muzzle.New(false, nil)
 
 	paths := []string{
 		"/images/ghcr.io/org/repo/json",
@@ -266,7 +266,7 @@ func TestFilter_Allow_NamespacedImagePaths_NonGETBlocked(t *testing.T) {
 }
 
 func TestFilter_ServeProxy_Blocked_POST(t *testing.T) {
-	f := muzzle.New(false)
+	f := muzzle.New(false, nil)
 
 	reqStr := "POST /v1.41/containers/create HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n"
 	var buf bytes.Buffer
@@ -277,7 +277,7 @@ func TestFilter_ServeProxy_Blocked_POST(t *testing.T) {
 }
 
 func TestFilter_ServeProxy_Blocked_DELETE(t *testing.T) {
-	f := muzzle.New(false)
+	f := muzzle.New(false, nil)
 
 	reqStr := "DELETE /v1.41/containers/abc HTTP/1.1\r\nHost: localhost\r\n\r\n"
 	var buf bytes.Buffer
@@ -288,7 +288,7 @@ func TestFilter_ServeProxy_Blocked_DELETE(t *testing.T) {
 }
 
 func TestFilter_ServeProxy_Blocked_PUT(t *testing.T) {
-	f := muzzle.New(false)
+	f := muzzle.New(false, nil)
 
 	reqStr := "PUT /v1.41/networks/abc HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n"
 	var buf bytes.Buffer
@@ -299,7 +299,7 @@ func TestFilter_ServeProxy_Blocked_PUT(t *testing.T) {
 }
 
 func TestFilter_ServeProxy_Blocked_UnversionedPost(t *testing.T) {
-	f := muzzle.New(false)
+	f := muzzle.New(false, nil)
 
 	reqStr := "POST /containers/create HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n"
 	var buf bytes.Buffer
@@ -310,7 +310,7 @@ func TestFilter_ServeProxy_Blocked_UnversionedPost(t *testing.T) {
 }
 
 func TestServeProxy_ConnectionCloseSetOnRequest(t *testing.T) {
-	f := muzzle.New(false)
+	f := muzzle.New(false, nil)
 
 	reqSeen := make(chan *http.Request, 1)
 	serverErr := make(chan error, 1)
@@ -350,7 +350,7 @@ func TestServeProxy_ConnectionCloseSetOnRequest(t *testing.T) {
 }
 
 func TestServeProxy_CompletesAfterDockerResponse(t *testing.T) {
-	f := muzzle.New(false)
+	f := muzzle.New(false, nil)
 	serverErr := make(chan error, 1)
 	body := `{"status":"ok"}`
 
@@ -394,7 +394,7 @@ func TestServeProxy_CompletesAfterDockerResponse(t *testing.T) {
 }
 
 func TestServeProxy_StreamingResponseTerminatesOnWriterClose(t *testing.T) {
-	f := muzzle.New(false)
+	f := muzzle.New(false, nil)
 
 	serverWriteErr := make(chan error, 1)
 	serverErr := make(chan error, 1)
@@ -480,7 +480,7 @@ func (r errReader) Read([]byte) (int, error) {
 // segment always errors, so the read is guaranteed to fail only once
 // ServeProxy actually starts consuming the body.
 func TestFilter_ServeProxy_BodyReadError_ReturnsError(t *testing.T) {
-	f := muzzle.New(false)
+	f := muzzle.New(false, nil)
 
 	header := "POST /containers/create HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\n\r\n"
 	boom := errors.New("boom")
@@ -498,7 +498,7 @@ func TestFilter_ServeProxy_BodyReadError_ReturnsError(t *testing.T) {
 // Allow is consulted, so the method/path here don't need to be on the
 // allowlist for the case to exercise the intended branch.
 func TestFilter_ServeProxy_BodyTooLarge_Returns403AndError(t *testing.T) {
-	f := muzzle.New(false)
+	f := muzzle.New(false, nil)
 
 	const maxContainerCreateBodyBytes = 64 * 1024
 	oversized := bytes.Repeat([]byte("a"), maxContainerCreateBodyBytes+1)
@@ -552,7 +552,7 @@ func TestFilter_ServeProxy_BodyTooLarge_Returns403AndError(t *testing.T) {
 // library networking tests use for OS-timing-dependent behavior; it is a
 // deliberate, documented trade-off, not an oversight.
 func TestFilter_ServeProxy_DockerWriteError_ReturnsError(t *testing.T) {
-	f := muzzle.New(false)
+	f := muzzle.New(false, nil)
 
 	const retryLimit = 200
 	reqStr := "GET /containers/json HTTP/1.1\r\nHost: localhost\r\n\r\n"
@@ -590,7 +590,7 @@ func TestFilter_ServeProxy_DockerWriteError_ReturnsError(t *testing.T) {
 // backend uses, since Filter has no http.Handler interface of its own).
 
 func TestFilter_Allow_WriteEndpoints_BlockedWhenWriteDisabled(t *testing.T) {
-	f := muzzle.New(false)
+	f := muzzle.New(false, nil)
 
 	cases := []struct {
 		method string
@@ -613,7 +613,7 @@ func TestFilter_Allow_WriteEndpoints_BlockedWhenWriteDisabled(t *testing.T) {
 }
 
 func TestFilter_Allow_WriteEndpoints_AllowedWhenWriteEnabled(t *testing.T) {
-	f := muzzle.New(true)
+	f := muzzle.New(true, nil)
 
 	cases := []struct {
 		method string
@@ -648,7 +648,7 @@ func TestFilter_Allow_WriteEndpoints_AllowedWhenWriteEnabled(t *testing.T) {
 // that a realistic rename call site (path plus query) is what this
 // allowlist entry exists to unblock.
 func TestFilter_Allow_ContainerRename_QueryParamNameAllowed(t *testing.T) {
-	f := muzzle.New(true)
+	f := muzzle.New(true, nil)
 
 	containerID := "3f4d9e2a1b6c8f0d7e5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e"
 	assert.True(t, f.Allow("POST", "/containers/"+containerID+"/rename", nil))
@@ -664,7 +664,7 @@ func TestFilter_Allow_ContainerRename_QueryParamNameAllowed(t *testing.T) {
 // wrongly treated as reaching "/containers/*/start" via the loose
 // path.Match "v*" wildcard.
 func TestFilter_Allow_WriteMode_FakeVersionPrefixBlocked(t *testing.T) {
-	f := muzzle.New(true)
+	f := muzzle.New(true, nil)
 
 	cases := []struct {
 		method string
@@ -688,7 +688,7 @@ func TestFilter_Allow_WriteMode_FakeVersionPrefixBlocked(t *testing.T) {
 // exec, image delete, build, prune, auth, commit, Swarm/service — remain
 // permanently blocked. Section 7, Explicit Out-of-Scope.
 func TestFilter_Allow_WriteMode_NonWriteEndpointsStillBlocked(t *testing.T) {
-	f := muzzle.New(true)
+	f := muzzle.New(true, nil)
 
 	cases := []struct {
 		method string
@@ -715,7 +715,7 @@ func TestFilter_Allow_WriteMode_NonWriteEndpointsStillBlocked(t *testing.T) {
 }
 
 func TestFilter_Allow_ContainersCreate_SafeBodyAllowed(t *testing.T) {
-	f := muzzle.New(true)
+	f := muzzle.New(true, nil)
 
 	body := []byte(`{"Image":"nginx:latest","HostConfig":{"PortBindings":{"80/tcp":[{"HostPort":"8080"}]},"RestartPolicy":{"Name":"unless-stopped"},"NetworkMode":"my-bridge"}}`)
 	assert.True(t, f.Allow("POST", "/containers/create", body))
@@ -725,7 +725,7 @@ func TestFilter_Allow_ContainersCreate_SafeBodyAllowed(t *testing.T) {
 // TestFilter_Allow_ContainersCreate_SafeBodiesAllowed_CapDropAndUsernsMode
 // mirrors backend/internal/orthrus/muzzle_test.go's copy of the same name.
 func TestFilter_Allow_ContainersCreate_SafeBodiesAllowed_CapDropAndUsernsMode(t *testing.T) {
-	f := muzzle.New(true)
+	f := muzzle.New(true, nil)
 
 	cases := []struct {
 		name string
@@ -745,6 +745,9 @@ func TestFilter_Allow_ContainersCreate_SafeBodiesAllowed_CapDropAndUsernsMode(t 
 		{"MaskedPaths/ReadonlyPaths (restriction-only)", `{"Image":"nginx","HostConfig":{"MaskedPaths":["/proc/kcore"],"ReadonlyPaths":["/proc/sys"]}}`},
 		{"ConsoleSize/Annotations (cosmetic)", `{"Image":"nginx","HostConfig":{"ConsoleSize":[24,80],"Annotations":{"note":"x"}}}`},
 		{"Links/PublishAllPorts/DnsOptions (networking convenience)", `{"Image":"nginx","HostConfig":{"Links":["db:db"],"PublishAllPorts":false,"DnsOptions":["timeout:1"]}}`},
+		{"Isolation default (Windows-only platform selector)", `{"Image":"nginx","HostConfig":{"Isolation":"default"}}`},
+		{"Isolation hyperv", `{"Image":"nginx","HostConfig":{"Isolation":"hyperv"}}`},
+		{"Isolation process", `{"Image":"nginx","HostConfig":{"Isolation":"process"}}`},
 	}
 
 	for _, tc := range cases {
@@ -754,12 +757,40 @@ func TestFilter_Allow_ContainersCreate_SafeBodiesAllowed_CapDropAndUsernsMode(t 
 	}
 }
 
+// TestFilter_Allow_ContainersCreate_VolumesFrom_AllowedWhenSourceConfigured
+// mirrors backend/internal/orthrus/muzzle_test.go's copy of the same name.
+func TestFilter_Allow_ContainersCreate_VolumesFrom_AllowedWhenSourceConfigured(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"exact name match", `{"Image":"nginx","HostConfig":{"VolumesFrom":["public-config"]}}`},
+		{"name with :ro mode suffix stripped before comparison", `{"Image":"nginx","HostConfig":{"VolumesFrom":["public-config:ro"]}}`},
+		{"multiple sources, all configured", `{"Image":"nginx","HostConfig":{"VolumesFrom":["public-config","shared-media"]}}`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := muzzle.New(true, []string{"public-config", "shared-media"})
+			assert.True(t, f.Allow("POST", "/containers/create", []byte(tc.body)))
+		})
+	}
+}
+
+// TestFilter_Allow_ContainersCreate_VolumesFrom_RejectedWhenSourceNotConfigured
+// mirrors backend/internal/orthrus/muzzle_test.go's copy of the same name.
+func TestFilter_Allow_ContainersCreate_VolumesFrom_RejectedWhenSourceNotConfigured(t *testing.T) {
+	f := muzzle.New(true, []string{"public-config"})
+	body := `{"Image":"nginx","HostConfig":{"VolumesFrom":["not-on-the-allowlist"]}}`
+	assert.False(t, f.Allow("POST", "/containers/create", []byte(body)))
+}
+
 // TestFilter_Allow_ContainersCreate_DangerousBodiesRejected mirrors
 // backend/internal/orthrus/muzzle_test.go's TestMuzzle_ContainersCreate_DangerousBodiesRejected
 // case-for-case, including the local-driver bind-mount-via-volume bypass
 // (VolumeOptions.DriverConfig) that both filters must independently reject.
 func TestFilter_Allow_ContainersCreate_DangerousBodiesRejected(t *testing.T) {
-	f := muzzle.New(true)
+	f := muzzle.New(true, nil)
 
 	cases := []struct {
 		name string
@@ -775,7 +806,7 @@ func TestFilter_Allow_ContainersCreate_DangerousBodiesRejected(t *testing.T) {
 		{"CgroupnsMode host", `{"Image":"nginx","HostConfig":{"CgroupnsMode":"host"}}`},
 		{"Runtime", `{"Image":"nginx","HostConfig":{"Runtime":"custom-runtime"}}`},
 		{"VolumeDriver", `{"Image":"nginx","HostConfig":{"VolumeDriver":"custom-driver"}}`},
-		{"VolumesFrom", `{"Image":"nginx","HostConfig":{"VolumesFrom":["other-container"]}}`},
+		{"VolumesFrom, no source allowlist configured", `{"Image":"nginx","HostConfig":{"VolumesFrom":["other-container"]}}`},
 		{"DeviceRequests", `{"Image":"nginx","HostConfig":{"DeviceRequests":[{"Driver":"nvidia","Count":-1}]}}`},
 		{"bind-type Mounts", `{"Image":"nginx","HostConfig":{"Mounts":[{"Type":"bind","Source":"/etc","Target":"/x"}]}}`},
 		{
@@ -811,7 +842,7 @@ func TestFilter_Allow_ContainersCreate_DangerousBodiesRejected(t *testing.T) {
 // allowed" table, precisely because it documents an intentional
 // security-relevant default rather than an incidental pass-through.
 func TestFilter_Allow_ContainersCreate_EmptyBodyAllowed(t *testing.T) {
-	f := muzzle.New(true)
+	f := muzzle.New(true, nil)
 
 	assert.True(t, f.Allow("POST", "/containers/create", nil))
 	assert.True(t, f.Allow("POST", "/containers/create", []byte{}))
@@ -829,12 +860,13 @@ func TestFilter_Allow_ContainersCreate_EmptyBodyAllowed(t *testing.T) {
 // see the doc comments on hostConfigAllowedKeys etc. in muzzle.go).
 
 type muzzleCorpusCase struct {
-	Description       string          `json:"description"`
-	Method            string          `json:"method"`
-	Path              string          `json:"path"`
-	Body              json.RawMessage `json:"body,omitempty"`
-	AgentWriteEnabled bool            `json:"agent_write_enabled"`
-	WantAllowed       bool            `json:"want_allowed"`
+	Description               string          `json:"description"`
+	Method                    string          `json:"method"`
+	Path                      string          `json:"path"`
+	Body                      json.RawMessage `json:"body,omitempty"`
+	AgentWriteEnabled         bool            `json:"agent_write_enabled"`
+	AllowedVolumesFromSources []string        `json:"allowed_volumes_from_sources,omitempty"`
+	WantAllowed               bool            `json:"want_allowed"`
 }
 
 func loadMuzzleCorpus(t *testing.T) []muzzleCorpusCase {
@@ -851,7 +883,7 @@ func TestFilter_SharedCorpus(t *testing.T) {
 	cases := loadMuzzleCorpus(t)
 	for _, tc := range cases {
 		t.Run(tc.Description, func(t *testing.T) {
-			f := muzzle.New(tc.AgentWriteEnabled)
+			f := muzzle.New(tc.AgentWriteEnabled, tc.AllowedVolumesFromSources)
 
 			// The corpus's Path field may include a query string (e.g.
 			// "/images/create?fromImage=nginx&tag=latest"), which Allow

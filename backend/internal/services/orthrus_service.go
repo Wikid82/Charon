@@ -3,6 +3,7 @@ package services
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -89,7 +90,7 @@ func (s *OrthrusService) Get(uuid string) (*models.OrthrusAgent, error) {
 // the handler layer (see e.g. security_handler.go, crowdsec_handler.go)
 // rather than growing OrthrusService's dependencies to include
 // *services.SecurityService and a *gin.Context-derived actor.
-func (s *OrthrusService) Patch(uuid string, name, hecateTunnelUUID, deviceID, resolvedAddress *string, externalProxyPort *int, writeEnabled *bool) (*models.OrthrusAgent, error) {
+func (s *OrthrusService) Patch(uuid string, name, hecateTunnelUUID, deviceID, resolvedAddress *string, externalProxyPort *int, writeEnabled *bool, allowedVolumesFromSources *[]string) (*models.OrthrusAgent, error) {
 	updates := map[string]interface{}{}
 	if name != nil {
 		trimmed := strings.TrimSpace(*name)
@@ -117,6 +118,19 @@ func (s *OrthrusService) Patch(uuid string, name, hecateTunnelUUID, deviceID, re
 	if writeEnabled != nil {
 		updates["write_enabled"] = *writeEnabled
 	}
+	if allowedVolumesFromSources != nil {
+		// Marshaled explicitly here, rather than relying on the model's
+		// gorm:"serializer:json" tag to fire during a map-based Updates call
+		// (that interaction isn't a documented GORM guarantee), producing the
+		// exact same JSON encoding the serializer itself would write, so the
+		// subsequent Get/First read-back (which does go through the
+		// serializer's Scan) decodes it correctly.
+		b, err := json.Marshal(*allowedVolumesFromSources)
+		if err != nil {
+			return nil, fmt.Errorf("orthrus: marshal allowed_volumes_from_sources: %w", err)
+		}
+		updates["allowed_volumes_from_sources"] = string(b)
+	}
 	if len(updates) == 0 {
 		return s.Get(uuid)
 	}
@@ -128,7 +142,7 @@ func (s *OrthrusService) Patch(uuid string, name, hecateTunnelUUID, deviceID, re
 
 // Rename updates the display name of an agent (backward-compat wrapper around Patch).
 func (s *OrthrusService) Rename(uuid, newName string) (*models.OrthrusAgent, error) {
-	return s.Patch(uuid, &newName, nil, nil, nil, nil, nil)
+	return s.Patch(uuid, &newName, nil, nil, nil, nil, nil, nil)
 }
 
 // Delete removes an agent from the database (does not revoke/disconnect first).

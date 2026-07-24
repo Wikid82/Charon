@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -228,6 +229,8 @@ var hostConfigAllowedKeys = map[string]struct{}{
 	"CPUPercent":           {},
 	"IOMaximumIOps":        {},
 	"IOMaximumBandwidth":   {},
+	"VolumesFrom":          {},
+	"Isolation":            {},
 }
 
 type mountEntry struct {
@@ -283,6 +286,26 @@ func validateContainerIDFileValue(raw json.RawMessage) bool {
 	return cidFile == ""
 }
 
+// validateVolumesFromValue mirrors backend/internal/orthrus/muzzle.go's
+// copy: accepts a VolumesFrom value only if every referenced container
+// name/ID (mode suffix, e.g. ":ro", stripped before comparison) is present
+// in allowedSources, the per-agent operator-configured allowlist negotiated
+// at connect time (see Filter.allowedVolumesFromSources). A nil/empty
+// allowedSources rejects any non-empty VolumesFrom entry.
+func validateVolumesFromValue(raw json.RawMessage, allowedSources []string) bool {
+	var sources []string
+	if err := json.Unmarshal(raw, &sources); err != nil {
+		return false
+	}
+	for _, source := range sources {
+		name, _, _ := strings.Cut(source, ":")
+		if !slices.Contains(allowedSources, name) {
+			return false
+		}
+	}
+	return true
+}
+
 func validateMountsValue(raw json.RawMessage) bool {
 	var mounts []mountEntry
 	if err := json.Unmarshal(raw, &mounts); err != nil {
@@ -312,7 +335,7 @@ func validateMountsValue(raw json.RawMessage) bool {
 // req.Body itself — ServeProxy already reads the full body into bodyBytes
 // once, up front, for every request (see the doc comment there), so there
 // is nothing left to re-buffer by the time this function runs.
-func validateContainerCreateBody(bodyBytes []byte) (ok bool, reason string) {
+func validateContainerCreateBody(bodyBytes []byte, allowedVolumesFromSources []string) (ok bool, reason string) {
 	if len(bodyBytes) == 0 {
 		return true, ""
 	}
@@ -357,6 +380,10 @@ func validateContainerCreateBody(bodyBytes []byte) (ok bool, reason string) {
 			if !validateCgroupnsModeValue(rawValue) {
 				return false, "disallowed HostConfig field: CgroupnsMode"
 			}
+		case "VolumesFrom":
+			if !validateVolumesFromValue(rawValue, allowedVolumesFromSources) {
+				return false, "disallowed HostConfig field: VolumesFrom"
+			}
 		}
 	}
 
@@ -375,14 +402,22 @@ func validateContainerCreateBody(bodyBytes []byte) (ok bool, reason string) {
 // next reconnect.
 type Filter struct {
 	writeEnabled bool
+	// allowedVolumesFromSources is the operator-configured VolumesFrom source
+	// allowlist negotiated at connect time via the
+	// X-Orthrus-Allowed-Volumes-From handshake header, fixed for the life of
+	// the connection like writeEnabled.
+	allowedVolumesFromSources []string
 }
 
 // New returns a new Muzzle filter. writeEnabled governs whether the optional
 // write-endpoint allowlist is consulted for this connection; false (the
 // default for any caller not yet passing the negotiated handshake value)
 // preserves today's unconditional read-only behavior.
-func New(writeEnabled bool) *Filter {
-	return &Filter{writeEnabled: writeEnabled}
+// allowedVolumesFromSources is the per-agent VolumesFrom source allowlist
+// negotiated at the same time; nil/empty means no VolumesFrom value is ever
+// accepted.
+func New(writeEnabled bool, allowedVolumesFromSources []string) *Filter {
+	return &Filter{writeEnabled: writeEnabled, allowedVolumesFromSources: allowedVolumesFromSources}
 }
 
 // Allow returns true if method+reqPath (+body, for the one body-validated
@@ -456,7 +491,7 @@ func (f *Filter) allowWrite(method, normalizedPath string, body []byte) bool {
 	if strings.EqualFold(method, http.MethodPost) {
 		if _, ok := allowedWriteExactPaths[normalizedPath]; ok {
 			if normalizedPath == "/containers/create" {
-				valid, _ := validateContainerCreateBody(body)
+				valid, _ := validateContainerCreateBody(body, f.allowedVolumesFromSources)
 				return valid
 			}
 			return true

@@ -139,6 +139,11 @@ type AgentSession struct {
 	// the life of this session, exactly like extProxyPort — a DB toggle only
 	// takes effect on the agent's next reconnect.
 	writeEnabled bool
+	// allowedVolumesFromSources is the operator-configured VolumesFrom source
+	// allowlist negotiated at connect time (from
+	// OrthrusAgent.AllowedVolumesFromSources), fixed for the life of the
+	// session like writeEnabled.
+	allowedVolumesFromSources []string
 	// writeLimiter bounds write-request throughput for this session; nil
 	// unless writeEnabled (lazily constructed in NewAgentSession).
 	writeLimiter *rate.Limiter
@@ -149,7 +154,7 @@ type AgentSession struct {
 }
 
 // NewAgentSession wraps the WebSocket connection in a Yamux server session.
-func NewAgentSession(agentUUID, agentName string, writeEnabled bool, auditLogger AuditLogger, conn *websocket.Conn) (*AgentSession, error) {
+func NewAgentSession(agentUUID, agentName string, writeEnabled bool, allowedVolumesFromSources []string, auditLogger AuditLogger, conn *websocket.Conn) (*AgentSession, error) {
 	cfg := yamux.DefaultConfig()
 	cfg.LogOutput = io.Discard
 
@@ -166,14 +171,15 @@ func NewAgentSession(agentUUID, agentName string, writeEnabled bool, auditLogger
 	}
 
 	return &AgentSession{
-		agentUUID:    agentUUID,
-		agentName:    agentName,
-		conn:         conn,
-		session:      session,
-		writeLimiter: writeLimiter,
-		auditLogger:  auditLogger,
-		cancel:       cancel,
-		writeEnabled: writeEnabled,
+		agentUUID:                 agentUUID,
+		agentName:                 agentName,
+		conn:                      conn,
+		session:                   session,
+		writeLimiter:              writeLimiter,
+		auditLogger:               auditLogger,
+		cancel:                    cancel,
+		writeEnabled:              writeEnabled,
+		allowedVolumesFromSources: allowedVolumesFromSources,
 	}, nil
 }
 
@@ -338,7 +344,7 @@ func (s *AgentSession) StartExternalProxy(port int) error {
 	}
 
 	srv := &http.Server{
-		Handler:           NewMuzzle(rp, s.writeEnabled, s.writeLimiter, s.auditLogger, s.agentUUID),
+		Handler:           NewMuzzle(rp, s.writeEnabled, s.writeLimiter, s.auditLogger, s.agentUUID, s.allowedVolumesFromSources),
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      0,
 	}

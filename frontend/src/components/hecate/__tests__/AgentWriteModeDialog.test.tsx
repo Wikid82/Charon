@@ -41,6 +41,7 @@ const baseAgent: OrthrusAgent = {
   updated_at: '2025-01-01T00:00:00Z',
   external_proxy_port: 2375,
   write_enabled: false,
+  allowed_volumes_from_sources: [],
 };
 
 const renderDialog = (agent: OrthrusAgent = baseAgent, open = true, onClose = vi.fn()) =>
@@ -117,10 +118,33 @@ describe('AgentWriteModeDialog', () => {
 
       await waitFor(() => {
         expect(mockPatch).toHaveBeenCalledWith(
-          { uuid: 'agent-1', req: { write_enabled: true } },
+          { uuid: 'agent-1', req: { write_enabled: true, allowed_volumes_from_sources: [] } },
           expect.objectContaining({ onSuccess: expect.any(Function) }),
         );
         expect(onClose).toHaveBeenCalled();
+      });
+    });
+
+    it('parses comma-separated VolumesFrom sources, trimming whitespace and dropping empties', async () => {
+      renderDialog(baseAgent, true, vi.fn());
+
+      fireEvent.click(screen.getByRole('switch'));
+      fireEvent.change(screen.getByLabelText('hecate.writeMode.confirmPrompt:Test Agent'), {
+        target: { value: 'Test Agent' },
+      });
+      fireEvent.change(screen.getByLabelText('hecate.writeMode.volumesFromSourcesLabel'), {
+        target: { value: ' config-container ,, shared-media ,' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+
+      await waitFor(() => {
+        expect(mockPatch).toHaveBeenCalledWith(
+          {
+            uuid: 'agent-1',
+            req: { write_enabled: true, allowed_volumes_from_sources: ['config-container', 'shared-media'] },
+          },
+          expect.objectContaining({ onSuccess: expect.any(Function) }),
+        );
       });
     });
   });
@@ -150,7 +174,7 @@ describe('AgentWriteModeDialog', () => {
 
       await waitFor(() => {
         expect(mockPatch).toHaveBeenCalledWith(
-          { uuid: 'agent-1', req: { write_enabled: false } },
+          { uuid: 'agent-1', req: { write_enabled: false, allowed_volumes_from_sources: [] } },
           expect.objectContaining({ onSuccess: expect.any(Function) }),
         );
       });

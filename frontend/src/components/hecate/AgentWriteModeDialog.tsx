@@ -45,13 +45,26 @@ export function AgentWriteModeDialog({ agent, open, onClose }: AgentWriteModeDia
 
   const [desiredEnabled, setDesiredEnabled] = useState(agent.write_enabled);
   const [confirmText, setConfirmText] = useState('');
+  const [volumesFromSourcesText, setVolumesFromSourcesText] = useState(
+    agent.allowed_volumes_from_sources.join(', '),
+  );
 
   useEffect(() => {
     if (open) {
       setDesiredEnabled(agent.write_enabled);
       setConfirmText('');
+      setVolumesFromSourcesText(agent.allowed_volumes_from_sources.join(', '));
     }
-  }, [open, agent.write_enabled]);
+  }, [open, agent.write_enabled, agent.allowed_volumes_from_sources]);
+
+  // Docker container names/IDs never contain a comma (charset is
+  // [a-zA-Z0-9][a-zA-Z0-9_.-]*), so a plain comma split is a safe, sufficient
+  // parse — matches the same comma-joined encoding the backend sends over
+  // the X-Orthrus-Allowed-Volumes-From handshake header.
+  const parsedVolumesFromSources = volumesFromSourcesText
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 
   // Only turning the toggle ON (from an off starting point) requires the
   // typed-name confirmation gate — disabling is strictly safety-increasing
@@ -73,7 +86,10 @@ export function AgentWriteModeDialog({ agent, open, onClose }: AgentWriteModeDia
                                                 // cannot change between this render
                                                 // and this synchronous save call.
     patch(
-      { uuid: agent.uuid, req: { write_enabled: desiredEnabled } },
+      {
+        uuid: agent.uuid,
+        req: { write_enabled: desiredEnabled, allowed_volumes_from_sources: parsedVolumesFromSources },
+      },
       {
         onSuccess: (updatedAgent) => {
           if (wasTurnedOn && updatedAgent.status === 'online') {
@@ -167,6 +183,33 @@ export function AgentWriteModeDialog({ agent, open, onClose }: AgentWriteModeDia
                   <li key={key}>{t(`hecate.writeMode.operations.${key}`)}</li>
                 ))}
               </ul>
+            </div>
+          )}
+
+          {/* VolumesFrom source allowlist — only meaningful while write mode
+              is (or is about to be) on; a container recreate that references
+              VolumesFrom is otherwise rejected outright regardless of this
+              list. */}
+          {desiredEnabled && (
+            <div className="space-y-1.5">
+              <label
+                htmlFor="write-mode-volumes-from-sources"
+                className="block text-sm font-medium text-content-primary"
+              >
+                {t('hecate.writeMode.volumesFromSourcesLabel')}
+              </label>
+              <Input
+                id="write-mode-volumes-from-sources"
+                type="text"
+                value={volumesFromSourcesText}
+                onChange={(e) => setVolumesFromSourcesText(e.target.value)}
+                placeholder={t('hecate.writeMode.volumesFromSourcesPlaceholder')}
+                disabled={isPending}
+                aria-describedby="write-mode-volumes-from-sources-hint"
+              />
+              <p id="write-mode-volumes-from-sources-hint" className="text-xs text-content-muted">
+                {t('hecate.writeMode.volumesFromSourcesHint')}
+              </p>
             </div>
           )}
 

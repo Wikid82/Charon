@@ -217,7 +217,7 @@ func TestWatchHeartbeat_StaleGoroutine_DoesNotEvictNewSession(t *testing.T) {
 	// goroutine is still running after a newer session has replaced it.
 	conn1, done1 := testWSPair(t)
 	defer done1()
-	sess1, err := NewAgentSession(agentUUID, "race-agent", false, nil, conn1)
+	sess1, err := NewAgentSession(agentUUID, "race-agent", false, nil, nil, conn1)
 	require.NoError(t, err)
 	require.NoError(t, sess1.Close())
 	require.False(t, sess1.IsAlive())
@@ -225,7 +225,7 @@ func TestWatchHeartbeat_StaleGoroutine_DoesNotEvictNewSession(t *testing.T) {
 	// sess2: alive — represents the current (newer) reconnect stored in the map.
 	conn2, done2 := testWSPair(t)
 	defer done2()
-	sess2, err := NewAgentSession(agentUUID, "race-agent", false, nil, conn2)
+	sess2, err := NewAgentSession(agentUUID, "race-agent", false, nil, nil, conn2)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = sess2.Close() })
 	srv.sessions.Store(agentUUID, sess2)
@@ -277,7 +277,7 @@ func TestWatchHeartbeat_CurrentSession_MarksOfflineAndEvictsFromMap(t *testing.T
 	conn, wsCleanup := testWSPair(t)
 	defer wsCleanup()
 
-	sess, err := NewAgentSession(agentUUID, "current-agent", false, nil, conn)
+	sess, err := NewAgentSession(agentUUID, "current-agent", false, nil, nil, conn)
 	require.NoError(t, err)
 	require.NoError(t, sess.Close())
 	require.False(t, sess.IsAlive())

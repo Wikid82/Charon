@@ -289,7 +289,7 @@ func TestOrthrusService_Patch_NameOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	newName := "updated-name"
-	got, err := svc.Patch(agent.UUID, &newName, nil, nil, nil, nil, nil)
+	got, err := svc.Patch(agent.UUID, &newName, nil, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "updated-name", got.Name)
@@ -307,7 +307,7 @@ func TestOrthrusService_Patch_ProviderFields(t *testing.T) {
 	deviceID := "device-id-456"
 	resolved := "10.0.0.1"
 
-	got, err := svc.Patch(agent.UUID, nil, &tunnelUUID, &deviceID, &resolved, nil, nil)
+	got, err := svc.Patch(agent.UUID, nil, &tunnelUUID, &deviceID, &resolved, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "provider-agent", got.Name)
@@ -327,7 +327,7 @@ func TestOrthrusService_Patch_BlankName(t *testing.T) {
 	require.NoError(t, err)
 
 	blank := "   "
-	_, err = svc.Patch(agent.UUID, &blank, nil, nil, nil, nil, nil)
+	_, err = svc.Patch(agent.UUID, &blank, nil, nil, nil, nil, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot be blank")
 }
@@ -339,7 +339,7 @@ func TestOrthrusService_Patch_EmptyUpdate(t *testing.T) {
 	agent, _, err := svc.Provision("no-change-agent")
 	require.NoError(t, err)
 
-	got, err := svc.Patch(agent.UUID, nil, nil, nil, nil, nil, nil)
+	got, err := svc.Patch(agent.UUID, nil, nil, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "no-change-agent", got.Name)
@@ -351,7 +351,7 @@ func TestOrthrusService_Patch_UnknownUUID(t *testing.T) {
 	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
 
 	newName := "irrelevant"
-	_, err := svc.Patch("00000000-0000-0000-0000-000000000000", &newName, nil, nil, nil, nil, nil)
+	_, err := svc.Patch("00000000-0000-0000-0000-000000000000", &newName, nil, nil, nil, nil, nil, nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
 }
@@ -378,7 +378,7 @@ func TestOrthrusService_Patch_ExternalProxyPort_Zero(t *testing.T) {
 	require.NoError(t, err)
 
 	port := 0
-	got, err := svc.Patch(agent.UUID, nil, nil, nil, nil, &port, nil)
+	got, err := svc.Patch(agent.UUID, nil, nil, nil, nil, &port, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, 0, got.ExternalProxyPort)
@@ -392,7 +392,7 @@ func TestOrthrusService_Patch_ExternalProxyPort_Valid(t *testing.T) {
 	require.NoError(t, err)
 
 	port := 2375
-	got, err := svc.Patch(agent.UUID, nil, nil, nil, nil, &port, nil)
+	got, err := svc.Patch(agent.UUID, nil, nil, nil, nil, &port, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, 2375, got.ExternalProxyPort)
@@ -406,7 +406,7 @@ func TestOrthrusService_Patch_ExternalProxyPort_TooLow(t *testing.T) {
 	require.NoError(t, err)
 
 	port := 1023
-	_, err = svc.Patch(agent.UUID, nil, nil, nil, nil, &port, nil)
+	_, err = svc.Patch(agent.UUID, nil, nil, nil, nil, &port, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "external_proxy_port")
 }
@@ -419,7 +419,7 @@ func TestOrthrusService_Patch_ExternalProxyPort_TooHigh(t *testing.T) {
 	require.NoError(t, err)
 
 	port := 70000
-	_, err = svc.Patch(agent.UUID, nil, nil, nil, nil, &port, nil)
+	_, err = svc.Patch(agent.UUID, nil, nil, nil, nil, &port, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "external_proxy_port")
 }
@@ -432,7 +432,7 @@ func TestOrthrusService_Patch_ExternalProxyPort_Negative(t *testing.T) {
 	require.NoError(t, err)
 
 	port := -1
-	_, err = svc.Patch(agent.UUID, nil, nil, nil, nil, &port, nil)
+	_, err = svc.Patch(agent.UUID, nil, nil, nil, nil, &port, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "external_proxy_port")
 }
@@ -454,7 +454,7 @@ func TestOrthrusService_Patch_WriteEnabled_True(t *testing.T) {
 	require.NoError(t, err)
 
 	enabled := true
-	got, err := svc.Patch(agent.UUID, nil, nil, nil, nil, nil, &enabled)
+	got, err := svc.Patch(agent.UUID, nil, nil, nil, nil, nil, &enabled, nil)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.True(t, got.WriteEnabled)
@@ -468,11 +468,11 @@ func TestOrthrusService_Patch_WriteEnabled_BackToFalse(t *testing.T) {
 	require.NoError(t, err)
 
 	enabled := true
-	_, err = svc.Patch(agent.UUID, nil, nil, nil, nil, nil, &enabled)
+	_, err = svc.Patch(agent.UUID, nil, nil, nil, nil, nil, &enabled, nil)
 	require.NoError(t, err)
 
 	disabled := false
-	got, err := svc.Patch(agent.UUID, nil, nil, nil, nil, nil, &disabled)
+	got, err := svc.Patch(agent.UUID, nil, nil, nil, nil, nil, &disabled, nil)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.False(t, got.WriteEnabled)
@@ -486,13 +486,65 @@ func TestOrthrusService_Patch_WriteEnabled_NilLeavesUnchanged(t *testing.T) {
 	require.NoError(t, err)
 
 	enabled := true
-	_, err = svc.Patch(agent.UUID, nil, nil, nil, nil, nil, &enabled)
+	_, err = svc.Patch(agent.UUID, nil, nil, nil, nil, nil, &enabled, nil)
 	require.NoError(t, err)
 
 	newName := "renamed-agent"
-	got, err := svc.Patch(agent.UUID, &newName, nil, nil, nil, nil, nil)
+	got, err := svc.Patch(agent.UUID, &newName, nil, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "renamed-agent", got.Name)
 	assert.True(t, got.WriteEnabled, "write_enabled must be untouched by an unrelated Patch call")
+}
+
+func TestOrthrusService_Patch_AllowedVolumesFromSources_Set(t *testing.T) {
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+
+	agent, _, err := svc.Provision("volumes-from-sources")
+	require.NoError(t, err)
+	assert.Empty(t, agent.AllowedVolumesFromSources)
+
+	sources := []string{"config-container", "shared-data"}
+	got, err := svc.Patch(agent.UUID, nil, nil, nil, nil, nil, nil, &sources)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, sources, got.AllowedVolumesFromSources)
+}
+
+func TestOrthrusService_Patch_AllowedVolumesFromSources_NilLeavesUnchanged(t *testing.T) {
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+
+	agent, _, err := svc.Provision("volumes-from-untouched")
+	require.NoError(t, err)
+
+	sources := []string{"config-container"}
+	_, err = svc.Patch(agent.UUID, nil, nil, nil, nil, nil, nil, &sources)
+	require.NoError(t, err)
+
+	newName := "renamed-again"
+	got, err := svc.Patch(agent.UUID, &newName, nil, nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "renamed-again", got.Name)
+	assert.Equal(t, sources, got.AllowedVolumesFromSources, "allowed_volumes_from_sources must be untouched by an unrelated Patch call")
+}
+
+func TestOrthrusService_Patch_AllowedVolumesFromSources_EmptySliceClears(t *testing.T) {
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+
+	agent, _, err := svc.Provision("volumes-from-clear")
+	require.NoError(t, err)
+
+	sources := []string{"config-container"}
+	_, err = svc.Patch(agent.UUID, nil, nil, nil, nil, nil, nil, &sources)
+	require.NoError(t, err)
+
+	empty := []string{}
+	got, err := svc.Patch(agent.UUID, nil, nil, nil, nil, nil, nil, &empty)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Empty(t, got.AllowedVolumesFromSources)
 }

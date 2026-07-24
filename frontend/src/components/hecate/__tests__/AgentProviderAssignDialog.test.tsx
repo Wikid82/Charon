@@ -69,6 +69,7 @@ const baseAgent = {
   updated_at: '2025-01-01T00:00:00Z',
   external_proxy_port: 0,
   write_enabled: false,
+  allowed_volumes_from_sources: [],
 };
 
 describe('AgentProviderAssignDialog', () => {

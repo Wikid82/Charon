@@ -54,6 +54,17 @@ type OrthrusAgent struct {
 	// Takes effect on the agent's next reconnect (see AgentSession handshake).
 	WriteEnabled bool `json:"write_enabled" gorm:"default:false"`
 
+	// AllowedVolumesFromSources is an operator-configured allowlist of container
+	// names/IDs this agent may reference via a /containers/create request's
+	// HostConfig.VolumesFrom field. VolumesFrom makes the new container inherit
+	// ALL of the named container's mounts, including any host bind mounts —
+	// the muzzle cannot itself determine what that entails, so it defers to
+	// this explicit, per-agent operator allowlist instead of a blanket
+	// allow/deny. Empty (the default) means no VolumesFrom value is accepted
+	// at all. Enforced independently by both muzzles, like WriteEnabled, and
+	// takes effect on the agent's next reconnect.
+	AllowedVolumesFromSources []string `json:"allowed_volumes_from_sources" gorm:"type:text;serializer:json"`
+
 	LastHeartbeat *time.Time `json:"last_heartbeat,omitempty"`
 	LastSeen      *time.Time `json:"last_seen,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`

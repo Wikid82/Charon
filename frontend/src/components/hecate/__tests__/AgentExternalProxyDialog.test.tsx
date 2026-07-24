@@ -35,6 +35,7 @@ const baseAgent: OrthrusAgent = {
   updated_at: '2025-01-01T00:00:00Z',
   external_proxy_port: 2375,
   write_enabled: false,
+  allowed_volumes_from_sources: [],
 };
 
 const renderDialog = (agent: OrthrusAgent = baseAgent, open = true, onClose = vi.fn()) =>

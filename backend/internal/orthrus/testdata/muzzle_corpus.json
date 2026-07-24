@@ -157,6 +157,17 @@
     "want_allowed": true
   },
   {
+    "description": "write endpoint allowed: POST /containers/create, Isolation (Windows-only platform selector, no host-escape implication)",
+    "method": "POST",
+    "path": "/containers/create",
+    "body": {
+      "Image": "nginx:latest",
+      "HostConfig": { "Isolation": "hyperv" }
+    },
+    "agent_write_enabled": true,
+    "want_allowed": true
+  },
+  {
     "description": "write endpoint allowed: POST /containers/create, Tmpfs (container-internal only, not a host path)",
     "method": "POST",
     "path": "/containers/create",
@@ -323,18 +334,36 @@
     "want_allowed": false
   },
   {
-    "description": "dangerous body rejected even with write mode on: Runtime (arbitrary OCI runtime selection)",
+    "description": "write endpoint allowed: POST /containers/create, VolumesFrom source present in agent's configured allowlist",
     "method": "POST",
     "path": "/containers/create",
-    "body": { "Image": "nginx", "HostConfig": { "Runtime": "custom-runtime" } },
+    "body": { "Image": "nginx:latest", "HostConfig": { "VolumesFrom": ["public-config"] } },
+    "agent_write_enabled": true,
+    "allowed_volumes_from_sources": ["public-config", "shared-media"],
+    "want_allowed": true
+  },
+  {
+    "description": "dangerous body rejected even with write mode on: VolumesFrom, no source allowlist configured for the agent",
+    "method": "POST",
+    "path": "/containers/create",
+    "body": { "Image": "nginx", "HostConfig": { "VolumesFrom": ["other-container"] } },
     "agent_write_enabled": true,
     "want_allowed": false
   },
   {
-    "description": "dangerous body rejected even with write mode on: VolumesFrom (inherits another container's host mounts)",
+    "description": "dangerous body rejected even with write mode on: VolumesFrom source not present in agent's configured allowlist",
     "method": "POST",
     "path": "/containers/create",
-    "body": { "Image": "nginx", "HostConfig": { "VolumesFrom": ["other-container"] } },
+    "body": { "Image": "nginx", "HostConfig": { "VolumesFrom": ["not-on-the-allowlist"] } },
+    "agent_write_enabled": true,
+    "allowed_volumes_from_sources": ["public-config"],
+    "want_allowed": false
+  },
+  {
+    "description": "dangerous body rejected even with write mode on: Runtime (arbitrary OCI runtime selection)",
+    "method": "POST",
+    "path": "/containers/create",
+    "body": { "Image": "nginx", "HostConfig": { "Runtime": "custom-runtime" } },
     "agent_write_enabled": true,
     "want_allowed": false
   },

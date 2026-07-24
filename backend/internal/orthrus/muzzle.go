@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -166,9 +167,12 @@ const maxContainerCreateBodyBytes = 64 * 1024
 //     isolation-bypass primitives.
 //   - Binds, VolumeDriver (a top-level echo of the same local-driver
 //     bind-mount-via-volume bypass validateMountsValue's DriverConfig check
-//     closes for Mounts), VolumesFrom (inherits another container's mounts,
-//     including any host binds granted to it outside this muzzle's control):
-//     host-filesystem-access primitives.
+//     closes for Mounts): host-filesystem-access primitives. VolumesFrom is
+//     NOT in this group — see the value-checked fields below; unlike Binds,
+//     it has a narrow legitimate use (containers that share config/media
+//     volumes with a companion container) gated behind an explicit
+//     per-agent operator allowlist, rather than being blanket-dangerous the
+//     way an arbitrary host bind mount is.
 //   - PidMode, IpcMode, UTSMode, Cgroup, CgroupParent, GroupAdd: namespace/
 //     cgroup-placement fields whose risk depends on what the named
 //     namespace, cgroup, or host GID actually grants — not blanket-safe the
@@ -211,17 +215,38 @@ const maxContainerCreateBodyBytes = 64 * 1024
 //	Networking convenience, same risk class as the already-allowed
 //	ExtraHosts/DnsSearch (hostname/port aliasing, not host filesystem or
 //	capability access): Links, PublishAllPorts, DnsOptions.
+//	Platform-selection, not a resource limit but still never grants new
+//	access: Isolation (Windows-only "default"/"process"/"hyperv" container
+//	isolation technology selector — "hyperv" is stronger, VM-based
+//	isolation, "process" is comparable to Linux container isolation;
+//	neither is a host-escape primitive. Included in this Windows-only
+//	group for the same reason as CPUCount etc. above — it can still be
+//	present in a Linux daemon's inspect response).
 //
-// NetworkMode, Mounts, UsernsMode, CgroupnsMode, and ContainerIDFile
-// additionally receive a value-level check (see validateNetworkModeValue,
-// validateMountsValue, validateUsernsModeValue, validateCgroupnsModeValue,
-// validateContainerIDFileValue) beyond simple key presence: each is
+// NetworkMode, Mounts, UsernsMode, CgroupnsMode, ContainerIDFile, and
+// VolumesFrom additionally receive a value-level check (see
+// validateNetworkModeValue, validateMountsValue, validateUsernsModeValue,
+// validateCgroupnsModeValue, validateContainerIDFileValue,
+// validateVolumesFromValue) beyond simple key presence: each is
 // operationally necessary and so cannot be blanket-excluded the way the
 // fields above are, but each can still express a host-escape (NetworkMode,
-// UsernsMode, CgroupnsMode), host-filesystem (Mounts), or host-file-creation
+// UsernsMode, CgroupnsMode), host-filesystem (Mounts), host-file-creation
 // (ContainerIDFile — the daemon creates a file at this path on the host
-// before the container even starts) primitive through its value rather than
-// its mere presence.
+// before the container even starts), or opaque-mount-inheritance
+// (VolumesFrom) primitive through its value rather than its mere presence.
+//
+// VolumesFrom is unlike the other five: the muzzle has no way to inspect
+// what mounts the *named* container actually has (it may predate Orthrus,
+// or have been created outside it entirely), so there is no single value
+// shape ("host" vs not, empty vs not) that is inherently safe or unsafe the
+// way there is for NetworkMode/UsernsMode/CgroupnsMode/ContainerIDFile.
+// Instead, validateVolumesFromValue checks every referenced container
+// name/ID against Muzzle.allowedVolumesFromSources — an explicit, per-agent,
+// operator-configured allowlist (OrthrusAgent.AllowedVolumesFromSources) —
+// and rejects the request if any entry isn't on it. An unconfigured
+// (empty/nil) allowlist rejects any non-empty VolumesFrom outright, so this
+// field stays fail-closed by default exactly like every other key in this
+// map.
 var hostConfigAllowedKeys = map[string]struct{}{
 	"PortBindings":         {},
 	"RestartPolicy":        {},
@@ -276,6 +301,8 @@ var hostConfigAllowedKeys = map[string]struct{}{
 	"CPUPercent":           {},
 	"IOMaximumIOps":        {},
 	"IOMaximumBandwidth":   {},
+	"VolumesFrom":          {},
+	"Isolation":            {},
 }
 
 // mountEntry is the subset of Docker's Mount struct this validator inspects.
@@ -353,6 +380,30 @@ func validateContainerIDFileValue(raw json.RawMessage) bool {
 	return cidFile == ""
 }
 
+// validateVolumesFromValue accepts a VolumesFrom value only if every
+// referenced container name/ID is present in allowedSources — the
+// per-agent, operator-configured allowlist (Muzzle.allowedVolumesFromSources,
+// sourced from OrthrusAgent.AllowedVolumesFromSources). A nil/empty
+// allowedSources rejects any non-empty VolumesFrom entry, matching this
+// muzzle's fail-closed default. Each entry may carry a Docker
+// ":ro"/":rw"/":Z" mode suffix (e.g. "other-container:ro"); only the
+// container name/ID portion before the first colon is compared, since the
+// mode suffix affects mount permissions, not which container's mounts are
+// inherited.
+func validateVolumesFromValue(raw json.RawMessage, allowedSources []string) bool {
+	var sources []string
+	if err := json.Unmarshal(raw, &sources); err != nil {
+		return false
+	}
+	for _, source := range sources {
+		name, _, _ := strings.Cut(source, ":")
+		if !slices.Contains(allowedSources, name) {
+			return false
+		}
+	}
+	return true
+}
+
 // validateMountsValue rejects any bind-type mount and any mount entry whose
 // VolumeOptions carries a DriverConfig key at all, regardless of Type.
 //
@@ -403,7 +454,12 @@ func validateMountsValue(raw json.RawMessage) bool {
 // Returns (true, "") if the body is safe to forward. Returns (false, reason)
 // if the request should be rejected, with reason suitable for both the audit
 // log and the HTTP error response.
-func validateContainerCreateBody(r *http.Request) (ok bool, reason string) {
+//
+// A method on *Muzzle (rather than a free function, like every other
+// validator in this file) solely because validateVolumesFromValue needs
+// m.allowedVolumesFromSources, the one per-agent operator-configured value
+// this validation pass depends on.
+func (m *Muzzle) validateContainerCreateBody(r *http.Request) (ok bool, reason string) {
 	if r.Body == nil {
 		return true, ""
 	}
@@ -472,6 +528,10 @@ func validateContainerCreateBody(r *http.Request) (ok bool, reason string) {
 		case "CgroupnsMode":
 			if !validateCgroupnsModeValue(rawValue) {
 				return false, "disallowed HostConfig field: CgroupnsMode"
+			}
+		case "VolumesFrom":
+			if !validateVolumesFromValue(rawValue, m.allowedVolumesFromSources) {
+				return false, "disallowed HostConfig field: VolumesFrom"
 			}
 		}
 	}
@@ -553,26 +613,35 @@ type Muzzle struct {
 	auditLogger AuditLogger
 	// agentUUID identifies the session this Muzzle guards, for audit entries.
 	agentUUID string
+	// allowedVolumesFromSources is the operator-configured allowlist of
+	// container names/IDs this session's agent may reference via
+	// HostConfig.VolumesFrom (see validateVolumesFromValue). Fixed at
+	// construction time like writeEnabled, for the same reconnect-to-apply
+	// reason.
+	allowedVolumesFromSources []string
 }
 
 // NewMuzzle wraps handler with the Docker socket allowlist filter.
 //
-// writeEnabled, writeLimiter, auditLogger, and agentUUID govern the optional
-// write-endpoint allowlist (see Section 3.3.3 of the Orthrus write-mode
-// spec). writeEnabled is captured once, at construction time, and never
-// re-checked against the database on a per-request basis — StartExternalProxy
-// constructs a new Muzzle per AgentSession using the value negotiated at
-// connect time, so toggling the DB flag only takes effect on the agent's next
-// reconnect. Re-reading it per-request would both reintroduce a TOCTOU-like
+// writeEnabled, writeLimiter, auditLogger, agentUUID, and
+// allowedVolumesFromSources govern the optional write-endpoint allowlist
+// (see Section 3.3.3 of the Orthrus write-mode spec). writeEnabled is
+// captured once, at construction time, and never re-checked against the
+// database on a per-request basis — StartExternalProxy constructs a new
+// Muzzle per AgentSession using the value negotiated at connect time, so
+// toggling the DB flag only takes effect on the agent's next reconnect.
+// Re-reading it per-request would both reintroduce a TOCTOU-like
 // inconsistency with that reconnect-to-apply guarantee and add a DB
-// round-trip to the hot proxy path.
-func NewMuzzle(next http.Handler, writeEnabled bool, writeLimiter *rate.Limiter, auditLogger AuditLogger, agentUUID string) *Muzzle {
+// round-trip to the hot proxy path. allowedVolumesFromSources is negotiated
+// and fixed the same way.
+func NewMuzzle(next http.Handler, writeEnabled bool, writeLimiter *rate.Limiter, auditLogger AuditLogger, agentUUID string, allowedVolumesFromSources []string) *Muzzle {
 	return &Muzzle{
-		next:         next,
-		writeEnabled: writeEnabled,
-		writeLimiter: writeLimiter,
-		auditLogger:  auditLogger,
-		agentUUID:    agentUUID,
+		next:                      next,
+		allowedVolumesFromSources: allowedVolumesFromSources,
+		writeEnabled:              writeEnabled,
+		writeLimiter:              writeLimiter,
+		auditLogger:               auditLogger,
+		agentUUID:                 agentUUID,
 	}
 }
 
@@ -669,7 +738,7 @@ func (m *Muzzle) tryServeWrite(w http.ResponseWriter, r *http.Request, stripped 
 	if r.Method == http.MethodPost {
 		if _, ok := allowedWriteExactPaths[stripped]; ok {
 			if stripped == "/containers/create" {
-				if valid, reason := validateContainerCreateBody(r); !valid {
+				if valid, reason := m.validateContainerCreateBody(r); !valid {
 					m.auditBlocked(r, reason)
 					http.Error(w, "Forbidden: "+reason, http.StatusForbidden)
 					return true
