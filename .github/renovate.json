@@ -790,6 +790,16 @@
       "sourceUrl": "https://github.com/prometheus/client_golang"
     },
     {
+      "description": "Fix Renovate lookup for sirupsen/logrus",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/sirupsen/logrus"
+      ],
+      "sourceUrl": "https://github.com/sirupsen/logrus"
+    },
+    {
       "description": "Disable js-yaml updates — pinned in overrides for security; managed manually",
       "matchPackageNames": [
         "js-yaml"
