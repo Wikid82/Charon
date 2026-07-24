@@ -231,6 +231,9 @@ var hostConfigAllowedKeys = map[string]struct{}{
 	"IOMaximumBandwidth":   {},
 	"VolumesFrom":          {},
 	"Isolation":            {},
+	"PidMode":              {},
+	"IpcMode":              {},
+	"UTSMode":              {},
 }
 
 type mountEntry struct {
@@ -284,6 +287,46 @@ func validateContainerIDFileValue(raw json.RawMessage) bool {
 		return false
 	}
 	return cidFile == ""
+}
+
+// validatePidModeValue mirrors backend/internal/orthrus/muzzle.go's copy:
+// accepts only the empty string. PidMode's full value space is exactly
+// {"", "host", "container:<id>"} — both non-empty values carry a
+// host-escape or opaque-target risk, so the only accepted value is empty.
+func validatePidModeValue(raw json.RawMessage) bool {
+	var mode string
+	if err := json.Unmarshal(raw, &mode); err != nil {
+		return false
+	}
+	return mode == ""
+}
+
+// validateUTSModeValue mirrors backend/internal/orthrus/muzzle.go's copy:
+// rejects only "host" (shares the host's UTS/hostname namespace), UTSMode's
+// full value space being exactly {"", "host"}.
+func validateUTSModeValue(raw json.RawMessage) bool {
+	var mode string
+	if err := json.Unmarshal(raw, &mode); err != nil {
+		return false
+	}
+	return mode != "host"
+}
+
+// validateIpcModeValue mirrors backend/internal/orthrus/muzzle.go's copy:
+// an explicit allowlist of IpcMode's three safe values ("", "shareable",
+// "private"), rejecting "host" and "container:<id>" (and any unrecognized
+// future value) by default.
+func validateIpcModeValue(raw json.RawMessage) bool {
+	var mode string
+	if err := json.Unmarshal(raw, &mode); err != nil {
+		return false
+	}
+	switch mode {
+	case "", "shareable", "private":
+		return true
+	default:
+		return false
+	}
 }
 
 // validateVolumesFromValue mirrors backend/internal/orthrus/muzzle.go's
@@ -383,6 +426,18 @@ func validateContainerCreateBody(bodyBytes []byte, allowedVolumesFromSources []s
 		case "VolumesFrom":
 			if !validateVolumesFromValue(rawValue, allowedVolumesFromSources) {
 				return false, "disallowed HostConfig field: VolumesFrom"
+			}
+		case "PidMode":
+			if !validatePidModeValue(rawValue) {
+				return false, "disallowed HostConfig field: PidMode"
+			}
+		case "IpcMode":
+			if !validateIpcModeValue(rawValue) {
+				return false, "disallowed HostConfig field: IpcMode"
+			}
+		case "UTSMode":
+			if !validateUTSModeValue(rawValue) {
+				return false, "disallowed HostConfig field: UTSMode"
 			}
 		}
 	}

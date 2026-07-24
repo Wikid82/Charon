@@ -748,6 +748,11 @@ func TestFilter_Allow_ContainersCreate_SafeBodiesAllowed_CapDropAndUsernsMode(t 
 		{"Isolation default (Windows-only platform selector)", `{"Image":"nginx","HostConfig":{"Isolation":"default"}}`},
 		{"Isolation hyperv", `{"Image":"nginx","HostConfig":{"Isolation":"hyperv"}}`},
 		{"Isolation process", `{"Image":"nginx","HostConfig":{"Isolation":"process"}}`},
+		{"PidMode empty (default, own namespace)", `{"Image":"nginx","HostConfig":{"PidMode":""}}`},
+		{"UTSMode empty (default, own namespace)", `{"Image":"nginx","HostConfig":{"UTSMode":""}}`},
+		{"IpcMode empty (default)", `{"Image":"nginx","HostConfig":{"IpcMode":""}}`},
+		{"IpcMode shareable", `{"Image":"nginx","HostConfig":{"IpcMode":"shareable"}}`},
+		{"IpcMode private", `{"Image":"nginx","HostConfig":{"IpcMode":"private"}}`},
 	}
 
 	for _, tc := range cases {
@@ -804,6 +809,11 @@ func TestFilter_Allow_ContainersCreate_DangerousBodiesRejected(t *testing.T) {
 		{"UsernsMode host", `{"Image":"nginx","HostConfig":{"UsernsMode":"host"}}`},
 		{"ContainerIDFile non-empty (arbitrary host file creation)", `{"Image":"nginx","HostConfig":{"ContainerIDFile":"/etc/cron.d/pwn"}}`},
 		{"CgroupnsMode host", `{"Image":"nginx","HostConfig":{"CgroupnsMode":"host"}}`},
+		{"PidMode host", `{"Image":"nginx","HostConfig":{"PidMode":"host"}}`},
+		{"PidMode container:*", `{"Image":"nginx","HostConfig":{"PidMode":"container:abc"}}`},
+		{"UTSMode host", `{"Image":"nginx","HostConfig":{"UTSMode":"host"}}`},
+		{"IpcMode host", `{"Image":"nginx","HostConfig":{"IpcMode":"host"}}`},
+		{"IpcMode container:*", `{"Image":"nginx","HostConfig":{"IpcMode":"container:abc"}}`},
 		{"Runtime", `{"Image":"nginx","HostConfig":{"Runtime":"custom-runtime"}}`},
 		{"VolumeDriver", `{"Image":"nginx","HostConfig":{"VolumeDriver":"custom-driver"}}`},
 		{"VolumesFrom, no source allowlist configured", `{"Image":"nginx","HostConfig":{"VolumesFrom":["other-container"]}}`},

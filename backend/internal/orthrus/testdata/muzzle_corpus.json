@@ -168,6 +168,52 @@
     "want_allowed": true
   },
   {
+    "description": "write endpoint allowed: POST /containers/create, PidMode/UTSMode/IpcMode all empty (default namespaces)",
+    "method": "POST",
+    "path": "/containers/create",
+    "body": {
+      "Image": "nginx:latest",
+      "HostConfig": { "PidMode": "", "UTSMode": "", "IpcMode": "" }
+    },
+    "agent_write_enabled": true,
+    "want_allowed": true
+  },
+  {
+    "description": "write endpoint allowed: POST /containers/create, IpcMode shareable/private",
+    "method": "POST",
+    "path": "/containers/create",
+    "body": {
+      "Image": "nginx:latest",
+      "HostConfig": { "IpcMode": "shareable" }
+    },
+    "agent_write_enabled": true,
+    "want_allowed": true
+  },
+  {
+    "description": "dangerous body rejected even with write mode on: PidMode host (full host process visibility/signal/ptrace access)",
+    "method": "POST",
+    "path": "/containers/create",
+    "body": { "Image": "nginx", "HostConfig": { "PidMode": "host" } },
+    "agent_write_enabled": true,
+    "want_allowed": false
+  },
+  {
+    "description": "dangerous body rejected even with write mode on: UTSMode host",
+    "method": "POST",
+    "path": "/containers/create",
+    "body": { "Image": "nginx", "HostConfig": { "UTSMode": "host" } },
+    "agent_write_enabled": true,
+    "want_allowed": false
+  },
+  {
+    "description": "dangerous body rejected even with write mode on: IpcMode host",
+    "method": "POST",
+    "path": "/containers/create",
+    "body": { "Image": "nginx", "HostConfig": { "IpcMode": "host" } },
+    "agent_write_enabled": true,
+    "want_allowed": false
+  },
+  {
     "description": "write endpoint allowed: POST /containers/create, Tmpfs (container-internal only, not a host path)",
     "method": "POST",
     "path": "/containers/create",

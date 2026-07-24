@@ -173,15 +173,18 @@ const maxContainerCreateBodyBytes = 64 * 1024
 //     volumes with a companion container) gated behind an explicit
 //     per-agent operator allowlist, rather than being blanket-dangerous the
 //     way an arbitrary host bind mount is.
-//   - PidMode, IpcMode, UTSMode, Cgroup, CgroupParent, GroupAdd: namespace/
-//     cgroup-placement fields whose risk depends on what the named
-//     namespace, cgroup, or host GID actually grants — not blanket-safe the
-//     way a resource *limit* is, so excluded along with the rest of this
-//     group rather than guessed at. CgroupnsMode is NOT in this group — see
-//     the value-checked fields below; it is a two-valued field with the same
-//     "private" (safe, and the actual Docker default since 20.10) vs "host"
-//     (shares the host's cgroup namespace) shape as NetworkMode/UsernsMode,
-//     not an open-ended namespace/cgroup reference.
+//   - Cgroup, CgroupParent, GroupAdd: namespace/cgroup-placement fields whose
+//     risk depends on what the named cgroup or host GID actually grants —
+//     not blanket-safe the way a resource *limit* is, so excluded rather
+//     than guessed at. These have no closed, small value space the way
+//     PidMode/IpcMode/UTSMode/CgroupnsMode do (an arbitrary cgroup path or
+//     GID isn't a fixed enum), which is why they stay excluded rather than
+//     value-checked.
+//   - PidMode, IpcMode, UTSMode, CgroupnsMode are NOT excluded — see the
+//     value-checked fields below. Each has a small, closed value space
+//     (empty/"host"/"container:<id>", or similar) rather than an
+//     open-ended reference, so each gets its own value-level check instead
+//     of blanket exclusion.
 //   - Ulimits: NOT excluded as dangerous — see the resource-limit group
 //     below. Listed here only because earlier revisions of this comment
 //     mis-grouped it as excluded; it is allowed.
@@ -223,17 +226,43 @@ const maxContainerCreateBodyBytes = 64 * 1024
 //	group for the same reason as CPUCount etc. above — it can still be
 //	present in a Linux daemon's inspect response).
 //
-// NetworkMode, Mounts, UsernsMode, CgroupnsMode, ContainerIDFile, and
-// VolumesFrom additionally receive a value-level check (see
-// validateNetworkModeValue, validateMountsValue, validateUsernsModeValue,
-// validateCgroupnsModeValue, validateContainerIDFileValue,
-// validateVolumesFromValue) beyond simple key presence: each is
-// operationally necessary and so cannot be blanket-excluded the way the
-// fields above are, but each can still express a host-escape (NetworkMode,
-// UsernsMode, CgroupnsMode), host-filesystem (Mounts), host-file-creation
-// (ContainerIDFile — the daemon creates a file at this path on the host
-// before the container even starts), or opaque-mount-inheritance
-// (VolumesFrom) primitive through its value rather than its mere presence.
+// NetworkMode, Mounts, UsernsMode, CgroupnsMode, ContainerIDFile,
+// VolumesFrom, PidMode, IpcMode, and UTSMode additionally receive a
+// value-level check (see validateNetworkModeValue, validateMountsValue,
+// validateUsernsModeValue, validateCgroupnsModeValue,
+// validateContainerIDFileValue, validateVolumesFromValue,
+// validatePidModeValue, validateIpcModeValue, validateUTSModeValue) beyond
+// simple key presence: each is operationally necessary and so cannot be
+// blanket-excluded the way the fields above are, but each can still express
+// a host-escape (NetworkMode, UsernsMode, CgroupnsMode, PidMode, IpcMode,
+// UTSMode), host-filesystem (Mounts), host-file-creation (ContainerIDFile —
+// the daemon creates a file at this path on the host before the container
+// even starts), or opaque-namespace-inheritance (VolumesFrom, PidMode,
+// IpcMode when set to "container:<id>") primitive through its value rather
+// than its mere presence.
+//
+// PidMode's value space is closed to exactly {"", "host", "container:<id>"}
+// — sharing the host's PID namespace ("host") grants visibility into, and
+// signal/ptrace access to, every process on the host, a more severe
+// host-escape primitive than NetworkMode:host; "container:<id>" has the
+// same opaque-target problem as VolumesFrom (the muzzle cannot verify the
+// referenced container's own privileges). validatePidModeValue therefore
+// accepts only the empty string, unlike NetworkMode/UsernsMode/CgroupnsMode
+// which each have a legitimate non-empty value space too.
+//
+// UTSMode's value space is closed to exactly {"", "host"} — validateUTSModeValue
+// mirrors validateUsernsModeValue/validateCgroupnsModeValue's shape exactly,
+// rejecting only "host" (shares the host's hostname/domainname namespace).
+//
+// IpcMode's value space is closed to {"", "shareable", "private", "host",
+// "container:<id>"}. "shareable"/"private" (Docker's IPC-namespace-sharing
+// opt-in/opt-out, unrelated to the host) are safe; "host" (host IPC
+// namespace — historically relevant to shared-memory-segment-based attacks)
+// and "container:<id>" (opaque target, same problem as VolumesFrom/PidMode)
+// are not. validateIpcModeValue is an explicit allowlist of the three safe
+// values rather than a denylist of the two unsafe ones, so an unrecognized
+// future IpcMode value is rejected by default rather than silently passed
+// through — consistent with this file's overall fail-closed philosophy.
 //
 // VolumesFrom is unlike the other five: the muzzle has no way to inspect
 // what mounts the *named* container actually has (it may predate Orthrus,
@@ -303,6 +332,9 @@ var hostConfigAllowedKeys = map[string]struct{}{
 	"IOMaximumBandwidth":   {},
 	"VolumesFrom":          {},
 	"Isolation":            {},
+	"PidMode":              {},
+	"IpcMode":              {},
+	"UTSMode":              {},
 }
 
 // mountEntry is the subset of Docker's Mount struct this validator inspects.
@@ -378,6 +410,58 @@ func validateContainerIDFileValue(raw json.RawMessage) bool {
 		return false
 	}
 	return cidFile == ""
+}
+
+// validatePidModeValue accepts only the empty string. PidMode's full value
+// space is exactly {"", "host", "container:<id>"} — "host" shares the
+// host's PID namespace (visibility into, and signal/ptrace access to, every
+// host process), and "container:<id>" shares another container's PID
+// namespace whose own privileges the muzzle cannot verify (the same
+// opaque-target problem VolumesFrom has). Unlike NetworkMode, PidMode has no
+// legitimate open-ended non-empty value, so this reduces to a single
+// accepted value, mirroring validateContainerIDFileValue's shape.
+func validatePidModeValue(raw json.RawMessage) bool {
+	var mode string
+	if err := json.Unmarshal(raw, &mode); err != nil {
+		return false
+	}
+	return mode == ""
+}
+
+// validateUTSModeValue rejects only the value "host", which shares the
+// container's UTS namespace (hostname/domainname) with the host's — the
+// same binary "" (default, own namespace) vs "host" shape as
+// validateUsernsModeValue/validateCgroupnsModeValue, UTSMode's full value
+// space being exactly {"", "host"}.
+func validateUTSModeValue(raw json.RawMessage) bool {
+	var mode string
+	if err := json.Unmarshal(raw, &mode); err != nil {
+		return false
+	}
+	return mode != "host"
+}
+
+// validateIpcModeValue is an explicit allowlist, not a denylist: IpcMode's
+// full value space is {"", "shareable", "private", "host", "container:<id>"}.
+// "shareable" and "private" (Docker's own IPC-namespace-sharing opt-in/opt-out,
+// entirely between containers Docker manages, never the host) are safe,
+// along with the empty string (default). "host" (host IPC namespace —
+// historically relevant to shared-memory-segment-based attacks) and
+// "container:<id>" (opaque target, the same problem as VolumesFrom/PidMode)
+// are not. Allowlisting the three safe values, rather than denylisting the
+// two unsafe ones, means an unrecognized future IpcMode value is rejected
+// by default — consistent with this file's overall fail-closed philosophy.
+func validateIpcModeValue(raw json.RawMessage) bool {
+	var mode string
+	if err := json.Unmarshal(raw, &mode); err != nil {
+		return false
+	}
+	switch mode {
+	case "", "shareable", "private":
+		return true
+	default:
+		return false
+	}
 }
 
 // validateVolumesFromValue accepts a VolumesFrom value only if every
@@ -532,6 +616,18 @@ func (m *Muzzle) validateContainerCreateBody(r *http.Request) (ok bool, reason s
 		case "VolumesFrom":
 			if !validateVolumesFromValue(rawValue, m.allowedVolumesFromSources) {
 				return false, "disallowed HostConfig field: VolumesFrom"
+			}
+		case "PidMode":
+			if !validatePidModeValue(rawValue) {
+				return false, "disallowed HostConfig field: PidMode"
+			}
+		case "IpcMode":
+			if !validateIpcModeValue(rawValue) {
+				return false, "disallowed HostConfig field: IpcMode"
+			}
+		case "UTSMode":
+			if !validateUTSModeValue(rawValue) {
+				return false, "disallowed HostConfig field: UTSMode"
 			}
 		}
 	}
