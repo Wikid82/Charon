@@ -124,8 +124,34 @@
         "MemoryReservation": 1048576,
         "PidsLimit": 100,
         "Ulimits": [{ "Name": "nofile", "Soft": 1024, "Hard": 2048 }],
-        "ShmSize": 67108864
+        "ShmSize": 67108864,
+        "CPUCount": 0,
+        "CPUPercent": 0,
+        "IOMaximumIOps": 0,
+        "IOMaximumBandwidth": 0
       }
+    },
+    "agent_write_enabled": true,
+    "want_allowed": true
+  },
+  {
+    "description": "write endpoint allowed: POST /containers/create, CgroupnsMode private (Docker default since 20.10)",
+    "method": "POST",
+    "path": "/containers/create",
+    "body": {
+      "Image": "nginx:latest",
+      "HostConfig": { "CgroupnsMode": "private" }
+    },
+    "agent_write_enabled": true,
+    "want_allowed": true
+  },
+  {
+    "description": "write endpoint allowed: POST /containers/create, CgroupnsMode empty (inherit daemon default)",
+    "method": "POST",
+    "path": "/containers/create",
+    "body": {
+      "Image": "nginx:latest",
+      "HostConfig": { "CgroupnsMode": "" }
     },
     "agent_write_enabled": true,
     "want_allowed": true
@@ -285,6 +311,14 @@
     "method": "POST",
     "path": "/containers/create",
     "body": { "Image": "nginx", "HostConfig": { "ContainerIDFile": "/etc/cron.d/pwn" } },
+    "agent_write_enabled": true,
+    "want_allowed": false
+  },
+  {
+    "description": "dangerous body rejected even with write mode on: CgroupnsMode host",
+    "method": "POST",
+    "path": "/containers/create",
+    "body": { "Image": "nginx", "HostConfig": { "CgroupnsMode": "host" } },
     "agent_write_enabled": true,
     "want_allowed": false
   },

@@ -169,11 +169,15 @@ const maxContainerCreateBodyBytes = 64 * 1024
 //     closes for Mounts), VolumesFrom (inherits another container's mounts,
 //     including any host binds granted to it outside this muzzle's control):
 //     host-filesystem-access primitives.
-//   - PidMode, IpcMode, UTSMode, CgroupnsMode, Cgroup, CgroupParent, GroupAdd:
-//     namespace/cgroup-placement fields whose risk depends on what the named
+//   - PidMode, IpcMode, UTSMode, Cgroup, CgroupParent, GroupAdd: namespace/
+//     cgroup-placement fields whose risk depends on what the named
 //     namespace, cgroup, or host GID actually grants — not blanket-safe the
 //     way a resource *limit* is, so excluded along with the rest of this
-//     group rather than guessed at.
+//     group rather than guessed at. CgroupnsMode is NOT in this group — see
+//     the value-checked fields below; it is a two-valued field with the same
+//     "private" (safe, and the actual Docker default since 20.10) vs "host"
+//     (shares the host's cgroup namespace) shape as NetworkMode/UsernsMode,
+//     not an open-ended namespace/cgroup reference.
 //   - Ulimits: NOT excluded as dangerous — see the resource-limit group
 //     below. Listed here only because earlier revisions of this comment
 //     mis-grouped it as excluded; it is allowed.
@@ -193,7 +197,12 @@ const maxContainerCreateBodyBytes = 64 * 1024
 //	BlkioWeightDevice, BlkioDeviceReadBps, BlkioDeviceWriteBps,
 //	BlkioDeviceReadIOps, BlkioDeviceWriteIOps, KernelMemory,
 //	KernelMemoryTCP, MemoryReservation, MemorySwappiness, OomKillDisable,
-//	OomScoreAdj, PidsLimit, Ulimits, StorageOpt, ShmSize.
+//	OomScoreAdj, PidsLimit, Ulimits, StorageOpt, ShmSize, CPUCount,
+//	CPUPercent, IOMaximumIOps, IOMaximumBandwidth. The last four are
+//	Windows-only Resources fields, but the Docker Engine API on Linux
+//	daemons still always serializes them (as 0) since they have no
+//	omitempty tag — a Linux container recreate that echoes back its full
+//	inspected HostConfig will include them regardless of host OS.
 //	Container-internal-only mounts: Tmpfs (mirrors the already-allowed
 //	Type:"tmpfs" Mounts entries — never a host path).
 //	Restriction-only (narrow the container's own view, cannot grant host
@@ -203,15 +212,16 @@ const maxContainerCreateBodyBytes = 64 * 1024
 //	ExtraHosts/DnsSearch (hostname/port aliasing, not host filesystem or
 //	capability access): Links, PublishAllPorts, DnsOptions.
 //
-// NetworkMode, Mounts, UsernsMode, and ContainerIDFile additionally receive
-// a value-level check (see validateNetworkModeValue, validateMountsValue,
-// validateUsernsModeValue, validateContainerIDFileValue) beyond simple key
-// presence: each is operationally necessary and so cannot be
-// blanket-excluded the way the fields above are, but each can still express
-// a host-escape (NetworkMode, UsernsMode), host-filesystem (Mounts), or
-// host-file-creation (ContainerIDFile — the daemon creates a file at this
-// path on the host before the container even starts) primitive through its
-// value rather than its mere presence.
+// NetworkMode, Mounts, UsernsMode, CgroupnsMode, and ContainerIDFile
+// additionally receive a value-level check (see validateNetworkModeValue,
+// validateMountsValue, validateUsernsModeValue, validateCgroupnsModeValue,
+// validateContainerIDFileValue) beyond simple key presence: each is
+// operationally necessary and so cannot be blanket-excluded the way the
+// fields above are, but each can still express a host-escape (NetworkMode,
+// UsernsMode, CgroupnsMode), host-filesystem (Mounts), or host-file-creation
+// (ContainerIDFile — the daemon creates a file at this path on the host
+// before the container even starts) primitive through its value rather than
+// its mere presence.
 var hostConfigAllowedKeys = map[string]struct{}{
 	"PortBindings":         {},
 	"RestartPolicy":        {},
@@ -261,6 +271,11 @@ var hostConfigAllowedKeys = map[string]struct{}{
 	"Annotations":          {},
 	"Links":                {},
 	"PublishAllPorts":      {},
+	"CgroupnsMode":         {},
+	"CPUCount":             {},
+	"CPUPercent":           {},
+	"IOMaximumIOps":        {},
+	"IOMaximumBandwidth":   {},
 }
 
 // mountEntry is the subset of Docker's Mount struct this validator inspects.
@@ -297,6 +312,20 @@ func validateNetworkModeValue(raw json.RawMessage) bool {
 // configuration, the common case for a same-host recreate) or any other
 // named mode — is accepted, mirroring validateNetworkModeValue's shape.
 func validateUsernsModeValue(raw json.RawMessage) bool {
+	var mode string
+	if err := json.Unmarshal(raw, &mode); err != nil {
+		return false
+	}
+	return mode != "host"
+}
+
+// validateCgroupnsModeValue rejects only the value "host", which shares the
+// container's cgroup namespace with the host's — historically relevant to
+// cgroup v1 release_agent exploits and general host resource/process-hierarchy
+// information disclosure. Every other value, including "private" (Docker's
+// default since 20.10) and the empty string (inherit the daemon's default),
+// is accepted, mirroring validateUsernsModeValue's shape.
+func validateCgroupnsModeValue(raw json.RawMessage) bool {
 	var mode string
 	if err := json.Unmarshal(raw, &mode); err != nil {
 		return false
@@ -439,6 +468,10 @@ func validateContainerCreateBody(r *http.Request) (ok bool, reason string) {
 		case "ContainerIDFile":
 			if !validateContainerIDFileValue(rawValue) {
 				return false, "disallowed HostConfig field: ContainerIDFile"
+			}
+		case "CgroupnsMode":
+			if !validateCgroupnsModeValue(rawValue) {
+				return false, "disallowed HostConfig field: CgroupnsMode"
 			}
 		}
 	}

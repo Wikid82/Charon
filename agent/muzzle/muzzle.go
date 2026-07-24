@@ -223,6 +223,11 @@ var hostConfigAllowedKeys = map[string]struct{}{
 	"Annotations":          {},
 	"Links":                {},
 	"PublishAllPorts":      {},
+	"CgroupnsMode":         {},
+	"CPUCount":             {},
+	"CPUPercent":           {},
+	"IOMaximumIOps":        {},
+	"IOMaximumBandwidth":   {},
 }
 
 type mountEntry struct {
@@ -248,6 +253,18 @@ func validateNetworkModeValue(raw json.RawMessage) bool {
 // rejects only "host" (opts out of Docker's user-namespace remapping),
 // accepts every other value including the empty string.
 func validateUsernsModeValue(raw json.RawMessage) bool {
+	var mode string
+	if err := json.Unmarshal(raw, &mode); err != nil {
+		return false
+	}
+	return mode != "host"
+}
+
+// validateCgroupnsModeValue mirrors backend/internal/orthrus/muzzle.go's
+// copy: rejects only "host" (shares the container's cgroup namespace with
+// the host's), accepts every other value including "private" (Docker's
+// default since 20.10) and the empty string.
+func validateCgroupnsModeValue(raw json.RawMessage) bool {
 	var mode string
 	if err := json.Unmarshal(raw, &mode); err != nil {
 		return false
@@ -335,6 +352,10 @@ func validateContainerCreateBody(bodyBytes []byte) (ok bool, reason string) {
 		case "ContainerIDFile":
 			if !validateContainerIDFileValue(rawValue) {
 				return false, "disallowed HostConfig field: ContainerIDFile"
+			}
+		case "CgroupnsMode":
+			if !validateCgroupnsModeValue(rawValue) {
+				return false, "disallowed HostConfig field: CgroupnsMode"
 			}
 		}
 	}
