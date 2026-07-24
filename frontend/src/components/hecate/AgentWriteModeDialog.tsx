@@ -24,8 +24,6 @@ interface AgentWriteModeDialogProps {
   onClose: () => void;
 }
 
-const WRITE_MODE_OPERATION_KEYS = ['pull', 'start', 'stop', 'restart', 'remove', 'recreate'] as const;
-
 /**
  * Write-mode dialog is intentionally separate from AgentExternalProxyDialog
  * rather than a section bolted onto it — the port dialog governs a
@@ -33,7 +31,13 @@ const WRITE_MODE_OPERATION_KEYS = ['pull', 'start', 'stop', 'restart', 'remove',
  * governs a permissions-escalation setting (what that tunnel is allowed to
  * do). Keeping them as two components with minimal, independent local state
  * is more testable than one component tracking two loosely-related
- * "configured vs. active" pairs. See docs/plans/current_spec.md Section 3.5.1.
+ * "configured vs. active" pairs.
+ *
+ * Write mode grants full, unrestricted Docker Engine API access once
+ * enabled — there is no per-endpoint or per-field allowlist. This is a
+ * deliberate operator-consent trust model: the typed-name confirmation step
+ * below exists specifically to make that unambiguous before the toggle can
+ * be turned on.
  */
 export function AgentWriteModeDialog({ agent, open, onClose }: AgentWriteModeDialogProps) {
   const { t } = useTranslation();
@@ -45,26 +49,13 @@ export function AgentWriteModeDialog({ agent, open, onClose }: AgentWriteModeDia
 
   const [desiredEnabled, setDesiredEnabled] = useState(agent.write_enabled);
   const [confirmText, setConfirmText] = useState('');
-  const [volumesFromSourcesText, setVolumesFromSourcesText] = useState(
-    agent.allowed_volumes_from_sources.join(', '),
-  );
 
   useEffect(() => {
     if (open) {
       setDesiredEnabled(agent.write_enabled);
       setConfirmText('');
-      setVolumesFromSourcesText(agent.allowed_volumes_from_sources.join(', '));
     }
-  }, [open, agent.write_enabled, agent.allowed_volumes_from_sources]);
-
-  // Docker container names/IDs never contain a comma (charset is
-  // [a-zA-Z0-9][a-zA-Z0-9_.-]*), so a plain comma split is a safe, sufficient
-  // parse — matches the same comma-joined encoding the backend sends over
-  // the X-Orthrus-Allowed-Volumes-From handshake header.
-  const parsedVolumesFromSources = volumesFromSourcesText
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
+  }, [open, agent.write_enabled]);
 
   // Only turning the toggle ON (from an off starting point) requires the
   // typed-name confirmation gate — disabling is strictly safety-increasing
@@ -86,10 +77,7 @@ export function AgentWriteModeDialog({ agent, open, onClose }: AgentWriteModeDia
                                                 // cannot change between this render
                                                 // and this synchronous save call.
     patch(
-      {
-        uuid: agent.uuid,
-        req: { write_enabled: desiredEnabled, allowed_volumes_from_sources: parsedVolumesFromSources },
-      },
+      { uuid: agent.uuid, req: { write_enabled: desiredEnabled } },
       {
         onSuccess: (updatedAgent) => {
           if (wasTurnedOn && updatedAgent.status === 'online') {
@@ -162,7 +150,9 @@ export function AgentWriteModeDialog({ agent, open, onClose }: AgentWriteModeDia
           {/* Security warning — distinct from AgentExternalProxyDialog's
               network-exposure warning: different DOM node, different copy,
               describes a permissions escalation rather than a network
-              reachability change. */}
+              reachability change. Copy states this is full, unrestricted
+              Docker API access (no fixed operation list) — see
+              hecate.writeMode.securityWarning in translation.json. */}
           <div
             role="note"
             className="flex gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3"
@@ -170,48 +160,6 @@ export function AgentWriteModeDialog({ agent, open, onClose }: AgentWriteModeDia
             <AlertTriangle className="h-4 w-4 shrink-0 text-warning mt-0.5" aria-hidden="true" />
             <p className="text-xs text-content-secondary">{t('hecate.writeMode.securityWarning')}</p>
           </div>
-
-          {/* Fixed, non-editable list of permitted operations — shown only
-              while the toggle is (or is about to be) on. */}
-          {desiredEnabled && (
-            <div className="space-y-1.5">
-              <p className="text-sm font-medium text-content-primary">
-                {t('hecate.writeMode.permittedOperationsHeading')}
-              </p>
-              <ul className="list-disc list-inside text-xs text-content-secondary space-y-0.5">
-                {WRITE_MODE_OPERATION_KEYS.map((key) => (
-                  <li key={key}>{t(`hecate.writeMode.operations.${key}`)}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* VolumesFrom source allowlist — only meaningful while write mode
-              is (or is about to be) on; a container recreate that references
-              VolumesFrom is otherwise rejected outright regardless of this
-              list. */}
-          {desiredEnabled && (
-            <div className="space-y-1.5">
-              <label
-                htmlFor="write-mode-volumes-from-sources"
-                className="block text-sm font-medium text-content-primary"
-              >
-                {t('hecate.writeMode.volumesFromSourcesLabel')}
-              </label>
-              <Input
-                id="write-mode-volumes-from-sources"
-                type="text"
-                value={volumesFromSourcesText}
-                onChange={(e) => setVolumesFromSourcesText(e.target.value)}
-                placeholder={t('hecate.writeMode.volumesFromSourcesPlaceholder')}
-                disabled={isPending}
-                aria-describedby="write-mode-volumes-from-sources-hint"
-              />
-              <p id="write-mode-volumes-from-sources-hint" className="text-xs text-content-muted">
-                {t('hecate.writeMode.volumesFromSourcesHint')}
-              </p>
-            </div>
-          )}
 
           {configuredDiffersFromActive && (
             <p className="text-xs text-content-secondary italic">

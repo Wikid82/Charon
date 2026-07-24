@@ -105,13 +105,6 @@ func (s *OrthrusServer) HandleWebSocket(c *gin.Context) {
 	// agent/leash/leash.go.
 	respHeader := http.Header{}
 	respHeader.Set("X-Orthrus-Write-Enabled", strconv.FormatBool(agent.WriteEnabled))
-	// X-Orthrus-Allowed-Volumes-From carries the operator-configured
-	// VolumesFrom source allowlist as a comma-joined list. A plain comma join
-	// (no JSON/base64 encoding) is safe because Docker container names/IDs
-	// are restricted to [a-zA-Z0-9][a-zA-Z0-9_.-]* — none of those characters
-	// is a comma, so no source name can itself contain the separator. Empty
-	// entries are dropped agent-side (see leash.go:connect).
-	respHeader.Set("X-Orthrus-Allowed-Volumes-From", strings.Join(agent.AllowedVolumesFromSources, ","))
 
 	conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, respHeader)
 	if err != nil {
@@ -119,7 +112,7 @@ func (s *OrthrusServer) HandleWebSocket(c *gin.Context) {
 		return
 	}
 
-	session, err := NewAgentSession(agent.UUID, agent.Name, agent.WriteEnabled, agent.AllowedVolumesFromSources, s.auditLogger, conn)
+	session, err := NewAgentSession(agent.UUID, agent.Name, agent.WriteEnabled, s.auditLogger, conn)
 	if err != nil {
 		logger.Log().WithError(err).Error("orthrus: create agent session failed")
 		_ = conn.Close()

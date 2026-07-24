@@ -1,13 +1,10 @@
 package orthrus
 
 import (
-	"bytes"
 	"encoding/json"
-	"io"
 	"net/http"
 	"path"
 	"regexp"
-	"slices"
 	"strings"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -76,9 +73,10 @@ var allowedDockerPatterns = []string{
 //
 // Both entries are GET-only like every other allowlist entry: the
 // unconditional method check in ServeHTTP runs before any path match, so
-// POST/PUT/DELETE to either path is rejected regardless of this list.
-// Neither permits a write/mutate operation — /images/create (image pull)
-// is deliberately not added.
+// POST/PUT/DELETE to either path is rejected regardless of this list for a
+// read-only (non-write-enabled) session. Neither permits a write/mutate
+// operation on its own — /images/create (image pull) is deliberately not
+// added here, since it's a write operation gated by write mode instead.
 //
 // Traversal segments ("..") cannot be smuggled through the prefix/suffix
 // check: ServeHTTP runs path.Clean on stripped before any allowlist check
@@ -105,534 +103,6 @@ var allowedDockerPrefixSuffixPatterns = []struct {
 }{
 	{prefix: "/images/", suffix: "/json"},       // image inspect (RepoDigests) — read-only, used by update-checker tools
 	{prefix: "/distribution/", suffix: "/json"}, // registry digest check — read-only, used by update-checker tools
-}
-
-// allowedWriteExactPaths lists the fixed-path write endpoints permitted when
-// a session has negotiated write mode. Only consulted for POST requests, and
-// only when Muzzle.writeEnabled is true — see the write-mode gate at the top
-// of ServeHTTP. /containers/create additionally requires its body to pass
-// validateContainerCreateBody; /images/create takes its parameters via query
-// string (fromImage=, tag=) and has no body to validate.
-var allowedWriteExactPaths = map[string]struct{}{
-	"/containers/create": {},
-	"/images/create":     {},
-}
-
-// allowedWritePatterns lists the dynamic-segment write endpoints permitted
-// when write mode is on: start/stop/restart/rename an existing container,
-// or remove one outright. Each entry pairs the exact HTTP method required
-// with a path.Match pattern — unlike allowedDockerPrefixSuffixPatterns,
-// these patterns operate on Docker-generated container IDs (a single path
-// segment, never namespaced), so path.Match's "no cross-slash" behavior is
-// the correct, sufficient tool here.
-//
-// /containers/*/rename takes the new container name via a "?name=" query
-// parameter, not a request body (unlike /containers/create), so — like
-// start/stop/restart — it needs no body-validation function; the query
-// string is not even visible here, since ServeHTTP/Allow match against
-// r.URL.Path, not RequestURI. This is Dockhand's standard update pattern:
-// rename the old container out of the way (e.g. to "<name>_old") before
-// bringing up the new one under the original name.
-var allowedWritePatterns = []struct {
-	method  string
-	pattern string
-}{
-	{method: http.MethodPost, pattern: "/containers/*/start"},
-	{method: http.MethodPost, pattern: "/containers/*/stop"},
-	{method: http.MethodPost, pattern: "/containers/*/restart"},
-	{method: http.MethodPost, pattern: "/containers/*/rename"},
-	{method: http.MethodDelete, pattern: "/containers/*"},
-}
-
-// maxContainerCreateBodyBytes bounds the size of a /containers/create
-// request body accepted for validation. Generously larger than any
-// realistic container-create body (typically a few KB even with a long
-// env/label list) — bounds worst-case JSON-parse cost. This constant must
-// stay numerically identical to agent/muzzle's copy; the shared test corpus
-// (Section 3.3.5 of the write-mode spec) includes a boundary-size case to
-// catch drift between the two.
-const maxContainerCreateBodyBytes = 64 * 1024
-
-// hostConfigAllowedKeys is the exhaustive allowlist of HostConfig top-level
-// keys considered safe for a same-host container recreate. A key NOT in
-// this set causes the whole /containers/create request to be rejected —
-// this is what gives fail-closed behavior against Docker Engine API fields
-// this list's authors don't know about yet, rather than trying to enumerate
-// every dangerous key by name. The keys deliberately kept OUT of this set,
-// and why, are grouped below rather than left to guesswork:
-//
-//   - Privileged, CapAdd, Devices, DeviceCgroupRules, DeviceRequests (GPU/device
-//     passthrough), SecurityOpt (SELinux/AppArmor/seccomp override), Sysctls,
-//     Runtime (arbitrary OCI runtime selection): direct host-escape or
-//     isolation-bypass primitives.
-//   - Binds, VolumeDriver (a top-level echo of the same local-driver
-//     bind-mount-via-volume bypass validateMountsValue's DriverConfig check
-//     closes for Mounts): host-filesystem-access primitives. VolumesFrom is
-//     NOT in this group — see the value-checked fields below; unlike Binds,
-//     it has a narrow legitimate use (containers that share config/media
-//     volumes with a companion container) gated behind an explicit
-//     per-agent operator allowlist, rather than being blanket-dangerous the
-//     way an arbitrary host bind mount is.
-//   - Cgroup, CgroupParent, GroupAdd: namespace/cgroup-placement fields whose
-//     risk depends on what the named cgroup or host GID actually grants —
-//     not blanket-safe the way a resource *limit* is, so excluded rather
-//     than guessed at. These have no closed, small value space the way
-//     PidMode/IpcMode/UTSMode/CgroupnsMode do (an arbitrary cgroup path or
-//     GID isn't a fixed enum), which is why they stay excluded rather than
-//     value-checked.
-//   - PidMode, IpcMode, UTSMode, CgroupnsMode are NOT excluded — see the
-//     value-checked fields below. Each has a small, closed value space
-//     (empty/"host"/"container:<id>", or similar) rather than an
-//     open-ended reference, so each gets its own value-level check instead
-//     of blanket exclusion.
-//   - Ulimits: NOT excluded as dangerous — see the resource-limit group
-//     below. Listed here only because earlier revisions of this comment
-//     mis-grouped it as excluded; it is allowed.
-//
-// Every key actually in the map below is safe because it either (a) only
-// limits/throttles a resource the container already has, never grants new
-// access; (b) only restricts the container's own view of itself further
-// (MaskedPaths, ReadonlyPaths); (c) is cosmetic/metadata with no runtime
-// effect (ConsoleSize, Annotations); or (d) operates entirely inside the
-// container's own namespaces (Tmpfs, ShmSize — unlike a bind mount, these
-// never touch the host filesystem). Grouped by kind, not alphabetically:
-//
-//	CPU/memory/IO/pid resource limits (Resources, embedded flat into
-//	HostConfig's JSON — CpuShares, NanoCpus, Memory, MemorySwap already
-//	present above): CpuPeriod, CpuQuota, CpuRealtimePeriod,
-//	CpuRealtimeRuntime, CpusetCpus, CpusetMems, BlkioWeight,
-//	BlkioWeightDevice, BlkioDeviceReadBps, BlkioDeviceWriteBps,
-//	BlkioDeviceReadIOps, BlkioDeviceWriteIOps, KernelMemory,
-//	KernelMemoryTCP, MemoryReservation, MemorySwappiness, OomKillDisable,
-//	OomScoreAdj, PidsLimit, Ulimits, StorageOpt, ShmSize, CPUCount,
-//	CPUPercent, IOMaximumIOps, IOMaximumBandwidth. The last four are
-//	Windows-only Resources fields, but the Docker Engine API on Linux
-//	daemons still always serializes them (as 0) since they have no
-//	omitempty tag — a Linux container recreate that echoes back its full
-//	inspected HostConfig will include them regardless of host OS.
-//	Container-internal-only mounts: Tmpfs (mirrors the already-allowed
-//	Type:"tmpfs" Mounts entries — never a host path).
-//	Restriction-only (narrow the container's own view, cannot grant host
-//	access): MaskedPaths, ReadonlyPaths.
-//	Cosmetic/metadata, no runtime security effect: ConsoleSize, Annotations.
-//	Networking convenience, same risk class as the already-allowed
-//	ExtraHosts/DnsSearch (hostname/port aliasing, not host filesystem or
-//	capability access): Links, PublishAllPorts, DnsOptions.
-//	Platform-selection, not a resource limit but still never grants new
-//	access: Isolation (Windows-only "default"/"process"/"hyperv" container
-//	isolation technology selector — "hyperv" is stronger, VM-based
-//	isolation, "process" is comparable to Linux container isolation;
-//	neither is a host-escape primitive. Included in this Windows-only
-//	group for the same reason as CPUCount etc. above — it can still be
-//	present in a Linux daemon's inspect response).
-//
-// NetworkMode, Mounts, UsernsMode, CgroupnsMode, ContainerIDFile,
-// VolumesFrom, PidMode, IpcMode, and UTSMode additionally receive a
-// value-level check (see validateNetworkModeValue, validateMountsValue,
-// validateUsernsModeValue, validateCgroupnsModeValue,
-// validateContainerIDFileValue, validateVolumesFromValue,
-// validatePidModeValue, validateIpcModeValue, validateUTSModeValue) beyond
-// simple key presence: each is operationally necessary and so cannot be
-// blanket-excluded the way the fields above are, but each can still express
-// a host-escape (NetworkMode, UsernsMode, CgroupnsMode, PidMode, IpcMode,
-// UTSMode), host-filesystem (Mounts), host-file-creation (ContainerIDFile —
-// the daemon creates a file at this path on the host before the container
-// even starts), or opaque-namespace-inheritance (VolumesFrom, PidMode,
-// IpcMode when set to "container:<id>") primitive through its value rather
-// than its mere presence.
-//
-// PidMode's value space is closed to exactly {"", "host", "container:<id>"}
-// — sharing the host's PID namespace ("host") grants visibility into, and
-// signal/ptrace access to, every process on the host, a more severe
-// host-escape primitive than NetworkMode:host; "container:<id>" has the
-// same opaque-target problem as VolumesFrom (the muzzle cannot verify the
-// referenced container's own privileges). validatePidModeValue therefore
-// accepts only the empty string, unlike NetworkMode/UsernsMode/CgroupnsMode
-// which each have a legitimate non-empty value space too.
-//
-// UTSMode's value space is closed to exactly {"", "host"} — validateUTSModeValue
-// mirrors validateUsernsModeValue/validateCgroupnsModeValue's shape exactly,
-// rejecting only "host" (shares the host's hostname/domainname namespace).
-//
-// IpcMode's value space is closed to {"", "shareable", "private", "host",
-// "container:<id>"}. "shareable"/"private" (Docker's IPC-namespace-sharing
-// opt-in/opt-out, unrelated to the host) are safe; "host" (host IPC
-// namespace — historically relevant to shared-memory-segment-based attacks)
-// and "container:<id>" (opaque target, same problem as VolumesFrom/PidMode)
-// are not. validateIpcModeValue is an explicit allowlist of the three safe
-// values rather than a denylist of the two unsafe ones, so an unrecognized
-// future IpcMode value is rejected by default rather than silently passed
-// through — consistent with this file's overall fail-closed philosophy.
-//
-// VolumesFrom is unlike the other five: the muzzle has no way to inspect
-// what mounts the *named* container actually has (it may predate Orthrus,
-// or have been created outside it entirely), so there is no single value
-// shape ("host" vs not, empty vs not) that is inherently safe or unsafe the
-// way there is for NetworkMode/UsernsMode/CgroupnsMode/ContainerIDFile.
-// Instead, validateVolumesFromValue checks every referenced container
-// name/ID against Muzzle.allowedVolumesFromSources — an explicit, per-agent,
-// operator-configured allowlist (OrthrusAgent.AllowedVolumesFromSources) —
-// and rejects the request if any entry isn't on it. An unconfigured
-// (empty/nil) allowlist rejects any non-empty VolumesFrom outright, so this
-// field stays fail-closed by default exactly like every other key in this
-// map.
-var hostConfigAllowedKeys = map[string]struct{}{
-	"PortBindings":         {},
-	"RestartPolicy":        {},
-	"Memory":               {},
-	"MemorySwap":           {},
-	"NanoCpus":             {},
-	"CpuShares":            {},
-	"Mounts":               {},
-	"Dns":                  {},
-	"DnsSearch":            {},
-	"DnsOptions":           {},
-	"ExtraHosts":           {},
-	"LogConfig":            {},
-	"AutoRemove":           {},
-	"ReadonlyRootfs":       {},
-	"Init":                 {},
-	"NetworkMode":          {},
-	"CapDrop":              {},
-	"UsernsMode":           {},
-	"ContainerIDFile":      {},
-	"CpuPeriod":            {},
-	"CpuQuota":             {},
-	"CpuRealtimePeriod":    {},
-	"CpuRealtimeRuntime":   {},
-	"CpusetCpus":           {},
-	"CpusetMems":           {},
-	"BlkioWeight":          {},
-	"BlkioWeightDevice":    {},
-	"BlkioDeviceReadBps":   {},
-	"BlkioDeviceWriteBps":  {},
-	"BlkioDeviceReadIOps":  {},
-	"BlkioDeviceWriteIOps": {},
-	"KernelMemory":         {},
-	"KernelMemoryTCP":      {},
-	"MemoryReservation":    {},
-	"MemorySwappiness":     {},
-	"OomKillDisable":       {},
-	"OomScoreAdj":          {},
-	"PidsLimit":            {},
-	"Ulimits":              {},
-	"StorageOpt":           {},
-	"ShmSize":              {},
-	"Tmpfs":                {},
-	"MaskedPaths":          {},
-	"ReadonlyPaths":        {},
-	"ConsoleSize":          {},
-	"Annotations":          {},
-	"Links":                {},
-	"PublishAllPorts":      {},
-	"CgroupnsMode":         {},
-	"CPUCount":             {},
-	"CPUPercent":           {},
-	"IOMaximumIOps":        {},
-	"IOMaximumBandwidth":   {},
-	"VolumesFrom":          {},
-	"Isolation":            {},
-	"PidMode":              {},
-	"IpcMode":              {},
-	"UTSMode":              {},
-}
-
-// mountEntry is the subset of Docker's Mount struct this validator inspects.
-type mountEntry struct {
-	Type          string          `json:"Type"`
-	VolumeOptions json.RawMessage `json:"VolumeOptions"`
-}
-
-// validateNetworkModeValue rejects "host" networking and container-mode
-// networking ("container:<id>", which grants access to another container's
-// network namespace) — the two NetworkMode values that carry the same class
-// of host-escape risk as the blanket-excluded HostConfig keys. Every other
-// value (a bridge network name, "bridge", "none", "default") is accepted,
-// since NetworkMode is a normal, operationally required field for any
-// container recreate that isn't on the default bridge network.
-func validateNetworkModeValue(raw json.RawMessage) bool {
-	var mode string
-	if err := json.Unmarshal(raw, &mode); err != nil {
-		return false
-	}
-	if mode == "host" {
-		return false
-	}
-	if strings.HasPrefix(mode, "container:") {
-		return false
-	}
-	return true
-}
-
-// validateUsernsModeValue rejects only the value "host", which opts a
-// container out of Docker's user-namespace remapping and thereby carries the
-// same class of host-escape risk as the blanket-excluded HostConfig keys.
-// Every other value — the empty string (inherit the daemon's userns-remap
-// configuration, the common case for a same-host recreate) or any other
-// named mode — is accepted, mirroring validateNetworkModeValue's shape.
-func validateUsernsModeValue(raw json.RawMessage) bool {
-	var mode string
-	if err := json.Unmarshal(raw, &mode); err != nil {
-		return false
-	}
-	return mode != "host"
-}
-
-// validateCgroupnsModeValue rejects only the value "host", which shares the
-// container's cgroup namespace with the host's — historically relevant to
-// cgroup v1 release_agent exploits and general host resource/process-hierarchy
-// information disclosure. Every other value, including "private" (Docker's
-// default since 20.10) and the empty string (inherit the daemon's default),
-// is accepted, mirroring validateUsernsModeValue's shape.
-func validateCgroupnsModeValue(raw json.RawMessage) bool {
-	var mode string
-	if err := json.Unmarshal(raw, &mode); err != nil {
-		return false
-	}
-	return mode != "host"
-}
-
-// validateContainerIDFileValue accepts only the empty string. A non-empty
-// ContainerIDFile has the Docker daemon create a new file, containing the
-// new container's ID, at an operator-chosen path on the HOST filesystem
-// (opened O_EXCL, so it cannot clobber an existing file, but it can still
-// create one anywhere the daemon's own filesystem permissions allow) —
-// before the container itself even starts, so none of the container's own
-// isolation applies. That is a real host-filesystem-write primitive, unlike
-// every other field in hostConfigAllowedKeys, so it gets the narrowest
-// possible value-level check rather than a blanket allow: the empty string
-// (the overwhelming common case — the field is rarely set explicitly, and a
-// same-host recreate of such a container legitimately echoes it back empty)
-// is accepted, and every non-empty value is rejected.
-func validateContainerIDFileValue(raw json.RawMessage) bool {
-	var cidFile string
-	if err := json.Unmarshal(raw, &cidFile); err != nil {
-		return false
-	}
-	return cidFile == ""
-}
-
-// validatePidModeValue accepts only the empty string. PidMode's full value
-// space is exactly {"", "host", "container:<id>"} — "host" shares the
-// host's PID namespace (visibility into, and signal/ptrace access to, every
-// host process), and "container:<id>" shares another container's PID
-// namespace whose own privileges the muzzle cannot verify (the same
-// opaque-target problem VolumesFrom has). Unlike NetworkMode, PidMode has no
-// legitimate open-ended non-empty value, so this reduces to a single
-// accepted value, mirroring validateContainerIDFileValue's shape.
-func validatePidModeValue(raw json.RawMessage) bool {
-	var mode string
-	if err := json.Unmarshal(raw, &mode); err != nil {
-		return false
-	}
-	return mode == ""
-}
-
-// validateUTSModeValue rejects only the value "host", which shares the
-// container's UTS namespace (hostname/domainname) with the host's — the
-// same binary "" (default, own namespace) vs "host" shape as
-// validateUsernsModeValue/validateCgroupnsModeValue, UTSMode's full value
-// space being exactly {"", "host"}.
-func validateUTSModeValue(raw json.RawMessage) bool {
-	var mode string
-	if err := json.Unmarshal(raw, &mode); err != nil {
-		return false
-	}
-	return mode != "host"
-}
-
-// validateIpcModeValue is an explicit allowlist, not a denylist: IpcMode's
-// full value space is {"", "shareable", "private", "host", "container:<id>"}.
-// "shareable" and "private" (Docker's own IPC-namespace-sharing opt-in/opt-out,
-// entirely between containers Docker manages, never the host) are safe,
-// along with the empty string (default). "host" (host IPC namespace —
-// historically relevant to shared-memory-segment-based attacks) and
-// "container:<id>" (opaque target, the same problem as VolumesFrom/PidMode)
-// are not. Allowlisting the three safe values, rather than denylisting the
-// two unsafe ones, means an unrecognized future IpcMode value is rejected
-// by default — consistent with this file's overall fail-closed philosophy.
-func validateIpcModeValue(raw json.RawMessage) bool {
-	var mode string
-	if err := json.Unmarshal(raw, &mode); err != nil {
-		return false
-	}
-	switch mode {
-	case "", "shareable", "private":
-		return true
-	default:
-		return false
-	}
-}
-
-// validateVolumesFromValue accepts a VolumesFrom value only if every
-// referenced container name/ID is present in allowedSources — the
-// per-agent, operator-configured allowlist (Muzzle.allowedVolumesFromSources,
-// sourced from OrthrusAgent.AllowedVolumesFromSources). A nil/empty
-// allowedSources rejects any non-empty VolumesFrom entry, matching this
-// muzzle's fail-closed default. Each entry may carry a Docker
-// ":ro"/":rw"/":Z" mode suffix (e.g. "other-container:ro"); only the
-// container name/ID portion before the first colon is compared, since the
-// mode suffix affects mount permissions, not which container's mounts are
-// inherited.
-func validateVolumesFromValue(raw json.RawMessage, allowedSources []string) bool {
-	var sources []string
-	if err := json.Unmarshal(raw, &sources); err != nil {
-		return false
-	}
-	for _, source := range sources {
-		name, _, _ := strings.Cut(source, ":")
-		if !slices.Contains(allowedSources, name) {
-			return false
-		}
-	}
-	return true
-}
-
-// validateMountsValue rejects any bind-type mount and any mount entry whose
-// VolumeOptions carries a DriverConfig key at all, regardless of Type.
-//
-// The DriverConfig check closes a documented bypass of the Type check
-// alone: Docker's default "local" volume driver accepts
-// {"type":"none","device":"/host/path","o":"bind"} inside
-// VolumeOptions.DriverConfig.Options, which makes a Type:"volume" mount
-// behave exactly like an arbitrary host bind mount — fully equivalent in
-// effect to the Type:"bind" mount rejected below, but reached through a
-// field one level deeper. No attempt is made to selectively allow safe
-// DriverConfig.Options key/value pairs: any DriverConfig presence at all is
-// rejected, matching this validator's hard-reject-over-silent-strip
-// philosophy.
-func validateMountsValue(raw json.RawMessage) bool {
-	var mounts []mountEntry
-	if err := json.Unmarshal(raw, &mounts); err != nil {
-		return false
-	}
-	for _, mnt := range mounts {
-		if mnt.Type != "volume" && mnt.Type != "tmpfs" {
-			// Rejects "bind" and any unrecognized/future mount type. The
-			// legacy HostConfig.Binds field is rejected separately, simply
-			// by not appearing in hostConfigAllowedKeys.
-			return false
-		}
-		if len(mnt.VolumeOptions) == 0 {
-			continue
-		}
-		var volumeOptions map[string]json.RawMessage
-		if err := json.Unmarshal(mnt.VolumeOptions, &volumeOptions); err != nil {
-			return false
-		}
-		if _, hasDriverConfig := volumeOptions["DriverConfig"]; hasDriverConfig {
-			return false
-		}
-	}
-	return true
-}
-
-// validateContainerCreateBody reads, size-caps, and validates a
-// /containers/create request body against hostConfigAllowedKeys plus the
-// NetworkMode/Mounts value-level checks, then re-buffers r.Body so the
-// downstream reverse proxy can still forward the original bytes intact —
-// reading r.Body consumes it exactly once, so it must be replaced with a
-// fresh reader over the same bytes before this function returns, regardless
-// of outcome.
-//
-// Returns (true, "") if the body is safe to forward. Returns (false, reason)
-// if the request should be rejected, with reason suitable for both the audit
-// log and the HTTP error response.
-//
-// A method on *Muzzle (rather than a free function, like every other
-// validator in this file) solely because validateVolumesFromValue needs
-// m.allowedVolumesFromSources, the one per-agent operator-configured value
-// this validation pass depends on.
-func (m *Muzzle) validateContainerCreateBody(r *http.Request) (ok bool, reason string) {
-	if r.Body == nil {
-		return true, ""
-	}
-
-	limited := io.LimitReader(r.Body, maxContainerCreateBodyBytes+1)
-	bodyBytes, err := io.ReadAll(limited)
-	_ = r.Body.Close()
-	if err != nil {
-		r.Body = http.NoBody
-		return false, "malformed request body"
-	}
-	if len(bodyBytes) > maxContainerCreateBodyBytes {
-		// Re-buffer the (oversized, rejected) bytes anyway: forwarding never
-		// happens on this path, but leaving r.Body in a consumed state would
-		// be surprising for any future caller of this function.
-		r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-		r.ContentLength = int64(len(bodyBytes))
-		return false, "request body too large"
-	}
-
-	// Re-buffer before any further validation so every return path below —
-	// success or rejection — leaves r.Body forwarding-ready.
-	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-	r.ContentLength = int64(len(bodyBytes))
-
-	if len(bodyBytes) == 0 {
-		return true, ""
-	}
-
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(bodyBytes, &top); err != nil {
-		return false, "malformed request body"
-	}
-
-	hostConfigRaw, hasHostConfig := top["HostConfig"]
-	if !hasHostConfig {
-		return true, ""
-	}
-
-	var hostConfig map[string]json.RawMessage
-	if err := json.Unmarshal(hostConfigRaw, &hostConfig); err != nil {
-		return false, "malformed request body"
-	}
-
-	for key, rawValue := range hostConfig {
-		if _, allowed := hostConfigAllowedKeys[key]; !allowed {
-			return false, "disallowed HostConfig field: " + key
-		}
-		switch key {
-		case "NetworkMode":
-			if !validateNetworkModeValue(rawValue) {
-				return false, "disallowed HostConfig field: NetworkMode"
-			}
-		case "Mounts":
-			if !validateMountsValue(rawValue) {
-				return false, "disallowed HostConfig field: Mounts"
-			}
-		case "UsernsMode":
-			if !validateUsernsModeValue(rawValue) {
-				return false, "disallowed HostConfig field: UsernsMode"
-			}
-		case "ContainerIDFile":
-			if !validateContainerIDFileValue(rawValue) {
-				return false, "disallowed HostConfig field: ContainerIDFile"
-			}
-		case "CgroupnsMode":
-			if !validateCgroupnsModeValue(rawValue) {
-				return false, "disallowed HostConfig field: CgroupnsMode"
-			}
-		case "VolumesFrom":
-			if !validateVolumesFromValue(rawValue, m.allowedVolumesFromSources) {
-				return false, "disallowed HostConfig field: VolumesFrom"
-			}
-		case "PidMode":
-			if !validatePidModeValue(rawValue) {
-				return false, "disallowed HostConfig field: PidMode"
-			}
-		case "IpcMode":
-			if !validateIpcModeValue(rawValue) {
-				return false, "disallowed HostConfig field: IpcMode"
-			}
-		case "UTSMode":
-			if !validateUTSModeValue(rawValue) {
-				return false, "disallowed HostConfig field: UTSMode"
-			}
-		}
-	}
-
-	return true, ""
 }
 
 // writeAuditDetails marshals a small flat field set into the JSON string
@@ -678,14 +148,6 @@ func (m *Muzzle) auditAllowed(r *http.Request) {
 	}))
 }
 
-func (m *Muzzle) auditBlocked(r *http.Request, reason string) {
-	m.logAudit("orthrus_write_blocked", writeAuditDetails(map[string]string{
-		"method": r.Method,
-		"path":   sanitizePath(r.URL.Path),
-		"reason": reason,
-	}))
-}
-
 func (m *Muzzle) auditRateLimited(r *http.Request) {
 	m.logAudit("orthrus_write_rate_limited", writeAuditDetails(map[string]string{
 		"method": r.Method,
@@ -693,9 +155,21 @@ func (m *Muzzle) auditRateLimited(r *http.Request) {
 	}))
 }
 
-// Muzzle is an http.Handler wrapper that restricts Docker socket access
-// to a curated allowlist of read-only, non-destructive endpoints, plus an
-// optional narrow set of write endpoints when writeEnabled is true.
+// Muzzle is an http.Handler wrapper around the Docker socket proxy.
+// Read-only sessions (writeEnabled false) are restricted to a curated
+// allowlist of read-only, non-destructive GET endpoints. Write-enabled
+// sessions get the full, unrestricted Docker Engine API: every request is
+// forwarded as-is (rate-limited and audited), with no per-endpoint or
+// per-field restriction.
+//
+// This is a deliberate operator trust model, not an oversight: write mode
+// is opt-in per agent (OrthrusAgent.WriteEnabled), gated behind an explicit
+// typed-confirmation UI step that documents this is equivalent to giving
+// the connected tool full control of the Docker host — see
+// AgentWriteModeDialog on the frontend. Every write-mode request is still
+// audited (auditAllowed/auditRateLimited), so an operator who enables write
+// mode retains a full trace of what was done, even though nothing about
+// the request content itself is inspected or restricted.
 type Muzzle struct {
 	next http.Handler
 	// writeEnabled is fixed at construction time (one Muzzle per AgentSession,
@@ -704,40 +178,31 @@ type Muzzle struct {
 	writeEnabled bool
 	// writeLimiter bounds write-request throughput; nil unless writeEnabled.
 	writeLimiter *rate.Limiter
-	// auditLogger records every write attempt (allowed or blocked); nil is
-	// tolerated (no-op) so tests and read-only sessions don't need one.
+	// auditLogger records every write attempt; nil is tolerated (no-op) so
+	// tests and read-only sessions don't need one.
 	auditLogger AuditLogger
 	// agentUUID identifies the session this Muzzle guards, for audit entries.
 	agentUUID string
-	// allowedVolumesFromSources is the operator-configured allowlist of
-	// container names/IDs this session's agent may reference via
-	// HostConfig.VolumesFrom (see validateVolumesFromValue). Fixed at
-	// construction time like writeEnabled, for the same reconnect-to-apply
-	// reason.
-	allowedVolumesFromSources []string
 }
 
-// NewMuzzle wraps handler with the Docker socket allowlist filter.
+// NewMuzzle wraps handler with the Docker socket proxy filter.
 //
-// writeEnabled, writeLimiter, auditLogger, agentUUID, and
-// allowedVolumesFromSources govern the optional write-endpoint allowlist
-// (see Section 3.3.3 of the Orthrus write-mode spec). writeEnabled is
-// captured once, at construction time, and never re-checked against the
-// database on a per-request basis — StartExternalProxy constructs a new
-// Muzzle per AgentSession using the value negotiated at connect time, so
-// toggling the DB flag only takes effect on the agent's next reconnect.
-// Re-reading it per-request would both reintroduce a TOCTOU-like
-// inconsistency with that reconnect-to-apply guarantee and add a DB
-// round-trip to the hot proxy path. allowedVolumesFromSources is negotiated
-// and fixed the same way.
-func NewMuzzle(next http.Handler, writeEnabled bool, writeLimiter *rate.Limiter, auditLogger AuditLogger, agentUUID string, allowedVolumesFromSources []string) *Muzzle {
+// writeEnabled, writeLimiter, auditLogger, and agentUUID govern write-mode
+// behavior (see the Muzzle doc comment). writeEnabled is captured once, at
+// construction time, and never re-checked against the database on a
+// per-request basis — StartExternalProxy constructs a new Muzzle per
+// AgentSession using the value negotiated at connect time, so toggling the
+// DB flag only takes effect on the agent's next reconnect. Re-reading it
+// per-request would both reintroduce a TOCTOU-like inconsistency with that
+// reconnect-to-apply guarantee and add a DB round-trip to the hot proxy
+// path.
+func NewMuzzle(next http.Handler, writeEnabled bool, writeLimiter *rate.Limiter, auditLogger AuditLogger, agentUUID string) *Muzzle {
 	return &Muzzle{
-		next:                      next,
-		allowedVolumesFromSources: allowedVolumesFromSources,
-		writeEnabled:              writeEnabled,
-		writeLimiter:              writeLimiter,
-		auditLogger:               auditLogger,
-		agentUUID:                 agentUUID,
+		next:         next,
+		writeEnabled: writeEnabled,
+		writeLimiter: writeLimiter,
+		auditLogger:  auditLogger,
+		agentUUID:    agentUUID,
 	}
 }
 
@@ -762,9 +227,16 @@ func normalizeDockerPath(rawPath string) string {
 	return path.Clean("/" + strings.TrimLeft(stripped, "/"))
 }
 
-// ServeHTTP implements http.Handler. Only GET requests to allowlisted paths
-// are forwarded; HEAD is also permitted for /_ping (Docker client health checks).
-// All other methods or paths receive 403 Forbidden.
+// ServeHTTP implements http.Handler.
+//
+// Read-only sessions (m.writeEnabled false) only forward GET requests to
+// allowlisted paths, with HEAD permitted for /_ping (Docker client health
+// checks) — every other request receives 403 Forbidden. This half is
+// unchanged from before write mode existed.
+//
+// Write-enabled sessions forward every request unconditionally, through
+// the rate limiter and audit log (see forwardWrite) — no endpoint or
+// request-body restriction. See the Muzzle doc comment for why.
 func (m *Muzzle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	stripped := normalizeDockerPath(r.URL.Path)
 
@@ -774,18 +246,9 @@ func (m *Muzzle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Write-endpoint handling must run before the unconditional GET-only
-	// check below, since POST/DELETE requests would otherwise be rejected
-	// before ever reaching the write allowlist. Only consulted when this
-	// session negotiated write mode (m.writeEnabled, fixed at construction
-	// time — see NewMuzzle) — every other session's POST/DELETE traffic
-	// falls straight through, unaffected, to the same 403 it always got.
-	if m.writeEnabled && (r.Method == http.MethodPost || r.Method == http.MethodDelete) {
-		if m.tryServeWrite(w, r, stripped) {
-			return
-		}
-		// Not on the write allowlist even with write mode on — fall through
-		// to the same "Forbidden" response every other disallowed request gets.
+	if m.writeEnabled {
+		m.forwardWrite(w, r)
+		return
 	}
 
 	if r.Method != http.MethodGet {
@@ -824,49 +287,15 @@ func (m *Muzzle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "Forbidden", http.StatusForbidden)
 }
 
-// tryServeWrite handles a POST/DELETE request when this session has write
-// mode enabled. Returns true if it fully handled the request — forwarded,
-// rate-limited, or rejected with a write-specific reason and audit entry —
-// false if the method/path combination isn't on the write allowlist at all,
-// in which case the caller (ServeHTTP) falls through to the same generic
-// 403 every other disallowed request receives.
-func (m *Muzzle) tryServeWrite(w http.ResponseWriter, r *http.Request, stripped string) bool {
-	if r.Method == http.MethodPost {
-		if _, ok := allowedWriteExactPaths[stripped]; ok {
-			if stripped == "/containers/create" {
-				if valid, reason := m.validateContainerCreateBody(r); !valid {
-					m.auditBlocked(r, reason)
-					http.Error(w, "Forbidden: "+reason, http.StatusForbidden)
-					return true
-				}
-			}
-			return m.forwardWrite(w, r)
-		}
-	}
-
-	for _, p := range allowedWritePatterns {
-		if r.Method != p.method {
-			continue
-		}
-		if matched, err := path.Match(p.pattern, stripped); err == nil && matched {
-			return m.forwardWrite(w, r)
-		}
-	}
-
-	return false
-}
-
 // forwardWrite applies the write-path rate limiter, audits the outcome, and
-// forwards the request on success. Always returns true (the caller uses the
-// return value only to distinguish "on the write allowlist" from "not"; a
-// rate-limited request is still a request tryServeWrite fully handled).
-func (m *Muzzle) forwardWrite(w http.ResponseWriter, r *http.Request) bool {
+// forwards the request. Only called for write-enabled sessions, for every
+// request regardless of method, path, or body.
+func (m *Muzzle) forwardWrite(w http.ResponseWriter, r *http.Request) {
 	if m.writeLimiter != nil && !m.writeLimiter.Allow() {
 		m.auditRateLimited(r)
 		http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
-		return true
+		return
 	}
 	m.auditAllowed(r)
 	m.next.ServeHTTP(w, r)
-	return true
 }

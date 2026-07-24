@@ -643,35 +643,6 @@ func TestOrthrusHandler_PatchAgent_ExternalProxyPort_Invalid(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-func TestOrthrusHandler_PatchAgent_AllowedVolumesFromSources(t *testing.T) {
-	h, _ := newOrthrusTestSetup(t)
-
-	wProv := httptest.NewRecorder()
-	cProv, _ := gin.CreateTestContext(wProv)
-	cProv.Request = httptest.NewRequest(http.MethodPost, "/management/orthrus/agents",
-		bytes.NewBufferString(`{"name":"volumes-from-agent"}`))
-	cProv.Request.Header.Set("Content-Type", "application/json")
-	h.Provision(cProv)
-	require.Equal(t, http.StatusCreated, wProv.Code)
-	var provisioned map[string]any
-	require.NoError(t, json.Unmarshal(wProv.Body.Bytes(), &provisioned))
-	agentUUID := provisioned["agent"].(map[string]any)["uuid"].(string)
-
-	body, _ := json.Marshal(map[string][]string{"allowed_volumes_from_sources": {"config-container", "shared-data"}})
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPatch, "/management/orthrus/agents/"+agentUUID,
-		bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-	c.Params = gin.Params{{Key: "uuid", Value: agentUUID}}
-	h.Patch(c)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	var resp models.OrthrusAgent
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, []string{"config-container", "shared-data"}, resp.AllowedVolumesFromSources)
-}
-
 func TestOrthrusHandler_PatchAgent_WriteEnabled_EmitsAuditEntry(t *testing.T) {
 	h, securityService := newOrthrusTestSetupWithSecurity(t)
 

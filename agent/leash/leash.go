@@ -140,22 +140,6 @@ func (l *Leash) connect(ctx context.Context) error {
 	// closing" posture elsewhere in this file.
 	writeEnabled := resp != nil && resp.Header.Get("X-Orthrus-Write-Enabled") == "true"
 
-	// X-Orthrus-Allowed-Volumes-From carries the operator-configured
-	// VolumesFrom source allowlist as a comma-joined list (see server.go's
-	// HandleWebSocket for why a plain comma join is safe: Docker container
-	// names/IDs cannot contain a comma). A missing header parses to an empty
-	// slice, matching writeEnabled's fail-closed default.
-	var allowedVolumesFromSources []string
-	if resp != nil {
-		if raw := resp.Header.Get("X-Orthrus-Allowed-Volumes-From"); raw != "" {
-			for _, source := range strings.Split(raw, ",") {
-				if source != "" {
-					allowedVolumesFromSources = append(allowedVolumesFromSources, source)
-				}
-			}
-		}
-	}
-
 	cfg := yamux.DefaultConfig()
 	cfg.LogOutput = io.Discard
 
@@ -174,7 +158,7 @@ func (l *Leash) connect(ctx context.Context) error {
 	// reconnect. This is what makes a write-mode toggle take effect only on
 	// the agent's next reconnect, matching the backend's per-AgentSession
 	// Muzzle scoping.
-	filter := muzzle.New(writeEnabled, allowedVolumesFromSources)
+	filter := muzzle.New(writeEnabled)
 
 	hbCtx, hbCancel := context.WithCancel(ctx)
 	defer hbCancel()

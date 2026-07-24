@@ -89,7 +89,7 @@ func startUnixHTTPServer(t *testing.T, handler func(net.Conn)) (string, func()) 
 }
 
 func TestFilter_Allow(t *testing.T) {
-	f := muzzle.New(false, nil)
+	f := muzzle.New(false)
 
 	tests := []struct {
 		method  string
@@ -139,7 +139,7 @@ func TestFilter_Allow(t *testing.T) {
 		{"GET", "/networks/mynet", true},
 		{"GET", "/system/df", true},
 
-		// --- Blocked: mutating methods ---
+		// --- Blocked: mutating methods (read-only session) ---
 		{"POST", "/containers/create", false},
 		{"DELETE", "/containers/abc123", false},
 		{"PUT", "/containers/abc123/start", false},
@@ -203,7 +203,7 @@ func TestFilter_Allow(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.method+" "+tt.reqPath, func(t *testing.T) {
-			got := f.Allow(tt.method, tt.reqPath, nil)
+			got := f.Allow(tt.method, tt.reqPath)
 			assert.Equal(t, tt.allowed, got)
 		})
 	}
@@ -218,7 +218,7 @@ func TestFilter_Allow(t *testing.T) {
 // like "nginx". Uses prefix/suffix matching instead of path.Match, whose
 // "*" does not cross "/".
 func TestFilter_Allow_NamespacedImagePaths(t *testing.T) {
-	f := muzzle.New(false, nil)
+	f := muzzle.New(false)
 
 	refs := []string{
 		"ghcr.io/org/repo",
@@ -231,12 +231,12 @@ func TestFilter_Allow_NamespacedImagePaths(t *testing.T) {
 		for _, ref := range refs {
 			p := prefix + ref + "/json"
 			t.Run(p, func(t *testing.T) {
-				assert.True(t, f.Allow("GET", p, nil))
+				assert.True(t, f.Allow("GET", p))
 			})
 
 			vp := "/v1.44" + prefix + ref + "/json"
 			t.Run(vp, func(t *testing.T) {
-				assert.True(t, f.Allow("GET", vp, nil))
+				assert.True(t, f.Allow("GET", vp))
 			})
 		}
 	}
@@ -245,9 +245,9 @@ func TestFilter_Allow_NamespacedImagePaths(t *testing.T) {
 // TestFilter_Allow_NamespacedImagePaths_NonGETBlocked confirms the
 // unconditional GET-only enforcement in Allow (which runs before any path
 // match) still rejects writes against namespaced image/distribution paths
-// now that they pass the allowlist's path check.
+// for a read-only session, now that they pass the allowlist's path check.
 func TestFilter_Allow_NamespacedImagePaths_NonGETBlocked(t *testing.T) {
-	f := muzzle.New(false, nil)
+	f := muzzle.New(false)
 
 	paths := []string{
 		"/images/ghcr.io/org/repo/json",
@@ -259,14 +259,14 @@ func TestFilter_Allow_NamespacedImagePaths_NonGETBlocked(t *testing.T) {
 	for _, p := range paths {
 		for _, method := range []string{"POST", "PUT", "DELETE", "PATCH"} {
 			t.Run(method+" "+p, func(t *testing.T) {
-				assert.False(t, f.Allow(method, p, nil))
+				assert.False(t, f.Allow(method, p))
 			})
 		}
 	}
 }
 
 func TestFilter_ServeProxy_Blocked_POST(t *testing.T) {
-	f := muzzle.New(false, nil)
+	f := muzzle.New(false)
 
 	reqStr := "POST /v1.41/containers/create HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n"
 	var buf bytes.Buffer
@@ -277,7 +277,7 @@ func TestFilter_ServeProxy_Blocked_POST(t *testing.T) {
 }
 
 func TestFilter_ServeProxy_Blocked_DELETE(t *testing.T) {
-	f := muzzle.New(false, nil)
+	f := muzzle.New(false)
 
 	reqStr := "DELETE /v1.41/containers/abc HTTP/1.1\r\nHost: localhost\r\n\r\n"
 	var buf bytes.Buffer
@@ -288,7 +288,7 @@ func TestFilter_ServeProxy_Blocked_DELETE(t *testing.T) {
 }
 
 func TestFilter_ServeProxy_Blocked_PUT(t *testing.T) {
-	f := muzzle.New(false, nil)
+	f := muzzle.New(false)
 
 	reqStr := "PUT /v1.41/networks/abc HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n"
 	var buf bytes.Buffer
@@ -299,7 +299,7 @@ func TestFilter_ServeProxy_Blocked_PUT(t *testing.T) {
 }
 
 func TestFilter_ServeProxy_Blocked_UnversionedPost(t *testing.T) {
-	f := muzzle.New(false, nil)
+	f := muzzle.New(false)
 
 	reqStr := "POST /containers/create HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n"
 	var buf bytes.Buffer
@@ -310,7 +310,7 @@ func TestFilter_ServeProxy_Blocked_UnversionedPost(t *testing.T) {
 }
 
 func TestServeProxy_ConnectionCloseSetOnRequest(t *testing.T) {
-	f := muzzle.New(false, nil)
+	f := muzzle.New(false)
 
 	reqSeen := make(chan *http.Request, 1)
 	serverErr := make(chan error, 1)
@@ -350,7 +350,7 @@ func TestServeProxy_ConnectionCloseSetOnRequest(t *testing.T) {
 }
 
 func TestServeProxy_CompletesAfterDockerResponse(t *testing.T) {
-	f := muzzle.New(false, nil)
+	f := muzzle.New(false)
 	serverErr := make(chan error, 1)
 	body := `{"status":"ok"}`
 
@@ -394,7 +394,7 @@ func TestServeProxy_CompletesAfterDockerResponse(t *testing.T) {
 }
 
 func TestServeProxy_StreamingResponseTerminatesOnWriterClose(t *testing.T) {
-	f := muzzle.New(false, nil)
+	f := muzzle.New(false)
 
 	serverWriteErr := make(chan error, 1)
 	serverErr := make(chan error, 1)
@@ -461,57 +461,6 @@ func TestServeProxy_StreamingResponseTerminatesOnWriterClose(t *testing.T) {
 	}
 }
 
-// errReader is an io.Reader that always fails, used to force a mid-body
-// read error deterministically instead of relying on a real, flaky I/O
-// fault.
-type errReader struct {
-	err error
-}
-
-func (r errReader) Read([]byte) (int, error) {
-	return 0, r.err
-}
-
-// TestFilter_ServeProxy_BodyReadError_ReturnsError targets muzzle.go's
-// io.ReadAll(limited) failure branch in ServeProxy: the request line and
-// headers parse successfully (they fit entirely in bufio.Reader's first
-// fill, so http.ReadRequest never touches the failing sub-reader), but the
-// declared Content-Length body is backed by an io.MultiReader whose second
-// segment always errors, so the read is guaranteed to fail only once
-// ServeProxy actually starts consuming the body.
-func TestFilter_ServeProxy_BodyReadError_ReturnsError(t *testing.T) {
-	f := muzzle.New(false, nil)
-
-	header := "POST /containers/create HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\n\r\n"
-	boom := errors.New("boom")
-	reqReader := io.MultiReader(strings.NewReader(header), errReader{err: boom})
-
-	var buf bytes.Buffer
-	err := f.ServeProxy("/tmp/nonexistent.sock", reqReader, &buf)
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "read body")
-}
-
-// TestFilter_ServeProxy_BodyTooLarge_Returns403AndError targets muzzle.go's
-// maxContainerCreateBodyBytes size-limit branch. The size check runs before
-// Allow is consulted, so the method/path here don't need to be on the
-// allowlist for the case to exercise the intended branch.
-func TestFilter_ServeProxy_BodyTooLarge_Returns403AndError(t *testing.T) {
-	f := muzzle.New(false, nil)
-
-	const maxContainerCreateBodyBytes = 64 * 1024
-	oversized := bytes.Repeat([]byte("a"), maxContainerCreateBodyBytes+1)
-	reqStr := fmt.Sprintf("GET /containers/json HTTP/1.1\r\nHost: localhost\r\nContent-Length: %d\r\n\r\n%s", len(oversized), oversized)
-
-	var buf bytes.Buffer
-	err := f.ServeProxy("/tmp/nonexistent.sock", strings.NewReader(reqStr), &buf)
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "body too large")
-	assert.Contains(t, buf.String(), "403")
-}
-
 // TestFilter_ServeProxy_DockerWriteError_ReturnsError targets muzzle.go's
 // req.Write(conn) failure branch: ServeProxy successfully dials the fake
 // Docker socket, but the write of the forwarded request to it fails.
@@ -523,21 +472,19 @@ func TestFilter_ServeProxy_BodyTooLarge_Returns403AndError(t *testing.T) {
 // no hook this test can synchronize against:
 //
 //   - Accepting the connection and then abortively closing it (SO_LINGER=0)
-//     was tried first (Supervisor Correction 2's suggested starting point)
-//     and found flaky: the request's header write is small enough that the
-//     kernel routinely buffers it locally and returns success from
-//     req.Write's underlying write(2) before the peer's close has
-//     propagated, so the error surfaces later instead, on the response
+//     was tried first and found flaky: the request's header write is small
+//     enough that the kernel routinely buffers it locally and returns
+//     success from req.Write's underlying write(2) before the peer's close
+//     has propagated, so the error surfaces later instead, on the response
 //     read - not on the write itself.
 //   - Closing the *listener* without ever accepting - so the connection
 //     ServeProxy just dialed is torn down while still sitting unaccepted in
 //     the backlog - reliably produces a write failure with the right
-//     message *when the race lands in that window*, but measured directly
-//     (a bare goroutine closing the listener, racing unsynchronized against
-//     ServeProxy's own dial+write, the same shape this test needs), it only
-//     lands in that window on ~40-50% of attempts under `-race`; the rest
-//     either close before the dial completes (a *dial* error, wrong branch)
-//     or after the write already succeeded (a *read* error, wrong branch).
+//     message *when the race lands in that window*, but measured directly,
+//     it only lands in that window on ~40-50% of attempts under `-race`;
+//     the rest either close before the dial completes (a *dial* error,
+//     wrong branch) or after the write already succeeded (a *read* error,
+//     wrong branch).
 //
 // So this test retries with a fresh socket/listener each time, accepting
 // only the specific error this line actually produces and discarding any
@@ -552,7 +499,7 @@ func TestFilter_ServeProxy_BodyTooLarge_Returns403AndError(t *testing.T) {
 // library networking tests use for OS-timing-dependent behavior; it is a
 // deliberate, documented trade-off, not an oversight.
 func TestFilter_ServeProxy_DockerWriteError_ReturnsError(t *testing.T) {
-	f := muzzle.New(false, nil)
+	f := muzzle.New(false)
 
 	const retryLimit = 200
 	reqStr := "GET /containers/json HTTP/1.1\r\nHost: localhost\r\n\r\n"
@@ -582,15 +529,19 @@ func TestFilter_ServeProxy_DockerWriteError_ReturnsError(t *testing.T) {
 	t.Fatalf("did not observe a docker-write error within %d attempts (target branch: muzzle.go ServeProxy's req.Write(conn) failure path)", retryLimit)
 }
 
-// --- Write-mode tests (Section 3.3.4/3.4.1 of the Orthrus write-mode spec) ---
+// --- Write-mode tests ---
 //
-// These mirror backend/internal/orthrus/muzzle_test.go's write-mode tests
-// exactly in intent (though this package's Allow(method, path, body) is
-// called directly rather than through the httptest-based ServeHTTP the
-// backend uses, since Filter has no http.Handler interface of its own).
+// Write mode is a deliberate full-access operator trust decision (see
+// Filter's doc comment in muzzle.go): once a connection has write_enabled,
+// every request is permitted unconditionally, regardless of endpoint or
+// body content. These tests prove that blanket behavior directly, mirroring
+// backend/internal/orthrus/muzzle_test.go's copies in intent (though this
+// package's Allow(method, path) is called directly rather than through the
+// httptest-based ServeHTTP the backend uses, since Filter has no
+// http.Handler interface of its own).
 
 func TestFilter_Allow_WriteEndpoints_BlockedWhenWriteDisabled(t *testing.T) {
-	f := muzzle.New(false, nil)
+	f := muzzle.New(false)
 
 	cases := []struct {
 		method string
@@ -607,18 +558,26 @@ func TestFilter_Allow_WriteEndpoints_BlockedWhenWriteDisabled(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
-			assert.False(t, f.Allow(tc.method, tc.path, nil))
+			assert.False(t, f.Allow(tc.method, tc.path))
 		})
 	}
 }
 
-func TestFilter_Allow_WriteEndpoints_AllowedWhenWriteEnabled(t *testing.T) {
-	f := muzzle.New(true, nil)
+// TestFilter_Allow_WriteEnabled_AnyEndpointAllowed mirrors
+// backend/internal/orthrus/muzzle_test.go's
+// TestMuzzle_WriteEnabled_AnyEndpointAllowed: every one of these paths — the
+// six operations write mode originally shipped with, PLUS endpoints that
+// were explicitly excluded forever under the old fixed-endpoint-allowlist
+// design (exec, build, prune, auth, commit, image delete,
+// network/volume create/delete) — now succeeds for a write-enabled session.
+func TestFilter_Allow_WriteEnabled_AnyEndpointAllowed(t *testing.T) {
+	f := muzzle.New(true)
 
 	cases := []struct {
 		method string
 		path   string
 	}{
+		{"POST", "/containers/create"},
 		{"POST", "/images/create"},
 		{"POST", "/containers/abc123/start"},
 		{"POST", "/containers/abc123/stop"},
@@ -627,73 +586,6 @@ func TestFilter_Allow_WriteEndpoints_AllowedWhenWriteEnabled(t *testing.T) {
 		{"DELETE", "/containers/abc123"},
 		{"POST", "/v1.44/containers/abc123/start"},
 		{"DELETE", "/v1.44/containers/abc123"},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
-			assert.True(t, f.Allow(tc.method, tc.path, nil))
-		})
-	}
-}
-
-// TestFilter_Allow_ContainerRename_QueryParamNameAllowed proves the
-// Dockhand image-update rename step end-to-end on the agent side: Docker's
-// rename endpoint takes the new container name via a "?name=" query
-// parameter, not a request body (unlike /containers/create), and a real
-// Docker-generated container ID is a single path segment (no slashes) —
-// exactly what allowedWritePatterns's "/containers/*/rename" path.Match
-// pattern assumes. Allow receives req.URL.Path (query string already split
-// off by the caller, mirroring ServeProxy's real usage), so the query
-// string itself is irrelevant to the match — passing it here just documents
-// that a realistic rename call site (path plus query) is what this
-// allowlist entry exists to unblock.
-func TestFilter_Allow_ContainerRename_QueryParamNameAllowed(t *testing.T) {
-	f := muzzle.New(true, nil)
-
-	containerID := "3f4d9e2a1b6c8f0d7e5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e"
-	assert.True(t, f.Allow("POST", "/containers/"+containerID+"/rename", nil))
-	assert.True(t, f.Allow("POST", "/v1.44/containers/"+containerID+"/rename", nil))
-}
-
-// TestFilter_Allow_WriteMode_FakeVersionPrefixBlocked is the write-path
-// variant of the GH #1160 regression above (divergence row 3): a
-// non-numeric fake version prefix must not be accepted by allowWrite's
-// pattern branch either. Before this fix, allowWrite's pattern branch
-// matched the raw (non-version-stripped) path directly instead of the
-// same normalized path its exact-path branch used, so "/vFOO/..." was
-// wrongly treated as reaching "/containers/*/start" via the loose
-// path.Match "v*" wildcard.
-func TestFilter_Allow_WriteMode_FakeVersionPrefixBlocked(t *testing.T) {
-	f := muzzle.New(true, nil)
-
-	cases := []struct {
-		method string
-		path   string
-	}{
-		{"POST", "/vFOO/containers/abc/start"},
-		{"POST", "/vFOO/containers/create"},
-		{"DELETE", "/vFOO/containers/abc"},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
-			assert.False(t, f.Allow(tc.method, tc.path, nil))
-		})
-	}
-}
-
-// TestFilter_Allow_WriteMode_NonWriteEndpointsStillBlocked confirms that,
-// even with write mode on, endpoints outside the fixed seven-operation list
-// (create, images/create, start, stop, restart, rename, delete) — e.g.
-// exec, image delete, build, prune, auth, commit, Swarm/service — remain
-// permanently blocked. Section 7, Explicit Out-of-Scope.
-func TestFilter_Allow_WriteMode_NonWriteEndpointsStillBlocked(t *testing.T) {
-	f := muzzle.New(true, nil)
-
-	cases := []struct {
-		method string
-		path   string
-	}{
 		{"POST", "/containers/abc123/exec"},
 		{"POST", "/exec/xyz/start"},
 		{"DELETE", "/images/nginx"},
@@ -705,178 +597,54 @@ func TestFilter_Allow_WriteMode_NonWriteEndpointsStillBlocked(t *testing.T) {
 		{"DELETE", "/networks/mynet"},
 		{"POST", "/volumes/create"},
 		{"DELETE", "/volumes/myvol"},
+		// Even a fake/non-numeric version prefix no longer matters for
+		// write-enabled sessions — there is no path-pattern matching left
+		// in the write path for such a prefix to evade or be caught by.
+		{"POST", "/vFOO/containers/abc/start"},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
-			assert.False(t, f.Allow(tc.method, tc.path, nil))
+			assert.True(t, f.Allow(tc.method, tc.path))
 		})
 	}
 }
 
-func TestFilter_Allow_ContainersCreate_SafeBodyAllowed(t *testing.T) {
-	f := muzzle.New(true, nil)
+// TestFilter_Allow_ContainerRename_QueryParamNameAllowed proves the
+// Dockhand image-update rename step end-to-end on the agent side: Docker's
+// rename endpoint takes the new container name via a "?name=" query
+// parameter, not a request body. Allow receives req.URL.Path (query string
+// already split off by the caller, mirroring ServeProxy's real usage), so
+// the query string itself is irrelevant to the match — passing it here just
+// documents that a realistic rename call site (path plus query) is what
+// write mode unblocks.
+func TestFilter_Allow_ContainerRename_QueryParamNameAllowed(t *testing.T) {
+	f := muzzle.New(true)
 
-	body := []byte(`{"Image":"nginx:latest","HostConfig":{"PortBindings":{"80/tcp":[{"HostPort":"8080"}]},"RestartPolicy":{"Name":"unless-stopped"},"NetworkMode":"my-bridge"}}`)
-	assert.True(t, f.Allow("POST", "/containers/create", body))
-	assert.True(t, f.Allow("POST", "/v1.44/containers/create", body))
+	containerID := "3f4d9e2a1b6c8f0d7e5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e"
+	assert.True(t, f.Allow("POST", "/containers/"+containerID+"/rename"))
+	assert.True(t, f.Allow("POST", "/v1.44/containers/"+containerID+"/rename"))
 }
 
-// TestFilter_Allow_ContainersCreate_SafeBodiesAllowed_CapDropAndUsernsMode
-// mirrors backend/internal/orthrus/muzzle_test.go's copy of the same name.
-func TestFilter_Allow_ContainersCreate_SafeBodiesAllowed_CapDropAndUsernsMode(t *testing.T) {
-	f := muzzle.New(true, nil)
-
-	cases := []struct {
-		name string
-		body string
-	}{
-		{"CapDrop", `{"Image":"nginx","HostConfig":{"CapDrop":["ALL"]}}`},
-		{"UsernsMode empty (inherit daemon default)", `{"Image":"nginx","HostConfig":{"UsernsMode":""}}`},
-		{"UsernsMode named remap", `{"Image":"nginx","HostConfig":{"UsernsMode":"default"}}`},
-		{"ContainerIDFile empty", `{"Image":"nginx","HostConfig":{"ContainerIDFile":""}}`},
-		{
-			"CPU/memory/IO/pid resource-limit family",
-			`{"Image":"nginx","HostConfig":{"CpuPeriod":100000,"CpuQuota":50000,"CpuRealtimePeriod":1000000,"CpuRealtimeRuntime":950000,"CpusetCpus":"0-1","CpusetMems":"0","BlkioWeight":500,"KernelMemory":0,"KernelMemoryTCP":0,"MemoryReservation":1048576,"MemorySwappiness":60,"OomKillDisable":false,"OomScoreAdj":0,"PidsLimit":100,"Ulimits":[{"Name":"nofile","Soft":1024,"Hard":2048}],"StorageOpt":{"size":"10G"},"ShmSize":67108864,"CPUCount":0,"CPUPercent":0,"IOMaximumIOps":0,"IOMaximumBandwidth":0}}`,
-		},
-		{"CgroupnsMode private (Docker default since 20.10)", `{"Image":"nginx","HostConfig":{"CgroupnsMode":"private"}}`},
-		{"CgroupnsMode empty (inherit daemon default)", `{"Image":"nginx","HostConfig":{"CgroupnsMode":""}}`},
-		{"Tmpfs (container-internal only)", `{"Image":"nginx","HostConfig":{"Tmpfs":{"/tmp":"rw,noexec,nosuid,size=100m"}}}`},
-		{"MaskedPaths/ReadonlyPaths (restriction-only)", `{"Image":"nginx","HostConfig":{"MaskedPaths":["/proc/kcore"],"ReadonlyPaths":["/proc/sys"]}}`},
-		{"ConsoleSize/Annotations (cosmetic)", `{"Image":"nginx","HostConfig":{"ConsoleSize":[24,80],"Annotations":{"note":"x"}}}`},
-		{"Links/PublishAllPorts/DnsOptions (networking convenience)", `{"Image":"nginx","HostConfig":{"Links":["db:db"],"PublishAllPorts":false,"DnsOptions":["timeout:1"]}}`},
-		{"Isolation default (Windows-only platform selector)", `{"Image":"nginx","HostConfig":{"Isolation":"default"}}`},
-		{"Isolation hyperv", `{"Image":"nginx","HostConfig":{"Isolation":"hyperv"}}`},
-		{"Isolation process", `{"Image":"nginx","HostConfig":{"Isolation":"process"}}`},
-		{"PidMode empty (default, own namespace)", `{"Image":"nginx","HostConfig":{"PidMode":""}}`},
-		{"UTSMode empty (default, own namespace)", `{"Image":"nginx","HostConfig":{"UTSMode":""}}`},
-		{"IpcMode empty (default)", `{"Image":"nginx","HostConfig":{"IpcMode":""}}`},
-		{"IpcMode shareable", `{"Image":"nginx","HostConfig":{"IpcMode":"shareable"}}`},
-		{"IpcMode private", `{"Image":"nginx","HostConfig":{"IpcMode":"private"}}`},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.True(t, f.Allow("POST", "/containers/create", []byte(tc.body)))
-		})
-	}
-}
-
-// TestFilter_Allow_ContainersCreate_VolumesFrom_AllowedWhenSourceConfigured
-// mirrors backend/internal/orthrus/muzzle_test.go's copy of the same name.
-func TestFilter_Allow_ContainersCreate_VolumesFrom_AllowedWhenSourceConfigured(t *testing.T) {
-	cases := []struct {
-		name string
-		body string
-	}{
-		{"exact name match", `{"Image":"nginx","HostConfig":{"VolumesFrom":["public-config"]}}`},
-		{"name with :ro mode suffix stripped before comparison", `{"Image":"nginx","HostConfig":{"VolumesFrom":["public-config:ro"]}}`},
-		{"multiple sources, all configured", `{"Image":"nginx","HostConfig":{"VolumesFrom":["public-config","shared-media"]}}`},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			f := muzzle.New(true, []string{"public-config", "shared-media"})
-			assert.True(t, f.Allow("POST", "/containers/create", []byte(tc.body)))
-		})
-	}
-}
-
-// TestFilter_Allow_ContainersCreate_VolumesFrom_RejectedWhenSourceNotConfigured
-// mirrors backend/internal/orthrus/muzzle_test.go's copy of the same name.
-func TestFilter_Allow_ContainersCreate_VolumesFrom_RejectedWhenSourceNotConfigured(t *testing.T) {
-	f := muzzle.New(true, []string{"public-config"})
-	body := `{"Image":"nginx","HostConfig":{"VolumesFrom":["not-on-the-allowlist"]}}`
-	assert.False(t, f.Allow("POST", "/containers/create", []byte(body)))
-}
-
-// TestFilter_Allow_ContainersCreate_DangerousBodiesRejected mirrors
-// backend/internal/orthrus/muzzle_test.go's TestMuzzle_ContainersCreate_DangerousBodiesRejected
-// case-for-case, including the local-driver bind-mount-via-volume bypass
-// (VolumeOptions.DriverConfig) that both filters must independently reject.
-func TestFilter_Allow_ContainersCreate_DangerousBodiesRejected(t *testing.T) {
-	f := muzzle.New(true, nil)
-
-	cases := []struct {
-		name string
-		body string
-	}{
-		{"Privileged", `{"Image":"nginx","HostConfig":{"Privileged":true}}`},
-		{"CapAdd", `{"Image":"nginx","HostConfig":{"CapAdd":["SYS_ADMIN"]}}`},
-		{"legacy Binds", `{"Image":"nginx","HostConfig":{"Binds":["/:/host"]}}`},
-		{"NetworkMode host", `{"Image":"nginx","HostConfig":{"NetworkMode":"host"}}`},
-		{"NetworkMode container:*", `{"Image":"nginx","HostConfig":{"NetworkMode":"container:abc"}}`},
-		{"UsernsMode host", `{"Image":"nginx","HostConfig":{"UsernsMode":"host"}}`},
-		{"ContainerIDFile non-empty (arbitrary host file creation)", `{"Image":"nginx","HostConfig":{"ContainerIDFile":"/etc/cron.d/pwn"}}`},
-		{"CgroupnsMode host", `{"Image":"nginx","HostConfig":{"CgroupnsMode":"host"}}`},
-		{"PidMode host", `{"Image":"nginx","HostConfig":{"PidMode":"host"}}`},
-		{"PidMode container:*", `{"Image":"nginx","HostConfig":{"PidMode":"container:abc"}}`},
-		{"UTSMode host", `{"Image":"nginx","HostConfig":{"UTSMode":"host"}}`},
-		{"IpcMode host", `{"Image":"nginx","HostConfig":{"IpcMode":"host"}}`},
-		{"IpcMode container:*", `{"Image":"nginx","HostConfig":{"IpcMode":"container:abc"}}`},
-		{"Runtime", `{"Image":"nginx","HostConfig":{"Runtime":"custom-runtime"}}`},
-		{"VolumeDriver", `{"Image":"nginx","HostConfig":{"VolumeDriver":"custom-driver"}}`},
-		{"VolumesFrom, no source allowlist configured", `{"Image":"nginx","HostConfig":{"VolumesFrom":["other-container"]}}`},
-		{"DeviceRequests", `{"Image":"nginx","HostConfig":{"DeviceRequests":[{"Driver":"nvidia","Count":-1}]}}`},
-		{"bind-type Mounts", `{"Image":"nginx","HostConfig":{"Mounts":[{"Type":"bind","Source":"/etc","Target":"/x"}]}}`},
-		{
-			"local-driver bind-mount-via-volume bypass (VolumeOptions.DriverConfig)",
-			`{"Image":"nginx","HostConfig":{"Mounts":[{"Type":"volume","Source":"fake","Target":"/etc","VolumeOptions":{"DriverConfig":{"Name":"local","Options":{"type":"none","device":"/etc","o":"bind"}}}}]}}`,
-		},
-		{"non-empty Devices", `{"Image":"nginx","HostConfig":{"Devices":[{"PathOnHost":"/dev/sda","PathInContainer":"/dev/sda"}]}}`},
-		{"non-empty Sysctls", `{"Image":"nginx","HostConfig":{"Sysctls":{"net.ipv4.ip_forward":"1"}}}`},
-		{"unrecognized future HostConfig key", `{"Image":"nginx","HostConfig":{"SomeFutureField":true}}`},
-		{"malformed JSON", `{"Image": not valid json`},
-		// The four cases below each isolate one still-untested fail-closed
-		// unmarshal-error branch, distinct from "malformed JSON" above
-		// (which only reaches the outer top-level unmarshal) and distinct
-		// from the DriverConfig-bypass case above (which has a *valid*
-		// VolumeOptions object).
-		{"malformed NetworkMode value (non-string JSON)", `{"Image":"nginx","HostConfig":{"NetworkMode":12345}}`},
-		{"malformed Mounts value (not a JSON array)", `{"Image":"nginx","HostConfig":{"Mounts":"not-an-array"}}`},
-		{"malformed Mounts VolumeOptions (invalid JSON object)", `{"Image":"nginx","HostConfig":{"Mounts":[{"Type":"volume","VolumeOptions":"not-an-object"}]}}`},
-		{"malformed HostConfig itself (not a JSON object)", `{"Image":"nginx","HostConfig":"not-an-object"}`},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.False(t, f.Allow("POST", "/containers/create", []byte(tc.body)))
-		})
-	}
-}
-
-// TestFilter_Allow_ContainersCreate_EmptyBodyAllowed locks in
-// validateContainerCreateBody's one deliberately *permissive* branch: an
-// empty /containers/create body is allowed through rather than rejected as
-// malformed. Given its own named test, not folded into the "safe body
-// allowed" table, precisely because it documents an intentional
-// security-relevant default rather than an incidental pass-through.
-func TestFilter_Allow_ContainersCreate_EmptyBodyAllowed(t *testing.T) {
-	f := muzzle.New(true, nil)
-
-	assert.True(t, f.Allow("POST", "/containers/create", nil))
-	assert.True(t, f.Allow("POST", "/containers/create", []byte{}))
-}
-
-// --- Shared anti-drift corpus (Section 3.3.5 of the Orthrus write-mode spec) ---
+// --- Shared anti-drift corpus ---
 //
 // Loads the exact same testdata/muzzle_corpus.json file that
 // backend/internal/orthrus/muzzle_test.go's TestMuzzle_SharedCorpus loads,
 // via a relative path across the module boundary — agent/ is a separate Go
 // module but plain file I/O in a test isn't constrained by Go import
 // resolution, so a single JSON fixture can be the source of truth for both
-// independently-maintained allowlist implementations without duplicating
-// the data itself (only the enforcement logic is duplicated, by design —
-// see the doc comments on hostConfigAllowedKeys etc. in muzzle.go).
+// independently-maintained allowlist implementations. Now that write mode
+// grants full access unconditionally, the corpus's remaining value is
+// proving the read-only path-matching logic (still complex/divergence-prone)
+// and the write-mode/read-mode boundary agree between both implementations.
 
 type muzzleCorpusCase struct {
-	Description               string          `json:"description"`
-	Method                    string          `json:"method"`
-	Path                      string          `json:"path"`
-	Body                      json.RawMessage `json:"body,omitempty"`
-	AgentWriteEnabled         bool            `json:"agent_write_enabled"`
-	AllowedVolumesFromSources []string        `json:"allowed_volumes_from_sources,omitempty"`
-	WantAllowed               bool            `json:"want_allowed"`
+	Description       string          `json:"description"`
+	Method            string          `json:"method"`
+	Path              string          `json:"path"`
+	Body              json.RawMessage `json:"body,omitempty"`
+	AgentWriteEnabled bool            `json:"agent_write_enabled"`
+	WantAllowed       bool            `json:"want_allowed"`
 }
 
 func loadMuzzleCorpus(t *testing.T) []muzzleCorpusCase {
@@ -893,7 +661,7 @@ func TestFilter_SharedCorpus(t *testing.T) {
 	cases := loadMuzzleCorpus(t)
 	for _, tc := range cases {
 		t.Run(tc.Description, func(t *testing.T) {
-			f := muzzle.New(tc.AgentWriteEnabled, tc.AllowedVolumesFromSources)
+			f := muzzle.New(tc.AgentWriteEnabled)
 
 			// The corpus's Path field may include a query string (e.g.
 			// "/images/create?fromImage=nginx&tag=latest"), which Allow
@@ -904,7 +672,7 @@ func TestFilter_SharedCorpus(t *testing.T) {
 				p = p[:idx]
 			}
 
-			got := f.Allow(tc.Method, p, tc.Body)
+			got := f.Allow(tc.Method, p)
 			assert.Equal(t, tc.WantAllowed, got)
 		})
 	}

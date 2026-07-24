@@ -1,12 +1,16 @@
 // Command check_muzzle_allowlist_parity is a structural drift guard for GH
-// #1161: it fails if the Docker API allowlist declarations in
+// #1161: it fails if the read-only Docker API allowlist declarations in
 // backend/internal/orthrus/muzzle.go and agent/muzzle/muzzle.go diverge.
 //
-// The two files intentionally duplicate their allowlist policy rather than
-// sharing an importable package (agent/ is a separate, minimal Go module
-// that does not import backend/ packages -- see the "Design decision"
-// section of docs/plans/current_spec.md for the full rationale). The
-// existing shared behavioral corpus
+// Write-mode traffic is no longer allowlist-gated on either side (see the
+// Muzzle/Filter doc comments in the two muzzle.go files for the full
+// rationale: write mode is now a full-access, operator-consent trust
+// model), so this checker's remaining scope is the read-only path-matching
+// declarations both filters still share and still need to agree on.
+//
+// The two files intentionally duplicate this policy rather than sharing an
+// importable package (agent/ is a separate, minimal Go module that does not
+// import backend/ packages). The existing shared behavioral corpus
 // (backend/internal/orthrus/testdata/muzzle_corpus.json) proves outcome
 // parity for the specific inputs it contains, but cannot catch "a new
 // pattern was added to one file's declaration and nobody thought to add a
@@ -17,25 +21,13 @@
 // test input.
 //
 // Usage: go run scripts/ci/check_muzzle_allowlist_parity.go
-// Exits 0 if all eight paired declarations match; exits 1 and prints every
+// Exits 0 if all four paired declarations match; exits 1 and prints every
 // mismatch (not just the first) otherwise.
-//
-// Scope, and its explicit limitation: this checker diffs eight *data*
-// declarations -- the version-prefix regex source and seven
-// allowlist/body-size-constant declarations. It deliberately does NOT
-// attempt to diff the *logic* of validateNetworkModeValue,
-// validateMountsValue, or validateContainerCreateBody -- AST-diffing
-// function bodies for semantic (not just textual) equivalence is a much
-// harder problem than diffing data-literal declarations. Those functions
-// remain covered by the shared behavioral corpus and by each file's doc
-// comments cross-referencing the other. This is an accepted, documented
-// limitation, not a silent gap.
 package main
 
 import (
 	"fmt"
 	"go/ast"
-	"go/constant"
 	"go/parser"
 	"go/token"
 	"os"
@@ -49,25 +41,6 @@ const (
 	agentMuzzlePath   = "agent/muzzle/muzzle.go"
 )
 
-// httpMethodConstants resolves the small, fixed set of net/http method
-// constants used as struct-literal field values in allowedWritePatterns
-// (e.g. http.MethodPost) to their string value, without needing a full
-// go/types-based type-checker (which would require resolving the net/http
-// package's export data). Both muzzle.go files only ever use these
-// constants for this purpose, so a fixed lookup table is sufficient and
-// keeps this tool free of any dependency beyond the Go standard library.
-var httpMethodConstants = map[string]string{
-	"MethodGet":     "GET",
-	"MethodHead":    "HEAD",
-	"MethodPost":    "POST",
-	"MethodPut":     "PUT",
-	"MethodPatch":   "PATCH",
-	"MethodDelete":  "DELETE",
-	"MethodConnect": "CONNECT",
-	"MethodOptions": "OPTIONS",
-	"MethodTrace":   "TRACE",
-}
-
 // declKind identifies the AST shape a target declaration's value takes, so
 // extractDecl knows which extraction routine to apply.
 type declKind int
@@ -76,8 +49,7 @@ const (
 	kindRegexCall  declKind = iota // versionPrefixRe: regexp.MustCompile("...")
 	kindStringSet                  // map[string]struct{}{"a": {}, ...}
 	kindStringList                 // []string{"a", "b", ...}
-	kindPairList                   // []struct{ prefix, suffix string }{...} or []struct{ method, pattern string }{...}
-	kindIntConst                   // a constant integer expression
+	kindPairList                   // []struct{ prefix, suffix string }{...}
 )
 
 // target describes one of the eight declarations this checker compares.
@@ -95,10 +67,6 @@ var targets = []target{
 	{name: "allowedDockerPaths", kind: kindStringSet},
 	{name: "allowedDockerPatterns", kind: kindStringList},
 	{name: "allowedDockerPrefixSuffixPatterns", kind: kindPairList, fieldA: "prefix", fieldB: "suffix"},
-	{name: "allowedWriteExactPaths", kind: kindStringSet},
-	{name: "allowedWritePatterns", kind: kindPairList, fieldA: "method", fieldB: "pattern"},
-	{name: "hostConfigAllowedKeys", kind: kindStringSet},
-	{name: "maxContainerCreateBodyBytes", kind: kindIntConst},
 }
 
 func main() {
@@ -107,7 +75,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	fmt.Println("muzzle allowlist parity check passed: all 8 paired declarations match.")
+	fmt.Println("muzzle allowlist parity check passed: all 4 paired declarations match.")
 }
 
 func run() error {
@@ -208,20 +176,6 @@ func compareDecl(tgt target, backendExpr, agentExpr ast.Expr) (string, error) {
 		}
 		return "", nil
 
-	case kindIntConst:
-		backendVal, err := evalConstInt(backendExpr)
-		if err != nil {
-			return "", fmt.Errorf("%s (%s): %w", backendMuzzlePath, tgt.name, err)
-		}
-		agentVal, err := evalConstInt(agentExpr)
-		if err != nil {
-			return "", fmt.Errorf("%s (%s): %w", agentMuzzlePath, tgt.name, err)
-		}
-		if backendVal != agentVal {
-			return fmt.Sprintf("%s: backend=%d agent=%d", tgt.name, backendVal, agentVal), nil
-		}
-		return "", nil
-
 	case kindStringSet:
 		backendVals, err := extractStringSet(backendExpr)
 		if err != nil {
@@ -276,55 +230,6 @@ func extractRegexSource(e ast.Expr) (string, error) {
 	return stringLiteralValue(call.Args[0])
 }
 
-// evalConstInt evaluates a constant integer expression (literals combined
-// with +, -, *, /, parens, and unary minus -- sufficient for the one
-// int-constant declaration this tool compares,
-// `const maxContainerCreateBodyBytes = 64 * 1024`) using go/constant, the
-// same arbitrary-precision constant-arithmetic package the Go compiler
-// itself uses.
-func evalConstInt(e ast.Expr) (int64, error) {
-	val, err := evalConstValue(e)
-	if err != nil {
-		return 0, err
-	}
-	i, ok := constant.Int64Val(val)
-	if !ok {
-		return 0, fmt.Errorf("constant expression %s is not representable as an int64", exprDescription(e))
-	}
-	return i, nil
-}
-
-func evalConstValue(e ast.Expr) (constant.Value, error) {
-	switch v := e.(type) {
-	case *ast.BasicLit:
-		val := constant.MakeFromLiteral(v.Value, v.Kind, 0)
-		if val.Kind() == constant.Unknown {
-			return nil, fmt.Errorf("could not parse literal %q", v.Value)
-		}
-		return val, nil
-	case *ast.ParenExpr:
-		return evalConstValue(v.X)
-	case *ast.UnaryExpr:
-		x, err := evalConstValue(v.X)
-		if err != nil {
-			return nil, err
-		}
-		return constant.UnaryOp(v.Op, x, 0), nil
-	case *ast.BinaryExpr:
-		x, err := evalConstValue(v.X)
-		if err != nil {
-			return nil, err
-		}
-		y, err := evalConstValue(v.Y)
-		if err != nil {
-			return nil, err
-		}
-		return constant.BinaryOp(x, v.Op, y), nil
-	default:
-		return nil, fmt.Errorf("expected a constant integer expression, got %T (%s)", e, exprDescription(e))
-	}
-}
-
 // extractStringSet extracts the string keys of a `map[string]struct{}{...}`
 // composite literal.
 func extractStringSet(e ast.Expr) ([]string, error) {
@@ -370,9 +275,7 @@ func extractStringList(e ast.Expr) ([]string, error) {
 
 // extractPairList extracts a `[]struct{ fieldA, fieldB string }{{fieldA:
 // ..., fieldB: ...}, ...}` composite literal into "valueA valueB" strings,
-// one per element, resolving net/http method-constant selector expressions
-// (e.g. http.MethodPost) via httpMethodConstants as well as plain string
-// literals.
+// one per element.
 func extractPairList(e ast.Expr, fieldA, fieldB string) ([]string, error) {
 	comp, ok := e.(*ast.CompositeLit)
 	if !ok {
@@ -413,33 +316,20 @@ func extractPairList(e ast.Expr, fieldA, fieldB string) ([]string, error) {
 	return out, nil
 }
 
-// stringLiteralValue resolves e to a string value, handling both plain
-// string literals and the fixed set of net/http method-constant selector
-// expressions used in allowedWritePatterns.
+// stringLiteralValue resolves e to a plain string literal's value.
 func stringLiteralValue(e ast.Expr) (string, error) {
-	switch v := e.(type) {
-	case *ast.BasicLit:
-		if v.Kind != token.STRING {
-			return "", fmt.Errorf("expected a string literal, got a %s literal", v.Kind)
-		}
-		s, err := strconv.Unquote(v.Value)
-		if err != nil {
-			return "", fmt.Errorf("unquote %q: %w", v.Value, err)
-		}
-		return s, nil
-	case *ast.SelectorExpr:
-		pkgIdent, ok := v.X.(*ast.Ident)
-		if !ok || pkgIdent.Name != "http" {
-			return "", fmt.Errorf("unsupported selector expression %s", exprDescription(e))
-		}
-		val, ok := httpMethodConstants[v.Sel.Name]
-		if !ok {
-			return "", fmt.Errorf("unrecognized net/http method constant http.%s", v.Sel.Name)
-		}
-		return val, nil
-	default:
-		return "", fmt.Errorf("expected a string literal or http.MethodXxx constant, got %T", e)
+	v, ok := e.(*ast.BasicLit)
+	if !ok {
+		return "", fmt.Errorf("expected a string literal, got %T", e)
 	}
+	if v.Kind != token.STRING {
+		return "", fmt.Errorf("expected a string literal, got a %s literal", v.Kind)
+	}
+	s, err := strconv.Unquote(v.Value)
+	if err != nil {
+		return "", fmt.Errorf("unquote %q: %w", v.Value, err)
+	}
+	return s, nil
 }
 
 // exprDescription renders a short, best-effort description of an AST node

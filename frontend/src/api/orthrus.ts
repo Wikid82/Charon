@@ -18,13 +18,12 @@ export interface OrthrusAgent {
   resolved_address?: string;
   // External Docker proxy port (0 = disabled, 1024–65535 = enabled)
   external_proxy_port: number;
-  // Opt-in write access to a fixed set of Docker write endpoints through
-  // this agent's External Docker Proxy. false = read-only (default).
+  // Opt-in full, unrestricted Docker Engine API access through this agent's
+  // External Docker Proxy — every endpoint, every request body, no
+  // allowlist. false = read-only (default). This is a deliberate operator
+  // trust decision, gated behind an explicit typed-confirmation UI step
+  // (see AgentWriteModeDialog) — not something the app polices further.
   write_enabled: boolean;
-  // Operator-configured allowlist of container names/IDs this agent may
-  // reference via HostConfig.VolumesFrom when creating a container. Empty
-  // (the default) means no VolumesFrom value is accepted at all.
-  allowed_volumes_from_sources: string[];
 }
 
 export interface PatchAgentRequest {
@@ -34,7 +33,6 @@ export interface PatchAgentRequest {
   resolved_address?: string | null;
   external_proxy_port?: number;
   write_enabled?: boolean;
-  allowed_volumes_from_sources?: string[];
 }
 
 export interface ExternalProxyStatus {

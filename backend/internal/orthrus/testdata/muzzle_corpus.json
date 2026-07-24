@@ -28,13 +28,6 @@
     "want_allowed": true
   },
   {
-    "description": "read-only allowlist regression: /exec never on any allowlist",
-    "method": "GET",
-    "path": "/exec/abc123/start",
-    "agent_write_enabled": true,
-    "want_allowed": false
-  },
-  {
     "description": "write endpoint blocked when write mode off: POST /containers/create",
     "method": "POST",
     "path": "/containers/create",
@@ -43,183 +36,12 @@
     "want_allowed": false
   },
   {
-    "description": "write endpoint allowed when write mode on: POST /containers/create, safe body",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": { "Image": "nginx:latest", "Env": ["FOO=bar"] },
-    "agent_write_enabled": true,
-    "want_allowed": true
-  },
-  {
-    "description": "write endpoint allowed: POST /containers/create, safe HostConfig",
+    "description": "write mode allowed: POST /containers/create with a HostConfig body that was rejected outright before the full-access redesign (Privileged + CapAdd + NetworkMode host, combined)",
     "method": "POST",
     "path": "/containers/create",
     "body": {
       "Image": "nginx:latest",
-      "HostConfig": {
-        "PortBindings": { "80/tcp": [{ "HostPort": "8080" }] },
-        "RestartPolicy": { "Name": "unless-stopped" },
-        "NetworkMode": "my-bridge-network"
-      }
-    },
-    "agent_write_enabled": true,
-    "want_allowed": true
-  },
-  {
-    "description": "write endpoint allowed: POST /containers/create, safe volume mount",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": {
-      "Image": "nginx:latest",
-      "HostConfig": {
-        "Mounts": [{ "Type": "volume", "Source": "data", "Target": "/data" }]
-      }
-    },
-    "agent_write_enabled": true,
-    "want_allowed": true
-  },
-  {
-    "description": "write endpoint allowed: POST /containers/create, CapDrop (reduces privilege, never grants host escape)",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": {
-      "Image": "nginx:latest",
-      "HostConfig": { "CapDrop": ["ALL"] }
-    },
-    "agent_write_enabled": true,
-    "want_allowed": true
-  },
-  {
-    "description": "write endpoint allowed: POST /containers/create, UsernsMode empty (inherit daemon userns-remap default)",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": {
-      "Image": "nginx:latest",
-      "HostConfig": { "UsernsMode": "" }
-    },
-    "agent_write_enabled": true,
-    "want_allowed": true
-  },
-  {
-    "description": "write endpoint allowed: POST /containers/create, ContainerIDFile empty",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": {
-      "Image": "nginx:latest",
-      "HostConfig": { "ContainerIDFile": "" }
-    },
-    "agent_write_enabled": true,
-    "want_allowed": true
-  },
-  {
-    "description": "write endpoint allowed: POST /containers/create, CPU/memory/IO/pid resource-limit fields",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": {
-      "Image": "nginx:latest",
-      "HostConfig": {
-        "CpuPeriod": 100000,
-        "CpuQuota": 50000,
-        "CpusetCpus": "0-1",
-        "MemoryReservation": 1048576,
-        "PidsLimit": 100,
-        "Ulimits": [{ "Name": "nofile", "Soft": 1024, "Hard": 2048 }],
-        "ShmSize": 67108864,
-        "CPUCount": 0,
-        "CPUPercent": 0,
-        "IOMaximumIOps": 0,
-        "IOMaximumBandwidth": 0
-      }
-    },
-    "agent_write_enabled": true,
-    "want_allowed": true
-  },
-  {
-    "description": "write endpoint allowed: POST /containers/create, CgroupnsMode private (Docker default since 20.10)",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": {
-      "Image": "nginx:latest",
-      "HostConfig": { "CgroupnsMode": "private" }
-    },
-    "agent_write_enabled": true,
-    "want_allowed": true
-  },
-  {
-    "description": "write endpoint allowed: POST /containers/create, CgroupnsMode empty (inherit daemon default)",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": {
-      "Image": "nginx:latest",
-      "HostConfig": { "CgroupnsMode": "" }
-    },
-    "agent_write_enabled": true,
-    "want_allowed": true
-  },
-  {
-    "description": "write endpoint allowed: POST /containers/create, Isolation (Windows-only platform selector, no host-escape implication)",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": {
-      "Image": "nginx:latest",
-      "HostConfig": { "Isolation": "hyperv" }
-    },
-    "agent_write_enabled": true,
-    "want_allowed": true
-  },
-  {
-    "description": "write endpoint allowed: POST /containers/create, PidMode/UTSMode/IpcMode all empty (default namespaces)",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": {
-      "Image": "nginx:latest",
-      "HostConfig": { "PidMode": "", "UTSMode": "", "IpcMode": "" }
-    },
-    "agent_write_enabled": true,
-    "want_allowed": true
-  },
-  {
-    "description": "write endpoint allowed: POST /containers/create, IpcMode shareable/private",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": {
-      "Image": "nginx:latest",
-      "HostConfig": { "IpcMode": "shareable" }
-    },
-    "agent_write_enabled": true,
-    "want_allowed": true
-  },
-  {
-    "description": "dangerous body rejected even with write mode on: PidMode host (full host process visibility/signal/ptrace access)",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": { "Image": "nginx", "HostConfig": { "PidMode": "host" } },
-    "agent_write_enabled": true,
-    "want_allowed": false
-  },
-  {
-    "description": "dangerous body rejected even with write mode on: UTSMode host",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": { "Image": "nginx", "HostConfig": { "UTSMode": "host" } },
-    "agent_write_enabled": true,
-    "want_allowed": false
-  },
-  {
-    "description": "dangerous body rejected even with write mode on: IpcMode host",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": { "Image": "nginx", "HostConfig": { "IpcMode": "host" } },
-    "agent_write_enabled": true,
-    "want_allowed": false
-  },
-  {
-    "description": "write endpoint allowed: POST /containers/create, Tmpfs (container-internal only, not a host path)",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": {
-      "Image": "nginx:latest",
-      "HostConfig": { "Tmpfs": { "/tmp": "rw,noexec,nosuid,size=100m" } }
+      "HostConfig": { "Privileged": true, "CapAdd": ["SYS_ADMIN"], "NetworkMode": "host" }
     },
     "agent_write_enabled": true,
     "want_allowed": true
@@ -232,14 +54,14 @@
     "want_allowed": false
   },
   {
-    "description": "write endpoint allowed when write mode on: POST /images/create",
+    "description": "write mode allowed: POST /images/create",
     "method": "POST",
     "path": "/images/create?fromImage=nginx&tag=latest",
     "agent_write_enabled": true,
     "want_allowed": true
   },
   {
-    "description": "write endpoint allowed when write mode on: POST /containers/{id}/start",
+    "description": "write mode allowed: POST /containers/{id}/start",
     "method": "POST",
     "path": "/containers/abc123/start",
     "agent_write_enabled": true,
@@ -253,21 +75,7 @@
     "want_allowed": false
   },
   {
-    "description": "write endpoint allowed when write mode on: POST /containers/{id}/stop",
-    "method": "POST",
-    "path": "/containers/abc123/stop",
-    "agent_write_enabled": true,
-    "want_allowed": true
-  },
-  {
-    "description": "write endpoint allowed when write mode on: POST /containers/{id}/restart",
-    "method": "POST",
-    "path": "/containers/abc123/restart",
-    "agent_write_enabled": true,
-    "want_allowed": true
-  },
-  {
-    "description": "write endpoint allowed when write mode on: POST /containers/{id}/rename",
+    "description": "write mode allowed: POST /containers/{id}/rename",
     "method": "POST",
     "path": "/containers/abc123/rename?name=myapp_old",
     "agent_write_enabled": true,
@@ -281,7 +89,7 @@
     "want_allowed": false
   },
   {
-    "description": "write endpoint allowed when write mode on: DELETE /containers/{id}",
+    "description": "write mode allowed: DELETE /containers/{id}",
     "method": "DELETE",
     "path": "/containers/abc123",
     "agent_write_enabled": true,
@@ -295,187 +103,31 @@
     "want_allowed": false
   },
   {
-    "description": "never allowed under any configuration: /containers/{id}/exec",
+    "description": "write mode allowed: /containers/{id}/exec (permanently blocked under the old fixed-endpoint model; full access under the current operator-consent model)",
     "method": "POST",
     "path": "/containers/abc123/exec",
     "agent_write_enabled": true,
-    "want_allowed": false
-  },
-  {
-    "description": "never allowed under any configuration: image delete",
-    "method": "DELETE",
-    "path": "/images/nginx",
-    "agent_write_enabled": true,
-    "want_allowed": false
-  },
-  {
-    "description": "never allowed under any configuration: system prune",
-    "method": "POST",
-    "path": "/system/prune",
-    "agent_write_enabled": true,
-    "want_allowed": false
-  },
-  {
-    "description": "dangerous body rejected even with write mode on: Privileged",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": { "Image": "nginx", "HostConfig": { "Privileged": true } },
-    "agent_write_enabled": true,
-    "want_allowed": false
-  },
-  {
-    "description": "dangerous body rejected even with write mode on: CapAdd",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": { "Image": "nginx", "HostConfig": { "CapAdd": ["SYS_ADMIN"] } },
-    "agent_write_enabled": true,
-    "want_allowed": false
-  },
-  {
-    "description": "dangerous body rejected even with write mode on: legacy Binds",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": { "Image": "nginx", "HostConfig": { "Binds": ["/:/host"] } },
-    "agent_write_enabled": true,
-    "want_allowed": false
-  },
-  {
-    "description": "dangerous body rejected even with write mode on: NetworkMode host",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": { "Image": "nginx", "HostConfig": { "NetworkMode": "host" } },
-    "agent_write_enabled": true,
-    "want_allowed": false
-  },
-  {
-    "description": "dangerous body rejected even with write mode on: NetworkMode container:<id>",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": { "Image": "nginx", "HostConfig": { "NetworkMode": "container:abc123" } },
-    "agent_write_enabled": true,
-    "want_allowed": false
-  },
-  {
-    "description": "dangerous body rejected even with write mode on: UsernsMode host",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": { "Image": "nginx", "HostConfig": { "UsernsMode": "host" } },
-    "agent_write_enabled": true,
-    "want_allowed": false
-  },
-  {
-    "description": "dangerous body rejected even with write mode on: ContainerIDFile non-empty (arbitrary host file creation)",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": { "Image": "nginx", "HostConfig": { "ContainerIDFile": "/etc/cron.d/pwn" } },
-    "agent_write_enabled": true,
-    "want_allowed": false
-  },
-  {
-    "description": "dangerous body rejected even with write mode on: CgroupnsMode host",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": { "Image": "nginx", "HostConfig": { "CgroupnsMode": "host" } },
-    "agent_write_enabled": true,
-    "want_allowed": false
-  },
-  {
-    "description": "write endpoint allowed: POST /containers/create, VolumesFrom source present in agent's configured allowlist",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": { "Image": "nginx:latest", "HostConfig": { "VolumesFrom": ["public-config"] } },
-    "agent_write_enabled": true,
-    "allowed_volumes_from_sources": ["public-config", "shared-media"],
     "want_allowed": true
   },
   {
-    "description": "dangerous body rejected even with write mode on: VolumesFrom, no source allowlist configured for the agent",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": { "Image": "nginx", "HostConfig": { "VolumesFrom": ["other-container"] } },
+    "description": "write mode allowed: image delete (permanently blocked under the old fixed-endpoint model)",
+    "method": "DELETE",
+    "path": "/images/nginx",
     "agent_write_enabled": true,
-    "want_allowed": false
+    "want_allowed": true
   },
   {
-    "description": "dangerous body rejected even with write mode on: VolumesFrom source not present in agent's configured allowlist",
+    "description": "write mode allowed: system prune (permanently blocked under the old fixed-endpoint model)",
     "method": "POST",
-    "path": "/containers/create",
-    "body": { "Image": "nginx", "HostConfig": { "VolumesFrom": ["not-on-the-allowlist"] } },
+    "path": "/system/prune",
     "agent_write_enabled": true,
-    "allowed_volumes_from_sources": ["public-config"],
-    "want_allowed": false
+    "want_allowed": true
   },
   {
-    "description": "dangerous body rejected even with write mode on: Runtime (arbitrary OCI runtime selection)",
+    "description": "read-only mode still blocks /exec, image delete, and system prune",
     "method": "POST",
-    "path": "/containers/create",
-    "body": { "Image": "nginx", "HostConfig": { "Runtime": "custom-runtime" } },
-    "agent_write_enabled": true,
-    "want_allowed": false
-  },
-  {
-    "description": "dangerous body rejected even with write mode on: bind-type Mounts entry",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": {
-      "Image": "nginx",
-      "HostConfig": {
-        "Mounts": [{ "Type": "bind", "Source": "/etc", "Target": "/host-etc" }]
-      }
-    },
-    "agent_write_enabled": true,
-    "want_allowed": false
-  },
-  {
-    "description": "dangerous body rejected even with write mode on: local-driver bind-mount-via-volume bypass (VolumeOptions.DriverConfig) — the specific bypass found and closed during Supervisor review",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": {
-      "Image": "nginx",
-      "HostConfig": {
-        "Mounts": [
-          {
-            "Type": "volume",
-            "Source": "fake-volume",
-            "Target": "/host-etc",
-            "VolumeOptions": {
-              "DriverConfig": {
-                "Name": "local",
-                "Options": { "type": "none", "device": "/etc", "o": "bind" }
-              }
-            }
-          }
-        ]
-      }
-    },
-    "agent_write_enabled": true,
-    "want_allowed": false
-  },
-  {
-    "description": "dangerous body rejected even with write mode on: non-empty Devices",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": {
-      "Image": "nginx",
-      "HostConfig": { "Devices": [{ "PathOnHost": "/dev/sda", "PathInContainer": "/dev/sda" }] }
-    },
-    "agent_write_enabled": true,
-    "want_allowed": false
-  },
-  {
-    "description": "dangerous body rejected even with write mode on: non-empty Sysctls",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": { "Image": "nginx", "HostConfig": { "Sysctls": { "net.ipv4.ip_forward": "1" } } },
-    "agent_write_enabled": true,
-    "want_allowed": false
-  },
-  {
-    "description": "dangerous body rejected even with write mode on: unrecognized future HostConfig key (fail-closed against unknown fields)",
-    "method": "POST",
-    "path": "/containers/create",
-    "body": { "Image": "nginx", "HostConfig": { "SomeFutureDockerAPIField": true } },
-    "agent_write_enabled": true,
+    "path": "/exec/abc123/start",
+    "agent_write_enabled": false,
     "want_allowed": false
   },
   {
@@ -497,13 +149,6 @@
     "method": "HEAD",
     "path": "/vBOGUS/_ping",
     "agent_write_enabled": false,
-    "want_allowed": false
-  },
-  {
-    "description": "non-numeric fake version prefix reaching a write endpoint",
-    "method": "POST",
-    "path": "/vFOO/containers/abc/start",
-    "agent_write_enabled": true,
     "want_allowed": false
   },
   {

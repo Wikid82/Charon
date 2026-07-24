@@ -50,7 +50,7 @@ func TestNewAgentSession_IsAlive(t *testing.T) {
 	serverConn, done := testWSPair(t)
 	defer done()
 
-	sess, err := NewAgentSession("uuid-1", "agent-1", false, nil, nil, serverConn)
+	sess, err := NewAgentSession("uuid-1", "agent-1", false, nil, serverConn)
 	require.NoError(t, err)
 	defer func() { _ = sess.Close() }()
 
@@ -61,7 +61,7 @@ func TestAgentSession_GetProxyAddr_NoPort(t *testing.T) {
 	serverConn, done := testWSPair(t)
 	defer done()
 
-	sess, err := NewAgentSession("uuid-1", "agent-1", false, nil, nil, serverConn)
+	sess, err := NewAgentSession("uuid-1", "agent-1", false, nil, serverConn)
 	require.NoError(t, err)
 	defer func() { _ = sess.Close() }()
 
@@ -72,7 +72,7 @@ func TestAgentSession_Close_SetsNotAlive(t *testing.T) {
 	serverConn, done := testWSPair(t)
 	defer done()
 
-	sess, err := NewAgentSession("uuid-1", "agent-1", false, nil, nil, serverConn)
+	sess, err := NewAgentSession("uuid-1", "agent-1", false, nil, serverConn)
 	require.NoError(t, err)
 
 	require.NoError(t, sess.Close())
@@ -83,7 +83,7 @@ func TestStartExternalProxy_TransportDisablesKeepAlives(t *testing.T) {
 	serverConn, done := testWSPair(t)
 	defer done()
 
-	sess, err := NewAgentSession("keepalive-uuid", "keepalive-agent", false, nil, nil, serverConn)
+	sess, err := NewAgentSession("keepalive-uuid", "keepalive-agent", false, nil, serverConn)
 	require.NoError(t, err)
 	defer func() { _ = sess.Close() }()
 

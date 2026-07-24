@@ -36,7 +36,7 @@ func TestMuzzle_AllowlistedGET_Passthrough(t *testing.T) {
 		"/system/df",
 	}
 
-	m := NewMuzzle(passthroughHandler(), false, nil, nil, "", nil)
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	for _, path := range allowed {
 		t.Run(path, func(t *testing.T) {
@@ -61,7 +61,7 @@ func TestMuzzle_VersionPrefixStripped_Passthrough(t *testing.T) {
 		"/v1.47/system/df",
 	}
 
-	m := NewMuzzle(passthroughHandler(), false, nil, nil, "", nil)
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	for _, path := range paths {
 		t.Run(path, func(t *testing.T) {
@@ -129,7 +129,7 @@ func TestNormalizeDockerPath(t *testing.T) {
 }
 
 func TestMuzzle_POST_Blocked(t *testing.T) {
-	m := NewMuzzle(passthroughHandler(), false, nil, nil, "", nil)
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	paths := []string{
 		"/containers/create",
@@ -148,7 +148,7 @@ func TestMuzzle_POST_Blocked(t *testing.T) {
 }
 
 func TestMuzzle_DELETE_Blocked(t *testing.T) {
-	m := NewMuzzle(passthroughHandler(), false, nil, nil, "", nil)
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 	req := httptest.NewRequest(http.MethodDelete, "/containers/abc123", http.NoBody)
 	rr := httptest.NewRecorder()
 	m.ServeHTTP(rr, req)
@@ -156,7 +156,7 @@ func TestMuzzle_DELETE_Blocked(t *testing.T) {
 }
 
 func TestMuzzle_HEAD_Ping_Passthrough(t *testing.T) {
-	m := NewMuzzle(passthroughHandler(), false, nil, nil, "", nil)
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	for _, path := range []string{"/_ping", "/v1.44/_ping"} {
 		t.Run(path, func(t *testing.T) {
@@ -169,7 +169,7 @@ func TestMuzzle_HEAD_Ping_Passthrough(t *testing.T) {
 }
 
 func TestMuzzle_HEAD_NonPing_Blocked(t *testing.T) {
-	m := NewMuzzle(passthroughHandler(), false, nil, nil, "", nil)
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 	req := httptest.NewRequest(http.MethodHead, "/containers/json", http.NoBody)
 	rr := httptest.NewRecorder()
 	m.ServeHTTP(rr, req)
@@ -197,7 +197,7 @@ func TestMuzzle_DynamicPaths_Passthrough(t *testing.T) {
 		"/v1.44/distribution/alpine/json",
 	}
 
-	m := NewMuzzle(passthroughHandler(), false, nil, nil, "", nil)
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	for _, p := range paths {
 		t.Run(p, func(t *testing.T) {
@@ -223,7 +223,7 @@ func TestMuzzle_UnknownPath_Blocked(t *testing.T) {
 		"/distribution/create",
 	}
 
-	m := NewMuzzle(passthroughHandler(), false, nil, nil, "", nil)
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	for _, path := range paths {
 		t.Run(path, func(t *testing.T) {
@@ -249,7 +249,7 @@ func TestMuzzle_NamespacedImagePaths_Passthrough(t *testing.T) {
 		"registry.example.com/team/project/image",
 	}
 
-	m := NewMuzzle(passthroughHandler(), false, nil, nil, "", nil)
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	for _, prefix := range []string{"/images/", "/distribution/"} {
 		for _, ref := range refs {
@@ -275,9 +275,9 @@ func TestMuzzle_NamespacedImagePaths_Passthrough(t *testing.T) {
 // TestMuzzle_NamespacedImagePaths_NonGET_Blocked confirms the GET-only
 // enforcement (which runs unconditionally before any path match in
 // ServeHTTP) still rejects writes against namespaced image paths now that
-// they pass the allowlist's path check.
+// they pass the allowlist's path check, for a non-write-enabled session.
 func TestMuzzle_NamespacedImagePaths_NonGET_Blocked(t *testing.T) {
-	m := NewMuzzle(passthroughHandler(), false, nil, nil, "", nil)
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	paths := []string{
 		"/images/ghcr.io/org/repo/json",
@@ -294,12 +294,13 @@ func TestMuzzle_NamespacedImagePaths_NonGET_Blocked(t *testing.T) {
 	}
 }
 
-// TestMuzzle_ImageAndDistributionEndpoints_POSTBlocked confirms the two new
+// TestMuzzle_ImageAndDistributionEndpoints_POSTBlocked confirms the two
 // read-only allowlist entries added for update-checker tools do not open a
-// write path: POST to either is still rejected, even though method-checking
-// already happens unconditionally before any path match in ServeHTTP.
+// write path on a non-write-enabled session: POST to either is still
+// rejected, even though method-checking already happens unconditionally
+// before any path match in ServeHTTP.
 func TestMuzzle_ImageAndDistributionEndpoints_POSTBlocked(t *testing.T) {
-	m := NewMuzzle(passthroughHandler(), false, nil, nil, "", nil)
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	paths := []string{
 		"/images/alpine/json",
@@ -316,10 +317,17 @@ func TestMuzzle_ImageAndDistributionEndpoints_POSTBlocked(t *testing.T) {
 	}
 }
 
-// --- Write-mode tests (Section 3.3.3/3.3.4 of the Orthrus write-mode spec) ---
+// --- Write-mode tests ---
+//
+// Write mode is a deliberate full-access operator trust decision (see the
+// Muzzle doc comment in muzzle.go): once an agent has write_enabled, every
+// request is forwarded unconditionally, regardless of endpoint or body
+// content. These tests prove that blanket behavior directly, rather than
+// enumerating a fixed allowed-endpoint list the way earlier revisions of
+// this file did.
 
 func TestMuzzle_WriteEndpoints_BlockedWhenWriteDisabled(t *testing.T) {
-	m := NewMuzzle(passthroughHandler(), false, nil, nil, "", nil)
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	cases := []struct {
 		method string
@@ -344,67 +352,26 @@ func TestMuzzle_WriteEndpoints_BlockedWhenWriteDisabled(t *testing.T) {
 	}
 }
 
-func TestMuzzle_WriteEndpoints_AllowedWhenWriteEnabled(t *testing.T) {
+// TestMuzzle_WriteEnabled_AnyEndpointAllowed proves write mode's full-access
+// behavior: every one of these paths — the six operations write mode
+// originally shipped with, PLUS endpoints that were explicitly excluded
+// forever under the old fixed-endpoint-allowlist design (exec, build,
+// prune, auth, commit, image delete, network/volume create/delete) — now
+// succeeds for a write-enabled session.
+func TestMuzzle_WriteEnabled_AnyEndpointAllowed(t *testing.T) {
 	writeLimiter := rate.NewLimiter(rate.Inf, 100)
-	m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid", nil)
 
 	cases := []struct {
 		method string
 		path   string
 	}{
+		{http.MethodPost, "/containers/create"},
 		{http.MethodPost, "/images/create"},
 		{http.MethodPost, "/containers/abc123/start"},
 		{http.MethodPost, "/containers/abc123/stop"},
 		{http.MethodPost, "/containers/abc123/restart"},
 		{http.MethodPost, "/containers/abc123/rename"},
 		{http.MethodDelete, "/containers/abc123"},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
-			req := httptest.NewRequest(tc.method, tc.path, http.NoBody)
-			rr := httptest.NewRecorder()
-			m.ServeHTTP(rr, req)
-			assert.Equal(t, http.StatusOK, rr.Code)
-		})
-	}
-}
-
-// TestMuzzle_ContainerRename_QueryParamNameAllowed proves the Dockhand
-// image-update rename step end-to-end: Docker's rename endpoint takes the
-// new container name via a "?name=" query parameter, not a request body
-// (unlike /containers/create), and a real Docker-generated container ID is
-// a single path segment (no slashes) — exactly what
-// allowedWritePatterns's "/containers/*/rename" path.Match pattern assumes.
-// This is Dockhand's standard update pattern: rename the old container out
-// of the way (e.g. to "<name>_old") before bringing up the new one under
-// the original name — the flow that was failing with a 403 before this fix
-// (rename was missing from the write allowlist).
-func TestMuzzle_ContainerRename_QueryParamNameAllowed(t *testing.T) {
-	writeLimiter := rate.NewLimiter(rate.Inf, 100)
-	m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid", nil)
-
-	// A real Docker-generated container ID: 64 hex characters, single path
-	// segment.
-	containerID := "3f4d9e2a1b6c8f0d7e5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e"
-	req := httptest.NewRequest(http.MethodPost, "/containers/"+containerID+"/rename?name=myapp_old", http.NoBody)
-	rr := httptest.NewRecorder()
-	m.ServeHTTP(rr, req)
-	assert.Equal(t, http.StatusOK, rr.Code)
-}
-
-func TestMuzzle_WriteMode_NonWriteEndpointsStillBlocked(t *testing.T) {
-	// Even with write mode on, endpoints outside the fixed seven-operation
-	// list (create, images/create, start, stop, restart, rename, delete)
-	// — e.g. exec, image delete, build, prune, auth, commit, Swarm/service —
-	// must remain permanently blocked. Section 7, Explicit Out-of-Scope.
-	writeLimiter := rate.NewLimiter(rate.Inf, 100)
-	m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid", nil)
-
-	cases := []struct {
-		method string
-		path   string
-	}{
 		{http.MethodPost, "/containers/abc123/exec"},
 		{http.MethodPost, "/exec/xyz/start"},
 		{http.MethodDelete, "/images/nginx"},
@@ -420,101 +387,44 @@ func TestMuzzle_WriteMode_NonWriteEndpointsStillBlocked(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid")
 			req := httptest.NewRequest(tc.method, tc.path, http.NoBody)
 			rr := httptest.NewRecorder()
 			m.ServeHTTP(rr, req)
-			assert.Equal(t, http.StatusForbidden, rr.Code)
+			assert.Equal(t, http.StatusOK, rr.Code)
 		})
 	}
 }
 
-func TestMuzzle_ContainersCreate_SafeBodyAllowed(t *testing.T) {
+// TestMuzzle_ContainerRename_QueryParamNameAllowed proves the Dockhand
+// image-update rename step end-to-end: Docker's rename endpoint takes the
+// new container name via a "?name=" query parameter, not a request body
+// (unlike /containers/create), and a real Docker-generated container ID is
+// a single path segment (no slashes). This is Dockhand's standard update
+// pattern: rename the old container out of the way (e.g. to "<name>_old")
+// before bringing up the new one under the original name.
+func TestMuzzle_ContainerRename_QueryParamNameAllowed(t *testing.T) {
 	writeLimiter := rate.NewLimiter(rate.Inf, 100)
-	m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid", nil)
+	m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid")
 
-	body := `{"Image":"nginx:latest","HostConfig":{"PortBindings":{"80/tcp":[{"HostPort":"8080"}]},"RestartPolicy":{"Name":"unless-stopped"},"NetworkMode":"my-bridge"}}`
-	req := httptest.NewRequest(http.MethodPost, "/containers/create", bytes.NewReader([]byte(body)))
+	// A real Docker-generated container ID: 64 hex characters, single path
+	// segment.
+	containerID := "3f4d9e2a1b6c8f0d7e5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e"
+	req := httptest.NewRequest(http.MethodPost, "/containers/"+containerID+"/rename?name=myapp_old", http.NoBody)
 	rr := httptest.NewRecorder()
 	m.ServeHTTP(rr, req)
 	assert.Equal(t, http.StatusOK, rr.Code)
 }
 
-// TestMuzzle_ContainersCreate_SafeBodiesAllowed_CapDropAndUsernsMode covers
-// two HostConfig fields a Dockhand-style recreate legitimately sends that a
-// blanket exhaustive allowlist previously rejected outright: CapDrop (which
-// only ever reduces privilege, unlike CapAdd) and a non-"host" UsernsMode
-// value (the daemon-userns-remap-inherited case, not the escape-relevant
-// one).
-func TestMuzzle_ContainersCreate_SafeBodiesAllowed_CapDropAndUsernsMode(t *testing.T) {
-	writeLimiter := rate.NewLimiter(rate.Inf, 100)
-
-	cases := []struct {
-		name string
-		body string
-	}{
-		{"CapDrop", `{"Image":"nginx","HostConfig":{"CapDrop":["ALL"]}}`},
-		{"UsernsMode empty (inherit daemon default)", `{"Image":"nginx","HostConfig":{"UsernsMode":""}}`},
-		{"UsernsMode named remap", `{"Image":"nginx","HostConfig":{"UsernsMode":"default"}}`},
-		{"ContainerIDFile empty", `{"Image":"nginx","HostConfig":{"ContainerIDFile":""}}`},
-		{
-			"CPU/memory/IO/pid resource-limit family",
-			`{"Image":"nginx","HostConfig":{"CpuPeriod":100000,"CpuQuota":50000,"CpuRealtimePeriod":1000000,"CpuRealtimeRuntime":950000,"CpusetCpus":"0-1","CpusetMems":"0","BlkioWeight":500,"KernelMemory":0,"KernelMemoryTCP":0,"MemoryReservation":1048576,"MemorySwappiness":60,"OomKillDisable":false,"OomScoreAdj":0,"PidsLimit":100,"Ulimits":[{"Name":"nofile","Soft":1024,"Hard":2048}],"StorageOpt":{"size":"10G"},"ShmSize":67108864,"CPUCount":0,"CPUPercent":0,"IOMaximumIOps":0,"IOMaximumBandwidth":0}}`,
-		},
-		{"CgroupnsMode private (Docker default since 20.10)", `{"Image":"nginx","HostConfig":{"CgroupnsMode":"private"}}`},
-		{"CgroupnsMode empty (inherit daemon default)", `{"Image":"nginx","HostConfig":{"CgroupnsMode":""}}`},
-		{"Tmpfs (container-internal only)", `{"Image":"nginx","HostConfig":{"Tmpfs":{"/tmp":"rw,noexec,nosuid,size=100m"}}}`},
-		{"MaskedPaths/ReadonlyPaths (restriction-only)", `{"Image":"nginx","HostConfig":{"MaskedPaths":["/proc/kcore"],"ReadonlyPaths":["/proc/sys"]}}`},
-		{"ConsoleSize/Annotations (cosmetic)", `{"Image":"nginx","HostConfig":{"ConsoleSize":[24,80],"Annotations":{"note":"x"}}}`},
-		{"Links/PublishAllPorts/DnsOptions (networking convenience)", `{"Image":"nginx","HostConfig":{"Links":["db:db"],"PublishAllPorts":false,"DnsOptions":["timeout:1"]}}`},
-		{"Isolation default (Windows-only platform selector)", `{"Image":"nginx","HostConfig":{"Isolation":"default"}}`},
-		{"Isolation hyperv", `{"Image":"nginx","HostConfig":{"Isolation":"hyperv"}}`},
-		{"Isolation process", `{"Image":"nginx","HostConfig":{"Isolation":"process"}}`},
-		{"PidMode empty (default, own namespace)", `{"Image":"nginx","HostConfig":{"PidMode":""}}`},
-		{"UTSMode empty (default, own namespace)", `{"Image":"nginx","HostConfig":{"UTSMode":""}}`},
-		{"IpcMode empty (default)", `{"Image":"nginx","HostConfig":{"IpcMode":""}}`},
-		{"IpcMode shareable", `{"Image":"nginx","HostConfig":{"IpcMode":"shareable"}}`},
-		{"IpcMode private", `{"Image":"nginx","HostConfig":{"IpcMode":"private"}}`},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid", nil)
-			req := httptest.NewRequest(http.MethodPost, "/containers/create", bytes.NewReader([]byte(tc.body)))
-			rr := httptest.NewRecorder()
-			m.ServeHTTP(rr, req)
-			assert.Equal(t, http.StatusOK, rr.Code)
-		})
-	}
-}
-
-// TestMuzzle_ContainersCreate_VolumesFrom_AllowedWhenSourceConfigured proves
-// the per-agent VolumesFrom source allowlist: a name present in
-// Muzzle.allowedVolumesFromSources is accepted, one that isn't is rejected,
-// and the mode suffix ("public-config:ro") is stripped before comparison.
-func TestMuzzle_ContainersCreate_VolumesFrom_AllowedWhenSourceConfigured(t *testing.T) {
-	writeLimiter := rate.NewLimiter(rate.Inf, 100)
-
-	cases := []struct {
-		name string
-		body string
-	}{
-		{"exact name match", `{"Image":"nginx","HostConfig":{"VolumesFrom":["public-config"]}}`},
-		{"name with :ro mode suffix stripped before comparison", `{"Image":"nginx","HostConfig":{"VolumesFrom":["public-config:ro"]}}`},
-		{"multiple sources, all configured", `{"Image":"nginx","HostConfig":{"VolumesFrom":["public-config","shared-media"]}}`},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid", []string{"public-config", "shared-media"})
-			req := httptest.NewRequest(http.MethodPost, "/containers/create", bytes.NewReader([]byte(tc.body)))
-			rr := httptest.NewRecorder()
-			m.ServeHTTP(rr, req)
-			assert.Equal(t, http.StatusOK, rr.Code)
-		})
-	}
-}
-
-func TestMuzzle_ContainersCreate_DangerousBodiesRejected(t *testing.T) {
+// TestMuzzle_ContainersCreate_AnyHostConfigBodyAllowed proves write mode no
+// longer inspects /containers/create request bodies at all: fields that
+// were previously rejected outright (Privileged, CapAdd, host-mode
+// namespaces, arbitrary Runtime, unrestricted VolumesFrom, host bind
+// mounts, GPU device passthrough) are all forwarded unconditionally now,
+// consistent with the operator-consent full-access model (see the Muzzle
+// doc comment in muzzle.go). Malformed JSON is also forwarded — there is no
+// longer any body parsing on this path to fail.
+func TestMuzzle_ContainersCreate_AnyHostConfigBodyAllowed(t *testing.T) {
 	writeLimiter := rate.NewLimiter(rate.Inf, 100)
 
 	cases := []struct {
@@ -525,24 +435,17 @@ func TestMuzzle_ContainersCreate_DangerousBodiesRejected(t *testing.T) {
 		{"CapAdd", `{"Image":"nginx","HostConfig":{"CapAdd":["SYS_ADMIN"]}}`},
 		{"legacy Binds", `{"Image":"nginx","HostConfig":{"Binds":["/:/host"]}}`},
 		{"NetworkMode host", `{"Image":"nginx","HostConfig":{"NetworkMode":"host"}}`},
-		{"NetworkMode container:*", `{"Image":"nginx","HostConfig":{"NetworkMode":"container:abc"}}`},
 		{"UsernsMode host", `{"Image":"nginx","HostConfig":{"UsernsMode":"host"}}`},
-		{"ContainerIDFile non-empty (arbitrary host file creation)", `{"Image":"nginx","HostConfig":{"ContainerIDFile":"/etc/cron.d/pwn"}}`},
 		{"CgroupnsMode host", `{"Image":"nginx","HostConfig":{"CgroupnsMode":"host"}}`},
 		{"PidMode host", `{"Image":"nginx","HostConfig":{"PidMode":"host"}}`},
-		{"PidMode container:*", `{"Image":"nginx","HostConfig":{"PidMode":"container:abc"}}`},
 		{"UTSMode host", `{"Image":"nginx","HostConfig":{"UTSMode":"host"}}`},
 		{"IpcMode host", `{"Image":"nginx","HostConfig":{"IpcMode":"host"}}`},
-		{"IpcMode container:*", `{"Image":"nginx","HostConfig":{"IpcMode":"container:abc"}}`},
-		{"Runtime", `{"Image":"nginx","HostConfig":{"Runtime":"custom-runtime"}}`},
+		{"ContainerIDFile arbitrary host path", `{"Image":"nginx","HostConfig":{"ContainerIDFile":"/etc/cron.d/pwn"}}`},
+		{"Runtime, arbitrary/custom", `{"Image":"nginx","HostConfig":{"Runtime":"custom-runtime"}}`},
 		{"VolumeDriver", `{"Image":"nginx","HostConfig":{"VolumeDriver":"custom-driver"}}`},
-		{"VolumesFrom, no source allowlist configured", `{"Image":"nginx","HostConfig":{"VolumesFrom":["other-container"]}}`},
-		{"DeviceRequests", `{"Image":"nginx","HostConfig":{"DeviceRequests":[{"Driver":"nvidia","Count":-1}]}}`},
+		{"VolumesFrom, unrestricted", `{"Image":"nginx","HostConfig":{"VolumesFrom":["any-container"]}}`},
+		{"DeviceRequests (GPU passthrough)", `{"Image":"nginx","HostConfig":{"DeviceRequests":[{"Driver":"nvidia","Count":-1}]}}`},
 		{"bind-type Mounts", `{"Image":"nginx","HostConfig":{"Mounts":[{"Type":"bind","Source":"/etc","Target":"/x"}]}}`},
-		{
-			"local-driver bind-mount-via-volume bypass (VolumeOptions.DriverConfig)",
-			`{"Image":"nginx","HostConfig":{"Mounts":[{"Type":"volume","Source":"fake","Target":"/etc","VolumeOptions":{"DriverConfig":{"Name":"local","Options":{"type":"none","device":"/etc","o":"bind"}}}}]}}`,
-		},
 		{"non-empty Devices", `{"Image":"nginx","HostConfig":{"Devices":[{"PathOnHost":"/dev/sda","PathInContainer":"/dev/sda"}]}}`},
 		{"non-empty Sysctls", `{"Image":"nginx","HostConfig":{"Sysctls":{"net.ipv4.ip_forward":"1"}}}`},
 		{"unrecognized future HostConfig key", `{"Image":"nginx","HostConfig":{"SomeFutureField":true}}`},
@@ -551,48 +454,20 @@ func TestMuzzle_ContainersCreate_DangerousBodiesRejected(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid", nil)
+			m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid")
 			req := httptest.NewRequest(http.MethodPost, "/containers/create", bytes.NewReader([]byte(tc.body)))
 			rr := httptest.NewRecorder()
 			m.ServeHTTP(rr, req)
-			assert.Equal(t, http.StatusForbidden, rr.Code)
+			assert.Equal(t, http.StatusOK, rr.Code)
 		})
 	}
-}
-
-// TestMuzzle_ContainersCreate_VolumesFrom_RejectedWhenSourceNotConfigured
-// proves that having *some* allowlist configured doesn't loosen the check
-// into "any VolumesFrom is fine" — only the specific configured names are
-// accepted, and a source outside that list is still rejected exactly like
-// the unconfigured case.
-func TestMuzzle_ContainersCreate_VolumesFrom_RejectedWhenSourceNotConfigured(t *testing.T) {
-	writeLimiter := rate.NewLimiter(rate.Inf, 100)
-	m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid", []string{"public-config"})
-
-	body := `{"Image":"nginx","HostConfig":{"VolumesFrom":["not-on-the-allowlist"]}}`
-	req := httptest.NewRequest(http.MethodPost, "/containers/create", bytes.NewReader([]byte(body)))
-	rr := httptest.NewRecorder()
-	m.ServeHTTP(rr, req)
-	assert.Equal(t, http.StatusForbidden, rr.Code)
-}
-
-func TestMuzzle_ContainersCreate_BodyTooLarge(t *testing.T) {
-	writeLimiter := rate.NewLimiter(rate.Inf, 100)
-	m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid", nil)
-
-	oversized := bytes.Repeat([]byte("a"), maxContainerCreateBodyBytes+1)
-	body := `{"Image":"nginx","Labels":{"padding":"` + string(oversized) + `"}}`
-	req := httptest.NewRequest(http.MethodPost, "/containers/create", bytes.NewReader([]byte(body)))
-	rr := httptest.NewRecorder()
-	m.ServeHTTP(rr, req)
-	assert.Equal(t, http.StatusForbidden, rr.Code)
 }
 
 func TestMuzzle_WriteEndpoints_RateLimited(t *testing.T) {
 	// Burst of 1, refill effectively never within the test's lifetime — the
 	// first write request consumes the only token; the second must 429.
 	writeLimiter := rate.NewLimiter(rate.Every(time.Hour), 1)
-	m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid", nil)
+	m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid")
 
 	req1 := httptest.NewRequest(http.MethodPost, "/containers/abc/start", http.NoBody)
 	rr1 := httptest.NewRecorder()
@@ -630,7 +505,7 @@ func (m *mockAuditLogger) all() []*models.SecurityAudit {
 func TestMuzzle_AuditLog_AllowedWriteRecorded(t *testing.T) {
 	logger := &mockAuditLogger{}
 	writeLimiter := rate.NewLimiter(rate.Inf, 100)
-	m := NewMuzzle(passthroughHandler(), true, writeLimiter, logger, "agent-uuid-1", nil)
+	m := NewMuzzle(passthroughHandler(), true, writeLimiter, logger, "agent-uuid-1")
 
 	req := httptest.NewRequest(http.MethodPost, "/containers/abc/start", http.NoBody)
 	rr := httptest.NewRecorder()
@@ -644,26 +519,10 @@ func TestMuzzle_AuditLog_AllowedWriteRecorded(t *testing.T) {
 	assert.Contains(t, entries[0].Actor, "agent-uuid-1")
 }
 
-func TestMuzzle_AuditLog_BlockedWriteRecorded(t *testing.T) {
-	logger := &mockAuditLogger{}
-	writeLimiter := rate.NewLimiter(rate.Inf, 100)
-	m := NewMuzzle(passthroughHandler(), true, writeLimiter, logger, "agent-uuid-2", nil)
-
-	body := `{"Image":"nginx","HostConfig":{"Privileged":true}}`
-	req := httptest.NewRequest(http.MethodPost, "/containers/create", bytes.NewReader([]byte(body)))
-	rr := httptest.NewRecorder()
-	m.ServeHTTP(rr, req)
-
-	entries := logger.all()
-	require.Len(t, entries, 1)
-	assert.Equal(t, "orthrus_write_blocked", entries[0].Action)
-	assert.Contains(t, entries[0].Details, "Privileged")
-}
-
 func TestMuzzle_AuditLog_RateLimitedRecorded(t *testing.T) {
 	logger := &mockAuditLogger{}
 	writeLimiter := rate.NewLimiter(rate.Every(time.Hour), 1)
-	m := NewMuzzle(passthroughHandler(), true, writeLimiter, logger, "agent-uuid-3", nil)
+	m := NewMuzzle(passthroughHandler(), true, writeLimiter, logger, "agent-uuid-3")
 
 	req1 := httptest.NewRequest(http.MethodPost, "/containers/abc/start", http.NoBody)
 	m.ServeHTTP(httptest.NewRecorder(), req1)
@@ -678,7 +537,7 @@ func TestMuzzle_AuditLog_RateLimitedRecorded(t *testing.T) {
 
 func TestMuzzle_AuditLog_NilLoggerIsNoop(t *testing.T) {
 	writeLimiter := rate.NewLimiter(rate.Inf, 100)
-	m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid", nil)
+	m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid")
 
 	req := httptest.NewRequest(http.MethodPost, "/containers/abc/start", http.NoBody)
 	rr := httptest.NewRecorder()
@@ -686,7 +545,7 @@ func TestMuzzle_AuditLog_NilLoggerIsNoop(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Code)
 }
 
-// --- Shared anti-drift corpus (Section 3.3.5 of the Orthrus write-mode spec) ---
+// --- Shared anti-drift corpus ---
 //
 // muzzle_corpus.json is the single source of truth this test and
 // agent/muzzle/muzzle_test.go's TestFilter_SharedCorpus both load, so the
@@ -694,15 +553,19 @@ func TestMuzzle_AuditLog_NilLoggerIsNoop(t *testing.T) {
 // case in it — the concrete mitigation for the drift class that let the
 // image/distribution read-only fix land in this package without the
 // agent-side copy (fixed later, commits 98a68b67 / eabf358d) once already.
+// Now that write mode grants full access unconditionally, the corpus's
+// remaining value is proving the read-only path-matching logic (still
+// complex/divergence-prone) and the write-mode/read-mode boundary agree
+// between both implementations — not proving any content-based decision,
+// since none remain.
 
 type muzzleCorpusCase struct {
-	Description               string          `json:"description"`
-	Method                    string          `json:"method"`
-	Path                      string          `json:"path"`
-	Body                      json.RawMessage `json:"body,omitempty"`
-	AgentWriteEnabled         bool            `json:"agent_write_enabled"`
-	AllowedVolumesFromSources []string        `json:"allowed_volumes_from_sources,omitempty"`
-	WantAllowed               bool            `json:"want_allowed"`
+	Description       string          `json:"description"`
+	Method            string          `json:"method"`
+	Path              string          `json:"path"`
+	Body              json.RawMessage `json:"body,omitempty"`
+	AgentWriteEnabled bool            `json:"agent_write_enabled"`
+	WantAllowed       bool            `json:"want_allowed"`
 }
 
 func loadMuzzleCorpus(t *testing.T) []muzzleCorpusCase {
@@ -723,7 +586,7 @@ func TestMuzzle_SharedCorpus(t *testing.T) {
 			if tc.AgentWriteEnabled {
 				writeLimiter = rate.NewLimiter(rate.Inf, 1000)
 			}
-			m := NewMuzzle(passthroughHandler(), tc.AgentWriteEnabled, writeLimiter, nil, "corpus-test-agent", tc.AllowedVolumesFromSources)
+			m := NewMuzzle(passthroughHandler(), tc.AgentWriteEnabled, writeLimiter, nil, "corpus-test-agent")
 
 			req := httptest.NewRequest(tc.Method, tc.Path, bytes.NewReader(tc.Body))
 			rr := httptest.NewRecorder()

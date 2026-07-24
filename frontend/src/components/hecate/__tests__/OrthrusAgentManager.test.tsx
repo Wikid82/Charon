@@ -83,7 +83,6 @@ const agentWithProvider = {
   updated_at: '2025-01-01T00:00:00Z',
   external_proxy_port: 0,
   write_enabled: false,
-  allowed_volumes_from_sources: [],
 };
 
 const agentWithoutProvider = {
@@ -98,7 +97,6 @@ const agentWithoutProvider = {
   updated_at: '2025-01-01T00:00:00Z',
   external_proxy_port: 0,
   write_enabled: false,
-  allowed_volumes_from_sources: [],
 };
 
 const agentWithDeviceIdOnly = {
@@ -113,7 +111,6 @@ const agentWithDeviceIdOnly = {
   updated_at: '2025-01-01T00:00:00Z',
   external_proxy_port: 0,
   write_enabled: false,
-  allowed_volumes_from_sources: [],
 };
 
 const agentTunnelOnly = {
@@ -128,7 +125,6 @@ const agentTunnelOnly = {
   updated_at: '2025-01-01T00:00:00Z',
   external_proxy_port: 0,
   write_enabled: false,
-  allowed_volumes_from_sources: [],
 };
 
 function renderManager(agents: OrthrusAgent[]) {

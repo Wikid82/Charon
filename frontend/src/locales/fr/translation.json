@@ -1440,21 +1440,12 @@
     },
     "writeMode": {
       "title": "Write Access — {{name}}",
-      "description": "Opt this agent into a narrow, audited set of Docker write operations through its External Docker Proxy.",
+      "description": "Opt this agent into full, unrestricted Docker Engine API access through its External Docker Proxy.",
       "toggleLabel": "Enable write access",
       "confirmPrompt": "Type {{name}} to confirm",
       "confirmPlaceholder": "Agent name",
       "confirmHint": "Enabling write access requires typing the agent's exact current name.",
-      "securityWarning": "Enabling write mode lets tools connected through this agent's External Docker Proxy pull images, and start, stop, restart, remove, and recreate containers on this machine. Every allowed action is logged. This does not grant shell access, volume/network changes, or any operation not explicitly listed below.",
-      "permittedOperationsHeading": "Permitted operations",
-      "operations": {
-        "pull": "Pull a new image",
-        "start": "Start a container",
-        "stop": "Stop a container",
-        "restart": "Restart a container",
-        "remove": "Remove a container",
-        "recreate": "Create (recreate) a container"
-      },
+      "securityWarning": "Enabling write mode gives any tool connected through this agent's External Docker Proxy full, unrestricted control of the Docker Engine API on this machine — equivalent to direct access to the Docker socket, including creating privileged containers, mounting the host filesystem, and any other Docker operation. There is no allowlist restricting which endpoints or container configurations are permitted. Every request is logged. Only enable this for agents connecting trusted tools.",
       "reconnectNotice": "Write mode change will take effect on next agent reconnect.",
       "viewAuditLog": "View write-access audit log",
       "disableConfirm": "Disable",
