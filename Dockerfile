@@ -578,6 +578,9 @@ RUN set -e; \
     # Fix available at v1.2.0.
     # renovate: datasource=go depName=github.com/buger/jsonparser
     _retry go get github.com/buger/jsonparser@v1.2.0; \
+    # GHSA-r277-6w6q-xmqw: kin-openapi ValidationHandler.Load() Fail-Open Authentication Bypass via NoopAuthenticationFunc Default
+    # renovate: datasource=go depName=github.com/getkin/kin-openapi
+    _retry go get github.com/getkin/kin-openapi@v0.144.0; \
     _retry go mod tidy
 
 # Fix compatibility issues with expr-lang v1.17.7
