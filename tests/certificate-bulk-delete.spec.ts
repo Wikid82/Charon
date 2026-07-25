@@ -53,6 +53,7 @@ zCLDm4WygKTw2foUXGNtbWG7z6Eq7PI+2fSlJDFgb+xmdIFQdyKDsZeYO5bmdYq5
 0tY8
 -----END CERTIFICATE-----`;
 
+// nosemgrep: generic.secrets.security.detected-private-key.detected-private-key -- throwaway self-signed test.local key pair generated solely for these X.509 upload/parse tests (see comment above REAL_TEST_CERT); not a real credential, never used outside this test fixture.
 const REAL_TEST_KEY = `-----BEGIN PRIVATE KEY-----
 MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDdzdQfOkHzG/lZ
 242xTvFYMVOrd12rUGQVcWhc9NG1LIJGYZKpS0bzNUdoylHhIqbwNq18Dni1znDY
@@ -85,9 +86,9 @@ yRNV1UrzJGv5ZUVKq2kymBut
 /**
  * Create a custom certificate directly via the API, bypassing TestDataManager's
  * narrow CertificateData type which omits the required `name` field.
- * Returns the numeric cert ID (from list endpoint) and name for later lookup/cleanup.
+ * Returns the cert's UUID and name for later lookup/cleanup.
  */
-async function createCustomCertViaAPI(baseURL: string): Promise<{ id: number; certName: string }> {
+async function createCustomCertViaAPI(baseURL: string): Promise<{ uuid: string; certName: string }> {
   const id = generateUniqueId();
   const certName = `bulk-cert-${id}`;
 
@@ -121,19 +122,15 @@ async function createCustomCertViaAPI(baseURL: string): Promise<{ id: number; ce
     const createResult = await response.json();
     const certUUID: string = createResult.uuid;
 
-    // The create response excludes the numeric ID (json:"-" on model).
-    // Query the list endpoint and match by UUID to get the numeric ID.
-    const listResponse = await ctx.get('/api/v1/certificates');
-    if (!listResponse.ok()) {
-      throw new Error(`Failed to list certificates: ${listResponse.status()}`);
-    }
-    const certs: Array<{ id: number; uuid: string }> = await listResponse.json();
-    const match = certs.find((c) => c.uuid === certUUID);
-    if (!match) {
-      throw new Error(`Certificate with UUID ${certUUID} not found in list after creation`);
-    }
-
-    return { id: match.id, certName };
+    // NOTE: the certificates LIST endpoint (CertificateInfo) only exposes a
+    // "uuid" field, never a numeric "id" (the model's numeric ID has json:"-").
+    // DELETE /api/v1/certificates/:uuid accepts a UUID directly, so use it
+    // instead of round-tripping through a numeric ID the API never returns
+    // (the previous version of this helper silently produced `id: undefined`
+    // here, which broke afterAll's cleanup on every run — every DELETE call
+    // silently 404'd via .catch(() => {}), leaking 3 "bulk-cert-*" certs into
+    // the shared database on every single test invocation).
+    return { uuid: certUUID, certName };
   } finally {
     await ctx.dispose();
   }
@@ -142,7 +139,7 @@ async function createCustomCertViaAPI(baseURL: string): Promise<{ id: number; ce
 /**
  * Delete a certificate directly via the API for cleanup.
  */
-async function deleteCertViaAPI(baseURL: string, certId: number): Promise<void> {
+async function deleteCertViaAPI(baseURL: string, certUUID: string): Promise<void> {
   const ctx = await playwrightRequest.newContext({
     baseURL,
     storageState: STORAGE_STATE,
@@ -150,7 +147,7 @@ async function deleteCertViaAPI(baseURL: string, certId: number): Promise<void> 
   });
 
   try {
-    await ctx.delete(`/api/v1/certificates/${certId}`);
+    await ctx.delete(`/api/v1/certificates/${certUUID}`);
   } finally {
     await ctx.dispose();
   }
@@ -170,7 +167,7 @@ async function navigateToCertificates(page: import('@playwright/test').Page): Pr
 // parallelising across workers would give each worker its own isolated array.
 test.describe.serial('Certificate Bulk Delete', () => {
   const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
-  const createdCerts: Array<{ id: number; certName: string }> = [];
+  const createdCerts: Array<{ uuid: string; certName: string }> = [];
 
   test.beforeAll(async () => {
     for (let i = 0; i < 3; i++) {
@@ -182,7 +179,7 @@ test.describe.serial('Certificate Bulk Delete', () => {
   test.afterAll(async () => {
     // .catch(() => {}) handles certs already deleted by test 7
     for (const cert of createdCerts) {
-      await deleteCertViaAPI(baseURL, cert.id).catch(() => {});
+      await deleteCertViaAPI(baseURL, cert.uuid).catch(() => {});
     }
   });
 
@@ -226,8 +223,11 @@ test.describe.serial('Certificate Bulk Delete', () => {
       for (let i = 0; i < leCount; i++) {
         const row = leRows.nth(i);
         const rowText = await row.textContent();
-        const isExpiredOrStaging = /expired|staging/i.test(rowText ?? '');
-        if (isExpiredOrStaging) continue;
+        // Also excludes "expiring" certs (shown as an "Expiring Soon" badge) —
+        // per frontend/src/utils/certificateUtils.ts's isDeletable(), status
+        // === 'expiring' is deletable too, same as 'expired'.
+        const isExpiredExpiringOrStaging = /expir(ed|ing)|staging/i.test(rowText ?? '');
+        if (isExpiredExpiringOrStaging) continue;
 
         // Valid production LE cert: first cell is aria-hidden with no checkbox
         const firstCell = row.locator('td').first();
@@ -384,7 +384,8 @@ test.describe.serial('Certificate Bulk Delete', () => {
     });
 
     await test.step('Await success toast confirming all deletions settled', async () => {
-      // toast.success fires in onSuccess after Promise.allSettled resolves
+      // toast.success fires in onSuccess once all deletes have been processed
+      // (sequentially — see useBulkDeleteCertificates in useCertificates.ts).
       await waitForToast(page, /certificate.*deleted/i, { type: 'success' });
     });
 

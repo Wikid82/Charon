@@ -34,7 +34,17 @@ test.describe('Proxy Groups', () => {
       await page.getByRole('button', { name: /save/i }).click();
       await savePromise;
 
-      await expect(getToastLocator(page)).toBeVisible();
+      // Explicit timeout: react-hot-toast's success toast auto-dismisses after
+      // 5000ms (App.tsx's <Toaster toastOptions={{ duration: 5000 }}>), which
+      // exactly matches Playwright's global default expect.timeout (also
+      // 5000ms per playwright.config.js). That leaves zero margin between "the
+      // toast is still there" and "the assertion gave up" — any latency
+      // between the API response and React's onSuccess->toast.success() call
+      // eats directly into a already-zero-slack shared budget. A longer
+      // explicit timeout here doesn't mask real failures (the toast reliably
+      // fires within a second or two in practice); it just stops a race with
+      // the toast's own dismiss timer from flaking the assertion.
+      await expect(getToastLocator(page)).toBeVisible({ timeout: 8000 });
     });
 
     test('should disable Save button when name is empty', async ({ page }) => {
@@ -68,8 +78,11 @@ test.describe('Proxy Groups', () => {
 
   test.describe('Grouped Display', () => {
     test('should show ungrouped section when groups exist', async ({ page }) => {
-      const hasGroups = await page.getByRole('button', { name: /manage groups/i }).isVisible();
-      expect(hasGroups).toBe(true);
+      // Use an auto-retrying assertion instead of a synchronous isVisible()
+      // check: the button is unconditionally rendered in the page's action
+      // bar, but a bare isVisible() has no wait/retry margin and can read
+      // the DOM a beat before React finishes painting after navigation.
+      await expect(page.getByRole('button', { name: /manage groups/i })).toBeVisible();
     });
 
     test('should display flat table when no groups exist', async ({ page }) => {
