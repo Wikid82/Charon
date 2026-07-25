@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Link, Outlet, useLocation } from 'react-router-dom'
+import { Link, Outlet, useLocation } from 'react-router'
 
 export default function Tasks() {
   const { t } = useTranslation()

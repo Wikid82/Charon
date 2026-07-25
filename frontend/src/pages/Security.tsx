@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Shield, ShieldAlert, ShieldCheck, Lock, Activity, ExternalLink, Bell } from 'lucide-react'
 import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, Outlet } from 'react-router-dom'
+import { useNavigate, Outlet } from 'react-router'
 
 import { startCrowdsec, stopCrowdsec, statusCrowdsec } from '../api/crowdsec'
 import { getSecurityStatus, type SecurityStatus } from '../api/security'

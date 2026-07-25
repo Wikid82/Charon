@@ -2,7 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { Loader2, CheckCircle2, XCircle, UserCheck } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSearchParams, useNavigate } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router'
 
 import { validateInvite, acceptInvite } from '../api/users'
 import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter'

@@ -7,7 +7,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { BrowserRouter } from 'react-router-dom'
+import { BrowserRouter } from 'react-router'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import * as crowdsecApi from '../../api/crowdsec'
@@ -15,12 +15,12 @@ import * as securityApi from '../../api/security'
 import * as settingsApi from '../../api/settings'
 import Security from '../Security'
 
-import type * as ReactRouterDom from 'react-router-dom'
+import type * as ReactRouterDom from 'react-router'
 
 const mockNavigate = vi.hoisted(() => vi.fn())
 
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual<typeof ReactRouterDom>('react-router-dom')
+vi.mock('react-router', async () => {
+  const actual = await vi.importActual<typeof ReactRouterDom>('react-router')
   return {
     ...actual,
     useNavigate: () => mockNavigate,
