@@ -18,14 +18,39 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 )
 
+// CertificateCacheInvalidator is the minimal interface ProxyHostService needs
+// to keep the certificate list's "in_use" status fresh. Satisfied by
+// *CertificateService; kept as an interface (rather than a direct dependency)
+// to avoid a hard coupling between the two services.
+type CertificateCacheInvalidator interface {
+	InvalidateCache()
+}
+
 // ProxyHostService encapsulates business logic for proxy host management.
 type ProxyHostService struct {
-	db *gorm.DB
+	db          *gorm.DB
+	certService CertificateCacheInvalidator
 }
 
 // NewProxyHostService creates a new proxy host service.
 func NewProxyHostService(db *gorm.DB) *ProxyHostService {
 	return &ProxyHostService{db: db}
+}
+
+// SetCertificateService wires an optional certificate cache invalidator.
+// When set, creating, updating, or deleting a proxy host invalidates the
+// certificate service's cache so the "in_use" flag reflects the change
+// immediately instead of waiting out the cache's scan TTL.
+func (s *ProxyHostService) SetCertificateService(certService CertificateCacheInvalidator) {
+	s.certService = certService
+}
+
+// invalidateCertCache notifies the certificate service (if wired) that a
+// certificate<->proxy-host association may have changed.
+func (s *ProxyHostService) invalidateCertCache() {
+	if s.certService != nil {
+		s.certService.InvalidateCache()
+	}
 }
 
 // ValidateUniqueDomain ensures no duplicate domains exist before creation/update.
@@ -175,7 +200,11 @@ func (s *ProxyHostService) Create(host *models.ProxyHost) error {
 		}
 	}
 
-	return s.db.Create(host).Error
+	if err := s.db.Create(host).Error; err != nil {
+		return err
+	}
+	s.invalidateCertCache()
+	return nil
 }
 
 // Update validates and updates an existing proxy host.
@@ -204,15 +233,23 @@ func (s *ProxyHostService) Update(host *models.ProxyHost) error {
 
 	// Use Updates to handle nullable foreign keys properly
 	// Must use Select to explicitly allow setting nullable fields to nil
-	return s.db.Model(&models.ProxyHost{}).
+	if err := s.db.Model(&models.ProxyHost{}).
 		Where("id = ?", host.ID).
 		Select("*").
-		Updates(host).Error
+		Updates(host).Error; err != nil {
+		return err
+	}
+	s.invalidateCertCache()
+	return nil
 }
 
 // Delete removes a proxy host.
 func (s *ProxyHostService) Delete(id uint) error {
-	return s.db.Delete(&models.ProxyHost{}, id).Error
+	if err := s.db.Delete(&models.ProxyHost{}, id).Error; err != nil {
+		return err
+	}
+	s.invalidateCertCache()
+	return nil
 }
 
 // GetByID retrieves a proxy host by ID.

@@ -61,8 +61,14 @@ export function getToastLocator(
       .or(page.getByRole('status'))
       .or(page.getByRole('alert'));
   } else {
-    // Any toast: match our custom toast container with fallbacks for both roles
-    baseLocator = page.locator('[data-testid^="toast-"]')
+    // Any toast: match individual toast items with fallbacks for both roles.
+    // Excludes [data-testid="toast-container"] — the always-present, normally-
+    // empty wrapper div that the custom ToastContainer component renders — the
+    // ^= prefix selector would otherwise match it too (it starts with "toast-"),
+    // and since it's first in DOM order, .first() would resolve to it instead
+    // of the actual toast, permanently "hidden" (zero content). Mirrors the
+    // same exclusion already applied in wait-helpers.ts's waitForToast.
+    baseLocator = page.locator('[data-testid^="toast-"]:not([data-testid="toast-container"])')
       .or(page.getByRole('status'))
       .or(page.getByRole('alert'));
   }

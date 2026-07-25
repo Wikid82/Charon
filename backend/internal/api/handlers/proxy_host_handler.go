@@ -359,6 +359,15 @@ func NewProxyHostHandler(db *gorm.DB, caddyManager *caddy.Manager, ns *services.
 	}
 }
 
+// SetCertificateService wires an optional certificate cache invalidator into
+// the underlying proxy host service, so that creating, updating, or deleting
+// a proxy host immediately refreshes the certificates list's "in_use" status
+// instead of waiting out CertificateService's scan TTL. Safe to leave unset
+// in tests/import flows that don't need this.
+func (h *ProxyHostHandler) SetCertificateService(certService services.CertificateCacheInvalidator) {
+	h.service.SetCertificateService(certService)
+}
+
 // RegisterRoutes registers proxy host routes.
 func (h *ProxyHostHandler) RegisterRoutes(router *gin.RouterGroup) {
 	router.GET("/proxy-hosts", h.List)
