@@ -119,9 +119,25 @@ export function useBulkDeleteCertificates() {
 
   return useMutation({
     mutationFn: async (uuids: string[]) => {
-      const results = await Promise.allSettled(uuids.map(uuid => deleteCertificate(uuid)))
-      const failed = results.filter(r => r.status === 'rejected').length
-      const succeeded = results.filter(r => r.status === 'fulfilled').length
+      // Delete sequentially, not concurrently (Promise.allSettled(uuids.map(...))).
+      // Each certificate delete triggers a backup on the backend
+      // (CertificateHandler.Delete -> BackupService.CreateBackup), which is
+      // guarded by a non-blocking TryLock (BackupService.CreateBackupWithOptions):
+      // only one backup can run at a time, and a losing concurrent request fails
+      // immediately with ErrBackupInProgress rather than queueing. Firing all
+      // deletes at once meant only the first ever succeeded; the rest 500'd on
+      // the backup step. Awaiting them one at a time lets each backup finish
+      // (and release the lock) before the next delete starts.
+      let succeeded = 0
+      let failed = 0
+      for (const uuid of uuids) {
+        try {
+          await deleteCertificate(uuid)
+          succeeded++
+        } catch {
+          failed++
+        }
+      }
       return { succeeded, failed }
     },
     onSuccess: () => {
