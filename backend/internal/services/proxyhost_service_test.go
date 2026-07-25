@@ -328,3 +328,57 @@ func TestProxyHostService_List_DBError(t *testing.T) {
 	_, err = service.List()
 	assert.Error(t, err)
 }
+
+// fakeCertCacheInvalidator is a test double for CertificateCacheInvalidator
+// that records how many times InvalidateCache was called.
+type fakeCertCacheInvalidator struct {
+	calls int
+}
+
+func (f *fakeCertCacheInvalidator) InvalidateCache() {
+	f.calls++
+}
+
+func TestProxyHostService_InvalidatesCertificateCache(t *testing.T) {
+	t.Parallel()
+
+	db := setupProxyHostTestDB(t)
+	service := NewProxyHostService(db)
+	fake := &fakeCertCacheInvalidator{}
+	service.SetCertificateService(fake)
+
+	host := &models.ProxyHost{
+		DomainNames: "cache-invalidation.example.com",
+		ForwardHost: "127.0.0.1",
+		ForwardPort: 8080,
+	}
+
+	require.NoError(t, service.Create(host))
+	assert.Equal(t, 1, fake.calls, "Create should invalidate the certificate cache")
+
+	host.ForwardPort = 8081
+	require.NoError(t, service.Update(host))
+	assert.Equal(t, 2, fake.calls, "Update should invalidate the certificate cache")
+
+	require.NoError(t, service.Delete(host.ID))
+	assert.Equal(t, 3, fake.calls, "Delete should invalidate the certificate cache")
+}
+
+func TestProxyHostService_NoCertificateService_DoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	db := setupProxyHostTestDB(t)
+	service := NewProxyHostService(db)
+	// No SetCertificateService call — invalidateCertCache must be a no-op, not
+	// a nil-pointer panic, so import flows that don't wire a cert service keep
+	// working unchanged.
+
+	host := &models.ProxyHost{
+		DomainNames: "no-cert-service.example.com",
+		ForwardHost: "127.0.0.1",
+		ForwardPort: 8080,
+	}
+	require.NoError(t, service.Create(host))
+	require.NoError(t, service.Update(host))
+	require.NoError(t, service.Delete(host.ID))
+}
