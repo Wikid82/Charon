@@ -867,6 +867,11 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 		// Proxy Hosts & Remote Servers
 		proxyHostHandler := handlers.NewProxyHostHandler(db, caddyManager, notificationService, uptimeService)
+		// Keep the certificates list's "in_use" flag fresh: without this, creating,
+		// updating, or deleting a proxy host's certificate_id link doesn't invalidate
+		// CertificateService's cache, and the delete-button's disabled/tooltip state
+		// can be stale for up to the cache's scan TTL (5 minutes).
+		proxyHostHandler.SetCertificateService(certService)
 		proxyHostHandler.RegisterRoutes(management)
 
 		proxyGroupHandler := handlers.NewProxyGroupHandler(db)

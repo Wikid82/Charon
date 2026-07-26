@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 
 import * as usersApi from '../../api/users'
@@ -20,10 +20,10 @@ vi.mock('../../api/users', () => ({
   updateUserPermissions: vi.fn(),
 }))
 
-// Mock react-router-dom navigate
+// Mock react-router navigate
 const mockNavigate = vi.fn()
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual('react-router-dom')
+vi.mock('react-router', async () => {
+  const actual = await vi.importActual('react-router')
   return {
     ...actual,
     useNavigate: () => mockNavigate,

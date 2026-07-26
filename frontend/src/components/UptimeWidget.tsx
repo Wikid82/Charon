@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Activity, CheckCircle2, XCircle, AlertCircle, ArrowRight } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 
 import { Card, CardHeader, CardContent, Badge, Skeleton } from './ui'
 import { getMonitors } from '../api/uptime'

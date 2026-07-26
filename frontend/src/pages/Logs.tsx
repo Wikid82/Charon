@@ -1,7 +1,7 @@
 import { FileText, ChevronLeft, ChevronRight, ScrollText, AlertTriangle } from 'lucide-react';
 import { useState, useEffect, type FC } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router';
 
 import { type LogFilter, type LogSortField } from '../api/logs';
 import { PageShell } from '../components/layout/PageShell';

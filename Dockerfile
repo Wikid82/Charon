@@ -414,6 +414,15 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Affects /usr/bin/caddy (transitive via caddy-crowdsec-bouncer -> crowdsec). Fix available at v1.2.0.
         # renovate: datasource=go depName=github.com/buger/jsonparser
         _retry go get github.com/buger/jsonparser@v1.2.0; \
+        # GHSA-gcjh-h69q-9w9g: cel-go JSON private fields exposed via NativeTypes/ParseStructTag("json").
+        # NOT pinned here: bumping to the v0.29.0 fix breaks Caddy v2.11.4's own
+        # modules/caddyhttp/celmatcher.go, which calls interpreter.NewCall(..., []interpreter.Interpretable, ...) —
+        # v0.29.0 changed that parameter to []interpreter.InterpretableV2, a superset interface requiring an
+        # additional Exec(*ExecutionFrame) method, so this is a real source-incompatible break, not a version
+        # bump. No Caddy release newer than v2.11.4 exists yet with celmatcher.go updated for the new API.
+        # Suppressed in .trivyignore with full risk justification; see that file for exploitability analysis.
+        # TODO(renovate): bump github.com/google/cel-go to >= v0.29.0 once Caddy ships a release whose
+        # celmatcher.go is compatible with the new InterpretableV2 API; remove the .trivyignore entry then.
         # CVE-2026-44982 (GHSA-rw47-hm26-6wr7): CrowdSec AppSec silently drops HTTP request
         # body for chunked/HTTP-2 requests, bypassing WAF body inspection rules.
         # caddy-crowdsec-bouncer@v0.12.1 was built against crowdsec v1.6.3 whose
@@ -578,6 +587,9 @@ RUN set -e; \
     # Fix available at v1.2.0.
     # renovate: datasource=go depName=github.com/buger/jsonparser
     _retry go get github.com/buger/jsonparser@v1.2.0; \
+    # GHSA-r277-6w6q-xmqw: kin-openapi ValidationHandler.Load() Fail-Open Authentication Bypass via NoopAuthenticationFunc Default
+    # renovate: datasource=go depName=github.com/getkin/kin-openapi
+    _retry go get github.com/getkin/kin-openapi@v0.144.0; \
     _retry go mod tidy
 
 # Fix compatibility issues with expr-lang v1.17.7

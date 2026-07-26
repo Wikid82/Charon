@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Menu, ChevronDown, ChevronRight } from 'lucide-react'
 import { type ReactNode, useState, useEffect, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router'
 
 import { useMediaQuery } from '../hooks/useMediaQuery'
 

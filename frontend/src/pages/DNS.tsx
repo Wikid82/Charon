@@ -1,6 +1,6 @@
 import { Cloud, Puzzle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { Link, Outlet, useLocation } from 'react-router-dom'
+import { Link, Outlet, useLocation } from 'react-router'
 
 import { PageShell } from '../components/layout/PageShell'
 import { cn } from '../utils/cn'

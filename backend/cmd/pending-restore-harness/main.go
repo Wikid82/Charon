@@ -109,6 +109,32 @@ func boot(dbPath string) int {
 		return 2
 	}
 
+	// database.Connect below launches its post-connect integrity check
+	// (PRAGMA quick_check) on its own background goroutine and its own
+	// separate SQLite connection by default — see database.Connect's
+	// launchQuickCheck. That goroutine is fire-and-forget: nothing in
+	// Connect waits for it to finish or for its connection to close.
+	//
+	// The real server (cmd/api/main.go) never exits right after Connect, so
+	// that connection eventually closes (triggering SQLite's WAL checkpoint,
+	// which removes -wal/-shm) long before the process ever does. This
+	// harness is different: boot() calls os.Exit shortly after Connect
+	// returns, with no server loop in between. Without this call, whether
+	// the goroutine's connection has closed by the time os.Exit runs is a
+	// race — sometimes -wal/-shm are gone, sometimes they're still on disk,
+	// which is exactly what made
+	// TestPendingRestoreBootSwap_AcrossRealProcessBoundary's
+	// require.NoFileExists(dbPath+"-wal") assertion flaky in CI.
+	//
+	// SyncIntegrityCheckForTesting makes the check run synchronously within
+	// Connect instead, so by the time Connect returns the check's connection
+	// is already closed — the same fix this package's own TestMain
+	// (database_test.go) and other callers (cmd/api/main_test.go,
+	// internal/api/handlers/testmain_test.go) already apply. It only takes
+	// effect in this process's memory; the outer test binary's TestMain has
+	// no effect here since this is a separately exec'd process.
+	database.SyncIntegrityCheckForTesting()
+
 	// This is the exact call main.go makes immediately before
 	// database.Connect — see main.go's comment at the call site for why the
 	// ordering matters (no live WAL pool must exist when the swap happens).

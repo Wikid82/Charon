@@ -1,6 +1,6 @@
 import { Suspense, lazy } from 'react'
 import { Toaster } from 'react-hot-toast'
-import { BrowserRouter as Router, Routes, Route, Outlet, Navigate  } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Outlet, Navigate  } from 'react-router'
 
 import Layout from './components/Layout'
 import { LoadingOverlay } from './components/LoadingStates'
