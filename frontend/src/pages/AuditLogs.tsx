@@ -1,7 +1,7 @@
 import { format } from 'date-fns'
 import { Download, Filter, X } from 'lucide-react'
 import { useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router'
 
 import { exportAuditLogsCSV } from '../api/auditLogs'
 import { PageShell } from '../components/layout/PageShell'

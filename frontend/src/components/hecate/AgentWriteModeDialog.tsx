@@ -2,7 +2,7 @@ import { AlertTriangle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 
 import { type OrthrusAgent } from '../../api/orthrus';
 import { useAgentProxyStatus, usePatchAgent } from '../../hooks/useOrthrus';
