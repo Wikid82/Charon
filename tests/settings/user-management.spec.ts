@@ -1213,6 +1213,15 @@ test.describe('User Management', () => {
 
         await loginUser(page, regularUser);
         await waitForLoadingComplete(page);
+
+        // loginUser's fast paths resolve on network-idle, not on a URL
+        // assertion, so the app's own post-login redirect away from
+        // /login can still be in flight here. Firing the next top-level
+        // page.goto() while that redirect is still settling can race it
+        // and never produce a Playwright-trackable navigation event in
+        // Firefox, hanging until the test timeout. Wait for the app to
+        // actually leave /login first.
+        await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 15000 }).catch(() => undefined);
       });
 
       const listUsersResponse = await test.step('Navigate to users page directly', async () => {

@@ -202,7 +202,13 @@ async function navigateToLogin(page: import('@playwright/test').Page): Promise<v
       localStorage.clear();
       sessionStorage.clear();
     });
-    await page.goto('/login', { waitUntil: 'domcontentloaded' });
+    // Use reload(), not a second goto('/login'): the page is already on
+    // /login from the goto() above and may still be mid-hydration. A
+    // same-URL goto() fired this soon after can race that still-settling
+    // navigation and never produce a Playwright-trackable event in Firefox,
+    // hanging until the test timeout. reload() always yields a fresh,
+    // distinct navigation-commit event.
+    await page.reload({ waitUntil: 'domcontentloaded' });
   }
 
   await expect(emailInput).toBeVisible({ timeout: 15000 });
