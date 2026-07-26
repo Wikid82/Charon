@@ -1,811 +1,244 @@
-# Feature Spec: Orthrus Muzzle Normalization Parity + Agent CI Enforcement (GH #1160 + #1161)
+# RCA + Fix Plan: E2E Firefox (Shard 4/4) CI Failures on PR #1166
 
-**Type**: Bug fix / CI hardening (single feature, single PR — companion issues sharing one root defect class)
+**Type**: CI failure root-cause analysis + fix plan (single PR — additional commit(s) on the existing branch)
 **Branch**: `feature/orthrus` (current working branch; no worktree, no new branch, per `CLAUDE.md`)
 **Status**: DRAFT — pending Supervisor review
 **Author**: `planning` agent
-**Research verified against**: repository HEAD on `feature/orthrus`, 2026-07-20 (5 local, unpushed write-mode commits already applied: `a4be39e2`..`d2fa3154`)
+**Investigated run**: `https://github.com/Wikid82/Charon/actions/runs/30186328462/job/89789834178?pr=1166` (job "E2E Firefox (Shard 4/4)", commit `64bc3b8`, branch head `5d5fe3e8`)
+**Supersedes**: previous contents of this file (the GH #1160/#1161 muzzle-parity spec plus its follow-ups — that work is already implemented on this branch; see `git log -- docs/plans/current_spec.md` for its history if it's needed for reference again)
 
 ---
 
 ## 1. Introduction
 
-### 1.1 Objectives
+### 1.1 Objective
 
-Fix two GitHub issues that describe the same underlying defect class — two independently hand-maintained Docker API allowlist filters (`backend/internal/orthrus/muzzle.go` and `agent/muzzle/muzzle.go`) that are supposed to enforce identical read-only/write policy but are not provably kept in sync:
+Determine why 3 unrelated E2E tests (`user-lifecycle.spec.ts`, `user-management.spec.ts`, `long-running-operations.spec.ts`) fail with `page.goto: Test timeout of 60000ms exceeded` in the Firefox Shard 4/4 CI job on PR #1166, and produce a fix plan. A prior investigation pass already ruled out disk pressure, an image-digest false alarm, and container/health-check startup problems. This plan's job was to test the working hypothesis handed off from that pass — that new Orthrus write-mode audit logging / rate limiting / locking got wired into **global** middleware and is blocking unrelated `/login`, `/users`, `/proxy-hosts` traffic — and, per `CLAUDE.md`'s mandatory Root Cause Analysis Protocol, to keep tracing upstream rather than stopping at the first plausible-looking cause.
 
-1. **GH #1160** — the two filters normalize request paths (version-prefix stripping vs. `path.Clean`) in a different order, so a crafted input can be classified differently by each filter *in isolation*.
-2. **GH #1161** — the two allowlists are hand-copied with no structural guard against drift, and `agent/` (a separate Go module) has materially weaker CI enforcement than `backend/` (no staticcheck/lint, no coverage gate, and until the write-mode work landed, no CI-run tests at all).
+### 1.2 Headline finding
 
-Both issues were filed against the same discovery: a real production incident where a fix landed in the backend copy and shipped/redeployed twice before anyone noticed the agent copy still rejected the same paths (commits `98a68b67`, `b71cbd62`, `eabf358d`). They are treated as **one feature / one PR** per `CLAUDE.md`'s "One Feature = One PR" rule, because fixing #1160 without also closing the drift-detection gap in #1161 leaves the exact same class of silent divergence free to recur on the next allowlist edit.
+**The working hypothesis is REFUTED by direct evidence.** This is not a backend regression introduced by PR #1166's Orthrus code, and — per a Supervisor-requested follow-up pass documented in §2.3 — it is not a SQLite-level lock/contention issue either. The three timeouts are real, but the failure point is client-side (inside the Firefox tab under test), not server-side.
 
-### 1.2 Why this plan differs from the issues' literal suggestions
+**Update after a second evidence pass (this revision)**: the trace/video/screenshot artifacts from the investigated run (not pulled in the first pass) were downloaded and inspected directly, per a Supervisor review request. For 2 of the 3 failures (`user-lifecycle.spec.ts:314` and `user-management.spec.ts:1210`), this produces a **confirmed root cause with file/line precision**, superseding the earlier "leading hypothesis" framing entirely: the hangs are caused by the E2E test helpers themselves issuing a `page.goto()` call while a very recent prior navigation (to the same or a related URL) is still settling, which Firefox does not reliably surface to Playwright as a distinct, trackable navigation — so `page.goto()`'s promise never resolves, even though the application is healthy and the destination page is (or was about to be) fully and correctly rendered the entire time. This is a **test-authoring / Playwright-Firefox interaction defect in this repo's own E2E helpers**, not a defect in Charon's Go backend or React frontend application code, and — importantly — the evidence no longer supports the originally-suspected `react-router-dom` → `react-router` migration as the mechanism (see §2.5's revised conclusion). The third failure (`long-running-operations.spec.ts:75`) is very likely the same class of issue but the pulled trace only captured its successful retry, not the original hang, so it is recorded as **strongly suspected, not yet trace-confirmed** — see §2.6 and Phase 0b.
 
-Both issues explicitly invite evaluation rather than blind implementation of their suggested fix ("evaluate, don't blindly follow if a better approach exists"). Research against the **current** state of both files (post write-mode commits, not the pre-write-mode version the issues were originally filed against) changed the recommended scope in two material ways, detailed in Section 2:
-
-- The "shared test fixture" GH #1160 asks for **already exists** (`backend/internal/orthrus/testdata/muzzle_corpus.json`, consumed by both `TestMuzzle_SharedCorpus` and `TestFilter_SharedCorpus`), built during the write-mode work. The remaining gap is corpus **content** (no traversal/edge-case entries), not infrastructure.
-- The literal fix ("swap two lines in agent to strip-before-clean") is insufficient: agent's *read-path* matching doesn't use a strip-then-match model at all — it duplicates every pattern into an unversioned and a `"/v*/..."` form, matched via `path.Match`. The `v*` wildcard is **more permissive** than backend's numeric-anchored `^/v\d+\.\d+` regex, which is a second, independently exploitable divergence beyond the one the issue names. Section 2.3 has concrete inputs proving this.
+Per the RCA protocol's instruction not to guess and not to patch a symptom: the fix below is scoped only to what the evidence in §2.4-§2.6 directly supports, and the one remaining gap (failure #3's own trace) is called out as still open rather than papered over.
 
 ---
 
 ## 2. Research Findings
 
-### 2.1 Existing architecture
+### 2.1 What changed in PR #1166 (`feature/orthrus` vs. merge-base `9a17b49b`)
 
-Orthrus tunnels a remote Docker socket through Charon over an outbound WebSocket + yamux session (`ARCHITECTURE.md` has no dedicated Orthrus section yet — out of scope to add one here). Two independent allowlist filters enforce "read-only unless write mode is opted in, and even then only a fixed six-operation set":
+34 commits, primarily under `backend/internal/orthrus/`, `agent/`, and Orthrus-specific frontend components. Relevant excerpt of the full diff stat:
 
-| Filter | File | Module | Runs |
-|---|---|---|---|
-| `Muzzle` | `backend/internal/orthrus/muzzle.go` | `backend` (imports models, logger, util, GORM-adjacent types) | Charon-side, before a request enters the tunnel |
-| `Filter` | `agent/muzzle/muzzle.go` | `agent` (standalone module, 4 direct deps, `FROM scratch` Docker image, `CGO_ENABLED=0`) | On the remote agent binary, immediately before dialing the real Docker socket |
-
-Both are already deliberately duplicated, not shared — `agent/muzzle/muzzle.go`'s own doc comments state this explicitly: *"Duplicated here, not shared via import, because agent/ is a separate Go module built as a minimal standalone binary and does not import backend/ packages."* This plan does not challenge that design decision (see Section 2.5 for why).
-
-### 2.2 What the write-mode commits already built (do not re-build)
-
-The five local commits on `feature/orthrus` already:
-
-1. Added `backend/internal/orthrus/testdata/muzzle_corpus.json` (263 lines, JSON array of `{description, method, path, body?, agent_write_enabled, want_allowed}` cases).
-2. Wired `TestMuzzle_SharedCorpus` (`backend/internal/orthrus/muzzle_test.go:505-551`) to load and assert against it via `NewMuzzle(...).ServeHTTP`.
-3. Wired `TestFilter_SharedCorpus` (`agent/muzzle/muzzle_test.go:568-617`) to load the **same file** via a relative cross-module path (`../../backend/internal/orthrus/testdata/muzzle_corpus.json`) and assert against `Filter.Allow`.
-4. Added a "Run Orthrus agent tests" step (`cd agent && go test ./...`) to `.github/workflows/orthrus-build.yml` and `.github/workflows/nightly-build.yml`, gating the Docker image publish on the agent module's own test suite. Comments in `orthrus-build.yml:104-111` already reference GH #1161 and this spec by name.
-5. Named `hostConfigAllowedKeys`, `allowedWriteExactPaths`, `allowedWritePatterns`, `maxContainerCreateBodyBytes`, `mountEntry`, `validateNetworkModeValue`, `validateMountsValue` **identically** in both files, with doc comments cross-referencing each other and warning future editors to keep them in sync.
-
-**Implication for this plan**: the corpus mechanism and one CI test-execution path for `agent/` already exist. This plan's job is to (a) fill the corpus with the edge cases that actually catch the #1160 divergence, (b) fix the divergence agent-side, (c) add a *structural* drift guard the corpus alone can't provide, and (d) extend `agent/`'s CI parity with `backend/` beyond "tests run" to "tests run, lint enforced, coverage gated" — not to re-invent the shared-fixture mechanism.
-
-### 2.3 GH #1160 root cause, confirmed with concrete inputs
-
-**Backend** (`backend/internal/orthrus/muzzle.go:420-426`, `ServeHTTP`):
 ```
-rawPath  := versionPrefixRe.ReplaceAllString(r.URL.Path, "")   // strip /vX.Y first (anchored, numeric only)
-stripped := path.Clean("/" + strings.TrimLeft(rawPath, "/"))   // then clean
+backend/internal/api/handlers/orthrus_handler.go        |  60 +-
+backend/internal/api/routes/routes.go                   |   8 +-
+backend/internal/models/orthrus_agent.go                |  12 +
+backend/internal/orthrus/muzzle.go                      | 195 +-
+backend/internal/orthrus/server.go                      |  32 +-
+backend/internal/orthrus/session.go                     |  52 +-
+backend/internal/services/orthrus_service.go            |  15 +-
+frontend/src/components/hecate/AgentWriteModeDialog.tsx | 189 ++
+frontend/src/pages/AuditLogs.tsx                        |  31 +-
+tests/orthrus-write-mode.spec.ts                        | 279 +++
+... (agent/, scripts/ci/, docs/)
 ```
-`versionPrefixRe = ^/v\d+\.\d+` is anchored to the **start of the raw, uncleaned path** and requires two numeric groups.
 
-**Agent** (`agent/muzzle/muzzle.go:294-339`, `Allow`): does not use a single normalize-then-match model at all.
-- Main read-path loop matches `path.Clean(reqPath)` directly against `allowedPatterns`, a slice that lists **both** an unversioned and a literal `"/v*/..."` form of every entry (`path.Match`, where `v*` matches any single path segment starting with `v` — no digit requirement).
-- The `imageDistributionPatterns` (namespaced image inspect) branch and `allowWrite`'s exact-path branch separately compute `unversioned := versionPrefixRe.ReplaceAllString(cleanPath, "")` — i.e., **clean first, then strip** — the literal order reversal GH #1160 describes.
-- `allowWrite`'s *pattern* branch (`allowedWritePatterns`) uses neither: it matches `cleanPath` directly against `"/v*/containers/*/start"`-style entries, the same loose-`v*` mechanism as the main read loop.
+None of the three failing spec files were touched by this PR, and none exercise any Orthrus route. This shard's 179 tests do not include `tests/orthrus-write-mode.spec.ts`.
 
-This produces **three independently confirmed divergences** (traced past the one example in the issue, per `CLAUDE.md`'s Root Cause Analysis Protocol — "don't stop at the first error"):
+### 2.2 Where the PR's new locking / rate-limiting / audit-logging actually live
 
-| # | Input | Backend (current) | Agent (current, pre-fix) | Divergence |
+Traced every new `sync.Mutex`, `rate.Limiter`, and audit-log call this PR adds:
+
+| Addition | Location | Scope |
+|---|---|---|
+| `writeLimiter *rate.Limiter` (token bucket, 0.5 req/s, burst 5) | `backend/internal/orthrus/session.go`, field on `AgentSession` | Per-connection. Constructed only `if writeEnabled` inside `NewAgentSession`; only reachable from `HandleWebSocket` when a real Orthrus agent dials in over WebSocket. |
+| `auditLogger AuditLogger` | `backend/internal/orthrus/session.go`, `server.go` | Per-`AgentSession` / per-`Muzzle` field. Invoked only from within `Muzzle.ServeHTTP` (the Orthrus **external TCP proxy** handler, bound to its own listener/port — not the `:8080` Gin router) and from `AgentSession` write-path methods. |
+| `orthrusServer.SetAuditLogger(securityService)` | `backend/internal/api/routes/routes.go:559-568` (8-line diff) | Called once at startup. Passes a dependency into the Orthrus package; does **not** register any `router.Use(...)` or `api.Use(...)` middleware. The existing global middleware chain (`EmergencyBypass`, `gzip.Gzip`, `SecurityHeaders` at router level; `OptionalAuth`, `cerb.RateLimitMiddleware`, `cerb.Middleware` at the `api` group level) is untouched by this PR. |
+| Handler-level audit log on `PATCH /api/v1/orthrus/agents/:uuid` (`write_enabled` toggle) | `backend/internal/api/handlers/orthrus_handler.go` `Patch()` | Fires only when an operator PATCHes an Orthrus agent record with a `write_enabled` field present — one specific admin action, not a per-request hook. |
+
+**Conclusion**: every new lock, rate limiter, and audit-log call this PR introduces requires an actual connected Orthrus agent (WebSocket session or external-proxy TCP listener) or an explicit `PATCH .../orthrus/agents/:uuid` admin call to execute at all. Shard 4 of this run does not touch Orthrus in any way. None of this PR's new synchronization primitives were even instantiated during the failing run, let alone contended.
+
+### 2.3 Direct evidence from the `docker-logs-firefox-shard-4` container-log artifact — including the SQLite-lock hypothesis, closed
+
+Downloaded via `gh api repos/Wikid82/Charon/actions/artifacts/8631695831/zip` (the artifact from the exact failing run, `created_at: 2026-07-26T12:00:33Z`, matching the job's own timestamps) and cross-referenced line-by-line against the three failure windows from the Playwright report.
+
+**Failure #1 window** (`user-lifecycle.spec.ts:314`, STEP 4, first attempt): the backend log shows a normal, fast request burst ending at `11:44:44Z` (last browser-originated request: `GET /api/v1/themes` → 401, expected post-logout). Then:
+
+```
+{"client":"::1", ... "path":"/api/v1/health","status":200,"time":"...11:44:48Z"}
+{"client":"::1", ... "path":"/api/v1/health","status":200,"time":"...11:44:53Z"}
+{"client":"::1", ... "path":"/api/v1/health","status":200,"time":"...11:44:58Z"}
+{"client":"::1", ... "path":"/api/v1/health","status":200,"time":"...11:45:03Z"}
+... (continues every 5s, sub-millisecond latency, uninterrupted) ...
+{"client":"::1", ... "path":"/api/v1/health","status":200,"time":"...11:45:38Z"}
+{"client":"172.18.0.1", "method":"DELETE", "path":"/api/v1/users/15", ..., "time":"...11:45:41Z"}   ← next test attempt begins
+```
+
+`"client":"::1"` is Docker's own `HEALTHCHECK` (`wget --spider http://localhost:8080/health`, per `ARCHITECTURE.md`'s Docker Compose example), issued from inside the container itself, entirely independent of anything the Firefox browser does. It kept succeeding every 5 seconds, at sub-millisecond latency, for the entire ~57-second span in which the test's `page.goto('/login')` was hanging.
+
+**Supervisor review flagged a real gap here**: `GET /health` (`backend/internal/api/handlers/health_handler.go`) touches no database/GORM call at all — it proves the Gin engine, goroutine scheduler, and global middleware chain were alive, but says nothing about a SQLite-level lock (a busy writer, WAL contention, or a lock scoped to a specific route/middleware rather than truly global). This needed closing with either the DB-touching healthcheck (`GET /api/v1/health/db`, registered at `routes.go:243`) or another concrete source, not left as an assumption. Both were pursued:
+
+1. **`GET /api/v1/health/db` timing, checked against the same artifact.** This endpoint is real (`backend/internal/api/handlers/db_health_handler.go`) and genuinely DB-touching — it runs `database.CheckIntegrityDedicated(h.dbPath)`, a `PRAGMA quick_check`-class integrity scan, deliberately on a **dedicated connection**, per the handler's own doc comment, specifically *because* an earlier version ran it on the shared pool and could block the whole app for the duration of a multi-minute scan on a large database (a real, code-documented precedent for exactly the kind of DB contention risk this hypothesis was chasing). It turned out to be client-driven (`"client":"172.18.0.1"`, not `::1` — i.e., invoked by the frontend, likely a periodic status widget, not Docker's healthcheck), and a full-text scan of the artifact shows it is **not called at all until `11:52:32Z`** — after failure #1's entire window (`11:44:44Z`-`11:45:41Z`) and after failure #2's window (ending `~11:52:12Z`), and only twice (`12:00:21Z`, `12:00:22Z`) near failure #3, both **after** that failure's hang had already ended (`11:58:48Z`-`~12:00:04Z`). **Stated plainly, per the review's own instructions**: `/health/db` was not being polled during any of the 3 actual hang windows, so its timing cannot be used as direct empirical proof for those specific windows — the honest state is that this specific endpoint doesn't settle the question either way for this run, not that it confirms the backend was fine.
+2. **A stronger, direct alternative: reading the exact code path each hung navigation executes, to check whether it can touch SQLite at all.** All 3 hangs are Playwright `page.goto()` calls to `/login`, `/users`, and `/proxy-hosts` — none are `/api/*` routes. `backend/internal/server/server.go`'s `router.NoRoute(...)` handler (the catch-all Gin serves these through) is:
+   ```go
+   router.NoRoute(func(c *gin.Context) {
+       path := c.Request.URL.Path
+       if path == "/api" || strings.HasPrefix(path, "/api/") {
+           c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+           return
+       }
+       c.File(frontendDir + "/index.html")
+   })
+   ```
+   `c.File(...)` is a static-file serve — zero GORM, zero SQLite, for any of the three specific routes that hung. The only global (`router.Use()`) middleware ahead of it that takes a `db` parameter is `EmergencyBypass(managementCIDRs, db)` (`backend/internal/api/middleware/emergency.go:32`) — read in full: `db` is accepted as a parameter but **never referenced anywhere in the function body** (confirmed by reading the entire file; every branch is a header/IP/token check, no `db.` call exists). `gzip.Gzip` and `SecurityHeaders` (the other two global middlewares) are pure response-transform/header-setting code with no DB access either (confirmed by reading `backend/internal/api/middleware/security.go` in full). **So the exact code path executed for all 3 hung routes never acquires a database connection at any layer** — this is a direct, code-level proof (not an inference from a proxy endpoint's timing) that a SQLite lock, however it might arise elsewhere in the app, cannot be the cause of these specific hangs, regardless of what `/health/db` was or wasn't doing during the window.
+3. **Bracketing evidence, for completeness**: genuinely DB-touching requests (`PUT /api/v1/users/16`, `POST /api/v1/auth/login` at `11:44:43Z`; `DELETE /api/v1/users/15` at `11:45:41Z`, `POST /api/v1/users` at `11:45:43Z`) succeeded at normal (sub-100ms) latency both immediately before and immediately after every hang window in the artifact. A SQLite writer-lock or WAL-busy condition severe enough to matter does not spontaneously clear itself in the exact instant each hang ends and then recur in the exact instant the next one begins, three separate times, while never once producing a slow or errored DB-touching request anywhere else in the log. Also worth noting for completeness (found while reading `db_health_handler.go`): the shared GORM pool is configured `SetMaxOpenConns(1)` — a single-connection pool is a real, legitimate contention risk *in general* (any handler holding that one connection blocks every other DB-touching request), which is exactly why `Check` was deliberately moved onto a dedicated connection. This is a correct thing to know about this codebase, but it is irrelevant to explaining these 3 hangs specifically, since point 2 already shows none of the hung routes ever request that pool's one connection in the first place.
+
+**Conclusion, now closed on both the Gin-engine-liveness axis and the SQLite-lock axis**: the Go HTTP server was never blocked (health-check evidence, §2.3 original), and the specific routes that hung cannot have been blocked by a SQLite lock even in principle, because their entire execution path never touches the database (code-level proof, points 2-3 above). The failure point is not the backend.
+
+Separately: a full-text search of the container log for any request from the browser's client IP (`172.18.0.1`) during each ~57-60s hang window returns **zero rows** — not a slow request, not a partial/truncated one, nothing. The same gap pattern was confirmed for the other two failures. A backend regression (SQLite-related or otherwise) cannot produce that symptom by definition — there is nothing for the backend to be slow *at* if the request never arrives. §2.4-§2.6 below establish, via the run's trace/video artifacts, exactly why it never arrives.
+
+**Corroborating detail**: `ps-aux.txt` / `free-m.txt` / `df-h.txt` from the run's own diagnostics artifact (`e2e-diagnostics-firefox-shard-4`, id `8631695485`) show a healthy runner throughout (15.6 GB RAM, 10.2 GB free at snapshot time; 88 GB free disk; load average 1.19) — no resource-exhaustion signal at the OS level either.
+
+### 2.4 Pattern shared by all 3 failing assertions
+
+| Test | Failing call | What immediately preceded it |
+|---|---|---|
+| `user-lifecycle.spec.ts:205` (`navigateToLogin`, called from STEP 4) | `page.goto('/login', {waitUntil:'domcontentloaded'})` | STEP 3 just completed `logoutButton.click()` + `page.waitForURL(/login/)` (succeeded). STEP 4 then checks `emailInput.isVisible()`; per `loginWithCredentials`, if not visible, it calls `navigateToLogin()` again — the first `page.goto('/login')` inside that call (line 186) had *just* completed (~84ms earlier, per the trace — §2.5), and this second, redundant `page.goto('/login')` (line 205) is the one that hangs. |
+| `user-management.spec.ts:1227` | `page.goto('/users', {waitUntil:'domcontentloaded'})` | Immediately preceded by `logoutUser(page)` then `loginUser(page, regularUser)` (a fresh login), inside the same test step that then does a fresh top-level navigation immediately afterward — racing the app's own client-side post-login redirect (§2.5). |
+| `long-running-operations.spec.ts:75` (`afterEach`) | `page.goto('/proxy-hosts', {waitUntil:'domcontentloaded', timeout:10000})` | The test body itself just finished a `Login during backup completed in 1179ms` step (another full login cycle) immediately before `afterEach` fires. |
+
+Every failure is a Playwright `page.goto()` — a genuine top-level browser navigation — and every one immediately follows an auth-state transition (logout, login, or both), fired within roughly 100ms-1s of a preceding navigation to the same page or a page the app is about to redirect away from. No failure is an in-app client-side route transition (`<Link>`/`navigate()`), and no failure is a plain API call. Every API call logged in the same windows completed in tens of milliseconds.
+
+### 2.5 Confirmed mechanism (trace evidence): a raced `page.goto()` never gets a trackable navigation event, while the app stays fully healthy
+
+The originally-suspected `react-router-dom` → `react-router` migration (merged into this branch from `development`, not authored by this PR — see the superseded analysis this replaces, below) was a reasonable hypothesis with no trace evidence available. On Supervisor's request, the trace-containing artifacts from the same investigated run — `playwright-report-firefox-shard-4` (id `8631694705`) and `playwright-output-firefox-shard-4` (id `8631695221`), not pulled in the first pass — were downloaded (`gh api repos/Wikid82/Charon/actions/artifacts/<id>/zip`) and inspected directly: Playwright trace files (`*.trace`, JSONL action/network logs), `error-context.md` DOM snapshots, and `screencast-frame` JPEGs. This is now a **confirmed** mechanism for 2 of the 3 failures, not a hypothesis.
+
+**Failure #1 (`user-lifecycle.spec.ts:314`), trace `94104822bf03be11ddb7c39dec177132f8097e36.zip`**:
+
+- `2-trace.trace` shows two `goto` calls to `/login`: `call@77` (`startTime:112004`, this is line 186's `page.goto('/login')`) and `call@89` (`startTime:112249.66`, this is line 205's fallback `page.goto('/login')`) — **only 245ms apart**.
+- `call@77` completed normally (`"after"` event at `endTime:112165.858`). Its `after@call@77` DOM snapshot shows the document mid-hydration: `<link rel="modulepreload" href=".../Login-*.js">` still present, and the visible content is a full-screen `"Loading..."` spinner overlay, **not** the rendered Login form yet.
+- `call@89` fires 84ms after `call@77` completes — while that first navigation's JS module graph (`Login-*.js`, `Card-*.js`, `Input-*.js`) is still in flight. `call@89` has a `"before"` event, a `frame-snapshot`, and a `"log"` line in the trace, but **no `"after"` event anywhere in the file** — it never resolved, matching the reported 60s timeout.
+- **Screenshot evidence pinpoints exactly what was on screen throughout the entire hang**: the frame immediately after `call@89` fires (`page@...-1785066346500.jpeg`) shows the same `"Loading..."` spinner. The frame captured near the very end of the trace, ~55.8 seconds later (`page@...-1785066402251.jpeg`), shows the **fully and correctly rendered Login form** (email field, password field, Sign In button) — meaning the application had already finished loading and rendering the correct destination page well within the hang window. Playwright's `page.goto()` promise for `call@89` never resolved despite this.
+- **Cross-referenced against the backend log**: only **one** `GET /login` request appears in the container log for this entire attempt (`11:44:43Z`, 304µs). If `call@89` had produced a genuine second top-level navigation, a second `GET /login` should appear in the log ~245ms later. It does not. The browser never even sent the second request over the wire.
+
+**Failure #2 (`user-management.spec.ts:1210`), trace `2140c230918f91489ecb3aa202b5f4898a64c3c7.zip`**:
+
+- The hung call is `call@103` (`goto("/users", waitUntil:"domcontentloaded")`, `startTime:380539.515`, wall-clock `~11:50:14.78Z`) — confirmed to never receive an `"after"` event (versus the immediately-preceding `call@82`/`call@48`, both of which completed normally).
+- The `frame-snapshot` taken immediately before `call@103` fires shows `frameUrl: "http://127.0.0.1:8080/login"` — i.e., from Playwright's own tracking, the frame's last known URL was still `/login` at the exact moment the test asked it to navigate to `/users`, even though the preceding `logoutUser`/`loginUser` step (which includes a login-success client-side redirect to `/`) had just run. This is the `/users`-and-Dashboard analogue of failure #1's same-URL race: the new top-level `goto()` was issued while the app's own very-recent client-side navigation (post-login redirect) was still settling.
+- Screenshot at the end of the hang (`page@...-1785066669174.jpeg`, ~55s into the wait) shows the **Dashboard fully rendered** — sidebar, all four stat tiles, "Statistics" section, and critically **"Stats Service Health: Live — Connected via WebSocket"**, meaning the app's own real-time WebSocket connection was actively alive and updating on screen the entire time. The app was never stuck, blank, or erroring — it just never left the page Playwright's `goto()` was trying to navigate away from.
+- Cross-referenced against the backend log at the trace's precise wall-clock window (`11:50:14.78Z` to at least `11:51:09Z`): **zero** `GET /users` requests in that span (the nearest ones are `11:50:12Z`, 2 seconds *before* the hang started, and `11:52:16Z`, roughly 2 minutes after — both from different attempts/steps). Same signature as failure #1: the browser never dispatched the request.
+
+**Unifying conclusion**: in both trace-confirmed cases, the specific `page.goto()` call that hangs is issued within roughly 100ms-2s of a just-completed or still-settling prior navigation (a same-URL reload in failure #1; a fresh-URL `goto()` racing the app's own client-side post-login redirect in failure #2). In neither case does the browser ever dispatch the corresponding HTTP request, and in both cases the application itself finishes rendering correctly, fully, and without error well inside the 60-second window — the "Stats Service Health: Live" widget in failure #2 is direct, on-screen proof the app was actively functioning, not frozen. This is consistent with a known category of Playwright/Firefox limitation: firing a new top-level navigation while a very recent navigation to the same or a related location is still resolving can fail to produce a distinct, Playwright-trackable navigation-commit event, leaving `page.goto()`'s internal wait with nothing to resolve against until the test timeout fires. **This is a defect in this repo's own E2E test helpers' navigation pattern (calling `page.goto()` redundantly, back-to-back, without waiting for the app to fully settle first) interacting with a Firefox/Playwright navigation-tracking edge case — not a defect in Charon's backend or frontend application code, and not something introduced by PR #1166.**
+
+**Revised conclusion on the router migration (superseding §2.5 as originally written)**: the `react-router-dom` → `react-router` migration (commits `839f791c`, `4ac65862`, merged in from `development`) remains on the table only as a *possible, unproven* contributor to timing sensitivity (e.g., if it changed how quickly the Login page hydrates relative to when the test's `isVisible()` check runs, that could affect how often the race in failure #1 is lost) — but the trace evidence does not implicate it directly, and the confirmed mechanism above (test helpers issuing back-to-back `goto()` calls) does not require the migration to explain any of the observed behavior. It would be overclaiming to keep asserting the migration as "the leading hypothesis" now that direct trace evidence points somewhere more specific and better-supported. It is recorded here for traceability, not as the fix target.
+
+Also checked and still ruled out as contributing: `frontend/src/api/client.ts`'s axios 401 interceptor already has explicit redirect-loop prevention and a 30-second request timeout — neither is implicated by (nor explains) a client-side navigation-event race.
+
+### 2.6 Failure #3 (`long-running-operations.spec.ts:75`) — same symptom class, not yet trace-confirmed
+
+The only trace artifact captured for this test (`a291410bf84e39b879070c80ba5eef2d351e9c5d.zip`) corresponds to its **successful retry**, not the original failing attempt — all 5 `goto` calls in that trace (`/`, `/settings/backup`, `/settings/backup`, `/proxy-hosts`, `/users`) completed normally with `"after"` events, matching the fast (144ms-1179ms) navigation times already seen in the container log for the retry. Playwright's trace-capture setting for this run did not retain a trace for the first, failing attempt, so this failure cannot be given the same file/line-precision confirmation as failures #1 and #2 from this artifact set alone.
+
+What *is* known, from the original container-log analysis: the error is "Test timeout of 60000ms exceeded **while running `afterEach` hook**" — Playwright's overall 60s test-level budget (which covers the test body plus all hooks) was exhausted while `afterEach`'s `page.goto('/proxy-hosts', {timeout:10000})` (line 77) was in flight, not that specific call's own 10-second timeout. This leaves two live possibilities, not yet distinguished: (a) the same navigation-event-race mechanism as failures #1/#2, triggered by `afterEach` firing immediately after the test body's own `Login during backup completed in 1179ms` step (another recent auth transition, fitting the pattern); or (b) the test body itself (concurrent backup creation + multiple navigation/API assertions) simply consumed most of the 60s budget under this run's CI load, leaving `afterEach` too little time regardless of any navigation-tracking issue. Phase 0b (§4) exists specifically to close this remaining gap before this failure's own fix is finalized — it should not be assumed to be the same bug as #1/#2 without its own trace.
+
+---
+
+## 3. Diagnosis Summary
+
+| Hypothesis (from task background) | Verdict | Evidence |
+|---|---|---|
+| Audit-logging/rate-limiting wired into global Gin middleware, blocking all routes | **Refuted** | `routes.go` diff is 8 lines, no new `router.Use()`/`api.Use()`; all new locks/logging live inside Orthrus-only code paths never invoked by this shard (§2.2) |
+| Backup operation holds a DB-level or in-memory mutex blocking unrelated request paths | **Refuted** | No new mutex touches backup/task execution in this PR's diff; independently, the backend answered Docker's own healthcheck every 5s throughout every hang window — nothing was blocked backend-side (§2.3) |
+| SQLite `database is locked` contention from synchronous audit-log writes | **Refuted, closed with code-level proof (not just healthcheck timing)** | The non-DB healthcheck alone doesn't prove this (Supervisor's flag, correctly raised); closed instead by reading the exact code path all 3 hung routes execute (Gin's `NoRoute` static-file handler, plus the global `EmergencyBypass`/`gzip`/`SecurityHeaders` middleware ahead of it) and confirming none of it ever acquires a DB connection, plus bracketing evidence that genuinely DB-touching requests succeeded at normal latency immediately before and after every hang window (§2.3) |
+| Rate limiter using a blocking/synchronous store | **Refuted** | The only new rate limiter (`session.go`'s `writeLimiter`) is a per-`AgentSession`, in-process `golang.org/x/time/rate.Limiter` (non-blocking semantics, no shared store), never constructed unless a real write-enabled Orthrus agent connects |
+| `CHARON_EMERGENCY_SERVER_ENABLED` interacting with this PR's changes | **Refuted** | Emergency-reset calls complete in single-digit milliseconds throughout; no Orthrus code touches the emergency server package |
+| Frontend client-side navigation stall correlated with the react-router-dom→react-router migration | **Superseded** | Trace evidence (§2.5) points to a more specific, confirmed mechanism that does not require the migration to explain it; kept here only for traceability |
+| **Test-helper `page.goto()` race: a navigation fired within ~100ms-2s of a still-settling prior navigation never produces a Playwright-trackable event, while the app itself renders correctly throughout** | **Confirmed for failures #1 and #2 (file/line precision, trace evidence); strongly suspected but not yet trace-confirmed for failure #3** | §2.5 (trace walkthrough for #1/#2); §2.6 (why #3 is not yet at the same confidence level, and what closes that gap) |
+
+**This is not an ordinary environmental/flaky-infra dead end** — 2 of the 3 failures now have a confirmed, evidence-backed, file/line-precise mechanism, not a hypothesis. The honest remaining gap is failure #3, which is very likely the same class of issue but lacks its own trace (§2.6); Phase 0b below exists specifically to close that, and the plan does not assume the answer in advance.
+
+---
+
+## 4. Implementation Plan
+
+### Phase 0 — Reproduction spike: COMPLETE for failures #1 and #2 (this revision)
+
+The reproduction spike originally planned here was carried out against the artifacts from the investigated run itself, per Supervisor's request, rather than a fresh local run — `playwright-report-firefox-shard-4` (id `8631694705`) and `playwright-output-firefox-shard-4` (id `8631695221`) were downloaded (`gh api repos/Wikid82/Charon/actions/artifacts/<id>/zip`) and their `error-context.md` DOM snapshots, Playwright `*.trace` JSONL action/network logs, and `screencast-frame` JPEGs inspected directly. This produced the confirmed mechanism in §2.5 for failures #1 and #2 — no further reproduction is needed for those two before writing the fix.
+
+### Phase 0b — Reproduction spike still required for failure #3
+
+**Goal**: distinguish, with the same rigor now applied to #1/#2, whether `long-running-operations.spec.ts`'s `afterEach` hang (§2.6) is the same navigation-race mechanism or simply the test body consuming most of its 60s budget before `afterEach` starts.
+
+1. Re-run just this spec with tracing forced on for **every** attempt (not just retries, since the existing artifact only captured the successful retry):
+   ```
+   npx playwright test tests/tasks/long-running-operations.spec.ts --project=firefox --trace=on --retries=0
+   ```
+2. If it fails on the first attempt under this config, inspect the trace exactly as done for #1/#2 in §2.5: check whether `afterEach`'s `page.goto('/proxy-hosts')` (line 77) call ever produces an `"after"` event, whether a matching `GET /proxy-hosts` appears in the container log at the corresponding wall-clock time, and what the screencast frames show on-screen throughout.
+3. If it does *not* fail locally (timing-sensitive), instead measure how much of the 60s budget the test *body* alone consumes in a representative run — if it's already routinely >45-50s before `afterEach` even starts, mechanism (b) from §2.6 (budget exhaustion, not a navigation race) is the more likely explanation, and the fix is a test-timeout/scope adjustment (e.g. split the test, or extend its own `test.setTimeout()`), not the same navigation-pattern fix as #1/#2.
+
+### Phase 1 — Fix (confirmed scope for failures #1 and #2; failure #3 per Phase 0b's outcome)
+
+This is a **test-code fix, not an application-code fix** — §2.5's trace evidence shows the application (both backend and frontend) functioning correctly throughout every hang window; the defect is in how the E2E helpers themselves call `page.goto()`.
+
+- **`tests/settings/user-lifecycle.spec.ts`, `navigateToLogin()` (lines 184-209, hang at line 205)**: the fallback path currently does `clearCookies()` + `localStorage.clear()`/`sessionStorage.clear()` then an immediate second `page.goto('/login', {waitUntil:'domcontentloaded'})` when `emailInput.isVisible()` returns false moments after the *first* `goto('/login')` (line 186) completed. Per §2.5, that first navigation's JS modules were still loading when the check ran (a hydration-timing race, not an app bug), and the resulting second `goto()` to the same URL never produces a trackable navigation event. Fix: replace the redundant same-URL `page.goto()` with `page.reload({waitUntil:'domcontentloaded'})` (a `reload()` is guaranteed by Firefox/Playwright to produce a fresh, distinct navigation-commit event, unlike a same-URL `goto()`), and/or give the first navigation's hydration more time before evaluating `isVisible()` (e.g. an explicit short wait or a hydration marker) so the fallback path is taken less often in the first place.
+- **`tests/settings/user-management.spec.ts:1218-1228` ("Navigate to users page directly" step)**: `page.goto('/users', ...)` is fired immediately after `loginUser(page, regularUser)` returns, racing the app's own client-side post-login redirect (still showing `frameUrl: /login` per the trace at the moment `goto()` fires). Fix: after `loginUser`/`waitForLoadingComplete` returns, wait for the URL to actually settle away from `/login` (e.g. `await page.waitForURL((url) => !url.pathname.includes('/login'))`, or reuse `waitForLoadingComplete`'s own settling semantics if it already exposes one) before firing the next top-level `goto()`.
+- **`tests/tasks/long-running-operations.spec.ts` `afterEach` (lines 75-99)**: pending Phase 0b's outcome — if the same race, apply the equivalent "wait for the preceding navigation/redirect to settle before the next `goto()`" fix; if budget exhaustion, adjust the test's own timeout/scope instead.
+- **No `frontend/src/**` changes are in scope for this fix.** The originally-anticipated targets (`Login.tsx`, `AuthContext.tsx`) are not implicated by the trace evidence — the application rendered correctly and (in failure #2's case) was actively serving a live WebSocket connection on screen throughout the hang. Reopening application code here would not be tracing to the actual root cause.
+
+### Phase 2 — Regression tests
+
+- Per Supervisor's review: the original regression-test scope only codified the `/login` double-goto shape (failure #1). Generalized here to cover **both** confirmed failure shapes, not just the login one:
+  - A Playwright regression test (its own commit, not folded into the fix commit) exercising "log out, then request `/login` again via `page.goto` before the SPA has fully hydrated" — codifying the `navigateToLogin` double-goto pattern (failure #1's shape).
+  - A second Playwright regression test exercising "log in, then immediately `page.goto()` to a different top-level route before the app's own post-login redirect has settled" (failure #2's shape) — using a protected, non-login route (e.g. `/users` or `/proxy-hosts`) so this is a genuinely distinct case from the first, not a restatement of it.
+- If Phase 0b confirms failure #3 is the same race, add a third case for "navigate immediately after a login inside a test's own body/hook boundary" (the `afterEach`-adjacent shape) rather than assuming the first two cases already cover it.
+- Explicitly **not** in scope: any new backend/Orthrus test to "cover" this bug — §2.2 already demonstrates the Orthrus audit-logger/rate-limiter/mutex code this PR added is correctly scoped (per-connection, never global), so there is no backend regression here to cover. As a cheap defense-in-depth addition (see Commit 4 below), a small Go unit test asserting `orthrusServer.SetAuditLogger` registers nothing on the shared `*gin.Engine` keeps that invariant regression-tested rather than merely argued in this doc.
+
+### Phase 3 — Verification
+
+- Re-run the full Definition of Done from `CLAUDE.md` (Playwright E2E full suite across all browsers, not just the 3 previously-failing specs, since the fix touches shared test-helper navigation patterns reused across many spec files).
+- Specifically re-run Firefox shard 4/4 in isolation at least twice to build confidence against the ~100%-reproducible failure pattern.
+- Confirm `npm run type-check` and `go build ./...` both remain clean (the fix is test-code-only; no application code changes are anticipated).
+
+---
+
+## 5. Risks and Mitigations
+
+| Risk | Mitigation |
+|---|---|
+| Phase 0b (failure #3) still needs a fresh reproduction run, unlike #1/#2 which are already trace-confirmed | Timebox Phase 0b; if inconclusive, treat failure #3 independently per its own risk row below rather than blocking the now-confirmed #1/#2 fix |
+| The `page.reload()`/settle-wait fix changes test timing/behavior broadly, since these helpers are reused across many spec files | Run the full cross-browser E2E suite (Phase 3), not just the 3 originally-failing specs, before merge |
+| Fix scope creeps into unrelated router-migration or other test-infrastructure cleanup | Phase 1 is explicitly scoped to the exact mechanism confirmed in §2.5; do not open a general "audit all E2E navigation helpers" workstream under this PR — file a separate follow-up issue if broader patterns are noticed, per `CLAUDE.md`'s One-Feature-One-PR rule |
+| Failure #3 turns out to be budget exhaustion (test body too slow), not the same navigation race | Fix its test timeout/scope independently rather than forcing the #1/#2 fix pattern onto it; note this explicitly in the PR description so reviewers don't expect one uniform fix across all 3 |
+| Failure #3's root cause remains inconclusive even after Phase 0b | Quarantine that one test with `test.fixme` + a tracked follow-up issue, and merge the now-confirmed #1/#2 fix rather than blocking the whole PR on the least-understood of the three |
+
+---
+
+## 6. Commit Slicing Strategy
+
+**Decision**: Single PR (#1166, `feature/orthrus`), additional ordered commits on top of the existing 34. This is a CI-unblocking bug fix for the branch this feature already lives on — not a new feature and not a new PR, per `CLAUDE.md`'s "One Feature = One PR" / "Slice Commits, Not PRs" rules.
+
+| Commit | Scope | Files | Depends on | Validation gate |
 |---|---|---|---|---|
-| 1 | `GET /foo/../v1.44/images/x/json` | **403** — regex doesn't match `/foo/...` (not anchored at start); after clean, `/v1.44/images/x/json` fails the `/images/` prefix check | **200** — clean-then-strip reveals `/images/x/json`, matches `imageDistributionPatterns` | The exact case GH #1160 names |
-| 2 | `GET /vFOO/containers/json` | **403** — `^/v\d+\.\d+` requires digits, doesn't match `vFOO` | **200** — `path.Match("/v*/containers/json", ...)` treats `v*` as "any segment starting with v" | New: numeric-regex vs. loose-wildcard mismatch, read path |
-| 3 | `POST /vFOO/containers/abc/start` (write mode on) | **403** — same regex mismatch, `allowedWritePatterns` pattern `/containers/*/start` doesn't match the un-stripped `/vFOO/...` path | **200** — `allowedWritePatterns` pattern `/v*/containers/*/start` matches via loose `v*` | New: same bug class, but on a **write** endpoint — higher practical severity than the read-only case the issue text discusses |
+| **1. `test(e2e): reproduce and confirm long-running-operations afterEach hang (Phase 0b)`** | Targeted re-run/trace-capture for failure #3 only, per §4 Phase 0b; this commit's own output (trace + a short written conclusion in the commit message or PR description) is the deliverable, not a code fix yet | `tests/tasks/long-running-operations.spec.ts` (temporary trace-config override if needed), no production test-helper changes yet | none | Must not change existing test outcomes; produces a concrete answer to "same race as #1/#2, or budget exhaustion?" before commit 2 |
+| **2. `fix(e2e): stop racing page.goto() against still-settling prior navigations`** | The confirmed Phase 1 fix: `navigateToLogin()` in `user-lifecycle.spec.ts` (use `page.reload()` instead of a same-URL `page.goto()`, and/or wait longer before the `isVisible()` check); the "Navigate to users page directly" step in `user-management.spec.ts` (wait for the post-login redirect to settle before the next `goto()`); `long-running-operations.spec.ts`'s `afterEach` per commit 1's finding | `tests/settings/user-lifecycle.spec.ts`, `tests/settings/user-management.spec.ts`, `tests/tasks/long-running-operations.spec.ts` | Commit 1 (for the #3 portion; #1/#2 portions can land even if commit 1 is still pending, since they're already trace-confirmed) | The 3 previously-failing specs pass locally, Firefox project, `--retries=0` |
+| **3. `test(e2e): regression coverage for goto/navigation-settle races`** | The two (or three, per Phase 0b) generalized regression cases from §4 Phase 2 — covering both the login-reload shape and a non-login protected-route shape, not just the login one | New or extended spec file(s) under `tests/` | Commit 2 | `npx playwright test --project=firefox` targeted at the new cases passes |
+| **4. `test(orthrus): assert SetAuditLogger registers no global gin middleware` (defense-in-depth, independent)** | One small Go unit test documenting/enforcing the §2.2 invariant this investigation relied on | `backend/internal/orthrus/server_test.go` (or similar) | none | `go test ./...`; `make lint-fast` |
+| **5. `docs: record Shard-4 reload-hang RCA in qa_report.md`** | Summarize this investigation (including the closed SQLite-lock question and the confirmed trace mechanism) for future reference (mirrors this branch's existing pattern of recording muzzle-parity QA audits in `docs/reports/qa_report.md`) | `docs/reports/qa_report.md` | Commits 1-4 | Docs-only; markdown lint |
 
-In every row, backend is strictly more conservative (fails closed); agent is strictly more permissive. This matches the issue's finding that today's real pipeline (backend always runs first) already masks the bug — but confirms it's not confined to the one read-only inspect endpoint the issue used as its example; row 3 shows the same order/looseness bug reaches a write operation once write mode is enabled, which is the higher-value target if the "backend always runs first" assumption is ever violated (e.g., a future direct-to-agent access path, exactly the risk scenario the issue names).
-
-Two traversal cases already exist in `agent/muzzle/muzzle_test.go:161-163` (`TestFilter_Allow`) but were never promoted into the shared corpus, so backend has no equivalent regression test for them:
-```
-{"GET", "/v1.47/../containers/json", true},      // resolves to /containers/json — allowed
-{"GET", "/containers/../../etc/passwd", false},  // resolves to /etc/passwd — blocked
-```
-Verified: both filters already agree on these two (traversal that doesn't disguise a version prefix isn't affected by the order bug). They belong in the shared corpus anyway, per `CLAUDE.md`'s DRY guidance — one behavioral assertion instead of two independently-maintained ones.
-
-### 2.4 GH #1161 root cause, confirmed against current tooling
-
-`lefthook.yml`'s blocking `pre-commit` stage has two Go-specific commands, both **hardcoded to `backend/`**:
-```yaml
-go-vet:
-  glob: "*.go"                              # matches agent/**/*.go too...
-  run: cd backend && go vet ./...           # ...but only ever lints backend/
-
-golangci-lint-fast:
-  glob: "*.go"
-  run: scripts/pre-commit-hooks/golangci-lint-fast.sh   # script itself: cd "$(dirname "$0")/../../backend"
-```
-The glob matches any `.go` file anywhere in the repo (including `agent/`), so editing only `agent/muzzle/muzzle.go` **does** trigger both hooks — but each is blind to `agent/` for a different reason, confirmed by reading each command's actual implementation rather than assuming they behave alike:
-
-- **`go-vet`**: the command is exactly `cd backend && go vet ./...`, with **no revision-scoping at all** — it does not consult `--new-from-rev` or any diff. It unconditionally vets the entirety of `backend/` on every trigger, regardless of what changed. It "passes trivially" for an agent-only change not because it detects zero changed files, but because it is hardcoded to `backend/` and never inspects `agent/` in the first place — full stop.
-- **`golangci-lint-fast.sh`** (confirmed at `scripts/pre-commit-hooks/golangci-lint-fast.sh:64` and `:68`): does `cd "$(dirname "$0")/../../backend"` and then runs `golangci-lint run --config .golangci-fast.yml --new-from-rev HEAD ./...`. For *this* script, "finds zero changed backend files under `--new-from-rev HEAD`, passes trivially" is the accurate mechanism, since an agent-only commit produces no backend-scoped diff for that flag to report on.
-
-Either way the net effect is identical and the conclusion is unchanged: **`agent/` is not vetted or linted by pre-commit today.** This is the exact, literal mechanism by which the original incident's agent-side omission passed local pre-commit undetected.
-
-`scripts/go-test-coverage.sh` is hardcoded to `BACKEND_DIR="$ROOT_DIR/backend"` — no coverage gate exists for `agent/` at all. `Makefile`'s `check-module-coverage` target (`scripts/check-module-coverage.sh`) is a **dangling reference** — the script does not exist on disk. Confirmed via `ls`; this predates this feature and is an unrelated pre-existing bug, fixed opportunistically in this PR's Commit 5 since it's directly on-topic (module coverage aggregation) and trivial to fix alongside the new agent script.
-
-`go test -cover ./...` in `agent/` today:
-```
-github.com/Wikid82/charon/agent          0.0% (main.go, 144 lines — CLI bootstrap/flag parsing)
-github.com/Wikid82/charon/agent/cert     0.0%, no test files (cert.go, 68 lines — real logic: generates a self-signed ECDSA cert)
-github.com/Wikid82/charon/agent/leash   44.4% (has partial test coverage already)
-github.com/Wikid82/charon/agent/muzzle  89.5% (well covered)
-github.com/Wikid82/charon/agent/protocol  no test files (37 lines, pure type/const declarations, no branches)
-```
-`agent` (root/main) is a direct structural analogue of `backend/cmd/api`, which `codecov.yml` already excludes as "entrypoints and infrastructure code... tested via integration tests instead." `cert/` is genuine, currently-untested business logic and does not get that exclusion — it needs a real test, which this plan scopes narrowly (Section 3.5).
-
-**CI test execution** (distinct from lint/coverage) for `agent/` already exists as of the write-mode commits (`orthrus-build.yml`, `nightly-build.yml` — Section 2.2, item 4), but only fires on `agent/**` path changes to pull requests, or on push/tag events — it is not part of the unconditional per-PR `quality-checks.yml` gate that `backend-quality`/`frontend-quality` already are.
-
-### 2.5 Design decision: #1161's unification question
-
-Three options were evaluated, per the task's explicit request to justify the call rather than default to the most elaborate option:
-
-**Option A — Shared importable Go package.** Move the allowlist definitions into a package both `backend/internal/orthrus` and `agent/muzzle` import. Rejected: `agent/go.mod` has 4 direct dependencies and builds to a `FROM scratch`, `CGO_ENABLED=0` image; `backend/internal/orthrus` imports `models`, `logger`, `util`, and (transitively, through `services` → `orthrus`) GORM and Gin-adjacent packages. A shared package would need to live somewhere neither module's existing import graph implies, and `agent` importing anything under `backend/` inverts the module boundary the code's own doc comments say is intentional. This is the elaborate option and was rejected on concrete dependency-graph grounds, not by default.
-
-**Option B — Codegen from a single source-of-truth data file.** A YAML/JSON policy file, code-generated into each module's native types at build time. Rejected for this PR: adds a new build-time toolchain step (`go generate` wiring in two modules, generated-file staleness as its own drift class) for policy data that changes rarely — the allowlists have been touched a handful of times total across the file's history. Disproportionate complexity relative to change frequency. Not ruled out permanently; worth revisiting if the allowlist starts changing often.
-
-**Option C — Structural CI drift-check (chosen), layered on top of the existing behavioral corpus.** The corpus (already built, Section 2.2) proves *outcome* parity for the specific inputs it contains — it cannot catch "a new pattern was added to one file's map literal and nobody thought to add a corresponding corpus case," which is precisely what happened in the original incident. A second, independent guard is needed that compares the *declared allowlist contents* themselves, not just sampled behavior. This is Option C: a small `go/parser`-based Go program (stdlib only, no new dependency) that extracts the string-literal contents of the two files' named allowlist declarations and fails if they differ, run pre-commit and in CI. Chosen because it directly closes the exact gap that caused the incident, adds no new runtime dependency or build step, and its scope (Section 3.3) is deliberately bounded to declarative data (paths, patterns, key sets, the body-size constant) rather than attempting to diff function-body *logic* (`validateNetworkModeValue`/`validateMountsValue`), which stays covered by the existing corpus and code-review cross-references — an explicitly accepted, documented limitation, not a silent gap.
-
-Sequencing note: Option C's checker is **much simpler to write correctly** if agent's allowlist declarations are first collapsed to the same *shape* as backend's (Section 3.1's refactor removes the `/v*/...` duplicate entries and renames variables to match backend 1:1). This is why the Commit Slicing Strategy (Section 5) puts the agent normalization fix (which does this collapse as a side effect) *before* the parity-checker commit, not after.
+**Rollback / contingency for the PR as a whole**: failures #1 and #2 are now confirmed and fixable independently of failure #3's outcome — do not let Phase 0b's timeline block landing commits 2/3 for the two already-understood cases. If Phase 0b is inconclusive after a reasonable, timeboxed effort, quarantine `long-running-operations.spec.ts`'s affected test with `test.fixme` + a tracked follow-up issue referencing this doc, and merge the rest. If `qa-security`/`supervisor` judge any residual risk here to be user-facing rather than test-only, that's a call for `supervisor` to make, not this plan, since it changes the PR's risk posture rather than its CI mechanics.
 
 ---
 
-## 3. Technical Specifications
-
-### 3.1 `agent/muzzle/muzzle.go` — normalization refactor (fixes #1160)
-
-Introduce one normalization function, used everywhere a path is matched, mirroring backend's order exactly:
-
-```
-// normalizeDockerPath strips a Docker API version prefix (e.g. "/v1.47"),
-// matching backend's versionPrefixRe exactly, THEN runs path.Clean — same
-// order as backend/internal/orthrus/muzzle.go's ServeHTTP, so both filters
-// reach the same decision on the same input in isolation, not only when
-// backend happens to run first in the real request pipeline.
-func normalizeDockerPath(reqPath string) string {
-    stripped := versionPrefixRe.ReplaceAllString(reqPath, "")
-    return path.Clean("/" + strings.TrimLeft(stripped, "/"))
-}
-```
-`versionPrefixRe` (already `^/v\d+\.\d+`, already present in the file at line 79) is reused as-is — no change to the regex itself, only to when it runs relative to `Clean`.
-
-Collapse the duplicated-pattern lists to unversioned-only, matching backend's split into an exact-match set and a dynamic-pattern set, and **rename to match backend 1:1** (enables the Commit 4 parity checker to pair declarations by name):
-
-| Current agent name/shape | New name/shape | Rationale |
-|---|---|---|
-| `allowedPatterns []string` (mixed exact + dynamic + `/v*/` dupes) | `allowedDockerPaths map[string]struct{}` (exact, unversioned only) + `allowedDockerPatterns []string` (dynamic, unversioned only) | Matches backend's split exactly; halves the list length by dropping the now-redundant `/v*/` dupes |
-| `imageDistributionPatterns []struct{prefix,suffix string}` | `allowedDockerPrefixSuffixPatterns []struct{prefix,suffix string}` | Name parity with backend |
-| (HEAD `/_ping` handling: loop over `{"/_ping","/v*/_ping"}` via `path.Match`) | `normalizeDockerPath(reqPath) == "/_ping"` | Single check, same numeric-anchored regex as everywhere else — closes divergence row 2/3 above for the HEAD path too |
-
-`allowedWriteExactPaths` and `allowedWritePatterns` keep their current names (already match backend) but change internally:
-- Drop the `/v*/...` duplicate entries from `allowedWritePatterns` (4 entries → keep the unversioned form only).
-- `allowWrite`'s signature changes from `allowWrite(method, cleanPath string, body []byte) bool` to `allowWrite(method, normalizedPath string, body []byte) bool` — the caller (`Allow`) computes `normalizeDockerPath` once and passes the result in, instead of `allowWrite` separately re-deriving `unversioned` for the exact-path branch only (closing divergence row 3 — the pattern-loop branch now uses the same normalized path as the exact-path branch, not raw `cleanPath`).
-
-`Allow`'s public signature (`Allow(method, reqPath string, body []byte) bool`) is unchanged — this is an internal-only refactor. `ServeProxy`, the only caller, needs no change.
-
-No change to `backend/internal/orthrus/muzzle.go`'s runtime logic — its order is already the reference. Proposed: extract its existing two-line strip+clean sequence (`ServeHTTP` lines 420-426) into a same-named `normalizeDockerPath(rawPath string) string` helper, purely for symmetry with the agent-side helper and to give the Commit 4 parity checker (and future readers) one obviously-paired function name to look for in each file. This is a no-behavior-change refactor, verified by the existing full backend test suite passing unmodified.
-
-### 3.2 Shared corpus additions (fixes the "no shared fixture for edge cases" gap in #1160)
-
-New entries for `backend/internal/orthrus/testdata/muzzle_corpus.json` (consumed by both `TestMuzzle_SharedCorpus` and `TestFilter_SharedCorpus` — no new test-loading code needed, per Section 2.2):
-
-| Description | Method | Path | Write enabled | Want allowed | Why it belongs in the corpus |
-|---|---|---|---|---|---|
-| traversal-disguised version prefix on namespaced image inspect (GH #1160's own example) | GET | `/foo/../v1.44/images/x/json` | false | **false** | Divergence row 1 — red on agent pre-fix |
-| non-numeric fake version prefix on a plain read path | GET | `/vFOO/containers/json` | false | **false** | Divergence row 2 — red on agent pre-fix |
-| non-numeric fake version prefix on `/_ping` via HEAD | HEAD | `/vBOGUS/_ping` | false | **false** | Same bug class, HEAD special-case |
-| non-numeric fake version prefix reaching a write endpoint | POST | `/vFOO/containers/abc/start` | true | **false** | Divergence row 3 — highest-severity case found |
-| version-prefixed traversal that legitimately resolves to an allowed path | GET | `/v1.47/../containers/json` | false | true | Migrated from agent-only test; proves traversal handling isn't broken by the fix, not just that it's stricter |
-| traversal escaping to a disallowed path | GET | `/containers/../../etc/passwd` | false | false | Migrated from agent-only test; both filters already agree — regression guard |
-| double-slash with legitimate version prefix | GET | `/v1.44//containers/json` | false | true | Confirms `path.Clean`'s double-slash collapsing is unaffected by the reordering — both filters already agree, kept as an explicit regression case |
-
-All seven are single `want_allowed` values shared by both filters — by design, since the corpus format has no per-filter expected-value column (`muzzleCorpusCase` in both `_test.go` files), and the whole point of Section 3.1's fix is that both filters must agree.
-
-**Expected state after Commit 1 alone (corpus additions, before Commit 3's agent fix)**: `TestMuzzle_SharedCorpus` (backend) passes unchanged — backend's current behavior already matches every new expected value. `TestFilter_SharedCorpus` (agent) fails on the 4 divergence rows — this is the intended red state proving the bug, consistent with `CLAUDE.md`'s suggested commit sequence ("E2E specs for new behavior... as test.fixme" — the Go-test equivalent here is "corpus case added and failing, not yet fixed" — see Section 5 Commit 1 validation gate for how this red state is handled without claiming the PR is done mid-sequence).
-
-### 3.3 Structural allowlist parity checker (fixes #1161 workstream 1)
-
-New file: `scripts/ci/check_muzzle_allowlist_parity.go` (package `main`, stdlib-only: `go/ast`, `go/parser`, `go/token`).
-
-Design:
-1. Parse both `backend/internal/orthrus/muzzle.go` and `agent/muzzle/muzzle.go` with `go/parser.ParseFile`.
-2. Walk each file's top-level `var`/`const` declarations, extracting the literal contents of a fixed, named set of declarations (paired by identical name across both files, per the Section 3.1 renaming). Two distinct AST shapes are handled: composite literals (map/slice literals, and the single int constant) for seven of the eight declarations below, and — for `versionPrefixRe` specifically — the string-literal first argument of the `regexp.MustCompile(...)` call assigned to it. `versionPrefixRe` is declared as `var versionPrefixRe = regexp.MustCompile(`^/v\d+\.\d+`)` in both files (`backend/internal/orthrus/muzzle.go:38`, `agent/muzzle/muzzle.go:79`) — an `*ast.CallExpr`, not a composite literal — so the checker's extraction function special-cases this one declaration by name, unwraps the call expression's single argument, and asserts it is an `*ast.BasicLit` of kind `STRING` before comparing its literal value:
-
-| Declaration name | Extracted as | Normalization before compare |
-|---|---|---|
-| `versionPrefixRe` | regex source string (the raw literal passed to `regexp.MustCompile`) | none — must be byte-identical; this is the literal regex named in requirement R2 and is the actual root-cause artifact of GH #1160 (Section 2.3) — the class of drift a future one-sided "fix" to `^/v\w+` or similar would silently introduce if this row didn't exist |
-| `allowedDockerPaths` | set of string keys | none — already unversioned-only in both files post-3.1 |
-| `allowedDockerPatterns` | set of strings | none |
-| `allowedDockerPrefixSuffixPatterns` | set of `(prefix, suffix)` pairs | none |
-| `allowedWriteExactPaths` | set of string keys | none |
-| `allowedWritePatterns` | set of `(method, pattern)` pairs | none |
-| `hostConfigAllowedKeys` | set of string keys | none |
-| `maxContainerCreateBodyBytes` | single int literal | none — must be byte-identical, both files' doc comments already assert this |
-
-3. Diff each pair; on any mismatch, print the specific missing/extra entries (e.g. `"allowedWritePatterns: present in backend, missing in agent: {DELETE /containers/*}"`, or for the regex row, `"versionPrefixRe: backend=^/v\d+\.\d+ agent=^/v\w+ (source strings differ)"`) and exit non-zero.
-4. Explicitly out of scope, documented in the tool's own header comment: `validateNetworkModeValue`, `validateMountsValue`, and `validateContainerCreateBody`'s logic bodies are **not** structurally diffed — AST-diffing function bodies for semantic (not just textual) equivalence is a much harder problem than diffing data-literal declarations, and the existing shared corpus (Section 3.2) plus the code's own cross-referencing doc comments remain the guard for those. This limitation is called out in the plan and in the tool's usage banner, not silently accepted.
-
-Wired into:
-- `lefthook.yml` pre-commit stage, new command `muzzle-allowlist-parity`, `glob: "{backend/internal/orthrus/muzzle.go,agent/muzzle/muzzle.go}"`, `run: go run scripts/ci/check_muzzle_allowlist_parity.go`.
-- `.github/workflows/quality-checks.yml`, new small job `muzzle-allowlist-parity` (mirrors the existing `auth-route-protection-contract` job's pattern of a focused, fast, always-run contract-test job), so the guard applies on every PR regardless of whether the PR's diff happens to touch the glob (belt-and-suspenders: lefthook only catches it if a *local* commit touches the file; CI catches it even if lefthook was bypassed with `--no-verify` or the change came from a non-standard path).
-
-### 3.4 Agent CI tooling parity (fixes #1161 workstream 2)
-
-| Backend has | Agent gets |
-|---|---|
-| `backend/.golangci-fast.yml` | Moved to repo-root `.golangci-fast.yml` (shared config, one source of truth — DRY per `CLAUDE.md`); both modules' lint scripts reference it via relative path |
-| `lefthook.yml` `go-vet` (`cd backend && go vet ./...`) | New sibling command `go-vet-agent` (`cd agent && go vet ./...`), `glob: "agent/**/*.go"` — existing `go-vet` command's glob narrowed to `backend/**/*.go` so each command's failure clearly attributes to its module |
-| `scripts/pre-commit-hooks/golangci-lint-fast.sh` / `-full.sh` | Both scripts extended to loop over `("backend" "agent")`, running the (now-root) shared config against each module dir in turn |
-| `scripts/go-test-coverage.sh` (backend, 87% default gate) | New `scripts/agent-test-coverage.sh` — same coverage-gate arithmetic (line-coverage-from-coverprofile), no encryption-key bootstrapping (agent has none), `EXCLUDE_PACKAGES=("github.com/Wikid82/charon/agent")` (root/main only — mirrors `backend/cmd/api`'s exclusion precedent; `cert/` and `protocol/` are **not** excluded, see Section 3.5 for the tests that bring them into scope). Writes `agent/coverage.txt` in the standard `go test -coverprofile` format (same shape as `backend/coverage.txt`), the input both Section 3.4.1's patch-coverage extension and Section 3.4.2's Codecov upload consume. |
-| `lefthook.yml` `testing` manual pipeline (`go-test-coverage`) | New sibling command `agent-test-coverage`, `glob: "agent/**/*.go"` |
-| `quality-checks.yml` job `backend-quality` | New job `agent-quality` — `go vet`, golangci-lint (fast config, root-shared) against `agent/`, `scripts/agent-test-coverage.sh`; deliberately **not** a copy of every `backend-quality` step (no encryption-key resolution, no GORM scan — agent has no models, no Perf-assert step — agent has no equivalent benchmark suite) |
-| `Makefile` `check-module-coverage` (dangling script reference; stale `"backend + frontend"` echo text) | Implemented as a thin wrapper invoking `scripts/go-test-coverage.sh` then `scripts/agent-test-coverage.sh` in sequence, fixing the pre-existing dangling reference found during this PR's research. The target's echo string is corrected from `"backend + frontend"` to `"backend + agent"` — not `"backend + frontend + agent"` — because the wrapper genuinely only ever invokes the backend and agent scripts; frontend coverage is gated by its own separate script/target (`scripts/frontend-test-coverage.sh`) and was never actually run by this target, so the old text was wrong about what the target does, not merely under-scoped for a future third module. |
-
-`.gitignore`/`.dockerignore` need no changes: `coverage.txt`/`coverage.out` patterns in `.gitignore` (line 163, unanchored — no leading `/`) already match `agent/coverage.txt`. Verified by reading both files during research — explicitly confirmed rather than assumed.
-
-#### 3.4.1 Local patch-coverage tooling parity (closes the `local-patch-report.sh` visibility gap)
-
-`scripts/local-patch-report.sh` is the script CLAUDE.md's Definition of Done Step 2 makes MANDATORY. It is a thin wrapper: it resolves `BACKEND_COVERAGE_FILE`/`FRONTEND_COVERAGE_FILE`, checks they exist, then shells out to `go run ./cmd/localpatchreport` (from `backend/`), which does the actual diff-vs-coverage computation via `backend/internal/patchreport`. Extending it for `agent/` requires changes at both layers — the wrapper script and the Go tool it calls — not just the shell script; a shell-only fix would add an `agent/coverage.txt` existence check but the Go tool underneath would still have no way to attribute changed `agent/**` lines to a coverage scope.
-
-**`scripts/local-patch-report.sh`**:
-- Add `AGENT_COVERAGE_FILE="$ROOT_DIR/agent/coverage.txt"` alongside the existing `BACKEND_COVERAGE_FILE`/`FRONTEND_COVERAGE_FILE` (line 6-7).
-- Add the same missing-input guard pattern already used for backend/frontend (lines 81-91): if absent, call `write_preflight_artifacts` with an agent-specific reason string and exit 1.
-- Pass `--agent-coverage "$AGENT_COVERAGE_FILE"` through to the `go run ./cmd/localpatchreport` invocation (alongside the existing `--backend-coverage`/`--frontend-coverage` args, line 108-113).
-
-**`backend/cmd/localpatchreport/main.go`** (the Go tool itself):
-- New flag `agentCoverageFlag := flag.String("agent-coverage", "agent/coverage.txt", "Agent Go coverage profile")`, resolved and existence-checked the same way as `backendCoverageFlag`/`frontendCoverageFlag` (lines 50-76).
-- Parse it with the existing `patchreport.ParseGoCoverageProfile` (line 90-94) — reused as-is, since agent's coverage profile is the same `go test -coverprofile` format as backend's; no new parser needed. **Caveat requiring a real code change, not just a new flag** (see `patchreport.go` bullet below): `ParseGoCoverageProfile` internally normalizes every file path through `normalizeGoCoveragePath`, which is currently hardcoded to backend's prefix-stripping rules (`strings.Index(cleaned, "/backend/")`, and a `cmd/`/`internal/`/`pkg/`/`api/`/`integration/`/`tools/` fallback list). Calling it unmodified against an agent coverage profile would leave lines like `github.com/Wikid82/charon/agent/muzzle/muzzle.go` un-normalized (no `/backend/` substring, no matching fallback prefix) — they'd never intersect with the diff-parsed `agent/muzzle/muzzle.go` changed-line set, silently producing 0% "patch coverage" for every agent file regardless of actual test coverage. This is exactly the kind of masked-by-a-different-mechanism bug the Root Cause Analysis Protocol warns about, so it's called out explicitly rather than left for a future bug report.
-- Add `CHARON_AGENT_PATCH_COVERAGE_MIN` threshold resolution, `patchreport.ResolveThreshold("CHARON_AGENT_PATCH_COVERAGE_MIN", 85, nil)` — default 85, matching backend's and frontend's existing patch-coverage defaults (distinct from, and not to be confused with, `agent-test-coverage.sh`'s separate *aggregate*-coverage gate threshold from Section 3.4/3.5, which is calibrated to the module's actual total coverage rather than defaulted to 85).
-- Extend `thresholdJSON`, `thresholdSourcesJSON`, and `reportJSON` structs (lines 16-45) with an `Agent`/`agent` field each, alongside the existing `Backend`/`Frontend` fields.
-- Compute `agentScope := patchreport.ComputeScopeCoverage(agentChanged, agentCoverage)` and `agentFilesNeedingCoverage := patchreport.ComputeFilesNeedingCoverage(agentChanged, agentCoverage, agentThreshold.Value)` (mirrors lines 105-109 exactly). `overallScope` becomes `patchreport.MergeScopeCoverage(backendScope, frontendScope, agentScope)` — `MergeScopeCoverage` and `MergeFileCoverageDetails` are already variadic (`...ScopeCoverage` / `...[]FileCoverageDetail`), so this is an additive call-site change, not a signature break.
-- Add an "Agent patch coverage below threshold" warning branch mirroring the existing backend/frontend ones (lines 124-129).
-- `writeMarkdown` (line 229 on): add an "Agent coverage" line under `## Inputs`, an "Agent" row under `## Resolved Thresholds`, and an "Agent" row under `## Coverage Summary` (`scopeRow("Agent", report.Agent)`), mirroring the existing Backend/Frontend rows exactly.
-
-**`backend/internal/patchreport/patchreport.go`** (the actual diff-attribution and path-normalization logic — the part of the tool that needs a genuine signature change, not just a new caller-side flag):
-- `ParseUnifiedDiffChangedLines(diffContent string) (FileLineSet, FileLineSet, error)` (line 82) returns exactly two `FileLineSet`s today, hardcoded to `backend/` and `frontend/` path prefixes (lines 106-112). Extend its return arity to three: `(backendChanged, frontendChanged, agentChanged FileLineSet, err error)`, adding an `else if strings.HasPrefix(newFile, "agent/") { currentFile = newFile; currentScope = "agent" }` branch alongside the existing two. This is a breaking signature change to an exported function — every call site and every existing test that destructures its two return values must be updated (see test-file impact below); it is the one unavoidable non-additive change in this workstream.
-- `normalizeGoCoveragePath` (line 469) is backend-specific by name and by hardcoded prefix list. Generalize it to `normalizeGoCoveragePath(input, moduleDir string) string`, parameterizing the `"/" + moduleDir + "/"` substring search and the `moduleDir + "/"` prefix-check/prepend (replacing the literal `"backend/"` occurrences at lines 475, 478, 485), and drop the backend-only `cmd/`/`internal/`/`pkg/`/`api/`/`integration/`/`tools/` fallback special-case in favor of a per-module fallback prefix list passed alongside `moduleDir`, since `agent/`'s own top-level packages (`cert/`, `leash/`, `muzzle/`, `protocol/`) are a different set. `ParseGoCoverageProfile`'s single call site (line 208) becomes `normalizeGoCoveragePath(filePart, moduleDir)`, so `ParseGoCoverageProfile` itself gains a `moduleDir string` parameter, called as `patchreport.ParseGoCoverageProfile(backendCoveragePath, "backend")` and `patchreport.ParseGoCoverageProfile(agentCoveragePath, "agent")` from `main.go`. This generalization (parameterize, don't duplicate) follows CLAUDE.md's DRY guidance directly, and is what actually closes the silent-0%-coverage caveat above — a new flag alone would not.
-- `backend/internal/patchreport/patchreport_test.go`: update every test that calls `ParseUnifiedDiffChangedLines` or `ParseGoCoverageProfile`/`normalizeGoCoveragePath` for the new arity/signature, and add new test cases asserting `agent/`-prefixed diff hunks are attributed to the third return value and that an agent-module coverage profile line normalizes to a repo-relative `agent/...` path.
-- `backend/cmd/localpatchreport/main_test.go`: add `-agent-coverage` CLI-flag coverage (the many existing `-backend-coverage`/`-frontend-coverage` call sites at lines 49-50, 556-557, 766-767, 1074, 1086, 1579-1580 are flag-string literals, not Go call sites, and are unaffected by the internal signature changes above — but new tests are needed for the added `Agent` report field, the missing-agent-coverage-file error path, and the merged-overall-includes-agent behavior).
-
-#### 3.4.2 `agent-codecov` job (fixes #1161's remaining CI-dashboard-visibility gap)
-
-`.github/workflows/codecov-upload.yml` has `backend-codecov` (`flags: backend`, uploads `backend/coverage.txt`) and `frontend-codecov` (`flags: frontend`, uploads `frontend/coverage` directory via `codecov/codecov-action`). Add a third job, `agent-codecov`:
-
-- Triggered by the same `if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_agent }}` pattern as the other two, requiring a new `run_agent` `workflow_dispatch` boolean input (default `true`) alongside the existing `run_backend`/`run_frontend` inputs (lines 9-19).
-- `actions/setup-go` pointed at `go-version-file: agent/go.mod`, `cache-dependency-path: agent/go.sum` (mirrors `backend-codecov`'s Go setup, lines 47-52).
-- **No** "Resolve encryption key" step — agent has no encryption-key bootstrapping (consistent with Section 3.4's `agent-quality` job already omitting this for the same reason; agent's tests don't touch `CHARON_ENCRYPTION_KEY_TEST`).
-- Runs `bash scripts/agent-test-coverage.sh` (new in this PR, Section 3.4) in place of `bash scripts/go-test-coverage.sh`, teed to `agent/test-output.txt`, uploaded as an artifact — mirrors `backend-codecov`'s test-and-tee-output pattern (lines 132-146) minus `CGO_ENABLED: 1` (no cgo dependency in `agent/`, confirmed by its `CGO_ENABLED=0` `FROM scratch` Docker build, Section 2.1).
-- `codecov/codecov-action` step: `files: ./agent/coverage.txt`, `flags: agent`, `fail_ci_if_error: true` — same pinned action version (`@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0`) as the other two jobs, for consistency.
-
-**`codecov.yml` — one necessary addition, correcting the prior draft's blanket "no codecov.yml changes needed" claim**: `backend/cmd/api/**` (backend's bootstrap entrypoint) is explicitly excluded from Codecov's own coverage accounting via the `ignore:` list (line 115), separate from and in addition to `go-test-coverage.sh`'s local `EXCLUDE_PACKAGES` gate-arithmetic exclusion — the raw `coverage.txt` uploaded to Codecov still contains `backend/cmd/api/**` lines (`EXCLUDE_PACKAGES` only affects the local threshold calculation, not what's written to the coverprofile, confirmed by reading `scripts/go-test-coverage.sh`), so `codecov.yml`'s own ignore list is what actually keeps it out of Codecov's reported numbers. `agent/main.go` is agent's direct structural analogue (CLI bootstrap/flag parsing, already excluded from `agent-test-coverage.sh`'s local gate via `EXCLUDE_PACKAGES` per Section 3.4) and needs the same treatment for the new `agent` Codecov flag to report a meaningful, non-diluted number: add `- "agent/main.go"` to `codecov.yml`'s `ignore:` list, in the same "Main entry points (bootstrap code only)" grouping as the existing `backend/cmd/api/**` entry (line 114-115). The earlier "no `codecov.yml` changes needed" statement was correct only for the `scripts/**` ignore pattern (still true, unchanged, still needs no new entries for the new `scripts/ci/check_muzzle_allowlist_parity.go` / `scripts/agent-test-coverage.sh` files) — it did not anticipate this PR adding a new Codecov flag with its own entrypoint-dilution concern, which is a materially different question.
-
-### 3.5 New unit tests required to make the agent coverage gate meaningful (not just passing)
-
-- `agent/cert/cert_test.go` — `LoadOrGenerate` currently has zero coverage and is genuine logic (ECDSA key generation, self-signed cert templating, PEM encoding). New test asserts: no error on a normal call; returned `*tls.Config.Certificates` has exactly one entry; `MinVersion == tls.VersionTLS13`; the leaf certificate's `Subject.CommonName` contains the passed `agentID`; the certificate parses successfully via `x509.ParseCertificate` on the DER bytes recovered from the returned `tls.Certificate`.
-- `agent/protocol/message_test.go` — `protocol` has no logic (pure `MessageType` constants + a plain struct), so no behavior to assert; a minimal test asserting the four `MessageType` constants have their documented distinct byte values (`TypePing=0x00` .. `TypeError=0x04`) is added mainly so `go test ./...` doesn't report `[no test files]` for a package now in-scope for the coverage gate, and to guard against a future accidental constant-value change (wire-protocol compatibility).
-
-`agent/leash` (44.4%, pre-existing partial coverage) is explicitly **not** required to increase coverage in this PR — raising it is unrelated to #1160/#1161 and would be scope creep; the coverage gate's initial threshold (Section 5, Commit 5) is calibrated to pass at today's actual aggregate, not an arbitrary target.
-
----
-
-## 4. EARS Requirements
-
-| ID | Requirement |
-|---|---|
-| R1 | WHEN a request path contains a version-prefix segment revealed only after path-traversal normalization, THE agent Filter SHALL reach the same allow/deny decision as the backend Muzzle would reach on the same raw input, evaluated independently of request order. |
-| R2 | WHILE evaluating whether a path segment is a Docker API version prefix, THE agent Filter SHALL require the segment to match `^/v\d+\.\d+` (numeric major/minor), and SHALL NOT accept an arbitrary `v`-prefixed segment as a version prefix. |
-| R3 | WHERE a POST/DELETE request targets a write-mode endpoint pattern, THE agent Filter SHALL apply the identical normalized-path computation used for exact-path write matching, so pattern-matched and exact-matched write paths are not evaluated under different normalization rules within the same file. |
-| R4 | THE shared corpus (`muzzle_corpus.json`) SHALL contain at least one entry per confirmed divergence class found during this investigation (traversal-disguised version prefix, non-numeric fake version prefix on a read path, on a HEAD path, and on a write path), asserted identically against both `Muzzle.ServeHTTP` and `Filter.Allow`. |
-| R5 | WHEN a developer edits the read-only or write allowlist declarations in either `backend/internal/orthrus/muzzle.go` or `agent/muzzle/muzzle.go`, THE pre-commit hook SHALL run the structural parity checker AND SHALL block the commit if the paired declarations' literal contents differ. |
-| R6 | THE structural parity checker SHALL explicitly report, not silently skip, any declaration pair it cannot compare (e.g. a renamed or missing variable), so a refactor that breaks the checker's assumptions fails loudly rather than passing vacuously. |
-| R7 | WHEN a pull request is opened or updated, THE CI pipeline SHALL run `go vet`, golangci-lint (fast config), and a minimum test-coverage check against the `agent/` module on every PR, not only PRs whose diff touches `agent/**`. |
-| R8 | THE agent coverage gate's minimum threshold SHALL be set no higher than the module's actual coverage after this PR's new tests land, so the gate is enforced from a passing baseline rather than requiring an unrelated test-writing effort to first go green. |
-| R9 | THE structural parity checker SHALL compare the `versionPrefixRe` regex source string declared in each file byte-for-byte, in addition to the six allowlist-data declarations, so a future one-sided loosening of the version-prefix regex — the literal defect class of GH #1160 — is caught structurally rather than only by corpus luck. |
-| R10 | THE local patch-coverage tooling (`scripts/local-patch-report.sh` and `backend/cmd/localpatchreport`) SHALL compute and report patch coverage for the `agent/` module using the same changed-line-diff-and-coverage-profile-intersection mechanism already used for `backend/` and `frontend/`, so CLAUDE.md's mandatory Definition of Done Step 2 gate has visibility into `agent/muzzle/muzzle.go`, the file this PR's security fix actually lives in. |
-| R11 | WHEN backend and frontend coverage are uploaded to Codecov on a pull request, THE CI pipeline SHALL also upload `agent/` coverage under a distinct `agent` flag, so agent coverage appears on Codecov's dashboard and in PR comments alongside backend/frontend, matching R7's CI-parity requirement. |
-
----
-
-## 5. Commit Slicing Strategy
-
-**Decision**: Single PR on `feature/orthrus`, six ordered commits within it. `CLAUDE.md`'s "One Feature = One PR" rule applies — this is one feature (muzzle normalization parity + the CI enforcement gap that let it happen), not two.
-
-Adaptation from `CLAUDE.md`'s suggested 5-step shape: this change has no frontend and no user-facing E2E surface (Section 6 confirms Playwright is N/A), so "Phase 1: E2E specs as test.fixme" is replaced with "Phase 1: failing corpus cases," the Go-test equivalent of a red-first commit for backend/CI-only work.
-
----
-
-### Commit 1 — Foundation: shared corpus edge cases (no production code change)
-
-**Scope**: Add the 7 new corpus entries from Section 3.2 to `backend/internal/orthrus/testdata/muzzle_corpus.json`. No changes to `muzzle.go` in either module.
-
-**Files**: `backend/internal/orthrus/testdata/muzzle_corpus.json`
-
-**Dependencies**: None — first commit.
-
-**Expected state**: `TestMuzzle_SharedCorpus` (backend) — **passes** (backend's current behavior already correct). `TestFilter_SharedCorpus` (agent) — **fails on 4 of the 7 new cases** (the divergence rows). This is an intentionally red commit for the agent side, analogous to `CLAUDE.md`'s "E2E specs... as test.fixme" step — the failing corpus cases are the executable proof of the bug, committed before the fix. Because this commit lands inside a single feature PR (not on `main` directly — `CLAUDE.md`'s Definition of Done applies to the PR as a whole, not each intermediate commit), the red state here is expected and reviewed as such, not a violation of the "all tests pass" gate, which is evaluated at the PR's final state (post Commit 3).
-
-**Validation gate**: `cd backend && go test ./internal/orthrus/... -run TestMuzzle_SharedCorpus -v` (expect PASS). `cd agent && go test ./muzzle/... -run TestFilter_SharedCorpus -v` (expect the 4 documented failures, no others — reviewer confirms the failure list matches exactly Section 3.2's 4 divergence rows, not something unrelated).
-
----
-
-### Commit 2 — Backend: extract `normalizeDockerPath` helper (no behavior change)
-
-**Scope**: Per Section 3.1's last paragraph — extract `ServeHTTP`'s existing two-line strip+clean sequence into a named `normalizeDockerPath(rawPath string) string` helper for naming symmetry with the forthcoming agent-side helper and to give the Commit 4 parity checker (and human reviewers) a stable, identically-named anchor in both files. Backend's runtime behavior is unchanged — this commit is a pure refactor.
-
-**Files**: `backend/internal/orthrus/muzzle.go`, `backend/internal/orthrus/muzzle_test.go` (add direct unit tests for divergence rows 1-2 using `normalizeDockerPath` directly, not only via the corpus, for fast local iteration)
-
-**Dependencies**: None functionally, but ordered after Commit 1 so its new direct unit tests can be written against the same edge cases the corpus already encodes, avoiding duplicate case invention.
-
-**Validation gate**: `cd backend && go test ./internal/orthrus/... -v` (full package, expect 100% pass — no behavior change means every pre-existing test, including the new Commit 1 corpus cases for backend, stays green). `make lint-staticcheck-only`.
-
----
-
-### Commit 3 — Agent: normalization-order fix + allowlist renaming (fixes GH #1160)
-
-**Scope**: The refactor in Section 3.1 — add `normalizeDockerPath`, split `allowedPatterns` into `allowedDockerPaths`/`allowedDockerPatterns`, rename `imageDistributionPatterns` → `allowedDockerPrefixSuffixPatterns`, drop all `/v*/...` duplicate pattern entries (now redundant — the version prefix is stripped once, up front), change the HEAD `/_ping` check to use `normalizeDockerPath`, and change `allowWrite`'s signature to accept the pre-normalized path so its pattern branch stops using raw `cleanPath`.
-
-**Files**: `agent/muzzle/muzzle.go`, `agent/muzzle/muzzle_test.go` (update any assertions that specifically exercised the now-removed `/v*/...` duplicate-pattern mechanism — expected outcomes are unchanged for legitimate versioned paths since `normalizeDockerPath` still strips real version prefixes; add explicit regression cases for divergence rows 2-3 directly, not only via the corpus)
-
-**Dependencies**: Commit 1 (corpus cases must exist to prove this commit turns them green); conceptually follows Commit 2 for the naming-symmetry rationale, though not a hard technical dependency.
-
-**Validation gate**: `cd agent && go test ./muzzle/... -v` — **all cases now pass**, including the 4 that were red after Commit 1. `cd agent && go test ./...` (full module — confirms `ServeProxy` and `TestFilter_Allow`'s full existing table are unaffected). Full-repo regression: `cd backend && go test ./internal/orthrus/... -v` and `cd agent && go test ./... -v` both green — this is the commit where the repo returns to a fully green test state after Commit 1's intentional red.
-
----
-
-### Commit 4 — Structural allowlist parity checker (fixes GH #1161 workstream 1)
-
-**Scope**: New `scripts/ci/check_muzzle_allowlist_parity.go` per Section 3.3, diffing all **eight** paired declarations — the seven allowlist/body-size data declarations plus `versionPrefixRe`'s regex source string (extracted via its `regexp.MustCompile(...)` call expression, not a composite literal — see Section 3.3's AST-shape note). Wire into `lefthook.yml` pre-commit stage and a new `quality-checks.yml` job.
-
-**Files**: `scripts/ci/check_muzzle_allowlist_parity.go` (new), `lefthook.yml`, `.github/workflows/quality-checks.yml`
-
-**Dependencies**: Hard dependency on Commit 3 — the checker's pairing-by-name approach relies on agent's declarations having been renamed to match backend's (`allowedDockerPaths`, `allowedDockerPatterns`, `allowedDockerPrefixSuffixPatterns`). Writing the checker against pre-Commit-3 agent code would require it to understand the now-obsolete `/v*/...` duplicate-entry convention, which is exactly the complexity Commit 3 exists to remove. `versionPrefixRe` itself is unrenamed and unchanged by Commit 3 (Section 3.1 keeps its name and regex identical in both files), so its row has no additional dependency beyond Commit 3 landing first for consistency with the rest of the table.
-
-**Validation gate**: `go run scripts/ci/check_muzzle_allowlist_parity.go` exits 0 against the post-Commit-3 state of both files. Negative-path check (manual, documented in PR description, not committed), covering **two** independent cases to prove both AST-extraction shapes actually work: (a) temporarily add an extra entry to one file's `allowedWritePatterns` locally and confirm the checker fails with a specific, correctly-attributed message before reverting; (b) temporarily loosen one file's `versionPrefixRe` (e.g. `^/v\w+`) and confirm the checker independently fails on that row with a message showing both regex source strings, before reverting. (b) is the direct regression check for this Supervisor-requested addition — without it, the checker's coverage of R9 is unverified, not just unimplemented.
-
----
-
-### Commit 5 — Agent CI tooling parity (fixes GH #1161 workstream 2)
-
-**Scope**: Per Section 3.4/3.5 — move `.golangci-fast.yml` to repo root; extend both `golangci-lint-fast.sh`/`-full.sh` to loop over `backend`/`agent`; split `lefthook.yml`'s `go-vet` into module-scoped `go-vet`/`go-vet-agent`; add `scripts/agent-test-coverage.sh`; add `agent-test-coverage` to `lefthook.yml`'s `testing` pipeline; add `agent-quality` job to `quality-checks.yml`; implement the dangling `scripts/check-module-coverage.sh` (and its corrected `"backend + agent"` echo text); add `agent/cert/cert_test.go` and `agent/protocol/message_test.go`. **Also, per Section 3.4.1/3.4.2 (Supervisor-requested additions)**: extend `scripts/local-patch-report.sh` and `backend/cmd/localpatchreport/main.go` with agent-coverage support, generalize `backend/internal/patchreport`'s path-normalization to be module-parameterized instead of backend-only, and add the `agent-codecov` job (plus its one `codecov.yml` ignore-list entry) so agent coverage reaches both the mandatory local patch-coverage gate and Codecov's dashboard.
-
-**Files**: `.golangci-fast.yml` (moved from `backend/.golangci-fast.yml`), `scripts/pre-commit-hooks/golangci-lint-fast.sh`, `scripts/pre-commit-hooks/golangci-lint-full.sh`, `lefthook.yml`, `scripts/agent-test-coverage.sh` (new), `scripts/check-module-coverage.sh` (new — fixes dangling `Makefile` reference and its stale echo text), `Makefile`, `.github/workflows/quality-checks.yml`, `agent/cert/cert_test.go` (new), `agent/protocol/message_test.go` (new), `scripts/local-patch-report.sh`, `backend/cmd/localpatchreport/main.go`, `backend/cmd/localpatchreport/main_test.go`, `backend/internal/patchreport/patchreport.go`, `backend/internal/patchreport/patchreport_test.go`, `.github/workflows/codecov-upload.yml`, `codecov.yml`
-
-**Dependencies**: Independent of Commits 3/4 in principle, but ordered after them so the coverage/lint gate being stood up here measures the *post-fix* state of `agent/muzzle/muzzle.go`, not a mid-refactor snapshot. Must run after Commit 3 in practice to avoid the new `agent-quality` CI job (and the new `agent-codecov`/patch-coverage-visibility) flagging Commit 3's intermediate diff instead of the finished fix. The `local-patch-report.sh`/`localpatchreport` extension has an internal ordering dependency on `scripts/agent-test-coverage.sh` existing earlier in this same commit (it needs `agent/coverage.txt` to exist as an input) — both land together in Commit 5 rather than being split further, since CLAUDE.md's commit-slicing guidance is about ordering across commits, not fragmenting a single tightly-coupled tooling change into artificially smaller pieces.
-
-**Validation gate**: `make lint-staticcheck-only` (backend, unchanged behavior) and an equivalent manual run of the new agent lint loop; `bash scripts/agent-test-coverage.sh` exits 0 at the calibrated threshold (Section 3.4 — set to the actual post-`cert_test.go`/`message_test.go` aggregate, not a pre-chosen round number); `bash scripts/check-module-coverage.sh` runs both scripts in sequence, exits 0, and its output echoes `"backend + agent"`; `lefthook run pre-commit` clean on a trial commit touching only `agent/**`; `cd backend && go test ./internal/patchreport/... ./cmd/localpatchreport/... -v` green (covers the new three-way `ParseUnifiedDiffChangedLines` arity and the generalized `normalizeGoCoveragePath`/`ParseGoCoverageProfile` signatures); `bash scripts/local-patch-report.sh` run locally against a diff touching `agent/muzzle/muzzle.go` produces a `test-results/local-patch-report.md` with a populated, non-zero "Agent" row (manually confirms the module-prefix-normalization fix actually works end-to-end, not just that the new flag is accepted); `.github/workflows/quality-checks.yml`'s new `agent-quality` job and `.github/workflows/codecov-upload.yml`'s new `agent-codecov` job both reviewed by a human for correct `working-directory`/`go-version-file` wiring (cannot be locally validated without `act` or a real CI run — flagged for Supervisor/DevOps review).
-
----
-
-### Commit 6 — Documentation
-
-**Scope**: `CHANGELOG.md` entry under `[Unreleased]` (likely `### Fixed` or `### Security` — path-normalization/allowlist-drift is a defense-in-depth hardening fix, not a new user-facing feature); `ARCHITECTURE.md`'s "Continuous Integration (GitHub Actions)" and/or "Pre-Commit Checks" sections updated to note `agent/` now has lint/vet/coverage parity with `backend/` (`CLAUDE.md` requires ARCHITECTURE.md updates for CI/testing architecture changes). No `docs/features.md` change — this PR adds no new user-facing capability, only internal robustness.
-
-**Files**: `CHANGELOG.md`, `ARCHITECTURE.md`
-
-**Dependencies**: Commits 1-5 (documents what actually landed).
-
-**Validation gate**: `markdownlint --fix .` clean (lefthook `lint-full` manual stage); human review that the CHANGELOG entry accurately reflects the merged scope, not the originally-proposed scope.
-
----
-
-## 6. Definition of Done — gate applicability
-
-| Gate | Applicable? | Why |
-|---|---|---|
-| Playwright E2E (`npx playwright test --project=firefox`) | **No** | Zero frontend files touched; zero user-facing behavior change. Confirmed by the file list in every commit above — none are under `frontend/`. |
-| GORM Security Scan (`./scripts/scan-gorm-security.sh --check`) | **No** | Zero changes to `backend/internal/models/**`, zero GORM queries, zero migrations touched. |
-| Local Patch Coverage Preflight (`scripts/local-patch-report.sh`) | **Yes** | Standard gate, applies to all Go changes. As of Commit 5 (Section 3.4.1), it also has visibility into `agent/**` — previously it would have run "successfully" while silently reporting nothing about `agent/muzzle/muzzle.go`, the file this PR's actual security fix lives in. |
-| CodeQL Go/JS scan | **Go: Yes. JS: No** (no JS/TS files touched). |
-| Trivy container scan | **Marginal** — `agent/Dockerfile` is unchanged by this PR (no new dependencies added to `agent/go.mod`), so no new image-layer surface; still run per standard process. |
-| Staticcheck / `make lint-staticcheck-only` | **Yes**, extended in Commit 5 to also cover `agent/`. |
-| Backend coverage (85%+) | **Yes**, unchanged script/threshold — Commits 1-4 add tests, don't remove any. |
-| Agent coverage | **New in this PR** (Commit 5) — see Section 3.4/3.5 for how the initial threshold is calibrated. |
-| Frontend coverage / type-check | **No frontend files touched** — these gates trivially pass (no diff for them to evaluate) but are still run per standard process, not skipped. |
-| `go build ./...` (backend and agent) | **Yes.** |
-
----
-
-## 7. Acceptance Criteria
-
-1. `backend/internal/orthrus/testdata/muzzle_corpus.json` contains all 7 new cases from Section 3.2; `TestMuzzle_SharedCorpus` and `TestFilter_SharedCorpus` both pass against the full corpus.
-2. `agent/muzzle/muzzle.go`'s `allowedDockerPaths`, `allowedDockerPatterns`, `allowedDockerPrefixSuffixPatterns` contain no `/v*/...`-prefixed entries (version handling is unified through `normalizeDockerPath`).
-3. `scripts/ci/check_muzzle_allowlist_parity.go` diffs all eight paired declarations (the seven data declarations plus `versionPrefixRe`), runs clean against the merged state, and is proven (via the Commit 4 manual negative-path checks, documented in the PR description — one for a data-declaration mismatch, one for a `versionPrefixRe` mismatch) to actually detect an introduced drift in either category.
-4. `lefthook run pre-commit` on a change touching only `agent/**` produces the same class of enforcement (vet, lint, and — via the manual `testing` pipeline — coverage) that a `backend/**`-only change already gets.
-5. `.github/workflows/quality-checks.yml` runs `agent-quality` unconditionally on every PR, not gated on `agent/**` paths.
-6. `scripts/check-module-coverage.sh` exists, exits 0, and its Makefile-invoked output describes its actual scope (`"backend + agent"`), fixing both the pre-existing dangling reference and the stale `"backend + frontend"` text.
-7. `go test ./...` (from repo root, exercising both `backend` and `agent` via `go.work`) is fully green.
-8. `bash scripts/local-patch-report.sh` succeeds against a diff that includes `agent/**` changes and produces a report with a populated "Agent" coverage row — not just a passing exit code with the agent column silently empty or absent.
-9. `.github/workflows/codecov-upload.yml` runs an `agent-codecov` job on every PR (gated the same way as `backend-codecov`/`frontend-codecov`), uploading `agent/coverage.txt` under `flags: agent`; `codecov.yml` excludes `agent/main.go` from that flag's reported coverage, mirroring `backend/cmd/api/**`'s existing treatment.
-10. `CHANGELOG.md` and `ARCHITECTURE.md` updated per Commit 6.
-11. No behavior change to backend's Docker API allowlist decisions for any input not in the new corpus cases — verified by 100% pre-existing backend test pass rate with zero test modifications required (only additions).
-
----
-
-## Follow-up: Coverage Tooling Baseline & Enforcement Fix (Codecov Patch-Coverage Gap on PR #1166)
-
-**Type**: Follow-up fix on the same feature/PR (`feature/orthrus`, open as PR #1166 targeting base `development`) — additional commits, not a new branch, per `CLAUDE.md`'s "no worktrees, work directly on the current branch" instruction and "One Feature = One PR."
-**Status**: DRAFT — pending Supervisor review
-**Trigger**: Codecov's real PR comment on #1166 reports patch coverage **76.92308%** (24 lines missing/partial: `agent/muzzle/muzzle.go` 81.72% — 9 Missing, 8 partials; `agent/leash/leash.go` 36.36% — 7 Missing), while `scripts/local-patch-report.sh` reported a materially better 87.8% overall / 82.8% agent locally and exited 0 regardless of threshold. `CLAUDE.md`'s Definition of Done Step 2 calls the local tool "MANDATORY," so a local pass that doesn't predict Codecov's real result is itself a defect, independent of whether the underlying coverage gap also needs closing.
-**Research verified against**: repository HEAD on `feature/orthrus` at commit `d2fa3154`(current tip after later docs/QA commits through `260c5ee8`), 2026-07-20. `gh pr view --json baseRefName` confirms PR #1166's real base is `development`, not `main`.
-
-### F.1 Root Cause — Re-Verified Against Current Code (`docs/reports/qa_report.md` Finding 1, confirmed still accurate)
-
-| # | Root cause | Confirmed at | Status |
-|---|---|---|---|
-| 1 | `scripts/local-patch-report.sh`'s baseline resolution (lines 66-80) tries `origin/main` first, `origin/development` only as a fallback that a second, unrelated ref (`main`) gets priority over. Since both `origin/main` and `origin/development` exist locally, it always resolves to `origin/main...HEAD`, never matching PR #1166's actual GitHub base. | `scripts/local-patch-report.sh:66-80` | Confirmed unchanged |
-| 2 | `backend/internal/patchreport/patchreport.go`'s `ApplyStatus` (lines 353-359) sets `Status = "warn"` below threshold but nothing downstream reads it to fail. `backend/cmd/localpatchreport/main.go` computes and prints `WARN:` lines (142-152) but always returns from `main()` normally (implicit exit 0). `scripts/local-patch-report.sh` only checks that the JSON/MD artifacts are non-empty (lines 124-133) and exits 0 if so — coverage content is never inspected. | `patchreport.go:353-359`, `main.go` (no `os.Exit(1)` on any `Status=="warn"` path), `local-patch-report.sh:124-134` | Confirmed unchanged |
-| 3 | `codecov.yml`'s patch check (`coverage.status.patch.default`) is `informational: true` (lines 12-17) — Codecov's own PR comment cannot hard-block the merge on patch coverage. `CLAUDE.md`'s DoD Step 6 nonetheless calls backend/agent coverage "MANDATORY — Non-negotiable," a stricter internal bar than Codecov enforces, which only the local tool was ever positioned to enforce — and doesn't. | `codecov.yml:12-17` | Confirmed unchanged |
-| 4 (new, found during this follow-up's research — not in the original QA report) | `backend/cmd/localpatchreport/main.go`'s own `--baseline` flag **already defaults to** `"origin/development...HEAD"` (line 52) — the *correct* value. The bug is entirely in the shell wrapper: `scripts/local-patch-report.sh` always computes an explicit `$BASELINE` (root cause #1) and always passes it via `--baseline "$BASELINE"` (line 116), so the Go tool's already-correct default is unconditionally overridden on every invocation. Fixing `main.go`'s default would have no effect; the shell script is the only file that needs the baseline-selection fix. | `main.go:52`, `local-patch-report.sh:116` | New finding |
-
-**Also re-confirmed**: `report.Mode` in `backend/cmd/localpatchreport/main.go` is hardcoded to the literal string `"warn"` (line 157) regardless of outcome — the QA report's characterization of this as misleading is accurate and is fixed as part of F.4 below (the field now reflects the tool's actual enforcement mode).
-
-### F.2 Branching Model Confirmation
-
-`gh pr list --state merged --limit 15 --json number,baseRefName,headRefName` shows **13 of 13** non-promotion merged PRs target `development` (renovate bumps, bot commits, feature PRs); only the two `nightly` PRs (#1164, #1146) target `main`. `git log --merges` corroborates: every non-nightly merge is `development`-bound. This matches `CLAUDE.md`'s documented model (feature branches → `development` → periodic promotion PRs → `main`) exactly and is the basis for F.3's fallback-order change: **`development` is the default integration branch; `main` is only ever a target for the scheduled nightly-promotion PR.**
-
-### F.3 Baseline Resolution Fix (Design)
-
-Three-tier resolution, replacing `scripts/local-patch-report.sh` lines 66-80:
-
-**Tier 1 — explicit override (unchanged)**: `$CHARON_PATCH_BASELINE`, if set, wins outright — no change to this precedence, it's already correct and is the documented manual-override escape hatch.
-
-**Tier 2 — `gh`-derived real PR base (new)**: when `CHARON_PATCH_BASELINE` is unset, attempt to ask GitHub what the *actual* open PR's base branch is, so the local number is computed against the exact same ref Codecov uses:
-
-```
-if command -v gh >/dev/null 2>&1; then
-    GH_BASE_REF="$(timeout 5s gh pr view --json baseRefName -q .baseRefName 2>/dev/null || true)"
-    if [[ -n "$GH_BASE_REF" ]] && git -C "$ROOT_DIR" rev-parse --verify --quiet "origin/${GH_BASE_REF}^{commit}" >/dev/null; then
-        BASELINE="origin/${GH_BASE_REF}...HEAD"
-    fi
-fi
-```
-
-**Tier 3 — static heuristic fallback (changed)**: only reached if `gh` is absent, unauthenticated, times out, or no PR is open for the current branch (all folded into the same `|| true` / empty-`GH_BASE_REF` path above — no separate error handling needed, it degrades silently to Tier 3). Per F.2, the preference order flips to put `development` first:
-
-```
-if [[ -z "$BASELINE" ]]; then
-    if git -C "$ROOT_DIR" rev-parse --verify --quiet "origin/development^{commit}" >/dev/null; then
-        BASELINE="origin/development...HEAD"
-    elif git -C "$ROOT_DIR" rev-parse --verify --quiet "development^{commit}" >/dev/null; then
-        BASELINE="development...HEAD"
-    elif git -C "$ROOT_DIR" rev-parse --verify --quiet "origin/main^{commit}" >/dev/null; then
-        BASELINE="origin/main...HEAD"
-    elif git -C "$ROOT_DIR" rev-parse --verify --quiet "main^{commit}" >/dev/null; then
-        BASELINE="main...HEAD"
-    else
-        BASELINE="origin/development...HEAD"
-    fi
-fi
-```
-
-| Edge case | Behavior |
-|---|---|
-| `gh` not installed | `command -v gh` fails → Tier 2 skipped entirely → Tier 3 |
-| `gh` installed, not authenticated | `gh pr view` exits non-zero, stderr suppressed, `\|\| true` prevents `set -e` abort → `GH_BASE_REF` empty → Tier 3 |
-| No PR open for current branch | Same as above (`gh pr view` errors "no pull requests found") → Tier 3 |
-| `gh` hangs (network issue) | `timeout 5s` bounds the wait → non-zero exit → Tier 3 |
-| `gh` returns a `baseRefName` whose `origin/<ref>` isn't fetched locally | The `rev-parse --verify` guard in Tier 2 rejects it, falls through to Tier 3 rather than later failing the "baseline base ref not available locally" check at line 105-108 |
-
-This satisfies task requirement 3 exactly: `gh`-exact-match primary, `development`-preferring heuristic fallback, graceful degradation on every named failure mode.
-
-### F.4 Enforcement Fix (Design)
-
-**Decision**: default to **strict** (non-zero exit on any scope below threshold), with an explicit `-advisory` opt-out flag for legitimate mid-feature use — per the task's own steer and `CLAUDE.md` DoD Step 2's "MANDATORY" language. Exit-code logic lives in the Go tool (`backend/cmd/localpatchreport/main.go`), not the shell script, since `main.go` already owns every `ScopeCoverage.Status` computation; the shell script only needs to propagate whatever exit code the Go tool returns.
-
-**New exported function**, `backend/internal/patchreport/patchreport.go` (alongside the existing `ApplyStatus`/`MergeScopeCoverage`):
-
-```go
-// HasWarnStatus reports whether any of the given scopes is below its
-// threshold (Status == "warn"). Used by cmd/localpatchreport's strict mode
-// to decide the process exit code — kept in this package, not main.go,
-// so it is unit-testable independent of os.Exit and CLI flag parsing.
-func HasWarnStatus(scopes ...ScopeCoverage) bool {
-    for _, scope := range scopes {
-        if scope.Status == "warn" {
-            return true
-        }
-    }
-    return false
-}
-```
-
-**`backend/cmd/localpatchreport/main.go` changes**:
-- New flag: `advisoryFlag := flag.Bool("advisory", false, "Exit 0 even if any coverage scope is below threshold (advisory-only mode). Default is strict: non-zero exit on any below-threshold scope, per CLAUDE.md's Definition of Done Step 2.")`
-- `report.Mode` (currently hardcoded `"warn"` at line 157) becomes `"strict"` or `"advisory"` based on `*advisoryFlag`, so the JSON/markdown artifacts themselves truthfully describe the mode that produced them (fixes the QA report's flagged "always says warn" defect as a side effect).
-- After `writeJSON`/`writeMarkdown` succeed (after line 198, before the function returns) — artifacts must be written and confirmed on disk *before* any exit-1, so a failing gate still leaves a full report for the developer to read:
-  ```go
-  if !*advisoryFlag && patchreport.HasWarnStatus(overallScope, backendScope, frontendScope, agentScope) {
-      fmt.Fprintln(os.Stderr, "Local patch coverage below threshold in strict mode (use -advisory to bypass); see report for details.")
-      os.Exit(1)
-  }
-  ```
-
-**`scripts/local-patch-report.sh` changes**:
-- New optional CLI flag `--advisory` (or `CHARON_PATCH_REPORT_ADVISORY=1` env var), forwarded to the Go tool as `--advisory=true`; unset/absent means strict (default).
-- The Go-tool invocation (lines 112-122) is restructured so the script can still run its own artifact-existence checks (lines 124-133) even when the tool exits 1, and only then propagates the real exit code — rather than letting `set -e` abort the script mid-way and skip artifact verification:
-  ```bash
-  set +e
-  (
-      cd "$ROOT_DIR/backend"
-      go run ./cmd/localpatchreport \
-          --repo-root "$ROOT_DIR" \
-          --baseline "$BASELINE" \
-          --backend-coverage "$BACKEND_COVERAGE_FILE" \
-          --frontend-coverage "$FRONTEND_COVERAGE_FILE" \
-          --agent-coverage "$AGENT_COVERAGE_FILE" \
-          --json-out "$JSON_OUT" \
-          --md-out "$MD_OUT" \
-          --advisory="$ADVISORY"
-  )
-  REPORT_STATUS=$?
-  set -e
-  ```
-  ...followed by the existing non-empty-artifact checks unchanged, and a final `exit "$REPORT_STATUS"` replacing the implicit exit-0 fallthrough at the end of the script.
-
-**Decision explicitly rejected**: flipping `codecov.yml`'s `coverage.status.patch.default.informational` from `true` to `false` so Codecov itself hard-blocks the PR. Per `CLAUDE.md`'s Governance & Precedence "stricter security requirement wins" rule this is arguable, but it was rejected for this follow-up because it changes CI-blocking behavior **repo-wide, for every PR**, not just this one — a materially larger blast radius than "make the already-mandatory local tool actually enforce what it claims to." The local strict-by-default gate (this section) already satisfies `CLAUDE.md` DoD Step 2's "MANDATORY" requirement without that side effect. Revisit as a separate, explicitly-scoped change if the team wants Codecov itself to hard-block.
-
-### F.5 Regenerated Gap Data (Correct `origin/development` Baseline)
-
-Regenerated directly via `backend/cmd/localpatchreport` (bypassing the not-yet-fixed shell script) with `--baseline "origin/development...HEAD"`, fresh `go test -coverprofile` runs for `backend/` and `agent/`:
-
-| Scope | Changed Lines | Covered | Patch Coverage | Threshold | Status |
-|---|---:|---:|---:|---:|---|
-| Overall | 168 | 142 | 84.5% | 90.0% | **warn** |
-| Backend | 34 | 31 | 91.2% | 85.0% | pass |
-| Frontend | 0 | 0 | 100.0% | 85.0% | pass |
-| Agent | 134 | 111 | 82.8% | 85.0% | **warn** |
-
-**Important caveat, stated explicitly rather than glossed over**: these agent-scope numbers are numerically identical to the QA report's `origin/main`-baseline numbers (also 134 changed / 111 covered / 82.8%). This is *expected*, not evidence the baseline bug doesn't matter: `agent/muzzle/muzzle.go` and `agent/leash/leash.go`'s changed lines in this diff are entirely new-to-this-branch content that exists on neither `origin/main` nor `origin/development` — for these two specific files, the diff is "whole relevant section is new" under either baseline, so the choice doesn't move their numbers. The baseline bug is still real and still matters (F.1, F.2) for the *overall* number and for any file that has independently changed on `development` since it diverged from `main` — it just doesn't happen to be the reason these two files look bad.
-
-**Also documented as a known residual limitation, not something F.3/F.4 claim to fix**: local numbers (82.8%/86.1%/63.2%) do not exactly match Codecov's reported numbers (76.92%/81.72%/36.36%). This is very likely because Go's standard coverage profile format records only per-statement-block hit counts ("was this block executed at least once"), while Codecov's "partial" bucket (8 partials on `muzzle.go` alone) reflects branch-level analysis — a line with an `if`/`&&` where only one branch was exercised. `ComputeScopeCoverage` in `patchreport.go` treats any line with `count > 0` as fully covered, which is systematically more generous than Codecov's hit/partial/miss model. Closing this gap exactly would require branch-level coverage instrumentation Go's standard tooling doesn't produce; out of scope for this follow-up. The baseline and enforcement fixes (F.3/F.4) make the local tool *directionally trustworthy and actually blocking* — they do not promise bit-for-bit parity with Codecov's percentage.
-
-**Files needing coverage** (from the regenerated report):
-
-| Path | Patch Coverage | Uncovered Changed Lines |
-|---|---:|---|
-| `agent/leash/leash.go` | 63.2% | 172, 177-178, 188, 198-199, 232 |
-| `agent/muzzle/muzzle.go` | 86.1% | 191-192, 205-206, 216-217, 233-234, 248-249, 409-410, 412-414, 438 |
-| `backend/cmd/localpatchreport/main.go` | 91.2% | 112-114 (pre-existing gap in the tool's own agent-coverage-missing error path; not touched by this follow-up's own new code, left as-is) |
-
-**What each uncovered line actually represents** — corrects one detail of the QA report's characterization:
-
-`agent/muzzle/muzzle.go`:
-
-| Lines | Function | Branch | Fail-closed or permissive? |
-|---|---|---|---|
-| 191-192 | `validateNetworkModeValue` | `json.Unmarshal(raw, &mode)` fails (e.g. `NetworkMode` is a JSON number, not a string) → `return false` | Fail-closed |
-| 205-206 | `validateMountsValue` | `json.Unmarshal(raw, &mounts)` fails (e.g. `Mounts` is a JSON string, not an array) → `return false` | Fail-closed |
-| 216-217 | `validateMountsValue` | per-mount `json.Unmarshal(mnt.VolumeOptions, &volumeOptions)` fails (malformed `VolumeOptions` object) → `return false` | Fail-closed |
-| **233-234** | `validateContainerCreateBody` | `len(bodyBytes) == 0` → **`return true, ""`** | **Permissive** — an empty `/containers/create` body is intentionally allowed through |
-| 248-249 | `validateContainerCreateBody` | `json.Unmarshal(hostConfigRaw, &hostConfig)` fails (`HostConfig` present but not a JSON object) → `return false, "malformed request body"` | Fail-closed |
-| 409-410 | `ServeProxy` | `io.ReadAll(limited)` fails while reading the request body → `return fmt.Errorf(...)` | Fail-closed (aborts the stream) |
-| 412-414 | `ServeProxy` | body exceeds `maxContainerCreateBodyBytes` (64KiB) → writes `forbiddenResponse`, returns error | Fail-closed |
-| 438 | `ServeProxy` | `req.Write(conn)` fails forwarding to the real Docker socket → `return fmt.Errorf(...)` | Fail-closed (I/O fault path, not a policy branch) |
-
-The QA report's claim that "most of the gap... are fail-closed error-return branches" is **still substantially accurate** (7 of 8 ranges) but **not complete**: line 233-234 is the one *permissive* branch in the set — the empty-body pass-through for `/containers/create` — and deserves its own explicit positive-outcome test (F.6) precisely because an untested permissive branch is exactly the kind of thing that should not be taken on faith, unlike the fail-closed branches where "untested" at least means "cannot be coerced into an unsafe outcome."
-
-`agent/leash/leash.go` — every uncovered line is part of the write-mode connection-scoped `*muzzle.Filter` dispatch wiring added by the earlier `a4be39e2` commit, and **none of it has ever been exercised by a test**, not even indirectly:
-
-| Lines | Location | What's uncovered |
-|---|---|---|
-| 172 | `connect`'s `AcceptStream` loop | `go l.handleStream(stream, filter)` — the real per-stream dispatch call is never reached because the only existing test (`TestLeash_Reconnect`) has the fake server close the connection immediately, before any stream is ever opened |
-| 177-178 | `handleStream` | function signature + `defer func() { _ = stream.Close() }()` — the function itself is never called by any test (it's unexported; the only test file, `leash_test.go`, is external `package leash_test`, and no test drives a stream through `connect()` far enough to invoke it) |
-| 188 | `handleStream`'s `switch` | `l.handleDockerStream(stream, filter)` case dispatch |
-| 198-199 | `handleDockerStream` | function signature + `filter.ServeProxy(l.dockerSock, stream, stream)` — the connection-scoped filter is never actually invoked from the dispatch path in any test (muzzle's own tests construct a `*Filter` directly and call `.Allow`/`.ServeProxy` on it, never through `Leash`'s wiring) |
-| 232 | `handlePortForward` | `defer func() { _ = conn.Close() }()` — only reached on a *successful* TCP dial; existing coverage of `handlePortForward` (if any, outside the diff) only exercises the early-return error paths (invalid address length, dial failure), never a real successful dial |
-
-This is a meaningful, non-cosmetic gap: it is the wiring that proves `connect()`'s per-connection `muzzle.New(writeEnabled)` filter (line 161) actually reaches `ServeProxy` for real traffic — exactly the security-relevant behavior this whole follow-up chain (#1160/#1161) depends on, not incidental scaffolding.
-
-### F.6 Test Specifications to Close the Gap (TDD — meaningful tests, not padding)
-
-**`agent/muzzle/muzzle_test.go`** (package `muzzle_test`, external — all reachable through the existing `Filter.Allow`/`ServeProxy` surface, no white-box access needed):
-
-1. Extend the existing table in `TestFilter_Allow_ContainersCreate_DangerousBodiesRejected` (currently ends around line 605) with 4 new cases, each isolating exactly one of the four still-untested fail-closed branches (distinct from the existing `"malformed JSON"` case, which only reaches the *outer* top-level unmarshal failure, a different, already-covered line):
-   - `"malformed NetworkMode value (non-string JSON)"` — body `{"Image":"nginx","HostConfig":{"NetworkMode":12345}}` → targets lines 191-192.
-   - `"malformed Mounts value (not a JSON array)"` — body `{"Image":"nginx","HostConfig":{"Mounts":"not-an-array"}}` → targets lines 205-206.
-   - `"malformed Mounts VolumeOptions (invalid JSON object)"` — body `{"Image":"nginx","HostConfig":{"Mounts":[{"Type":"volume","VolumeOptions":"not-an-object"}]}}` → targets lines 216-217 (distinct from the existing `DriverConfig`-bypass case, which has a *valid* `VolumeOptions` object).
-   - `"malformed HostConfig itself (not a JSON object)"` — body `{"Image":"nginx","HostConfig":"not-an-object"}` → targets lines 248-249 (distinct from the existing top-level `"malformed JSON"` case).
-   All four assert `f.Allow("POST", "/containers/create", []byte(tc.body))` is `false`, same pattern as every existing row in that table.
-2. New test `TestFilter_Allow_ContainersCreate_EmptyBodyAllowed` — `f := muzzle.New(true)`; asserts `f.Allow("POST", "/containers/create", nil)` and `f.Allow("POST", "/containers/create", []byte{})` are both `true`. Targets lines 233-234, the one *permissive* branch identified in F.5 — given its own named test (not folded into the "safe body allowed" table) specifically because it documents and locks in an intentional security-relevant default, not an incidental pass-through.
-3. New test `TestFilter_ServeProxy_BodyReadError_ReturnsError` — feeds `ServeProxy` an `io.Reader` that yields a well-formed HTTP request line + headers followed by a body source that returns a read error mid-stream (e.g. `io.MultiReader(validHeaderBytes, errReader{err: errors.New("boom")})`); asserts a non-nil error mentioning `"read body"` is returned and no panic occurs. Targets lines 409-410.
-4. New test `TestFilter_ServeProxy_BodyTooLarge_Returns403AndError` — sends a request (any allowed or disallowed method/path is fine, since the size check runs before `Allow` is consulted) with a body of `maxContainerCreateBodyBytes + 1` bytes; asserts `forbiddenResponse` was written to the `io.Writer` and the returned error mentions `"body too large"`. Targets lines 412-414.
-5. New test `TestFilter_ServeProxy_DockerWriteError_ReturnsError` — uses a real `net.Listen("unix", tmpSock)` fake Docker socket whose accept handler closes the accepted connection immediately (before `ServeProxy`'s `req.Write(conn)` runs), for an otherwise-allowed request (e.g. `GET /containers/json`); asserts a non-nil error mentioning `"forward request to docker"` is returned. Targets line 438.
-
-**`agent/leash/leash_test.go`** (package `leash_test`, external — extends the existing WebSocket-upgrade test harness already used by `TestLeash_Reconnect`; deliberately *not* a new white-box/internal test file, because driving the dispatch through the real exported `Run`/`Config` surface exercises the actual wiring end-to-end, which is the behavior that matters here, not merely the unexported functions in isolation):
-
-1. New test `TestLeash_Connect_DockerStreamDispatchesThroughFilter` — test WS server upgrades the connection, wraps it in a server-side `yamux.Server` session, opens one stream, writes the `streamTypeDocker` marker byte followed by a minimal valid raw HTTP request (`"GET /containers/json HTTP/1.1\r\nHost: x\r\n\r\n"`). The agent side is a real `leash.New(Config{DockerSock: <tmp unix socket>, ...})` running via `Run(ctx)` in a goroutine. `DockerSock` points at a `net.Listen("unix", ...)` fake listener that accepts and immediately closes each connection. Assertion: the fake listener's `Accept()` returns a connection within a bounded timeout, proving the full chain — `connect()`'s `AcceptStream` loop (line 172) → `handleStream` (177-178) → `handleDockerStream` (188, 198-199) → the connection-scoped `filter.ServeProxy` → `net.Dial(dockerSock)` — actually executed for a real accepted stream, not just that the individual functions don't panic in isolation.
-2. New test `TestLeash_Connect_PortForwardStreamDialsTarget` — same harness, but the opened stream writes the `streamTypePortForward` marker byte followed by a 2-byte big-endian length + address bytes encoding a `net.Listen("tcp", "127.0.0.1:0")` fake target listener's address. Assertion: the fake target listener's `Accept()` returns a connection within a bounded timeout, proving `handlePortForward` reached its successful-dial path and the deferred `conn.Close()` (line 232) executes, in addition to `handleStream`'s `streamTypePortForward` case.
-
-Both new leash tests are integration-style through the package's exported surface (`New`, `Config`, `Run`) — they need no unexported access and therefore add zero white-box test surface to maintain.
-
-### F.7 Additional EARS Requirements
-
-| ID | Requirement |
-|---|---|
-| R12 | WHEN `scripts/local-patch-report.sh` runs with `CHARON_PATCH_BASELINE` unset and the `gh` CLI is available, authenticated, and an open PR exists for the current branch, THE script SHALL resolve its diff baseline to that PR's exact `baseRefName`, matching Codecov's own comparison base. |
-| R13 | WHEN `gh` is unavailable, unauthenticated, times out, or no PR is open for the current branch, THE script SHALL fall back to a static heuristic that prefers `origin/development` over `origin/main`, without erroring out. |
-| R14 | THE local patch-coverage tool SHALL, by default (absent an explicit `-advisory`/`--advisory` opt-out), exit with a non-zero status if any computed coverage scope's `Status` is `"warn"`, after having already written both the JSON and markdown report artifacts to disk. |
-| R15 | WHEN `-advisory`/`--advisory` is explicitly passed, THE tool SHALL exit 0 regardless of any scope's status, and SHALL record `"advisory"` (not `"strict"`) as the report's `mode` field, so the artifact itself is never misleading about which mode produced it. |
-| R16 | THE new `agent/muzzle/muzzle.go` and `agent/leash/leash.go` unit tests added to close this specific Codecov-flagged gap SHALL each assert a distinct, real branch of normalization/validation/dispatch logic — not merely increment a coverage counter — verified by each new test targeting a line range named in F.5's gap table. |
-
-### F.8 Commit Slicing Strategy (Addendum)
-
-**Decision**: two additional ordered commits, landing after the six already-merged-onto-branch commits from the original plan (actual git history: `6fe7a800`..`260c5ee8`), still within the single `feature/orthrus` / PR #1166. No new branch, no new PR — this is a follow-up fix to an open PR per `CLAUDE.md`'s "One Feature = One PR."
-
----
-
-#### Commit 7 — Foundation: fix baseline resolution + enforcement in patch-coverage tooling, with tests for the tooling itself
-
-**Scope**: F.3 (baseline resolution rewrite) + F.4 (strict-by-default enforcement, `-advisory` flag, `HasWarnStatus`, truthful `report.Mode`). No changes to `agent/muzzle/muzzle.go` or `agent/leash/leash.go` in this commit — this commit only fixes the *measurement and gating* tool, so its own validation gate can run against the still-uncovered agent code and correctly report `warn`/exit 1, proving the fix works before Commit 8 makes it pass for a genuine reason.
-
-**Files**:
-- `scripts/local-patch-report.sh` (baseline three-tier resolution; `--advisory` passthrough; restructured exit-code propagation)
-- `backend/cmd/localpatchreport/main.go` (`-advisory` flag; `report.Mode` reflects real mode; strict-mode `os.Exit(1)` after artifacts are written)
-- `backend/cmd/localpatchreport/main_test.go` (new tests using the existing `runMainSubprocess` subprocess-reexec helper (line 305) — the established pattern in this file for testing `os.Exit` paths): `TestMain_StrictModeExitsNonZeroWhenAnyScopeBelowThreshold`, `TestMain_AdvisoryModeExitsZeroWhenScopeBelowThreshold`, `TestMain_ReportModeFieldReflectsStrictOrAdvisory`
-- `backend/internal/patchreport/patchreport.go` (new `HasWarnStatus`)
-- `backend/internal/patchreport/patchreport_test.go` (new tests: `TestHasWarnStatus_TrueWhenAnyScopeWarn`, `TestHasWarnStatus_FalseWhenAllScopesPass`)
-- New `scripts/tests/local-patch-report_baseline.bats` (following the existing `scripts/history-rewrite/tests/*.bats` convention already in this repo) covering: `gh` available + PR open → uses `gh`'s `baseRefName`; `gh` absent → heuristic fallback prefers `origin/development`; `gh` present but errors/times out → same fallback; explicit `CHARON_PATCH_BASELINE` still wins over both. `gh` is stubbed via a fake executable earlier in `PATH`, the standard `bats` technique.
-
-**Dependencies**: None — first commit of this follow-up, independent of the agent-code changes in Commit 8.
-
-**Validation gate**:
-- `cd backend && go test ./internal/patchreport/... ./cmd/localpatchreport/... -v` — all green, including the new strict/advisory/`HasWarnStatus` tests.
-- `bats scripts/tests/local-patch-report_baseline.bats` — all green.
-- Manual proof the fix actually works end-to-end (documented in the PR description, not just asserted): run `bash scripts/local-patch-report.sh` on this branch (still pre-Commit-8, agent coverage still genuinely below threshold) and confirm it now (a) resolves baseline to `origin/development...HEAD`, (b) exits **non-zero**, matching what Codecov actually reported — this is the negative-path proof that closes the exact gap this whole follow-up exists to fix. Then re-run with `--advisory` and confirm exit 0, artifacts still written, `mode: "advisory"` in the JSON.
-- `make lint-staticcheck-only`; `cd backend && go build ./...`.
-
----
-
-#### Commit 8 — Close the actual coverage gap in `agent/muzzle/muzzle.go` and `agent/leash/leash.go`
-
-**Scope**: F.6's 5 new muzzle.go test cases/functions and 2 new leash.go integration-style tests. No production-code changes — every line named in F.5's gap table is already-shipped, already-reviewed logic (from the six earlier commits); this commit only adds the tests needed to exercise it.
-
-**Files**: `agent/muzzle/muzzle_test.go`, `agent/leash/leash_test.go`
-
-**Dependencies**: Commit 7 (so this commit's validation gate can use the now-fixed, now-strict `scripts/local-patch-report.sh` against the correct `origin/development` baseline as its own proof of success, rather than eyeballing raw `go test -cover` output).
-
-**Validation gate**:
-- `cd agent && go test ./muzzle/... ./leash/... -v -coverprofile=coverage.txt` — all new and existing tests green.
-- `bash scripts/local-patch-report.sh` (now fixed, strict, correct baseline) exits **0**, with the markdown report's Agent row at or above 85% and the Overall row at or above 90% — this is the actual close-out proof for the Codecov-flagged gap, not just "new tests exist."
-- `make lint-staticcheck-only` (agent module included, per the original plan's Commit 5 CI-parity work).
-- `cd agent && go build ./...`.
-- Full regression: `cd backend && go test ./... && cd ../agent && go test ./...` both green.
-
----
-
-**Rollback / contingency for this follow-up as a whole**: both commits are additive (new tests, new flags with safe defaults, a corrected shell fallback order) — no runtime production-code behavior changes anywhere in `agent/muzzle/muzzle.go` or `agent/leash/leash.go` (only their test files change). If Commit 7's stricter default unexpectedly blocks an unrelated in-flight local workflow, the `-advisory`/`--advisory` escape hatch is the documented, intended way to bypass it temporarily — reaching for `--no-verify` on the git hook (a different, unrelated bypass) is not needed and not appropriate here. If a reviewer finds the `gh`-based baseline resolution unreliable in some CI environment, the existing `CHARON_PATCH_BASELINE` env-var override (unchanged, highest precedence, F.3 Tier 1) is the immediate mitigation without touching the script.
-
-### F.9 Definition of Done — gate applicability (this follow-up)
-
-| Gate | Applicable? | Why |
-|---|---|---|
-| Playwright E2E | No | Zero `frontend/` files touched. |
-| GORM Security Scan | No | Zero `backend/internal/models/**`, zero GORM queries/migrations. |
-| Local Patch Coverage Preflight | **Yes — this follow-up's own subject** | Commit 7 fixes the tool; Commit 8's validation gate is a real run of the fixed tool. |
-| CodeQL Go | Yes | Both commits touch `.go` files. |
-| CodeQL JS | No | Zero frontend/TS files touched. |
-| Staticcheck | Yes | Both modules (`backend/`, `agent/`). |
-| Backend coverage (85%+) | Yes | Commit 7 adds backend tests only; no backend production code removed. |
-| Agent coverage | **Yes — this follow-up's own subject** | Commit 8 is the fix. |
-| Frontend coverage / type-check | No frontend files touched | Gates trivially pass, still run per standard process. |
-| `go build ./...` (backend and agent) | Yes | |
-
----
-
-## Addendum: Rename allowlist gap + write-mode restart toast (PR #1166 continuation)
-
-**Type**: Two-fix addendum on the same feature/PR (`feature/orthrus`, PR #1166) — additional commits, not a new branch, per `CLAUDE.md`'s "no worktrees" instruction and "One Feature = One PR."
-**Status**: DRAFT — pending Supervisor review
-**Research verified against**: repository HEAD on `feature/orthrus`, 2026-07-20. Fix 2's frontend research verified directly against current `frontend/src` source (see file/line citations inline below), not assumed.
-
-### A.1 Fix 1 — `containers/*/rename` missing from both write allowlists (context/traceability only)
-
-No design decisions required here; recorded for PR traceability alongside Fix 2 since both land in the same PR. Backend Dev is implementing this in parallel with this addendum's authoring.
-
-- **Change**: add `{method: http.MethodPost, pattern: "/containers/*/rename"}` to `allowedWritePatterns` in both `backend/internal/orthrus/muzzle.go` and `agent/muzzle/muzzle.go` — the same two dual-maintained allowlists documented in Section 2.1/2.2 above (GH #1160/#1161 muzzle-parity work).
-- **Rationale**: Docker's rename endpoint (`POST /containers/{id}/rename?name=<new-name>`) takes the new name via a query parameter with no request body, matching the existing no-body pattern already used for `/start`, `/stop`, and `/restart` — **not** the body-validated `/containers/create` pattern (`maxContainerCreateBodyBytes`, `hostConfigAllowedKeys`, etc. do not apply).
-- **Files**: `backend/internal/orthrus/muzzle.go`, `agent/muzzle/muzzle.go`, plus corresponding corpus/test entries in `backend/internal/orthrus/testdata/muzzle_corpus.json` (shared corpus consumed by both `TestMuzzle_SharedCorpus` and `TestFilter_SharedCorpus`, per Section 2.2 above) so parity is asserted, not just implemented.
-- **Validation gate**: `cd backend && go test ./internal/orthrus/... && cd ../agent && go test ./muzzle/...`, both green; `scripts/ci/check_muzzle_allowlist_parity.go` (Section 7 item 3) stays clean.
-
-### A.2 Fix 2 — Proactive "agent needs restart" toast when write mode is turned on for a connected agent
-
-#### A.2.1 Toast mechanism (verified via `git show be0b96e7`)
-
-The codebase's one and only toast mechanism is **`react-hot-toast`**, called directly as `toast.<method>(...)` (not wrapped in a local `useToast()` hook). Precedent from `frontend/src/context/AuthContext.tsx`:
-
-```ts
-import { toast } from 'react-hot-toast';
-...
-toast.error('Session expired. Please log in again.', {
-  id: 'auth-session-expired',
-  duration: 10000,
-});
-```
-
-The `<Toaster />` mount point already lives in `frontend/src/App.tsx` (confirmed present — no new provider/mount needed). The `id` option is the established dedupe pattern (a toast with a given `id` replaces any currently-showing toast with the same `id` rather than stacking); Fix 2 reuses this with a **per-agent** id (`write-mode-restart-${agent.uuid}`) rather than a single static id, since an operator could plausibly turn write mode on for two different agents in quick succession and both notices are independently relevant.
-
-Fix 2 uses `toast.success(...)` (not `.error`) — this is a confirmation that the save succeeded plus an actionable follow-up, not a failure state.
-
-#### A.2.2 Connection-status source (verified against `frontend/src/api/orthrus.ts` and `frontend/src/hooks/useOrthrus.ts`)
-
-`OrthrusAgent` (`frontend/src/api/orthrus.ts:5-24`) already carries the connection-status field the dialog needs:
-
-```ts
-export type OrthrusStatus = 'online' | 'offline' | 'pending';
-export interface OrthrusAgent {
-  ...
-  status: OrthrusStatus;
-  ...
-}
-```
-
-`AgentWriteModeDialog.tsx:41` already derives `const isOnline = agent.status === 'online';` from this exact field for an unrelated purpose (gating the `useAgentProxyStatus` query) — Fix 2 reuses the same `status === 'online'` check, not a new field.
-
-Critically, **the source for the connection-status read at save time should be the PATCH response itself, not the cached agent-list**: `patchAgent` (`frontend/src/api/orthrus.ts:94-97`) is typed `Promise<OrthrusAgent>` and returns the full updated agent record from `PATCH /orthrus/agents/{uuid}`, which includes `status`. `usePatchAgent()` (`frontend/src/hooks/useOrthrus.ts:46-55`) is a thin `useMutation` wrapper with no `select`/transform, so its `onSuccess` handler receives that same full `OrthrusAgent` (including `status`) as its first argument. This is fresher than reading `agent.status` off the dialog's `agent` prop (a snapshot from whenever the dialog opened, potentially stale by the time Save is clicked) or than re-reading the `AGENTS_QUERY_KEY` cache (which the mutation's own `onSuccess` invalidates but does not synchronously repopulate before the dialog's callback runs). No new query or field is needed — only reading a field the response already carries.
-
-#### A.2.3 Exact change: `frontend/src/components/hecate/AgentWriteModeDialog.tsx`
-
-1. Add `import { toast } from 'react-hot-toast';` to the import block (after the `react-i18next` import, alongside the other named imports).
-
-2. Modify `handleSave` (currently lines 65-71) to pass the off→on transition flag into the mutation's `onSuccess`, and check the response's `status`:
-
-   ```ts
-   const handleSave = () => {
-     if (!canSave) return;
-     const wasTurnedOn = requiresConfirmation; // off→on transition — same predicate
-                                                 // already computed at line 61 to gate
-                                                 // the typed-confirmation step; reused
-                                                 // here rather than re-derived, since
-                                                 // desiredEnabled/agent.write_enabled
-                                                 // cannot change between this render
-                                                 // and this synchronous save call.
-     patch(
-       { uuid: agent.uuid, req: { write_enabled: desiredEnabled } },
-       {
-         onSuccess: (updatedAgent) => {
-           if (wasTurnedOn && updatedAgent.status === 'online') {
-             toast.success(
-               t('hecate.writeMode.restartRequiredToast', { name: agent.name }),
-               { id: `write-mode-restart-${agent.uuid}`, duration: 8000 },
-             );
-           }
-           onClose();
-         },
-       },
-     );
-   };
-   ```
-
-   No other function in the file changes. `requiresConfirmation` (line 61) is not renamed or repurposed in meaning — it still means "off→on transition," which is exactly the condition Fix 2 also needs, so this is a reuse, not a new parallel computation of the same boolean.
-
-3. **Why the check lives here and not in the shared `usePatchAgent()` hook**: `usePatchAgent()` (`frontend/src/hooks/useOrthrus.ts:46-55`) is also called from other write paths on `OrthrusAgent` (e.g. `AgentExternalProxyDialog.tsx` patching `external_proxy_port`, and rename/provider-assignment flows). Putting the toast trigger inside the shared hook would require the hook to inspect *which* field changed and diff against prior state for every caller — fragile and wrong-layered. Keeping the check local to `AgentWriteModeDialog.handleSave`, which already knows both the pre-save value (`agent.write_enabled`) and the intended new value (`desiredEnabled`), structurally guarantees that patches to unrelated fields from other components can never trigger this write-mode-specific toast, without needing any conditional logic in the shared hook.
-
-4. **i18n key** — add to `frontend/src/locales/en/translation.json`, inside the existing `hecate.writeMode` block (currently ends at line 2009 with `"disableConfirm": "Disable"`), a new key:
-
-   ```json
-   "restartRequiredToast": "\"{{name}}\" is connected — restart the Orthrus agent on its remote machine for the write-mode change to take effect."
-   ```
-
-   Add the same key (English text, matching the existing pattern where `reconnectNotice` is left untranslated/English in `es`/`zh`/`fr`/`de` — pre-existing translation debt in this file, not something Fix 2 needs to resolve) to the equivalent `hecate.writeMode` block in `frontend/src/locales/{es,zh,fr,de}/translation.json` for structural key-parity (some locale files likely have a translation-key-completeness test — Frontend Dev should check `frontend/src/__tests__/i18n.test.ts` and satisfy whatever parity check it runs).
-
-#### A.2.4 Vitest test cases — `frontend/src/components/hecate/__tests__/AgentWriteModeDialog.test.tsx`
-
-The existing mock at the top of this file (`vi.mock('../../../hooks/useOrthrus', () => ({ usePatchAgent: () => ({ mutate: mockPatch, isPending: false }), ... }))`, lines 8-14) needs `mockPatch` to actually invoke the `onSuccess` callback it's given, since that's now where the toast decision happens. Add a `vi.mock('react-hot-toast', ...)` block (same shape as `frontend/src/context/__tests__/AuthContext.test.tsx:11-16`, but mocking `success` instead of `error`/`dismiss`) and update `mockPatch`'s implementation per-test to call `opts.onSuccess(updatedAgentFixture)` with a controllable `status`.
-
-New `describe('restart-required toast', ...)` block, four cases:
-
-| # | Scenario | Setup | Assertion |
-|---|---|---|---|
-| 1 | Turned on while agent connected → fires | `baseAgent` (`write_enabled: false`), toggle switch on, type agent name into confirm input, click Save; `mockPatch` invokes `onSuccess` with `{ ...baseAgent, write_enabled: true, status: 'online' }` | `toast.success` called once, with a message containing `'Test Agent'` (or the mocked `t()` key form per this file's `react-i18next` mock at lines 16-21, i.e. `'hecate.writeMode.restartRequiredToast:Test Agent'`), and `{ id: 'write-mode-restart-agent-1', duration: 8000 }` |
-| 2 | Turned on while agent disconnected → does not fire | Same save flow, but `onSuccess` payload has `status: 'offline'` (or `'pending'`) | `toast.success` not called |
-| 3 | Turned off → does not fire | `baseAgent` variant with `write_enabled: true` at open; toggle switch off (no confirm text needed, `requiresConfirmation` is false); Save; `onSuccess` payload `{ write_enabled: false, status: 'online' }` | `toast.success` not called |
-| 4 | No-op save (already on, saved again unchanged) → does not fire | `baseAgent` variant with `write_enabled: true` at open; do not touch the toggle; Save; `onSuccess` payload `{ write_enabled: true, status: 'online' }` | `toast.success` not called — this is the concrete in-component equivalent of "unrelated field patched": since this dialog only ever sends `write_enabled`, and other components never import this dialog's `handleSave`, structurally no other patch call site can reach this code path (see A.2.3 point 3); this test instead pins the true→true (no transition) boundary of `requiresConfirmation`/`wasTurnedOn`. |
-
-**Files**: `frontend/src/components/hecate/AgentWriteModeDialog.tsx` (implementation), `frontend/src/components/hecate/__tests__/AgentWriteModeDialog.test.tsx` (tests), `frontend/src/locales/en/translation.json` + 4 other locale files (i18n key).
-
-### A.3 Commit Slicing Strategy (this addendum)
-
-Both fixes are small and independent of each other (different files, different layers) but ship in the same PR per "One Feature = One PR." Suggested order:
-
-1. **Commit A — Fix 1**: dual-allowlist `rename` entries + shared corpus cases (Backend Dev, already in progress). Validation gate: `cd backend && go test ./internal/orthrus/... && cd ../agent && go test ./muzzle/...`; `scripts/ci/check_muzzle_allowlist_parity.go` clean.
-2. **Commit B — Fix 2 tests first**: add the four Vitest cases in A.2.4 against the *not-yet-changed* `AgentWriteModeDialog.tsx` (expected to fail/be skipped, e.g. `it.fails` or written against the target behavior) — establishes the spec before implementation, matching this repo's suggested E2E-first commit ordering philosophy (`CLAUDE.md` "Suggested Commit Sequence") adapted to Vitest since this is unit-level, not E2E.
-3. **Commit C — Fix 2 implementation**: the `AgentWriteModeDialog.tsx` change in A.2.3 + i18n keys in A.2.4, turning Commit B's tests green. Validation gate: `cd frontend && npx vitest run src/components/hecate/__tests__/AgentWriteModeDialog.test.tsx`; `npm run type-check`.
-4. **Commit D — Hardening**: full `cd frontend && npm run build`, `npx vitest run` (full suite, coverage), `npx playwright test --project=firefox` (scoped to Orthrus/hecate specs at minimum, since Fix 2 changes an existing dialog's save flow that E2E specs already exercise per the prior write-mode commits in this branch's history).
-
-**Rollback/contingency**: both fixes are additive and behavior-scoped — Fix 1 only widens an allowlist by one already-vetted, no-body-pattern entry; Fix 2 only adds a toast on an already-existing, already-safe code path (no new API calls, no new state persisted). Neither changes existing passing behavior for any case not newly covered. If the per-agent toast `id` proves to cause unexpected duplicate-suppression issues in manual QA, the fallback is a static id (matching the auth-toast precedent) at the cost of only the most-recent agent's notice being visible if two fire in quick succession — a minor UX regression, not a functional break, and reversible in a single line.
-
-### A.4 Definition of Done — gate applicability (this addendum)
-
-| Gate | Applicable? | Why |
-|---|---|---|
-| Playwright E2E | **Yes** | Fix 2 changes an existing dialog save flow with existing E2E coverage (per branch history: `30cf1c08 feat(orthrus): add write-mode UI...`, `d2fa3154 docs(orthrus): enable write-mode E2E specs...`). Re-run relevant specs; add/adjust if the toast should be asserted at the E2E layer too (Frontend Dev/Playwright Dev to decide scope). |
-| GORM Security Scan | No | Zero `backend/internal/models/**`, zero GORM queries/migrations in either fix. |
-| Local Patch Coverage Preflight | Yes | Standard gate, both fixes touch tested source. |
-| CodeQL Go | Yes | Fix 1 touches `.go` files. |
-| CodeQL JS | Yes | Fix 2 touches `.tsx`/`.ts`/`.json` files. |
-| Staticcheck | Yes | Fix 1, both modules (`backend/`, `agent/`). |
-| Backend coverage (85%+) | Yes | Fix 1 adds backend/agent tests only. |
-| Frontend coverage (85%+) | Yes | Fix 2's own subject — new Vitest cases in A.2.4. |
-| Type-check (frontend) | Yes | Fix 2 touches `.tsx`. |
-| `go build ./...` / `npm run build` | Yes, both | Both fixes touch buildable source. |
+## 7. Acceptance Criteria (Definition of Done)
+
+- [ ] Failure #3's mechanism determined via Phase 0b (same race as #1/#2, or budget exhaustion) before its own fix commit is written.
+- [ ] `tests/settings/user-lifecycle.spec.ts`, `tests/settings/user-management.spec.ts`, `tests/tasks/long-running-operations.spec.ts` pass locally against the fix, Firefox project, `--retries=0`.
+- [ ] Full `npx playwright test --project=firefox` (and, before final merge, the full cross-browser matrix per existing CI) passes, including at least one clean re-run of Shard 4/4 specifically.
+- [ ] `cd frontend && npm run type-check` clean (no application-code changes anticipated, but the gate still runs per standard process).
+- [ ] `cd backend && go build ./...` and `go test ./...` clean (only if commit 4 is included).
+- [ ] `scripts/frontend-test-coverage.sh` ≥ 85% maintained.
+- [ ] `lefthook run pre-commit` clean (staticcheck/CodeQL/muzzle-parity-checker all still pass — none of this fix touches the muzzle allowlist files, so the parity checker is expected to be a no-op gate here).
+- [ ] This investigation's findings recorded permanently in `docs/reports/qa_report.md` (commit 5), consistent with this branch's existing practice for the GH #1160/#1161 investigation.
+- [ ] `supervisor` sign-off obtained before merge, per standard pipeline.
+- [ ] `qa-security` sign-off obtained before merge — even though the confirmed fix (§4 Phase 1) turned out to be test-code-only rather than touching `AuthContext.tsx`'s token-handling lifecycle (the original concern that motivated this checkbox), the investigation and fix are still squarely in the login/auth-transition flow, and an independent security-focused review of the final diff (confirming no application-code auth path was quietly touched, and that the new/changed test assertions don't weaken any existing security-relevant coverage) is warranted before merge.
