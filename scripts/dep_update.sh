@@ -65,7 +65,11 @@ for MODULE in "${NPM_MODULES[@]}"; do
     # Update prod, dev, optional, peer, and packageManager dependencies.
     # Exclude typescript: v7 crashes @typescript-eslint until upstream
     # catches up; keep pinned to ^6.0.3 until that's resolved.
-    npx npm-check-updates -u --reject typescript
+    # Exclude @types/eslint-plugin-jsx-a11y: 6.10.1+ regressed to a real
+    # eslint@^9 dependency (vs. the types-only @types/eslint@* in 6.10.0),
+    # reintroducing GHSA-mh99-v99m-4gvg (brace-expansion DoS). Keep
+    # exact-pinned to 6.10.0 until upstream ships a fixed release.
+    npx npm-check-updates -u --reject typescript,@types/eslint-plugin-jsx-a11y
 
     # Also update flat (string-valued) entries in the "overrides" section.
     # npm-check-updates excludes "overrides" from its default --dep list, so

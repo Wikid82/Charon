@@ -28,7 +28,8 @@
   "ignoreDeps": [
     "github.com/gorilla/websocket",
     "github.com/golang-jwt/jwt/v5",
-    "js-yaml"
+    "js-yaml",
+    "@types/eslint-plugin-jsx-a11y"
   ],
 
   "minimumReleaseAge": null,
@@ -803,6 +804,13 @@
       "description": "Disable js-yaml updates — pinned in overrides for security; managed manually",
       "matchPackageNames": [
         "js-yaml"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Disable @types/eslint-plugin-jsx-a11y updates — exact-pinned to 6.10.0 in package.json; 6.10.1+ regressed to a real eslint@^9 dependency, reintroducing GHSA-mh99-v99m-4gvg (brace-expansion DoS). Re-enable once upstream ships a fixed release.",
+      "matchPackageNames": [
+        "@types/eslint-plugin-jsx-a11y"
       ],
       "enabled": false
     }
