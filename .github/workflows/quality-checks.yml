@@ -273,7 +273,7 @@ jobs:
         working-directory: frontend
         run: |
           npm ci --ignore-scripts
-          npm audit --audit-level=critical
+          npm run audit:ci
 
       - name: Check if frontend was modified in PR
         id: check-frontend

@@ -92,19 +92,13 @@ for MODULE in "${NPM_MODULES[@]}"; do
     npm dedupe
     npm run --if-present build
     npm run --if-present type-check
-    if [ "$MODULE" = "$REPO_ROOT/frontend" ]; then
-        # frontend/ has one permanently-open high finding: eslint-plugin-jsx-a11y
-        # >=6.5.0 (all supported versions) has a real dependency on
-        # minimatch@3.1.5 -> brace-expansion@1.1.16 (GHSA-mh99-v99m-4gvg). The
-        # only unaffected version is 6.4.1, a multi-year a11y lint regression
-        # that's not acceptable (see e95bd277). Accepted risk: devDependency-only,
-        # never shipped, and only processes trusted local identifiers during
-        # linting. Match CI's audit gate (--audit-level=critical) here instead
-        # of failing this script on a known, unfixable-today finding.
-        npm audit --audit-level=critical
-    else
-        npm audit --audit-level=high
-    fi
+    # Both modules gate on their own audit-ci.json rather than a blanket
+    # --audit-level: root's allowlist is empty today, frontend's allowlists
+    # exactly one known-unfixable finding (eslint-plugin-jsx-a11y's real
+    # dependency on minimatch@3.1.5 -> brace-expansion@1.1.16,
+    # GHSA-mh99-v99m-4gvg — see SECURITY.md). Any other new high/critical
+    # finding in either module still fails the script.
+    npm run audit:ci
     npm audit fix || true
     npm outdated || true
 
