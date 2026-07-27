@@ -11,9 +11,10 @@
  */
 
 import { test, expect, loginUser, logoutUser } from '../fixtures/auth-fixtures';
+import { waitForLoadingComplete } from '../utils/wait-helpers';
 
 test.describe('Navigation-settle regression coverage', () => {
-  test('same-URL reload immediately after a fresh /login navigation does not hang', async ({ page, adminUser }) => {
+  test('same-URL reload immediately after a fresh /login navigation does not hang', async ({ page }) => {
     // Shape of failure #1 (user-lifecycle.spec.ts navigateToLogin): a second
     // navigation to the *same* URL fired moments after the first one
     // completed, while the SPA is still hydrating.
@@ -26,15 +27,20 @@ test.describe('Navigation-settle regression coverage', () => {
 
     const emailInput = page.locator('input[type="email"]').or(page.getByLabel(/email/i)).first();
     await expect(emailInput).toBeVisible({ timeout: 15000 });
-
-    void adminUser;
   });
 
-  test('navigating to a protected route immediately after login does not race the post-login redirect', async ({ page, regularUser }) => {
+  test('navigating to a protected route immediately after login does not race the post-login redirect', async ({ page, adminUser, regularUser }) => {
     // Shape of failure #2 (user-management.spec.ts "Navigate to users page
     // directly"): a fresh top-level goto() to a *different*, protected route
     // fired immediately after login, potentially racing the app's own
     // client-side post-login redirect away from /login.
+    //
+    // logoutUser() requires an already-authenticated, rendered page to find
+    // the Logout control on (unlike user-management.spec.ts, this file has
+    // no beforeEach establishing that), so log in as adminUser first.
+    await loginUser(page, adminUser);
+    await waitForLoadingComplete(page);
+
     await logoutUser(page);
     await loginUser(page, regularUser);
 
