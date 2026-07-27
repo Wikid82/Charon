@@ -132,7 +132,17 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Install gotestsum
-        run: go install gotest.tools/gotestsum@v1.13.0
+        run: |
+          for attempt in 1 2 3; do
+            go install gotest.tools/gotestsum@v1.13.0 && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in $((attempt * 15))s..." >&2
+              sleep $((attempt * 15))
+            else
+              echo "ERROR: go install gotest.tools/gotestsum failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Run Go tests with coverage
         working-directory: ${{ github.workspace }}
@@ -202,7 +212,7 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_agent }}
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           ref: ${{ github.sha }}
