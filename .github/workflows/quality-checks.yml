@@ -168,7 +168,17 @@ jobs:
           bash "scripts/repo_health_check.sh"
 
       - name: Install gotestsum
-        run: go install gotest.tools/gotestsum@v1.13.0
+        run: |
+          for attempt in 1 2 3; do
+            go install gotest.tools/gotestsum@v1.13.0 && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in $((attempt * 15))s..." >&2
+              sleep $((attempt * 15))
+            else
+              echo "ERROR: go install gotest.tools/gotestsum failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Run Go tests
         id: go-tests
