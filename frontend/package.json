@@ -108,10 +108,10 @@
       "eslint": "^10.8.0"
     },
     "eslint-plugin-jsx-a11y": {
-      "eslint": "^10.7.0"
+      "eslint": "^10.8.0"
     },
     "eslint-plugin-promise": {
-      "eslint": "^10.7.0"
+      "eslint": "^10.8.0"
     },
     "@vitejs/plugin-react": {
       "vite": "^8.1.5"
