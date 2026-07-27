@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter } from 'react-router'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import * as backupsApi from '../../api/backups'
@@ -110,7 +110,7 @@ describe('CrowdSecConfig', () => {
       lapi_ready: true,
     })
 
-    vi.mocked(backupsApi.createBackup).mockResolvedValue({ filename: 'backup.tar.gz' })
+    vi.mocked(backupsApi.createBackup).mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' })
     vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({ presets: [] })
     vi.mocked(presetsApi.pullCrowdsecPreset).mockResolvedValue({
       status: 'pulled',

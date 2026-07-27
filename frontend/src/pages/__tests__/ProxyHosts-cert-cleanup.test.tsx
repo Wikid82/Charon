@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter } from 'react-router'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 
 import * as accessListsApi from '../../api/accessLists'
@@ -75,7 +75,7 @@ describe('ProxyHosts - Certificate Cleanup Prompts', () => {
     vi.mocked(accessListsApi.accessListsApi.list).mockResolvedValue([])
     vi.mocked(settingsApi.getSettings).mockResolvedValue({})
     vi.mocked(uptimeApi.getMonitors).mockResolvedValue([])
-    vi.mocked(backupsApi.createBackup).mockResolvedValue({ filename: 'backup.db' })
+    vi.mocked(backupsApi.createBackup).mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' })
   })
 
   it('prompts to delete certificate when deleting proxy host with unique custom cert', async () => {

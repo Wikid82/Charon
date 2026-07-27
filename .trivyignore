@@ -51,6 +51,15 @@ CVE-2026-2673
 # exp: 2026-08-01
 CVE-2026-33186
 
+# GHSA-hrxh-6v49-42gf: grpc-go xDS RBAC and HTTP/2 vulnerabilities
+# Severity: HIGH — Package: google.golang.org/grpc, embedded in Caddy, CrowdSec, and cscli
+# Patched in grpc-go v1.82.1. Charon's Dockerfile now pins v1.82.1, but GitHub Security can
+# still report the advisory while upstream binaries are rebuilt and re-scanned.
+# Review by: 2026-08-01
+# See also: .grype.yaml for full justification
+# exp: 2026-08-01
+GHSA-hrxh-6v49-42gf
+
 # GHSA-479m-364c-43vc: goxmldsig XML signature validation bypass (loop variable capture)
 # Severity: HIGH (CVSS 7.5) — Package: github.com/russellhaering/goxmldsig v1.5.0, embedded in /usr/bin/caddy
 # Fix exists at v1.6.0 — waiting on Caddy upstream (or caddy-security plugin) to release with patched goxmldsig.
@@ -178,3 +187,26 @@ CVE-2026-39824
 # Review by: 2026-08-08
 # exp: 2026-08-08
 GO-2026-5932
+
+# GHSA-gcjh-h69q-9w9g: cel-go JSON private fields exposed via NativeTypes/ParseStructTag("json")
+# Severity: MEDIUM — Package: github.com/google/cel-go v0.28.1, embedded in /usr/bin/caddy
+# ext.NativeTypes(ParseStructTag("json")) does not honor the "json:\"-\"" skip directive: fields
+# tagged json:"-" are registered under the literal CEL field name "-" and become readable from any
+# CEL expression via dyn(obj)["-"]. Fixed upstream at v0.29.0.
+# No safe upgrade path exists yet: bumping cel-go to v0.29.0 breaks Caddy v2.11.4's own
+# modules/caddyhttp/celmatcher.go, which calls interpreter.NewCall(id, function, overload,
+# []interpreter.Interpretable, impl) — v0.29.0 changed that parameter's type to
+# []interpreter.InterpretableV2, a superset interface that additionally requires an
+# Exec(*ExecutionFrame) method. This is a genuine source-incompatible breaking change in cel-go
+# itself, not a simple version bump, and no Caddy release newer than v2.11.4 (the current latest
+# tag as of this writing) exists with celmatcher.go updated for the new interpreter API.
+# Exploitability: Caddy's CEL matcher (`expression` directive) only ever evaluates admin-authored,
+# static expressions from the Caddyfile/JSON config against Caddy's own fixed request-context
+# fields — it does not accept or evaluate arbitrary CEL source submitted by untrusted end users,
+# and does not register attacker-controlled native Go struct types via NativeTypes at runtime. The
+# advisory's exploit precondition (untrusted CEL expressions querying developer-registered native
+# types that carry json:"-" fields) is not met by how Charon's Caddy build actually uses cel-go.
+# Review by: 2026-08-22
+# See also: Dockerfile caddy-builder stage comment above the (skipped) cel-go pin for the same detail.
+# exp: 2026-08-22
+GHSA-gcjh-h69q-9w9g

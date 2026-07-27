@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { createBackup } from '../../api/backups';
@@ -266,7 +266,7 @@ describe('SecurityHeaders', () => {
 
     vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as SecurityHeaderProfile[]);
     vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
-    vi.mocked(createBackup).mockResolvedValue({ filename: 'backup.tar.gz' });
+    vi.mocked(createBackup).mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' });
     vi.mocked(securityHeadersApi.deleteProfile).mockResolvedValue();
 
     render(<SecurityHeaders />, { wrapper: createWrapper() });
@@ -800,7 +800,7 @@ describe('SecurityHeaders', () => {
     ];
     vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles);
     vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
-    vi.mocked(createBackup).mockResolvedValue({ filename: 'test-backup.tar.gz' });
+    vi.mocked(createBackup).mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' });
     vi.mocked(securityHeadersApi.deleteProfile).mockRejectedValue(new Error('Delete failed'));
 
     render(<SecurityHeaders />, { wrapper: createWrapper() });

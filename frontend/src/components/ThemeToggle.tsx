@@ -1,5 +1,5 @@
 import { Moon, Sun } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 
 import { useTheme } from '../hooks/useTheme'
 import { Button } from './ui/Button'

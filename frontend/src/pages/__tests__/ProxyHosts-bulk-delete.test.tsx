@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { toast } from 'react-hot-toast';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 import * as accessListsApi from '../../api/accessLists';
@@ -110,7 +110,9 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
     vi.mocked(accessListsApi.accessListsApi.list).mockResolvedValue([]);
     vi.mocked(settingsApi.getSettings).mockResolvedValue({});
     vi.mocked(backupsApi.createBackup).mockResolvedValue({
-      filename: 'backup-2024-01-01-12-00-00.db',
+      job_id: 'job-2024-01-01-12-00-00',
+      type: 'create',
+      status: 'pending',
     });
   });
 
@@ -204,7 +206,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
 
     // Should show success toast with backup filename
     await waitFor(() => {
-      expect(toast.success).toHaveBeenCalledWith('Backup created: backup-2024-01-01-12-00-00.db');
+      expect(toast.success).toHaveBeenCalledWith('Backup started (job job-2024-01-01-12-00-00)');
     });
 
     // Should then delete the hosts
@@ -430,7 +432,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
   it('disables confirm button while creating backup', async () => {
     // Make backup creation take time
     vi.mocked(backupsApi.createBackup).mockImplementation(
-      () => new Promise(resolve => setTimeout(() => resolve({ filename: 'backup.db' }), 100))
+      () => new Promise(resolve => setTimeout(() => resolve({ job_id: 'job-x', type: 'create', status: 'pending' }), 100))
     );
     vi.mocked(proxyHostsApi.deleteProxyHost).mockResolvedValue();
 

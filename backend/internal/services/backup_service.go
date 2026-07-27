@@ -2,7 +2,13 @@ package services
 
 import (
 	"archive/zip"
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -10,16 +16,70 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/database"
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/util"
+	"github.com/Wikid82/charon/backend/internal/version"
+	"github.com/glebarez/sqlite"
 	"github.com/robfig/cron/v3"
 	"gorm.io/gorm"
+)
 
-	_ "github.com/mattn/go-sqlite3"
+// Sentinel errors surfaced by CreateBackupWithOptions / RestoreBackupSafe so
+// handlers can map them to specific HTTP status codes / error_codes (spec
+// §3.3, §3.10) via errors.Is rather than fragile string matching.
+var (
+	// ErrInsufficientSpace is returned when GetAvailableSpace() is below 2x
+	// the current database size (spec §3.10 disk-full precheck).
+	ErrInsufficientSpace = errors.New("insufficient disk space for backup")
+	// ErrBackupInProgress is returned when a create/restore is already
+	// running and BackupService.mu could not be acquired immediately (spec
+	// §3.10 concurrency guard).
+	ErrBackupInProgress = errors.New("another backup or restore is in progress")
+	// ErrPassphraseRequired is returned by RestoreBackupSafe when the
+	// archive is age-encrypted but no passphrase was supplied.
+	ErrPassphraseRequired = errors.New("passphrase is required to restore this backup")
+	// ErrPassphraseInvalid is returned when age decryption fails, most
+	// commonly because the supplied passphrase is wrong.
+	ErrPassphraseInvalid = errors.New("passphrase is invalid for this backup")
+	// ErrBackupValidationFailed covers manifest/checksum/format validation
+	// failures (spec §3.5 step V) — nothing is mutated when this is
+	// returned.
+	ErrBackupValidationFailed = errors.New("backup validation failed")
+	// ErrNewerBackupFormat is returned when a manifest declares a
+	// format_version greater than the version this build understands.
+	ErrNewerBackupFormat = errors.New("backup created by a newer Charon version")
+	// ErrRestoreUnrecoverable is returned by RestoreBackupSafe when the live
+	// rehydrate could not be applied (A2) AND the durable pending-restore
+	// fallback (F3) also failed to persist — spec §3.5's guarantee that a
+	// restore either completes live or is durably queued for next-boot is
+	// broken, so this must never be reported as success (audit finding C1).
+	// The pre-restore safety backup (S1) still exists on disk and is named
+	// in the wrapped error for manual recovery.
+	ErrRestoreUnrecoverable = errors.New("restore could not be completed and no recovery mechanism succeeded")
+	// ErrDatabaseCorrupted is returned by the pre-flight integrity check
+	// (checkDatabaseIntegrity, this plan's §3.9) when a dedicated-connection
+	// PRAGMA quick_check fails before a VACUUM INTO snapshot is attempted,
+	// and also by backupErrorCode's classification of a raw VACUUM INTO
+	// failure via database.IsCorruptionError (§2.5) for defense-in-depth
+	// (the pre-check should catch this first, but a TOCTOU corruption event
+	// between the check and the VACUUM INTO must still be classified
+	// correctly, not surfaced as an unclassified 500).
+	ErrDatabaseCorrupted = errors.New("database integrity check failed; the backup was not created")
+	// ErrBackupNotFound is returned synchronously by StartRestoreJob (before
+	// any job row is created) when the requested filename does not exist in
+	// BackupDir — preserves today's synchronous 404 behavior
+	// (backup_handler.go's respondRestoreError os.IsNotExist branch) now
+	// that the equivalent os.Stat inside validateBackupArchive runs inside
+	// the async job for every other purpose (this plan's §3.2.2/§3.3.1).
+	ErrBackupNotFound = errors.New("backup not found")
 )
 
 func quoteSQLiteIdentifier(identifier string) (string, error) {
@@ -79,17 +139,124 @@ func SafeJoinPath(baseDir, userPath string) (string, error) {
 }
 
 type BackupService struct {
-	DataDir       string
-	BackupDir     string
-	DatabaseName  string
-	Cron          *cron.Cron
-	restoreDBPath string
-	createBackup  func() (string, error)
-	cleanupOld    func(int) (int, error)
+	DataDir          string
+	BackupDir        string
+	DatabaseName     string
+	Cron             *cron.Cron
+	restoreDBPath    string
+	createBackupOpts func(BackupOptions) (*models.BackupRecord, error)
+	cleanupOld       func(int) (int, error)
+
+	// CrowdSecDir is the source directory backed up into the archive's
+	// crowdsec/** entries (spec §3.2). Wiring into CreateBackup happens in
+	// Commit 3; this commit only threads the field through the constructor.
+	CrowdSecDir string
+
+	// db and encryption are threaded through so Commit 3's manifest
+	// (EncryptionKeyRequired), settings-driven reschedule, and
+	// remote-upload/BackupRecord persistence have what they need without a
+	// second constructor-signature change. encryption is nilable — backups
+	// are unencrypted by default and when CHARON_ENCRYPTION_KEY is unset.
+	db         *gorm.DB
+	encryption *crypto.EncryptionService
+
+	// scheduleEntry identifies the cron.Cron entry created at construction so
+	// a future Reschedule (Commit 3) can cron.Remove it before re-adding.
+	scheduleEntry cron.EntryID
+
+	// mu serializes create/restore operations (spec §3.10 concurrency guard).
+	mu sync.Mutex
+
+	// uploadCtx/uploadCancel/uploadWG track remote-upload goroutines so
+	// Stop() can cancel in-flight uploads and wait for them rather than
+	// orphaning them at shutdown (spec §3.7).
+	uploadCtx    context.Context
+	uploadCancel context.CancelFunc
+	uploadWG     sync.WaitGroup
+
+	// jobWG tracks in-flight async create/restore job goroutines (this
+	// plan's §3.3.1 — Async Backup/Restore Jobs). Deliberately no
+	// jobCtx/jobCancel: unlike remote uploads (safe to cancel mid-transfer),
+	// a create/restore job interrupted mid-filepath.Walk/mid-
+	// unzipWithSkipManifest could leave a partially-written archive or
+	// partially-restored DataDir. Stop() waits for in-flight jobs to finish
+	// rather than cancelling them (documented risk, RISK-001).
+	jobWG sync.WaitGroup
+
+	// securityService is used by the job goroutine to write a
+	// SecurityAudit row on a permission-denied failure — a gin.Context is
+	// not available from a background goroutine, so the request-scoped
+	// fields logPermissionAudit would normally read are captured up front
+	// into a RequestAuditInfo by the handler instead (this plan's §3.3.1).
+	// Nilable, wired once via SetSecurityService from routes.go; a nil
+	// value makes the audit-log call a no-op, matching
+	// logPermissionAudit's own guard.
+	securityService *SecurityService
+
+	// remoteUploadHook is invoked (in a tracked goroutine) after a backup is
+	// successfully created, so enabled remote targets receive a copy. Wired
+	// by routes.go via SetRemoteUploadHook; nil is a no-op (many unit tests
+	// construct a BackupService with no remote storage wiring at all).
+	remoteUploadHook RemoteUploadHook
+
+	// caddyReloader triggers a Caddy config reload after a restore (spec
+	// §3.5 step R1). Nilable — many unit tests construct a BackupService
+	// without a Caddy manager, in which case restore simply skips R1 and
+	// reports caddy_reloaded=false.
+	caddyReloader CaddyReloader
+}
+
+// RemoteUploadHook is invoked after CreateBackupWithOptions successfully
+// persists a BackupRecord, so enabled remote storage targets can receive a
+// copy of the new archive (spec §3.7). Implementations must respect ctx
+// cancellation (BackupService.Stop cancels uploadCtx at shutdown).
+type RemoteUploadHook func(ctx context.Context, record *models.BackupRecord)
+
+// CaddyReloader is the minimal interface RestoreBackupSafe needs from the
+// Caddy manager (spec §3.5 step R1) — satisfied by *caddy.Manager's
+// ApplyConfig without importing the caddy package here (avoids an import
+// cycle: caddy already imports services in some builds).
+type CaddyReloader interface {
+	ApplyConfig(ctx context.Context) error
+}
+
+// SetRemoteUploadHook wires the remote-storage upload trigger. Called once
+// from routes.go after both BackupService and the remote storage
+// orchestration are constructed.
+func (s *BackupService) SetRemoteUploadHook(hook RemoteUploadHook) {
+	s.remoteUploadHook = hook
+}
+
+// SetCaddyReloader wires the post-restore Caddy reload hook (spec §3.5 R1).
+func (s *BackupService) SetCaddyReloader(reloader CaddyReloader) {
+	s.caddyReloader = reloader
+}
+
+// RequestAuditInfo carries the request-scoped values a Start*Job goroutine
+// needs to write a permission-denied SecurityAudit row from inside the job
+// (where no gin.Context is available) — captured synchronously by the
+// handler, from the exact same gin.Context fields
+// handlers.logPermissionAudit already reads today (c.Get("userID"),
+// c.ClientIP(), c.Request.UserAgent()). Admin is not carried here —
+// Create/Restore are already requireAdmin-gated before a Start*Job call is
+// reached, so it is always true in this context.
+type RequestAuditInfo struct {
+	Actor     string
+	IPAddress string
+	UserAgent string
+}
+
+// SetSecurityService wires the security-audit-logging dependency (mirrors
+// the existing SetCaddyReloader/SetRemoteUploadHook pattern) — nilable,
+// wired once from routes.go. A nil securityService makes the job
+// goroutine's audit-log call a no-op, matching logPermissionAudit's own
+// `if securityService == nil { return }` guard.
+func (s *BackupService) SetSecurityService(svc *SecurityService) {
+	s.securityService = svc
 }
 
 func checkpointSQLiteDatabase(dbPath string) error {
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open(sqlite.DriverName, dbPath)
 	if err != nil {
 		return fmt.Errorf("open sqlite database for checkpoint: %w", err)
 	}
@@ -105,7 +272,7 @@ func checkpointSQLiteDatabase(dbPath string) error {
 }
 
 func createSQLiteSnapshot(dbPath string) (snapshotPath string, cleanup func(), err error) {
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open(sqlite.DriverName, dbPath)
 	if err != nil {
 		return "", nil, fmt.Errorf("open sqlite database for snapshot: %w", err)
 	}
@@ -135,13 +302,35 @@ func createSQLiteSnapshot(dbPath string) (snapshotPath string, cleanup func(), e
 	return tmpPath, cleanup, nil
 }
 
+// checkDatabaseIntegrity runs a fast PRAGMA quick_check on dbPath via its
+// own dedicated connection (never the caller's shared pool — mirrors
+// database.runQuickCheck's rationale: a corruption scan must not block the
+// app's single-connection pool). Returns ErrDatabaseCorrupted wrapping the
+// PRAGMA result if it isn't exactly "ok" (this plan's §3.9). Reuses
+// database.CheckIntegrityDedicated (§2.5d/§3.9, commit 3) rather than
+// duplicating the dedicated-connection logic a second time.
+func checkDatabaseIntegrity(dbPath string) error {
+	healthy, message := database.CheckIntegrityDedicated(dbPath)
+	if !healthy {
+		return fmt.Errorf("%w: %s", ErrDatabaseCorrupted, message)
+	}
+	return nil
+}
+
 type BackupFile struct {
 	Filename string    `json:"filename"`
 	Size     int64     `json:"size"`
 	Time     time.Time `json:"time"`
 }
 
-func NewBackupService(cfg *config.Config) *BackupService {
+// NewBackupService constructs a BackupService. db and enc are nilable: many
+// unit tests and standalone tooling construct a BackupService without a live
+// database or without CHARON_ENCRYPTION_KEY configured, and those remain
+// supported — behavior identical to v1 in that case. When db is non-nil, any
+// legacy backup.interval/backup.retention Setting rows are translated to the
+// canonical backup.* keys and removed (see migrateLegacyBackupSettings); this
+// is best-effort and logged, never fatal to construction.
+func NewBackupService(cfg *config.Config, db *gorm.DB, enc *crypto.EncryptionService) *BackupService {
 	// Ensure backup directory exists
 	backupDir := filepath.Join(filepath.Dir(cfg.DatabasePath), "backups")
 	// Use 0700 for backup directory (contains complete database dumps with sensitive data)
@@ -149,20 +338,54 @@ func NewBackupService(cfg *config.Config) *BackupService {
 		logger.Log().WithError(err).Error("Failed to create backup directory")
 	}
 
+	uploadCtx, uploadCancel := context.WithCancel(context.Background())
+
 	s := &BackupService{
 		DataDir:      filepath.Dir(cfg.DatabasePath), // e.g. /app/data
 		BackupDir:    backupDir,
 		DatabaseName: filepath.Base(cfg.DatabasePath),
+		CrowdSecDir:  cfg.Security.CrowdSecConfigDir,
 		Cron:         cron.New(),
+		db:           db,
+		encryption:   enc,
+		uploadCtx:    uploadCtx,
+		uploadCancel: uploadCancel,
 	}
-	s.createBackup = s.CreateBackup
+	s.createBackupOpts = s.CreateBackupWithOptions
 	s.cleanupOld = s.CleanupOldBackups
 
-	// Schedule daily backup at 3 AM
-	_, err := s.Cron.AddFunc("0 3 * * *", s.RunScheduledBackup)
+	// defaultScheduleCron is used until/unless a persisted backup.schedule_cron
+	// setting is found below (spec §3.4.4).
+	scheduleCron := defaultScheduleCron
+
+	if db != nil {
+		if migrateErr := migrateLegacyBackupSettings(db); migrateErr != nil {
+			logger.Log().WithError(migrateErr).Warn("Failed to migrate legacy backup settings")
+		}
+
+		if persisted, ok := readBackupSettingString(db, SettingKeyBackupScheduleCron); ok && strings.TrimSpace(persisted) != "" {
+			if _, parseErr := cron.ParseStandard(persisted); parseErr == nil {
+				scheduleCron = persisted
+			} else {
+				logger.Log().WithError(parseErr).WithField("cron", util.SanitizeForLog(persisted)).
+					Warn("Ignoring invalid persisted backup.schedule_cron, using default")
+			}
+		}
+
+		if reconcileErr := reconcileStuckUploadingCopies(db); reconcileErr != nil {
+			logger.Log().WithError(reconcileErr).Warn("Failed to reconcile stuck remote upload copies")
+		}
+
+		if reconcileErr := reconcileStuckBackupJobs(db); reconcileErr != nil {
+			logger.Log().WithError(reconcileErr).Warn("Failed to reconcile stuck backup jobs")
+		}
+	}
+
+	entryID, err := s.Cron.AddFunc(scheduleCron, s.RunScheduledBackup)
 	if err != nil {
 		logger.Log().WithError(err).Error("Failed to schedule backup")
 	}
+	s.scheduleEntry = entryID
 	// Note: Cron scheduler must be explicitly started via Start() method
 
 	return s
@@ -183,14 +406,48 @@ func (s *BackupService) Start() {
 func (s *BackupService) Stop() {
 	ctx := s.Cron.Stop()
 	<-ctx.Done()
+
+	if s.uploadCancel != nil {
+		s.uploadCancel()
+	}
+	s.uploadWG.Wait()
+	// No cancellation signal is sent for in-flight create/restore jobs
+	// (jobWG) — see the field's doc comment: an interrupted mid-archive/
+	// mid-restore job could leave a partially-written file. Stop() waits
+	// for them to finish instead (RISK-001).
+	s.jobWG.Wait()
+
 	logger.Log().Info("Backup service cron scheduler stopped")
+}
+
+// Reschedule replaces the cron entry driving RunScheduledBackup with one
+// using cronSpec, validated via cron.ParseStandard (spec §3.2/§3.4.4). It is
+// safe to call whether or not the scheduler has been Start()ed yet.
+func (s *BackupService) Reschedule(cronSpec string) error {
+	if _, err := cron.ParseStandard(cronSpec); err != nil {
+		return fmt.Errorf("invalid cron schedule %q: %w", cronSpec, err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.scheduleEntry != 0 {
+		s.Cron.Remove(s.scheduleEntry)
+	}
+
+	entryID, err := s.Cron.AddFunc(cronSpec, s.RunScheduledBackup)
+	if err != nil {
+		return fmt.Errorf("schedule backup cron %q: %w", cronSpec, err)
+	}
+	s.scheduleEntry = entryID
+	return nil
 }
 
 func (s *BackupService) RunScheduledBackup() {
 	logger.Log().Info("Starting scheduled backup")
-	createBackup := s.CreateBackup
-	if s.createBackup != nil {
-		createBackup = s.createBackup
+	createBackupOpts := s.CreateBackupWithOptions
+	if s.createBackupOpts != nil {
+		createBackupOpts = s.createBackupOpts
 	}
 
 	cleanupOld := s.CleanupOldBackups
@@ -198,10 +455,16 @@ func (s *BackupService) RunScheduledBackup() {
 		cleanupOld = s.cleanupOld
 	}
 
-	if name, err := createBackup(); err != nil {
+	opts, err := s.resolveScheduledBackupOptions()
+	if err != nil {
+		logger.Log().WithError(err).Error("Scheduled backup: failed to resolve encryption settings")
+		return
+	}
+
+	if record, err := createBackupOpts(opts); err != nil {
 		logger.Log().WithError(err).Error("Scheduled backup failed")
 	} else {
-		logger.Log().WithField("backup", name).Info("Scheduled backup created")
+		logger.Log().WithField("backup", record.Filename).Info("Scheduled backup created")
 
 		// Clean up old backups after successful creation
 		if deleted, err := cleanupOld(DefaultBackupRetention); err != nil {
@@ -225,13 +488,30 @@ func (s *BackupService) CleanupOldBackups(keep int) (int, error) {
 		return 0, fmt.Errorf("list backups for cleanup: %w", err)
 	}
 
+	// pre_restore safety backups are excluded from scheduled retention
+	// pruning (spec §3.5 S1, §3.10 Open Question 6 resolution) — they never
+	// auto-expire. Without a live DB there is no way to know a filename's
+	// BackupRecord.Type, so this filtering is a no-op in that case (matches
+	// pre-Issue-#32 behavior for tests that construct BackupService without
+	// a database).
+	prunable := backups
+	if s.db != nil {
+		prunable = make([]BackupFile, 0, len(backups))
+		for _, b := range backups {
+			if s.isPreRestoreBackup(b.Filename) {
+				continue
+			}
+			prunable = append(prunable, b)
+		}
+	}
+
 	// ListBackups returns sorted newest first, so skip the first 'keep' entries
-	if len(backups) <= keep {
+	if len(prunable) <= keep {
 		return 0, nil
 	}
 
 	deleted := 0
-	toDelete := backups[keep:]
+	toDelete := prunable[keep:]
 
 	for _, backup := range toDelete {
 		if err := s.DeleteBackup(backup.Filename); err != nil {
@@ -243,6 +523,21 @@ func (s *BackupService) CleanupOldBackups(keep int) (int, error) {
 	}
 
 	return deleted, nil
+}
+
+// isPreRestoreBackup reports whether filename's BackupRecord (if any) has
+// Type "pre_restore", so CleanupOldBackups can exclude it from scheduled
+// retention pruning (spec §3.5 S1). Any lookup error is treated as "no" —
+// this is a best-effort exclusion, not a correctness-critical check.
+func (s *BackupService) isPreRestoreBackup(filename string) bool {
+	if s.db == nil {
+		return false
+	}
+	var record models.BackupRecord
+	if err := s.db.Where("filename = ?", filename).First(&record).Error; err != nil {
+		return false
+	}
+	return record.Type == "pre_restore"
 }
 
 // GetLastBackupTime returns the timestamp of the most recent backup, or zero if none exist.
@@ -272,7 +567,7 @@ func (s *BackupService) ListBackups() ([]BackupFile, error) {
 
 	var backups []BackupFile
 	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".zip") {
+		if !entry.IsDir() && isBackupArchiveFilename(entry.Name()) {
 			info, err := entry.Info()
 			if err != nil {
 				continue
@@ -293,15 +588,541 @@ func (s *BackupService) ListBackups() ([]BackupFile, error) {
 	return backups, nil
 }
 
-// CreateBackup creates a zip archive of the database and caddy data
-func (s *BackupService) CreateBackup() (string, error) {
-	timestamp := time.Now().Format("2006-01-02_15-04-05")
-	filename := fmt.Sprintf("backup_%s.zip", timestamp)
-	zipPath := filepath.Join(s.BackupDir, filename)
+// isBackupArchiveFilename reports whether name is a backup archive Charon
+// creates/manages: unencrypted (.zip) or age-encrypted (.zip.age). Used by
+// ListBackups, CleanupOldBackups (via ListBackups), and GetLastBackupTime
+// (via ListBackups) so encrypted backups are listed, pruned, and reflected
+// in DB-health status identically to unencrypted ones (spec §3.2 — this was
+// a real gap in v1, not just a docs correction).
+func isBackupArchiveFilename(name string) bool {
+	return strings.HasSuffix(name, ".zip") || strings.HasSuffix(name, ".zip.age")
+}
 
-	outFile, err := os.Create(zipPath) // #nosec G304 -- Backup zip path controlled by app
+// randomFilenameSuffix returns a short random hex string appended to backup
+// filenames so two backups created within the same wall-clock second (e.g. a
+// manual backup immediately followed by RestoreBackupSafe's internal
+// pre_restore safety snapshot, S1) never collide on the second-granularity
+// timestamp and silently overwrite each other's archive on disk.
+func randomFilenameSuffix() (string, error) {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("read random bytes: %w", err)
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// BackupOptions configures a single CreateBackupWithOptions call (spec §3.2).
+type BackupOptions struct {
+	// Type identifies why the backup is being created:
+	// manual|scheduled|pre_restore|uploaded. Defaults to "manual" if empty.
+	Type string
+	// Encrypt requests age/scrypt passphrase encryption of the finished
+	// archive (spec §3.6). Requires Passphrase to be non-empty.
+	Encrypt bool
+	// Passphrase is used only in memory for this call and is never logged
+	// or persisted in plaintext (spec §3.6, §3.9).
+	Passphrase string
+	// UploadToRemote controls whether CreateBackupWithOptions fires the
+	// remote-upload hook for this backup. nil means "default to the
+	// pre-existing unconditional-upload behavior" (true) — preserves every
+	// existing caller (CreateBackup's "manual" wrapper, RunScheduledBackup,
+	// RestoreBackupSafe's S1 pre_restore step) unchanged without needing to
+	// touch them (spec §12.2.2).
+	UploadToRemote *bool
+}
+
+// resolveBackupPassphrase fills opts.Passphrase from the stored, encrypted
+// backup.encryption_passphrase_enc setting when the caller requested
+// encryption without supplying one explicitly (spec §12.2 — the Create
+// dialog's "use the already-configured passphrase" default). Reuses the
+// exact decrypt primitive backup_remote_service.go:335 already uses for
+// stored target secrets. No-op (opts returned unmodified) when Encrypt is
+// false, Passphrase is already non-empty, or no passphrase is stored —
+// callers still get the existing "passphrase is required" error in that
+// last case, from the unchanged check that already exists at the call
+// site (backup_service.go:900, :679-681).
+func (s *BackupService) resolveBackupPassphrase(opts BackupOptions) (BackupOptions, error) {
+	if !opts.Encrypt || strings.TrimSpace(opts.Passphrase) != "" {
+		return opts, nil
+	}
+	if s.db == nil || s.encryption == nil {
+		return opts, nil
+	}
+	stored, ok := readBackupSettingString(s.db, SettingKeyBackupEncryptionPassphraseEnc)
+	if !ok || strings.TrimSpace(stored) == "" {
+		return opts, nil
+	}
+	plaintext, err := s.encryption.Decrypt(stored)
+	if err != nil {
+		return opts, fmt.Errorf("decrypt stored backup passphrase: %w", err)
+	}
+	opts.Passphrase = string(plaintext)
+	return opts, nil
+}
+
+// resolveScheduledBackupOptions builds the BackupOptions for a
+// cron-triggered backup, applying the persisted encryption setting (spec
+// §12.3) — previously RunScheduledBackup always created unencrypted
+// backups regardless of the "Enable backup encryption" setting. Reuses
+// resolveBackupPassphrase (§12.2.2) for the identical stored-passphrase
+// decrypt path the manual-create flow now also uses; no new decrypt logic.
+func (s *BackupService) resolveScheduledBackupOptions() (BackupOptions, error) {
+	opts := BackupOptions{Type: "scheduled"} // was "manual" — see spec §12.3.3
+	if s.db == nil {
+		return opts, nil
+	}
+	opts.Encrypt = readBackupSettingBool(s.db, SettingKeyBackupEncryptionEnabled, false)
+	if !opts.Encrypt {
+		return opts, nil
+	}
+	return s.resolveBackupPassphrase(opts)
+}
+
+// CreateBackup creates an unencrypted, manual-type format-v2 archive of the
+// database, caddy/, and crowdsec/ directories, and returns just its filename
+// — the original v1 signature, kept because the certificate handler's
+// BackupServiceInterface (certificate_handler.go) and cron test seams depend
+// on it (spec §3.2). It is now a thin wrapper over CreateBackupWithOptions.
+func (s *BackupService) CreateBackup() (string, error) {
+	record, err := s.CreateBackupWithOptions(BackupOptions{Type: "manual"})
 	if err != nil {
 		return "", err
+	}
+	return record.Filename, nil
+}
+
+// CreateBackupWithOptions creates a format-v2 archive (charon.db + caddy/**
+// + crowdsec/** + manifest.json written last, per spec §3.2), optionally
+// encrypts it with age/scrypt (spec §3.6), persists a BackupRecord, and —
+// once the local file is safely on disk — fires the remote-upload hook in a
+// tracked goroutine (spec §3.7). Serialized against RestoreBackupSafe /
+// RestoreBackup via mu so a create cannot race a restore touching the same
+// DataDir (spec §3.10).
+func (s *BackupService) CreateBackupWithOptions(opts BackupOptions) (*models.BackupRecord, error) {
+	if opts.Type == "" {
+		opts.Type = "manual"
+	}
+
+	if !s.mu.TryLock() {
+		return nil, ErrBackupInProgress
+	}
+	record, err := s.createBackupLocked(opts)
+	s.mu.Unlock()
+
+	if err != nil {
+		return nil, err
+	}
+
+	s.fireRemoteUploadIfEnabled(opts, record)
+
+	return record, nil
+}
+
+// fireRemoteUploadIfEnabled fires s.remoteUploadHook for record in a
+// tracked goroutine, gated on opts.UploadToRemote (spec §12.2.2): nil or
+// true fires (preserves the pre-existing unconditional-upload behavior for
+// every caller that never sets the field — CreateBackup()'s legacy
+// wrapper, RunScheduledBackup), explicit false skips. Shared by
+// CreateBackupWithOptions (the synchronous legacy/scheduled path, fired
+// after s.mu.Unlock()) and runCreateBackupJob (the async manual-create job
+// path — fired here instead, since that path never calls
+// CreateBackupWithOptions and, even if it wanted to, cannot: it already
+// holds s.mu via StartCreateBackupJob's deferred unlock, and
+// CreateBackupWithOptions's own TryLock() would fail fast on the
+// already-held, non-reentrant s.mu). The upload itself always runs in a
+// new goroutine tracked by s.uploadWG, so calling this while s.mu is still
+// held (the runCreateBackupJob case) is safe — the spawned goroutine never
+// touches s.mu.
+func (s *BackupService) fireRemoteUploadIfEnabled(opts BackupOptions, record *models.BackupRecord) {
+	if s.remoteUploadHook == nil || record == nil {
+		return
+	}
+	if opts.UploadToRemote != nil && !*opts.UploadToRemote {
+		return
+	}
+	s.uploadWG.Add(1)
+	go func() {
+		defer s.uploadWG.Done()
+		s.remoteUploadHook(s.uploadCtx, record)
+	}()
+}
+
+// StartCreateBackupJob is the async entry point for POST /api/v1/backups
+// (this plan's §3.2.1/§3.3.1). It runs the same fast, synchronous
+// pre-checks CreateBackupWithOptions/createBackupLocked already perform
+// (encrypt-without-passphrase, s.mu.TryLock()) — hoisted up so they still
+// short-circuit before any BackupJob row is created — then creates the job
+// row and spawns a tracked goroutine that runs the actual archive pipeline
+// in the background, returning immediately (before that goroutine's work is
+// done).
+func (s *BackupService) StartCreateBackupJob(opts BackupOptions, audit RequestAuditInfo) (*models.BackupJob, error) {
+	if opts.Type == "" {
+		opts.Type = "manual"
+	}
+	if s.db == nil {
+		return nil, fmt.Errorf("backup job tracking requires a database connection")
+	}
+	opts, err := s.resolveBackupPassphrase(opts)
+	if err != nil {
+		return nil, err
+	}
+	if opts.Encrypt && strings.TrimSpace(opts.Passphrase) == "" {
+		return nil, fmt.Errorf("passphrase is required to encrypt backup")
+	}
+
+	if !s.mu.TryLock() {
+		return nil, ErrBackupInProgress
+	}
+
+	now := time.Now()
+	job := &models.BackupJob{
+		Type:      "create",
+		Status:    "pending",
+		StartedAt: &now,
+	}
+	// Lock-leak fix (spec §3.3.1): TryLock() has already succeeded here,
+	// but no goroutine exists yet to own s.mu.Unlock() — if persisting the
+	// job row itself fails (disk full, GORM error), this function must
+	// unlock synchronously before returning, since nothing else will.
+	if err := s.db.Create(job).Error; err != nil {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("create backup job record: %w", err)
+	}
+
+	s.jobWG.Add(1)
+	go func() {
+		defer s.jobWG.Done()
+		defer s.mu.Unlock()
+		s.runCreateBackupJob(job, opts, audit)
+	}()
+
+	return job, nil
+}
+
+// runCreateBackupJob executes the create-backup pipeline for job in the
+// background (called from the goroutine StartCreateBackupJob spawns, which
+// owns s.mu for the duration via its own defer). Persists the job's
+// progress (best-effort) and terminal outcome, and — for a permission-
+// denied failure — a SecurityAudit row (spec §3.3.1's security-audit fix).
+func (s *BackupService) runCreateBackupJob(job *models.BackupJob, opts BackupOptions, audit RequestAuditInfo) {
+	s.markBackupJobRunning(job)
+	progress := s.newBackupJobProgressFunc(job)
+
+	record, err := s.createBackupLockedWithProgress(opts, progress)
+
+	updates := map[string]interface{}{"finished_at": timePtr(time.Now())}
+	if err != nil {
+		logger.Log().WithError(err).WithField("job_uuid", job.UUID).Error("async backup job failed")
+		updates["status"] = "failed"
+		updates["error_message"] = err.Error()
+		updates["error_code"] = backupErrorCode(err)
+		// Security-audit fix (spec §3.3.1): respondPermissionError's
+		// logPermissionAudit call is unreachable from this goroutine (no
+		// gin.Context exists here) — restore the same audit trail using the
+		// RequestAuditInfo the handler captured before this job started.
+		s.auditBackupJobPermissionFailure("backup_create_failed", err, audit)
+	} else {
+		updates["status"] = "completed"
+		updates["filename"] = record.Filename
+		updates["result_uuid"] = record.UUID
+		s.fireRemoteUploadIfEnabled(opts, record)
+	}
+
+	s.finishBackupJob(job, updates)
+}
+
+// markBackupJobRunning flips job's persisted Status from "pending" to
+// "running" — best-effort, logged not fatal (spec §3.3.1: the job's
+// in-memory struct returned to the synchronous caller stays "pending",
+// matching §3.2.1's literal 202 response body; the goroutine advances it
+// once actual work begins).
+func (s *BackupService) markBackupJobRunning(job *models.BackupJob) {
+	if updErr := s.db.Model(&models.BackupJob{}).Where("id = ?", job.ID).Update("status", "running").Error; updErr != nil {
+		logger.Log().WithError(updErr).WithField("job_uuid", job.UUID).Warn("failed to mark backup job running")
+	}
+}
+
+// newBackupJobProgressFunc returns the progress(stage) callback threaded
+// into createBackupLockedWithProgress/restoreBackupSafeLockedWithProgress —
+// a best-effort Stage column update at each pipeline checkpoint (spec
+// §3.3.2), never fatal to the job on failure.
+func (s *BackupService) newBackupJobProgressFunc(job *models.BackupJob) func(stage string) {
+	return func(stage string) {
+		if updErr := s.db.Model(&models.BackupJob{}).Where("id = ?", job.ID).Update("stage", stage).Error; updErr != nil {
+			logger.Log().WithError(updErr).WithField("job_uuid", job.UUID).Warn("failed to update backup job stage")
+		}
+	}
+}
+
+// auditBackupJobPermissionFailure writes a SecurityAudit row for a
+// permission-denied job failure (spec §3.3.1's security-audit fix) — a
+// no-op unless err classifies via util.MapSaveErrorCode and a
+// securityService is wired, mirroring logPermissionAudit's own guard.
+func (s *BackupService) auditBackupJobPermissionFailure(action string, err error, audit RequestAuditInfo) {
+	code, ok := util.MapSaveErrorCode(err)
+	if !ok || s.securityService == nil {
+		return
+	}
+	detailsJSON, _ := json.Marshal(map[string]any{"error_code": code, "admin": true, "path": s.BackupDir})
+	if auditErr := s.securityService.LogAudit(&models.SecurityAudit{
+		Actor:         audit.Actor,
+		Action:        action,
+		EventCategory: "permissions",
+		Details:       string(detailsJSON),
+		IPAddress:     audit.IPAddress,
+		UserAgent:     audit.UserAgent,
+	}); auditErr != nil {
+		logger.Log().WithError(auditErr).Warn("failed to write security audit row for backup job failure")
+	}
+}
+
+// finishBackupJob persists a job's terminal outcome (best-effort, logged
+// not fatal — a failed status-column update must never crash the job
+// goroutine).
+func (s *BackupService) finishBackupJob(job *models.BackupJob, updates map[string]interface{}) {
+	if updErr := s.db.Model(&models.BackupJob{}).Where("id = ?", job.ID).Updates(updates).Error; updErr != nil {
+		logger.Log().WithError(updErr).WithField("job_uuid", job.UUID).Warn("failed to persist backup job outcome")
+	}
+}
+
+// timePtr returns a pointer to t — a small helper so map literals (which
+// cannot take the address of a composite literal field directly) can set
+// BackupJob.FinishedAt/StartedAt (*time.Time) inline.
+func timePtr(t time.Time) *time.Time {
+	return &t
+}
+
+// backupErrorCode maps a CreateBackupWithOptions/RestoreBackupSafe sentinel
+// error to the stable error_code string the frontend already keys UI copy
+// off of (spec §3.10/§3.5). Falls back, in order, to (1)
+// util.MapSaveErrorCode(err) — the same permission/readonly/locked
+// classifier respondPermissionError already uses — so a permission-denied
+// failure inside the job still gets its proper
+// permissions_db_readonly/permissions_db_locked/permissions_write_denied
+// code instead of ""; then (2) database.IsCorruptionError(err) to classify
+// a raw VACUUM INTO error as "backup_database_corrupted" even if it wasn't
+// caught by the pre-flight check (§3.9). Returns "" for a genuinely
+// unclassified error.
+func backupErrorCode(err error) string {
+	switch {
+	case err == nil:
+		return ""
+	case errors.Is(err, ErrInsufficientSpace):
+		return "backup_insufficient_space"
+	case errors.Is(err, ErrPassphraseRequired):
+		return "backup_passphrase_required"
+	case errors.Is(err, ErrPassphraseInvalid):
+		return "backup_passphrase_invalid"
+	case errors.Is(err, ErrNewerBackupFormat), errors.Is(err, ErrBackupValidationFailed):
+		return "backup_validation_failed"
+	case errors.Is(err, ErrRestoreUnrecoverable):
+		return "backup_restore_unrecoverable"
+	case errors.Is(err, ErrDatabaseCorrupted):
+		return "backup_database_corrupted"
+	}
+
+	if code, ok := util.MapSaveErrorCode(err); ok {
+		return code
+	}
+	if database.IsCorruptionError(err) {
+		return "backup_database_corrupted"
+	}
+	return ""
+}
+
+// GetBackupJob looks up a BackupJob by its UUID (spec §3.2.3) —
+// gorm.ErrRecordNotFound is returned untouched for the handler to map to a
+// 404.
+func (s *BackupService) GetBackupJob(jobUUID string) (*models.BackupJob, error) {
+	var job models.BackupJob
+	if err := s.db.Where("uuid = ?", jobUUID).First(&job).Error; err != nil {
+		return nil, err
+	}
+	return &job, nil
+}
+
+// WaitForJobs blocks until every in-flight create/restore job goroutine has
+// finished. Exported specifically for test determinism (mirrors how Stop()
+// already awaits uploadWG) — not required by any production call site.
+func (s *BackupService) WaitForJobs() {
+	s.jobWG.Wait()
+}
+
+// reconcileStuckBackupJobs marks any BackupJob row left "running" or
+// "pending" by a previous process (crashed/killed mid-job) as "failed" with
+// a fixed ErrorMessage/ErrorCode, so a stale row is never polled forever.
+// Mirrors reconcileStuckUploadingCopies (backup_remote_service.go) exactly;
+// called once from NewBackupService, same place.
+func reconcileStuckBackupJobs(db *gorm.DB) error {
+	if db == nil {
+		return nil
+	}
+	now := time.Now()
+	if err := db.Model(&models.BackupJob{}).
+		Where("status IN ?", []string{"pending", "running"}).
+		Updates(map[string]interface{}{
+			"status":        "failed",
+			"error_message": "process restarted while this job was in progress",
+			"error_code":    "backup_job_interrupted",
+			"finished_at":   &now,
+		}).Error; err != nil {
+		return fmt.Errorf("reconcile stuck backup jobs: %w", err)
+	}
+	return nil
+}
+
+// createBackupLocked is createBackupLockedWithProgress with no progress
+// reporting — the pre-existing behavior every synchronous caller
+// (CreateBackupWithOptions, RestoreBackupSafe's S1 step) continues to get
+// unmodified (this plan's §3.3.1).
+func (s *BackupService) createBackupLocked(opts BackupOptions) (*models.BackupRecord, error) {
+	return s.createBackupLockedWithProgress(opts, nil)
+}
+
+// createBackupLockedWithProgress is createBackupLocked's body, with
+// progress(stage) invoked at each checkpoint in this plan's §3.3.2 table
+// (nil-safe: passing progress == nil, as createBackupLocked does, is a true
+// no-op — every existing test for this pipeline is unaffected). Callers
+// must already hold s.mu.
+func (s *BackupService) createBackupLockedWithProgress(opts BackupOptions, progress func(stage string)) (*models.BackupRecord, error) {
+	if opts.Encrypt && strings.TrimSpace(opts.Passphrase) == "" {
+		return nil, fmt.Errorf("passphrase is required to encrypt backup")
+	}
+
+	dbPath := filepath.Join(s.DataDir, s.DatabaseName)
+	dbInfo, statErr := os.Stat(dbPath)
+	if os.IsNotExist(statErr) {
+		return nil, fmt.Errorf("database file not found: %s", dbPath)
+	}
+
+	if dbInfo != nil {
+		if spaceErr := s.checkSufficientSpaceLocked(dbInfo.Size()); spaceErr != nil {
+			return nil, spaceErr
+		}
+	}
+
+	if err := os.MkdirAll(s.BackupDir, 0o700); err != nil {
+		return nil, fmt.Errorf("ensure backup directory: %w", err)
+	}
+
+	timestamp := time.Now().Format("2006-01-02_15-04-05")
+	suffix, sfxErr := randomFilenameSuffix()
+	if sfxErr != nil {
+		return nil, fmt.Errorf("generate unique backup filename: %w", sfxErr)
+	}
+	baseFilename := fmt.Sprintf("backup_%s-%s.zip", timestamp, suffix)
+	zipPath := filepath.Join(s.BackupDir, baseFilename)
+
+	manifest := &BackupManifest{
+		FormatVersion:         2,
+		CreatedAt:             time.Now().UTC(),
+		AppVersion:            version.Version,
+		BackupType:            opts.Type,
+		DatabaseName:          s.DatabaseName,
+		EncryptionKeyRequired: s.computeEncryptionKeyRequired(),
+	}
+
+	// checking_integrity (NEW, this plan's §2.5/§3.9): a fast,
+	// dedicated-connection PRAGMA quick_check pre-flight, before
+	// writeV2Archive's VACUUM INTO snapshot is attempted, so a corrupted
+	// live database fails fast with a clear, classifiable error instead of
+	// however long VACUUM INTO takes to hit the same corruption on its own
+	// (the original production log this plan investigates, §2.5).
+	if progress != nil {
+		progress("checking_integrity")
+	}
+	if err := checkDatabaseIntegrity(dbPath); err != nil {
+		return nil, err
+	}
+
+	if progress != nil {
+		progress("archiving_files")
+	}
+	if err := s.writeV2Archive(zipPath, dbPath, manifest); err != nil {
+		_ = os.Remove(zipPath)
+		return nil, err
+	}
+
+	finalPath := zipPath
+	finalFilename := baseFilename
+	encrypted := false
+
+	if opts.Encrypt {
+		if progress != nil {
+			progress("encrypting")
+		}
+		encPath := zipPath + ".age"
+		if err := encryptArchiveWithPassphrase(zipPath, encPath, opts.Passphrase); err != nil {
+			_ = os.Remove(zipPath)
+			_ = os.Remove(encPath)
+			return nil, fmt.Errorf("encrypt backup archive: %w", err)
+		}
+		_ = os.Remove(zipPath)
+		finalPath = encPath
+		finalFilename = baseFilename + ".age"
+		encrypted = true
+	}
+
+	if progress != nil {
+		progress("computing_checksum")
+	}
+	sum, size, err := sha256File(finalPath)
+	if err != nil {
+		return nil, fmt.Errorf("checksum final backup archive: %w", err)
+	}
+
+	record := &models.BackupRecord{
+		Filename:      finalFilename,
+		Size:          size,
+		SHA256:        sum,
+		Type:          opts.Type,
+		FormatVersion: 2,
+		Encrypted:     encrypted,
+		AppVersion:    version.Version,
+		Status:        "completed",
+	}
+
+	if progress != nil {
+		progress("finalizing")
+	}
+	if s.db != nil {
+		if createErr := s.db.Create(record).Error; createErr != nil {
+			logger.Log().WithError(createErr).WithField("filename", util.SanitizeForLog(finalFilename)).
+				Warn("Failed to persist backup record")
+		}
+	}
+
+	return record, nil
+}
+
+// checkSufficientSpaceLocked enforces the disk-full precheck (spec §3.10):
+// available space in BackupDir must be at least 2x the current database
+// size. Callers must hold s.mu.
+func (s *BackupService) checkSufficientSpaceLocked(currentDBSize int64) error {
+	available, err := s.GetAvailableSpace()
+	if err != nil {
+		// Best-effort: if we can't determine free space, don't block the
+		// backup on it — GetAvailableSpace already covers the common
+		// failure modes (missing dir, bad statfs) with its own error.
+		logger.Log().WithError(err).Warn("Could not determine available disk space before backup; proceeding")
+		return nil
+	}
+
+	needed := currentDBSize * 2
+	if available < needed {
+		return fmt.Errorf("%w: need at least %d bytes, have %d available", ErrInsufficientSpace, needed, available)
+	}
+	return nil
+}
+
+// writeV2Archive builds the format-v2 zip at zipPath: the SQLite snapshot of
+// dbSourcePath, caddy/**, crowdsec/**, and finally manifest.json (spec
+// §3.2 — manifest MUST be written last so every preceding entry's checksum
+// is already known via the single-pass checksumWriter).
+func (s *BackupService) writeV2Archive(zipPath, dbSourcePath string, manifest *BackupManifest) error {
+	outFile, err := os.OpenFile(zipPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) // #nosec G304 -- Backup zip path controlled by app
+	if err != nil {
+		return err
 	}
 	defer func() {
 		if closeErr := outFile.Close(); closeErr != nil {
@@ -311,40 +1132,109 @@ func (s *BackupService) CreateBackup() (string, error) {
 
 	w := zip.NewWriter(outFile)
 
-	// Files/Dirs to backup
-	// 1. Database
-	dbPath := filepath.Join(s.DataDir, s.DatabaseName)
-	// Ensure DB exists before backing up
-	if _, statErr := os.Stat(dbPath); os.IsNotExist(statErr) {
-		return "", fmt.Errorf("database file not found: %s", dbPath)
-	}
-	backupSourcePath, cleanupBackupSource, err := createSQLiteSnapshot(dbPath)
+	backupSourcePath, cleanupBackupSource, err := createSQLiteSnapshot(dbSourcePath)
 	if err != nil {
-		return "", fmt.Errorf("create sqlite snapshot before backup: %w", err)
+		return fmt.Errorf("create sqlite snapshot before backup: %w", err)
 	}
 	defer cleanupBackupSource()
 
-	if err := s.addToZip(w, backupSourcePath, s.DatabaseName); err != nil {
-		return "", fmt.Errorf("backup db: %w", err)
+	if zipErr := s.addToZipTracked(w, backupSourcePath, s.DatabaseName, &manifest.Contents); zipErr != nil {
+		return fmt.Errorf("backup db: %w", zipErr)
 	}
 
-	// 2. Caddy Data (Certificates, etc)
-	// We walk the 'caddy' subdirectory
 	caddyDir := filepath.Join(s.DataDir, "caddy")
-	if err := s.addDirToZip(w, caddyDir, "caddy"); err != nil {
+	if caddyErr := s.addDirToZipTracked(w, caddyDir, "caddy", &manifest.Contents); caddyErr != nil {
 		// It's possible caddy dir doesn't exist yet, which is fine
-		logger.Log().WithError(err).Warn("Warning: could not backup caddy dir")
+		logger.Log().WithError(caddyErr).Warn("Warning: could not backup caddy dir")
 	}
 
-	// Close zip writer and check for errors (important for zip integrity)
+	if strings.TrimSpace(s.CrowdSecDir) != "" {
+		if crowdsecErr := s.addDirToZipTracked(w, s.CrowdSecDir, "crowdsec", &manifest.Contents); crowdsecErr != nil {
+			// Tolerate absence exactly like the caddy dir above (spec §3.2).
+			logger.Log().WithError(crowdsecErr).Warn("Warning: could not backup crowdsec dir")
+		}
+	}
+
+	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal backup manifest: %w", err)
+	}
+
+	manifestEntry, err := w.Create("manifest.json")
+	if err != nil {
+		return fmt.Errorf("create manifest entry: %w", err)
+	}
+	if _, err := manifestEntry.Write(manifestBytes); err != nil {
+		return fmt.Errorf("write manifest entry: %w", err)
+	}
+
 	if err := w.Close(); err != nil {
-		return "", fmt.Errorf("failed to finalize backup: %w", err)
+		return fmt.Errorf("failed to finalize backup: %w", err)
 	}
 
-	return filename, nil
+	return nil
 }
 
+// computeEncryptionKeyRequired reports whether any rows exist in tables
+// whose columns are encrypted with CHARON_ENCRYPTION_KEY, so a restore-time
+// warning can tell the operator that the target host needs the same key
+// (spec §3.2, §3.6). A nil db (many unit tests, and any deployment without a
+// live database wired into BackupService) is treated as "no" rather than an
+// error — there is nothing to check.
+func (s *BackupService) computeEncryptionKeyRequired() bool {
+	if s.db == nil {
+		return false
+	}
+
+	for _, table := range []string{"dns_provider_credentials", "tunnel_configs", "remote_storage_targets"} {
+		var count int64
+		if err := s.db.Table(table).Count(&count).Error; err != nil {
+			// Table may not exist yet on a fresh/partially migrated DB;
+			// that's not an error condition for this best-effort check.
+			continue
+		}
+		if count > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// sha256File computes the SHA-256 checksum and size of the file at path
+// without loading it fully into memory.
+func sha256File(path string) (sum string, size int64, err error) {
+	f, err := os.Open(path) // #nosec G304 -- path is a server-controlled backup archive path
+	if err != nil {
+		return "", 0, fmt.Errorf("open file for checksum: %w", err)
+	}
+	defer func() {
+		_ = f.Close()
+	}()
+
+	h := sha256.New()
+	written, err := io.Copy(h, f)
+	if err != nil {
+		return "", 0, fmt.Errorf("read file for checksum: %w", err)
+	}
+
+	return hex.EncodeToString(h.Sum(nil)), written, nil
+}
+
+// addToZip copies srcPath into the archive at zipPath without manifest
+// checksum tracking. Kept for callers/tests that don't need a manifest
+// (e.g. legacy in-place archive helpers) — CreateBackupWithOptions itself
+// uses addToZipTracked so it can populate the v2 manifest in the same pass.
 func (s *BackupService) addToZip(w *zip.Writer, srcPath, zipPath string) error {
+	return s.addToZipTracked(w, srcPath, zipPath, nil)
+}
+
+// addToZipTracked copies srcPath into the zip archive at zipPath. If
+// entries is non-nil, a ManifestEntry (streaming SHA-256 + size, via
+// io.MultiWriter under the hood) is appended for this file — this is the
+// single-pass checksum computation required by spec §3.2. Returns nil
+// (graceful skip) when srcPath is absent, matching the historical addToZip
+// behavior.
+func (s *BackupService) addToZipTracked(w *zip.Writer, srcPath, zipPath string, entries *[]ManifestEntry) error {
 	file, err := os.Open(srcPath) // #nosec G304 -- Source path controlled by app
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -363,11 +1253,32 @@ func (s *BackupService) addToZip(w *zip.Writer, srcPath, zipPath string) error {
 		return err
 	}
 
-	_, err = io.Copy(f, file)
-	return err
+	archivePath := filepath.ToSlash(zipPath)
+
+	if entries == nil {
+		if _, copyErr := io.Copy(f, file); copyErr != nil {
+			return copyErr
+		}
+		return nil
+	}
+
+	cw := newChecksumWriter(f)
+	if _, copyErr := io.Copy(cw, file); copyErr != nil {
+		return copyErr
+	}
+	*entries = append(*entries, cw.Entry(archivePath))
+
+	return nil
 }
 
 func (s *BackupService) addDirToZip(w *zip.Writer, srcDir, zipBase string) error {
+	return s.addDirToZipTracked(w, srcDir, zipBase, nil)
+}
+
+// addDirToZipTracked walks srcDir, adding every regular file into the
+// archive under zipBase, tracking manifest entries when entries is non-nil
+// (see addToZipTracked).
+func (s *BackupService) addDirToZipTracked(w *zip.Writer, srcDir, zipBase string, entries *[]ManifestEntry) error {
 	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -382,7 +1293,7 @@ func (s *BackupService) addDirToZip(w *zip.Writer, srcDir, zipBase string) error
 		}
 
 		zipPath := filepath.Join(zipBase, relPath)
-		return s.addToZip(w, path, zipPath)
+		return s.addToZipTracked(w, path, zipPath, entries)
 	})
 }
 
@@ -412,8 +1323,12 @@ func (s *BackupService) GetBackupPath(filename string) (string, error) {
 	return path, nil
 }
 
-// RestoreBackup restores the database and caddy data from a zip archive
+// RestoreBackup restores the database and caddy data from a zip archive.
+// Serialized against CreateBackup via mu (see CreateBackup's comment).
 func (s *BackupService) RestoreBackup(filename string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	cleanName := filepath.Base(filename)
 	if filename != cleanName {
 		return fmt.Errorf("invalid filename: path traversal attempt detected")
@@ -451,6 +1366,18 @@ func (s *BackupService) RestoreBackup(filename string) error {
 func (s *BackupService) RehydrateLiveDatabase(db *gorm.DB) error {
 	if db == nil {
 		return fmt.Errorf("database handle is required")
+	}
+
+	// H1 defensive addition: ATTACH DATABASE is connection-scoped in
+	// SQLite, and the transaction below must execute on that SAME
+	// connection or restore_src.<table> becomes invisible ("no such
+	// table"). Production already pins this via
+	// internal/database/database.go's sqlDB.SetMaxOpenConns(1) on the
+	// handle passed in here, but enforce it locally too so this function
+	// is correct independent of how its caller wired the *gorm.DB —
+	// idempotent/cheap if already 1.
+	if sqlDB, sqlErr := db.DB(); sqlErr == nil {
+		sqlDB.SetMaxOpenConns(1)
 	}
 
 	restoredDBPath := filepath.Join(s.DataDir, s.DatabaseName)
@@ -532,7 +1459,22 @@ func (s *BackupService) RehydrateLiveDatabase(db *gorm.DB) error {
 	}()
 
 	var currentTables []string
-	if err := db.Raw(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`).Scan(&currentTables).Error; err != nil {
+	// backup_jobs is deliberately excluded from the swap (discovered while
+	// implementing this plan's §3.3.1 async-job commit, via its own
+	// mandated TestStartRestoreJob_CompletesSuccessfully_DoesNotSelfDeadlock
+	// regression test): every OTHER table here is genuine application
+	// content that a restore is supposed to time-travel back to the
+	// archive's snapshot, but backup_jobs is ephemeral bookkeeping for the
+	// CURRENTLY RUNNING process's in-flight jobs — including this very
+	// restore job. Without this exclusion, the DELETE FROM backup_jobs
+	// below would wipe the row tracking this restore's own progress
+	// (and the subsequent INSERT ... SELECT * FROM restore_src.backup_jobs
+	// would only repopulate it with whatever stale rows existed when the
+	// archive being restored was originally created — never this job),
+	// so the terminal status update after this function returns would
+	// silently affect zero rows and the frontend's poll for this exact
+	// job_id would 404 right as the job finishes successfully.
+	if err := db.Raw(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != 'backup_jobs'`).Scan(&currentTables).Error; err != nil {
 		return fmt.Errorf("list current tables: %w", err)
 	}
 
@@ -545,37 +1487,53 @@ func (s *BackupService) RehydrateLiveDatabase(db *gorm.DB) error {
 		restoredTableSet[tableName] = struct{}{}
 	}
 
-	for _, tableName := range currentTables {
-		quotedTable, err := quoteSQLiteIdentifier(tableName)
-		if err != nil {
-			return fmt.Errorf("quote table identifier: %w", err)
+	// H1 fix: the swap must be atomic. Previously each DELETE/INSERT ran as
+	// its own autocommit statement; a mid-loop failure (constraint
+	// violation, disk-full, interrupted connection) left tables 1..N-1
+	// already on the NEW data, table N empty, and the rest still on OLD
+	// data — a mixed state visible to every request against the live,
+	// currently-serving *gorm.DB until the process restarts. Wrapping the
+	// per-table loop and the sqlite_sequence handling in a single
+	// transaction ensures a mid-loop failure rolls the live database back
+	// to its exact pre-rehydrate state. ATTACH/DETACH DATABASE must stay
+	// outside this transaction — SQLite disallows ATTACH/DETACH inside an
+	// open transaction.
+	if txErr := db.Transaction(func(tx *gorm.DB) error {
+		for _, tableName := range currentTables {
+			quotedTable, err := quoteSQLiteIdentifier(tableName)
+			if err != nil {
+				return fmt.Errorf("quote table identifier: %w", err)
+			}
+
+			if err := tx.Exec("DELETE FROM " + quotedTable).Error; err != nil {
+				return fmt.Errorf("clear table %s: %w", tableName, err)
+			}
+
+			if _, exists := restoredTableSet[tableName]; !exists {
+				continue
+			}
+
+			if err := tx.Exec("INSERT INTO " + quotedTable + " SELECT * FROM restore_src." + quotedTable).Error; err != nil {
+				return fmt.Errorf("copy table %s: %w", tableName, err)
+			}
 		}
 
-		if err := db.Exec("DELETE FROM " + quotedTable).Error; err != nil {
-			return fmt.Errorf("clear table %s: %w", tableName, err)
+		hasSQLiteSequence := false
+		if err := tx.Raw(`SELECT COUNT(*) > 0 FROM restore_src.sqlite_master WHERE type='table' AND name='sqlite_sequence'`).Scan(&hasSQLiteSequence).Error; err != nil {
+			return fmt.Errorf("check sqlite_sequence presence: %w", err)
 		}
 
-		if _, exists := restoredTableSet[tableName]; !exists {
-			continue
+		if hasSQLiteSequence {
+			if err := tx.Exec("DELETE FROM sqlite_sequence").Error; err != nil {
+				return fmt.Errorf("clear sqlite_sequence: %w", err)
+			}
+			if err := tx.Exec("INSERT INTO sqlite_sequence SELECT * FROM restore_src.sqlite_sequence").Error; err != nil {
+				return fmt.Errorf("copy sqlite_sequence: %w", err)
+			}
 		}
-
-		if err := db.Exec("INSERT INTO " + quotedTable + " SELECT * FROM restore_src." + quotedTable).Error; err != nil {
-			return fmt.Errorf("copy table %s: %w", tableName, err)
-		}
-	}
-
-	hasSQLiteSequence := false
-	if err := db.Raw(`SELECT COUNT(*) > 0 FROM restore_src.sqlite_master WHERE type='table' AND name='sqlite_sequence'`).Scan(&hasSQLiteSequence).Error; err != nil {
-		return fmt.Errorf("check sqlite_sequence presence: %w", err)
-	}
-
-	if hasSQLiteSequence {
-		if err := db.Exec("DELETE FROM sqlite_sequence").Error; err != nil {
-			return fmt.Errorf("clear sqlite_sequence: %w", err)
-		}
-		if err := db.Exec("INSERT INTO sqlite_sequence SELECT * FROM restore_src.sqlite_sequence").Error; err != nil {
-			return fmt.Errorf("copy sqlite_sequence: %w", err)
-		}
+		return nil
+	}); txErr != nil {
+		return txErr // rolled back atomically; live db is byte-for-byte its pre-rehydrate state
 	}
 
 	if err := db.Exec("DETACH DATABASE restore_src").Error; err != nil {
@@ -597,7 +1555,60 @@ func (s *BackupService) RehydrateLiveDatabase(db *gorm.DB) error {
 	return nil
 }
 
+// Extraction hardening caps (spec §3.9/§3.10). These are package-level vars
+// rather than consts so tests can shrink them to exercise the "exceeded"
+// path without allocating multi-gigabyte fixtures; production code paths
+// never mutate them.
+var (
+	// legacyPerEntryDecompressionCap is the flat per-entry decompression cap
+	// used when no manifest-declared size is available for an entry (v1/
+	// legacy archives, or any entry a v2 manifest doesn't mention). Raised
+	// from v1's 100MB to 2GiB so a charon.db larger than 100MB (plausible
+	// given RequestLog growth) is no longer permanently unrestorable.
+	legacyPerEntryDecompressionCap int64 = 2 * 1024 * 1024 * 1024
+	// manifestEntrySizeSlack is added on top of a v2 ManifestEntry's
+	// checksum-verified declared Size to bound that entry's extraction, per
+	// spec §3.5 V4 / §3.9.
+	manifestEntrySizeSlack int64 = 64 * 1024
+	// maxTotalExtractedSize bounds the sum of all bytes extracted from a
+	// single archive, independent of any manifest, so a crafted manifest
+	// cannot bypass it (spec §3.9).
+	maxTotalExtractedSize int64 = 4 * 1024 * 1024 * 1024
+	// maxExtractedEntryCount bounds the number of entries an archive may
+	// contain, independent of any manifest (spec §3.9).
+	maxExtractedEntryCount = 10000
+)
+
+// entryDecompressionCap returns the maximum number of bytes that may be
+// decompressed for archive entry name. When sizes is non-nil and contains a
+// checksum-verified declared size for name (v2 manifest path), the cap is
+// that size plus manifestEntrySizeSlack; otherwise the flat legacy cap
+// applies (v1/legacy archives, or entries a v2 manifest doesn't mention).
+func entryDecompressionCap(name string, sizes map[string]int64) int64 {
+	if sizes != nil {
+		if declared, ok := sizes[name]; ok {
+			return declared + manifestEntrySizeSlack
+		}
+	}
+	return legacyPerEntryDecompressionCap
+}
+
+// extractDatabaseFromBackup extracts the database (+ -wal/-shm siblings, if
+// present) from zipPath to a temporary file, using the flat legacy
+// decompression cap for every entry (no manifest available). It is kept as
+// the zero-manifest entry point for the legacy RestoreBackup path and
+// existing tests; RestoreBackupSafe uses
+// extractDatabaseFromBackupWithSizes for the v2, manifest-scaled path.
 func (s *BackupService) extractDatabaseFromBackup(zipPath string) (string, error) {
+	return s.extractDatabaseFromBackupWithSizes(zipPath, nil)
+}
+
+// extractDatabaseFromBackupWithSizes is extractDatabaseFromBackup, but
+// entries named in sizes (archive-relative path -> checksum-verified
+// declared size, from a v2 manifest) get a per-entry cap scaled to that
+// declared size + slack instead of the flat legacy cap (spec §3.5 V4-V5,
+// §3.9).
+func (s *BackupService) extractDatabaseFromBackupWithSizes(zipPath string, sizes map[string]int64) (string, error) {
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
 		return "", fmt.Errorf("open backup archive: %w", err)
@@ -651,8 +1662,8 @@ func (s *BackupService) extractDatabaseFromBackup(zipPath string) (string, error
 			_ = rc.Close()
 		}()
 
-		const maxDecompressedSize = 100 * 1024 * 1024 // 100MB
-		lr := &io.LimitedReader{R: rc, N: maxDecompressedSize}
+		maxDecompressedSize := entryDecompressionCap(filepath.Clean(file.Name), sizes)
+		lr := &io.LimitedReader{R: rc, N: maxDecompressedSize + 1}
 		written, err := io.Copy(outFile, lr)
 		if err != nil {
 			return fmt.Errorf("copy archive entry: %w", err)
@@ -702,7 +1713,36 @@ func (s *BackupService) extractDatabaseFromBackup(zipPath string) (string, error
 	return tmpPath, nil
 }
 
+// unzipWithSkip extracts src into dest, skipping entries named in
+// skipEntries, using the flat legacy per-entry decompression cap (no
+// manifest available). Kept as the zero-manifest entry point for the legacy
+// RestoreBackup path and existing tests; RestoreBackupSafe's apply step uses
+// unzipWithSkipManifest for the v2, manifest-scaled path.
 func (s *BackupService) unzipWithSkip(src, dest string, skipEntries map[string]struct{}) error {
+	return s.extractZip(src, dest, skipEntries, nil)
+}
+
+// unzipWithSkipManifest is unzipWithSkip, but entries named in sizes
+// (archive-relative path -> checksum-verified declared size, from a v2
+// manifest) get a per-entry cap scaled to that declared size + slack
+// instead of the flat legacy cap (spec §3.5 A1, §3.9).
+func (s *BackupService) unzipWithSkipManifest(src, dest string, skipEntries map[string]struct{}, sizes map[string]int64) error {
+	return s.extractZip(src, dest, skipEntries, sizes)
+}
+
+// extractZip is the hardened extraction core shared by unzipWithSkip and
+// unzipWithSkipManifest. Hardening applied (spec §3.9, v1 gaps):
+//   - symlink entries (os.ModeSymlink) are rejected before extraction
+//   - archive-supplied permission bits are ignored entirely: every
+//     extracted regular file is forced to 0o600, every directory to 0o700
+//   - per-entry decompression is bounded by entryDecompressionCap (scaled
+//     to the manifest-declared size + slack for v2, flat legacy cap
+//     otherwise)
+//   - total extracted bytes across the whole archive is capped at
+//     maxTotalExtractedSize, and entry count at maxExtractedEntryCount,
+//     both independent of any manifest so a crafted manifest cannot bypass
+//     them
+func (s *BackupService) extractZip(src, dest string, skipEntries map[string]struct{}, sizes map[string]int64) error {
 	r, err := zip.OpenReader(src)
 	if err != nil {
 		return err
@@ -713,11 +1753,25 @@ func (s *BackupService) unzipWithSkip(src, dest string, skipEntries map[string]s
 		}
 	}()
 
+	if len(r.File) > maxExtractedEntryCount {
+		return fmt.Errorf("archive contains %d entries, exceeding the maximum of %d", len(r.File), maxExtractedEntryCount)
+	}
+
+	var totalExtracted int64
+
 	for _, f := range r.File {
+		cleanName := filepath.Clean(f.Name)
 		if skipEntries != nil {
-			if _, skip := skipEntries[filepath.Clean(f.Name)]; skip {
+			if _, skip := skipEntries[cleanName]; skip {
 				continue
 			}
+		}
+
+		// Reject symlink entries before extraction (v1 gap fix) — a
+		// crafted archive must not be able to plant a symlink that later
+		// extraction steps, or the running application, would follow.
+		if f.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("archive entry %s is a symlink, which is not allowed", f.Name)
 		}
 
 		// Use SafeJoinPath to prevent directory traversal attacks
@@ -737,7 +1791,10 @@ func (s *BackupService) unzipWithSkip(src, dest string, skipEntries map[string]s
 			return mkdirErr
 		}
 
-		outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode()) // #nosec G304 -- File path from validated backup
+		// Archive-supplied permission bits are ignored entirely (v1 gap
+		// fix) — a crafted/uploaded archive could otherwise claim
+		// world-writable or setuid/setgid bits via f.Mode().
+		outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) // #nosec G304 -- File path from validated backup
 		if err != nil {
 			return err
 		}
@@ -750,15 +1807,30 @@ func (s *BackupService) unzipWithSkip(src, dest string, skipEntries map[string]s
 			return err
 		}
 
-		// Limit decompressed size to prevent decompression bombs (100MB limit).
-		// Use max+1 so lr.N == 0 only when a byte beyond the limit was consumed,
-		// avoiding a false positive for files that are exactly maxDecompressedSize.
-		const maxDecompressedSize = 100 * 1024 * 1024 // 100MB
-		lr := &io.LimitedReader{R: rc, N: maxDecompressedSize + 1}
-		_, err = io.Copy(outFile, lr)
+		// Per-entry cap, further bounded by whatever total-size budget
+		// remains, so a long run of just-under-cap entries can't blow past
+		// maxTotalExtractedSize before the running total is even checked.
+		remainingBudget := maxTotalExtractedSize - totalExtracted
+		if remainingBudget < 0 {
+			remainingBudget = 0
+		}
+		entryCap := entryDecompressionCap(cleanName, sizes)
+		limit := entryCap
+		if remainingBudget < limit {
+			limit = remainingBudget
+		}
+
+		// Use limit+1 so lr.N == 0 only when a byte beyond the limit was
+		// consumed, avoiding a false positive for files exactly at the cap.
+		lr := &io.LimitedReader{R: rc, N: limit + 1}
+		written, err := io.Copy(outFile, lr)
+		totalExtracted += written
 
 		if err == nil && lr.N == 0 {
-			err = fmt.Errorf("file %s exceeded decompression limit (%d bytes), potential decompression bomb", f.Name, maxDecompressedSize)
+			err = fmt.Errorf("file %s exceeded decompression limit (%d bytes), potential decompression bomb", f.Name, entryCap)
+		}
+		if err == nil && totalExtracted > maxTotalExtractedSize {
+			err = fmt.Errorf("archive exceeds total extracted size limit (%d bytes)", maxTotalExtractedSize)
 		}
 
 		// Check for close errors on writable file

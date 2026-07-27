@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { BrowserRouter } from 'react-router-dom'
+import { BrowserRouter } from 'react-router'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import { createBackup } from '../../api/backups'
@@ -22,8 +22,8 @@ vi.mock('react-i18next', () => ({
 
 // Mock navigate
 const mockNavigate = vi.fn()
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual('react-router-dom')
+vi.mock('react-router', async () => {
+  const actual = await vi.importActual('react-router')
   return {
     ...actual,
     useNavigate: () => mockNavigate,
@@ -60,9 +60,7 @@ describe('ImportCaddy - Handlers and Interactions', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockUseImport.mockReturnValue(defaultMockReturn)
-    mockCreateBackup.mockResolvedValue({
-      filename: 'backup.db',
-    })
+    mockCreateBackup.mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' })
     // Reset confirm mock
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     vi.spyOn(window, 'alert').mockImplementation(() => {})
@@ -557,9 +555,7 @@ describe('ImportCaddy - Commit Handler', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    mockCreateBackup.mockResolvedValue({
-      filename: 'backup.db',
-    })
+    mockCreateBackup.mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' })
   })
 
   it('shows commit button in review table when reviewing', async () => {

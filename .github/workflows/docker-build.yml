@@ -71,7 +71,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ env.TRIGGER_HEAD_SHA }}
       - name: Normalize image name
@@ -183,7 +183,7 @@ jobs:
 
       - name: Log in to GitHub Container Registry
         if: steps.skip.outputs.skip_build != 'true'
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
         with:
           registry: ${{ env.GHCR_REGISTRY }}
           username: ${{ github.actor }}
@@ -191,7 +191,7 @@ jobs:
 
       - name: Log in to Docker Hub
         if: steps.skip.outputs.skip_build != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
         with:
           registry: docker.io
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -685,7 +685,7 @@ jobs:
 
       - name: Upload Trivy results
         if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.trivy-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           sarif_file: 'trivy-results.sarif'
           category: ${{ env.TRIVY_SARIF_CATEGORY }}
@@ -819,7 +819,7 @@ jobs:
       security-events: write
     steps:
       - name: Checkout repository for Trivy ignore rules
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Normalize image name
         run: |
@@ -847,7 +847,7 @@ jobs:
           echo "Using immutable digest reference: ${IMAGE_REF}"
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
         with:
           registry: ${{ env.GHCR_REGISTRY }}
           username: ${{ github.actor }}
@@ -926,7 +926,7 @@ jobs:
 
       - name: Upload Trivy scan results
         if: always() && steps.trivy-pr-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           sarif_file: 'trivy-pr-results.sarif'
           category: ${{ env.TRIVY_SARIF_CATEGORY }}

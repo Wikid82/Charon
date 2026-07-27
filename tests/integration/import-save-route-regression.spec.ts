@@ -1,5 +1,6 @@
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { getStorageStateAuthHeaders } from '../utils/api-helpers';
+import { pollBackupJobViaAPI } from '../utils/phase5-helpers';
 
 type SessionResponse = {
   session?: {
@@ -49,14 +50,24 @@ async function createBackupAndTrack(
   headers: Record<string, string>,
   createdBackupFilenames: string[]
 ): Promise<void> {
+  // POST /api/v1/backups now returns 202 + {job_id, type, status: "pending"}
+  // immediately and builds the archive in a tracked background job
+  // (docs/plans/current_spec.md §3.2.1) rather than blocking until the
+  // archive is written — 202 is still a canonical 2xx success response, but
+  // the resulting filename only becomes known once the job completes.
   const backupBeforeCommit = await page.request.post('/api/v1/backups', {
     headers,
     data: {},
   });
   expectCanonicalSuccess(backupBeforeCommit.status(), 'POST /api/v1/backups');
 
-  const payload = (await backupBeforeCommit.json()) as { filename?: string };
-  const filename = payload.filename;
+  const startPayload = (await backupBeforeCommit.json()) as { job_id?: string };
+  expect(startPayload.job_id).toBeTruthy();
+
+  const job = await pollBackupJobViaAPI(page, headers, startPayload.job_id as string);
+  expect(job.status).toBe('completed');
+
+  const filename = (job.result as { filename?: string } | undefined)?.filename;
   expect(filename).toBeTruthy();
   createdBackupFilenames.push(filename as string);
 }

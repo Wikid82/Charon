@@ -261,7 +261,7 @@ describe('AccessLists', () => {
     const deleteMutation = deleteMutationMock()
     vi.mocked(useDeleteAccessList).mockReturnValue(deleteMutation)
     vi.mocked(useAccessLists).mockReturnValue(createQueryResult([createAccessList()]))
-    vi.mocked(createBackup).mockResolvedValue({ filename: 'backup.tar.gz' })
+    vi.mocked(createBackup).mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' })
 
     const user = userEvent.setup()
     renderWithQueryClient(<AccessLists />)
@@ -285,7 +285,7 @@ describe('AccessLists', () => {
     vi.mocked(useAccessLists).mockReturnValue(
       createQueryResult([createAccessList({ id: 1 }), createAccessList({ id: 2, uuid: 'acl-2', name: 'Branch Office' })])
     )
-    vi.mocked(createBackup).mockResolvedValue({ filename: 'backup.tar.gz' })
+    vi.mocked(createBackup).mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' })
 
     const user = userEvent.setup()
     renderWithQueryClient(<AccessLists />)

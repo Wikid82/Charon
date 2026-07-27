@@ -20,9 +20,8 @@ func TestNewRouter(t *testing.T) {
 	err := os.WriteFile(filepath.Join(tempDir, "index.html"), []byte("<html></html>"), 0o644)
 	assert.NoError(t, err)
 
-	router := NewRouter(tempDir, "")
+	router := NewRouter(tempDir, "", nil)
 	assert.NotNil(t, router)
-
 
 	// Test static file serving
 	req, _ := http.NewRequest("GET", "/", http.NoBody)
@@ -72,7 +71,7 @@ func TestNewRouter_WithDataDir(t *testing.T) {
 	// #nosec G306 -- Test fixture needs to be world-readable for HTTP serving test
 	assert.NoError(t, os.WriteFile(filepath.Join(uploadsDir, "logo.png"), []byte("fake-png"), 0o644))
 
-	router := NewRouter("", dataDir)
+	router := NewRouter("", dataDir, nil)
 	assert.NotNil(t, router)
 
 	req, _ := http.NewRequest("GET", "/uploads/logo.png", http.NoBody)

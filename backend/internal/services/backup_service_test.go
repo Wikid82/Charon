@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -51,7 +54,7 @@ func TestBackupService_CreateAndList(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop() // Prevent goroutine leaks
 
 	// Test Create
@@ -159,7 +162,7 @@ func TestBackupService_RunScheduledBackup(t *testing.T) {
 	createSQLiteTestDB(t, dbPath)
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop() // Prevent goroutine leaks
 
 	// Run scheduled backup manually
@@ -175,7 +178,7 @@ func TestBackupService_CreateBackup_Errors(t *testing.T) {
 	t.Run("missing database file", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		cfg := &config.Config{DatabasePath: filepath.Join(tmpDir, "nonexistent.db")}
-		service := NewBackupService(cfg)
+		service := NewBackupService(cfg, nil, nil)
 		defer service.Stop() // Prevent goroutine leaks
 
 		_, err := service.CreateBackup()
@@ -378,7 +381,7 @@ func TestBackupService_GetLastBackupTime(t *testing.T) {
 		createSQLiteTestDB(t, dbPath)
 
 		cfg := &config.Config{DatabasePath: dbPath}
-		service := NewBackupService(cfg)
+		service := NewBackupService(cfg, nil, nil)
 		defer service.Stop() // Prevent goroutine leaks
 
 		// Create a backup
@@ -425,7 +428,7 @@ func TestNewBackupService_BackupDirCreationError(t *testing.T) {
 
 	cfg := &config.Config{DatabasePath: dbPath}
 	// Should not panic even if backup dir creation fails (error is logged, not returned)
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop() // Prevent goroutine leaks
 	assert.NotNil(t, service)
 	// Service is created but backup dir creation failed (logged as error)
@@ -442,7 +445,7 @@ func TestNewBackupService_CronScheduleError(t *testing.T) {
 	cfg := &config.Config{DatabasePath: dbPath}
 	// Service should initialize without panic even if cron has issues
 	// (error is logged, not returned)
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop() // Prevent goroutine leaks
 	assert.NotNil(t, service)
 	assert.NotNil(t, service.Cron)
@@ -459,7 +462,7 @@ func TestRunScheduledBackup_CreateBackupFails(t *testing.T) {
 	// when it tries to verify the database exists
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop() // Prevent goroutine leaks
 
 	// Should not panic when backup fails
@@ -487,14 +490,14 @@ func TestRunScheduledBackup_CleanupFails(t *testing.T) {
 	createSQLiteTestDB(t, dbPath)
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop() // Prevent goroutine leaks
 
 	createCalled := false
 	cleanupCalled := false
-	service.createBackup = func() (string, error) {
+	service.createBackupOpts = func(opts BackupOptions) (*models.BackupRecord, error) {
 		createCalled = true
-		return "backup_2026-01-01_00-00-00.zip", nil
+		return &models.BackupRecord{Filename: "backup_2026-01-01_00-00-00.zip"}, nil
 	}
 	service.cleanupOld = func(keep int) (int, error) {
 		cleanupCalled = true
@@ -507,6 +510,94 @@ func TestRunScheduledBackup_CleanupFails(t *testing.T) {
 
 	assert.True(t, createCalled)
 	assert.True(t, cleanupCalled)
+}
+
+// TestRunScheduledBackup_EncryptionEnabled_ProducesEncryptedBackup is the
+// core regression test for spec §12.3: RunScheduledBackup must consult the
+// backup.encryption_enabled setting instead of always creating an
+// unencrypted "manual"-type backup. Uses a real (unstubbed) BackupService so
+// the full CreateBackupWithOptions pipeline runs and produces a genuine
+// age-encrypted archive.
+func TestRunScheduledBackup_EncryptionEnabled_ProducesEncryptedBackup(t *testing.T) {
+	enc, err := crypto.NewEncryptionService(testEncryptionKeyBase64(t))
+	require.NoError(t, err)
+	svc := newOptionsTestService(t, enc)
+
+	passphrase := "correct-horse-battery-staple"
+	require.NoError(t, svc.UpdateSettings(BackupSettingsUpdate{
+		EncryptionEnabled:    boolPtr(true),
+		EncryptionPassphrase: &passphrase,
+	}))
+
+	svc.RunScheduledBackup()
+
+	var records []models.BackupRecord
+	require.NoError(t, svc.db.Find(&records).Error)
+	require.Len(t, records, 1)
+	assert.True(t, records[0].Encrypted)
+	assert.True(t, strings.HasSuffix(records[0].Filename, ".age"), "encrypted scheduled backup filename must end in .age, got %q", records[0].Filename)
+	assert.Equal(t, "scheduled", records[0].Type)
+}
+
+// TestRunScheduledBackup_EncryptionEnabledNoStoredPassphrase_FailsWithClearError
+// proves the missing-passphrase case degrades to a logged failure (via the
+// pre-existing "passphrase is required to encrypt backup" guard), not a
+// silent unencrypted fallback.
+func TestRunScheduledBackup_EncryptionEnabledNoStoredPassphrase_FailsWithClearError(t *testing.T) {
+	enc, err := crypto.NewEncryptionService(testEncryptionKeyBase64(t))
+	require.NoError(t, err)
+	svc := newOptionsTestService(t, enc)
+
+	require.NoError(t, svc.UpdateSettings(BackupSettingsUpdate{
+		EncryptionEnabled: boolPtr(true),
+	}))
+
+	// Should not panic even though the backup fails.
+	svc.RunScheduledBackup()
+
+	var records []models.BackupRecord
+	require.NoError(t, svc.db.Find(&records).Error)
+	assert.Empty(t, records, "no successful backup should be produced when encryption is enabled but no passphrase is stored")
+}
+
+// TestRunScheduledBackup_EncryptionDisabled_ProducesUnencryptedBackup is the
+// explicit regression guard: default settings still produce an unencrypted
+// backup, and the Type fix ("scheduled" instead of "manual") applies
+// unconditionally regardless of the encryption setting.
+func TestRunScheduledBackup_EncryptionDisabled_ProducesUnencryptedBackup(t *testing.T) {
+	svc := newOptionsTestService(t, nil)
+
+	svc.RunScheduledBackup()
+
+	var records []models.BackupRecord
+	require.NoError(t, svc.db.Find(&records).Error)
+	require.Len(t, records, 1)
+	assert.False(t, records[0].Encrypted)
+	assert.Equal(t, "scheduled", records[0].Type)
+}
+
+// TestRunScheduledBackup_CorruptedStoredPassphrase_LogsErrorNoUnencryptedFallback
+// proves resolveScheduledBackupOptions's propagated decrypt error causes
+// RunScheduledBackup to log-and-return rather than silently falling through
+// to an unencrypted backup.
+func TestRunScheduledBackup_CorruptedStoredPassphrase_LogsErrorNoUnencryptedFallback(t *testing.T) {
+	enc, err := crypto.NewEncryptionService(testEncryptionKeyBase64(t))
+	require.NoError(t, err)
+	svc := newOptionsTestService(t, enc)
+
+	require.NoError(t, svc.UpdateSettings(BackupSettingsUpdate{
+		EncryptionEnabled: boolPtr(true),
+	}))
+	// Seed corrupted ciphertext directly, bypassing UpdateSettings's normal
+	// Encrypt call, to simulate bit-rot or a key-rotation mismatch.
+	require.NoError(t, upsertBackupSetting(svc.db, SettingKeyBackupEncryptionPassphraseEnc, "not-valid-ciphertext", "string"))
+
+	// Should not panic when the stored passphrase fails to decrypt.
+	svc.RunScheduledBackup()
+
+	var records []models.BackupRecord
+	require.NoError(t, svc.db.Find(&records).Error)
+	assert.Empty(t, records, "no backup record should be produced when the stored passphrase fails to decrypt")
 }
 
 func TestGetLastBackupTime_ListBackupsError(t *testing.T) {
@@ -534,7 +625,7 @@ func TestRunScheduledBackup_CleanupDeletesZero(t *testing.T) {
 	createSQLiteTestDB(t, dbPath)
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop() // Prevent goroutine leaks
 
 	// RunScheduledBackup creates 1 backup and tries to cleanup
@@ -589,7 +680,7 @@ func TestCreateBackup_CaddyDirMissing(t *testing.T) {
 
 	// Explicitly NOT creating caddy directory
 	cfg := &config.Config{DatabasePath: dbPath}
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop() // Prevent goroutine leaks
 
 	// Should succeed with warning logged
@@ -617,7 +708,7 @@ func TestCreateBackup_CaddyDirUnreadable(t *testing.T) {
 	defer func() { _ = os.Chmod(caddyDir, 0o700) }() // #nosec G302 -- Test restores permissions / Restore for cleanup
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop() // Prevent goroutine leaks
 
 	// Should succeed with warning logged about caddy dir
@@ -689,7 +780,7 @@ func TestBackupService_Start(t *testing.T) {
 	createSQLiteTestDB(t, dbPath)
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 
 	// Test Start
 	service.Start()
@@ -757,7 +848,7 @@ func TestRunScheduledBackup_CleanupSucceedsWithDeletions(t *testing.T) {
 	createSQLiteTestDB(t, dbPath)
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop()
 
 	// Create more backups than DefaultBackupRetention to trigger cleanup
@@ -1122,7 +1213,7 @@ func TestCreateBackup_ZipWriterCloseError(t *testing.T) {
 	createSQLiteTestDB(t, dbPath)
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop()
 
 	// Create a backup successfully
@@ -1254,7 +1345,7 @@ func TestBackupService_FullCycle(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(caddyDir, "config.json"), []byte(`{"original": true}`), 0o600) // #nosec G306 -- test fixture
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	service := NewBackupService(cfg)
+	service := NewBackupService(cfg, nil, nil)
 	defer service.Stop()
 
 	// Create backup

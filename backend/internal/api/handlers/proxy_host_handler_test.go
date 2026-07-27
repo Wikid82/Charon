@@ -2796,3 +2796,51 @@ func TestProxyHostHandler_BulkUpdateGroup_CaddyApplyError(t *testing.T) {
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
 	require.Contains(t, result["error"].(string), "Failed to apply")
 }
+
+// fakeCertCacheInvalidator is a test double satisfying services.CertificateCacheInvalidator.
+type fakeCertCacheInvalidator struct {
+	calls int
+}
+
+func (f *fakeCertCacheInvalidator) InvalidateCache() {
+	f.calls++
+}
+
+// TestProxyHostHandler_SetCertificateService_InvalidatesOnCreate verifies the
+// handler-level wiring (routes.go calls h.SetCertificateService(certService))
+// actually reaches the underlying ProxyHostService and fires on a real
+// create request through the HTTP layer, closing the loop on the
+// certificates-list "in_use" staleness bug this wiring fixes.
+func TestProxyHostHandler_SetCertificateService_InvalidatesOnCreate(t *testing.T) {
+	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&models.ProxyHost{},
+		&models.Location{},
+		&models.Notification{},
+		&models.NotificationProvider{},
+	))
+
+	ns := services.NewNotificationService(db, nil)
+	h := NewProxyHostHandler(db, nil, ns, nil)
+	fake := &fakeCertCacheInvalidator{}
+	h.SetCertificateService(fake)
+
+	r := gin.New()
+	api := r.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	body, _ := json.Marshal(map[string]any{
+		"domain_names": "cert-invalidation.example.com",
+		"forward_host": "127.0.0.1",
+		"forward_port": 8080,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-hosts", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+	require.Equal(t, 1, fake.calls, "creating a proxy host via the HTTP handler should invalidate the wired certificate cache")
+}

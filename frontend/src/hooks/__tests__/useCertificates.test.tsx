@@ -234,5 +234,34 @@ describe('useCertificates hooks', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
       expect(result.current.data).toEqual({ succeeded: 1, failed: 1 });
     });
+
+    it('deletes certificates sequentially, not concurrently', async () => {
+      // Regression test: the backend serializes a backup-before-delete step
+      // with a non-blocking lock (BackupService.CreateBackupWithOptions uses
+      // TryLock, not a blocking Lock). Firing all deletes concurrently meant
+      // only the first ever won the lock and the rest 500'd. This test fails
+      // if the mutation goes back to Promise.allSettled(uuids.map(...)),
+      // which would call deleteCertificate for every UUID before any of them
+      // resolves — i.e. call N+1 would fire before call N's promise settles.
+      let inFlight = 0;
+      let maxConcurrent = 0;
+      vi.mocked(api.deleteCertificate).mockImplementation(async () => {
+        inFlight++;
+        maxConcurrent = Math.max(maxConcurrent, inFlight);
+        await new Promise(resolve => setTimeout(resolve, 5));
+        inFlight--;
+      });
+
+      const { result } = renderHook(() => useBulkDeleteCertificates(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate(['uuid-1', 'uuid-2', 'uuid-3']);
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(api.deleteCertificate).toHaveBeenCalledTimes(3);
+      expect(result.current.data).toEqual({ succeeded: 3, failed: 0 });
+      expect(maxConcurrent).toBe(1);
+    });
   });
 });

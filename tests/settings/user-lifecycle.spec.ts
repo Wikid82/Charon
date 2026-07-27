@@ -354,7 +354,12 @@ test.describe('Admin-User E2E Workflow', () => {
 
       const logoutButton = page.getByRole('button', { name: /logout/i }).first();
       await logoutButton.click();
-      await page.waitForURL(/login/, { timeout: 5000 });
+      // 15s to match the timeout used for the same logout->login redirect check
+      // elsewhere in this file (e.g. line 791) and in fixtures/auth-fixtures.ts.
+      // The prior 5s value was an outlier in this file's own convention and was
+      // marginal under concurrent E2E load (backend serializes /auth/logout
+      // across parallel test workers hitting the same single container).
+      await page.waitForURL(/login/, { timeout: 15000 });
     });
 
     await test.step('STEP 4: New user logs in', async () => {

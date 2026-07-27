@@ -417,6 +417,61 @@ clean. Suppressed in `.trivyignore` and `.grype.yaml`; review 2026-08-08.
 
 ---
 
+### [HIGH] GHSA-mh99-v99m-4gvg · brace-expansion DoS via `eslint-plugin-jsx-a11y` (frontend)
+
+| Field        | Value |
+|--------------|-------|
+| **ID**       | GHSA-mh99-v99m-4gvg (CVSS 7.5) |
+| **Severity** | High |
+| **Status**   | Accepted Risk (no fixed version exists) |
+
+**What**
+`brace-expansion` DoS via unbounded expansion length causing an out-of-memory process crash.
+Reachable through `frontend/`'s real `eslint-plugin-jsx-a11y` dependency on
+`minimatch@3.1.5` → `brace-expansion@1.1.16`. This is a separate chain from the
+`@types/eslint-plugin-jsx-a11y` regression fixed in `e95bd277` (that one was a types-only
+package that briefly picked up a real `eslint@^9` dependency; this one is the actual lint
+plugin's own long-standing dependency).
+
+**Who**
+
+- Discovered by: `npm audit` (local `scripts/dep_update.sh` runs and CI)
+- Reported: 2026-07-25 (alongside the related `@types` fix)
+- Affects: `frontend/` devDependencies only — never shipped to users
+
+**Where**
+
+- Component: `node_modules/eslint-plugin-jsx-a11y/node_modules/{minimatch,brace-expansion}`
+- Versions affected: `eslint-plugin-jsx-a11y` `>=6.5.0` through the current latest, `6.10.2` —
+  every version depends on `minimatch: ^3.1.2`. The only version without this dependency is
+  `6.4.1`.
+
+**When**
+
+- Discovered: 2026-07-25
+- Disclosed (if public): Public
+- Target fix: N/A until `eslint-plugin-jsx-a11y` ships a release that drops or bumps its
+  `minimatch` dependency
+
+**How**
+`npm audit fix --force` offers to downgrade to `6.4.1`, a multi-year regression in a11y lint
+coverage — rejected as unacceptable. Forcing the patched `brace-expansion@5.0.8` via `overrides`
+breaks `minimatch@3.1.5`'s callable-default `require('brace-expansion')(pattern)` usage (5.0.8
+changed the CJS export to a named-export object); forcing `minimatch` itself to the 10.x line
+breaks `eslint-plugin-jsx-a11y`'s compiled `_interopRequireDefault(...).default` usage instead
+(minimatch@10.x's CJS build has no `.default` export). Both verified by direct `require()`
+experiments, not just version inspection. Devdependency-only, never shipped, and `minimatch`
+here only processes trusted local source identifiers during linting, not untrusted input.
+
+**Planned Remediation**
+Monitor for an upstream `eslint-plugin-jsx-a11y` release that resolves the `minimatch`
+dependency; re-check on every dependency update pass. Until then, allowlisted precisely (exact
+advisory ID + full dependency path, not by severity level) in `frontend/audit-ci.json`, run via
+`npm run audit:ci` from both `scripts/dep_update.sh` and CI's `quality-checks.yml` — this does
+not suppress any other high/critical finding, only this exact chain.
+
+---
+
 ## Patched Vulnerabilities
 
 ### ✅ [LOW] GO-2026-5024 / CVE-2026-39824 · golang.org/x/sys in gosu Build Stage

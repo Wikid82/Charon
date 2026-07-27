@@ -10,7 +10,7 @@ fi
 
 for f in $staged_files; do
   case "$f" in
-    data/backups/*)
+    *data/backups/*)
       echo "Error: Committing files under data/backups/ is blocked. Remove them from the commit and re-run." >&2
       exit 1
       ;;

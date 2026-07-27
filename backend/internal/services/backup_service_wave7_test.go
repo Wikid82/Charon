@@ -43,10 +43,28 @@ func TestBackupServiceWave7_CreateBackup_SnapshotFailureForNonSQLiteDB(t *testin
 
 	_, err := svc.CreateBackup()
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "create sqlite snapshot before backup")
+	// Deliberate behavior change from this plan's §2.5/§3.9 pre-flight
+	// integrity check (docs/plans/current_spec.md, Async Backup/Restore
+	// Jobs): createBackupLockedWithProgress now runs a dedicated-connection
+	// PRAGMA quick_check BEFORE attempting the VACUUM INTO snapshot this
+	// test used to reach and fail inside — a non-SQLite file like this one
+	// is caught immediately by that pre-flight check (ErrDatabaseCorrupted)
+	// instead of failing deeper inside createSQLiteSnapshot's VACUUM INTO
+	// call. This is the intended, faster, more clearly-classified failure
+	// mode §2.5/§3.9 exists to produce; the old assertion tested the
+	// superseded behavior.
+	require.ErrorIs(t, err, ErrDatabaseCorrupted)
 }
 
 func TestBackupServiceWave7_ExtractDatabaseFromBackup_DBEntryOverLimit(t *testing.T) {
+	// See TestBackupService_UnzipWithSkip_RejectsExcessiveUncompressedSize:
+	// the flat legacy per-entry cap is now 2GiB (spec §3.9), so temporarily
+	// lower it to prove the enforcement path still fires without
+	// allocating a multi-gigabyte fixture.
+	originalCap := legacyPerEntryDecompressionCap
+	legacyPerEntryDecompressionCap = 100 * 1024 * 1024
+	t.Cleanup(func() { legacyPerEntryDecompressionCap = originalCap })
+
 	tmpDir := t.TempDir()
 	zipPath := filepath.Join(tmpDir, "db-over-limit.zip")
 
@@ -67,6 +85,10 @@ func TestBackupServiceWave7_ExtractDatabaseFromBackup_DBEntryOverLimit(t *testin
 }
 
 func TestBackupServiceWave7_ExtractDatabaseFromBackup_WALEntryOverLimit(t *testing.T) {
+	originalCap := legacyPerEntryDecompressionCap
+	legacyPerEntryDecompressionCap = 100 * 1024 * 1024
+	t.Cleanup(func() { legacyPerEntryDecompressionCap = originalCap })
+
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "charon.db")
 	createSQLiteTestDB(t, dbPath)

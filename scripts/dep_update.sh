@@ -65,7 +65,11 @@ for MODULE in "${NPM_MODULES[@]}"; do
     # Update prod, dev, optional, peer, and packageManager dependencies.
     # Exclude typescript: v7 crashes @typescript-eslint until upstream
     # catches up; keep pinned to ^6.0.3 until that's resolved.
-    npx npm-check-updates -u --reject typescript
+    # Exclude @types/eslint-plugin-jsx-a11y: 6.10.1+ regressed to a real
+    # eslint@^9 dependency (vs. the types-only @types/eslint@* in 6.10.0),
+    # reintroducing GHSA-mh99-v99m-4gvg (brace-expansion DoS). Keep
+    # exact-pinned to 6.10.0 until upstream ships a fixed release.
+    npx npm-check-updates -u --reject typescript,@types/eslint-plugin-jsx-a11y
 
     # Also update flat (string-valued) entries in the "overrides" section.
     # npm-check-updates excludes "overrides" from its default --dep list, so
@@ -88,7 +92,13 @@ for MODULE in "${NPM_MODULES[@]}"; do
     npm dedupe
     npm run --if-present build
     npm run --if-present type-check
-    npm audit --audit-level=high
+    # Both modules gate on their own audit-ci.json rather than a blanket
+    # --audit-level: root's allowlist is empty today, frontend's allowlists
+    # exactly one known-unfixable finding (eslint-plugin-jsx-a11y's real
+    # dependency on minimatch@3.1.5 -> brace-expansion@1.1.16,
+    # GHSA-mh99-v99m-4gvg — see SECURITY.md). Any other new high/critical
+    # finding in either module still fails the script.
+    npm run audit:ci
     npm audit fix || true
     npm outdated || true
 

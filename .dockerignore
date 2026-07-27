@@ -97,6 +97,10 @@ data/
 charon.db
 cpm.db
 
+# Local backup archives (any data/backups/ dir, at any depth) — never needed
+# in the Docker build context.
+**/data/backups/
+
 # -----------------------------------------------------------------------------
 # IDE & Editor
 # -----------------------------------------------------------------------------

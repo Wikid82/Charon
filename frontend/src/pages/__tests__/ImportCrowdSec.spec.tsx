@@ -1,7 +1,7 @@
 import { QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { BrowserRouter } from 'react-router-dom'
+import { BrowserRouter } from 'react-router'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import * as backups from '../../api/backups'
@@ -30,7 +30,7 @@ describe('ImportCrowdSec page', () => {
 
   it('creates a backup then imports crowdsec', async () => {
     const file = new File(['fake'], 'crowdsec.zip', { type: 'application/zip' })
-    vi.mocked(backups.createBackup).mockResolvedValue({ filename: 'b1' })
+    vi.mocked(backups.createBackup).mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' })
     vi.mocked(api.importCrowdsecConfig).mockResolvedValue({ success: true })
 
     renderWithProviders(<ImportCrowdSec />)

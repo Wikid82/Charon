@@ -54,6 +54,15 @@ type SecurityConfig struct {
 	// ManagementCIDRs defines IP ranges allowed to use emergency break glass token
 	// Default: RFC1918 private networks (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8)
 	ManagementCIDRs []string
+	// TrustedProxies lists IPs/CIDRs of reverse proxies whose
+	// X-Forwarded-Proto/X-Forwarded-Host headers are honored for TLS-
+	// termination detection (setSecureCookie) and whose presence enables
+	// Gin's own ClientIP() X-Forwarded-For resolution. Empty (default)
+	// trusts nothing — forwarded headers are ignored entirely and every
+	// trust decision falls back to the raw TCP peer address
+	// (c.Request.RemoteAddr), matching Gin's own SetTrustedProxies(nil)
+	// default. See docs/plans/current_spec.md §13.
+	TrustedProxies []string
 }
 
 // EmergencyConfig configures the emergency break glass server (Tier 2)
@@ -181,6 +190,16 @@ func loadSecurityConfig() SecurityConfig {
 		for _, cidr := range splitAndTrim(managementCIDRsStr, ",") {
 			if cidr != "" {
 				cfg.ManagementCIDRs = append(cfg.ManagementCIDRs, cidr)
+			}
+		}
+	}
+
+	// Parse trusted proxies (comma-separated list)
+	trustedProxiesStr := getEnvAny("", "CHARON_TRUSTED_PROXIES")
+	if trustedProxiesStr != "" {
+		for _, cidr := range splitAndTrim(trustedProxiesStr, ",") {
+			if cidr != "" {
+				cfg.TrustedProxies = append(cfg.TrustedProxies, cidr)
 			}
 		}
 	}

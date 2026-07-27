@@ -49,6 +49,7 @@ zCLDm4WygKTw2foUXGNtbWG7z6Eq7PI+2fSlJDFgb+xmdIFQdyKDsZeYO5bmdYq5
 0tY8
 -----END CERTIFICATE-----`;
 
+// nosemgrep: generic.secrets.security.detected-private-key.detected-private-key -- throwaway self-signed test.local key pair generated solely for these X.509 upload/parse tests (see comment above REAL_TEST_CERT); not a real credential, never used outside this test fixture.
 const REAL_TEST_KEY = `-----BEGIN PRIVATE KEY-----
 MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDdzdQfOkHzG/lZ
 242xTvFYMVOrd12rUGQVcWhc9NG1LIJGYZKpS0bzNUdoylHhIqbwNq18Dni1znDY
@@ -81,12 +82,9 @@ yRNV1UrzJGv5ZUVKq2kymBut
 /**
  * Create a custom certificate directly via the API, bypassing TestDataManager's
  * narrow CertificateData type which omits the required `name` field.
- * Returns the numeric cert ID (from list endpoint) and name for later lookup/cleanup.
- *
- * Note: The POST response excludes the numeric `id` (model uses json:"-"),
- * so we query the list endpoint to resolve the numeric ID by matching on UUID.
+ * Returns the cert's UUID and name for later lookup/cleanup.
  */
-async function createCustomCertViaAPI(baseURL: string): Promise<{ id: number; certName: string }> {
+async function createCustomCertViaAPI(baseURL: string): Promise<{ uuid: string; certName: string }> {
   const id = generateUniqueId();
   const certName = `test-cert-${id}`;
 
@@ -119,19 +117,16 @@ async function createCustomCertViaAPI(baseURL: string): Promise<{ id: number; ce
     const createResult = await response.json();
     const certUUID: string = createResult.uuid;
 
-    // The create response excludes the numeric ID (json:"-" on model).
-    // Query the list endpoint and match by UUID to get the numeric ID.
-    const listResponse = await ctx.get('/api/v1/certificates');
-    if (!listResponse.ok()) {
-      throw new Error(`Failed to list certificates: ${listResponse.status()}`);
-    }
-    const certs: Array<{ id: number; uuid: string }> = await listResponse.json();
-    const match = certs.find((c) => c.uuid === certUUID);
-    if (!match) {
-      throw new Error(`Certificate with UUID ${certUUID} not found in list after creation`);
-    }
-
-    return { id: match.id, certName };
+    // NOTE: the certificates LIST endpoint (CertificateInfo) only exposes a
+    // "uuid" field, never a numeric "id" (the model's numeric ID has json:"-").
+    // Both DELETE /api/v1/certificates/:uuid and the proxy host handler's
+    // certificate_id resolution accept a UUID directly, so use it everywhere
+    // instead of round-tripping through a numeric ID that the API never
+    // returns (a previous version of this helper silently produced
+    // `id: undefined` here, which JSON.stringify then dropped from request
+    // bodies entirely — see git history for the certificate_id linkage bug
+    // this caused).
+    return { uuid: certUUID, certName };
   } finally {
     await ctx.dispose();
   }
@@ -140,14 +135,14 @@ async function createCustomCertViaAPI(baseURL: string): Promise<{ id: number; ce
 /**
  * Delete a certificate directly via the API for cleanup.
  */
-async function deleteCertViaAPI(baseURL: string, certId: number): Promise<void> {
+async function deleteCertViaAPI(baseURL: string, certUUID: string): Promise<void> {
   const ctx = await playwrightRequest.newContext({
     baseURL,
     storageState: STORAGE_STATE,
   });
 
   try {
-    await ctx.delete(`/api/v1/certificates/${certId}`);
+    await ctx.delete(`/api/v1/certificates/${certUUID}`);
   } finally {
     await ctx.dispose();
   }
@@ -159,7 +154,7 @@ async function deleteCertViaAPI(baseURL: string, certId: number): Promise<void> 
  */
 async function createProxyHostWithCertViaAPI(
   baseURL: string,
-  certificateId: number
+  certificateUUID: string
 ): Promise<{ id: string }> {
   const id = generateUniqueId();
   const domain = `proxy-${id}.test.local`;
@@ -176,7 +171,7 @@ async function createProxyHostWithCertViaAPI(
         forward_host: '127.0.0.1',
         forward_port: 3000,
         forward_scheme: 'https',
-        certificate_id: certificateId,
+        certificate_id: certificateUUID,
       },
     });
 
@@ -219,7 +214,7 @@ async function navigateToCertificates(page: import('@playwright/test').Page): Pr
 
 test.describe('Certificate Deletion', () => {
   const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
-  const createdCertIds: number[] = [];
+  const createdCertUUIDs: string[] = [];
 
   test.beforeEach(async ({ page, adminUser }) => {
     await loginUser(page, adminUser);
@@ -228,8 +223,8 @@ test.describe('Certificate Deletion', () => {
 
   test.afterAll(async () => {
     // Clean up any certs created during tests that weren't deleted by the tests
-    for (const certId of createdCertIds) {
-      await deleteCertViaAPI(baseURL, certId).catch(() => {});
+    for (const certUUID of createdCertUUIDs) {
+      await deleteCertViaAPI(baseURL, certUUID).catch(() => {});
     }
   });
 
@@ -266,7 +261,7 @@ test.describe('Certificate Deletion', () => {
 
     await test.step('Seed a custom certificate via API', async () => {
       const result = await createCustomCertViaAPI(baseURL);
-      createdCertIds.push(result.id);
+      createdCertUUIDs.push(result.uuid);
       certName = result.certName;
     });
 
@@ -291,7 +286,7 @@ test.describe('Certificate Deletion', () => {
 
     await test.step('Seed a custom certificate via API', async () => {
       const result = await createCustomCertViaAPI(baseURL);
-      createdCertIds.push(result.id);
+      createdCertUUIDs.push(result.uuid);
       certName = result.certName;
     });
 
@@ -324,7 +319,7 @@ test.describe('Certificate Deletion', () => {
 
     await test.step('Seed a custom certificate via API', async () => {
       const result = await createCustomCertViaAPI(baseURL);
-      createdCertIds.push(result.id);
+      createdCertUUIDs.push(result.uuid);
       certName = result.certName;
     });
 
@@ -358,7 +353,7 @@ test.describe('Certificate Deletion', () => {
 
     await test.step('Seed a custom certificate via API', async () => {
       const result = await createCustomCertViaAPI(baseURL);
-      // Don't push to createdCertIds — this test will delete it via UI
+      // Don't push to createdCertUUIDs — this test will delete it via UI
       certName = result.certName;
     });
 
@@ -409,11 +404,11 @@ test.describe('Certificate Deletion', () => {
 
     await test.step('Seed a custom cert and attach it to a proxy host', async () => {
       const certResult = await createCustomCertViaAPI(baseURL);
-      createdCertIds.push(certResult.id);
+      createdCertUUIDs.push(certResult.uuid);
       certName = certResult.certName;
 
       // Create a proxy host that references this certificate via certificate_id
-      const proxyResult = await createProxyHostWithCertViaAPI(baseURL, certResult.id);
+      const proxyResult = await createProxyHostWithCertViaAPI(baseURL, certResult.uuid);
       proxyHostId = proxyResult.id;
     });
 
@@ -473,9 +468,21 @@ test.describe('Certificate Deletion', () => {
         const row = leCertRows.nth(i);
         const rowText = await row.textContent();
 
-        // Skip expired LE certs — they ARE expected to have a delete button
-        const isExpired = /expired/i.test(rowText ?? '');
-        if (isExpired) continue;
+        // Skip expired/expiring LE certs — they ARE expected to have a delete
+        // button per frontend/src/utils/certificateUtils.ts's isDeletable(),
+        // which treats both status === 'expired' and status === 'expiring'
+        // (shown as an "Expiring Soon" badge) as deletable.
+        const isExpiredOrExpiring = /expir(ed|ing)/i.test(rowText ?? '');
+        if (isExpiredOrExpiring) continue;
+
+        // Skip staging LE certs — the "letsencrypt-staging" provider text also
+        // matches the /let.*encrypt/i row filter above (it contains
+        // "letsencrypt" as a substring), but staging certs are intentionally
+        // deletable per frontend/src/utils/certificateUtils.ts's isDeletable()
+        // and are visually flagged with a "STAGING" badge. Only a genuinely
+        // valid *production* LE cert should have no delete button.
+        const isStaging = /staging/i.test(rowText ?? '');
+        if (isStaging) continue;
 
         // Valid production LE cert should NOT have a delete button
         const deleteButton = row.getByRole('button', { name: /delete/i });

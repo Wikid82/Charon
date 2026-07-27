@@ -382,12 +382,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         _retry go get github.com/hslatman/ipstore@v0.4.0; \
         _retry go get golang.org/x/crypto@v${XCRYPTO_VERSION}; \
         _retry go get golang.org/x/net@v${XNET_VERSION}; \
-        # CVE-2026-33186: gRPC-Go auth bypass (fixed in v1.79.3)
-        # CVE-2026-34986: go-jose/v4 transitive fix (requires grpc >= v1.80.0)
-        # Pin here so the Caddy binary is patched immediately;
-        # remove once Caddy ships a release built with grpc >= v1.80.0.
+        # GHSA-hrxh-6v49-42gf: grpc-go xDS RBAC and HTTP/2 vulnerabilities
+        # Patched in grpc-go v1.82.1. Pin here so the Caddy binary is patched immediately.
         # renovate: datasource=go depName=google.golang.org/grpc
-        _retry go get google.golang.org/grpc@v1.80.0; \
+        _retry go get google.golang.org/grpc@v1.82.1; \
         # CVE-2026-34986: go-jose JOSE/JWT validation bypass
         # renovate: datasource=go depName=github.com/go-jose/go-jose/v3
         _retry go get github.com/go-jose/go-jose/v3@v3.0.5; \
@@ -416,6 +414,15 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Affects /usr/bin/caddy (transitive via caddy-crowdsec-bouncer -> crowdsec). Fix available at v1.2.0.
         # renovate: datasource=go depName=github.com/buger/jsonparser
         _retry go get github.com/buger/jsonparser@v1.2.0; \
+        # GHSA-gcjh-h69q-9w9g: cel-go JSON private fields exposed via NativeTypes/ParseStructTag("json").
+        # NOT pinned here: bumping to the v0.29.0 fix breaks Caddy v2.11.4's own
+        # modules/caddyhttp/celmatcher.go, which calls interpreter.NewCall(..., []interpreter.Interpretable, ...) —
+        # v0.29.0 changed that parameter to []interpreter.InterpretableV2, a superset interface requiring an
+        # additional Exec(*ExecutionFrame) method, so this is a real source-incompatible break, not a version
+        # bump. No Caddy release newer than v2.11.4 exists yet with celmatcher.go updated for the new API.
+        # Suppressed in .trivyignore with full risk justification; see that file for exploitability analysis.
+        # TODO(renovate): bump github.com/google/cel-go to >= v0.29.0 once Caddy ships a release whose
+        # celmatcher.go is compatible with the new InterpretableV2 API; remove the .trivyignore entry then.
         # CVE-2026-44982 (GHSA-rw47-hm26-6wr7): CrowdSec AppSec silently drops HTTP request
         # body for chunked/HTTP-2 requests, bypassing WAF body inspection rules.
         # caddy-crowdsec-bouncer@v0.12.1 was built against crowdsec v1.6.3 whose
@@ -547,11 +554,10 @@ RUN set -e; \
     # renovate: datasource=go depName=golang.org/x/crypto
     _retry go get golang.org/x/crypto@v0.52.0; \
     _retry go get golang.org/x/net@v${XNET_VERSION}; \
-    # CVE-2026-33186 (GHSA-p77j-4mvh-x3m3): gRPC-Go auth bypass via missing leading slash
-    # Fix available at v1.79.3. Pin here so the CrowdSec binary is patched immediately;
-    # remove once CrowdSec ships a release built with grpc >= v1.79.3.
+    # GHSA-hrxh-6v49-42gf: grpc-go xDS RBAC and HTTP/2 vulnerabilities
+    # Patched in grpc-go v1.82.1. Pin here so the CrowdSec binary is patched immediately.
     # renovate: datasource=go depName=google.golang.org/grpc
-    _retry go get google.golang.org/grpc@v1.82.0; \
+    _retry go get google.golang.org/grpc@v1.82.1; \
     # CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
     # renovate: datasource=github-tags depName=jackc/pgx
     _retry go get github.com/jackc/pgx/v4@v4.18.3; \
@@ -581,6 +587,9 @@ RUN set -e; \
     # Fix available at v1.2.0.
     # renovate: datasource=go depName=github.com/buger/jsonparser
     _retry go get github.com/buger/jsonparser@v1.2.0; \
+    # GHSA-r277-6w6q-xmqw: kin-openapi ValidationHandler.Load() Fail-Open Authentication Bypass via NoopAuthenticationFunc Default
+    # renovate: datasource=go depName=github.com/getkin/kin-openapi
+    _retry go get github.com/getkin/kin-openapi@v0.144.0; \
     _retry go mod tidy
 
 # Fix compatibility issues with expr-lang v1.17.7
@@ -679,7 +688,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=db73536b02d376c82d63d23aeb0fbac4795901a76b27850ea68c1fab9425270c
+ARG GEOLITE2_COUNTRY_SHA256=e9bbbdb62bcf922cc9e6533049c78cfe8be3a2970181cf5994ef6c15406b05bd
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \

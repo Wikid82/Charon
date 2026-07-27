@@ -1,5 +1,6 @@
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
+import { pollBackupJobViaAPI } from '../utils/phase5-helpers';
 
 async function resetSecurityState(page: import('@playwright/test').Page): Promise<void> {
   const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN;
@@ -76,13 +77,26 @@ async function restoreBackupAndWaitForLiveRehydrate(
   page: import('@playwright/test').Page,
   filename: string
 ): Promise<BackupRestoreResponse> {
+  // POST /api/v1/backups/:filename/restore now returns 202 + {job_id, type,
+  // status: "pending"} immediately and runs the V->S->A->R->F pipeline in a
+  // tracked background job (docs/plans/current_spec.md §3.2.2) rather than
+  // blocking until restore completes — poll the job to a terminal status.
   const token = await getAuthToken(page);
-  const restoreResponse = await page.request.post(`/api/v1/backups/${filename}/restore`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  expect(restoreResponse.ok()).toBe(true);
+  const headers = { Authorization: `Bearer ${token}` };
+  const restoreResponse = await page.request.post(`/api/v1/backups/${filename}/restore`, { headers });
+  expect(restoreResponse.status()).toBe(202);
 
-  const payload: BackupRestoreResponse = await restoreResponse.json();
+  const startPayload = await restoreResponse.json();
+  expect(startPayload).toEqual(expect.objectContaining({
+    job_id: expect.any(String),
+    type: 'restore',
+    status: 'pending',
+  }));
+
+  const job = await pollBackupJobViaAPI(page, headers, startPayload.job_id);
+  expect(job.status).toBe('completed');
+
+  const payload = job.result as BackupRestoreResponse;
   expect(payload).toEqual(expect.objectContaining({
     restart_required: false,
   }));
@@ -243,16 +257,28 @@ test.describe('Multi-Component Workflows', () => {
     });
 
     await test.step('Create backup with user data', async () => {
+      // POST /api/v1/backups now returns 202 + {job_id, type, status:
+      // "pending"} immediately and builds the archive in a tracked
+      // background job (docs/plans/current_spec.md §3.2.1) rather than
+      // blocking until the archive is written — poll the job for the
+      // resulting filename.
       const token = await getAuthToken(page);
-      const backupResponse = await page.request.post('/api/v1/backups', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      expect([200, 201]).toContain(backupResponse.status());
-      const backupPayload = await backupResponse.json();
-      expect(backupPayload).toEqual(expect.objectContaining({
+      const headers = { Authorization: `Bearer ${token}` };
+      const backupResponse = await page.request.post('/api/v1/backups', { headers });
+      expect(backupResponse.status()).toBe(202);
+      const startPayload = await backupResponse.json();
+      expect(startPayload).toEqual(expect.objectContaining({
+        job_id: expect.any(String),
+        type: 'create',
+        status: 'pending',
+      }));
+
+      const job = await pollBackupJobViaAPI(page, headers, startPayload.job_id);
+      expect(job.status).toBe('completed');
+      expect(job.result).toEqual(expect.objectContaining({
         filename: expect.any(String),
       }));
-      createdBackupFilename = backupPayload.filename;
+      createdBackupFilename = (job.result as { filename: string }).filename;
     });
 
     await test.step('Delete the user', async () => {

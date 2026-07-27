@@ -28,7 +28,8 @@
   "ignoreDeps": [
     "github.com/gorilla/websocket",
     "github.com/golang-jwt/jwt/v5",
-    "js-yaml"
+    "js-yaml",
+    "@types/eslint-plugin-jsx-a11y"
   ],
 
   "minimumReleaseAge": null,
@@ -214,6 +215,20 @@
       "depNameTemplate": "golang.org/x/tools",
       "datasourceTemplate": "go",
       "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track CodeQL CLI version pin in install script",
+      "managerFilePatterns": [
+        "/^scripts\\/install-codeql\\.sh$/"
+      ],
+      "matchStrings": [
+        "CODEQL_VERSION=\"\\$\\{CODEQL_VERSION:-v(?<currentValue>[^}]+)\\}\""
+      ],
+      "depNameTemplate": "github/codeql-cli-binaries",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v(?<version>.*)$"
     },
     {
       "customType": "regex",
@@ -776,9 +791,26 @@
       "sourceUrl": "https://github.com/prometheus/client_golang"
     },
     {
+      "description": "Fix Renovate lookup for sirupsen/logrus",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/sirupsen/logrus"
+      ],
+      "sourceUrl": "https://github.com/sirupsen/logrus"
+    },
+    {
       "description": "Disable js-yaml updates — pinned in overrides for security; managed manually",
       "matchPackageNames": [
         "js-yaml"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Disable @types/eslint-plugin-jsx-a11y updates — exact-pinned to 6.10.0 in package.json; 6.10.1+ regressed to a real eslint@^9 dependency, reintroducing GHSA-mh99-v99m-4gvg (brace-expansion DoS). Re-enable once upstream ships a fixed release.",
+      "matchPackageNames": [
+        "@types/eslint-plugin-jsx-a11y"
       ],
       "enabled": false
     }

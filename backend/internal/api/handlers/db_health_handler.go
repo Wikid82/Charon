@@ -14,6 +14,10 @@ import (
 type DBHealthHandler struct {
 	db            *gorm.DB
 	backupService *services.BackupService
+	// dbPath is the on-disk path to the main SQLite database file, used so
+	// Check can run its integrity scan on a dedicated connection instead of
+	// the shared db pool (spec §2.5d/§3.9 — Async Backup/Restore Jobs).
+	dbPath string
 }
 
 // DBHealthResponse represents the database health check response.
@@ -27,11 +31,15 @@ type DBHealthResponse struct {
 	CheckedAt       time.Time  `json:"checked_at"`
 }
 
-// NewDBHealthHandler creates a new DBHealthHandler.
-func NewDBHealthHandler(db *gorm.DB, backupService *services.BackupService) *DBHealthHandler {
+// NewDBHealthHandler creates a new DBHealthHandler. dbPath is the on-disk
+// path to the main SQLite database file (spec §2.5d/§3.9) — Check uses it
+// to run the integrity scan on a dedicated connection rather than the
+// shared db pool.
+func NewDBHealthHandler(db *gorm.DB, backupService *services.BackupService, dbPath string) *DBHealthHandler {
 	return &DBHealthHandler{
 		db:            db,
 		backupService: backupService,
+		dbPath:        dbPath,
 	}
 }
 
@@ -43,8 +51,13 @@ func (h *DBHealthHandler) Check(c *gin.Context) {
 		CheckedAt: time.Now().UTC(),
 	}
 
-	// Run integrity check
-	integrityOK, integrityResult := database.CheckIntegrity(h.db)
+	// Run integrity check on a dedicated connection (spec §2.5d/§3.9) — this
+	// endpoint is registered unauthenticated on the bare router
+	// (routes.go), and the previous database.CheckIntegrity(h.db) call ran
+	// its PRAGMA quick_check on the shared, SetMaxOpenConns(1) main pool,
+	// which could block the entire app for the duration of a multi-minute
+	// scan on a large database.
+	integrityOK, integrityResult := database.CheckIntegrityDedicated(h.dbPath)
 	response.IntegrityOK = integrityOK
 	response.IntegrityResult = integrityResult
 

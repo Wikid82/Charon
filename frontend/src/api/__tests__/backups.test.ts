@@ -1,7 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import client from '../../api/client'
-import { getBackups, createBackup, restoreBackup, deleteBackup } from '../backups'
+import {
+  getBackups,
+  createBackup,
+  restoreBackup,
+  getBackupJob,
+  deleteBackup,
+  uploadBackup,
+  validateBackup,
+  getBackupSettings,
+  updateBackupSettings,
+  getRemoteTargets,
+  createRemoteTarget,
+  updateRemoteTarget,
+  deleteRemoteTarget,
+  testRemoteTarget,
+  testDraftRemoteTarget,
+  startRemoteTargetOAuth,
+  disconnectRemoteTargetOAuth,
+} from '../backups'
 
 describe('backups api', () => {
   beforeEach(() => {
@@ -15,21 +33,229 @@ describe('backups api', () => {
     expect(res).toEqual(mockData)
   })
 
-  it('createBackup returns filename', async () => {
-    vi.spyOn(client, 'post').mockResolvedValueOnce({ data: { filename: 'b2.zip' } })
+  it('createBackup returns the started job (202 job_id/type/status, plan §3.4.1)', async () => {
+    vi.spyOn(client, 'post').mockResolvedValueOnce({
+      data: { job_id: 'job-1', type: 'create', status: 'pending' },
+    })
     const res = await createBackup()
-    expect(res).toEqual({ filename: 'b2.zip' })
+    expect(res).toEqual({ job_id: 'job-1', type: 'create', status: 'pending' })
   })
 
-  it('restoreBackup posts to restore endpoint', async () => {
-    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({})
-    await restoreBackup('b3.zip')
+  it('restoreBackup posts to restore endpoint and returns the started job', async () => {
+    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({
+      data: { job_id: 'job-2', type: 'restore', status: 'pending' },
+    })
+    const res = await restoreBackup('b3.zip')
     expect(spy).toHaveBeenCalledWith('/backups/b3.zip/restore')
+    expect(res).toEqual({ job_id: 'job-2', type: 'restore', status: 'pending' })
   })
 
   it('deleteBackup deletes backup', async () => {
     const spy = vi.spyOn(client, 'delete').mockResolvedValueOnce({})
     await deleteBackup('b3.zip')
     expect(spy).toHaveBeenCalledWith('/backups/b3.zip')
+  })
+
+  it('createBackup posts encrypt/passphrase options when provided', async () => {
+    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({
+      data: { job_id: 'job-3', type: 'create', status: 'pending' },
+    })
+    const res = await createBackup({ encrypt: true, passphrase: 'hunter2' })
+    expect(spy).toHaveBeenCalledWith('/backups', { encrypt: true, passphrase: 'hunter2' })
+    expect(res).toEqual({ job_id: 'job-3', type: 'create', status: 'pending' })
+  })
+
+  it('restoreBackup includes the passphrase in the body when provided', async () => {
+    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({
+      data: { job_id: 'job-4', type: 'restore', status: 'pending' },
+    })
+    await restoreBackup('b3.zip.age', 'hunter2')
+    expect(spy).toHaveBeenCalledWith('/backups/b3.zip.age/restore', { passphrase: 'hunter2' })
+  })
+
+  it('getBackupJob fetches a create job by id and returns its CreateBackupResponse result', async () => {
+    const jobData = {
+      job_id: 'job-5',
+      type: 'create' as const,
+      status: 'completed' as const,
+      created_at: '2026-07-16T10:00:00Z',
+      started_at: '2026-07-16T10:00:00Z',
+      finished_at: '2026-07-16T10:00:05Z',
+      result: { filename: 'b5.zip', uuid: 'u5' },
+    }
+    const spy = vi.spyOn(client, 'get').mockResolvedValueOnce({ data: jobData })
+    const res = await getBackupJob('job-5')
+    expect(spy).toHaveBeenCalledWith('/backups/jobs/job-5')
+    expect(res).toEqual(jobData)
+  })
+
+  it('getBackupJob returns a failed restore job with its error shape', async () => {
+    const jobData = {
+      job_id: 'job-6',
+      type: 'restore' as const,
+      status: 'failed' as const,
+      created_at: '2026-07-16T10:00:00Z',
+      error: { message: 'wrong passphrase', error_code: 'backup_passphrase_invalid' },
+    }
+    vi.spyOn(client, 'get').mockResolvedValueOnce({ data: jobData })
+    const res = await getBackupJob('job-6')
+    expect(res.status).toBe('failed')
+    expect(res.error).toEqual({ message: 'wrong passphrase', error_code: 'backup_passphrase_invalid' })
+  })
+
+  it('uploadBackup sends a multipart FormData request', async () => {
+    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({
+      data: { filename: 'uploaded_1.zip', uuid: 'u2', legacy_format: false, message: 'ok' },
+    })
+    const file = new File(['content'], 'backup.zip', { type: 'application/zip' })
+
+    const res = await uploadBackup(file, 'hunter2')
+
+    expect(spy).toHaveBeenCalledTimes(1)
+    const [url, body, config] = spy.mock.calls[0]
+    expect(url).toBe('/backups/upload')
+    expect(body).toBeInstanceOf(FormData)
+    expect((body as FormData).get('file')).toBe(file)
+    expect((body as FormData).get('passphrase')).toBe('hunter2')
+    expect(config).toEqual({ headers: { 'Content-Type': 'multipart/form-data' } })
+    expect(res.filename).toBe('uploaded_1.zip')
+  })
+
+  it('uploadBackup omits the passphrase field when not provided', async () => {
+    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({
+      data: { filename: 'uploaded_2.zip', legacy_format: false, message: 'ok' },
+    })
+    const file = new File(['content'], 'backup.zip', { type: 'application/zip' })
+
+    await uploadBackup(file)
+
+    const [, body] = spy.mock.calls[0]
+    expect((body as FormData).has('passphrase')).toBe(false)
+  })
+
+  it('validateBackup posts without a body when no passphrase is given', async () => {
+    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({
+      data: { valid: true, format_version: 2, legacy_format: false, database_integrity: 'ok', encryption_key_required: false },
+    })
+    const res = await validateBackup('b1.zip')
+    expect(spy).toHaveBeenCalledWith('/backups/b1.zip/validate')
+    expect(res.valid).toBe(true)
+  })
+
+  it('validateBackup posts the passphrase when given', async () => {
+    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({
+      data: { valid: true, format_version: 2, legacy_format: false, database_integrity: 'ok', encryption_key_required: false },
+    })
+    await validateBackup('b1.zip.age', 'hunter2')
+    expect(spy).toHaveBeenCalledWith('/backups/b1.zip.age/validate', { passphrase: 'hunter2' })
+  })
+
+  it('getBackupSettings fetches the settings facade', async () => {
+    const settings = {
+      schedule_enabled: true,
+      schedule_cron: '0 3 * * *',
+      retention_count: 7,
+      remote_retention_count: 7,
+      encryption_enabled: false,
+      encryption_passphrase_set: false,
+    }
+    vi.spyOn(client, 'get').mockResolvedValueOnce({ data: settings })
+    const res = await getBackupSettings()
+    expect(res).toEqual(settings)
+  })
+
+  it('updateBackupSettings PUTs the partial payload', async () => {
+    const spy = vi.spyOn(client, 'put').mockResolvedValueOnce({ data: { schedule_cron: '0 4 * * *' } })
+    await updateBackupSettings({ schedule_cron: '0 4 * * *' })
+    expect(spy).toHaveBeenCalledWith('/backups/settings', { schedule_cron: '0 4 * * *' })
+  })
+
+  it('getRemoteTargets fetches the target list', async () => {
+    vi.spyOn(client, 'get').mockResolvedValueOnce({ data: [] })
+    const res = await getRemoteTargets()
+    expect(res).toEqual([])
+  })
+
+  it('createRemoteTarget POSTs name/type/config/secrets', async () => {
+    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({ data: { uuid: 'r1' } })
+    const payload = {
+      name: 'NAS',
+      type: 'sftp' as const,
+      config: { host: 'nas.lan', port: 22, path: '/backups', username: 'charon' },
+      secrets: { password: 'hunter2' },
+    }
+    await createRemoteTarget(payload)
+    expect(spy).toHaveBeenCalledWith('/backups/remote-targets', payload)
+  })
+
+  it('updateRemoteTarget PUTs to the target uuid', async () => {
+    const spy = vi.spyOn(client, 'put').mockResolvedValueOnce({ data: { uuid: 'r1' } })
+    await updateRemoteTarget('r1', { name: 'Renamed' })
+    expect(spy).toHaveBeenCalledWith('/backups/remote-targets/r1', { name: 'Renamed' })
+  })
+
+  it('deleteRemoteTarget DELETEs the target uuid', async () => {
+    const spy = vi.spyOn(client, 'delete').mockResolvedValueOnce({})
+    await deleteRemoteTarget('r1')
+    expect(spy).toHaveBeenCalledWith('/backups/remote-targets/r1')
+  })
+
+  it('testRemoteTarget POSTs to the test endpoint', async () => {
+    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({ data: { success: true, message: 'ok' } })
+    const res = await testRemoteTarget('r1')
+    expect(spy).toHaveBeenCalledWith('/backups/remote-targets/r1/test')
+    expect(res.success).toBe(true)
+  })
+
+  it('testDraftRemoteTarget POSTs the draft config to the test-draft endpoint', async () => {
+    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({
+      data: { success: true, message: 'Host key discovered', discovered_fingerprint: 'SHA256:abc' },
+    })
+    const payload = { type: 'sftp' as const, config: { host: 'nas.lan', port: 22, path: '/backups', username: 'charon' } }
+    const res = await testDraftRemoteTarget(payload)
+    expect(spy).toHaveBeenCalledWith('/backups/remote-targets/test-draft', payload)
+    expect(res.discovered_fingerprint).toBe('SHA256:abc')
+  })
+
+  it('createRemoteTarget POSTs a webdav target with nested config', async () => {
+    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({ data: { uuid: 'r2' } })
+    const payload = {
+      name: 'Nextcloud',
+      type: 'webdav' as const,
+      config: { webdav: { url: 'https://nas.example.com/dav/', username: 'charon', base_path: '/backups' } },
+      secrets: { password: 'hunter2' },
+    }
+    await createRemoteTarget(payload)
+    expect(spy).toHaveBeenCalledWith('/backups/remote-targets', payload)
+  })
+
+  it('createRemoteTarget POSTs a dropbox target with app_key/folder_path config', async () => {
+    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({ data: { uuid: 'r3' } })
+    const payload = {
+      name: 'Dropbox',
+      type: 'dropbox' as const,
+      config: { dropbox: { app_key: 'abc123', folder_path: '/charon-backups' } },
+      secrets: { oauth_client_secret: 'dropbox-secret' },
+    }
+    await createRemoteTarget(payload)
+    expect(spy).toHaveBeenCalledWith('/backups/remote-targets', payload)
+  })
+
+  it('startRemoteTargetOAuth POSTs to the oauth/start endpoint and returns the authorize_url', async () => {
+    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({
+      data: { authorize_url: 'https://www.dropbox.com/oauth2/authorize?client_id=abc123' },
+    })
+    const res = await startRemoteTargetOAuth('r3')
+    expect(spy).toHaveBeenCalledWith('/backups/remote-targets/r3/oauth/start')
+    expect(res.authorize_url).toBe('https://www.dropbox.com/oauth2/authorize?client_id=abc123')
+  })
+
+  it('disconnectRemoteTargetOAuth POSTs to the oauth/disconnect endpoint and returns the updated target', async () => {
+    const spy = vi.spyOn(client, 'post').mockResolvedValueOnce({
+      data: { uuid: 'r3', oauth_status: 'not_connected', oauth_connected_at: null },
+    })
+    const res = await disconnectRemoteTargetOAuth('r3')
+    expect(spy).toHaveBeenCalledWith('/backups/remote-targets/r3/oauth/disconnect')
+    expect(res.oauth_status).toBe('not_connected')
   })
 })

@@ -13,15 +13,16 @@
  */
 
 import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
-import { setupBackupsList, BackupFile, BACKUP_SELECTORS } from '../utils/phase5-helpers';
+import { setupBackupsList, mockBackupJobPolling, pollBackupJobViaAPI, BackupFile, BACKUP_SELECTORS } from '../utils/phase5-helpers';
 import { waitForToast, waitForLoadingComplete, waitForAPIResponse } from '../utils/wait-helpers';
+import { getStorageStateAuthHeaders } from '../utils/api-helpers';
 
 /**
  * Mock backup data for testing
  */
 const mockBackups: BackupFile[] = [
-  { filename: 'backup_2024-01-15_120000.tar.gz', size: 1048576, time: '2024-01-15T12:00:00Z' },
-  { filename: 'backup_2024-01-14_120000.tar.gz', size: 2097152, time: '2024-01-14T12:00:00Z' },
+  { filename: 'backup_2024-01-15_120000.zip', size: 1048576, time: '2024-01-15T12:00:00Z' },
+  { filename: 'backup_2024-01-14_120000.zip', size: 2097152, time: '2024-01-14T12:00:00Z' },
 ];
 
 /**
@@ -118,8 +119,8 @@ test.describe('Backups Page - Creation and List', () => {
       await waitForLoadingComplete(page);
 
       // Verify both backups are displayed
-      await expect(page.getByText('backup_2024-01-15_120000.tar.gz')).toBeVisible();
-      await expect(page.getByText('backup_2024-01-14_120000.tar.gz')).toBeVisible();
+      await expect(page.getByText('backup_2024-01-15_120000.zip')).toBeVisible();
+      await expect(page.getByText('backup_2024-01-14_120000.zip')).toBeVisible();
 
       // Verify size is displayed (formatted)
       await expect(page.getByText('1.00 MB')).toBeVisible();
@@ -131,9 +132,9 @@ test.describe('Backups Page - Creation and List', () => {
 
       // Mock backup list with specific order
       const sortedBackups: BackupFile[] = [
-        { filename: 'backup_2024-01-16_120000.tar.gz', size: 512000, time: '2024-01-16T12:00:00Z' },
-        { filename: 'backup_2024-01-15_120000.tar.gz', size: 1048576, time: '2024-01-15T12:00:00Z' },
-        { filename: 'backup_2024-01-14_120000.tar.gz', size: 2097152, time: '2024-01-14T12:00:00Z' },
+        { filename: 'backup_2024-01-16_120000.zip', size: 512000, time: '2024-01-16T12:00:00Z' },
+        { filename: 'backup_2024-01-15_120000.zip', size: 1048576, time: '2024-01-15T12:00:00Z' },
+        { filename: 'backup_2024-01-14_120000.zip', size: 2097152, time: '2024-01-14T12:00:00Z' },
       ];
 
       await page.route('**/api/v1/backups', async (route) => {
@@ -186,13 +187,22 @@ test.describe('Backups Page - Creation and List', () => {
   // Create Backup Flow Tests (5 tests)
   // =========================================================================
   test.describe('Create Backup Flow', () => {
+    // The five tests below exercise the async job contract introduced by
+    // docs/plans/current_spec.md (Async Backup/Restore Jobs —
+    // NS_BINDING_ABORTED Remediation): POST /api/v1/backups now returns
+    // `202 {job_id, type: "create", status: "pending"}` immediately instead
+    // of blocking until the archive is written, and the frontend polls
+    // GET /api/v1/backups/jobs/:job_id (mocked via mockBackupJobPolling)
+    // until the job reaches a terminal status.
     test('should create a new backup successfully', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
+      const jobId = 'job-create-success-1';
       const newBackup: BackupFile = {
-        filename: 'backup_2024-01-16_120000.tar.gz',
+        filename: 'backup_2024-01-16_120000.zip',
         size: 512000,
         time: new Date().toISOString(),
+        uuid: 'uuid-backup-1',
       };
 
       let postCalled = false;
@@ -200,21 +210,30 @@ test.describe('Backups Page - Creation and List', () => {
       await page.route('**/api/v1/backups', async (route) => {
         if (route.request().method() === 'POST') {
           postCalled = true;
-          await route.fulfill({ status: 201, json: newBackup });
+          await route.fulfill({ status: 202, json: { job_id: jobId, type: 'create', status: 'pending' } });
         } else if (route.request().method() === 'GET') {
           await route.fulfill({ status: 200, json: mockBackups });
         } else {
           await route.continue();
         }
       });
+      await mockBackupJobPolling(page, jobId, {
+        type: 'create',
+        result: { filename: newBackup.filename, uuid: newBackup.uuid },
+      });
 
       await page.goto('/tasks/backups');
       await waitForLoadingComplete(page);
 
-      // Click create backup button and wait for API response concurrently
+      // Clicking "Create Backup" opens a confirmation dialog (encryption option,
+      // spec §3.8) rather than submitting immediately — confirm inside the dialog.
+      await page.click(SELECTORS.createBackupButton);
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible();
+
       await Promise.all([
-        page.waitForResponse(r => r.url().includes('/api/v1/backups') && r.request().method() === 'POST' && r.status() === 201),
-        page.click(SELECTORS.createBackupButton),
+        page.waitForResponse(r => r.url().includes('/api/v1/backups') && r.request().method() === 'POST' && r.status() === 202),
+        dialog.getByRole('button', { name: /^create$/i }).click(),
       ]);
 
       // Verify POST was called
@@ -224,46 +243,59 @@ test.describe('Backups Page - Creation and List', () => {
     test('should show success toast after backup creation', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
+      const jobId = 'job-create-success-2';
       const newBackup: BackupFile = {
-        filename: 'backup_2024-01-16_120000.tar.gz',
+        filename: 'backup_2024-01-16_120000.zip',
         size: 512000,
         time: new Date().toISOString(),
+        uuid: 'uuid-backup-2',
       };
 
       await page.route('**/api/v1/backups', async (route) => {
         if (route.request().method() === 'POST') {
-          await route.fulfill({ status: 201, json: newBackup });
+          await route.fulfill({ status: 202, json: { job_id: jobId, type: 'create', status: 'pending' } });
         } else if (route.request().method() === 'GET') {
           await route.fulfill({ status: 200, json: mockBackups });
         } else {
           await route.continue();
         }
       });
+      await mockBackupJobPolling(page, jobId, {
+        type: 'create',
+        result: { filename: newBackup.filename, uuid: newBackup.uuid },
+      });
 
       await page.goto('/tasks/backups');
       await waitForLoadingComplete(page);
 
-      // Click create backup button
+      // Clicking "Create Backup" opens a confirmation dialog (encryption option,
+      // spec §3.8) rather than submitting immediately — confirm inside the dialog.
       await page.click(SELECTORS.createBackupButton);
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole('button', { name: /^create$/i }).click();
 
-      // Wait for success toast
+      // Wait for success toast (now fired when the polled job reaches
+      // status: "completed", not when the initial 202 POST completes).
       await waitForToast(page, /success|created/i, { type: 'success' });
     });
 
     test('should update backup list with new backup', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
+      const jobId = 'job-create-success-3';
       const newBackup: BackupFile = {
-        filename: 'backup_2024-01-16_120000.tar.gz',
+        filename: 'backup_2024-01-16_120000.zip',
         size: 512000,
         time: new Date().toISOString(),
+        uuid: 'uuid-backup-3',
       };
 
       let requestCount = 0;
 
       await page.route('**/api/v1/backups', async (route) => {
         if (route.request().method() === 'POST') {
-          await route.fulfill({ status: 201, json: newBackup });
+          await route.fulfill({ status: 202, json: { job_id: jobId, type: 'create', status: 'pending' } });
         } else if (route.request().method() === 'GET') {
           requestCount++;
           // Return updated list after creation
@@ -273,63 +305,89 @@ test.describe('Backups Page - Creation and List', () => {
           await route.continue();
         }
       });
+      await mockBackupJobPolling(page, jobId, {
+        type: 'create',
+        result: { filename: newBackup.filename, uuid: newBackup.uuid },
+      });
 
       await page.goto('/tasks/backups');
       await waitForLoadingComplete(page);
 
       // Initial state - should not show new backup
-      await expect(page.getByText('backup_2024-01-16_120000.tar.gz')).not.toBeVisible();
+      await expect(page.getByText('backup_2024-01-16_120000.zip')).not.toBeVisible();
 
-      // Click create backup button
+      // Clicking "Create Backup" opens a confirmation dialog (encryption option,
+      // spec §3.8) rather than submitting immediately — confirm inside the dialog.
       await page.click(SELECTORS.createBackupButton);
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole('button', { name: /^create$/i }).click();
 
-      // Wait for success toast (which indicates the backup was created)
+      // Wait for success toast (which indicates the job completed)
       await waitForToast(page, /success|created/i, { type: 'success' });
 
       // New backup should now be visible after list refresh
-      await expect(page.getByText('backup_2024-01-16_120000.tar.gz')).toBeVisible({ timeout: 5000 });
+      await expect(page.getByText('backup_2024-01-16_120000.zip')).toBeVisible({ timeout: 5000 });
     });
 
-    test('should disable create button while in progress', async ({ page, adminUser }) => {
+    test('should disable create button while job is pending/running', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
+
+      const jobId = 'job-create-in-progress';
 
       await page.route('**/api/v1/backups', async (route) => {
         if (route.request().method() === 'POST') {
-          // Delay response to observe disabled state
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-          await route.fulfill({
-            status: 201,
-            json: { filename: 'test.tar.gz', size: 100, time: new Date().toISOString() },
-          });
+          await route.fulfill({ status: 202, json: { job_id: jobId, type: 'create', status: 'pending' } });
         } else if (route.request().method() === 'GET') {
           await route.fulfill({ status: 200, json: mockBackups });
         } else {
           await route.continue();
         }
       });
+      // Several "running" polls before the job completes, so the confirm
+      // button/spinner has time to be observed in its disabled/isPending
+      // state — this is the core regression coverage for the original
+      // NS_BINDING_ABORTED bug: the UI must stay responsive (a fast 202)
+      // while the job itself keeps running in the background.
+      await mockBackupJobPolling(page, jobId, {
+        type: 'create',
+        result: { filename: 'test.zip', uuid: 'uuid-test' },
+        pollsBeforeTerminal: 2,
+      });
 
       await page.goto('/tasks/backups');
       await waitForLoadingComplete(page);
 
-      const createButton = page.getByRole('button', { name: /create backup/i }).first();
-      const createResponsePromise = page.waitForResponse(
+      // Clicking "Create Backup" opens a confirmation dialog (encryption option,
+      // spec §3.8) — the in-progress disabled state lives on the dialog's
+      // "Create" confirm button, not the header button that opens it.
+      await page.click(SELECTORS.createBackupButton);
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible();
+      const confirmButton = dialog.getByRole('button', { name: /^create$/i });
+
+      const startResponsePromise = page.waitForResponse(
         (response) =>
           response.url().includes('/api/v1/backups') &&
           response.request().method() === 'POST' &&
-          response.status() === 201
+          response.status() === 202
       );
 
       // Click create button
-      await createButton.click();
+      await confirmButton.click();
 
-      // Button should be disabled during request
-      await expect(createButton).toBeDisabled();
+      // Wait for the fast 202 (this must resolve almost immediately,
+      // regardless of how long the background job itself takes).
+      await startResponsePromise;
 
-      // Wait for API response
-      await createResponsePromise;
+      // Button should stay disabled while the job is pending/running.
+      await expect(confirmButton).toBeDisabled();
 
-      // After completion, button should be enabled again
-      await expect(createButton).toBeEnabled({ timeout: 5000 });
+      // Wait for the job to reach a terminal status via polling.
+      await waitForToast(page, /success|created/i, { type: 'success' });
+
+      // On success the dialog closes (Backups.tsx handleCreateConfirm onSuccess).
+      await expect(dialog).not.toBeVisible();
     });
 
     test('should handle backup creation failure', async ({ page, adminUser }) => {
@@ -351,8 +409,12 @@ test.describe('Backups Page - Creation and List', () => {
       await page.goto('/tasks/backups');
       await waitForLoadingComplete(page);
 
-      // Click create backup button
+      // Clicking "Create Backup" opens a confirmation dialog (encryption option,
+      // spec §3.8) rather than submitting immediately — confirm inside the dialog.
       await page.click(SELECTORS.createBackupButton);
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole('button', { name: /^create$/i }).click();
 
       // Wait for error toast
       await waitForToast(page, /error|failed/i, { type: 'error' });
@@ -392,7 +454,7 @@ test.describe('Backups Page - Creation and List', () => {
     test('should delete backup after confirmation', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      const filename = 'backup_2024-01-15_120000.tar.gz';
+      const filename = 'backup_2024-01-15_120000.zip';
       let deleteRequested = false;
 
       await page.route('**/api/v1/backups', async (route) => {
@@ -481,7 +543,7 @@ test.describe('Backups Page - Creation and List', () => {
       expect(deleteRequested).toBe(false);
 
       // Backup should still be visible
-      await expect(page.getByText('backup_2024-01-15_120000.tar.gz')).toBeVisible();
+      await expect(page.getByText('backup_2024-01-15_120000.zip')).toBeVisible();
     });
   });
 
@@ -492,53 +554,49 @@ test.describe('Backups Page - Creation and List', () => {
     test('should download backup file successfully', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      const filename = 'backup_2024-01-15_120000.tar.gz';
+      // No page.route mocks here: this test deliberately hits the REAL backend
+      // for both backup creation and the download itself, so it exercises the
+      // real cookie-based navigation auth path that `handleDownload` in
+      // Backups.tsx relies on (`window.location.href = ".../download"`, which
+      // depends on the browser sending the auth cookie automatically — the
+      // exact path broken by the Secure-cookie bug fixed in auth_handler.go's
+      // `setSecureCookie`/`isLocalOrPrivateHost`). A mocked route would never
+      // have caught that regression.
+      const headers = getStorageStateAuthHeaders();
 
-      await page.route('**/api/v1/backups', async (route) => {
-        if (route.request().method() === 'GET') {
-          await route.fulfill({ status: 200, json: mockBackups });
-        } else {
-          await route.continue();
-        }
-      });
+      // Create a real backup via the API so there is a real file to download.
+      const createResponse = await page.request.post('/api/v1/backups', { headers, data: {} });
+      expect(createResponse.status()).toBe(202);
+      const { job_id: jobId } = (await createResponse.json()) as { job_id: string };
+      const job = await pollBackupJobViaAPI(page, headers, jobId);
+      expect(job.status).toBe('completed');
+      const filename = (job.result as { filename?: string } | undefined)?.filename;
+      expect(filename).toBeTruthy();
 
-      // Mock download endpoint
-      await page.route(`**/api/v1/backups/${filename}/download`, async (route) => {
-        await route.fulfill({
-          status: 200,
-          headers: {
-            'Content-Type': 'application/gzip',
-            'Content-Disposition': `attachment; filename="${filename}"`,
-          },
-          body: Buffer.from('mock backup content'),
-        });
-      });
+      try {
+        await page.goto('/tasks/backups');
+        await waitForLoadingComplete(page);
 
-      await page.goto('/tasks/backups');
-      await waitForLoadingComplete(page);
+        // `rowTestId={() => 'backup-row'}` (Backups.tsx) puts the same testid
+        // on every row; narrow to the row for the backup we just created.
+        const row = page.getByTestId('backup-row').filter({ hasText: filename as string });
+        const downloadButton = row.locator(SELECTORS.downloadBtn);
+        await expect(downloadButton).toBeVisible();
 
-      // Track download event - The component uses window.location.href for downloads
-      // Since Playwright can't track navigation-based downloads directly,
-      // we verify the download button triggers the correct action
-      const downloadButton = page.locator(SELECTORS.downloadBtn).first();
-      await expect(downloadButton).toBeVisible();
-      await expect(downloadButton).toBeEnabled();
-
-      // For actual download verification in a real scenario, we'd use:
-      // const downloadPromise = page.waitForEvent('download');
-      // await downloadButton.click();
-      // const download = await downloadPromise;
-      // expect(download.suggestedFilename()).toBe(filename);
-
-      // For this test, we verify the button is clickable and properly rendered
-      const buttonTitle = await downloadButton.getAttribute('title');
-      expect(buttonTitle).toBeTruthy();
+        // Track the real navigation-triggered download against the real backend.
+        const downloadPromise = page.waitForEvent('download');
+        await downloadButton.click();
+        const download = await downloadPromise;
+        expect(download.suggestedFilename()).toBe(filename);
+      } finally {
+        await page.request.delete(`/api/v1/backups/${encodeURIComponent(filename as string)}`, { headers });
+      }
     });
 
     test('should show error toast when download fails', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      const filename = 'backup_2024-01-15_120000.tar.gz';
+      const filename = 'backup_2024-01-15_120000.zip';
 
       await page.route('**/api/v1/backups', async (route) => {
         if (route.request().method() === 'GET') {
