@@ -1,11 +1,20 @@
 package orthrus
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
+
+	"github.com/Wikid82/charon/backend/internal/models"
 )
 
 func passthroughHandler() http.Handler {
@@ -27,7 +36,7 @@ func TestMuzzle_AllowlistedGET_Passthrough(t *testing.T) {
 		"/system/df",
 	}
 
-	m := NewMuzzle(passthroughHandler())
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	for _, path := range allowed {
 		t.Run(path, func(t *testing.T) {
@@ -52,7 +61,7 @@ func TestMuzzle_VersionPrefixStripped_Passthrough(t *testing.T) {
 		"/v1.47/system/df",
 	}
 
-	m := NewMuzzle(passthroughHandler())
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	for _, path := range paths {
 		t.Run(path, func(t *testing.T) {
@@ -64,8 +73,63 @@ func TestMuzzle_VersionPrefixStripped_Passthrough(t *testing.T) {
 	}
 }
 
+// TestNormalizeDockerPath exercises normalizeDockerPath directly (not only
+// through ServeHTTP/the shared corpus) for fast local iteration on the two
+// GH #1160 divergence rows that motivated extracting this helper: a
+// traversal-disguised version prefix, and a non-numeric fake version prefix.
+func TestNormalizeDockerPath(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "legitimate version prefix stripped",
+			in:   "/v1.44/containers/json",
+			want: "/containers/json",
+		},
+		{
+			// Divergence row 1 (GH #1160's own example): the version prefix
+			// is only revealed after traversal resolution. versionPrefixRe
+			// must NOT match here, since it runs against the raw path before
+			// path.Clean has resolved "/foo/..".
+			name: "traversal-disguised version prefix is not treated as a version prefix",
+			in:   "/foo/../v1.44/images/x/json",
+			want: "/v1.44/images/x/json",
+		},
+		{
+			// Divergence row 2: non-numeric "version" segment must not match
+			// the numeric-anchored regex.
+			name: "non-numeric fake version prefix is left intact",
+			in:   "/vFOO/containers/json",
+			want: "/vFOO/containers/json",
+		},
+		{
+			name: "traversal escaping above root clamps to root",
+			in:   "/containers/../../etc/passwd",
+			want: "/etc/passwd",
+		},
+		{
+			name: "double slash after legitimate version prefix collapses",
+			in:   "/v1.44//containers/json",
+			want: "/containers/json",
+		},
+		{
+			name: "version-prefixed traversal resolving to an allowed path",
+			in:   "/v1.47/../containers/json",
+			want: "/containers/json",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, normalizeDockerPath(tc.in))
+		})
+	}
+}
+
 func TestMuzzle_POST_Blocked(t *testing.T) {
-	m := NewMuzzle(passthroughHandler())
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	paths := []string{
 		"/containers/create",
@@ -84,7 +148,7 @@ func TestMuzzle_POST_Blocked(t *testing.T) {
 }
 
 func TestMuzzle_DELETE_Blocked(t *testing.T) {
-	m := NewMuzzle(passthroughHandler())
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 	req := httptest.NewRequest(http.MethodDelete, "/containers/abc123", http.NoBody)
 	rr := httptest.NewRecorder()
 	m.ServeHTTP(rr, req)
@@ -92,7 +156,7 @@ func TestMuzzle_DELETE_Blocked(t *testing.T) {
 }
 
 func TestMuzzle_HEAD_Ping_Passthrough(t *testing.T) {
-	m := NewMuzzle(passthroughHandler())
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	for _, path := range []string{"/_ping", "/v1.44/_ping"} {
 		t.Run(path, func(t *testing.T) {
@@ -105,7 +169,7 @@ func TestMuzzle_HEAD_Ping_Passthrough(t *testing.T) {
 }
 
 func TestMuzzle_HEAD_NonPing_Blocked(t *testing.T) {
-	m := NewMuzzle(passthroughHandler())
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 	req := httptest.NewRequest(http.MethodHead, "/containers/json", http.NoBody)
 	rr := httptest.NewRecorder()
 	m.ServeHTTP(rr, req)
@@ -133,7 +197,7 @@ func TestMuzzle_DynamicPaths_Passthrough(t *testing.T) {
 		"/v1.44/distribution/alpine/json",
 	}
 
-	m := NewMuzzle(passthroughHandler())
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	for _, p := range paths {
 		t.Run(p, func(t *testing.T) {
@@ -159,7 +223,7 @@ func TestMuzzle_UnknownPath_Blocked(t *testing.T) {
 		"/distribution/create",
 	}
 
-	m := NewMuzzle(passthroughHandler())
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	for _, path := range paths {
 		t.Run(path, func(t *testing.T) {
@@ -185,7 +249,7 @@ func TestMuzzle_NamespacedImagePaths_Passthrough(t *testing.T) {
 		"registry.example.com/team/project/image",
 	}
 
-	m := NewMuzzle(passthroughHandler())
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	for _, prefix := range []string{"/images/", "/distribution/"} {
 		for _, ref := range refs {
@@ -211,9 +275,9 @@ func TestMuzzle_NamespacedImagePaths_Passthrough(t *testing.T) {
 // TestMuzzle_NamespacedImagePaths_NonGET_Blocked confirms the GET-only
 // enforcement (which runs unconditionally before any path match in
 // ServeHTTP) still rejects writes against namespaced image paths now that
-// they pass the allowlist's path check.
+// they pass the allowlist's path check, for a non-write-enabled session.
 func TestMuzzle_NamespacedImagePaths_NonGET_Blocked(t *testing.T) {
-	m := NewMuzzle(passthroughHandler())
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	paths := []string{
 		"/images/ghcr.io/org/repo/json",
@@ -230,12 +294,13 @@ func TestMuzzle_NamespacedImagePaths_NonGET_Blocked(t *testing.T) {
 	}
 }
 
-// TestMuzzle_ImageAndDistributionEndpoints_POSTBlocked confirms the two new
+// TestMuzzle_ImageAndDistributionEndpoints_POSTBlocked confirms the two
 // read-only allowlist entries added for update-checker tools do not open a
-// write path: POST to either is still rejected, even though method-checking
-// already happens unconditionally before any path match in ServeHTTP.
+// write path on a non-write-enabled session: POST to either is still
+// rejected, even though method-checking already happens unconditionally
+// before any path match in ServeHTTP.
 func TestMuzzle_ImageAndDistributionEndpoints_POSTBlocked(t *testing.T) {
-	m := NewMuzzle(passthroughHandler())
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
 
 	paths := []string{
 		"/images/alpine/json",
@@ -248,6 +313,319 @@ func TestMuzzle_ImageAndDistributionEndpoints_POSTBlocked(t *testing.T) {
 			rr := httptest.NewRecorder()
 			m.ServeHTTP(rr, req)
 			assert.Equal(t, http.StatusForbidden, rr.Code)
+		})
+	}
+}
+
+// --- Write-mode tests ---
+//
+// Write mode is a deliberate full-access operator trust decision (see the
+// Muzzle doc comment in muzzle.go): once an agent has write_enabled, every
+// request is forwarded unconditionally, regardless of endpoint or body
+// content. These tests prove that blanket behavior directly, rather than
+// enumerating a fixed allowed-endpoint list the way earlier revisions of
+// this file did.
+
+func TestMuzzle_WriteEndpoints_BlockedWhenWriteDisabled(t *testing.T) {
+	m := NewMuzzle(passthroughHandler(), false, nil, nil, "")
+
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/containers/create"},
+		{http.MethodPost, "/images/create"},
+		{http.MethodPost, "/containers/abc123/start"},
+		{http.MethodPost, "/containers/abc123/stop"},
+		{http.MethodPost, "/containers/abc123/restart"},
+		{http.MethodPost, "/containers/abc123/rename"},
+		{http.MethodDelete, "/containers/abc123"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, http.NoBody)
+			rr := httptest.NewRecorder()
+			m.ServeHTTP(rr, req)
+			assert.Equal(t, http.StatusForbidden, rr.Code)
+		})
+	}
+}
+
+// TestMuzzle_WriteEnabled_AnyEndpointAllowed proves write mode's full-access
+// behavior: every one of these paths — the six operations write mode
+// originally shipped with, PLUS endpoints that were explicitly excluded
+// forever under the old fixed-endpoint-allowlist design (exec, build,
+// prune, auth, commit, image delete, network/volume create/delete) — now
+// succeeds for a write-enabled session.
+func TestMuzzle_WriteEnabled_AnyEndpointAllowed(t *testing.T) {
+	writeLimiter := rate.NewLimiter(rate.Inf, 100)
+
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/containers/create"},
+		{http.MethodPost, "/images/create"},
+		{http.MethodPost, "/containers/abc123/start"},
+		{http.MethodPost, "/containers/abc123/stop"},
+		{http.MethodPost, "/containers/abc123/restart"},
+		{http.MethodPost, "/containers/abc123/rename"},
+		{http.MethodDelete, "/containers/abc123"},
+		{http.MethodPost, "/containers/abc123/exec"},
+		{http.MethodPost, "/exec/xyz/start"},
+		{http.MethodDelete, "/images/nginx"},
+		{http.MethodPost, "/build"},
+		{http.MethodPost, "/system/prune"},
+		{http.MethodPost, "/auth"},
+		{http.MethodPost, "/commit"},
+		{http.MethodPost, "/networks/create"},
+		{http.MethodDelete, "/networks/mynet"},
+		{http.MethodPost, "/volumes/create"},
+		{http.MethodDelete, "/volumes/myvol"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid")
+			req := httptest.NewRequest(tc.method, tc.path, http.NoBody)
+			rr := httptest.NewRecorder()
+			m.ServeHTTP(rr, req)
+			assert.Equal(t, http.StatusOK, rr.Code)
+		})
+	}
+}
+
+// TestMuzzle_ContainerRename_QueryParamNameAllowed proves the Dockhand
+// image-update rename step end-to-end: Docker's rename endpoint takes the
+// new container name via a "?name=" query parameter, not a request body
+// (unlike /containers/create), and a real Docker-generated container ID is
+// a single path segment (no slashes). This is Dockhand's standard update
+// pattern: rename the old container out of the way (e.g. to "<name>_old")
+// before bringing up the new one under the original name.
+func TestMuzzle_ContainerRename_QueryParamNameAllowed(t *testing.T) {
+	writeLimiter := rate.NewLimiter(rate.Inf, 100)
+	m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid")
+
+	// A real Docker-generated container ID: 64 hex characters, single path
+	// segment.
+	containerID := "3f4d9e2a1b6c8f0d7e5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e"
+	req := httptest.NewRequest(http.MethodPost, "/containers/"+containerID+"/rename?name=myapp_old", http.NoBody)
+	rr := httptest.NewRecorder()
+	m.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+// TestMuzzle_ContainersCreate_AnyHostConfigBodyAllowed proves write mode no
+// longer inspects /containers/create request bodies at all: fields that
+// were previously rejected outright (Privileged, CapAdd, host-mode
+// namespaces, arbitrary Runtime, unrestricted VolumesFrom, host bind
+// mounts, GPU device passthrough) are all forwarded unconditionally now,
+// consistent with the operator-consent full-access model (see the Muzzle
+// doc comment in muzzle.go). Malformed JSON is also forwarded — there is no
+// longer any body parsing on this path to fail.
+func TestMuzzle_ContainersCreate_AnyHostConfigBodyAllowed(t *testing.T) {
+	writeLimiter := rate.NewLimiter(rate.Inf, 100)
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"Privileged", `{"Image":"nginx","HostConfig":{"Privileged":true}}`},
+		{"CapAdd", `{"Image":"nginx","HostConfig":{"CapAdd":["SYS_ADMIN"]}}`},
+		{"legacy Binds", `{"Image":"nginx","HostConfig":{"Binds":["/:/host"]}}`},
+		{"NetworkMode host", `{"Image":"nginx","HostConfig":{"NetworkMode":"host"}}`},
+		{"UsernsMode host", `{"Image":"nginx","HostConfig":{"UsernsMode":"host"}}`},
+		{"CgroupnsMode host", `{"Image":"nginx","HostConfig":{"CgroupnsMode":"host"}}`},
+		{"PidMode host", `{"Image":"nginx","HostConfig":{"PidMode":"host"}}`},
+		{"UTSMode host", `{"Image":"nginx","HostConfig":{"UTSMode":"host"}}`},
+		{"IpcMode host", `{"Image":"nginx","HostConfig":{"IpcMode":"host"}}`},
+		{"ContainerIDFile arbitrary host path", `{"Image":"nginx","HostConfig":{"ContainerIDFile":"/etc/cron.d/pwn"}}`},
+		{"Runtime, arbitrary/custom", `{"Image":"nginx","HostConfig":{"Runtime":"custom-runtime"}}`},
+		{"VolumeDriver", `{"Image":"nginx","HostConfig":{"VolumeDriver":"custom-driver"}}`},
+		{"VolumesFrom, unrestricted", `{"Image":"nginx","HostConfig":{"VolumesFrom":["any-container"]}}`},
+		{"DeviceRequests (GPU passthrough)", `{"Image":"nginx","HostConfig":{"DeviceRequests":[{"Driver":"nvidia","Count":-1}]}}`},
+		{"bind-type Mounts", `{"Image":"nginx","HostConfig":{"Mounts":[{"Type":"bind","Source":"/etc","Target":"/x"}]}}`},
+		{"non-empty Devices", `{"Image":"nginx","HostConfig":{"Devices":[{"PathOnHost":"/dev/sda","PathInContainer":"/dev/sda"}]}}`},
+		{"non-empty Sysctls", `{"Image":"nginx","HostConfig":{"Sysctls":{"net.ipv4.ip_forward":"1"}}}`},
+		{"unrecognized future HostConfig key", `{"Image":"nginx","HostConfig":{"SomeFutureField":true}}`},
+		{"malformed JSON", `{"Image": not valid json`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid")
+			req := httptest.NewRequest(http.MethodPost, "/containers/create", bytes.NewReader([]byte(tc.body)))
+			rr := httptest.NewRecorder()
+			m.ServeHTTP(rr, req)
+			assert.Equal(t, http.StatusOK, rr.Code)
+		})
+	}
+}
+
+func TestMuzzle_WriteEndpoints_RateLimited(t *testing.T) {
+	// Burst of 1, refill effectively never within the test's lifetime — the
+	// first write request consumes the only token; the second must 429.
+	writeLimiter := rate.NewLimiter(rate.Every(time.Hour), 1)
+	m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid")
+
+	req1 := httptest.NewRequest(http.MethodPost, "/containers/abc/start", http.NoBody)
+	rr1 := httptest.NewRecorder()
+	m.ServeHTTP(rr1, req1)
+	assert.Equal(t, http.StatusOK, rr1.Code)
+
+	req2 := httptest.NewRequest(http.MethodPost, "/containers/abc/start", http.NoBody)
+	rr2 := httptest.NewRecorder()
+	m.ServeHTTP(rr2, req2)
+	assert.Equal(t, http.StatusTooManyRequests, rr2.Code)
+}
+
+// TestMuzzle_WriteEnabled_GETNeverRateLimited is a regression test: an
+// earlier revision of ServeHTTP routed every request through forwardWrite
+// once write mode was on, including GET, so a Docker client's routine
+// container-list/inspect polling (Dockhand-style tools call GET
+// /containers/json far more than once every writeLimiterBurst*writeLimiterEvery
+// window) burned through the mutation-sized rate limiter and started
+// intermittently 429ing reads — making containers appear to vanish from
+// the polling tool's UI. GET/HEAD must always bypass the write limiter,
+// exactly like a read-only session, regardless of how many requests
+// precede them.
+func TestMuzzle_WriteEnabled_GETNeverRateLimited(t *testing.T) {
+	// Burst of 1, refill effectively never — deliberately tiny so any GET
+	// that does hit the limiter fails immediately, making a regression
+	// obvious rather than needing dozens of requests to surface it.
+	writeLimiter := rate.NewLimiter(rate.Every(time.Hour), 1)
+	m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid")
+
+	// Exhaust the single token with an unrelated mutating request first.
+	exhaustReq := httptest.NewRequest(http.MethodPost, "/containers/abc/start", http.NoBody)
+	m.ServeHTTP(httptest.NewRecorder(), exhaustReq)
+
+	// Many GETs in a row, well past the exhausted burst, must all still
+	// succeed — this is the exact traffic pattern (repeated
+	// GET /containers/json polling) that regressed.
+	for i := 0; i < 10; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/containers/json", http.NoBody)
+		rr := httptest.NewRecorder()
+		m.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusOK, rr.Code, "GET #%d was rate-limited", i+1)
+	}
+}
+
+// mockAuditLogger records every SecurityAudit entry passed to LogAudit, for
+// assertion in tests. Safe for concurrent use.
+type mockAuditLogger struct {
+	mu      sync.Mutex
+	entries []*models.SecurityAudit
+}
+
+func (m *mockAuditLogger) LogAudit(a *models.SecurityAudit) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.entries = append(m.entries, a)
+	return nil
+}
+
+func (m *mockAuditLogger) all() []*models.SecurityAudit {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]*models.SecurityAudit, len(m.entries))
+	copy(out, m.entries)
+	return out
+}
+
+func TestMuzzle_AuditLog_AllowedWriteRecorded(t *testing.T) {
+	logger := &mockAuditLogger{}
+	writeLimiter := rate.NewLimiter(rate.Inf, 100)
+	m := NewMuzzle(passthroughHandler(), true, writeLimiter, logger, "agent-uuid-1")
+
+	req := httptest.NewRequest(http.MethodPost, "/containers/abc/start", http.NoBody)
+	rr := httptest.NewRecorder()
+	m.ServeHTTP(rr, req)
+
+	entries := logger.all()
+	require.Len(t, entries, 1)
+	assert.Equal(t, "orthrus_write_allowed", entries[0].Action)
+	assert.Equal(t, "orthrus_write", entries[0].EventCategory)
+	assert.Equal(t, "agent-uuid-1", entries[0].ResourceUUID)
+	assert.Contains(t, entries[0].Actor, "agent-uuid-1")
+}
+
+func TestMuzzle_AuditLog_RateLimitedRecorded(t *testing.T) {
+	logger := &mockAuditLogger{}
+	writeLimiter := rate.NewLimiter(rate.Every(time.Hour), 1)
+	m := NewMuzzle(passthroughHandler(), true, writeLimiter, logger, "agent-uuid-3")
+
+	req1 := httptest.NewRequest(http.MethodPost, "/containers/abc/start", http.NoBody)
+	m.ServeHTTP(httptest.NewRecorder(), req1)
+	req2 := httptest.NewRequest(http.MethodPost, "/containers/abc/start", http.NoBody)
+	m.ServeHTTP(httptest.NewRecorder(), req2)
+
+	entries := logger.all()
+	require.Len(t, entries, 2)
+	assert.Equal(t, "orthrus_write_allowed", entries[0].Action)
+	assert.Equal(t, "orthrus_write_rate_limited", entries[1].Action)
+}
+
+func TestMuzzle_AuditLog_NilLoggerIsNoop(t *testing.T) {
+	writeLimiter := rate.NewLimiter(rate.Inf, 100)
+	m := NewMuzzle(passthroughHandler(), true, writeLimiter, nil, "agent-uuid")
+
+	req := httptest.NewRequest(http.MethodPost, "/containers/abc/start", http.NoBody)
+	rr := httptest.NewRecorder()
+	assert.NotPanics(t, func() { m.ServeHTTP(rr, req) })
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+// --- Shared anti-drift corpus ---
+//
+// muzzle_corpus.json is the single source of truth this test and
+// agent/muzzle/muzzle_test.go's TestFilter_SharedCorpus both load, so the
+// backend and agent allowlist implementations are proven to agree on every
+// case in it — the concrete mitigation for the drift class that let the
+// image/distribution read-only fix land in this package without the
+// agent-side copy (fixed later, commits 98a68b67 / eabf358d) once already.
+// Now that write mode grants full access unconditionally, the corpus's
+// remaining value is proving the read-only path-matching logic (still
+// complex/divergence-prone) and the write-mode/read-mode boundary agree
+// between both implementations — not proving any content-based decision,
+// since none remain.
+
+type muzzleCorpusCase struct {
+	Description       string          `json:"description"`
+	Method            string          `json:"method"`
+	Path              string          `json:"path"`
+	Body              json.RawMessage `json:"body,omitempty"`
+	AgentWriteEnabled bool            `json:"agent_write_enabled"`
+	WantAllowed       bool            `json:"want_allowed"`
+}
+
+func loadMuzzleCorpus(t *testing.T) []muzzleCorpusCase {
+	t.Helper()
+	data, err := os.ReadFile("testdata/muzzle_corpus.json")
+	require.NoError(t, err)
+	var cases []muzzleCorpusCase
+	require.NoError(t, json.Unmarshal(data, &cases))
+	require.NotEmpty(t, cases)
+	return cases
+}
+
+func TestMuzzle_SharedCorpus(t *testing.T) {
+	cases := loadMuzzleCorpus(t)
+	for _, tc := range cases {
+		t.Run(tc.Description, func(t *testing.T) {
+			var writeLimiter *rate.Limiter
+			if tc.AgentWriteEnabled {
+				writeLimiter = rate.NewLimiter(rate.Inf, 1000)
+			}
+			m := NewMuzzle(passthroughHandler(), tc.AgentWriteEnabled, writeLimiter, nil, "corpus-test-agent")
+
+			req := httptest.NewRequest(tc.Method, tc.Path, bytes.NewReader(tc.Body))
+			rr := httptest.NewRecorder()
+			m.ServeHTTP(rr, req)
+
+			allowed := rr.Code == http.StatusOK
+			assert.Equal(t, tc.WantAllowed, allowed, "got status %d", rr.Code)
 		})
 	}
 }

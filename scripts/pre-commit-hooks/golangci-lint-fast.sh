@@ -58,17 +58,28 @@ fi
 echo "Using golangci-lint: $GOLANGCI_LINT"
 echo "Version: $($GOLANGCI_LINT version)"
 
-# Change to backend directory and run golangci-lint
+ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+CONFIG="$ROOT_DIR/.golangci-fast.yml"
+
+# Lint both Go modules against the shared root config.
 # --new-from-rev HEAD: only report issues in lines changed since the last commit,
 # preventing pre-existing issues in unrelated files from blocking commits.
-cd "$(dirname "$0")/../../backend" || exit 1
+FAILED=0
+for module in backend agent; do
+    echo "--- golangci-lint-fast: $module ---"
+    cd "$ROOT_DIR/$module" || exit 1
 
-# Pass 1: auto-fix (gocritic appendAssign, simplifications, etc.).
-# Errors are intentionally swallowed; the reporting pass below is the gate.
-"$GOLANGCI_LINT" run --config .golangci-fast.yml --fix --new-from-rev HEAD ./... 2>/dev/null || true
+    # Pass 1: auto-fix (gocritic appendAssign, simplifications, etc.).
+    # Errors are intentionally swallowed; the reporting pass below is the gate.
+    "$GOLANGCI_LINT" run --config "$CONFIG" --fix --new-from-rev HEAD ./... 2>/dev/null || true
 
-# Re-stage any files that were auto-fixed so the commit includes the corrections.
-git add -u -- "*.go" 2>/dev/null || true
+    # Re-stage any files that were auto-fixed so the commit includes the corrections.
+    (cd "$ROOT_DIR" && git add -u -- "$module/*.go" 2>/dev/null || true)
 
-# Pass 2: report remaining issues. This is the gate — non-zero exit blocks the commit.
-exec "$GOLANGCI_LINT" run --config .golangci-fast.yml --new-from-rev HEAD ./...
+    # Pass 2: report remaining issues. This is the gate — non-zero exit blocks the commit.
+    if ! "$GOLANGCI_LINT" run --config "$CONFIG" --new-from-rev HEAD ./...; then
+        FAILED=1
+    fi
+done
+
+exit "$FAILED"

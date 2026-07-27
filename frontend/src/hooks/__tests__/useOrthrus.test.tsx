@@ -33,6 +33,7 @@ const mockAgent: api.OrthrusAgent = {
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
   external_proxy_port: 0,
+  write_enabled: false,
 }
 
 describe('AGENTS_QUERY_KEY', () => {
@@ -234,6 +235,8 @@ describe('useAgentProxyStatus', () => {
       active_port: 2375,
       bind_address: '0.0.0.0:2375',
       connection_string: 'tcp://charon:2375',
+      configured_write_enabled: false,
+      active_write_enabled: false,
       error: '',
     }
     vi.mocked(api.getAgentProxyStatus).mockResolvedValue(status)

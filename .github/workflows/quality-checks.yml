@@ -43,6 +43,25 @@ jobs:
           cd backend
           go test ./internal/api/routes -run 'TestRegister_StateChangingRoutesRequireAuthentication|TestRegister_StateChangingRoutesDenyByDefaultWithExplicitAllowlist|TestRegister_AuthenticatedRoutes' -count=1 -v
 
+  muzzle-allowlist-parity:
+    name: Muzzle Allowlist Parity (backend/agent, #1160/#1161)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+
+      - name: Run structural allowlist parity checker
+        run: |
+          set -euo pipefail
+          go run scripts/ci/check_muzzle_allowlist_parity.go
+
   codecov-trigger-parity-guard:
     name: Codecov Trigger/Comment Parity Guard
     runs-on: ubuntu-latest
@@ -249,6 +268,76 @@ jobs:
             cat perf-output.txt
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$PERF_STATUS"
+
+  agent-quality:
+    name: Agent (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+
+      # No "Resolve encryption key" step here: unlike backend-quality, agent
+      # has no CHARON_ENCRYPTION_KEY_TEST-dependent tests to bootstrap for
+      # (agent is a standalone module with no models/GORM/encryption
+      # concerns). No GORM Security Scanner step for the same reason (agent
+      # has no models). No Perf Asserts step: agent has no equivalent
+      # benchmark suite.
+
+      - name: go vet
+        working-directory: agent
+        run: go vet ./...
+
+      - name: Run golangci-lint (fast config, root-shared)
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          # renovate: datasource=github-releases depName=golangci/golangci-lint
+          version: v2.12.2
+          working-directory: agent
+          args: --config ../.golangci-fast.yml --timeout=5m
+
+      - name: Run Go tests with coverage gate
+        id: go-tests
+        working-directory: ${{ github.workspace }}
+        run: |
+          bash "scripts/agent-test-coverage.sh" 2>&1 | tee agent/test-output.txt; exit "${PIPESTATUS[0]}"
+
+      - name: Upload test output artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-test-output
+          path: agent/test-output.txt
+          retention-days: 7
+
+      - name: Go Test Summary
+        if: always()
+        working-directory: agent
+        run: |
+          {
+            echo "## 🔧 Agent Test Results"
+            if [ "${{ steps.go-tests.outcome }}" == "success" ]; then
+              echo "✅ **All tests passed**"
+              PASS_COUNT=$(grep -c "^--- PASS" test-output.txt || echo "0")
+              echo "- Tests passed: ${PASS_COUNT}"
+            else
+              echo "❌ **Tests failed**"
+              echo ""
+              echo "### Failed Tests:"
+              echo '```'
+              grep -E "^--- FAIL|FAIL\s+github" test-output.txt || echo "See logs for details"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Codecov upload handled separately in codecov-upload.yml (agent-codecov job).
 
   frontend-quality:
     name: Frontend (React)

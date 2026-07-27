@@ -34,6 +34,7 @@ const baseAgent: OrthrusAgent = {
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
   external_proxy_port: 2375,
+  write_enabled: false,
 };
 
 const renderDialog = (agent: OrthrusAgent = baseAgent, open = true, onClose = vi.fn()) =>
@@ -129,6 +130,8 @@ describe('AgentExternalProxyDialog', () => {
         active: false,
         active_port: 0,
         bind_address: '',
+        configured_write_enabled: false,
+        active_write_enabled: false,
         connection_string: '',
         error: 'bind failed: address already in use',
       };
@@ -145,6 +148,8 @@ describe('AgentExternalProxyDialog', () => {
         active: false,
         active_port: 0,
         bind_address: '',
+        configured_write_enabled: false,
+        active_write_enabled: false,
         connection_string: '',
         error: '',
       };
@@ -161,6 +166,8 @@ describe('AgentExternalProxyDialog', () => {
         active: true,
         active_port: 2375,
         bind_address: '0.0.0.0:2375',
+        configured_write_enabled: false,
+        active_write_enabled: false,
         connection_string: 'tcp://charon:2375',
         error: '',
       };
@@ -177,6 +184,8 @@ describe('AgentExternalProxyDialog', () => {
         active: false,
         active_port: 0,
         bind_address: '',
+        configured_write_enabled: false,
+        active_write_enabled: false,
         connection_string: '',
         error: '',
       };
@@ -192,6 +201,8 @@ describe('AgentExternalProxyDialog', () => {
         active: true,
         active_port: 9999,
         bind_address: '0.0.0.0:9999',
+        configured_write_enabled: false,
+        active_write_enabled: false,
         connection_string: 'tcp://charon:9999',
         error: '',
       };
@@ -212,6 +223,8 @@ describe('AgentExternalProxyDialog', () => {
         active: true,
         active_port: 2375,
         bind_address: '0.0.0.0:2375',
+        configured_write_enabled: false,
+        active_write_enabled: false,
         connection_string: 'tcp://charon:2375',
         error: '',
       };
