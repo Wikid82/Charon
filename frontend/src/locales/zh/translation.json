@@ -1510,6 +1510,10 @@
     "bannerResetButton": "重置为默认",
     "bannerUploadHint": "PNG、JPG 或 WebP — 最大 2 MB",
     "bannerUrlHttpsRequired": "URL 必须以 https:// 开头",
+    "whatsNew": "更新通知",
+    "whatsNewDescription": "更新后登录时接收新功能和修复的通知。",
+    "showWhatsNewToggle": "显示更新通知",
+    "whatsNewRevisit": "新版本说明",
     "userThemes": "您的主题",
     "userThemesDescription": "创建和保存在设备间持久化的命名颜色主题。",
     "createNewTheme": "创建新主题",
@@ -1521,5 +1525,15 @@
     "themeNamePlaceholder": "例如：我的深色主题",
     "noUserThemes": "尚无保存的主题。创建一个以开始使用。",
     "activateTheme": "激活"
+  },
+  "whatsNew": {
+    "title": "新版本说明",
+    "newFeatures": "✨ 新功能",
+    "fixes": "🐛 修复",
+    "showMaintenanceDetails": "显示维护详情",
+    "remindLater": "下次提醒我",
+    "gotIt": "知道了，谢谢",
+    "dontShowAgain": "不再显示更新通知",
+    "closeButton": "关闭"
   }
 }

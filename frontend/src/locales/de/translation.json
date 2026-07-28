@@ -1509,6 +1509,10 @@
     "bannerResetButton": "Auf Standard zurücksetzen",
     "bannerUploadHint": "PNG, JPG oder WebP — max. 2 MB",
     "bannerUrlHttpsRequired": "URL muss mit https:// beginnen",
+    "whatsNew": "Neuigkeiten-Benachrichtigungen",
+    "whatsNewDescription": "Werden Sie beim Anmelden nach einem Update über neue Funktionen und Fehlerbehebungen informiert.",
+    "showWhatsNewToggle": "Update-Benachrichtigungen anzeigen",
+    "whatsNewRevisit": "Neuigkeiten",
     "userThemes": "Ihre Themen",
     "userThemesDescription": "Erstellen und speichern Sie benannte Farbthemen, die geräteübergreifend gespeichert bleiben.",
     "createNewTheme": "Neues Thema erstellen",
@@ -1520,5 +1524,15 @@
     "themeNamePlaceholder": "z.B. Mein dunkles Thema",
     "noUserThemes": "Noch keine gespeicherten Themen. Erstellen Sie eines, um zu beginnen.",
     "activateTheme": "Aktivieren"
+  },
+  "whatsNew": {
+    "title": "Neuigkeiten",
+    "newFeatures": "✨ Neue Funktionen",
+    "fixes": "🐛 Fehlerbehebungen",
+    "showMaintenanceDetails": "Wartungsdetails anzeigen",
+    "remindLater": "Später erinnern",
+    "gotIt": "Verstanden, danke",
+    "dontShowAgain": "Update-Benachrichtigungen nicht mehr anzeigen",
+    "closeButton": "Schließen"
   }
 }

@@ -46,6 +46,15 @@ vi.mock('../../api/system', () => ({
   checkUpdates: vi.fn().mockResolvedValue({ available: false }),
 }))
 
+// Layout mounts WhatsNewModal (mode="status") unconditionally — stub its
+// hooks so the modal self-gates closed (show_changelog: false) and no
+// unmocked network request is made during unrelated Layout tests.
+vi.mock('../../hooks/useChangelog', () => ({
+  useChangelogStatus: vi.fn().mockReturnValue({ data: { show_changelog: false, versions: [] }, isError: false }),
+  useChangelogAll: vi.fn().mockReturnValue({ data: undefined, isError: false }),
+  useAckChangelog: vi.fn().mockReturnValue({ mutate: vi.fn() }),
+}))
+
 const renderWithProviders = (children: ReactNode) => {
   const queryClient = new QueryClient({
     defaultOptions: {

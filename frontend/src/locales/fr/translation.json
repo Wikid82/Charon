@@ -1511,6 +1511,10 @@
     "bannerResetButton": "Réinitialiser par défaut",
     "bannerUploadHint": "PNG, JPG ou WebP — max. 2 Mo",
     "bannerUrlHttpsRequired": "L'URL doit commencer par https://",
+    "whatsNew": "Notifications de nouveautés",
+    "whatsNewDescription": "Soyez informé des nouvelles fonctionnalités et corrections lors de votre connexion après une mise à jour.",
+    "showWhatsNewToggle": "Afficher les notifications de mise à jour",
+    "whatsNewRevisit": "Nouveautés",
     "userThemes": "Vos thèmes",
     "userThemesDescription": "Créez et sauvegardez des thèmes de couleurs nommés qui persistent sur tous les appareils.",
     "createNewTheme": "Créer un nouveau thème",
@@ -1522,5 +1526,15 @@
     "themeNamePlaceholder": "ex. Mon thème sombre",
     "noUserThemes": "Aucun thème sauvegardé. Créez-en un pour commencer.",
     "activateTheme": "Activer"
+  },
+  "whatsNew": {
+    "title": "Nouveautés",
+    "newFeatures": "✨ Nouvelles fonctionnalités",
+    "fixes": "🐛 Corrections",
+    "showMaintenanceDetails": "Afficher les détails de maintenance",
+    "remindLater": "Me le rappeler plus tard",
+    "gotIt": "Compris, merci",
+    "dontShowAgain": "Ne plus m'afficher les notifications de mise à jour",
+    "closeButton": "Fermer"
   }
 }

@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { Link, useLocation } from 'react-router'
 
 import { useMediaQuery } from '../hooks/useMediaQuery'
-
+import WhatsNewModal from './dialogs/WhatsNewModal'
 import FeedbackWidget from './FeedbackWidget'
 import NotificationCenter from './NotificationCenter'
 import SystemStatus from './SystemStatus'
@@ -414,6 +414,7 @@ export default function Layout({ children }: LayoutProps) {
         </div>
       </main>
       <FeedbackWidget />
+      <WhatsNewModal mode="status" />
     </div>
   )
 }

@@ -1,8 +1,10 @@
-import { ArrowUpDown, ImageIcon, Palette, Sliders } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowUpDown, Bell, ImageIcon, Palette, Sliders } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
+import { deleteBanner, deleteLogo, getSettings, updateSetting, uploadBanner, uploadLogo } from '../api/settings'
+import WhatsNewModal from '../components/dialogs/WhatsNewModal'
 import { BannerCustomizer } from '../components/theme/BannerCustomizer'
 import { CustomColorPicker } from '../components/theme/CustomColorPicker'
 import { LogoCustomizer } from '../components/theme/LogoCustomizer'
@@ -10,8 +12,12 @@ import { ThemeGallery } from '../components/theme/ThemeGallery'
 import { ThemeImportExport } from '../components/theme/ThemeImportExport'
 import { ThemePreviewOverlay } from '../components/theme/ThemePreviewOverlay'
 import { UserThemeManager } from '../components/theme/UserThemeManager'
+import { Button } from '../components/ui/Button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card'
-import { deleteBanner, deleteLogo, getSettings, updateSetting, uploadBanner, uploadLogo } from '../api/settings'
+import { Checkbox } from '../components/ui/Checkbox'
+import { Label } from '../components/ui/Label'
+import { useAuth } from '../hooks/useAuth'
+import { useAckChangelog, useOptInChangelog } from '../hooks/useChangelog'
 import { useTheme } from '../hooks/useTheme'
 
 import type { CustomThemeColors, ThemeId } from '../context/ThemeContextValue'
@@ -36,6 +42,22 @@ export default function AppearanceSettings() {
   const { theme, resolvedTheme, setTheme, customTheme, setCustomTheme, setUserTheme } = useTheme()
   const [previewTheme, setPreviewTheme] = useState<ThemeId | null>(null)
   const queryClient = useQueryClient()
+  const { user, refetchUser } = useAuth()
+  const [browseChangelogOpen, setBrowseChangelogOpen] = useState(false)
+
+  const ackChangelogMutation = useAckChangelog()
+  const optInChangelogMutation = useOptInChangelog()
+
+  const handleWhatsNewToggle = (enabled: boolean) => {
+    if (enabled) {
+      optInChangelogMutation.mutate(undefined, { onSuccess: () => { void refetchUser() } })
+    } else {
+      ackChangelogMutation.mutate(
+        { action: 'dismiss_temporary', opt_out: true },
+        { onSuccess: () => { void refetchUser() } }
+      )
+    }
+  }
 
   const { data: settings } = useQuery({
     queryKey: ['settings'],
@@ -233,6 +255,36 @@ export default function AppearanceSettings() {
           />
         </CardContent>
       </Card>
+
+      {/* What's New Notifications Section */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Bell className="h-5 w-5 text-content-secondary" />
+            <CardTitle>{t('appearance.whatsNew')}</CardTitle>
+          </div>
+          <CardDescription>{t('appearance.whatsNewDescription')}</CardDescription>
+        </CardHeader>
+        <CardContent className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="whats-new-toggle"
+              checked={!user?.changelog_opt_out}
+              onCheckedChange={(checked) => handleWhatsNewToggle(checked === true)}
+            />
+            <Label htmlFor="whats-new-toggle">{t('appearance.showWhatsNewToggle')}</Label>
+          </div>
+          <Button variant="secondary" onClick={() => setBrowseChangelogOpen(true)}>
+            {t('appearance.whatsNewRevisit')}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <WhatsNewModal
+        mode="browse"
+        open={browseChangelogOpen}
+        onClose={() => setBrowseChangelogOpen(false)}
+      />
     </div>
   )
 }

@@ -14,6 +14,7 @@ const buildAuthValue = (overrides: Partial<AuthContextType> = {}): AuthContextTy
   login: vi.fn(),
   logout: vi.fn(),
   changePassword: vi.fn(),
+  refetchUser: vi.fn(),
   isAuthenticated: true,
   isLoading: false,
   ...overrides,

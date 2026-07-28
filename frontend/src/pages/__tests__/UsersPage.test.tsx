@@ -33,6 +33,7 @@ vi.mock('../../hooks/useAuth', () => ({
   useAuth: vi.fn().mockReturnValue({
     user: { user_id: 1, role: 'admin', name: 'Admin User', email: 'admin@example.com' },
     changePassword: vi.fn().mockResolvedValue(undefined),
+    refetchUser: vi.fn(),
     isAuthenticated: true,
     isLoading: false,
     login: vi.fn(),
@@ -753,6 +754,7 @@ describe('UsersPage', () => {
       vi.mocked(useAuth).mockReturnValue({
         user: { user_id: 1, role: 'admin', name: 'Admin User', email: 'admin@example.com' },
         changePassword: vi.fn().mockRejectedValue(new Error('Invalid current password')),
+        refetchUser: vi.fn(),
         isAuthenticated: true,
         isLoading: false,
         login: vi.fn(),
