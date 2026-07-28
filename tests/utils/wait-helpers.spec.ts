@@ -13,6 +13,7 @@ import {
   waitForConfigReload,
   waitForNavigation,
   gotoTolerant,
+  reloadTolerant,
 } from './wait-helpers';
 
 test.describe('wait-helpers - Semantic Wait Functions', () => {
@@ -368,6 +369,38 @@ test.describe('wait-helpers - Semantic Wait Functions', () => {
       } as unknown as Page;
 
       await expect(gotoTolerant(fakePage, '/anywhere')).rejects.toThrow(
+        'Something unrelated went wrong'
+      );
+    });
+  });
+
+  test.describe('reloadTolerant', () => {
+    test('should reload normally when there is no race', async ({ page }) => {
+      await page.goto('data:text/html,<h1 id="marker">Loaded</h1><script>window.reloaded=true;</script>');
+
+      await reloadTolerant(page);
+
+      await expect(page.locator('#marker')).toHaveText('Loaded');
+    });
+
+    test('should swallow a timeout instead of throwing', async ({ page }) => {
+      await page.route('**/never-responds', async () => {
+        // Never fulfill or abort: simulates a reload() that never commits,
+        // the same shape as the Firefox navigation-commit race this helper
+        // exists to tolerate.
+      });
+
+      await gotoTolerant(page, 'http://127.0.0.1:8080/never-responds', { timeout: 500 });
+
+      await expect(reloadTolerant(page, { timeout: 500 })).resolves.toBeUndefined();
+    });
+
+    test('should rethrow errors that are not the known navigation race', async () => {
+      const fakePage = {
+        reload: () => Promise.reject(new Error('Something unrelated went wrong')),
+      } as unknown as Page;
+
+      await expect(reloadTolerant(fakePage)).rejects.toThrow(
         'Something unrelated went wrong'
       );
     });
