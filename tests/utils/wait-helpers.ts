@@ -1284,3 +1284,41 @@ export async function waitForNavigation(
     });
   }
 }
+
+/**
+ * Navigate to a URL, tolerating Playwright's known Firefox navigation-commit
+ * race: a page.goto() fired while a prior navigation is still settling can
+ * fail to produce a trackable navigation-commit event and hang or throw
+ * instead of completing (see commit d537476f). Using a lighter 'commit'
+ * waitUntil condition with a bounded timeout limits the damage, and known
+ * race-condition errors are swallowed here since they don't indicate a real
+ * failure. Callers MUST verify the actual resulting page state afterward
+ * (e.g. via expect.poll or an auto-retrying assertion) rather than relying on
+ * this call to guarantee the navigation completed.
+ *
+ * @param page - Playwright Page instance
+ * @param url - URL to navigate to
+ * @param options - timeout in ms (default 15000)
+ */
+export async function gotoTolerant(
+  page: Page,
+  url: string,
+  options: { timeout?: number } = {}
+): Promise<void> {
+  const { timeout = 15000 } = options;
+
+  await page.goto(url, { waitUntil: 'commit', timeout }).catch((error: unknown) => {
+    if (!(error instanceof Error)) {
+      throw error;
+    }
+
+    const isExpectedNavigationRace =
+      error.message.includes('Timeout') ||
+      error.message.includes('interrupted by another navigation') ||
+      error.message.includes('net::ERR_ABORTED');
+
+    if (!isExpectedNavigationRace) {
+      throw error;
+    }
+  });
+}
