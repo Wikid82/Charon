@@ -54,6 +54,10 @@ type User struct {
 	LastLogin           *time.Time `json:"last_login,omitempty"`
 	SessionVersion      uint       `json:"-" gorm:"default:0"`
 
+	// Changelog / "What's New" tracking
+	LastSeenVersion string `json:"last_seen_version" gorm:"default:''"`
+	ChangelogOptOut bool   `json:"changelog_opt_out" gorm:"default:false"`
+
 	// Invite system fields
 	InviteToken   string     `json:"-" gorm:"index"`          // Token sent via email for account setup
 	InviteExpires *time.Time `json:"-"`                       // When the invite token expires

@@ -318,10 +318,11 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"user_id": userID,
-		"role":    role,
-		"name":    u.Name,
-		"email":   u.Email,
+		"user_id":           userID,
+		"role":              role,
+		"name":              u.Name,
+		"email":             u.Email,
+		"changelog_opt_out": u.ChangelogOptOut,
 	})
 }
 

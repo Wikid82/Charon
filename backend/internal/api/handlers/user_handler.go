@@ -18,7 +18,22 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/utils"
+	"github.com/Wikid82/charon/backend/internal/version"
 )
+
+// seedLastSeenVersion returns the value newly-activated users should be
+// seeded with for LastSeenVersion, so they never see historical "What's
+// New" entries on their first login. Returns "" (skip seeding, treated
+// as "pre-existing user, behind everything") for unversioned/dev builds
+// — version.Version == "dev" carries no meaningful ordering against real
+// release versions, so seeding it would be actively wrong once a real
+// version ships.
+func seedLastSeenVersion() string {
+	if version.Version == "dev" {
+		return ""
+	}
+	return version.Version
+}
 
 type UserHandler struct {
 	DB          *gorm.DB
@@ -140,12 +155,13 @@ func (h *UserHandler) Setup(c *gin.Context) {
 
 	// 3. Create User
 	user := models.User{
-		UUID:    uuid.New().String(),
-		Name:    req.Name,
-		Email:   strings.ToLower(req.Email),
-		Role:    models.RoleAdmin,
-		Enabled: true,
-		APIKey:  uuid.New().String(),
+		UUID:            uuid.New().String(),
+		Name:            req.Name,
+		Email:           strings.ToLower(req.Email),
+		Role:            models.RoleAdmin,
+		Enabled:         true,
+		APIKey:          uuid.New().String(),
+		LastSeenVersion: seedLastSeenVersion(),
 	}
 
 	if err := user.SetPassword(req.Password); err != nil {
@@ -214,9 +230,8 @@ func (h *UserHandler) RegenerateAPIKey(c *gin.Context) {
 	if rejectPassthrough(c, "manage API keys") {
 		return
 	}
-	userID, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+	userID, ok := requireUserID(c)
+	if !ok {
 		return
 	}
 
@@ -240,9 +255,8 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 	if rejectPassthrough(c, "access profile") {
 		return
 	}
-	userID, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+	userID, ok := requireUserID(c)
+	if !ok {
 		return
 	}
 
@@ -273,9 +287,8 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	if rejectPassthrough(c, "update profile") {
 		return
 	}
-	userID, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+	userID, ok := requireUserID(c)
+	if !ok {
 		return
 	}
 
@@ -411,13 +424,14 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	}
 
 	user := models.User{
-		UUID:           uuid.New().String(),
-		Email:          strings.ToLower(req.Email),
-		Name:           req.Name,
-		Role:           models.UserRole(req.Role),
-		Enabled:        true,
-		APIKey:         uuid.New().String(),
-		PermissionMode: models.PermissionMode(req.PermissionMode),
+		UUID:            uuid.New().String(),
+		Email:           strings.ToLower(req.Email),
+		Name:            req.Name,
+		Role:            models.UserRole(req.Role),
+		Enabled:         true,
+		APIKey:          uuid.New().String(),
+		PermissionMode:  models.PermissionMode(req.PermissionMode),
+		LastSeenVersion: seedLastSeenVersion(),
 	}
 
 	if err := user.SetPassword(req.Password); err != nil {
@@ -1175,12 +1189,13 @@ func (h *UserHandler) AcceptInvite(c *gin.Context) {
 	}
 
 	if err := h.DB.Model(&user).Updates(map[string]any{
-		"name":           req.Name,
-		"password_hash":  user.PasswordHash,
-		"enabled":        true,
-		"invite_token":   "",  // Clear token
-		"invite_expires": nil, // Clear expiration
-		"invite_status":  "accepted",
+		"name":              req.Name,
+		"password_hash":     user.PasswordHash,
+		"enabled":           true,
+		"invite_token":      "",  // Clear token
+		"invite_expires":    nil, // Clear expiration
+		"invite_status":     "accepted",
+		"last_seen_version": seedLastSeenVersion(),
 	}).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to accept invite"})
 		return

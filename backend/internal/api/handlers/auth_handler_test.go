@@ -773,10 +773,11 @@ func TestAuthHandler_Me(t *testing.T) {
 
 	// Create user that matches the middleware ID
 	user := &models.User{
-		UUID:  uuid.NewString(),
-		Email: "me@example.com",
-		Name:  "Me User",
-		Role:  models.RoleAdmin,
+		UUID:            uuid.NewString(),
+		Email:           "me@example.com",
+		Name:            "Me User",
+		Role:            models.RoleAdmin,
+		ChangelogOptOut: true,
 	}
 	db.Create(user)
 
@@ -800,6 +801,38 @@ func TestAuthHandler_Me(t *testing.T) {
 	assert.Equal(t, "admin", resp["role"])
 	assert.Equal(t, "Me User", resp["name"])
 	assert.Equal(t, "me@example.com", resp["email"])
+	assert.Equal(t, true, resp["changelog_opt_out"])
+}
+
+func TestAuthHandler_Me_ChangelogOptOutFalse(t *testing.T) {
+	t.Parallel()
+	handler, db := setupAuthHandler(t)
+
+	user := &models.User{
+		UUID:            uuid.NewString(),
+		Email:           "me-default@example.com",
+		Name:            "Default User",
+		Role:            models.RoleUser,
+		ChangelogOptOut: false,
+	}
+	db.Create(user)
+
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("userID", user.ID)
+		c.Set("role", user.Role)
+		c.Next()
+	})
+	r.GET("/me", handler.Me)
+
+	req := httptest.NewRequest("GET", "/me", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, false, resp["changelog_opt_out"])
 }
 
 func TestAuthHandler_Me_NotFound(t *testing.T) {

@@ -18,6 +18,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/cerberus"
+	"github.com/Wikid82/charon/backend/internal/changelog"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/hecate"
@@ -30,6 +31,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/orthrus"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/version"
 
 	// Import custom DNS providers to register them
 	_ "github.com/Wikid82/charon/backend/pkg/dnsprovider/custom"
@@ -328,6 +330,21 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		protected.GET("/user/profile", userHandler.GetProfile)
 		protected.POST("/user/profile", userHandler.UpdateProfile)
 		protected.POST("/user/api-key", userHandler.RegenerateAPIKey)
+
+		// Changelog / "What's New" — self-service, all authenticated
+		// roles (RolePassthrough rejected in-handler via
+		// rejectPassthrough, same as the profile routes above).
+		changelogService := changelog.NewService(version.Version)
+		if cfg.Environment != "production" {
+			if v := os.Getenv("CHARON_CHANGELOG_VERSION"); v != "" {
+				changelogService.SetCurrentVersion(v)
+			}
+		}
+		changelogHandler := handlers.NewChangelogHandler(db, changelogService)
+		protected.GET("/changelog/status", changelogHandler.Status)
+		protected.GET("/changelog/all", changelogHandler.All)
+		protected.POST("/changelog/ack", changelogHandler.Ack)
+		protected.POST("/changelog/opt-in", changelogHandler.OptIn)
 
 		// Management routes — blocked for passthrough users
 		management := protected.Group("/")

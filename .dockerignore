@@ -94,6 +94,8 @@ backend/.vscode/
 *.sqlite
 *.sqlite3
 data/
+!backend/internal/changelog/data/
+!backend/internal/changelog/data/changelog.json
 charon.db
 cpm.db
 
