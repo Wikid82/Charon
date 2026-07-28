@@ -180,6 +180,42 @@ New routes (`internal/api/routes/routes.go`), authenticated, under
   `/status`, with only a single "Close" action (no ack calls, since this is
   a voluntary revisit, not a real dismissal).
 
+## Local & Pre-Merge Testing
+
+The dev-build skip (`version.Version == "dev"`) means the modal never
+appears on a plain `go run ./cmd/api` by default — that's intentional for
+real dev usage, but it would also make the feature impossible to exercise
+manually before merging. Two additions close that gap, both mirroring
+existing conventions already in the codebase:
+
+- **Test seam for automated tests**: `internal/changelog`'s service takes
+  an injectable current-version resolver, the same pattern
+  `UpdateService.SetCurrentVersion` already uses for its own tests. Go
+  unit/integration tests set an arbitrary version directly — no real build
+  or git tags required.
+- **Dev-only version override for manual QA**: a `CHARON_CHANGELOG_VERSION`
+  env var, honored only when `Environment != "production"` (reusing the
+  existing `CHARON_ENV` config convention in `internal/config`, which
+  already defaults to `"development"`). When set, it overrides the
+  effective "current version" used by the `/changelog/status` check,
+  independent of the real `version.Version` build var.
+
+**Manual pre-merge workflow**:
+1. Populate `backend/internal/changelog/data/changelog.json` locally —
+   either run `scripts/generate-changelog.sh` against real local git tags,
+   or temporarily edit the file with fixture entries for pure UI
+   iteration (never commit the edited fixture over the `[]` placeholder).
+2. Run the backend with `CHARON_CHANGELOG_VERSION=1.5.0` (or any version
+   newer than your test user's `last_seen_version`) and default
+   `CHARON_ENV=development`.
+3. Set a test user's `last_seen_version` below that value (directly in the
+   dev SQLite DB, or a small seed step) and log in — the modal should
+   appear.
+
+Playwright E2E specs use the same `CHARON_CHANGELOG_VERSION` override plus
+committed fixture changelog data (not real git tag history), so the tests
+stay deterministic and independent of the repo's actual release tags.
+
 ## Edge Cases
 
 - **Unversioned/dev builds** (`version.Version == "dev"`): `/status`
