@@ -1286,6 +1286,21 @@ export async function waitForNavigation(
 }
 
 /**
+ * True if an error matches Playwright's known Firefox navigation-commit race
+ * (see commit d537476f): the navigation was interrupted, aborted, or simply
+ * never committed within the timeout. These don't indicate a real failure -
+ * they mean a fresh navigation was already underway when the timeout fired.
+ */
+function isExpectedNavigationRace(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message.includes('Timeout') ||
+      error.message.includes('interrupted by another navigation') ||
+      error.message.includes('net::ERR_ABORTED'))
+  );
+}
+
+/**
  * Navigate to a URL, tolerating Playwright's known Firefox navigation-commit
  * race: a page.goto() fired while a prior navigation is still settling can
  * fail to produce a trackable navigation-commit event and hang or throw
@@ -1308,16 +1323,32 @@ export async function gotoTolerant(
   const { timeout = 15000 } = options;
 
   await page.goto(url, { waitUntil: 'commit', timeout }).catch((error: unknown) => {
-    if (!(error instanceof Error)) {
+    if (!isExpectedNavigationRace(error)) {
       throw error;
     }
+  });
+}
 
-    const isExpectedNavigationRace =
-      error.message.includes('Timeout') ||
-      error.message.includes('interrupted by another navigation') ||
-      error.message.includes('net::ERR_ABORTED');
+/**
+ * Reload the current page, tolerating the same Firefox navigation-commit race
+ * that {@link gotoTolerant} guards against. Unlike a same-URL goto(), reload()
+ * always produces a fresh, distinct navigation-commit event, but under a
+ * slow/contended CI runner it can still fail to settle within its timeout.
+ * Callers MUST verify the actual resulting page state afterward (e.g. via
+ * expect.poll or an auto-retrying assertion) rather than relying on this call
+ * to guarantee the reload completed.
+ *
+ * @param page - Playwright Page instance
+ * @param options - timeout in ms (default 15000)
+ */
+export async function reloadTolerant(
+  page: Page,
+  options: { timeout?: number } = {}
+): Promise<void> {
+  const { timeout = 15000 } = options;
 
-    if (!isExpectedNavigationRace) {
+  await page.reload({ waitUntil: 'commit', timeout }).catch((error: unknown) => {
+    if (!isExpectedNavigationRace(error)) {
       throw error;
     }
   });
