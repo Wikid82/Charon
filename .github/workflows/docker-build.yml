@@ -74,6 +74,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ env.TRIGGER_HEAD_SHA }}
+          fetch-depth: 0
       - name: Normalize image name
         run: |
           IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
@@ -357,6 +358,10 @@ jobs:
             echo "❌ ERROR: image_ref output contract violated (empty output)"
             exit 1
           fi
+      - name: Generate Changelog Data
+        if: steps.skip.outputs.skip_build != 'true'
+        run: bash scripts/generate-changelog.sh
+
       # Phase 1 Optimization: Build once, test many
       # - For PRs: Multi-platform (amd64, arm64) + stable security-scan tag (pr-{number})
       # - For feature branches: Multi-platform (amd64, arm64) + sanitized tags ({branch}-{short-sha})
