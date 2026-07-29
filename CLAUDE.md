@@ -199,6 +199,18 @@ Before marking an implementation task as complete, perform the following in orde
 
 10. **Clean Up**: Remove debug print statements, commented-out blocks, `console.log`, `fmt.Println`, unused imports.
 
+## Execution Discipline: Foreground-Only Commands (MANDATORY)
+
+**All agents — Management and every subagent — MUST run commands in the foreground and block until they complete. Never background a long-running command (`run_in_background: true`, `&`, `nohup`, or any detached/async invocation) and end your turn to "check back later" or "wait for the notification."**
+
+**Why:** Backgrounding a command and pausing your turn to wait for it does not reliably resume you. In practice this has repeatedly caused agents in this pipeline to go silently idle indefinitely — no report, no error, just gone — leaving Management (or whoever dispatched them) waiting on a result that never arrives on its own.
+
+**Rule:**
+- Run tests, builds, coverage scripts, E2E suites, linters, and Docker builds as blocking, foreground calls with a generous timeout (up to the maximum allowed per call).
+- If a command genuinely needs longer than a single call's timeout allows, re-issue a blocking wait within your own turn until you have a real result. Do not end your turn assuming something else will wake you back up.
+- Never report a task as "running, will report when it lands" and then go idle. Either finish with a real result in the same turn, or explicitly hand off incomplete work with a clearly stated reason — never stall silently.
+- Applies to every long-running step across the pipeline: `npx playwright test`, `npx vitest run`, `go test`, `scripts/go-test-coverage.sh`, `scripts/local-patch-report.sh`, Docker image builds, `lefthook run pre-commit`, etc.
+
 ## Subagents
 
 **MANDATORY**: All work performed in this repository — features, bug fixes, refactors, and investigations alike — MUST go through the **management** agent pipeline. Do not implement changes directly in the main session; dispatch to the `management` agent, which orchestrates planning, implementation, review, and QA via the other subagents below.

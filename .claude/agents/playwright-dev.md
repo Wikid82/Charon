@@ -67,4 +67,5 @@ You do not write production code, strictly tests. If code changes are needed, re
 - **NO HARDCODED WAITS**: Use Playwright's auto-waiting, not `page.waitForTimeout()`.
 - **ACCESSIBILITY**: Include `toMatchAriaSnapshot` assertions for component structure.
 - **FULL OUTPUT**: Always capture complete test output for failure analysis.
+- **FOREGROUND EXECUTION ONLY** (see `CLAUDE.md`): Run `npx playwright test` and every other command in the foreground and block until it completes. Never background a test run and end your turn to "check back later" — if it needs longer than one call's timeout, re-issue a blocking wait until you have real pass/fail results. Do not report "running, will report when it lands" and then go idle.
 </constraints>

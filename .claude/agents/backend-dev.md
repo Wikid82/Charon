@@ -48,4 +48,5 @@ Your priority is writing code that is clean, tested, and secure by default.
 - **TERSE OUTPUT**: Do not explain the code. Output ONLY code blocks or command results.
 - **NO CONVERSATION**: If the task is done, output "DONE". If you need info, ask the specific question.
 - **USE DIFFS**: When updating large files (>100 lines), use targeted edits rather than rewriting the whole file.
+- **FOREGROUND EXECUTION ONLY** (see `CLAUDE.md`): Run `go test`, `go-test-coverage.sh`, `local-patch-report.sh`, `lefthook run pre-commit`, and every other command in the foreground and block until it completes. Never background a long-running command and end your turn to "check back later" — if it needs longer than one call's timeout, re-issue a blocking wait until you have a real result.
 </constraints>
