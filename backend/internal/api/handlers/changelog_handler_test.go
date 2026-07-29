@@ -256,6 +256,31 @@ func TestChangelogHandler_Ack_DismissPermanent_UpdatesLastSeenVersion(t *testing
 	assert.False(t, user.ChangelogOptOut)
 }
 
+// TestChangelogHandler_Ack_DismissPermanent_NonSemverBuild_DoesNotUpdateLastSeenVersion
+// guards against a client bypassing the normal UI flow (dismiss buttons
+// only render when show_changelog is already true, which itself implies
+// !IsDevBuild()) by POSTing dismiss_permanent directly while the server
+// is running a non-semver build (e.g. a nightly image). Without this
+// guard, CurrentVersion() ("nightly-<sha>") would get written to
+// LastSeenVersion — an invalid, non-empty value that permanently blocks
+// the user from ever seeing the changelog once the deployment upgrades
+// to a real tagged release (see changelog.Service.GetEntriesSince).
+func TestChangelogHandler_Ack_DismissPermanent_NonSemverBuild_DoesNotUpdateLastSeenVersion(t *testing.T) {
+	h, db, svc := setupChangelogHandler(t)
+	svc.SetCurrentVersion("nightly-a1b2c3d")
+	userID := createChangelogTestUser(t, db, "1.0.0", false)
+	r := buildChangelogRouter(h, "user", userID)
+
+	w := doJSON(t, r, http.MethodPost, "/changelog/ack", map[string]any{
+		"action": "dismiss_permanent", "opt_out": false,
+	})
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var user models.User
+	require.NoError(t, db.First(&user, userID).Error)
+	assert.Equal(t, "1.0.0", user.LastSeenVersion, "non-semver CurrentVersion() must never be written to last_seen_version")
+}
+
 func TestChangelogHandler_Ack_DismissTemporary_DoesNotUpdateLastSeenVersion(t *testing.T) {
 	h, db, _ := setupChangelogHandler(t)
 	userID := createChangelogTestUser(t, db, "1.0.0", false)

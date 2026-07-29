@@ -93,7 +93,16 @@ func (h *ChangelogHandler) Ack(c *gin.Context) {
 	}
 
 	updates := map[string]any{}
-	if req.Action == "dismiss_permanent" {
+	// Normal UI flow only reaches dismiss_permanent when show_changelog
+	// was already true, which itself requires !IsDevBuild() (see
+	// Status) — but a client can POST /changelog/ack directly, so guard
+	// here too: never write an unversioned/non-semver CurrentVersion()
+	// into LastSeenVersion, or the user would be permanently stuck once
+	// the deployment upgrades to a real tagged release (same failure
+	// mode as an unguarded seedLastSeenVersion; see
+	// changelog.IsUnversionedBuild). Leave last_seen_version untouched
+	// rather than writing a value we know is invalid.
+	if req.Action == "dismiss_permanent" && !h.svc.IsDevBuild() {
 		updates["last_seen_version"] = h.svc.CurrentVersion()
 	}
 	if req.OptOut {

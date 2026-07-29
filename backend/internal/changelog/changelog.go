@@ -77,22 +77,36 @@ func (s *Service) SetCurrentVersion(v string) { s.currentVersion = v }
 // CurrentVersion returns the effective current version.
 func (s *Service) CurrentVersion() string { return s.currentVersion }
 
-// IsDevBuild reports whether the effective current version is unsuitable
-// as a changelog "since" comparison anchor: either the unversioned "dev"
-// sentinel (version.Version's default), or any other string that isn't
-// valid semver. The latter case covers real CI-produced distributable
-// builds that are non-"dev" but still non-semver — e.g.
-// nightly-build.yml/docker-build.yml tag images as
-// "nightly-<git-sha>" or a branch-derived docker/metadata-action value.
+// IsUnversionedBuild reports whether v is unsuitable as a changelog
+// "since" comparison anchor: either the unversioned "dev" sentinel
+// (version.Version's default), or any other string that isn't valid
+// semver. The latter case covers real CI-produced distributable builds
+// that are non-"dev" but still non-semver — e.g.
+// nightly-build.yml/docker-build.yml tag images as "nightly-<git-sha>"
+// or a branch-derived docker/metadata-action value.
 // golang.org/x/mod/semver.Compare defines an invalid version string as
 // always less than a valid one, so treating only literal "dev" as
 // unversioned would let those builds seed users with an incomparable
 // LastSeenVersion: every real changelog entry would permanently compare
-// as "newer," and the user could never dismiss the changelog. Callers
-// (the /changelog/status handler) must gate show_changelog on this,
-// not just on currentVersion == "dev".
+// as "newer," and the user could never dismiss the changelog.
+//
+// This is the single shared authority for the concept — every call site
+// that needs to decide "is this version string safe to use as a
+// changelog anchor" (Service.IsDevBuild, seedLastSeenVersion in
+// user_handler.go, ChangelogHandler.Ack's dismiss_permanent guard) must
+// go through this function rather than re-deriving the check, which is
+// exactly what let a nightly-build user get permanently stuck with an
+// unrecoverable LastSeenVersion in the past.
+func IsUnversionedBuild(v string) bool {
+	return v == "dev" || !semver.IsValid("v"+v)
+}
+
+// IsDevBuild reports whether the effective current version is unsuitable
+// as a changelog "since" comparison anchor. See IsUnversionedBuild for
+// the full rationale. Callers (the /changelog/status handler) must gate
+// show_changelog on this, not just on currentVersion == "dev".
 func (s *Service) IsDevBuild() bool {
-	return s.currentVersion == "dev" || !semver.IsValid("v"+s.currentVersion)
+	return IsUnversionedBuild(s.currentVersion)
 }
 
 // GetEntriesSince returns entries newer than lastSeen, newest-first.

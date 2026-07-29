@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
+	"github.com/Wikid82/charon/backend/internal/changelog"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/utils"
@@ -25,11 +26,15 @@ import (
 // seeded with for LastSeenVersion, so they never see historical "What's
 // New" entries on their first login. Returns "" (skip seeding, treated
 // as "pre-existing user, behind everything") for unversioned/dev builds
-// — version.Version == "dev" carries no meaningful ordering against real
-// release versions, so seeding it would be actively wrong once a real
-// version ships.
+// — delegates to changelog.IsUnversionedBuild, which covers both the
+// literal "dev" sentinel and non-semver CI-produced version strings
+// (e.g. "nightly-<sha>"). Seeding either of those would be actively
+// wrong: neither compares meaningfully against real release versions,
+// and a non-empty invalid value would leave the user permanently unable
+// to see any changelog entry once the deployment upgrades to a real
+// tagged release (see changelog.Service.GetEntriesSince).
 func seedLastSeenVersion() string {
-	if version.Version == "dev" {
+	if changelog.IsUnversionedBuild(version.Version) {
 		return ""
 	}
 	return version.Version
