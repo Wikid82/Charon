@@ -125,6 +125,30 @@ func TestChangelogHandler_Status_DevBuild_NeverShows(t *testing.T) {
 	assert.Equal(t, false, resp["show_changelog"])
 }
 
+// TestChangelogHandler_Status_NonSemverBuild_NeverShows covers real CI
+// distributable builds tagged with a non-"dev", non-semver version
+// string (e.g. nightly-build.yml's VERSION=nightly-<git-sha>, or
+// docker-build.yml's branch-derived docker/metadata-action tags).
+// Without changelog.Service.IsDevBuild() treating these the same as
+// "dev", a user seeded with such a version as LastSeenVersion would see
+// the entire changelog history on every login forever — see
+// changelog.TestIsDevBuild_TrueForNonSemverVersion for the underlying
+// semver.Compare "invalid always less than valid" mechanism.
+func TestChangelogHandler_Status_NonSemverBuild_NeverShows(t *testing.T) {
+	h, db, svc := setupChangelogHandler(t)
+	svc.SetCurrentVersion("nightly-a1b2c3d")
+	setChangelogEntriesForTest(t, svc, []changelog.Entry{{Version: "1.0.0"}})
+	userID := createChangelogTestUser(t, db, "", false)
+	r := buildChangelogRouter(h, "user", userID)
+
+	w := doJSON(t, r, http.MethodGet, "/changelog/status", nil)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, false, resp["show_changelog"])
+}
+
 func TestChangelogHandler_Status_OptedOut_NeverShows(t *testing.T) {
 	h, db, svc := setupChangelogHandler(t)
 	setChangelogEntriesForTest(t, svc, []changelog.Entry{{Version: "2.0.0"}})

@@ -93,6 +93,27 @@ func TestIsDevBuild_FalseForRealVersion(t *testing.T) {
 	assert.False(t, svc.IsDevBuild())
 }
 
+func TestIsDevBuild_FalseForRealPrereleaseVersion(t *testing.T) {
+	svc := NewService("1.5.0-beta.1")
+	assert.False(t, svc.IsDevBuild())
+}
+
+// TestIsDevBuild_TrueForNonSemverVersion covers the CI-produced version
+// strings that aren't literally "dev" but also aren't valid semver:
+// nightly-build.yml and docker-build.yml tag distributable images with
+// VERSION=nightly-<git-sha> or branch-derived docker/metadata-action
+// values. semver.Compare treats any invalid string as always "less than"
+// a valid one, so without this guard a user seeded with one of these as
+// LastSeenVersion would see the entire changelog history on every login,
+// forever (see GetEntriesSince_InvalidLastSeen_ReturnsEmpty for the
+// second half of this defense).
+func TestIsDevBuild_TrueForNonSemverVersion(t *testing.T) {
+	for _, v := range []string{"nightly-a1b2c3d", "main", "development", "branch-feat-foo-a1b2c3d", ""} {
+		svc := NewService(v)
+		assert.Truef(t, svc.IsDevBuild(), "expected IsDevBuild()==true for non-semver version %q", v)
+	}
+}
+
 func TestNewService_DefaultsCurrentVersion(t *testing.T) {
 	svc := NewService("3.4.5")
 	assert.Equal(t, "3.4.5", svc.CurrentVersion())
@@ -103,6 +124,27 @@ func TestSetCurrentVersion_Overrides(t *testing.T) {
 	svc.SetCurrentVersion("9.9.9")
 	assert.Equal(t, "9.9.9", svc.CurrentVersion())
 	assert.False(t, svc.IsDevBuild())
+}
+
+// TestGetEntriesSince_InvalidLastSeen_ReturnsEmpty is the service-level
+// (belt-and-suspenders) half of the non-semver-version defense. A stored
+// LastSeenVersion is invalid semver only if it was written while running
+// a non-semver build (nightly-<sha>, branch tags, etc.) — the
+// handler-level IsDevBuild() gate prevents that same build from ever
+// calling GetEntriesSince, but if the app is later upgraded to a real
+// semver release, that user's stale invalid LastSeenVersion must not be
+// treated as "behind everything" (that's reserved for lastSeen == "",
+// the distinct pre-existing-user catch-up case) — otherwise
+// semver.Compare's "invalid < valid always" rule would make every real
+// entry look newer forever, and dismiss_permanent could never anchor a
+// comparable version.
+func TestGetEntriesSince_InvalidLastSeen_ReturnsEmpty(t *testing.T) {
+	svc := NewService("2.0.0")
+	setEntriesForTest(t, fixtureEntries())
+
+	result := svc.GetEntriesSince("nightly-a1b2c3d")
+
+	assert.Empty(t, result, "invalid non-empty lastSeen must not be treated as behind everything")
 }
 
 func TestGetEntriesSince_NoEntries_ReturnsEmpty(t *testing.T) {

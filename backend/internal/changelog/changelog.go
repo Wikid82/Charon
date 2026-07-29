@@ -77,16 +77,47 @@ func (s *Service) SetCurrentVersion(v string) { s.currentVersion = v }
 // CurrentVersion returns the effective current version.
 func (s *Service) CurrentVersion() string { return s.currentVersion }
 
-// IsDevBuild reports whether the effective current version is the
-// unversioned "dev" sentinel (version.Version's default).
-func (s *Service) IsDevBuild() bool { return s.currentVersion == "dev" }
+// IsDevBuild reports whether the effective current version is unsuitable
+// as a changelog "since" comparison anchor: either the unversioned "dev"
+// sentinel (version.Version's default), or any other string that isn't
+// valid semver. The latter case covers real CI-produced distributable
+// builds that are non-"dev" but still non-semver — e.g.
+// nightly-build.yml/docker-build.yml tag images as
+// "nightly-<git-sha>" or a branch-derived docker/metadata-action value.
+// golang.org/x/mod/semver.Compare defines an invalid version string as
+// always less than a valid one, so treating only literal "dev" as
+// unversioned would let those builds seed users with an incomparable
+// LastSeenVersion: every real changelog entry would permanently compare
+// as "newer," and the user could never dismiss the changelog. Callers
+// (the /changelog/status handler) must gate show_changelog on this,
+// not just on currentVersion == "dev".
+func (s *Service) IsDevBuild() bool {
+	return s.currentVersion == "dev" || !semver.IsValid("v"+s.currentVersion)
+}
 
 // GetEntriesSince returns entries newer than lastSeen, newest-first.
 // Empty lastSeen is treated as "behind everything" (all entries
 // returned) — the pre-existing-user catch-up case: a user who has never
 // seen any version is behind every released version, not just the
 // newest one.
+//
+// A non-empty lastSeen that is not valid semver is treated as "already
+// seen everything" (no entries returned) instead. This is a
+// defense-in-depth belt-and-suspenders check independent of the
+// IsDevBuild() handler-level gate: a user's stored LastSeenVersion can
+// only be invalid semver if it was written while running a non-semver
+// build (see IsDevBuild's doc comment), and IsDevBuild() already stops
+// that same build from ever calling GetEntriesSince. But if the app is
+// later upgraded to a real semver release, that user's stale invalid
+// LastSeenVersion must not fall into the "behind everything" branch —
+// semver.Compare's "invalid always compares less than valid" rule would
+// otherwise make every real entry look newer forever, and
+// dismiss_permanent (which just re-anchors LastSeenVersion to
+// CurrentVersion()) could never fix it for a still-non-semver build.
 func (s *Service) GetEntriesSince(lastSeen string) []Entry {
+	if lastSeen != "" && !semver.IsValid("v"+lastSeen) {
+		return nil
+	}
 	var result []Entry
 	for _, e := range allEntries {
 		if lastSeen == "" || semver.Compare("v"+e.Version, "v"+lastSeen) > 0 {
