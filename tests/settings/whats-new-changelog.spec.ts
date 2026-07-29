@@ -5,23 +5,25 @@
  * for users who haven't seen the current version's changelog, and can be
  * snoozed, dismissed, opted out of, and revisited from Settings.
  *
- * STATUS: All scenarios are `test.fixme(...)` — the backend/frontend
- * implementation does not exist yet (Commits 2-4 of the implementation
- * plan land it). This file is Commit 1 of the plan's commit-slicing
- * strategy: it locks in test names/structure so later commits implement
- * against a fixed contract. Flip each `test.fixme` to `test` in Commit 5
- * once the feature is real, per `docs/plans/current_spec.md` §4/§6 and
- * the design doc `docs/superpowers/specs/2026-07-28-whats-new-changelog-design.md`.
+ * STATUS: Commit 5 (hardening) — the backend (`internal/changelog`, User
+ * model fields, `/api/v1/changelog/*` routes) and frontend (`WhatsNewModal`,
+ * `useChangelog` hooks, Layout mount, Appearance Settings toggle/revisit
+ * link) landed in Commits 2-4. These scenarios were originally written as
+ * `test(...)` in Commit 1 to lock in names/structure before the
+ * implementation existed; they are now real, passing `test(...)` cases
+ * verified against that implementation, per `docs/plans/current_spec.md`
+ * §4/§6 and the design doc
+ * `docs/superpowers/specs/2026-07-28-whats-new-changelog-design.md`.
  *
- * This is the first use of `test.fixme` in this repo — keep specs simple
- * and copyable for future features that adopt the same pattern.
+ * This was the first use of `test.fixme` in this repo — kept simple and
+ * copyable for future features that adopt the same pattern.
  *
- * @see /projects/Charon/docs/plans/current_spec.md - §4 Phase 1, §6 Commit 1
+ * @see /projects/Charon/docs/plans/current_spec.md - §4 Phase 1, §6 Commit 1/5
  * @see /projects/Charon/docs/superpowers/specs/2026-07-28-whats-new-changelog-design.md
- * @see /projects/Charon/frontend/src/components/dialogs/WhatsNewModal.tsx (not yet created)
+ * @see /projects/Charon/frontend/src/components/dialogs/WhatsNewModal.tsx
  *
  * ---------------------------------------------------------------------------
- * FIXTURE INJECTION MECHANISM (read before implementing Commit 5)
+ * FIXTURE INJECTION MECHANISM (applied for every real E2E run of this file)
  * ---------------------------------------------------------------------------
  *
  * `backend/internal/changelog/changelog.go` embeds
@@ -105,7 +107,7 @@ const changelogFixture: ChangelogFixtureEntry[] = JSON.parse(readFileSync(FIXTUR
 const FIXTURE_CURRENT_VERSION = changelogFixture[changelogFixture.length - 1].version;
 
 test.describe('What\'s New Changelog', () => {
-  test.fixme(
+  test(
     'shows the modal on login when the user is behind the current version',
     async ({ page, regularUser }) => {
       await test.step('Log in as a freshly created (never-seen-changelog) user', async () => {
@@ -136,7 +138,7 @@ test.describe('What\'s New Changelog', () => {
     }
   );
 
-  test.fixme(
+  test(
     '"Remind Me Next Time" snoozes the modal without updating last_seen_version',
     async ({ page, regularUser }) => {
       await test.step('Log in and dismiss via "Remind Me Next Time"', async () => {
@@ -154,7 +156,7 @@ test.describe('What\'s New Changelog', () => {
     }
   );
 
-  test.fixme(
+  test(
     '"Got It, Thanks" permanently dismisses the modal for the current version',
     async ({ page, regularUser }) => {
       await test.step('Log in and dismiss via "Got It, Thanks"', async () => {
@@ -173,7 +175,7 @@ test.describe('What\'s New Changelog', () => {
     }
   );
 
-  test.fixme(
+  test(
     'X icon / backdrop click has the same effect as "Remind Me Next Time"',
     async ({ page, regularUser }) => {
       await test.step('Log in and close the modal via the X icon', async () => {
@@ -190,9 +192,12 @@ test.describe('What\'s New Changelog', () => {
       });
 
       await test.step('Backdrop click behaves identically', async () => {
-        await logoutUser(page);
-        await loginUser(page, regularUser);
-        const modal = await waitForModal(page, "What's New");
+        // The previous step deliberately left the modal open (to prove it
+        // reappeared after the X-icon snooze) — reuse it here instead of
+        // logging out/in again first, which would just get blocked by this
+        // still-open modal's overlay before ever reaching the Logout button.
+        const modal = page.getByRole('dialog', { name: "What's New" });
+        await expect(modal).toBeVisible();
         // Click outside the dialog panel to trigger the backdrop dismiss.
         await page.mouse.click(4, 4);
         await expect(modal).not.toBeVisible();
@@ -204,7 +209,7 @@ test.describe('What\'s New Changelog', () => {
     }
   );
 
-  test.fixme(
+  test(
     'checking the opt-out checkbox on any dismiss path suppresses the modal on future logins',
     async ({ page, regularUser }) => {
       await test.step('Log in, check opt-out, and snooze', async () => {
@@ -230,7 +235,7 @@ test.describe('What\'s New Changelog', () => {
     }
   );
 
-  test.fixme(
+  test(
     'Appearance Settings toggle re-enables the modal after opting out',
     async ({ page, regularUser }) => {
       await test.step('Opt out via the modal checkbox', async () => {
@@ -241,12 +246,31 @@ test.describe('What\'s New Changelog', () => {
       });
 
       await test.step('Navigate to Appearance Settings and flip the toggle back on', async () => {
-        await page.goto('/settings/appearance');
+        // Navigate via in-app links, not page.goto() — goto() performs a
+        // full browser navigation (hard reload) for any URL, which would
+        // remount WhatsNewModal and defeat the very thing this scenario
+        // checks: that opting back in mid-session (no reload) is what
+        // causes the modal to resurface, same-session, over this page.
+        // Case-sensitive "Settings" (capital S) to avoid matching the
+        // unrelated theme-toggle button ("...Open appearance settings.").
+        await page.getByRole('button', { name: /Settings/ }).click();
+        await page.getByRole('link', { name: /system/i }).click();
+        await waitForLoadingComplete(page);
+        await page.getByRole('link', { name: /appearance/i }).click();
         await waitForLoadingComplete(page);
 
-        const toggle = page.getByRole('checkbox', { name: /show.*what's new.*after updates/i });
+        const toggle = page.getByRole('checkbox', { name: /show update notifications/i });
         await expect(toggle).not.toBeChecked();
-        await toggle.check();
+        // Plain click + an auto-retrying assertion, rather than `.check()`'s
+        // own built-in pre/post verification: `checked` here is a controlled
+        // prop driven by `!user?.changelog_opt_out`, which only flips after
+        // the opt-in mutation's server round trip and a follow-up
+        // `refetchUser()` — `.check()`'s tighter internal check can flag
+        // "did not change state" against the async-updated element even
+        // when the DOM settles correctly moments later (confirmed via
+        // screenshot/snapshot on a prior run: checkbox ended up correctly
+        // checked, just after `.check()` had already given up).
+        await toggle.click();
         await expect(toggle).toBeChecked();
       });
 
@@ -258,7 +282,7 @@ test.describe('What\'s New Changelog', () => {
     }
   );
 
-  test.fixme(
+  test(
     '"What\'s New" revisit link in Appearance Settings opens browse mode without affecting dismissal state',
     async ({ page, regularUser }) => {
       await test.step('Log in and permanently dismiss the auto-shown modal first', async () => {
@@ -288,8 +312,11 @@ test.describe('What\'s New Changelog', () => {
           await expect(modal.getByRole('heading', { name: entry.version })).toBeVisible();
         }
 
-        // Closing a voluntary revisit must never call ack.
-        await modal.getByRole('button', { name: 'Close' }).click();
+        // Closing a voluntary revisit must never call ack. Disambiguate from
+        // the dialog's own X icon, which also has an accessible name of
+        // "Close" (aria-label, vs. this footer button's visible text) — the
+        // footer button renders first in DOM order (see WhatsNewModal.tsx).
+        await modal.getByRole('button', { name: 'Close' }).first().click();
         await expect(modal).not.toBeVisible();
         expect(await ackRequestPromise).toBeNull();
       });
