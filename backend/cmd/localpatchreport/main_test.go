@@ -73,7 +73,7 @@ func TestMain_SuccessWritesReports(t *testing.T) {
 	if err := json.Unmarshal(reportBytes, &report); err != nil {
 		t.Fatalf("unmarshal report: %v", err)
 	}
-	if report.Mode != "warn" {
+	if report.Mode != "strict" {
 		t.Fatalf("unexpected mode: %s", report.Mode)
 	}
 	if report.Artifacts.JSON == "" || report.Artifacts.Markdown == "" {
@@ -278,7 +278,7 @@ func TestGitDiffAndWriters(t *testing.T) {
 	}
 
 	markdownPath := filepath.Join(t.TempDir(), "report.md")
-	err = writeMarkdown(markdownPath, report, "backend/coverage.txt", "frontend/coverage/lcov.info")
+	err = writeMarkdown(markdownPath, report, "backend/coverage.txt", "frontend/coverage/lcov.info", "agent/coverage.txt")
 	if err != nil {
 		t.Fatalf("writeMarkdown should succeed: %v", err)
 	}
@@ -343,6 +343,7 @@ func createGitRepoWithCoverageInputs(t *testing.T) string {
 		filepath.Join(repoRoot, "frontend", "src"),
 		filepath.Join(repoRoot, "frontend", "coverage"),
 		filepath.Join(repoRoot, "backend"),
+		filepath.Join(repoRoot, "agent", "muzzle"),
 	}
 	for _, path := range paths {
 		if err := os.MkdirAll(path, 0o750); err != nil {
@@ -356,6 +357,9 @@ func createGitRepoWithCoverageInputs(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(repoRoot, "frontend", "src", "sample.ts"), []byte("export const sample = 1;\n"), 0o600); err != nil {
 		t.Fatalf("write frontend sample: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "agent", "muzzle", "sample.go"), []byte("package muzzle\nvar Sample = 1\n"), 0o600); err != nil {
+		t.Fatalf("write agent sample: %v", err)
+	}
 
 	backendCoverage := "mode: atomic\nbackend/internal/sample.go:1.1,2.20 1 1\n"
 	if err := os.WriteFile(filepath.Join(repoRoot, "backend", "coverage.txt"), []byte(backendCoverage), 0o600); err != nil {
@@ -365,6 +369,11 @@ func createGitRepoWithCoverageInputs(t *testing.T) string {
 	frontendCoverage := "TN:\nSF:frontend/src/sample.ts\nDA:1,1\nend_of_record\n"
 	if err := os.WriteFile(filepath.Join(repoRoot, "frontend", "coverage", "lcov.info"), []byte(frontendCoverage), 0o600); err != nil {
 		t.Fatalf("write frontend coverage: %v", err)
+	}
+
+	agentCoverage := "mode: atomic\nagent/muzzle/sample.go:1.1,2.20 1 1\n"
+	if err := os.WriteFile(filepath.Join(repoRoot, "agent", "coverage.txt"), []byte(agentCoverage), 0o600); err != nil {
+		t.Fatalf("write agent coverage: %v", err)
 	}
 
 	mustRunCommand(t, repoRoot, "add", ".")
@@ -407,7 +416,7 @@ func TestWriteMarkdownReturnsErrorWhenPathIsDirectory(t *testing.T) {
 		Warnings:             nil,
 		Artifacts:            artifactsJSON{Markdown: "a", JSON: "b"},
 	}
-	if err := writeMarkdown(dir, report, "backend/coverage.txt", "frontend/coverage/lcov.info"); err == nil {
+	if err := writeMarkdown(dir, report, "backend/coverage.txt", "frontend/coverage/lcov.info", "agent/coverage.txt"); err == nil {
 		t.Fatal("expected writeMarkdown to fail when target is a directory")
 	}
 }
@@ -476,13 +485,153 @@ func TestMain_PrintsWarningsWhenThresholdsNotMet(t *testing.T) {
 	result := runMainSubprocess(t,
 		"-repo-root", repoRoot,
 		"-baseline", "HEAD",
+		"-advisory",
 	)
 
 	if result.exitCode != 0 {
-		t.Fatalf("expected success with warnings, got exit=%d stderr=%s", result.exitCode, result.stderr)
+		t.Fatalf("expected success with warnings in advisory mode, got exit=%d stderr=%s", result.exitCode, result.stderr)
 	}
 	if !strings.Contains(result.stdout, "WARN: Overall patch coverage") {
 		t.Fatalf("expected WARN output, stdout=%s", result.stdout)
+	}
+}
+
+// belowThresholdRepo builds a repo whose backend and frontend changes are
+// entirely uncovered, guaranteeing every scope's Status is "warn" so tests
+// can exercise strict/advisory exit-code behavior deterministically.
+func belowThresholdRepo(t *testing.T) string {
+	t.Helper()
+	repoRoot := createGitRepoWithCoverageInputs(t)
+
+	if err := os.WriteFile(filepath.Join(repoRoot, "backend", "internal", "sample.go"), []byte("package internal\nvar Sample = 2\n"), 0o600); err != nil {
+		t.Fatalf("update backend sample: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "frontend", "src", "sample.ts"), []byte("export const sample = 2;\n"), 0o600); err != nil {
+		t.Fatalf("update frontend sample: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "backend", "coverage.txt"), []byte("mode: atomic\nbackend/internal/sample.go:1.1,2.20 1 0\n"), 0o600); err != nil {
+		t.Fatalf("write backend uncovered coverage: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "frontend", "coverage", "lcov.info"), []byte("TN:\nSF:frontend/src/sample.ts\nDA:1,0\nend_of_record\n"), 0o600); err != nil {
+		t.Fatalf("write frontend uncovered coverage: %v", err)
+	}
+
+	return repoRoot
+}
+
+// TestMain_StrictModeExitsNonZeroWhenAnyScopeBelowThreshold is the core
+// regression guard for this follow-up: the local tool must exit non-zero
+// by default when any scope is below threshold (F.4/R14), and must do so
+// only after the JSON/markdown artifacts and the existing WARN diagnostic
+// lines have already been written/printed (Supervisor Correction 1), so a
+// failing gate still leaves a full, readable report on disk and in stdout.
+func TestMain_StrictModeExitsNonZeroWhenAnyScopeBelowThreshold(t *testing.T) {
+	repoRoot := belowThresholdRepo(t)
+	jsonOut := filepath.Join(repoRoot, "test-results", "strict.json")
+	mdOut := filepath.Join(repoRoot, "test-results", "strict.md")
+
+	result := runMainSubprocess(t,
+		"-repo-root", repoRoot,
+		"-baseline", "HEAD",
+		"-json-out", jsonOut,
+		"-md-out", mdOut,
+	)
+
+	if result.exitCode == 0 {
+		t.Fatalf("expected non-zero exit code in strict mode when a scope is below threshold, stdout=%s stderr=%s", result.stdout, result.stderr)
+	}
+	if !strings.Contains(result.stderr, "Local patch coverage below threshold in strict mode") {
+		t.Fatalf("expected strict-mode stderr message, stderr=%s", result.stderr)
+	}
+	if !strings.Contains(result.stdout, "WARN: Overall patch coverage") {
+		t.Fatalf("expected WARN diagnostic lines to still print before exiting, stdout=%s", result.stdout)
+	}
+	if _, err := os.Stat(jsonOut); err != nil {
+		t.Fatalf("expected json report to be written before strict exit: %v", err)
+	}
+	if _, err := os.Stat(mdOut); err != nil {
+		t.Fatalf("expected markdown report to be written before strict exit: %v", err)
+	}
+}
+
+// TestMain_AdvisoryModeExitsZeroWhenScopeBelowThreshold proves the -advisory
+// opt-out (F.4/R15) restores the old advisory behavior: exit 0 regardless of
+// scope status, with the artifacts still written.
+func TestMain_AdvisoryModeExitsZeroWhenScopeBelowThreshold(t *testing.T) {
+	repoRoot := belowThresholdRepo(t)
+	jsonOut := filepath.Join(repoRoot, "test-results", "advisory.json")
+
+	result := runMainSubprocess(t,
+		"-repo-root", repoRoot,
+		"-baseline", "HEAD",
+		"-json-out", jsonOut,
+		"-advisory",
+	)
+
+	if result.exitCode != 0 {
+		t.Fatalf("expected exit 0 in advisory mode even when a scope is below threshold, stderr=%s", result.stderr)
+	}
+
+	body, err := os.ReadFile(jsonOut)
+	if err != nil {
+		t.Fatalf("read json output: %v", err)
+	}
+	var report reportJSON
+	if err := json.Unmarshal(body, &report); err != nil {
+		t.Fatalf("unmarshal json: %v", err)
+	}
+	if report.Mode != "advisory" {
+		t.Fatalf("expected mode=advisory in report, got %q", report.Mode)
+	}
+}
+
+// TestMain_ReportModeFieldReflectsStrictOrAdvisory proves report.Mode is no
+// longer the hardcoded literal "warn" (F.1's re-confirmed finding) but truly
+// reflects which mode produced the artifact.
+func TestMain_ReportModeFieldReflectsStrictOrAdvisory(t *testing.T) {
+	repoRoot := createGitRepoWithCoverageInputs(t)
+
+	strictJSONOut := filepath.Join(repoRoot, "test-results", "strict-mode.json")
+	strictResult := runMainSubprocess(t,
+		"-repo-root", repoRoot,
+		"-baseline", "HEAD...HEAD",
+		"-json-out", strictJSONOut,
+	)
+	if strictResult.exitCode != 0 {
+		t.Fatalf("expected success for passing scopes in strict mode: %s", strictResult.stderr)
+	}
+	strictBody, err := os.ReadFile(strictJSONOut)
+	if err != nil {
+		t.Fatalf("read strict json: %v", err)
+	}
+	var strictReport reportJSON
+	if unmarshalErr := json.Unmarshal(strictBody, &strictReport); unmarshalErr != nil {
+		t.Fatalf("unmarshal strict json: %v", unmarshalErr)
+	}
+	if strictReport.Mode != "strict" {
+		t.Fatalf("expected mode=strict by default, got %q", strictReport.Mode)
+	}
+
+	advisoryJSONOut := filepath.Join(repoRoot, "test-results", "advisory-mode.json")
+	advisoryResult := runMainSubprocess(t,
+		"-repo-root", repoRoot,
+		"-baseline", "HEAD...HEAD",
+		"-json-out", advisoryJSONOut,
+		"-advisory",
+	)
+	if advisoryResult.exitCode != 0 {
+		t.Fatalf("expected success for passing scopes in advisory mode: %s", advisoryResult.stderr)
+	}
+	advisoryBody, err := os.ReadFile(advisoryJSONOut)
+	if err != nil {
+		t.Fatalf("read advisory json: %v", err)
+	}
+	var advisoryReport reportJSON
+	if err := json.Unmarshal(advisoryBody, &advisoryReport); err != nil {
+		t.Fatalf("unmarshal advisory json: %v", err)
+	}
+	if advisoryReport.Mode != "advisory" {
+		t.Fatalf("expected mode=advisory when -advisory is passed, got %q", advisoryReport.Mode)
 	}
 }
 
@@ -547,6 +696,30 @@ func TestMain_FailsWhenFrontendCoverageIsMissing(t *testing.T) {
 	}
 }
 
+// TestMain_FailsWhenAgentCoverageIsMissing is the agent-module analogue of
+// TestMain_FailsWhenBackendCoverageIsMissing/TestMain_FailsWhenFrontendCoverageIsMissing,
+// added alongside the new -agent-coverage flag (Section 3.4.1 of the Orthrus
+// spec) so the missing-input error path has the same test coverage backend
+// and frontend already had.
+func TestMain_FailsWhenAgentCoverageIsMissing(t *testing.T) {
+	repoRoot := createGitRepoWithCoverageInputs(t)
+	if err := os.Remove(filepath.Join(repoRoot, "agent", "coverage.txt")); err != nil {
+		t.Fatalf("remove agent coverage: %v", err)
+	}
+
+	result := runMainSubprocess(t,
+		"-repo-root", repoRoot,
+		"-baseline", "HEAD...HEAD",
+	)
+
+	if result.exitCode == 0 {
+		t.Fatalf("expected non-zero exit code for missing agent coverage")
+	}
+	if !strings.Contains(result.stderr, "missing agent coverage file") {
+		t.Fatalf("expected missing agent coverage error, stderr=%s", result.stderr)
+	}
+}
+
 func TestMain_FailsWhenRepoRootInvalid(t *testing.T) {
 	nonexistentPath := filepath.Join(t.TempDir(), "missing", "repo")
 
@@ -596,7 +769,7 @@ func TestWriteMarkdownIncludesArtifactsSection(t *testing.T) {
 	}
 
 	path := filepath.Join(t.TempDir(), "report.md")
-	if err := writeMarkdown(path, report, "backend/coverage.txt", "frontend/coverage/lcov.info"); err != nil {
+	if err := writeMarkdown(path, report, "backend/coverage.txt", "frontend/coverage/lcov.info", "agent/coverage.txt"); err != nil {
 		t.Fatalf("writeMarkdown: %v", err)
 	}
 
@@ -809,6 +982,7 @@ func TestMainWithFileNeedingCoverageIncludesMarkdownTable(t *testing.T) {
 		"-repo-root", repoRoot,
 		"-baseline", "HEAD",
 		"-md-out", mdOut,
+		"-advisory",
 	)
 	if result.exitCode != 0 {
 		t.Fatalf("expected success: stderr=%s", result.stderr)
@@ -856,7 +1030,7 @@ func TestWriteMarkdownWithoutWarningsOrFiles(t *testing.T) {
 	}
 
 	path := filepath.Join(t.TempDir(), "report.md")
-	if err := writeMarkdown(path, report, "backend/coverage.txt", "frontend/coverage/lcov.info"); err != nil {
+	if err := writeMarkdown(path, report, "backend/coverage.txt", "frontend/coverage/lcov.info", "agent/coverage.txt"); err != nil {
 		t.Fatalf("writeMarkdown failed: %v", err)
 	}
 
@@ -897,7 +1071,7 @@ func TestMainProducesExpectedJSONSchemaFields(t *testing.T) {
 	if err := json.Unmarshal(body, &raw); err != nil {
 		t.Fatalf("unmarshal raw json: %v", err)
 	}
-	required := []string{"baseline", "generated_at", "mode", "thresholds", "threshold_sources", "overall", "backend", "frontend", "artifacts"}
+	required := []string{"baseline", "generated_at", "mode", "thresholds", "threshold_sources", "overall", "backend", "frontend", "agent", "artifacts"}
 	for _, key := range required {
 		if _, ok := raw[key]; !ok {
 			t.Fatalf("missing required key %q in report json", key)
@@ -1008,9 +1182,10 @@ func TestMainOutputsWarnLinesWhenAnyScopeWarns(t *testing.T) {
 	result := runMainSubprocess(t,
 		"-repo-root", repoRoot,
 		"-baseline", "HEAD",
+		"-advisory",
 	)
 	if result.exitCode != 0 {
-		t.Fatalf("expected success with warnings: stderr=%s", result.stderr)
+		t.Fatalf("expected success with warnings in advisory mode: stderr=%s", result.stderr)
 	}
 	if !strings.Contains(result.stdout, "WARN:") {
 		t.Fatalf("expected warning lines in stdout: %s", result.stdout)
@@ -1041,7 +1216,7 @@ func TestWriteMarkdownContainsSummaryTable(t *testing.T) {
 	}
 
 	path := filepath.Join(t.TempDir(), "summary.md")
-	if err := writeMarkdown(path, report, "backend/coverage.txt", "frontend/coverage/lcov.info"); err != nil {
+	if err := writeMarkdown(path, report, "backend/coverage.txt", "frontend/coverage/lcov.info", "agent/coverage.txt"); err != nil {
 		t.Fatalf("write markdown: %v", err)
 	}
 	body, err := os.ReadFile(path)
@@ -1146,7 +1321,7 @@ func TestMain_BackendCoverageWithInvalidRowsStillSucceeds(t *testing.T) {
 	}
 }
 
-func TestMainOutputMentionsModeWarn(t *testing.T) {
+func TestMainOutputMentionsModeStrict(t *testing.T) {
 	repoRoot := createGitRepoWithCoverageInputs(t)
 	result := runMainSubprocess(t,
 		"-repo-root", repoRoot,
@@ -1155,7 +1330,7 @@ func TestMainOutputMentionsModeWarn(t *testing.T) {
 	if result.exitCode != 0 {
 		t.Fatalf("expected success: %s", result.stderr)
 	}
-	if !strings.Contains(result.stdout, "mode=warn") {
+	if !strings.Contains(result.stdout, "mode=strict") {
 		t.Fatalf("expected mode in stdout: %s", result.stdout)
 	}
 }
@@ -1247,6 +1422,7 @@ func TestMain_WithChangedFilesProducesFilesNeedingCoverageInJSON(t *testing.T) {
 		"-repo-root", repoRoot,
 		"-baseline", "HEAD",
 		"-json-out", jsonOut,
+		"-advisory",
 	)
 	if result.exitCode != 0 {
 		t.Fatalf("expected success: %s", result.stderr)
@@ -1262,6 +1438,58 @@ func TestMain_WithChangedFilesProducesFilesNeedingCoverageInJSON(t *testing.T) {
 	}
 	if len(report.FilesNeedingCoverage) == 0 {
 		t.Fatalf("expected files_needing_coverage to be non-empty")
+	}
+}
+
+// TestMain_AgentChangedLinesAppearInReport is the agent-module analogue of
+// TestMain_WithChangedFilesProducesFilesNeedingCoverageInJSON: it proves the
+// generalized patchreport.ParseUnifiedDiffChangedLines/ParseGoCoverageProfile
+// plumbing (Section 3.4.1 of the Orthrus spec) actually attributes changed
+// agent/** lines to the Agent report scope end-to-end through the compiled
+// binary, not just that the new -agent-coverage flag is accepted. This is
+// the regression guard for the "agent coverage silently reports 0%" bug the
+// moduleDir generalization was written to close.
+func TestMain_AgentChangedLinesAppearInReport(t *testing.T) {
+	repoRoot := createGitRepoWithCoverageInputs(t)
+	if err := os.WriteFile(filepath.Join(repoRoot, "agent", "muzzle", "sample.go"), []byte("package muzzle\nvar Sample = 42\n"), 0o600); err != nil {
+		t.Fatalf("update agent file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "agent", "coverage.txt"), []byte("mode: atomic\nagent/muzzle/sample.go:1.1,2.20 1 0\n"), 0o600); err != nil {
+		t.Fatalf("write agent coverage: %v", err)
+	}
+
+	jsonOut := filepath.Join(repoRoot, "test-results", "agent-coverage-gaps.json")
+	result := runMainSubprocess(t,
+		"-repo-root", repoRoot,
+		"-baseline", "HEAD",
+		"-json-out", jsonOut,
+		"-advisory",
+	)
+	if result.exitCode != 0 {
+		t.Fatalf("expected success: %s", result.stderr)
+	}
+
+	body, err := os.ReadFile(jsonOut)
+	if err != nil {
+		t.Fatalf("read json output: %v", err)
+	}
+	var report reportJSON
+	if err := json.Unmarshal(body, &report); err != nil {
+		t.Fatalf("unmarshal json: %v", err)
+	}
+	if report.Agent.ChangedLines == 0 {
+		t.Fatalf("expected agent scope to report nonzero changed lines, got: %+v", report.Agent)
+	}
+
+	foundAgentFile := false
+	for _, fileDetail := range report.FilesNeedingCoverage {
+		if fileDetail.Path == "agent/muzzle/sample.go" {
+			foundAgentFile = true
+			break
+		}
+	}
+	if !foundAgentFile {
+		t.Fatalf("expected agent/muzzle/sample.go in files_needing_coverage, got: %+v", report.FilesNeedingCoverage)
 	}
 }
 
@@ -1336,7 +1564,7 @@ func TestMain_ReportContainsCoverageScopes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read json: %v", err)
 	}
-	for _, key := range []string{"\"overall\"", "\"backend\"", "\"frontend\""} {
+	for _, key := range []string{"\"overall\"", "\"backend\"", "\"frontend\"", "\"agent\""} {
 		if !strings.Contains(string(body), key) {
 			t.Fatalf("expected %s in json: %s", key, string(body))
 		}
@@ -1380,8 +1608,8 @@ func TestMain_ReportIncludesMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read json: %v", err)
 	}
-	if !strings.Contains(string(body), "\"mode\": \"warn\"") {
-		t.Fatalf("expected warn mode in json: %s", string(body))
+	if !strings.Contains(string(body), "\"mode\": \"strict\"") {
+		t.Fatalf("expected strict mode in json: %s", string(body))
 	}
 }
 
@@ -1416,11 +1644,17 @@ func TestMain_FailsWhenGitRepoNotInitialized(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(repoRoot, "frontend", "coverage"), 0o750); err != nil {
 		t.Fatalf("mkdir frontend: %v", err)
 	}
+	if err := os.MkdirAll(filepath.Join(repoRoot, "agent"), 0o750); err != nil {
+		t.Fatalf("mkdir agent: %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(repoRoot, "backend", "coverage.txt"), []byte("mode: atomic\nbackend/internal/sample.go:1.1,1.2 1 1\n"), 0o600); err != nil {
 		t.Fatalf("write backend coverage: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(repoRoot, "frontend", "coverage", "lcov.info"), []byte("TN:\nSF:frontend/src/sample.ts\nDA:1,1\nend_of_record\n"), 0o600); err != nil {
 		t.Fatalf("write frontend lcov: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "agent", "coverage.txt"), []byte("mode: atomic\nagent/muzzle/sample.go:1.1,1.2 1 1\n"), 0o600); err != nil {
+		t.Fatalf("write agent coverage: %v", err)
 	}
 
 	result := runMainSubprocess(t,
@@ -1449,9 +1683,10 @@ func TestMain_WritesWarningsToJSONWhenPresent(t *testing.T) {
 		"-repo-root", repoRoot,
 		"-baseline", "HEAD",
 		"-json-out", jsonOut,
+		"-advisory",
 	)
 	if result.exitCode != 0 {
-		t.Fatalf("expected success with warnings: %s", result.stderr)
+		t.Fatalf("expected success with warnings in advisory mode: %s", result.stderr)
 	}
 	body, err := os.ReadFile(jsonOut)
 	if err != nil {

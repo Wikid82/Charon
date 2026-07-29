@@ -64,10 +64,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### CI/CD
 
+- **Orthrus Agent CI Parity**: `agent/` (the standalone Orthrus agent Go
+  module) now gets the same enforcement `backend/` already had — `go vet`,
+  golangci-lint (fast config, now shared from repo-root
+  `.golangci-fast.yml`), and a test-coverage gate, both in pre-commit
+  (`go-vet-agent`, `golangci-lint-fast`, `agent-test-coverage`) and in CI
+  (`quality-checks.yml`'s new `agent-quality` job, unconditional on every
+  PR). Previously `agent/`'s pre-commit hooks passed trivially because they
+  were hardcoded to `backend/` — the exact mechanism by which a prior
+  incident's agent-side fix omission went undetected locally (GH #1161).
+  - New `scripts/agent-test-coverage.sh` and `scripts/check-module-coverage.sh`
+    (the latter fixes a pre-existing dangling `Makefile` reference)
+  - `scripts/local-patch-report.sh` and the local patch-coverage tool now
+    report `agent/` patch coverage alongside backend/frontend, so
+    CLAUDE.md's mandatory patch-coverage preflight has visibility into
+    agent changes
+  - New `agent-codecov` job uploads `agent/coverage.txt` to Codecov under a
+    distinct `agent` flag
+  - New `scripts/ci/check_muzzle_allowlist_parity.go`: a structural
+    (AST-based) guard that fails the build if the Docker API allowlist
+    declarations in `backend/internal/orthrus/muzzle.go` and
+    `agent/muzzle/muzzle.go` diverge — closing the drift-detection gap that
+    let the underlying normalization bug (see Security, below) go
+    unnoticed for two release cycles
+
 - **Supply Chain**: Optimized verification workflow to prevent redundant builds
   - Change: Removed direct Push/PR triggers; now waits for 'Docker Build' via `workflow_run`
 
 ### Security
+
+- **Orthrus Muzzle Normalization Order (GH #1160)**: Fixed a divergence
+  between the backend and agent-side Docker API allowlist filters where the
+  agent normalized a request path (version-prefix strip, then
+  `path.Clean`) in a different order than the backend, and additionally
+  accepted a non-numeric `v`-prefixed segment as a version prefix via a
+  loose `path.Match("v*", ...)` wildcard. A crafted path (e.g. a
+  traversal-disguised or non-numeric version prefix) could be classified
+  differently by each filter in isolation; today's pipeline always runs
+  the backend filter first, masking the bug, but the agent-side filter
+  alone was strictly more permissive on 3 confirmed input classes,
+  including one reaching a write endpoint. Both filters now apply the
+  identical strip-then-clean order via a `normalizeDockerPath` helper
+  present in both files, and agent's allowlists were collapsed to
+  unversioned-only entries (dropping the redundant, overly-permissive
+  `/v*/...` duplicates).
 
 - chore(security): verify CVE-2026-39824 (golang.org/x/sys) is not present — golang.org/x/sys already at v0.46.0, exceeding the v0.44.0 fix; no action required
 

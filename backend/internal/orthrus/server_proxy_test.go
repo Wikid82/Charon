@@ -71,7 +71,7 @@ func TestOrthrusServer_WatchHeartbeat_ClosesProxyListener(t *testing.T) {
 	serverConn, done := testWSPair(t)
 	defer done()
 
-	sess, err := NewAgentSession("proxy-s2-uuid", "proxy-s2-agent", serverConn)
+	sess, err := NewAgentSession("proxy-s2-uuid", "proxy-s2-agent", false, nil, serverConn)
 	require.NoError(t, err)
 
 	require.NoError(t, sess.StartDockerProxy())

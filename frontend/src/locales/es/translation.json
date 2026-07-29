@@ -1421,7 +1421,8 @@
         "offline": "Desconectado",
         "pending": "Pendiente"
       },
-      "configureProxy": "Configure proxy for {{name}}"
+      "configureProxy": "Configure proxy for {{name}}",
+      "writeMode": "Write mode for {{name}}"
     },
     "externalProxy": {
       "title": "Proxy Docker Externo",
@@ -1436,6 +1437,19 @@
       "copyConnectionString": "Copiar cadena de conexión Docker",
       "reconnectNotice": "El cambio de puerto surtirá efecto en la próxima reconexión del agente.",
       "agentOffline": "El agente está fuera de línea. Estado del proxy no disponible."
+    },
+    "writeMode": {
+      "title": "Write Access — {{name}}",
+      "description": "Opt this agent into full, unrestricted Docker Engine API access through its External Docker Proxy.",
+      "toggleLabel": "Enable write access",
+      "confirmPrompt": "Type {{name}} to confirm",
+      "confirmPlaceholder": "Agent name",
+      "confirmHint": "Enabling write access requires typing the agent's exact current name.",
+      "securityWarning": "Enabling write mode gives any tool connected through this agent's External Docker Proxy full, unrestricted control of the Docker Engine API on this machine — equivalent to direct access to the Docker socket, including creating privileged containers, mounting the host filesystem, and any other Docker operation. There is no allowlist restricting which endpoints or container configurations are permitted. Every request is logged. Only enable this for agents connecting trusted tools.",
+      "reconnectNotice": "Write mode change will take effect on next agent reconnect.",
+      "viewAuditLog": "View write-access audit log",
+      "disableConfirm": "Disable",
+      "restartRequiredToast": "\"{{name}}\" is connected — restart the Orthrus agent on its remote machine for the write-mode change to take effect."
     }
   },
   "feedback": {

@@ -47,6 +47,18 @@ type OrthrusAgent struct {
 	// 0 = disabled. Valid values: 1024–65535.
 	ExternalProxyPort int `json:"external_proxy_port" gorm:"default:0"`
 
+	// WriteEnabled opts this agent into full, unrestricted Docker Engine API
+	// access through its External Docker Proxy — every endpoint and every
+	// request body, no allowlist — in addition to the unconditional
+	// read-only allowlist that always applies. false = read-only (default).
+	// This is a deliberate operator trust decision, not something Charon
+	// polices further: the operator accepts, via an explicit typed-confirmation
+	// UI step, that any tool connected through this agent effectively gets
+	// full control of the Docker host. Enforced independently by both
+	// backend/internal/orthrus/muzzle.go and agent/muzzle/muzzle.go. Takes
+	// effect on the agent's next reconnect (see AgentSession handshake).
+	WriteEnabled bool `json:"write_enabled" gorm:"default:false"`
+
 	LastHeartbeat *time.Time `json:"last_heartbeat,omitempty"`
 	LastSeen      *time.Time `json:"last_seen,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`

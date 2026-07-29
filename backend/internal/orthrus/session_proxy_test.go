@@ -49,7 +49,7 @@ func TestStartDockerProxy_SetsProxyAddr(t *testing.T) {
 	serverConn, done := testWSPair(t)
 	defer done()
 
-	sess, err := NewAgentSession("u1-uuid", "u1-agent", serverConn)
+	sess, err := NewAgentSession("u1-uuid", "u1-agent", false, nil, serverConn)
 	require.NoError(t, err)
 	defer func() { _ = sess.Close() }()
 
@@ -64,7 +64,7 @@ func TestStartDockerProxy_Idempotent(t *testing.T) {
 	serverConn, done := testWSPair(t)
 	defer done()
 
-	sess, err := NewAgentSession("u2-uuid", "u2-agent", serverConn)
+	sess, err := NewAgentSession("u2-uuid", "u2-agent", false, nil, serverConn)
 	require.NoError(t, err)
 	defer func() { _ = sess.Close() }()
 
@@ -84,7 +84,7 @@ func TestStartDockerProxy_AcceptsAndForwards(t *testing.T) {
 	serverConn, clientConn, done := testWSPairBoth(t)
 	defer done()
 
-	sess, err := NewAgentSession("u3-uuid", "u3-agent", serverConn)
+	sess, err := NewAgentSession("u3-uuid", "u3-agent", false, nil, serverConn)
 	require.NoError(t, err)
 	defer func() { _ = sess.Close() }()
 
@@ -139,7 +139,7 @@ func TestClose_StopsProxyListener(t *testing.T) {
 	serverConn, done := testWSPair(t)
 	defer done()
 
-	sess, err := NewAgentSession("u4-uuid", "u4-agent", serverConn)
+	sess, err := NewAgentSession("u4-uuid", "u4-agent", false, nil, serverConn)
 	require.NoError(t, err)
 
 	require.NoError(t, sess.StartDockerProxy())
@@ -161,7 +161,7 @@ func TestStartDockerProxy_AfterClose(t *testing.T) {
 	serverConn, done := testWSPair(t)
 	defer done()
 
-	sess, err := NewAgentSession("u5-uuid", "u5-agent", serverConn)
+	sess, err := NewAgentSession("u5-uuid", "u5-agent", false, nil, serverConn)
 	require.NoError(t, err)
 
 	require.NoError(t, sess.Close())
@@ -185,7 +185,7 @@ func TestAgentSession_runProxyListener_NonErrClosedError_Returns(t *testing.T) {
 	serverConn, done := testWSPair(t)
 	defer done()
 
-	sess, err := NewAgentSession("rpl-uuid", "rpl-agent", serverConn)
+	sess, err := NewAgentSession("rpl-uuid", "rpl-agent", false, nil, serverConn)
 	require.NoError(t, err)
 	defer func() { _ = sess.Close() }()
 
@@ -208,7 +208,7 @@ func TestAgentSession_proxyConn_ClosedSession_ReturnsQuietly(t *testing.T) {
 	serverConn, done := testWSPair(t)
 	defer done()
 
-	sess, err := NewAgentSession("pc-closed-uuid", "pc-agent", serverConn)
+	sess, err := NewAgentSession("pc-closed-uuid", "pc-agent", false, nil, serverConn)
 	require.NoError(t, err)
 
 	// Close the yamux session so session.Open() returns an error.
