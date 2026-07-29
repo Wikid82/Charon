@@ -140,6 +140,23 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
+      # Dev/test-only "What's New" changelog fixture injection. Mirrors the
+      # local docker-rebuild-e2e workflow (see
+      # tests/settings/whats-new-changelog.spec.ts header comment and
+      # docs/reports/qa_report.md §1a for the full mechanism): the committed
+      # backend/internal/changelog/data/changelog.json is a `[]` placeholder
+      # (go:embed'd at build time), so it must be overwritten with the E2E
+      # fixture's content before the Docker image builds, or every
+      # whats-new-changelog.spec.ts scenario fails identically across all
+      # browsers/shards (the modal never has data to render). No revert step
+      # here, unlike local dev — CI runners are ephemeral.
+      - name: Inject E2E changelog fixture
+        if: steps.resolve-image.outputs.image_source == 'build'
+        run: |
+          echo "📋 Injecting E2E changelog fixture into backend/internal/changelog/data/changelog.json..."
+          cp tests/fixtures/changelog-fixture.json backend/internal/changelog/data/changelog.json
+          echo "✅ Fixture injected (will be embedded via go:embed at build time)"
+
       - name: Set up Go
         if: steps.resolve-image.outputs.image_source == 'build'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
