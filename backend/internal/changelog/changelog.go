@@ -20,11 +20,25 @@ var rawData []byte
 // Entry describes one released version's categorized, novice-friendly
 // changelog content.
 type Entry struct {
-	Version  string   `json:"version"`
-	Date     string   `json:"date"`
-	Features []string `json:"features"`
-	Fixes    []string `json:"fixes"`
-	Other    []string `json:"other"`
+	Version  string          `json:"version"`
+	Date     string          `json:"date"`
+	Features []string        `json:"features"`
+	Fixes    []string        `json:"fixes"`
+	Other    []string        `json:"other"`
+	Security []SecurityEntry `json:"security"`
+}
+
+// SecurityEntry describes one security-relevant changelog item. Unlike
+// the plain-string Features/Fixes/Other categories, security entries
+// carry a commit SHA so the frontend can link to the underlying commit
+// for users who want to dig deeper — see
+// docs/superpowers/specs/2026-07-29-security-changelog-category-design.md.
+// Summary must be a vague-by-default description of the category of
+// issue and its mitigation (enforced by commit-writing convention, not
+// this type) — never the specific vulnerability class or attack vector.
+type SecurityEntry struct {
+	Summary string `json:"summary"`
+	SHA     string `json:"sha"`
 }
 
 // allEntries holds the parsed embedded changelog data. Parsed once at
