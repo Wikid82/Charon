@@ -344,3 +344,4 @@ charon-scan.tar
 .claude/scheduled_tasks.lock
 .claude/worktrees/
 scripts/tempCodeRunnerFile.sh
+backend/internal/api/routes/keys/hecate-ca.crt
