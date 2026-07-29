@@ -33,6 +33,9 @@
     "fixes": [
       "Fix intermittent session expiry on token refresh"
     ],
-    "other": []
+    "other": [],
+    "security": [
+      { "summary": "Harden input validation in the API layer", "sha": "a1b2c3d1234567890" }
+    ]
   }
 ]
