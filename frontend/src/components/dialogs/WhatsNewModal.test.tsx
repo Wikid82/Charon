@@ -36,6 +36,7 @@ const entryWithEverything: ChangelogEntry = {
   features: ['Added the What\'s New modal'],
   fixes: ['Fixed a login redirect bug'],
   other: ['Bumped internal dependency versions'],
+  security: [{ summary: 'Hardened input validation in the API layer', sha: 'a1b2c3d4e5f6' }],
 }
 
 const entryFeaturesOnly: ChangelogEntry = {
@@ -44,6 +45,7 @@ const entryFeaturesOnly: ChangelogEntry = {
   features: ['Added dark mode'],
   fixes: [],
   other: [],
+  security: [],
 }
 
 type AckMutationMock = ReturnType<typeof useAckChangelog>
@@ -164,6 +166,45 @@ describe('WhatsNewModal', () => {
       render(<WhatsNewModal mode="status" />)
 
       expect(screen.queryByText('whatsNew.showMaintenanceDetails')).not.toBeInTheDocument()
+    })
+
+    it('renders the Security group expanded by default, NOT behind a details disclosure', () => {
+      setStatusData({ show_changelog: true, versions: [entryWithEverything] })
+      render(<WhatsNewModal mode="status" />)
+
+      expect(screen.getByText('whatsNew.security')).toBeInTheDocument()
+      expect(
+        screen.getByText('Hardened input validation in the API layer', { exact: false })
+      ).toBeInTheDocument()
+      // Unlike the "Other" group (asserted above as collapsed behind
+      // <details>), the Security group must not be wrapped in any
+      // <details>/<summary> disclosure at all — it renders like the
+      // features/fixes groups, always visible when non-empty. A native
+      // <details> element has an implicit "group" role, so with this entry's
+      // one "Other" item present, exactly one such role should exist on the
+      // page — none contributed by Security.
+      expect(screen.getAllByRole('group')).toHaveLength(1)
+    })
+
+    it('renders a "view commit" link for each security item with security-conscious attributes', () => {
+      setStatusData({ show_changelog: true, versions: [entryWithEverything] })
+      render(<WhatsNewModal mode="status" />)
+
+      const link = screen.getByRole('link', { name: 'whatsNew.viewCommit' })
+      expect(link).toHaveAttribute(
+        'href',
+        'https://github.com/Wikid82/Charon/commit/a1b2c3d4e5f6'
+      )
+      expect(link).toHaveAttribute('target', '_blank')
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    })
+
+    it('omits the Security group entirely when the entry has no security entries', () => {
+      setStatusData({ show_changelog: true, versions: [entryFeaturesOnly] })
+      render(<WhatsNewModal mode="status" />)
+
+      expect(screen.queryByText('whatsNew.security')).not.toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: 'whatsNew.viewCommit' })).not.toBeInTheDocument()
     })
 
     it('"Remind Me Next Time" sends dismiss_temporary with opt_out=false by default', async () => {

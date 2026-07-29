@@ -1531,6 +1531,8 @@
     "title": "Novedades",
     "newFeatures": "✨ Nuevas funciones",
     "fixes": "🐛 Correcciones",
+    "security": "🔒 Seguridad",
+    "viewCommit": "ver commit",
     "showMaintenanceDetails": "Mostrar detalles de mantenimiento",
     "remindLater": "Recordarme más tarde",
     "gotIt": "Entendido, gracias",

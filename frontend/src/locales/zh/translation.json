@@ -1530,6 +1530,8 @@
     "title": "新版本说明",
     "newFeatures": "✨ 新功能",
     "fixes": "🐛 修复",
+    "security": "🔒 安全",
+    "viewCommit": "查看提交",
     "showMaintenanceDetails": "显示维护详情",
     "remindLater": "下次提醒我",
     "gotIt": "知道了，谢谢",

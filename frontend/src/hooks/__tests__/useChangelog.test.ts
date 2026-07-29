@@ -32,14 +32,35 @@ vi.mock('../../utils/toast', () => ({
 const sampleStatus: changelogApi.ChangelogStatus = {
   show_changelog: true,
   versions: [
-    { version: '1.2.0', date: '2026-07-01', features: ['New thing'], fixes: [], other: [] },
+    {
+      version: '1.2.0',
+      date: '2026-07-01',
+      features: ['New thing'],
+      fixes: [],
+      other: [],
+      security: [],
+    },
   ],
 };
 
 const sampleAll: changelogApi.ChangelogAll = {
   versions: [
-    { version: '1.2.0', date: '2026-07-01', features: ['New thing'], fixes: [], other: [] },
-    { version: '1.1.0', date: '2026-06-01', features: [], fixes: ['Old fix'], other: [] },
+    {
+      version: '1.2.0',
+      date: '2026-07-01',
+      features: ['New thing'],
+      fixes: [],
+      other: [],
+      security: [],
+    },
+    {
+      version: '1.1.0',
+      date: '2026-06-01',
+      features: [],
+      fixes: ['Old fix'],
+      other: [],
+      security: [],
+    },
   ],
 };
 

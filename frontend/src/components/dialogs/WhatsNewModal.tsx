@@ -17,6 +17,8 @@ import { Label } from '../ui/Label'
 import type { ChangelogAckAction, ChangelogEntry } from '../../api/changelog'
 import type { TFunction } from 'i18next'
 
+const GITHUB_COMMIT_URL = 'https://github.com/Wikid82/Charon/commit/'
+
 /**
  * Props for {@link WhatsNewModal}.
  *
@@ -66,6 +68,29 @@ function ChangelogEntrySection({ entry, t }: ChangelogEntrySectionProps) {
           <ul className="list-inside list-disc space-y-1 text-sm text-content-primary">
             {entry.fixes.map((fix) => (
               <li key={fix}>{fix}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {entry.security.length > 0 && (
+        <div>
+          <h4 className="mb-1 text-sm font-medium text-content-secondary">
+            {t('whatsNew.security')}
+          </h4>
+          <ul className="list-inside list-disc space-y-1 text-sm text-content-primary">
+            {entry.security.map((item) => (
+              <li key={item.sha}>
+                {item.summary}{' '}
+                <a
+                  href={`${GITHUB_COMMIT_URL}${item.sha}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm font-normal text-content-secondary underline"
+                >
+                  {t('whatsNew.viewCommit')}
+                </a>
+              </li>
             ))}
           </ul>
         </div>

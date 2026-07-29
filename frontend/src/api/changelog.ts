@@ -1,5 +1,11 @@
 import client from './client';
 
+/** A single security-relevant changelog item: a vague-by-design summary plus its source commit. */
+export interface SecurityEntry {
+  summary: string;
+  sha: string;
+}
+
 /** A single released version's categorized "What's New" content. */
 export interface ChangelogEntry {
   version: string;
@@ -7,6 +13,7 @@ export interface ChangelogEntry {
   features: string[];
   fixes: string[];
   other: string[];
+  security: SecurityEntry[];
 }
 
 /** Response shape for GET /changelog/status. */

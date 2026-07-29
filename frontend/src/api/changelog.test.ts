@@ -27,6 +27,7 @@ const sampleEntry: ChangelogEntry = {
   features: ['Added dark mode'],
   fixes: ['Fixed login redirect'],
   other: ['Bumped dependencies'],
+  security: [{ summary: 'Hardened input validation in the API layer', sha: 'deadbeef' }],
 }
 
 describe('changelog api', () => {
