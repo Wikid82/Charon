@@ -51,6 +51,14 @@ Your credentials are stored securely with encryption and automatic key rotation.
 
 Enterprise-grade protection that "just works." Cerberus bundles multiple security layers into one easy-to-manage system.
 
+### 🔒 How Charon Keeps You Safe
+
+Curious what's actually protecting your server, and why? From automatic HTTPS and encrypted secrets to CrowdSec's neighborhood-watch threat detection and the forward-auth login gateway, this page walks through Charon's security philosophy in plain language — no jargon required.
+
+→ [Learn More](features/security.md)
+
+---
+
 ### 🎛️ Security Dashboard Toggles
 
 Control your security modules with a single click. The Security Dashboard provides instant toggles for each security layer:

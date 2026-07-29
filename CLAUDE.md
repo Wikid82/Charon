@@ -12,6 +12,7 @@ Every session should improve the codebase, not just add to it. Actively refactor
 - **LEVERAGE**: Use battle-tested packages over custom implementations.
 - **READABLE**: Maintain comments and clear naming for complex logic. Favor clarity over cleverness.
 - **CONVENTIONAL COMMITS**: Write commit messages using `feat:`, `fix:`, `chore:`, `refactor:`, or `docs:` prefixes.
+- **`(security)` SCOPE**: For genuinely security-relevant `feat`/`fix` commits (real vulnerability fixes, new protective mechanisms — not general bug fixes), use `feat(security): <subject>` or `fix(security): <subject>`. This scope feeds a dedicated "Security" category in the What's New changelog, so it's reserved for real security work — overusing it for visibility on ordinary fixes dilutes the category's signal. **Vague by default**: the subject line must describe the *category* of issue and mitigation in general terms, and must NEVER reveal the specific vulnerability class, attack vector, or exact vulnerable code path — the changelog displays it verbatim to every self-hosted user, including ones running un-upgraded, still-vulnerable instances. Good: `fix(security): harden input validation in the API layer`. Bad: `fix(security): fix SQL injection in host search filter`.
 
 ## Governance & Precedence
 

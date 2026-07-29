@@ -45,6 +45,7 @@ gh run view <run-id> --log
 - Never commit secrets — use `.env.example` for templates, `.env` for actuals (gitignored)
 - All deployments require: `build`, `test`, and `security-scan` status checks
 - Use exact dependency versions, not `^` ranges
+- **`(security)` commit scope**: Use `feat(security): <subject>` / `fix(security): <subject>` only for genuinely security-relevant work — real vulnerability fixes or new protective mechanisms (e.g. closing a CI/CD or supply-chain hole). Do NOT use it for routine pipeline fixes just to gain visibility; that dilutes the category's signal in the What's New changelog. Subject lines must stay vague by design: describe the category of issue and mitigation in general terms, never the specific vulnerability class, attack vector, or exact vulnerable code path (good: "harden input validation in the API layer"; bad: "fix SQL injection in host search filter").
 
 ## Step 3.5: Foreground Execution (MANDATORY, see `CLAUDE.md`)
 

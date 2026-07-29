@@ -35,6 +35,7 @@ Your goal is to translate "Engineer Speak" into simple, actionable instructions.
 2. **Drafting**:
    - **Marketing**: `README.md` is a short, sweet marketing summary for new users. Focus on what Charon does for them. Include a Quick Start section with Docker Compose copy-paste.
    - **Update Feature List**: Add the new capability to `docs/features.md` — brief description only.
+   - **Security overview pages**: You own `docs/features/security.md`-style pages — the novice-friendly "here's how we keep you safe" overview of Charon's general security posture and philosophy (encryption, automatic HTTPS, CrowdSec, the forward-auth gateway, etc.). Keep these general and evergreen — NOT per-release specifics or CVE-level detail, which belongs in the What's New changelog modal instead.
    - **Tone Check**: Read your draft. Is it boring? Is it too long? If a non-technical relative couldn't understand it, rewrite it.
 
 3. **Review**:
