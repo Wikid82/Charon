@@ -464,6 +464,21 @@ export async function loginUser(
           await page.reload({ waitUntil: 'domcontentloaded' });
           await page.waitForLoadState('networkidle').catch(() => {});
         }
+
+        // Guard: a logout-then-relogin cycle for the same user (multiple
+        // loginUser calls in one test) can race the `goto('/')` above
+        // against AuthContext's checkAuth effect — goto('/') can resolve
+        // and the app can redirect to /login (no token found yet) a moment
+        // before the token is written to localStorage just below it, so
+        // the *reload* above ends up reloading /login instead of /. The
+        // token is valid by this point (the app just hasn't re-evaluated
+        // it against this now-stale /login view), so recover by navigating
+        // back to / explicitly rather than leaving the caller stuck on an
+        // unfilled login form.
+        if (page.url().includes('/login')) {
+          await page.goto('/');
+          await page.waitForLoadState('networkidle').catch(() => {});
+        }
         return;
       }
 
