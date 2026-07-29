@@ -355,6 +355,16 @@ Make Charon look exactly the way you want. Choose from five built-in themes — 
 
 ---
 
+### 🆕 What's New
+
+Never wonder what changed after an update. The next time you log in after Charon updates, a "What's New" popup shows you exactly what's new — new features, fixes, and improvements — since you were last here.
+
+- **Automatic** — Content is generated straight from the release history, so there's never any manual changelog writing to fall behind on
+- **Your call** — Don't want the popup? Turn it off anytime in Settings > Appearance
+- **Revisit anytime** — Missed it, or just want to look back? Click the "What's New" link in Settings > Appearance to reopen it whenever you like
+
+---
+
 ### 💬 Feedback Widget
 
 Found a bug or have an idea? The feedback button sits in the corner of every page—click it to report a bug or request a feature on GitHub without leaving Charon. No copy-pasting URLs, no digging through bookmarks—just click and go.
