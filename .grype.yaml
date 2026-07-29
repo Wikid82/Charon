@@ -468,7 +468,13 @@ ignore:
   # Review:
   # - Reviewed 2026-04-10 (initial suppression): pgproto3/v2 is EOL; no fix exists or will exist.
   #   Waiting on CrowdSec to migrate to pgx/v5. Set 90-day review.
-  # - Next review: 2026-07-09. Remove suppression once CrowdSec ships with pgx/v5.
+  # - Reviewed 2026-07-29: Re-verified directly against upstream go.mod files (not just release
+  #   notes) — CrowdSec v1.7.8 (current pin, latest stable) and v1.8.0-rc1 (latest incl.
+  #   pre-releases) both still declare `github.com/jackc/pgx/v4 v4.18.3` ->
+  #   `github.com/jackc/pgproto3/v2 v2.3.3`, and jackc/pgproto3 remains archived with no new tags
+  #   past v2.3.3. Risk assessment unchanged: not reachable via Charon's default SQLite deployment.
+  #   Next review: 2026-09-01, aligned with GHSA-jqcq-xjh3-6g23 and GHSA-x6gf-mpr2-68h6 so all
+  #   three duplicate-root-cause entries for this bug review together going forward.
   #
   # Removal Criteria:
   # - Same as GHSA-jqcq-xjh3-6g23: CrowdSec releases a version with pgx/v5 replacing pgproto3/v2
@@ -492,7 +498,9 @@ ignore:
       Charon uses SQLite, not PostgreSQL; this code path is not reachable in a standard deployment.
       Risk accepted; no remediation until CrowdSec ships with pgx/v5.
       Reviewed 2026-04-10: pgproto3/v2 EOL confirmed; CrowdSec has not migrated to pgx/v5 yet.
-    expiry: "2026-07-09"  # Reviewed 2026-04-10: no fix path until CrowdSec migrates to pgx/v5. 90-day expiry.
+      Reviewed 2026-07-29: re-verified against upstream go.mod (CrowdSec v1.7.8 stable and
+      v1.8.0-rc1 pre-release both still pgx/v4 -> pgproto3/v2 v2.3.3); no change in risk.
+    expiry: "2026-09-01"  # Extended 2026-07-29: no upstream fix available (re-verified). Next review: 2026-09-01.
 
     # Action items when this suppression expires:
     # 1. Check CrowdSec releases for pgx/v5 migration:

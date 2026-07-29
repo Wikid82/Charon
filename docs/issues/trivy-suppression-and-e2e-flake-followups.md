@@ -11,21 +11,46 @@ in the changelog diff. Full detail/evidence is in `docs/reports/qa_report.md`
 (§6.3 and §1b); this doc is just enough to track and pick each one up
 later.
 
-## Issue 1: Stale `.trivyignore` Suppression for CVE-2026-32286
+## Issue 1: Stale `.trivyignore` Suppression for CVE-2026-32286 — RESOLVED 2026-07-29
 
-The `.trivyignore` entry suppressing `CVE-2026-32286` (pgproto3 DoS via
-negative DataRow field length, bundled in the `crowdsec`/`cscli` binaries)
-carries an `# exp: 2026-07-09` review-by annotation that has now lapsed —
-expired 20 days ago. Trivy honors that expiry, so with the repo's real
-`.trivyignore` applied it still surfaces as 2 HIGH findings, same as running
-with no suppression file at all. This is already a documented, accepted
-risk in `SECURITY.md` (Charon's default SQLite deployment doesn't reach the
-vulnerable PostgreSQL code path), so the fix is almost certainly just a
-renewal, not new remediation work — but it needs an owner to re-confirm the
-risk assessment still holds and bump both the `.trivyignore` `exp:` date
-and `SECURITY.md`'s "Review by" date. Until renewed, CI's Trivy gate
-(`docker-build.yml`) will flag this on any PR, not just changelog-related
-ones.
+**Status: Resolved.** Renewed, not removed — the CVE is still real and
+still unfixed upstream, but the entry was stale documentation, not an
+active CI failure.
+
+Correction to the original framing above: Trivy's plain-text `.trivyignore`
+format (as used by this repo, invoked via `aquasecurity/trivy-action` in
+`docker-build.yml` with `trivyignores: '.trivyignore'`) does **not** parse
+or enforce the `# exp: DATE` comment at all — that annotation is a
+project-only human-review convention, not a Trivy feature. Verified this
+directly: ran `trivy image --ignorefile .trivyignore` (same CLI version,
+v0.72.0, pinned by the CI action) against an exported `charon:local` image
+with `--show-suppressed`, and the finding was still reported as
+`"Status": "ignored", "Source": ".trivyignore"` despite the lapsed date —
+CI's Trivy gate was **not** actually flagging this on unrelated PRs. The
+risk was stale documentation implying a review had happened that hadn't,
+not an active gate failure.
+
+Re-investigated the underlying CVE itself on 2026-07-29: `jackc/pgproto3`
+remains archived (still v2.3.3, no new tags). Checked upstream `go.mod`
+directly (not just release notes) for CrowdSec v1.7.8 (Charon's current
+pin, and upstream's latest stable release) and v1.8.0-rc1 (latest
+including pre-releases) — both still resolve
+`github.com/jackc/pgx/v4 v4.18.3` → `github.com/jackc/pgproto3/v2 v2.3.3`.
+No pgx/v5 migration has landed upstream. The original justification
+(Charon defaults to SQLite; the vulnerable PostgreSQL wire-protocol path
+isn't reached in a standard deployment) still holds.
+
+Action taken: renewed the suppression rather than removing it or applying
+a fix, since no upstream fix path exists yet. Updated `.trivyignore` and
+the matching `.grype.yaml` entry with a fresh 2026-07-29 review note and a
+new `exp:`/`expiry` of `2026-09-01` — aligned with the two sibling entries
+covering the exact same underlying pgproto3/v2 bug under different
+advisory IDs (`GHSA-jqcq-xjh3-6g23`, `GHSA-x6gf-mpr2-68h6`), which were
+already extended to `2026-09-01` on 2026-06-02, so all three now review
+together going forward instead of drifting apart. Also updated
+`SECURITY.md`'s `CVE-2026-32286` entry with the same re-verification note.
+Re-ran the Trivy scan after the change to confirm the finding is still
+cleanly suppressed under the renewed, non-expired entry.
 
 ## Issue 2: E2E Firefox Navigation-Race Flakiness Broader Than Known 3 Files
 
