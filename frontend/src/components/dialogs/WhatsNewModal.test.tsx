@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import WhatsNewModal from './WhatsNewModal'
+import { useAuth } from '../../hooks/useAuth'
 import { useAckChangelog, useChangelogAll, useChangelogStatus } from '../../hooks/useChangelog'
 
 import type { ChangelogEntry, ChangelogStatus, ChangelogAll } from '../../api/changelog'
@@ -20,9 +21,14 @@ vi.mock('../../hooks/useChangelog', () => ({
   useAckChangelog: vi.fn(),
 }))
 
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: vi.fn(),
+}))
+
 const mockUseChangelogStatus = vi.mocked(useChangelogStatus)
 const mockUseChangelogAll = vi.mocked(useChangelogAll)
 const mockUseAckChangelog = vi.mocked(useAckChangelog)
+const mockUseAuth = vi.mocked(useAuth)
 
 const entryWithEverything: ChangelogEntry = {
   version: '1.3.0',
@@ -84,11 +90,22 @@ function setAllData(data: ChangelogAll | undefined) {
 
 describe('WhatsNewModal', () => {
   let ackMutate: ReturnType<typeof vi.fn>
+  let refetchUser: () => Promise<void>
 
   beforeEach(() => {
     vi.clearAllMocks()
     ackMutate = vi.fn()
+    refetchUser = vi.fn(() => Promise.resolve())
     mockUseAckChangelog.mockReturnValue(makeAckMutation({ mutate: ackMutate }))
+    mockUseAuth.mockReturnValue({
+      user: null,
+      login: vi.fn(),
+      logout: vi.fn(),
+      changePassword: vi.fn(),
+      refetchUser,
+      isAuthenticated: false,
+      isLoading: false,
+    })
     setAllData(undefined)
   })
 
@@ -177,7 +194,13 @@ describe('WhatsNewModal', () => {
       await user.click(screen.getByRole('checkbox', { name: 'whatsNew.dontShowAgain' }))
       await user.click(screen.getByRole('button', { name: 'whatsNew.remindLater' }))
 
-      expect(ackMutate).toHaveBeenCalledWith({ action: 'dismiss_temporary', opt_out: true })
+      // Opting out also passes an onSuccess that refetches the AuthContext
+      // user (see "AuthContext refetch on opt-out" below) — asserted here
+      // via objectContaining since this test's focus is the ack payload.
+      expect(ackMutate).toHaveBeenCalledWith(
+        { action: 'dismiss_temporary', opt_out: true },
+        expect.objectContaining({ onSuccess: expect.any(Function) })
+      )
     })
 
     it('honors a checked opt-out checkbox on "Got It, Thanks"', async () => {
@@ -188,7 +211,10 @@ describe('WhatsNewModal', () => {
       await user.click(screen.getByRole('checkbox', { name: 'whatsNew.dontShowAgain' }))
       await user.click(screen.getByRole('button', { name: 'whatsNew.gotIt' }))
 
-      expect(ackMutate).toHaveBeenCalledWith({ action: 'dismiss_permanent', opt_out: true })
+      expect(ackMutate).toHaveBeenCalledWith(
+        { action: 'dismiss_permanent', opt_out: true },
+        expect.objectContaining({ onSuccess: expect.any(Function) })
+      )
     })
 
     it('the X close icon triggers the same effect as "Remind Me Next Time", honoring the checkbox', async () => {
@@ -199,7 +225,179 @@ describe('WhatsNewModal', () => {
       await user.click(screen.getByRole('checkbox', { name: 'whatsNew.dontShowAgain' }))
       await user.click(screen.getByRole('button', { name: 'Close' }))
 
-      expect(ackMutate).toHaveBeenCalledWith({ action: 'dismiss_temporary', opt_out: true })
+      expect(ackMutate).toHaveBeenCalledWith(
+        { action: 'dismiss_temporary', opt_out: true },
+        expect.objectContaining({ onSuccess: expect.any(Function) })
+      )
+    })
+
+    describe('AuthContext refetch on opt-out (regression: Appearance Settings toggle went stale after opting out via the modal checkbox)', () => {
+      // The modal's own "Don't show me update notifications" checkbox sends
+      // opt_out: true to `ack`, which updates `user.changelog_opt_out`
+      // server-side. AuthContext's `user` is separate query state that the
+      // `ack` mutation's own cache invalidation (`changelog-status`) does
+      // not touch, so without an explicit `refetchUser()` call, navigating
+      // to Appearance Settings in the same session showed the stale
+      // (pre-opt-out) toggle value until a full page reload.
+
+      it('refetches the user after opting out via "Remind Me Next Time"', async () => {
+        const user = userEvent.setup()
+        setStatusData({ show_changelog: true, versions: [entryWithEverything] })
+        render(<WhatsNewModal mode="status" />)
+
+        await user.click(screen.getByRole('checkbox', { name: 'whatsNew.dontShowAgain' }))
+        await user.click(screen.getByRole('button', { name: 'whatsNew.remindLater' }))
+
+        expect(ackMutate).toHaveBeenCalledWith(
+          { action: 'dismiss_temporary', opt_out: true },
+          expect.objectContaining({ onSuccess: expect.any(Function) })
+        )
+
+        // Simulate the mutation succeeding and invoking the onSuccess
+        // callback the component supplied.
+        const [, options] = ackMutate.mock.calls[0] as [unknown, { onSuccess?: () => void }]
+        options.onSuccess?.()
+
+        expect(refetchUser).toHaveBeenCalledTimes(1)
+      })
+
+      it('refetches the user after opting out via "Got It, Thanks"', async () => {
+        const user = userEvent.setup()
+        setStatusData({ show_changelog: true, versions: [entryWithEverything] })
+        render(<WhatsNewModal mode="status" />)
+
+        await user.click(screen.getByRole('checkbox', { name: 'whatsNew.dontShowAgain' }))
+        await user.click(screen.getByRole('button', { name: 'whatsNew.gotIt' }))
+
+        const [, options] = ackMutate.mock.calls[0] as [unknown, { onSuccess?: () => void }]
+        options.onSuccess?.()
+
+        expect(refetchUser).toHaveBeenCalledTimes(1)
+      })
+
+      it('refetches the user after opting out via the X icon/backdrop dismissal', async () => {
+        const user = userEvent.setup()
+        setStatusData({ show_changelog: true, versions: [entryWithEverything] })
+        render(<WhatsNewModal mode="status" />)
+
+        await user.click(screen.getByRole('checkbox', { name: 'whatsNew.dontShowAgain' }))
+        await user.click(screen.getByRole('button', { name: 'Close' }))
+
+        const [, options] = ackMutate.mock.calls[0] as [unknown, { onSuccess?: () => void }]
+        options.onSuccess?.()
+
+        expect(refetchUser).toHaveBeenCalledTimes(1)
+      })
+
+      it('does NOT refetch the user when the opt-out checkbox is left unchecked', async () => {
+        const user = userEvent.setup()
+        setStatusData({ show_changelog: true, versions: [entryWithEverything] })
+        render(<WhatsNewModal mode="status" />)
+
+        await user.click(screen.getByRole('button', { name: 'whatsNew.remindLater' }))
+
+        expect(ackMutate).toHaveBeenCalledWith({ action: 'dismiss_temporary', opt_out: false })
+        expect(refetchUser).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('per-session dismissal (regression: modal must not pop back open within the same session)', () => {
+      // `dismiss_temporary` intentionally leaves `last_seen_version`
+      // unchanged server-side, so `useAckChangelog`'s onSuccess
+      // invalidate-and-refetch of `changelog-status` legitimately resolves
+      // `show_changelog: true` again. Without client-side session
+      // dismissal state, the modal would immediately reopen instead of
+      // staying closed until a real future login.
+
+      it('"Remind Me Next Time" closes the modal and it stays closed across a refetch that still returns show_changelog: true', async () => {
+        const user = userEvent.setup()
+        setStatusData({ show_changelog: true, versions: [entryWithEverything] })
+        const { rerender } = render(<WhatsNewModal mode="status" />)
+
+        expect(screen.getByText('1.3.0')).toBeInTheDocument()
+
+        await user.click(screen.getByRole('button', { name: 'whatsNew.remindLater' }))
+
+        // The dialog closes immediately, without waiting on the mutation.
+        expect(screen.queryByText('1.3.0')).not.toBeInTheDocument()
+
+        // Simulate the query-invalidation refetch triggered by the ack
+        // mutation's onSuccess: same backend answer (show_changelog still
+        // true, since last_seen_version never changed for a temporary
+        // dismissal), fresh object reference (a real refetch).
+        setStatusData({ show_changelog: true, versions: [entryWithEverything] })
+        rerender(<WhatsNewModal mode="status" />)
+
+        expect(screen.queryByText('1.3.0')).not.toBeInTheDocument()
+      })
+
+      it('the X icon dismissal stays closed across a subsequent show_changelog: true refetch', async () => {
+        const user = userEvent.setup()
+        setStatusData({ show_changelog: true, versions: [entryWithEverything] })
+        const { rerender } = render(<WhatsNewModal mode="status" />)
+
+        await user.click(screen.getByRole('button', { name: 'Close' }))
+        expect(screen.queryByText('1.3.0')).not.toBeInTheDocument()
+
+        setStatusData({ show_changelog: true, versions: [entryWithEverything] })
+        rerender(<WhatsNewModal mode="status" />)
+
+        expect(screen.queryByText('1.3.0')).not.toBeInTheDocument()
+      })
+
+      it('backdrop dismissal (Dialog onOpenChange close) stays closed across a subsequent show_changelog: true refetch', async () => {
+        setStatusData({ show_changelog: true, versions: [entryWithEverything] })
+        const { rerender } = render(<WhatsNewModal mode="status" />)
+
+        // Backdrop click / Escape both route through Radix's
+        // onOpenChange(false), same as the X icon.
+        await userEvent.setup().keyboard('{Escape}')
+        expect(screen.queryByText('1.3.0')).not.toBeInTheDocument()
+
+        setStatusData({ show_changelog: true, versions: [entryWithEverything] })
+        rerender(<WhatsNewModal mode="status" />)
+
+        expect(screen.queryByText('1.3.0')).not.toBeInTheDocument()
+      })
+
+      it('"Got It, Thanks" (dismiss_permanent) stays closed even if a later refetch still returns show_changelog: true', async () => {
+        // Covers the Settings re-opt-in scenario: user permanently
+        // dismisses (optionally with opt-out checked), then later
+        // re-opts-in via Settings. useOptInChangelog's onSuccess
+        // invalidates the same `changelog-status` query, which can
+        // legitimately resolve show_changelog: true again if unseen
+        // entries remain. The modal must not pop up over the Settings
+        // page mid-interaction — it should wait for the next login.
+        const user = userEvent.setup()
+        setStatusData({ show_changelog: true, versions: [entryWithEverything] })
+        const { rerender } = render(<WhatsNewModal mode="status" />)
+
+        await user.click(screen.getByRole('checkbox', { name: 'whatsNew.dontShowAgain' }))
+        await user.click(screen.getByRole('button', { name: 'whatsNew.gotIt' }))
+        expect(screen.queryByText('1.3.0')).not.toBeInTheDocument()
+
+        // Simulate: user re-opts-in via Appearance Settings, which flips
+        // changelog_opt_out server-side and invalidates changelog-status;
+        // the refetch still finds unseen entries.
+        setStatusData({ show_changelog: true, versions: [entryWithEverything] })
+        rerender(<WhatsNewModal mode="status" />)
+
+        expect(screen.queryByText('1.3.0')).not.toBeInTheDocument()
+      })
+
+      it('a fresh mount (real login / page load) is unaffected by a prior instance\'s dismissal and shows the modal again', () => {
+        setStatusData({ show_changelog: true, versions: [entryWithEverything] })
+        const { unmount } = render(<WhatsNewModal mode="status" />)
+        expect(screen.getByText('1.3.0')).toBeInTheDocument()
+        unmount()
+
+        // A brand new mount is a new component instance with fresh state
+        // — this is what a real re-login / full page load looks like.
+        setStatusData({ show_changelog: true, versions: [entryWithEverything] })
+        render(<WhatsNewModal mode="status" />)
+
+        expect(screen.getByText('1.3.0')).toBeInTheDocument()
+      })
     })
   })
 

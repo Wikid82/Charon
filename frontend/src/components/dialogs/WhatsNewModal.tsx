@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { useAuth } from '../../hooks/useAuth'
 import { useAckChangelog, useChangelogAll, useChangelogStatus } from '../../hooks/useChangelog'
 import { Button } from '../ui/Button'
 import { Checkbox } from '../ui/Checkbox'
@@ -89,7 +90,36 @@ function ChangelogEntrySection({ entry, t }: ChangelogEntrySectionProps) {
 export default function WhatsNewModal(props: WhatsNewModalProps) {
   const { t } = useTranslation()
   const [optOut, setOptOut] = useState(false)
+  // Per-session dismissal flag, `status` mode only. `useChangelogStatus()`
+  // is the ONLY source `status` mode uses to decide visibility, and both
+  // `dismiss_temporary` and re-opting-in via Settings (`useOptInChangelog`)
+  // invalidate that query. `dismiss_temporary` intentionally leaves
+  // `last_seen_version` unchanged server-side ("modal reappears next
+  // login" — see design spec), so the refetch it triggers still resolves
+  // `show_changelog: true` and, without this flag, the modal would pop
+  // right back open in the same session instead of staying closed until a
+  // real future login. The same invalidation pattern lets a Settings
+  // re-opt-in resurface the modal mid-interaction on the Settings page.
+  // This flag short-circuits `status` mode's render once any dismissal
+  // (temporary or permanent) has happened, regardless of what later
+  // refetches the query returns.
+  //
+  // Plain React state (not `sessionStorage`) is deliberate: `status` mode
+  // is mounted once, unconditionally, for the app session (see the mode
+  // docstring above), so this state naturally persists across navigation
+  // and naturally resets only on an actual fresh mount — i.e. a real page
+  // load / re-login — which is exactly what "next login" means here.
+  // `sessionStorage` would additionally survive an in-tab hard refresh
+  // with no real re-login (arguably not "next login"), and would need
+  // explicit clearing on logout to avoid suppressing the modal for a
+  // different user on a shared browser/tab. Plain state avoids both
+  // problems for free.
+  const [dismissedThisSession, setDismissedThisSession] = useState(false)
   const ackMutation = useAckChangelog()
+  // Only needed for `status` mode's opt-out refetch below, but hooks must
+  // run unconditionally on every render (see the `browse`-mode early return
+  // further down), so it's grabbed here alongside the other hooks.
+  const { refetchUser } = useAuth()
 
   const isBrowse = props.mode === 'browse'
   const browseOpen = isBrowse && props.open
@@ -128,12 +158,31 @@ export default function WhatsNewModal(props: WhatsNewModalProps) {
 
   // status mode: self-gated, non-blocking. No toast on fetch failure — a
   // failed background check should not interrupt the user (§3.11).
-  if (statusQuery.isError || !statusQuery.data?.show_changelog) return null
+  if (statusQuery.isError || dismissedThisSession || !statusQuery.data?.show_changelog) {
+    return null
+  }
 
   const entries = statusQuery.data.versions
 
   const dismiss = (action: ChangelogAckAction) => {
-    ackMutation.mutate({ action, opt_out: optOut })
+    // Close immediately (and stay closed for the rest of this session)
+    // rather than waiting on the mutation — see `dismissedThisSession`
+    // above for why this must not depend on the subsequent query refetch.
+    setDismissedThisSession(true)
+    // `ack` updates `user.changelog_opt_out` server-side whenever the
+    // checkbox was checked (any of the three dismiss paths). AuthContext's
+    // `user` is separate query state that `ack`'s own cache invalidation
+    // (`changelog-status`) does not touch, so without this the Appearance
+    // Settings toggle would show a stale value until a full reload — same
+    // fix AppearanceSettings.tsx already applies for its own opt-in/opt-out
+    // mutations. Scoped to `optOut` (not unconditional) because the user
+    // record only actually changes on that path; refetching on every plain
+    // dismiss would be a wasted request the common case doesn't need.
+    if (optOut) {
+      ackMutation.mutate({ action, opt_out: optOut }, { onSuccess: () => { void refetchUser() } })
+    } else {
+      ackMutation.mutate({ action, opt_out: optOut })
+    }
   }
 
   return (
