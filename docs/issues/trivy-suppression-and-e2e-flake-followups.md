@@ -54,23 +54,80 @@ cleanly suppressed under the renewed, non-expired entry.
 
 ## Issue 2: E2E Firefox Navigation-Race Flakiness Broader Than Known 3 Files
 
+**Status: Partially fixed.** See below for what landed and what's still open.
+
 Commit `7503c01a` fixed a Firefox/Playwright navigation-commit race by
-routing `reload()` calls through a `gotoTolerant()`-style helper, but only
-for `reload()` — `page.goto()` calls were left on the direct API and remain
-exposed to the same underlying timing issue. The fix's scope was believed
-to cover 3 previously-known flaky files
-(`user-management.spec.ts`, `theme-banner-userthemes.spec.ts`,
-`wait-helpers.spec.ts`). A full-suite local run during this QA pass
-(970 tests, `--project=firefox`) reproduced the same `page.goto()`
-90-second-timeout signature non-deterministically across many more files
-spanning unrelated feature areas (a11y, auth, certificates, CrowdSec,
+adding a `reloadTolerant()` sibling to the pre-existing `gotoTolerant()`
+helper in `tests/utils/wait-helpers.ts`, and applied both to
+`user-lifecycle.spec.ts`'s `navigateToLogin()`. `gotoTolerant()` itself
+already existed and was already in use in several files
+(`user-management.spec.ts`, `long-running-operations.spec.ts`,
+`wait-helpers.spec.ts`'s own tests). The gap: `theme-banner-userthemes.spec.ts`'s
+`goToAppearance()` helper (and its sibling `loginWithStoredState()`) still
+called raw, unprotected `page.goto()` — never wrapped. A full-suite local
+run during the QA pass (970 tests, `--project=firefox`) reproduced the same
+`page.goto()` timeout signature non-deterministically across many more
+files spanning unrelated feature areas (a11y, auth, certificates, CrowdSec,
 DNS providers, proxy groups/hosts, uptime monitoring, and others — see
 `docs/reports/qa_report.md` §1b for the full file list and the re-run that
-confirmed it's load-dependent, not tied to specific code paths). Follow-up:
-extend the `goto()` call sites to use the same tolerant-navigation helper
-already proven out for `reload()`.
+confirmed it's load-dependent, not tied to specific code paths).
+
+### Fixed (this pass)
+
+- `tests/theme-banner-userthemes.spec.ts`: `loginWithStoredState()` and the
+  inline `page.goto('/')` in the banner-persistence test now use
+  `gotoTolerant()`. `goToAppearance()` now uses `gotoTolerant()` for the
+  first navigation to `/settings/appearance`, but switches to
+  `reloadTolerant()` when the page is already on that URL — several tests
+  in this file call `goToAppearance()` a second time mid-test (e.g. to
+  refresh the theme list after creating a theme via the API), which is the
+  same "second goto() to a URL you're already on" race that `7503c01a`
+  originally fixed for `navigateToLogin()`'s reload, just manifesting here
+  via a helper instead of an inline call. Confirmed reproducible under
+  2-worker load before the fix (`deleting a user theme removes it from the
+  list` timed out waiting on the appearance page's radiogroup after a
+  same-URL `goto()`); 32/32 passed consistently across repeated runs after.
+- `tests/theme.spec.ts`: near-identical `loginWithStoredState()` /
+  `goToAppearance()` helpers (same file family, same underlying pattern,
+  not yet reported as flaky but structurally the same risk) updated the
+  same way. Its `goToAppearance()` is only ever called once per test here,
+  so no same-URL/reload case applies.
+- Validated: `theme-banner-userthemes.spec.ts`, `user-management.spec.ts`,
+  and `wait-helpers.spec.ts` together — all pass except the pre-existing,
+  separately-tracked `reloadTolerant` gap below. `theme.spec.ts` +
+  `theme-banner-userthemes.spec.ts` together — 32/32, repeatable.
+
+### Still open
+
+- `wait-helpers.spec.ts:386` (`reloadTolerant › should swallow a timeout
+  instead of throwing`) fails on a race variant `reloadTolerant()` doesn't
+  yet cover: Firefox can reject a same-URL `reload()` with
+  `NS_BINDING_ABORTED`, a message `isExpectedNavigationRace()` in
+  `wait-helpers.ts` doesn't currently match (it only checks for
+  `'Timeout'`, `'interrupted by another navigation'`, and
+  `'net::ERR_ABORTED'`). Needs its own fix to `isExpectedNavigationRace()`;
+  out of scope for this pass.
+- `user-management.spec.ts`'s `should show error for regular user access`
+  (already using `gotoTolerant()`) failed once in a full 184-test
+  `tests/settings/` run under 2-worker contention, but passed cleanly in an
+  isolated run — this is an authorization/rendering `expect.poll` race
+  unrelated to `page.goto()`/`page.reload()` at all, not something this
+  pass's fix touches.
+- The broader sweep (a11y, auth, certificates, CrowdSec, DNS providers,
+  proxy groups/hosts, uptime monitoring, etc. named in the original QA
+  report) is still untouched — this pass covered the two confirmed
+  `goToAppearance()`-family files only, per explicit scope. Remaining
+  `page.goto()` call sites (mostly one-off, per-test navigations rather
+  than shared helpers reused across many tests) are lower-leverage and
+  higher-risk to sweep in bulk; still open for a follow-up.
+- `whats-new-changelog.spec.ts` had 7 failures in the same
+  `tests/settings/` run (`waitForModal` never finding the "What's New"
+  dialog) — unrelated to navigation races and to this fix (the file was
+  not touched here); tracked separately as a changelog-feature issue, not
+  part of this E2E-flake follow-up.
 
 ## References
 
 - QA Report: `docs/reports/qa_report.md` (§1b "The other 27 failures", §6.3)
 - Prior partial fix: commit `7503c01a`
+- This pass's fix: commit (see git log for the `fix(e2e): extend gotoTolerant()...` commit on `feat/changelog`)

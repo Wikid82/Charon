@@ -15,6 +15,7 @@
 import { test, expect } from './fixtures/test';
 import { STORAGE_STATE } from './constants';
 import { existsSync } from 'fs';
+import { gotoTolerant } from './utils/wait-helpers';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -30,7 +31,11 @@ async function loginWithStoredState(page: import('@playwright/test').Page): Prom
   }
   // Storage state is set on the browser context by Playwright config (storageState).
   // Just navigate to the root and wait for the app to boot.
-  await page.goto('/');
+  // A raw page.goto() fired under a contended CI runner can race Firefox's
+  // navigation-commit event and hang until the test timeout instead of
+  // throwing (see 7503c01a / d537476f). gotoTolerant() tolerates the known
+  // race-condition errors; waitForLoadState below confirms the app settled.
+  await gotoTolerant(page, '/');
   await page.waitForLoadState('networkidle');
 }
 
@@ -38,7 +43,8 @@ async function loginWithStoredState(page: import('@playwright/test').Page): Prom
  * Navigate to the appearance settings page and wait for the gallery to render.
  */
 async function goToAppearance(page: import('@playwright/test').Page): Promise<void> {
-  await page.goto('/settings/appearance');
+  // Same Firefox navigation-commit race as loginWithStoredState above.
+  await gotoTolerant(page, '/settings/appearance');
   await page.waitForLoadState('networkidle');
   // Wait until the theme gallery radiogroup is visible
   await page.getByRole('radiogroup').waitFor({ state: 'visible', timeout: 15000 });
