@@ -126,14 +126,14 @@ confirmed it's load-dependent, not tied to specific code paths).
   not touched here); tracked separately as a changelog-feature issue, not
   part of this E2E-flake follow-up.
 
-## Issue 3: "Security Enforcement" CI Job Never Actually Runs `security-enforcement/`
+## Issue 3: "Security Enforcement" CI Job Never Actually Runs `security-enforcement/` — RESOLVED 2026-07-30
 
-**Status:** Open. **Discovered:** 2026-07-30, while validating the
+**Status: Resolved.** Discovered 2026-07-30, while validating the
 `createUserViaApi`/changelog-suppression fix below — unrelated to that fix,
 noted in passing and tracked here per the same "pre-existing, not part of
-this pass" convention as Issues 1-2.
+this pass" convention as Issues 1-2. Fixed in a dedicated pass the same day.
 
-`.github/workflows/e2e-tests-split.yml`'s "Security Enforcement" job invokes
+`.github/workflows/e2e-tests-split.yml`'s "Security Enforcement" job invoked
 `npx playwright test --project=chromium tests/security-enforcement/
 tests/security/ tests/integration/multi-feature-workflows.spec.ts`. But
 `playwright.config.js`'s `chromium` project has `testIgnore:
@@ -141,22 +141,94 @@ tests/security/ tests/integration/multi-feature-workflows.spec.ts`. But
 `firefox`/`webkit` projects) — those two directories are only ever collected
 by the dedicated `security-tests` project (Chromium-only, sequential,
 `workers: 1`, brings up CrowdSec/WAF via `security-shard-setup`), which the
-CI job never selects. Net effect: the job's `--project=chromium` invocation
-silently matches zero tests in `tests/security-enforcement/` and
-`tests/security/` and only ever actually runs
+CI job never selected. Net effect: the job's `--project=chromium` invocation
+silently matched zero tests in `tests/security-enforcement/` and
+`tests/security/` and only ever actually ran
 `multi-feature-workflows.spec.ts`, without erroring or reporting the other
 two paths as skipped/missing. Confirmed locally: `npx playwright test
 tests/security-enforcement/multi-component-security-workflows.spec.ts
 --project=chromium --list` → "Total: 0 tests in 0 files", while
-`--project=security-tests` collects and runs them normally.
+`--project=security-tests` collects and runs them normally. This affected
+all three per-browser security jobs (`e2e-chromium-security`,
+`e2e-firefox-security`, `e2e-webkit-security`), each with the analogous
+`--project=<browser>` invocation.
 
-Not fixed here — out of scope for the changelog-suppression fix that
-surfaced it. Likely fix shape: either change the CI job to
-`--project=security-tests` (and drop `tests/security/`/
-`multi-feature-workflows.spec.ts` from that invocation if they need the
-plain `chromium` project instead, since `security-tests` and `chromium`
-have different `use:` blocks/security-module setup), or split the job into
-two invocations — one per project.
+### Fix shape chosen
+
+Split each of the 3 jobs' single `npx playwright test` invocation into two,
+run sequentially in the same step (Option B from the two shapes originally
+sketched here) — kept the existing 3-job-per-browser topology (job count,
+`needs:` graph in `test-summary`/`e2e-results`, and `workflow_dispatch`
+browser-selection semantics all untouched) rather than consolidating into a
+single job, since `security-tests` is inherently Chromium-only regardless of
+which of the 3 jobs invokes it (its `use:` block hardcodes
+`devices['Desktop Chrome']` in `playwright.config.js`), so collapsing the
+job topology was a larger, separate structural change out of scope here:
+
+1. `--project=<browser>` (chromium/firefox/webkit, matching the job) on
+   `tests/integration/multi-feature-workflows.spec.ts` — **first**.
+2. `--project=security-tests` on `tests/security-enforcement/` +
+   `tests/security/` — **second**.
+
+Each invocation gets its own `PLAYWRIGHT_HTML_REPORT` and `--output`
+subdirectory so the second invocation's HTML report doesn't overwrite the
+first's before the "Upload HTML report" step runs.
+
+**Ordering matters and was not the first thing tried.** Running
+`security-tests` *before* the browser-project invocation (the natural
+reading order matching the job's own test-path list) was tried first and
+reproducibly broke the second invocation: `security-tests` includes
+`tests/security-enforcement/zzzz-break-glass-recovery.spec.ts`, which
+flips ACL/WAF/rate-limit modules on as part of testing enforcement, and the
+project's own teardown (`security-teardown` in `playwright.config.js`) only
+actually runs when `PLAYWRIGHT_SKIP_SECURITY_DEPS=0` — an env var this
+workflow doesn't set, so `security-teardown`'s `testMatch` resolves to `[]`
+and it never executes. Within a single job, both invocations share the same
+long-lived container, so the second invocation inherited whatever security
+state the first left behind. Reproduced locally: running `security-tests`
+first left the container rate-limiting its own `/api/v1/health`/`/api/v1/setup`
+endpoints, and the following `multi-feature-workflows.spec.ts` run failed
+its `auth.setup.ts` step with `GET /api/v1/setup failed with unexpected
+status 429`. Swapping the order — browser-project invocation first, while
+the container is still at its clean post-boot baseline, `security-tests`
+second — avoids the contamination entirely, verified below. (Real CI job
+runs are unaffected by cumulative state across *jobs* since each job starts
+a brand-new container; this was purely an intra-job, cross-invocation
+ordering hazard once both invocations started sharing one container.)
+
+### Verification (real re-run, not just syntax)
+
+`actionlint .github/workflows/e2e-tests-split.yml` — clean.
+
+Reproduced the fixed job's actual environment locally: brought up
+`.docker/compose/docker-compose.playwright-ci.yml` with `--profile
+security-tests` (same CrowdSec/WAF setup the job already had, on a fresh
+`charon:local` image built from this branch, port-remapped via a
+git-ignored local override to avoid colliding with an unrelated Charon
+instance already running on the host — no such conflict exists on GitHub's
+ephemeral runners), waited for the health check exactly as the job does,
+then ran the fixed job's exact two `npx playwright test` invocations
+in order, back-to-back, on one freshly-started container (earlier attempts
+that reused the same container across several manual runs in the same
+session hit an unrelated, session-only rate-limit accumulation artifact —
+not present on a fresh container, and not something a real CI job's
+single-pass, fresh-per-job execution would ever hit):
+
+- `--project=chromium tests/integration/multi-feature-workflows.spec.ts`:
+  **15/15 passed** (39.9s) — matches the prior documented baseline exactly.
+- `--project=security-tests tests/security-enforcement/ tests/security/`:
+  now genuinely collects and runs (was 0 before the fix) — **407 passed, 21
+  failed, 3 flaky, 4 did not run, out of 435 total** (34.9m). Consistent
+  with the earlier manual `--project=security-tests` verification pass
+  referenced in this doc's intro (409/435 baseline) — same failing test
+  files/categories (`audit-logs`, `crowdsec-first-enable`, `rate-limiting`,
+  `security-headers`, `acl-waf-layering`, `auth-middleware-cascade`,
+  `multi-component-security-workflows`, `encryption-management`), zero
+  changelog/`whats-new`-related failures.
+
+Files touched: `.github/workflows/e2e-tests-split.yml` only (all 3 security
+jobs' "Run ... Security Enforcement Tests" steps). `playwright.config.js`
+was not modified — the fix stays entirely in the CI invocation layer.
 
 ## References
 
