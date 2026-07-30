@@ -207,6 +207,70 @@ describe('WhatsNewModal', () => {
       expect(screen.queryByRole('link', { name: 'whatsNew.viewCommit' })).not.toBeInTheDocument()
     })
 
+    describe('regression: null group fields must not crash the modal', () => {
+      // The backend can serialize a nil Go slice as JSON `null` (rather than
+      // omitting the key or sending `[]`), and hand-edited local dev fixture
+      // data can omit a group key outright. Confirms the modal treats a
+      // `null` group the same as an empty array instead of throwing on
+      // `.length`.
+
+      it('renders without throwing and omits the group when `security` is null', () => {
+        const entry: ChangelogEntry = { ...entryWithEverything, security: null }
+        setStatusData({ show_changelog: true, versions: [entry] })
+
+        expect(() => render(<WhatsNewModal mode="status" />)).not.toThrow()
+        expect(screen.queryByText('whatsNew.security')).not.toBeInTheDocument()
+        // Sibling groups still render normally.
+        expect(screen.getByText('whatsNew.newFeatures')).toBeInTheDocument()
+      })
+
+      it('renders without throwing and omits the group when `features` is null', () => {
+        const entry: ChangelogEntry = { ...entryWithEverything, features: null }
+        setStatusData({ show_changelog: true, versions: [entry] })
+
+        expect(() => render(<WhatsNewModal mode="status" />)).not.toThrow()
+        expect(screen.queryByText('whatsNew.newFeatures')).not.toBeInTheDocument()
+        expect(screen.getByText('whatsNew.fixes')).toBeInTheDocument()
+      })
+
+      it('renders without throwing and omits the group when `fixes` is null', () => {
+        const entry: ChangelogEntry = { ...entryWithEverything, fixes: null }
+        setStatusData({ show_changelog: true, versions: [entry] })
+
+        expect(() => render(<WhatsNewModal mode="status" />)).not.toThrow()
+        expect(screen.queryByText('whatsNew.fixes')).not.toBeInTheDocument()
+        expect(screen.getByText('whatsNew.newFeatures')).toBeInTheDocument()
+      })
+
+      it('renders without throwing and omits the disclosure when `other` is null', () => {
+        const entry: ChangelogEntry = { ...entryWithEverything, other: null }
+        setStatusData({ show_changelog: true, versions: [entry] })
+
+        expect(() => render(<WhatsNewModal mode="status" />)).not.toThrow()
+        expect(screen.queryByText('whatsNew.showMaintenanceDetails')).not.toBeInTheDocument()
+        expect(screen.getByText('whatsNew.newFeatures')).toBeInTheDocument()
+      })
+
+      it('renders without throwing when all four group fields are null', () => {
+        const entry: ChangelogEntry = {
+          version: '1.4.0',
+          date: '2026-07-25',
+          features: null,
+          fixes: null,
+          other: null,
+          security: null,
+        }
+        setStatusData({ show_changelog: true, versions: [entry] })
+
+        expect(() => render(<WhatsNewModal mode="status" />)).not.toThrow()
+        expect(screen.getByText('1.4.0')).toBeInTheDocument()
+        expect(screen.queryByText('whatsNew.newFeatures')).not.toBeInTheDocument()
+        expect(screen.queryByText('whatsNew.fixes')).not.toBeInTheDocument()
+        expect(screen.queryByText('whatsNew.security')).not.toBeInTheDocument()
+        expect(screen.queryByText('whatsNew.showMaintenanceDetails')).not.toBeInTheDocument()
+      })
+    })
+
     it('"Remind Me Next Time" sends dismiss_temporary with opt_out=false by default', async () => {
       const user = userEvent.setup()
       setStatusData({ show_changelog: true, versions: [entryWithEverything] })

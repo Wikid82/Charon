@@ -42,6 +42,18 @@ interface ChangelogEntrySectionProps {
 }
 
 function ChangelogEntrySection({ entry, t }: ChangelogEntrySectionProps) {
+  // Defensive hardening: the four group fields are typed as nullable (see
+  // `ChangelogEntry` in `api/changelog.ts`) because the backend can
+  // legitimately serialize a nil slice as JSON `null`, and hand-edited local
+  // dev fixture data can omit a key outright. The API contract guarantees
+  // these are populated arrays in practice, but this fallback keeps a
+  // contract drift (or a stale/hand-edited fixture) from crashing the
+  // modal — a null group is simply treated as empty and omitted.
+  const features = entry.features ?? []
+  const fixes = entry.fixes ?? []
+  const security = entry.security ?? []
+  const other = entry.other ?? []
+
   return (
     <section className="space-y-3" aria-label={entry.version}>
       <h3 className="text-base font-semibold text-content-primary">
@@ -49,37 +61,37 @@ function ChangelogEntrySection({ entry, t }: ChangelogEntrySectionProps) {
         <span className="ml-2 text-sm font-normal text-content-secondary">{entry.date}</span>
       </h3>
 
-      {entry.features.length > 0 && (
+      {features.length > 0 && (
         <div>
           <h4 className="mb-1 text-sm font-medium text-content-secondary">
             {t('whatsNew.newFeatures')}
           </h4>
           <ul className="list-inside list-disc space-y-1 text-sm text-content-primary">
-            {entry.features.map((feature) => (
+            {features.map((feature) => (
               <li key={feature}>{feature}</li>
             ))}
           </ul>
         </div>
       )}
 
-      {entry.fixes.length > 0 && (
+      {fixes.length > 0 && (
         <div>
           <h4 className="mb-1 text-sm font-medium text-content-secondary">{t('whatsNew.fixes')}</h4>
           <ul className="list-inside list-disc space-y-1 text-sm text-content-primary">
-            {entry.fixes.map((fix) => (
+            {fixes.map((fix) => (
               <li key={fix}>{fix}</li>
             ))}
           </ul>
         </div>
       )}
 
-      {entry.security.length > 0 && (
+      {security.length > 0 && (
         <div>
           <h4 className="mb-1 text-sm font-medium text-content-secondary">
             {t('whatsNew.security')}
           </h4>
           <ul className="list-inside list-disc space-y-1 text-sm text-content-primary">
-            {entry.security.map((item) => (
+            {security.map((item) => (
               <li key={item.sha}>
                 {item.summary}{' '}
                 <a
@@ -96,13 +108,13 @@ function ChangelogEntrySection({ entry, t }: ChangelogEntrySectionProps) {
         </div>
       )}
 
-      {entry.other.length > 0 && (
+      {other.length > 0 && (
         <details>
           <summary className="cursor-pointer text-sm font-medium text-content-secondary">
             {t('whatsNew.showMaintenanceDetails')}
           </summary>
           <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-content-secondary">
-            {entry.other.map((item) => (
+            {other.map((item) => (
               <li key={item}>{item}</li>
             ))}
           </ul>

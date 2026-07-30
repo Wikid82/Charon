@@ -6,14 +6,24 @@ export interface SecurityEntry {
   sha: string;
 }
 
-/** A single released version's categorized "What's New" content. */
+/**
+ * A single released version's categorized "What's New" content.
+ *
+ * The four group fields are typed as nullable (rather than always-present
+ * arrays) because the backend serializes a nil Go slice as JSON `null`
+ * (`encoding/json` only omits nil slices under an `omitempty` tag, which
+ * this field does not carry), and hand-edited local dev fixture data can
+ * omit a key outright. The API contract is that these are never `null` in
+ * practice (fixed at the source), but the type reflects what the wire
+ * format can actually produce so consumers can't silently assume otherwise.
+ */
 export interface ChangelogEntry {
   version: string;
   date: string;
-  features: string[];
-  fixes: string[];
-  other: string[];
-  security: SecurityEntry[];
+  features: string[] | null;
+  fixes: string[] | null;
+  other: string[] | null;
+  security: SecurityEntry[] | null;
 }
 
 /** Response shape for GET /changelog/status. */
