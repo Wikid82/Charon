@@ -388,14 +388,24 @@ export const test = base.extend<AuthFixtures>({
   /**
    * Regular user (non-admin) fixture
    * Use for testing permission restrictions
+   *
+   * NOTE: `suppressChangelog: false` is deliberate — this is the only
+   * fixture `tests/settings/whats-new-changelog.spec.ts` uses, and that
+   * spec needs a freshly-created user who is still eligible to see the
+   * "What's New" modal (`TestDataManager.createUser`'s default
+   * auto-suppression would otherwise opt every new user out on creation).
+   * Every other fixture in this file keeps the default suppression.
    */
   regularUser: async ({ testData }, use) => {
-    const user = await testData.createUser({
-      name: `Test User ${Date.now()}`,
-      email: `user-${Date.now()}@test.local`,
-      password: TEST_PASSWORD,
-      role: 'user',
-    });
+    const user = await testData.createUser(
+      {
+        name: `Test User ${Date.now()}`,
+        email: `user-${Date.now()}@test.local`,
+        password: TEST_PASSWORD,
+        role: 'user',
+      },
+      { suppressChangelog: false }
+    );
     await use({
       ...user,
       role: 'user',
