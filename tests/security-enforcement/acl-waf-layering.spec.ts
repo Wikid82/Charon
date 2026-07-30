@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 
+import { waitForLoadingComplete } from '../utils/wait-helpers';
+
 /**
  * Integration: ACL & WAF Layering (Defense in Depth)
  *
@@ -23,7 +25,14 @@ test.describe('ACL & WAF Layering', () => {
 
   test.beforeEach(async ({ page }) => {
     await page.goto('/', { waitUntil: 'networkidle' });
-    await page.waitForSelector('[role="main"]', { timeout: 5000 });
+    // These tests bring up real ACL/WAF middleware, which is slower to
+    // settle than a plain page load - a flat 5s waitForSelector was too
+    // tight under real CrowdSec/WAF runtime conditions. Use the repo's
+    // condition-based loading wait (matches
+    // multi-component-security-workflows.spec.ts's beforeEach pattern)
+    // before asserting on the main landmark.
+    await waitForLoadingComplete(page, { timeout: 15000 });
+    await expect(page.getByRole('main')).toBeVisible({ timeout: 15000 });
   });
 
   test.afterEach(async ({ page }) => {

@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 
+import { waitForLoadingComplete } from '../utils/wait-helpers';
+
 /**
  * Integration: Authentication Middleware Cascade
  *
@@ -17,7 +19,14 @@ test.describe('Auth Middleware Cascade', () => {
 
   test.beforeEach(async ({ page }) => {
     await page.goto('/', { waitUntil: 'networkidle' });
-    await page.waitForSelector('[role="main"]', { timeout: 5000 });
+    // These tests exercise the full auth/ACL/WAF/rate-limit middleware
+    // cascade, which is slower to settle than a plain page load - a flat
+    // 5s waitForSelector was too tight under real CrowdSec/WAF runtime
+    // conditions. Use the repo's condition-based loading wait (matches
+    // multi-component-security-workflows.spec.ts's beforeEach pattern)
+    // before asserting on the main landmark.
+    await waitForLoadingComplete(page, { timeout: 15000 });
+    await expect(page.getByRole('main')).toBeVisible({ timeout: 15000 });
   });
 
   test.afterEach(async ({ page }) => {
@@ -109,6 +118,7 @@ test.describe('Auth Middleware Cascade', () => {
         `http://127.0.0.1:8080/api/protected`,
         {
           headers: {
+            // nosemgrep: javascript.lang.hardcoded.headers.hardcoded-bearer-token.hardcoded-bearer-token -- publicly documented jwt.io example token used solely as a deliberately-invalid/expired fixture for this negative-path 401 test; not a real credential.
             'Authorization': `Bearer ${expiredToken}`,
           },
           ignoreHTTPSErrors: true,
