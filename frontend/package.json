@@ -114,7 +114,7 @@
       "eslint": "^10.8.0"
     },
     "@vitejs/plugin-react": {
-      "vite": "^8.1.5"
+      "vite": "^8.2.0"
     }
   },
   "allowScripts": {
