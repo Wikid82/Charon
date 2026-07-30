@@ -149,7 +149,7 @@ func (s *Service) GetEntriesSince(lastSeen string) []Entry {
 	var result []Entry
 	for _, e := range allEntries {
 		if lastSeen == "" || semver.Compare("v"+e.Version, "v"+lastSeen) > 0 {
-			result = append(result, e)
+			result = append(result, normalizeEntry(e))
 		}
 	}
 	sortNewestFirst(result)
@@ -160,9 +160,46 @@ func (s *Service) GetEntriesSince(lastSeen string) []Entry {
 // copy safe for callers to mutate.
 func (s *Service) GetAllEntries() []Entry {
 	result := make([]Entry, len(allEntries))
-	copy(result, allEntries)
+	for i, e := range allEntries {
+		result[i] = normalizeEntry(e)
+	}
 	sortNewestFirst(result)
 	return result
+}
+
+// normalizeEntry returns a copy of e with every array field
+// (Features/Fixes/Other/Security) guaranteed non-nil.
+//
+// The embedded data/changelog.json is always generator-produced
+// (scripts/generate-changelog.sh's jq program builds these via `map`,
+// which yields `[]` rather than omitting the key even for zero matches),
+// so in practice the real release pipeline never triggers this. But
+// data/changelog.json's committed placeholder is deliberately
+// hand-editable for local "What's New" UI iteration (see this file's
+// package doc and the SetEntriesForTesting doc comment), and a
+// hand-edited entry that omits an array key entirely leaves the
+// corresponding Go field at its json.Unmarshal zero value: nil. A nil
+// slice marshals to JSON `null`, but every one of these fields is typed
+// on the frontend as always being an array (e.g. WhatsNewModal.tsx does
+// `entry.security.length`) — returning `null` for any of them is an API
+// contract violation that crashes the client. This is the single choke
+// point both GetEntriesSince and GetAllEntries pass every Entry through
+// before returning, regardless of whether it originated from the
+// embedded init() parse or a test's SetEntriesForTesting override.
+func normalizeEntry(e Entry) Entry {
+	if e.Features == nil {
+		e.Features = []string{}
+	}
+	if e.Fixes == nil {
+		e.Fixes = []string{}
+	}
+	if e.Other == nil {
+		e.Other = []string{}
+	}
+	if e.Security == nil {
+		e.Security = []SecurityEntry{}
+	}
+	return e
 }
 
 func sortNewestFirst(entries []Entry) {

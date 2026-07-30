@@ -265,3 +265,81 @@ func TestEntry_JSONUnmarshaling_ParsesSecurityArray(t *testing.T) {
 
 	assert.Empty(t, entries[1].Security, "an entry with no security-scoped commits must parse to an empty slice")
 }
+
+// entryOmittingArrayKeys is the same JSON shape a hand-edited
+// data/changelog.json could plausibly take during local "What's New" UI
+// iteration (see this file's package doc): a real entry that predates
+// the security category, or was just typed by hand, omitting the
+// features/fixes/other/security keys entirely rather than including them
+// as `[]`. json.Unmarshal leaves an omitted field at its zero value —
+// nil for a slice — which is the exact condition that used to crash the
+// frontend (`entry.security.length` on a `null` value) once re-marshaled
+// into an API response.
+const entryOmittingArrayKeys = `[{"version":"1.5.0","date":"2026-07-01"}]`
+
+// TestGetEntriesSince_NormalizesNilArrayFields is the regression test for
+// that crash: it proves GetEntriesSince never lets a nil array field
+// (Features/Fixes/Other/Security) reach the API response as JSON `null`.
+// It asserts against the actual marshaled JSON string, not just Go-level
+// `!= nil`, because a subtly wrong normalization (e.g. normalizing the
+// wrong field, or a copy that doesn't stick) would still pass a `!= nil`
+// check on some other value while the real response stayed broken.
+func TestGetEntriesSince_NormalizesNilArrayFields(t *testing.T) {
+	svc := NewService("2.0.0")
+
+	var entries []Entry
+	require.NoError(t, json.Unmarshal([]byte(entryOmittingArrayKeys), &entries))
+	require.Len(t, entries, 1)
+	require.Nil(t, entries[0].Security, "sanity: unmarshal must leave an omitted key nil, not empty")
+	require.Nil(t, entries[0].Features, "sanity: unmarshal must leave an omitted key nil, not empty")
+	require.Nil(t, entries[0].Fixes, "sanity: unmarshal must leave an omitted key nil, not empty")
+	require.Nil(t, entries[0].Other, "sanity: unmarshal must leave an omitted key nil, not empty")
+
+	setEntriesForTest(t, entries)
+
+	result := svc.GetEntriesSince("")
+	require.Len(t, result, 1)
+
+	data, err := json.Marshal(result)
+	require.NoError(t, err)
+	body := string(data)
+
+	assert.NotContains(t, body, `"security":null`)
+	assert.NotContains(t, body, `"features":null`)
+	assert.NotContains(t, body, `"fixes":null`)
+	assert.NotContains(t, body, `"other":null`)
+	assert.Contains(t, body, `"security":[]`)
+	assert.Contains(t, body, `"features":[]`)
+	assert.Contains(t, body, `"fixes":[]`)
+	assert.Contains(t, body, `"other":[]`)
+}
+
+// TestGetAllEntries_NormalizesNilArrayFields is GetAllEntries's half of
+// the same regression coverage — the Settings "revisit" browse mode goes
+// through this method instead of GetEntriesSince, so it needs its own
+// choke-point proof rather than relying on GetEntriesSince's.
+func TestGetAllEntries_NormalizesNilArrayFields(t *testing.T) {
+	svc := NewService("2.0.0")
+
+	var entries []Entry
+	require.NoError(t, json.Unmarshal([]byte(entryOmittingArrayKeys), &entries))
+	require.Len(t, entries, 1)
+
+	setEntriesForTest(t, entries)
+
+	result := svc.GetAllEntries()
+	require.Len(t, result, 1)
+
+	data, err := json.Marshal(result)
+	require.NoError(t, err)
+	body := string(data)
+
+	assert.NotContains(t, body, `"security":null`)
+	assert.NotContains(t, body, `"features":null`)
+	assert.NotContains(t, body, `"fixes":null`)
+	assert.NotContains(t, body, `"other":null`)
+	assert.Contains(t, body, `"security":[]`)
+	assert.Contains(t, body, `"features":[]`)
+	assert.Contains(t, body, `"fixes":[]`)
+	assert.Contains(t, body, `"other":[]`)
+}
