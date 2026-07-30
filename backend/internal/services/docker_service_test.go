@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -450,6 +451,25 @@ func TestListContainers_ContainerMappingEdgeCases(t *testing.T) {
 	assert.Equal(t, "xyz098", containers[3].ID)
 	assert.Equal(t, "host", containers[3].Network)
 	assert.Equal(t, "", containers[3].IP, "IP must be empty when IPAddress is the zero value")
+}
+
+// TestListContainers_EmptyResultIsNotNil guards against a nil Go slice being
+// marshaled as JSON `null` when the Docker daemon reports zero containers —
+// the frontend expects `[]` and crashes on `null`.
+func TestListContainers_EmptyResultIsNotNil(t *testing.T) {
+	svc := &DockerService{
+		client:    newContainerListClient(t, "[]"),
+		initErr:   nil,
+		localHost: "tcp://localhost:2375",
+	}
+	containers, err := svc.ListContainers(context.Background(), "")
+	require.NoError(t, err)
+	require.NotNil(t, containers)
+	assert.Len(t, containers, 0)
+
+	body, err := json.Marshal(containers)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("[]"), body, "empty container list must marshal to JSON [], not null")
 }
 
 func TestNewDockerService_IgnoresNonUnixDockerHost(t *testing.T) {
