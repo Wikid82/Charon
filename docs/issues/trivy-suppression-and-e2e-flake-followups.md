@@ -126,8 +126,41 @@ confirmed it's load-dependent, not tied to specific code paths).
   not touched here); tracked separately as a changelog-feature issue, not
   part of this E2E-flake follow-up.
 
+## Issue 3: "Security Enforcement" CI Job Never Actually Runs `security-enforcement/`
+
+**Status:** Open. **Discovered:** 2026-07-30, while validating the
+`createUserViaApi`/changelog-suppression fix below — unrelated to that fix,
+noted in passing and tracked here per the same "pre-existing, not part of
+this pass" convention as Issues 1-2.
+
+`.github/workflows/e2e-tests-split.yml`'s "Security Enforcement" job invokes
+`npx playwright test --project=chromium tests/security-enforcement/
+tests/security/ tests/integration/multi-feature-workflows.spec.ts`. But
+`playwright.config.js`'s `chromium` project has `testIgnore:
+['**/security-enforcement/**', '**/tests/security/**']` (mirrored on the
+`firefox`/`webkit` projects) — those two directories are only ever collected
+by the dedicated `security-tests` project (Chromium-only, sequential,
+`workers: 1`, brings up CrowdSec/WAF via `security-shard-setup`), which the
+CI job never selects. Net effect: the job's `--project=chromium` invocation
+silently matches zero tests in `tests/security-enforcement/` and
+`tests/security/` and only ever actually runs
+`multi-feature-workflows.spec.ts`, without erroring or reporting the other
+two paths as skipped/missing. Confirmed locally: `npx playwright test
+tests/security-enforcement/multi-component-security-workflows.spec.ts
+--project=chromium --list` → "Total: 0 tests in 0 files", while
+`--project=security-tests` collects and runs them normally.
+
+Not fixed here — out of scope for the changelog-suppression fix that
+surfaced it. Likely fix shape: either change the CI job to
+`--project=security-tests` (and drop `tests/security/`/
+`multi-feature-workflows.spec.ts` from that invocation if they need the
+plain `chromium` project instead, since `security-tests` and `chromium`
+have different `use:` blocks/security-module setup), or split the job into
+two invocations — one per project.
+
 ## References
 
 - QA Report: `docs/reports/qa_report.md` (§1b "The other 27 failures", §6.3)
 - Prior partial fix: commit `7503c01a`
 - This pass's fix: commit (see git log for the `fix(e2e): extend gotoTolerant()...` commit on `feat/changelog`)
+- Issue 3: `.github/workflows/e2e-tests-split.yml` "Security Enforcement" job vs. `playwright.config.js` project `testIgnore`/`testMatch` config

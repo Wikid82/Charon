@@ -1,5 +1,6 @@
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
+import { suppressChangelogModal } from '../utils/api-helpers';
 
 async function resetSecurityState(page: import('@playwright/test').Page): Promise<void> {
   const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN;
@@ -57,6 +58,12 @@ async function createUserViaApi(
     id: expect.anything(),
     email: user.email,
   }));
+
+  // Ad-hoc users created directly via this raw API call (bypassing the
+  // shared TestDataManager pool) get the real production changelog
+  // defaults, so they're eligible for the blocking "What's New" modal on
+  // first login — see suppressChangelogModal's doc comment.
+  await suppressChangelogModal(page, user.email, user.password);
 
   return { id: payload.id, email: payload.email };
 }

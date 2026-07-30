@@ -21,7 +21,7 @@
  * ```
  */
 
-import { APIRequestContext, APIResponse } from '@playwright/test';
+import { APIRequestContext, APIResponse, request as playwrightRequest, type Page } from '@playwright/test';
 import { readFileSync } from 'fs';
 import { STORAGE_STATE } from '../constants';
 
@@ -207,6 +207,71 @@ export async function authenticateViaAPI(
   });
 
   return parseResponse<AuthResponse>(response);
+}
+
+/**
+ * Suppress the "What's New" changelog modal for a throwaway user created
+ * directly via `POST /api/v1/users` (e.g. an ad-hoc `createUserViaApi`
+ * helper), outside the shared `TestDataManager`-managed user pool.
+ *
+ * New users get the real production defaults — `changelog_opt_out: false`
+ * and (on E2E's unversioned "dev" build) `last_seen_version: ""` — so they
+ * are eligible to see the blocking "What's New" dialog (see
+ * `WhatsNewModal.tsx`) the moment they're logged into and the UI is
+ * interacted with. `TestDataManager.createUser()` already guards against
+ * this for the shared pool by opting new users out via the self-service
+ * `/api/v1/changelog/ack` endpoint immediately after creation; this helper
+ * mirrors that exact mechanism for specs that bypass the pool.
+ *
+ * Logs in as the new user through an **isolated** request context rather
+ * than `page.request` / the caller's admin session — `POST /auth/login`
+ * sets a same-origin `auth_token` cookie, and reusing the caller's request
+ * context (which shares cookies with `page`) would silently swap the
+ * browser's authenticated session out from under the admin flow the
+ * calling test is otherwise driving.
+ *
+ * Best-effort: a failure here must not fail the calling test — worst case
+ * the modal appears for this throwaway user.
+ */
+export async function suppressChangelogModal(
+  page: Page,
+  email: string,
+  password: string
+): Promise<void> {
+  let baseURL: string;
+  try {
+    baseURL = new URL(page.url()).origin;
+  } catch {
+    baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
+  }
+
+  const loginContext = await playwrightRequest.newContext({
+    baseURL,
+    extraHTTPHeaders: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+  });
+
+  try {
+    const auth = await authenticateViaAPI(loginContext, email, password).catch(() => null);
+    if (!auth?.token) {
+      console.warn(`Failed to suppress changelog modal for ${email}: login failed`);
+      return;
+    }
+
+    const ackResponse = await loginContext.post('/api/v1/changelog/ack', {
+      headers: { Authorization: `Bearer ${auth.token}` },
+      data: { action: 'dismiss_permanent', opt_out: true },
+    });
+    if (!ackResponse.ok()) {
+      console.warn(`Failed to suppress changelog modal for ${email}: ${ackResponse.status()}`);
+    }
+  } catch (error) {
+    console.warn(`Failed to suppress changelog modal for ${email}:`, error);
+  } finally {
+    await loginContext.dispose();
+  }
 }
 
 /**
