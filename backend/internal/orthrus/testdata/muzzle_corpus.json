@@ -1,0 +1,175 @@
+[
+  {
+    "description": "read-only allowlist regression: GET /_ping always allowed",
+    "method": "GET",
+    "path": "/_ping",
+    "agent_write_enabled": false,
+    "want_allowed": true
+  },
+  {
+    "description": "read-only allowlist regression: GET /containers/json always allowed",
+    "method": "GET",
+    "path": "/containers/json",
+    "agent_write_enabled": false,
+    "want_allowed": true
+  },
+  {
+    "description": "read-only allowlist regression: GET /containers/json still allowed with write mode on",
+    "method": "GET",
+    "path": "/containers/json",
+    "agent_write_enabled": true,
+    "want_allowed": true
+  },
+  {
+    "description": "read-only allowlist regression: namespaced image inspect allowed",
+    "method": "GET",
+    "path": "/images/ghcr.io/org/repo/json",
+    "agent_write_enabled": false,
+    "want_allowed": true
+  },
+  {
+    "description": "write endpoint blocked when write mode off: POST /containers/create",
+    "method": "POST",
+    "path": "/containers/create",
+    "body": { "Image": "nginx:latest" },
+    "agent_write_enabled": false,
+    "want_allowed": false
+  },
+  {
+    "description": "write mode allowed: POST /containers/create with a HostConfig body that was rejected outright before the full-access redesign (Privileged + CapAdd + NetworkMode host, combined)",
+    "method": "POST",
+    "path": "/containers/create",
+    "body": {
+      "Image": "nginx:latest",
+      "HostConfig": { "Privileged": true, "CapAdd": ["SYS_ADMIN"], "NetworkMode": "host" }
+    },
+    "agent_write_enabled": true,
+    "want_allowed": true
+  },
+  {
+    "description": "write endpoint blocked when write mode off: POST /images/create",
+    "method": "POST",
+    "path": "/images/create?fromImage=nginx&tag=latest",
+    "agent_write_enabled": false,
+    "want_allowed": false
+  },
+  {
+    "description": "write mode allowed: POST /images/create",
+    "method": "POST",
+    "path": "/images/create?fromImage=nginx&tag=latest",
+    "agent_write_enabled": true,
+    "want_allowed": true
+  },
+  {
+    "description": "write mode allowed: POST /containers/{id}/start",
+    "method": "POST",
+    "path": "/containers/abc123/start",
+    "agent_write_enabled": true,
+    "want_allowed": true
+  },
+  {
+    "description": "write endpoint blocked when write mode off: POST /containers/{id}/start",
+    "method": "POST",
+    "path": "/containers/abc123/start",
+    "agent_write_enabled": false,
+    "want_allowed": false
+  },
+  {
+    "description": "write mode allowed: POST /containers/{id}/rename",
+    "method": "POST",
+    "path": "/containers/abc123/rename?name=myapp_old",
+    "agent_write_enabled": true,
+    "want_allowed": true
+  },
+  {
+    "description": "write endpoint blocked when write mode off: POST /containers/{id}/rename",
+    "method": "POST",
+    "path": "/containers/abc123/rename?name=myapp_old",
+    "agent_write_enabled": false,
+    "want_allowed": false
+  },
+  {
+    "description": "write mode allowed: DELETE /containers/{id}",
+    "method": "DELETE",
+    "path": "/containers/abc123",
+    "agent_write_enabled": true,
+    "want_allowed": true
+  },
+  {
+    "description": "write endpoint blocked when write mode off: DELETE /containers/{id}",
+    "method": "DELETE",
+    "path": "/containers/abc123",
+    "agent_write_enabled": false,
+    "want_allowed": false
+  },
+  {
+    "description": "write mode allowed: /containers/{id}/exec (permanently blocked under the old fixed-endpoint model; full access under the current operator-consent model)",
+    "method": "POST",
+    "path": "/containers/abc123/exec",
+    "agent_write_enabled": true,
+    "want_allowed": true
+  },
+  {
+    "description": "write mode allowed: image delete (permanently blocked under the old fixed-endpoint model)",
+    "method": "DELETE",
+    "path": "/images/nginx",
+    "agent_write_enabled": true,
+    "want_allowed": true
+  },
+  {
+    "description": "write mode allowed: system prune (permanently blocked under the old fixed-endpoint model)",
+    "method": "POST",
+    "path": "/system/prune",
+    "agent_write_enabled": true,
+    "want_allowed": true
+  },
+  {
+    "description": "read-only mode still blocks /exec, image delete, and system prune",
+    "method": "POST",
+    "path": "/exec/abc123/start",
+    "agent_write_enabled": false,
+    "want_allowed": false
+  },
+  {
+    "description": "traversal-disguised version prefix on namespaced image inspect (GH #1160's own example)",
+    "method": "GET",
+    "path": "/foo/../v1.44/images/x/json",
+    "agent_write_enabled": false,
+    "want_allowed": false
+  },
+  {
+    "description": "non-numeric fake version prefix on a plain read path",
+    "method": "GET",
+    "path": "/vFOO/containers/json",
+    "agent_write_enabled": false,
+    "want_allowed": false
+  },
+  {
+    "description": "non-numeric fake version prefix on /_ping via HEAD",
+    "method": "HEAD",
+    "path": "/vBOGUS/_ping",
+    "agent_write_enabled": false,
+    "want_allowed": false
+  },
+  {
+    "description": "version-prefixed traversal that legitimately resolves to an allowed path",
+    "method": "GET",
+    "path": "/v1.47/../containers/json",
+    "agent_write_enabled": false,
+    "want_allowed": true
+  },
+  {
+    "description": "traversal escaping to a disallowed path",
+    "method": "GET",
+    "path": "/containers/../../etc/passwd",
+    "agent_write_enabled": false,
+    "want_allowed": false
+  },
+  {
+    "description": "double-slash with legitimate version prefix",
+    "method": "GET",
+    "path": "/v1.44//containers/json",
+    "agent_write_enabled": false,
+    "want_allowed": true
+  }
+]

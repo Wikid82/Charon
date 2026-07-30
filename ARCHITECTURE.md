@@ -1323,7 +1323,7 @@ go test ./integration/...
 
 ### Pre-Commit Checks
 
-**Automated Hooks (via `.pre-commit-config.yaml`):**
+**Automated Hooks (via `lefthook.yml`):**
 
 **Fast Stage (< 5 seconds):**
 
@@ -1332,10 +1332,21 @@ go test ./integration/...
 - YAML syntax check
 - JSON syntax check
 - Markdown link validation
+- `go vet` and golangci-lint (fast config), run separately for `backend/`
+  and `agent/` (`go-vet` / `go-vet-agent`, both glob-scoped to their
+  respective module directory) — `agent/` is a standalone Go module (see
+  "Orthrus Agent" below) and gets the same enforcement `backend/` does, via
+  a shared root-level `.golangci-fast.yml` config
+- `scripts/ci/check_muzzle_allowlist_parity.go`: a structural (AST-based)
+  guard that fails the commit if the Docker API allowlist declarations in
+  `backend/internal/orthrus/muzzle.go` and `agent/muzzle/muzzle.go` (the two
+  independently-maintained copies described in "Orthrus" below) diverge —
+  glob-scoped to those two files
 
 **Manual Stage (run explicitly):**
 
 - Backend coverage tests (60-90s)
+- Agent coverage tests (`scripts/agent-test-coverage.sh`)
 - Frontend coverage tests (30-60s)
 - TypeScript type checking (10-20s)
 
@@ -1358,7 +1369,11 @@ go test ./integration/...
 2. **Test:** Go tests, Vitest, Playwright
 3. **Security:** Trivy, CodeQL, Grype, Govulncheck
 4. **Build:** Docker image build
-5. **Coverage:** Upload to Codecov (85% gate)
+5. **Coverage:** Upload to Codecov (85% gate) — `backend`, `frontend`, and
+   `agent` each upload under a distinct Codecov flag
+   (`.github/workflows/codecov-upload.yml`); `quality-checks.yml` runs a
+   matching `agent-quality` job (go vet, lint, coverage gate) unconditionally
+   on every PR, not only PRs that touch `agent/**`
 6. **Supply Chain:** SBOM generation, Cosign signing
 
 ---

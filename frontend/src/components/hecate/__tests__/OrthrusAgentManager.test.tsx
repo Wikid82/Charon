@@ -47,6 +47,23 @@ vi.mock('../AgentExternalProxyDialog', () => ({
     ) : null,
 }));
 
+vi.mock('../AgentWriteModeDialog', () => ({
+  AgentWriteModeDialog: ({
+    open,
+    onClose,
+    agent,
+  }: {
+    open: boolean;
+    onClose: () => void;
+    agent: { name: string };
+  }) =>
+    open ? (
+      <div data-testid="write-mode-dialog" aria-label={`write-mode-dialog-${agent.name}`}>
+        <button onClick={onClose}>CloseWriteMode</button>
+      </div>
+    ) : null,
+}));
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, string>) =>
@@ -65,6 +82,7 @@ const agentWithProvider = {
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
   external_proxy_port: 0,
+  write_enabled: false,
 };
 
 const agentWithoutProvider = {
@@ -78,6 +96,7 @@ const agentWithoutProvider = {
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
   external_proxy_port: 0,
+  write_enabled: false,
 };
 
 const agentWithDeviceIdOnly = {
@@ -91,6 +110,7 @@ const agentWithDeviceIdOnly = {
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
   external_proxy_port: 0,
+  write_enabled: false,
 };
 
 const agentTunnelOnly = {
@@ -104,6 +124,7 @@ const agentTunnelOnly = {
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
   external_proxy_port: 0,
+  write_enabled: false,
 };
 
 function renderManager(agents: OrthrusAgent[]) {
@@ -401,6 +422,48 @@ describe('OrthrusAgentManager', () => {
 
     await waitFor(() =>
       expect(screen.queryByTestId('proxy-dialog')).not.toBeInTheDocument(),
+    );
+  });
+
+  it('WRITE badge appears in agent row when write_enabled is true', () => {
+    renderManager([{ ...agentWithProvider, write_enabled: true }]);
+    expect(screen.getByText('WRITE', { exact: true })).toBeInTheDocument();
+  });
+
+  it('WRITE badge absent when write_enabled is false', () => {
+    renderManager([agentWithProvider]);
+    expect(screen.queryByText('WRITE', { exact: true })).not.toBeInTheDocument();
+  });
+
+  it('clicking write-mode button opens AgentWriteModeDialog', async () => {
+    renderManager([agentWithProvider]);
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: `hecate.agentManager.writeMode:${agentWithProvider.name}`,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('write-mode-dialog')).toBeInTheDocument();
+    });
+  });
+
+  it('write-mode dialog onClose clears writeModeAgent', async () => {
+    renderManager([agentWithProvider]);
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: `hecate.agentManager.writeMode:${agentWithProvider.name}`,
+      }),
+    );
+
+    await waitFor(() => screen.getByTestId('write-mode-dialog'));
+
+    fireEvent.click(screen.getByText('CloseWriteMode'));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('write-mode-dialog')).not.toBeInTheDocument(),
     );
   });
 });

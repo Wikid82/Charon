@@ -70,7 +70,7 @@ written under the session's `/tmp/claude-*` scratch path (snap filesystem confin
 environment/tooling quirk, not a code issue — no image-scan gate was skipped, just re-routed around a local
 sandboxing restriction. Scratch tarball was deleted after the scan.
 
----
+### Finding 2 — LOW (process) — Agent coverage gate has almost no margin
 
 ## Findings
 

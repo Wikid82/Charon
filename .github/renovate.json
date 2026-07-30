@@ -13,6 +13,7 @@
     "npmDedupe",
     "gomodTidy"
   ],
+  "skipInstalls": false,
   "timezone": "America/New_York",
   "dependencyDashboard": true,
   "dependencyDashboardApproval": true,

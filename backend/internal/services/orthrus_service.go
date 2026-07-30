@@ -81,7 +81,15 @@ func (s *OrthrusService) Get(uuid string) (*models.OrthrusAgent, error) {
 }
 
 // Patch applies a partial update to an agent. Only non-nil fields are written.
-func (s *OrthrusService) Patch(uuid string, name, hecateTunnelUUID, deviceID, resolvedAddress *string, externalProxyPort *int) (*models.OrthrusAgent, error) {
+//
+// writeEnabled has no range validation (unlike externalProxyPort) since a
+// bool has no invalid values; the audit entry for this specific field is
+// emitted by the caller (OrthrusHandler.Patch), not here, matching this
+// codebase's existing convention of logging admin-initiated audit events at
+// the handler layer (see e.g. security_handler.go, crowdsec_handler.go)
+// rather than growing OrthrusService's dependencies to include
+// *services.SecurityService and a *gin.Context-derived actor.
+func (s *OrthrusService) Patch(uuid string, name, hecateTunnelUUID, deviceID, resolvedAddress *string, externalProxyPort *int, writeEnabled *bool) (*models.OrthrusAgent, error) {
 	updates := map[string]interface{}{}
 	if name != nil {
 		trimmed := strings.TrimSpace(*name)
@@ -106,6 +114,9 @@ func (s *OrthrusService) Patch(uuid string, name, hecateTunnelUUID, deviceID, re
 		}
 		updates["external_proxy_port"] = port
 	}
+	if writeEnabled != nil {
+		updates["write_enabled"] = *writeEnabled
+	}
 	if len(updates) == 0 {
 		return s.Get(uuid)
 	}
@@ -117,7 +128,7 @@ func (s *OrthrusService) Patch(uuid string, name, hecateTunnelUUID, deviceID, re
 
 // Rename updates the display name of an agent (backward-compat wrapper around Patch).
 func (s *OrthrusService) Rename(uuid, newName string) (*models.OrthrusAgent, error) {
-	return s.Patch(uuid, &newName, nil, nil, nil, nil)
+	return s.Patch(uuid, &newName, nil, nil, nil, nil, nil)
 }
 
 // Delete removes an agent from the database (does not revoke/disconnect first).

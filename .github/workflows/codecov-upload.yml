@@ -17,6 +17,11 @@ on:
         required: false
         default: true
         type: boolean
+      run_agent:
+        description: 'Run agent coverage upload'
+        required: false
+        default: true
+        type: boolean
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -24,7 +29,7 @@ concurrency:
 
 env:
   GO_VERSION: '1.26.5'
-  NODE_VERSION: '24.18.0'
+  NODE_VERSION: '24.18.1'
   GOTOOLCHAIN: local
 
 permissions:
@@ -127,7 +132,17 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Install gotestsum
-        run: go install gotest.tools/gotestsum@v1.13.0
+        run: |
+          for attempt in 1 2 3; do
+            go install gotest.tools/gotestsum@v1.13.0 && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in $((attempt * 15))s..." >&2
+              sleep $((attempt * 15))
+            else
+              echo "ERROR: go install gotest.tools/gotestsum failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Run Go tests with coverage
         working-directory: ${{ github.workspace }}
@@ -188,4 +203,50 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           directory: ./frontend/coverage
           flags: frontend
+          fail_ci_if_error: true
+
+  agent-codecov:
+    name: Agent Codecov Upload
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_agent }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+
+      # No "Resolve encryption key" step: agent has no encryption-key
+      # bootstrapping (consistent with quality-checks.yml's agent-quality
+      # job) — agent's tests don't touch CHARON_ENCRYPTION_KEY_TEST.
+      # No CGO_ENABLED: 1 either: agent/'s Docker image builds with
+      # CGO_ENABLED=0 (FROM scratch), so there is no cgo dependency here.
+
+      - name: Run Go tests with coverage
+        working-directory: ${{ github.workspace }}
+        run: |
+          bash scripts/agent-test-coverage.sh 2>&1 | tee agent/test-output.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: Upload test output artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-test-output
+          path: agent/test-output.txt
+          retention-days: 7
+
+      - name: Upload agent coverage to Codecov
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./agent/coverage.txt
+          flags: agent
           fail_ci_if_error: true

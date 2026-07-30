@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -17,6 +18,12 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 )
+
+// stubAuditLogger is a minimal AuditLogger for tests that only need to
+// verify wiring, not audit-log content.
+type stubAuditLogger struct{}
+
+func (stubAuditLogger) LogAudit(*models.SecurityAudit) error { return nil }
 
 func setupServerTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
@@ -57,6 +64,45 @@ func TestOrthrusServer_GetProxyAddr_UnknownUUID(t *testing.T) {
 	addr, ok := srv.GetProxyAddr("nonexistent-uuid")
 	assert.Equal(t, "", addr)
 	assert.False(t, ok)
+}
+
+// TestOrthrusServer_SetAuditLogger_RegistersNoGlobalMiddleware guards the
+// invariant the Shard-4 reload-hang RCA (docs/reports/qa_report.md) relied
+// on when ruling out this PR's audit-logging/rate-limiting additions as the
+// cause of unrelated /login, /users, /proxy-hosts hangs: OrthrusServer has
+// no reference to a *gin.Engine at all, so wiring an AuditLogger via
+// SetAuditLogger cannot register global Gin middleware or routes, no matter
+// how the audit logger itself is implemented.
+func TestOrthrusServer_SetAuditLogger_RegistersNoGlobalMiddleware(t *testing.T) {
+	// Structural check: OrthrusServer must not hold a *gin.Engine, gin.IRouter,
+	// or gin.HandlerFunc field. If one is ever added, this test fails loudly
+	// rather than silently allowing a future SetAuditLogger-style method to
+	// start registering global middleware.
+	engineType := reflect.TypeOf((*gin.Engine)(nil))
+	routerType := reflect.TypeOf((*gin.IRouter)(nil)).Elem()
+	handlerFuncType := reflect.TypeOf(gin.HandlerFunc(nil))
+
+	srvType := reflect.TypeOf(OrthrusServer{})
+	for i := 0; i < srvType.NumField(); i++ {
+		field := srvType.Field(i)
+		assert.NotEqual(t, engineType, field.Type, "OrthrusServer.%s must not hold a *gin.Engine", field.Name)
+		assert.False(t, field.Type.Implements(routerType), "OrthrusServer.%s must not implement gin.IRouter", field.Name)
+		assert.NotEqual(t, handlerFuncType, field.Type, "OrthrusServer.%s must not hold a gin.HandlerFunc", field.Name)
+	}
+
+	// Behavioral check: constructing a fresh gin.Engine, then wiring an
+	// audit logger, must leave the engine's registered routes untouched.
+	engine := gin.New()
+	routesBefore := len(engine.Routes())
+
+	db := setupServerTestDB(t)
+	srv, err := NewOrthrusServer(db, setupTestCA(t))
+	require.NoError(t, err)
+
+	srv.SetAuditLogger(stubAuditLogger{})
+
+	assert.Equal(t, routesBefore, len(engine.Routes()),
+		"SetAuditLogger must not register any route/middleware on an unrelated gin.Engine")
 }
 
 func TestOrthrusServer_GetSession_UnknownUUID(t *testing.T) {
@@ -217,7 +263,7 @@ func TestWatchHeartbeat_StaleGoroutine_DoesNotEvictNewSession(t *testing.T) {
 	// goroutine is still running after a newer session has replaced it.
 	conn1, done1 := testWSPair(t)
 	defer done1()
-	sess1, err := NewAgentSession(agentUUID, "race-agent", conn1)
+	sess1, err := NewAgentSession(agentUUID, "race-agent", false, nil, conn1)
 	require.NoError(t, err)
 	require.NoError(t, sess1.Close())
 	require.False(t, sess1.IsAlive())
@@ -225,7 +271,7 @@ func TestWatchHeartbeat_StaleGoroutine_DoesNotEvictNewSession(t *testing.T) {
 	// sess2: alive — represents the current (newer) reconnect stored in the map.
 	conn2, done2 := testWSPair(t)
 	defer done2()
-	sess2, err := NewAgentSession(agentUUID, "race-agent", conn2)
+	sess2, err := NewAgentSession(agentUUID, "race-agent", false, nil, conn2)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = sess2.Close() })
 	srv.sessions.Store(agentUUID, sess2)
@@ -277,7 +323,7 @@ func TestWatchHeartbeat_CurrentSession_MarksOfflineAndEvictsFromMap(t *testing.T
 	conn, wsCleanup := testWSPair(t)
 	defer wsCleanup()
 
-	sess, err := NewAgentSession(agentUUID, "current-agent", conn)
+	sess, err := NewAgentSession(agentUUID, "current-agent", false, nil, conn)
 	require.NoError(t, err)
 	require.NoError(t, sess.Close())
 	require.False(t, sess.IsAlive())
