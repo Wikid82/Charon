@@ -195,14 +195,21 @@ test.describe('Encryption Management', () => {
      * Priority: P1
      */
     test('should cancel rotation from dialog', async ({ page }) => {
+      // Rotation is only available when a "next" encryption key is
+      // configured (see `rotationDisabled` in
+      // frontend/src/pages/EncryptionManagement.tsx). This check must run
+      // — and skip via `test.skip()` — *before* any `test.step()`, not
+      // inside one: a bare `return` inside a `test.step()` callback only
+      // exits that step's own async function, it does NOT skip the test's
+      // later `test.step()` calls (previously the code assumed it did).
+      // With the button legitimately `disabled`, the subsequent steps'
+      // unconditional `.click()` calls on the button and never-opened
+      // dialog each hung for the full test timeout retrying actionability.
+      const rotateButton = page.getByTestId('rotate-key-btn');
+      const isEnabled = await rotateButton.isEnabled().catch(() => false);
+      test.skip(!isEnabled, 'Rotation disabled: next key not configured');
+
       await test.step('Open rotation confirmation dialog', async () => {
-        const rotateButton = page.getByTestId('rotate-key-btn');
-        const isEnabled = await rotateButton.isEnabled().catch(() => false);
-
-        if (!isEnabled) {
-
-        }
-
         await rotateButton.click();
         await expect(page.getByRole('dialog')).toBeVisible({ timeout: 3000 });
       });
@@ -232,15 +239,13 @@ test.describe('Encryption Management', () => {
      * or mock the API in test environment.
      */
     test('should execute key rotation', async ({ page }) => {
-      await test.step('Check if rotation is available', async () => {
-        const rotateButton = page.getByTestId('rotate-key-btn');
-        const isEnabled = await rotateButton.isEnabled().catch(() => false);
-
-        if (!isEnabled) {
-          // Next key not configured - return
-          return;
-        }
-      });
+      // See the comment in 'should cancel rotation from dialog' above: this
+      // precondition check must gate the whole test via `test.skip()`
+      // before any `test.step()`, since a `return` inside a step callback
+      // does not skip subsequent steps.
+      const rotateButtonCheck = page.getByTestId('rotate-key-btn');
+      const rotationAvailable = await rotateButtonCheck.isEnabled().catch(() => false);
+      test.skip(!rotationAvailable, 'Rotation disabled: next key not configured');
 
       await test.step('Open rotation confirmation dialog', async () => {
         const rotateButton = page.getByTestId('rotate-key-btn');
@@ -274,14 +279,13 @@ test.describe('Encryption Management', () => {
      * Priority: P1
      */
     test('should show rotation progress', async ({ page }) => {
-      await test.step('Check if rotation is available', async () => {
-        const rotateButton = page.getByTestId('rotate-key-btn');
-        const isEnabled = await rotateButton.isEnabled().catch(() => false);
-
-        if (!isEnabled) {
-          return;
-        }
-      });
+      // See the comment in 'should cancel rotation from dialog' above: this
+      // precondition check must gate the whole test via `test.skip()`
+      // before any `test.step()`, since a `return` inside a step callback
+      // does not skip subsequent steps.
+      const rotateButtonCheck = page.getByTestId('rotate-key-btn');
+      const rotationAvailable = await rotateButtonCheck.isEnabled().catch(() => false);
+      test.skip(!rotationAvailable, 'Rotation disabled: next key not configured');
 
       await test.step('Start rotation and observe progress', async () => {
         const rotateButton = page.getByTestId('rotate-key-btn');

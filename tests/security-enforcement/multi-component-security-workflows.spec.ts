@@ -42,6 +42,33 @@ function uniqueSuffix(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 }
 
+/**
+ * Resolve the Caddy reverse-proxy origin for a page.
+ *
+ * `page.url()`'s origin is the Charon *management* interface (default
+ * port 8080) — per ARCHITECTURE.md ("Management Interface (Port 8080)":
+ * "NO Cerberus Middleware: Rate limiting, ACL, WAF, and CrowdSec are NOT
+ * applied to management interface") that origin never runs WAF/ACL/rate
+ * limiting/CrowdSec, and its `/` route unconditionally serves the SPA's
+ * `index.html` regardless of query string, so a request built from it can
+ * never be blocked no matter what payload is sent. Requests that exercise
+ * Cerberus enforcement (WAF, rate limiting, etc.) for a *proxied host* must
+ * instead target the Caddy proxy port (80/443 — "Port 80/443 (Proxy)" in
+ * ARCHITECTURE.md), with the proxied domain in the `Host` header so Caddy
+ * routes to the right upstream and runs its security middleware chain.
+ *
+ * Defaults to port 80 (matches `docker-compose.playwright-ci.yml`'s
+ * `security-tests` profile, which maps host port 80 -> container port 80
+ * on the same host as `PLAYWRIGHT_BASE_URL`). Overridable via
+ * `PLAYWRIGHT_CADDY_PROXY_PORT` for local investigation setups that remap
+ * the host port to avoid colliding with another Caddy/Charon instance.
+ */
+function caddyProxyOrigin(page: import('@playwright/test').Page): string {
+  const managementUrl = new URL(page.url());
+  const proxyPort = process.env.PLAYWRIGHT_CADDY_PROXY_PORT || '80';
+  return `${managementUrl.protocol}//${managementUrl.hostname}:${proxyPort}`;
+}
+
 async function createUserViaApi(
   page: import('@playwright/test').Page,
   user: { email: string; name: string; password: string; role: 'admin' | 'user' | 'guest' }
@@ -192,7 +219,7 @@ test.describe('Multi-Component Security Workflows', () => {
     });
 
     await test.step('Send malicious request to proxy with WAF', async () => {
-      const origin = new URL(page.url()).origin;
+      const origin = caddyProxyOrigin(page);
       const response = await page.request.get(
         `${origin}/?id=1' OR '1'='1`,
         {
@@ -205,7 +232,7 @@ test.describe('Multi-Component Security Workflows', () => {
     });
 
     await test.step('Send legitimate request (allowed)', async () => {
-      const origin = new URL(page.url()).origin;
+      const origin = caddyProxyOrigin(page);
       const response = await page.request.get(
         `${origin}/api/v1/health`,
         {
