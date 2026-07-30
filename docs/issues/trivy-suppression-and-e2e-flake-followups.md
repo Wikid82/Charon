@@ -236,3 +236,4 @@ was not modified — the fix stays entirely in the CI invocation layer.
 - Prior partial fix: commit `7503c01a`
 - This pass's fix: commit (see git log for the `fix(e2e): extend gotoTolerant()...` commit on `feat/changelog`)
 - Issue 3: `.github/workflows/e2e-tests-split.yml` "Security Enforcement" job vs. `playwright.config.js` project `testIgnore`/`testMatch` config
+- Issue 3's fix: commit `8d797328`
