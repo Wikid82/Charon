@@ -52,7 +52,7 @@
     "react-router": "^8.3.0",
     "recharts": "^3.10.1",
     "tailwind-merge": "^3.6.0",
-    "tldts": "^7.4.9"
+    "tldts": "^7.4.10"
   },
   "devDependencies": {
     "@eslint/css": "^1.4.0",
@@ -67,8 +67,8 @@
     "@testing-library/user-event": "^14.6.1",
     "@types/eslint-plugin-jsx-a11y": "6.10.0",
     "@types/node": "^26.1.2",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
     "@typescript-eslint/eslint-plugin": "^8.65.0",
     "@typescript-eslint/parser": "^8.65.0",
     "@typescript-eslint/utils": "^8.65.0",
