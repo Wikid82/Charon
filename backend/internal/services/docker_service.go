@@ -294,7 +294,16 @@ func isDockerConnectivityError(err error) bool {
 	msg := strings.ToLower(err.Error())
 	if strings.Contains(msg, "cannot connect to the docker daemon") ||
 		strings.Contains(msg, "is the docker daemon running") ||
-		strings.Contains(msg, "error during connect") {
+		strings.Contains(msg, "error during connect") ||
+		// "permission denied while trying to connect to the docker api" matches
+		// the message produced by github.com/moby/moby/client@v0.5.1's
+		// doRequest() (request.go:168-172) for os.ErrPermission (EACCES/EPERM
+		// connecting to the Docker socket). That code path's fmt.Errorf call
+		// does not reference the original syscall error at all (only cli.host,
+		// via %v) — so unlike other syscall-wrapped errors handled below, the
+		// underlying errno is permanently unrecoverable from this error's chain
+		// and can only be matched by message text.
+		strings.Contains(msg, "permission denied while trying to connect to the docker api") {
 		return true
 	}
 
@@ -392,7 +401,17 @@ func buildLocalDockerUnavailableDetails(err error, localHost string) string {
 		groupsStr = strings.Join(groupValues, ",")
 	}
 
-	if errno, ok := extractErrno(err); ok {
+	errno, ok := extractErrno(err)
+	if !ok && strings.Contains(strings.ToLower(err.Error()), "permission denied while trying to connect to the docker api") {
+		// Same moby v0.5.1 message-shape gap as isDockerConnectivityError
+		// above: the underlying errno is unrecoverable from this error's
+		// chain, so extractErrno() can never find it here either. Treat the
+		// message match as EACCES so this case gets the same actionable
+		// group-hint guidance as a directly-reachable EACCES/EPERM, instead
+		// of silently falling through to the generic message below.
+		errno, ok = syscall.EACCES, true
+	}
+	if ok {
 		switch errno {
 		case syscall.ENOENT:
 			return fmt.Sprintf("Local Docker socket not found at %s (local host selector uses %s). Mount %s as read-only or read-write.", socketPath, localHost, socketPath)

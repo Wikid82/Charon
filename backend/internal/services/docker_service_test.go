@@ -100,6 +100,7 @@ func TestIsDockerConnectivityError(t *testing.T) {
 		{"permission denied - EACCES", syscall.EACCES, true},
 		{"permission denied - EPERM", syscall.EPERM, true},
 		{"no entry - ENOENT", syscall.ENOENT, true},
+		{"moby permission-denied message, no errno in chain", errors.New("permission denied while trying to connect to the docker API at unix:///var/run/docker.sock"), true},
 		{"random error", errors.New("random error"), false},
 		{"empty error", errors.New(""), false},
 	}
@@ -607,6 +608,61 @@ func TestDockerService_ListContainers_RemoteConnectivityError(t *testing.T) {
 	require.Error(t, err)
 	var unavailErr *DockerUnavailableError
 	assert.ErrorAs(t, err, &unavailErr)
+}
+
+// ===== Permission-denied classification gap (moby/moby/client@v0.5.1) =====
+
+// mobyErrConnectionFailed mirrors moby/moby/client@v0.5.1's unexported
+// errConnectionFailed type (errors.go:14-26): it embeds an error and
+// forwards Unwrap() to it. Used to faithfully reproduce the exact wrapped
+// shape produced by request.go:168-172's os.ErrPermission branch, which
+// never references the original syscall error (only cli.host via %v) —
+// so the errno is unreachable via errors.As, and only message-text
+// matching can classify it.
+type mobyErrConnectionFailed struct {
+	error
+}
+
+func (e mobyErrConnectionFailed) Unwrap() error { return e.error }
+
+func TestIsDockerConnectivityError_MobyPermissionDeniedMessageShape(t *testing.T) {
+	err := mobyErrConnectionFailed{fmt.Errorf("permission denied while trying to connect to the docker API at %v", "unix:///var/run/docker.sock")}
+
+	var errno syscall.Errno
+	assert.False(t, errors.As(err, &errno), "sanity check: the errno must NOT be reachable in this error shape")
+
+	assert.True(t, isDockerConnectivityError(err), "moby v0.5.1's permission-denied message shape must be classified as a connectivity error")
+}
+
+func TestDockerService_ListContainers_LocalPermissionDeniedMessageShape(t *testing.T) {
+	// Reproduces the real moby v0.5.1 permission-denied path end-to-end
+	// through the actual, unmodified pinned client — not a hand-rolled fake
+	// error. A real-filesystem chmod-000 approach would silently no-op in CI
+	// when tests run as root (root bypasses Linux DAC checks), so instead we
+	// inject os.ErrPermission at the dial layer via WithDialContext, which is
+	// deterministic and independent of the test process's OS user.
+	cli, err := client.New(
+		client.WithHost("unix:///nonexistent/charon-unit-test-perm.sock"),
+		client.WithAPIVersion("1.43"),
+		client.WithDialContext(func(_ context.Context, _, _ string) (net.Conn, error) {
+			return nil, os.ErrPermission
+		}),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cli.Close() })
+
+	svc := &DockerService{
+		client:    cli,
+		initErr:   nil,
+		localHost: "unix:///nonexistent/charon-unit-test-perm.sock",
+	}
+	_, listErr := svc.ListContainers(context.Background(), "")
+	require.Error(t, listErr)
+
+	var unavailErr *DockerUnavailableError
+	require.ErrorAs(t, listErr, &unavailErr, "must classify as DockerUnavailableError, not fall through to the generic 500 path")
+	assert.NotEmpty(t, unavailErr.Details())
+	assert.Contains(t, unavailErr.Details(), "not accessible", "must reuse the existing local-permissions guidance")
 }
 
 // ===== Bounded ListContainers timeout (DockerTimeoutError) =====
