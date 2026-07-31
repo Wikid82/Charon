@@ -36,6 +36,7 @@ vi.mock('../../hooks/useDocker', () => ({
       }
     ],
     isLoading: false,
+    isRefetching: false,
     error: null,
     refetch: vi.fn(),
   })),
@@ -477,6 +478,7 @@ describe('ProxyHostForm', () => {
           }
         ],
         isLoading: false,
+        isRefetching: false,
         error: null,
         refetch: vi.fn(),
       })
@@ -1431,6 +1433,7 @@ describe('ProxyHostForm', () => {
           },
         ],
         isLoading: false,
+        isRefetching: false,
         error: null,
         refetch: vi.fn(),
       })
@@ -1476,6 +1479,7 @@ describe('ProxyHostForm', () => {
           },
         ],
         isLoading: false,
+        isRefetching: false,
         error: null,
         refetch: vi.fn(),
       })
@@ -1608,11 +1612,13 @@ describe('ProxyHostForm', () => {
   describe('Docker Connection Failed troubleshooting', () => {
     it('renders supplemental group guidance when docker error is present', async () => {
       const { useDocker } = await import('../../hooks/useDocker')
+      const mockRefetch = vi.fn()
       vi.mocked(useDocker).mockReturnValue({
         containers: [],
         isLoading: false,
+        isRefetching: false,
         error: new Error('Docker socket permission denied'),
-        refetch: vi.fn(),
+        refetch: mockRefetch,
       })
 
       await renderWithClientAct(
@@ -1630,6 +1636,35 @@ describe('ProxyHostForm', () => {
       expect(screen.getByText(/Docker socket group/)).toBeInTheDocument()
       expect(screen.getByText('group_add')).toBeInTheDocument()
       expect(screen.getByText('--group-add')).toBeInTheDocument()
+
+      // Retry button lets the user re-fetch without navigating away and back
+      const retryButton = screen.getByRole('button', { name: /retry/i })
+      await userEvent.click(retryButton)
+      expect(mockRefetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows a spinning, disabled retry button while refetching', async () => {
+      const { useDocker } = await import('../../hooks/useDocker')
+      vi.mocked(useDocker).mockReturnValue({
+        containers: [],
+        isLoading: false,
+        isRefetching: true,
+        error: new Error('Docker socket permission denied'),
+        refetch: vi.fn(),
+      })
+
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      await selectComboboxOption('Source', 'Local (Docker Socket)')
+
+      await waitFor(() => {
+        expect(screen.getByText('Docker Connection Failed')).toBeInTheDocument()
+      })
+
+      const retryButton = screen.getByRole('button', { name: /retrying/i })
+      expect(retryButton).toBeDisabled()
     })
   })
 })

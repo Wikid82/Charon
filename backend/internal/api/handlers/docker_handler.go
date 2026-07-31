@@ -102,6 +102,16 @@ func (h *DockerHandler) ListContainers(c *gin.Context) {
 
 	containers, err := h.dockerService.ListContainers(c.Request.Context(), host)
 	if err != nil {
+		var timeoutErr *services.DockerTimeoutError
+		if errors.As(err, &timeoutErr) {
+			log.WithFields(map[string]any{"server_id": util.SanitizeForLog(serverID), "host": util.SanitizeForLog(host), "error": util.SanitizeForLog(err.Error())}).Warn("docker daemon responded slowly (bounded timeout fired)")
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error":   "Docker daemon is responding slowly",
+				"details": timeoutErr.Details(),
+			})
+			return
+		}
+
 		var unavailableErr *services.DockerUnavailableError
 		if errors.As(err, &unavailableErr) {
 			details := unavailableErr.Details()

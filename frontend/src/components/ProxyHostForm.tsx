@@ -1,4 +1,4 @@
-import { CircleHelp, AlertCircle, Check, X, Loader2, Copy, Info, AlertTriangle } from 'lucide-react'
+import { CircleHelp, AlertCircle, Check, X, Loader2, Copy, Info, AlertTriangle, RefreshCw } from 'lucide-react'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { toast } from 'react-hot-toast'
 import { parse } from 'tldts'
@@ -389,7 +389,13 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
   const [connectionSource, setConnectionSource] = useState<'local' | 'custom' | string>('custom')
 
-  const { containers: dockerContainers, isLoading: dockerLoading, error: dockerError } = useDocker(
+  const {
+    containers: dockerContainers,
+    isLoading: dockerLoading,
+    error: dockerError,
+    refetch: refetchDockerContainers,
+    isRefetching: dockerRefetching,
+  } = useDocker(
     connectionSource === 'local' ? 'local' : undefined,
     connectionSource !== 'local' && connectionSource !== 'custom' ? connectionSource : undefined
   )
@@ -790,8 +796,19 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 <div className="mt-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
                   <div className="flex items-start gap-2">
                     <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                    <div className="text-xs text-red-300">
-                      <p className="font-semibold mb-1">Docker Connection Failed</p>
+                    <div className="text-xs text-red-300 flex-1">
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <p className="font-semibold">Docker Connection Failed</p>
+                        <button
+                          type="button"
+                          onClick={() => refetchDockerContainers()}
+                          disabled={dockerRefetching}
+                          className="shrink-0 flex items-center gap-1 text-xs font-medium text-red-300 hover:text-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <RefreshCw className={`w-3 h-3 ${dockerRefetching ? 'animate-spin' : ''}`} />
+                          {dockerRefetching ? 'Retrying...' : 'Retry'}
+                        </button>
+                      </div>
                       <p className="text-red-400/90 mb-2">
                         {(dockerError as Error).message}
                       </p>

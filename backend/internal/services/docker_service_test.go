@@ -15,6 +15,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/assert"
@@ -99,6 +100,7 @@ func TestIsDockerConnectivityError(t *testing.T) {
 		{"permission denied - EACCES", syscall.EACCES, true},
 		{"permission denied - EPERM", syscall.EPERM, true},
 		{"no entry - ENOENT", syscall.ENOENT, true},
+		{"moby permission-denied message, no errno in chain", errors.New("permission denied while trying to connect to the docker API at unix:///var/run/docker.sock"), true},
 		{"random error", errors.New("random error"), false},
 		{"empty error", errors.New(""), false},
 	}
@@ -606,4 +608,173 @@ func TestDockerService_ListContainers_RemoteConnectivityError(t *testing.T) {
 	require.Error(t, err)
 	var unavailErr *DockerUnavailableError
 	assert.ErrorAs(t, err, &unavailErr)
+}
+
+// ===== Permission-denied classification gap (moby/moby/client@v0.5.1) =====
+
+// mobyErrConnectionFailed mirrors moby/moby/client@v0.5.1's unexported
+// errConnectionFailed type (errors.go:14-26): it embeds an error and
+// forwards Unwrap() to it. Used to faithfully reproduce the exact wrapped
+// shape produced by request.go:168-172's os.ErrPermission branch, which
+// never references the original syscall error (only cli.host via %v) —
+// so the errno is unreachable via errors.As, and only message-text
+// matching can classify it.
+type mobyErrConnectionFailed struct {
+	error
+}
+
+func (e mobyErrConnectionFailed) Unwrap() error { return e.error }
+
+func TestIsDockerConnectivityError_MobyPermissionDeniedMessageShape(t *testing.T) {
+	err := mobyErrConnectionFailed{fmt.Errorf("permission denied while trying to connect to the docker API at %v", "unix:///var/run/docker.sock")}
+
+	var errno syscall.Errno
+	assert.False(t, errors.As(err, &errno), "sanity check: the errno must NOT be reachable in this error shape")
+
+	assert.True(t, isDockerConnectivityError(err), "moby v0.5.1's permission-denied message shape must be classified as a connectivity error")
+}
+
+func TestDockerService_ListContainers_LocalPermissionDeniedMessageShape(t *testing.T) {
+	// Reproduces the real moby v0.5.1 permission-denied path end-to-end
+	// through the actual, unmodified pinned client — not a hand-rolled fake
+	// error. A real-filesystem chmod-000 approach would silently no-op in CI
+	// when tests run as root (root bypasses Linux DAC checks), so instead we
+	// inject os.ErrPermission at the dial layer via WithDialContext, which is
+	// deterministic and independent of the test process's OS user.
+	cli, err := client.New(
+		client.WithHost("unix:///nonexistent/charon-unit-test-perm.sock"),
+		client.WithAPIVersion("1.43"),
+		client.WithDialContext(func(_ context.Context, _, _ string) (net.Conn, error) {
+			return nil, os.ErrPermission
+		}),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cli.Close() })
+
+	svc := &DockerService{
+		client:    cli,
+		initErr:   nil,
+		localHost: "unix:///nonexistent/charon-unit-test-perm.sock",
+	}
+	_, listErr := svc.ListContainers(context.Background(), "")
+	require.Error(t, listErr)
+
+	var unavailErr *DockerUnavailableError
+	require.ErrorAs(t, listErr, &unavailErr, "must classify as DockerUnavailableError, not fall through to the generic 500 path")
+	assert.NotEmpty(t, unavailErr.Details())
+	assert.Contains(t, unavailErr.Details(), "not accessible", "must reuse the existing local-permissions guidance")
+}
+
+// ===== Bounded ListContainers timeout (DockerTimeoutError) =====
+
+func TestDockerTimeoutError_ErrorMethods(t *testing.T) {
+	baseErr := errors.New("context deadline exceeded")
+	err := NewDockerTimeoutError(baseErr, 8*time.Second)
+
+	assert.Contains(t, err.Error(), "timed out")
+	assert.Contains(t, err.Error(), "8s")
+
+	unwrapped := err.Unwrap()
+	assert.Equal(t, baseErr, unwrapped)
+
+	details := err.Details()
+	assert.Contains(t, details, "responding slowly")
+	assert.Contains(t, details, "8s")
+	assert.Contains(t, details, "try again")
+
+	var nilErr *DockerTimeoutError
+	assert.Equal(t, "docker request timed out", nilErr.Error())
+	assert.Nil(t, nilErr.Unwrap())
+	assert.Equal(t, "", nilErr.Details())
+
+	nilBaseErr := NewDockerTimeoutError(nil, 8*time.Second)
+	assert.Equal(t, "docker request timed out", nilBaseErr.Error())
+	assert.Nil(t, nilBaseErr.Unwrap())
+}
+
+func TestIsBoundedListTimeout(t *testing.T) {
+	healthyParent := context.Background()
+
+	canceledParent, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	expiredParent, cancelExpired := context.WithTimeout(context.Background(), 0)
+	defer cancelExpired()
+	<-expiredParent.Done()
+
+	// Table test using explicit listCtx values, since context.DeadlineExceeded
+	// as an err value and an actually-expired listCtx are the two signals the
+	// discriminator checks.
+	deadlineCtx, cancelDeadline := context.WithTimeout(context.Background(), 0)
+	defer cancelDeadline()
+	<-deadlineCtx.Done()
+
+	cases := []struct {
+		name     string
+		parent   context.Context
+		listCtx  context.Context
+		err      error
+		expected bool
+	}{
+		{"nil error", healthyParent, deadlineCtx, nil, false},
+		{"deadline exceeded, healthy parent", healthyParent, deadlineCtx, context.DeadlineExceeded, true},
+		{"deadline exceeded, canceled parent", canceledParent, deadlineCtx, context.DeadlineExceeded, false},
+		{"deadline exceeded, expired parent", expiredParent, deadlineCtx, context.DeadlineExceeded, false},
+		{"unrelated error, healthy parent", healthyParent, healthyParent, errors.New("boom"), false},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isBoundedListTimeout(tt.parent, tt.listCtx, tt.err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestDockerService_ListContainers_BoundedTimeoutFires(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done() // block until the client (moby SDK) cancels on timeout
+	}))
+	t.Cleanup(server.Close)
+	cli, err := client.New(
+		client.WithHost("tcp://"+server.Listener.Addr().String()),
+		client.WithAPIVersion("1.43"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cli.Close() })
+
+	svc := &DockerService{
+		client:                cli,
+		initErr:               nil,
+		localHost:             "tcp://" + server.Listener.Addr().String(),
+		listContainersTimeout: 50 * time.Millisecond,
+	}
+
+	start := time.Now()
+	_, listErr := svc.ListContainers(context.Background(), "")
+	elapsed := time.Since(start)
+
+	require.Error(t, listErr)
+	var timeoutErr *DockerTimeoutError
+	require.ErrorAs(t, listErr, &timeoutErr, "must classify as DockerTimeoutError")
+
+	var unavailErr *DockerUnavailableError
+	assert.False(t, errors.As(listErr, &unavailErr), "must NOT be misclassified as DockerUnavailableError")
+
+	assert.Contains(t, timeoutErr.Details(), "responding slowly")
+	assert.Less(t, elapsed, 2*time.Second, "must fail fast using the shrunk test timeout, not the 8s default")
+}
+
+func TestDockerService_ListContainers_DefaultTimeoutUsedWhenUnset(t *testing.T) {
+	svc := &DockerService{
+		client:    newContainerListClient(t, "[]"),
+		initErr:   nil,
+		localHost: "tcp://localhost:2375",
+		// listContainersTimeout left at zero value intentionally.
+	}
+	assert.Equal(t, time.Duration(0), svc.listContainersTimeout)
+
+	containers, err := svc.ListContainers(context.Background(), "")
+	require.NoError(t, err, "a fast-responding daemon must succeed well within the default timeout")
+	assert.NotNil(t, containers)
 }
