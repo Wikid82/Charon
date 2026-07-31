@@ -18,12 +18,12 @@
   "overrides": {
     "smol-toml": "^1.7.1",
     "js-yaml": "^4.3.0",
-    "markdown-it": "^14.3.0"
+    "markdown-it": "^15.0.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
     "@bgotink/playwright-coverage": "^0.3.2",
-    "@playwright/test": "^1.62.0",
+    "@playwright/test": "^1.62.1",
     "@types/eslint-plugin-jsx-a11y": "6.10.0",
     "@types/node": "^26.1.2",
     "audit-ci": "^7.1.0",
@@ -33,7 +33,7 @@
     "prettier-plugin-tailwindcss": "^0.8.1",
     "tar": "^7.5.22",
     "typescript": "^6.0.3",
-    "vite": "^8.1.5",
+    "vite": "^8.2.0",
     "vitest": "^4.1.10"
   }
 }

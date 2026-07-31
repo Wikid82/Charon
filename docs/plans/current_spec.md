@@ -4,7 +4,7 @@ Status: Ready for review
 Date: 2026-07-28
 Design source of truth: `docs/superpowers/specs/2026-07-28-whats-new-changelog-design.md` (Approved — all product decisions final; this plan does not re-litigate scope, only makes it buildable)
 
-## 1. Introduction
+When Charon's Docker integration connects successfully to a Docker daemon that currently has zero running containers, the "Add Proxy Host" page crashes with `Uncaught TypeError: can't access property "map", P is null` at `frontend/src/components/ProxyHostForm.tsx:781`. Root cause is two-sided:
 
 This plan turns the approved "What's New" changelog design into a concrete,
 file-by-file implementation. The feature adds a per-user, dismissible modal
