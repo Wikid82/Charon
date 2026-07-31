@@ -3,7 +3,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 import React from 'react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
-import { dockerApi } from '../../api/docker';
+import { dockerApi, type DockerContainer } from '../../api/docker';
 import { useDocker } from '../useDocker';
 
 vi.mock('../../api/docker', () => ({
@@ -95,6 +95,35 @@ describe('useDocker', () => {
     vi.mocked(dockerApi.listContainers).mockResolvedValue([]);
 
     const { result } = renderHook(() => useDocker('localhost'), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.containers).toEqual([]);
+  });
+
+  it('returns an empty array when the API resolves null', async () => {
+    vi.mocked(dockerApi.listContainers).mockResolvedValue(null as unknown as DockerContainer[]);
+
+    const { result } = renderHook(() => useDocker('192.168.1.100'), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.containers).toEqual([]);
+    expect(result.current.containers).toHaveLength(0);
+  });
+
+  it('returns an empty array when the API resolves an empty array', async () => {
+    vi.mocked(dockerApi.listContainers).mockResolvedValue([]);
+
+    const { result } = renderHook(() => useDocker('192.168.1.100'), {
       wrapper: createWrapper(),
     });
 

@@ -31,7 +31,7 @@ export function useDocker(host?: string | null, serverId?: string | null) {
   })
 
   return {
-    containers,
+    containers: containers ?? [],
     isLoading,
     error,
     refetch,

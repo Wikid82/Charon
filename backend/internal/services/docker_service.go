@@ -142,7 +142,7 @@ func (s *DockerService) ListContainers(ctx context.Context, host string) ([]Dock
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
 
-	var result []DockerContainer
+	result := make([]DockerContainer, 0)
 	for _, c := range containers.Items {
 		// Get the first network's IP address if available
 		networkName := ""
