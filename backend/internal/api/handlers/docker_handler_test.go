@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/orthrus"
@@ -78,6 +79,29 @@ func TestDockerHandler_ListContainers_DockerUnavailableMappedTo503(t *testing.T)
 	// Verify the new details field is included in the response
 	assert.Contains(t, w.Body.String(), "details")
 	assert.Contains(t, w.Body.String(), "not accessible by current process")
+}
+
+func TestDockerHandler_ListContainers_TimeoutMappedTo503(t *testing.T) {
+	router := gin.New()
+
+	dockerSvc := &fakeDockerService{err: services.NewDockerTimeoutError(errors.New("context deadline exceeded"), 8*time.Second)}
+	remoteSvc := &fakeRemoteServerService{}
+	h := NewDockerHandler(dockerSvc, remoteSvc)
+
+	api := router.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?host=local", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	assert.Contains(t, w.Body.String(), "Docker daemon is responding slowly")
+	assert.Contains(t, w.Body.String(), "details")
+	assert.Contains(t, w.Body.String(), "try again")
+
+	// Locks in distinguishability from the existing DockerUnavailableError 503 response.
+	assert.NotContains(t, w.Body.String(), "Docker daemon unavailable")
 }
 
 func TestDockerHandler_ListContainers_ServerIDResolvesToTCPHost(t *testing.T) {

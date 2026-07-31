@@ -6,6 +6,7 @@ export function useDocker(host?: string | null, serverId?: string | null) {
   const {
     data: containers = [],
     isLoading,
+    isRefetching,
     error,
     refetch,
   } = useQuery({
@@ -33,6 +34,7 @@ export function useDocker(host?: string | null, serverId?: string | null) {
   return {
     containers: containers ?? [],
     isLoading,
+    isRefetching,
     error,
     refetch,
   }

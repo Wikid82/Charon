@@ -4,7 +4,7 @@ Status: Ready for review
 Date: 2026-07-28
 Design source of truth: `docs/superpowers/specs/2026-07-28-whats-new-changelog-design.md` (Approved — all product decisions final; this plan does not re-litigate scope, only makes it buildable)
 
-When Charon's Docker integration connects successfully to a Docker daemon that currently has zero running containers, the "Add Proxy Host" page crashes with `Uncaught TypeError: can't access property "map", P is null` at `frontend/src/components/ProxyHostForm.tsx:781`. Root cause is two-sided:
+## 1. Introduction
 
 This plan turns the approved "What's New" changelog design into a concrete,
 file-by-file implementation. The feature adds a per-user, dismissible modal
@@ -409,7 +409,240 @@ func setEntriesForTest(t *testing.T, entries []Entry) {
     allEntries = entries
     t.Cleanup(func() { allEntries = original })
 }
+
+// NewDockerTimeoutError wraps the underlying context-deadline error together
+// with the timeout duration that was configured, so Details() can report it.
+func NewDockerTimeoutError(err error, timeout time.Duration) *DockerTimeoutError {
+    return &DockerTimeoutError{err: err, timeout: timeout}
+}
+
+func (e *DockerTimeoutError) Error() string {
+    if e == nil || e.err == nil {
+        return "docker request timed out"
+    }
+    return fmt.Sprintf("docker request timed out after %s: %v", e.timeout, e.err)
+}
+
+func (e *DockerTimeoutError) Unwrap() error {
+    if e == nil {
+        return nil
+    }
+    return e.err
+}
+
+// Details returns a user-facing, actionable message distinct from
+// buildLocalDockerUnavailableDetails' permissions-oriented guidance.
+func (e *DockerTimeoutError) Details() string {
+    if e == nil {
+        return ""
+    }
+    return fmt.Sprintf(
+        "Docker daemon is responding slowly (no response within %s). "+
+            "This can happen when the Docker socket is under heavy load from other "+
+            "tools or containers. Please try again.",
+        e.timeout,
+    )
+}
 ```
+
+New import required: `"time"` (not currently imported in `docker_service.go` — confirmed by reading the file's import block, §2.1).
+
+### 3.3 `ListContainers` changes
+
+`backend/internal/services/docker_service.go`, modify the block starting at (current) line 134:
+
+```go
+const defaultListContainersTimeout = 8 * time.Second   // package-level const, near top of file
+
+func (s *DockerService) ListContainers(ctx context.Context, host string) ([]DockerContainer, error) {
+    // ... unchanged initErr / cli-selection logic (lines 107-132) ...
+
+    timeout := s.listContainersTimeout
+    if timeout <= 0 {
+        timeout = defaultListContainersTimeout
+    }
+    listCtx, cancel := context.WithTimeout(ctx, timeout)
+    defer cancel()
+
+    containers, err := cli.ContainerList(listCtx, client.ContainerListOptions{All: false})
+    if err != nil {
+        if isBoundedListTimeout(ctx, err) {
+            return nil, NewDockerTimeoutError(err, timeout)
+        }
+        if isDockerConnectivityError(err) {
+            if host == "" || host == "local" {
+                return nil, NewDockerUnavailableError(err, buildLocalDockerUnavailableDetails(err, s.localHost))
+            }
+            return nil, NewDockerUnavailableError(err)
+        }
+        return nil, fmt.Errorf("failed to list containers: %w", err)
+    }
+    // ... unchanged container-mapping loop ...
+}
+
+// isBoundedListTimeout reports whether err represents Charon's own bounded
+// ContainerList timeout expiring — as opposed to the caller-supplied parent
+// context (ctx) being canceled/expired for an unrelated reason (e.g. an
+// upstream reverse-proxy giving up on the whole request). It relies on the
+// fact that context.WithTimeout's child context fails with
+// context.DeadlineExceeded when ITS OWN deadline elapses, while the parent
+// ctx remains healthy (ctx.Err() == nil) up to that point. See docs/plans
+// current_spec.md §2.3 for the full reasoning and the context.Canceled vs
+// context.DeadlineExceeded distinction this depends on.
+func isBoundedListTimeout(parent context.Context, listCtx context.Context, err error) bool {
+    if err == nil {
+        return false
+    }
+    // Prefer the child context's own recorded terminal state (listCtx.Err())
+    // over parsing it back out of err's wrapped chain: this is a
+    // dependency-independent source of truth that keeps working even if a
+    // future moby/moby/client upgrade changes how context errors are
+    // wrapped in the returned err (see DEP-003/RISK-001). errors.Is is kept
+    // as a defense-in-depth secondary signal.
+    return (errors.Is(listCtx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded)) && parent.Err() == nil
+}
+```
+
+**Supervisor-review amendment**: the signature now takes both `parent` (the caller's original `ctx`) and `listCtx` (the bounded child context) so the check can read `listCtx.Err()` directly instead of relying solely on parsing `context.DeadlineExceeded` back out of `err`'s wrapped chain via `errors.Is`. This was independently verified as correct against the actual pinned `github.com/moby/moby/client@v0.5.1` source (`request.go`'s `doRequest()` preserves context sentinel errors undecorated), but the extra `listCtx.Err()` check is a cheap, dependency-independent safety net against a future client-library upgrade silently changing that wrapping behavior. Update the call site in `ListContainers` accordingly: `isBoundedListTimeout(ctx, listCtx, err)`.
+
+New unexported struct field on `DockerService` (`backend/internal/services/docker_service.go`, in the type definition at lines 71-75):
+
+```go
+type DockerService struct {
+    client                 *client.Client
+    initErr                error
+    localHost              string
+    listContainersTimeout  time.Duration // 0 = use defaultListContainersTimeout; overridable in tests
+}
+```
+
+No constructor signature changes — `newDockerServiceFromLocalHost` and `NewDockerService` need no edits (zero-value `time.Duration` `0` naturally falls back to `defaultListContainersTimeout` via the `if timeout <= 0` guard above). Tests override the field directly via struct literal (same package), per the existing pattern (§2.5/§2.6).
+
+**Ordering rationale**: `isBoundedListTimeout` is checked *before* `isDockerConnectivityError` specifically because `isDockerConnectivityError` already matches on bare `context.DeadlineExceeded` (§2.2) — checking our specific case first prevents the new timeout from being silently swallowed into the existing (misleading, in this scenario) `DockerUnavailableError` / permissions-message path.
+
+### 3.4 Handler changes — `backend/internal/api/handlers/docker_handler.go`
+
+Add a branch for `*services.DockerTimeoutError` **before** the existing `*services.DockerUnavailableError` branch (lines 104-117), reusing HTTP `503` per the binding decision in §2.7:
+
+```go
+containers, err := h.dockerService.ListContainers(c.Request.Context(), host)
+if err != nil {
+    var timeoutErr *services.DockerTimeoutError
+    if errors.As(err, &timeoutErr) {
+        log.WithFields(map[string]any{
+            "server_id": util.SanitizeForLog(serverID),
+            "host":      util.SanitizeForLog(host),
+            "error":     util.SanitizeForLog(err.Error()),
+        }).Warn("docker daemon responded slowly (bounded timeout fired)")
+        c.JSON(http.StatusServiceUnavailable, gin.H{
+            "error":   "Docker daemon is responding slowly",
+            "details": timeoutErr.Details(),
+        })
+        return
+    }
+
+    var unavailableErr *services.DockerUnavailableError
+    if errors.As(err, &unavailableErr) {
+        // ... unchanged ...
+    }
+
+    // ... unchanged generic 500 fallback ...
+}
+```
+
+**Response contract (new)**:
+
+| Field | Value |
+|---|---|
+| HTTP status | `503 Service Unavailable` (unchanged status family vs. existing `DockerUnavailableError` responses — intentional, see §2.7) |
+| `error` | `"Docker daemon is responding slowly"` (distinct string from existing `"Docker daemon unavailable"`, so logs/tests/clients can tell the two apart even though the HTTP status matches) |
+| `details` | `DockerTimeoutError.Details()` output, e.g. `"Docker daemon is responding slowly (no response within 8s). This can happen when the Docker socket is under heavy load from other tools or containers. Please try again."` |
+
+No new route, no new `dockerContainerLister` interface method — `errors.As` type-switches on the existing single `ListContainers` return value.
+
+### 3.5 API contract summary (before/after)
+
+| Scenario | Before | After |
+|---|---|---|
+| Daemon unreachable / permission denied | `503`, `{"error":"Docker daemon unavailable","details":"..."}` | unchanged |
+| Daemon reachable but slow (>8s to respond) | Hangs up to ~30s, then `500`, `{"error":"Failed to list containers"}` (generic, unhelpful; only reachable if request survives to completion — often the client sees a raw `502`/timeout from Caddy instead and never gets this body at all) | `503` within ~8s, `{"error":"Docker daemon is responding slowly","details":"Docker daemon is responding slowly (no response within 8s)...."}` |
+| Other API error (e.g. 500 from daemon) | `500`, `{"error":"Failed to list containers"}` | unchanged |
+
+### 3.6 Data flow diagram
+
+```
+Frontend (ProxyHostForm.tsx)
+   │  useDocker(host) → React Query
+   ▼
+GET /api/v1/docker/containers?host=local
+   │
+   ▼
+DockerHandler.ListContainers (docker_handler.go:58)
+   │  c.Request.Context() ──────────────────┐  (parent ctx, canceled by Caddy
+   ▼                                        │   only if IT gives up first)
+DockerService.ListContainers (docker_service.go:107)
+   │  listCtx, cancel := context.WithTimeout(ctx, 8s)   [NEW]
+   ▼
+cli.ContainerList(listCtx, ...)
+   │
+   ├── succeeds within 8s ──────────────────────────► 200 OK, []DockerContainer
+   │
+   ├── listCtx expires first, parent ctx still alive ─► isBoundedListTimeout==true
+   │                                                     → DockerTimeoutError
+   │                                                     → 503 "responding slowly" [NEW PATH]
+   │
+   ├── real connectivity error (EACCES/ECONNREFUSED/ENOENT) ─► DockerUnavailableError
+   │                                                            → 503 "unavailable" (unchanged)
+   │
+   └── parent ctx canceled first (e.g. Caddy gave up)  ─► falls through, generic error
+                                                            → 500 (unchanged pre-existing
+                                                              behavior for this edge case —
+                                                              now effectively unreachable in
+                                                              the reported scenario, since
+                                                              8s << 30s guarantees our timeout
+                                                              wins the race)
+```
+
+### 3.7 Error handling / edge cases
+
+| Edge case | Behavior |
+|---|---|
+| `s.listContainersTimeout` unset (zero value) | Falls back to `defaultListContainersTimeout` (8s) via `if timeout <= 0` guard — safe default for all existing production construction paths (`NewDockerService`, `newDockerServiceFromLocalHost`), which are not modified. |
+| Remote host (`host` param is a `tcp://...` URL, e.g. Orthrus-proxied or directly-configured remote server) | Same bounded timeout applies uniformly — `listCtx` wraps the single shared `cli.ContainerList` call regardless of local/remote branch, so remote daemons get the same fail-fast protection. Not explicitly requested by the bug report, but consistent and avoids leaving an identical unbounded-hang bug for remote hosts. |
+| Caller's own context already had a shorter deadline/cancellation than 8s (e.g. test harness, future caller) | `context.WithTimeout(ctx, timeout)` respects `min(parent deadline, now+timeout)` per Go stdlib semantics — no regression, `isBoundedListTimeout`'s `parent.Err() == nil` check correctly attributes the failure to the parent instead of misreporting a `DockerTimeoutError`. |
+| `initErr` already set at construction time (Docker never initialized) | Unaffected — that branch (lines 109-115) returns before the new timeout logic is ever reached. |
+| Container-mapping loop (post-`ContainerList` success) | Entirely unaffected — no changes below the `if err != nil` block. |
+
+## 4. Implementation Plan
+
+### Phase 1: Playwright E2E Tests — **not applicable, justified explicitly**
+
+No new or modified Playwright spec is required for this change:
+
+- The user-visible surface (the red "Docker Connection Failed" banner in `ProxyHostForm.tsx`) is unchanged — no new component, no new DOM structure, no new interaction. Per §2.7, it already renders whatever message string the backend sends.
+- The only thing that changes is *which message string* appears under a specific, hard-to-reproduce timing condition (Docker daemon slow to respond specifically between 8s and ~30s) that cannot be reliably or deterministically triggered against a real or lightly-mocked Docker daemon in a Playwright/browser E2E environment without introducing artificial delay infrastructure disproportionate to a "small, targeted" fix.
+- This condition **is** deterministically and cheaply reproducible at the Go unit-test level (§4.2, via an `httptest.Server` handler that blocks on request-context cancellation) — that is the correct test layer for this fix, per CLAUDE.md's general principle of testing behavior at the layer closest to where it's implemented.
+- Existing Docker-related regression coverage (none found under `tests/*.spec.ts` referencing Docker container selection specifically — confirmed via repo search) is unaffected; no existing spec asserts on the exact banner text.
+- **Definition of Done step 1 compliance**: run the full relevant Playwright suite (`npx playwright test --project=firefox`, scoped to `tests/core/proxy-hosts.spec.ts` and any suite touching `ProxyHostForm`) as a regression check before merge, expecting **no changes in outcome** — this validates the "no frontend change needed" claim empirically rather than only by static analysis. Include this run's pass/fail as part of Commit 4 validation (§5).
+
+### Phase 2: Backend Implementation
+
+**GOAL-001**: Add the bounded timeout, new error type, and handler branch, all covered by unit tests, without altering any existing behavior for the already-covered error paths.
+
+| Task | File | Description |
+|---|---|---|
+| TASK-001 | `backend/internal/services/docker_service.go` | Add `"time"` import; add `defaultListContainersTimeout` const; add `listContainersTimeout time.Duration` field to `DockerService` struct; add `DockerTimeoutError` type + `NewDockerTimeoutError` + `Error()`/`Unwrap()`/`Details()` (§3.2); add `isBoundedListTimeout` helper (§3.3); wrap `cli.ContainerList` call in `context.WithTimeout` and branch on `isBoundedListTimeout` before `isDockerConnectivityError` (§3.3). |
+| TASK-002 | `backend/internal/services/docker_service_test.go` | Add `TestDockerService_ListContainers_BoundedTimeoutFires` (or similarly named) using an `httptest.Server` handler that blocks on `<-r.Context().Done()`, a `DockerService` struct literal with `listContainersTimeout: 50 * time.Millisecond`, asserting `errors.As(err, &timeoutErr)` succeeds, `timeoutErr.Details()` contains the expected slow-daemon message, and the call returns well within the test's own timeout budget (e.g. assert wall-clock elapsed < 2s to prove no accidental fallback to the 8s default). Also add a companion test asserting the *default* timeout value is used when the field is left zero (e.g. `TestDockerService_ListContainers_DefaultTimeoutUsedWhenUnset`, can assert via a small helper/reflection-free approach — see §6 test list for the concrete minimal set). |
+| TASK-003 | `backend/internal/services/docker_service_test.go` | Add `TestIsBoundedListTimeout` table test covering: nil err → false; `context.DeadlineExceeded` with healthy parent → true; `context.DeadlineExceeded` with already-canceled parent (`parent.Err() != nil`) → false; unrelated error → false. Mirrors the existing `TestIsDockerConnectivityError` table-test style (§2.6 pattern). |
+| TASK-004 | `backend/internal/services/docker_service_test.go` | Add `TestDockerTimeoutError_ErrorMethods` mirroring `TestDockerUnavailableError_ErrorMethods` (nil receiver, nil wrapped err, `Error()`/`Unwrap()`/`Details()` content assertions). |
+| TASK-005 | `backend/internal/api/handlers/docker_handler.go` | Add the `*services.DockerTimeoutError` branch before the existing `*services.DockerUnavailableError` branch (§3.4), returning `503` with the new `error`/`details` message pair. |
+| TASK-006 | `backend/internal/api/handlers/docker_handler_test.go` | Add `TestDockerHandler_ListContainers_TimeoutMappedTo503` using the existing `fakeDockerService{err: services.NewDockerTimeoutError(...)}` pattern (mirrors `TestDockerHandler_ListContainers_DockerUnavailableMappedTo503`, lines 62-81), asserting status `503`, body contains `"Docker daemon is responding slowly"` and the `details` text, and — critically — that it is distinguishable from the existing `"Docker daemon unavailable"` assertion in the sibling test (i.e. assert `NotContains` "Docker daemon unavailable" in the new test, and vice versa, to lock in the distinguishability requirement as an executable test, not just documentation). |
+
+**Validation gate for Phase 2**: `cd backend && go build ./... && go test ./internal/services/... ./internal/api/handlers/... -run Docker -v`, plus `make lint-fast` (staticcheck, BLOCKING per CLAUDE.md), plus full `go test ./...` to confirm no regressions elsewhere.
+
+### Phase 3: Frontend Implementation — **not applicable, justified explicitly**
+
+Per §2.7's analysis: `useDocker.ts`'s existing `error.response?.status === 503` branch already extracts `details` generically for *any* 503 response body shaped `{error, details}`, and `ProxyHostForm.tsx` already renders `dockerError.message` generically. Because §2.7/§3.4 binds the handler design to reuse `503` (rather than introducing a new status code), no frontend file requires modification. **If a future reviewer prefers a distinct `504 Gateway Timeout` status for stronger HTTP semantic correctness, that is a valid alternative (§7, ALT-001) but is NOT this plan's chosen path specifically because it would force a frontend change this task's constraints ask to avoid** — flagged explicitly here so the tradeoff is visible to reviewers, not hidden.
 
 This keeps `go:embed` real (no build-tag test double for the embed itself)
 while making tests deterministic and independent of the placeholder's
@@ -1143,7 +1376,7 @@ green (not just the new spec — regression check per repo convention);
 `scripts/go-test-coverage.sh` and `scripts/frontend-test-coverage.sh`
 both ≥85%.
 
-## 5. Acceptance Criteria
+## 11. Related Specifications / Further Reading
 
 - [ ] `User` gains `last_seen_version`/`changelog_opt_out`; AutoMigrate
       applies cleanly on top of an existing populated DB with no data loss.
