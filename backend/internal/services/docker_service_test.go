@@ -15,6 +15,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/assert"
@@ -606,4 +607,118 @@ func TestDockerService_ListContainers_RemoteConnectivityError(t *testing.T) {
 	require.Error(t, err)
 	var unavailErr *DockerUnavailableError
 	assert.ErrorAs(t, err, &unavailErr)
+}
+
+// ===== Bounded ListContainers timeout (DockerTimeoutError) =====
+
+func TestDockerTimeoutError_ErrorMethods(t *testing.T) {
+	baseErr := errors.New("context deadline exceeded")
+	err := NewDockerTimeoutError(baseErr, 8*time.Second)
+
+	assert.Contains(t, err.Error(), "timed out")
+	assert.Contains(t, err.Error(), "8s")
+
+	unwrapped := err.Unwrap()
+	assert.Equal(t, baseErr, unwrapped)
+
+	details := err.Details()
+	assert.Contains(t, details, "responding slowly")
+	assert.Contains(t, details, "8s")
+	assert.Contains(t, details, "try again")
+
+	var nilErr *DockerTimeoutError
+	assert.Equal(t, "docker request timed out", nilErr.Error())
+	assert.Nil(t, nilErr.Unwrap())
+	assert.Equal(t, "", nilErr.Details())
+
+	nilBaseErr := NewDockerTimeoutError(nil, 8*time.Second)
+	assert.Equal(t, "docker request timed out", nilBaseErr.Error())
+	assert.Nil(t, nilBaseErr.Unwrap())
+}
+
+func TestIsBoundedListTimeout(t *testing.T) {
+	healthyParent := context.Background()
+
+	canceledParent, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	expiredParent, cancelExpired := context.WithTimeout(context.Background(), 0)
+	defer cancelExpired()
+	<-expiredParent.Done()
+
+	// Table test using explicit listCtx values, since context.DeadlineExceeded
+	// as an err value and an actually-expired listCtx are the two signals the
+	// discriminator checks.
+	deadlineCtx, cancelDeadline := context.WithTimeout(context.Background(), 0)
+	defer cancelDeadline()
+	<-deadlineCtx.Done()
+
+	cases := []struct {
+		name     string
+		parent   context.Context
+		listCtx  context.Context
+		err      error
+		expected bool
+	}{
+		{"nil error", healthyParent, deadlineCtx, nil, false},
+		{"deadline exceeded, healthy parent", healthyParent, deadlineCtx, context.DeadlineExceeded, true},
+		{"deadline exceeded, canceled parent", canceledParent, deadlineCtx, context.DeadlineExceeded, false},
+		{"deadline exceeded, expired parent", expiredParent, deadlineCtx, context.DeadlineExceeded, false},
+		{"unrelated error, healthy parent", healthyParent, healthyParent, errors.New("boom"), false},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isBoundedListTimeout(tt.parent, tt.listCtx, tt.err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestDockerService_ListContainers_BoundedTimeoutFires(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done() // block until the client (moby SDK) cancels on timeout
+	}))
+	t.Cleanup(server.Close)
+	cli, err := client.New(
+		client.WithHost("tcp://"+server.Listener.Addr().String()),
+		client.WithAPIVersion("1.43"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cli.Close() })
+
+	svc := &DockerService{
+		client:                cli,
+		initErr:               nil,
+		localHost:             "tcp://" + server.Listener.Addr().String(),
+		listContainersTimeout: 50 * time.Millisecond,
+	}
+
+	start := time.Now()
+	_, listErr := svc.ListContainers(context.Background(), "")
+	elapsed := time.Since(start)
+
+	require.Error(t, listErr)
+	var timeoutErr *DockerTimeoutError
+	require.ErrorAs(t, listErr, &timeoutErr, "must classify as DockerTimeoutError")
+
+	var unavailErr *DockerUnavailableError
+	assert.False(t, errors.As(listErr, &unavailErr), "must NOT be misclassified as DockerUnavailableError")
+
+	assert.Contains(t, timeoutErr.Details(), "responding slowly")
+	assert.Less(t, elapsed, 2*time.Second, "must fail fast using the shrunk test timeout, not the 8s default")
+}
+
+func TestDockerService_ListContainers_DefaultTimeoutUsedWhenUnset(t *testing.T) {
+	svc := &DockerService{
+		client:    newContainerListClient(t, "[]"),
+		initErr:   nil,
+		localHost: "tcp://localhost:2375",
+		// listContainersTimeout left at zero value intentionally.
+	}
+	assert.Equal(t, time.Duration(0), svc.listContainersTimeout)
+
+	containers, err := svc.ListContainers(context.Background(), "")
+	require.NoError(t, err, "a fast-responding daemon must succeed well within the default timeout")
+	assert.NotNil(t, containers)
 }
