@@ -87,6 +87,17 @@ test.describe('Auth Middleware Cascade', () => {
     // colons" 500-on-create bug applies here too, even though this
     // file's own assertions happen to be loose enough ([200,404,502,503])
     // to not currently surface it as a failure.
+    //
+    // The port field must ALSO be filled explicitly (see every
+    // `getByLabel(/^port\b/i).fill('3001')` call below). Leaving it
+    // unfilled defaults `forward_port` to 80 - Caddy's own listening port
+    // in this container - which turns the proxy's upstream into a
+    // self-referential loop back into Caddy instead of an unreachable
+    // target. CI evidence: exactly this loop OOM-killed Caddy in
+    // acl-waf-layering.spec.ts (which shares this same testProxy.target
+    // pattern) and cascaded into 448+ ECONNREFUSED failures across the
+    // rest of that run's security-tests suite, once the container's
+    // entrypoint wait-loop tore everything down in response.
     target: 'localhost',
   };
 
@@ -102,19 +113,30 @@ test.describe('Auth Middleware Cascade', () => {
     await expect(page.getByRole('main')).toBeVisible({ timeout: 15000 });
   });
 
+  // API-based cleanup, not UI navigation - matches acl-waf-layering.spec.ts's
+  // afterEach pattern. The previous version navigated to /proxy-hosts with
+  // `waitUntil: 'networkidle'`, which never resolves in this environment
+  // (confirmed: every remaining failure in this file was the afterEach
+  // hook itself timing out at 90s on that exact line, never reaching the
+  // delete logic at all) and left this file's test proxy undeleted between
+  // runs, which is also why acl-waf-layering.spec.ts's own cleanup steps
+  // intermittently saw "domain already exists" from this file's leftovers.
   test.afterEach(async ({ page }) => {
     try {
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
-      const proxyRow = page.locator(`text=${testProxy.domain}`).first();
-      if (await proxyRow.isVisible()) {
-        const deleteButton = proxyRow.locator('..').getByRole('button', { name: /delete/i }).first();
-        await deleteButton.click();
-
-        const confirmButton = page.getByRole('button', { name: /confirm|delete/i }).first();
-        if (await confirmButton.isVisible()) {
-          await confirmButton.click();
+      const adminToken = await getAuthToken(page);
+      const proxiesResponse = await page.request.get('/api/v1/proxy-hosts', {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      if (proxiesResponse.ok()) {
+        const proxies = await proxiesResponse.json();
+        const matchingProxy = Array.isArray(proxies)
+          ? proxies.find((proxy: { domain_names?: string }) => proxy.domain_names === testProxy.domain)
+          : undefined;
+        if (matchingProxy?.uuid) {
+          await page.request.delete(`/api/v1/proxy-hosts/${matchingProxy.uuid}`, {
+            headers: { Authorization: `Bearer ${adminToken}` },
+          });
         }
-        await page.waitForLoadState('networkidle');
       }
     } catch {
       // Ignore cleanup errors
@@ -177,6 +199,7 @@ test.describe('Auth Middleware Cascade', () => {
       await page.getByLabel(/^name\b/i).fill(testProxy.name);
       await page.getByLabel(/^domain names/i).fill(testProxy.domain);
       await page.getByLabel(/^host\b/i).fill(testProxy.target);
+      await page.getByLabel(/^port\b/i).fill('3001');
 
       const submitButton = page.getByRole('button', { name: 'Save', exact: true }).first();
       await dismissNewDomainPromptIfPresent(page);
@@ -215,6 +238,7 @@ test.describe('Auth Middleware Cascade', () => {
       await page.getByLabel(/^name\b/i).fill(testProxy.name);
       await page.getByLabel(/^domain names/i).fill(testProxy.domain);
       await page.getByLabel(/^host\b/i).fill(testProxy.target);
+      await page.getByLabel(/^port\b/i).fill('3001');
 
       const wafToggle = page.locator('input[type="checkbox"][name*="waf"]').first();
       if (await wafToggle.isVisible()) {
@@ -263,6 +287,7 @@ test.describe('Auth Middleware Cascade', () => {
       await page.getByLabel(/^name\b/i).fill(testProxy.name);
       await page.getByLabel(/^domain names/i).fill(testProxy.domain);
       await page.getByLabel(/^host\b/i).fill(testProxy.target);
+      await page.getByLabel(/^port\b/i).fill('3001');
 
       const rateLimitToggle = page.locator('input[type="checkbox"][name*="rate"]').first();
       if (await rateLimitToggle.isVisible()) {
@@ -316,6 +341,7 @@ test.describe('Auth Middleware Cascade', () => {
       await page.getByLabel(/^name\b/i).fill(testProxy.name);
       await page.getByLabel(/^domain names/i).fill(testProxy.domain);
       await page.getByLabel(/^host\b/i).fill(testProxy.target);
+      await page.getByLabel(/^port\b/i).fill('3001');
 
       // Enable WAF
       const wafToggle = page.locator('input[type="checkbox"][name*="waf"]').first();
