@@ -26,7 +26,21 @@ test.describe('ACL & WAF Layering', () => {
   const testProxy = {
     name: 'ACL WAF Test Proxy',
     domain: 'acl-waf-test.local',
-    target: 'http://localhost:3001',
+    // Bare hostname, not a full URL: the "Host" field this fills
+    // (`getByLabel(/^host\b/i)`, ProxyHostForm.tsx's `forward_host`) is a
+    // separate field from `forward_port` (which defaults to 80 and is
+    // never filled here). A full URL like 'http://localhost:3001' was
+    // being written into `forward_host` verbatim, and the backend then
+    // built Caddy's upstream dial address as `forward_host + ":" +
+    // forward_port` = "http://localhost:3001:80" - confirmed live via
+    // `docker logs`: "invalid dial address http://localhost:3001:80: too
+    // many colons in address", a 500 on every proxy creation in this file.
+    // That left the create-proxy dialog open (save never succeeded),
+    // which blocked the next step's Logout click, and made the later
+    // "malicious request" assertions hit Caddy's catch-all frontend
+    // static-file route (200/405) instead of a real proxy (403/502),
+    // since the proxy was never actually created.
+    target: 'localhost',
   };
 
   const testUser = {
@@ -40,6 +54,22 @@ test.describe('ACL & WAF Layering', () => {
     // instead of re-driving the login form by hand.
     password: TEST_PASSWORD,
   };
+
+  // These tests do real WAF/CrowdSec middleware setup, a full proxy-host
+  // creation form submission, and a logout+re-login handshake to switch to
+  // a regular user - all measurably slower under real CI middleware
+  // conditions than the suite's 60s default (see the `waitForLoadingComplete`
+  // comment below, and the loginUser() retry backoff observed in CI: 2s+4s+6s
+  // just for feature-flag propagation). CI evidence across every failure in
+  // this file showed "Test timeout of 60000ms exceeded" - either directly in
+  // the test body or while running `afterEach` - confirming the *budget*,
+  // not any single step, was the ceiling: once the earlier port-targeting
+  // fix (1412a7ae) got these tests correctly exercising the real WAF/ACL
+  // stack instead of dying early on wrong-port/bad-locator bugs, they started
+  // legitimately needing more than 60s end-to-end. `suite-integration.spec.ts`
+  // established the `describe.configure({ timeout })` pattern for the same
+  // reason.
+  test.describe.configure({ timeout: 120000 });
 
   // Use a fresh, disposable per-test admin (via the `adminUser` fixture)
   // rather than the shared default admin session. These tests deliberately
@@ -60,34 +90,62 @@ test.describe('ACL & WAF Layering', () => {
     await expect(page.getByRole('main')).toBeVisible({ timeout: 15000 });
   });
 
-  test.afterEach(async ({ page }) => {
+  // API-driven cleanup rather than UI navigation for two reasons, both
+  // confirmed via CI trace evidence (`page.goto: Navigation to ".../" is
+  // interrupted by another navigation to ".../users"`):
+  //
+  // 1. Tests in this file log out the admin mid-test to drive the rest of
+  //    the flow as a disposable regular user (see beforeEach comment above).
+  //    By the time `afterEach` runs, `page`'s own session may be that
+  //    regular user - who lacks the `admin`-only role required to list/
+  //    delete other users, and would even get redirected away from
+  //    `/settings/users` entirely by `RequireRole`. Using the `adminUser`
+  //    fixture's own token (guaranteed admin, independent of whatever the
+  //    page is currently logged in as) makes cleanup work regardless of
+  //    which user the test body left the page authenticated as.
+  // 2. `page.goto('/users', ...)` (a client-side `<Navigate replace>` to
+  //    `/settings/users`) racing against a *still in-flight* navigation
+  //    from a test body that just hit the suite's test timeout is exactly
+  //    what produced the "interrupted by another navigation to /users"
+  //    failures - Playwright doesn't hard-cancel an in-flight `page.goto`
+  //    when a test times out, so afterEach's own navigation can collide
+  //    with the orphaned one. Plain API calls never navigate the page at
+  //    all, so they can't race a pending navigation, and they're
+  //    substantially faster than a full SPA page load + `networkidle` wait.
+  test.afterEach(async ({ page, adminUser }) => {
     try {
       // Cleanup proxy
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
-      const proxyRow = page.locator(`text=${testProxy.domain}`).first();
-      if (await proxyRow.isVisible()) {
-        const deleteButton = proxyRow.locator('..').getByRole('button', { name: /delete/i }).first();
-        await deleteButton.click();
-
-        const confirmButton = page.getByRole('button', { name: /confirm|delete/i }).first();
-        if (await confirmButton.isVisible()) {
-          await confirmButton.click();
+      const proxiesResponse = await page.request.get('/api/v1/proxy-hosts', {
+        headers: { Authorization: `Bearer ${adminUser.token}` },
+      });
+      if (proxiesResponse.ok()) {
+        const proxies = await proxiesResponse.json();
+        const matchingProxy = Array.isArray(proxies)
+          ? proxies.find((proxy: { domain_names?: string; domainNames?: string }) =>
+              proxy.domain_names === testProxy.domain || proxy.domainNames === testProxy.domain
+            )
+          : undefined;
+        if (matchingProxy?.uuid) {
+          await page.request.delete(`/api/v1/proxy-hosts/${matchingProxy.uuid}`, {
+            headers: { Authorization: `Bearer ${adminUser.token}` },
+          });
         }
-        await page.waitForLoadState('networkidle');
       }
 
       // Cleanup user
-      await page.goto('/users', { waitUntil: 'networkidle' });
-      const userRow = page.locator(`text=${testUser.email}`).first();
-      if (await userRow.isVisible()) {
-        const deleteButton = userRow.locator('..').getByRole('button', { name: /delete/i }).first();
-        await deleteButton.click();
-
-        const confirmButton = page.getByRole('button', { name: /confirm|delete/i }).first();
-        if (await confirmButton.isVisible()) {
-          await confirmButton.click();
+      const usersResponse = await page.request.get('/api/v1/users', {
+        headers: { Authorization: `Bearer ${adminUser.token}` },
+      });
+      if (usersResponse.ok()) {
+        const users = await usersResponse.json();
+        const matchingUser = Array.isArray(users)
+          ? users.find((user: { email?: string }) => user.email === testUser.email)
+          : undefined;
+        if (matchingUser?.id) {
+          await page.request.delete(`/api/v1/users/${matchingUser.id}`, {
+            headers: { Authorization: `Bearer ${adminUser.token}` },
+          });
         }
-        await page.waitForLoadState('networkidle');
       }
     } catch {
       // Ignore cleanup errors

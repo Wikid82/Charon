@@ -1,7 +1,49 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, request as playwrightRequest } from '@playwright/test';
 
 import { dismissNewDomainPromptIfPresent, waitForLoadingComplete } from '../utils/wait-helpers';
 import { caddyProxyOrigin, getAuthTokenFromPage as getAuthToken } from '../utils/api-helpers';
+
+/**
+ * `page.request` shares cookies with the page's browser context, and the
+ * `security-tests` Playwright project authenticates every page via a shared
+ * `storageState` carrying an `auth_token` cookie. The backend's
+ * `extractAuthToken` (`backend/internal/api/middleware/auth.go`)
+ * intentionally falls back to that cookie when no `Authorization` header is
+ * present ("Fall back to cookie for browser flows"), so a `page.request`
+ * call with no Authorization header is NOT actually an unauthenticated
+ * request here - it silently authenticates via the leftover cookie,
+ * producing 200 instead of the expected 401. Confirmed live: CI showed
+ * exactly this (`Expected: 401, Received: 200`) for both assertions this
+ * helper is used for below.
+ *
+ * A fresh `APIRequestContext` alone is NOT enough to get a genuinely
+ * cookie-less request here: `playwrightRequest.newContext(...)` called
+ * from *inside* a running test still inherits the current project's
+ * `use.storageState` (this project's `storageState: STORAGE_STATE`,
+ * carrying the same admin `auth_token` cookie) unless explicitly
+ * overridden - confirmed live by reproducing this exact 200-instead-of-401
+ * with a minimal isolated test, then fixing it by passing an empty
+ * `storageState` below. (`tests/settings/notifications-payload.spec.ts`'s
+ * similar-looking `unauthenticatedRequest` context happens not to be
+ * affected by this because that test always sends an explicit, if invalid,
+ * `Authorization` header - which `extractAuthToken` prefers over the
+ * cookie fallback regardless - so it never exercised this gap.)
+ */
+async function unauthenticatedGet(
+  page: import('@playwright/test').Page,
+  path: string
+): Promise<import('@playwright/test').APIResponse> {
+  const baseURL = new URL(page.url()).origin;
+  const ctx = await playwrightRequest.newContext({
+    baseURL,
+    storageState: { cookies: [], origins: [] },
+  });
+  try {
+    return await ctx.get(path, { ignoreHTTPSErrors: true });
+  } finally {
+    await ctx.dispose();
+  }
+}
 
 /**
  * Integration: Authentication Middleware Cascade
@@ -38,7 +80,14 @@ test.describe('Auth Middleware Cascade', () => {
   const testProxy = {
     name: 'Auth Cascade Test Proxy',
     domain: 'auth-cascade-test.local',
-    target: 'http://localhost:3001',
+    // Bare hostname, not a full URL - see acl-waf-layering.spec.ts's
+    // testProxy.target comment for the full explanation. This file uses
+    // the identical `getByLabel(/^host\b/i).fill(testProxy.target)`
+    // pattern, so the same "http://localhost:3001:80 has too many
+    // colons" 500-on-create bug applies here too, even though this
+    // file's own assertions happen to be loose enough ([200,404,502,503])
+    // to not currently surface it as a failure.
+    target: 'localhost',
   };
 
   test.beforeEach(async ({ page }) => {
@@ -75,15 +124,7 @@ test.describe('Auth Middleware Cascade', () => {
   // Missing token → 401 at Charon's own management-API auth layer
   test('Request without token gets 401 Unauthorized', async ({ page }) => {
     await test.step('Send request without Authorization header', async () => {
-      const response = await page.request.get(
-        `http://127.0.0.1:8080/api/v1/proxy-hosts`,
-        {
-          headers: {
-            // Explicitly no Authorization header
-          },
-          ignoreHTTPSErrors: true,
-        }
-      );
+      const response = await unauthenticatedGet(page, '/api/v1/proxy-hosts');
 
       expect(response.status()).toBe(401);
     });
@@ -334,12 +375,7 @@ test.describe('Auth Middleware Cascade', () => {
       // (not the proxied host) - Caddy's proxy layer has no concept of
       // Charon Bearer tokens, so a "missing token" 401 can only ever come
       // from the management API itself (see file-level doc comment).
-      const noAuthResponse = await page.request.get(
-        `http://127.0.0.1:8080/api/v1/proxy-hosts`,
-        {
-          ignoreHTTPSErrors: true,
-        }
-      );
+      const noAuthResponse = await unauthenticatedGet(page, '/api/v1/proxy-hosts');
       expect(noAuthResponse.status()).toBe(401);
 
       // Test: Malicious payload → should fail at WAF (403) for the proxied host

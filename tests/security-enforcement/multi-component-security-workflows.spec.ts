@@ -1,6 +1,13 @@
+import { request as playwrightRequest } from '@playwright/test';
+
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
-import { caddyProxyOrigin, createUserViaApi, getAuthTokenFromPage as getAuthToken } from '../utils/api-helpers';
+import {
+  authenticateViaAPI,
+  caddyProxyOrigin,
+  createUserViaApi,
+  getAuthTokenFromPage as getAuthToken,
+} from '../utils/api-helpers';
 
 async function resetSecurityState(page: import('@playwright/test').Page): Promise<void> {
   const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN;
@@ -252,8 +259,36 @@ test.describe('Multi-Component Security Workflows', () => {
   });
 
   test('Security enforced even on previously created resources', async ({ page }) => {
+    // Captured before the strict rate-limit override below takes effect -
+    // see the note on the "Verify user is now rate limited" step for why.
+    let testUserToken = '';
+
     await test.step('Create user before security enabled', async () => {
       await createUserViaApi(page, { ...testUser, role: 'user' });
+
+      // Log in as the new user now, while rate limiting is still at its
+      // default (generous) config, and stash the token for later steps.
+      // The alternative - logging in as this user via the page's own UI
+      // *after* the strict 1-request/60s/burst-1 override below is applied
+      // - doesn't work: `/api/v1/auth/logout` and `/api/v1/auth/login` are
+      // real, non-exempt `/api/v1/*` routes (only `/api/v1/security/*`,
+      // `/api/v1/settings*`, and `/api/v1/config*` are exempted for admins,
+      // see `isAdminSecurityControlPlaneRequest` in
+      // backend/internal/cerberus/rate_limit.go), and the limiter is keyed
+      // by client IP, not by user - so the logout+login handshake alone
+      // consumes the single available token before the test's actual
+      // `/api/v1/health` probing loop ever runs, making the login itself
+      // fail with 429 (confirmed via CI trace: `getAuthTokenFromPage`
+      // observed an empty token because the login POST never succeeded).
+      const baseURL = new URL(page.url()).origin;
+      const loginContext = await playwrightRequest.newContext({ baseURL });
+      try {
+        const auth = await authenticateViaAPI(loginContext, testUser.email, testUser.password);
+        testUserToken = auth.token;
+      } finally {
+        await loginContext.dispose();
+      }
+      expect(testUserToken).toBeTruthy();
     });
 
     await test.step('Enable rate limiting globally', async () => {
@@ -294,19 +329,12 @@ test.describe('Multi-Component Security Workflows', () => {
     });
 
     await test.step('Verify user is now rate limited', async () => {
-      const logoutButton = page.getByRole('button', { name: /logout/i }).first();
-      if (await logoutButton.isVisible()) {
-        await logoutButton.click();
-        await page.waitForURL(/login/);
-      }
-
-      await page.locator('input[type="email"]').first().fill(testUser.email);
-      await page.locator('input[type="password"]').first().fill(testUser.password);
-      await page.getByRole('button', { name: /sign in|login/i }).first().click();
-      await page.waitForLoadState('networkidle');
-
-      const userToken = await getAuthToken(page);
-      expect(userToken).toBeTruthy();
+      // Deliberately does not touch the page's own (admin) session - the
+      // regular user's identity for these probe requests comes entirely
+      // from `testUserToken`, captured before rate limiting was tightened
+      // above. Keeping the page authenticated as admin throughout also
+      // keeps `afterEach`'s cleanup (which needs admin-level `/api/v1/users`
+      // and `/api/v1/proxy-hosts` access) working.
       const origin = new URL(page.url()).origin;
 
       const responses = [];
@@ -316,7 +344,7 @@ test.describe('Multi-Component Security Workflows', () => {
           const response = await page.request.get(
             `${origin}/api/v1/health?rapid=${i}`,
             {
-              headers: { Authorization: `Bearer ${userToken}` },
+              headers: { Authorization: `Bearer ${testUserToken}` },
               ignoreHTTPSErrors: true,
             }
           );
