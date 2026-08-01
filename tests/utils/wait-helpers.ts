@@ -1353,3 +1353,25 @@ export async function reloadTolerant(
     }
   });
 }
+
+/**
+ * Dismiss the "New Base Domain Detected" dialog in ProxyHostForm if it
+ * appeared. The form (`frontend/src/components/ProxyHostForm.tsx`) shows
+ * this dialog automatically `onBlur` of the Domain Names field whenever the
+ * base domain hasn't been seen before (see `checkNewDomains`) — which is
+ * always true for E2E tests using synthetic `*.local`/`*.test.local`
+ * domains. Its backdrop (`fixed inset-0 ... z-60`) sits on top of the form
+ * and intercepts pointer events on the Save button, so any test that fills
+ * a fresh domain and clicks Save must dismiss it first or the click hangs
+ * until the test timeout. Mirrors the equivalent local helper already used
+ * by `tests/core/proxy-hosts.spec.ts` (`dismissDomainDialog`).
+ *
+ * @param page - Playwright Page instance
+ */
+export async function dismissNewDomainPromptIfPresent(page: Page): Promise<void> {
+  const noThanksBtn = page.getByRole('button', { name: /No, thanks/i });
+  if (await noThanksBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await noThanksBtn.click();
+    await waitForDebounce(page, { delay: 300 });
+  }
+}

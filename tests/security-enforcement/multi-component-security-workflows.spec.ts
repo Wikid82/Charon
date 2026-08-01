@@ -1,6 +1,6 @@
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
-import { suppressChangelogModal } from '../utils/api-helpers';
+import { caddyProxyOrigin, createUserViaApi, getAuthTokenFromPage as getAuthToken } from '../utils/api-helpers';
 
 async function resetSecurityState(page: import('@playwright/test').Page): Promise<void> {
   const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN;
@@ -24,75 +24,8 @@ async function resetSecurityState(page: import('@playwright/test').Page): Promis
   expect(response.ok()).toBe(true);
 }
 
-async function getAuthToken(page: import('@playwright/test').Page): Promise<string> {
-  const token = await page.evaluate(() => {
-    return (
-      localStorage.getItem('token') ||
-      localStorage.getItem('charon_auth_token') ||
-      localStorage.getItem('auth') ||
-      ''
-    );
-  });
-
-  expect(token).toBeTruthy();
-  return token;
-}
-
 function uniqueSuffix(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-}
-
-/**
- * Resolve the Caddy reverse-proxy origin for a page.
- *
- * `page.url()`'s origin is the Charon *management* interface (default
- * port 8080) — per ARCHITECTURE.md ("Management Interface (Port 8080)":
- * "NO Cerberus Middleware: Rate limiting, ACL, WAF, and CrowdSec are NOT
- * applied to management interface") that origin never runs WAF/ACL/rate
- * limiting/CrowdSec, and its `/` route unconditionally serves the SPA's
- * `index.html` regardless of query string, so a request built from it can
- * never be blocked no matter what payload is sent. Requests that exercise
- * Cerberus enforcement (WAF, rate limiting, etc.) for a *proxied host* must
- * instead target the Caddy proxy port (80/443 — "Port 80/443 (Proxy)" in
- * ARCHITECTURE.md), with the proxied domain in the `Host` header so Caddy
- * routes to the right upstream and runs its security middleware chain.
- *
- * Defaults to port 80 (matches `docker-compose.playwright-ci.yml`'s
- * `security-tests` profile, which maps host port 80 -> container port 80
- * on the same host as `PLAYWRIGHT_BASE_URL`). Overridable via
- * `PLAYWRIGHT_CADDY_PROXY_PORT` for local investigation setups that remap
- * the host port to avoid colliding with another Caddy/Charon instance.
- */
-function caddyProxyOrigin(page: import('@playwright/test').Page): string {
-  const managementUrl = new URL(page.url());
-  const proxyPort = process.env.PLAYWRIGHT_CADDY_PROXY_PORT || '80';
-  return `${managementUrl.protocol}//${managementUrl.hostname}:${proxyPort}`;
-}
-
-async function createUserViaApi(
-  page: import('@playwright/test').Page,
-  user: { email: string; name: string; password: string; role: 'admin' | 'user' | 'guest' }
-): Promise<{ id: string | number; email: string }> {
-  const token = await getAuthToken(page);
-  const response = await page.request.post('/api/v1/users', {
-    data: user,
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  expect(response.ok()).toBe(true);
-  const payload = await response.json();
-  expect(payload).toEqual(expect.objectContaining({
-    id: expect.anything(),
-    email: user.email,
-  }));
-
-  // Ad-hoc users created directly via this raw API call (bypassing the
-  // shared TestDataManager pool) get the real production changelog
-  // defaults, so they're eligible for the blocking "What's New" modal on
-  // first login — see suppressChangelogModal's doc comment.
-  await suppressChangelogModal(page, user.email, user.password);
-
-  return { id: payload.id, email: payload.email };
 }
 
 test.describe('Multi-Component Security Workflows', () => {
