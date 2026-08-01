@@ -55,12 +55,18 @@ export interface AuditLogFilters {
   resource_uuid?: string
 }
 
-/** Response for list endpoint */
-interface ListAuditLogsResponse {
-  logs: AuditLog[]
-  total: number
+/** Pagination metadata returned alongside a list of audit logs */
+export interface AuditLogPagination {
   page: number
   limit: number
+  total: number
+  total_pages: number
+}
+
+/** Response for list endpoint */
+interface ListAuditLogsResponse {
+  audit_logs: AuditLog[]
+  pagination: AuditLogPagination
 }
 
 /**

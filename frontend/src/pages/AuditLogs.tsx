@@ -262,7 +262,7 @@ export default function AuditLogs() {
       <Button
         variant="secondary"
         onClick={handleExport}
-        disabled={isExporting || !data?.logs.length}
+        disabled={isExporting || !data?.audit_logs.length}
       >
         <Download className="w-4 h-4 mr-2" />
         Export CSV
@@ -366,7 +366,7 @@ export default function AuditLogs() {
       <Card>
         <CardContent className="p-0">
           <DataTable
-            data={data?.logs || []}
+            data={data?.audit_logs || []}
             columns={columns}
             rowKey={(log) => log.uuid}
             isLoading={isLoading}
@@ -389,10 +389,10 @@ export default function AuditLogs() {
           />
 
           {/* Pagination */}
-          {data && data.total > 0 && (
+          {data && data.pagination.total > 0 && (
             <div className="flex items-center justify-between px-6 py-4 border-t border-border">
               <div className="text-sm text-content-secondary">
-                Showing {(page - 1) * limit + 1} to {Math.min(page * limit, data.total)} of {data.total} entries
+                Showing {(page - 1) * limit + 1} to {Math.min(page * limit, data.pagination.total)} of {data.pagination.total} entries
               </div>
               <div className="flex items-center gap-2">
                 <Button
@@ -404,13 +404,13 @@ export default function AuditLogs() {
                   Previous
                 </Button>
                 <span className="text-sm text-content-secondary">
-                  Page {page} of {Math.ceil(data.total / limit)}
+                  Page {page} of {data.pagination.total_pages}
                 </span>
                 <Button
                   variant="secondary"
                   size="sm"
                   onClick={() => setPage((p) => p + 1)}
-                  disabled={page * limit >= data.total}
+                  disabled={page >= data.pagination.total_pages}
                 >
                   Next
                 </Button>
