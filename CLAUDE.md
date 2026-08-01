@@ -209,6 +209,7 @@ Before marking an implementation task as complete, perform the following in orde
 **Rule:**
 - Run tests, builds, coverage scripts, E2E suites, linters, and Docker builds as blocking, foreground calls with a generous timeout (up to the maximum allowed per call).
 - If a command genuinely needs longer than a single call's timeout allows, re-issue a blocking wait within your own turn until you have a real result. Do not end your turn assuming something else will wake you back up.
+- **If a call auto-backgrounds anyway** (the tool's own timeout forces this, e.g. a 300s/600s cap you didn't choose): that is NOT permission to end your turn and wait for a notification. Immediately re-attach to it — poll or block on it again in the same turn, repeatedly if necessary — until you have a real result. Ending the turn at that point is exactly the disallowed pattern this rule exists to prevent, even though it wasn't your explicit choice to background it.
 - Never report a task as "running, will report when it lands" and then go idle. Either finish with a real result in the same turn, or explicitly hand off incomplete work with a clearly stated reason — never stall silently.
 - Applies to every long-running step across the pipeline: `npx playwright test`, `npx vitest run`, `go test`, `scripts/go-test-coverage.sh`, `scripts/local-patch-report.sh`, Docker image builds, `lefthook run pre-commit`, etc.
 

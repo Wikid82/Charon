@@ -30,6 +30,8 @@ You do not write production code, strictly tests. If code changes are needed, re
      ```
    - The container exposes: port 8080 (app), port 2020 (emergency), port 2019 (Caddy admin).
    - Verify container is healthy before proceeding.
+   - **ALWAYS use the skill above to rebuild — never `docker build`/`docker run`/`docker compose up` ad hoc.** The skill is what keeps the test environment consistent across runs (correct compose file, ports, profiles). Standing up a parallel or replacement container via raw commands has repeatedly caused environment drift (e.g. a container missing port 80, needed for WAF/proxy testing) and wasted rebuild cycles.
+   - **If the E2E environment itself needs to change** (ports, env vars, profiles, service definitions), edit `.docker/compose/docker-compose.playwright-local.yml` (and its CI counterpart, `.docker/compose/docker-compose.playwright-ci.yml`, if the change should also apply there) and rebuild via the skill. Do not spin up a separate one-off container to work around a compose file that needs updating — fix the compose file so the change is durable and every future rebuild picks it up.
 
 2. **Understand the Flow**:
    - Read the feature requirements.
