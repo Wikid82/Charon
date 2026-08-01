@@ -58,6 +58,8 @@ services:
       - /app/data:size=256M,mode=1777
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro # For container discovery in tests
+    labels:
+      - "dockhand.update=false"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:8080/api/v1/health || exit 1"]
       interval: 5s
