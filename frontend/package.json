@@ -46,7 +46,7 @@
     "lucide-react": "^1.28.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "react-hook-form": "^7.83.0",
+    "react-hook-form": "^7.84.0",
     "react-hot-toast": "^2.6.0",
     "react-i18next": "^17.0.11",
     "react-router": "^8.3.0",
