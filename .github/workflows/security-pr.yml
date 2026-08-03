@@ -373,7 +373,7 @@ jobs:
           format: 'sarif'
           output: 'trivy-binary-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
-          version: 'v0.72.0'
+          version: 'v0.73.0'
           trivyignores: '.trivyignore'
           config: 'trivy.yaml'
         continue-on-error: true
@@ -392,7 +392,7 @@ jobs:
       - name: Upload Trivy SARIF to GitHub Security
         if: always() && steps.trivy-sarif-check.outputs.exists == 'true'
         # github/codeql-action v4.36.2
-        uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
+        uses: github/codeql-action/upload-sarif@d1ba80a13dd99fba24a470575428917156a28b43 # v4.37.5
         with:
           sarif_file: 'trivy-binary-results.sarif'
           category: ${{ steps.pr-info.outputs.is_push == 'true' && format('security-scan-{0}', github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name) || format('security-scan-pr-{0}', steps.pr-info.outputs.pr_number) }}
@@ -408,7 +408,7 @@ jobs:
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
-          version: 'v0.72.0'
+          version: 'v0.73.0'
           trivyignores: '.trivyignore'
           config: 'trivy.yaml'
 

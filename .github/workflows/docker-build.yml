@@ -661,7 +661,7 @@ jobs:
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
-          version: 'v0.72.0'
+          version: 'v0.73.0'
           trivyignores: '.trivyignore'
         continue-on-error: true
 
@@ -674,7 +674,7 @@ jobs:
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
-          version: 'v0.72.0'
+          version: 'v0.73.0'
           trivyignores: '.trivyignore'
         continue-on-error: true
 
@@ -690,7 +690,7 @@ jobs:
 
       - name: Upload Trivy results
         if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.trivy-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
+        uses: github/codeql-action/upload-sarif@d1ba80a13dd99fba24a470575428917156a28b43 # v4.37.5
         with:
           sarif_file: 'trivy-results.sarif'
           category: ${{ env.TRIVY_SARIF_CATEGORY }}
@@ -901,7 +901,7 @@ jobs:
           trivyignores: '.trivyignore'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
-          version: 'v0.72.0'
+          version: 'v0.73.0'
 
       - name: Run Trivy scan on PR image (SARIF - blocking)
         id: trivy-scan
@@ -916,7 +916,7 @@ jobs:
           # Keep scanning strict for CRITICAL/HIGH; fail is enforced explicitly
           # at the end so SARIF upload and summaries still run.
           exit-code: '1'
-          version: 'v0.72.0'
+          version: 'v0.73.0'
         continue-on-error: true
 
       - name: Check Trivy PR SARIF exists
@@ -931,7 +931,7 @@ jobs:
 
       - name: Upload Trivy scan results
         if: always() && steps.trivy-pr-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
+        uses: github/codeql-action/upload-sarif@d1ba80a13dd99fba24a470575428917156a28b43 # v4.37.5
         with:
           sarif_file: 'trivy-pr-results.sarif'
           category: ${{ env.TRIVY_SARIF_CATEGORY }}
