@@ -588,3 +588,41 @@ func TestSystemPermissionsHandler_NormalizeAllowlist(t *testing.T) {
 	allowlist := normalizeAllowlist([]string{"", "/tmp/data/..", "/var/log/charon"})
 	require.Equal(t, []string{"/tmp", "/var/log/charon"}, allowlist)
 }
+
+func TestIsWithinAllowlistBounds(t *testing.T) {
+	t.Run("contained in root", func(t *testing.T) {
+		require.True(t, isWithinAllowlistBounds("/foo/bar", []string{"/foo"}))
+	})
+
+	t.Run("exactly equal to root", func(t *testing.T) {
+		require.True(t, isWithinAllowlistBounds("/foo", []string{"/foo"}))
+	})
+
+	t.Run("ancestor of root", func(t *testing.T) {
+		require.True(t, isWithinAllowlistBounds("/foo", []string{"/foo/bar/baz"}))
+	})
+
+	t.Run("universal ancestor root separator", func(t *testing.T) {
+		require.True(t, isWithinAllowlistBounds("/", []string{"/foo"}))
+		require.True(t, isWithinAllowlistBounds("/", []string{"/foo", "/bar"}))
+	})
+
+	t.Run("prefix confusion boundary", func(t *testing.T) {
+		require.False(t, isWithinAllowlistBounds("/foobar", []string{"/foo"}))
+		require.True(t, isWithinAllowlistBounds("/foo/bar", []string{"/foo"}))
+		require.False(t, isWithinAllowlistBounds("/fo", []string{"/foo"}))
+	})
+
+	t.Run("no match", func(t *testing.T) {
+		require.False(t, isWithinAllowlistBounds("/etc/passwd", []string{"/foo"}))
+	})
+
+	t.Run("empty allowlist entries skipped", func(t *testing.T) {
+		require.False(t, isWithinAllowlistBounds("/etc/passwd", []string{""}))
+		require.True(t, isWithinAllowlistBounds("/foo/bar", []string{"", "/foo"}))
+	})
+
+	t.Run("root normalized to exactly slash", func(t *testing.T) {
+		require.True(t, isWithinAllowlistBounds("/somefile", []string{"/"}))
+	})
+}

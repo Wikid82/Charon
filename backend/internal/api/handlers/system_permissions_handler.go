@@ -412,6 +412,39 @@ func isWithinAllowlist(path string, allowlist []string) bool {
 	return false
 }
 
+// isWithinAllowlistBounds reports whether current is safe to pass to a
+// filesystem sink (Lstat/Chown/Chmod) at this point in the request flow:
+// either current is within (or equal to) one of allowlist's roots, or
+// current is an ancestor directory encountered while walking down from
+// "/" toward one (required by pathHasSymlink's component-by-component
+// walk, which necessarily passes through shorter prefixes before
+// reaching a configured root). Comparisons always anchor on the OS path
+// separator so "/foo" is never mistaken for a prefix of "/foobar".
+func isWithinAllowlistBounds(current string, allowlist []string) bool {
+	sep := string(os.PathSeparator)
+	if current == sep {
+		return true
+	}
+	for _, root := range allowlist {
+		if root == "" {
+			continue
+		}
+		if root == sep {
+			return true
+		}
+		if current == root {
+			return true
+		}
+		if strings.HasPrefix(current, root+sep) {
+			return true
+		}
+		if strings.HasPrefix(root, current+sep) {
+			return true
+		}
+	}
+	return false
+}
+
 func targetMode(isDir, groupMode bool) string {
 	if isDir {
 		if groupMode {
