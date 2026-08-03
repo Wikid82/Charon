@@ -614,11 +614,11 @@ jobs:
           image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}
           format: 'sarif'
           output: 'trivy-nightly.sarif'
-          version: 'v0.72.0'
+          version: 'v0.73.0'
           trivyignores: '.trivyignore'
 
       - name: Upload Trivy results
-        uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38  # v4.37.4
+        uses: github/codeql-action/upload-sarif@d1ba80a13dd99fba24a470575428917156a28b43  # v4.37.5
         with:
           sarif_file: 'trivy-nightly.sarif'
           category: 'trivy-nightly'
