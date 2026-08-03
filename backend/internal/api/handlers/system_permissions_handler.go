@@ -454,39 +454,6 @@ func isWithinAllowlist(path string, allowlist []string) bool {
 	return false
 }
 
-// isWithinAllowlistBounds reports whether current is safe to pass to a
-// filesystem sink (Lstat/Chown/Chmod) at this point in the request flow:
-// either current is within (or equal to) one of allowlist's roots, or
-// current is an ancestor directory encountered while walking down from
-// "/" toward one (required by pathHasSymlink's component-by-component
-// walk, which necessarily passes through shorter prefixes before
-// reaching a configured root). Comparisons always anchor on the OS path
-// separator so "/foo" is never mistaken for a prefix of "/foobar".
-func isWithinAllowlistBounds(current string, allowlist []string) bool {
-	sep := string(os.PathSeparator)
-	if current == sep {
-		return true
-	}
-	for _, root := range allowlist {
-		if root == "" {
-			continue
-		}
-		if root == sep {
-			return true
-		}
-		if current == root {
-			return true
-		}
-		if strings.HasPrefix(current, root+sep) {
-			return true
-		}
-		if strings.HasPrefix(root, current+sep) {
-			return true
-		}
-	}
-	return false
-}
-
 // firstAllowlistPrefix returns a prefix p such that strings.HasPrefix(current, p)
 // is true if and only if current is within (or equal to) one of allowlist's
 // roots, or "" if no root matches. When current exactly equals the matching
@@ -494,6 +461,17 @@ func isWithinAllowlistBounds(current string, allowlist []string) bool {
 // otherwise p is root+separator, so a real descendant is required (avoiding
 // "/foo" being mistaken for a prefix of "/foobar"). A root of exactly the
 // separator ("/") always matches, since every absolute path starts with "/".
+//
+// This is kept separate from isWithinAllowlist (above) rather than merged
+// into it: isWithinAllowlist is filepath.Rel-based and CodeQL's Go
+// path-injection sanitizer does not recognize that idiom at all, whereas it
+// does recognize a direct strings.HasPrefix(taintedVar, ...) call -- but
+// only when that call sits in the sink's own function, is not itself
+// wrapped behind a helper call, and is not inside a loop. Merging the two
+// would either move the recognized HasPrefix call back behind a function
+// boundary (unrecognized again) or force isWithinAllowlist's existing,
+// separately-tested Rel-error-branch behavior to change; both are exactly
+// what this split avoids.
 func firstAllowlistPrefix(current string, allowlist []string) string {
 	sep := string(os.PathSeparator)
 	for _, root := range allowlist {

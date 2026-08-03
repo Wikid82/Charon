@@ -631,40 +631,31 @@ func TestSystemPermissionsHandler_NormalizeAllowlist(t *testing.T) {
 	require.Equal(t, []string{"/tmp", "/var/log/charon"}, allowlist)
 }
 
-func TestIsWithinAllowlistBounds(t *testing.T) {
+func TestFirstAllowlistPrefix(t *testing.T) {
 	t.Run("contained in root", func(t *testing.T) {
-		require.True(t, isWithinAllowlistBounds("/foo/bar", []string{"/foo"}))
+		require.Equal(t, "/foo/", firstAllowlistPrefix("/foo/bar", []string{"/foo"}))
 	})
 
 	t.Run("exactly equal to root", func(t *testing.T) {
-		require.True(t, isWithinAllowlistBounds("/foo", []string{"/foo"}))
-	})
-
-	t.Run("ancestor of root", func(t *testing.T) {
-		require.True(t, isWithinAllowlistBounds("/foo", []string{"/foo/bar/baz"}))
-	})
-
-	t.Run("universal ancestor root separator", func(t *testing.T) {
-		require.True(t, isWithinAllowlistBounds("/", []string{"/foo"}))
-		require.True(t, isWithinAllowlistBounds("/", []string{"/foo", "/bar"}))
+		require.Equal(t, "/foo", firstAllowlistPrefix("/foo", []string{"/foo"}))
 	})
 
 	t.Run("prefix confusion boundary", func(t *testing.T) {
-		require.False(t, isWithinAllowlistBounds("/foobar", []string{"/foo"}))
-		require.True(t, isWithinAllowlistBounds("/foo/bar", []string{"/foo"}))
-		require.False(t, isWithinAllowlistBounds("/fo", []string{"/foo"}))
+		require.Empty(t, firstAllowlistPrefix("/foobar", []string{"/foo"}))
+		require.Equal(t, "/foo/", firstAllowlistPrefix("/foo/bar", []string{"/foo"}))
+		require.Empty(t, firstAllowlistPrefix("/fo", []string{"/foo"}))
 	})
 
 	t.Run("no match", func(t *testing.T) {
-		require.False(t, isWithinAllowlistBounds("/etc/passwd", []string{"/foo"}))
+		require.Empty(t, firstAllowlistPrefix("/etc/passwd", []string{"/foo"}))
 	})
 
 	t.Run("empty allowlist entries skipped", func(t *testing.T) {
-		require.False(t, isWithinAllowlistBounds("/etc/passwd", []string{""}))
-		require.True(t, isWithinAllowlistBounds("/foo/bar", []string{"", "/foo"}))
+		require.Empty(t, firstAllowlistPrefix("/etc/passwd", []string{""}))
+		require.Equal(t, "/foo/", firstAllowlistPrefix("/foo/bar", []string{"", "/foo"}))
 	})
 
 	t.Run("root normalized to exactly slash", func(t *testing.T) {
-		require.True(t, isWithinAllowlistBounds("/somefile", []string{"/"}))
+		require.Equal(t, "/", firstAllowlistPrefix("/somefile", []string{"/"}))
 	})
 }
