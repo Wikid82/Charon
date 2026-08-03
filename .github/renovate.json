@@ -802,6 +802,906 @@
       "sourceUrl": "https://github.com/sirupsen/logrus"
     },
     {
+      "description": "Fix Renovate lookup for filippo.io/age",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "filippo.io/age"
+      ],
+      "sourceUrl": "https://github.com/FiloSottile/age"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/glebarez/sqlite",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/glebarez/sqlite"
+      ],
+      "sourceUrl": "https://github.com/glebarez/sqlite"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/hashicorp/yamux",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/hashicorp/yamux"
+      ],
+      "sourceUrl": "https://github.com/hashicorp/yamux"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/minio/minio-go/v7",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/minio/minio-go/v7"
+      ],
+      "sourceUrl": "https://github.com/minio/minio-go"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/moby/moby/client",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/moby/moby/client"
+      ],
+      "sourceUrl": "https://github.com/moby/moby"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/pkg/sftp",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/pkg/sftp"
+      ],
+      "sourceUrl": "https://github.com/pkg/sftp"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/stretchr/testify",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/stretchr/testify"
+      ],
+      "sourceUrl": "https://github.com/stretchr/testify"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/studio-b12/gowebdav",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/studio-b12/gowebdav"
+      ],
+      "sourceUrl": "https://github.com/studio-b12/gowebdav"
+    },
+    {
+      "description": "Fix Renovate lookup for golang.org/x/crypto",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "golang.org/x/crypto"
+      ],
+      "sourceUrl": "https://github.com/golang/crypto"
+    },
+    {
+      "description": "Fix Renovate lookup for golang.org/x/net",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "golang.org/x/net"
+      ],
+      "sourceUrl": "https://github.com/golang/net"
+    },
+    {
+      "description": "Fix Renovate lookup for golang.org/x/oauth2",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "golang.org/x/oauth2"
+      ],
+      "sourceUrl": "https://github.com/golang/oauth2"
+    },
+    {
+      "description": "Fix Renovate lookup for golang.org/x/text",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "golang.org/x/text"
+      ],
+      "sourceUrl": "https://github.com/golang/text"
+    },
+    {
+      "description": "Fix Renovate lookup for golang.org/x/time",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "golang.org/x/time"
+      ],
+      "sourceUrl": "https://github.com/golang/time"
+    },
+    {
+      "description": "Fix Renovate lookup for gopkg.in/natefinch/lumberjack.v2",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "gopkg.in/natefinch/lumberjack.v2"
+      ],
+      "sourceUrl": "https://github.com/natefinch/lumberjack"
+    },
+    {
+      "description": "Fix Renovate lookup for software.sslmate.com/src/go-pkcs12",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "software.sslmate.com/src/go-pkcs12"
+      ],
+      "sourceUrl": "https://github.com/SSLMate/go-pkcs12"
+    },
+    {
+      "description": "Fix Renovate lookup for filippo.io/hpke",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "filippo.io/hpke"
+      ],
+      "sourceUrl": "https://github.com/FiloSottile/hpke"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/Microsoft/go-winio",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/Microsoft/go-winio"
+      ],
+      "sourceUrl": "https://github.com/microsoft/go-winio"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/beorn7/perks",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/beorn7/perks"
+      ],
+      "sourceUrl": "https://github.com/beorn7/perks"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/bytedance/gopkg",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/bytedance/gopkg"
+      ],
+      "sourceUrl": "https://github.com/bytedance/gopkg"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/bytedance/sonic",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/bytedance/sonic"
+      ],
+      "sourceUrl": "https://github.com/bytedance/sonic"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/bytedance/sonic/loader",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/bytedance/sonic/loader"
+      ],
+      "sourceUrl": "https://github.com/bytedance/sonic"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/cloudwego/base64x",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/cloudwego/base64x"
+      ],
+      "sourceUrl": "https://github.com/cloudwego/base64x"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/containerd/errdefs",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/containerd/errdefs"
+      ],
+      "sourceUrl": "https://github.com/containerd/errdefs"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/containerd/errdefs/pkg",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/containerd/errdefs/pkg"
+      ],
+      "sourceUrl": "https://github.com/containerd/errdefs"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/davecgh/go-spew",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/davecgh/go-spew"
+      ],
+      "sourceUrl": "https://github.com/davecgh/go-spew"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/distribution/reference",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/distribution/reference"
+      ],
+      "sourceUrl": "https://github.com/distribution/reference"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/docker/go-connections",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/docker/go-connections"
+      ],
+      "sourceUrl": "https://github.com/docker/go-connections"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/docker/go-units",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/docker/go-units"
+      ],
+      "sourceUrl": "https://github.com/docker/go-units"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/dustin/go-humanize",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/dustin/go-humanize"
+      ],
+      "sourceUrl": "https://github.com/dustin/go-humanize"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/felixge/httpsnoop",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/felixge/httpsnoop"
+      ],
+      "sourceUrl": "https://github.com/felixge/httpsnoop"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/gabriel-vasile/mimetype",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/gabriel-vasile/mimetype"
+      ],
+      "sourceUrl": "https://github.com/gabriel-vasile/mimetype"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/glebarez/go-sqlite",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/glebarez/go-sqlite"
+      ],
+      "sourceUrl": "https://github.com/glebarez/go-sqlite"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/go-logr/logr",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/go-logr/logr"
+      ],
+      "sourceUrl": "https://github.com/go-logr/logr"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/go-logr/stdr",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/go-logr/stdr"
+      ],
+      "sourceUrl": "https://github.com/go-logr/stdr"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/go-playground/locales",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/go-playground/locales"
+      ],
+      "sourceUrl": "https://github.com/go-playground/locales"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/go-playground/universal-translator",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/go-playground/universal-translator"
+      ],
+      "sourceUrl": "https://github.com/go-playground/universal-translator"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/goccy/go-json",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/goccy/go-json"
+      ],
+      "sourceUrl": "https://github.com/goccy/go-json"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/goccy/go-yaml",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/goccy/go-yaml"
+      ],
+      "sourceUrl": "https://github.com/goccy/go-yaml"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/jinzhu/inflection",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/jinzhu/inflection"
+      ],
+      "sourceUrl": "https://github.com/jinzhu/inflection"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/jinzhu/now",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/jinzhu/now"
+      ],
+      "sourceUrl": "https://github.com/jinzhu/now"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/json-iterator/go",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/json-iterator/go"
+      ],
+      "sourceUrl": "https://github.com/json-iterator/go"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/klauspost/compress",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/klauspost/compress"
+      ],
+      "sourceUrl": "https://github.com/klauspost/compress"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/klauspost/crc32",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/klauspost/crc32"
+      ],
+      "sourceUrl": "https://github.com/klauspost/crc32"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/kr/fs",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/kr/fs"
+      ],
+      "sourceUrl": "https://github.com/kr/fs"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/kylelemons/godebug",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/kylelemons/godebug"
+      ],
+      "sourceUrl": "https://github.com/kylelemons/godebug"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/leodido/go-urn",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/leodido/go-urn"
+      ],
+      "sourceUrl": "https://github.com/leodido/go-urn"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/mattn/go-isatty",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/mattn/go-isatty"
+      ],
+      "sourceUrl": "https://github.com/mattn/go-isatty"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/mattn/go-sqlite3",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/mattn/go-sqlite3"
+      ],
+      "sourceUrl": "https://github.com/mattn/go-sqlite3"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/minio/crc64nvme",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/minio/crc64nvme"
+      ],
+      "sourceUrl": "https://github.com/minio/crc64nvme"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/minio/md5-simd",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/minio/md5-simd"
+      ],
+      "sourceUrl": "https://github.com/minio/md5-simd"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/moby/docker-image-spec",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/moby/docker-image-spec"
+      ],
+      "sourceUrl": "https://github.com/moby/docker-image-spec"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/moby/moby/api",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/moby/moby/api"
+      ],
+      "sourceUrl": "https://github.com/moby/moby"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/modern-go/concurrent",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/modern-go/concurrent"
+      ],
+      "sourceUrl": "https://github.com/modern-go/concurrent"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/modern-go/reflect2",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/modern-go/reflect2"
+      ],
+      "sourceUrl": "https://github.com/modern-go/reflect2"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/munnerz/goautoneg",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/munnerz/goautoneg"
+      ],
+      "sourceUrl": "https://github.com/munnerz/goautoneg"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/ncruces/go-strftime",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/ncruces/go-strftime"
+      ],
+      "sourceUrl": "https://github.com/ncruces/go-strftime"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/opencontainers/go-digest",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/opencontainers/go-digest"
+      ],
+      "sourceUrl": "https://github.com/opencontainers/go-digest"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/opencontainers/image-spec",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/opencontainers/image-spec"
+      ],
+      "sourceUrl": "https://github.com/opencontainers/image-spec"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/philhofer/fwd",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/philhofer/fwd"
+      ],
+      "sourceUrl": "https://github.com/philhofer/fwd"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/pmezard/go-difflib",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/pmezard/go-difflib"
+      ],
+      "sourceUrl": "https://github.com/pmezard/go-difflib"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/prometheus/client_model",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/prometheus/client_model"
+      ],
+      "sourceUrl": "https://github.com/prometheus/client_model"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/prometheus/common",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/prometheus/common"
+      ],
+      "sourceUrl": "https://github.com/prometheus/common"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/prometheus/procfs",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/prometheus/procfs"
+      ],
+      "sourceUrl": "https://github.com/prometheus/procfs"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/quic-go/qpack",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/quic-go/qpack"
+      ],
+      "sourceUrl": "https://github.com/quic-go/qpack"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/quic-go/quic-go",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/quic-go/quic-go"
+      ],
+      "sourceUrl": "https://github.com/quic-go/quic-go"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/remyoudompheng/bigfft",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/remyoudompheng/bigfft"
+      ],
+      "sourceUrl": "https://github.com/remyoudompheng/bigfft"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/rs/xid",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/rs/xid"
+      ],
+      "sourceUrl": "https://github.com/rs/xid"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/stretchr/objx",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/stretchr/objx"
+      ],
+      "sourceUrl": "https://github.com/stretchr/objx"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/tinylib/msgp",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/tinylib/msgp"
+      ],
+      "sourceUrl": "https://github.com/tinylib/msgp"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/twitchyliquid64/golang-asm",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/twitchyliquid64/golang-asm"
+      ],
+      "sourceUrl": "https://github.com/twitchyliquid64/golang-asm"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/ugorji/go/codec",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/ugorji/go/codec"
+      ],
+      "sourceUrl": "https://github.com/ugorji/go"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/zeebo/xxh3",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/zeebo/xxh3"
+      ],
+      "sourceUrl": "https://github.com/zeebo/xxh3"
+    },
+    {
+      "description": "Fix Renovate lookup for go.mongodb.org/mongo-driver/v2",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "go.mongodb.org/mongo-driver/v2"
+      ],
+      "sourceUrl": "https://github.com/mongodb/mongo-go-driver"
+    },
+    {
+      "description": "Fix Renovate lookup for go.opentelemetry.io/auto/sdk",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "go.opentelemetry.io/auto/sdk"
+      ],
+      "sourceUrl": "https://github.com/open-telemetry/opentelemetry-go-instrumentation"
+    },
+    {
+      "description": "Fix Renovate lookup for go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+      ],
+      "sourceUrl": "https://github.com/open-telemetry/opentelemetry-go-contrib"
+    },
+    {
+      "description": "Fix Renovate lookup for go.opentelemetry.io/otel",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "go.opentelemetry.io/otel"
+      ],
+      "sourceUrl": "https://github.com/open-telemetry/opentelemetry-go"
+    },
+    {
+      "description": "Fix Renovate lookup for go.opentelemetry.io/otel/metric",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "go.opentelemetry.io/otel/metric"
+      ],
+      "sourceUrl": "https://github.com/open-telemetry/opentelemetry-go"
+    },
+    {
+      "description": "Fix Renovate lookup for go.opentelemetry.io/otel/trace",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "go.opentelemetry.io/otel/trace"
+      ],
+      "sourceUrl": "https://github.com/open-telemetry/opentelemetry-go"
+    },
+    {
+      "description": "Fix Renovate lookup for go.yaml.in/yaml/v3",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "go.yaml.in/yaml/v3"
+      ],
+      "sourceUrl": "https://github.com/yaml/go-yaml"
+    },
+    {
+      "description": "Fix Renovate lookup for golang.org/x/arch",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "golang.org/x/arch"
+      ],
+      "sourceUrl": "https://github.com/golang/arch"
+    },
+    {
+      "description": "Fix Renovate lookup for golang.org/x/sys",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "golang.org/x/sys"
+      ],
+      "sourceUrl": "https://github.com/golang/sys"
+    },
+    {
+      "description": "Fix Renovate lookup for google.golang.org/protobuf",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "google.golang.org/protobuf"
+      ],
+      "sourceUrl": "https://github.com/protocolbuffers/protobuf-go"
+    },
+    {
+      "description": "Fix Renovate lookup for gopkg.in/ini.v1",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "gopkg.in/ini.v1"
+      ],
+      "sourceUrl": "https://github.com/go-ini/ini"
+    },
+    {
+      "description": "Fix Renovate lookup for modernc.org/libc",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "modernc.org/libc"
+      ],
+      "sourceUrl": "https://gitlab.com/cznic/libc"
+    },
+    {
+      "description": "Fix Renovate lookup for modernc.org/mathutil",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "modernc.org/mathutil"
+      ],
+      "sourceUrl": "https://gitlab.com/cznic/mathutil"
+    },
+    {
+      "description": "Fix Renovate lookup for modernc.org/memory",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "modernc.org/memory"
+      ],
+      "sourceUrl": "https://gitlab.com/cznic/memory"
+    },
+    {
+      "description": "Fix Renovate lookup for modernc.org/sqlite",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "modernc.org/sqlite"
+      ],
+      "sourceUrl": "https://gitlab.com/cznic/sqlite"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/kr/pretty",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/kr/pretty"
+      ],
+      "sourceUrl": "https://github.com/kr/pretty"
+    },
+    {
+      "description": "Fix Renovate lookup for github.com/rogpeppe/go-internal",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "github.com/rogpeppe/go-internal"
+      ],
+      "sourceUrl": "https://github.com/rogpeppe/go-internal"
+    },
+    {
+      "description": "Fix Renovate lookup for gopkg.in/check.v1",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "gopkg.in/check.v1"
+      ],
+      "sourceUrl": "https://github.com/go-check/check"
+    },
+    {
       "description": "Disable js-yaml updates — pinned in overrides for security; managed manually",
       "matchPackageNames": [
         "js-yaml"
