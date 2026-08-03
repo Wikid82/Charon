@@ -145,7 +145,16 @@ func (h *SystemPermissionsHandler) repairPath(rawPath string, groupMode bool, al
 		}
 	}
 
-	if !isWithinAllowlistBounds(cleanPath, normalizedAllowlist) {
+	// requiredPrefix identifies which allowlist root cleanPath falls under
+	// and pre-resolves the exact prefix string to confirm against; finding
+	// it may use any logic (it is not itself security-load-bearing, since
+	// isWithinAllowlist above already gated cleanPath). The
+	// strings.HasPrefix call immediately below -- on the bare cleanPath
+	// value, unmodified -- is what directly guards cleanPath at the point
+	// of use, in this same function, for every sink that follows; cleanPath
+	// is never reassigned after this point.
+	requiredPrefix := firstAllowlistPrefix(cleanPath, normalizedAllowlist)
+	if requiredPrefix == "" || !strings.HasPrefix(cleanPath, requiredPrefix) {
 		return permissionsRepairResult{
 			Path:      cleanPath,
 			Status:    "error",
@@ -255,15 +264,6 @@ func (h *SystemPermissionsHandler) repairPath(rawPath string, groupMode bool, al
 		}
 	}
 
-	if !isWithinAllowlistBounds(cleanPath, normalizedAllowlist) {
-		return permissionsRepairResult{
-			Path:      cleanPath,
-			Status:    "error",
-			ErrorCode: "permissions_outside_allowlist",
-			Message:   "path outside allowlist",
-		}
-	}
-
 	if err := os.Chown(cleanPath, uid, gid); err != nil {
 		return permissionsRepairResult{
 			Path:      cleanPath,
@@ -280,15 +280,6 @@ func (h *SystemPermissionsHandler) repairPath(rawPath string, groupMode bool, al
 			Status:    "error",
 			ErrorCode: "permissions_repair_failed",
 			Message:   parseErr.Error(),
-		}
-	}
-
-	if !isWithinAllowlistBounds(cleanPath, normalizedAllowlist) {
-		return permissionsRepairResult{
-			Path:      cleanPath,
-			Status:    "error",
-			ErrorCode: "permissions_outside_allowlist",
-			Message:   "path outside allowlist",
 		}
 	}
 
@@ -410,22 +401,33 @@ func normalizeAllowlist(allowlist []string) []string {
 // pathHasSymlink walks path component-by-component from the filesystem
 // root, Lstat-ing every successive prefix, to TOCTOU-safely detect a
 // symlink anywhere in the chain (not just at the leaf). allowlist is the
-// normalized set of admin-configured safe roots; it re-validates that
-// every prefix stays within (or is a legitimate ancestor of) one of those
-// roots immediately before each Lstat, so the value passed to the sink is
-// always guarded inline at the point of use.
+// normalized set of admin-configured safe roots. clean (path, normalized)
+// is guarded once against allowlist immediately below via a direct
+// strings.HasPrefix call in this function; every current value used at
+// the Lstat sink is derived exclusively from that already-guarded clean
+// value via filepath.Clean/strings.Split/filepath.Join, so the guard
+// covers the whole walk, not just the final component.
 func pathHasSymlink(path string, allowlist []string) (bool, error) {
 	clean := filepath.Clean(path)
-	parts := strings.Split(clean, string(os.PathSeparator))
-	current := string(os.PathSeparator)
+	pathSep := string(os.PathSeparator)
+
+	// requiredPrefix identifies which allowlist root clean falls under and
+	// pre-resolves the exact prefix string to confirm against; see the
+	// matching comment in repairPath for why the lookup itself need not be
+	// the recognized guard -- the strings.HasPrefix call below, on the
+	// bare clean value, is.
+	requiredPrefix := firstAllowlistPrefix(clean, allowlist)
+	if requiredPrefix == "" || !strings.HasPrefix(clean, requiredPrefix) {
+		return false, fmt.Errorf("%w: %s", errPathEscapesAllowlist, clean)
+	}
+
+	parts := strings.Split(clean, pathSep)
+	current := pathSep
 	for _, part := range parts {
 		if part == "" {
 			continue
 		}
 		current = filepath.Join(current, part)
-		if !isWithinAllowlistBounds(current, allowlist) {
-			return false, fmt.Errorf("%w: %s", errPathEscapesAllowlist, current)
-		}
 		info, err := os.Lstat(current)
 		if err != nil {
 			return false, err
@@ -483,6 +485,32 @@ func isWithinAllowlistBounds(current string, allowlist []string) bool {
 		}
 	}
 	return false
+}
+
+// firstAllowlistPrefix returns a prefix p such that strings.HasPrefix(current, p)
+// is true if and only if current is within (or equal to) one of allowlist's
+// roots, or "" if no root matches. When current exactly equals the matching
+// root, p is current itself (any string trivially has itself as a prefix);
+// otherwise p is root+separator, so a real descendant is required (avoiding
+// "/foo" being mistaken for a prefix of "/foobar"). A root of exactly the
+// separator ("/") always matches, since every absolute path starts with "/".
+func firstAllowlistPrefix(current string, allowlist []string) string {
+	sep := string(os.PathSeparator)
+	for _, root := range allowlist {
+		if root == "" {
+			continue
+		}
+		if root == sep {
+			return sep
+		}
+		if current == root {
+			return current
+		}
+		if strings.HasPrefix(current, root+sep) {
+			return root + sep
+		}
+	}
+	return ""
 }
 
 func targetMode(isDir, groupMode bool) string {

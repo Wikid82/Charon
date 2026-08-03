@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -200,6 +201,33 @@ func TestSystemPermissionsHandler_PathHasSymlink(t *testing.T) {
 
 	_, err = pathHasSymlink(filepath.Join(root, "missing", "file.txt"), []string{root})
 	require.Error(t, err)
+}
+
+func TestPathHasSymlink_AllowlistBounds(t *testing.T) {
+	t.Run("path outside the given allowlist, no symlink involved", func(t *testing.T) {
+		otherRoot := t.TempDir()
+		outsideRoot := t.TempDir()
+		outsidePath := filepath.Join(outsideRoot, "file.txt")
+		require.NoError(t, os.WriteFile(outsidePath, []byte("x"), 0o600))
+
+		hasSymlink, err := pathHasSymlink(outsidePath, []string{otherRoot})
+		require.False(t, hasSymlink)
+		require.Error(t, err)
+		require.True(t, errors.Is(err, errPathEscapesAllowlist))
+		require.False(t, os.IsNotExist(err))
+	})
+
+	t.Run("ancestor of root traversal does not falsely reject", func(t *testing.T) {
+		base := t.TempDir()
+		allowRoot := filepath.Join(base, "a", "b", "c")
+		require.NoError(t, os.MkdirAll(allowRoot, 0o750))
+		target := filepath.Join(allowRoot, "file.txt")
+		require.NoError(t, os.WriteFile(target, []byte("x"), 0o600))
+
+		hasSymlink, err := pathHasSymlink(target, []string{allowRoot})
+		require.NoError(t, err)
+		require.False(t, hasSymlink)
+	})
 }
 
 func TestSystemPermissionsHandler_NewDefaultsCheckerToOSChecker(t *testing.T) {
@@ -500,6 +528,19 @@ func TestSystemPermissionsHandler_RepairPath_Branches(t *testing.T) {
 		require.Equal(t, "permissions_repair_skipped", result.ErrorCode)
 		require.Equal(t, "0600", result.ModeAfter)
 	})
+
+	t.Run("symlink escaping allowlist rejected", func(t *testing.T) {
+		outsideDir := t.TempDir()
+		outsideFile := filepath.Join(outsideDir, "outside.txt")
+		require.NoError(t, os.WriteFile(outsideFile, []byte("x"), 0o600))
+
+		link := filepath.Join(allowRoot, "escape-link")
+		require.NoError(t, os.Symlink(outsideFile, link))
+
+		result := h.repairPath(link, false, allowlist)
+		require.Equal(t, "error", result.Status)
+		require.Equal(t, "permissions_symlink_rejected", result.ErrorCode)
+	})
 }
 
 func TestSystemPermissionsHandler_OSChecker_Check(t *testing.T) {
@@ -549,10 +590,11 @@ func TestSystemPermissionsHandler_RepairPermissions_InvalidRequestBody_Root(t *t
 func TestSystemPermissionsHandler_RepairPath_LstatInvalidArgument(t *testing.T) {
 	h := NewSystemPermissionsHandler(config.Config{}, nil, stubPermissionChecker{})
 	allowRoot := t.TempDir()
+	invalidPath := filepath.Join(allowRoot, "\x00invalid")
 
-	result := h.repairPath("/tmp/\x00invalid", false, []string{allowRoot})
+	result := h.repairPath(invalidPath, false, []string{allowRoot})
 	require.Equal(t, "error", result.Status)
-	require.Equal(t, "permissions_outside_allowlist", result.ErrorCode)
+	require.Equal(t, "permissions_repair_failed", result.ErrorCode)
 }
 
 func TestSystemPermissionsHandler_RepairPath_RepairedBranch(t *testing.T) {
