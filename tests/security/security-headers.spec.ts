@@ -47,11 +47,13 @@ test.describe('Security Headers Configuration @security', () => {
     });
 
     test('should show score breakdown', async ({ page }) => {
-      const scoreDetails = page.locator('[class*="score"], [class*="grade"]').filter({
-        hasText: /a|b|c|d|f|\d+%/i
-      });
+      // The profile cards on this page render SecurityScoreDisplay in its
+      // compact form (size="sm", showDetails={false}) - there is no
+      // "score"/"grade"-classed element and no expandable breakdown section,
+      // just plain "<score> / <maxScore>" text (e.g. "65 / 100") per profile.
+      const scoreDetails = page.getByText(/\d+\s*\/\s*\d+/).first();
 
-      await expect(scoreDetails.first()).toBeVisible();
+      await expect(scoreDetails).toBeVisible();
     });
   });
 

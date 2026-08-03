@@ -21,7 +21,7 @@
  * ```
  */
 
-import { APIRequestContext, APIResponse } from '@playwright/test';
+import { APIRequestContext, APIResponse, expect, request as playwrightRequest, type Page } from '@playwright/test';
 import { readFileSync } from 'fs';
 import { STORAGE_STATE } from '../constants';
 
@@ -207,6 +207,214 @@ export async function authenticateViaAPI(
   });
 
   return parseResponse<AuthResponse>(response);
+}
+
+/**
+ * Suppress the "What's New" changelog modal for a throwaway user created
+ * directly via `POST /api/v1/users` (e.g. an ad-hoc `createUserViaApi`
+ * helper), outside the shared `TestDataManager`-managed user pool.
+ *
+ * New users get the real production defaults — `changelog_opt_out: false`
+ * and (on E2E's unversioned "dev" build) `last_seen_version: ""` — so they
+ * are eligible to see the blocking "What's New" dialog (see
+ * `WhatsNewModal.tsx`) the moment they're logged into and the UI is
+ * interacted with. `TestDataManager.createUser()` already guards against
+ * this for the shared pool by opting new users out via the self-service
+ * `/api/v1/changelog/ack` endpoint immediately after creation; this helper
+ * mirrors that exact mechanism for specs that bypass the pool.
+ *
+ * Logs in as the new user through an **isolated** request context rather
+ * than `page.request` / the caller's admin session — `POST /auth/login`
+ * sets a same-origin `auth_token` cookie, and reusing the caller's request
+ * context (which shares cookies with `page`) would silently swap the
+ * browser's authenticated session out from under the admin flow the
+ * calling test is otherwise driving.
+ *
+ * Best-effort: a failure here must not fail the calling test — worst case
+ * the modal appears for this throwaway user.
+ */
+export async function suppressChangelogModal(
+  page: Page,
+  email: string,
+  password: string
+): Promise<void> {
+  let baseURL: string;
+  try {
+    baseURL = new URL(page.url()).origin;
+  } catch {
+    baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
+  }
+
+  const loginContext = await playwrightRequest.newContext({
+    baseURL,
+    extraHTTPHeaders: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+  });
+
+  try {
+    const auth = await authenticateViaAPI(loginContext, email, password).catch(() => null);
+    if (!auth?.token) {
+      console.warn(`Failed to suppress changelog modal for ${email}: login failed`);
+      return;
+    }
+
+    const ackResponse = await loginContext.post('/api/v1/changelog/ack', {
+      headers: { Authorization: `Bearer ${auth.token}` },
+      data: { action: 'dismiss_permanent', opt_out: true },
+    });
+    if (!ackResponse.ok()) {
+      console.warn(`Failed to suppress changelog modal for ${email}: ${ackResponse.status()}`);
+    }
+  } catch (error) {
+    console.warn(`Failed to suppress changelog modal for ${email}:`, error);
+  } finally {
+    await loginContext.dispose();
+  }
+}
+
+/**
+ * Resolve the Caddy reverse-proxy origin for a page.
+ *
+ * `page.url()`'s origin is the Charon *management* interface (default
+ * port 8080) — per ARCHITECTURE.md ("Management Interface (Port 8080)":
+ * "NO Cerberus Middleware: Rate limiting, ACL, WAF, and CrowdSec are NOT
+ * applied to management interface") that origin never runs WAF/ACL/rate
+ * limiting/CrowdSec, and its `/` route unconditionally serves the SPA's
+ * `index.html` regardless of query string, so a request built from it can
+ * never be blocked no matter what payload is sent. Requests that exercise
+ * Cerberus enforcement (WAF, rate limiting, etc.) for a *proxied host* must
+ * instead target the Caddy proxy port (80/443 — "Port 80/443 (Proxy)" in
+ * ARCHITECTURE.md), with the proxied domain in the `Host` header so Caddy
+ * routes to the right upstream and runs its security middleware chain.
+ *
+ * Defaults to port 80 (matches `docker-compose.playwright-ci.yml`'s
+ * `security-tests` profile, which maps host port 80 -> container port 80
+ * on the same host as `PLAYWRIGHT_BASE_URL`). Overridable via
+ * `PLAYWRIGHT_CADDY_PROXY_PORT` for local investigation setups that remap
+ * the host port to avoid colliding with another Caddy/Charon instance.
+ *
+ * @param page - Playwright Page instance
+ */
+export function caddyProxyOrigin(page: Page): string {
+  const managementUrl = new URL(page.url());
+  const proxyPort = process.env.PLAYWRIGHT_CADDY_PROXY_PORT || '80';
+  return `${managementUrl.protocol}//${managementUrl.hostname}:${proxyPort}`;
+}
+
+/**
+ * Read the current session's auth token from the page's localStorage,
+ * actively waiting for it rather than taking a single synchronous read.
+ *
+ * `AuthContext.login()` (`frontend/src/context/AuthContext.tsx`) writes
+ * `charon_auth_token` to localStorage synchronously, but a UI login flow
+ * (fill email/password, click "Sign in") is a client-side SPA action with
+ * no full page navigation. `page.waitForLoadState('networkidle')` called
+ * right after that click is therefore not a reliable signal: Playwright's
+ * networkidle bookkeeping is tied to the frame's navigation lifecycle, and
+ * since no navigation occurs, the call can resolve immediately against the
+ * frame's pre-existing idle state — before the click's async login handler
+ * has actually run and written the token. Reading localStorage right after
+ * `waitForLoadState('networkidle')` is therefore a real race (confirmed via
+ * trace inspection: the token write and the follow-up `/auth/me` call both
+ * happened tens of milliseconds *after* the read). Poll instead.
+ *
+ * @param page - Playwright Page instance
+ * @param options.timeout - Max time to wait for the token to appear (default 10000ms)
+ */
+export async function getAuthTokenFromPage(
+  page: Page,
+  options: { timeout?: number } = {}
+): Promise<string> {
+  const { timeout = 10000 } = options;
+
+  await page
+    .waitForFunction(
+      () => !!(localStorage.getItem('charon_auth_token') || localStorage.getItem('token')),
+      undefined,
+      { timeout }
+    )
+    .catch(() => {
+      // Fall through to the read below so the caller gets a clear
+      // "" -> toBeTruthy() failure with real state, not a swallowed timeout.
+    });
+
+  const token = await page.evaluate(
+    () => localStorage.getItem('charon_auth_token') || localStorage.getItem('token') || ''
+  );
+
+  expect(token).toBeTruthy();
+  return token;
+}
+
+/**
+ * Create a user directly via `POST /api/v1/users`, idempotently.
+ *
+ * The admin "add user" UI moved to an invite-only flow (`InviteModal` in
+ * `UsersPage.tsx`) that only collects email + role — there's no "Name" or
+ * "Password" field left to drive from a test, so tests that need a user
+ * with a known password must create one via this direct API call instead.
+ *
+ * Idempotent by design: if a user with this email already exists (e.g. a
+ * previous run's test crashed before its `afterEach` cleanup ran, leaving
+ * the account behind), a 409 from the create call is treated as recoverable
+ * — the existing user is looked up and deleted, then creation is retried
+ * once. Without this, any prior leftover state permanently wedges every
+ * subsequent run that reuses the same fixed test email.
+ *
+ * @param page - Playwright Page instance (used for the admin's own auth token)
+ * @param user - New user's email/name/password/role
+ */
+export async function createUserViaApi(
+  page: Page,
+  user: { email: string; name: string; password: string; role: 'admin' | 'user' | 'guest' }
+): Promise<{ id: string | number; email: string }> {
+  const token = await getAuthTokenFromPage(page);
+
+  const create = async () =>
+    page.request.post('/api/v1/users', {
+      data: user,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+  let response = await create();
+
+  if (response.status() === 409) {
+    const existingResponse = await page.request.get('/api/v1/users', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (existingResponse.ok()) {
+      const existingUsers = await existingResponse.json();
+      const existing = Array.isArray(existingUsers)
+        ? existingUsers.find((u: { email?: string }) => u.email === user.email)
+        : undefined;
+      // DELETE /api/v1/users/:id requires the numeric ID (strconv.ParseUint
+      // in UserHandler.DeleteUser) — the UUID is not accepted here.
+      const existingId = existing?.id;
+      if (existingId !== undefined && existingId !== null) {
+        await page.request.delete(`/api/v1/users/${existingId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      }
+    }
+    response = await create();
+  }
+
+  expect(response.ok()).toBe(true);
+  const payload = await response.json();
+  expect(payload).toEqual(expect.objectContaining({
+    id: expect.anything(),
+    email: user.email,
+  }));
+
+  // Ad-hoc users created directly via this raw API call (bypassing the
+  // shared TestDataManager pool) get the real production changelog
+  // defaults, so they're eligible for the blocking "What's New" modal on
+  // first login — see suppressChangelogModal's doc comment.
+  await suppressChangelogModal(page, user.email, user.password);
+
+  return { id: payload.id, email: payload.email };
 }
 
 /**

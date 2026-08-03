@@ -775,7 +775,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               </label>
 
               <Select
-                value=""
+                value={selectedContainerId}
                 onValueChange={e => e && handleContainerSelect(e)}
               >
                 <SelectTrigger id="quick-select-docker" className="w-full bg-gray-900 border-gray-700 text-white disabled:opacity-50" disabled={dockerLoading || connectionSource === 'custom'} aria-label="Containers">

@@ -6,6 +6,7 @@ import {
   getAuditLogsByProvider,
   type AuditLog,
   type AuditLogFilters,
+  type AuditLogPagination,
 } from '../api/auditLogs'
 
 /** Query key factory for audit logs */
@@ -74,4 +75,4 @@ export function useAuditLogsByProvider(
   })
 }
 
-export type { AuditLog, AuditLogFilters }
+export type { AuditLog, AuditLogFilters, AuditLogPagination }

@@ -76,6 +76,12 @@ services:
       # Enable via profile: --profile security-tests
       # FEATURE_CERBERUS_ENABLED deprecated - Cerberus enabled by default
       - CHARON_SECURITY_CROWDSEC_MODE=disabled
+      # Dev/test-only "What's New" changelog version override (backend/internal/changelog).
+      # Honored only when CHARON_ENV != production (true here). Must match the newest
+      # version in tests/fixtures/changelog-fixture.json, which is temporarily copied over
+      # backend/internal/changelog/data/changelog.json before the image is built (see
+      # tests/settings/whats-new-changelog.spec.ts header comment for the full mechanism).
+      - CHARON_CHANGELOG_VERSION=1.2.0
       # SMTP for notification tests (connects to MailHog when profile enabled)
       - CHARON_SMTP_HOST=mailhog
       - CHARON_SMTP_PORT=1025

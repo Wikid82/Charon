@@ -426,8 +426,23 @@ test.describe('Access Lists - CRUD Operations', () => {
         const successToast = page.getByText(/success|created/i);
         const aclInList = page.getByText(aclName);
 
-        const hasToast = await successToast.isVisible({ timeout: 5000 }).catch(() => false);
-        const hasAcl = await aclInList.isVisible({ timeout: 5000 }).catch(() => false);
+        // NOTE: `locator.isVisible({ timeout })` does NOT poll — Playwright
+        // marks that option "@deprecated ... ignored" and the call returns
+        // immediately (see playwright-core's type declarations). Using it
+        // here raced the toast's appearance and the list's post-create
+        // refetch against a single instant check, which is exactly what
+        // made this test flaky. `locator.waitFor({ state: 'visible' })`
+        // actually polls for up to `timeout`.
+        const hasToast = await successToast
+          .waitFor({ state: 'visible', timeout: 5000 })
+          .then(() => true)
+          .catch(() => false);
+        const hasAcl = hasToast
+          ? true
+          : await aclInList
+              .waitFor({ state: 'visible', timeout: 5000 })
+              .then(() => true)
+              .catch(() => false);
 
         expect(hasToast || hasAcl).toBeTruthy();
       });

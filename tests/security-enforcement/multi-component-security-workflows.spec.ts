@@ -1,5 +1,13 @@
+import { request as playwrightRequest } from '@playwright/test';
+
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
+import {
+  authenticateViaAPI,
+  caddyProxyOrigin,
+  createUserViaApi,
+  getAuthTokenFromPage as getAuthToken,
+} from '../utils/api-helpers';
 
 async function resetSecurityState(page: import('@playwright/test').Page): Promise<void> {
   const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN;
@@ -23,42 +31,8 @@ async function resetSecurityState(page: import('@playwright/test').Page): Promis
   expect(response.ok()).toBe(true);
 }
 
-async function getAuthToken(page: import('@playwright/test').Page): Promise<string> {
-  const token = await page.evaluate(() => {
-    return (
-      localStorage.getItem('token') ||
-      localStorage.getItem('charon_auth_token') ||
-      localStorage.getItem('auth') ||
-      ''
-    );
-  });
-
-  expect(token).toBeTruthy();
-  return token;
-}
-
 function uniqueSuffix(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-}
-
-async function createUserViaApi(
-  page: import('@playwright/test').Page,
-  user: { email: string; name: string; password: string; role: 'admin' | 'user' | 'guest' }
-): Promise<{ id: string | number; email: string }> {
-  const token = await getAuthToken(page);
-  const response = await page.request.post('/api/v1/users', {
-    data: user,
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  expect(response.ok()).toBe(true);
-  const payload = await response.json();
-  expect(payload).toEqual(expect.objectContaining({
-    id: expect.anything(),
-    email: user.email,
-  }));
-
-  return { id: payload.id, email: payload.email };
 }
 
 test.describe('Multi-Component Security Workflows', () => {
@@ -185,7 +159,7 @@ test.describe('Multi-Component Security Workflows', () => {
     });
 
     await test.step('Send malicious request to proxy with WAF', async () => {
-      const origin = new URL(page.url()).origin;
+      const origin = caddyProxyOrigin(page);
       const response = await page.request.get(
         `${origin}/?id=1' OR '1'='1`,
         {
@@ -198,7 +172,7 @@ test.describe('Multi-Component Security Workflows', () => {
     });
 
     await test.step('Send legitimate request (allowed)', async () => {
-      const origin = new URL(page.url()).origin;
+      const origin = caddyProxyOrigin(page);
       const response = await page.request.get(
         `${origin}/api/v1/health`,
         {
@@ -247,24 +221,50 @@ test.describe('Multi-Component Security Workflows', () => {
       }));
     });
 
+    // Raw creation via API, not `createUserViaApi()`: that helper also
+    // calls `suppressChangelogModal()` internally, which does its own
+    // `/api/v1/auth/login` as the new user - a second login attempt this
+    // test doesn't otherwise need (no UI page interaction ever happens as
+    // this user; "Verify user subject to rate limiting" below is pure
+    // `page.request` calls with a Bearer token). With global rate limiting
+    // just enabled and cumulative traffic from the rest of the suite
+    // already run from this same IP, that second login was tipping an
+    // already-thin margin over into 429 "Too many requests" - confirmed
+    // via a real run where the isolated-context login itself failed with
+    // exactly that error. Cutting login attempts for this user from 2 to
+    // 1 removes the self-inflicted contribution to that margin.
     await test.step('Create new user after security enabled', async () => {
-      await createUserViaApi(page, { ...testUser, role: 'user' });
+      const adminToken = await getAuthToken(page);
+      const createResponse = await page.request.post('/api/v1/users', {
+        data: { ...testUser, role: 'user' },
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      expect(createResponse.ok()).toBe(true);
+    });
+
+    // Authenticate as the new user via a separate API request context
+    // rather than the page's own UI login form. Same bug class already
+    // documented and fixed above in this file (see "capture the target
+    // user's token... before the strict... limiter" comment): with global
+    // rate limiting just enabled, `/api/v1/auth/login` is a real,
+    // non-exempt route keyed by client IP, so a UI-driven logout+login
+    // handshake here competes with (and can exhaust) the same limit this
+    // step is trying to test against - producing an empty token from
+    // `getAuthTokenFromPage`, not a real assertion failure.
+    let userToken = '';
+    await test.step('Authenticate as new user via API', async () => {
+      const baseURL = new URL(page.url()).origin;
+      const loginContext = await playwrightRequest.newContext({ baseURL });
+      try {
+        const auth = await authenticateViaAPI(loginContext, testUser.email, testUser.password);
+        userToken = auth.token;
+      } finally {
+        await loginContext.dispose();
+      }
+      expect(userToken).toBeTruthy();
     });
 
     await test.step('Verify user subject to rate limiting', async () => {
-      const logoutButton = page.getByRole('button', { name: /logout/i }).first();
-      if (await logoutButton.isVisible()) {
-        await logoutButton.click();
-        await page.waitForURL(/login/);
-      }
-
-      await page.locator('input[type="email"]').first().fill(testUser.email);
-      await page.locator('input[type="password"]').first().fill(testUser.password);
-      await page.getByRole('button', { name: /sign in|login/i }).first().click();
-      await page.waitForLoadState('networkidle');
-
-      const userToken = await getAuthToken(page);
-      expect(userToken).toBeTruthy();
       const origin = new URL(page.url()).origin;
 
       const responses = [];
@@ -285,8 +285,36 @@ test.describe('Multi-Component Security Workflows', () => {
   });
 
   test('Security enforced even on previously created resources', async ({ page }) => {
+    // Captured before the strict rate-limit override below takes effect -
+    // see the note on the "Verify user is now rate limited" step for why.
+    let testUserToken = '';
+
     await test.step('Create user before security enabled', async () => {
       await createUserViaApi(page, { ...testUser, role: 'user' });
+
+      // Log in as the new user now, while rate limiting is still at its
+      // default (generous) config, and stash the token for later steps.
+      // The alternative - logging in as this user via the page's own UI
+      // *after* the strict 1-request/60s/burst-1 override below is applied
+      // - doesn't work: `/api/v1/auth/logout` and `/api/v1/auth/login` are
+      // real, non-exempt `/api/v1/*` routes (only `/api/v1/security/*`,
+      // `/api/v1/settings*`, and `/api/v1/config*` are exempted for admins,
+      // see `isAdminSecurityControlPlaneRequest` in
+      // backend/internal/cerberus/rate_limit.go), and the limiter is keyed
+      // by client IP, not by user - so the logout+login handshake alone
+      // consumes the single available token before the test's actual
+      // `/api/v1/health` probing loop ever runs, making the login itself
+      // fail with 429 (confirmed via CI trace: `getAuthTokenFromPage`
+      // observed an empty token because the login POST never succeeded).
+      const baseURL = new URL(page.url()).origin;
+      const loginContext = await playwrightRequest.newContext({ baseURL });
+      try {
+        const auth = await authenticateViaAPI(loginContext, testUser.email, testUser.password);
+        testUserToken = auth.token;
+      } finally {
+        await loginContext.dispose();
+      }
+      expect(testUserToken).toBeTruthy();
     });
 
     await test.step('Enable rate limiting globally', async () => {
@@ -327,19 +355,12 @@ test.describe('Multi-Component Security Workflows', () => {
     });
 
     await test.step('Verify user is now rate limited', async () => {
-      const logoutButton = page.getByRole('button', { name: /logout/i }).first();
-      if (await logoutButton.isVisible()) {
-        await logoutButton.click();
-        await page.waitForURL(/login/);
-      }
-
-      await page.locator('input[type="email"]').first().fill(testUser.email);
-      await page.locator('input[type="password"]').first().fill(testUser.password);
-      await page.getByRole('button', { name: /sign in|login/i }).first().click();
-      await page.waitForLoadState('networkidle');
-
-      const userToken = await getAuthToken(page);
-      expect(userToken).toBeTruthy();
+      // Deliberately does not touch the page's own (admin) session - the
+      // regular user's identity for these probe requests comes entirely
+      // from `testUserToken`, captured before rate limiting was tightened
+      // above. Keeping the page authenticated as admin throughout also
+      // keeps `afterEach`'s cleanup (which needs admin-level `/api/v1/users`
+      // and `/api/v1/proxy-hosts` access) working.
       const origin = new URL(page.url()).origin;
 
       const responses = [];
@@ -349,7 +370,7 @@ test.describe('Multi-Component Security Workflows', () => {
           const response = await page.request.get(
             `${origin}/api/v1/health?rapid=${i}`,
             {
-              headers: { Authorization: `Bearer ${userToken}` },
+              headers: { Authorization: `Bearer ${testUserToken}` },
               ignoreHTTPSErrors: true,
             }
           );

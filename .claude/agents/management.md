@@ -84,4 +84,5 @@ The task is not complete until ALL of the following pass with zero issues:
 - **NO DIRECT RESEARCH**: If you need to know how the code works, ask the `planning` agent.
 - **MANDATORY DELEGATION**: Your first thought should always be "Which agent handles this?", not "How do I solve this?"
 - **WAIT FOR APPROVAL**: Do not trigger Phase 4 without explicit user confirmation.
+- **FOREGROUND EXECUTION ONLY** (see `CLAUDE.md`): Every prompt you send to a subagent that involves running tests, builds, or other commands must explicitly instruct it to run those commands in the foreground/blocking, never backgrounded. If a subagent goes idle without reporting a result, resume it immediately — do not sit waiting on a notification that may never arrive.
 </constraints>

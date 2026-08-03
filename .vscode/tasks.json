@@ -29,7 +29,7 @@
         {
             "label": "Build & Run: Local Docker Image",
             "type": "shell",
-            "command": "docker build -t charon:local . && docker compose -f /home/jeremy/docker/containers/charon/docker-compose.yml up -d && echo 'Charon running at http://localhost:8787'",
+            "command": "bash scripts/generate-changelog.sh && ( docker build -t charon:local . ; status=$?; git checkout -- backend/internal/changelog/data/changelog.json; exit $status ) && docker compose -f /home/jeremy/docker/containers/charon/docker-compose.yml up -d && echo 'Charon running at http://localhost:8787'",
             "options": {
                 "env": {
                     "DOCKER_HOST": "unix:///run/user/1001/docker.sock"
@@ -41,7 +41,7 @@
         {
             "label": "Build & Run: Local Docker Image No-Cache",
             "type": "shell",
-            "command": "docker build --no-cache -t charon:local . && docker compose -f /home/jeremy/docker/containers/charon/docker-compose.yml up -d && echo 'Charon running at http://localhost:8787'",
+            "command": "bash scripts/generate-changelog.sh && ( docker build --no-cache -t charon:local . ; status=$?; git checkout -- backend/internal/changelog/data/changelog.json; exit $status ) && docker compose -f /home/jeremy/docker/containers/charon/docker-compose.yml up -d && echo 'Charon running at http://localhost:8787'",
             "options": {
                 "env": {
                     "DOCKER_HOST": "unix:///run/user/1001/docker.sock"

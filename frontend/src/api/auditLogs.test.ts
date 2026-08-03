@@ -28,7 +28,7 @@ describe('auditLogs api', () => {
   describe('getAuditLogs', () => {
     it('fetches audit logs with default pagination', async () => {
       const mockResponse = {
-        logs: [
+        audit_logs: [
           {
             id: 1,
             uuid: 'log-1',
@@ -40,9 +40,7 @@ describe('auditLogs api', () => {
             created_at: '2024-01-01T00:00:00Z',
           },
         ],
-        total: 1,
-        page: 1,
-        limit: 50,
+        pagination: { page: 1, limit: 50, total: 1, total_pages: 1 },
       }
       mockedClient.get.mockResolvedValueOnce({ data: mockResponse })
 
@@ -50,24 +48,22 @@ describe('auditLogs api', () => {
 
       expect(mockedClient.get).toHaveBeenCalledWith('/audit-logs?page=1&limit=50')
       expect(result).toEqual(mockResponse)
-      expect(result.logs).toHaveLength(1)
-      expect(result.logs[0].uuid).toBe('log-1')
+      expect(result.audit_logs).toHaveLength(1)
+      expect(result.audit_logs[0].uuid).toBe('log-1')
     })
 
     it('fetches audit logs with custom pagination', async () => {
       const mockResponse = {
-        logs: [],
-        total: 100,
-        page: 3,
-        limit: 25,
+        audit_logs: [],
+        pagination: { page: 3, limit: 25, total: 100, total_pages: 4 },
       }
       mockedClient.get.mockResolvedValueOnce({ data: mockResponse })
 
       const result = await getAuditLogs(undefined, 3, 25)
 
       expect(mockedClient.get).toHaveBeenCalledWith('/audit-logs?page=3&limit=25')
-      expect(result.page).toBe(3)
-      expect(result.limit).toBe(25)
+      expect(result.pagination.page).toBe(3)
+      expect(result.pagination.limit).toBe(25)
     })
 
     it('fetches audit logs with all filters', async () => {
@@ -80,10 +76,8 @@ describe('auditLogs api', () => {
         resource_uuid: 'resource-123',
       }
       const mockResponse = {
-        logs: [],
-        total: 0,
-        page: 1,
-        limit: 50,
+        audit_logs: [],
+        pagination: { page: 1, limit: 50, total: 0, total_pages: 0 },
       }
       mockedClient.get.mockResolvedValueOnce({ data: mockResponse })
 
@@ -100,10 +94,8 @@ describe('auditLogs api', () => {
         start_date: '2024-01-01',
       }
       const mockResponse = {
-        logs: [],
-        total: 5,
-        page: 1,
-        limit: 50,
+        audit_logs: [],
+        pagination: { page: 1, limit: 50, total: 5, total_pages: 1 },
       }
       mockedClient.get.mockResolvedValueOnce({ data: mockResponse })
 
@@ -158,7 +150,7 @@ describe('auditLogs api', () => {
   describe('getAuditLogsByProvider', () => {
     it('fetches audit logs for a specific DNS provider with default pagination', async () => {
       const mockResponse = {
-        logs: [
+        audit_logs: [
           {
             id: 5,
             uuid: 'log-5',
@@ -170,33 +162,29 @@ describe('auditLogs api', () => {
             created_at: '2024-03-15T10:00:00Z',
           },
         ],
-        total: 10,
-        page: 1,
-        limit: 50,
+        pagination: { page: 1, limit: 50, total: 10, total_pages: 1 },
       }
       mockedClient.get.mockResolvedValueOnce({ data: mockResponse })
 
       const result = await getAuditLogsByProvider(123)
 
       expect(mockedClient.get).toHaveBeenCalledWith('/dns-providers/123/audit-logs?page=1&limit=50')
-      expect(result.logs).toHaveLength(1)
-      expect(result.logs[0].action).toBe('dns_provider_update')
+      expect(result.audit_logs).toHaveLength(1)
+      expect(result.audit_logs[0].action).toBe('dns_provider_update')
     })
 
     it('fetches audit logs for a provider with custom pagination', async () => {
       const mockResponse = {
-        logs: [],
-        total: 25,
-        page: 2,
-        limit: 10,
+        audit_logs: [],
+        pagination: { page: 2, limit: 10, total: 25, total_pages: 3 },
       }
       mockedClient.get.mockResolvedValueOnce({ data: mockResponse })
 
       const result = await getAuditLogsByProvider(456, 2, 10)
 
       expect(mockedClient.get).toHaveBeenCalledWith('/dns-providers/456/audit-logs?page=2&limit=10')
-      expect(result.page).toBe(2)
-      expect(result.limit).toBe(10)
+      expect(result.pagination.page).toBe(2)
+      expect(result.pagination.limit).toBe(10)
     })
 
     it('handles errors when fetching provider audit logs', async () => {

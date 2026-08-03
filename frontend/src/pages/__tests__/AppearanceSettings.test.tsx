@@ -1,11 +1,15 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import userEvent from '@testing-library/user-event'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+
+import * as settingsApi from '../../api/settings'
 import { ThemeProvider } from '../../context/ThemeContext'
 import { THEME_STORAGE_KEY } from '../../context/ThemeContextValue'
+import { useAuth } from '../../hooks/useAuth'
+import { useUserThemes } from '../../hooks/useUserThemes'
 import AppearanceSettings from '../AppearanceSettings'
 
 // ThemeProvider calls useUserThemes internally; stub it so tests don't need a real API server
@@ -35,20 +39,37 @@ vi.mock('../../api/settings', () => ({
   testPublicURL: vi.fn(),
 }))
 
-import * as settingsApi from '../../api/settings'
-import { useUserThemes } from '../../hooks/useUserThemes'
 const mockUseUserThemes = vi.mocked(useUserThemes)
+const mockUseAuth = vi.mocked(useAuth)
 
-// Mock useAuth for LogoCustomizer's admin check
+// Referenced inside vi.mock factories below — vi.hoisted() guarantees these
+// are initialized before the (also hoisted) vi.mock calls run, regardless of
+// their textual position relative to other top-level statements in this file.
+const { mockRefetchUser, mockAckMutate, mockOptInMutate } = vi.hoisted(() => ({
+  mockRefetchUser: vi.fn(),
+  mockAckMutate: vi.fn(),
+  mockOptInMutate: vi.fn(),
+}))
+
+// Mock useAuth for LogoCustomizer's admin check and the What's New toggle
 vi.mock('../../hooks/useAuth', () => ({
   useAuth: vi.fn().mockReturnValue({
-    user: { user_id: 1, role: 'admin', name: 'Admin' },
+    user: { user_id: 1, role: 'admin', name: 'Admin', changelog_opt_out: false },
     login: vi.fn(),
     logout: vi.fn(),
     changePassword: vi.fn(),
+    refetchUser: mockRefetchUser,
     isAuthenticated: true,
     isLoading: false,
   }),
+}))
+
+// Mock the changelog hooks used by the What's New toggle and revisit modal
+vi.mock('../../hooks/useChangelog', () => ({
+  useAckChangelog: vi.fn().mockReturnValue({ mutate: mockAckMutate }),
+  useOptInChangelog: vi.fn().mockReturnValue({ mutate: mockOptInMutate }),
+  useChangelogStatus: vi.fn().mockReturnValue({ data: { show_changelog: false, versions: [] }, isError: false }),
+  useChangelogAll: vi.fn().mockReturnValue({ data: undefined, isError: false }),
 }))
 
 vi.mock('react-i18next', () => ({
@@ -79,6 +100,10 @@ vi.mock('react-i18next', () => ({
         'appearance.exportButton': 'Export Theme',
         'appearance.importButton': 'Import Theme',
         'appearance.importError': 'Invalid theme file',
+        'appearance.whatsNew': "What's New Notifications",
+        'appearance.whatsNewDescription': 'Get notified about new features and fixes.',
+        'appearance.showWhatsNewToggle': 'Show update notifications',
+        'appearance.whatsNewRevisit': "What's New",
         'common.enabled': 'Enabled',
       }
       return map[key] ?? key
@@ -413,6 +438,120 @@ describe('AppearanceSettings', () => {
       // After activating, theme should be user:abc and data-theme should be 'custom'
       expect(document.documentElement.getAttribute('data-theme')).toBe('custom')
       expect(localStorage.getItem('charon-theme')).toBe('user:abc')
+    })
+  })
+
+  describe("What's New Notifications section", () => {
+    beforeEach(() => {
+      mockAckMutate.mockClear()
+      mockOptInMutate.mockClear()
+      mockRefetchUser.mockClear()
+      mockUseAuth.mockReturnValue({
+        user: { user_id: 1, role: 'admin', name: 'Admin', changelog_opt_out: false },
+        login: vi.fn(),
+        logout: vi.fn(),
+        changePassword: vi.fn(),
+        refetchUser: mockRefetchUser,
+        isAuthenticated: true,
+        isLoading: false,
+      })
+    })
+
+    it('renders the section title and description', () => {
+      renderAppearanceSettings()
+      expect(screen.getByText("What's New Notifications")).toBeInTheDocument()
+      expect(screen.getByText('Get notified about new features and fixes.')).toBeInTheDocument()
+    })
+
+    it('toggle is checked when the user has not opted out', () => {
+      renderAppearanceSettings()
+      const toggle = screen.getByRole('checkbox', { name: 'Show update notifications' })
+      expect(toggle).toHaveAttribute('data-state', 'checked')
+    })
+
+    it('toggle is unchecked when the user has opted out', () => {
+      mockUseAuth.mockReturnValue({
+        user: { user_id: 1, role: 'admin', name: 'Admin', changelog_opt_out: true },
+        login: vi.fn(),
+        logout: vi.fn(),
+        changePassword: vi.fn(),
+        refetchUser: mockRefetchUser,
+        isAuthenticated: true,
+        isLoading: false,
+      })
+      renderAppearanceSettings()
+      const toggle = screen.getByRole('checkbox', { name: 'Show update notifications' })
+      expect(toggle).toHaveAttribute('data-state', 'unchecked')
+    })
+
+    it('turning the toggle off calls ack with dismiss_temporary + opt_out true, then refetches the user', async () => {
+      const user = userEvent.setup()
+      renderAppearanceSettings()
+
+      await user.click(screen.getByRole('checkbox', { name: 'Show update notifications' }))
+
+      expect(mockAckMutate).toHaveBeenCalledWith(
+        { action: 'dismiss_temporary', opt_out: true },
+        expect.objectContaining({ onSuccess: expect.any(Function) })
+      )
+      expect(mockOptInMutate).not.toHaveBeenCalled()
+
+      // Simulate the mutation's onSuccess firing to verify the refetch wiring
+      const options = mockAckMutate.mock.calls[0][1]
+      options.onSuccess()
+      expect(mockRefetchUser).toHaveBeenCalledTimes(1)
+    })
+
+    it('turning the toggle on calls opt-in, then refetches the user', async () => {
+      mockUseAuth.mockReturnValue({
+        user: { user_id: 1, role: 'admin', name: 'Admin', changelog_opt_out: true },
+        login: vi.fn(),
+        logout: vi.fn(),
+        changePassword: vi.fn(),
+        refetchUser: mockRefetchUser,
+        isAuthenticated: true,
+        isLoading: false,
+      })
+      const user = userEvent.setup()
+      renderAppearanceSettings()
+
+      await user.click(screen.getByRole('checkbox', { name: 'Show update notifications' }))
+
+      expect(mockOptInMutate).toHaveBeenCalledWith(
+        undefined,
+        expect.objectContaining({ onSuccess: expect.any(Function) })
+      )
+      expect(mockAckMutate).not.toHaveBeenCalled()
+
+      const options = mockOptInMutate.mock.calls[0][1]
+      options.onSuccess()
+      expect(mockRefetchUser).toHaveBeenCalledTimes(1)
+    })
+
+    it('clicking the revisit link opens the browse-mode What\'s New modal', async () => {
+      const user = userEvent.setup()
+      renderAppearanceSettings()
+
+      expect(screen.queryByText('whatsNew.title')).not.toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: "What's New" }))
+
+      // WhatsNewModal is not mocked (only its hooks are), so its real
+      // DialogTitle renders using the un-mocked i18next key for this test file.
+      expect(screen.getByText('whatsNew.title')).toBeInTheDocument()
+    })
+
+    it('closing the browse-mode modal (Close button) hides it again', async () => {
+      const user = userEvent.setup()
+      renderAppearanceSettings()
+
+      await user.click(screen.getByRole('button', { name: "What's New" }))
+      expect(screen.getByText('whatsNew.title')).toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: 'whatsNew.closeButton' }))
+
+      expect(screen.queryByText('whatsNew.title')).not.toBeInTheDocument()
+      expect(mockAckMutate).not.toHaveBeenCalled()
     })
   })
 })

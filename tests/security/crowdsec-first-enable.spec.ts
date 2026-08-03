@@ -9,11 +9,39 @@
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
+import { clickSwitch } from '../utils/ui-helpers';
+
+/**
+ * Ensure the Cerberus framework feature flag is enabled before interacting
+ * with the CrowdSec toggle.
+ *
+ * `feature.cerberus.enabled` defaults to `false` (see
+ * backend/internal/api/handlers/feature_flags_handler.go). The CrowdSec
+ * Switch on the Security dashboard is `disabled` whenever Cerberus itself
+ * is disabled (see `crowdsecToggleDisabled` in frontend/src/pages/Security.tsx),
+ * so without this precondition the toggle is unclickable and this file's
+ * assertions would hang until the test timeout. This mirrors the same
+ * precondition `tests/security/security-dashboard.spec.ts` already
+ * establishes via `ensureSecurityDashboardPreconditions()` for its own
+ * module toggles.
+ */
+async function ensureCerberusEnabled(page: import('@playwright/test').Page): Promise<void> {
+  await expect.poll(async () => {
+    const response = await page.request.post('/api/v1/settings', {
+      data: { key: 'feature.cerberus.enabled', value: 'true' },
+    });
+    return response.ok();
+  }, {
+    timeout: 10000,
+    message: 'Expected feature.cerberus.enabled to be set before CrowdSec toggle assertions',
+  }).toBe(true);
+}
 
 test.describe('CrowdSec first-enable UX @security', () => {
   test.beforeEach(async ({ page, adminUser }) => {
     await loginUser(page, adminUser);
     await waitForLoadingComplete(page);
+    await ensureCerberusEnabled(page);
     await page.goto('/security');
     await waitForLoadingComplete(page);
   });
@@ -30,7 +58,13 @@ test.describe('CrowdSec first-enable UX @security', () => {
     });
 
     const toggle = page.getByTestId('toggle-crowdsec');
-    await toggle.click();
+    // Switch markup is `<label><input class="sr-only peer" /><div /></label>` —
+    // the visible track `<div>` sits on top of the visually-hidden `<input>`
+    // and intercepts pointer events, so a raw `.click()` on the input never
+    // lands and retries until the test timeout. clickSwitch() clicks the
+    // parent `<label>` instead, which correctly forwards the click to the
+    // input (see tests/utils/ui-helpers.ts).
+    await clickSwitch(toggle);
 
     // Immediately after click, the toggle should remain checked (user intent)
     await expect(toggle).toBeChecked();
@@ -47,7 +81,7 @@ test.describe('CrowdSec first-enable UX @security', () => {
     });
 
     const toggle = page.getByTestId('toggle-crowdsec');
-    await toggle.click();
+    await clickSwitch(toggle);
 
     // Badge should show "Starting..." text while mutation is pending
     await expect(page.getByText('Starting...')).toBeVisible();
@@ -80,7 +114,7 @@ test.describe('CrowdSec first-enable UX @security', () => {
     });
 
     const toggle = page.getByTestId('toggle-crowdsec');
-    await toggle.click();
+    await clickSwitch(toggle);
 
     // The key warning alert must not be present while mutation is pending
     await expect(page.getByRole('alert', { name: /CrowdSec API Key/i })).not.toBeVisible({ timeout: 1500 });

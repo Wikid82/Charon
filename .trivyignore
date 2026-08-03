@@ -105,12 +105,18 @@ GHSA-x6gf-mpr2-68h6
 # CVE-2026-32286: pgproto3/v2 buffer overflow in DataRow handling (DoS)
 # Severity: HIGH (CVSS 7.5) — Package: github.com/jackc/pgproto3/v2 v2.3.3, embedded in CrowdSec binaries
 # pgproto3/v2 v2.3.3 is the final release — repository archived Jul 12, 2025. No fix will be released.
-# Fix exists only in pgproto3/v3 (used by pgx/v5). CrowdSec v1.7.7 (latest) still depends on pgx/v4 → pgproto3/v2.
-# Dockerfile already applies best-effort mitigation (pgx/v4@v4.18.3).
+# Fix exists only in pgproto3/v3 (used by pgx/v5). Re-verified 2026-07-29: CrowdSec v1.7.8 (current
+# pin, latest stable) AND v1.8.0-rc1 (latest release incl. pre-releases) both still declare
+# `github.com/jackc/pgx/v4 v4.18.3` -> `github.com/jackc/pgproto3/v2 v2.3.3` in go.mod — no migration
+# to pgx/v5 yet. Dockerfile already applies best-effort mitigation (pgx/v4@v4.18.3).
 # Charon uses SQLite; the PostgreSQL code path is not reachable in a standard deployment.
-# Review by: 2026-07-09
+# Review by: 2026-09-01
 # See also: .grype.yaml for full justification
-# exp: 2026-07-09
+# Extended 2026-07-29: no upstream fix available (re-verified against jackc/pgproto3 and
+# crowdsecurity/crowdsec go.mod directly). Next review: 2026-09-01. Aligned with the identical
+# root-cause entries GHSA-jqcq-xjh3-6g23 and GHSA-x6gf-mpr2-68h6 above so all three duplicate
+# pgproto3/v2 findings review together.
+# exp: 2026-09-01
 CVE-2026-32286
 
 # CVE-2026-33997 / GHSA-pxq6-2prw-chj9: Moby off-by-one error in plugin privilege validation

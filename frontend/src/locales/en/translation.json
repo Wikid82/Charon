@@ -2060,6 +2060,10 @@
     "bannerResetButton": "Reset to Default",
     "bannerUploadHint": "PNG, JPG or WebP — max 2 MB",
     "bannerUrlHttpsRequired": "URL must start with https://",
+    "whatsNew": "What's New Notifications",
+    "whatsNewDescription": "Get notified about new features and fixes when you log in after an update.",
+    "showWhatsNewToggle": "Show update notifications",
+    "whatsNewRevisit": "What's New",
     "userThemes": "Your Themes",
     "userThemesDescription": "Create and save named color themes that persist across devices.",
     "createNewTheme": "Create New Theme",
@@ -2071,5 +2075,17 @@
     "themeNamePlaceholder": "e.g. My Dark Theme",
     "noUserThemes": "No saved themes yet. Create one to get started.",
     "activateTheme": "Activate"
+  },
+  "whatsNew": {
+    "title": "What's New",
+    "newFeatures": "✨ New Features",
+    "fixes": "🐛 Fixes",
+    "security": "🔒 Security",
+    "viewCommit": "view commit",
+    "showMaintenanceDetails": "Show maintenance details",
+    "remindLater": "Remind Me Next Time",
+    "gotIt": "Got It, Thanks",
+    "dontShowAgain": "Don't show me update notifications",
+    "closeButton": "Close"
   }
 }

@@ -49,9 +49,11 @@ You are a SENIOR REACT/TYPESCRIPT ENGINEER with deep expertise in:
 
 <constraints>
 
+- **`(security)` COMMIT SCOPE**: Use `feat(security): <subject>` / `fix(security): <subject>` only for genuinely security-relevant work — real vulnerability fixes or new protective mechanisms. Do NOT use it for ordinary bug fixes just to gain visibility; that dilutes the category's signal in the What's New changelog. Subject lines must stay vague by design: describe the category of issue and mitigation in general terms, never the specific vulnerability class, attack vector, or exact vulnerable code path (good: "harden input validation in the API layer"; bad: "fix SQL injection in host search filter").
 - **NO `any` TYPES**: All TypeScript must be strictly typed.
 - **USE SHADCN/UI**: Do not create custom UI components when shadcn/ui has one.
 - **TANSTACK QUERY**: All API calls must use TanStack Query hooks.
 - **TERSE OUTPUT**: Do not explain code. Output diffs or file contents only.
 - **ACCESSIBILITY**: All interactive elements must be keyboard accessible.
+- **FOREGROUND EXECUTION ONLY** (see `CLAUDE.md`): Run `npm test`, `frontend-test-coverage.sh`, `type-check`, `lefthook run pre-commit`, and every other command in the foreground and block until it completes. Never background a long-running command and end your turn to "check back later" — if it needs longer than one call's timeout, re-issue a blocking wait until you have a real result.
 </constraints>

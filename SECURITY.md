@@ -329,6 +329,15 @@ database server is untrusted. EPSS score not yet available.
 Monitor https://github.com/jackc/pgproto3 for a fix release. Upgrade the indirect dependency
 once a patched version is available. Pre-existing; not introduced by PR #1031.
 
+Re-verified 2026-07-29 (this entry's original `.trivyignore`/`.grype.yaml` review date had
+lapsed): confirmed directly against upstream `go.mod` files that `jackc/pgproto3` is still
+archived at v2.3.3 (no new tags) and that CrowdSec v1.7.8 — the current pin and latest stable
+release — as well as v1.8.0-rc1 (latest including pre-releases) both still resolve
+`github.com/jackc/pgx/v4 v4.18.3` → `github.com/jackc/pgproto3/v2 v2.3.3`. No migration to
+pgx/v5 has landed upstream. Risk assessment unchanged. Suppression renewed in `.trivyignore` and
+`.grype.yaml`; next review 2026-09-01, aligned with the two duplicate-root-cause advisories
+(GHSA-jqcq-xjh3-6g23, GHSA-x6gf-mpr2-68h6) covering the same underlying bug.
+
 ---
 
 ### [LOW] CVE-2026-41889 · pgx/v4 Panic via Crafted PostgreSQL Wire Payload

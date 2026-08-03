@@ -170,11 +170,18 @@ test.describe('Audit Logs @security', () => {
     });
 
     test('should filter by user', async ({ page }) => {
-      const userFilter = page.locator('select, [role="listbox"]').filter({
-        hasText: /user|actor|all.*user/i
-      }).first();
+      // There is no <select>/[role="listbox"] user filter on this page - the
+      // real control is a free-text "Actor" filter input inside the
+      // collapsible Filters panel (Category is the only <Select>; Actor is a
+      // plain text Input matched here by its placeholder).
+      let actorFilter = page.getByPlaceholder(/filter by actor/i);
 
-      await expect(userFilter).toBeVisible();
+      if (!(await actorFilter.isVisible().catch(() => false))) {
+        await page.getByRole('button', { name: /filters/i }).click();
+        actorFilter = page.getByPlaceholder(/filter by actor/i);
+      }
+
+      await expect(actorFilter).toBeVisible();
     });
 
     test('should perform search when input changes', async ({ page }) => {
