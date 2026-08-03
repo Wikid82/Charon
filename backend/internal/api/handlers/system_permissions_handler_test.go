@@ -186,7 +186,7 @@ func TestSystemPermissionsHandler_PathHasSymlink(t *testing.T) {
 	plainPath := filepath.Join(realDir, "file.txt")
 	require.NoError(t, os.WriteFile(plainPath, []byte("ok"), 0o600))
 
-	hasSymlink, err := pathHasSymlink(plainPath)
+	hasSymlink, err := pathHasSymlink(plainPath, []string{root})
 	require.NoError(t, err)
 	require.False(t, hasSymlink)
 
@@ -194,11 +194,11 @@ func TestSystemPermissionsHandler_PathHasSymlink(t *testing.T) {
 	require.NoError(t, os.Symlink(realDir, linkDir))
 
 	symlinkedPath := filepath.Join(linkDir, "file.txt")
-	hasSymlink, err = pathHasSymlink(symlinkedPath)
+	hasSymlink, err = pathHasSymlink(symlinkedPath, []string{root})
 	require.NoError(t, err)
 	require.True(t, hasSymlink)
 
-	_, err = pathHasSymlink(filepath.Join(root, "missing", "file.txt"))
+	_, err = pathHasSymlink(filepath.Join(root, "missing", "file.txt"), []string{root})
 	require.Error(t, err)
 }
 

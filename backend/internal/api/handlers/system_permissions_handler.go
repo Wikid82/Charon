@@ -145,6 +145,15 @@ func (h *SystemPermissionsHandler) repairPath(rawPath string, groupMode bool, al
 		}
 	}
 
+	if !isWithinAllowlistBounds(cleanPath, normalizedAllowlist) {
+		return permissionsRepairResult{
+			Path:      cleanPath,
+			Status:    "error",
+			ErrorCode: "permissions_outside_allowlist",
+			Message:   "path outside allowlist",
+		}
+	}
+
 	info, err := os.Lstat(cleanPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -172,7 +181,7 @@ func (h *SystemPermissionsHandler) repairPath(rawPath string, groupMode bool, al
 		}
 	}
 
-	hasSymlinkComponent, symlinkErr := pathHasSymlink(cleanPath)
+	hasSymlinkComponent, symlinkErr := pathHasSymlink(cleanPath, normalizedAllowlist)
 	if symlinkErr != nil {
 		if os.IsNotExist(symlinkErr) {
 			return permissionsRepairResult{
@@ -246,6 +255,15 @@ func (h *SystemPermissionsHandler) repairPath(rawPath string, groupMode bool, al
 		}
 	}
 
+	if !isWithinAllowlistBounds(cleanPath, normalizedAllowlist) {
+		return permissionsRepairResult{
+			Path:      cleanPath,
+			Status:    "error",
+			ErrorCode: "permissions_outside_allowlist",
+			Message:   "path outside allowlist",
+		}
+	}
+
 	if err := os.Chown(cleanPath, uid, gid); err != nil {
 		return permissionsRepairResult{
 			Path:      cleanPath,
@@ -264,6 +282,16 @@ func (h *SystemPermissionsHandler) repairPath(rawPath string, groupMode bool, al
 			Message:   parseErr.Error(),
 		}
 	}
+
+	if !isWithinAllowlistBounds(cleanPath, normalizedAllowlist) {
+		return permissionsRepairResult{
+			Path:      cleanPath,
+			Status:    "error",
+			ErrorCode: "permissions_outside_allowlist",
+			Message:   "path outside allowlist",
+		}
+	}
+
 	if err := os.Chmod(cleanPath, parsedMode); err != nil {
 		return permissionsRepairResult{
 			Path:      cleanPath,
@@ -379,7 +407,14 @@ func normalizeAllowlist(allowlist []string) []string {
 	return normalized
 }
 
-func pathHasSymlink(path string) (bool, error) {
+// pathHasSymlink walks path component-by-component from the filesystem
+// root, Lstat-ing every successive prefix, to TOCTOU-safely detect a
+// symlink anywhere in the chain (not just at the leaf). allowlist is the
+// normalized set of admin-configured safe roots; it re-validates that
+// every prefix stays within (or is a legitimate ancestor of) one of those
+// roots immediately before each Lstat, so the value passed to the sink is
+// always guarded inline at the point of use.
+func pathHasSymlink(path string, allowlist []string) (bool, error) {
 	clean := filepath.Clean(path)
 	parts := strings.Split(clean, string(os.PathSeparator))
 	current := string(os.PathSeparator)
@@ -388,6 +423,9 @@ func pathHasSymlink(path string) (bool, error) {
 			continue
 		}
 		current = filepath.Join(current, part)
+		if !isWithinAllowlistBounds(current, allowlist) {
+			return false, fmt.Errorf("%w: %s", errPathEscapesAllowlist, current)
+		}
 		info, err := os.Lstat(current)
 		if err != nil {
 			return false, err
@@ -398,6 +436,8 @@ func pathHasSymlink(path string) (bool, error) {
 	}
 	return false, nil
 }
+
+var errPathEscapesAllowlist = errors.New("path escapes allowed roots during traversal")
 
 func isWithinAllowlist(path string, allowlist []string) bool {
 	for _, root := range allowlist {
