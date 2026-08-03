@@ -1,5 +1,5 @@
 import { test, expect, loginUser, logoutUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
-import { waitForLoadingComplete } from '../utils/wait-helpers';
+import { waitForLoadingComplete, gotoTolerant, reloadTolerant } from '../utils/wait-helpers';
 
 async function resetSecurityState(page: import('@playwright/test').Page): Promise<void> {
   const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN;
@@ -182,16 +182,7 @@ async function createUserViaApi(
 }
 
 async function navigateToLogin(page: import('@playwright/test').Page): Promise<void> {
-  try {
-    await page.goto('/login', { waitUntil: 'domcontentloaded' });
-  } catch (error) {
-    if (
-      !(error instanceof Error) ||
-      (!error.message.includes('interrupted by another navigation') && !error.message.includes('net::ERR_ABORTED'))
-    ) {
-      throw error;
-    }
-  }
+  await gotoTolerant(page, '/login');
 
   await page.waitForURL(/\/login/, { timeout: 15000 }).catch(() => undefined);
   const emailInput = page.locator('input[type="email"]').or(page.getByLabel(/email/i)).first();
@@ -202,7 +193,15 @@ async function navigateToLogin(page: import('@playwright/test').Page): Promise<v
       localStorage.clear();
       sessionStorage.clear();
     });
-    await page.goto('/login', { waitUntil: 'domcontentloaded' });
+    // Use reload(), not a second goto('/login'): the page is already on
+    // /login from the goto() above and may still be mid-hydration. A
+    // same-URL goto() fired this soon after can race that still-settling
+    // navigation and never produce a Playwright-trackable event in Firefox.
+    // reload() always yields a fresh, distinct navigation-commit event, but
+    // under a slow/contended CI runner it can itself fail to settle in time
+    // (observed: 3/3 attempts hitting the full 60s test timeout), so it needs
+    // the same tolerant handling as the goto() above.
+    await reloadTolerant(page);
   }
 
   await expect(emailInput).toBeVisible({ timeout: 15000 });

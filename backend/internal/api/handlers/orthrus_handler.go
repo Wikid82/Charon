@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/orthrus"
 	"github.com/Wikid82/charon/backend/internal/services"
 )
@@ -22,13 +23,21 @@ type orthrusProxyStatusResolver interface {
 
 // OrthrusHandler handles REST requests for Orthrus agent management.
 type OrthrusHandler struct {
-	svc           *services.OrthrusService
-	proxyResolver orthrusProxyStatusResolver
+	svc             *services.OrthrusService
+	proxyResolver   orthrusProxyStatusResolver
+	securityService *services.SecurityService
 }
 
 // NewOrthrusHandler creates an OrthrusHandler backed by the given service.
-func NewOrthrusHandler(orthrsuSvc *services.OrthrusService) *OrthrusHandler {
-	return &OrthrusHandler{svc: orthrsuSvc}
+// securityService is used to emit an audit entry whenever an operator
+// toggles an agent's write-mode flag (see Patch) — a separate, handler-level
+// concern from the per-request write-path audit entries Muzzle emits
+// directly via the AuditLogger interface (see muzzle.go), following this
+// codebase's existing convention of logging admin-initiated audit events at
+// the handler layer rather than inside the service (compare
+// security_handler.go, crowdsec_handler.go).
+func NewOrthrusHandler(orthrsuSvc *services.OrthrusService, securityService *services.SecurityService) *OrthrusHandler {
+	return &OrthrusHandler{svc: orthrsuSvc, securityService: securityService}
 }
 
 // SetProxyResolver wires a live OrthrusServer so that GetProxyStatus can
@@ -107,9 +116,14 @@ type patchAgentRequest struct {
 	DeviceID          *string `json:"device_id"`
 	ResolvedAddress   *string `json:"resolved_address"`
 	ExternalProxyPort *int    `json:"external_proxy_port"`
+	WriteEnabled      *bool   `json:"write_enabled"`
 }
 
-// Patch applies a partial update to an Orthrus agent.
+// Patch applies a partial update to an Orthrus agent. If WriteEnabled is
+// present in the request, this is the one field on this endpoint whose
+// change is itself security-relevant enough to warrant its own audit entry
+// (distinct from, and in addition to, the per-write-request audit entries
+// Muzzle emits directly for actual proxied traffic — see muzzle.go).
 func (h *OrthrusHandler) Patch(c *gin.Context) {
 	uuid := c.Param("uuid")
 	var req patchAgentRequest
@@ -117,7 +131,7 @@ func (h *OrthrusHandler) Patch(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	agent, err := h.svc.Patch(uuid, req.Name, req.HecateTunnelUUID, req.DeviceID, req.ResolvedAddress, req.ExternalProxyPort)
+	agent, err := h.svc.Patch(uuid, req.Name, req.HecateTunnelUUID, req.DeviceID, req.ResolvedAddress, req.ExternalProxyPort, req.WriteEnabled)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
@@ -126,6 +140,21 @@ func (h *OrthrusHandler) Patch(c *gin.Context) {
 		}
 		return
 	}
+
+	if req.WriteEnabled != nil && h.securityService != nil {
+		action := "orthrus_write_disabled"
+		if *req.WriteEnabled {
+			action = "orthrus_write_enabled"
+		}
+		_ = h.securityService.LogAudit(&models.SecurityAudit{
+			Actor:         actorFromContext(c),
+			Action:        action,
+			EventCategory: "orthrus_write",
+			ResourceUUID:  uuid,
+			Details:       fmt.Sprintf(`{"agent_name":%q}`, agent.Name),
+		})
+	}
+
 	c.JSON(http.StatusOK, agent)
 }
 
@@ -206,14 +235,16 @@ func (h *OrthrusHandler) GetProxyStatus(c *gin.Context) {
 		return
 	}
 	resp := gin.H{
-		"agent_uuid":        agent.UUID,
-		"agent_online":      false,
-		"configured_port":   agent.ExternalProxyPort,
-		"active":            false,
-		"active_port":       0,
-		"bind_address":      "",
-		"connection_string": "",
-		"error":             "",
+		"agent_uuid":               agent.UUID,
+		"agent_online":             false,
+		"configured_port":          agent.ExternalProxyPort,
+		"configured_write_enabled": agent.WriteEnabled,
+		"active_write_enabled":     false,
+		"active":                   false,
+		"active_port":              0,
+		"bind_address":             "",
+		"connection_string":        "",
+		"error":                    "",
 	}
 	if h.proxyResolver != nil {
 		if status, ok := h.proxyResolver.GetExternalProxyStatus(uuid); ok {
@@ -221,6 +252,7 @@ func (h *OrthrusHandler) GetProxyStatus(c *gin.Context) {
 			resp["active"] = status.Active
 			resp["active_port"] = status.ActivePort
 			resp["bind_address"] = status.BoundAddress
+			resp["active_write_enabled"] = status.WriteEnabled
 			if status.Active && status.ActivePort > 0 {
 				resp["connection_string"] = fmt.Sprintf("tcp://%s:%d", resolveExternalProxyHost(c), status.ActivePort)
 			}

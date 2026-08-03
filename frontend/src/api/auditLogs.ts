@@ -1,7 +1,13 @@
 import client from './client'
 
 /** Audit log event category */
-export type EventCategory = 'dns_provider' | 'certificate' | 'proxy_host' | 'user' | 'system'
+export type EventCategory =
+  | 'dns_provider'
+  | 'certificate'
+  | 'proxy_host'
+  | 'user'
+  | 'system'
+  | 'orthrus_write'
 
 /** Audit log action type */
 export type AuditAction =
@@ -18,6 +24,11 @@ export type AuditAction =
   | 'user_login'
   | 'user_logout'
   | 'settings_update'
+  | 'orthrus_write_allowed'
+  | 'orthrus_write_blocked'
+  | 'orthrus_write_rate_limited'
+  | 'orthrus_write_enabled'
+  | 'orthrus_write_disabled'
 
 /** Represents a single audit log entry */
 export interface AuditLog {

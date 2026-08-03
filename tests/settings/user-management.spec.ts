@@ -18,6 +18,7 @@ import {
   waitForToast,
   waitForModal,
   waitForAPIResponse,
+  gotoTolerant,
 } from '../utils/wait-helpers';
 import { getRowScopedButton, getRowScopedIconButton, clickSwitch } from '../utils/ui-helpers';
 
@@ -25,7 +26,11 @@ test.describe('User Management', () => {
   test.beforeEach(async ({ page, adminUser }) => {
     await loginUser(page, adminUser);
     await waitForLoadingComplete(page);
-    await page.goto('/users');
+    // Firing page.goto() while the app's post-login redirect is still
+    // settling can hang or throw in Firefox instead of committing (see
+    // d537476f). gotoTolerant() tolerates the known race-condition errors;
+    // the waitForLoadingComplete calls below confirm the app actually settled.
+    await gotoTolerant(page, '/users');
     await waitForLoadingComplete(page);
     // Wait for page to stabilize - needed for parallel test runs
     await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
@@ -1184,21 +1189,32 @@ test.describe('User Management', () => {
           { timeout: 15000 }
         ).catch(() => null);
 
-        await page.goto('/users', { waitUntil: 'domcontentloaded' });
+        // loginUser's fast paths resolve on network-idle, not on a URL
+        // assertion, so the app's own post-login redirect away from /login
+        // can still be in flight here. Firing page.goto() while a prior
+        // navigation is still settling can hang or throw in Firefox instead
+        // of committing (see d537476f). gotoTolerant() tolerates the known
+        // race-condition errors; the assertion below verifies the actual
+        // resulting state regardless of how the navigation settled.
+        await gotoTolerant(page, '/users');
         return await responsePromise;
       });
 
       await test.step('Verify access denied or redirect', async () => {
         // Should either redirect to home/dashboard or show error
-        const currentUrl = page.url();
-        const isRedirected = !currentUrl.includes('/users');
-        const hasForbiddenResponse = listUsersResponse?.status() === 403;
-        const hasError = await page
-          .getByText(/admin access required|access.*denied|not.*authorized|forbidden/i)
-          .isVisible({ timeout: 3000 })
-          .catch(() => false);
-
-        expect(isRedirected || hasForbiddenResponse || hasError).toBeTruthy();
+        await expect.poll(async () => {
+          const currentUrl = page.url();
+          const isRedirected = !currentUrl.includes('/users');
+          const hasForbiddenResponse = listUsersResponse?.status() === 403;
+          const hasError = await page
+            .getByText(/admin access required|access.*denied|not.*authorized|forbidden/i)
+            .isVisible()
+            .catch(() => false);
+          return isRedirected || hasForbiddenResponse || hasError;
+        }, {
+          timeout: 15000,
+          message: 'Expected regular user to be redirected or denied when accessing /users',
+        }).toBeTruthy();
       });
     });
 
@@ -1224,19 +1240,29 @@ test.describe('User Management', () => {
           { timeout: 15000 }
         ).catch(() => null);
 
-        await page.goto('/users', { waitUntil: 'domcontentloaded' });
+        // loginUser's fast paths resolve on network-idle, not on a URL
+        // assertion, so the app's own post-login redirect away from /login
+        // can still be in flight here. Firing page.goto() while a prior
+        // navigation is still settling can hang or throw in Firefox instead
+        // of committing (see d537476f). gotoTolerant() tolerates the known
+        // race-condition errors; the assertion below verifies the actual
+        // resulting state regardless of how the navigation settled.
+        await gotoTolerant(page, '/users');
         return await responsePromise;
       });
 
       await test.step('Verify error message or redirect', async () => {
         // Check for error toast, error page, or redirect
-        const errorMessage = page.getByText(/admin access required|access.*denied|unauthorized|forbidden|permission/i);
-        const hasError = await errorMessage.isVisible({ timeout: 3000 }).catch(() => false);
-
-        const isRedirected = !page.url().includes('/users');
-        const hasForbiddenResponse = listUsersResponse?.status() === 403;
-
-        expect(hasError || isRedirected || hasForbiddenResponse).toBeTruthy();
+        await expect.poll(async () => {
+          const errorMessage = page.getByText(/admin access required|access.*denied|unauthorized|forbidden|permission/i);
+          const hasError = await errorMessage.isVisible().catch(() => false);
+          const isRedirected = !page.url().includes('/users');
+          const hasForbiddenResponse = listUsersResponse?.status() === 403;
+          return hasError || isRedirected || hasForbiddenResponse;
+        }, {
+          timeout: 15000,
+          message: 'Expected regular user to see an error or be redirected when accessing /users',
+        }).toBeTruthy();
       });
     });
 

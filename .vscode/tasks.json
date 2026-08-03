@@ -1084,6 +1084,18 @@
             }
         },
         {
+            "label": "Utility: Update Node Version",
+            "type": "shell",
+            "command": "./scripts/update-node-toolchain.sh",
+            "group": "none",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "detail": "Install fnm (if missing) and switch local Node to the version pinned in frontend/.nvmrc, matching CI's NODE_VERSION"
+        },
+        {
             "label": "Utility: Rebuild Go Tools",
             "type": "shell",
             "command": "./scripts/rebuild-go-tools.sh",

@@ -29,7 +29,7 @@ ARG XNET_VERSION=0.57.0
 # renovate: datasource=go depName=golang.org/x/crypto
 ARG XCRYPTO_VERSION=0.54.0
 # renovate: datasource=npm depName=npm
-ARG NPM_VERSION=12.0.1
+ARG NPM_VERSION=12.0.2
 
 # Allow pinning Caddy version - Renovate will update this
 # Build the most recent Caddy 2.x release (keeps major pinned under v3).
@@ -117,7 +117,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.18.0-alpine3.24@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.18.1-alpine3.24@sha256:f70403e87646dc51b45295f4b8b70cdad0b63d2297c4c9899119b03f7af7a6b3 AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -688,7 +688,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=e9bbbdb62bcf922cc9e6533049c78cfe8be3a2970181cf5994ef6c15406b05bd
+ARG GEOLITE2_COUNTRY_SHA256=d18f139014ff31dd0b005e16a155849c0d26b59c65d9c79168a780da28189364
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \

@@ -1,14 +1,27 @@
 package orthrus
 
 import (
+	"encoding/json"
 	"net/http"
 	"path"
 	"regexp"
 	"strings"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/util"
+	"golang.org/x/time/rate"
 )
+
+// AuditLogger is the narrow interface Muzzle depends on for write-path audit
+// logging. Satisfied by *services.SecurityService at the call site in
+// session.go, where the concrete type is available. Muzzle cannot import
+// services directly: services/orthrus_service.go already imports
+// "github.com/Wikid82/charon/backend/internal/orthrus", so an orthrus →
+// services import would create a cycle.
+type AuditLogger interface {
+	LogAudit(a *models.SecurityAudit) error
+}
 
 // sanitizePath strips newlines and carriage returns from a path string to
 // prevent log injection (CWE-117).
@@ -60,9 +73,10 @@ var allowedDockerPatterns = []string{
 //
 // Both entries are GET-only like every other allowlist entry: the
 // unconditional method check in ServeHTTP runs before any path match, so
-// POST/PUT/DELETE to either path is rejected regardless of this list.
-// Neither permits a write/mutate operation — /images/create (image pull)
-// is deliberately not added.
+// POST/PUT/DELETE to either path is rejected regardless of this list for a
+// read-only (non-write-enabled) session. Neither permits a write/mutate
+// operation on its own — /images/create (image pull) is deliberately not
+// added here, since it's a write operation gated by write mode instead.
 //
 // Traversal segments ("..") cannot be smuggled through the prefix/suffix
 // check: ServeHTTP runs path.Clean on stripped before any allowlist check
@@ -91,31 +105,163 @@ var allowedDockerPrefixSuffixPatterns = []struct {
 	{prefix: "/distribution/", suffix: "/json"}, // registry digest check — read-only, used by update-checker tools
 }
 
-// Muzzle is an http.Handler wrapper that restricts Docker socket access
-// to a curated allowlist of read-only, non-destructive endpoints.
+// writeAuditDetails marshals a small flat field set into the JSON string
+// stored in a SecurityAudit's Details column. Marshal failure (unreachable
+// for the string-only maps this is called with) degrades to an empty JSON
+// object rather than losing the audit entry entirely.
+func writeAuditDetails(fields map[string]string) string {
+	b, err := json.Marshal(fields)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
+// logAudit is a nil-safe wrapper around m.auditLogger.LogAudit. auditLogger
+// is nil for read-only sessions and in most tests — a no-op in that case,
+// not an error, since read-only traffic was never audited before this
+// feature and isn't in scope for it now (see Section 3.3.7 of the
+// write-mode spec).
+func (m *Muzzle) logAudit(action, details string) {
+	if m.auditLogger == nil {
+		return
+	}
+	// Actor identifies the agent, not a Charon user — there is no
+	// authenticated operator in this request path, only a third-party tool
+	// on the other end of the tunnel. agentUUID (not agent name) is used
+	// here because it's what NewMuzzle actually receives; ResourceUUID
+	// carries the same value for querying, and a UUID is a more stable
+	// identifier for an audit trail than a renamable display name anyway.
+	_ = m.auditLogger.LogAudit(&models.SecurityAudit{
+		Actor:         "orthrus-agent:" + m.agentUUID,
+		Action:        action,
+		EventCategory: "orthrus_write",
+		ResourceUUID:  m.agentUUID,
+		Details:       details,
+	})
+}
+
+func (m *Muzzle) auditAllowed(r *http.Request) {
+	m.logAudit("orthrus_write_allowed", writeAuditDetails(map[string]string{
+		"method": r.Method,
+		"path":   sanitizePath(r.URL.Path),
+	}))
+}
+
+func (m *Muzzle) auditRateLimited(r *http.Request) {
+	m.logAudit("orthrus_write_rate_limited", writeAuditDetails(map[string]string{
+		"method": r.Method,
+		"path":   sanitizePath(r.URL.Path),
+	}))
+}
+
+// Muzzle is an http.Handler wrapper around the Docker socket proxy.
+// Read-only sessions (writeEnabled false) are restricted to a curated
+// allowlist of read-only, non-destructive GET endpoints. Write-enabled
+// sessions get the full, unrestricted Docker Engine API: every request is
+// forwarded as-is (rate-limited and audited), with no per-endpoint or
+// per-field restriction.
+//
+// This is a deliberate operator trust model, not an oversight: write mode
+// is opt-in per agent (OrthrusAgent.WriteEnabled), gated behind an explicit
+// typed-confirmation UI step that documents this is equivalent to giving
+// the connected tool full control of the Docker host — see
+// AgentWriteModeDialog on the frontend. Every write-mode request is still
+// audited (auditAllowed/auditRateLimited), so an operator who enables write
+// mode retains a full trace of what was done, even though nothing about
+// the request content itself is inspected or restricted.
 type Muzzle struct {
 	next http.Handler
+	// writeEnabled is fixed at construction time (one Muzzle per AgentSession,
+	// per external-proxy start) — never re-read from the DB per-request. See
+	// NewMuzzle doc comment for why.
+	writeEnabled bool
+	// writeLimiter bounds write-request throughput; nil unless writeEnabled.
+	writeLimiter *rate.Limiter
+	// auditLogger records every write attempt; nil is tolerated (no-op) so
+	// tests and read-only sessions don't need one.
+	auditLogger AuditLogger
+	// agentUUID identifies the session this Muzzle guards, for audit entries.
+	agentUUID string
 }
 
-// NewMuzzle wraps handler with the Docker socket allowlist filter.
-func NewMuzzle(next http.Handler) *Muzzle {
-	return &Muzzle{next: next}
+// NewMuzzle wraps handler with the Docker socket proxy filter.
+//
+// writeEnabled, writeLimiter, auditLogger, and agentUUID govern write-mode
+// behavior (see the Muzzle doc comment). writeEnabled is captured once, at
+// construction time, and never re-checked against the database on a
+// per-request basis — StartExternalProxy constructs a new Muzzle per
+// AgentSession using the value negotiated at connect time, so toggling the
+// DB flag only takes effect on the agent's next reconnect. Re-reading it
+// per-request would both reintroduce a TOCTOU-like inconsistency with that
+// reconnect-to-apply guarantee and add a DB round-trip to the hot proxy
+// path.
+func NewMuzzle(next http.Handler, writeEnabled bool, writeLimiter *rate.Limiter, auditLogger AuditLogger, agentUUID string) *Muzzle {
+	return &Muzzle{
+		next:         next,
+		writeEnabled: writeEnabled,
+		writeLimiter: writeLimiter,
+		auditLogger:  auditLogger,
+		agentUUID:    agentUUID,
+	}
 }
 
-// ServeHTTP implements http.Handler. Only GET requests to allowlisted paths
-// are forwarded; HEAD is also permitted for /_ping (Docker client health checks).
-// All other methods or paths receive 403 Forbidden.
+// normalizeDockerPath strips a Docker API version prefix (e.g. "/v1.47")
+// using versionPrefixRe, THEN runs path.Clean — in that order. Stripping
+// first means the version-prefix match runs against the raw, uncleaned
+// path, so a traversal-disguised prefix (e.g. "/foo/../v1.44/...") is not
+// mistaken for a real one: versionPrefixRe is anchored to the start of the
+// string as given, before ".." segments have been resolved away. Normalize
+// away any "." or ".." segments only after that check so that traversal-style
+// paths such as /containers/../json cannot match patterns like
+// /containers/*/json. path.Clean always returns a rooted result when given a
+// rooted input; the explicit "/" prefix guards against an empty stripped
+// value.
+//
+// agent/muzzle/muzzle.go has an identically-named helper that must apply
+// versionPrefixRe (same regex source) and path.Clean in this exact order —
+// see that file's doc comment and scripts/ci/check_muzzle_allowlist_parity.go,
+// which structurally compares the two files' versionPrefixRe declarations.
+func normalizeDockerPath(rawPath string) string {
+	stripped := versionPrefixRe.ReplaceAllString(rawPath, "")
+	return path.Clean("/" + strings.TrimLeft(stripped, "/"))
+}
+
+// ServeHTTP implements http.Handler.
+//
+// Read-only sessions (m.writeEnabled false) only forward GET requests to
+// allowlisted paths, with HEAD permitted for /_ping (Docker client health
+// checks) — every other request receives 403 Forbidden. This half is
+// unchanged from before write mode existed.
+//
+// Write-enabled sessions forward every request unconditionally — no
+// endpoint or request-body restriction (see the Muzzle doc comment for
+// why) — but only mutating methods (POST/PUT/PATCH/DELETE) go through the
+// rate limiter and audit log (see forwardWrite). GET/HEAD are forwarded
+// directly, same as a read-only session, un-rate-limited and unaudited:
+// m.writeLimiter is sized for occasional mutation bursts (see
+// writeLimiterBurst's doc comment in session.go — "one full update cycle
+// is exactly 5 write calls"), not for a Docker client's routine container
+// list/inspect polling, which can easily run many times a minute. Routing
+// that read traffic through the same limiter starved it out entirely
+// once the burst was spent, intermittently 429ing GET /containers/json
+// and making containers appear to vanish from any tool polling this proxy
+// — a real regression this fixes, not a hypothetical one.
 func (m *Muzzle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	rawPath := versionPrefixRe.ReplaceAllString(r.URL.Path, "")
-	// Normalize away any "." or ".." segments before any allowlist check so that
-	// traversal-style paths such as /containers/../json cannot match patterns like
-	// /containers/*/json. path.Clean always returns a rooted result when given a
-	// rooted input; the explicit "/" prefix guards against an empty rawPath value.
-	stripped := path.Clean("/" + strings.TrimLeft(rawPath, "/"))
+	stripped := normalizeDockerPath(r.URL.Path)
 
 	// HEAD /_ping is permitted alongside GET for Docker client health checks.
 	if r.Method == http.MethodHead && stripped == "/_ping" {
 		m.next.ServeHTTP(w, r)
+		return
+	}
+
+	if m.writeEnabled {
+		if r.Method == http.MethodGet || r.Method == http.MethodHead {
+			m.next.ServeHTTP(w, r)
+			return
+		}
+		m.forwardWrite(w, r)
 		return
 	}
 
@@ -153,4 +299,19 @@ func (m *Muzzle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	logger.Log().WithField("method", util.SanitizeForLog(r.Method)).WithField("path", sanitizePath(r.URL.Path)).
 		Warn("orthrus: muzzle blocked disallowed Docker path")
 	http.Error(w, "Forbidden", http.StatusForbidden)
+}
+
+// forwardWrite applies the write-path rate limiter, audits the outcome, and
+// forwards the request. Only called for write-enabled sessions' mutating
+// requests (POST/PUT/PATCH/DELETE) — ServeHTTP forwards GET/HEAD directly
+// without involving this method, since the rate limiter is sized for
+// mutation bursts, not routine read polling.
+func (m *Muzzle) forwardWrite(w http.ResponseWriter, r *http.Request) {
+	if m.writeLimiter != nil && !m.writeLimiter.Allow() {
+		m.auditRateLimited(r)
+		http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+		return
+	}
+	m.auditAllowed(r)
+	m.next.ServeHTTP(w, r)
 }

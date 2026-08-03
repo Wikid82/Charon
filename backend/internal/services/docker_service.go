@@ -11,10 +11,19 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/moby/moby/client"
 )
+
+// defaultListContainersTimeout bounds how long ListContainers waits on the
+// Docker daemon before failing fast. Chosen to comfortably clear the
+// legitimately-slow-but-successful responses observed in production (up to
+// 8.22s on a contended rootless-Docker socket) while leaving a wide margin
+// under the ~30s reverse-proxy timeout that would otherwise hard-cancel the
+// request first and surface an unhelpful generic error.
+const defaultListContainersTimeout = 8 * time.Second
 
 type DockerUnavailableError struct {
 	err     error
@@ -51,6 +60,53 @@ func (e *DockerUnavailableError) Details() string {
 	return e.details
 }
 
+// DockerTimeoutError indicates the Docker daemon did not respond to an API
+// call within Charon's own bounded timeout. It is intentionally distinct
+// from DockerUnavailableError: DockerUnavailableError means "the daemon is
+// unreachable / permissions are wrong" (a configuration problem), whereas
+// DockerTimeoutError means "the daemon is reachable but responding slowly"
+// (transient — retrying may succeed). Keeping them separate lets callers
+// (and the frontend) surface an accurate, actionable message for each case
+// instead of a single generic "Docker unavailable" message for both.
+type DockerTimeoutError struct {
+	err     error
+	timeout time.Duration
+}
+
+// NewDockerTimeoutError wraps the underlying context-deadline error together
+// with the timeout duration that was configured, so Details() can report it.
+func NewDockerTimeoutError(err error, timeout time.Duration) *DockerTimeoutError {
+	return &DockerTimeoutError{err: err, timeout: timeout}
+}
+
+func (e *DockerTimeoutError) Error() string {
+	if e == nil || e.err == nil {
+		return "docker request timed out"
+	}
+	return fmt.Sprintf("docker request timed out after %s: %v", e.timeout, e.err)
+}
+
+func (e *DockerTimeoutError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
+}
+
+// Details returns a user-facing, actionable message distinct from
+// buildLocalDockerUnavailableDetails' permissions-oriented guidance.
+func (e *DockerTimeoutError) Details() string {
+	if e == nil {
+		return ""
+	}
+	return fmt.Sprintf(
+		"Docker daemon is responding slowly (no response within %s). "+
+			"This can happen when the Docker socket is under heavy load from other "+
+			"tools or containers. Please try again.",
+		e.timeout,
+	)
+}
+
 type DockerPort struct {
 	PrivatePort uint16 `json:"private_port"`
 	PublicPort  uint16 `json:"public_port"`
@@ -72,6 +128,12 @@ type DockerService struct {
 	client    *client.Client
 	initErr   error // Stores initialization error if Docker is unavailable
 	localHost string
+
+	// listContainersTimeout bounds the ContainerList call in ListContainers.
+	// Zero value falls back to defaultListContainersTimeout; overridable via
+	// struct literal in tests to shrink the timeout for fast, deterministic
+	// coverage.
+	listContainersTimeout time.Duration
 }
 
 // newDockerServiceFromLocalHost creates a DockerService from an already-resolved
@@ -131,8 +193,18 @@ func (s *DockerService) ListContainers(ctx context.Context, host string) ([]Dock
 		}()
 	}
 
-	containers, err := cli.ContainerList(ctx, client.ContainerListOptions{All: false})
+	timeout := s.listContainersTimeout
+	if timeout <= 0 {
+		timeout = defaultListContainersTimeout
+	}
+	listCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	containers, err := cli.ContainerList(listCtx, client.ContainerListOptions{All: false})
 	if err != nil {
+		if isBoundedListTimeout(ctx, listCtx, err) {
+			return nil, NewDockerTimeoutError(err, timeout)
+		}
 		if isDockerConnectivityError(err) {
 			if host == "" || host == "local" {
 				return nil, NewDockerUnavailableError(err, buildLocalDockerUnavailableDetails(err, s.localHost))
@@ -142,7 +214,7 @@ func (s *DockerService) ListContainers(ctx context.Context, host string) ([]Dock
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
 
-	var result []DockerContainer
+	result := make([]DockerContainer, 0)
 	for _, c := range containers.Items {
 		// Get the first network's IP address if available
 		networkName := ""
@@ -193,6 +265,26 @@ func (s *DockerService) ListContainers(ctx context.Context, host string) ([]Dock
 	return result, nil
 }
 
+// isBoundedListTimeout reports whether err represents Charon's own bounded
+// ContainerList timeout expiring — as opposed to the caller-supplied parent
+// context (parent) being canceled/expired for an unrelated reason (e.g. an
+// upstream reverse-proxy giving up on the whole request). It relies on the
+// fact that context.WithTimeout's child context (listCtx) fails with
+// context.DeadlineExceeded when ITS OWN deadline elapses, while the parent
+// context remains healthy (parent.Err() == nil) up to that point.
+func isBoundedListTimeout(parent context.Context, listCtx context.Context, err error) bool {
+	if err == nil {
+		return false
+	}
+	// Prefer the child context's own recorded terminal state (listCtx.Err())
+	// over parsing it back out of err's wrapped chain: this is a
+	// dependency-independent source of truth that keeps working even if a
+	// future moby/moby/client upgrade changes how context errors are
+	// wrapped in the returned err. errors.Is is kept as a defense-in-depth
+	// secondary signal.
+	return (errors.Is(listCtx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded)) && parent.Err() == nil
+}
+
 func isDockerConnectivityError(err error) bool {
 	if err == nil {
 		return false
@@ -202,7 +294,16 @@ func isDockerConnectivityError(err error) bool {
 	msg := strings.ToLower(err.Error())
 	if strings.Contains(msg, "cannot connect to the docker daemon") ||
 		strings.Contains(msg, "is the docker daemon running") ||
-		strings.Contains(msg, "error during connect") {
+		strings.Contains(msg, "error during connect") ||
+		// "permission denied while trying to connect to the docker api" matches
+		// the message produced by github.com/moby/moby/client@v0.5.1's
+		// doRequest() (request.go:168-172) for os.ErrPermission (EACCES/EPERM
+		// connecting to the Docker socket). That code path's fmt.Errorf call
+		// does not reference the original syscall error at all (only cli.host,
+		// via %v) — so unlike other syscall-wrapped errors handled below, the
+		// underlying errno is permanently unrecoverable from this error's chain
+		// and can only be matched by message text.
+		strings.Contains(msg, "permission denied while trying to connect to the docker api") {
 		return true
 	}
 
@@ -300,7 +401,17 @@ func buildLocalDockerUnavailableDetails(err error, localHost string) string {
 		groupsStr = strings.Join(groupValues, ",")
 	}
 
-	if errno, ok := extractErrno(err); ok {
+	errno, ok := extractErrno(err)
+	if !ok && strings.Contains(strings.ToLower(err.Error()), "permission denied while trying to connect to the docker api") {
+		// Same moby v0.5.1 message-shape gap as isDockerConnectivityError
+		// above: the underlying errno is unrecoverable from this error's
+		// chain, so extractErrno() can never find it here either. Treat the
+		// message match as EACCES so this case gets the same actionable
+		// group-hint guidance as a directly-reachable EACCES/EPERM, instead
+		// of silently falling through to the generic message below.
+		errno, ok = syscall.EACCES, true
+	}
+	if ok {
 		switch errno {
 		case syscall.ENOENT:
 			return fmt.Sprintf("Local Docker socket not found at %s (local host selector uses %s). Mount %s as read-only or read-write.", socketPath, localHost, socketPath)

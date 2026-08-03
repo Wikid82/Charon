@@ -483,7 +483,12 @@ test.describe('Data Consistency', () => {
     });
 
     await test.step('Navigate and verify pagination consistency', async () => {
-      await page.goto('/users');
+      // The prior step already ends on /users. A second page.goto() to the
+      // same URL right after can fail to produce a distinct navigation-commit
+      // event in Firefox and self-interrupt, hanging until the test timeout
+      // (see d537476f). Use reload() instead, which always yields a fresh,
+      // distinct navigation-commit event.
+      await page.reload();
       await waitForLoadingComplete(page, { timeout: 15000 });
 
       for (const email of createdEmails) {

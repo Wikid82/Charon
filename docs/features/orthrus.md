@@ -31,7 +31,7 @@ Charon normally needs to reach your server directly, so this is a problem.
 
 **Disconnections are handled automatically** — if the network hiccups, the agent reconnects on its own with no action required from you.
 
-> **Note:** Orthrus is read-only. It can list containers, images, and networks — but it cannot start, stop, delete, or modify anything on your remote machine. This is by design and cannot be changed.
+> **Note:** Orthrus is **read-only by default**. It can list containers, images, and networks — but out of the box it cannot start, stop, delete, or modify anything on your remote machine, and that default can never be loosened by accident. If you want a specific agent to be able to do more — for example, letting an update-checker tool apply an update it's found — you can explicitly opt that one agent into a narrow, audited set of write operations. See [What Orthrus Can (and Cannot) Do](#what-orthrus-can-and-cannot-do) below.
 
 ---
 
@@ -87,21 +87,54 @@ That's it. You can now use this agent when [adding a Remote Server](../guides/re
 
 ## What Orthrus Can (and Cannot) Do
 
-Orthrus only ever lets Charon **read** information from your remote Docker. It cannot touch anything.
+**By default, every agent is strictly read-only**, and that default can't be loosened by accident — there's no setting that weakens it globally. Orthrus only ever lets Charon **read** information from your remote Docker unless you take the deliberate, per-agent step described below.
 
-**It CAN:**
+**Every agent, always, CAN:**
 - List running containers and their details
 - List images, networks, and volumes
 - Stream container logs (for display in Charon)
 - Report Docker system info
 
-**It CANNOT:**
+**A default (read-only) agent CANNOT:**
 - Start, stop, restart, or delete containers
 - Create or remove networks or volumes
 - Pull images
 - Run commands inside containers
 
-This restriction is enforced at every single request — there is no way to turn it off.
+### Opting an agent into write access
+
+If you're using the [External Docker Proxy](#external-docker-proxy-advanced) to let a third-party tool (like an update-checker) talk to an agent's Docker API, you can optionally, explicitly grant that one agent a **narrow, fixed set** of write operations:
+
+- Pull a new image
+- Start a container
+- Stop a container
+- Restart a container
+- Remove a container
+- Create (recreate) a container
+
+This is exactly enough for a tool to run a full "pull the new image, swap the container over" update cycle — nothing more. **Regardless of this setting, the following are never permitted, for any agent, under any configuration:**
+
+- Running commands inside a container (exec / shell access)
+- Creating or removing networks or volumes
+- Deleting images
+- Building images
+- Anything Docker Swarm or service-related
+
+**Turning it on:**
+
+1. Go to **Remote Agents**
+2. Click the **shield icon** next to the agent you want
+3. Toggle **write access** on
+4. Type the agent's exact current name to confirm — this typed confirmation is required specifically so this can't be flipped on by accident. Turning it back off never requires typing anything.
+5. Click **Save**
+
+The change takes effect the next time that agent reconnects (the same way changing the External Proxy port does) — if the agent is already connected, Charon will tell you a reconnect is needed.
+
+**Every write attempt is logged**, whether it succeeds or gets blocked, so you always have a record of what a connected tool actually did. Find this under **Audit Logs**, filtered to that agent.
+
+One limitation worth knowing: if a container is attached to **more than one** Docker network, this write-access flow can recreate it on its primary network but won't re-attach the extra ones automatically — you'd need to do that manually, or through Charon's own Docker management screens, after the recreate.
+
+This restriction — read-only by default, write access only when you explicitly and knowingly turn it on for one agent at a time — is enforced independently, twice, at every single request: once by Charon and once by the agent itself. There's no way to weaken the read-only default globally, and no way to grant any operation outside the fixed list above, no matter what.
 
 ---
 
@@ -126,7 +159,7 @@ tcp://<host>:<port>
 
 `<host>` is your Charon instance's own address, as reachable from wherever the third-party tool runs — Charon fills this in for you automatically, so you don't need to look it up or type it yourself. `<port>` is the number you chose in Step 3 above.
 
-**Still strictly read-only.** Just like the rest of Orthrus, there is no way to turn this restriction off. Through this port, a tool can:
+**Read-only by default, same as the rest of Orthrus** — and that default can't be loosened by accident. Through this port, a tool can always:
 
 - List containers, images, networks, and volumes
 - Read Docker system info, version, and live events
@@ -134,7 +167,9 @@ tcp://<host>:<port>
 - Look up details about a specific image (image inspect)
 - Check the registry for a newer version of an image (registry digest check)
 
-One note on that last item: "read-only" means the proxy can't change anything on your Docker host — it can't start, stop, or modify a single thing. But the registry digest check does cause your agent's Docker daemon to reach out to the image's registry (e.g. Docker Hub) to check for updates. That outbound check is expected and is exactly what makes update-checker tools work — it just isn't touching your host, which is the guarantee that matters here.
+One note on that last item: read-only here means the proxy can't change anything on your Docker host by itself — it can't start, stop, or modify a single thing unless you've explicitly turned on write access (below). But the registry digest check does cause your agent's Docker daemon to reach out to the image's registry (e.g. Docker Hub) to check for updates. That outbound check is expected and is exactly what makes update-checker tools work — it just isn't touching your host, which is the guarantee that matters here.
+
+**Want the tool to be able to apply an update it finds, not just detect one?** See [Opting an agent into write access](#opting-an-agent-into-write-access) above — it's the same idea, just for a fixed, audited set of write operations layered on top of this same proxy.
 
 ---
 

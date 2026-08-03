@@ -27,7 +27,7 @@ func openOrthrusTestDB(t *testing.T) *gorm.DB {
 		Logger: glogger.Default.LogMode(glogger.Silent),
 	})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.OrthrusAgent{}))
+	require.NoError(t, db.AutoMigrate(&models.OrthrusAgent{}, &models.SecurityAudit{}))
 	t.Cleanup(func() {
 		sqlDB, _ := db.DB()
 		if sqlDB != nil {
@@ -51,7 +51,31 @@ func newOrthrusTestSetup(t *testing.T) (*OrthrusHandler, *gorm.DB) {
 	t.Cleanup(srv.Stop)
 
 	svc := services.NewOrthrusService(db, srv)
-	return NewOrthrusHandler(svc), db
+	securityService := services.NewSecurityService(db)
+	t.Cleanup(securityService.Close)
+	return NewOrthrusHandler(svc, securityService), db
+}
+
+// newOrthrusTestSetupWithSecurity is a variant of newOrthrusTestSetup that
+// also returns the *services.SecurityService, for tests that need to
+// Flush() and query the audit trail produced by write_enabled toggles.
+func newOrthrusTestSetupWithSecurity(t *testing.T) (*OrthrusHandler, *services.SecurityService) {
+	t.Helper()
+	dir := t.TempDir()
+	caPath := filepath.Join(dir, "ca")
+	require.NoError(t, os.MkdirAll(caPath, 0o700))
+
+	db := openOrthrusTestDB(t)
+	ca, err := orthrus.NewInternalCA(caPath)
+	require.NoError(t, err)
+	srv, err := orthrus.NewOrthrusServer(db, ca)
+	require.NoError(t, err)
+	t.Cleanup(srv.Stop)
+
+	svc := services.NewOrthrusService(db, srv)
+	securityService := services.NewSecurityService(db)
+	t.Cleanup(securityService.Close)
+	return NewOrthrusHandler(svc, securityService), securityService
 }
 
 func TestOrthrusHandler_List_Empty(t *testing.T) {
@@ -617,6 +641,141 @@ func TestOrthrusHandler_PatchAgent_ExternalProxyPort_Invalid(t *testing.T) {
 	h.Patch(c)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestOrthrusHandler_PatchAgent_WriteEnabled_EmitsAuditEntry(t *testing.T) {
+	h, securityService := newOrthrusTestSetupWithSecurity(t)
+
+	wProv := httptest.NewRecorder()
+	cProv, _ := gin.CreateTestContext(wProv)
+	cProv.Request = httptest.NewRequest(http.MethodPost, "/management/orthrus/agents",
+		bytes.NewBufferString(`{"name":"write-mode-agent"}`))
+	cProv.Request.Header.Set("Content-Type", "application/json")
+	h.Provision(cProv)
+	require.Equal(t, http.StatusCreated, wProv.Code)
+	var provisioned map[string]any
+	require.NoError(t, json.Unmarshal(wProv.Body.Bytes(), &provisioned))
+	agentUUID := provisioned["agent"].(map[string]any)["uuid"].(string)
+
+	body, _ := json.Marshal(map[string]bool{"write_enabled": true})
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPatch, "/management/orthrus/agents/"+agentUUID,
+		bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{{Key: "uuid", Value: agentUUID}}
+	h.Patch(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp models.OrthrusAgent
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.True(t, resp.WriteEnabled)
+
+	securityService.Flush()
+	entries, total, err := securityService.ListAuditLogs(services.AuditLogFilter{
+		EventCategory: "orthrus_write",
+		ResourceUUID:  agentUUID,
+	}, 1, 10)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, total)
+	assert.Equal(t, "orthrus_write_enabled", entries[0].Action)
+	assert.Contains(t, entries[0].Details, "write-mode-agent")
+}
+
+func TestOrthrusHandler_PatchAgent_WriteDisabled_EmitsAuditEntry(t *testing.T) {
+	h, securityService := newOrthrusTestSetupWithSecurity(t)
+
+	wProv := httptest.NewRecorder()
+	cProv, _ := gin.CreateTestContext(wProv)
+	cProv.Request = httptest.NewRequest(http.MethodPost, "/management/orthrus/agents",
+		bytes.NewBufferString(`{"name":"write-mode-agent-2"}`))
+	cProv.Request.Header.Set("Content-Type", "application/json")
+	h.Provision(cProv)
+	require.Equal(t, http.StatusCreated, wProv.Code)
+	var provisioned map[string]any
+	require.NoError(t, json.Unmarshal(wProv.Body.Bytes(), &provisioned))
+	agentUUID := provisioned["agent"].(map[string]any)["uuid"].(string)
+
+	body, _ := json.Marshal(map[string]bool{"write_enabled": false})
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPatch, "/management/orthrus/agents/"+agentUUID,
+		bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{{Key: "uuid", Value: agentUUID}}
+	h.Patch(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	securityService.Flush()
+	entries, total, err := securityService.ListAuditLogs(services.AuditLogFilter{
+		EventCategory: "orthrus_write",
+		ResourceUUID:  agentUUID,
+	}, 1, 10)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, total)
+	assert.Equal(t, "orthrus_write_disabled", entries[0].Action)
+}
+
+func TestOrthrusHandler_PatchAgent_NoWriteEnabledField_NoAuditEntry(t *testing.T) {
+	h, securityService := newOrthrusTestSetupWithSecurity(t)
+
+	wProv := httptest.NewRecorder()
+	cProv, _ := gin.CreateTestContext(wProv)
+	cProv.Request = httptest.NewRequest(http.MethodPost, "/management/orthrus/agents",
+		bytes.NewBufferString(`{"name":"no-audit-agent"}`))
+	cProv.Request.Header.Set("Content-Type", "application/json")
+	h.Provision(cProv)
+	require.Equal(t, http.StatusCreated, wProv.Code)
+	var provisioned map[string]any
+	require.NoError(t, json.Unmarshal(wProv.Body.Bytes(), &provisioned))
+	agentUUID := provisioned["agent"].(map[string]any)["uuid"].(string)
+
+	body, _ := json.Marshal(map[string]string{"name": "renamed"})
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPatch, "/management/orthrus/agents/"+agentUUID,
+		bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{{Key: "uuid", Value: agentUUID}}
+	h.Patch(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	securityService.Flush()
+	_, total, err := securityService.ListAuditLogs(services.AuditLogFilter{
+		EventCategory: "orthrus_write",
+		ResourceUUID:  agentUUID,
+	}, 1, 10)
+	require.NoError(t, err)
+	assert.EqualValues(t, 0, total, "a Patch call that doesn't touch write_enabled must not emit an orthrus_write audit entry")
+}
+
+func TestOrthrusHandler_GetProxyStatus_IncludesWriteEnabledFields(t *testing.T) {
+	h, _ := newOrthrusTestSetup(t)
+
+	wProv := httptest.NewRecorder()
+	cProv, _ := gin.CreateTestContext(wProv)
+	cProv.Request = httptest.NewRequest(http.MethodPost, "/management/orthrus/agents",
+		bytes.NewBufferString(`{"name":"proxy-status-write-agent"}`))
+	cProv.Request.Header.Set("Content-Type", "application/json")
+	h.Provision(cProv)
+	require.Equal(t, http.StatusCreated, wProv.Code)
+	var provisioned map[string]any
+	require.NoError(t, json.Unmarshal(wProv.Body.Bytes(), &provisioned))
+	agentUUID := provisioned["agent"].(map[string]any)["uuid"].(string)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/management/orthrus/agents/"+agentUUID+"/proxy-status", http.NoBody)
+	c.Params = gin.Params{{Key: "uuid", Value: agentUUID}}
+	h.GetProxyStatus(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, false, resp["configured_write_enabled"])
+	assert.Equal(t, false, resp["active_write_enabled"])
 }
 
 func TestOrthrusHandler_GetProxyStatus_NilResolver(t *testing.T) {
