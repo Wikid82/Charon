@@ -222,7 +222,7 @@ Before marking an implementation task as complete, perform the following in orde
 
 6. **Coverage Testing** (MANDATORY - Non-negotiable):
     - **Overall Coverage**: Minimum 85% coverage is MANDATORY and will fail the PR if not met.
-    - **Patch Coverage**: Developers should aim for 100% coverage of modified lines (Codecov Patch view). If patch coverage is incomplete, add targeted tests. However, patch coverage is a suggestion and will not block PR approval.
+    - **Patch Coverage**: Codecov's `patch` status (Codecov Patch view) is a mandatory, merge-blocking gate (`codecov.yml`, `coverage.status.patch.default`, target aligned with the project coverage target / `CHARON_MIN_COVERAGE`), not a suggestion. If patch coverage is incomplete, add targeted tests covering the uncovered changed lines before the PR can merge.
     - **Backend Changes**: Run the VS Code task "Test: Backend with Coverage" or execute `scripts/go-test-coverage.sh`.
         - Minimum coverage: 85% (set via `CHARON_MIN_COVERAGE` or `CPM_MIN_COVERAGE`).
         - If coverage drops below threshold, write additional tests to restore coverage.

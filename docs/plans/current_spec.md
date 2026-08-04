@@ -1,1624 +1,968 @@
-# "What's New" Changelog Popup — Implementation Plan
+# CodeQL go/path-injection Fix — `system_permissions_handler.go` (4 sinks)
 
-Status: Ready for review
-Date: 2026-07-28
-Design source of truth: `docs/superpowers/specs/2026-07-28-whats-new-changelog-design.md` (Approved — all product decisions final; this plan does not re-litigate scope, only makes it buildable)
+Status: Implemented — as-built mechanism differs from the original §3.1/§3.2
+design; see §1.4 for what was actually shipped and why.
+Date: 2026-08-03
+Scope: Backend only (no API contract, DB schema, or frontend changes)
 
 ## 1. Introduction
 
-This plan turns the approved "What's New" changelog design into a concrete,
-file-by-file implementation. The feature adds a per-user, dismissible modal
-that surfaces new features/fixes since the user's last visit, sourced from
-conventional-commit messages generated at release build time and embedded
-in the binary — zero runtime network calls, zero new external dependencies.
+### 1.1 Overview
 
-**Objectives**
+A fresh local CodeQL Go scan (suite `go-security-and-quality.qls`) confirms
+CI's originally-reported finding **plus three more** `go/path-injection`
+findings (CWE-22/23/36/73/99), all in the same file:
 
-- Add two columns to `User` (`last_seen_version`, `changelog_opt_out`) and
-  seed new users correctly.
-- Add a `backend/internal/changelog` package that reads an embedded JSON
-  file and answers "what's new since version X" and "give me everything."
-- Add four authenticated API routes under `/api/v1/changelog`.
-- Add `scripts/generate-changelog.sh` and wire it into
-  `.github/workflows/release-goreleaser.yml`.
-- Add `WhatsNewModal.tsx`, mount it post-auth, and wire an
-  Appearance Settings toggle + revisit link.
-- Cover everything with backend unit tests, frontend Vitest tests, and
-  Playwright E2E specs, following the repo's TDD/Definition-of-Done
-  conventions.
+| # | Line | Sink | Enclosing function |
+|---|---|---|---|
+| 1 | 148 | `os.Lstat(cleanPath)` | `repairPath` |
+| 2 | 249 | `os.Chown(cleanPath, uid, gid)` | `repairPath` |
+| 3 | 267 | `os.Chmod(cleanPath, parsedMode)` | `repairPath` |
+| 4 | 391 | `os.Lstat(current)` | `pathHasSymlink` (called from `repairPath`) |
 
-**Non-goals** (inherited from the design doc, not re-decided here):
-role-filtered content, rich text/markdown entries, editorial rewriting of
-commit messages.
+All four share the same taint source: `permissionsRepairRequest.Paths
+[]string` → `SystemPermissionsHandler.RepairPermissions` → `repairPath`.
+Every sink already runs strictly *after* multiple layers of real path
+validation (absoluteness check, `..`-rejection, and allowlist-containment
+via `isWithinAllowlist`, plus — for sink 4 — a component-wise symlink walk).
+Functionally, an attacker cannot reach any of these four sinks with an
+unvalidated path today. CodeQL still flags all four because its dataflow
+analysis does not credit `isWithinAllowlist`'s `filepath.Rel`-based
+containment check as a sanitizer for *any* of them — not because of a
+missing check, but because that check's implementation idiom
+(`filepath.Rel` + prefix/`".."`-string comparison, in effect a "compute a
+relative path and inspect it" pattern) is not one CodeQL's Go
+path-injection query recognizes as a barrier, regardless of which function
+it runs in or how close it sits to a sink.
 
-## 2. Research Findings
+### 1.2 Objective
 
-### 2.1 `UpdateService` injectable-version pattern (to mirror)
+Introduce **one** reusable, `strings.HasPrefix`-based containment helper
+(`isWithinAllowlistBounds`) — the idiom CodeQL's Go dataflow analysis does
+recognize as a sanitizer — and invoke it **inline, immediately before each
+of the four sink calls, in the same function as that sink**, using
+whichever variable actually reaches that sink. This closes all four
+findings with a single coherent pattern, applied consistently, without
+changing any externally observable behavior of `POST
+/api/system/permissions/repair` or `GET /api/system/permissions`.
 
-`backend/internal/services/update_service.go`:
+This revises and supersedes the previous version of this plan, which
+covered only finding 4 (line 391). Finding 4's design (restructuring
+`pathHasSymlink`) is unchanged from that version; findings 1-3 are new.
 
-```go
-type UpdateService struct {
-    currentVersion string
-    ...
-}
+### 1.3 Non-goals
 
-func NewUpdateService() *UpdateService {
-    return &UpdateService{currentVersion: version.Version, ...}
-}
+- No change to the HTTP contract (request/response shapes, status codes,
+  error codes) of `GET /api/system/permissions` or
+  `POST /api/system/permissions/repair`.
+- No change to `normalizePath`, `containsParentReference`, or
+  `isWithinAllowlist`'s existing semantics or call sites at lines 139/211 —
+  those functions are not flagged sinks and are working correctly; they
+  stay exactly as-is and continue to run before every new guard introduced
+  here.
+- No frontend, database, or E2E changes — this handler's behavior toward
+  the browser is unchanged, so no Playwright coverage is added or modified.
+- **Out of scope**: the separate `go/path-injection`-adjacent
+  cookie-suppression finding at `backend/internal/api/handlers/auth_handler.go:191`
+  is a distinct pre-existing, non-blocking warning on an unrelated code
+  path, tracked separately in `docs/issues/`. This PR must not touch
+  `auth_handler.go` at all, and must not regress that finding's status
+  (neither fixing nor worsening it — simply leaving it untouched).
 
-// SetCurrentVersion sets the current version for testing.
-func (s *UpdateService) SetCurrentVersion(v string) { s.currentVersion = v }
+### 1.4 Implementation Note (As-Built) — mechanism changed from §3.1/§3.2
+
+The rest of this document (§3 in particular) describes the *original*
+design as reviewed and approved: one shared `isWithinAllowlistBounds`
+helper, called inline at all four sink sites. **That exact design did not
+close the CodeQL findings when implemented.** A fresh scan after wiring it
+in at all four sites (per §3.2 verbatim) still reported all 4 original
+`go/path-injection` results, unchanged.
+
+Root cause, confirmed empirically across three implementation iterations:
+CodeQL's Go `PrefixCheck` sanitizer guard (in
+`semmle/go/security/TaintedPathCustomizations.qll`) only recognizes a
+`strings.HasPrefix(taintedVar, ...)` call as a barrier when:
+1. it is a **direct call**, literally in the same function as the sink —
+   not routed through a separate helper function (confirmed: calling
+   `isWithinAllowlistBounds`, which itself calls `strings.HasPrefix`
+   internally, was not recognized, regardless of how close the call sat to
+   the sink);
+2. it is **not inside a loop with a `break`** funneling into a boolean
+   flag checked afterward (confirmed: an inlined loop-plus-break version,
+   still calling `strings.HasPrefix` directly but inside a `for` loop, was
+   also not recognized); and
+3. the tainted value is the **bare, unmodified `arg0`** of the call — not
+   wrapped in a string concatenation such as `cleanPath+sep` (confirmed:
+   concatenating a separator onto the checked value, to fold the
+   equals-vs-descendant cases into one comparison, broke recognition even
+   in an otherwise-correct straight-line guard).
+
+**What was actually built instead** (production code, both sink
+locations):
+- A small helper, `firstAllowlistPrefix(current, allowlist) string`,
+  determines which allowlist root (if any) `current` falls under and
+  returns the exact prefix string to confirm against (or `""` if none
+  match). This lookup does **not** need to be CodeQL-recognized — it is
+  not itself security load-bearing, since `isWithinAllowlist` (line ~139)
+  already gated the value before this runs.
+- Immediately after, a single **straight-line**, non-loop guard sits
+  directly in the sink's own function, using the bare tainted variable as
+  `arg0`:
+  ```go
+  requiredPrefix := firstAllowlistPrefix(cleanPath, normalizedAllowlist)
+  if requiredPrefix == "" || !strings.HasPrefix(cleanPath, requiredPrefix) {
+      return permissionsRepairResult{ /* permissions_outside_allowlist */ }
+  }
+  ```
+  This *is* recognized by CodeQL as a barrier for `cleanPath`.
+- For sinks 1–3 (all in `repairPath`, all using `cleanPath`, which is
+  never reassigned after normalization), **one** such guard — computed
+  once, right after the existing `isWithinAllowlist` check — dominates all
+  three sinks via ordinary CFG dominance. It does not need to be repeated
+  at each sink; CodeQL's recognition is about the call's shape and
+  location (same function, direct, non-loop, bare arg0), not textual
+  adjacency to the sink. This is a **simplification** relative to §3.2's
+  three separate inline guards.
+- For sink 4 (`pathHasSymlink`), the guard checks `clean` (the normalized
+  full path) **once**, at the top of the function, rather than
+  per-component against `current` inside the walk loop. Every `current`
+  value used at the `os.Lstat` sink is derived exclusively from that
+  already-guarded `clean` via `filepath.Clean`/`strings.Split`/
+  `filepath.Join`, so the single top-of-function guard covers the whole
+  walk. (The original §3.2 per-component design would have needed a
+  `strings.HasPrefix(root, current+sep)` "ancestor of root" comparison
+  with the *safe* value as `arg0` and the *tainted* `current` as `arg1` —
+  CodeQL's `PrefixCheck` only protects `arg0`, so that direction could
+  never have been recognized regardless of loop/helper structure. Guarding
+  the walk's known-safe source once, up front, sidesteps this instead of
+  trying to make the per-component ancestor check itself recognizable.)
+- `isWithinAllowlistBounds` was deleted (along with its dedicated test)
+  after a review pass flagged it as dead code once the above became the
+  real production mechanism — it was never called from anywhere except its
+  own test. `firstAllowlistPrefix` was deliberately **not** consolidated
+  with the existing `isWithinAllowlist`: doing so would either move the
+  recognized `strings.HasPrefix` call back behind a function boundary
+  (unrecognized again) or require changing `isWithinAllowlist`'s existing,
+  separately-tested `filepath.Rel`-based semantics, which §1.3 explicitly
+  keeps out of scope.
+
+Net effect: same security property, same external behavior, same four
+findings closed — but via one dominating straight-line guard per
+function (two total: one in `repairPath`, one in `pathHasSymlink`) rather
+than four separately-invoked calls to a shared helper. §3, §4, §5, §7, and
+§9 below still describe the original approved design and are retained for
+historical/review-trail purposes; where they conflict with this section on
+mechanism, this section (§1.4) reflects what is actually in the code as of
+commit `0d7c3e4a` (production landing) plus the follow-up dead-code-removal
+commit.
+
+## 2. Research Findings (Confirmed Against Source)
+
+Full file read: `backend/internal/api/handlers/system_permissions_handler.go`
+(459 lines) and its test file
+`backend/internal/api/handlers/system_permissions_handler_test.go` (591
+lines). All line numbers below are current as of this read.
+
+### 2.1 Call chain (confirmed, all four sinks)
+
+```
+POST /api/system/permissions/repair
+  -> SystemPermissionsHandler.RepairPermissions   (line 85)
+       requireAdmin(c)                             (line 86)
+       h.cfg.SingleContainer check                 (line 91)
+       os.Geteuid() == 0 check                      (line 100)
+       bind permissionsRepairRequest{Paths []string} (line 109)
+       allowlist := h.allowlistRoots()              (line 116)
+       for each rawPath -> h.repairPath(rawPath, groupMode, allowlist)  (line 119)
+
+  -> SystemPermissionsHandler.repairPath            (line 127)
+       cleanPath, invalidCode := normalizePath(rawPath)          (line 128)
+       normalizedAllowlist := normalizeAllowlist(allowlist)      (line 138)
+       isWithinAllowlist(cleanPath, normalizedAllowlist)         (line 139)  <- existing containment check #1 (NOT a CodeQL-recognized sanitizer)
+       info, err := os.Lstat(cleanPath)                           (line 148)  <- SINK 1
+       info.Mode()&os.ModeSymlink != 0 (leaf symlink reject)      (line 166)
+       hasSymlinkComponent, symlinkErr := pathHasSymlink(cleanPath)   (line 175)  <- calls into SINK 4's function
+       resolved, err := filepath.EvalSymlinks(cleanPath)          (line 201)
+       isWithinAllowlist(resolved, normalizedAllowlist)           (line 211)  <- existing containment check #2 (post-resolution, also not recognized)
+       ... type check ...
+       os.Chown(cleanPath, uid, gid)                              (line 249)  <- SINK 2
+       ... parse mode ...
+       os.Chmod(cleanPath, parsedMode)                            (line 267)  <- SINK 3
+
+  -> pathHasSymlink(path string) (bool, error)      (lines 382-400)
+       clean := filepath.Clean(path)
+       parts := strings.Split(clean, sep)
+       current := sep  // "/"
+       for each part:
+         current = filepath.Join(current, part)
+         info, err := os.Lstat(current)   // <-- line 391, SINK 4
+         if symlink -> return true, nil
+       return false, nil
 ```
 
-The new `changelog.Service` will follow this exact shape: a private
-`currentVersion` field defaulted from `version.Version` in the constructor,
-with a `SetCurrentVersion(v string)` test seam. This is also the seam the
-`CHARON_CHANGELOG_VERSION` dev-override plugs into at wiring time in
-`routes.go` (not inside the service itself — see §3.3).
+**Key observation for sinks 1-3**: unlike sink 4 (in a different function,
+`pathHasSymlink`), sinks 1-3 are in `repairPath` itself, and `cleanPath`
+(the exact value each sink uses) is the *same* value `isWithinAllowlist`
+already validated at line 139, a few or dozens of lines earlier in the same
+function. CodeQL still flags them. This confirms the root cause is not
+"the check runs in the wrong function" (as it was framed for sink 4 in
+isolation) but that **`isWithinAllowlist`'s `filepath.Rel`-based idiom is
+never recognized as a sanitizer, in any function, at any distance from the
+sink**. The fix for all four sinks must therefore use the same
+recognized-idiom helper, placed inline immediately before each sink.
 
-### 2.2 `User` model
+### 2.2 Exact current logic of each function (verbatim behavior, for the fix to preserve)
 
-`backend/internal/models/user.go` — `User` struct fields end at
-`SessionVersion uint` (line 55) before the invite-system block. GORM
-auto-migrates on every boot via `db.AutoMigrate(...)` in
-`internal/api/routes/routes.go` (`RegisterWithDeps`, lines 100–143) — new
-struct fields become new columns automatically, no manual migration file
-needed, matching repo convention ("Migrations: When adding models, update
-`internal/models` AND `internal/api/routes/routes.go` (AutoMigrate)" — here
-`models.User` is already in the AutoMigrate list, so no routes.go change is
-needed for the migration itself, only for the new route registrations).
+**`normalizePath(rawPath string) (string, string)`** (line 341) — returns
+`("", "permissions_invalid_path")` for empty or non-absolute input, or if
+`filepath.Clean` collapses to `.`/`..`, or if `containsParentReference`
+finds a literal `..` segment; otherwise returns `(clean, "")`.
 
-### 2.3 `version.Version` sentinel
+**`containsParentReference(clean string) bool`** (line 358) — true if
+`clean == ".."`, starts with `../`, contains `/../`, or ends with `/..`.
 
-`backend/internal/version/version.go`:
+**`isWithinAllowlist(path string, allowlist []string) bool`** (line 402) —
+for each `root`, computes `filepath.Rel(root, path)`; treats `path` as
+contained if `rel == "."` or (`rel` doesn't start with `../` and `rel !=
+".."`). Returns `false` if no root matches. **Not being changed** — not a
+sink, CodeQL does not flag it, its two existing call sites (139, 211) keep
+their exact current behavior and error codes.
 
-```go
-var Version = "dev" // ldflags-injected at release build time
-```
+**`allowlistRoots() []string`** (line 304) — returns
+`[dataRoot, cfg.ConfigRoot, cfg.CaddyLogDir, cfg.CrowdSecLogDir]`.
+Admin-configured, not attacker-controlled.
 
-`.goreleaser.yaml` injects it via `-X .../version.Version={{.Version}}` in
-the `builds.linux.ldflags` block. Local `go run` and non-release Docker
-builds never set it, so it stays `"dev"` — this is the exact signal the
-design doc's "Unversioned/dev builds" edge case keys off.
+**`pathHasSymlink(path string) (bool, error)`** (line 382) — `filepath.Clean`s
+the input, splits on the OS separator, walks the path one component at a
+time from `/`, `Lstat`-ing every successive prefix. Returns `(true, nil)`
+the moment any prefix is a symlink; `(false, err)` if any `Lstat` fails
+(including not-exist); `(false, nil)` if the walk completes clean. TOCTOU-safe
+by design: re-verifies every component instead of trusting one resolved
+path.
 
-### 2.4 `internal/config` env-var convention
+**`repairPath`** (line 127) — orchestrates: normalize → allowlist check #1
+→ **Lstat (SINK 1)** → leaf-symlink reject → `pathHasSymlink` (which itself
+contains **SINK 4**) → `EvalSymlinks` → allowlist check #2 (on resolved
+path) → type check → ownership/mode comparison → **Chown (SINK 2)** →
+parse mode → **Chmod (SINK 3)**. Every branch returns a
+`permissionsRepairResult` with a stable `ErrorCode`.
 
-`backend/internal/config/config.go` uses `getEnvAny(fallback, keys...)`,
-e.g. `Environment: getEnvAny("development", "CHARON_ENV", "CPM_ENV")`.
-`CHARON_CHANGELOG_VERSION` will follow the same helper, read directly in
-`routes.go` at changelog-service construction time (not added to the
-`Config` struct — it's a narrow dev/test-only override, not a general
-runtime setting; keeping it out of `Config` avoids widening the struct for
-a one-off QA knob, consistent with how no other single-purpose test-only
-env var lives on `Config` today).
+### 2.3 Sink-by-sink detail
 
-### 2.5 Route registration conventions
+**Sink 1 — line 148, `os.Lstat(cleanPath)`.** Immediately follows the
+line-139 `isWithinAllowlist` block (closing brace at 146, blank line 147).
+`cleanPath` is unchanged since normalization. This is the handler's initial
+existence + leaf-symlink probe.
 
-`internal/api/routes/routes.go` `RegisterWithDeps`: all authenticated,
-non-admin-gated, non-passthrough-blocked routes that any logged-in user
-(admin or user role) should reach live directly under the `protected`
-group (e.g. `protected.GET("/user/profile", ...)`), **not** under
-`management` (which is blocked for passthrough users via
-`middleware.RequireManagementAccess()`, lines 332–334). The four changelog
-routes belong under `protected` for the same reason auth/profile routes
-do — passthrough users still get a session and could theoretically log in,
-though in practice they're redirected client-side to `/passthrough`; the
-backend route being reachable is still the correct default absent an
-explicit spec instruction to block passthrough (the design spec doesn't
-mention role-gating, consistent with "Non-Goals: per-role/permission
-filtered content").
+**Sink 2 — line 249, `os.Chown(cleanPath, uid, gid)`.** By this point
+`cleanPath` has passed: line-139 `isWithinAllowlist`, line-148 `Lstat` +
+leaf-symlink check (166), `pathHasSymlink` component walk (175),
+`EvalSymlinks` (201), and `isWithinAllowlist(resolved, ...)` (211,
+operating on the *resolved* path). Note `os.Chown` itself still operates on
+**`cleanPath`**, the pre-resolution path, not `resolved` — this is existing,
+unchanged behavior (chown-by-path rather than chown-by-fd); this plan does
+not alter that choice, only adds an inline containment guard on the exact
+value (`cleanPath`) that reaches the sink.
 
-### 2.6 GoReleaser / release workflow
+**Sink 3 — line 267, `os.Chmod(cleanPath, parsedMode)`.** Same function,
+same `cleanPath`, a few lines after `os.Chown` (which must have already
+succeeded to reach this line, since a `Chown` error returns early at
+250-256).
 
-`.github/workflows/release-goreleaser.yml` has **no separate "build" step**
-— the design doc says to insert "immediately before `goreleaser build`",
-but this repo's actual GoReleaser invocation is a single combined
-`release --clean` step (`Run GoReleaser`, lines 77–85) which builds *and*
-publishes in one action invocation. There is no earlier point at which
-`goreleaser build` runs standalone. **Concrete insertion point**: a new
-step named `Generate Changelog Data` inserted immediately before the
-`Run GoReleaser` step (after `Build Frontend` / `Install Cross-Compilation
-Tools`), so `backend/internal/changelog/data/changelog.json` is refreshed
-in the checkout **before** GoReleaser's embedded `go build` compiles it in.
-This satisfies the design doc's intent ("immediately before…build runs, so
-go:embed picks up the freshly generated file") even though the workflow's
-step name differs from the doc's phrasing.
+**Sink 4 — line 391, `os.Lstat(current)` inside `pathHasSymlink`.** As
+previously documented: `current` is a value built incrementally via
+`filepath.Join` inside a loop, not the `path` parameter directly, and the
+function is one call-frame away from `repairPath`'s containment checks.
 
-`.goreleaser.yaml` already has a `changelog:` section (lines ~74+) — this
-is GoReleaser's **own** built-in changelog generator, used to populate the
-**GitHub Release notes body** (a separate, pre-existing feature, unrelated
-to the in-app "What's New" modal). No conflict: `scripts/generate-changelog.sh`
-writes a different file (`backend/internal/changelog/data/changelog.json`)
-consumed by `go:embed`, while GoReleaser's `changelog:` block independently
-formats the GitHub Release description from the same git log. Both read
-the same conventional-commit history but serve different UIs. This plan
-does not touch the `.goreleaser.yaml` `changelog:` section.
+### 2.4 Why a single shared helper, invoked inline, fixes all four
 
-`VERSION.md` confirms the reason CI never commits generated data back to
-`main`: the tag-derived release process explicitly avoids CI pushing to
-`main` (§"CI Tag-based Releases (recommended)": "This avoids automatic
-commits to `main`"). This validates the design's "regenerate from git
-history on every build, never commit back" approach.
-
-### 2.7 Frontend conventions
-
-- **API client** (`frontend/src/api/notifications.ts`): plain async
-  functions wrapping the shared `client` from `./client.ts`
-  (`axios.create({ baseURL: '/api/v1', withCredentials: true, ... })`),
-  exported interfaces for response shapes, JSDoc on each exported function.
-- **Hook** (`frontend/src/hooks/useNotifications.ts` /
-  `useSecurityNotificationSettings`): `useQuery`/`useMutation` from
-  `@tanstack/react-query`, query keys as string arrays, `toast` from
-  `../utils/toast` for error/success feedback, `queryClient.invalidateQueries`
-  on mutation success.
-- **Settings page** (`frontend/src/pages/AppearanceSettings.tsx`): sections
-  wrapped in `<Card>/<CardHeader>/<CardTitle>/<CardDescription>/<CardContent>`
-  from `../components/ui/Card`, `useTranslation()` for all copy, mutations
-  via `useMutation` + `queryClient.invalidateQueries({ queryKey: ['settings'] })`.
-- **Layout/mount point** (`frontend/src/components/Layout.tsx`): renders
-  `<FeedbackWidget />` as a sibling at the end of the root `<div>` (line
-  416) — a standalone, self-fetching, post-auth-mounted widget with no
-  props. `WhatsNewModal` mounts the same way, one line below
-  `<FeedbackWidget />`.
-- **App shell** (`frontend/src/App.tsx`): `Layout` wraps `<Outlet />` only
-  for the authenticated `/` route tree (line 67–75), confirming
-  `Layout.tsx` — not `App.tsx` — is the correct mount point for a
-  post-auth-only component.
-
-### 2.8 Auth/user-object gap (discovered, not in the design doc's file list)
-
-The design doc's Settings section says the toggle is "bound to
-`!user.changelog_opt_out`" but the actual frontend `User` type consumed
-app-wide is narrower than the DB model:
-
-- `frontend/src/context/AuthContextValue.ts`:
-  `export interface User { user_id: number; role: ...; name?: string; email?: string; }`
-- `frontend/src/context/AuthContext.tsx` line 13:
-  `const response = await client.get<User>('/auth/me');` — the `/auth/me`
-  response is cast directly to this `User` type and stored as
-  `AuthContext`'s `user`.
-- Backend `AuthHandler.Me` (`backend/internal/api/handlers/auth_handler.go`,
-  lines 299–326) currently returns only
-  `{ user_id, role, name, email }` — no `changelog_opt_out`.
-
-**Consequence**: to satisfy the design doc's literal binding
-(`!user.changelog_opt_out`) via the existing app-wide `useAuth().user`
-object, `Me()` must also return `changelog_opt_out`, and `User` in
-`AuthContextValue.ts` must gain the field. This is a small, necessary
-extension of an existing endpoint (not a new design decision) — flagged
-here explicitly per the "Context First" rule so implementation doesn't
-silently invent a second, redundant fetch for one boolean. See §3.6 for
-the exact diff.
-
-### 2.9 User-creation call sites for `LastSeenVersion` seeding
-
-Three places construct a new `models.User{}` with `INSERT`-worthy defaults
-in `backend/internal/api/handlers/user_handler.go`:
-
-| Handler | Line | Design doc mentions it? |
-|---|---|---|
-| `Setup` (initial admin) | 121–190 (struct at 142) | Not explicitly, but "new user seeding" applies identically — see note below |
-| `CreateUser` (admin-created user) | 376–464 (struct at 413) | Yes — "admin-created user" |
-| `InviteUser` (creates row with `InviteStatus: "pending"`) | 484+ (struct at 531) | No — row created here, activated later |
-| `AcceptInvite` (activates the pending row) | 1144–1198 | Yes — "invite acceptance" |
-
-**Implementation decision** (flagged, not a scope change): seed
-`LastSeenVersion` at all three *effective* creation points —
-`Setup`, `CreateUser`, and `AcceptInvite` — not `InviteUser`. Rationale:
-`InviteUser`'s row is disabled/pending and the user has never logged in;
-seeding at `AcceptInvite` time (when the row transitions to `enabled: true`
-and the user is about to get a real session) is the correct point, exactly
-as the design doc says. `Setup` is included because it is, structurally,
-identical to "new user creation" (zero users existed before it ran) — the
-design doc's rationale for seeding ("new users never see historical
-entries on their first login") applies to the initial admin with equal
-force, and leaving it out would be an inconsistency: the first admin would
-fall into the "pre-existing user, empty string, treated as behind
-everything" bucket purely because their creation path predates the two the
-doc named, which reads as unintentional. This is called out explicitly for
-supervisor sign-off, not silently decided.
-
-### 2.10 `golang.org/x/mod/semver` availability
-
-`backend/go.sum` already lists `golang.org/x/mod v0.37.0` as a transitive
-dependency (via another module), confirmed via `grep`. It is not currently
-imported directly by any `.go` file in `backend/`. Adding
-`import "golang.org/x/mod/semver"` to the new `internal/changelog` package
-requires `go mod tidy` to promote it from indirect to direct in `go.mod`
-(a `go.sum`/`go.mod` diff, not a `go get` of a new module) — matches the
-design doc's "no new package added" claim.
-
-### 2.11 Playwright/E2E conventions
-
-- Config: `frontend/e2e/playwright.config.ts` — `testDir: './tests'`
-  resolves to the **project-root** `tests/` directory (not
-  `frontend/e2e/`), `baseURL` from `CHARON_BASE_URL` env var.
-- Structure: `tests/settings/*.spec.ts` (e.g. `account-settings.spec.ts`,
-  `user-lifecycle.spec.ts`) is the existing home for settings-adjacent
-  flows — `tests/settings/whats-new-changelog.spec.ts` is the natural new
-  file.
-- Auth: tests import `{ test, expect } from './fixtures/test'` and rely on
-  a pre-generated Playwright `storageState` (see `STORAGE_STATE` from
-  `./constants`, and `tests/fixtures/auth-fixtures.ts`) — no `test.fixme`
-  usage currently exists anywhere in the repo, so this feature introduces
-  the pattern (per CLAUDE.md's suggested commit sequence) for the first
-  time; keep the specs simple and self-contained so the pattern is easy to
-  copy for future features.
-- No `.spec.ts` files currently live in `frontend/e2e/` itself (only
-  `playwright.config.ts`); all specs live in the root `tests/` tree.
-
-### 2.12 `.gitignore` / `.dockerignore` / `codecov.yml` / `Dockerfile` review
-
-See §7 for full analysis. Summary: `.gitignore`, `codecov.yml`, and the
-`Dockerfile` need **no changes**. `.dockerignore` **does need a change** —
-its existing bare, unanchored `data/` pattern (line 96) matches a
-directory of that name at any depth (gitignore/dockerignore semantics),
-which silently strips `backend/internal/changelog/data/` — including the
-committed placeholder `changelog.json` — from every Docker build context
-before `COPY backend/ ./` runs, breaking `go:embed data/changelog.json`
-compilation in `docker-build.yml`, `e2e-tests-split.yml`, and any other
-workflow that builds this repo's `Dockerfile`. GoReleaser release builds
-are unaffected (they don't use this `Dockerfile`), which is why this
-wasn't caught by reasoning about the release path alone — it's a
-Docker-build-context problem, not a release-generation problem. Fixed via
-an explicit negation, added to Commit 2 (§6) alongside the rest of the
-embed scaffolding, with a real build-context verification step in that
-commit's validation gate (not just visual inspection of the negation
-pattern — BuildKit's negate-after-broad-exclude behavior is a known
-footgun and must be proven, not assumed).
+`isWithinAllowlistBounds` (below) uses `strings.HasPrefix`, a pattern
+CodeQL's Go security query pack recognizes as a path-injection sanitizer
+when it directly guards the sink's value via an `if` in the same function.
+Reusing one helper at all four call sites satisfies "one coherent
+sanitization approach applied consistently" while keeping the actual
+containment logic in exactly one place (DRY) — only the four thin `if
+!isWithinAllowlistBounds(...) { return ... }` guard statements are
+duplicated, which is a deliberate, minimal exception to DRY made because
+CodeQL's sanitizer recognition is sensitive to the guard appearing
+literally inline in the sink's own function; wrapping the guard itself in
+a further helper (e.g. a shared "check-and-build-error-result" function)
+would reintroduce the same cross-function indirection that caused
+`isWithinAllowlist` to go unrecognized in the first place, so that
+extra layer is deliberately avoided.
 
 ## 3. Technical Specifications
 
-### 3.1 Data Model
+### 3.1 Design
 
-`backend/internal/models/user.go` — insert after `SessionVersion uint`
-(line 55), before the `// Invite system fields` comment block:
-
-```go
-// Changelog / "What's New" tracking
-LastSeenVersion string `json:"last_seen_version" gorm:"default:''"`
-ChangelogOptOut bool   `json:"changelog_opt_out" gorm:"default:false"`
-```
-
-No new migration file — picked up by the existing `db.AutoMigrate(&models.User{}, ...)`
-call already in `routes.go` line 109.
-
-### 3.2 `backend/internal/changelog` package (new)
-
-**File: `backend/internal/changelog/changelog.go`**
+**Shared helper** (new, used by all four sinks):
 
 ```go
-// Package changelog provides build-time-generated "What's New" data,
-// embedded into the binary at compile time — no runtime file I/O or
-// network calls.
-package changelog
-
-import (
-    _ "embed"
-    "encoding/json"
-    "sort"
-
-    "golang.org/x/mod/semver"
-)
-
-//go:embed data/changelog.json
-var rawData []byte
-
-// Entry describes one released version's categorized, novice-friendly
-// changelog content.
-type Entry struct {
-    Version  string   `json:"version"`
-    Date     string   `json:"date"`
-    Features []string `json:"features"`
-    Fixes    []string `json:"fixes"`
-    Other    []string `json:"other"`
-}
-
-var allEntries []Entry // parsed once at package init
-
-func init() {
-    // Malformed/missing embedded data degrades to "no changelog" rather
-    // than panicking at boot — the placeholder `[]` always parses cleanly,
-    // and a bad CI-generated file should never crash the server.
-    _ = json.Unmarshal(rawData, &allEntries)
-}
-
-// Service resolves the "current version" used for since-comparisons via
-// an injectable seam, mirroring services.UpdateService.SetCurrentVersion.
-type Service struct {
-    currentVersion string
-}
-
-// NewService constructs a Service defaulted to the running build's
-// version.Version.
-func NewService(currentVersion string) *Service {
-    return &Service{currentVersion: currentVersion}
-}
-
-// SetCurrentVersion overrides the effective current version — used by
-// tests and by the CHARON_CHANGELOG_VERSION dev-only override wired in
-// routes.go.
-func (s *Service) SetCurrentVersion(v string) { s.currentVersion = v }
-
-// CurrentVersion returns the effective current version.
-func (s *Service) CurrentVersion() string { return s.currentVersion }
-
-// IsDevBuild reports whether the effective current version is the
-// unversioned "dev" sentinel (version.Version's default).
-func (s *Service) IsDevBuild() bool { return s.currentVersion == "dev" }
-
-// GetEntriesSince returns entries newer than lastSeen, newest-first.
-// Empty/invalid lastSeen is treated as "behind everything" (all entries
-// returned) per the design doc's pre-existing-user edge case.
-func (s *Service) GetEntriesSince(lastSeen string) []Entry {
-    var result []Entry
-    for _, e := range allEntries {
-        if lastSeen == "" || semver.Compare("v"+e.Version, "v"+lastSeen) > 0 {
-            result = append(result, e)
-        }
-    }
-    sortNewestFirst(result)
-    return result
-}
-
-// GetAllEntries returns the full changelog history, newest-first.
-func (s *Service) GetAllEntries() []Entry {
-    result := make([]Entry, len(allEntries))
-    copy(result, allEntries)
-    sortNewestFirst(result)
-    return result
-}
-
-func sortNewestFirst(entries []Entry) {
-    sort.Slice(entries, func(i, j int) bool {
-        return semver.Compare("v"+entries[i].Version, "v"+entries[j].Version) > 0
-    })
+// isWithinAllowlistBounds reports whether current is safe to pass to a
+// filesystem sink (Lstat/Chown/Chmod) at this point in the request flow:
+// either current is within (or equal to) one of allowlist's roots, or
+// current is an ancestor directory encountered while walking down from
+// "/" toward one (required by pathHasSymlink's component-by-component
+// walk, which necessarily passes through shorter prefixes before
+// reaching a configured root). Comparisons always anchor on the OS path
+// separator so "/foo" is never mistaken for a prefix of "/foobar".
+func isWithinAllowlistBounds(current string, allowlist []string) bool {
+	sep := string(os.PathSeparator)
+	if current == sep {
+		return true
+	}
+	for _, root := range allowlist {
+		if root == "" {
+			continue
+		}
+		if root == sep {
+			return true
+		}
+		if current == root {
+			return true
+		}
+		if strings.HasPrefix(current, root+sep) {
+			return true
+		}
+		if strings.HasPrefix(root, current+sep) {
+			return true
+		}
+	}
+	return false
 }
 ```
 
-**File: `backend/internal/changelog/data/changelog.json`** (new, committed
-placeholder):
+**Edge case fixed during review — `root == "/"`:** without the `if root ==
+sep { return true }` line above, an allowlist root that normalizes to
+exactly `/` breaks the prefix check: `root+sep` becomes `"//"`, and
+`strings.HasPrefix("/somefile", "//")` is `false` for any real
+single-leading-slash absolute path, so the helper would incorrectly return
+`false` for every `current` under a root of `/` — even though the existing
+`isWithinAllowlist` (line 139, `filepath.Rel`-based) correctly returns
+`true` for the same input (`filepath.Rel("/", "/somefile") == "somefile"`,
+no `../` prefix). A root of exactly `/` is reachable only through
+admin misconfiguration (e.g. `CHARON_CADDY_CONFIG_ROOT=/`, or a
+`CHARON_DB_PATH` such that `dataRoot := filepath.Dir(cfg.DatabasePath) ==
+"/"` — both are plain env-var inputs per `backend/internal/config/config.go`
+lines 103-104, not attacker-controlled request data, but a helper meant to
+be behaviorally equivalent to `isWithinAllowlist` must not silently
+diverge from it for any admin-reachable configuration). The dedicated
+`root == sep` check above mirrors the existing `current == sep` check and
+closes this gap; see §5.2 test #8 for its regression test. With this fix,
+the helper is a strict superset of `isWithinAllowlist`'s containment
+decisions for every root value reachable through configuration — the
+narrower "zero externally observable behavior change" claim in §1.2/§3.1
+holds for all admin-configurable inputs, not just the common case.
 
-```json
-[]
-```
+This one function is invoked at all four sink sites. Because
+`normalizePath`/`containsParentReference` already reject any `..` segment
+before `repairPath` calls any sink, and `isWithinAllowlist` (line 139) has
+already gated `cleanPath` against `normalizedAllowlist` by the time any of
+sinks 1-3 run, and containment-in-a-root trivially implies
+"within-or-ancestor-of a root" — **every one of the four new inline guards
+is structurally unreachable-as-a-rejector when invoked via `repairPath`'s
+real call path.** This mirrors the proof already established for sink 4 in
+the prior version of this plan, extended to sinks 1-3. Each guard's sole
+purpose is to give CodeQL a recognizable, in-function sanitizer directly on
+the value passed to its sink; each remains independently testable via
+direct unit tests of `isWithinAllowlistBounds` itself (§5).
 
-**File: `backend/internal/changelog/changelog_test.go`** (new, TDD red
-first) — table-driven cases per design doc §Testing:
-- `TestGetEntriesSince_ReturnsNewerOnly` — fixture with v1.0.0, v1.1.0,
-  v2.0.0; `lastSeen="1.0.0"` → returns v1.1.0, v2.0.0, newest-first.
-- `TestGetEntriesSince_EmptyLastSeen_ReturnsAll` — pre-existing-user case.
-- `TestGetEntriesSince_EqualVersion_ReturnsEmpty` — boundary: `lastSeen`
-  equal to newest entry → `[]`.
-- `TestGetAllEntries_ReturnsEverythingNewestFirst`.
-- `TestIsDevBuild_TrueForDevSentinel` / `_FalseForRealVersion`.
-- `TestNewService_DefaultsCurrentVersion`.
-- `TestSetCurrentVersion_Overrides`.
+**Note on this proof's dependency on the `root == sep` fix above:** the
+"structurally unreachable-as-a-rejector" claim holds only because
+`isWithinAllowlistBounds` is a strict superset of `isWithinAllowlist`'s
+containment decisions for every admin-reachable root value — i.e. it never
+returns `false` for a `current`/`root` pair that `isWithinAllowlist` would
+have accepted. Before the `root == sep` special case was added, that
+superset property did not hold for a root normalized to exactly `/`, which
+would have meant the sink-1/2/3 guards were *not* actually unreachable in
+that admin-misconfiguration case and the "zero externally observable
+behavior change" claim in §1.2 would not have been universally true. This
+was caught in review (see the callout under the code block above) and
+fixed; with the fix in place, the superset property — and therefore this
+unreachability proof — holds for all configuration inputs.
 
-Since `allEntries` is a package-level var parsed from the **real** embedded
-placeholder (`[]`) during `go test`, these tests must inject their own
-fixture data rather than relying on `data/changelog.json` — add an
-unexported test-only seam:
+### 3.2 Exact signature and logic changes
+
+**File**: `backend/internal/api/handlers/system_permissions_handler.go`
+
+#### New: sentinel error and shared helper
 
 ```go
-// setEntriesForTest replaces the package-level parsed data; test-only.
-func setEntriesForTest(t *testing.T, entries []Entry) {
-    t.Helper()
-    original := allEntries
-    allEntries = entries
-    t.Cleanup(func() { allEntries = original })
-}
-
-// NewDockerTimeoutError wraps the underlying context-deadline error together
-// with the timeout duration that was configured, so Details() can report it.
-func NewDockerTimeoutError(err error, timeout time.Duration) *DockerTimeoutError {
-    return &DockerTimeoutError{err: err, timeout: timeout}
-}
-
-func (e *DockerTimeoutError) Error() string {
-    if e == nil || e.err == nil {
-        return "docker request timed out"
-    }
-    return fmt.Sprintf("docker request timed out after %s: %v", e.timeout, e.err)
-}
-
-func (e *DockerTimeoutError) Unwrap() error {
-    if e == nil {
-        return nil
-    }
-    return e.err
-}
-
-// Details returns a user-facing, actionable message distinct from
-// buildLocalDockerUnavailableDetails' permissions-oriented guidance.
-func (e *DockerTimeoutError) Details() string {
-    if e == nil {
-        return ""
-    }
-    return fmt.Sprintf(
-        "Docker daemon is responding slowly (no response within %s). "+
-            "This can happen when the Docker socket is under heavy load from other "+
-            "tools or containers. Please try again.",
-        e.timeout,
-    )
-}
+var errPathEscapesAllowlist = errors.New("path escapes allowed roots during traversal")
 ```
 
-New import required: `"time"` (not currently imported in `docker_service.go` — confirmed by reading the file's import block, §2.1).
+(`errors` already imported.) Plus `isWithinAllowlistBounds` from §3.1,
+placed near `isWithinAllowlist` (e.g. immediately after it).
 
-### 3.3 `ListContainers` changes
+#### Sink 4 — `pathHasSymlink` (unchanged from prior plan version)
 
-`backend/internal/services/docker_service.go`, modify the block starting at (current) line 134:
+Before:
 
 ```go
-const defaultListContainersTimeout = 8 * time.Second   // package-level const, near top of file
-
-func (s *DockerService) ListContainers(ctx context.Context, host string) ([]DockerContainer, error) {
-    // ... unchanged initErr / cli-selection logic (lines 107-132) ...
-
-    timeout := s.listContainersTimeout
-    if timeout <= 0 {
-        timeout = defaultListContainersTimeout
-    }
-    listCtx, cancel := context.WithTimeout(ctx, timeout)
-    defer cancel()
-
-    containers, err := cli.ContainerList(listCtx, client.ContainerListOptions{All: false})
-    if err != nil {
-        if isBoundedListTimeout(ctx, err) {
-            return nil, NewDockerTimeoutError(err, timeout)
-        }
-        if isDockerConnectivityError(err) {
-            if host == "" || host == "local" {
-                return nil, NewDockerUnavailableError(err, buildLocalDockerUnavailableDetails(err, s.localHost))
-            }
-            return nil, NewDockerUnavailableError(err)
-        }
-        return nil, fmt.Errorf("failed to list containers: %w", err)
-    }
-    // ... unchanged container-mapping loop ...
-}
-
-// isBoundedListTimeout reports whether err represents Charon's own bounded
-// ContainerList timeout expiring — as opposed to the caller-supplied parent
-// context (ctx) being canceled/expired for an unrelated reason (e.g. an
-// upstream reverse-proxy giving up on the whole request). It relies on the
-// fact that context.WithTimeout's child context fails with
-// context.DeadlineExceeded when ITS OWN deadline elapses, while the parent
-// ctx remains healthy (ctx.Err() == nil) up to that point. See docs/plans
-// current_spec.md §2.3 for the full reasoning and the context.Canceled vs
-// context.DeadlineExceeded distinction this depends on.
-func isBoundedListTimeout(parent context.Context, listCtx context.Context, err error) bool {
-    if err == nil {
-        return false
-    }
-    // Prefer the child context's own recorded terminal state (listCtx.Err())
-    // over parsing it back out of err's wrapped chain: this is a
-    // dependency-independent source of truth that keeps working even if a
-    // future moby/moby/client upgrade changes how context errors are
-    // wrapped in the returned err (see DEP-003/RISK-001). errors.Is is kept
-    // as a defense-in-depth secondary signal.
-    return (errors.Is(listCtx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded)) && parent.Err() == nil
+func pathHasSymlink(path string) (bool, error) {
+	clean := filepath.Clean(path)
+	parts := strings.Split(clean, string(os.PathSeparator))
+	current := string(os.PathSeparator)
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil {
+			return false, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 ```
 
-**Supervisor-review amendment**: the signature now takes both `parent` (the caller's original `ctx`) and `listCtx` (the bounded child context) so the check can read `listCtx.Err()` directly instead of relying solely on parsing `context.DeadlineExceeded` back out of `err`'s wrapped chain via `errors.Is`. This was independently verified as correct against the actual pinned `github.com/moby/moby/client@v0.5.1` source (`request.go`'s `doRequest()` preserves context sentinel errors undecorated), but the extra `listCtx.Err()` check is a cheap, dependency-independent safety net against a future client-library upgrade silently changing that wrapping behavior. Update the call site in `ListContainers` accordingly: `isBoundedListTimeout(ctx, listCtx, err)`.
-
-New unexported struct field on `DockerService` (`backend/internal/services/docker_service.go`, in the type definition at lines 71-75):
+After:
 
 ```go
-type DockerService struct {
-    client                 *client.Client
-    initErr                error
-    localHost              string
-    listContainersTimeout  time.Duration // 0 = use defaultListContainersTimeout; overridable in tests
+// pathHasSymlink walks path component-by-component from the filesystem
+// root, Lstat-ing every successive prefix, to TOCTOU-safely detect a
+// symlink anywhere in the chain (not just at the leaf). allowlist is the
+// normalized set of admin-configured safe roots; it re-validates that
+// every prefix stays within (or is a legitimate ancestor of) one of those
+// roots immediately before each Lstat, so the value passed to the sink is
+// always guarded inline at the point of use.
+func pathHasSymlink(path string, allowlist []string) (bool, error) {
+	clean := filepath.Clean(path)
+	parts := strings.Split(clean, string(os.PathSeparator))
+	current := string(os.PathSeparator)
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		current = filepath.Join(current, part)
+		if !isWithinAllowlistBounds(current, allowlist) {
+			return false, fmt.Errorf("%w: %s", errPathEscapesAllowlist, current)
+		}
+		info, err := os.Lstat(current)
+		if err != nil {
+			return false, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 ```
 
-No constructor signature changes — `newDockerServiceFromLocalHost` and `NewDockerService` need no edits (zero-value `time.Duration` `0` naturally falls back to `defaultListContainersTimeout` via the `if timeout <= 0` guard above). Tests override the field directly via struct literal (same package), per the existing pattern (§2.5/§2.6).
-
-**Ordering rationale**: `isBoundedListTimeout` is checked *before* `isDockerConnectivityError` specifically because `isDockerConnectivityError` already matches on bare `context.DeadlineExceeded` (§2.2) — checking our specific case first prevents the new timeout from being silently swallowed into the existing (misleading, in this scenario) `DockerUnavailableError` / permissions-message path.
-
-### 3.4 Handler changes — `backend/internal/api/handlers/docker_handler.go`
-
-Add a branch for `*services.DockerTimeoutError` **before** the existing `*services.DockerUnavailableError` branch (lines 104-117), reusing HTTP `503` per the binding decision in §2.7:
+Call site, `repairPath` (was line 175):
 
 ```go
-containers, err := h.dockerService.ListContainers(c.Request.Context(), host)
-if err != nil {
-    var timeoutErr *services.DockerTimeoutError
-    if errors.As(err, &timeoutErr) {
-        log.WithFields(map[string]any{
-            "server_id": util.SanitizeForLog(serverID),
-            "host":      util.SanitizeForLog(host),
-            "error":     util.SanitizeForLog(err.Error()),
-        }).Warn("docker daemon responded slowly (bounded timeout fired)")
-        c.JSON(http.StatusServiceUnavailable, gin.H{
-            "error":   "Docker daemon is responding slowly",
-            "details": timeoutErr.Details(),
-        })
-        return
-    }
-
-    var unavailableErr *services.DockerUnavailableError
-    if errors.As(err, &unavailableErr) {
-        // ... unchanged ...
-    }
-
-    // ... unchanged generic 500 fallback ...
-}
+hasSymlinkComponent, symlinkErr := pathHasSymlink(cleanPath, normalizedAllowlist)
 ```
 
-**Response contract (new)**:
+`normalizedAllowlist` is already computed at line 138 — no new
+computation, just passing the existing local variable through. No change
+to `repairPath`'s error-mapping block (176-191): `errPathEscapesAllowlist`
+is not `os.IsNotExist`, falls through to the existing generic
+`permissions_repair_failed` branch, exactly like any other unexpected
+`pathHasSymlink` error today.
 
-| Field | Value |
-|---|---|
-| HTTP status | `503 Service Unavailable` (unchanged status family vs. existing `DockerUnavailableError` responses — intentional, see §2.7) |
-| `error` | `"Docker daemon is responding slowly"` (distinct string from existing `"Docker daemon unavailable"`, so logs/tests/clients can tell the two apart even though the HTTP status matches) |
-| `details` | `DockerTimeoutError.Details()` output, e.g. `"Docker daemon is responding slowly (no response within 8s). This can happen when the Docker socket is under heavy load from other tools or containers. Please try again."` |
+#### Sinks 1-3 — inline guards added directly in `repairPath`
 
-No new route, no new `dockerContainerLister` interface method — `errors.As` type-switches on the existing single `ListContainers` return value.
+`repairPath`'s signature is unchanged (`(rawPath string, groupMode bool,
+allowlist []string) permissionsRepairResult`) — `normalizedAllowlist` is
+already in scope at every point below, computed once at line 138.
 
-### 3.5 API contract summary (before/after)
+**Sink 1** — before:
 
-| Scenario | Before | After |
+```go
+	info, err := os.Lstat(cleanPath)
+```
+
+after:
+
+```go
+	if !isWithinAllowlistBounds(cleanPath, normalizedAllowlist) {
+		return permissionsRepairResult{
+			Path:      cleanPath,
+			Status:    "error",
+			ErrorCode: "permissions_outside_allowlist",
+			Message:   "path outside allowlist",
+		}
+	}
+
+	info, err := os.Lstat(cleanPath)
+```
+
+**Sink 2** — before:
+
+```go
+	if err := os.Chown(cleanPath, uid, gid); err != nil {
+```
+
+after:
+
+```go
+	if !isWithinAllowlistBounds(cleanPath, normalizedAllowlist) {
+		return permissionsRepairResult{
+			Path:      cleanPath,
+			Status:    "error",
+			ErrorCode: "permissions_outside_allowlist",
+			Message:   "path outside allowlist",
+		}
+	}
+
+	if err := os.Chown(cleanPath, uid, gid); err != nil {
+```
+
+**Sink 3** — before:
+
+```go
+	if err := os.Chmod(cleanPath, parsedMode); err != nil {
+```
+
+after:
+
+```go
+	if !isWithinAllowlistBounds(cleanPath, normalizedAllowlist) {
+		return permissionsRepairResult{
+			Path:      cleanPath,
+			Status:    "error",
+			ErrorCode: "permissions_outside_allowlist",
+			Message:   "path outside allowlist",
+		}
+	}
+
+	if err := os.Chmod(cleanPath, parsedMode); err != nil {
+```
+
+All three reuse the identical `permissionsRepairResult` literal already
+used at line 139-146 (`permissions_outside_allowlist` / "path outside
+allowlist") — no new error code introduced.
+
+### 3.3 Data flow (after fix)
+
+```mermaid
+sequenceDiagram
+    participant Client as Admin client
+    participant H as RepairPermissions
+    participant RP as repairPath
+    participant PHS as pathHasSymlink
+    participant FS as os.Lstat/Chown/Chmod (sinks)
+
+    Client->>H: POST /api/system/permissions/repair {paths}
+    H->>RP: repairPath(rawPath, groupMode, allowlist)
+    RP->>RP: normalizePath (reject empty/relative/"..")
+    RP->>RP: isWithinAllowlist(cleanPath) #1 (existing, unchanged)
+    RP->>RP: isWithinAllowlistBounds(cleanPath) [SINK 1 guard]
+    RP->>FS: os.Lstat(cleanPath)  [SINK 1]
+    RP->>PHS: pathHasSymlink(cleanPath, normalizedAllowlist)
+    loop each path component from "/"
+        PHS->>PHS: isWithinAllowlistBounds(current, allowlist) [SINK 4 guard]
+        PHS->>FS: os.Lstat(current)  [SINK 4]
+    end
+    PHS-->>RP: (hasSymlink, err)
+    RP->>RP: EvalSymlinks + isWithinAllowlist(resolved) #2 (existing, unchanged)
+    RP->>RP: isWithinAllowlistBounds(cleanPath) [SINK 2 guard]
+    RP->>FS: os.Chown(cleanPath, uid, gid)  [SINK 2]
+    RP->>RP: isWithinAllowlistBounds(cleanPath) [SINK 3 guard]
+    RP->>FS: os.Chmod(cleanPath, parsedMode)  [SINK 3]
+    RP->>Client: permissionsRepairResult
+```
+
+### 3.4 Error handling / edge cases (all preserved)
+
+| Case | Existing behavior | Behavior after fix |
 |---|---|---|
-| Daemon unreachable / permission denied | `503`, `{"error":"Docker daemon unavailable","details":"..."}` | unchanged |
-| Daemon reachable but slow (>8s to respond) | Hangs up to ~30s, then `500`, `{"error":"Failed to list containers"}` (generic, unhelpful; only reachable if request survives to completion — often the client sees a raw `502`/timeout from Caddy instead and never gets this body at all) | `503` within ~8s, `{"error":"Docker daemon is responding slowly","details":"Docker daemon is responding slowly (no response within 8s)...."}` |
-| Other API error (e.g. 500 from daemon) | `500`, `{"error":"Failed to list containers"}` | unchanged |
+| Relative or empty path | `permissions_invalid_path` (`normalizePath`, before any sink) | unchanged |
+| Path containing `..` | `permissions_invalid_path` | unchanged |
+| Path outside allowlist | `permissions_outside_allowlist` (caught at line 139, before sink 1) | unchanged — new sink-1/2/3 guards cannot fire here either, since line 139 already rejected it |
+| Leaf is a symlink | `permissions_symlink_rejected` (line-166 check, after sink 1) | unchanged |
+| Intermediate component is a symlink | `permissions_symlink_rejected` (inside `pathHasSymlink`, after sink-4 guard passes) | unchanged — new guard passes (current is within/ancestor-of an allowed root), `Lstat` still runs, symlink still detected |
+| Path does not exist (leaf) | `permissions_missing_path` (sink-1 `os.Lstat` before `pathHasSymlink`) | unchanged |
+| Path vanishes between sink-1 Lstat and the `pathHasSymlink` walk (TOCTOU) | `pathHasSymlink` returns `(false, *PathError)`; `os.IsNotExist` true → `permissions_missing_path` | unchanged |
+| Chown fails (permission/EROFS) | `ErrorCode` via `mapRepairErrorCode` (unchanged) | unchanged — new sink-2 guard cannot fire, runs before the existing Chown error handling |
+| Chmod fails | `ErrorCode` via `mapRepairErrorCode` (unchanged) | unchanged — new sink-3 guard cannot fire |
+| `pathHasSymlink` called directly (unit test) with a path outside the given allowlist | N/A (old signature took no allowlist) | new: returns `(false, error)` wrapping `errPathEscapesAllowlist`; distinguishable from a not-exist error via `errors.Is`, not `os.IsNotExist` |
+| Symlink inside allowlist pointing to a target outside the allowlist | Rejected at `pathHasSymlink` stage with `permissions_symlink_rejected`; `EvalSymlinks`/second `isWithinAllowlist` never reached | unchanged |
+| Prefix-confusion (`/data/allowed-evil` vs allowlist root `/data/allowed`) | Already rejected by `isWithinAllowlist`'s `filepath.Rel` logic at line 139/211 | unchanged in outcome; also correctly rejected if it somehow reached any of the new `isWithinAllowlistBounds` guards, since they anchor comparisons on `root+sep`/`current+sep` |
 
-### 3.6 Data flow diagram
+No new HTTP status codes, no new externally visible `error_code` values, no
+change to `permissionsRepairResult` JSON shape.
 
-```
-Frontend (ProxyHostForm.tsx)
-   │  useDocker(host) → React Query
-   ▼
-GET /api/v1/docker/containers?host=local
-   │
-   ▼
-DockerHandler.ListContainers (docker_handler.go:58)
-   │  c.Request.Context() ──────────────────┐  (parent ctx, canceled by Caddy
-   ▼                                        │   only if IT gives up first)
-DockerService.ListContainers (docker_service.go:107)
-   │  listCtx, cancel := context.WithTimeout(ctx, 8s)   [NEW]
-   ▼
-cli.ContainerList(listCtx, ...)
-   │
-   ├── succeeds within 8s ──────────────────────────► 200 OK, []DockerContainer
-   │
-   ├── listCtx expires first, parent ctx still alive ─► isBoundedListTimeout==true
-   │                                                     → DockerTimeoutError
-   │                                                     → 503 "responding slowly" [NEW PATH]
-   │
-   ├── real connectivity error (EACCES/ECONNREFUSED/ENOENT) ─► DockerUnavailableError
-   │                                                            → 503 "unavailable" (unchanged)
-   │
-   └── parent ctx canceled first (e.g. Caddy gave up)  ─► falls through, generic error
-                                                            → 500 (unchanged pre-existing
-                                                              behavior for this edge case —
-                                                              now effectively unreachable in
-                                                              the reported scenario, since
-                                                              8s << 30s guarantees our timeout
-                                                              wins the race)
-```
+## 4. Files Affected
 
-### 3.7 Error handling / edge cases
-
-| Edge case | Behavior |
+| File | Change |
 |---|---|
-| `s.listContainersTimeout` unset (zero value) | Falls back to `defaultListContainersTimeout` (8s) via `if timeout <= 0` guard — safe default for all existing production construction paths (`NewDockerService`, `newDockerServiceFromLocalHost`), which are not modified. |
-| Remote host (`host` param is a `tcp://...` URL, e.g. Orthrus-proxied or directly-configured remote server) | Same bounded timeout applies uniformly — `listCtx` wraps the single shared `cli.ContainerList` call regardless of local/remote branch, so remote daemons get the same fail-fast protection. Not explicitly requested by the bug report, but consistent and avoids leaving an identical unbounded-hang bug for remote hosts. |
-| Caller's own context already had a shorter deadline/cancellation than 8s (e.g. test harness, future caller) | `context.WithTimeout(ctx, timeout)` respects `min(parent deadline, now+timeout)` per Go stdlib semantics — no regression, `isBoundedListTimeout`'s `parent.Err() == nil` check correctly attributes the failure to the parent instead of misreporting a `DockerTimeoutError`. |
-| `initErr` already set at construction time (Docker never initialized) | Unaffected — that branch (lines 109-115) returns before the new timeout logic is ever reached. |
-| Container-mapping loop (post-`ContainerList` success) | Entirely unaffected — no changes below the `if err != nil` block. |
+| `backend/internal/api/handlers/system_permissions_handler.go` | New `isWithinAllowlistBounds` helper; new `errPathEscapesAllowlist` sentinel; `pathHasSymlink` signature change (+`allowlist []string`); three new inline guards in `repairPath` (before sinks 1/2/3); one call-site update in `repairPath` (sink 4) |
+| `backend/internal/api/handlers/system_permissions_handler_test.go` | Update 3 existing `pathHasSymlink(...)` call sites to pass an allowlist arg; add new tests for `isWithinAllowlistBounds` (including the `root == "/"` case, §5.2 #8) and integration-level coverage; correct the pre-existing `TestSystemPermissionsHandler_RepairPath_LstatInvalidArgument` test to genuinely exercise sink 1's `os.Lstat` error branch (see §5, §5.6) |
+| `docs/plans/current_spec.md` | This plan (revised in place) |
 
-## 4. Implementation Plan
+Confirmed **no changes needed** to:
+- `.gitignore` — already excludes `*.sarif`, `codeql-db*/`, `codeql-agent-results/` etc.; nothing new is produced by this fix.
+- `.dockerignore` — no new files, directories, or build artifacts introduced.
+- `codecov.yml` (repo uses this filename, not `.codecov.yml`) — no new package/path introduced; existing per-file coverage rules for `backend/internal/api/handlers/**` already apply.
+- `Dockerfile` — pure Go source change in an existing package; no new dependency, build step, or file.
+- `ARCHITECTURE.md` — no change to system architecture, tech stack, directory layout, deployment model, or integration points; internal hardening of an already-documented Path Traversal defense (ARCHITECTURE.md:707 lists Path Traversal under the WAF layer's detection categories — unrelated to this backend-only fix).
+- `internal/models` / `AutoMigrate` — no schema change.
+- Frontend (`frontend/**`) — no API contract change, so no client code, hooks, or Playwright specs are affected.
+- `backend/internal/api/handlers/auth_handler.go` — explicitly untouched; the unrelated `auth_handler.go:191` finding is out of scope (§1.3).
 
-### Phase 1: Playwright E2E Tests — **not applicable, justified explicitly**
+## 5. Test Plan
 
-No new or modified Playwright spec is required for this change:
+All tests live in
+`backend/internal/api/handlers/system_permissions_handler_test.go`.
 
-- The user-visible surface (the red "Docker Connection Failed" banner in `ProxyHostForm.tsx`) is unchanged — no new component, no new DOM structure, no new interaction. Per §2.7, it already renders whatever message string the backend sends.
-- The only thing that changes is *which message string* appears under a specific, hard-to-reproduce timing condition (Docker daemon slow to respond specifically between 8s and ~30s) that cannot be reliably or deterministically triggered against a real or lightly-mocked Docker daemon in a Playwright/browser E2E environment without introducing artificial delay infrastructure disproportionate to a "small, targeted" fix.
-- This condition **is** deterministically and cheaply reproducible at the Go unit-test level (§4.2, via an `httptest.Server` handler that blocks on request-context cancellation) — that is the correct test layer for this fix, per CLAUDE.md's general principle of testing behavior at the layer closest to where it's implemented.
-- Existing Docker-related regression coverage (none found under `tests/*.spec.ts` referencing Docker container selection specifically — confirmed via repo search) is unaffected; no existing spec asserts on the exact banner text.
-- **Definition of Done step 1 compliance**: run the full relevant Playwright suite (`npx playwright test --project=firefox`, scoped to `tests/core/proxy-hosts.spec.ts` and any suite touching `ProxyHostForm`) as a regression check before merge, expecting **no changes in outcome** — this validates the "no frontend change needed" claim empirically rather than only by static analysis. Include this run's pass/fail as part of Commit 4 validation (§5).
+### 5.1 Update existing tests (mechanical, no behavior change)
 
-### Phase 2: Backend Implementation
+`TestSystemPermissionsHandler_PathHasSymlink` (currently lines 180-203):
+update all three call sites to the new two-arg signature, passing
+`[]string{root}` (the test's own `t.TempDir()`) as the allowlist. Assertions
+unchanged:
+- `pathHasSymlink(plainPath, []string{root})` → `(false, nil)`
+- `pathHasSymlink(symlinkedPath, []string{root})` → `(true, nil)` (symlinked intermediate directory)
+- `pathHasSymlink(filepath.Join(root, "missing", "file.txt"), []string{root})` → error, `os.IsNotExist(err)` true
 
-**GOAL-001**: Add the bounded timeout, new error type, and handler branch, all covered by unit tests, without altering any existing behavior for the already-covered error paths.
+### 5.2 New unit tests for `isWithinAllowlistBounds` (shared by all 4 sinks)
 
-| Task | File | Description |
-|---|---|---|
-| TASK-001 | `backend/internal/services/docker_service.go` | Add `"time"` import; add `defaultListContainersTimeout` const; add `listContainersTimeout time.Duration` field to `DockerService` struct; add `DockerTimeoutError` type + `NewDockerTimeoutError` + `Error()`/`Unwrap()`/`Details()` (§3.2); add `isBoundedListTimeout` helper (§3.3); wrap `cli.ContainerList` call in `context.WithTimeout` and branch on `isBoundedListTimeout` before `isDockerConnectivityError` (§3.3). |
-| TASK-002 | `backend/internal/services/docker_service_test.go` | Add `TestDockerService_ListContainers_BoundedTimeoutFires` (or similarly named) using an `httptest.Server` handler that blocks on `<-r.Context().Done()`, a `DockerService` struct literal with `listContainersTimeout: 50 * time.Millisecond`, asserting `errors.As(err, &timeoutErr)` succeeds, `timeoutErr.Details()` contains the expected slow-daemon message, and the call returns well within the test's own timeout budget (e.g. assert wall-clock elapsed < 2s to prove no accidental fallback to the 8s default). Also add a companion test asserting the *default* timeout value is used when the field is left zero (e.g. `TestDockerService_ListContainers_DefaultTimeoutUsedWhenUnset`, can assert via a small helper/reflection-free approach — see §6 test list for the concrete minimal set). |
-| TASK-003 | `backend/internal/services/docker_service_test.go` | Add `TestIsBoundedListTimeout` table test covering: nil err → false; `context.DeadlineExceeded` with healthy parent → true; `context.DeadlineExceeded` with already-canceled parent (`parent.Err() != nil`) → false; unrelated error → false. Mirrors the existing `TestIsDockerConnectivityError` table-test style (§2.6 pattern). |
-| TASK-004 | `backend/internal/services/docker_service_test.go` | Add `TestDockerTimeoutError_ErrorMethods` mirroring `TestDockerUnavailableError_ErrorMethods` (nil receiver, nil wrapped err, `Error()`/`Unwrap()`/`Details()` content assertions). |
-| TASK-005 | `backend/internal/api/handlers/docker_handler.go` | Add the `*services.DockerTimeoutError` branch before the existing `*services.DockerUnavailableError` branch (§3.4), returning `503` with the new `error`/`details` message pair. |
-| TASK-006 | `backend/internal/api/handlers/docker_handler_test.go` | Add `TestDockerHandler_ListContainers_TimeoutMappedTo503` using the existing `fakeDockerService{err: services.NewDockerTimeoutError(...)}` pattern (mirrors `TestDockerHandler_ListContainers_DockerUnavailableMappedTo503`, lines 62-81), asserting status `503`, body contains `"Docker daemon is responding slowly"` and the `details` text, and — critically — that it is distinguishable from the existing `"Docker daemon unavailable"` assertion in the sibling test (i.e. assert `NotContains` "Docker daemon unavailable" in the new test, and vice versa, to lock in the distinguishability requirement as an executable test, not just documentation). |
+Add a new test function, e.g. `TestIsWithinAllowlistBounds`, covering the
+decision logic in full — this single table fully exercises the helper used
+at all four call sites, so it is not duplicated per sink:
 
-**Validation gate for Phase 2**: `cd backend && go build ./... && go test ./internal/services/... ./internal/api/handlers/... -run Docker -v`, plus `make lint-fast` (staticcheck, BLOCKING per CLAUDE.md), plus full `go test ./...` to confirm no regressions elsewhere.
+1. **Contained-in-root** — `current = /foo/bar`, `root = /foo` → `true`.
+2. **Exactly equal to root** — `current = /foo`, `root = /foo` → `true`.
+3. **Ancestor-of-root** — `current = /foo`, `root = /foo/bar/baz` → `true`
+   (proves the "current is a legitimate ancestor while walking toward
+   root" branch, exercised in practice by `pathHasSymlink`'s per-component
+   walk).
+4. **Universal ancestor** — `current = /` → `true` for any allowlist.
+5. **Prefix-confusion boundary** — `root = /foo`: `current = /foobar` →
+   `false`; `current = /foo/bar` → `true`; `current = /fo` → `false` (not a
+   real ancestor on a component boundary). Explicitly covers the
+   `/data/allowed` vs `/data/allowed-evil` class of bug.
+6. **No match** — `current` in a directory unrelated to any allowlist root
+   → `false`.
+7. **Empty/blank allowlist entries skipped** — an allowlist containing `""`
+   does not cause a false match.
+8. **Root normalized to exactly `/`** — `root = /`, `current = /somefile` →
+   `true`. Regression test for the review-caught edge case (§3.1 callout):
+   without the dedicated `root == sep` branch, `root+sep` becomes `"//"`
+   and `strings.HasPrefix("/somefile", "//")` is `false`, so this case
+   would incorrectly return `false` even though `isWithinAllowlist` (line
+   139) accepts it (`filepath.Rel("/", "/somefile") == "somefile"`, no
+   `../` prefix). Reachable only via admin misconfiguration
+   (`CHARON_CADDY_CONFIG_ROOT=/`, or a `CHARON_DB_PATH` whose directory is
+   `/`), not attacker input — but the helper must still match
+   `isWithinAllowlist`'s decision for it.
 
-### Phase 3: Frontend Implementation — **not applicable, justified explicitly**
+### 5.3 New unit tests for `pathHasSymlink`'s own guard (sink 4)
 
-Per §2.7's analysis: `useDocker.ts`'s existing `error.response?.status === 503` branch already extracts `details` generically for *any* 503 response body shaped `{error, details}`, and `ProxyHostForm.tsx` already renders `dockerError.message` generically. Because §2.7/§3.4 binds the handler design to reuse `503` (rather than introducing a new status code), no frontend file requires modification. **If a future reviewer prefers a distinct `504 Gateway Timeout` status for stronger HTTP semantic correctness, that is a valid alternative (§7, ALT-001) but is NOT this plan's chosen path specifically because it would force a frontend change this task's constraints ask to avoid** — flagged explicitly here so the tradeoff is visible to reviewers, not hidden.
+Reused from the prior plan version, `TestPathHasSymlink_AllowlistBounds` (or
+folded into `TestSystemPermissionsHandler_PathHasSymlink`):
 
-This keeps `go:embed` real (no build-tag test double for the embed itself)
-while making tests deterministic and independent of the placeholder's
-actual (empty) content — same spirit as `UpdateService.SetCurrentVersion`.
+1. **Path outside the given allowlist, no symlink involved** — a plain file
+   in a *different* `t.TempDir()` than the allowlist root. Expect
+   `pathHasSymlink(outsidePath, []string{otherRoot})` to return
+   `(false, err)` with `errors.Is(err, errPathEscapesAllowlist)` true, and
+   `os.IsNotExist(err)` false (proves the two error classes are
+   distinguishable, matching how `repairPath` branches on them).
+2. **Ancestor-of-root traversal does not falsely reject** — allowlist root
+   nested several levels deep (e.g. `t.TempDir()/a/b/c`), target file inside
+   it; confirm `pathHasSymlink` still walks and returns `(false, nil)`
+   correctly.
 
-### 3.3 API Routes
+This is the only one of the four sinks whose guard can be driven to its
+*reject* branch through a standalone, direct function call — because
+`pathHasSymlink` has no mandatory upstream gate when invoked outside
+`repairPath`. See §5.5 for why sinks 1-3 differ.
 
-All four routes are **read/write on the authenticated user's own row**,
-registered under `protected` (not `management`) in
-`internal/api/routes/routes.go`, immediately after the existing
-`protected.POST("/user/api-key", ...)` line (330):
+### 5.4 Integration-level regression coverage through `repairPath` (all 4 sinks, via existing + one new subtest)
+
+- `TestSystemPermissionsHandler_RepairPath_Branches` (existing table-style
+  test): all existing subtests (invalid path, missing path, symlink leaf,
+  symlink component, outside allowlist x2, unsupported type, already-correct)
+  continue to pass unmodified — `repairPath`'s external behavior is
+  identical; it now additionally routes through the sink-1/2/3 guards
+  internally.
+- `TestSystemPermissionsHandler_RepairPath_RepairedBranch` (existing,
+  exercises the full success path) — this test already drives execution
+  through sinks 2 and 3 (`Chown`/`Chmod`), so it exercises the *true*
+  (pass-through) branch of the two new guards there "for free," with zero
+  new test code required. Note this explicitly in the PR description so
+  reviewers don't expect new tests solely for that.
+- Add one new subtest to `TestSystemPermissionsHandler_RepairPath_Branches`,
+  e.g. `"symlink escaping allowlist rejected"`: create `outsideDir :=
+  t.TempDir()` distinct from `allowRoot`, a real file inside it, then
+  `link := filepath.Join(allowRoot, "escape-link")` symlinked to that
+  outside file. Call `h.repairPath(link, false, allowlist)` and assert
+  `Status == "error"`, `ErrorCode == "permissions_symlink_rejected"` —
+  confirms the component-wise symlink check (sink 4) still catches this
+  case before `EvalSymlinks`/allowlist-check-#2 would otherwise have to,
+  i.e. behavior identical to today.
+
+### 5.5 Known, accepted coverage gap: sinks 1-3's reject branches
+
+Unlike sink 4's guard (independently testable per §5.3, because
+`pathHasSymlink` can be invoked directly without going through
+`repairPath`'s sequential gates), the three new inline guards added
+directly inside `repairPath` (sinks 1, 2, 3) **cannot** be driven to their
+`false`/reject branch through any legitimate call to `h.repairPath(...)` or
+`POST /api/system/permissions/repair`. This is a direct consequence of the
+§3.1 proof: `isWithinAllowlist` (line 139) already gates `cleanPath`
+before any of sinks 1-3 run, and containment-in-a-root always implies
+"within-or-ancestor-of a root," so `isWithinAllowlistBounds` can never
+return `false` for a `cleanPath` that already passed line 139.
+
+Consequently:
+- The underlying decision logic (`isWithinAllowlistBounds`) is fully
+  branch-covered via §5.2's dedicated, standalone unit tests.
+- The specific `if` guard statements at sinks 1/2/3 inside `repairPath`
+  will show their `true` branch covered (via every existing `repairPath`
+  test) but their `false`/`return` branch as never executed, in
+  `go tool cover` output.
+- This is an accepted, intentional gap — the guard exists purely to give
+  CodeQL a recognizable inline sanitizer, not to add new real-world
+  validation (§3.1). `scripts/go-test-coverage.sh` enforces a single
+  **aggregate, repo-wide** line-coverage percentage (confirmed by reading
+  the script — `go tool cover -func` `total:` line vs `CHARON_MIN_COVERAGE`),
+  not a per-branch or per-file gate, so three small unreachable `return`
+  blocks (2-4 lines each) do not put the 85%+ gate at risk. See §10
+  (Risks) for the explicit mitigation if this assumption ever proves
+  wrong.
+
+### 5.6 Pre-existing test bug found in review: `TestSystemPermissionsHandler_RepairPath_LstatInvalidArgument`
+
+While drafting §5.7's regression list below, review found that this existing test
+(`system_permissions_handler_test.go`, currently lines 549-556) does not
+test what its name and the previous version of this plan claimed:
 
 ```go
-// Changelog / "What's New" — self-service, all authenticated roles
-changelogService := changelog.NewService(version.Version)
-if cfg.Environment != "production" {
-    if v := os.Getenv("CHARON_CHANGELOG_VERSION"); v != "" {
-        changelogService.SetCurrentVersion(v)
-    }
+func TestSystemPermissionsHandler_RepairPath_LstatInvalidArgument(t *testing.T) {
+	h := NewSystemPermissionsHandler(config.Config{}, nil, stubPermissionChecker{})
+	allowRoot := t.TempDir()
+
+	result := h.repairPath("/tmp/\x00invalid", false, []string{allowRoot})
+	require.Equal(t, "error", result.Status)
+	require.Equal(t, "permissions_outside_allowlist", result.ErrorCode)
 }
-changelogHandler := handlers.NewChangelogHandler(db, changelogService)
-protected.GET("/changelog/status", changelogHandler.Status)
-protected.GET("/changelog/all", changelogHandler.All)
-protected.POST("/changelog/ack", changelogHandler.Ack)
-protected.POST("/changelog/opt-in", changelogHandler.OptIn)
 ```
 
-(`"os"` and `"github.com/Wikid82/charon/backend/internal/changelog"` added
-to `routes.go` imports; `version` package also newly imported there.)
+**Confirmed independently against current source** (both files re-read for
+this plan revision): `allowRoot` is a distinct `t.TempDir()` — a sibling
+of, not an ancestor of, the hardcoded `/tmp/\x00invalid` literal — so the
+path is rejected by the line-139 `isWithinAllowlist` check and the test
+asserts `permissions_outside_allowlist`. It never reaches `os.Lstat`
+(line 148) at all, and the test's own assertion (`permissions_outside_allowlist`,
+not `permissions_repair_failed`) confirms this. Sink 1's actual
+`os.Lstat` non-`IsNotExist`-error → `permissions_repair_failed` branch
+(current lines 158-163) therefore has **no real test coverage today** —
+a pre-existing gap, unrelated to this PR's CodeQL fix but directly
+adjacent to the exact function (`repairPath`) and exact sink (`os.Lstat`,
+sink 1) this PR is already modifying.
 
-**File: `backend/internal/api/handlers/changelog_handler.go`** (new):
+**Remediation chosen: fix the test (option (a))**, rather than merely
+documenting the gap, because it was verified to be practically achievable
+in a portable way. `filepath.Clean` and `filepath.Rel` operate on paths as
+plain strings and pass a NUL byte through unchanged (confirmed by direct
+execution: `filepath.Clean("<tmpdir>/\x00invalid")` returns the string
+unmodified, and `filepath.Rel(<tmpdir>, <that path>)` returns
+`("\x00invalid", nil)` — a relative path with no `../` prefix, i.e. within
+the allowlist). `os.Lstat` on that same in-allowlist path fails at the
+syscall layer with `invalid argument` (`EINVAL`), which is a real,
+non-`IsNotExist` error — exactly the sink-1 branch this test is supposed
+to cover. This is standard Linux/Go path-string behavior (not
+platform-fragile like relying on filesystem-specific length limits or
+permission quirks), consistent with this project's Linux-only backend
+deployment target (§ARCHITECTURE.md; no Windows CI target for the Go
+backend), so it is treated as a reliable, portable fix for this codebase's
+actual test environment.
+
+**Corrected test:**
 
 ```go
-package handlers
+func TestSystemPermissionsHandler_RepairPath_LstatInvalidArgument(t *testing.T) {
+	h := NewSystemPermissionsHandler(config.Config{}, nil, stubPermissionChecker{})
+	allowRoot := t.TempDir()
+	invalidPath := filepath.Join(allowRoot, "\x00invalid")
 
-import (
-    "net/http"
-
-    "github.com/gin-gonic/gin"
-    "gorm.io/gorm"
-
-    "github.com/Wikid82/charon/backend/internal/changelog"
-    "github.com/Wikid82/charon/backend/internal/models"
-)
-
-type ChangelogHandler struct {
-    db  *gorm.DB
-    svc *changelog.Service
-}
-
-func NewChangelogHandler(db *gorm.DB, svc *changelog.Service) *ChangelogHandler {
-    return &ChangelogHandler{db: db, svc: svc}
-}
-
-// GET /api/v1/changelog/status
-func (h *ChangelogHandler) Status(c *gin.Context) {
-    if rejectPassthrough(c, "view the changelog") {
-        return
-    }
-    userID, ok := requireUserID(c) // shared helper, see note below
-    if !ok { return }
-
-    var user models.User
-    if err := h.db.First(&user, userID).Error; err != nil {
-        c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
-        return
-    }
-
-    if h.svc.IsDevBuild() || user.ChangelogOptOut {
-        c.JSON(http.StatusOK, gin.H{"show_changelog": false, "versions": []changelog.Entry{}})
-        return
-    }
-
-    entries := h.svc.GetEntriesSince(user.LastSeenVersion)
-    c.JSON(http.StatusOK, gin.H{
-        "show_changelog": len(entries) > 0,
-        "versions":       entries,
-    })
-}
-
-// GET /api/v1/changelog/all
-func (h *ChangelogHandler) All(c *gin.Context) {
-    if rejectPassthrough(c, "view the changelog") {
-        return
-    }
-    c.JSON(http.StatusOK, gin.H{"versions": h.svc.GetAllEntries()})
-}
-
-type AckRequest struct {
-    Action string `json:"action" binding:"required,oneof=dismiss_temporary dismiss_permanent"`
-    OptOut bool   `json:"opt_out"`
-}
-
-// POST /api/v1/changelog/ack
-func (h *ChangelogHandler) Ack(c *gin.Context) {
-    if rejectPassthrough(c, "update changelog preferences") {
-        return
-    }
-    userID, ok := requireUserID(c)
-    if !ok { return }
-
-    var req AckRequest
-    if err := c.ShouldBindJSON(&req); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
-    }
-
-    updates := map[string]any{}
-    if req.Action == "dismiss_permanent" {
-        updates["last_seen_version"] = h.svc.CurrentVersion()
-    }
-    if req.OptOut {
-        updates["changelog_opt_out"] = true
-    }
-    if len(updates) == 0 {
-        c.JSON(http.StatusOK, gin.H{"message": "No change"})
-        return
-    }
-    result := h.db.Model(&models.User{}).Where("id = ?", userID).Updates(updates)
-    if result.Error != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update changelog state"})
-        return
-    }
-    if result.RowsAffected == 0 {
-        c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
-        return
-    }
-    c.JSON(http.StatusOK, gin.H{"message": "Acknowledged"})
-}
-
-// POST /api/v1/changelog/opt-in
-func (h *ChangelogHandler) OptIn(c *gin.Context) {
-    if rejectPassthrough(c, "update changelog preferences") {
-        return
-    }
-    userID, ok := requireUserID(c)
-    if !ok { return }
-
-    result := h.db.Model(&models.User{}).Where("id = ?", userID).
-        Update("changelog_opt_out", false)
-    if result.Error != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to opt in"})
-        return
-    }
-    if result.RowsAffected == 0 {
-        c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
-        return
-    }
-    c.JSON(http.StatusOK, gin.H{"message": "Opted in"})
+	result := h.repairPath(invalidPath, false, []string{allowRoot})
+	require.Equal(t, "error", result.Status)
+	require.Equal(t, "permissions_repair_failed", result.ErrorCode)
 }
 ```
 
-**Passthrough guard (required, not optional)**: `rejectPassthrough(c *gin.Context, action string) bool`
-already exists in `backend/internal/api/handlers/user_handler.go` (lines
-202–210: `if c.GetString("role") == string(models.RolePassthrough) { ...403...; return true }`)
-and is already the established pattern for exactly this kind of
-self-service-but-not-for-passthrough route — it gates `GetProfile`,
-`UpdateProfile`, and `RegenerateAPIKey` today. Because
-`changelog_handler.go` lives in the same `handlers` package, it calls the
-unexported `rejectPassthrough` directly with no new export needed. All
-four `ChangelogHandler` methods call it first, before `requireUserID`,
-matching the order used by the existing call sites. `RolePassthrough`
-users have no legitimate reason to see or acknowledge the dashboard
-changelog (they're redirected client-side to `/passthrough` and never see
-`Layout.tsx` or `AppearanceSettings.tsx`), so this is a correctness fix,
-not a defense-in-depth nicety — without it, a passthrough user hitting the
-route directly would silently succeed against §2.5's originally-assumed
-"any authenticated role" default, which was wrong: the repo's actual
-convention for `protected`-group self-service routes is
-route-group-placement **plus** an in-handler passthrough check, not
-route-group-placement alone.
-
-`requireUserID` — check whether an equivalent shared helper already exists
-in `handlers` package (several handlers repeat the
-`c.Get("userID"); userID, ok := ...(uint)` pattern verbatim, e.g.
-`AuthHandler.Me` lines 300–310, `UserHandler.GetProfile` lines 243–247).
-**Backend-dev must grep for an existing helper before adding a new one**
-(DRY per CLAUDE.md) — if none exists, add
-`requireUserID(c *gin.Context) (uint, bool)` to a shared location (e.g.
-`handlers/helpers.go` if that file exists, else a new
-`handlers/auth_helpers.go`) and refactor the two existing call sites to use
-it as a drive-by cleanup, OR inline the existing pattern in
-`changelog_handler.go` without introducing a new helper if consolidating
-the other two call sites is judged out-of-scope for this PR — **flag this
-choice explicitly in the PR description**, don't silently pick one.
-
-**API Response Shapes** (matches design doc verbatim):
-
-| Route | Method | Request Body | Response |
-|---|---|---|---|
-| `/api/v1/changelog/status` | GET | — | `{ "show_changelog": bool, "versions": Entry[] }` |
-| `/api/v1/changelog/all` | GET | — | `{ "versions": Entry[] }` |
-| `/api/v1/changelog/ack` | POST | `{ "action": "dismiss_temporary"\|"dismiss_permanent", "opt_out": bool }` | `{ "message": string }` |
-| `/api/v1/changelog/opt-in` | POST | — | `{ "message": string }` |
-
-`Entry` JSON shape: `{ "version", "date", "features": string[], "fixes": string[], "other": string[] }`.
-
-### 3.4 `scripts/generate-changelog.sh` (new)
-
-Bash script, POSIX-ish, follows the style of existing scripts in
-`scripts/` (e.g. `scripts/check-version-match-tag.sh`,
-`scripts/go-test-coverage.sh` — backend-dev/devops to confirm shared
-conventions like `set -euo pipefail` and shellcheck compliance before
-writing, since `lefthook` likely runs shellcheck on `scripts/**` per
-existing CI hooks).
-
-**Logic** (per design doc §"Changelog Data Generation"):
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-OUTPUT="backend/internal/changelog/data/changelog.json"
-TAGS=$(git tag -l 'v*' --sort=v:refname)
-
-# Build a JSON array; jq for correctness (already a CI/dev dependency —
-# confirm via `command -v jq` and fail loudly if missing, matching the
-# "no external dependencies" ethos only for the *runtime binary*, not
-# build tooling, where jq/git are already assumed present in CI).
-
-json_entries="[]"
-prev_tag=""
-for tag in $TAGS; do
-  version="${tag#v}"
-  date=$(git log -1 --format=%ad --date=short "$tag")
-  range="${prev_tag:+$prev_tag..}$tag"
-
-  features="[]"; fixes="[]"; other="[]"
-  while IFS= read -r subject; do
-    [ -z "$subject" ] && continue
-    case "$subject" in
-      feat:*|feat\(*\):*) text="${subject#*:}"; features=$(jq --arg t "${text# }" '. + [$t]' <<<"$features") ;;
-      fix:*|fix\(*\):*)   text="${subject#*:}"; fixes=$(jq    --arg t "${text# }" '. + [$t]' <<<"$fixes") ;;
-      *)                  other=$(jq --arg t "$subject" '. + [$t]' <<<"$other") ;;
-    esac
-  done < <(git log "$range" --pretty=%s 2>/dev/null || true)
-
-  entry=$(jq -n --arg v "$version" --arg d "$date" \
-    --argjson f "$features" --argjson x "$fixes" --argjson o "$other" \
-    '{version:$v, date:$d, features:$f, fixes:$x, other:$o}')
-  json_entries=$(jq --argjson e "$entry" '. + [$e]' <<<"$json_entries")
-  prev_tag="$tag"
-done
-
-echo "$json_entries" | jq '.' > "$OUTPUT"
-echo "Generated $OUTPUT with $(echo "$json_entries" | jq 'length') version entries"
-```
-
-(Exact prefix-parsing regex/case patterns to be finalized by backend-dev
-against real repo history during implementation — must handle scoped
-conventional commits like `feat(dns):` per this repo's actual commit log,
-confirmed via `git log --oneline | head -50` showing scoped prefixes are
-in active use, e.g. this session's own recent commits include
-`fix(e2e): tolerate Firefox navigation-commit race...` — the case patterns
-above already account for `type(scope):` via the `feat\(*\):*` glob, must
-be validated with a unit-style shell test or a `--dry-run` manual check
-against `git tag -l 'v*'` in this repo before merge.)
-
-**Known gaps to resolve during Commit 2's real-history smoke test (flag
-now, don't let them surprise implementation):**
-
-- **Shellcheck SC2086**: the draft above has multiple unquoted expansions
-  — `for tag in $TAGS`, `<<<"$features"`, etc. — that will very likely
-  trip `SC2086` (unquoted variable, word-splitting/globbing risk), which
-  `lefthook`'s pre-commit shellcheck stage enforces on `scripts/**` per
-  CLAUDE.md's static-analysis gate. The final script must quote
-  consistently (`for tag in $TAGS` in particular needs either
-  `readarray -t tags <<< "$TAGS"` + `for tag in "${tags[@]}"`, or an
-  equivalent shellcheck-clean rewrite) — treat this as a known,
-  budgeted-for cleanup pass in Commit 2, not a late-discovered lint
-  failure.
-- **Breaking-change marker (`feat!:`/`fix!:`)**: the `case` patterns above
-  match `feat:`, `feat(scope):`, `fix:`, `fix(scope):` but not the
-  conventional-commits breaking-change shorthand `feat!:`/`fix!:`/
-  `feat(scope)!:` — those currently fall through to `other`, silently
-  demoting a breaking feature/fix to the collapsed "maintenance details"
-  section, which is arguably the opposite of the desired novice-user-
-  facing prominence. Backend-dev must check this repo's actual commit
-  history for any real use of the `!` marker during Commit 2's smoke test
-  (`git log --oneline --all | grep -E '(feat|fix)(\([^)]*\))?!:'`) and
-  either (a) extend the case patterns to treat `!`-marked commits as
-  `features`/`fixes` (accepting the categorization as-is, just widening
-  the match), or (b) explicitly document the gap as accepted if the
-  marker turns out to be unused in this repo's history — don't silently
-  ship whichever behavior the first draft happens to produce.
-
-**Workflow wiring** — `.github/workflows/release-goreleaser.yml`, insert
-new step between `Install Cross-Compilation Tools (Zig)` (ends line 72)
-and `Run GoReleaser` (starts line 77):
-
-```yaml
-      - name: Generate Changelog Data
-        run: bash scripts/generate-changelog.sh
-
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
-        ...
-```
-
-Requires `fetch-depth: 0` on `actions/checkout` (already set, line 34) so
-full tag/log history is available — no change needed there, just confirms
-the existing checkout step already supports this script.
-
-### 3.5 Config wiring (`CHARON_CHANGELOG_VERSION`)
-
-Not added to `config.Config` struct (see §2.4 rationale). Read directly
-where the changelog service is constructed in `routes.go` (§3.3), gated on
-`cfg.Environment != "production"` — reuses the existing `cfg.Environment`
-field already populated by `getEnvAny("development", "CHARON_ENV", "CPM_ENV")`.
-No changes to `backend/internal/config/config.go` itself.
-
-### 3.6 Frontend: API client, hook, and User-type extension
-
-**File: `frontend/src/api/changelog.ts`** (new):
-
-```typescript
-import client from './client';
-
-export interface ChangelogEntry {
-  version: string;
-  date: string;
-  features: string[];
-  fixes: string[];
-  other: string[];
-}
-
-export interface ChangelogStatus {
-  show_changelog: boolean;
-  versions: ChangelogEntry[];
-}
-
-export interface ChangelogAll {
-  versions: ChangelogEntry[];
-}
-
-export type ChangelogAckAction = 'dismiss_temporary' | 'dismiss_permanent';
-
-export interface ChangelogAckRequest {
-  action: ChangelogAckAction;
-  opt_out: boolean;
-}
-
-export const getChangelogStatus = async (): Promise<ChangelogStatus> => {
-  const response = await client.get<ChangelogStatus>('/changelog/status');
-  return response.data;
-};
-
-export const getChangelogAll = async (): Promise<ChangelogAll> => {
-  const response = await client.get<ChangelogAll>('/changelog/all');
-  return response.data;
-};
-
-export const ackChangelog = async (req: ChangelogAckRequest): Promise<void> => {
-  await client.post('/changelog/ack', req);
-};
-
-export const optInChangelog = async (): Promise<void> => {
-  await client.post('/changelog/opt-in');
-};
-```
-
-**File: `frontend/src/hooks/useChangelog.ts`** (new):
-
-```typescript
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-
-import {
-  ackChangelog, getChangelogAll, getChangelogStatus, optInChangelog,
-  type ChangelogAckRequest,
-} from '../api/changelog';
-import { toast } from '../utils/toast';
-
-export function useChangelogStatus() {
-  return useQuery({
-    queryKey: ['changelog-status'],
-    queryFn: getChangelogStatus,
-    // Fetched after layout render per design doc — staleTime keeps it
-    // from refetching aggressively on route changes within a session.
-    staleTime: 1000 * 60 * 5,
-  });
-}
-
-export function useChangelogAll(enabled: boolean) {
-  return useQuery({
-    queryKey: ['changelog-all'],
-    queryFn: getChangelogAll,
-    enabled, // only fetched when browse-mode modal is opened
-  });
-}
-
-export function useAckChangelog() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (req: ChangelogAckRequest) => ackChangelog(req),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['changelog-status'] });
-      queryClient.invalidateQueries({ queryKey: ['auth', 'me'] }); // opt_out lives on user
-    },
-    onError: () => toast.error('Failed to update changelog preferences'),
-  });
-}
-
-export function useOptInChangelog() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: optInChangelog,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['changelog-status'] });
-    },
-    onError: () => toast.error('Failed to re-enable update notifications'),
-  });
-}
-```
-
-Note: `AuthContext` does not use React Query for `/auth/me` (it's a
-`useState`/`useEffect`-driven context, see `AuthContext.tsx` lines 8–13,
-55–67) — there is no `['auth', 'me']` query key to invalidate today.
-**Frontend-dev must instead call `AuthContext`'s own refresh mechanism**
-(inspect `AuthContext.tsx` for an existing `refetchUser`/re-run-of-the-
-`/auth/me`-effect function; if none is exported, add one, since the
-Appearance Settings toggle needs the freshly-flipped `changelog_opt_out`
-to reflect immediately after `ack`/`opt-in` without a full page reload).
-This is a concrete gap the hook design above glosses over with a
-query-invalidation call that currently has no effect — flagged for
-frontend-dev to resolve during implementation, not silently shipped as
-dead code.
-
-**File: `frontend/src/context/AuthContextValue.ts`** — extend `User`:
-
-```typescript
-export interface User {
-  user_id: number;
-  role: 'admin' | 'user' | 'passthrough';
-  name?: string;
-  email?: string;
-  changelog_opt_out?: boolean; // added for "What's New" toggle
-}
-```
-
-**File: `backend/internal/api/handlers/auth_handler.go`** — `Me()`
-(lines 320–325), add `changelog_opt_out` to the response:
-
-```go
-c.JSON(http.StatusOK, gin.H{
-    "user_id":           userID,
-    "role":              role,
-    "name":              u.Name,
-    "email":             u.Email,
-    "changelog_opt_out": u.ChangelogOptOut,
-})
-```
-
-### 3.7 `WhatsNewModal.tsx`
-
-**File: `frontend/src/components/dialogs/WhatsNewModal.tsx`** (new).
-Check whether `frontend/src/components/dialogs/` already exists as a
-convention (grep for existing modal components — likely
-`frontend/src/components/` has a `Modal`/`Dialog` base component to reuse,
-e.g. check for existing confirm-dialog patterns used elsewhere in Settings
-pages before inventing new modal chrome).
-
-**Props**:
-
-```typescript
-interface WhatsNewModalProps {
-  mode: 'status' | 'browse'; // status = post-auth auto-check; browse = Settings revisit link
-  open: boolean;
-  onClose: () => void;
-}
-```
-
-**Behavior**:
-- `mode="status"`: uses `useChangelogStatus()`; renders nothing
-  (`return null`) until `data.show_changelog === true`; footer has
-  checkbox + "Remind Me Next Time" (`ack({action: 'dismiss_temporary', opt_out: checked})`)
-  + "Got It, Thanks" (`ack({action: 'dismiss_permanent', opt_out: checked})`)
-  + X/backdrop-click (same effect as "Remind Me Next Time").
-- `mode="browse"`: uses `useChangelogAll(open)`; no footer actions besides
-  a single "Close" button; no `ack` calls of any kind (voluntary revisit,
-  per design doc).
-- Content: one `<section>` per `ChangelogEntry`, newest-first (API already
-  returns newest-first per §3.2's `sortNewestFirst`, so no client
-  re-sorting needed). "✨ New Features" / "🐛 Fixes" expanded by default,
-  omitted entirely if the array is empty. "🔧 Other" behind a
-  `<details>`/disclosure collapsed by default, labeled "Show maintenance
-  details".
-- Non-blocking fetch: mounted unconditionally in `Layout.tsx` in
-  `mode="status"`; the component's own `useChangelogStatus()` query runs
-  after Layout's initial render (React Query fires on mount, which is
-  already after first paint) — no additional delay/gating logic needed
-  beyond normal component mount order; on fetch error
-  (`useChangelogStatus().isError`), render `null`.
-
-### 3.8 `AppearanceSettings.tsx` changes
-
-Insert a new `<Card>` section (matching the existing five-section
-pattern in the file) after the "Banner Customization Section" (ends line
-235), before the closing `</div>` (line 236):
-
-```tsx
-{/* What's New Notifications Section */}
-<Card>
-  <CardHeader>
-    <div className="flex items-center gap-2">
-      <Bell className="h-5 w-5 text-content-secondary" />
-      <CardTitle>{t('appearance.whatsNew')}</CardTitle>
-    </div>
-    <CardDescription>{t('appearance.whatsNewDescription')}</CardDescription>
-  </CardHeader>
-  <CardContent className="flex items-center justify-between">
-    <label className="flex items-center gap-3">
-      <input
-        type="checkbox"
-        checked={!user?.changelog_opt_out}
-        onChange={(e) => {
-          if (e.target.checked) {
-            optInMutation.mutate();
-          } else {
-            ackMutation.mutate({ action: 'dismiss_temporary', opt_out: true });
-          }
-        }}
-      />
-      {t('appearance.showWhatsNewToggle')}
-    </label>
-    <Button variant="secondary" onClick={() => setBrowseModalOpen(true)}>
-      {t('appearance.whatsNewRevisit')}
-    </Button>
-  </CardContent>
-</Card>
-
-<WhatsNewModal mode="browse" open={browseModalOpen} onClose={() => setBrowseModalOpen(false)} />
-```
-
-Requires: `import { Bell } from 'lucide-react'` added to existing
-lucide import; `const { user } = useAuth()` added (not currently imported
-in this file — confirm no naming collision with existing locals);
-`useAckChangelog`/`useOptInChangelog` hooks imported; local
-`const [browseModalOpen, setBrowseModalOpen] = useState(false)`.
-
-### 3.9 Layout mount point
-
-`frontend/src/components/Layout.tsx`, after `<FeedbackWidget />` (line
-416), before the closing `</div>` (line 417):
-
-```tsx
-<WhatsNewModal mode="status" open={statusModalOpen} onClose={handleStatusModalClose} />
-```
-
-Where `statusModalOpen` is derived from `useChangelogStatus().data?.show_changelog`
-inside `WhatsNewModal` itself in `status` mode (the modal owns its own
-visibility in status mode per §3.7 — `open`/`onClose` props are primarily
-for `browse` mode's externally-controlled visibility; status mode can
-either (a) always render `<WhatsNewModal mode="status" />` with no
-`open`/`onClose` needed since it self-gates on `show_changelog`, or (b)
-take an `open` prop that's ignored in status mode. **Frontend-dev
-decision point**: prefer (a) — simplify the props so `open`/`onClose` are
-`browse`-mode-only (required together), and `status` mode takes no props
-besides `mode` and manages its own dismiss-triggered refetch internally
-via the `ack` mutation's `onSuccess` invalidation. Document the final prop
-contract in the component's JSDoc.
-
-### 3.10 Data Flow Diagram
-
-```
-┌─────────────┐   GET /changelog/status   ┌──────────────────┐   SELECT user   ┌──────────┐
-│ Layout.tsx   │ ────────────────────────▶│ ChangelogHandler  │ ───────────────▶│  SQLite  │
-│ (post-auth)  │                           │ .Status()         │                 │  users   │
-└─────────────┘                           └──────────────────┘                 └──────────┘
-      │                                            │
-      │ show_changelog=true                        │ changelog.Service
-      ▼                                             │ .GetEntriesSince(user.LastSeenVersion)
-┌─────────────┐                                     ▼
-│ WhatsNewModal│                          ┌──────────────────────┐
-│ (renders)    │                          │ embedded changelog.json│ (go:embed, parsed at init)
-└─────────────┘                          └──────────────────────┘
-      │
-      │ user clicks "Got It, Thanks" (checkbox unchecked)
-      ▼
-POST /changelog/ack {action: dismiss_permanent, opt_out: false}
-      │
-      ▼
-UPDATE users SET last_seen_version = <current running version> WHERE id = ?
-```
-
-### 3.11 Error Handling
-
-| Failure | Behavior |
+The only change is constructing `invalidPath` *inside* `allowRoot` instead
+of using a hardcoded `/tmp/...` literal outside it, so the path clears the
+line-139 allowlist check and genuinely reaches `os.Lstat`. This is a
+pre-existing test-only bug fix bundled into this PR (not a new behavior
+change to production code) — per CLAUDE.md's one-feature-one-PR rule it
+stays in this same PR rather than spinning off a separate one; it is
+scoped into **Commit 3** (§7) alongside this PR's other new coverage,
+since it directly concerns sink 1, the exact code this PR is hardening.
+
+### 5.7 Regression coverage (must still pass unmodified)
+
+- `TestSystemPermissionsHandler_HelperFunctions` (`isWithinAllowlist`
+  subtest) — unchanged function, unchanged assertions.
+- `TestSystemPermissionsHandler_RepairPermissions_Success` / `_NonRoot` /
+  `_NonAdmin` / `_DisabledWhenNotSingleContainer` / `_InvalidJSON*` —
+  untouched code paths.
+- `TestSystemPermissionsHandler_IsWithinAllowlist_RelErrorBranch` /
+  `_AllRelErrorsReturnFalse` — `isWithinAllowlist` untouched.
+
+Note: `TestSystemPermissionsHandler_RepairPath_LstatInvalidArgument` is
+**excluded** from this "must still pass unmodified" list — per §5.6, its
+input and assertion are being corrected as part of this PR, not left
+unmodified.
+
+### 5.8 Coverage target
+
+New/changed lines (`isWithinAllowlistBounds`, `errPathEscapesAllowlist`,
+the sink-4 inline guard branch inside `pathHasSymlink`, and the `true`
+branch of the sink-1/2/3 guards) must be fully covered by §5.2-§5.4's
+tests — verify via `scripts/go-test-coverage.sh` (or the
+`test-backend-coverage` skill), minimum per `CHARON_MIN_COVERAGE`
+(85% per CLAUDE.md; script default 87% — whichever is in effect). The
+corrected `TestSystemPermissionsHandler_RepairPath_LstatInvalidArgument`
+(§5.6) additionally gives sink 1's non-`IsNotExist`-error branch its
+first real coverage.
+
+## 6. Implementation Plan
+
+Given this is a targeted backend security-hardening fix with **zero**
+change to external behavior, the standard 5-phase outline is adapted:
+
+- **Phase 1 — Tests first (TDD red, where practical)**: `isWithinAllowlistBounds`
+  is new, pure, and has no upstream dependency — write its full §5.2 test
+  table against a not-yet-existing function first (red), then implement it
+  (green). The `pathHasSymlink` signature change is not independently
+  TDD-able in the classic sense (Go won't compile with a signature
+  mismatch across production and test code in the same package), so its
+  call-site updates land together with the production change, consistent
+  with the prior version of this plan.
+- **Phase 2 — Backend implementation**: Apply the exact changes in §3.2 to
+  `system_permissions_handler.go` (all four sinks).
+- **Phase 3 — Frontend implementation**: N/A — no frontend change.
+- **Phase 4 — Integration and testing**: Run the full validation gate list
+  (§8), including a fresh CodeQL Go scan confirming all four original
+  findings are gone.
+- **Phase 5 — Documentation and deployment**: No user-facing docs change
+  (`docs/features.md` unaffected). Commit message per §7.
+
+## 7. Commit Slicing Strategy
+
+**Decision**: Single PR, three ordered commits (per CLAUDE.md: one feature
+= one PR; slice commits, not PRs). This sequencing follows CLAUDE.md's
+suggested pattern (foundation → backend → hardening), adapted for a
+CodeQL-dataflow-shaped fix where classic TDD-red-then-green isn't fully
+achievable across a Go package-scoped signature change (see §6, Phase 1).
+
+### Commit 1 — Foundation: shared allowlist-bounds helper, no behavior change
+
+- **Scope**: Add `isWithinAllowlistBounds` (§3.1) and its dedicated unit
+  test suite (§5.2). The helper is not yet called from any production code
+  path — it is used only by its own tests, so it is not dead code (Go's
+  compiler does not flag unused top-level functions, and staticcheck's
+  `U1000`/unused-code check treats a function referenced from same-package
+  test files as used). No existing behavior changes.
+- **Files**:
+  - `backend/internal/api/handlers/system_permissions_handler.go` (add helper only)
+  - `backend/internal/api/handlers/system_permissions_handler_test.go` (add `TestIsWithinAllowlistBounds`, §5.2)
+- **Dependencies**: None.
+- **Validation gate**: `cd backend && go build ./...`; `go test ./internal/api/handlers/... -run TestIsWithinAllowlistBounds` passes with full branch coverage of the new function; `make lint-fast` (staticcheck, including unused-code check) clean.
+
+### Commit 2 — Apply the helper at all 4 sink call sites
+
+- **Scope**: `pathHasSymlink` signature change (+`allowlist []string`,
+  new `errPathEscapesAllowlist` sentinel, inline sink-4 guard) and its
+  call-site update in `repairPath`; three new inline guards in `repairPath`
+  immediately before sinks 1, 2, and 3 (§3.2). Mechanical update of the 3
+  existing `pathHasSymlink(...)` call sites in the test file to the new
+  signature (§5.1) — no new assertions, required for the package to
+  compile.
+- **Files**:
+  - `backend/internal/api/handlers/system_permissions_handler.go`
+  - `backend/internal/api/handlers/system_permissions_handler_test.go` (call-site signature updates only, §5.1)
+- **Dependencies**: Commit 1 (`isWithinAllowlistBounds` must already exist).
+- **Validation gate**: `cd backend && go build ./...`; full existing suite `go test ./internal/api/handlers/...` passes unmodified in its assertions (proves zero behavior regression — notably `TestSystemPermissionsHandler_RepairPath_Branches` and `TestSystemPermissionsHandler_RepairPath_RepairedBranch`, which exercise sinks 1/2/3's guards' true branch "for free," per §5.4); `make lint-fast` clean.
+
+### Commit 3 — Hardening: new coverage + fresh CodeQL verification
+
+- **Scope**: New test cases from §5.3 (`pathHasSymlink`'s own
+  outside-allowlist/ancestor-of-root cases) and §5.4 (new
+  "symlink escaping allowlist rejected" subtest). Also bundles the §5.6
+  correction to the pre-existing `TestSystemPermissionsHandler_RepairPath_LstatInvalidArgument`
+  test (constructing its invalid path inside the allowlist root so it
+  genuinely reaches `os.Lstat`, instead of being rejected earlier by the
+  allowlist check) — a small pre-existing test-only bug fix directly
+  adjacent to sink 1, bundled into this commit rather than split into a
+  separate PR (CLAUDE.md one-feature-one-PR rule). Run the full validation
+  gate list (§8), including a fresh local CodeQL Go scan, and confirm all
+  four originally-found `go/path-injection` results are gone.
+- **Files**:
+  - `backend/internal/api/handlers/system_permissions_handler_test.go`
+- **Dependencies**: Commit 2 (needs the new signatures/symbols to exist and be wired to all sinks).
+- **Validation gate**: `go test ./internal/api/handlers/...` full pass; `scripts/go-test-coverage.sh` (or `test-backend-coverage` skill) ≥ 85%; fresh `lefthook run codeql` (or `security-scan-codeql` skill) — zero of the 4 originally-found `go/path-injection` results remain for this file, zero new high/critical findings introduced, `auth_handler.go:191` unchanged (file untouched).
+
+### Rollback / contingency
+
+- All three commits touch only one production file and its test file; a
+  `git revert` of any commit (in reverse order) is clean and independent
+  of any other in-flight work (no shared migration, no API version bump,
+  no frontend coupling).
+- If CodeQL's Go query still flags one or more of the four sinks after
+  Commit 2 (e.g. the `strings.HasPrefix` pattern needs a slightly
+  different shape to match the query's exact recognized idiom, or a
+  helper-function indirection is itself unrecognized for one particular
+  call site), the contingency is to inline the `HasPrefix` comparisons
+  directly in the affected function's guard body rather than calling
+  `isWithinAllowlistBounds`, on a per-sink basis if needed — this stays
+  within Commit 2's scope (or a small follow-up within the same PR before
+  merge), no new commit slot required, and does not change external
+  behavior guarantees.
+- If `scripts/go-test-coverage.sh`'s aggregate gate is ever found to be
+  per-branch rather than per-repo-total (contradicting the reading in
+  §5.5), the contingency is to extract each sink's guard construction into
+  a small, directly-callable, same-file helper that can be unit-tested
+  standalone with a deliberately mismatched allowlist — mirroring how
+  sink 4's guard achieves testability — accepting the CodeQL-recognition
+  risk noted above as a secondary contingency if that extraction breaks
+  recognition for those specific call sites.
+
+## 8. Validation Gates (run in this order before considering the fix done)
+
+1. `cd backend && go build ./...`
+2. `cd backend && go test ./...`
+3. `make lint-fast` or `make lint-staticcheck-only` (staticcheck — BLOCKING per CLAUDE.md)
+4. `bash scripts/go-test-coverage.sh` (or `test-backend-coverage` skill) — minimum 85% (`CHARON_MIN_COVERAGE`)
+5. `lefthook run codeql` (or `security-scan-codeql` skill) — confirm **all four** originally-found `go/path-injection` results (lines 148, 249, 267, 391 of `system_permissions_handler.go`) no longer appear; zero new high/critical findings introduced anywhere else. The separate `auth_handler.go:191` finding is explicitly out of scope: confirm it is unchanged (not fixed, not worsened) since `auth_handler.go` is not touched by this PR.
+6. `bash scripts/local-patch-report.sh` — produces `test-results/local-patch-report.md` / `.json` (MANDATORY per CLAUDE.md Definition of Done).
+7. `lefthook run pre-commit` — full pre-commit hook suite. GORM security scan (§1.5 of the DoD) is correctly skipped — this change touches no `internal/models/**` or GORM query.
+8. Frontend/E2E gates (`npx playwright test`, `npm run type-check`, `npm run build` under `frontend/`) are **out of scope** — no frontend files, API contracts, or user-visible flows change. Explicitly note this in the PR description so reviewers don't expect Playwright output.
+
+## 9. Acceptance Criteria
+
+- [ ] CodeQL Go scan no longer reports **any** of the four originally-found `go/path-injection` results in `system_permissions_handler.go` (lines 148, 249, 267, 391 pre-edit) — verified via `lefthook run codeql` / `security-scan-codeql` skill with a clean SARIF for this file.
+- [ ] `pathHasSymlink` takes `(path string, allowlist []string)` and every call site (production + tests) is updated.
+- [ ] `isWithinAllowlistBounds` exists once, is used at all four sink sites, and has its own full-coverage unit test suite (§5.2).
+- [ ] Three new inline guards exist in `repairPath`, immediately before `os.Lstat` (sink 1), `os.Chown` (sink 2), and `os.Chmod` (sink 3), each using `cleanPath` and `normalizedAllowlist`.
+- [ ] All pre-existing tests in `system_permissions_handler_test.go` pass unmodified in their assertions, with one deliberate, documented exception: `TestSystemPermissionsHandler_RepairPath_LstatInvalidArgument`, corrected per §5.6 to genuinely exercise sink 1's `os.Lstat` error branch (for all other pre-existing tests, only `pathHasSymlink` call-site arity changes, per §5.1).
+- [ ] New tests from §5.2-§5.4 pass and cover: the full `isWithinAllowlistBounds` decision table (contained/equal/ancestor/prefix-confusion/no-match/blank-entry/`root == "/"`), `pathHasSymlink`'s own outside-allowlist rejection and ancestor-of-root traversal, and symlink-inside-allowlist-pointing-outside-target rejection through `repairPath`.
+- [ ] `isWithinAllowlistBounds` correctly returns `true` for a `root` normalized to exactly `/` (§3.1, §5.2 #8) — the helper never diverges from `isWithinAllowlist`'s containment decision for any admin-configurable root value.
+- [ ] The corrected `TestSystemPermissionsHandler_RepairPath_LstatInvalidArgument` (§5.6) asserts `ErrorCode == "permissions_repair_failed"` (not `permissions_outside_allowlist`) and genuinely reaches `os.Lstat` before failing.
+- [ ] No change to any `permissionsRepairResult` JSON field, HTTP status code, or `error_code` value observable from `POST /api/system/permissions/repair` or `GET /api/system/permissions`.
+- [ ] `go build ./...`, `go test ./...`, `make lint-fast`, `scripts/go-test-coverage.sh` (≥85%), and `scripts/local-patch-report.sh` all pass with zero errors (§8).
+- [ ] `.gitignore`, `codecov.yml`, `.dockerignore`, `Dockerfile`, `ARCHITECTURE.md` confirmed to need no changes (§4).
+- [ ] `backend/internal/api/handlers/auth_handler.go` is not modified; its pre-existing `auth_handler.go:191` finding is unaffected.
+- [ ] Commit message uses `fix(security): <vague, category-level subject>` — see note below. Must describe only the general category of hardening (input/path validation in an administrative handler) and must **not** name any function (`pathHasSymlink`, `isWithinAllowlistBounds`), the query ID (`go/path-injection`), CWE numbers, exact sink lines, or attack-vector detail, since the changelog surfaces commit subjects verbatim to every self-hosted user, including un-upgraded/still-vulnerable instances. Suggested subject: `fix(security): strengthen file path safety checks in system administration handler`. Because this PR now spans four call sites/checks rather than one, the subject should stay general enough to cover that (e.g. avoid "the symlink check" — prefer "file path safety checks," plural/general). Avoid naming "permissions repair," "chown," "chmod," "symlink," or "allowlist" in the subject line — keep specifics to the PR body/commit body only, which is not surfaced in the changelog.
+
+## 10. Risks & Mitigations
+
+| Risk | Mitigation |
 |---|---|
-| `/changelog/status` fetch fails (network/5xx) | React Query `isError`; modal renders `null`; no toast (non-blocking per design doc — a failed background check should not interrupt the user) |
-| `/changelog/ack` fails | `toast.error(...)`; modal stays open so the user can retry (do not optimistically close on mutate) |
-| `changelog.json` malformed at embed time | `json.Unmarshal` error swallowed in `init()`, `allEntries` stays `nil` → `GetEntriesSince`/`GetAllEntries` return empty slices → `/status` naturally reports `show_changelog: false` (empty-data edge case, §Edge Cases in design doc) — server never fails to boot over bad changelog data |
-| User row not found in `Status`/`Ack`/`OptIn` (e.g. deleted mid-session) | **Mandatory**: `Ack`/`OptIn` MUST check `result.RowsAffected == 0` after the `Updates`/`Update` call and return `404 {"error": "User not found"}` — GORM's `Updates`/`Update` on a missing row is a silent no-op (`RowsAffected: 0`, no error), so skipping this check would make the endpoint lie about success. Direct precedent already in the codebase: `backend/internal/api/handlers/custom_theme_handler.go`'s `DeleteTheme` (`result := h.db.Delete(...); if result.RowsAffected == 0 { 404 }`). `Status` uses `db.First(...)` instead, which already returns a real `gorm.ErrRecordNotFound` error on a missing row, handled the same way `GetProfile` does. §3.3's code sketch includes this check on both `Ack` and `OptIn`. |
-| `CHARON_CHANGELOG_VERSION` set with `CHARON_ENV=production` | Ignored entirely (gated by `cfg.Environment != "production"` at the call site, §3.5) — no error, just inert, matching how other dev-only overrides in this codebase behave |
-| `generate-changelog.sh` fails mid-release (e.g. `jq` missing) | Script uses `set -euo pipefail` → non-zero exit → workflow step fails → release blocked before `goreleaser build` runs, preventing a release with stale/corrupt changelog data from shipping silently |
-
-## 4. Implementation Plan
-
-### Phase 1: Playwright E2E Specs (behavior-first, `test.fixme`)
-
-New file: `tests/settings/whats-new-changelog.spec.ts`. Scenarios (all
-`test.fixme(...)` until Phase 4/5 lands):
-
-1. Version bump (`CHARON_CHANGELOG_VERSION` override + fixture data +
-   test user with `last_seen_version` below it) → modal appears on login.
-2. "Remind Me Next Time" → modal reappears on next login; `LastSeenVersion`
-   unchanged (verify via `/user/profile` or DB fixture check).
-3. "Got It, Thanks" → modal does not reappear; `LastSeenVersion` updated.
-4. X/backdrop click → same effect as "Remind Me Next Time".
-5. Opt-out checkbox (checked on any dismiss path) → modal suppressed on
-   subsequent logins even after a further version bump.
-6. Appearance Settings toggle flips opt-out off → modal reappears on next
-   qualifying login.
-7. "What's New" revisit link in Appearance Settings → opens browse-mode
-   modal showing full history via `/changelog/all`, independent of
-   `LastSeenVersion`; closing it does not call `ack`.
-
-Uses committed Playwright fixture changelog data (not real git tags) per
-design doc §Local & Pre-Merge Testing — new fixture file, e.g.
-`tests/fixtures/changelog-fixture.json`, loaded by temporarily writing it
-to `backend/internal/changelog/data/changelog.json` in a `beforeAll`/global
-setup step (playwright-dev to confirm exact mechanism against how other
-E2E specs inject backend fixture state — likely via `tests/utils/api-helpers.ts`
-or direct file write + backend restart, whichever this repo's E2E harness
-already supports for backend-state fixtures).
-
-**Validation gate**: `npx playwright test tests/settings/whats-new-changelog.spec.ts --project=firefox`
-runs and all scenarios report `fixme` (skipped, not failed) — proves the
-file parses and the test names/structure are locked in before any
-implementation code exists.
-
-### Phase 2: Foundation (contracts, no behavior change)
-
-- `backend/internal/changelog/changelog.go` + `data/changelog.json`
-  placeholder + `changelog_test.go` (TDD red → green for the package in
-  isolation, no handler/route wiring yet).
-- `scripts/generate-changelog.sh` + `.github/workflows/release-goreleaser.yml`
-  step insertion.
-- `frontend/src/api/changelog.ts` (types + client functions only — no
-  hook/component consumption yet, so `npm run type-check` passes but
-  nothing calls these functions).
-
-**Validation gate**: `cd backend && go build ./... && go test ./internal/changelog/...`
-green; `cd frontend && npm run type-check` green; `bash scripts/generate-changelog.sh`
-runs locally against this repo's real tags without error (manual smoke
-test, output diffed against expectations, then reverted — never commit the
-locally-generated file over the `[]` placeholder).
-
-### Phase 3: Backend (API/model/service integration)
-
-- `backend/internal/models/user.go` — add `LastSeenVersion`/`ChangelogOptOut`.
-- `backend/internal/api/handlers/changelog_handler.go` +
-  `changelog_handler_test.go`.
-- `backend/internal/api/handlers/auth_handler.go` — extend `Me()`.
-- `backend/internal/api/handlers/user_handler.go` — seed
-  `LastSeenVersion` at `Setup`, `CreateUser`, `AcceptInvite` (see §2.9).
-- `backend/internal/api/routes/routes.go` — route registration +
-  `CHARON_CHANGELOG_VERSION` wiring (§3.3, §3.5).
-- Backend unit tests per §3.2/§3.3/design-doc §Testing:
-  `changelog_test.go`, `changelog_handler_test.go` (including
-  passthrough-rejection cases for all four handlers, and the
-  `RowsAffected == 0` → 404 case for `Ack`/`OptIn`), plus updates to
-  `auth_handler_test.go` for the `Me()` `changelog_opt_out` field, and
-  itemized additions to `user_handler_test.go` for seeding — one test per
-  call site, each with a real-version case and a `version.Version == "dev"`
-  skip-seeding case:
-  - `TestSetup_SeedsLastSeenVersion` / `TestSetup_SkipsSeedingOnDevBuild`
-  - `TestCreateUser_SeedsLastSeenVersion` / `TestCreateUser_SkipsSeedingOnDevBuild`
-  - `TestAcceptInvite_SeedsLastSeenVersion` / `TestAcceptInvite_SkipsSeedingOnDevBuild`
-  - (no `InviteUser` seeding test — per §2.9, the pending/disabled row
-    created by `InviteUser` is deliberately left unseeded; a test
-    asserting `LastSeenVersion == ""` immediately after `InviteUser` is
-    optional documentation of that choice, not required)
-
-**Validation gate**: `cd backend && go build ./... && go test ./... && make lint-fast`
-green; `./scripts/scan-gorm-security.sh --check` zero CRITICAL/HIGH
-(triggered per CLAUDE.md §1.5 — this phase touches `internal/models`).
-
-### Phase 4: Frontend (UI integration + tests)
-
-- `frontend/src/api/changelog.ts` — already created (types/client
-  functions) in Phase 2; no changes expected here unless Phase 3's real
-  endpoints reveal a shape mismatch.
-- `frontend/src/api/changelog.test.ts` (new) — unit tests for each
-  exported function's request shape (`getChangelogStatus`/`getChangelogAll`
-  hit the right URL and return `response.data`; `ackChangelog`/
-  `optInChangelog` POST the right body), mocking `client` the same way
-  `frontend/src/api/notifications.test.ts` /
-  `frontend/src/api/featureFlags.test.ts` do (existing precedent files in
-  `frontend/src/api/` — follow their mocking approach exactly).
-- `frontend/src/hooks/useChangelog.ts`.
-- `frontend/src/hooks/__tests__/useChangelog.test.ts` (new) — per-hook
-  cases: `useChangelogStatus` returns query state correctly;
-  `useChangelogAll(enabled)` does NOT fire when `enabled=false` and does
-  fire when `enabled=true` (the `enabled` gating is the one behavior in
-  this hook file most likely to silently break and go uncaught without a
-  dedicated test); `useAckChangelog`/`useOptInChangelog` mutation
-  success/error paths, including that `onError` calls `toast.error` and
-  `onSuccess` calls `invalidateQueries` with the expected query keys.
-- `frontend/src/context/AuthContextValue.ts` — extend `User`; confirm/add
-  a refetch mechanism in `AuthContext.tsx` (§3.6 gap).
-- `frontend/src/components/dialogs/WhatsNewModal.tsx` + Vitest tests
-  (`WhatsNewModal.test.tsx`) per design doc §Testing: rendering per
-  response shape, all three dismiss paths' payloads, checkbox/opt-out
-  interaction, collapsed "Other" disclosure default state.
-- `frontend/src/components/Layout.tsx` — mount point.
-- `frontend/src/pages/AppearanceSettings.tsx` — toggle + revisit link +
-  Vitest coverage additions.
-- i18n strings: `appearance.whatsNew`, `appearance.whatsNewDescription`,
-  `appearance.showWhatsNewToggle`, `appearance.whatsNewRevisit`, plus
-  modal copy keys — added to whichever locale files this repo maintains
-  (check `frontend/src/locales/` for the full language list; every
-  locale file must get the new keys, not just `en`, to avoid missing-key
-  fallback warnings — grep for how the "Feedback Widget" (nearby feature)
-  did its locale rollout as a template).
-
-**Validation gate**: `cd frontend && npm run type-check && npx vitest run`
-green; component/hook tests included in the 85% coverage floor.
-
-### Phase 5: Hardening (enable E2E, docs)
-
-- Flip all `test.fixme` → `test` in `tests/settings/whats-new-changelog.spec.ts`.
-- `docs/features.md` — brief new entry per CLAUDE.md's "Features: Update
-  `docs/features.md` when adding capabilities — keep it brief, link to
-  individual docs" (a short new bullet under an appropriate section, no
-  new deep-dive doc required per the design doc's scope).
-- Full Definition of Done pass (§5 below).
-
-**Validation gate**: `npx playwright test --project=firefox` full suite
-green (not just the new spec — regression check per repo convention);
-`bash scripts/local-patch-report.sh` produces required artifacts;
-`scripts/go-test-coverage.sh` and `scripts/frontend-test-coverage.sh`
-both ≥85%.
-
-## 11. Related Specifications / Further Reading
-
-- [ ] `User` gains `last_seen_version`/`changelog_opt_out`; AutoMigrate
-      applies cleanly on top of an existing populated DB with no data loss.
-- [ ] New users (`Setup`, `CreateUser`, `AcceptInvite`) never see
-      historical changelog entries on first login (seeded correctly,
-      except when `version.Version == "dev"`).
-- [ ] Pre-existing users (empty `last_seen_version` at migration time) see
-      **all entries since their (empty) last-seen version — i.e., full
-      history, grouped by version** — on their first post-upgrade login,
-      per the already-approved "catch-up shows all missed versions
-      grouped" behavior. This matches §3.2's implementation and
-      `TestGetEntriesSince_EmptyLastSeen_ReturnsAll` exactly: empty
-      `lastSeen` is "behind everything," so `GetEntriesSince("")` returns
-      every entry, not just the newest one. (The design doc's prose at
-      lines ~45/~227 says "see the current version's entries" — read
-      loosely, that could mean "only the newest version." That reading
-      does not survive the doc's own explicit, separately-approved
-      decision that catch-up shows *all* missed versions grouped, which
-      is the general rule for any user behind by more than one version —
-      an empty `LastSeenVersion` is just the maximal case of "behind,"
-      not a special narrower one. Treat §3.2/this bullet as the
-      authoritative behavior; the doc's phrasing is imprecise, not a
-      conflicting decision.)
-- [ ] All four routes (`/status`, `/all`, `/ack`, `/opt-in`) implemented,
-      authenticated, reachable by both `admin` and `user` roles.
-- [ ] `show_changelog` is `false` for: dev builds, opted-out users, and
-      zero-unseen-entries — never renders an empty modal.
-- [ ] `scripts/generate-changelog.sh` produces valid, schema-conformant
-      JSON from real repo tags; wired into `release-goreleaser.yml` before
-      `Run GoReleaser`.
-- [ ] Placeholder `changelog.json` (`[]`) committed; local/dev/PR builds
-      never see synthetic changelog data.
-- [ ] `WhatsNewModal` renders correctly in both `status` and `browse`
-      modes; all three dismiss paths send correct `ack` payloads; browse
-      mode never calls `ack`.
-- [ ] Appearance Settings toggle and revisit link both functional and
-      reflect live `changelog_opt_out` state without requiring a page
-      reload.
-- [ ] Backend coverage ≥85%, frontend coverage ≥85% (CLAUDE.md DoD §6).
-- [ ] `go build ./...`, `npm run build`, `npm run type-check`,
-      `make lint-fast` all green.
-- [ ] Zero CRITICAL/HIGH findings from `./scripts/scan-gorm-security.sh --check`.
-- [ ] All Playwright scenarios in §Implementation Plan Phase 1 pass with
-      `--project=firefox`.
-- [ ] `docs/features.md` updated.
-
-## 6. Commit Slicing Strategy
-
-**Decision**: single PR on `feat/changelog` (current branch), ordered
-logical commits within it — one feature, one PR, per CLAUDE.md/repo
-convention. No commit is mergeable on its own; the PR merges only once all
-commits land and the full DoD (§5) passes.
-
-### Commit 1 — E2E specs for the new flow (`test.fixme`)
-
-**Scope**: test scaffolding only, zero production code.
-**Files**:
-- `tests/settings/whats-new-changelog.spec.ts` (new)
-- `tests/fixtures/changelog-fixture.json` (new)
-
-**Depends on**: nothing (branch tip).
-**Validation gate**: `npx playwright test tests/settings/whats-new-changelog.spec.ts --project=firefox`
-→ all scenarios report `fixme`, zero failures; `git diff` shows no
-non-test files touched.
-
-### Commit 2 — Foundation: contracts, generator script, embed placeholder
-
-**Scope**: `internal/changelog` package (types + service, TDD red→green
-against its own fixtures), placeholder embedded data file,
-`generate-changelog.sh`, workflow wiring, frontend API client types. No
-route registration, no User model change, no UI consumption — nothing
-observably changes app behavior yet.
-**Files**:
-- `backend/internal/changelog/changelog.go` (new)
-- `backend/internal/changelog/changelog_test.go` (new)
-- `backend/internal/changelog/data/changelog.json` (new, `[]`)
-- `scripts/generate-changelog.sh` (new)
-- `.github/workflows/release-goreleaser.yml` (modified — new step)
-- `.dockerignore` (modified — negate `backend/internal/changelog/data/`
-  and `backend/internal/changelog/data/changelog.json` against the
-  existing bare `data/` exclude at line 96; see §7/R1)
-- `frontend/src/api/changelog.ts` (new)
-
-**Depends on**: Commit 1 (spec file establishes the contract this commit
-implements against, though this commit doesn't yet make the spec pass).
-**Validation gate**: `go build ./... && go test ./internal/changelog/...`
-green; `go mod tidy` diff reviewed (semver promoted indirect→direct);
-`npm run type-check` green; manual `bash scripts/generate-changelog.sh`
-smoke test against real repo tags, output reviewed then discarded
-(`git checkout -- backend/internal/changelog/data/changelog.json`);
-**`.dockerignore` fix verified with a real Docker build context check**
-(build/inspect the `backend-builder` stage and confirm
-`backend/internal/changelog/data/changelog.json` is present post-`COPY` —
-see §7's "Required verification" note; do not merge this commit on
-negation-syntax inspection alone).
-
-### Commit 3 — Backend: model, routes, handlers, seeding
-
-**Scope**: everything that makes the API real: migration, handler, route
-registration, `CHARON_CHANGELOG_VERSION` wiring, `Me()` extension, seeding
-at all three user-creation call sites.
-**Files**:
-- `backend/internal/models/user.go` (modified)
-- `backend/internal/api/handlers/changelog_handler.go` (new)
-- `backend/internal/api/handlers/changelog_handler_test.go` (new)
-- `backend/internal/api/handlers/auth_handler.go` (modified — `Me()`)
-- `backend/internal/api/handlers/auth_handler_test.go` (modified)
-- `backend/internal/api/handlers/user_handler.go` (modified — 3 seeding
-  call sites)
-- `backend/internal/api/handlers/user_handler_test.go` (modified)
-- `backend/internal/api/routes/routes.go` (modified)
-
-**Depends on**: Commit 2 (`changelog.Service` must exist).
-**Validation gate**: `go build ./... && go test ./... && make lint-fast`
-green; `./scripts/scan-gorm-security.sh --check` zero CRITICAL/HIGH (model
-change trigger, CLAUDE.md §1.5); full backend coverage check
-(`scripts/go-test-coverage.sh`) ≥85% for touched packages at minimum.
-
-### Commit 4 — Frontend: modal, hooks, layout, settings integration
-
-**Scope**: everything user-facing.
-**Files**:
-- `frontend/src/api/changelog.test.ts` (new)
-- `frontend/src/hooks/useChangelog.ts` (new)
-- `frontend/src/hooks/__tests__/useChangelog.test.ts` (new)
-- `frontend/src/context/AuthContextValue.ts` (modified)
-- `frontend/src/context/AuthContext.tsx` (modified, if a refetch seam is
-  needed per §3.6)
-- `frontend/src/components/dialogs/WhatsNewModal.tsx` (new)
-- `frontend/src/components/dialogs/WhatsNewModal.test.tsx` (new)
-- `frontend/src/components/Layout.tsx` (modified — mount point)
-- `frontend/src/pages/AppearanceSettings.tsx` (modified — toggle + link)
-- `frontend/src/pages/__tests__/AppearanceSettings.test.tsx` (modified or
-  new, confirm existing test file name/location first)
-- `frontend/src/locales/**` (modified — new i18n keys, all locales)
-
-**Depends on**: Commit 2, not Commit 3 — Vitest tests mock `client`
-directly (per this repo's existing `frontend/src/api/*.test.ts`
-convention), so this commit only needs Commit 2's TS types/contracts
-(`frontend/src/api/changelog.ts`) to build and pass its own gate; it does
-not call live backend endpoints. Commit 3 landing first is convenient
-(lets frontend-dev sanity-check the real response shape once) but is not
-a hard build/test dependency — noted so the commits can be reordered or
-parallelized if useful, without treating Commit 3 as a blocking
-prerequisite.
-**Validation gate**: `npm run type-check && npx vitest run` green;
-frontend coverage ≥85% for touched files; `npm run build` succeeds.
-
-### Commit 5 — Hardening: enable E2E, docs
-
-**Scope**: flip `test.fixme` → `test`, run the full E2E suite, update
-`docs/features.md`, final DoD pass.
-**Files**:
-- `tests/settings/whats-new-changelog.spec.ts` (modified — un-fixme)
-- `docs/features.md` (modified)
-
-**Depends on**: Commits 1–4 all merged into the branch.
-**Validation gate**: full Definition of Done per CLAUDE.md (§5 of this
-plan) — Playwright full suite, patch coverage preflight, security scans,
-lefthook, staticcheck, coverage ≥85% both sides, both builds green.
-
-### Rollback & Contingency (PR-level)
-
-- **Pre-merge**: any commit can be amended/squashed within the branch
-  freely (not yet merged) — no special rollback concerns.
-- **Route grouping** (`protected` vs `management`, plus the
-  `rejectPassthrough()` guard): resolved during supervisor review — §2.5's
-  `protected`-group placement combined with an in-handler
-  `rejectPassthrough()` call (§3.3) is now the settled design, matching
-  the repo's actual convention. Not an open inference anymore; no further
-  flagging needed unless implementation uncovers a new wrinkle.
-- **If `generate-changelog.sh`'s conventional-commit categorization proves
-  too lossy against real repo history** (e.g. many unprefixed historical
-  commits dumping into "other" and drowning out real entries): this is a
-  script tuning problem, not a design change — iterate within Commit 2,
-  do not alter the categorization *rules* (which are spec'd) without
-  flagging to the user first.
-- **Post-merge rollback**: standard `git revert` of the merge commit;
-  since `LastSeenVersion`/`ChangelogOptOut` are additive nullable-default
-  columns, no destructive down-migration is needed — reverting the PR
-  simply stops reading/writing them (GORM AutoMigrate never drops
-  columns, so the columns harmlessly remain until a future cleanup if the
-  feature is permanently abandoned, which is out of scope to plan for
-  here).
-- **Feature flag**: not used — the design doc has no feature-flag gating
-  requirement, and the `dev`-build short-circuit already provides a safe
-  default-off state for anyone building from source without a release tag.
-
-## 7. `.gitignore` / `.dockerignore` / `.codecov.yml` / `Dockerfile` Review
-
-| File | Change needed? | Reasoning |
-|---|---|---|
-| `.gitignore` | **No** | The placeholder `backend/internal/changelog/data/changelog.json` must be tracked (it's the dev/PR-build fallback and the thing `go:embed` needs to exist at all — an untracked/gitignored embed target would break every build that isn't a tagged release). No existing pattern in `.gitignore` matches this path (checked: no generic `*.json` or `data/**` ignore that would catch it — the closest is `backend/package.json`/`backend/temp_index.json`, both unrelated specific filenames, not a directory-wide rule). Nothing to add. |
-| `.dockerignore` | **YES — required** | `.dockerignore:96` is a bare `data/` line with no leading `/` or `**/` qualifier. Docker's `.dockerignore` matcher uses the same glob semantics as `.gitignore`: an unanchored `data/` matches a directory named `data` **at any depth in the build context**, not just a top-level one — confirmed by checking the file directly (line 96 reads exactly `data/`, immediately after the "Databases (created at runtime)" section header, clearly intended for a top-level `data/` runtime dir, but syntactically unscoped). This silently excludes `backend/internal/changelog/data/` (and its committed `changelog.json`) from the build context sent to every `docker build` invocation — including `docker-build.yml`, `e2e-tests-split.yml`, and any Trivy/security-scan workflow that builds this repo's multi-stage `Dockerfile`. Inside the `backend-builder` stage, `COPY backend/ ./` (line 242) then copies a `backend/internal/changelog/` directory with no `data/` subdirectory in it, so `//go:embed data/changelog.json` fails to compile — a hard build break, not a degraded-feature edge case. **Fix**: add explicit negations immediately after line 96 (or in a clearly-commented block near it), e.g. `!backend/internal/changelog/data/` and `!backend/internal/changelog/data/changelog.json` — negating both the directory and the file, since BuildKit's negation-after-broad-exclude has historically required re-including intermediate directories explicitly for file-level negations to take effect (this is the "known footgun" the validation gate below exists to catch, not something to trust on inspection alone). The repo's existing `!.env.example` / `!README.md` / `!LICENSE` lines (near the end of `.dockerignore`) establish that negation-after-broad-exclude is an accepted, already-used pattern in this file — this is a new instance of an existing technique, not a new technique. |
-| `codecov.yml` | **No** | The existing `ignore:` list already contains `"*.json"` (under "CI/CD & Config", alongside `"*.yml"`/`"*.yaml"`) — this glob already excludes `changelog.json` from coverage accounting without any new entry. The new Go/TS **source** files (`changelog.go`, `changelog_handler.go`, `changelog.ts`, `useChangelog.ts`, `WhatsNewModal.tsx`) are exactly the kind of application logic this config is designed to *include* in coverage — no exclusion needed or wanted for them. |
-| `Dockerfile` | **No** | `COPY backend/ ./` (line 242, `backend-builder` stage) already recursively includes `backend/internal/changelog/data/changelog.json` **once the `.dockerignore` fix above stops stripping it first** — no new `COPY` line needed, the `.dockerignore` change is the actual fix, this file is just the thing that would otherwise silently receive an incomplete context. The release image build path is separately unaffected by this feature (GoReleaser, not this multi-stage Dockerfile, is what runs `generate-changelog.sh` — see §3.4); a plain `docker build` (dev/nightly images) will, once the context is correct, simply embed the committed placeholder `[]`, which is correct/intended per the design doc (dev builds already report `version.Version == "dev"` and short-circuit `show_changelog` to `false` regardless of embedded data). |
-
-**Required verification during Commit 2** (not optional — see §6 Commit 2's
-validation gate): after adding the `.dockerignore` negations, actually
-build the `Dockerfile`'s `backend-builder` stage (or at minimum run
-`docker build --no-cache -f Dockerfile --target backend-builder .` far
-enough to confirm `go build ./...`/`go vet` succeeds inside the container,
-or use `docker build -f - . <<< 'FROM scratch AS ctx' ...`-style context
-inspection / `docker buildx build --target backend-builder --output type=local,dest=/tmp/ctxcheck ...`)
-to prove `backend/internal/changelog/data/changelog.json` is actually
-present in the container filesystem post-`COPY`. Do not trust the
-negation syntax by inspection alone — verify with a real build, since this
-exact class of bug (broad exclude silently eating a nested path, negation
-not actually restoring it) is easy to get subtly wrong and would only
-surface as a CI failure days later.
-
-## 8. Handoff
-
-This plan is ready for `supervisor` review. Key judgment calls made during
-research that supervisor/user should explicitly confirm before Commit 3
-begins (flagged throughout, collected here for visibility):
-
-1. **§2.5 / §3.3** — Changelog routes registered under `protected`, not
-   `management` — **and required to call `rejectPassthrough()`** (the
-   existing pattern from `user_handler.go`'s `GetProfile`/`UpdateProfile`/
-   `RegenerateAPIKey`) in all four `ChangelogHandler` methods. This is no
-   longer an open question: route-group placement alone was an incomplete
-   read of the repo's actual convention for self-service `protected`
-   routes, which pairs group placement with an in-handler passthrough
-   check. §3.3's code sketch now includes this.
-2. **§2.9** — `LastSeenVersion` seeded at `Setup` (initial admin) in
-   addition to the two call sites the design doc names explicitly.
-3. **§3.3** — `requireUserID` helper consolidation (DRY cleanup) is
-   optional/backend-dev's call, not mandatory for this feature.
-4. **§3.6 / §3.9** — `WhatsNewModal`'s exact prop contract for `status`
-   mode (self-gating vs. externally-controlled `open`) and the
-   `AuthContext` refetch-after-`ack` mechanism are left as concrete but
-   open implementation decisions for frontend-dev, with a recommended
-   default (self-gating; add a refetch export if none exists).
-5. **§3.11** — `Ack`/`OptIn` **must** check `result.RowsAffected == 0` and
-   return 404 on a deleted-user race — mandatory, per direct precedent in
-   `custom_theme_handler.go`'s `DeleteTheme`, not a recommendation. §3.3's
-   code sketch now includes this.
-6. **§7 / R1** — `.dockerignore`'s unanchored `data/` exclude (line 96)
-   silently strips `backend/internal/changelog/data/` from every Docker
-   build context, breaking `go:embed` compilation in CI Docker builds
-   (though not GoReleaser release builds). Fixed via negation in Commit 2,
-   with a mandatory real-build verification step — flagged here because
-   it's the one item in this plan that would have caused a CI break not
-   caught by any of the backend/frontend validation gates on their own.
+| CodeQL's query doesn't recognize the exact `strings.HasPrefix` shape chosen for one or more of the four call sites (sensitive to same-function-as-sink placement, variable naming, or helper extraction) — recognition could plausibly differ per call site even though the helper is identical, since query engines sometimes behave differently based on surrounding control flow | Contingency in §7 (Rollback/contingency) — inline the check directly in the affected function's guard body instead of calling the shared helper, on a per-sink basis if needed; re-run `lefthook run codeql` after Commit 2 to confirm all four are resolved before proceeding to Commit 3, and again after Commit 3 as the final gate. |
+| New `isWithinAllowlistBounds` guards accidentally narrow what `repairPath`/`pathHasSymlink` accept, causing a false rejection in production | §3.1 gives a structural proof that none of the four guards can reject any input that reaches them via the real call path (containment at line 139 implies within-or-ancestor at every later point). §5.2 test #3 and §5.3 test #2 explicitly exercise ancestor-of-root traversal to catch any implementation slip from this proof. §5.4 confirms the full existing `repairPath` regression suite (all branches) still passes unmodified. |
+| Sinks 1-3's guard `false`/reject branches are permanently uncovered by `go tool cover`, since they are structurally unreachable via any legitimate call path (§5.5) | Confirmed acceptable: `scripts/go-test-coverage.sh` gates on a single aggregate repo-wide percentage, not per-branch/per-file; the underlying decision logic is separately, fully unit-tested via `isWithinAllowlistBounds`'s own test suite (§5.2). If this assumption about the coverage tool's enforcement granularity is later found wrong, see §7's rollback/contingency for the extraction-based fallback. |
+| Coverage regression on the modified file pulls overall backend coverage under 85% | §5.2-§5.4 size the new test cases to fully cover every new branch that is reachable; `isWithinAllowlistBounds` is directly unit-testable without needing to go through HTTP handler plumbing. |
+| Reviewers expect Playwright/E2E evidence per the standard DoD checklist | §8 explicitly documents why E2E is out of scope (no API/UI contract change) so this isn't mistaken for a skipped step. |
+| Scope creep / accidental edits to `auth_handler.go` while working in the same package | §1.3 and §9 explicitly call out `auth_handler.go` as out of scope; PR diff review should confirm zero changes to that file before merge. |
