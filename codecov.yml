@@ -11,10 +11,13 @@ coverage:
         threshold: 1%
     patch:
       default:
-        # Patch coverage is a quality signal, not a merge gate.
-        # Per testing.instructions.md, patch coverage is informational only.
-        informational: true
-        target: 90%
+        # Patch coverage is a mandatory merge-blocking gate, consistent with
+        # the rest of the Definition of Done (see
+        # .github/instructions/testing.instructions.md §3). Target matches
+        # the project coverage target / CHARON_MIN_COVERAGE default (87%)
+        # for consistency across all coverage gates.
+        target: 87%
+        threshold: 1%
 
 # Fail CI if Codecov upload/report indicates a problem
 require_ci_to_pass: yes
