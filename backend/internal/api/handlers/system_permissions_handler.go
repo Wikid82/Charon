@@ -55,6 +55,20 @@ type permissionsRepairResult struct {
 	ErrorCode  string `json:"error_code,omitempty"`
 }
 
+// outsideAllowlistResult builds the standard rejection result shared by
+// every allowlist-containment guard in repairPath (both the original
+// filepath.Rel-based check and the CodeQL-recognized strings.HasPrefix
+// guard). No new error code or message shape versus before this helper
+// existed -- purely a shared constructor for an already-identical literal.
+func outsideAllowlistResult(path string) permissionsRepairResult {
+	return permissionsRepairResult{
+		Path:      path,
+		Status:    "error",
+		ErrorCode: "permissions_outside_allowlist",
+		Message:   "path outside allowlist",
+	}
+}
+
 func NewSystemPermissionsHandler(cfg config.Config, securityService *services.SecurityService, checker PermissionChecker) *SystemPermissionsHandler {
 	if checker == nil {
 		checker = OSChecker{}
@@ -137,12 +151,7 @@ func (h *SystemPermissionsHandler) repairPath(rawPath string, groupMode bool, al
 
 	normalizedAllowlist := normalizeAllowlist(allowlist)
 	if !isWithinAllowlist(cleanPath, normalizedAllowlist) {
-		return permissionsRepairResult{
-			Path:      cleanPath,
-			Status:    "error",
-			ErrorCode: "permissions_outside_allowlist",
-			Message:   "path outside allowlist",
-		}
+		return outsideAllowlistResult(cleanPath)
 	}
 
 	// requiredPrefix identifies which allowlist root cleanPath falls under
@@ -153,14 +162,24 @@ func (h *SystemPermissionsHandler) repairPath(rawPath string, groupMode bool, al
 	// value, unmodified -- is what directly guards cleanPath at the point
 	// of use, in this same function, for every sink that follows; cleanPath
 	// is never reassigned after this point.
+	//
+	// This branch is structurally unreachable via any real call to
+	// repairPath: cleanPath only ever arrives here after already passing
+	// the isWithinAllowlist check above, and firstAllowlistPrefix is a
+	// proven superset of isWithinAllowlist's containment decision for
+	// every absolute, ".."-free path (the only kind normalizePath ever lets
+	// through) -- re-derived and re-verified against every edge case
+	// (root == "/", relative/malformed roots, empty roots, trailing
+	// separators) while closing this coverage gap; see
+	// docs/plans/current_spec.md §1.4/§5.5 for the full proof. It exists
+	// purely to give CodeQL's go/path-injection query a recognizable,
+	// in-function sanitizer directly on the value passed to the sinks
+	// below (§1.4). The shared outsideAllowlistResult call keeps this
+	// dead-in-practice branch to a single line instead of duplicating the
+	// full result literal a second time.
 	requiredPrefix := firstAllowlistPrefix(cleanPath, normalizedAllowlist)
 	if requiredPrefix == "" || !strings.HasPrefix(cleanPath, requiredPrefix) {
-		return permissionsRepairResult{
-			Path:      cleanPath,
-			Status:    "error",
-			ErrorCode: "permissions_outside_allowlist",
-			Message:   "path outside allowlist",
-		}
+		return outsideAllowlistResult(cleanPath)
 	}
 
 	info, err := os.Lstat(cleanPath)
