@@ -15,7 +15,7 @@
  */
 
 import { test, expect, loginUser } from '../../fixtures/auth-fixtures';
-import { waitForLoadingComplete, waitForToast } from '../../utils/wait-helpers';
+import { waitForLoadingComplete } from '../../utils/wait-helpers';
 
 test.describe('Encryption Management', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -380,19 +380,6 @@ test.describe('Encryption Management', () => {
       await test.step('Verify error handling UI elements exist', async () => {
         // Check that the page can display errors
         // This is a passive test - we verify the UI is capable of showing errors
-
-        // Alert component should be available for errors
-        const alertExists = await page.locator('[class*="alert"]')
-          .or(page.locator('[role="alert"]'))
-          .first()
-          .isVisible({ timeout: 1000 })
-          .catch(() => false);
-
-        // Toast notification system should be ready
-        const hasToastContainer = await page.locator('[class*="toast"]')
-          .or(page.locator('[data-testid*="toast"]'))
-          .isVisible({ timeout: 1000 })
-          .catch(() => true); // Toast container may not be visible until triggered
 
         // UI should gracefully handle rotation being disabled
         const rotateButton = page.getByTestId('rotate-key-btn');

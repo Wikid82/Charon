@@ -13,20 +13,11 @@
  * @see /projects/Charon/docs/plans/current_spec.md
  */
 
-import { test, expect, loginUser, TEST_PASSWORD } from '../../fixtures/auth-fixtures';
-import { waitForLoadingComplete, waitForToast, waitForModal, waitForDialog, waitForDebounce } from '../../utils/wait-helpers';
+import { test, expect, loginUser } from '../../fixtures/auth-fixtures';
+import { waitForLoadingComplete, waitForModal, waitForDialog, waitForDebounce } from '../../utils/wait-helpers';
 import { waitForAPIHealth } from '../../utils/api-helpers';
 import { clickSwitch } from '../../utils/ui-helpers';
-import {
-  allowOnlyAccessList,
-  denyOnlyAccessList,
-  mixedRulesAccessList,
-  authEnabledAccessList,
-  generateAccessList,
-  invalidACLConfigs,
-  type AccessListConfig,
-} from '../../fixtures/access-lists';
-import { generateUniqueId, generateIPAddress, generateCIDR } from '../../fixtures/test-data';
+import { generateUniqueId } from '../../fixtures/test-data';
 
 test.describe('Access Lists - CRUD Operations', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -538,7 +529,6 @@ test.describe('Access Lists - CRUD Operations', () => {
           await waitForModal(page, /edit|access.*list/i);
 
           const nameInput = page.locator('#name');
-          const originalName = await nameInput.inputValue();
 
           // Update name
           const newName = `Updated ACL ${generateUniqueId()}`;
@@ -724,8 +714,12 @@ test.describe('Access Lists - CRUD Operations', () => {
 
           const dialog = page.getByRole('dialog');
           if (await dialog.isVisible().catch(() => false)) {
-            // The delete button text or dialog content should reference backup
-            const dialogText = await dialog.textContent();
+            // The confirmation dialog itself only asks the user to confirm the
+            // deletion; the actual pre-delete backup is triggered (and toasted)
+            // by handleDeleteWithBackup() once the user clicks Delete. Since
+            // this test intentionally cancels without deleting, just verify
+            // the confirmation dialog rendered with its expected content.
+            await expect(dialog).toContainText(/delete/i);
             // Cancel without deleting
             await dialog.getByRole('button', { name: /cancel/i }).click();
           }

@@ -19,54 +19,10 @@
  * - GET /api/v1/audit-logs
  */
 
-import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
+import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { generateProxyHost } from '../fixtures/proxy-hosts';
-import { generateAccessList, generateAllowListForIPs } from '../fixtures/access-lists';
-import {
-  waitForToast,
-  waitForLoadingComplete,
-  waitForAPIResponse,
-  waitForModal,
-  clickAndWaitForResponse,
-} from '../utils/wait-helpers';
-
-/**
- * Selectors for Security pages
- */
-const SELECTORS = {
-  // Cerberus Dashboard
-  cerberusTitle: 'h1, h2',
-  securityStatusCard: '[data-testid="security-status"], .security-status',
-  wafStatusIndicator: '[data-testid="waf-status"], .waf-status',
-  crowdsecStatusIndicator: '[data-testid="crowdsec-status"], .crowdsec-status',
-  aclStatusIndicator: '[data-testid="acl-status"], .acl-status',
-
-  // WAF Configuration
-  wafEnableToggle: 'input[name="waf_enabled"], [data-testid="waf-toggle"]',
-  wafModeSelect: 'select[name="waf_mode"], [data-testid="waf-mode"]',
-  wafRulesTable: '[data-testid="waf-rules-table"], table',
-
-  // CrowdSec Configuration
-  crowdsecEnableToggle: 'input[name="crowdsec_enabled"], [data-testid="crowdsec-toggle"]',
-  crowdsecApiKey: 'input[name="crowdsec_api_key"], #crowdsec-api-key',
-  crowdsecDecisionsList: '[data-testid="crowdsec-decisions"], .decisions-list',
-  crowdsecImportBtn: 'button:has-text("Import CrowdSec")',
-
-  // Security Headers
-  hstsToggle: 'input[name="hsts_enabled"], [data-testid="hsts-toggle"]',
-  cspInput: 'textarea[name="csp"], #csp-policy',
-  xfoSelect: 'select[name="x_frame_options"], #x-frame-options',
-
-  // Audit Logs
-  auditLogTable: '[data-testid="audit-log-table"], table',
-  auditLogRow: '[data-testid="audit-log-row"], tbody tr',
-  auditLogFilter: '[data-testid="audit-filter"], .filter',
-
-  // Common
-  saveButton: 'button:has-text("Save"), button[type="submit"]',
-  loadingSkeleton: '[data-testid="loading-skeleton"], .loading',
-  statusBadge: '.badge, [data-testid="status-badge"]',
-};
+import { generateAllowListForIPs } from '../fixtures/access-lists';
+import { waitForLoadingComplete } from '../utils/wait-helpers';
 
 test.describe('Security Suite Integration', () => {
   // Increase timeout from 300s (5min) to 600s (10min) for complex integration tests

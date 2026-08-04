@@ -311,7 +311,9 @@ test.describe('Emergency Token Break Glass Protocol', () => {
     const statusResponse = await request.get('/api/v1/security/status');
     if (statusResponse.ok()) {
       const status = await statusResponse.json();
-      // If security was previously enabled, it should still be enabled
+      // Cerberus was enabled in beforeAll and an invalid emergency token must
+      // not be able to flip it back off.
+      expect(status.cerberus?.enabled).toBe(true);
       console.log('  ✓ Security settings were not modified by invalid token');
     }
 
