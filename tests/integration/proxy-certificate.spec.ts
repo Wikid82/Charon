@@ -16,22 +16,12 @@
  * - GET/POST /api/v1/dns-providers
  */
 
-import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
-import {
-  generateCertificate,
-  generateWildcardCertificate,
-  customCertificateMock,
-  selfSignedTestCert,
-  letsEncryptCertificate,
-} from '../fixtures/certificates';
+import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { generateProxyHost } from '../fixtures/proxy-hosts';
 import {
-  waitForToast,
   waitForLoadingComplete,
   waitForAPIResponse,
-  waitForModal,
   waitForResourceInUI,
-  clickAndWaitForResponse,
 } from '../utils/wait-helpers';
 
 const DNS_PROVIDERS_API_PATTERN = /\/api\/v1\/dns-providers/;
@@ -194,7 +184,10 @@ test.describe('Proxy + Certificate Integration', () => {
 
         // Look for HTTPS or SSL indicator (lock icon, badge, etc.)
         const sslIndicator = proxyRow.locator('svg[data-testid*="lock"], .ssl-indicator, [aria-label*="SSL"], [aria-label*="HTTPS"]');
-        // This may or may not be present depending on UI implementation
+        // This may or may not be present depending on UI implementation; when present, verify it's visible.
+        if (await sslIndicator.first().isVisible().catch(() => false)) {
+          await expect(sslIndicator.first()).toBeVisible();
+        }
       });
     });
 

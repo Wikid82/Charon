@@ -8,7 +8,7 @@
  * - Logs timing statistics and slowest tests
  */
 
-import { Reporter, TestCase, TestResult, Suite, FullResult } from '@playwright/test/reporter';
+import { Reporter, TestCase, TestResult, FullResult } from '@playwright/test/reporter';
 
 interface StepMetrics {
   name: string;

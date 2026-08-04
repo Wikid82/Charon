@@ -16,7 +16,7 @@
  */
 
 import { test, expect, loginUser, logoutUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
-import { waitForToast, waitForLoadingComplete, waitForAPIResponse, waitForDebounce } from '../utils/wait-helpers';
+import { waitForLoadingComplete, waitForAPIResponse, waitForDebounce } from '../utils/wait-helpers';
 
 test.describe('Authentication Flows', () => {
   test.describe('Login with Valid Credentials', () => {

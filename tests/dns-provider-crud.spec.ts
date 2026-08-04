@@ -6,7 +6,6 @@ import {
   waitForConfigReload,
   waitForDialog,
   waitForLoadingComplete,
-  waitForResourceInUI,
 } from './utils/wait-helpers';
 
 async function getAuthToken(page: import('@playwright/test').Page): Promise<string> {

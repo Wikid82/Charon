@@ -1,5 +1,5 @@
 
-import { test, expect, loginUser } from '../fixtures/auth-fixtures'; // Use the fixture that provides adminUser
+import { test, loginUser } from '../fixtures/auth-fixtures'; // Use the fixture that provides adminUser
 import { waitForLoadingComplete } from '../utils/wait-helpers';
 
 test('Determine what is keeping the loader active', async ({ page, adminUser }) => {

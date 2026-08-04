@@ -23,7 +23,7 @@
  * ```
  */
 
-import { test as base, expect } from './test';
+import { test as base } from './test';
 import { request as playwrightRequest } from '@playwright/test';
 import { existsSync, readFileSync } from 'fs';
 import { TestDataManager } from '../utils/TestDataManager';

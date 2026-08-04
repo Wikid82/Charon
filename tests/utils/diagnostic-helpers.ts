@@ -165,7 +165,6 @@ export function trackDialogLifecycle(
   page: Page,
   dialogSelector: string = '[role="dialog"]'
 ): { stop: () => void } {
-  let dialogCount = 0;
   let isRunning = true;
 
   const checkDialog = async () => {

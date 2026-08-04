@@ -167,7 +167,6 @@ export class DebugLogger {
    */
   assertion(condition: string, passed: boolean, actual?: any, expected?: any): void {
     const icon = passed ? '✓' : '✗';
-    const color = passed ? COLORS.green : COLORS.red;
     const baseMessage = `   ${icon} Assert: ${condition}`;
 
     if (actual !== undefined && expected !== undefined) {

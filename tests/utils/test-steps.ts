@@ -11,7 +11,7 @@
  *   });
  */
 
-import { test, Page, expect } from '@playwright/test';
+import { test, Page } from '@playwright/test';
 import { DebugLogger } from './debug-logger';
 
 export interface TestStepOptions {
@@ -49,7 +49,7 @@ export async function testStep<T>(
     duration = performance.now() - startTime;
 
     if (options.logger) {
-      options.logger.error(name, error as Error, options.retries);
+      options.logger.error(`${name} (after ${Math.round(duration)}ms)`, error as Error, options.retries);
     }
 
     if (options.soft) {
