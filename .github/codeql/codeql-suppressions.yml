@@ -23,15 +23,34 @@
 # scripts/security/codeql-findings-gate.sh). See docs/plans/current_spec.md
 # [dated 2026-08-04] for why — not retrofitted onto Trivy/Grype in the
 # same change.
-suppressions: []
-  # Example entry (uncomment/copy when a real exception is needed):
-  # - rule_id: go/cookie-secure-not-set
-  #   path: backend/internal/api/handlers/auth_handler.go
-  #   line: 191
+suppressions:
+  - rule_id: go/cookie-secure-not-set
+    path: backend/internal/api/handlers/auth_handler.go
+    line: 198
+    reason: >
+      Secure is false only when isLocalRequest(c) AND scheme != "https"
+      (loopback/RFC1918/IPv6-ULA/Tailscale-CGNAT origin over plain HTTP) —
+      every other path (HTTPS, or plain HTTP from a public host) still gets
+      secure=true, by design, for Charon's documented self-hosted LAN/VPN-
+      mesh deployment mode without TLS termination. See setSecureCookie's
+      doc comment (backend/internal/api/handlers/auth_handler.go) for the
+      full truth table. The in-source `codeql[go/cookie-secure-not-set]`
+      comment is correctly placed (standalone line, exactly startLine-1,
+      no code preceding it) per CodeQL's documented codeql[rule-id] syntax,
+      but a fresh local SARIF scan still shows no `suppressions` key on any
+      result in the file (not just this one) — a local CLI/query-pack
+      limitation for this call shape, not a placement error. This entry is
+      the documented fallback for that case. See
+      docs/issues/codeql-cookie-suppression-not-honored.md for the full
+      investigation history.
+    added: "2026-08-04"
+    review_by: "2026-11-04"
+
+  # Example entry (uncomment/copy when a new exception is needed):
+  # - rule_id: go/example-rule-id
+  #   path: backend/internal/example.go
+  #   line: 1
   #   reason: >
-  #     Secure is false only for loopback/RFC1918/IPv6-ULA/Tailscale-CGNAT
-  #     origins over plain HTTP, by design, for Charon's documented
-  #     self-hosted LAN/VPN-mesh deployment mode without TLS termination.
-  #     See setSecureCookie's doc comment for the full truth table.
+  #     Why this finding is a false positive or an accepted, justified risk.
   #   added: "2026-08-04"
   #   review_by: "2026-11-04"
