@@ -15,7 +15,6 @@ import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import {
   waitForLoadingComplete,
   waitForToast,
-  waitForAPIResponse,
 } from '../utils/wait-helpers';
 
 test.describe('SMTP Settings', () => {

@@ -428,10 +428,8 @@ test.describe('Theme System', () => {
     test('uploading a logo image updates the logo preview', async ({ page }) => {
       await goToAppearance(page);
 
-      // Initial logo preview src
       const logoPreview = page.locator('img[alt="Logo preview"]').first();
       await expect(logoPreview).toBeVisible();
-      const initialSrc = await logoPreview.getAttribute('src');
 
       await test.step('Upload a small test PNG file', async () => {
         // Create a minimal valid 1x1 PNG as a Buffer
