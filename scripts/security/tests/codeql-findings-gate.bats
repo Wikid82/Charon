@@ -8,7 +8,7 @@
 # under scripts/security/testdata/, following the same colocation
 # convention as scripts/history-rewrite/tests/*.bats.
 #
-# 7 cases per §9.2:
+# 7 cases per §9.2, plus an 8th added during Commit 4 (see below):
 #   1. error-level, unsuppressed            -> exit non-zero
 #   2. warning-level, unsuppressed          -> exit non-zero (regression
 #      test for the exact bug this PR closes: the OLD gate only blocked
@@ -18,6 +18,8 @@
 #   5. expired ignore-list entry            -> exit non-zero, "EXPIRED SUPPRESSION"
 #   6. rule+path match, line drifted        -> exit non-zero, "LIKELY-STALE ENTRY"
 #   7. empty results array                  -> exit 0
+#   8. module-relative SARIF path vs. repo-root-relative ignore-list entry
+#      -> exit 0, path normalization regression test (see case 8 below)
 
 setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../../.." && pwd)"
@@ -92,4 +94,24 @@ setup() {
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"Summary: 0 suppressed, 0 blocking, 0 total"* ]]
+}
+
+@test "case 8: module-relative SARIF path (local --source-root=backend convention) matches a repo-root-relative ignore-list entry (CI convention) after normalization" {
+  # Regression test for a real bug found while wiring the stricter gate
+  # (docs/plans/current_spec.md Commit 4): scripts/pre-commit-hooks/
+  # codeql-go-scan.sh's --source-root=backend produces SARIF paths like
+  # "internal/api/handlers/foo.go", while CI's checkout-rooted scan (and
+  # .github/codeql/codeql-suppressions.yml's own convention) produces/
+  # expects "backend/internal/api/handlers/foo.go". Without normalization,
+  # a real, valid, non-expired ignore-list entry that correctly matches CI
+  # would never match the identical finding in a local scan.
+  CODEQL_SUPPRESSIONS_FILE="$TESTDATA_DIR/case8-codeql-suppressions.yml" \
+    run "$SCRIPT_UNDER_TEST" "$TESTDATA_DIR/case8-module-relative-path.sarif" go
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"SUPPRESSED (codeql-suppressions.yml"* ]]
+  # The printed path must be normalized to the repo-root-relative form,
+  # not the raw module-relative SARIF path.
+  [[ "$output" == *"backend/internal/api/handlers/foo.go:42"* ]]
+  [[ "$output" != *"NEW FINDING"* ]]
 }

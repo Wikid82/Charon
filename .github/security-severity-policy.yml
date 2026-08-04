@@ -24,14 +24,21 @@ codeql:
     error: high_or_critical
     warning: medium_or_lower
     note: informational
+  # CHANGED 2026-08-04: findings of any level block by default. Prior
+  # policy (blocking_levels: [error] only, warnings "report") let a
+  # broken CodeQL suppression ship unnoticed — see docs/plans/current_spec.md.
   blocking_levels:
     - error
-  warning_policy:
-    default_action: report
-    escalation_high_signal_rule_ids:
-      - go/request-forgery
-      - js/missing-rate-limiting
-      - js/insecure-randomness
+    - warning
+    - note
+  exceptions:
+    mechanism: .github/codeql/codeql-suppressions.yml
+    description: >
+      A finding at any level is excluded from blocking only if it has a
+      matching, non-expired entry in the file above, OR the SARIF result
+      itself carries a non-null `suppressions` field (a correctly-placed
+      in-source `codeql[rule-id]` comment CodeQL's own extractor
+      recognized). Expired or unmatched findings always block.
 
 trivy:
   blocking_severities:
@@ -50,6 +57,6 @@ grype:
     escalation: issue-with-sla
 
 enforcement_contract:
-  codeql_local_vs_ci: "local and ci block on codeql error-level findings only"
+  codeql_local_vs_ci: "local and ci block on codeql findings of any level (error, warning, note) unless suppressed via .github/codeql/codeql-suppressions.yml or a native in-source codeql[rule-id] suppression"
   supply_chain_medium: "medium vulnerabilities are non-blocking by default and require explicit triage"
   auth_regression_guard: "state-changing routes must remain protected by auth middleware"

@@ -20,6 +20,24 @@
 # Exit status: 0 if no result is blocking, non-zero if any result is
 # blocking (or on usage/tooling errors).
 #
+# Path normalization: local pre-commit scans
+# (scripts/pre-commit-hooks/codeql-{go,js}-scan.sh) scope `codeql database
+# create` with --source-root=backend / --source-root=frontend respectively
+# (deliberately — scanning the full repo root locally can pick up stray
+# untracked directories such as leftover .claude/worktrees/** and produce
+# false findings; CI never has this problem since its checkout only
+# contains tracked files). This means locally-produced SARIF paths are
+# module-relative (e.g. "internal/api/handlers/auth_handler.go"), while
+# CI-produced SARIF paths (confirmed against real historical CI alerts via
+# `gh api repos/:owner/:repo/code-scanning/alerts`) are repo-root-relative
+# (e.g. "backend/internal/api/handlers/auth_handler.go") — the same
+# convention .github/codeql/codeql-suppressions.yml's `path:` field uses.
+# Without normalization, an ignore-list entry that correctly matches CI
+# would never match a local scan of the identical finding. This script
+# normalizes every result's path to the repo-root-relative form (derived
+# from the language-label argument) before matching OR printing, so one
+# ignore-list entry works identically against local and CI SARIF alike.
+#
 # Env overrides (used by scripts/security/tests/codeql-findings-gate.bats
 # to point at fixture ignore-lists instead of the real repo file):
 #   CODEQL_SUPPRESSIONS_FILE - path to the ignore-list YAML file.
@@ -44,6 +62,45 @@ if [[ -z "$SARIF_FILE" || -z "$LANG_LABEL" ]]; then
     usage
     exit 2
 fi
+
+# Module prefix a local scan's --source-root scopes results under, keyed by
+# language label. Matches scripts/pre-commit-hooks/codeql-go-scan.sh's
+# --source-root=backend and codeql-js-scan.sh's --source-root=frontend.
+# Accepts both the labels the pre-commit wrapper uses ("go", "js") and the
+# labels .github/workflows/codeql.yml's matrix uses ("go",
+# "javascript-typescript"), plus common synonyms, so callers don't need to
+# agree on one exact spelling. Unknown labels normalize to a no-op (empty
+# prefix) rather than guessing.
+module_prefix_for_lang() {
+    local lang_lc
+    lang_lc="$(tr '[:upper:]' '[:lower:]' <<<"$1")"
+    case "$lang_lc" in
+        go | golang)
+            printf 'backend/'
+            ;;
+        js | javascript | typescript | ts | javascript-typescript)
+            printf 'frontend/'
+            ;;
+        *)
+            printf ''
+            ;;
+    esac
+}
+
+# Normalize a SARIF result path to the repo-root-relative form
+# .github/codeql/codeql-suppressions.yml's entries use: prepend the
+# module prefix unless the path is already prefixed with it (CI's SARIF
+# already is; a local scan's SARIF isn't). Idempotent either way.
+normalize_result_path() {
+    local path="$1" prefix="$2"
+    if [[ -n "$prefix" && "$path" != "$prefix"* ]]; then
+        printf '%s%s' "$prefix" "$path"
+    else
+        printf '%s' "$path"
+    fi
+}
+
+MODULE_PREFIX="$(module_prefix_for_lang "$LANG_LABEL")"
 
 if [[ ! -f "$SARIF_FILE" ]]; then
     echo "ERROR: SARIF file not found: $SARIF_FILE" >&2
@@ -145,6 +202,7 @@ suppressed_count=0
 while IFS= read -r result; do
     rule_id="$(jq -r '.ruleId' <<<"$result")"
     path="$(jq -r '.path' <<<"$result")"
+    path="$(normalize_result_path "$path" "$MODULE_PREFIX")"
     line="$(jq -r '.line' <<<"$result")"
     level="$(jq -r '.level' <<<"$result")"
     natively_suppressed="$(jq -r '.nativelySuppressed' <<<"$result")"
