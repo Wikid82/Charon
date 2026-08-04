@@ -1,0 +1,37 @@
+# CodeQL findings ignore-list.
+#
+# Policy (.github/security-severity-policy.yml): CodeQL findings of ANY
+# severity fail the local (lefthook `codeql`) and CI (.github/workflows/
+# codeql.yml) gates by default. A finding is only allowed to pass if it
+# has a matching, non-expired entry here.
+#
+# Matching: an entry suppresses a SARIF result iff
+#   result.ruleId == rule_id
+#   AND result.locations[0].physicalLocation.artifactLocation.uri == path
+#   AND result.locations[0].physicalLocation.region.startLine is within
+#       [line] or [line_range.start, line_range.end]
+#
+# Expiry: entries past review_by are treated as EXPIRED and stop
+# suppressing (the finding reverts to blocking, printed distinctly from a
+# brand-new/never-triaged finding so it's obvious a renewal decision is
+# needed). Bump review_by (with a dated "Extended ..." note in the reason,
+# mirroring .trivyignore's convention) or fix the underlying issue.
+#
+# This mechanism intentionally goes one step further than the existing
+# .trivyignore/.grype.yaml pattern: it is the *first* ignore-list in this
+# repo whose expiry is actually machine-enforced (see
+# scripts/security/codeql-findings-gate.sh). See docs/plans/current_spec.md
+# [dated 2026-08-04] for why — not retrofitted onto Trivy/Grype in the
+# same change.
+suppressions: []
+  # Example entry (uncomment/copy when a real exception is needed):
+  # - rule_id: go/cookie-secure-not-set
+  #   path: backend/internal/api/handlers/auth_handler.go
+  #   line: 191
+  #   reason: >
+  #     Secure is false only for loopback/RFC1918/IPv6-ULA/Tailscale-CGNAT
+  #     origins over plain HTTP, by design, for Charon's documented
+  #     self-hosted LAN/VPN-mesh deployment mode without TLS termination.
+  #     See setSecureCookie's doc comment for the full truth table.
+  #   added: "2026-08-04"
+  #   review_by: "2026-11-04"

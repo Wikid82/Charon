@@ -1,0 +1,30 @@
+# Fixture ignore-list for scripts/security/tests/codeql-findings-gate.bats
+# case 6: same rule_id + path as the SARIF result, but neither entry's
+# line/line_range covers the result's actual startLine (99) — simulates a
+# later, unrelated code edit shifting line numbers out from under the
+# entries. Deliberately has TWO entries for the same rule_id+path (at
+# different lines) to exercise docs/plans/current_spec.md §9.2's reviewer
+# clarification: "partial match" (LIKELY-STALE) must mean no entry among
+# ALL same-rule+path entries covers the line — not just the first one
+# found.
+suppressions:
+  - rule_id: go/example-stale-rule
+    path: backend/internal/example_stale.go
+    line: 50
+    reason: >
+      Fixture entry exercising the LIKELY-STALE-ENTRY (line-drift) path of
+      scripts/security/codeql-findings-gate.sh. First of two same-rule+path
+      entries, neither of which covers the result's actual line.
+    added: "2026-08-04"
+    review_by: "2099-01-01"
+  - rule_id: go/example-stale-rule
+    path: backend/internal/example_stale.go
+    line_range:
+      start: 60
+      end: 65
+    reason: >
+      Second same-rule+path entry, also not covering the result's actual
+      line — confirms the gate checks ALL candidate entries, not just the
+      first.
+    added: "2026-08-04"
+    review_by: "2099-01-01"

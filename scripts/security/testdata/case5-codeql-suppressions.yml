@@ -1,0 +1,12 @@
+# Fixture ignore-list for scripts/security/tests/codeql-findings-gate.bats
+# case 5: a full rule_id+path+line match with review_by already in the
+# past — must revert to blocking as EXPIRED SUPPRESSION, not silently pass.
+suppressions:
+  - rule_id: go/example-expired-rule
+    path: backend/internal/example_expired.go
+    line: 40
+    reason: >
+      Fixture entry exercising the expired ignore-list match path of
+      scripts/security/codeql-findings-gate.sh.
+    added: "2020-01-01"
+    review_by: "2020-02-01"

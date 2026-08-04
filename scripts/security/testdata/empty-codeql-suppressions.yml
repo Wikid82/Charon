@@ -1,0 +1,6 @@
+# Fixture empty ignore-list for scripts/security/tests/codeql-findings-gate.bats
+# cases that don't need any ignore-list entries (cases 1, 2, 3, 7). Used
+# explicitly instead of falling back to the real
+# .github/codeql/codeql-suppressions.yml so these tests don't depend on
+# that file's content staying empty.
+suppressions: []
