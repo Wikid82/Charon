@@ -12,7 +12,7 @@
  */
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
-import { waitForLoadingComplete, waitForToast } from '../utils/wait-helpers';
+import { waitForLoadingComplete } from '../utils/wait-helpers';
 import { clickSwitch } from '../utils/ui-helpers';
 
 test.describe('WAF Configuration @security', () => {
@@ -120,6 +120,10 @@ test.describe('WAF Configuration @security', () => {
         await test.step('Toggle rule group', async () => {
           await ruleToggle.click();
           await page.waitForTimeout(500);
+
+          const isPressed = await ruleToggle.getAttribute('aria-pressed') === 'true' ||
+                            await ruleToggle.getAttribute('aria-checked') === 'true';
+          expect(isPressed).toBe(!wasPressed);
         });
 
         await test.step('Restore original state', async () => {
@@ -228,6 +232,7 @@ test.describe('WAF Configuration @security', () => {
           const name = await switchEl.getAttribute('aria-label') ||
                        await switchEl.getAttribute('aria-labelledby');
           // Some form of accessible name should exist
+          expect(name).toBeTruthy();
         }
       }
     });

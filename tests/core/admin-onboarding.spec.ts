@@ -12,8 +12,6 @@ import { waitForAPIResponse, waitForLoadingComplete } from '../utils/wait-helper
  */
 
 test.describe('Admin Onboarding & Setup', () => {
-  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
-
   async function navigateToLoginDeterministic(page: Page): Promise<void> {
     const gotoLogin = async (timeout: number): Promise<void> => {
       await page.goto('/login', { waitUntil: 'domcontentloaded', timeout });
@@ -199,7 +197,6 @@ test.describe('Admin Onboarding & Setup', () => {
     });
 
     await test.step('Verify encryption options present', async () => {
-      const encryptionSection = page.getByText(/encryption|cipher|passphrase/i);
       // May or may not be visible depending on setup state
       const encryptionForm = page.locator('[data-testid="encryption-form"], [class*="encryption"]');
       if (await encryptionForm.isVisible()) {

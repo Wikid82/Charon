@@ -13,13 +13,7 @@
  */
 
 import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
-import {
-  waitForLoadingComplete,
-  waitForToast,
-  waitForModal,
-  waitForAPIResponse,
-} from '../utils/wait-helpers';
-import { getCertificateValidationMessage } from '../utils/ui-helpers';
+import { waitForLoadingComplete } from '../utils/wait-helpers';
 
 test.describe('Account Settings', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -683,8 +677,9 @@ test.describe('Account Settings', () => {
             text?.match(/strong|good|excellent/i) ||
             ariaLabel?.match(/strong|good|excellent/i);
 
-          // Some implementations use colors, so we just verify the meter exists and updates
-          expect(text?.length || ariaLabel?.length).toBeGreaterThan(0);
+          // Some implementations use colors instead of text, so a strong/good/excellent
+          // label isn't guaranteed - but the meter must at least render some content.
+          expect(hasStrongIndicator || text?.length || ariaLabel?.length).toBeTruthy();
         }
       });
     });
@@ -805,12 +800,6 @@ test.describe('Account Settings', () => {
       });
 
       await test.step('Verify regeneration feedback', async () => {
-        // Wait for loading state on button
-        const regenerateButton = page
-          .getByRole('button')
-          .filter({ has: page.locator('svg.lucide-refresh-cw') })
-          .or(page.getByRole('button', { name: /regenerate/i }));
-
         // Button may show loading indicator or be disabled briefly
         // Then success toast should appear
         const toast = page.getByRole('status').or(page.getByRole('alert'));
@@ -876,7 +865,7 @@ test.describe('Account Settings', () => {
           const role = await focused.getAttribute('role').catch(() => null);
           const tagName = await focused.evaluate((el) => el.tagName.toLowerCase()).catch(() => '');
 
-          if (tagName === 'button' && await focused.locator('svg.lucide-copy, svg.lucide-refresh-cw').isVisible().catch(() => false)) {
+          if ((tagName === 'button' || role === 'button') && await focused.locator('svg.lucide-copy, svg.lucide-refresh-cw').isVisible().catch(() => false)) {
             foundApiButton = true;
             break;
           }

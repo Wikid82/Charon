@@ -13,7 +13,7 @@
  */
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
-import { waitForLoadingComplete, waitForTableLoad } from '../utils/wait-helpers';
+import { waitForLoadingComplete } from '../utils/wait-helpers';
 
 test.describe('Dashboard', () => {
   test.beforeEach(async ({ page, adminUser }) => {

@@ -17,22 +17,16 @@
  * - PUT /api/v1/proxy-hosts/:uuid
  */
 
-import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
+import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import {
   generateAccessList,
   generateAllowListForIPs,
   generateDenyListForIPs,
-  ipv6AccessList,
-  mixedRulesAccessList,
 } from '../fixtures/access-lists';
 import { generateProxyHost } from '../fixtures/proxy-hosts';
 import {
-  waitForToast,
   waitForLoadingComplete,
-  waitForAPIResponse,
-  clickAndWaitForResponse,
   waitForModal,
-  retryAction,
 } from '../utils/wait-helpers';
 
 /**
@@ -305,7 +299,7 @@ test.describe('Proxy + ACL Integration', () => {
       await loginUser(page, adminUser);
 
       const aclConfig = generateAccessList({ name: 'Display-Test-ACL' });
-      const { id: aclId, name: aclName } = await testData.createAccessList(aclConfig);
+      await testData.createAccessList(aclConfig);
 
       const proxyInput = generateProxyHost();
       const createdProxy = await testData.createProxyHost({
@@ -568,7 +562,7 @@ test.describe('Proxy + ACL Integration', () => {
       await loginUser(page, adminUser);
 
       const aclConfig = generateAccessList({ name: 'Toggle-Test-ACL' });
-      const { id: aclId } = await testData.createAccessList(aclConfig);
+      await testData.createAccessList(aclConfig);
 
       await test.step('Navigate to access lists', async () => {
         await page.goto('/access-lists');
@@ -702,11 +696,11 @@ test.describe('Proxy + ACL Integration', () => {
 
       // Create ACL
       const aclConfig = generateAccessList({ name: 'Preserve-ACL-Test' });
-      const { id: aclId } = await testData.createAccessList(aclConfig);
+      await testData.createAccessList(aclConfig);
 
       // Create proxy host
       const proxyConfig = generateProxyHost();
-      const { id: proxyId } = await testData.createProxyHost({
+      await testData.createProxyHost({
         domain: proxyConfig.domain,
         forwardHost: proxyConfig.forwardHost,
         forwardPort: proxyConfig.forwardPort,

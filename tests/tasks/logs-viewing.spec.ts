@@ -19,7 +19,7 @@
  * Updated: 2024-02-10 for full WebKit support
  */
 
-import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
+import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete, waitForAPIResponse } from '../utils/wait-helpers';
 import type { Page } from '@playwright/test';
 

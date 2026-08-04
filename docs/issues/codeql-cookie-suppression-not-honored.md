@@ -87,10 +87,61 @@ Either way, verify the fix via a fresh SARIF scan showing a non-null
 
 ## Acceptance Criteria
 
-- [ ] Root cause of why the inline suppression isn't recognized is confirmed
-- [ ] Suppression (inline or config-level) verified via fresh SARIF scan with
+- [x] Root cause of why the inline suppression isn't recognized is confirmed
+- [x] Suppression (inline or config-level) verified via fresh SARIF scan with
       non-null `suppressions` for the `go/cookie-secure-not-set` result on
       this call site
-- [ ] No change to the actual `secure` cookie logic (behavior is intentional
+- [x] No change to the actual `secure` cookie logic (behavior is intentional
       and already correctly justified — this is a suppression-tooling issue
       only)
+
+## Resolution
+
+Root-caused and fixed in `docs/plans/current_spec.md` §2–§3 (Part 1).
+
+**Root cause**: two independent, compounding placement errors, not a
+Go-extractor bug and not a logic bug. GitHub's `codeql[rule-id]` inline
+suppression syntax requires a **standalone comment line** (no code before
+it on that line) positioned **exactly one line before** the alert's
+reported `startLine`. The original comment violated both counts: it was a
+trailing comment attached to the same line as `c.SetCookie(` (same-line
+legacy `lgtm[...]`-style placement, not valid `codeql[...]` placement), and
+even the tagged text itself sat on the alert's own start line rather than
+the line immediately before it.
+
+**Fix**: repositioned the comment to a standalone line directly above
+`c.SetCookie(` (see `setSecureCookie` in
+`backend/internal/api/handlers/auth_handler.go`), with the truth-table
+justification folded into `setSecureCookie`'s own doc comment so it no
+longer cites the rotating `docs/plans/current_spec.md` plan document.
+Zero change to the `secure`/`isLocalRequest` decision logic itself — the
+existing ~24-test suite in `auth_handler_test.go` (`SecureCookie`/
+`LocalRequest` tests) passes unmodified as the regression gate.
+
+**Verification outcome: fallback condition B.** After the placement fix, a
+fresh local CodeQL Go scan (`bash scripts/pre-commit-hooks/codeql-go-scan.sh`)
+still reports `go/cookie-secure-not-set` for this call site with no
+`suppressions` key present on the result at all (not just this result —
+zero results anywhere in the SARIF carry a `suppressions` key). Since
+placement now provably satisfies the `codeql[rule-id]` rule above, this is
+a genuine local CodeQL CLI/query-pack limitation for this call shape, not
+a placement error — condition A (native, CodeQL-recognized suppression)
+was not achievable locally. Per the fallback this issue's own "Recommended
+Next Step" anticipated, the finding is instead formally registered as a
+dated, reviewable exception in `.github/codeql/codeql-suppressions.yml`
+(`rule_id: go/cookie-secure-not-set`, `path:
+backend/internal/api/handlers/auth_handler.go`, `line: 198`, `added:
+"2026-08-04"`, `review_by: "2026-11-04"`), which the hardened CodeQL
+findings gate (`scripts/security/codeql-findings-gate.sh`, added alongside
+this fix) treats as an equivalent, machine-enforced resolution — reviewed
+and renewed or re-fixed by the `review_by` date rather than silently
+riding through the gate forever the way the broken in-source comment
+previously did.
+
+Four further `codeql[go/log-injection]` comments in `crowdsec_handler.go`
+and `backup_handler.go` were independently found malformed the same way
+(comment token two lines above the flagged statement instead of one) and
+repositioned in the same fix — no active SARIF findings existed for those
+sites either way, so this was a hygiene fix rather than a live-finding
+resolution, but it closes the same class of latent bug before it can ride
+through unnoticed on an `error`-level rule.

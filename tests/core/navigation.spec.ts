@@ -543,7 +543,6 @@ test.describe('Navigation', () => {
 
           if (href !== null && text?.match(/proxy|certificate|settings|dashboard|home/i)) {
             foundNavLink = true;
-            const initialUrl = page.url();
 
             await page.keyboard.press('Enter');
             await waitForLoadingComplete(page);
@@ -616,8 +615,11 @@ test.describe('Navigation', () => {
             ? await focused2Element.textContent().catch(() => '')
             : '';
 
-          // Arrow key navigation tested - focus may or may not change depending on menu implementation
-          expect(true).toBeTruthy();
+          // Arrow key navigation tested - focus may or may not change depending on menu
+          // implementation, so we don't assert the two differ. We do assert the focus
+          // queries themselves resolved cleanly (no rejected promise / unexpected shape).
+          expect(typeof focused1).toBe('string');
+          expect(typeof focused2).toBe('string');
         } else {
           // No menu/menubar role present - this is acceptable for many navigation patterns
           expect(true).toBeTruthy();
@@ -794,7 +796,7 @@ test.describe('Navigation', () => {
           const hasLinks = await links.first().isVisible().catch(() => false);
           const hasRenderedApp = await page.locator('body > *').first().isVisible().catch(() => false);
           if (!(hasNav || hasSidebar || hasLinks || hasRenderedApp)) {
-            console.log('⚠️ No mobile navigation affordance detected in this environment')
+            console.log('⚠️ No mobile navigation affordance detected in this environment');
           }
           expect(true).toBeTruthy();
         }
@@ -824,7 +826,7 @@ test.describe('Navigation', () => {
 
         // Desktop should have some navigation mechanism
         if (!(hasNav || hasSidebar || hasLinks || hasRenderedApp)) {
-          console.log('⚠️ No desktop navigation affordance detected in this environment')
+          console.log('⚠️ No desktop navigation affordance detected in this environment');
         }
         expect(true).toBeTruthy();
       });
@@ -851,7 +853,7 @@ test.describe('Navigation', () => {
 
         // Mobile should have some navigation mechanism
         if (!(hasHamburger || hasVisibleNav || hasSidebar || hasLinks || hasRenderedApp)) {
-          console.log('⚠️ No mobile navigation adaptation signal detected in this environment')
+          console.log('⚠️ No mobile navigation adaptation signal detected in this environment');
         }
         expect(true).toBeTruthy();
       });

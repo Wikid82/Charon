@@ -1,0 +1,21 @@
+# Fixture ignore-list for scripts/security/tests/codeql-findings-gate.bats
+# case 8: the ignore-list entry is keyed with the full repo-root-relative
+# path (the convention CI's SARIF and .github/codeql/codeql-suppressions.yml
+# both use), while case8-module-relative-path.sarif's result carries a bare
+# module-relative path (the convention a local `--source-root=backend` scan
+# produces). This is a regression test for a real bug found while
+# implementing docs/plans/current_spec.md Commit 4: without path
+# normalization in codeql-findings-gate.sh, this exact, valid, non-expired
+# entry would never match a local scan of the identical finding, even
+# though it correctly matches CI.
+suppressions:
+  - rule_id: go/example-module-relative-rule
+    path: backend/internal/api/handlers/foo.go
+    line: 42
+    reason: >
+      Fixture entry exercising path normalization: this entry is keyed
+      with the repo-root-relative path (CI convention), and must still
+      match a SARIF result whose path is module-relative (local
+      --source-root=backend convention).
+    added: "2026-08-04"
+    review_by: "2099-01-01"

@@ -33,58 +33,10 @@
  * land (commits 2-9), per this plan's own Phase 1 guidance.
  */
 
-import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
+import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { generateProxyHost } from '../fixtures/proxy-hosts';
 import { generateAccessList } from '../fixtures/access-lists';
-import { generateDnsProvider } from '../fixtures/dns-providers';
-import {
-  waitForToast,
-  waitForLoadingComplete,
-  waitForAPIResponse,
-  waitForModal,
-  clickAndWaitForResponse,
-} from '../utils/wait-helpers';
-
-/**
- * Selectors for Backup pages
- */
-const SELECTORS = {
-  // Backup List
-  backupTable: '[data-testid="backup-list"], table',
-  backupRow: '[data-testid="backup-row"], tbody tr',
-  createBackupBtn: 'button:has-text("Create Backup"), button:has-text("Backup Now")',
-  deleteBackupBtn: 'button:has-text("Delete"), [data-testid="delete-backup"]',
-  restoreBackupBtn: 'button:has-text("Restore"), [data-testid="restore-backup"]',
-  downloadBackupBtn: 'button:has-text("Download"), [data-testid="download-backup"]',
-
-  // Backup Form
-  backupNameInput: 'input[name="name"], #backup-name',
-  backupDescriptionInput: 'textarea[name="description"], #backup-description',
-  includeConfigCheckbox: 'input[name="include_config"], #include-config',
-  includeDataCheckbox: 'input[name="include_data"], #include-data',
-
-  // Schedule Configuration
-  scheduleEnabledToggle: 'input[name="schedule_enabled"], [data-testid="schedule-toggle"]',
-  scheduleFrequency: 'select[name="frequency"], #schedule-frequency',
-  scheduleTime: 'input[name="schedule_time"], #schedule-time',
-  retentionDays: 'input[name="retention_days"], #retention-days',
-
-  // Restore Modal
-  restoreModal: '[data-testid="restore-modal"], .modal',
-  confirmRestoreBtn: 'button:has-text("Confirm Restore"), button:has-text("Yes, Restore")',
-  restoreWarning: '[data-testid="restore-warning"], .warning',
-
-  // Status Indicators
-  backupStatus: '[data-testid="backup-status"], .backup-status',
-  progressBar: '[data-testid="progress-bar"], .progress',
-  backupSize: '[data-testid="backup-size"], .backup-size',
-  backupDate: '[data-testid="backup-date"], .backup-date',
-
-  // Common
-  saveButton: 'button:has-text("Save"), button[type="submit"]',
-  cancelButton: 'button:has-text("Cancel")',
-  loadingSkeleton: '[data-testid="loading-skeleton"], .loading',
-};
+import { waitForLoadingComplete } from '../utils/wait-helpers';
 
 test.describe('Backup & Restore E2E', () => {
   // ===========================================================================

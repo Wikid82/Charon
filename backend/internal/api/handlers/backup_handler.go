@@ -283,8 +283,9 @@ func (h *BackupHandler) Restore(c *gin.Context) {
 	audit := buildRequestAuditInfo(c)
 	job, err := h.service.StartRestoreJob(filename, req.Passphrase, audit)
 	if err != nil {
-		// codeql[go/log-injection] Safe: user input sanitized via util.SanitizeForLog()
-		// which removes control characters (0x00-0x1F, 0x7F) including CRLF
+		// Safe: user input sanitized via util.SanitizeForLog() which removes
+		// control characters (0x00-0x1F, 0x7F) including CRLF
+		// codeql[go/log-injection]
 		middleware.GetRequestLogger(c).WithField("action", "restore_backup").
 			WithField("filename", util.SanitizeForLog(filepath.Base(filename))).
 			WithField("error", util.SanitizeForLog(err.Error())).Error("Failed to start restore job")

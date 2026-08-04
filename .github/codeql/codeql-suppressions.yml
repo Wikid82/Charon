@@ -1,0 +1,56 @@
+# CodeQL findings ignore-list.
+#
+# Policy (.github/security-severity-policy.yml): CodeQL findings of ANY
+# severity fail the local (lefthook `codeql`) and CI (.github/workflows/
+# codeql.yml) gates by default. A finding is only allowed to pass if it
+# has a matching, non-expired entry here.
+#
+# Matching: an entry suppresses a SARIF result iff
+#   result.ruleId == rule_id
+#   AND result.locations[0].physicalLocation.artifactLocation.uri == path
+#   AND result.locations[0].physicalLocation.region.startLine is within
+#       [line] or [line_range.start, line_range.end]
+#
+# Expiry: entries past review_by are treated as EXPIRED and stop
+# suppressing (the finding reverts to blocking, printed distinctly from a
+# brand-new/never-triaged finding so it's obvious a renewal decision is
+# needed). Bump review_by (with a dated "Extended ..." note in the reason,
+# mirroring .trivyignore's convention) or fix the underlying issue.
+#
+# This mechanism intentionally goes one step further than the existing
+# .trivyignore/.grype.yaml pattern: it is the *first* ignore-list in this
+# repo whose expiry is actually machine-enforced (see
+# scripts/security/codeql-findings-gate.sh). See docs/plans/current_spec.md
+# [dated 2026-08-04] for why — not retrofitted onto Trivy/Grype in the
+# same change.
+suppressions:
+  - rule_id: go/cookie-secure-not-set
+    path: backend/internal/api/handlers/auth_handler.go
+    line: 198
+    reason: >
+      Secure is false only when isLocalRequest(c) AND scheme != "https"
+      (loopback/RFC1918/IPv6-ULA/Tailscale-CGNAT origin over plain HTTP) —
+      every other path (HTTPS, or plain HTTP from a public host) still gets
+      secure=true, by design, for Charon's documented self-hosted LAN/VPN-
+      mesh deployment mode without TLS termination. See setSecureCookie's
+      doc comment (backend/internal/api/handlers/auth_handler.go) for the
+      full truth table. The in-source `codeql[go/cookie-secure-not-set]`
+      comment is correctly placed (standalone line, exactly startLine-1,
+      no code preceding it) per CodeQL's documented codeql[rule-id] syntax,
+      but a fresh local SARIF scan still shows no `suppressions` key on any
+      result in the file (not just this one) — a local CLI/query-pack
+      limitation for this call shape, not a placement error. This entry is
+      the documented fallback for that case. See
+      docs/issues/codeql-cookie-suppression-not-honored.md for the full
+      investigation history.
+    added: "2026-08-04"
+    review_by: "2026-11-04"
+
+  # Example entry (uncomment/copy when a new exception is needed):
+  # - rule_id: go/example-rule-id
+  #   path: backend/internal/example.go
+  #   line: 1
+  #   reason: >
+  #     Why this finding is a false positive or an accepted, justified risk.
+  #   added: "2026-08-04"
+  #   review_by: "2026-11-04"

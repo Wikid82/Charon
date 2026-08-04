@@ -1,9 +1,7 @@
 import { promises as fs } from 'fs';
 import * as tar from 'tar';
 import * as path from 'path';
-import { createGzip } from 'zlib';
-import { createWriteStream, createReadStream } from 'fs';
-import { pipeline } from 'stream/promises';
+import { createWriteStream } from 'fs';
 
 export interface ArchiveOptions {
   format: 'tar.gz' | 'zip';

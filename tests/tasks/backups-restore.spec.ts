@@ -11,8 +11,8 @@
  * - Edge Cases (2 tests): reload application state after restore, preserve user session
  */
 
-import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
-import { setupBackupsList, completeRestoreFlow, mockBackupJobPolling, BackupFile } from '../utils/phase5-helpers';
+import { test, expect, loginUser } from '../fixtures/auth-fixtures';
+import { mockBackupJobPolling, BackupFile } from '../utils/phase5-helpers';
 import { waitForToast, waitForLoadingComplete } from '../utils/wait-helpers';
 
 /**

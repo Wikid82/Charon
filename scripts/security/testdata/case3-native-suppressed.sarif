@@ -1,0 +1,40 @@
+{
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "CodeQL",
+          "rules": [
+            {
+              "id": "go/cookie-secure-not-set",
+              "defaultConfiguration": { "level": "warning" }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "go/cookie-secure-not-set",
+          "ruleIndex": 0,
+          "level": "warning",
+          "message": { "text": "Example natively-suppressed finding" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "backend/internal/api/handlers/auth_handler.go" },
+                "region": { "startLine": 191, "endLine": 203 }
+              }
+            }
+          ],
+          "suppressions": [
+            {
+              "kind": "inSource",
+              "justification": "codeql[go/cookie-secure-not-set]"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

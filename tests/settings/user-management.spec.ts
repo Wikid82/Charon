@@ -607,7 +607,7 @@ test.describe('User Management', () => {
     // API calls fail with auth errors when base URL doesn't match cookie domain from auth setup.
     // Re-enable once CI environment consistently uses localhost:8080.
     test('should update permission mode', async ({ page, testData }) => {
-      const testUser = await testData.createUser({
+      await testData.createUser({
         name: 'Permission Mode Test',
         email: `perm-mode-${Date.now()}@test.local`,
         password: TEST_PASSWORD,
@@ -851,7 +851,7 @@ test.describe('User Management', () => {
     // Requires PLAYWRIGHT_BASE_URL=http://localhost:8080 to be set for proper auth.
     // See: TestDataManager uses fetch() which needs matching cookie domain.
     test('should enable/disable user', async ({ page, testData }) => {
-      const testUser = await testData.createUser({
+      await testData.createUser({
         name: 'Toggle Enable Test',
         email: `toggle-${Date.now()}@test.local`,
         password: TEST_PASSWORD,

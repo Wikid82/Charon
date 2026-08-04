@@ -1,0 +1,34 @@
+{
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "CodeQL",
+          "rules": [
+            {
+              "id": "go/example-error-rule",
+              "defaultConfiguration": { "level": "error" }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "go/example-error-rule",
+          "ruleIndex": 0,
+          "level": "error",
+          "message": { "text": "Example error-level finding" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "backend/internal/example_error.go" },
+                "region": { "startLine": 10, "endLine": 10 }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -211,6 +211,9 @@ test.describe('Modal Dropdown Z-Index Triage', () => {
 
       for (let i = 0; i < selectCount && i < 3; i++) {
         const result = await testDropdownInteraction(page, /role|permission|access/i, `EditPermissions Dropdown ${i + 1}`)
+        if (!result.opened) {
+          console.log(`⚠️ UsersPage: EditPermissions dropdown ${i + 1} may have z-index issue`)
+        }
       }
     })
 

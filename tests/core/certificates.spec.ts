@@ -11,27 +11,12 @@
  * @see /projects/Charon/docs/plans/current_spec.md
  */
 
-import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
+import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import {
   waitForLoadingComplete,
-  waitForToast,
-  waitForModal,
   waitForDialog,
-  waitForFormFields,
   waitForDebounce,
-  waitForConfigReload,
-  waitForNavigation,
 } from '../utils/wait-helpers';
-import {
-  letsEncryptCertificate,
-  customCertificateMock,
-  expiredCertificate,
-  expiringCertificate,
-  invalidCertificates,
-  generateCertificate,
-  type CertificateConfig,
-} from '../fixtures/certificates';
-import { generateUniqueId } from '../fixtures/test-data';
 
 test.describe('SSL Certificates - CRUD Operations', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -54,10 +39,6 @@ test.describe('SSL Certificates - CRUD Operations', () => {
   // Helper to get the Add Certificate button
   const getAddCertButton = (page: import('@playwright/test').Page) =>
     page.getByRole('button', { name: /add.*certificate/i }).first();
-
-  // Helper to get Upload button in form
-  const getUploadButton = (page: import('@playwright/test').Page) =>
-    page.getByRole('button', { name: /upload/i }).first();
 
   // Helper to get Cancel button in form
   const getCancelButton = (page: import('@playwright/test').Page) =>

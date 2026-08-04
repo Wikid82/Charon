@@ -14,79 +14,7 @@
  */
 
 import { test, expect, loginUser } from '../../fixtures/auth-fixtures';
-import { waitForToast, waitForLoadingComplete } from '../../utils/wait-helpers';
-
-/**
- * TypeScript interfaces matching the API
- */
-interface LiveLogEntry {
-  level: string;
-  timestamp: string;
-  message: string;
-  source?: string;
-  data?: Record<string, unknown>;
-}
-
-interface SecurityLogEntry {
-  timestamp: string;
-  level: string;
-  logger: string;
-  client_ip: string;
-  method: string;
-  uri: string;
-  status: number;
-  duration: number;
-  size: number;
-  user_agent: string;
-  host: string;
-  source: 'waf' | 'crowdsec' | 'ratelimit' | 'acl' | 'normal';
-  blocked: boolean;
-  block_reason?: string;
-  details?: Record<string, unknown>;
-}
-
-/**
- * Mock log entries for testing
- */
-const mockLogEntry: LiveLogEntry = {
-  timestamp: '2024-01-15T12:00:00Z',
-  level: 'INFO',
-  message: 'Server request processed',
-  source: 'api',
-};
-
-const mockSecurityEntry: SecurityLogEntry = {
-  timestamp: '2024-01-15T12:00:01Z',
-  level: 'WARN',
-  logger: 'http',
-  client_ip: '192.168.1.100',
-  method: 'GET',
-  uri: '/api/users',
-  status: 200,
-  duration: 0.045,
-  size: 1234,
-  user_agent: 'Mozilla/5.0',
-  host: 'api.example.com',
-  source: 'normal',
-  blocked: false,
-};
-
-const mockBlockedEntry: SecurityLogEntry = {
-  timestamp: '2024-01-15T12:00:02Z',
-  level: 'WARN',
-  logger: 'security',
-  client_ip: '10.0.0.50',
-  method: 'POST',
-  uri: '/admin/login',
-  status: 403,
-  duration: 0.002,
-  size: 0,
-  user_agent: 'curl/7.68.0',
-  host: 'admin.example.com',
-  source: 'waf',
-  blocked: true,
-  block_reason: 'SQL injection attempt',
-};
+import { waitForLoadingComplete } from '../../utils/wait-helpers';
 
 /**
  * UI Selectors for the LiveLogViewer component
@@ -155,62 +83,6 @@ async function waitForWebSocketConnection(page: import('@playwright/test').Page)
   await expect(page.locator(SELECTORS.connectionStatus)).toContainText('Connected', {
     timeout: 10000,
   });
-}
-
-/**
- * Helper: Create a mock WebSocket message handler
- */
-function createMockWebSocketHandler(
-  page: import('@playwright/test').Page,
-  messages: Array<LiveLogEntry | SecurityLogEntry>
-) {
-  let messageIndex = 0;
-
-  page.on('websocket', (ws) => {
-    ws.on('framereceived', () => {
-      // Log frame received for debugging
-    });
-  });
-
-  return {
-    sendNextMessage: async () => {
-      if (messageIndex < messages.length) {
-        // Simulate a log entry being received via evaluate
-        await page.evaluate((entry) => {
-          // Dispatch a custom event that the component can listen to
-          window.dispatchEvent(
-            new CustomEvent('mock-log-entry', { detail: entry })
-          );
-        }, messages[messageIndex]);
-        messageIndex++;
-      }
-    },
-    reset: () => {
-      messageIndex = 0;
-    },
-  };
-}
-
-/**
- * Helper: Generate multiple mock log entries
- */
-function generateMockLogs(count: number, options?: { blocked?: boolean }): SecurityLogEntry[] {
-  return Array.from({ length: count }, (_, i) => ({
-    timestamp: new Date(Date.now() - i * 1000).toISOString(),
-    level: ['INFO', 'WARN', 'ERROR', 'DEBUG'][i % 4],
-    logger: 'http',
-    client_ip: `192.168.1.${i % 255}`,
-    method: ['GET', 'POST', 'PUT', 'DELETE'][i % 4],
-    uri: `/api/resource/${i}`,
-    status: options?.blocked ? 403 : [200, 201, 404, 500][i % 4],
-    duration: Math.random() * 0.5,
-    size: Math.floor(Math.random() * 5000),
-    user_agent: 'Mozilla/5.0',
-    host: 'api.example.com',
-    source: (['normal', 'waf', 'crowdsec', 'ratelimit', 'acl'] as const)[i % 5],
-    blocked: options?.blocked ?? i % 10 === 0,
-    block_reason: options?.blocked || i % 10 === 0 ? 'Rate limit exceeded' : undefined,
-  }));
 }
 
 test.describe('Real-Time Logs Viewer', () => {
@@ -470,8 +342,10 @@ test.describe('Real-Time Logs Viewer', () => {
       const scrollHeight = await logContainer.evaluate((el) => el.scrollHeight);
       const clientHeight = await logContainer.evaluate((el) => el.clientHeight);
 
-      // Verify container has proper scroll setup
+      // Verify container has proper scroll setup: content height must be at
+      // least the visible height for auto-scroll-to-latest to be meaningful.
       expect(clientHeight).toBeGreaterThan(0);
+      expect(scrollHeight).toBeGreaterThanOrEqual(clientHeight);
     });
   });
 

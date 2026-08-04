@@ -19,9 +19,8 @@
  */
 
 import { Page, Request, Response } from '@playwright/test';
-import { DebugLogger, NetworkLogEntry } from '../utils/debug-logger';
-import { WriteStream, createWriteStream } from 'fs';
-import { join } from 'path';
+import { DebugLogger } from '../utils/debug-logger';
+import { WriteStream } from 'fs';
 
 interface NetworkMetrics {
   url: string;

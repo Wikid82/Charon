@@ -11,7 +11,7 @@
  */
 
 import { test, expect, loginUser } from '../../fixtures/auth-fixtures';
-import { waitForToast, waitForLoadingComplete, waitForAPIResponse } from '../../utils/wait-helpers';
+import { waitForLoadingComplete } from '../../utils/wait-helpers';
 
 /**
  * Selectors for the Import CrowdSec page
@@ -28,15 +28,6 @@ const SELECTORS = {
   // Error/success messages
   errorMessage: '.bg-red-900',
   successToast: '[data-testid="toast-success"]',
-};
-
-/**
- * Mock CrowdSec configuration for testing
- */
-const mockCrowdSecConfig = {
-  lapi_url: 'http://crowdsec:8080',
-  bouncer_api_key: 'test-api-key',
-  mode: 'live',
 };
 
 /**

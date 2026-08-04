@@ -14,7 +14,7 @@
  */
 
 import { test, expect, request as playwrightRequest } from '@playwright/test';
-import { EMERGENCY_TOKEN, EMERGENCY_SERVER, enableSecurity } from '../../fixtures/security';
+import { EMERGENCY_TOKEN, EMERGENCY_SERVER } from '../../fixtures/security';
 import { TestDataManager } from '../../utils/TestDataManager';
 
 // CI-specific timeout multiplier: CI environments have higher I/O latency
@@ -169,7 +169,7 @@ test.describe('Emergency Server (Tier 2 Break Glass)', () => {
       });
 
       // Create restrictive ACL on main app
-      const { id: aclId } = await testData.createAccessList({
+      await testData.createAccessList({
         name: 'test-emergency-server-acl',
         type: 'whitelist',
         ipRules: [{ cidr: '192.168.99.0/24', description: 'Unreachable network' }],

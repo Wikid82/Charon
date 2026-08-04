@@ -11,17 +11,10 @@
  * @see /projects/Charon/docs/plans/current_spec.md
  */
 
-import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
-import { waitForLoadingComplete, waitForToast, waitForModal, waitForDialog, waitForDebounce } from '../utils/wait-helpers';
+import { test, expect, loginUser } from '../fixtures/auth-fixtures';
+import { waitForLoadingComplete, waitForDialog, waitForDebounce } from '../utils/wait-helpers';
 import { clickSwitch } from '../utils/ui-helpers';
-import {
-  basicProxyHost,
-  proxyHostWithSSL,
-  proxyHostWithWebSocket,
-  invalidProxyHosts,
-  generateProxyHost,
-  type ProxyHostConfig,
-} from '../fixtures/proxy-hosts';
+import { generateProxyHost } from '../fixtures/proxy-hosts';
 import type { Page } from '@playwright/test';
 
 /**
@@ -796,8 +789,9 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
           await clickSwitch(firstToggle);
           await waitForLoadingComplete(page);
 
-          // The toggle state should change (or loading overlay appears)
-          // Note: actual toggle may take time to reflect
+          // Verify the toggle state actually flipped after the click.
+          const isNowChecked = await firstToggle.isChecked();
+          expect(isNowChecked).toBe(!wasChecked);
         }
       });
     });
@@ -996,6 +990,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
         const nameInput = page.locator('#proxy-name');
         const label = page.locator('label[for="proxy-name"]');
 
+        await expect(nameInput).toBeVisible();
         await expect(label).toBeVisible();
 
         // Close form

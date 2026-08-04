@@ -13,14 +13,8 @@
  */
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
-import {
-  mockImportAPI,
-  mockImportPreview,
-  ImportPreview,
-  ImportSession,
-  IMPORT_SELECTORS,
-} from '../utils/phase5-helpers';
-import { waitForToast, waitForLoadingComplete, waitForAPIResponse } from '../utils/wait-helpers';
+import { ImportPreview } from '../utils/phase5-helpers';
+import { waitForLoadingComplete, waitForAPIResponse } from '../utils/wait-helpers';
 
 /**
  * Selectors for the Import Caddyfile page
