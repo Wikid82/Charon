@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -72,9 +73,7 @@ func setupTestRouterWithReferenceTables(t *testing.T) (*gin.Engine, *gorm.DB) {
 func setupTestRouterWithUptime(t *testing.T) (*gin.Engine, *gorm.DB) {
 	t.Helper()
 
-	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
+	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(
 		&models.ProxyHost{},
 		&models.Location{},
@@ -85,6 +84,21 @@ func setupTestRouterWithUptime(t *testing.T) (*gin.Engine, *gorm.DB) {
 		&models.UptimeHost{},
 		&models.Setting{},
 	))
+
+	// Cap the pool at a single physical connection, mirroring production's
+	// configurePool (internal/database/database.go). This is the specific
+	// mechanism that fully eliminates SQLite table-lock contention (rather
+	// than just reducing its probability the way OpenTestDB's busy-timeout/WAL
+	// DSN params alone do): with one connection, concurrent goroutines are
+	// serialized through Go's own pool-checkout queue and never reach SQLite's
+	// shared-cache locking path at all. Needed here specifically because this
+	// helper backs tests (see the *_ConcurrentLoad regression test below) that
+	// deliberately maximize write overlap between the request-handling
+	// goroutine and the async `go uptimeService.SyncAndCheckForHost(...)`
+	// goroutine it spawns.
+	sqlDB, sqlErr := db.DB()
+	require.NoError(t, sqlErr)
+	sqlDB.SetMaxOpenConns(1)
 
 	ns := services.NewNotificationService(db, nil)
 	us := services.NewUptimeService(db, ns)
@@ -256,6 +270,63 @@ func TestProxyHostCreate_TriggersAsyncUptimeSyncWhenServiceConfigured(t *testing
 		db.Model(&models.UptimeMonitor{}).Where("proxy_host_id = ?", created.ID).Count(&count)
 		return count > 0
 	}, 3*time.Second, 50*time.Millisecond)
+}
+
+func TestProxyHostCreate_TriggersAsyncUptimeSyncWhenServiceConfigured_ConcurrentLoad(t *testing.T) {
+	t.Parallel()
+
+	router, db := setupTestRouterWithUptime(t)
+
+	const n = 8
+	domains := make([]string, n)
+	statusCodes := make([]int, n) // each goroutine writes only its own index — no shared-write race
+
+	var wg sync.WaitGroup
+	start := make(chan struct{}) // synchronization barrier
+
+	for i := 0; i < n; i++ {
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		t.Cleanup(upstream.Close)
+		domains[i] = fmt.Sprintf("concurrent-load-%d-%s", i, strings.TrimPrefix(upstream.URL, "http://"))
+
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start // block here until every goroutine is launched and ready
+
+			// forward_host is deliberately unique per goroutine (app-service-<i>) so this
+			// test isolates the SQLite table-lock contention it targets (§4 of the plan)
+			// from the unrelated check-then-act race in UptimeService.ensureUptimeHost,
+			// which would otherwise spuriously fail concurrent requests that share a
+			// forward_host via a UNIQUE constraint violation on uptime_hosts.host.
+			body := fmt.Sprintf(`{"name":"Concurrent Load %d","domain_names":"%s","forward_scheme":"http","forward_host":"app-service-%d","forward_port":8080,"enabled":true}`, i, domains[i], i)
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-hosts", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+			statusCodes[i] = resp.Code // disjoint index write, safe without a mutex
+		}(i)
+	}
+
+	close(start) // release all n goroutines at once, maximizing write overlap
+	wg.Wait()
+
+	// All assertions run on the main test goroutine, after wg.Wait() —
+	// never inside the goroutines above (see rationale in plan §5.4).
+	for i, domain := range domains {
+		require.Equal(t, http.StatusCreated, statusCodes[i], "host %d creation response", i)
+
+		var created models.ProxyHost
+		require.NoError(t, db.Where("domain_names = ?", domain).First(&created).Error, "host %d lookup", i)
+
+		var count int64
+		require.Eventually(t, func() bool {
+			db.Model(&models.UptimeMonitor{}).Where("proxy_host_id = ?", created.ID).Count(&count)
+			return count > 0
+		}, 3*time.Second, 50*time.Millisecond, "monitor for host %d (domain %s) never created", i, domain)
+	}
 }
 
 func TestProxyHostLifecycle(t *testing.T) {
