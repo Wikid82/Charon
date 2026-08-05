@@ -15,7 +15,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
@@ -27,9 +26,7 @@ import (
 func setupTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	t.Helper()
 
-	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
+	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(
 		&models.ProxyHost{},
 		&models.Location{},
@@ -49,9 +46,7 @@ func setupTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 func setupTestRouterWithReferenceTables(t *testing.T) (*gin.Engine, *gorm.DB) {
 	t.Helper()
 
-	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
+	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(
 		&models.ProxyHost{},
 		&models.Location{},
@@ -393,9 +388,7 @@ func TestProxyHostLifecycle(t *testing.T) {
 func TestProxyHostDelete_WithUptimeCleanup(t *testing.T) {
 	t.Parallel()
 	// Setup DB and router with uptime service
-	dsn := "file:test-delete-uptime?mode=memory&cache=shared"
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
+	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.UptimeMonitor{}, &models.UptimeHeartbeat{}))
 
 	ns := services.NewNotificationService(db, nil)
@@ -441,9 +434,7 @@ func TestProxyHostErrors(t *testing.T) {
 	defer caddyServer.Close()
 
 	// Setup DB
-	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
+	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}))
 
 	// Setup Caddy Manager
@@ -721,9 +712,7 @@ func TestProxyHostWithCaddyIntegration(t *testing.T) {
 	defer caddyServer.Close()
 
 	// Setup DB
-	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
+	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}))
 
 	// Setup Caddy Manager
@@ -1956,9 +1945,7 @@ func TestUpdate_IntegrationCaddyConfig(t *testing.T) {
 	}))
 	defer caddyServer.Close()
 
-	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
+	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}))
 
 	tmpDir := t.TempDir()
@@ -2006,7 +1993,11 @@ func TestUpdate_IntegrationCaddyConfig(t *testing.T) {
 // Phase 2: Regression test - Existing hosts without these fields
 func TestUpdate_ExistingHostsBackwardCompatibility(t *testing.T) {
 	t.Parallel()
-	_, db := setupTestRouter(t)
+	// Single router+db pair (not two separate setupTestRouter(t) calls):
+	// OpenTestDB(t) mints a unique DSN per call, so a second call would open
+	// an independent, empty database and the router below would never see
+	// the row inserted via db here.
+	router, db := setupTestRouter(t)
 
 	err := db.Exec(`
 		INSERT INTO proxy_hosts (uuid, name, domain_names, forward_scheme, forward_host, forward_port, enabled, created_at, updated_at)
@@ -2020,7 +2011,6 @@ func TestUpdate_ExistingHostsBackwardCompatibility(t *testing.T) {
 	require.False(t, host.ForwardAuthEnabled)
 	require.False(t, host.WAFDisabled)
 
-	router, _ := setupTestRouter(t)
 	updateBody := `{"name": "Old Host Updated"}`
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/backward-compat-uuid", strings.NewReader(updateBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -2452,9 +2442,7 @@ func TestProxyHostUpdate_CertificateID_StringValue(t *testing.T) {
 func setupTestRouterWithProxyGroupTable(t *testing.T) (*gin.Engine, *gorm.DB) {
 	t.Helper()
 
-	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
+	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(
 		&models.ProxyGroup{},
 		&models.ProxyHost{},
@@ -2824,9 +2812,7 @@ func TestProxyHostHandler_BulkUpdateGroup_CaddyApplyError(t *testing.T) {
 	}))
 	defer caddyServer.Close()
 
-	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
+	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(
 		&models.ProxyGroup{}, &models.ProxyHost{}, &models.Location{},
 		&models.Setting{}, &models.CaddyConfig{},
@@ -2883,9 +2869,7 @@ func (f *fakeCertCacheInvalidator) InvalidateCache() {
 // create request through the HTTP layer, closing the loop on the
 // certificates-list "in_use" staleness bug this wiring fixes.
 func TestProxyHostHandler_SetCertificateService_InvalidatesOnCreate(t *testing.T) {
-	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
+	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(
 		&models.ProxyHost{},
 		&models.Location{},
