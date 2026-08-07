@@ -69,7 +69,7 @@ for MODULE in "${NPM_MODULES[@]}"; do
     # eslint@^9 dependency (vs. the types-only @types/eslint@* in 6.10.0),
     # reintroducing GHSA-mh99-v99m-4gvg (brace-expansion DoS). Keep
     # exact-pinned to 6.10.0 until upstream ships a fixed release.
-    npx npm-check-updates -u --reject typescript,@types/eslint-plugin-jsx-a11y
+    npx --yes npm-check-updates -u --reject typescript,@types/eslint-plugin-jsx-a11y
 
     # Also update flat (string-valued) entries in the "overrides" section.
     # npm-check-updates excludes "overrides" from its default --dep list, so
@@ -84,7 +84,7 @@ for MODULE in "${NPM_MODULES[@]}"; do
     if [ "$MODULE" != "$REPO_ROOT/frontend" ]; then
         # Root package.json has only flat string overrides — safe to update all
         # except js-yaml, which has breaking changes in v6+; keep pinned to ^5.
-        npx npm-check-updates -u --dep overrides --reject js-yaml
+        npx --yes npm-check-updates -u --dep overrides --reject js-yaml
     fi
 
     rm -rf node_modules package-lock.json
