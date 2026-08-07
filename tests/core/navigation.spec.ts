@@ -226,16 +226,21 @@ test.describe('Navigation', () => {
           await waitForLoadingComplete(page);
 
           await test.step('Verify active state indication', async () => {
-            // Check for aria-current or active class
-            const hasActiveCurrent =
-              (await proxyNav.getAttribute('aria-current')) === 'page' ||
-              (await proxyNav.getAttribute('aria-current')) === 'true';
+            // Check for aria-current or active class. React Router's post-click
+            // re-render (which sets aria-current="page" on the active link) lands
+            // a beat after navigation settles, so this must auto-retry rather than
+            // sample the DOM once — same idiom as certificates.spec.ts.
+            await expect(async () => {
+              const hasActiveCurrent =
+                (await proxyNav.getAttribute('aria-current')) === 'page' ||
+                (await proxyNav.getAttribute('aria-current')) === 'true';
 
-            const hasActiveClass =
-              (await proxyNav.getAttribute('class'))?.includes('active') ||
-              (await proxyNav.getAttribute('class'))?.includes('current');
+              const hasActiveClass =
+                (await proxyNav.getAttribute('class'))?.includes('active') ||
+                (await proxyNav.getAttribute('class'))?.includes('current');
 
-            expect(hasActiveCurrent || hasActiveClass).toBe(true);
+              expect(hasActiveCurrent || hasActiveClass).toBe(true);
+            }).toPass({ timeout: 10000 });
           });
         }
       });
