@@ -10,11 +10,11 @@ export function useAccessLists() {
   });
 }
 
-export function useAccessList(id: number | undefined) {
+export function useAccessList(uuid: string | undefined) {
   return useQuery({
-    queryKey: ['accessList', id],
-    queryFn: () => accessListsApi.get(id!),
-    enabled: !!id,
+    queryKey: ['accessList', uuid],
+    queryFn: () => accessListsApi.get(uuid!),
+    enabled: !!uuid,
   });
 }
 
@@ -44,11 +44,11 @@ export function useUpdateAccessList() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<CreateAccessListRequest> }) =>
-      accessListsApi.update(id, data),
+    mutationFn: ({ uuid, data }: { uuid: string; data: Partial<CreateAccessListRequest> }) =>
+      accessListsApi.update(uuid, data),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['accessLists'] });
-      queryClient.invalidateQueries({ queryKey: ['accessList', variables.id] });
+      queryClient.invalidateQueries({ queryKey: ['accessList', variables.uuid] });
       toast.success('Access list updated successfully');
     },
     onError: (error: Error) => {
@@ -61,7 +61,7 @@ export function useDeleteAccessList() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: number) => accessListsApi.delete(id),
+    mutationFn: (uuid: string) => accessListsApi.delete(uuid),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['accessLists'] });
       toast.success('Access list deleted successfully');
@@ -74,8 +74,8 @@ export function useDeleteAccessList() {
 
 export function useTestIP() {
   return useMutation({
-    mutationFn: ({ id, ipAddress }: { id: number; ipAddress: string }) =>
-      accessListsApi.testIP(id, ipAddress),
+    mutationFn: ({ uuid, ipAddress }: { uuid: string; ipAddress: string }) =>
+      accessListsApi.testIP(uuid, ipAddress),
     onError: (error: Error) => {
       toast.error(`Failed to test IP: ${error.message}`);
     },
