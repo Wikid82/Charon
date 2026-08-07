@@ -113,12 +113,13 @@ test.describe('SMTP Settings', () => {
         // Navigate fresh and look for skeleton
         await page.goto('/settings/smtp');
 
-        // Look for skeleton elements
-        const skeleton = page.locator('[class*="skeleton"]').first();
-        const skeletonVisible = await skeleton.isVisible({ timeout: 1000 }).catch(() => false);
-
-        // Either skeleton is shown or page loads very fast
-        expect(skeletonVisible || true).toBeTruthy();
+        // The Skeleton component (src/components/ui/Skeleton.tsx) renders
+        // "animate-pulse", not a literal "skeleton" class - the isLoading
+        // guard in SMTPSettings.tsx renders it unconditionally while the
+        // mocked 500ms-delayed request is in flight, so this is
+        // deterministic given the delay above.
+        const skeleton = page.locator('[class*="animate-pulse"]').first();
+        await expect(skeleton).toBeVisible({ timeout: 1000 });
 
         // Wait for loading to complete
         await waitForLoadingComplete(page);
@@ -149,20 +150,19 @@ test.describe('SMTP Settings', () => {
       });
 
       await test.step('Attempt to save and verify validation', async () => {
+        // The app has no client-side required-field check for host - it
+        // always submits, and the backend rejects via `binding:"required"`
+        // (settings_handler.go SMTPConfigRequest.Host), returning 4xx and
+        // surfacing the error as a toast. Assert on that real, deterministic
+        // contract instead of a fake inline-or-blocked hedge.
+        const saveResponsePromise = page.waitForResponse(
+          (response) => /\/settings\/smtp$/.test(response.url()) && response.request().method() === 'POST',
+        );
         await saveButton.click();
+        const saveResponse = await saveResponsePromise;
 
-        // Check for validation error or toast message
-        const errorMessage = page.getByText(/host.*required|required.*host|please.*enter/i);
-        const inputHasError = await hostInput.evaluate((el) =>
-          el.classList.contains('border-red-500') ||
-          el.classList.contains('border-destructive') ||
-          el.getAttribute('aria-invalid') === 'true'
-        ).catch(() => false);
-
-        const hasValidation = await errorMessage.isVisible().catch(() => false) || inputHasError;
-
-        // Either inline validation or form submission is blocked
-        expect(hasValidation || true).toBeTruthy();
+        expect(saveResponse.ok()).toBe(false);
+        await waitForToast(page, /.+/, { type: 'error' });
       });
     });
 
@@ -210,25 +210,20 @@ test.describe('SMTP Settings', () => {
       });
 
       await test.step('Attempt to save and verify validation', async () => {
+        // The app has no client-side email-format check for from_address -
+        // it always submits, and the backend rejects via
+        // `binding:"required,email"` (settings_handler.go
+        // SMTPConfigRequest.FromAddress), returning 4xx and surfacing the
+        // error as a toast. Assert on that real, deterministic contract
+        // instead of a fake inline-or-toast hedge.
+        const saveResponsePromise = page.waitForResponse(
+          (response) => /\/settings\/smtp$/.test(response.url()) && response.request().method() === 'POST',
+        );
         await saveButton.click();
-        await waitForLoadingComplete(page);
+        const saveResponse = await saveResponsePromise;
 
-        // Check for validation error
-        const errorMessage = page.getByText(/invalid.*email|email.*format|valid.*email/i);
-        const inputHasError = await fromInput.evaluate((el) =>
-          el.classList.contains('border-red-500') ||
-          el.classList.contains('border-destructive') ||
-          el.getAttribute('aria-invalid') === 'true'
-        ).catch(() => false);
-
-        const toastError = page.locator('[role="alert"]').filter({ hasText: /invalid|email/i });
-        const hasValidation =
-          await errorMessage.isVisible().catch(() => false) ||
-          inputHasError ||
-          await toastError.isVisible().catch(() => false);
-
-        // Validation should occur (inline or via toast)
-        expect(hasValidation || true).toBeTruthy();
+        expect(saveResponse.ok()).toBe(false);
+        await waitForToast(page, /.+/, { type: 'error' });
       });
 
       await test.step('Enter valid email format', async () => {
@@ -880,10 +875,17 @@ test.describe('SMTP Settings', () => {
         const hostInput = page.locator('#smtp-host');
         await hostInput.clear();
 
-        // Try to save with empty required field
+        // Try to save with empty required field. The backend rejects via
+        // `binding:"required"` and the resulting error surfaces as a
+        // role="alert" toast - wait for it explicitly so the next step's
+        // check is deterministic rather than racing a fixed timeout.
         const saveButton = page.getByRole('button', { name: /save/i }).last();
+        const saveResponsePromise = page.waitForResponse(
+          (response) => /\/settings\/smtp$/.test(response.url()) && response.request().method() === 'POST',
+        );
         await saveButton.click();
-        await waitForLoadingComplete(page);
+        await saveResponsePromise;
+        await waitForToast(page, /.+/, { type: 'error' });
       });
 
       await test.step('Verify error announcement', async () => {
@@ -896,14 +898,14 @@ test.describe('SMTP Settings', () => {
         const ariaInvalid = await hostInput.getAttribute('aria-invalid');
         const hasAriaDescribedBy = await hostInput.getAttribute('aria-describedby');
 
-        // Either we have an alert or the input has aria-invalid
+        // Either we have an alert (guaranteed by the error toast awaited
+        // above) or the input has aria-invalid.
         const hasAccessibleError =
           alertCount > 0 ||
           ariaInvalid === 'true' ||
           hasAriaDescribedBy !== null;
 
-        // Some form of accessible error feedback should exist
-        expect(hasAccessibleError || true).toBeTruthy();
+        expect(hasAccessibleError).toBe(true);
       });
 
       await test.step('Verify live regions for toast messages', async () => {

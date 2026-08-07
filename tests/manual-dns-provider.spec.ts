@@ -307,8 +307,7 @@ test.describe('Manual DNS Provider Feature', () => {
 
       await test.step('Verify status icon is present', async () => {
         const statusIcon = statusIndicator.locator('svg');
-        const hasVisibleIcon = await statusIcon.first().isVisible().catch(() => false);
-        expect(hasVisibleIcon || true).toBeTruthy();
+        await expect(statusIcon.first()).toBeVisible();
       });
     });
   });
