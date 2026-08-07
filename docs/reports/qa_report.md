@@ -1,240 +1,243 @@
-# QA Report — "What's New" Changelog Feature
+# QA Report — SQLite Test-Flake Fix + Uptime Monitor Create Retry Hardening
 
-**Branch**: `feat/changelog`
-**Feature commit range**: `79d1efb3..75fe80dc` (14 commits, merge-base with `origin/development`)
+**Branch**: `development`
+**Commits reviewed**: `3c81849d`, `96ee480a`, `f1bcb3a4` (already landed on `development`, supervisor-approved)
 **Reviewed by**: qa-security agent
-**Date**: 2026-07-29
-**Scope**: Full Definition of Done per `CLAUDE.md`, adversarial re-verification (not re-trusting prior agents' self-reports)
+**Date**: 2026-08-07
+**Scope**: Full backend Definition of Done per `CLAUDE.md`, independent re-verification of backend-dev/supervisor's reported numbers (not re-trusting prior self-reports)
+**Plan reference**: `docs/plans/current_spec.md`
 
-## Final Verdict: **READY TO MERGE**
+## Final Verdict: **PASS**
 
-No blocking findings. One pre-existing, unrelated repo-wide security item needs attention independent of this PR (see §6.3). All required gates pass with real, reproduced evidence.
-
----
-
-## 1. Playwright E2E (mandatory, run first)
-
-**Command**: `npx playwright test --project=firefox` (full suite, 970 tests), run against a freshly rebuilt E2E image (`docker-rebuild-e2e`, image was stale — built before the branch's last 3 commits).
-
-**Result**: `891 passed`, `27 failed`, `37 skipped`, `8 did not run` (46.6 min).
-
-### 1a. Changelog-specific tests (`tests/settings/whats-new-changelog.spec.ts`, 7 tests)
-
-Failed as **expected** against the committed `[]` placeholder (`waitForModal: Could not find visible modal ... "What's New"`) — this is by design; the placeholder must never be replaced with real data in a commit.
-
-**Verified via fixture injection** (per the spec's documented mechanism, reverted afterward):
-1. `cp tests/fixtures/changelog-fixture.json backend/internal/changelog/data/changelog.json`
-2. `docker-rebuild-e2e` (rebuild so `go:embed` picks up the fixture)
-3. `npx playwright test --project=firefox tests/settings/whats-new-changelog.spec.ts`
-4. **Result: 8/8 passed** (7 changelog scenarios + 1 auth setup), 31.4s.
-5. `git checkout -- backend/internal/changelog/data/changelog.json` (confirmed reverted to `[]`)
-6. `docker-rebuild-e2e` again to restore the clean baseline image.
-7. Confirmed `git status` clean on the changelog data file before finishing.
-
-**Status: PASS.**
-
-### 1b. The other 27 failures — investigated, not hand-waved
-
-All 27 shared the same signature: `Test timeout of 90000ms exceeded` on `page.goto()`/`page.reload()`, or a downstream timing-dependent assertion (toast visibility, redirect-detection predicate) — never a content/logic assertion failure. Files affected span totally unrelated areas: `domains.a11y`, `authentication.spec.ts`, `caddy-import-debug/gaps`, `certificates.spec.ts`, `data-consistency`, `crowdsec-whitelist`, `debug/certificates-debug`, `dns-provider-types`, `modal-dropdown-triage`, `proxy-groups`, `proxy-host-drag-drop`, `uptime-orthrus`, plus the three already-triaged pre-existing flakes (`user-management.spec.ts`, `theme-banner-userthemes.spec.ts`, `wait-helpers.spec.ts`) and one additional instance in `long-running-operations.spec.ts`.
-
-Per the Root Cause Analysis Protocol, `authentication.spec.ts` failing is exactly the kind of thing that needs real scrutiny (touches auth). Investigated:
-
-- **Re-ran a 13-file subset** containing every "unexplained" failure in isolation (lighter load, no full-suite contention): **all 13 originally-failing tests passed**. 6 *different* tests failed instead (different line numbers, same files), with the identical `page.goto` 90s-timeout / toast-timeout signature.
-- This is direct empirical proof of non-deterministic, load-dependent flakiness — not a fixed set of failures tied to specific code paths.
-- Checked whether `WhatsNewModal`'s mount in `Layout.tsx` could be adding per-navigation latency across the whole app (a plausible mechanism for new, broader flakiness): `useChangelogStatus()` uses `staleTime: 1000 * 60 * 5` (5 min) — it fires once per session, not per route change. Ruled out.
-- Matches CLAUDE.md's own disclosed caveat about a known, already-partially-fixed Firefox navigation-commit race (commit `7503c01a`, "tolerate Firefox navigation-commit race in **reload()**, not just goto()" — the fix covers `reload()` only; `goto()` is evidently still exposed to the same underlying Firefox/Playwright timing issue).
-
-**Conclusion: pre-existing, load-dependent E2E infra flakiness, unrelated to this feature's diff. Not a regression.** Recommend (separate from this PR): extend the `reload()` tolerant-navigation fix to `goto()`, and/or reduce full-suite worker parallelism locally.
-
-**Status: PASS** (with the above documented, non-blocking flake note).
+All required backend DoD gates pass with independently reproduced evidence. No blocking findings. One process finding (non-blocking, but worth institutionalizing) about `scripts/local-patch-report.sh`'s default baseline resolution on this branch — see §3.
 
 ---
 
-## 1.5. GORM Security Scan (conditional — triggered by `backend/internal/models/user.go` changes)
+## 0. Scope confirmation
 
-**Command**: `./scripts/scan-gorm-security.sh --check`
+```
+git diff --stat 3c81849d~1..f1bcb3a4
+ backend/internal/api/handlers/proxy_host_handler_test.go | 121 +++++++++++++++------
+ backend/internal/services/uptime_service.go               |  34 +++++-
+ backend/internal/services/uptime_service_race_test.go     |  88 ++++++++++++++
+```
 
-**Result**: `CRITICAL: 0`, `HIGH: 0`, `MEDIUM: 0`, `INFO: 2` (pre-existing, unrelated: missing indexes on `UserPermittedHost.UserID`/`ProxyHostID`, not touched by this feature).
-
-**Status: PASS.**
-
-**READY TO MERGE. No blocking issues found.**
-
-## 2. Coverage (mandatory, ≥85% both sides)
-
-### Backend — `scripts/go-test-coverage.sh`
-
-- **Statement coverage: 89.2%** / **Line coverage: 89.1%** (gate: 87% minimum) — **PASS**.
-- One test failure observed only in the full `./... -race` run: `TestSecurityHandler_UpsertRuleSet_XSSInContent` (unrelated file: `security_handler_audit_test.go`, XSS-escaping assertion on the security-ruleset endpoint — no relation to changelog code). Re-verified 3 ways: isolated run (`-run` filter) → pass; full `internal/api/handlers` package run → pass; full package run with `-race` alongside all 24 new changelog handler tests → pass. Non-reproducible outside the heaviest-possible full-`./...`-with-race-detector load. Transient resource-contention flake, not a regression. All 24 new `ChangelogHandler` tests pass cleanly in every configuration tried, including under `-race`.
-
-### Frontend — `scripts/frontend-test-coverage.sh`
-
-- **Statements: 89.47%**, **Branches: 82.48%**, **Functions: 87.18%**, **Lines: 90.67%** (gate: 87% minimum on lines) — **PASS**.
-- **3235 passed, 0 failed** (88 skipped, 2 todo), 263/268 test files passed.
-
-**Status: PASS** (both sides comfortably clear the 85% minimum and the stricter 87% local gate).
+Exactly the 3 files the plan and task description claim. No `go.mod`/`go.sum`/`Dockerfile`/`backend/internal/models/**` changes anywhere in the range (confirmed via scoped `git diff --stat`). No frontend files touched. This independently confirms the plan's §8/§9 N/A claims for GORM scan, Trivy, and frontend type-check before accepting them.
 
 ---
 
-## 3. Local Patch Coverage (mandatory, 90% overall)
+## 1. Playwright E2E — N/A, confirmed correct
 
-**Command**: `bash scripts/local-patch-report.sh` — baseline auto-resolved to `origin/development...HEAD`, merge-base `79d1efb3` (exactly the changelog feature's branch point — confirmed via `git merge-base origin/development HEAD`).
+Plan §9 argues N/A. Verified rather than trusted:
+- `grep -rliE "proxy.?host" tests/**/*.spec.ts` → found `tests/core/proxy-hosts.spec.ts` (the one spec that plausibly exercises proxy-host creation).
+- `grep -n "uptime" -i tests/core/proxy-hosts.spec.ts` → **zero matches**. This spec never asserts on uptime-monitor creation/behavior, so it cannot observe the internal retry-loop change in `uptime_service.go`, and it doesn't touch the test-only DSN fix at all (Go test files aren't part of the built app).
+- No frontend files changed in any of the 3 commits.
+- Commit 3's change (`createMonitorWithRetry`) is a same-behavior-from-outside internal hardening — bounded retry on an already-fire-and-forget, already-swallowed-error background path. No new API contract, no new response shape.
 
-| Scope | Changed Lines | Covered | Patch Coverage | Status |
+**Conclusion**: N/A is correct. Running the full suite would add no signal for this diff. Not run.
+
+---
+
+## 2. GORM Security Scan — N/A, confirmed correct
+
+`git diff --stat 3c81849d~1..f1bcb3a4 -- 'backend/internal/models/**'` → empty. No model files, no GORM queries changed outside `uptime_service.go`'s existing `s.DB.Create` call site (unchanged query shape, only wrapped in a retry loop). Condition for triggering the scan is not met. Skipped per CLAUDE.md's conditional trigger.
+
+---
+
+## 3. Local Patch Coverage Preflight
+
+**Command**: `bash scripts/local-patch-report.sh`
+
+### 3a. Reproducing and diagnosing supervisor's `status: input_missing`
+
+Confirmed real on first run in this session — `frontend/coverage/lcov.info` did not exist (only `backend/coverage.txt` and `agent/coverage.txt` were present from earlier sessions). This is **not** a script defect and not something that can be papered over: `scripts/local-patch-report.sh` unconditionally requires all three coverage inputs (backend, frontend, agent) to exist before it will run the Go patch-report tool, regardless of which areas a given PR actually touches. For a backend-only PR, the *legitimate* way to produce real numbers is to run the frontend and agent coverage generators once (their own patch coverage will be ~0% since the diff doesn't touch those trees, but the tool needs the *files* present to compute per-scope patch coverage correctly across the whole report).
+
+**Fix applied**: ran `bash scripts/frontend-test-coverage.sh` (needed `fnm install v24.19.0` first — the pinned `.nvmrc` version wasn't installed in this sandbox) to generate `frontend/coverage/lcov.info`, and re-ran `scripts/go-test-coverage.sh` to refresh `backend/coverage.txt`. `agent/coverage.txt` was left as-is (stale from Jul 21, but the agent tree isn't touched by this PR so it's an acceptable input for the tool's presence check).
+
+After that, `local-patch-report.sh` ran successfully in `strict` mode and produced both artifacts.
+
+### 3b. Second finding: default baseline scope leak on this branch
+
+The first successful run resolved baseline to `origin/main...HEAD` (via `gh pr view --json baseRefName`, which found a standing PR from `development` targeting `main` — almost certainly the recurring weekly promotion PR referenced in `CLAUDE.md`). That pulled in **363 changed lines across the entire accumulated `development` vs `main` diff**, including 3 files this PR never touches (`frontend/src/context/AuthContext.tsx`, `backend/internal/api/routes/routes.go`, `backend/internal/api/handlers/system_permissions_handler.go` — from unrelated prior work already merged to `development`). That is not useful signal for reviewing *these 3 commits specifically*.
+
+**Corrected**: re-ran with `CHARON_PATCH_BASELINE="3c81849d~1...f1bcb3a4"` to scope the diff to exactly the reviewed commit range.
+
+### 3c. Final, scoped result (authoritative for this PR)
+
+| Scope | Changed Lines | Covered Lines | Patch Coverage | Status |
 |---|---:|---:|---:|---|
-| Overall | 267 | 262 | **98.1%** | pass |
-| Backend | 197 | 195 | 99.0% | pass |
-| Frontend | 70 | 67 | 95.7% | pass |
+| Overall | 16 | 15 | 93.8% | pass |
+| Backend | 16 | 15 | 93.8% | pass |
+| Frontend | 0 | 0 | 100.0% | pass |
 | Agent | 0 | 0 | 100.0% | pass |
 
-Minor gaps (non-blocking, well within tolerance): `frontend/src/context/AuthContext.tsx` lines 138-140 (3 lines), `backend/internal/api/routes/routes.go` lines 340-341 (2 lines).
+One uncovered changed line: `backend/internal/services/uptime_service.go:1417` — the final `return lastErr` after `createMonitorWithRetry`'s loop. Inspected: this is structurally unreachable in practice (the loop already returns from inside on `attempt == maxAttempts`), a compiler-mandated trailing return, not a real gap. Not a concern.
 
-Artifacts confirmed present: `test-results/local-patch-report.md`, `test-results/local-patch-report.json`.
+**Artifacts**: `test-results/local-patch-report.md`, `test-results/local-patch-report.json` — both present, non-empty, verified.
 
-**Status: PASS.**
-
----
-
-## 4. Type Safety
-
-**Command**: `cd frontend && npm run type-check` → **0 errors**.
-
-**Status: PASS.**
+**Recommendation for future QA passes on this branch**: when `development` has a standing promotion PR open against `main`, set `CHARON_PATCH_BASELINE` explicitly to the reviewed commit range (or the PR's actual base) rather than trusting the script's auto-resolution — otherwise patch-coverage numbers silently include unrelated accumulated diff. Non-blocking for this sign-off since the scoped numbers clearly pass, but worth a short note in the script's own docs/README so this doesn't need re-discovering each time.
 
 ---
 
-## 5. Pre-commit Hooks
+## 4. Security Scans
 
-**Command**: `lefthook run pre-commit` on the clean working tree — all hooks reported `(skip) no matching staged files` (nothing staged; working tree matches HEAD for all feature files).
+### 4a. CodeQL (Go + JS)
 
-Spot-checked commit history for hook bypasses: `git log --format='%H %s' 79d1efb3..HEAD | grep -i "emergency\|no-verify\|bypass"` → **no matches**. No commit in this feature's 14-commit range bypassed hooks.
+Note: `CLAUDE.md` documents this as `lefthook run pre-commit`, but this repo's actual `lefthook.yml` defines CodeQL as a **separate manual pipeline** (`lefthook run codeql`, sequential go→js→findings→parity) — it is not part of the default `pre-commit` hook set. This is a doc/config drift, not something introduced by this PR; ran the actual mechanism (`lefthook run codeql`) since that's what performs the real scan.
 
-**Status: PASS** (staticcheck — the actual blocking gate per CLAUDE.md — independently verified fresh in §7 below).
+**Command**: `lefthook run codeql` (full DB build + `go-security-and-quality`/JS equivalent suites, ~197s total)
 
----
+**Result**:
+- Go scan: 1 total finding, `go/cookie-secure-not-set` at `backend/internal/api/handlers/auth_handler.go:198` — **SUPPRESSED** (pre-existing, dated, documented suppression unrelated to any file touched by this PR; review-by 2026-11-04, tracked in `docs/issues/codeql-cookie-suppression-not-honored.md`). 0 blocking.
+- JS scan: 0 findings.
+- Extraction-parity check: passed (no drift between `go list` baseline and CodeQL-extracted file count).
+- `codeql-check-findings.sh`: **All CodeQL checks passed**.
 
-## 6. Security Scans
+**Zero unresolved high/critical findings.** Gate passes.
 
-### 6.1 CodeQL — Go
+### 4b. Semgrep (targeted at the 3 changed files)
 
-**Command**: `bash scripts/pre-commit-hooks/codeql-go-scan.sh` (fresh run; prior SARIF on disk was stale, dated Jul 25, predating this branch's last 3 commits). Extraction parity confirmed: 252/252 compiled files matched `go list` baseline.
+**Command**: `bash scripts/pre-commit-hooks/semgrep-scan.sh backend/internal/api/handlers/proxy_host_handler_test.go backend/internal/services/uptime_service.go backend/internal/services/uptime_service_race_test.go`
 
-**5 results**, all `warning`-level in SARIF (no `error`-level Go findings):
+**Result**: 120 rules run (p/golang + community), **0 findings**.
 
-| Rule | Severity (CodeQL security-severity) | File | In this feature's diff? |
-|---|---|---|---|
-| `go/path-injection` ×4 | 7.5 (High) | `internal/api/handlers/system_permissions_handler.go` | **No** — file not touched by `79d1efb3..HEAD` |
-| `go/cookie-secure-not-set` ×1 | 4.0 (Medium) | `internal/api/handlers/auth_handler.go:191` | File touched, but not this line — verified `git show 79d1efb3:...auth_handler.go` contains the identical line + its existing `// codeql[go/cookie-secure-not-set] Safe: ...` inline suppression comment, byte-for-byte, before this branch started. This feature's only change to that file is adding `changelog_opt_out` to the `/auth/me` JSON response (lines 318-323) |
+### 4c. Trivy — N/A, confirmed correct
 
-**All 5 findings are 100% pre-existing, unrelated to the changelog feature.** Zero new CodeQL Go findings introduced by this PR.
+`git diff --stat 3c81849d~1..f1bcb3a4 -- go.mod go.sum backend/go.mod backend/go.sum Dockerfile backend/Dockerfile frontend/Dockerfile .dockerignore` → empty. No dependency manifest or Docker build input changed anywhere in the 3-commit range. Re-running Trivy would reproduce the last `development` scan byte-for-byte with no new signal. N/A confirmed, not run.
 
-### 6.2 CodeQL — JavaScript/TypeScript
+### 4d. Gotify token review
 
-**Command**: `bash scripts/pre-commit-hooks/codeql-js-scan.sh` (fresh run, 552/552 files scanned).
-
-**Result: 0 findings.**
-
-*(Note: this script deletes `frontend/coverage`, `frontend/dist`, `test-results`, `playwright-report`, `coverage` as part of its CodeQL-noise-reduction step. Backed up `test-results/` and coverage files beforehand, restored after.)*
-
-**Status: PASS** — zero new CRITICAL/HIGH/error-level findings from either language.
-
-### 6.3 Trivy
-
-**Image scan** (`trivy image` against a freshly built `charon:local`, matching the repo's actual CI gate convention in `Makefile:security-scan-full` / `docker-build.yml`, rather than `trivy fs` against source — confirmed by inspecting how CI invokes Trivy):
-
-- With `--ignorefile /dev/null` (raw, unsuppressed): **2 HIGH** findings, both `CVE-2026-32286` in `github.com/jackc/pgproto3/v2` (bundled inside `crowdsec`/`cscli` binaries).
-- With the repo's actual `.trivyignore` applied (matching CI): **still 2 HIGH findings** — the `.trivyignore` entry for `CVE-2026-32286` carries an `# exp: 2026-07-09` expiry annotation that Trivy honors, and that date has passed (20 days ago as of this report). The suppression is **stale**, not missing.
-- **This is a pre-existing, already-documented finding** (see `SECURITY.md`: "[HIGH] CVE-2026-32286 · pgproto3 DoS via Negative DataRow Field Length", status "Awaiting Upstream", noting Charon's default SQLite deployment doesn't reach the vulnerable PostgreSQL code path) — **unrelated to CrowdSec/pgproto3 having any connection to the changelog feature.** Zero secrets found in the image.
-- **Finding for this report, not a merge blocker for this PR**: the `.trivyignore` review date for `CVE-2026-32286` has lapsed. CI's Trivy gate (`docker-build.yml`, which fails PRs on unsuppressed CRITICAL/HIGH) would currently flag this on **any** PR, not just this one, since it's a pre-existing dependency issue orthogonal to the changelog diff. Recommend the repo owner re-confirm the existing risk assessment still holds (very likely — nothing has changed about pgproto3/v2's archived-upstream status or Charon's SQLite-by-default posture) and bump the `exp:` date in `.trivyignore` + `SECURITY.md`'s "Review by" date.
-
-**Filesystem/secret scan**: `trivy fs --scanners secret` run against every file this feature's diff touched (`git diff 79d1efb3..HEAD --name-only`, 42 files staged to a scan-accessible path) → **0 secrets found**. (A whole-repo `trivy fs` dependency scan was attempted but blocked by the local `trivy` snap package's filesystem confinement outside `$HOME`; the image scan above is the authoritative, CI-matching check and was completed successfully by working around the same confinement via `docker save` + scanning from `$HOME`.)
-
-**govulncheck**: `cd backend && govulncheck ./...` → **0 vulnerabilities** in Charon's own code or called dependency symbols (1 unreachable/uncalled module-level advisory noted, consistent with `SECURITY.md`'s existing entries).
-
-**npm audit** (`npm run audit:ci`): **Passed** — 3 pre-existing HIGH findings, all already documented and allowlisted in `SECURITY.md`/`frontend/audit-ci.json` (`GHSA-mh99-v99m-4gvg` chain), none newly introduced.
-
-**Status: PASS**, with the stale-suppression note in §6.3 flagged for owner follow-up (not blocking this PR).
+No notification/token-handling code touched by this PR (scope is SQLite test setup + an internal DB-write retry loop). No log lines, test artifacts, or API examples from this session contain Gotify tokens. N/A.
 
 ---
 
-## 7. Linting
+## 5. Lefthook full pre-commit triage
 
-### Staticcheck (the actual blocking gate per CLAUDE.md)
+**Command**: `lefthook run pre-commit`
 
-**Command**: `make lint-staticcheck-only` → **0 issues** (backend + agent).
+Ran against a clean working tree (the 3 commits are already committed, nothing staged) — every hook reported `(skip) no matching staged files`/`no files for inspection`. This is expected lefthook behavior for already-committed changes and is **not a real pass/fail signal** on its own for a post-hoc QA review; it only gates at commit time. To get real coverage of what those hooks would have caught, ran the equivalent checks manually against the changed files/whole trees:
 
-### Full `make lint-backend` (all golangci-lint linters — manual/advisory stage per CLAUDE.md, not blocking)
+- `go vet ./...` (backend) — clean.
+- `go vet ./...` (agent) — clean.
+- `make lint-fast` (staticcheck + govet + errcheck + ineffassign + unused, backend + agent) — see §6.
+- Semgrep — see §4b.
+- `frontend/tsc --noEmit` — see §7.
 
-**91 pre-existing issues** across the whole backend (gocritic style suggestions, gosec advisories on test fixtures and pre-existing crowdsec/orthrus/backup code, govet inlining suggestions). **Verified none are in `internal/changelog/`, `changelog_handler.go`, or any file this feature added** — spot-checked the full output against the feature's changed-file list. The one changed file that does appear (`internal/api/routes/routes.go`) is flagged for a pre-existing, unrelated function (`runInitialUptimeBootstrap`, a `paramTypeCombine` style nit) and a pre-existing `G118` goroutine-context advisory, neither in the changelog registration block this feature added.
-
-### Frontend ESLint
-
-**Command**: `npm run lint` → **0 errors**, 1194 pre-existing warnings (repo-wide, `import-x/order` and `testing-library/*` style rules — non-blocking by design). The only warnings touching this feature's files (`WhatsNewModal.test.tsx`, `AppearanceSettings.test.tsx`) are cosmetic (`testing-library/no-node-access`, `import-x/order`), not security- or correctness-relevant.
-
-**Status: PASS.**
+No frontend/shell files in scope for `frontend-lint`/`shellcheck`; not applicable.
 
 ---
 
-## 8. Manual Security Review (SECURITY.md requirements)
+## 6. Staticcheck (BLOCKING)
 
-- **No secrets/credentials introduced**: read `.docker/compose/docker-compose.playwright-ci.yml` / `-local.yml` diffs and all touched `.github/workflows/*.yml` diffs directly (`git diff 79d1efb3..HEAD -- .docker/compose .github/workflows`). Only addition: `CHARON_CHANGELOG_VERSION=1.2.0` (a plaintext version string, not a secret) in E2E-only compose files, plus a `Generate Changelog Data` build step in 3 workflows. No tokens, keys, or credentials added. Confirmed via Trivy secret scan of the full diff (0 secrets) and manual read.
-- **Auth on the 4 new routes**: read `changelog_handler.go` and `routes.go` directly (not trusting prior agent claims). All four routes (`GET /changelog/status`, `GET /changelog/all`, `POST /changelog/ack`, `POST /changelog/opt-in`) are registered under the `protected` Gin group (`protected.Use(authMiddleware)`, `routes.go:320-347`) — no bypass. Each handler calls `rejectPassthrough(c, ...)` first, rejecting `RolePassthrough` sessions with 403, matching the existing pattern for `GetProfile`/`UpdateProfile`/`RegenerateAPIKey`. `requireUserID(c)` pulls the user ID from `c.Get("userID")`, set exclusively by the auth middleware from the verified JWT — never client-supplied. `Ack`/`OptIn` scope all DB writes with `.Where("id = ?", userID)` (parameterized, self-row-only). `CHARON_CHANGELOG_VERSION` override is explicitly gated behind `cfg.Environment != "production"` in `routes.go` — cannot be exploited in a production deployment.
-- **`generate-changelog.sh` injection surface**: re-verified the jq parameterization directly. Raw commit subjects are piped via stdin using `jq -R -s` (raw-string input mode — never interpolated into a shell command or jq program body), while `$v`/`$d` (version/date, small trusted scalars derived from `git tag`/`git log` on the local repo) are passed via `--arg` (safe, no injection surface). `git tag`/`git log` output is local, trusted repo history — not attacker-controlled. No command injection surface.
-- **Path traversal**: no new file-path construction from user input anywhere in this feature. The changelog data file path (`backend/internal/changelog/data/changelog.json`) is a compile-time `go:embed` constant, not runtime-constructed from any request. `generate-changelog.sh`'s `$OUTPUT` path is a hardcoded literal.
+**Command**: `make lint-fast`
 
-**Status: PASS** — no findings.
+**Result**:
+```
+Running fast linters (staticcheck, govet, errcheck, ineffassign, unused) — backend + agent...
+cd backend && golangci-lint run --config ../.golangci-fast.yml ./...
+0 issues.
+cd agent && golangci-lint run --config ../.golangci-fast.yml ./...
+0 issues.
+```
 
----
-
-## 9. Build Verification
-
-- `cd backend && go build ./...` → **success**.
-- `cd frontend && npm run build` → **success** (Vite build completes, all chunks emitted).
-
-**Status: PASS.**
+**Zero errors.** Gate passes.
 
 ---
 
-## 10. Debug Prints / Commented-Out Code
+## 7. Type Safety (frontend) — N/A, confirmed
 
-**Command**: `git diff 79d1efb3..HEAD -- backend frontend | grep -nE '^\+.*(console\.log|fmt\.Println\(|debugger;|TODO_REMOVE|FIXME_REMOVE)'` → **0 matches**.
-
-Additional scan for stray `TODO`/`FIXME`/`HACK`/`XXX` markers outside test files → **0 matches** (the only regex hits were legitimate `/** JSDoc */`-style doc comments, false positives from an overly broad pattern, manually confirmed as benign).
-
-**Status: PASS.**
+No frontend files touched in any of the 3 commits (confirmed in §0). Ran `cd frontend && npm run type-check` anyway as a sanity check — `tsc --noEmit` completed with no errors. N/A confirmed, and the repo's current frontend type state is clean regardless.
 
 ---
 
-## Summary Table
+## 8. Coverage
 
-| # | Check | Result | Status |
-|---|---|---|---|
-| 1 | Playwright E2E (full suite) | 891 passed / 27 failed (all explained: 7 expected placeholder-fail + 20 load-dependent pre-existing flake, reproduced non-deterministic) / changelog spec 8/8 via fixture injection | PASS |
-| 1.5 | GORM security scan | 0 Critical/High/Medium | PASS |
-| 2 | Backend coverage | 89.2% stmt / 89.1% line (gate 87%) | PASS |
-| 2 | Frontend coverage | 89.47% stmt / 90.67% line (gate 87%), 3235/3235 tests pass | PASS |
-| 3 | Local patch coverage | 98.1% overall (gate 90%) | PASS |
-| 4 | Type-check | 0 errors | PASS |
-| 5 | Pre-commit hooks | Clean tree, no bypasses in history | PASS |
-| 6.1 | CodeQL Go | 5 findings, 100% pre-existing/unrelated | PASS |
-| 6.2 | CodeQL JS | 0 findings | PASS |
-| 6.3 | Trivy image | 2 HIGH, pre-existing/documented, suppression expired (owner follow-up needed, not this PR) | PASS* |
-| 6.3 | Trivy secrets (diff) | 0 | PASS |
-| 6.3 | govulncheck | 0 | PASS |
-| 6.3 | npm audit | 0 new (3 pre-existing, allowlisted) | PASS |
-| 7 | Staticcheck | 0 issues | PASS |
-| 7 | Full golangci-lint | 91 pre-existing, 0 in feature files | PASS |
-| 7 | Frontend ESLint | 0 errors | PASS |
-| 8 | Manual security review | Auth verified, no secrets, no injection, no path traversal | PASS |
-| 9 | Backend + frontend build | Both succeed | PASS |
-| 10 | Debug print / dead code grep | 0 matches | PASS |
+### 8a. Backend
 
-## Findings Requiring Follow-Up (non-blocking for this PR)
+**Command**: `scripts/go-test-coverage.sh` (full `go test -race -v -coverprofile=...` across `./...`, ~9 min)
 
-1. **Stale Trivy suppression** (`SECURITY.md` / `.trivyignore`, `CVE-2026-32286`): review date expired 2026-07-09. Recommend a follow-up ticket to re-confirm and renew — affects the whole repo's CI gate, not specific to this feature.
-2. **E2E flake rate higher than previously documented**: the known 3-file flake list (`user-management.spec.ts`, `theme-banner-userthemes.spec.ts`, `wait-helpers.spec.ts`) is no longer complete — under full-suite local load, the same `page.goto()`/Firefox navigation-commit race class now surfaces non-deterministically across many more files. Recommend extending commit `7503c01a`'s tolerant-navigation fix from `reload()` to `goto()`.
-3. Minor: `.vscode/tasks.json` and `docs/plans/current_spec.md` have local uncommitted modifications in the working tree (pre-existing, unrelated to this feature — the plan doc's committed version is stale relative to its working-tree content). Not part of this feature's diff; flagged for hygiene only.
+**Result**:
+```
+total: (statements) 89.3%
+Statement coverage: 89.3%
+Line coverage: 89.2%
+Coverage gate (line coverage): minimum required 87%
+Coverage requirement met
+```
 
-## Final Verdict
+No `FAIL`, no `DATA RACE` anywhere in the full run log. **Independently reproduces backend-dev's reported 89.3% and supervisor's reported 89.2% exactly** — third independent confirmation.
 
-**READY TO MERGE.** All Definition of Done gates pass with real, adversarially-reproduced evidence. Zero findings are attributable to the changelog feature's own diff. The two items above are pre-existing repo conditions independent of this PR and do not block it.
+### 8b. Frontend (for completeness / patch-report input, not required by this PR's scope)
+
+`89.48%` statements / `90.68%` lines — well above the 87% floor. Not required for a backend-only PR but generated as a prerequisite for §3 and confirms no regression in frontend coverage baseline.
+
+---
+
+## 9. Build
+
+```
+cd backend && go build ./...
+```
+
+Clean, no output, exit 0.
+
+---
+
+## 10. New/changed tests — targeted `-race` runs
+
+### 10a. `TestProxyHostCreate_TriggersAsyncUptimeSyncWhenServiceConfigured`, `..._ConcurrentLoad`, `TestUpdate_ExistingHostsBackwardCompatibility`
+
+**Command**: `go test ./internal/api/handlers/... -run '<the 3 tests>' -race -count=10 -v`
+
+**Result**: 30/30 `PASS` (10 iterations × 3 tests), 0 `FAIL`, 0 `DATA RACE`. `ok ... 6.993s` / `7.356s` across two runs.
+
+### 10b. `TestSyncAndCheckForHost_RetriesOnTransientLockError`
+
+**Command**: `go test ./internal/services/... -run 'TestSyncAndCheckForHost_RetriesOnTransientLockError' -race -count=10 -v`
+
+**Result**: 10/10 `PASS`, 0 `FAIL`, 0 `DATA RACE`.
+
+**Independently verified genuine lock contention** (not just a green checkmark trusted from prior reports): grepped the verbose output for the literal string `database table is locked` → **70 occurrences** across the 10 runs, appearing at `uptime_service.go:1403` (inside `createMonitorWithRetry`'s loop, multiple attempts per run before eventual success) and also at `:1312`/`:377` (other queries hitting the same induced lock window). This confirms backend-dev's and supervisor's claim of "real lock contention, not a mocked/trivial pass" — verified firsthand in this session's own log output, not taken on trust.
+
+---
+
+## 11. Full package regression
+
+| Package | Command | Result |
+|---|---|---|
+| `internal/api/handlers` | `go test ./internal/api/handlers/... -count=1` | `ok ... 80.011s`, 0 FAIL |
+| `internal/services` | `go test ./internal/services/... -count=1` | `ok ... 113.948s` (+ `ok .../remotestorage 31.842s`), 0 FAIL |
+
+No regressions in either package.
+
+---
+
+## 12. Clean-up check
+
+```
+git show <sha> | grep -nE "^\+.*(fmt\.Println|console\.log|debugger;|TODO|FIXME|XXX)"
+```
+run against all 3 commits individually → no matches in any of them. `git status --short` shows only `docs/plans/current_spec.md` modified (the plan document itself, already updated in-place to reflect "Implemented and supervisor-approved" status prior to this QA pass — not a stray file, not part of the 3 commits under review, not touched by this QA session). No debug prints, no commented-out blocks, no stray files introduced by any of the 3 commits.
+
+---
+
+## Summary
+
+| Gate | Result |
+|---|---|
+| Playwright E2E | N/A (confirmed) |
+| GORM Security Scan | N/A (confirmed) |
+| Local Patch Coverage | **PASS** (93.8% patch coverage, scoped correctly — see §3 for a process note) |
+| CodeQL Go + JS | **PASS** (0 blocking; 1 pre-existing suppressed, unrelated) |
+| Semgrep | **PASS** (0 findings) |
+| Trivy | N/A (confirmed) |
+| Lefthook pre-commit (manual equivalent) | **PASS** |
+| Staticcheck / `make lint-fast` | **PASS** (0 issues) |
+| Frontend type safety | N/A (confirmed); `tsc --noEmit` clean anyway |
+| Backend coverage | **PASS** (89.2% line / 89.3% statement, ≥85% required — 3rd independent confirmation) |
+| Build | **PASS** |
+| New/changed tests (`-race -count=10`) | **PASS** (40/40, 0 races, genuine lock contention verified in logs) |
+| Full package regression | **PASS** (both packages, 0 FAIL) |
+| Clean-up | **PASS** |
+
+**Overall verdict: PASS.** Nothing blocks sign-off. The one non-blocking process finding (§3b — `local-patch-report.sh`'s default baseline can silently widen scope to `origin/main...HEAD` on branches with a standing promotion PR) does not affect this PR's own numbers, which pass comfortably once scoped correctly, but is worth a documentation fix so future QA passes don't have to rediscover it.
