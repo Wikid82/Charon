@@ -49,6 +49,17 @@ async function createGroupViaUI(page: import('@playwright/test').Page, name: str
 // ─── Suite ───────────────────────────────────────────────────────────────────
 
 test.describe('Proxy Host Drag-and-Drop Group Assignment', () => {
+  // Serial mode: the 'Group Creation Integration' tests below mutate the shared
+  // /api/v1/proxy-groups collection (and never delete what they create), which is
+  // the exact resource the 'Grouped View Rendering' tests read via a raw
+  // `page.locator('[data-drop-zone]').count()` snapshot (not an auto-retrying
+  // assertion). With Playwright's fullyParallel mode, tests in this file can run
+  // concurrently across workers, so a group-creation test could mutate proxy-group
+  // state mid-read and produce a count/DOM mismatch for the reader tests. Same
+  // fix as tests/crowdsec-whitelist.spec.ts, which serializes for an analogous
+  // shared-mutable-security-state race.
+  test.describe.configure({ mode: 'serial' })
+
   test.beforeEach(async ({ page }) => {
     await waitForAPIHealth(page.request)
     await page.goto('/proxy-hosts')
