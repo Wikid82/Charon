@@ -27,6 +27,21 @@ IMAGE_NAME="charon:local"
 HEALTH_TIMEOUT=60
 HEALTH_INTERVAL=5
 
+# Dev/test-only "What's New" changelog fixture injection (mirrors the
+# `Inject E2E changelog fixture` step in .github/workflows/e2e-tests-split.yml).
+# The committed backend/internal/changelog/data/changelog.json is a `[]`
+# placeholder (go:embed'd at build time), so it must be overwritten with the
+# E2E fixture's content before the image builds, or every
+# tests/settings/whats-new-changelog.spec.ts scenario fails identically
+# across all browsers (the modal never has data to render). Unlike CI's
+# ephemeral runner, this repo checkout persists locally, so (unlike CI) the
+# overwrite MUST be reverted once the image build has captured it — see
+# revert_changelog_fixture(), wired via a trap so it still runs if the build
+# fails partway through.
+CHANGELOG_FIXTURE_SRC="tests/fixtures/changelog-fixture.json"
+CHANGELOG_TARGET="backend/internal/changelog/data/changelog.json"
+CHANGELOG_FIXTURE_INJECTED=false
+
 # Default parameter values
 NO_CACHE=false
 CLEAN=false
@@ -144,6 +159,39 @@ clean_volumes() {
     done
 
     log_success "Volumes cleaned"
+}
+
+# Inject the deterministic E2E changelog fixture so go:embed bakes real
+# "What's New" data into the image, then register a trap to guarantee the
+# working-tree overwrite is reverted afterward — including on build failure.
+inject_changelog_fixture() {
+    log_step "FIXTURE" "Injecting E2E changelog fixture"
+
+    check_file_exists "${CHANGELOG_FIXTURE_SRC}" "Changelog fixture not found: ${CHANGELOG_FIXTURE_SRC}"
+    check_file_exists "${CHANGELOG_TARGET}" "Changelog embed target not found: ${CHANGELOG_TARGET}"
+
+    cp "${CHANGELOG_FIXTURE_SRC}" "${CHANGELOG_TARGET}"
+    CHANGELOG_FIXTURE_INJECTED=true
+    trap revert_changelog_fixture EXIT
+
+    log_success "Fixture injected (will be embedded via go:embed at build time)"
+}
+
+# Restore the committed `[]` placeholder so the local checkout never keeps
+# the E2E-only fixture content. Safe to call multiple times; a no-op unless
+# inject_changelog_fixture() actually ran.
+revert_changelog_fixture() {
+    if [[ "${CHANGELOG_FIXTURE_INJECTED}" != "true" ]]; then
+        return 0
+    fi
+
+    log_step "FIXTURE" "Reverting changelog fixture overwrite"
+    if git checkout -- "${CHANGELOG_TARGET}" 2>/dev/null; then
+        log_success "Reverted ${CHANGELOG_TARGET} to committed placeholder"
+    else
+        log_warning "Failed to revert ${CHANGELOG_TARGET} via git checkout — verify manually"
+    fi
+    CHANGELOG_FIXTURE_INJECTED=false
 }
 
 # Build Docker image
@@ -301,7 +349,9 @@ main() {
     # Execute rebuild steps
     stop_containers
     clean_volumes
+    inject_changelog_fixture
     build_image
+    revert_changelog_fixture
     start_containers
     wait_for_health
     verify_environment
