@@ -222,24 +222,32 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
     });
 
     test('should support row selection for bulk operations', { retries: 1 }, async ({ page }) => {
-      await test.step('Check for selectable rows', async () => {
-        // Look for checkbox in table header (select all) or rows
+      const hostConfig = generateProxyHost();
+
+      await test.step('Seed a proxy host so a real row exists to select', async () => {
+        // The select-all checkbox in <thead> renders even when the table is
+        // empty, so checking for its presence alone doesn't guarantee row
+        // data exists. Seed a host directly via the API for deterministic
+        // setup instead of relying on other tests leaving hosts behind.
+        await seedProxyHostViaAPI(page, {
+          domain: hostConfig.domain,
+          forwardHost: hostConfig.forwardHost,
+          forwardPort: hostConfig.forwardPort,
+        });
+
+        await page.reload();
+        await waitForLoadingComplete(page);
+      });
+
+      await test.step('Select all rows and verify bulk action bar appears', async () => {
         const selectAllCheckbox = page.locator('thead').getByRole('checkbox');
-        const rowCheckboxes = page.locator('tbody').getByRole('checkbox');
+        await expect(selectAllCheckbox).toBeVisible();
 
-        const hasSelectAll = await selectAllCheckbox.count() > 0;
-        const hasRowCheckboxes = await rowCheckboxes.count() > 0;
+        await selectAllCheckbox.click();
 
-        // Selection is available if we have checkboxes (only when hosts exist)
-        if (hasSelectAll || hasRowCheckboxes) {
-          // Try selecting all
-          if (hasSelectAll) {
-            await selectAllCheckbox.first().click();
-            // Should show bulk action bar
-            const bulkBar = page.getByText(/selected/i);
-            await expect(bulkBar).toBeVisible();
-          }
-        }
+        // Should show bulk action bar
+        const bulkBar = page.getByText(/selected/i);
+        await expect(bulkBar).toBeVisible();
       });
     });
   });

@@ -926,7 +926,12 @@ test.describe('Access Lists - CRUD Operations', () => {
         await page.goto('/proxy-hosts');
         await waitForLoadingComplete(page);
 
-        const heading = page.getByRole('heading', { name: /proxy.*hosts/i });
+        // Scope to the page-level <h1> (rendered by PageShell) rather than any
+        // heading matching /proxy.*hosts/i: when multiple proxy-host groups
+        // exist, each empty group renders its own "No proxy hosts" <h3> via
+        // EmptyState, which also matches the unscoped pattern and causes a
+        // strict-mode violation (multiple elements resolved).
+        const heading = page.getByRole('heading', { level: 1, name: /proxy.*hosts/i });
         await expect(heading).toBeVisible({ timeout: 5000 });
       });
 
