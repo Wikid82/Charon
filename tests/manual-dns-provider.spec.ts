@@ -104,7 +104,10 @@ async function openManualChallengePanel(
   // history of flaky failures here (see git log), so give it more headroom.
   await expect(manualChallengeButton).toBeVisible({ timeout: 10000 });
   await manualChallengeButton.click();
-  await expect(page.getByRole('heading', { name: /manual dns challenge/i })).toBeVisible();
+  // The panel heading renders from the same post-click async render cycle as
+  // the button above, so it's subject to the identical WebKit-under-CI-load
+  // delay — give it the same headroom instead of the 5s default.
+  await expect(page.getByRole('heading', { name: /manual dns challenge/i })).toBeVisible({ timeout: 10000 });
 }
 
 async function addManualVerifyRoute(
