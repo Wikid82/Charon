@@ -393,6 +393,7 @@ export function LiveLogViewer({
         <select
           value={levelFilter}
           onChange={(e) => setLevelFilter(e.target.value)}
+          aria-label="Filter by log level"
           className="px-2 py-1 text-sm bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:border-blue-500"
         >
           <option value="">All Levels</option>
@@ -408,6 +409,7 @@ export function LiveLogViewer({
             <select
               value={sourceFilter}
               onChange={(e) => setSourceFilter(e.target.value)}
+              aria-label="Filter by log source"
               className="px-2 py-1 text-sm bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:border-blue-500"
             >
               <option value="">All Sources</option>
