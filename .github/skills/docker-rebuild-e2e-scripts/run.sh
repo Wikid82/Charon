@@ -277,6 +277,71 @@ wait_for_health() {
     log_success "Container is healthy"
 }
 
+# Detect and persist the E2E Caddy proxy port.
+#
+# On dev machines that already run a separate, always-on Charon deployment
+# bound to host port 80, docker-compose.playwright-local.yml remaps this
+# container's Caddy proxy (container port 80) to host port 8180 instead
+# (see that file's own comment). tests/utils/api-helpers.ts's
+# caddyProxyOrigin() defaults to host port 80 unless PLAYWRIGHT_CADDY_PROXY_PORT
+# is set, so leaving it unset silently sends every WAF/ACL/CrowdSec
+# "malicious request" E2E probe to the OTHER, unrelated Charon instance on
+# port 80 instead of this E2E container. That instance has no route for the
+# test's ad-hoc proxy host/domain and just serves its own catch-all (200 OK)
+# - producing "got 200 instead of 403/502" failures with no error anywhere
+# in the stack to point at. Confirmed live on this class of setup:
+# `curl -H "Host: x" http://127.0.0.1:80/` -> 200 (wrong container) vs.
+# `curl -H "Host: x" http://127.0.0.1:8180/` -> 404 (this container).
+#
+# Detect the actual host port mapped to this container's port 80 and persist
+# it to .env so `npx playwright test` picks it up automatically -
+# playwright.config.js loads .env via dotenv for local (non-CI) runs.
+sync_caddy_proxy_port() {
+    log_step "PORT CHECK" "Verifying Caddy proxy port mapping"
+
+    local mapped
+    mapped="$(docker port "${CONTAINER_NAME}" 80/tcp 2>/dev/null | head -n1 | sed -E 's/.*:([0-9]+)$/\1/')"
+
+    if [[ -z "${mapped}" ]]; then
+        log_warning "Could not determine host port mapped to ${CONTAINER_NAME}:80 - skipping PLAYWRIGHT_CADDY_PROXY_PORT sync"
+        return
+    fi
+
+    local env_file="${PROJECT_ROOT}/.env"
+    touch "${env_file}"
+
+    if [[ "${mapped}" == "80" ]]; then
+        # No remap in effect; drop any stale override so the default (80) applies.
+        if grep -q '^PLAYWRIGHT_CADDY_PROXY_PORT=' "${env_file}" 2>/dev/null; then
+            sed -i.bak '/^PLAYWRIGHT_CADDY_PROXY_PORT=/d' "${env_file}" && rm -f "${env_file}.bak"
+            log_info "Removed stale PLAYWRIGHT_CADDY_PROXY_PORT override (container now maps directly to host port 80)"
+        fi
+        return
+    fi
+
+    if grep -q "^PLAYWRIGHT_CADDY_PROXY_PORT=${mapped}$" "${env_file}" 2>/dev/null; then
+        log_info "PLAYWRIGHT_CADDY_PROXY_PORT already set to ${mapped} in .env"
+        return
+    fi
+
+    if grep -q '^PLAYWRIGHT_CADDY_PROXY_PORT=' "${env_file}" 2>/dev/null; then
+        sed -i.bak "s/^PLAYWRIGHT_CADDY_PROXY_PORT=.*/PLAYWRIGHT_CADDY_PROXY_PORT=${mapped}/" "${env_file}" && rm -f "${env_file}.bak"
+    else
+        {
+            echo ""
+            echo "# Auto-set by docker-rebuild-e2e: ${CONTAINER_NAME}'s Caddy proxy (container"
+            echo "# port 80) is remapped to host port ${mapped} because host port 80 is occupied"
+            echo "# by another container. Required so caddyProxyOrigin() in"
+            echo "# tests/utils/api-helpers.ts targets this E2E container, not whatever else is"
+            echo "# listening on port 80."
+            echo "PLAYWRIGHT_CADDY_PROXY_PORT=${mapped}"
+        } >> "${env_file}"
+    fi
+
+    log_warning "Host port 80 is occupied by something other than ${CONTAINER_NAME} - its Caddy proxy is on host port ${mapped}"
+    log_success "Set PLAYWRIGHT_CADDY_PROXY_PORT=${mapped} in .env for Playwright"
+}
+
 # Verify environment
 verify_environment() {
     log_step "VERIFY" "Verifying E2E environment"
@@ -311,6 +376,11 @@ show_summary() {
     echo "  Application URL:  http://localhost:8080"
     echo "  Health Check:     http://localhost:8080/api/v1/health"
     echo "  Container:        ${CONTAINER_NAME}"
+    local proxy_port
+    proxy_port="$(docker port "${CONTAINER_NAME}" 80/tcp 2>/dev/null | head -n1 | sed -E 's/.*:([0-9]+)$/\1/')"
+    if [[ -n "${proxy_port}" ]]; then
+        echo "  Caddy Proxy Port: ${proxy_port} (PLAYWRIGHT_CADDY_PROXY_PORT synced to .env)"
+    fi
     echo ""
     echo "  Run E2E tests:"
     echo "    .github/skills/scripts/skill-runner.sh test-e2e-playwright"
@@ -354,6 +424,7 @@ main() {
     revert_changelog_fixture
     start_containers
     wait_for_health
+    sync_caddy_proxy_port
     verify_environment
     show_summary
 
