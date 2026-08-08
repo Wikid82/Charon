@@ -170,11 +170,13 @@ Before marking an implementation task as complete, perform the following in orde
    - **Run**: `bash scripts/local-patch-report.sh` from repo root
    - **Required Artifacts**: `test-results/local-patch-report.md` and `test-results/local-patch-report.json`
 
-3. **Security Scans** (MANDATORY — Zero Tolerance):
-   - **CodeQL Go Scan**: `lefthook run pre-commit` — zero high/critical findings allowed
-   - **CodeQL JS Scan**: `lefthook run pre-commit` — zero high/critical findings allowed
-   - **Trivy Container Scan**: `make trivy` or equivalent for container/dependency vulnerabilities
-   - Results viewed via `jq '.runs[].results' codeql-results-*.sarif`
+3. **Security Scans** (CodeQL Go/JS + Trivy):
+   - **Run locally when the change adds a new feature** (new code paths, endpoints, components — typically a `feat:`-scoped commit): zero high/critical findings allowed before proceeding.
+     - **CodeQL Go Scan**: `lefthook run pre-commit`
+     - **CodeQL JS Scan**: `lefthook run pre-commit`
+     - **Trivy Container Scan**: `make trivy` or equivalent for container/dependency vulnerabilities
+     - Results viewed via `jq '.runs[].results' codeql-results-*.sarif`
+   - **Defer to CI for `fix:`/`test:`/`chore:`/`refactor:`-scoped changes with no new feature surface** — don't run these locally for pure fixes or test work; CI runs both unconditionally on every PR regardless, so nothing is actually skipped, just not duplicated locally when the risk surface is small.
 
 4. **Lefthook Triage**: Run `lefthook run pre-commit`. Fix all errors immediately.
 

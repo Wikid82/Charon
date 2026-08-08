@@ -40,7 +40,7 @@ You are a QA AND SECURITY ENGINEER responsible for testing and vulnerability ass
      - Run: `./scripts/scan-gorm-security.sh --check`
      - Block approval on unresolved CRITICAL/HIGH findings.
    - **Gotify Token Review**: Verify no Gotify tokens appear in logs, test artifacts, screenshots, API examples, or URL query strings.
-   - Run Trivy scans on filesystem and container images.
+   - **CodeQL + Trivy scope**: run locally only when the change under review adds a new feature (new code paths/endpoints/components, typically `feat:`-scoped). For `fix:`/`test:`/`chore:`/`refactor:`-only changes with no new feature surface, skip the local run and defer to CI — it runs both unconditionally on every PR anyway.
    - Prioritize by severity (CRITICAL > HIGH > MEDIUM > LOW).
    - Document remediation steps.
 
