@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 
@@ -21,6 +21,17 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
   const [showResetInfo, setShowResetInfo] = useState(false)
   const { login } = useAuth()
+
+  // Guards against a "state update after unmount" race: if the component
+  // unmounts (e.g. navigation away, or test teardown) while handleSubmit's
+  // await chain is still in flight, the pending finally block must not call
+  // setLoading on an unmounted component.
+  const isMountedRef = useRef(true)
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
 
   const { data: setupStatus, isLoading: isCheckingSetup } = useQuery({
     queryKey: ['setupStatus'],
@@ -51,7 +62,9 @@ export default function Login() {
       const message = error.response?.data?.error || error.message || t('auth.loginFailed')
       toast.error(message)
     } finally {
-      setLoading(false)
+      if (isMountedRef.current) {
+        setLoading(false)
+      }
     }
   }
 
