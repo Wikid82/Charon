@@ -295,6 +295,7 @@ test.describe('DNS Provider Types', () => {
           return fallback;
         });
         const manualOption = listbox.getByRole('option', { name: /manual/i });
+        await expect(manualOption).toBeVisible({ timeout: 5000 });
         await manualOption.focus();
         await page.keyboard.press('Enter');
         await expect(listbox).toBeHidden();
@@ -333,6 +334,7 @@ test.describe('DNS Provider Types', () => {
           return fallback;
         });
         const webhookOption = listbox.getByRole('option', { name: /webhook/i });
+        await expect(webhookOption).toBeVisible({ timeout: 5000 });
         await webhookOption.focus();
         await page.keyboard.press('Enter');
         await expect(listbox).toBeHidden();
@@ -425,6 +427,7 @@ test.describe('DNS Provider Types', () => {
           return fallback;
         });
         const scriptOption = listbox.getByRole('option', { name: /script/i });
+        await expect(scriptOption).toBeVisible({ timeout: 5000 });
         await scriptOption.focus();
         await page.keyboard.press('Enter');
         await expect(listbox).toBeHidden();
