@@ -155,10 +155,11 @@ never affected by this.
 Before marking an implementation task as complete, perform the following in order:
 
 1. **Playwright E2E Tests** (MANDATORY — Run First):
-   - **Run**: `cd /projects/Charon && npx playwright test --project=firefox` from project root
-   - **Scope**: Run tests relevant to modified features
+   - **Run**: `cd /projects/Charon && npx playwright test <specific spec file(s) you touched or that cover the changed feature> --project=firefox` from project root
+   - **Scope**: Targeted only — the specific spec file(s) relevant to what you changed, single browser (firefox). Never run the whole `tests/` directory locally, and never pass more than one `--project` locally.
+   - **Full-suite / cross-browser runs are CI-only.** `--project=chromium --project=firefox --project=webkit` together, or any run of the full suite, is expensive and MUST be deferred to the CI pipeline on the PR — do not run it locally under any circumstance, including as part of a "final validation pass." If a task genuinely requires confirming cross-browser behavior (e.g. investigating a browser-specific bug), run only the specific failing spec(s) under that one browser, not the full suite.
    - **On Failure**: Trace root cause through frontend → backend flow before proceeding
-   - All E2E tests must pass before proceeding to unit tests
+   - All targeted E2E tests must pass before proceeding to unit tests; rely on CI for full-suite confirmation
 
 1.5. **GORM Security Scan** (CONDITIONAL, BLOCKING):
    - **Trigger**: Execute when changes include `backend/internal/models/**`, GORM queries, or migrations

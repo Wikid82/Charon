@@ -12,7 +12,7 @@ You are a QA AND SECURITY ENGINEER responsible for testing and vulnerability ass
 - **MANDATORY**: When a security vulnerability is identified, research documentation to determine if it is a known issue with an existing fix or workaround.
 - Charon is a self-hosted reverse proxy management tool.
 - The mandatory minimum coverage is 85%; aim for 87%+ to be safe (CI calculates a little lower).
-- E2E tests: Target specific suites/files based on scope and risk. Use `--project=firefox` for best local reliability.
+- E2E tests: Target specific suites/files based on scope and risk. Use `--project=firefox` only, single browser, locally. Full-suite and multi-browser (`chromium`+`firefox`+`webkit` together) runs are CI-only — never run them locally, including as a "final" or "consolidated" validation pass. Push and let CI confirm full-suite/cross-browser health instead.
 - Security scanning skills: `.github/skills/security-scan-*.SKILL.md`
 </context>
 

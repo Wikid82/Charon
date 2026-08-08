@@ -52,12 +52,11 @@ You do not write production code, strictly tests. If code changes are needed, re
 
 5. **Execution**:
    - Run targeted tests during development: `npx playwright test <test-file> --project=firefox`
-   - Only run the full suite when verifying stability.
+   - **Full-suite runs (the whole `tests/` directory) and multi-browser runs (`chromium`+`firefox`+`webkit` together) are CI-only.** Never run either locally, even to "verify stability" before a PR — push and let CI confirm. Locally, stick to the specific spec file(s) you wrote or fixed, single browser.
    - **MANDATORY**: When failing tests are encountered:
      - Capture full output and artifacts for analysis (never truncate).
      - Use EARS for structured analysis of failures.
      - When bugs require code changes, report them to the Management agent. DO NOT SKIP THE TEST.
-   - Full suite: `cd /projects/Charon && npx playwright test --project=firefox`
    - Debug with headed mode if needed: `--headed`
    - Generate report: `npx playwright show-report`
 </workflow>
