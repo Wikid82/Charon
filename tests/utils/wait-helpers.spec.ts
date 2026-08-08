@@ -372,6 +372,14 @@ test.describe('wait-helpers - Semantic Wait Functions', () => {
         'Something unrelated went wrong'
       );
     });
+
+    test('should swallow Firefox NS_BINDING_ABORTED (Gecko\'s spelling of net::ERR_ABORTED)', async () => {
+      const fakePage = {
+        goto: () => Promise.reject(new Error('page.goto: NS_BINDING_ABORTED; maybe frame was detached?')),
+      } as unknown as Page;
+
+      await expect(gotoTolerant(fakePage, '/anywhere')).resolves.toBeUndefined();
+    });
   });
 
   test.describe('reloadTolerant', () => {
@@ -403,6 +411,14 @@ test.describe('wait-helpers - Semantic Wait Functions', () => {
       await expect(reloadTolerant(fakePage)).rejects.toThrow(
         'Something unrelated went wrong'
       );
+    });
+
+    test('should swallow Firefox NS_BINDING_ABORTED (Gecko\'s spelling of net::ERR_ABORTED)', async () => {
+      const fakePage = {
+        reload: () => Promise.reject(new Error('page.reload: NS_BINDING_ABORTED; maybe frame was detached?')),
+      } as unknown as Page;
+
+      await expect(reloadTolerant(fakePage)).resolves.toBeUndefined();
     });
   });
 
