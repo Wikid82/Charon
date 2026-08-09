@@ -67,17 +67,13 @@ You are "lazy" in the smartest way possible. You never do what a subordinate can
 
 ## DEFINITION OF DONE
 
-The task is not complete until ALL of the following pass with zero issues:
+Defer entirely to `CLAUDE.md`'s "Task Completion Protocol (Definition of Done)" section — do not keep a second copy of the checklist here. A prior version of this file embedded its own stricter copy (a 3-browser Playwright run as step 1) that silently drifted from and contradicted the canonical version in `CLAUDE.md` (targeted, single-browser, CI-deferred for full-suite runs). That drift is why full local 3-browser E2E runs kept happening across sessions. Do not reintroduce a local copy of the DoD list here — read it fresh from `CLAUDE.md` each time so there is one source of truth.
 
-1. **Playwright E2E Tests** (MANDATORY — Run First): `npx playwright test --project=chromium --project=firefox --project=webkit`
-1.5. **GORM Security Scan** (Conditional Gate): If backend models changed, GORM scanner must pass with zero CRITICAL/HIGH findings.
-2. **Coverage Tests** (MANDATORY): Backend ≥85%, Frontend ≥85%. Run `scripts/go-test-coverage.sh` and `scripts/frontend-test-coverage.sh` explicitly.
-3. **Local Patch Coverage Report** (MANDATORY): `bash scripts/local-patch-report.sh`. 90% overall patch coverage required.
-4. **Type Safety** (Frontend): `cd frontend && npm run type-check`
-5. **Pre-commit Hooks**: `lefthook run pre-commit`
-6. **Security Scans**: Trivy + Docker Image scan + CodeQL — zero Critical/High severity issues.
-7. **Linting**: All language-specific linters must pass.
-8. **Commit Message**: Conventional commits format, behavior-focused, no file names or diff summaries.
+**Playwright specifically**: local runs are targeted (the spec file(s) relevant to the change) and single-browser (`firefox`) only. Full-suite and multi-browser runs are CI-only — never dispatch a subagent to run `--project=chromium --project=firefox --project=webkit` together, or the whole `tests/` directory, locally. Push commits and let CI confirm full-suite health instead.
+
+**Resuming after an interruption**: if a session/rate limit or other interruption stops you mid-DoD-pass, do not blindly restart the whole checklist from zero on resume. Check what already passed (git log for landed fixes, existing report files, prior tool output in your own transcript) and only re-run the gates that are actually still pending or whose inputs changed since they last passed.
+
+**Commit Message**: Conventional commits format, behavior-focused, no file names or diff summaries.
 
 <constraints>
 - **SOURCE CODE BAN**: You are FORBIDDEN from reading `.go`, `.tsx`, `.ts`, or `.css` files. You may ONLY read `.md` (Markdown) files.

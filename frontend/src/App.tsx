@@ -145,21 +145,42 @@ export default function App() {
 
             </Route>
           </Routes>
-        <ToastContainer />
-        <Toaster
-          position="bottom-right"
-          toastOptions={{
-            duration: 5000,
-            success: {
-              style: { background: '#16a34a', color: 'white' },
-              ariaProps: { role: 'status', 'aria-live': 'polite' },
-            },
-            error: {
-              style: { background: '#dc2626', color: 'white' },
-              ariaProps: { role: 'alert', 'aria-live': 'assertive' },
-            },
-          }}
-        />
+        {/*
+          Radix Dialog marks every other document.body-level sibling
+          aria-hidden while a modal is open (via the `aria-hidden` package's
+          hideOthers, called once per dialog mount). That helper exempts
+          anything matching `[aria-live]` from being hidden, but only nodes
+          that already exist in the DOM at the moment a dialog mounts and
+          takes its snapshot — it never re-scans for elements added later.
+          Both toast containers below render an empty wrapper up front and
+          only attach `aria-live` to individual toast messages once one is
+          shown, so a toast fired while a modal dialog is open — or opened
+          after a dialog already is — mounts inside a wrapper the snapshot
+          missed and stays permanently aria-hidden (invisible to
+          accessibility tools and to accessibility-tree-based test queries)
+          for as long as that dialog stays open. Giving this outer wrapper a
+          static aria-live means it's always present for the snapshot to
+          find, so toasts stay announced/visible regardless of dialog state.
+          `display: contents` keeps it a no-op for layout — both children
+          are already position: fixed.
+        */}
+        <div className="contents" aria-live="polite" aria-atomic="false">
+          <ToastContainer />
+          <Toaster
+            position="bottom-right"
+            toastOptions={{
+              duration: 5000,
+              success: {
+                style: { background: '#16a34a', color: 'white' },
+                ariaProps: { role: 'status', 'aria-live': 'polite' },
+              },
+              error: {
+                style: { background: '#dc2626', color: 'white' },
+                ariaProps: { role: 'alert', 'aria-live': 'assertive' },
+              },
+            }}
+          />
+        </div>
       </Router>
     </AuthProvider>
   )

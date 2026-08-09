@@ -63,7 +63,7 @@ export default function AccessLists() {
   const handleUpdate = (data: AccessListFormData) => {
     if (!editingACL) return;
     updateMutation.mutate(
-      { id: editingACL.id, data },
+      { uuid: editingACL.uuid, data },
       {
         onSuccess: () => setEditingACL(null),
       }
@@ -79,7 +79,7 @@ export default function AccessLists() {
       toast.success(t('accessLists.backupCreated'), { id: 'backup-toast' });
 
       // Now delete
-      deleteMutation.mutate(acl.id, {
+      deleteMutation.mutate(acl.uuid, {
         onSuccess: () => {
           setShowDeleteConfirm(null);
           setEditingACL(null);
@@ -110,9 +110,9 @@ export default function AccessLists() {
 
       // Delete each selected ACL
       const deletePromises = Array.from(selectedIds).map(
-        (id) =>
+        (uuid) =>
           new Promise<void>((resolve, reject) => {
-            deleteMutation.mutate(Number(id), {
+            deleteMutation.mutate(uuid, {
               onSuccess: () => resolve(),
               onError: (error) => reject(error),
             });
@@ -134,7 +134,7 @@ export default function AccessLists() {
     if (!testingACL || !testIP.trim()) return;
 
     testIPMutation.mutate(
-      { id: testingACL.id, ipAddress: testIP.trim() },
+      { uuid: testingACL.uuid, ipAddress: testIP.trim() },
       {
         onSuccess: (result) => {
           if (result.allowed) {
@@ -318,22 +318,22 @@ export default function AccessLists() {
       {showCGNATWarning && accessLists && accessLists.length > 0 && (
         <Alert
           variant="warning"
-          title={t('accessLists.cgnatWarningTitle')}
+          title={t('accessLists.cgnatWarning.title')}
           dismissible
           onDismiss={() => setShowCGNATWarning(false)}
         >
           <div className="space-y-2">
             <p>
-              {t('accessLists.cgnatWarningMessage')}
+              {t('accessLists.cgnatWarning.message')}
             </p>
             <details className="text-xs">
-              <summary className="cursor-pointer hover:text-content-primary font-medium mb-1">{t('accessLists.solutionsIfLockedOut')}</summary>
+              <summary className="cursor-pointer hover:text-content-primary font-medium mb-1">{t('accessLists.cgnatWarning.solutionsTitle')}</summary>
               <ul className="list-disc list-inside space-y-1 mt-2 ml-2">
-                <li>{t('accessLists.solutionLocalNetwork')}</li>
-                <li>{t('accessLists.solutionWhitelist')}</li>
-                <li>{t('accessLists.solutionTestIp')}</li>
-                <li>{t('accessLists.solutionDisableAcl')}</li>
-                <li>{t('accessLists.solutionVpn')}</li>
+                <li>{t('accessLists.cgnatWarning.solution1')}</li>
+                <li>{t('accessLists.cgnatWarning.solution2')}</li>
+                <li>{t('accessLists.cgnatWarning.solution3')}</li>
+                <li>{t('accessLists.cgnatWarning.solution4')}</li>
+                <li>{t('accessLists.cgnatWarning.solution5')}</li>
               </ul>
             </details>
           </div>
@@ -460,7 +460,7 @@ export default function AccessLists() {
             <DataTable
               data={accessLists}
               columns={columns}
-              rowKey={(acl) => String(acl.id)}
+              rowKey={(acl) => acl.uuid}
               selectable
               selectedKeys={selectedIds}
               onSelectionChange={setSelectedIds}

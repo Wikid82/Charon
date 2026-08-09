@@ -450,9 +450,14 @@ test.describe('Caddy Import - Cross-Browser @cross-browser', () => {
 
       await page.goto('/tasks/import/caddyfile', { waitUntil: 'domcontentloaded' });
 
-      // Should show banner or button to resume
+      // Should show banner or button to resume.
+      // Timeout matches the 10s used elsewhere in this file for post-navigation
+      // async content (e.g. the review-table waits above): after a full browser
+      // navigation the SPA bundle must load, hydrate, and the mocked
+      // /api/v1/import/status fetch must resolve before the banner renders, and
+      // 5s was too tight for that full chain under slower Firefox timing.
       const banner = page.locator('[data-testid="import-banner"]').or(page.getByText(/pending|resume|continue/i));
-      await expect(banner.first()).toBeVisible({ timeout: 5000 });
+      await expect(banner.first()).toBeVisible({ timeout: 10000 });
     });
   });
 

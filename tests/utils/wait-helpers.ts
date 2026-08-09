@@ -1290,13 +1290,21 @@ export async function waitForNavigation(
  * (see commit d537476f): the navigation was interrupted, aborted, or simply
  * never committed within the timeout. These don't indicate a real failure -
  * they mean a fresh navigation was already underway when the timeout fired.
+ *
+ * `NS_BINDING_ABORTED` is Firefox/Gecko's own native spelling of the same
+ * class of error `net::ERR_ABORTED` covers for Chromium — it surfaces when a
+ * navigation (e.g. a reload() racing a still-pending prior goto()) is
+ * cancelled before it commits. Without it, reloadTolerant()/gotoTolerant()
+ * rethrow on Firefox for exactly the race they exist to swallow (see
+ * microsoft/playwright#12912, #13640, #20749).
  */
 function isExpectedNavigationRace(error: unknown): boolean {
   return (
     error instanceof Error &&
     (error.message.includes('Timeout') ||
       error.message.includes('interrupted by another navigation') ||
-      error.message.includes('net::ERR_ABORTED'))
+      error.message.includes('net::ERR_ABORTED') ||
+      error.message.includes('NS_BINDING_ABORTED'))
   );
 }
 

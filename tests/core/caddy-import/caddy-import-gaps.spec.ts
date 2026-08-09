@@ -193,10 +193,16 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
       });
 
       await test.step('Verify modal is closed and still on import page', async () => {
-        await expect(page.getByTestId('import-success-modal')).not.toBeVisible();
-        await expect(page).toHaveURL(/\/tasks\/import\/caddyfile/);
+        // Explicit 10s timeouts here match the Firefox-CI allowance already
+        // documented in completeImportFlow() above: this import session is a
+        // single global backend resource (ImportSession has no per-user scope
+        // — see backend/internal/api/handlers/import_handler.go GetStatus),
+        // so under parallel workers the post-commit status refetch can be
+        // measurably slower to settle than the default 5s expect timeout.
+        await expect(page.getByTestId('import-success-modal')).not.toBeVisible({ timeout: 10000 });
+        await expect(page).toHaveURL(/\/tasks\/import\/caddyfile/, { timeout: 10000 });
         // Verify textarea is still visible (back to import form)
-        await expect(page.locator('textarea')).toBeVisible();
+        await expect(page.locator('textarea')).toBeVisible({ timeout: 10000 });
       });
     });
   });

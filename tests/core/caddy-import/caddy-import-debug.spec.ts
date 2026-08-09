@@ -582,9 +582,16 @@ broken.example.com {
       }
 
       // Verify UI displays error
+      // Timeout matches the 10s Firefox/WebKit CI allowance already used
+      // elsewhere in the caddy-import suite (e.g. caddy-import-gaps.spec.ts's
+      // completeImportFlow) for rendering async content after an API
+      // response — this file already documents WebKit-specific navigation
+      // quirks (see openImportPageDeterministic's retry above), and 5s was
+      // too tight for the error banner to render under that same class of
+      // slower-browser timing.
       console.log('[Verification] Checking for error message display...');
       const errorMessage = page.locator('.bg-red-900, .bg-red-900\\/20');
-      await expect(errorMessage).toBeVisible({ timeout: 5000 });
+      await expect(errorMessage).toBeVisible({ timeout: 10000 });
       console.log('[Verification] ✅ Error message visible');
 
       const errorText = await errorMessage.textContent();

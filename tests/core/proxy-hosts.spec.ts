@@ -15,7 +15,8 @@ import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete, waitForDialog, waitForDebounce } from '../utils/wait-helpers';
 import { clickSwitch } from '../utils/ui-helpers';
 import { generateProxyHost } from '../fixtures/proxy-hosts';
-import type { Page } from '@playwright/test';
+import { getProxyHostsViaAPI, type ProxyHostResponse } from '../utils/api-helpers';
+import type { Page, Request } from '@playwright/test';
 
 /**
  * Helper to dismiss the "New Base Domain Detected" dialog if it appears.
@@ -26,6 +27,37 @@ async function dismissDomainDialog(page: Page): Promise<void> {
   if (await noThanksBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
     await noThanksBtn.click();
     await waitForDebounce(page, { delay: 300 }); // Allow dialog to close and DOM to update
+  }
+}
+
+/**
+ * Seed a proxy host directly via the API, bypassing
+ * tests/utils/api-helpers.ts's `createProxyHostViaAPI` — that helper posts
+ * the `ProxyHostCreateData` fields (`domain`, `forwardHost`, `forwardPort`,
+ * `websocketSupport`) verbatim, but the real backend
+ * (backend/internal/models/proxy_host.go's JSON tags: `domain_names`,
+ * `forward_host`, `forward_port`, `websocket_support`) only recognizes
+ * snake_case keys, so every field the helper sends is silently dropped and
+ * the request 400s with "domain names is required" (verified empirically
+ * against the running API). Send the real field names directly instead —
+ * same bypass precedent as certificates.spec.ts's `createCustomCertViaAPI`
+ * for `CertificateResponse`'s analogous type/runtime mismatch.
+ */
+async function seedProxyHostViaAPI(
+  page: Page,
+  data: { domain: string; forwardHost: string; forwardPort: number; websocketSupport?: boolean }
+): Promise<void> {
+  const response = await page.request.post('/api/v1/proxy-hosts', {
+    data: {
+      domain_names: data.domain,
+      forward_host: data.forwardHost,
+      forward_port: data.forwardPort,
+      websocket_support: data.websocketSupport ?? false,
+    },
+  });
+
+  if (!response.ok()) {
+    throw new Error(`Failed to seed proxy host: ${response.status()} ${await response.text()}`);
   }
 }
 
@@ -190,25 +222,32 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
     });
 
     test('should support row selection for bulk operations', { retries: 1 }, async ({ page }) => {
-      await test.step('Check for selectable rows', async () => {
-        // Look for checkbox in table header (select all) or rows
+      const hostConfig = generateProxyHost();
+
+      await test.step('Seed a proxy host so a real row exists to select', async () => {
+        // The select-all checkbox in <thead> renders even when the table is
+        // empty, so checking for its presence alone doesn't guarantee row
+        // data exists. Seed a host directly via the API for deterministic
+        // setup instead of relying on other tests leaving hosts behind.
+        await seedProxyHostViaAPI(page, {
+          domain: hostConfig.domain,
+          forwardHost: hostConfig.forwardHost,
+          forwardPort: hostConfig.forwardPort,
+        });
+
+        await page.reload();
+        await waitForLoadingComplete(page);
+      });
+
+      await test.step('Select all rows and verify bulk action bar appears', async () => {
         const selectAllCheckbox = page.locator('thead').getByRole('checkbox');
-        const rowCheckboxes = page.locator('tbody').getByRole('checkbox');
+        await expect(selectAllCheckbox).toBeVisible();
 
-        const hasSelectAll = await selectAllCheckbox.count() > 0;
-        const hasRowCheckboxes = await rowCheckboxes.count() > 0;
+        await selectAllCheckbox.click();
 
-        // Selection is available if we have checkboxes (only when hosts exist)
-        if (hasSelectAll || hasRowCheckboxes) {
-          // Try selecting all
-          if (hasSelectAll) {
-            await selectAllCheckbox.first().click();
-            // Should show bulk action bar
-            const bulkBar = page.getByText(/selected/i);
-            const hasBulkBar = await bulkBar.isVisible().catch(() => false);
-            expect(hasBulkBar || true).toBeTruthy();
-          }
-        }
+        // Should show bulk action bar
+        const bulkBar = page.getByText(/selected/i);
+        await expect(bulkBar).toBeVisible();
       });
     });
   });
@@ -242,17 +281,37 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
 
       await test.step('Try to submit empty form', async () => {
         const saveButton = getSaveButton(page);
-        await saveButton.click();
 
-        // Form should show validation error or prevent submission
-        // Required fields: name, domain_names, forward_host, forward_port
-        const nameInput = page.locator('#proxy-name');
-        const isInvalid = await nameInput.evaluate((el: HTMLInputElement) =>
-          el.validity.valid === false || el.getAttribute('aria-invalid') === 'true'
-        ).catch(() => false);
+        // Required fields: name, domain_names, forward_host, forward_port.
+        // Track whether the create request ever reaches the network — if
+        // validation genuinely blocks submission, the browser never fires
+        // the form's submit event at all, so no POST should be observed.
+        let createRequestSent = false;
+        const onRequest = (req: Request) => {
+          if (req.method() === 'POST' && req.url().includes('/api/v1/proxy-hosts')) {
+            createRequestSent = true;
+          }
+        };
+        page.on('request', onRequest);
 
-        // Browser validation or custom validation should prevent submission
-        expect(isInvalid || true).toBeTruthy();
+        try {
+          await saveButton.click();
+
+          // Form should show validation error or prevent submission
+          const nameInput = page.locator('#proxy-name');
+          const isInvalid = await nameInput.evaluate((el: HTMLInputElement) =>
+            el.validity.valid === false || el.getAttribute('aria-invalid') === 'true'
+          ).catch(() => false);
+
+          // Browser validation or custom validation should prevent submission
+          expect(isInvalid).toBe(true);
+
+          // Give any (incorrectly) fired request a moment to reach the network layer
+          await waitForDebounce(page, { delay: 300 });
+          expect(createRequestSent).toBe(false);
+        } finally {
+          page.off('request', onRequest);
+        }
       });
 
       await test.step('Close form', async () => {
@@ -456,9 +515,24 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
 
         await waitForLoadingComplete(page);
 
-        // Verify creation
-        const hostCreated = await page.getByText(hostConfig.domain).isVisible({ timeout: 5000 }).catch(() => false);
-        expect(hostCreated || true).toBeTruthy();
+        // Verify creation in the UI
+        await expect(page.getByText(hostConfig.domain)).toBeVisible({ timeout: 10000 });
+
+        // And verify it was actually persisted server-side, not just
+        // rendered optimistically. tests/utils/api-helpers.ts's
+        // `ProxyHostResponse` type declares a `domain` field, but the real
+        // backend response (backend/internal/models/proxy_host.go's
+        // `DomainNames string `json:"domain_names"``) never sends one —
+        // same class of type/runtime mismatch already documented in
+        // certificates.spec.ts for `CertificateResponse`. Read the real
+        // field instead of the never-populated `.domain`.
+        const hosts = (await getProxyHostsViaAPI(page.request)) as Array<
+          ProxyHostResponse & { domain_names: string }
+        >;
+        const created = hosts.find((h) => h.domain_names === hostConfig.domain);
+        expect(created).toBeTruthy();
+        expect(created?.forward_host).toBe(hostConfig.forwardHost);
+        expect(created?.forward_port).toBe(hostConfig.forwardPort);
       });
     });
 
@@ -518,9 +592,12 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
         ];
 
         for (const option of securityOptions) {
+          // These are static, always-rendered form fields (SSL & Security
+          // Options block in ProxyHostForm.tsx) — not conditional/feature-flagged.
           const checkbox = page.getByLabel(option);
           const exists = await checkbox.count() > 0;
-          expect(exists || true).toBeTruthy();
+          expect(exists).toBe(true);
+          await expect(checkbox.first()).toBeVisible();
         }
       });
 
@@ -536,16 +613,26 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
       });
 
       await test.step('Verify application preset dropdown', async () => {
-        const presetSelect = page.locator('#application-preset').or(page.getByLabel(/application.*preset/i));
-        await expect(presetSelect.first()).toBeVisible();
+        // The preset field is a Radix Select (frontend/src/components/ui/Select.tsx),
+        // not a native <select>/<option> — it renders no <option> elements at
+        // all, so `option:text-matches(...)` always matched zero regardless
+        // of what presets exist. Open the dropdown and look for the real
+        // role="option" items it renders instead.
+        const presetSelect = page.getByTestId('application-preset');
+        await expect(presetSelect).toBeVisible();
+        await presetSelect.click();
 
-        // Check for common presets
-        const presets = ['plex', 'jellyfin', 'homeassistant', 'nextcloud'];
-        for (const preset of presets) {
-          const option = page.locator(`option:text-matches("${preset}", "i")`);
-          const exists = await option.count() > 0;
-          expect(exists || true).toBeTruthy();
+        // Check for common presets (APPLICATION_PRESETS is a static const
+        // array in ProxyHostForm.tsx — not feature-flagged). Match against
+        // each preset's rendered `label` text, not its `value` — "Home
+        // Assistant" (label) doesn't literally contain "homeassistant" (value).
+        const presetLabels = [/plex/i, /jellyfin/i, /home\s*assistant/i, /nextcloud/i];
+        for (const label of presetLabels) {
+          const option = page.getByRole('option', { name: label });
+          await expect(option).toBeVisible();
         }
+
+        await page.keyboard.press('Escape');
       });
 
       await test.step('Close form', async () => {
@@ -631,16 +718,34 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
     });
 
     test('should show feature badges (WebSocket, ACL)', async ({ page }) => {
+      const hostConfig = generateProxyHost({ websocketSupport: true });
+
+      await test.step('Seed a host with WebSocket support enabled', async () => {
+        await seedProxyHostViaAPI(page, {
+          domain: hostConfig.domain,
+          forwardHost: hostConfig.forwardHost,
+          forwardPort: hostConfig.forwardPort,
+          websocketSupport: true,
+        });
+      });
+
       await test.step('Check for feature badges', async () => {
-        // Look for WebSocket or ACL badges
-        const wsBadge = page.getByText(/ws|websocket/i);
-        const aclBadge = page.getByText(/acl|access/i);
+        await page.reload();
+        await waitForLoadingComplete(page);
 
-        const hasWs = await wsBadge.count() > 0;
-        const hasAcl = await aclBadge.count() > 0;
+        // Scope to the seeded host's own row (features column renders a
+        // "WS" badge — frontend/src/pages/ProxyHosts.tsx — only when
+        // websocket_support is true, which is now deterministic).
+        const row = page.locator('tbody tr').filter({ hasText: hostConfig.domain });
+        await expect(row).toBeVisible({ timeout: 10000 });
 
-        // May or may not exist depending on host configuration
-        expect(hasWs || hasAcl || true).toBeTruthy();
+        const wsBadge = row.getByText('WS', { exact: true });
+        const aclBadge = row.getByText('ACL', { exact: true });
+
+        const hasWs = await wsBadge.isVisible().catch(() => false);
+        const hasAcl = await aclBadge.isVisible().catch(() => false);
+
+        expect(hasWs || hasAcl).toBeTruthy();
       });
     });
 
@@ -966,7 +1071,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
               const hasApply = await applyTab.isVisible().catch(() => false);
               const hasRemove = await removeTab.isVisible().catch(() => false);
 
-              expect(hasApply || hasRemove || true).toBeTruthy();
+              expect(hasApply || hasRemove).toBeTruthy();
 
               // Close modal
               await page.getByRole('button', { name: /cancel/i }).click();
@@ -1008,10 +1113,10 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
         await page.keyboard.press('Tab');
         await page.keyboard.press('Tab');
 
-        // Some element should be focused
+        // Some element should be focused — modals should trap/receive focus
+        // deterministically.
         const focusedElement = page.locator(':focus');
-        const hasFocus = await focusedElement.isVisible().catch(() => false);
-        expect(hasFocus || true).toBeTruthy();
+        await expect(focusedElement).toBeVisible();
 
         // Escape should close the form
         await page.keyboard.press('Escape');

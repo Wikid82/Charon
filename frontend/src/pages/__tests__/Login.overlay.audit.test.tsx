@@ -238,4 +238,45 @@ describe('Login - Coin Overlay Security Audit', () => {
     // CharonCoinLoader has aria-label="Authenticating"
     expect(screen.getByLabelText('Authenticating')).toBeInTheDocument()
   })
+
+  it('does not warn about state updates after unmount when login resolves post-unmount', async () => {
+    let resolveLogin: (value: { data: Record<string, never> }) => void = () => {}
+    vi.mocked(client.post).mockImplementation(
+      () => new Promise(resolve => { resolveLogin = resolve })
+    )
+
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const { unmount } = renderWithProviders(<Login />)
+
+    const emailInput = await screen.findByPlaceholderText('admin@example.com')
+    const passwordInput = screen.getByPlaceholderText('••••••••')
+    const submitButton = screen.getByRole('button', { name: /sign in/i })
+
+    await userEvent.type(emailInput, 'admin@example.com')
+    await userEvent.type(passwordInput, 'password123')
+    await userEvent.click(submitButton)
+
+    // Confirm the login request is in flight (handleSubmit's finally block
+    // has not run yet) before tearing the component down.
+    expect(screen.getByText('Paying the ferryman...')).toBeInTheDocument()
+
+    unmount()
+
+    // Resolve the in-flight login call after unmount. The isMountedRef
+    // guard in Login's finally block must skip setLoading here — if it
+    // didn't, React would log a "state update on an unmounted component"
+    // warning via console.error.
+    resolveLogin({ data: {} })
+
+    await waitFor(() => {
+      expect(mockLogin).toHaveBeenCalled()
+    })
+
+    expect(consoleErrorSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('unmounted component')
+    )
+
+    consoleErrorSpy.mockRestore()
+  })
 })

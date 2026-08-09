@@ -155,10 +155,11 @@ never affected by this.
 Before marking an implementation task as complete, perform the following in order:
 
 1. **Playwright E2E Tests** (MANDATORY — Run First):
-   - **Run**: `cd /projects/Charon && npx playwright test --project=firefox` from project root
-   - **Scope**: Run tests relevant to modified features
+   - **Run**: `cd /projects/Charon && npx playwright test <specific spec file(s) you touched or that cover the changed feature> --project=firefox` from project root
+   - **Scope**: Targeted only — the specific spec file(s) relevant to what you changed, single browser (firefox). Never run the whole `tests/` directory locally, and never pass more than one `--project` locally.
+   - **Full-suite / cross-browser runs are CI-only.** `--project=chromium --project=firefox --project=webkit` together, or any run of the full suite, is expensive and MUST be deferred to the CI pipeline on the PR — do not run it locally under any circumstance, including as part of a "final validation pass." If a task genuinely requires confirming cross-browser behavior (e.g. investigating a browser-specific bug), run only the specific failing spec(s) under that one browser, not the full suite.
    - **On Failure**: Trace root cause through frontend → backend flow before proceeding
-   - All E2E tests must pass before proceeding to unit tests
+   - All targeted E2E tests must pass before proceeding to unit tests; rely on CI for full-suite confirmation
 
 1.5. **GORM Security Scan** (CONDITIONAL, BLOCKING):
    - **Trigger**: Execute when changes include `backend/internal/models/**`, GORM queries, or migrations
@@ -169,11 +170,13 @@ Before marking an implementation task as complete, perform the following in orde
    - **Run**: `bash scripts/local-patch-report.sh` from repo root
    - **Required Artifacts**: `test-results/local-patch-report.md` and `test-results/local-patch-report.json`
 
-3. **Security Scans** (MANDATORY — Zero Tolerance):
-   - **CodeQL Go Scan**: `lefthook run pre-commit` — zero high/critical findings allowed
-   - **CodeQL JS Scan**: `lefthook run pre-commit` — zero high/critical findings allowed
-   - **Trivy Container Scan**: `make trivy` or equivalent for container/dependency vulnerabilities
-   - Results viewed via `jq '.runs[].results' codeql-results-*.sarif`
+3. **Security Scans** (CodeQL Go/JS + Trivy):
+   - **Run locally when the change adds a new feature** (new code paths, endpoints, components — typically a `feat:`-scoped commit): zero high/critical findings allowed before proceeding.
+     - **CodeQL Go Scan**: `lefthook run pre-commit`
+     - **CodeQL JS Scan**: `lefthook run pre-commit`
+     - **Trivy Container Scan**: `make trivy` or equivalent for container/dependency vulnerabilities
+     - Results viewed via `jq '.runs[].results' codeql-results-*.sarif`
+   - **Defer to CI for `fix:`/`test:`/`chore:`/`refactor:`-scoped changes with no new feature surface** — don't run these locally for pure fixes or test work; CI runs both unconditionally on every PR regardless, so nothing is actually skipped, just not duplicated locally when the risk surface is small.
 
 4. **Lefthook Triage**: Run `lefthook run pre-commit`. Fix all errors immediately.
 

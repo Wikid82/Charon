@@ -1,966 +1,481 @@
-# Fix: Flaky `TestProxyHostCreate_TriggersAsyncUptimeSyncWhenServiceConfigured` (SQLite Lock Contention in Test Setup)
+# Issue #619 — Phase 3 Technical Debt: Test Infrastructure Cleanup
 
-Status: Implemented and supervisor-approved. All three commits landed on
-`development`:
-- `3c81849d` `fix: apply busy-timeout/WAL pragma to uptime test DB to resolve SQLite lock flake`
-- `96ee480a` `chore: apply shared OpenTestDB helper to remaining ad hoc SQLite setups in proxy_host_handler_test.go`
-- `f1bcb3a4` `fix: retry transient SQLite lock errors when creating uptime monitors`
-
-A follow-up race condition discovered while building the concurrent-load
-regression test (`UptimeService.ensureUptimeHost`'s unguarded
-check-then-act SELECT-then-INSERT, `uptime_service.go:367-384`, not
-protected by the per-proxy-host-ID mutex when two proxy hosts share a
-`forward_host`) was intentionally left out of scope for this fix and filed
-separately: https://github.com/Wikid82/Charon/issues/1221.
-
-Date: 2026-08-05
-Scope: Backend change. Files: `backend/internal/api/handlers/proxy_host_handler_test.go`,
-`backend/internal/services/uptime_service.go`,
-`backend/internal/services/uptime_service_race_test.go`. No DB schema, no
-API contract changes (Commit 3 adds an internal retry loop only, no
-externally visible behavior change).
-
----
-
-## Verdict (skim summary)
-
-**The dependency bump in commit `7dfd6ffc` ("fix: update opentelemetry http
-instrumentation to v0.70.0") is NOT implicated.** It is a red herring that
-coincided with, but did not cause, the failure.
-
-- The bump only touches `go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp`
-  (v0.69.0 → v0.70.0) and its transitive `go.opentelemetry.io/otel/sdk` /
-  `otel/sdk/metric` (v1.44.0 → v1.45.0) — all marked `// indirect`, none
-  imported by any code on the request path exercised by this test.
-- Empirically: 10/10 full-package runs pass identically at both the
-  post-bump (HEAD) and pre-bump (`b20b9dd0`) dependency states — same pass
-  rate, same ~78–88s timing envelope, zero failures in either state. See
-  "Empirical Verification" below for exact commands and output.
-- The real cause is a **pre-existing test-setup bug**: the specific test
-  helper used by this test (`setupTestRouterWithUptime` in
-  `proxy_host_handler_test.go`) opens its own ad hoc SQLite connection that
-  omits the `_busy_timeout` and `_journal_mode=WAL` DSN parameters that
-  every other test file in the same package already applies via the shared
-  `OpenTestDB(t)` helper in `internal/api/handlers/testdb.go`. Under enough
-  concurrent scheduling pressure (many `t.Parallel()` tests competing for
-  goroutine time in a full package run), the request-handling goroutine and
-  the async `SyncAndCheckForHost` goroutine it spawns can both touch the
-  shared-cache in-memory DB at a moment that trips SQLite's
-  `SQLITE_LOCKED_SHAREDCACHE` path — and because no busy-timeout is
-  configured on this DSN, the write fails immediately instead of retrying,
-  which is exactly the "database table is locked: uptime_monitors" log line
-  observed. This is outcome **(a)** from the investigation brief: a
-  pre-existing SQLite contention/timing flake, not a genuine bug exposed by
-  the dependency bump.
+Status: Planning complete, pending supervisor review.
+Branch: `test/issue-619-test-infra-debt` (tip of `development`, working tree clean at plan time).
+PR base branch: **`development`** (per `gh pr list` convention — `main` only receives weekly `nightly` promotion merges via merge commit; this is a normal feature PR).
+Closes: `#619` ("Phase 3 Technical Debt Issues" — bundles 5 sub-issues, verified below).
 
 ---
 
 ## 1. Introduction
 
-### 1.1 Background
+### 1.1 Objective
 
-Jeremy ran `bash scripts/dep_update.sh` on `development`. The Go dependency
-bump step succeeded and `go test ./...` reported one failure:
+Close out GitHub issue #619 with a single feature PR that:
 
-```
---- FAIL: TestProxyHostCreate_TriggersAsyncUptimeSyncWhenServiceConfigured (3.03s)
-    proxy_host_handler_test.go:255: Error Trace: proxy_host_handler_test.go:255
-    Error: Condition never satisfied
-FAIL    github.com/Wikid82/charon/backend/internal/api/handlers 84.768s
-```
+1. Un-skips 5 confirmed-stale Vitest suites blocked on a long-fixed `undici`/jsdom WebSocket bug (sub-issue 1), resolves the 6th related skip with a root-cause-appropriate fix (not a blind unskip), and proves no regressions via a full frontend suite run.
+2. Replaces 59 tautological (`expect(x || true).toBeTruthy()`-shaped) Playwright assertions across 11 E2E spec files with real, deterministic assertions or explicit `test.skip()` calls with accurate reasons (sub-issue 2) — the bulk of this PR's work.
+3. Confirms backend coverage for `internal/services` and the relocated `backend/pkg/dnsprovider/builtin` package remains healthy with no code changes required (sub-issue 3).
+4. Confirms the feature-flag async propagation flakiness was already resolved via `waitForFeatureFlagPropagation()` in the reorganized spec file, with no code changes required (sub-issue 4).
+5. Confirms WebKit E2E test discovery/config is healthy and schedules the outstanding full WebKit run as a Definition-of-Done gate (sub-issue 5).
 
-with this log line immediately preceding the failure:
+### 1.2 Why one PR
 
-```
-2026/08/05 03:47:14 backend/internal/services/uptime_service.go:1375 database table is locked: uptime_monitors
-[0.369ms] [rows:0] INSERT INTO `uptime_monitors` (...) VALUES (...)
-```
+Per `CLAUDE.md` "Commit Slicing & PR Strategy" and repo memory (`feedback_one_feature_one_pr.md`): issue #619 is one feature (test-infrastructure debt), closed by one PR with ordered commits. Sub-issues 3 and 4 require **no code changes** — they contribute verification evidence to the PR's DoD run and the closing PR description, not separate commits.
 
-Jeremy suspected commit `7dfd6ffc4687d7263103dd3757835329f8ef68bc` (the
-otelhttp v0.70.0 bump, landed immediately before this run) as the cause.
+### 1.3 Non-goals
 
-### 1.2 Objective
-
-1. Trace the async uptime-sync flow end-to-end (entry point → transformation
-   → persistence → exit) per CLAUDE.md's Root Cause Analysis Protocol.
-2. Empirically determine whether the dependency bump is implicated.
-3. Identify the true root cause and specify a narrowly-scoped fix.
+- No production code changes (backend or frontend application code). This PR touches only test files, test infrastructure, and documentation.
+- No changes to `.gitignore`, `.dockerignore`, `codecov.yml`, or any `Dockerfile` — reviewed explicitly in §3.6, all confirmed already correct for this change (see findings).
+- `CrowdSecBouncerKeyDisplay.test.tsx` (4 `it.skip` at lines 205/209/213/219, unrelated clipboard-API mock issue) is explicitly **out of scope** and must not be touched.
 
 ---
 
-## 2. Research Findings
+## 2. Research Findings — Ground Truth Verification (2026-08-07)
 
-### 2.1 End-to-end trace of the async uptime-sync flow
+All findings below were re-verified directly against the current working tree (branch `test/issue-619-test-infra-debt`, tip of `development`) — greps, file reads, and non-mutating test/coverage runs. Numbers in the original issue text and the prior same-day investigation summary are corrected where they drifted.
 
-**Entry point** — `backend/internal/api/handlers/proxy_host_handler.go`,
-`(h *ProxyHostHandler) Create` (line 396):
+### 2.1 Sub-issue 1 — undici/WebSocket jsdom blocker: CONFIRMED STALE, ACTION REQUIRED
 
-- Validates/resolves request payload (lines 397–465), assigns UUIDs (467–472).
-- Line 474: `h.service.Create(&host)` — **synchronous**, this is the primary
-  write of the request (see 2.2 below). By the time this returns, the
-  `proxy_hosts` INSERT transaction has already committed.
-- Lines 479–490: optional synchronous `caddyManager.ApplyConfig` (nil in
-  this test).
-- Lines 493–504: optional synchronous notification send.
-- **Lines 506–509 (the async trigger)**:
-  ```go
-  // Trigger immediate uptime monitor creation + health check (non-blocking)
-  if h.uptimeService != nil {
-      go h.uptimeService.SyncAndCheckForHost(host.ID)
-  }
-  ```
-  This spawns a goroutine and does **not** wait for it. The handler then
-  proceeds to build warnings and write the HTTP response (lines 511–520),
-  racing with the goroutine by design.
+Dependency state confirmed via `npm ls`:
+- `jsdom@30.0.1` (root + deduped under `vitest@4.1.10`)
+- `undici@8.10.0` (transitive, via jsdom only)
 
-**Transformation / persistence** —
-`backend/internal/services/uptime_service.go`,
-`(s *UptimeService) SyncAndCheckForHost` (line 1309):
+The upstream bug this blocker cited (`nodejs/undici#1671`, WebSocket mock `InvalidArgumentError`) is long fixed at this version pair.
 
-- Line 1312: reads `settings` table for `feature.uptime.enabled` (read).
-- Lines 1318–1329: acquires a per-host `sync.Mutex` (in-process only; does
-  not touch the DB, and does not protect against concurrent *other* tests'
-  connections — each test has its own DB instance, so this is not a
-  cross-test contention vector).
-- Line 1334: `s.DB.Where("id = ?", hostID).First(&host)` (read).
-- Line 1342: `s.DB.Where("proxy_host_id = ?", host.ID).First(&monitor)` (read).
-- Lines 1362–1374: builds a new `models.UptimeMonitor{}` in memory.
-- **Line 1375** (exact line matching the failure log — confirms no
-  intervening code changes shifted this line number, i.e. this file is
-  unmodified by the otel bump):
-  ```go
-  if createErr := s.DB.Create(&monitor).Error; createErr != nil {
-      logger.Log().WithError(createErr).WithField("host_id", host.ID).Error("SyncAndCheckForHost: failed to create monitor")
-      return
-  }
-  ```
-  This is the write that fails with `database table is locked:
-  uptime_monitors`. Because the error is only logged (not retried or
-  surfaced), the calling goroutine silently returns, and the row the test
-  is polling for never appears — hence `require.Eventually` times out at
-  `proxy_host_handler_test.go:255`.
-- Line 1385: `s.checkMonitor(monitor)` (further DB activity) is never
-  reached in the failure case.
+**Confirmed skip inventory** (exact, re-counted against source, not the prior summary):
 
-**Same DB connection/session as production code**: `s.DB` is the
-`*gorm.DB` injected via `NewUptimeService(db, ns)` (line 71) — in this
-test, the same `*gorm.DB` handle returned by `setupTestRouterWithUptime`
-(see 2.3). There is no separate connection pool for the uptime service;
-it shares whatever pool the test wired up.
-
-**Exit point**: the HTTP response was already written by the main request
-goroutine (`c.JSON(http.StatusCreated, host)`, line 520) before the async
-goroutine's write even had a chance to run — this is intentional
-fire-and-forget design, and the test's `require.Eventually` polling loop
-(lines 255–258) exists specifically to accommodate that.
-
-### 2.2 Synchronous DB work in the same request
-
-`backend/internal/services/proxyhost_service.go`,
-`(s *ProxyHostService) Create` (line 180):
-
-```go
-func (s *ProxyHostService) Create(host *models.ProxyHost) error {
-	if err := s.ValidateUniqueDomain(host.DomainNames, 0); err != nil {
-		return err
-	}
-	if err := s.validateProxyHost(host); err != nil {
-		return err
-	}
-	...
-	if err := s.db.Create(host).Error; err != nil {
-		return err
-	}
-	s.invalidateCertCache()
-	return nil
-}
-```
-
-This is a plain `gorm.DB.Create` call. Because
-`setupTestRouterWithUptime` opens the DB with a bare `&gorm.Config{}`
-(`SkipDefaultTransaction` defaults to `false`), GORM wraps this single-row
-insert in an implicit `BEGIN`/`COMMIT` transaction. This completes and
-commits **before** line 508's `go h.uptimeService.SyncAndCheckForHost(...)`
-is even reached — so within a single test's own request/response cycle,
-there's no *direct* overlap between this transaction and the async
-monitor-creation write. The contention instead comes from connection-pool
-behavior explained in 2.3–2.4: because the pool isn't capped, Go's
-`database/sql` can hand out a second physical connection to the async
-goroutine that contends with whatever the main goroutine (or another
-`t.Parallel()` test's goroutine scheduled onto the same process) is doing
-against the same shared-cache DB name at that moment.
-
-### 2.3 Test DB setup — the actual defect
-
-`backend/internal/api/handlers/proxy_host_handler_test.go`,
-`setupTestRouterWithUptime` (lines 72–97), used **only** by the failing
-test:
-
-```go
-func setupTestRouterWithUptime(t *testing.T) (*gin.Engine, *gorm.DB) {
-	t.Helper()
-
-	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(
-		&models.ProxyHost{},
-		&models.Location{},
-		&models.Notification{},
-		&models.NotificationProvider{},
-		&models.UptimeMonitor{},
-		&models.UptimeHeartbeat{},
-		&models.UptimeHost{},
-		&models.Setting{},
-	))
-	...
-}
-```
-
-Note the DSN: `file:<TestName>?mode=memory&cache=shared` — **no
-`_busy_timeout`, no `_journal_mode=WAL`**, and no
-`sqlDB.SetMaxOpenConns(1)` call on the resulting connection pool. This
-means Go's default `database/sql` pool sizing applies (effectively
-unbounded `MaxOpenConns`), so concurrent goroutines against this DB name
-can be served by multiple physical SQLite connections into the same
-shared cache. In `cache=shared` mode, SQLite enforces table-level locking
-*across connections that share the cache*, and without a configured
-busy-timeout, a lock conflict returns `SQLITE_LOCKED` immediately instead
-of retrying — this is precisely the "database table is locked: X" error
-text (distinct from the file-level "database is locked" /
-`SQLITE_BUSY` message), confirming the shared-cache, no-timeout mechanism.
-
-**This exact class of flake was already fixed once in this package** — see
-`backend/internal/api/handlers/testdb.go`, `OpenTestDB` (lines 73–97):
-
-```go
-// Opens a SQLite in-memory DB unique per test and applies
-// a busy timeout and WAL journal mode to reduce SQLITE locking during parallel tests.
-func OpenTestDB(t *testing.T) *gorm.DB {
-	t.Helper()
-	dsnName := strings.ReplaceAll(t.Name(), "/", "_")
-	n, _ := crand.Int(crand.Reader, big.NewInt(10000))
-	uniqueSuffix := fmt.Sprintf("%d%d", time.Now().UnixNano(), n.Int64())
-	dsn := fmt.Sprintf("file:%s_%s?mode=memory&cache=shared&_journal_mode=WAL&_busy_timeout=5000", dsnName, uniqueSuffix)
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Silent),
-	})
-	...
-}
-```
-
-A grep across every `*_test.go` file in `internal/api/handlers/` shows
-**every other test file in the package already calls `OpenTestDB(t)`**
-(over 140 call sites across `crowdsec_*_test.go`, `user_handler_test.go`,
-`stats_*_test.go`, `security_*_test.go`, `plugin_handler_test.go`,
-`notification_provider_handler_test.go`, `uptime_handler_test.go`,
-`handlers_test.go`, etc.). `proxy_host_handler_test.go` is the **sole
-outlier**: it never adopted `OpenTestDB` and instead hand-rolls
-`gorm.Open(sqlite.Open(dsn), &gorm.Config{})` at multiple call sites
-(lines 30, 52, 76, 326, 374, 654, 1889, 2385, 2757, 2816). Of these, only
-`setupTestRouterWithUptime` (line 76, backing `setupTestRouter` at line 26
-and `setupTestRouterWithReferenceTables` at line 48 share the identical
-pattern but are not implicated in this specific failure) drives a test
-that spawns a concurrent-write goroutine against the DB it opens — which
-is why this is the one that manifests as a lock-contention flake and the
-others have not (yet) been observed to.
-
-### 2.4 Production DB setup, for contrast
-
-`backend/internal/database/database.go`, `Connect` (lines 51–107) and
-`configurePool` (lines 138–147):
-
-```go
-pragmas := []string{
-	"PRAGMA journal_mode=WAL",
-	"PRAGMA busy_timeout=5000",
-	"PRAGMA synchronous=NORMAL",
-	"PRAGMA cache_size=-64000",
-}
-...
-func configurePool(sqlDB *sql.DB) {
-	sqlDB.SetMaxOpenConns(1)    // SQLite only allows one writer at a time
-	sqlDB.SetMaxIdleConns(1)
-	sqlDB.SetConnMaxLifetime(0)
-}
-```
-
-Production is well protected: WAL mode, a 5s busy-timeout, and a
-single-connection pool (belt-and-suspenders — with `MaxOpenConns(1)`
-there's only ever one physical connection, so lock contention between
-goroutines is serialized through Go's own pool-checkout queue rather than
-hitting SQLite's locking at all). `OpenTestDB` in the test package
-replicates the busy-timeout/WAL half of this (via DSN params, since the
-pure-Go `glebarez/sqlite` driver used in production needs pragmas applied
-post-connect, while `gorm.io/driver/sqlite`, the CGO `mattn/go-sqlite3`
-driver used in these specific tests, accepts them as DSN query params) but
-was simply never wired into `proxy_host_handler_test.go`.
-
-### 2.5 `t.Parallel()` usage
-
-`grep -c 't.Parallel()' proxy_host_handler_test.go` → 70 occurrences. The
-failing test itself calls `t.Parallel()` (line 233), as do effectively all
-other tests in the file and package. Each test opens its own uniquely
-named in-memory DB (`t.Name()`-scoped for `setupTestRouterWithUptime`;
-`t.Name()`+random-suffix–scoped for `OpenTestDB`), so **different tests do
-not share a SQLite shared-cache namespace** — cross-test contention is not
-the mechanism. The relevant concurrency is intra-test: the main handler
-goroutine and the `go h.uptimeService.SyncAndCheckForHost(...)` goroutine
-it spawns, contending for connections in an unbounded pool while dozens of
-sibling `t.Parallel()` tests compete for the same 4 CPUs (`nproc` = 4 in
-this environment), which increases the odds of the race window being hit.
-This explains why the flake reproduces in full-package runs under load but
-not in isolated single-test runs (see 3.2).
-
----
-
-## 3. Empirical Verification
-
-All commands run for real from `/projects/Charon/backend` on branch
-`development`. Working tree was clean before and after (verified with
-`git status`/`git diff` — see 3.4).
-
-### 3.1 Isolated single-test run at HEAD (post-bump), ×10
-
-```
-$ go test ./internal/api/handlers/... -run TestProxyHostCreate_TriggersAsyncUptimeSyncWhenServiceConfigured -count=10 -v
-```
-Result: **10/10 PASS**, `ok github.com/Wikid82/charon/backend/internal/api/handlers 0.798s`.
-
-### 3.2 Full package run at HEAD (post-bump), ×5
-
-```
-$ go test ./internal/api/handlers/... -count=1   # repeated 5 times
-```
-Result: **5/5 PASS** — `77.643s`, `78.268s`, `81.910s`, `82.039s`, `87.986s`.
-
-### 3.3 Pre-bump dependency state (`b20b9dd0`), same DSN params restored
-
-```
-$ git checkout b20b9dd0 -- backend/go.mod backend/go.sum
-$ cd backend && go build ./...          # BUILD OK
-$ grep otelhttp go.mod                  # confirms v0.69.0 (pre-bump) restored
-```
-
-Isolated single-test run ×10:
-```
-$ go test ./internal/api/handlers/... -run TestProxyHostCreate_TriggersAsyncUptimeSyncWhenServiceConfigured -count=10 -v
-```
-Result: **10/10 PASS**, `ok ... 0.632s`.
-
-Full package run ×5:
-```
-$ go test ./internal/api/handlers/... -count=1   # repeated 5 times
-```
-Result: **5/5 PASS** — `77.853s`, `78.693s`, `78.533s`, `84.491s`, `77.876s`.
-
-### 3.4 Restoration
-
-```
-$ git checkout HEAD -- backend/go.mod backend/go.sum
-$ git status --short   # (clean)
-$ git diff --stat       # (empty)
-```
-Working tree confirmed identical to the state before investigation began.
-
-### 3.5 Interpretation
-
-| Dependency state | Isolated targeted-test executions | Full-package invocations |
+| File | Skip marker | Test count (verified via grep) |
 |---|---|---|
-| Post-bump (HEAD, `7dfd6ffc`) | 10/10 pass (one `-count=10` invocation) | 5/5 invocations pass, 77.6–88.0s each |
-| Pre-bump (`b20b9dd0`) | 10/10 pass (one `-count=10` invocation) | 5/5 invocations pass, 77.9–84.5s each |
+| `frontend/src/pages/__tests__/Security.test.tsx:35` | `describe.skip('Security', ...)`, comment `// BLOCKER 3: Temporarily skipped due to undici InvalidArgumentError in WebSocket mocks` | 22 |
+| `frontend/src/pages/__tests__/Security.audit.test.tsx:52` | `describe.skip('Security Page - QA Security Audit', ...)` | 18 |
+| `frontend/src/pages/__tests__/Security.errors.test.tsx:68` | `describe.skip('Security Error Handling Tests', ...)` | 13 |
+| `frontend/src/pages/__tests__/Security.loading.test.tsx:59` | `describe.skip('Security Loading Overlay Tests', ...)` | 12 |
+| `frontend/src/pages/__tests__/Security.dashboard.test.tsx:67` | `describe.skip('Security Dashboard - Card Status Tests', ...)` | 18 |
 
-Corrected tally (an earlier draft of this section miscounted): this is **20
-targeted-test executions total** (10 per dependency state, via two
-`-count=10` invocations) and **10 full-package invocations total** (5 per
-dependency state) — 30 individual `go test` runs altogether, not "20
-full-package runs." Identical pass rates and near-identical timing
-envelopes in both dependency states; none reproduced the original failure.
+Subtotal: **83 tests** across 5 files. Sum matches exactly.
 
-**On confidence and sample size — be honest about what the numbers can and
-can't show.** 10 full-package invocations per dependency state is not a
-large enough sample to bound the true failure rate of a race that
-apparently occurs on the order of "once across many CI/local runs." A
-naive read of "5/5 and 5/5, so it's fine" would overstate what this data
-alone proves — a rate-limited draw of 5 is easily consistent with a true
-failure probability anywhere from under 1% to several percent, and 5/5
-clean in both arms is the expected outcome under the null hypothesis
-("the bump changed nothing") *and* under many non-null hypotheses too. The
-run counts are corroborating, not load-bearing. **What actually carries
-"high confidence" here is the structural evidence from §2**, specifically:
-- The entire diff of `7dfd6ffc` touches only `go.mod`/`go.sum` for
-  `go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp`
-  (v0.69.0→v0.70.0, `// indirect`) and its transitive `go.opentelemetry.io/otel/sdk`
-  / `otel/sdk/metric` (v1.44.0→v1.45.0, also `// indirect`).
-- `grep -rn "otelhttp\|go.opentelemetry.io/otel/sdk" internal/ cmd/ --include=*.go`
-  (excluding `_test.go` files) returns **zero matches** — confirmed by
-  running this exact command during this investigation. Nothing in the
-  production code that this test exercises (the `ProxyHostHandler.Create`
-  → `ProxyHostService.Create` → `UptimeService.SyncAndCheckForHost` →
-  GORM/SQLite path) imports or is instrumented by either package, directly
-  or transitively through any code we control.
-- The failing line, `uptime_service.go:1375`, is unchanged by the bump and
-  matched exactly between the failure report and the current HEAD, ruling
-  out any line-shift/behavioral edit in that file.
+**The 6th file — `Security.functional.test.tsx:680`, `it.skip('should open notification settings modal when button is clicked', ...)`, comment `// Skip: Modal component uses WebSocket connections internally`:**
 
-The A/B run counts are consistent with (do not contradict) this structural
-conclusion, and are reported for transparency, but the structural argument
-— not the sample size — is what justifies ruling out the dependency bump
-with high confidence.
+This comment is **inaccurate**, and unskipping as-is would produce a real (non-WebSocket) failure. Root-cause trace performed per `CLAUDE.md`'s Root Cause Analysis Protocol:
 
-**Why `-race` was not used in the A/B comparison itself**: the observed
-failure is a SQLite error return (`SQLITE_LOCKED_SHAREDCACHE`, surfaced as
-the Go error `"database table is locked: uptime_monitors"`) — an
-application-level error path, not a Go-level data race on unsynchronized
-shared memory. `go test -race` instruments memory accesses to detect
-happens-before violations on Go values; it has no visibility into a
-SQLite driver's internal lock-conflict return codes, so it would not be
-expected to catch or help reproduce this failure mode, and omitting it
-from §3.1–§3.3 was a deliberate choice, not an oversight. `-race` **is**
-still used in the Commit 1 validation gate (§7) for the *new* concurrent
-regression test in §5.4, where it serves its normal purpose: catching any
-accidental unsynchronized access introduced by the test's own goroutine
-usage (e.g., a shared slice written from multiple goroutines without
-per-index isolation) — a different, legitimate concern from reproducing
-the SQLite lock error.
+- `frontend/src/pages/Security.tsx:297-303` — the "Notifications" header button's `onClick` is `() => navigate('/settings/notifications')`. It is a **React Router navigation**, not a modal. There is no `role="dialog"` anywhere in `Security.tsx`.
+- `Security.functional.test.tsx:20-27` mocks `useNavigate` (`mockNavigate = vi.hoisted(() => vi.fn())`) — the file's own test harness already expects navigation, not a modal, elsewhere.
+- **The correct test already exists in the same file**, passing, uncontested: `Security.functional.test.tsx:452-464`, `it('should navigate to notifications settings when Notifications button is clicked', ...)`, which asserts `expect(mockNavigate).toHaveBeenCalledWith('/settings/notifications')`.
 
-The bug is a latent, low-probability defect in `proxy_host_handler_test.go`'s
-test setup that predates `7dfd6ffc` and happened to surface on Jeremy's
-run for unrelated scheduling/timing reasons (system load at the time,
-GOMAXPROCS contention from the concurrently-updated `agent` module's tests
-in the same `dep_update.sh` run, etc.).
+Conclusion: the skipped test at line ~680 is **dead, stale test code** describing UI behavior (a modal) that was replaced by a navigation at some prior refactor, and the replacement behavior already has full, correct, passing coverage elsewhere in the same file. Per `CLAUDE.md` "CLEAN: Delete dead code immediately," the correct fix is **deletion of the stale `it.skip` block** (the `describe('Notification Settings Modal', ...)` wrapper at line ~677 becomes empty and should be removed with it), not an unskip and not a comment-only edit. This is a stronger, more correct resolution than either option the investigation brief offered, and it should be called out explicitly in the PR description as the resolution for this file.
 
----
+**Current full-suite baseline** (`npx vitest run --coverage=false`, non-mutating, run to completion — 635s):
 
-## 4. Root Cause (confirmed)
-
-**Outcome (a)**: pre-existing SQLite contention/timing flake, unrelated to
-the dependency bump.
-
-`setupTestRouterWithUptime` in
-`backend/internal/api/handlers/proxy_host_handler_test.go` (lines 72–97)
-opens its SQLite connection with DSN `file:<TestName>?mode=memory&cache=shared`,
-omitting the `_busy_timeout` and `_journal_mode=WAL` parameters that the
-shared `OpenTestDB(t)` helper (`backend/internal/api/handlers/testdb.go`,
-lines 73–97) already provides and that every other test file in the
-package already relies on. Without a busy-timeout, a shared-cache
-table-lock conflict between the request-handling goroutine's connection
-and the `go h.uptimeService.SyncAndCheckForHost(host.ID)` goroutine's
-connection (`backend/internal/api/handlers/proxy_host_handler.go:508`)
-fails immediately with `SQLITE_LOCKED` ("database table is locked:
-uptime_monitors") instead of retrying, which happens inside
-`(s *UptimeService) SyncAndCheckForHost` at
-`backend/internal/services/uptime_service.go:1375`. The error is logged
-and swallowed (by design — this is a best-effort background sync), so the
-`uptime_monitors` row the test polls for never appears, and
-`require.Eventually` times out at
-`backend/internal/api/handlers/proxy_host_handler_test.go:255`.
-
----
-
-## 5. Proposed Fix
-
-### 5.1 Scope
-
-Single narrowly-scoped test-only fix. No production code changes. No
-schema changes. No API contract changes.
-
-### 5.2 Change
-
-In `backend/internal/api/handlers/proxy_host_handler_test.go`, replace the
-ad hoc `gorm.Open(sqlite.Open(dsn), &gorm.Config{})` call in
-**`setupTestRouterWithUptime`** (lines 75–77) with the package's existing
-`OpenTestDB(t)` helper, which already applies `_busy_timeout=5000` and
-`_journal_mode=WAL` and is already used by every other test file in this
-package:
-
-```go
-// Before (lines 75-77):
-dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
-db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-require.NoError(t, err)
-
-// After:
-db := OpenTestDB(t)
+```
+Test Files  263 passed | 5 skipped (268)
+     Tests  3247 passed | 88 skipped | 2 todo (3337)
 ```
 
-The subsequent `db.AutoMigrate(...)` call (lines 78–87) and the rest of
-the function are unchanged — same models migrated, same signature, same
-return values. `OpenTestDB` uses the identical `mode=memory&cache=shared`
-DSN pattern with a `t.Name()`-derived (plus random-suffix, for extra
-collision safety) unique database name, so no other test behavior changes.
+88 skipped = 83 (sub-issue-1, in scope) + 1 (`Security.functional.test.tsx` notification-modal test, in scope, to be deleted not unskipped) + 4 (`CrowdSecBouncerKeyDisplay.test.tsx`, confirmed out of scope). Arithmetic reconciles exactly — no other undici/WebSocket-flavored skips exist anywhere else in `frontend/src` (verified via repo-wide grep for `undici`, `BLOCKER 3`, `WebSocket connections internally`).
 
-This directly removes the missing-pragma defect identified in §4 by
-reusing the already-existing, already-proven fix instead of hand-rolling
-DSN parameters a second time (DRY, per CLAUDE.md).
+### 2.2 Sub-issue 2 — Weak/tautological E2E assertions: CONFIRMED, LARGER THAN ORIGINAL ISSUE TEXT, MAJORITY REQUIRE REAL FIXES
 
-### 5.3 Full scope of the same defect in this file, and why Commit 1 fixes only one site
+Pattern searched: literal `|| true` immediately preceding `.toBeTruthy()` in `tests/**/*.spec.ts` (the actual pattern in this repo — confirmed not a generic `x` placeholder). Exact current count: **59 occurrences across 11 files**, matching the prior investigation's file list and the prior day's rough counts almost exactly (one file's estimate, `system-settings-feature-toggles.spec.ts`, is 1, not the previously-noted range — reconfirmed by direct grep):
 
-§2.3's grep survey found **10 total** ad hoc
-`gorm.Open(sqlite.Open(dsn), &gorm.Config{})` call sites in
-`proxy_host_handler_test.go` (lines 30, 52, 76, 326, 374, 654, 1889, 2385,
-2757, 2816). Commit 1 (§7) fixes only line 76
-(`setupTestRouterWithUptime`) — the one call site that demonstrably backs
-the failing test, per the root cause in §4. The other **9 sites carry the
-identical missing-pragma defect but are not fixed by Commit 1**; they are
-listed here explicitly rather than silently dropped from scope:
-
-| Line | Function / test | Notes |
+| File | Count | Lines |
 |---|---|---|
-| 30 | `setupTestRouter` (helper) | Used by `TestProxyHostLifecycle` and others; no async-goroutine writer involved. |
-| 52 | `setupTestRouterWithReferenceTables` (helper) | Used by `TestProxyHostHandler_ResolveAccessListReference_TargetedBranches` and others; no async-goroutine writer involved. |
-| 326 | `TestProxyHostDelete_WithUptimeCleanup` | **Elevated risk relative to the others**: this test also constructs `services.NewUptimeService(db, ns)` directly (mirroring the bug's dependency), and its DSN is additionally a **hardcoded literal** (`"file:test-delete-uptime?mode=memory&cache=shared"`, not `t.Name()`-derived), an extra latent collision risk beyond the missing pragmas. Confirmed (per Supervisor's review and independently verified here) that this is not currently a live bug only because the `Delete` handler path does not spawn a background goroutine the way `Create` does — `uptime_service.go`'s monitor cleanup on delete runs synchronously (`proxy_host_handler.go:755-759`). If a future change makes any part of the delete-cleanup path asynchronous, this site would be exposed to the same class of flake. |
-| 374 | `TestProxyHostErrors` | Same missing-pragma pattern; no async writer currently. |
-| 654 | `TestProxyHostWithCaddyIntegration` | Same missing-pragma pattern; no async writer currently. |
-| 1889 | `TestUpdate_IntegrationCaddyConfig` | Same missing-pragma pattern; no async writer currently. |
-| 2385 | `setupTestRouterWithProxyGroupTable` (helper) | Backs 6 downstream tests (lines 2409, 2447, 2472, 2649, 2676, 2713); no async-goroutine writer involved. |
-| 2757 | `TestProxyHostHandler_BulkUpdateGroup_CaddyApplyError` | Same missing-pragma pattern; no async writer currently. |
-| 2816 | `TestProxyHostHandler_SetCertificateService_InvalidatesOnCreate` | Same missing-pragma pattern; no async writer currently. |
+| `tests/security-enforcement/zzz-security-ui/access-lists-crud.spec.ts` | 13 | 156, 200, 339, 465, 545, 623, 825, 845, 862, 949, 985, 1018, 1061 |
+| `tests/core/certificates.spec.ts` | 9 | 204, 229, 718, 759, 1037, 1052, 1118, 1146, 1158 |
+| `tests/security-enforcement/zzz-security-ui/encryption-management.spec.ts` | 8 | 188, 314, 393, 498, 596, 601, 684, 708 |
+| `tests/core/proxy-hosts.spec.ts` | 8 | 209, 255, 461, 523, 547, 643, 969, 1014 |
+| `tests/security-enforcement/zzz-security-ui/system-security-settings.spec.ts` | 7 | 290, 325, 352, 452, 555, 680, 736 |
+| `tests/core/navigation.spec.ts` | 4 | 238, 559, 733, 758 |
+| `tests/settings/smtp-settings.spec.ts` | 4 | 121, 165, 231, 906 |
+| `tests/core/dashboard.spec.ts` | 3 | 232, 370, 491 |
+| `tests/settings/account-settings.spec.ts` | 1 | 875 |
+| `tests/security/system-settings-feature-toggles.spec.ts` | 1 | 317 |
+| `tests/manual-dns-provider.spec.ts` | 1 | 311 |
+| **Total** | **59** | |
 
-None of these 9 are implicated in the reported failure, and 20/20
-empirical targeted-test runs plus 10/10 full-package runs (§3) show no
-flake attributable to them. Per the investigation brief's explicit
-instruction ("propose a narrowly-scoped fix... do not restructure
-unrelated code"), Commit 1 fixes only the one site that is demonstrably
-defective. §7's optional Commit 2 applies the same one-line, mechanical
-fix (`OpenTestDB(t)` in place of the bare `gorm.Open` call) to **all 9
-remaining sites** — not just the two originally-scoped helpers — so the
-plan does not read as having silently narrowed coverage after the initial
-survey in §2.3. Jeremy can choose to land Commit 1 alone for minimal
-footprint, or both commits for full remediation of this file's known
-defect class; either choice is explicit and documented, not accidental.
+**Decision framework applied to every occurrence** (per task instructions):
 
-### 5.4 Regression coverage
+- **(a) Real conditional assertion** — used when the test's own name or an adjacent comment already states a definite, deterministic expectation ("should show X", "X should appear") that the app can be made to satisfy reliably. Mechanical sub-case: when the expression already has a *real* multi-condition OR (e.g. `hasX || hasY || true`), the fix is simply dropping the trailing `|| true` — the meaningful disjunction underneath is preserved.
+- **(b) Explicit `test.skip()` / early return with accurate comment** — used only where the underlying condition is genuinely environment- or timing-dependent (cross-browser keyboard focus order, network-dependent external reachability *content* — as opposed to "some feedback appeared," which is still deterministic, race conditions in animation/skeleton timing). This repo already has an established, correct convention for this — `tests/proxy-host-drag-drop.spec.ts` (19 call sites) and `tests/certificate-delete.spec.ts` / `tests/certificate-bulk-delete.spec.ts` (1 each) all use `test.skip(true, '<reason>')` mid-test when a precondition isn't met. **Reuse this exact convention** — do not invent a new pattern.
+- **(dead code) Delete** — used when a hard `expect(...).toBeVisible()` (or equivalent) already precedes the tautological line for the *same* condition, making the soft check unreachable/redundant.
 
-A race condition triggered by scheduling pressure cannot be deterministically
-reproduced by a single sequential unit test. To give the fix meaningful
-regression coverage without relying on flaky timing assertions, add a new
-test in the same file that increases concurrent pressure on
-`setupTestRouterWithUptime`'s DB within a single test process — directly
-exercising the mechanism identified in §4 (main-goroutine + async-goroutine
-contention against one shared-cache DB) at higher multiplicity than the
-original test.
+Classification results by file (full per-line detail for implementers; "(a)", "(b)", "(dead)" tags below are the required fix per line):
 
-**Corrected mechanism** (an earlier draft of this section proposed
-`t.Run()` subtests, which is wrong: plain `t.Run()` calls execute
-**synchronously**, one after another, unless each subtest itself calls
-`t.Parallel()` — without that, no concurrent DB writes would ever occur
-and the test would pass trivially regardless of whether the fix is
-applied, defeating its purpose entirely). This codebase already has an
-established, unambiguous idiom for exactly this kind of test — raw
-goroutines + `sync.WaitGroup`, no `t.Run()` involved — used in
-`backend/internal/services/uptime_service_race_test.go`,
-`TestCheckHost_HostMutexPreventsRaceCondition` (around line 345):
-launch N `go func() { defer wg.Done(); ... }()` goroutines, `wg.Wait()`,
-then assert final DB state from the main test goroutine (assertions are
-deliberately *not* called from inside the goroutines in that test, since
-calling `t.Fatal`/`require.*` — which calls `t.FailNow()` — from a
-goroutine other than the test's own is documented by the Go testing
-package as unsafe: `FailNow` must be called from the goroutine running
-the test). The new test follows this same idiom.
+#### `tests/core/certificates.spec.ts` (9 `|| true` occurrences, plus 1 additional vacuous test with no tautology to grep for) — includes the 3 originally-named tests plus 2 more sharing the same defect
 
-**New test**: `TestProxyHostCreate_TriggersAsyncUptimeSyncWhenServiceConfigured_ConcurrentLoad`
-in `backend/internal/api/handlers/proxy_host_handler_test.go` (placed
-immediately after the existing test, i.e. after line 259):
+- **L204** `hasSortIcon || true` — comment above states "Sort icon should appear" as a definite requirement → **(a)**: `expect(hasSortIcon).toBe(true)`.
+- **L229** `hasAlert || true`, test `'should show SSL info alert'` → **(a)**: test name itself is the requirement.
+- **L718** `hasDelete || true`, test `'should show delete button for staging certificates'` → **(a)**.
+- **L759** `hasToast || true`, test `'should warn if certificate is in use by proxy host'` → **(a), root-cause fix required, see below.**
+- **L1037** `hasSslColumn || true` — comment: "SSL column *may* show certificate info" → checked against the source (`frontend/src/pages/ProxyHosts.tsx:556-557`): the SSL column (`key: 'ssl', header: t('proxyHosts.columnSSL')`) is a **static column definition**, not conditional per-row/per-feature-flag — unlike proxy-hosts.spec.ts L643's `hasWs`/`hasAcl` (which genuinely vary per host's configuration and need a seeded host to be deterministic), this column header renders unconditionally whenever the table itself renders. → **(a), and simpler than L643**: no seeding needed — the `hasTable` check already above this line guarantees the table is rendered, so `expect(hasSslColumn).toBe(true)` is deterministic as-is; verify at implementation time that no feature flag gates the column before finalizing.
+- **L1052** `hasHeading || true` — a **hard** `await expect(heading).toBeVisible({ timeout: 10000 })` already executes immediately above this line for the identical locator → **(dead)**: delete the redundant soft-check (3 lines).
+- **L1118** `hasError || true`, test `'should show error message on API failure'` — **root-cause issue**: the test never injects a failure (no `page.route(...)` interception forcing a 4xx/5xx). It cannot show an error message because no error is ever induced. → **(a) with expanded scope**: add a `page.route('**/api/v1/certificates', route => route.fulfill({ status: 500, ... }))` (or equivalent, matching the mocking convention used elsewhere in this same file's "Error Handling" section if one exists — verify at implementation time) before navigation, then assert the error message is real and visible. This is not a one-line fix; note it in the commit as a slightly larger item.
+- **L1146** `hasDescription || true`, test `'should have PageShell with title and description'` → **(a)**.
+- **L1158** `hasIcon || true` — comment: "Button should have Plus icon" → **(a)**.
 
-```go
-func TestProxyHostCreate_TriggersAsyncUptimeSyncWhenServiceConfigured_ConcurrentLoad(t *testing.T) {
-	t.Parallel()
+**The 3 named tests, plus 2 more sharing the identical defect, in detail** (backend root-cause traced via `backend/internal/api/handlers/certificate_handler.go:387-470`, `CertificateHandler.Delete`):
 
-	router, db := setupTestRouterWithUptime(t)
+Note: a 5th test in the same `describe` block, `'should show config reload overlay during deletion'` (~L806-821), was not caught by the initial `|| true` grep sweep because it doesn't end in a tautology — it uses the identical broken `page.once('dialog', dialog => dialog.accept())` pattern against the same non-existent native dialog, then only does `await waitForDebounce(page)` with **no assertion at all** afterward. It is just as vacuous as the other four and requires the identical interaction-model fix, so it is grouped with them below (item 5) and included in the same commit.
 
-	const n = 8
-	domains := make([]string, n)
-	statusCodes := make([]int, n) // each goroutine writes only its own index — no shared-write race
+Critical finding: **the delete UI does not use a native `window.confirm()` dialog.** `frontend/src/components/dialogs/DeleteCertificateDialog.tsx` is a fully custom React modal (uses the shared `Dialog`/`DialogContent`/`DialogFooter` primitives, `Button` components with `onClick={onCancel}` / `onClick={onConfirm}`, translated via i18n keys `certificates.deleteTitle`/`deleteConfirmCustom`/`deleteButton`/`common.cancel`). It contains **no `confirm()` call and no "backup" text is guaranteed** — the backup-mentioning copy (`certificates.deleteConfirmCustom`: *"This will permanently delete this certificate. A backup will be created first."*, `frontend/src/locales/en/translation.json:234`) is used **only** when `getWarningKey()` falls through to the default case (i.e. the certificate is not `expired`, not `expiring`, and not `letsencrypt-staging`); the other 3 status-specific messages (`deleteConfirmStaging`, `deleteConfirmExpired`, `deleteConfirmExpiring`) never mention backups at all.
 
-	var wg sync.WaitGroup
-	start := make(chan struct{}) // synchronization barrier
+All five existing tests (`'should show delete confirmation dialog'` L723, `'should warn if certificate is in use by proxy host'` L741, `'should cancel delete when confirmation dismissed'` L764, `'should create backup before deletion'` L788, `'should show config reload overlay during deletion'` L806) currently drive the flow via `page.once('dialog', ...)` — Playwright's **native browser dialog** handler. Since the app never opens a native dialog for this flow, **that handler callback never fires**; the tests currently click the delete button (opening the *custom* modal, which is left dangling/unclosed) and then either do nothing further or check a `hasX || true` that trivially passes. These tests currently exercise almost none of the real deletion flow. This is a larger, root-cause-level fix, not a one-line assertion swap:
 
-	for i := 0; i < n; i++ {
-		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		}))
-		t.Cleanup(upstream.Close)
-		domains[i] = fmt.Sprintf("concurrent-load-%d-%s", i, strings.TrimPrefix(upstream.URL, "http://"))
+1. **`'should show delete confirmation dialog'` (L723, not currently `|| true` but must be fixed alongside the others for the block to work at all)**: replace `page.once('dialog', ...)` with locating the actual custom modal (`page.getByRole('dialog')` from the shared `Dialog` primitive — verify exact role/testid in `frontend/src/components/ui/Dialog.tsx` at implementation time) and asserting its title (`t('certificates.deleteTitle')` → "Delete Certificate") and Cancel/Delete buttons are visible.
+2. **`'should warn if certificate is in use by proxy host'` (L741/L759)**: backend `Delete()` returns `409 {"error": "certificate is in use by one or more proxy hosts"}` **before** any backup is attempted, when `IsCertificateInUse`/`IsCertificateInUseByUUID` is true. Real fix: select (or seed via API, matching this file's existing seeding convention) a certificate that is actually attached to a proxy host, click delete, click the custom modal's Confirm button, and assert a real error toast/message appears (matching the app's toast convention — `sonner`/`[role="alert"]`, consistent with other files in this PR) rather than the current always-true check. Do not rely on "whichever cert happens to be first in the table."
+3. **`'should cancel delete when confirmation dismissed'` (L764)**: replace `page.once('dialog', dialog => dialog.dismiss())` with clicking the custom modal's **Cancel** button. The existing row-count check (`rowsBefore === rowsAfter`) is real and should be **kept**, but per the task's explicit instruction, **add a backend-state assertion**: `GET /api/v1/certificates/{id}` (via `getCertificateViaAPI` from `tests/utils/api-helpers.ts`, the file's already-established API-verification helper — reuse it, do not invent a new one) returns `200` and the certificate is still present, proving cancellation didn't merely hide a row client-side.
+4. **`'should create backup before deletion'` (L788, currently checks `dialog.message()` contains "backup" via a handler that never fires — the current implementation is not even a tautology, it is dead/vacuous)**: backend confirms `CreateBackup()` (via `BackupServiceInterface`) is called synchronously in the `Delete` handler, for a certificate that is **not** in use, before the delete completes. Correct fix: capture the backup list via `GET /api/v1/backups` (same endpoint mocked/used in `tests/tasks/backups-create.spec.ts`; no existing typed helper for it in `tests/utils/api-helpers.ts` — add one, `getBackupsViaAPI`, following the exact pattern of the file's other `get*ViaAPI` functions) **before** the delete, click Confirm on the custom modal for a certificate guaranteed not in use, wait for the delete to complete, then `GET /api/v1/backups` again and assert a new backup entry exists (by count increase and/or a `created_at`/filename close to "now"). Do **not** assert on dialog text — the text does not reliably mention "backup" depending on certificate status, as shown above.
+5. **`'should show config reload overlay during deletion'` (~L806-821, currently `page.once('dialog', dialog => dialog.accept())` then only `await waitForDebounce(page)` — no assertion at all, silently vacuous)**: replace with clicking the custom modal's **Confirm/Delete** button for a certificate guaranteed not in use, then assert the actual loading/config-reload overlay is real: locate it the same way `tests/security/system-settings-feature-toggles.spec.ts:317`'s `overlayVisible` check does (`.fixed.inset-0.z-50` / `[data-testid="config-reload-overlay"]` — reuse that locator convention rather than inventing a new one) and assert it becomes visible during the delete request and then resolves/disappears once the request completes, rather than the current no-op.
 
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			<-start // block here until every goroutine is launched and ready
+#### `tests/core/proxy-hosts.spec.ts` (8 occurrences)
 
-			body := fmt.Sprintf(`{"name":"Concurrent Load %d","domain_names":"%s","forward_scheme":"http","forward_host":"app-service","forward_port":8080,"enabled":true}`, i, domains[i])
-			req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-hosts", strings.NewReader(body))
-			req.Header.Set("Content-Type", "application/json")
-			resp := httptest.NewRecorder()
-			router.ServeHTTP(resp, req)
-			statusCodes[i] = resp.Code // disjoint index write, safe without a mutex
-		}(i)
-	}
+- **L209** `hasBulkBar || true` — comment: "Should show bulk action bar" → **(a)**.
+- **L255** `isInvalid || true` — comment: "Browser validation or custom validation should prevent submission" → **(a)**; consider also asserting no `POST /api/v1/proxy-hosts` was sent (stronger, matches sub-issue 2's "verify backend state" spirit) if feasible without large rework.
+- **L461** `hostCreated || true` — this is the **creation-verification step of a core CRUD test**. → **(a), strengthen**: assert UI text visible **and** verify via `getProxyHostsViaAPI`/`getProxyHostViaAPI` (already in `tests/utils/api-helpers.ts`) that the host exists server-side with the expected `domain`/`forward_host`/`forward_port` — mirrors the existing convention in this same helper file.
+- **L523** `exists || true` (loop over expected security-option checkboxes: force SSL, HTTP/2, HSTS, block exploits, websocket) → **(a)**: these are static, always-rendered form fields; assert each `expect(exists).toBe(true)`.
+- **L547** `exists || true` (loop over preset dropdown options: plex, jellyfin, homeassistant, nextcloud) → **(a)**, pending a quick implementation-time check that these presets are indeed static/guaranteed (grep the preset source, e.g. `frontend/src/**/presets*`) rather than feature-flagged.
+- **L643** `hasWs || hasAcl || true`, test `'should show feature badges (WebSocket, ACL)'` — comment: "May or may not exist depending on host configuration" → **(a) via test-setup fix**: rather than leaving this permanently unverifiable, seed/select a host in the test's own setup with `websocket_support: true` (via `createProxyHostViaAPI`) so `hasWs` is deterministic; drop `|| true`.
+- **L969** `hasApply || hasRemove || true` — comment: "Should have apply/remove tabs or buttons" (definite) → **(a)**: drop `|| true`.
+- **L1014** `hasFocus || true` (keyboard nav: 3 Tabs inside an open modal, expect something focused) → **(a)** preferred (modals should trap/receive focus deterministically); fall back to **(b)** only if empirically flaky per-browser during implementation (cross-reference with sub-issue 5's WebKit focus-order risk).
 
-	close(start) // release all n goroutines at once, maximizing write overlap
-	wg.Wait()
+#### `tests/security-enforcement/zzz-security-ui/access-lists-crud.spec.ts` (13 occurrences)
 
-	// All assertions run on the main test goroutine, after wg.Wait() —
-	// never inside the goroutines above (see rationale in plan §5.4).
-	for i, domain := range domains {
-		require.Equal(t, http.StatusCreated, statusCodes[i], "host %d creation response", i)
+- **L156** `hasBadge || true` (allow/deny type badge in first seeded row) → **(a)**, contingent on the `beforeEach` seed fixture guaranteeing a row with a known type — verify at implementation time.
+- **L200** `isInvalid || true` — comment: "HTML5 validation should prevent submission" (definite) → **(a)**.
+- **L339** `hasInfo || true` — "Blacklist should show 'Recommended' info box" (definite, immediately after `selectOption('blacklist')`) → **(a)**.
+- **L465** `hasPresets || true` (preset options after clicking "Show presets") → **(a)**.
+- **L545** `hasUpdated || true` (rename ACL, verify) → **(a)**, strengthen with `getAccessListViaAPI` name check (same convention as certificates §2.2 backup verification).
+- **L623** `hasSuccess || true` (save success toast) → **(a)**.
+- **L825** `hasBulkBar || true` → **(a)** (same pattern as proxy-hosts L209).
+- **L845** `hasBulkDelete || true`, test `'should show bulk delete button when items selected'` → **(a)**.
+- **L862** `hasHeading || true`, test `'should navigate between Access Lists and Proxy Hosts'` — **no** preceding hard assert here (unlike the near-identical certificates.spec.ts:1052 case, which is dead code) → **(a)**: promote to a hard `await expect(heading).toBeVisible({ timeout: 5000 })`.
+- **L949** `hasWarning || true`, test `'should show CGNAT warning when ACLs exist'` → **(a)**, contingent on seeded ACL data guaranteeing the CGNAT condition — verify seed fixture at implementation time.
+- **L985** `hasExternalIcon || true` (external-link icon on "best practices" link) → **(a)**.
+- **L1018** `hasFocus || true` (same keyboard-tab pattern as proxy-hosts L1014) → **(a)** preferred, **(b)** fallback if flaky.
+- **L1061** `isHidden || true` (IP input hidden when "local network only" toggle enabled) → **(a)**: deterministic conditional-field-visibility behavior.
 
-		var created models.ProxyHost
-		require.NoError(t, db.Where("domain_names = ?", domain).First(&created).Error, "host %d lookup", i)
+#### `tests/security-enforcement/zzz-security-ui/encryption-management.spec.ts` (8 occurrences)
 
-		var count int64
-		require.Eventually(t, func() bool {
-			db.Model(&models.UptimeMonitor{}).Where("proxy_host_id = ?", created.ID).Count(&count)
-			return count > 0
-		}, 3*time.Second, 50*time.Millisecond, "monitor for host %d (domain %s) never created", i, domain)
-	}
-}
+- **L188** `hasWarning || true` (rotate-key confirm dialog warning content) → **(a)**: dialog title/confirm/cancel are already hard-asserted immediately above; the warning text check should be promoted to match.
+- **L314** `hasProgress || true` — comment: "Progress may appear briefly - capture if visible" → **(b)**: genuinely a timing race (progress indicator can legitimately complete before the 5s poll ever samples it); use `test.skip()`-with-reason or remove if no stronger signal (e.g., a `waitForResponse` on the rotation request) can be substituted.
+- **L393** `hasWarning || true` — inside `if (isDisabled)` guard, checking rotation-disabled warning text → **(a)**: once inside the guard the condition is deterministic (button is confirmed disabled).
+- **L498** `hasWarning || true` — comment: "Warnings may or may not be present - just verify we can detect them" → **(b)**: explicitly optional per comment; convert to non-blocking annotation or remove — it currently asserts nothing meaningful either way.
+- **L596** `hasBadge || true` (action-type badge in first audit-log row) → **(a)**, contingent on seeded rotation-history data.
+- **L601** `hasVersionInfo || true` (version/duration info in same row) → **(a)**, same seeding caveat as L596.
+- **L684** `hasToast || true` (keyboard-activated validate button should trigger a result toast) → **(a)**: deterministic feedback requirement.
+- **L708** `accessibleName || true` (every visible button should have an accessible name) → **(a)**: real, valuable a11y assertion; drop `|| true`.
+
+#### `tests/security-enforcement/zzz-security-ui/system-security-settings.spec.ts` (7 occurrences)
+
+- **L290** `hasValidation || true` — comment: "May not have inline validation" (explicit hedge) → **(b)**: convert to `test.skip()`/annotation.
+- **L325** `toastVisible || true` — the immediately preceding step already hard-asserts `expect(saveResponse.ok()).toBeTruthy()` (a real successful save) → **(a)**: success feedback must follow a confirmed-successful save; drop `|| true`.
+- **L352** `hasSuccess || true` (green-checkmark validation indicator for a valid URL) → **(a)**, pending a quick check that this indicator is unconditionally rendered for the field (verify at implementation time).
+- **L452** `toastVisible || true` — comment: "URL reachability depends on network - just verify test button works" → **(a) for the meta-assertion**: regardless of network outcome (reachable/unreachable), *some* toast must always appear after clicking Test — that part is deterministic. Drop `|| true`; do not assert on toast *content*.
+- **L555** `hasVersion || true` (version string format) → **(a)**: app always renders a build version (semver or `dev`).
+- **L680** `newState !== initialState || true` — this directly overlaps sub-issue 4's feature-flag propagation fix; the test already awaits both the `PUT` and `GET` feature-flags responses via `Promise.all` before reading `newState` → **(a)**: the toggle state change is deterministic once both responses have resolved; drop `|| true`.
+- **L736** `accessibleName || true` — same pattern as encryption-management L708 → **(a)**.
+
+#### `tests/core/navigation.spec.ts` (4 occurrences)
+
+- **L238** `hasActiveCurrent || hasActiveClass || true` → **(a)**, mechanical: drop `|| true`, keep the two-way OR (an active nav item must signal state via `aria-current` or an active class — at least one is a real requirement).
+- **L559** `foundNavLink || true` — comment: "May not find nav link depending on focus order - this is acceptable" → **(b)**: convert to `test.skip(true, 'no focusable nav link found via keyboard tab order in this run')` per the established `test.skip(true, reason)` convention, rather than a fake pass.
+- **L733** `hasAriaCurrent || true` — comment: "aria-current is recommended but not always implemented" → **(a), converge with L238's convention**: check `aria-current` **or** active class (matching the pattern already used at L238 in the same file) instead of `aria-current` alone with a fake fallback — this makes it a real, DRY assertion instead of leaving it permanently soft.
+- **L758** `outline || true` (focus-visible indicator style) → **(a)** preferred: assert `outline` is non-empty/not `'none'`; fall back to **(b)** only if empirically flaky across Chromium/Firefox/WebKit during implementation.
+
+#### `tests/core/dashboard.spec.ts` (3 occurrences)
+
+- **L232** `foundButton || true` (quick-action button reachable via keyboard tab loop) → **(b)**: tab-order flakiness, same pattern as navigation.spec.ts:559; convert to `test.skip()`-with-reason when not found within the loop bound, rather than fake pass. The real assertion (`expect(focused).toBeFocused()`) already fires correctly when found.
+- **L370** `hasEmptyState || hasActualContent || true` — comment: "Dashboard should show either empty state or content, not crash" (a genuine, environment-independent invariant) → **(a)**, mechanical: drop `|| true`.
+- **L491** `reachedCard || focusableElementsFound > 0 || true` — comment: "verify we at least found some focusable elements" → **(a)**, mechanical: drop `|| true`, keep the two-way OR.
+
+#### `tests/settings/smtp-settings.spec.ts` (4 occurrences)
+
+- **L121** `skeletonVisible || true` — comment: "Either skeleton is shown or page loads very fast" → **(b)**: genuine loading-timing race; convert to `test.skip()`-with-reason or remove — a 500ms artificial delay plus a 1000ms visibility timeout should make the skeleton reliably visible, so first try tightening the mock/timeout to make this **(a)** before falling back to **(b)**.
+- **L165** `hasValidation || true` — comment: "Either inline validation or form submission is blocked" (definite requirement, required-field case) → **(a)**.
+- **L231** `hasValidation || true` — comment: "Validation should occur (inline or via toast)" (definite, invalid-email-format case) → **(a)**.
+- **L906** `hasAccessibleError || true` — comment: "Some form of accessible error feedback should exist" (definite a11y requirement) → **(a)**.
+
+#### `tests/settings/account-settings.spec.ts` (1 occurrence)
+
+- **L875** `foundApiButton || true` — comment: "Non-blocking assertion" (explicit hedge, keyboard tab-order search for API key buttons) → **(b)**: convert to `test.skip()`-with-reason, consistent with the tab-order-flakiness cases above.
+
+#### `tests/security/system-settings-feature-toggles.spec.ts` (1 occurrence)
+
+- **L317** `overlayVisible || true` — comment: "Overlay may appear briefly - either is acceptable" → **(b)**: genuine timing race (config-reload overlay can complete before the 1s poll samples it); the `responsePromise` for the `PUT /feature-flags` call is already captured above but never awaited/used to gate this check — first try awaiting that promise before sampling the overlay (would make this **(a)**); fall back to **(b)** if still flaky.
+
+#### `tests/manual-dns-provider.spec.ts` (1 occurrence)
+
+- **L311** `hasVisibleIcon || true` (status icon inside an already-hard-asserted status indicator) → **(a)**: the indicator itself is already hard-asserted visible immediately above; the icon inside it should be deterministic too.
+
+**Summary**: of 59 `|| true` occurrences, **~47 become real assertions (a)**, **~4 are dead code to delete**, and **~8 are genuinely environment/timing-dependent and become explicit `test.skip()` calls (b)** using the repo's existing convention — plus 1 additional vacuous test (certificates.spec.ts's `'should show config reload overlay during deletion'`) that has no `|| true` to count here but requires the identical interaction-model fix (see the certificates.spec.ts breakdown above). Exact per-line final disposition is confirmed during implementation per the guidance above; the DoD gate in §5 enforces that zero bare `|| true`-before-`toBeTruthy()` patterns remain regardless of which bucket each line lands in.
+
+### 2.3 Sub-issue 3 — Backend coverage gaps: CONFIRMED STALE / ALREADY RESOLVED, NO CODE CHANGES
+
+Re-ran directly (non-mutating `go test -cover`):
+
+```
+ok  internal/services                        coverage: 88.4% of statements   (target 85%)
+ok  internal/services/remotestorage           coverage: 90.3% of statements
+ok  backend/pkg/dnsprovider/builtin           coverage: 91.8% of statements   (target 50% incremental)
 ```
 
-Key points:
-- The `start` channel is the synchronization barrier requested in review:
-  every goroutine blocks on `<-start` immediately after being scheduled,
-  so `close(start)` releases all `n` of them at (as close to) the same
-  instant as the Go scheduler allows — this is what makes the resulting
-  `ProxyHostService.Create` writes and the `n` downstream
-  `go h.uptimeService.SyncAndCheckForHost(...)` goroutine writes actually
-  overlap, rather than being staggered by ordinary goroutine-launch
-  jitter (which, without the barrier, could let each request's write
-  complete before the next one starts, never exercising the contention
-  path this test exists to cover).
-- `statusCodes[i]` and `domains[i]` are written by exactly one goroutine
-  each (disjoint indices into a pre-sized slice) — safe without a mutex,
-  and verifiable under `-race`.
-- All `require.*` calls happen on the main test goroutine after
-  `wg.Wait()`, matching the established idiom and avoiding the
-  `FailNow`-from-wrong-goroutine hazard.
+Confirms the prior investigation exactly. `backend/pkg/dnsprovider/builtin` is the correct current location (relocated from `internal/dnsprovider/builtin` as the original issue text said) and is excluded from `codecov.yml` reporting (`ignore:` list, line 136 — "tested via integration tests, not unit tests") but not from `go-test-coverage.sh`'s enforcement; either way, actual coverage is far above both the codecov project target (87%) and the issue's original incremental target (50%). **No regression, no code changes required.** This PR's only obligation here is to capture a coverage run as DoD evidence (§5) and state this explicitly in the PR description (§6).
 
-This test would have reliably failed (or at minimum, reliably logged
-`"database table is locked: uptime_monitors"` and left some monitors
-missing) against the pre-fix `setupTestRouterWithUptime` (bare DSN, no
-busy-timeout) under the write overlap the barrier manufactures, and passes
-reliably once `OpenTestDB(t)` is used. It also serves as living
-documentation of the failure mode for future maintainers.
+### 2.4 Sub-issue 4 — Feature flag async propagation tests: CONFIRMED STALE / ALREADY RESOLVED, NO CODE CHANGES
 
-**Why the existing 3s-per-goroutine `require.Eventually` budget is
-expected to hold at N=8**: the original failure log shows the
-`uptime_monitors` INSERT itself completing in `0.369ms` — these are
-trivial single-row writes, not slow operations. Post-fix, with
-`_busy_timeout=5000` in effect, up to `n=8` writes contending for the same
-shared-cache table lock serialize through SQLite's busy-wait/retry
-mechanism rather than failing immediately; worst-case fully-serialized
-cost for 8 sub-millisecond writes is on the order of a few milliseconds,
-several orders of magnitude below the 3s budget. The 3s figure is
-inherited unchanged from the original (already N=1) test, which passed
-reliably in all 20 targeted-test executions in §3.1/§3.3 — N=8 adds
-negligible serialized latency on top of that same budget, even accounting
-for CI scheduling variance. One consequence worth flagging explicitly: the
-per-goroutine timeout (3s) is intentionally kept *below* the DSN's
-`_busy_timeout` ceiling (5s) so that if contention ever did approach the
-timeout, the test would surface a `require.Eventually` failure rather than
-silently blocking for the full 5s per writer; if this test needs
-adjustment later, keep that ordering (`Eventually` budget < `busy_timeout`)
-rather than closing the gap.
+`tests/settings/system-settings.spec.ts` no longer exists (confirmed via `find`); the feature-flag tests were reorganized into `tests/security/system-settings-feature-toggles.spec.ts`, which:
+- Imports and calls `waitForFeatureFlagPropagation` **9 times** (exact count via `grep -c`, correcting the prior investigation's "11" estimate) across all 9 tests in the file.
+- Has **zero** `.skip`/`.fixme` markers (aside from the one tautological assertion at L317, covered under sub-issue 2 above — a different problem, not the async-propagation flakiness this sub-issue was about).
 
-**Validation gate for this test**: run it standalone with `-race
--count=20` before and after the fix to confirm it fails (or logs the lock
-error) pre-fix and passes cleanly post-fix with no data races reported.
+**No regression, no code changes required.** This file is already fully in-scope for the mandatory full E2E run in §5 (it was already going to run; no special inclusion action needed).
+
+### 2.5 Sub-issue 5 — WebKit E2E tests not executing: CONFIG CONFIRMED HEALTHY, ONE REAL RUN STILL OUTSTANDING
+
+- WebKit `26.5` installed; `npx playwright test --list --project=webkit` discovers **963 tests across 86 files** (re-verified, matches prior investigation exactly).
+- `playwright.config.js` (repo root — the config actually governing `tests/`, distinct from the unrelated minimal `frontend/e2e/playwright.config.ts`) reviewed line-by-line: the `webkit` project (L299-314) has **identical** `dependencies`, `testMatch`, and `testIgnore` patterns to `chromium`/`firefox` — no webkit-specific exclusion, no `browserName`-conditioned `test.skip()` anywhere in `tests/**` (repo-wide grep confirmed zero matches).
+- Note (informational, not a defect): the `webkit` project's `testIgnore` excludes `**/security-enforcement/**` and `**/tests/security/**`, same as chromium/firefox — those specs only run under the dedicated `security-tests` project, which is **Chromium-only by design** (L237-254, "SEQUENTIAL, Chromium only"). This means 29 of this PR's 59 sub-issue-2 fixes (all of `access-lists-crud.spec.ts`, `encryption-management.spec.ts`, `system-security-settings.spec.ts`, `system-settings-feature-toggles.spec.ts`) are **out of WebKit's run scope entirely, by existing design** — not something this PR changes or needs to change.
+- A dedicated `tests/core/caddy-import/caddy-import-webkit.spec.ts` (`@webkit-only` tag) already exists for known WebKit-specific quirks in the Caddyfile-import flow, and `caddy-import-cross-browser.spec.ts` already parameterizes assertions per `browserName` — evidence the team has previously handled real WebKit differences correctly elsewhere; no similar per-browser branching is missing here.
+- **Risk flagged**: none identified in config. The keyboard-focus-order tautologies converted to real assertions in §2.2 (proxy-hosts.spec.ts:1014, access-lists-crud.spec.ts:1018, navigation.spec.ts:758) are the most plausible source of **new** WebKit-specific flakiness once they stop being unconditionally true — this is exactly why §2.2 marks them "(a) preferred, (b) fallback if empirically flaky" rather than a hard mandate, and why the full WebKit run (§5) must happen **after** the sub-issue-2 commits land, not before.
+- **Not run in this planning pass** (explicitly deferred to execution/QA phase per task instructions): the actual full `npx playwright test --project=webkit` execution. This is a mandatory, explicit Definition-of-Done gate (§5) for this PR.
+
+### 2.6 `.gitignore` / `.dockerignore` / `codecov.yml` / `Dockerfile` review
+
+All reviewed; **no changes required** for this PR:
+
+- `.gitignore`: `frontend/coverage/`, `frontend/test-results/`, `/test-results/`, `/playwright-report/` already cover all artifacts this PR's test runs will produce.
+- `.dockerignore`: `tests/`, `test-results/`, `test-data/` already excluded from the Docker build context; no new test directories are being introduced by this PR (only edits to existing spec/test files).
+- `codecov.yml`: `**/e2e/**`, `**/*.spec.ts`, `**/__tests__/**` already excluded from coverage accounting; `backend/pkg/dnsprovider/builtin/**` already excluded (consistent with §2.3's finding that this package is verified via integration tests). No new source paths are introduced.
+- No `Dockerfile` changes — this PR ships no runtime code.
 
 ---
 
-## 6. Risks and Mitigations
+## 3. Technical Specifications
 
-| Risk | Mitigation |
-|---|---|
-| `OpenTestDB`'s random-suffix DSN naming changes DB identity in a way that breaks an assumption elsewhere in `setupTestRouterWithUptime`'s callers | Reviewed: the function's only consumer is the one test in scope; the returned `*gorm.DB` handle is used identically regardless of the underlying DSN string. No other code parses or depends on the DSN name. |
-| New concurrent-load test is itself flaky under CI resource constraints | Use a generous `require.Eventually` timeout (mirrors existing test's 3s/50ms) and keep N modest (8) — sized to reproduce contention locally without becoming a CI timing hazard. If CI shows flakiness, reduce N or widen the timeout in review; do not skip the test. |
-| Silencing GORM's logger (a side effect of switching to `OpenTestDB`, which sets `logger.Default.LogMode(logger.Silent)`) hides useful diagnostic SQL output if this test fails again in the future | Acceptable tradeoff — every other test in the package already silences this logger via `OpenTestDB`; `t.Log`/`require` failure messages remain fully diagnostic, and `-v` plus targeted `-run` reproduction (as used in this investigation) remains available. |
-| Sibling call sites (all 9 listed in §5.3) still carry the latent defect if Commit 2 is skipped | Documented explicitly in §5.3 with every site named, and flagged as a known, low-priority follow-up; no test currently exercises the concurrent-write pattern needed to trigger it through any of them except line 326 (see its elevated-risk note in §5.3). |
+This PR is test-infrastructure-only. There is no new API surface, no database schema change, and no new component. The "component design" for this PR is the test-file structure itself.
 
-### 6.1 Should `SyncAndCheckForHost` retry on lock errors?
+### 3.1 Affected files (exhaustive)
 
-Raised in review: production already configures `SetMaxOpenConns(1)` +
-`journal_mode=WAL` + `busy_timeout=5000` (§2.4). Is that fully sufficient
-to make `"database table is locked"` structurally impossible in
-production at `uptime_service.go:1375`, or is there an edge case that
-could still hit it?
+**Frontend unit tests (sub-issue 1):**
+- `frontend/src/pages/__tests__/Security.test.tsx`
+- `frontend/src/pages/__tests__/Security.audit.test.tsx`
+- `frontend/src/pages/__tests__/Security.errors.test.tsx`
+- `frontend/src/pages/__tests__/Security.loading.test.tsx`
+- `frontend/src/pages/__tests__/Security.dashboard.test.tsx`
+- `frontend/src/pages/__tests__/Security.functional.test.tsx`
 
-**Analysis**: `SetMaxOpenConns(1)` means there is at most one physical
-SQLite connection in the production pool. When two goroutines both need
-that connection, Go's `database/sql` pool simply queues the second
-goroutine's checkout until the first releases it — this is ordinary Go
-channel/mutex contention, not a SQLite-level lock conflict, so it does not
-produce `SQLITE_LOCKED`/`SQLITE_BUSY` errors at all; it only adds latency.
-This closes off the exact mechanism identified in §4 (multiple *physical*
-connections contending for the same shared-cache table).
+**E2E specs (sub-issue 2):**
+- `tests/core/certificates.spec.ts` (includes the 5-test "Certificate Deletion" block rewrite — see §2.2)
+- `tests/core/proxy-hosts.spec.ts`
+- `tests/core/navigation.spec.ts`
+- `tests/core/dashboard.spec.ts`
+- `tests/settings/smtp-settings.spec.ts`
+- `tests/settings/account-settings.spec.ts`
+- `tests/security-enforcement/zzz-security-ui/access-lists-crud.spec.ts`
+- `tests/security-enforcement/zzz-security-ui/encryption-management.spec.ts`
+- `tests/security-enforcement/zzz-security-ui/system-security-settings.spec.ts`
+- `tests/security/system-settings-feature-toggles.spec.ts`
+- `tests/manual-dns-provider.spec.ts`
 
-One deliberate exception exists: `runQuickCheck`
-(`backend/internal/database/database.go:109-136`) opens its **own**
-`sql.Open` connection outside the capped pool, specifically so a
-multi-minute `PRAGMA quick_check` scan doesn't block the single-connection
-pool during startup (per the comment at lines 101-103). This is a second
-physical connection to the same database file, running concurrently with
-the main pool. However, `PRAGMA quick_check` is a read operation, and
-under WAL mode readers do not block writers and writers do not block
-readers by design — so this concurrent-connection exception should not,
-in the normal case, produce a lock conflict on an unrelated table like
-`uptime_monitors`. This has not been exhaustively proven immune (WAL's
-reader/writer non-blocking guarantee applies at the connection/snapshot
-level; an exhaustive audit of every `PRAGMA quick_check` interaction is
-out of scope for this test-flake fix), but it's a materially different
-and much lower-probability risk profile than the test-only bug this PR
-fixes, and no production incident report or log evidence in this codebase
-currently points to it firing.
+**Test utility additions (sub-issue 2):**
+- `tests/utils/api-helpers.ts` — add `getBackupsViaAPI(request, token?)`, following the exact signature/error-handling pattern of the file's existing `get*ViaAPI` functions (e.g. `getCertificatesViaAPI`), targeting `GET /api/v1/backups`.
 
-**Why other services hedge with retry anyway**: `credential_service.go`,
-`security_service.go`, and `backup_restore_safe.go` all add retry-on-lock
-despite running under the exact same `MaxOpenConns(1)` + WAL +
-`busy_timeout` protection described above — which is worth explaining
-rather than treating as redundant belt-and-suspenders. Two residual gaps
-`MaxOpenConns(1)` does not close, either of which is plausibly what
-motivated those precedents: (1) **multi-process access** — `MaxOpenConns(1)`
-caps connections *within this process's pool*; it does nothing to
-serialize access if the same SQLite file is ever opened by a second OS
-process (e.g. a one-off maintenance/migration script, a second `charon`
-instance misconfigured to point at the same `data/` directory, or a
-developer's `sqlite3` CLI session against a live file) — WAL's
-`busy_timeout` still applies cross-process and will retry for up to 5s,
-but a sufficiently slow or long-held external writer could still exhaust
-that window. (2) **Long-running transactions within the same process** —
-`MaxOpenConns(1)` guarantees only one connection is checked out at a time,
-but if that one connection is mid-transaction on a slow, unrelated
-operation (a large backup/restore, a bulk import), any other write queues
-behind it; that's ordinary Go-level queuing rather than a SQLite lock
-error under normal `busy_timeout` behavior, but a poorly-behaved caller
-that bypasses the pool (opens its own `sql.Open`, as `runQuickCheck` does
-per the exception above) reintroduces the multi-connection scenario from
-inside the same process. Both gaps are speculative rather than
-demonstrated — this investigation found no log or incident evidence that
-either has actually fired against `uptime_monitors` — but they are a
-plausible, consistent explanation for why the established convention
-hedges with retry even under `MaxOpenConns(1)`, rather than treating that
-setting as a complete guarantee.
+**No changes**: any `backend/**` file, any `frontend/src` file outside `__tests__/`, `.gitignore`, `.dockerignore`, `codecov.yml`, any `Dockerfile`.
 
-**Existing convention**: this codebase does not centralize
-lock-error retry through the "unused" (more precisely: used for a
-*different* purpose — see below) `util.IsSQLiteLockedError`
-(`internal/util/permissions.go:167-175`) helper. That helper is actually
-called once, at `permissions.go:143` inside `MapSaveErrorCode`, to
-classify a *failed* save into a user-facing diagnostic error code — not to
-gate a retry loop — and notably its match set (`"database is locked"`,
-`"sqlite_busy"`, `"database locked"`) does **not** include `"database
-table is locked"`, the exact text this bug produces, so it would not even
-recognize this specific error as a lock error. Instead, the codebase's
-actual retry-with-backoff convention is independently duplicated inline in
-at least three places — `credential_service.go:355-369`,
-`security_service.go:267-291`, and `backup_restore_safe.go:643-659`
-(`isSQLiteTransientRestoreError`, which explicitly documents mirroring a
-fourth copy in `backup_handler.go`'s `isSQLiteTransientRehydrateError`
-"as a small, intentional duplication rather than an inter-package
-dependency" to avoid a `services` → `handlers` import) — each checking for
-`"database is locked"`, `"database table is locked"`, and `"busy"`/`"table
-is locked"` variants directly. This is a deliberate, precedented pattern
-in this codebase, not an oversight to "fix" by routing through
-`util.IsSQLiteLockedError`.
+### 3.2 API contracts referenced (read-only, no changes)
 
-**Conclusion**: given (a) production's structural protection closes off
-the mechanism that caused this specific bug, (b) the one remaining
-exception (`runQuickCheck`) is a different, unproven, lower-probability
-risk, and (c) this PR's stated purpose is fixing a test-only flake, adding
-retry logic to `SyncAndCheckForHost` is treated as genuinely optional
-defense-in-depth, not a required part of this fix. It is offered as
-**Commit 3** in §7, scoped and reviewable independently, rather than
-silently left out of the plan.
+These existing endpoints are what the strengthened assertions in §2.2 verify against — documented here for implementer reference, not as new contracts:
+
+| Endpoint | Method | Used by (test) | Purpose in this PR |
+|---|---|---|---|
+| `/api/v1/certificates/:uuid` | `GET` | `certificates.spec.ts` cancel-delete test | Verify certificate still exists after a dismissed delete |
+| `/api/v1/certificates/:uuid` | `DELETE` | `certificates.spec.ts` in-use/backup tests | Existing delete flow (`certificate_handler.go:387-470`) — unchanged |
+| `/api/v1/backups` | `GET` | `certificates.spec.ts` backup-creation test | Verify a new backup entry appears after a successful cert delete |
+| `/api/v1/access-lists/:id` | `GET` | `access-lists-crud.spec.ts` rename test | Verify renamed ACL persisted server-side |
+| `/api/v1/proxy-hosts` / `/api/v1/proxy-hosts/:id` | `GET` | `proxy-hosts.spec.ts` creation test | Verify created host persisted server-side |
+
+### 3.3 Error handling / edge cases to cover in the new assertions
+
+- Certificate delete "in use" path: assert the **specific** 409 error surface (toast/message), not merely "a toast of some kind."
+- Certificate delete "backup" path: must select/seed a certificate guaranteed **not** in use (backend returns 409 before attempting backup if in use — asserting backup creation against an in-use cert would be a false test).
+- ACL/proxy-host rename/creation: API-level verification must tolerate eventual consistency the same way existing passing tests in these files already do (reuse existing `waitFor`/polling helpers, do not add new ad hoc `setTimeout`s).
+- WebKit-sensitive keyboard-focus assertions (§2.2, "(a) preferred, (b) fallback"): implementers must actually run the affected spec under `--project=webkit` (not just chromium/firefox) before finalizing as (a); if flaky, fall back to (b) with an accurate WebKit-specific skip reason, not a silent revert to `|| true`.
+
+### 3.4 Data flow notes
+
+No data flow changes. The certificate-deletion backup verification (§2.2) exercises an **existing** synchronous flow: `DELETE /api/v1/certificates/:uuid` → `IsCertificateInUse` check → (if not in use) `backupService.GetAvailableSpace()` → `backupService.CreateBackup()` → `service.DeleteCertificateByID()` → response. All calls are synchronous within the single request; no polling/async job is involved for this specific path (unlike the general `POST /api/v1/backups` flow used elsewhere, which does return `202` + a job id — do not conflate the two; the cert-delete backup call is a direct, blocking `CreateBackup()`).
 
 ---
 
-## 7. Commit Slicing Strategy
+## 4. Implementation Plan
 
-Decision: **single PR, ordered commits**, per CLAUDE.md ("One Feature = One
-PR" / "Slice Commits, Not PRs"). This is a single bug fix; the PR merges
-only when both commits (or Commit 1 alone, if Commit 2 is deferred) pass
-the full Definition of Done.
+### Phase 1 — E2E specs for new/changed behavior
 
-### Commit 1 — Fix the flaky test's SQLite setup + add concurrent-load regression test (required)
+No net-new user-facing behavior is being introduced (this is a test-quality fix, not a feature), so there is no `test.fixme()` scaffolding phase in the usual sense. Instead, Phase 1 is: write the `getBackupsViaAPI` helper addition to `tests/utils/api-helpers.ts` (foundation for Commit 2's certificate tests) and confirm it compiles/type-checks against the existing `parseResponse<T>`/`getAuthHeaders` pattern.
 
-- **Scope**: Fix the root cause identified in §4 and add coverage proving it.
-- **Files**:
-  - `backend/internal/api/handlers/proxy_host_handler_test.go`:
-    - `setupTestRouterWithUptime` (lines 72–97): replace manual
-      `gorm.Open(sqlite.Open(dsn), &gorm.Config{})` with `OpenTestDB(t)`
-      per §5.2.
-    - Add new test
-      `TestProxyHostCreate_TriggersAsyncUptimeSyncWhenServiceConfigured_ConcurrentLoad`
-      per §5.4, placed after the existing test (after line 259).
-- **Dependencies**: none — this is the first commit.
-- **Commit message** (Conventional Commits): `fix: apply busy-timeout/WAL pragma to uptime test DB to resolve SQLite lock flake`
-- **Validation gate**:
-  - `cd backend && go build ./...`
-  - `go test ./internal/api/handlers/... -run 'TestProxyHostCreate_TriggersAsyncUptimeSyncWhenServiceConfigured' -count=20 -race -v` — 20/20 pass, zero races, zero lock-contention log lines.
-  - `go test ./internal/api/handlers/... -count=5` — 5/5 full-package pass (baseline already established at 5/5 pre-fix in §3.2; this confirms no regression, not that it "fixes" an always-failing test, since the flake is probabilistic).
-  - `make lint-fast` / `make lint-staticcheck-only` — zero errors.
-  - `bash scripts/local-patch-report.sh` — patch coverage artifacts generated.
-  - `scripts/go-test-coverage.sh` — ≥85% maintained (test-only addition should not lower coverage).
+### Phase 2 — Foundation (no behavior change)
 
-### Commit 2 — Harden remaining test call sites against the same defect class (optional, recommended)
+- Add `getBackupsViaAPI` to `tests/utils/api-helpers.ts`.
+- No other foundation work required — this PR doesn't touch shared fixtures, `global-setup.ts`, or `playwright.config.js`.
 
-- **Scope**: Apply the identical one-line fix (§5.2 pattern:
-  `db := OpenTestDB(t)` in place of the manual `gorm.Open(sqlite.Open(dsn),
-  &gorm.Config{})` + `require.NoError(t, err)` pair) to **all 9 remaining
-  ad hoc call sites** identified in §5.3 — not just the two originally
-  in-scope helpers:
-  - `setupTestRouter` (line 30)
-  - `setupTestRouterWithReferenceTables` (line 52)
-  - `TestProxyHostDelete_WithUptimeCleanup` (line 326) — also replace its
-    hardcoded literal DSN (`"file:test-delete-uptime?mode=memory&cache=shared"`)
-    with `OpenTestDB(t)`'s `t.Name()`-derived unique name, closing the
-    secondary collision-risk noted in §5.3.
-  - `TestProxyHostErrors` (line 374)
-  - `TestProxyHostWithCaddyIntegration` (line 654)
-  - `TestUpdate_IntegrationCaddyConfig` (line 1889)
-  - `setupTestRouterWithProxyGroupTable` (line 2385)
-  - `TestProxyHostHandler_BulkUpdateGroup_CaddyApplyError` (line 2757)
-  - `TestProxyHostHandler_SetCertificateService_InvalidatesOnCreate` (line 2816)
+### Phase 3 — Backend
 
-  This is intentionally mechanical and scoped to the same file/defect
-  class — not a general refactor of unrelated code.
-- **Files**: `backend/internal/api/handlers/proxy_host_handler_test.go` only.
-- **Dependencies**: Commit 1 (keeps the diff reviewable as "the proven fix"
-  followed by "the same fix applied preventively elsewhere").
-- **Commit message**: `chore: apply shared OpenTestDB helper to remaining ad hoc SQLite setups in proxy_host_handler_test.go`
-- **Validation gate**:
-  - `go test ./internal/api/handlers/... -count=5` — 5/5 pass (every test
-    reachable through these 9 sites, e.g. `TestProxyHostLifecycle`,
-    `TestProxyHostCreate_ReferenceResolution_TargetedBranches`,
-    `TestProxyHostDelete_WithUptimeCleanup`, and all 6 tests behind
-    `setupTestRouterWithProxyGroupTable`, continues to pass unchanged).
-  - `make lint-fast`.
+N/A — confirmed no backend code changes required (§2.3).
 
-### Commit 3 — Retry-with-backoff for `SyncAndCheckForHost`'s monitor-create write (optional, out-of-scope-by-default)
+### Phase 4 — Frontend / test changes (the bulk of the work)
 
-- **Scope**: See §6.1 ("Should `SyncAndCheckForHost` retry on lock
-  errors?") for the full reasoning. In short: production already has structural
-  protection (`SetMaxOpenConns(1)` + WAL + `busy_timeout=5000`, §2.4) that
-  makes this class of error very unlikely in production, and this PR's
-  purpose is fixing the *test* flake, not hardening the production
-  best-effort sync path. This commit is offered as an explicit,
-  independently reviewable option for defense-in-depth, **not** a
-  prerequisite for Commits 1–2.
-- **If adopted**: add a bounded retry loop around the
-  `s.DB.Create(&monitor)` call at `backend/internal/services/uptime_service.go:1375`,
-  following the existing convention in this codebase — see
-  `credential_service.go:355-369` (`Delete`, 5 attempts,
-  `time.Sleep(time.Duration(attempt) * 10 * time.Millisecond)` backoff) and
-  `security_service.go:267-291` (`persistAuditWithRetry`, same shape).
-  Both of those inline their own lock-detection string check
-  (`strings.Contains(errMsg, "database is locked") ||
-  strings.Contains(errMsg, "database table is locked") ||
-  strings.Contains(errMsg, "busy")`) rather than calling
-  `util.IsSQLiteLockedError` — see §6 for why matching that precedent
-  (not centralizing through the util helper) is the correct DRY target
-  here.
-- **Files**: `backend/internal/services/uptime_service.go` (the retry
-  logic) + `backend/internal/services/uptime_service_test.go` or
-  `uptime_service_race_test.go` (a unit test forcing a transient lock
-  error, e.g. via an injected/mocked `*gorm.DB` or a real contended
-  in-memory DB, and asserting the retry eventually succeeds).
-- **Dependencies**: none technically, but sequenced after Commits 1–2 so
-  the test-flake fix (the actual reported bug) is not entangled with a
-  production behavior change in the same review pass.
-- **Commit message**: `fix: retry transient SQLite lock errors when creating uptime monitors`
-- **Validation gate**: new unit test passes; `go test ./internal/services/... -run Uptime -race -count=10`; existing `uptime_service_test.go` suite unaffected; `make lint-fast`.
+- Sub-issue 1: unskip 5 files, delete the stale test in the 6th (§2.1).
+- Sub-issue 2: fix all 59 tautologies per the file-by-file disposition in §2.2, including the certificate-deletion flow's larger rewrite (native-dialog → custom-modal interaction).
 
-### Rollback / contingency
+### Phase 5 — Hardening, full-suite validation, docs
 
-- Both commits are additive/test-only and independently revertible with
-  `git revert` — neither touches production code, so a revert carries zero
-  runtime risk.
-- If Commit 1's new concurrent-load test proves flaky in CI despite local
-  `-race -count=20` passes, the contingency is to widen its
-  `require.Eventually` timeout or reduce goroutine count N in a follow-up
-  commit — not to delete or skip it, per CLAUDE.md's testing requirements.
-- If, contrary to the evidence in §3, a future run surfaces this failure
-  again with the fix in place, re-open this investigation rather than
-  reflexively re-blaming the most recent dependency bump — §3.5 already
-  demonstrates that correlation-with-recency is not sufficient evidence
-  here.
+- Full Vitest suite run (not just the touched files) to catch regressions from unskipping.
+- Full Playwright run across chromium/firefox/webkit, including the security-tests shard.
+- Coverage checks (frontend + backend) at/above enforced thresholds.
+- PR description scaffolding (§6).
 
 ---
 
-## 8. Ignore Files / Docker / Codecov Impact
+## 5. Commit Slicing Strategy
 
-Explicitly reviewed — **no changes needed**:
+Single PR, `test/issue-619-test-infra-debt` → `development`, ordered commits. Each commit is independently buildable/testable; later commits depend on earlier ones as noted.
 
-- `.gitignore`: no new files or directories introduced; change is confined
-  to existing tracked `*_test.go` content.
-- `.codecov.yml`: no coverage-path or flag changes needed; the new test
-  lives in an already-covered package/file and should only raise, not
-  lower, patch coverage.
-- `.dockerignore`: no new files; test files are already excluded from
-  production image builds via existing Go test-file conventions (`_test.go`
-  files are never compiled into the `go build` binary).
-- `Dockerfile`: no build-step or dependency changes — `go.mod`/`go.sum`
-  are unaffected by this fix (the investigation's temporary go.mod/go.sum
-  rollback in §3.3 was fully reverted, per §3.4).
+### Commit 1 — `test: add getBackupsViaAPI helper for E2E backup verification`
+- **Scope**: Foundation. Add `getBackupsViaAPI(request, token?)` to `tests/utils/api-helpers.ts`, matching the existing `get*ViaAPI` pattern exactly (JSDoc block, `parseResponse<T>`, `getAuthHeaders`).
+- **Files**: `tests/utils/api-helpers.ts`.
+- **Dependencies**: none.
+- **Validation gate**: `cd frontend && npm run type-check` passes (the helper file is TS, checked as part of the frontend project); no test run needed yet (unused until Commit 3).
+
+### Commit 2 — `fix: unskip Security.* Vitest suites now that undici/jsdom WebSocket bug is fixed`
+- **Scope**: Sub-issue 1. Remove `describe.skip` → `describe` in the 5 files; delete the stale `it.skip('should open notification settings modal...')` block (and its now-empty `describe('Notification Settings Modal', ...)` wrapper) from `Security.functional.test.tsx`.
+- **Files**: the 6 files listed in §2.1.
+- **Dependencies**: none (independent of Commits 1/3+).
+- **Validation gate**: `npx vitest run src/pages/__tests__/Security.test.tsx src/pages/__tests__/Security.audit.test.tsx src/pages/__tests__/Security.errors.test.tsx src/pages/__tests__/Security.loading.test.tsx src/pages/__tests__/Security.dashboard.test.tsx src/pages/__tests__/Security.functional.test.tsx` — zero failures, zero unexpected skips. Then a **full** `npx vitest run` (not just these files) — zero regressions vs. the §2.1 baseline (263→268 passed test files, 3247→3330 passed tests, 88→4 skipped [only the out-of-scope CrowdSec ones remain]). Frontend coverage (`scripts/frontend-test-coverage.sh`) at/above 85%.
+
+### Commit 3 — `fix: replace tautological assertions in certificates.spec.ts with real backend-verified checks`
+- **Scope**: Sub-issue 2, certificates file only (highest-complexity file — isolated to its own commit given the custom-modal rewrite). All 9 `|| true` lines in §2.2's certificates.spec.ts breakdown, plus the native-dialog → custom-modal rewrite for all 5 deletion tests in the "Certificate Deletion" block (`should show delete confirmation dialog`, `should warn if certificate is in use by proxy host`, `should cancel delete when confirmation dismissed`, `should create backup before deletion`, and `should show config reload overlay during deletion` — the last of which has no `|| true` to grep for but shares the identical broken `page.once('dialog', ...)` interaction model and currently asserts nothing).
+- **Files**: `tests/core/certificates.spec.ts` (uses `getBackupsViaAPI` from Commit 1, `getCertificateViaAPI` already present).
+- **Dependencies**: Commit 1.
+- **Validation gate**: `npx playwright test tests/core/certificates.spec.ts --project=chromium` and `--project=firefox` both pass, zero flaky retries. Manual grep confirms zero `|| true).toBeTruthy()` remaining in this file.
+
+### Commit 4 — `fix: replace tautological assertions in proxy-hosts and access-lists E2E specs`
+- **Scope**: Sub-issue 2, the two largest remaining CRUD-flow files. §2.2's `proxy-hosts.spec.ts` (8 lines) and `access-lists-crud.spec.ts` (13 lines) breakdowns.
+- **Files**: `tests/core/proxy-hosts.spec.ts`, `tests/security-enforcement/zzz-security-ui/access-lists-crud.spec.ts`.
+- **Dependencies**: none (uses `getProxyHostsViaAPI`/`getProxyHostViaAPI`/`getAccessListViaAPI`, all already present in `tests/utils/api-helpers.ts` prior to this PR — does not depend on Commit 1's `getBackupsViaAPI` addition).
+- **Validation gate**: `npx playwright test tests/core/proxy-hosts.spec.ts --project=chromium --project=firefox` and the access-lists spec via the `security-tests` project (`npx playwright test tests/security-enforcement/zzz-security-ui/access-lists-crud.spec.ts --project=chromium` per the config's security-shard routing) both pass. Zero `|| true).toBeTruthy()` remaining in either file.
+
+### Commit 4b — `fix: correct Access List UUID usage and CGNAT warning i18n keys` (SCOPE ADDITION — real app bugs found during Commit 4)
+
+**Why this exists**: Commit 4's strengthened `access-lists-crud.spec.ts` assertions (no longer tautological) surfaced two genuine, previously-invisible production defects, confirmed via curl repro + Playwright network trace + source grep (not test artifacts):
+
+1. **Access List edit/update/delete/test-IP all 404 in production.** `frontend/src/pages/AccessLists.tsx`, `frontend/src/hooks/useAccessLists.ts`, `frontend/src/api/accessLists.ts`, and the ACL selector in `frontend/src/components/.../ProxyHostForm.tsx` all key mutations off `acl.id`. `backend/internal/models/access_list.go`'s `ID uint` has `json:"-"` — never serialized; only `uuid` is sent. Every edit/delete/rename request currently resolves to `PUT/DELETE /api/v1/access-lists/undefined` → `404`. `rowKey={(acl) => String(acl.id)}` also collides to `"undefined"` for every table row. `ProxyHosts.tsx` already uses the correct `.uuid` pattern — mirror it.
+2. **CGNAT warning banner renders raw i18n keys to every user.** `AccessLists.tsx` calls `t('accessLists.cgnatWarningTitle')` etc. (flat keys) but `frontend/src/locales/en/translation.json` only defines the nested `accessLists.cgnatWarning.title/.message/.solutionsTitle/.solution1-5`. The rendered DOM literally shows concatenated raw key strings to users. Fix: correct the key paths to match the nested structure.
+
+This is a deliberate, narrow deviation from this plan's original §1.3 non-goal ("no production code changes") — made because leaving the 3 tests these bugs broke permanently `test.skip()`-ed would directly contradict sub-issue 2's entire purpose (replacing fake-always-pass checks with real ones that actually catch defects). Both fixes are small, isolated, high-confidence, and directly required for `access-lists-crud.spec.ts`'s already-committed real assertions to pass. This addition must be called out explicitly in the PR description as a scope note, separate from the planned test-infra-only work, so reviewers can evaluate it on its own merits.
+
+- **Scope**: `.id` → `.uuid` swap across the Access List frontend mutation path (param types `number` → `string` to match); i18n key path correction in the CGNAT warning block.
+- **Files**: `frontend/src/pages/AccessLists.tsx`, `frontend/src/hooks/useAccessLists.ts`, `frontend/src/api/accessLists.ts`, and the ACL selector in the proxy-host form component (exact file to be confirmed at implementation time — grep for `.id` usage against access-list objects). No backend changes (backend already correctly omits `ID` from JSON; frontend must conform to the existing contract, not the other way around).
+- **Dependencies**: Commit 4 (the tests that currently fail because of these bugs must already exist).
+- **Validation gate**: `npx playwright test tests/security-enforcement/zzz-security-ui/access-lists-crud.spec.ts --project=security-tests` — full pass, all 45 tests, zero flaky retries (up from 42/45 after Commit 4). `cd frontend && npm run type-check` passes. `cd frontend && npx vitest run` — zero regressions (no unit tests should reference the old `.id` access-list field, but confirm). Manual smoke check: rename an ACL via the UI, confirm no `undefined` appears in any network request URL.
+
+### Commit 5 — `fix: replace tautological assertions in remaining security-UI and settings E2E specs`
+- **Scope**: Sub-issue 2, remainder. §2.2's `encryption-management.spec.ts` (8), `system-security-settings.spec.ts` (7), `navigation.spec.ts` (4), `smtp-settings.spec.ts` (4), `dashboard.spec.ts` (3), `system-settings-feature-toggles.spec.ts` (1), `account-settings.spec.ts` (1), `manual-dns-provider.spec.ts` (1).
+- **Files**: the 8 files above.
+- **Dependencies**: none (none of these 8 files use `getBackupsViaAPI`).
+- **Validation gate**: each file passes under its correct project (security-shard files via `security-tests`/chromium; the rest via chromium + firefox). Zero `|| true).toBeTruthy()` remaining anywhere under `tests/`, verified via `grep -rn "|| true" tests/ --include=*.spec.ts` returning empty.
+
+### Commit 5b — `fix: add aria-current to active navigation links` (SCOPE ADDITION — real app bug found during Commit 5)
+
+**Why this exists**: same pattern as Commit 4b. Commit 5's strengthened `navigation.spec.ts` assertions (`hasActiveCurrent || hasActiveClass`, `hasAriaCurrent || <active class>`, both converged onto "must signal active state via aria-current OR a discoverable active class") surfaced that neither exists: `frontend/src/components/Layout.tsx`'s primary sidebar nav `<Link>`s never set `aria-current`, and the active-state Tailwind classes (`bg-brand-700 text-content-primary`, `text-brand-500`, `bg-brand-500/10 text-brand-500`) contain no `"active"`/`"current"` substring an assistive-tech-oriented check (or a screen reader) could key off. Confirmed reproducible 100% across 3 runs, both chromium and firefox, by the implementing agent — not flakiness. This is a genuine, previously-hidden accessibility gap: there is no programmatic way for assistive tech to identify the current page in the primary nav today.
+
+- **Scope**: Add `aria-current="page"` to the active nav `<Link>` in `Layout.tsx`, conditioned on the existing active-route check already used to apply the active Tailwind classes (do not introduce a new route-matching mechanism — reuse whatever comparison already decides which link gets the active classes).
+- **Files**: `frontend/src/components/Layout.tsx`. No backend changes.
+- **Dependencies**: Commit 5 (the two navigation tests that currently fail because of this gap must already exist).
+- **Validation gate**: `npx playwright test tests/core/navigation.spec.ts --project=chromium --project=firefox` — full pass, including `'should highlight active navigation item'` and `'should indicate current page with aria-current'`, zero flaky retries. `cd frontend && npm run type-check` passes. `cd frontend && npx vitest run` — zero regressions.
+
+### Commit 6 — `docs: close out issue #619 sub-issues 3-5 with coverage/config verification evidence`
+- **Scope**: Hardening + docs. No source changes beyond capturing verification evidence. Update `docs/features.md` only if any test-visible behavior description changed (unlikely — confirm at implementation time; if nothing user-facing changed, skip the `docs/features.md` edit and note that explicitly in the PR description instead of forcing an edit for its own sake).
+- **Files**: none required; optionally `docs/features.md` if applicable.
+- **Dependencies**: Commits 2-5 (needs the final, real test suite to attach real evidence to).
+- **Validation gate**: this commit's job *is* the Definition of Done run — see §5.1 below. All gates must be green before this commit closes the PR.
+
+### 5.1 Full DoD validation (runs once, after Commit 5, evidence captured in Commit 6 / PR description)
+
+Per `CLAUDE.md`'s Task Completion Protocol, in order:
+
+1. `npx playwright test --project=firefox` (full suite) — must pass.
+2. `npx playwright test --project=chromium` (full suite, includes the `security-tests` shard) — must pass.
+3. `npx playwright test --project=webkit` (full suite) — **this is sub-issue 5's outstanding confirming run.** If it fails in a way traceable to one of this PR's newly-real assertions (most likely candidate: the keyboard-focus-order ones flagged "(a) preferred, (b) fallback" in §2.2/§2.5), fix by falling back to the (b) disposition for that specific line with an accurate WebKit-specific skip reason — do not weaken back to `|| true`. If it fails for an unrelated, pre-existing reason, that is a **new finding** outside this PR's original scope and must be flagged back to the user/issue tracker rather than silently patched.
+4. `bash scripts/local-patch-report.sh` — patch coverage evidence.
+5. `lefthook run pre-commit` (CodeQL Go + JS, staticcheck, etc.) — zero high/critical findings. (No GORM-touching changes in this PR, so §1.5's conditional GORM scan is skipped — confirmed no `backend/internal/models/**` or migration changes.)
+6. `make trivy` (or equivalent Trivy container/dependency scan) — zero Critical/High findings. Per `CLAUDE.md`'s Task Completion Protocol step 3, this is **mandatory, zero-tolerance, with no conditional exception** (unlike the GORM scan above, which is explicitly conditional on model/migration changes). This PR touches no dependencies, `go.mod`/`package.json`, or any `Dockerfile`, so no new findings are expected — run and capture as evidence rather than skipping it.
+7. `scripts/go-test-coverage.sh` — confirm ≥85%, capturing the §2.3 numbers as evidence (no regressions expected since no backend files changed).
+8. `scripts/frontend-test-coverage.sh` — confirm ≥85%, now including the ~84 newly-unskipped tests.
+9. `cd frontend && npm run type-check`.
+10. `cd backend && go build ./...` and `cd frontend && npm run build`.
+11. Full `npx vitest run` — zero failures, zero unexpected skips (only the 4 out-of-scope CrowdSec skips remain).
+
+### 5.2 Rollback / contingency
+
+- Each commit is independently revertable without breaking `development` — none introduce cross-file coupling beyond Commit 1's helper (used only by Commit 3+).
+- If the WebKit run (§5.1 step 3) surfaces a **pre-existing, unrelated** failure (not caused by this PR's changes), the contingency is: do not block this PR on it — capture the failure, note it explicitly in the PR description as a newly-discovered, out-of-scope finding, and open a follow-up issue (matching the precedent set by this same investigation's sibling fix, which filed `#1221` for an out-of-scope race condition rather than scope-creeping the original fix).
+- If any single sub-issue-2 file proves substantially harder than estimated during implementation (most likely: `certificates.spec.ts`'s custom-modal rewrite), it is already isolated to its own commit (Commit 3) specifically so it can be iterated on without blocking Commits 4-5.
+- If full-suite Vitest coverage drops below 85% after unskipping (unlikely, since unskipping only adds passing tests, never removes coverage), do not merge — investigate whether any of the newly-active tests are masking a real component defect (per Root Cause Analysis Protocol) rather than adjusting the threshold.
 
 ---
 
-## 9. Acceptance Criteria (Definition of Done)
+## 6. PR Description Scaffolding
 
-- [ ] `setupTestRouterWithUptime` uses `OpenTestDB(t)` instead of a bare
-      `gorm.Open` call (§5.2).
-- [ ] New concurrent-load regression test added and passing per §5.4.
-- [ ] `go test ./internal/api/handlers/... -run TestProxyHostCreate_TriggersAsyncUptimeSyncWhenServiceConfigured -count=20 -race -v` — 20/20 pass.
-- [ ] `go test ./internal/api/handlers/... -count=5` — 5/5 full-package pass.
-- [ ] `go build ./...` succeeds.
-- [ ] `make lint-fast` / `make lint-staticcheck-only` — zero errors.
-- [ ] `bash scripts/local-patch-report.sh` — artifacts generated, patch coverage acceptable.
-- [ ] `scripts/go-test-coverage.sh` — ≥85% maintained.
-- [ ] `lefthook run pre-commit` — zero high/critical CodeQL findings (test-only Go change; low risk, but gate is mandatory per CLAUDE.md).
-- [ ] Working tree clean except the intended diff (no stray go.mod/go.sum changes left over from investigation — confirmed in §3.4).
-- [ ] If Commit 2 is landed: all 9 sites listed in §5.3 updated, `go test ./internal/api/handlers/... -count=5` — 5/5 pass.
-- [ ] If Commit 3 is landed: retry logic + new unit test per §7 Commit 3, validation gate passing.
-- [ ] `docs/plans/current_spec.md` (this file) reflects the implemented state once Commit 1 (and optionally Commits 2–3) land.
+```markdown
+## Summary
 
-**Explicitly N/A for this PR** (stated per review request, rather than
-silently omitted from the gate list):
+Closes #619 (Phase 3 Technical Debt Issues). Verifies and resolves all 5 bundled sub-issues:
 
-- [ ] **Playwright E2E** (`npx playwright test --project=firefox`) — N/A.
-      CLAUDE.md's DoD item 1 states this as "MANDATORY — Run First" with
-      no literal backend-only carve-out, so this is recorded here
-      explicitly rather than skipped silently. Rationale: this change is
-      confined to Go test-setup code in
-      `backend/internal/api/handlers/proxy_host_handler_test.go` (and
-      optionally `uptime_service.go`'s retry logic in Commit 3, itself
-      only reachable through the same already-covered backend unit-test
-      path) — it does not touch any frontend code, HTTP route, request/response
-      schema, or user-facing behavior that a Playwright spec could
-      observe. There is no E2E flow whose outcome this diff could
-      plausibly change. If review disagrees, the fallback is to run the
-      existing proxy-host-creation E2E spec (if one exists) as a
-      sanity check rather than author a new one, since there is no new
-      user-facing behavior to specify.
-- [ ] **Trivy container scan** (`make trivy`) — N/A. Trivy scans the built
-      container image's OS packages and dependency manifest for known
-      CVEs. This PR changes neither `go.mod`/`go.sum` (confirmed reverted
-      to HEAD in §3.4 — the investigation's temporary rollback left no
-      trace) nor the `Dockerfile`/base image, so the set of scannable
-      artifacts is byte-for-byte unchanged from the last Trivy run against
-      `development`. Re-running it would necessarily reproduce the same
-      result and adds no signal for this diff.
+- **Sub-issue 1 (undici/WebSocket jsdom blocker)** — FIXED. Confirmed stale on jsdom@30.0.1/undici@8.10.0
+  (upstream nodejs/undici#1671 long resolved). Unskipped 83 tests across 5 Security.*.test.tsx suites.
+  The 6th related skip (Security.functional.test.tsx notification-modal test) was not a WebSocket issue at
+  all — root-caused to stale test code describing a modal that was replaced by a router navigation; deleted
+  as dead code since equivalent, correct, passing coverage already exists in the same file.
+- **Sub-issue 2 (weak/tautological E2E assertions)** — FIXED. 59 `expect(x || true).toBeTruthy()` occurrences
+  across 11 spec files replaced with real deterministic assertions, backend-state-verified checks (certificate
+  deletion in-use/backup/cancel flows, ACL rename, proxy-host creation), or explicit `test.skip()` calls with
+  accurate reasons where genuinely environment-dependent — reusing this repo's existing skip convention.
+  certificates.spec.ts's certificate-deletion tests additionally required a root-cause interaction-model fix:
+  they drove a native `window.confirm()` that the app no longer uses (replaced by a custom React modal),
+  meaning they were exercising almost none of the real delete flow.
+- **Sub-issue 3 (backend coverage gaps)** — STALE, already resolved, no code changes. Re-verified:
+  internal/services 88.4% (target 85%), remotestorage 90.3%, backend/pkg/dnsprovider/builtin 91.8%
+  (target 50% incremental).
+- **Sub-issue 4 (feature flag async propagation tests)** — STALE, already resolved, no code changes.
+  Re-verified: tests/security/system-settings-feature-toggles.spec.ts already uses
+  waitForFeatureFlagPropagation() at 9 call sites, zero .skip/.fixme.
+- **Sub-issue 5 (WebKit E2E not executing)** — Config confirmed healthy (963 tests / 86 files discovered,
+  no webkit-specific exclusions or browserName-conditioned skips). Full passing run captured as this PR's
+  DoD evidence (see Test Plan).
 
-Both are recorded as explicit, reasoned N/As per review feedback, not
-oversights, so QA sign-off has the full picture without needing to
-re-derive this reasoning.
+## Test Plan
+- [ ] Full `npx vitest run` — zero failures, only the 4 out-of-scope CrowdSecBouncerKeyDisplay skips remain
+- [ ] `npx playwright test --project=chromium` (incl. security-tests shard) — full pass
+- [ ] `npx playwright test --project=firefox` — full pass
+- [ ] `npx playwright test --project=webkit` — full pass (sub-issue 5 confirming run)
+- [ ] `scripts/go-test-coverage.sh` ≥ 85%
+- [ ] `scripts/frontend-test-coverage.sh` ≥ 85%
+- [ ] `lefthook run pre-commit` — zero high/critical CodeQL findings
+- [ ] `make trivy` (or equivalent) — zero Critical/High findings
+- [ ] `grep -rn "|| true" tests/ --include=*.spec.ts` returns empty
+```
 
 ---
 
-## 10. Handoff
+## 7. Acceptance Criteria
 
-Once this plan is reviewed, hand off to the `supervisor` agent for plan
-review, then to `backend-dev` for implementation of Commit 1 (and Commits
-2–3 if approved), following TDD: write/confirm the concurrent-load test
-fails against the current `setupTestRouterWithUptime` (or demonstrate the
-existing single test's fragility via `-race -count` under artificial load,
-since the raw race is probabilistic), apply the `OpenTestDB(t)` fix, then
-confirm green per the validation gates in §7.
+1. Zero `describe.skip`/`it.skip` remain in the 6 sub-issue-1 files except the intentional deletion (not skip) of the stale notification-modal test.
+2. `grep -rn "|| true).toBeTruthy()" tests/ --include=*.spec.ts` (or equivalent pattern check) returns **zero** matches.
+3. Every occurrence converted to `test.skip()` includes a specific, accurate reason string (no generic "may not apply" left over from the tautology comments).
+4. `certificates.spec.ts`'s 5 deletion tests interact with the real custom `DeleteCertificateDialog` modal, not a native `confirm()`.
+5. `tests/utils/api-helpers.ts` gains exactly one new function (`getBackupsViaAPI`), matching existing conventions.
+6. Full Vitest suite: 0 failures, coverage ≥ 85%.
+7. Full Playwright suite on chromium, firefox, **and** webkit: 0 failures (or any webkit-specific failures are explicitly triaged per §5.2's contingency, not silently skipped).
+8. Backend coverage unchanged and re-confirmed ≥ targets (no backend files touched).
+9. `lefthook run pre-commit` clean.
+10. PR description matches the §6 scaffolding, giving issue #619 a complete, accurate paper trail per sub-issue.
+11. No changes to `.gitignore`, `.dockerignore`, `codecov.yml`, or any `Dockerfile`.

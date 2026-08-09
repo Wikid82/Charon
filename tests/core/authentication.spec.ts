@@ -122,7 +122,14 @@ test.describe('Authentication Flows', () => {
     test('should show validation error for empty password', async ({ page, adminUser }) => {
       await page.goto('/login');
 
-      await page.locator('input[type="email"]').fill(adminUser.email);
+      // Wait for the setup-status check to complete so the login form is visible.
+      // In slow Firefox CI environments the form is replaced by a loading screen
+      // while the check is in-flight, causing fill() to time out (same race
+      // documented on the "invalid email format" test below).
+      const emailInput = page.locator('input[type="email"]');
+      await emailInput.waitFor({ state: 'visible', timeout: 15000 });
+
+      await emailInput.fill(adminUser.email);
       // Leave password empty
 
       await test.step('Submit and verify validation error', async () => {

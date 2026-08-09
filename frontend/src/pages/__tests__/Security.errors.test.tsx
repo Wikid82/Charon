@@ -64,8 +64,7 @@ const mockSecurityStatusCrowdsecDisabled = {
   acl: { enabled: true },
 }
 
-// BLOCKER 3: Temporarily skipped due to undici InvalidArgumentError in WebSocket mocks
-describe.skip('Security Error Handling Tests', () => {
+describe('Security Error Handling Tests', () => {
   let queryClient: QueryClient
 
   beforeEach(() => {

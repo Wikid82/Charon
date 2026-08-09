@@ -616,9 +616,24 @@ export class TestDataManager {
     });
 
     try {
-      const loginResponse = await loginContext.post('/api/v1/auth/login', {
+      // Retry on 401 with backoff: the POST /api/v1/users call just above
+      // has already returned successfully, but this fresh, unauthenticated
+      // `loginContext` can occasionally still race the just-created user row
+      // becoming visible to a login query (same eventual-consistency race
+      // documented on postLoginWithRetry in tests/fixtures/auth-fixtures.ts).
+      // Without this retry, a 401 here causes createUser() to silently skip
+      // the changelog-suppression ack below (token stays ''), which lets the
+      // blocking "What's New" modal appear unexpectedly for what call sites
+      // assume is a fully-suppressed fixture user.
+      let loginResponse = await loginContext.post('/api/v1/auth/login', {
         data: { email: namespacedEmail, password: data.password },
       });
+      for (let attempt = 1; loginResponse.status() === 401 && attempt < 4; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, Math.round(250 * Math.pow(2, attempt - 1))));
+        loginResponse = await loginContext.post('/api/v1/auth/login', {
+          data: { email: namespacedEmail, password: data.password },
+        });
+      }
 
       if (!loginResponse.ok()) {
         // User created but login failed - still return user info

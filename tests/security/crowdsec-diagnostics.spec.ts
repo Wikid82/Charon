@@ -315,8 +315,24 @@ test.describe('CrowdSec Diagnostics', () => {
         const hasConfigYaml = fileList.some((f) => f.includes('config.yaml') || f.includes('config/config.yaml'));
         const hasAcquisYaml = fileList.some((f) => f.includes('acquis.yaml') || f.includes('config/acquis.yaml'));
 
-        if (fileList.length > 0) {
-          expect(hasConfigYaml || hasAcquisYaml).toBe(true);
+        // ListFiles (backend/internal/api/handlers/crowdsec_handler.go) walks
+        // the whole CrowdSec DataDir, which can be non-empty for reasons
+        // unrelated to a completed local-install (e.g. hub_cache/ entries
+        // populated by a hub sync, or a bouncer_key file) even before
+        // config.yaml/acquis.yaml have ever been written. `fileList.length >
+        // 0` is therefore not a reliable proxy for "CrowdSec is installed" -
+        // confirmed live by inspecting a running E2E container mid-hub-sync
+        // (non-empty hub_cache/, no config/acquis yet). Gate the
+        // config/acquis expectation on the same `config_exists`/
+        // `acquis_exists` signal the "Configuration Validation" describe
+        // block above already treats as authoritative for install state,
+        // instead of inferring installation from incidental file presence.
+        const diagResponse = await request.get('/api/v1/admin/crowdsec/diagnostics/config');
+        if (diagResponse.ok()) {
+          const diag = await diagResponse.json();
+          if (diag.config_exists || diag.acquis_exists) {
+            expect(hasConfigYaml || hasAcquisYaml).toBe(true);
+          }
         }
       });
     });

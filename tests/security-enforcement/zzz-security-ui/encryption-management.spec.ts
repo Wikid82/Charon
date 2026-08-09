@@ -185,7 +185,7 @@ test.describe('Encryption Management', () => {
           // Should have warning content
           const warningContent = dialog.getByText(/warning|caution|irreversible/i);
           const hasWarning = await warningContent.first().isVisible().catch(() => false);
-          expect(hasWarning || true).toBeTruthy();
+          expect(hasWarning).toBe(true);
         }
       });
     });
@@ -287,6 +287,8 @@ test.describe('Encryption Management', () => {
       const rotationAvailable = await rotateButtonCheck.isEnabled().catch(() => false);
       test.skip(!rotationAvailable, 'Rotation disabled: next key not configured');
 
+      let rotationResponse: ReturnType<typeof page.waitForResponse>;
+
       await test.step('Start rotation and observe progress', async () => {
         const rotateButton = page.getByTestId('rotate-key-btn');
         await rotateButton.click();
@@ -297,6 +299,13 @@ test.describe('Encryption Management', () => {
         const confirmButton = dialog.getByRole('button', { name: /confirm|rotate/i }).filter({
           hasNotText: /cancel/i,
         });
+
+        // Capture the actual rotation request before confirming so the
+        // progress check below can race the indicator's visibility against
+        // the request genuinely completing.
+        rotationResponse = page.waitForResponse(
+          (response) => response.url().includes('/encryption/rotate') && response.request().method() === 'POST',
+        );
         await confirmButton.first().click();
       });
 
@@ -307,14 +316,23 @@ test.describe('Encryption Management', () => {
           .or(page.getByText(/rotating|in.*progress/i))
           .or(page.locator('svg.animate-spin'));
 
-        // Progress may appear briefly - capture if visible
-        const hasProgress = await progressIndicator.first().isVisible({ timeout: 5000 }).catch(() => false);
+        // Race the progress indicator's visibility against the rotation
+        // request actually completing. If the response resolves first, the
+        // rotation was too fast for a progress state to ever render - a
+        // genuine timing race, not a bug - so skip with an accurate reason
+        // instead of faking a pass.
+        const hasProgress = await Promise.race([
+          progressIndicator.first().isVisible({ timeout: 5000 }).catch(() => false),
+          rotationResponse.then(() => false),
+        ]);
 
-        // Either progress was shown or rotation was too fast
-        expect(hasProgress || true).toBeTruthy();
+        test.skip(
+          !hasProgress,
+          'Rotation completed before the progress indicator could be observed (genuine timing race)',
+        );
 
-        // Wait for completion
-        await page.waitForTimeout(5000);
+        // Ensure the rotation request has fully settled before the test ends.
+        await rotationResponse;
       });
     });
 
@@ -390,7 +408,7 @@ test.describe('Encryption Management', () => {
         if (isDisabled) {
           const warningAlert = page.getByText(/next.*key.*required|configure.*key|not.*configured/i);
           const hasWarning = await warningAlert.first().isVisible().catch(() => false);
-          expect(hasWarning || true).toBeTruthy();
+          expect(hasWarning).toBe(true);
         }
       });
 
@@ -492,10 +510,12 @@ test.describe('Encryption Management', () => {
         const warningMessage = page.getByText(/warning/i)
           .or(page.locator('[class*="warning"]'));
 
+        // Warnings are optional here (validation may legitimately pass with
+        // zero warnings) - record whether one was shown as a diagnostic
+        // annotation rather than asserting on it, since there is no
+        // deterministic expectation either way.
         const hasWarning = await warningMessage.first().isVisible({ timeout: 2000 }).catch(() => false);
-
-        // Warnings may or may not be present - just verify we can detect them
-        expect(hasWarning || true).toBeTruthy();
+        test.info().annotations.push({ type: 'info', description: `Validation warning present: ${hasWarning}` });
       });
     });
   });
@@ -593,12 +613,12 @@ test.describe('Encryption Management', () => {
             const actionBadge = firstRow.locator('[class*="badge"]')
               .or(firstRow.getByText(/rotate|key_rotation|action/i));
             const hasBadge = await actionBadge.first().isVisible().catch(() => false);
-            expect(hasBadge || true).toBeTruthy();
+            expect(hasBadge).toBe(true);
 
             // Should have version or duration info
             const versionInfo = firstRow.getByText(/v\d+|version|duration|\d+ms/i);
             const hasVersionInfo = await versionInfo.first().isVisible().catch(() => false);
-            expect(hasVersionInfo || true).toBeTruthy();
+            expect(hasVersionInfo).toBe(true);
           }
         }
       });
@@ -678,10 +698,8 @@ test.describe('Encryption Management', () => {
         await page.keyboard.press('Enter');
 
         // Should trigger validation (toast should appear)
-        await page.waitForTimeout(2000);
         const resultToast = page.locator('[role="alert"]');
-        const hasToast = await resultToast.first().isVisible({ timeout: 5000 }).catch(() => false);
-        expect(hasToast || true).toBeTruthy();
+        await expect(resultToast.first()).toBeVisible({ timeout: 5000 });
       });
     });
 
@@ -705,7 +723,7 @@ test.describe('Encryption Management', () => {
                 (el as HTMLElement).innerText?.trim();
             }).catch(() => '');
 
-            expect(accessibleName || true).toBeTruthy();
+            expect(accessibleName).toBeTruthy();
           }
         }
       });

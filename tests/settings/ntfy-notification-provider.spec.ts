@@ -588,7 +588,10 @@ test.describe('Ntfy Notification Provider', () => {
       await test.step('Reload and verify access token does not appear in provider row', async () => {
         await page.reload();
         await waitForLoadingComplete(page);
-        await expect(page.getByText('Ntfy URL Check')).toBeVisible({ timeout: 5000 });
+        // Matches the identical reload-then-verify-mocked-row pattern used by
+        // the delete-provider test above (line ~473), which already needs
+        // 10s headroom here under WebKit/CI load rather than the 5s default.
+        await expect(page.getByText('Ntfy URL Check')).toBeVisible({ timeout: 10000 });
 
         const providerRow = page.getByTestId('provider-row-ntfy-url-sec-id');
         const urlText = await providerRow.textContent();

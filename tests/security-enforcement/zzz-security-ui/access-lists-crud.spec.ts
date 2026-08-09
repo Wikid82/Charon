@@ -15,9 +15,48 @@
 
 import { test, expect, loginUser } from '../../fixtures/auth-fixtures';
 import { waitForLoadingComplete, waitForModal, waitForDialog, waitForDebounce } from '../../utils/wait-helpers';
-import { waitForAPIHealth } from '../../utils/api-helpers';
+import { waitForAPIHealth, getAccessListViaAPI } from '../../utils/api-helpers';
 import { clickSwitch } from '../../utils/ui-helpers';
 import { generateUniqueId } from '../../fixtures/test-data';
+import type { Page } from '@playwright/test';
+
+/**
+ * Seed an access list directly via the API so list-view assertions (type
+ * badge, CGNAT banner, bulk-selection, rename) have a guaranteed, known row
+ * to check instead of depending on leftover state from earlier tests in
+ * this file (this spec has no `beforeEach` seed fixture and previously
+ * relied on whatever other tests happened to leave behind).
+ *
+ * Bypasses tests/utils/api-helpers.ts's `createAccessListViaAPI` /
+ * `AccessListCreateData` — that helper posts a `rules` field, but the real
+ * backend (backend/internal/models/access_list.go's JSON tags: `type`,
+ * `ip_rules`) only recognizes `type`/`ip_rules`/`local_network_only`, so
+ * `rules` is silently dropped and, without `type` set, creation 400s with
+ * "invalid access list type" (verified empirically against the running
+ * API). Send the real field names directly instead — same bypass precedent
+ * as certificates.spec.ts's `createCustomCertViaAPI` for
+ * `CertificateResponse`'s analogous mismatch.
+ */
+async function seedAccessList(
+  page: Page,
+  overrides: { name?: string; type?: string } = {}
+): Promise<{ uuid: string; name: string }> {
+  const name = overrides.name ?? `ACL ${generateUniqueId()}`;
+  const response = await page.request.post('/api/v1/access-lists', {
+    data: {
+      name,
+      type: overrides.type ?? 'whitelist',
+      enabled: true,
+    },
+  });
+
+  if (!response.ok()) {
+    throw new Error(`Failed to seed access list: ${response.status()} ${await response.text()}`);
+  }
+
+  const result = await response.json();
+  return { uuid: result.uuid, name };
+}
 
 test.describe('Access Lists - CRUD Operations', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -138,24 +177,25 @@ test.describe('Access Lists - CRUD Operations', () => {
     });
 
     test('should display ACL details (name, type, rules)', async ({ page }) => {
+      const acl = await test.step('Seed a known access list', async () => {
+        return seedAccessList(page);
+      });
+
       await test.step('Check table displays ACL information', async () => {
+        await page.reload();
+        await waitForLoadingComplete(page);
+
         const table = page.getByRole('table');
-        const hasTable = await table.isVisible().catch(() => false);
+        await expect(table).toBeVisible();
 
-        if (hasTable) {
-          const rows = page.locator('tbody tr');
-          const rowCount = await rows.count();
+        const row = page.locator('tbody tr').filter({ hasText: acl.name });
+        await expect(row).toBeVisible();
 
-          if (rowCount > 0) {
-            const firstRow = rows.first();
-            await expect(firstRow).toBeVisible();
-
-            // Check for expected content patterns (type badges)
-            const typeBadge = firstRow.locator('text=/allow|deny/i');
-            const hasBadge = await typeBadge.count() > 0;
-            expect(hasBadge || true).toBeTruthy();
-          }
-        }
+        // getTypeBadge (frontend/src/pages/AccessLists.tsx) always renders
+        // either an "Allow" or "Deny" badge for every row — no "neither"
+        // branch — so this is deterministic once the row exists.
+        const typeBadge = row.locator('text=/allow|deny/i');
+        await expect(typeBadge.first()).toBeVisible();
       });
     });
   });
@@ -196,8 +236,9 @@ test.describe('Access Lists - CRUD Operations', () => {
           el.validity.valid === false || el.getAttribute('aria-invalid') === 'true'
         ).catch(() => false);
 
-        // HTML5 validation should prevent submission
-        expect(isInvalid || true).toBeTruthy();
+        // HTML5 validation should prevent submission (#name has `required`
+        // in AccessListForm.tsx)
+        expect(isInvalid).toBe(true);
       });
 
       await test.step('Close form', async () => {
@@ -333,10 +374,10 @@ test.describe('Access Lists - CRUD Operations', () => {
       });
 
       await test.step('Verify recommended badge appears', async () => {
-        // Blacklist should show "Recommended" info box
+        // Blacklist should show "Recommended" info box (unconditionally
+        // rendered by AccessListForm.tsx whenever type is 'blacklist'/'geo_blacklist')
         const recommendedInfo = page.getByText(/recommended.*block.*lists/i);
-        const hasInfo = await recommendedInfo.isVisible().catch(() => false);
-        expect(hasInfo || true).toBeTruthy();
+        await expect(recommendedInfo).toBeVisible();
       });
 
       await test.step('Close form', async () => {
@@ -445,25 +486,33 @@ test.describe('Access Lists - CRUD Operations', () => {
         await waitForModal(page, /create|access.*list/i);
       });
 
-      await test.step('Select blacklist type', async () => {
+      await test.step('Select geo-blacklist type', async () => {
+        // SECURITY_PRESETS (frontend/src/data/securityPresets.ts) currently
+        // only defines `type: 'geo_blacklist'` entries — there are no plain
+        // IP-blacklist presets — and the presets panel filters strictly by
+        // `preset.type === formData.type` (AccessListForm.tsx). Selecting
+        // plain 'blacklist' would deterministically show zero presets, so
+        // this test (and its "botnet|scanner|abuse" search, which doesn't
+        // match either of the two real preset names either) was written
+        // against stale preset content. Select 'geo_blacklist', the type
+        // that actually has presets, to exercise real behavior.
         const typeSelect = page.locator('#type');
-        await typeSelect.selectOption('blacklist');
+        await typeSelect.selectOption('geo_blacklist');
       });
 
       await test.step('Verify security presets section appears', async () => {
         const presetsSection = page.getByText(/security.*presets/i);
         await expect(presetsSection).toBeVisible({ timeout: 3000 });
 
-        // Show presets button
         const showPresetsButton = page.getByRole('button', { name: /show.*presets/i });
-        if (await showPresetsButton.isVisible().catch(() => false)) {
-          await showPresetsButton.click();
+        await expect(showPresetsButton).toBeVisible();
+        await showPresetsButton.click();
 
-          // Verify preset options appear
-          const presetOption = page.getByText(/botnet|scanner|abuse/i);
-          const hasPresets = await presetOption.count() > 0;
-          expect(hasPresets || true).toBeTruthy();
-        }
+        // Verify a real, current preset renders (SECURITY_PRESETS' two
+        // geo_blacklist entries: "Block High-Risk Countries" / "Block
+        // Expanded Threat List").
+        const presetOption = page.getByText(/high-risk countries|expanded threat list/i);
+        await expect(presetOption.first()).toBeVisible();
       });
 
       await test.step('Close form', async () => {
@@ -520,30 +569,33 @@ test.describe('Access Lists - CRUD Operations', () => {
     });
 
     test('should update ACL name', async ({ page }) => {
-      await test.step('Edit an ACL if available', async () => {
-        const editButtons = page.getByRole('button', { name: /edit/i });
-        const editCount = await editButtons.count();
+      const acl = await test.step('Seed an ACL to rename', async () => {
+        return seedAccessList(page);
+      });
 
-        if (editCount > 0) {
-          await editButtons.first().click();
-          await waitForModal(page, /edit|access.*list/i);
+      await test.step('Edit the seeded ACL and rename it', async () => {
+        await page.reload();
+        await waitForLoadingComplete(page);
 
-          const nameInput = page.locator('#name');
+        const row = page.locator('tbody tr').filter({ hasText: acl.name });
+        await expect(row).toBeVisible();
 
-          // Update name
-          const newName = `Updated ACL ${generateUniqueId()}`;
-          await nameInput.clear();
-          await nameInput.fill(newName);
+        await row.getByRole('button', { name: /edit/i }).click();
+        await waitForModal(page, /edit|access.*list/i);
 
-          // Save
-          await getSaveButton(page).click();
-          await waitForLoadingComplete(page);
+        const nameInput = page.locator('#name');
+        const newName = `Updated ACL ${generateUniqueId()}`;
+        await nameInput.clear();
+        await nameInput.fill(newName);
 
-          // Verify update
-          const updatedAcl = page.getByText(newName);
-          const hasUpdated = await updatedAcl.isVisible({ timeout: 5000 }).catch(() => false);
-          expect(hasUpdated || true).toBeTruthy();
-        }
+        await getSaveButton(page).click();
+        await waitForLoadingComplete(page);
+
+        // Verify the rename persisted server-side, not just optimistically
+        // in the UI list.
+        await expect(getAccessListViaAPI(page.request, acl.uuid)).resolves.toMatchObject({
+          name: newName,
+        });
       });
     });
 
@@ -602,26 +654,37 @@ test.describe('Access Lists - CRUD Operations', () => {
     });
 
     test('should show success toast on update', async ({ page }) => {
+      const acl = await test.step('Seed an ACL to update', async () => {
+        return seedAccessList(page);
+      });
+
       await test.step('Update ACL and verify toast', async () => {
-        const editButtons = page.getByRole('button', { name: /edit/i });
-        const editCount = await editButtons.count();
+        await page.reload();
+        await waitForLoadingComplete(page);
 
-        if (editCount > 0) {
-          await editButtons.first().click();
-          await waitForModal(page, /edit|access.*list/i);
+        const row = page.locator('tbody tr').filter({ hasText: acl.name });
+        await expect(row).toBeVisible();
+        await row.getByRole('button', { name: /edit/i }).click();
+        await waitForModal(page, /edit|access.*list/i);
 
-          // Make a small change to description
-          const descriptionInput = page.locator('#description');
-          await descriptionInput.fill(`Updated at ${new Date().toISOString()}`);
+        // Make a small change to description
+        const descriptionInput = page.locator('#description');
+        await descriptionInput.fill(`Updated at ${new Date().toISOString()}`);
 
-          await getSaveButton(page).click();
-          await waitForLoadingComplete(page);
+        await getSaveButton(page).click();
+        await waitForLoadingComplete(page);
 
-          // Wait for success indication
-          const successToast = page.getByText(/success|updated|saved/i);
-          const hasSuccess = await successToast.isVisible({ timeout: 5000 }).catch(() => false);
-          expect(hasSuccess || true).toBeTruthy();
-        }
+        // Wait for success indication. Scoped to the toast's role (the
+        // react-hot-toast <Toaster/> in App.tsx tags success toasts
+        // role="status") and its exact message (useUpdateAccessList in
+        // useAccessLists.ts) — a bare /success|updated|saved/i text search
+        // previously matched this test's own description textarea, whose
+        // value ("Updated at <timestamp>") contains "Updated" and produced
+        // a false pass regardless of whether the update actually succeeded.
+        const successToast = page
+          .getByRole('status')
+          .filter({ hasText: /access list updated successfully/i });
+        await expect(successToast).toBeVisible({ timeout: 5000 });
       });
     });
   });
@@ -808,45 +871,51 @@ test.describe('Access Lists - CRUD Operations', () => {
 
   test.describe('Bulk Operations', () => {
     test('should show row selection checkboxes', async ({ page }) => {
+      await test.step('Seed an ACL so selection controls have a row to act on', async () => {
+        await seedAccessList(page);
+      });
+
       await test.step('Check for selectable rows', async () => {
+        await page.reload();
+        await waitForLoadingComplete(page);
+
         const selectAllCheckbox = page.locator('thead').getByRole('checkbox');
-        const rowCheckboxes = page.locator('tbody').getByRole('checkbox');
+        await expect(selectAllCheckbox).toBeVisible();
 
-        const hasSelectAll = await selectAllCheckbox.count() > 0;
-        const hasRowCheckboxes = await rowCheckboxes.count() > 0;
+        await selectAllCheckbox.click();
+        await waitForDebounce(page);
 
-        // Selection is available if we have checkboxes
-        if (hasSelectAll || hasRowCheckboxes) {
-          if (hasSelectAll) {
-            await selectAllCheckbox.first().click();
-            // Should show bulk action bar
-            const bulkBar = page.getByText(/selected/i);
-            const hasBulkBar = await bulkBar.isVisible().catch(() => false);
-            expect(hasBulkBar || true).toBeTruthy();
+        // AccessLists.tsx has no separate "N selected" bar (unlike
+        // ProxyHosts.tsx) — selecting rows surfaces a "Delete (N)" button
+        // directly (frontend/src/pages/AccessLists.tsx:274-282).
+        const bulkDeleteButton = page.getByRole('button', { name: /delete.*\(/i });
+        await expect(bulkDeleteButton).toBeVisible();
 
-            // Deselect
-            await selectAllCheckbox.first().click();
-          }
-        }
+        // Deselect
+        await selectAllCheckbox.click();
       });
     });
 
     test('should show bulk delete button when items selected', async ({ page }) => {
+      await test.step('Seed an ACL so selection controls have a row to act on', async () => {
+        await seedAccessList(page);
+      });
+
       await test.step('Select items and verify bulk delete', async () => {
+        await page.reload();
+        await waitForLoadingComplete(page);
+
         const selectAllCheckbox = page.locator('thead').getByRole('checkbox');
+        await expect(selectAllCheckbox).toBeVisible();
+        await selectAllCheckbox.click();
+        await waitForDebounce(page);
 
-        if (await selectAllCheckbox.isVisible().catch(() => false)) {
-          await selectAllCheckbox.click();
-          await waitForDebounce(page);
+        // Look for bulk delete button in header
+        const bulkDeleteButton = page.getByRole('button', { name: /delete.*\(/i });
+        await expect(bulkDeleteButton).toBeVisible();
 
-          // Look for bulk delete button in header
-          const bulkDeleteButton = page.getByRole('button', { name: /delete.*\(/i });
-          const hasBulkDelete = await bulkDeleteButton.isVisible().catch(() => false);
-          expect(hasBulkDelete || true).toBeTruthy();
-
-          // Deselect
-          await selectAllCheckbox.click();
-        }
+        // Deselect
+        await selectAllCheckbox.click();
       });
     });
   });
@@ -857,9 +926,13 @@ test.describe('Access Lists - CRUD Operations', () => {
         await page.goto('/proxy-hosts');
         await waitForLoadingComplete(page);
 
-        const heading = page.getByRole('heading', { name: /proxy.*hosts/i });
-        const hasHeading = await heading.isVisible({ timeout: 5000 }).catch(() => false);
-        expect(hasHeading || true).toBeTruthy();
+        // Scope to the page-level <h1> (rendered by PageShell) rather than any
+        // heading matching /proxy.*hosts/i: when multiple proxy-host groups
+        // exist, each empty group renders its own "No proxy hosts" <h3> via
+        // EmptyState, which also matches the unscoped pattern and causes a
+        // strict-mode violation (multiple elements resolved).
+        const heading = page.getByRole('heading', { level: 1, name: /proxy.*hosts/i });
+        await expect(heading).toBeVisible({ timeout: 5000 });
       });
 
       await test.step('Navigate back to Access Lists', async () => {
@@ -936,19 +1009,34 @@ test.describe('Access Lists - CRUD Operations', () => {
 
   test.describe('CGNAT Warning', () => {
     test('should show CGNAT warning when ACLs exist', async ({ page }) => {
-      await test.step('Check for CGNAT warning', async () => {
-        const table = page.getByRole('table');
-        const hasTable = await table.isVisible().catch(() => false);
+      await test.step('Seed an ACL so the CGNAT condition is guaranteed', async () => {
+        // frontend/src/pages/AccessLists.tsx shows the CGNAT banner whenever
+        // `accessLists.length > 0` (and it hasn't been dismissed this
+        // session) — no other condition — so any seeded ACL triggers it.
+        await seedAccessList(page);
+      });
 
-        if (hasTable) {
-          const rows = await page.locator('tbody tr').count();
-          if (rows > 0) {
-            // Warning should be visible
-            const cgnatWarning = page.getByText(/cgnat|carrier.*grade/i);
-            const hasWarning = await cgnatWarning.isVisible().catch(() => false);
-            expect(hasWarning || true).toBeTruthy();
-          }
-        }
+      await test.step('Check for CGNAT warning', async () => {
+        await page.reload();
+        await waitForLoadingComplete(page);
+
+        const table = page.getByRole('table');
+        await expect(table).toBeVisible();
+
+        const rows = await page.locator('tbody tr').count();
+        expect(rows).toBeGreaterThan(0);
+
+        // Scope to the Alert's role="alert" container (frontend/src/components/ui/Alert.tsx)
+        // as a single element — both the title and message text nodes
+        // independently contain "CGNAT", so a bare page.getByText(/cgnat/i)
+        // matches two elements and strict-mode-violates.
+        const cgnatWarning = page.getByRole('alert').filter({ hasText: /cgnat/i });
+        await expect(cgnatWarning).toBeVisible();
+        // Assert real, translated content (frontend/src/locales/en/translation.json's
+        // accessLists.cgnatWarning.title), not just the substring "cgnat" —
+        // a raw, untranslated i18n key would also contain "cgnat" and
+        // falsely satisfy a looser check.
+        await expect(cgnatWarning).toContainText(/mobile network warning/i);
       });
     });
 
@@ -978,12 +1066,11 @@ test.describe('Access Lists - CRUD Operations', () => {
     test('should have external link to documentation', async ({ page }) => {
       await test.step('Verify link opens external documentation', async () => {
         const bestPracticesLink = page.getByRole('button', { name: /best.*practices/i });
+        await expect(bestPracticesLink).toBeVisible();
 
-        if (await bestPracticesLink.isVisible().catch(() => false)) {
-          // Verify it has external link icon
-          const hasExternalIcon = await bestPracticesLink.locator('svg.lucide-external-link').count() > 0;
-          expect(hasExternalIcon || true).toBeTruthy();
-        }
+        // Verify it has external link icon (statically rendered — AccessLists.tsx)
+        const externalIcon = bestPracticesLink.locator('svg.lucide-external-link');
+        await expect(externalIcon).toBeVisible();
       });
     });
   });
@@ -1014,8 +1101,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
         // Some element should be focused
         const focusedElement = page.locator(':focus');
-        const hasFocus = await focusedElement.isVisible().catch(() => false);
-        expect(hasFocus || true).toBeTruthy();
+        await expect(focusedElement).toBeVisible();
 
         // Escape or Cancel to close
         await getCancelButton(page).click();
@@ -1047,19 +1133,22 @@ test.describe('Access Lists - CRUD Operations', () => {
         await getCreateButton(page).click();
         await waitForModal(page, /create|access.*list/i);
 
+        // isIPType (AccessListForm.tsx) is true for the default 'whitelist'
+        // type, so the switch is deterministically visible without needing
+        // to change type first.
         const localNetworkSwitch = page.getByLabel(/local.*network.*only/i);
+        await expect(localNetworkSwitch).toBeVisible();
 
-        if (await localNetworkSwitch.isVisible().catch(() => false)) {
-          // Enable local network only
-          if (!await localNetworkSwitch.isChecked()) {
-            await clickSwitch(localNetworkSwitch);
-          }
-
-          // IP input should be hidden
-          const ipInput = page.locator('input[placeholder*="192.168"], input[placeholder*="CIDR"]').first();
-          const isHidden = !(await ipInput.isVisible().catch(() => false));
-          expect(isHidden || true).toBeTruthy();
+        // Enable local network only
+        if (!await localNetworkSwitch.isChecked()) {
+          await clickSwitch(localNetworkSwitch);
         }
+
+        // IP input should be hidden once local-network-only mode is enabled
+        // (AccessListForm.tsx only renders the IP rules block when
+        // `!formData.local_network_only`).
+        const ipInput = page.locator('input[placeholder*="192.168"], input[placeholder*="CIDR"]').first();
+        await expect(ipInput).not.toBeVisible();
 
         await getCancelButton(page).click();
       });

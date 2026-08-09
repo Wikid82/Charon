@@ -287,11 +287,14 @@ test.describe('System Settings', () => {
 
         // Either show error message or have error styling
         const hasValidation = await errorMessage.isVisible().catch(() => false) || inputHasError;
-        expect(hasValidation || true).toBeTruthy(); // May not have inline validation
 
-        // Restore original value
+        // Restore original value before deciding whether to skip, so a
+        // skipped assertion never leaves the field holding an invalid,
+        // unsaved value for subsequent tests.
         await caddyInput.clear();
         await caddyInput.fill(originalValue || 'http://localhost:2019');
+
+        test.skip(!hasValidation, 'This build does not surface inline validation for the Caddy API URL field');
       });
     });
 
@@ -321,8 +324,7 @@ test.describe('System Settings', () => {
           /system settings saved|saved successfully|saved/i,
           { type: 'success' }
         );
-        const toastVisible = await successToast.isVisible({ timeout: 15000 }).catch(() => false);
-        expect(toastVisible || true).toBeTruthy();
+        await expect(successToast).toBeVisible({ timeout: 15000 });
       });
     });
   });
@@ -340,16 +342,20 @@ test.describe('System Settings', () => {
       });
 
       await test.step('Enter valid URL and verify validation', async () => {
+        // Wait for the actual debounced validation request to resolve
+        // instead of an arbitrary timeout - /settings/validate-url is a
+        // pure format check (no network reachability involved), so a
+        // well-formed URL deterministically returns valid: true and the
+        // green checkmark unconditionally renders.
+        const validationResponse = page.waitForResponse(
+          (response) => response.url().includes('/settings/validate-url') && response.request().method() === 'POST',
+        );
         await publicUrlInput.clear();
         await publicUrlInput.fill('https://charon.example.com');
+        await validationResponse;
 
-        // Wait for debounced validation
-        await page.waitForTimeout(500);
-
-        // Check for success indicator (green checkmark)
         const successIndicator = page.locator('svg[class*="text-green"]').or(page.locator('[class*="check"]'));
-        const hasSuccess = await successIndicator.first().isVisible({ timeout: 2000 }).catch(() => false);
-        expect(hasSuccess || true).toBeTruthy();
+        await expect(successIndicator.first()).toBeVisible({ timeout: 2000 });
       });
 
       await test.step('Enter invalid URL and verify validation error', async () => {
@@ -447,9 +453,10 @@ test.describe('System Settings', () => {
           .or(page.locator('[data-sonner-toast]'))
           .or(page.getByText(/reachable|not reachable|failed|success|ms\)/i));
 
-        // In test environment, URL reachability depends on network - just verify test button works
-        const toastVisible = await anyToast.first().isVisible({ timeout: 10000 }).catch(() => false);
-        expect(toastVisible || true).toBeTruthy();
+        // URL reachability outcome depends on network conditions, but *some*
+        // toast must always appear once the test-connection request
+        // resolves - assert on that meta-requirement only, not on content.
+        await expect(anyToast.first()).toBeVisible({ timeout: 10000 });
       });
     });
 
@@ -551,8 +558,7 @@ test.describe('System Settings', () => {
         const versionValueAlt = page
           .locator('p')
           .filter({ hasText: /v?\d+\.\d+|dev|beta|alpha|build/i });
-        const hasVersion = await versionValueAlt.first().isVisible({ timeout: 3000 }).catch(() => false);
-        expect(hasVersion || true).toBeTruthy();
+        await expect(versionValueAlt.first()).toBeVisible({ timeout: 3000 });
       });
     });
 
@@ -677,7 +683,7 @@ test.describe('System Settings', () => {
 
           const newState = await firstSwitch.isChecked().catch(() => initialState);
           // Toggle should have changed
-          expect(newState !== initialState || true).toBeTruthy();
+          expect(newState).not.toBe(initialState);
         }
       });
     });
@@ -733,7 +739,7 @@ test.describe('System Settings', () => {
             }).catch(() => '');
 
             // Button should have some accessible name (text or aria-label)
-            expect(accessibleName || true).toBeTruthy();
+            expect(accessibleName).toBeTruthy();
           }
         }
       });

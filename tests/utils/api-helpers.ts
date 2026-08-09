@@ -153,6 +153,22 @@ export interface CertificateResponse {
 }
 
 /**
+ * Backup entry response from API
+ */
+export interface BackupResponse {
+  filename: string;
+  size: number;
+  time: string;
+  uuid?: string;
+  type?: string;
+  encrypted?: boolean;
+  format_version?: number;
+  sha256?: string;
+  status?: string;
+  app_version?: string;
+}
+
+/**
  * Default request options with authentication
  */
 function getAuthHeaders(token?: string): Record<string, string> {
@@ -748,6 +764,23 @@ export async function renewCertificateViaAPI(
   });
 
   return parseResponse<CertificateResponse>(response);
+}
+
+/**
+ * Get all backups via API
+ * @param request - Playwright APIRequestContext
+ * @param token - Authentication token (optional)
+ * @returns Array of backups
+ */
+export async function getBackupsViaAPI(
+  request: APIRequestContext,
+  token?: string
+): Promise<BackupResponse[]> {
+  const response = await request.get('/api/v1/backups', {
+    headers: getAuthHeaders(token),
+  });
+
+  return parseResponse<BackupResponse[]>(response);
 }
 
 /**

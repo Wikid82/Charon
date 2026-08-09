@@ -63,7 +63,6 @@ interface MockAccessListFormProps {
 }
 
 const defaultAccessList: AccessList = {
-  id: 1,
   uuid: 'acl-1',
   name: 'Office Access',
   description: 'Office CIDR',
@@ -202,13 +201,13 @@ describe('AccessLists', () => {
     createMutationResult<AccessList, CreateAccessListRequest>()
 
   const updateMutationMock = (): ReturnType<typeof useUpdateAccessList> =>
-    createMutationResult<AccessList, { id: number; data: Partial<CreateAccessListRequest> }>()
+    createMutationResult<AccessList, { uuid: string; data: Partial<CreateAccessListRequest> }>()
 
   const deleteMutationMock = (): ReturnType<typeof useDeleteAccessList> =>
-    createMutationResult<void, number>({}, (_id, options) => options?.onSuccess?.())
+    createMutationResult<void, string>({}, (_uuid, options) => options?.onSuccess?.())
 
   const testIPMutationMock = (): ReturnType<typeof useTestIP> =>
-    createMutationResult<TestIPResponse, { id: number; ipAddress: string }>({}, (_payload, options) =>
+    createMutationResult<TestIPResponse, { uuid: string; ipAddress: string }>({}, (_payload, options) =>
       options?.onSuccess?.({ allowed: true, reason: 'Allowed by rule' })
     )
 
@@ -275,7 +274,7 @@ describe('AccessLists', () => {
 
     await waitFor(() => {
       expect(createBackup).toHaveBeenCalled()
-      expect(deleteMutation.mutate).toHaveBeenCalledWith(1, expect.any(Object))
+      expect(deleteMutation.mutate).toHaveBeenCalledWith('acl-1', expect.any(Object))
     })
   })
 
@@ -283,14 +282,14 @@ describe('AccessLists', () => {
     const deleteMutation = deleteMutationMock()
     vi.mocked(useDeleteAccessList).mockReturnValue(deleteMutation)
     vi.mocked(useAccessLists).mockReturnValue(
-      createQueryResult([createAccessList({ id: 1 }), createAccessList({ id: 2, uuid: 'acl-2', name: 'Branch Office' })])
+      createQueryResult([createAccessList(), createAccessList({ uuid: 'acl-2', name: 'Branch Office' })])
     )
     vi.mocked(createBackup).mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' })
 
     const user = userEvent.setup()
     renderWithQueryClient(<AccessLists />)
 
-    await user.click(await screen.findByRole('checkbox', { name: 'Select row 1' }))
+    await user.click(await screen.findByRole('checkbox', { name: 'Select row acl-1' }))
 
     const bulkDeleteButton = await screen.findByRole('button', { name: `${t('common.delete')} (1)` })
     await user.click(bulkDeleteButton)
@@ -326,7 +325,7 @@ describe('AccessLists', () => {
 
     await waitFor(() => {
       expect(testIPMutation.mutate).toHaveBeenCalledWith(
-        { id: 1, ipAddress: '192.168.1.5' },
+        { uuid: 'acl-1', ipAddress: '192.168.1.5' },
         expect.any(Object)
       )
     })

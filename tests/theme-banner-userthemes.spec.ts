@@ -55,8 +55,12 @@ async function loginWithStoredState(page: import('@playwright/test').Page): Prom
   // navigation-commit event and hang until the test timeout instead of
   // throwing (see 7503c01a / d537476f). gotoTolerant() tolerates the known
   // race-condition errors; waitForLoadState below confirms the app settled.
+  // networkidle itself is bounded and non-fatal here (matches
+  // tests/core/admin-onboarding.spec.ts and tests/core/dashboard.spec.ts) —
+  // background polling can otherwise keep the page from ever going idle and
+  // hang until the whole-test timeout instead of just this best-effort wait.
   await gotoTolerant(page, '/');
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
 }
 
 /**
@@ -79,7 +83,9 @@ async function goToAppearance(page: import('@playwright/test').Page): Promise<vo
   } else {
     await gotoTolerant(page, '/settings/appearance');
   }
-  await page.waitForLoadState('networkidle');
+  // Bounded and non-fatal — see loginWithStoredState above for why a bare,
+  // uncaught networkidle wait can hang a whole test instead of just this step.
+  await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
   await page.getByRole('radiogroup').waitFor({ state: 'visible', timeout: 15000 });
 }
 
@@ -192,7 +198,7 @@ test.describe('Banner Customization', () => {
     await test.step('Navigate away and back to verify the banner persists in the sidebar', async () => {
       // Same Firefox navigation-commit race as loginWithStoredState/goToAppearance.
       await gotoTolerant(page, '/');
-      await page.waitForLoadState('networkidle');
+      await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
     });
 
     await test.step('Sidebar contains the uploaded banner image', async () => {

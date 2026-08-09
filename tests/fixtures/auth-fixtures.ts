@@ -432,6 +432,41 @@ export const test = base.extend<AuthFixtures>({
 });
 
 /**
+ * POST /api/v1/auth/login with retry-with-backoff on 401.
+ *
+ * `loginUser()` is only ever called with a fixture-created user's known
+ * -correct password (see `TestDataManager.createUser`), so a 401 here can
+ * never reflect genuinely invalid credentials — it can only mean the user
+ * row created by the prior `POST /api/v1/users` call isn't visible yet to
+ * this login query (an eventual-consistency race between user creation and
+ * first login, observed intermittently under WebKit's different request
+ * timing). Retrying a few times with backoff absorbs that race without
+ * masking real auth bugs, since any other status code (or a 401 that
+ * persists past the final attempt) is still returned as-is for the caller
+ * to handle.
+ */
+async function postLoginWithRetry(
+  requestContext: import('@playwright/test').APIRequestContext,
+  payload: { email: string; password: string },
+  options: { maxAttempts?: number; baseDelayMs?: number } = {}
+): Promise<import('@playwright/test').APIResponse> {
+  const maxAttempts = options.maxAttempts ?? 4;
+  const baseDelayMs = options.baseDelayMs ?? 250;
+
+  let response!: import('@playwright/test').APIResponse;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    response = await requestContext.post('/api/v1/auth/login', { data: payload });
+    if (response.status() !== 401 || attempt === maxAttempts) {
+      return response;
+    }
+    await new Promise((resolve) => setTimeout(resolve, Math.round(baseDelayMs * Math.pow(2, attempt - 1))));
+  }
+  // Unreachable: the loop always returns by the final attempt, but TypeScript
+  // can't prove that from the loop shape above.
+  return response;
+}
+
+/**
  * Helper function to log in a user via the UI
  * @param page - Playwright Page instance
  * @param user - Test user to log in
@@ -449,7 +484,7 @@ export async function loginUser(
   const loginPayload = { email: user.email, password: TEST_PASSWORD };
   let apiLoginError: Error | null = null;
   try {
-    const response = await page.request.post('/api/v1/auth/login', { data: loginPayload });
+    const response = await postLoginWithRetry(page.request, loginPayload);
     if (response.ok()) {
       const body = await response.json().catch(() => ({})) as { token?: string };
       if (body.token) {
@@ -522,22 +557,42 @@ export async function loginUser(
   if (!loginRouteDetected) {
     await page.goto('/login');
   }
-  await page.locator('input[type="email"]').fill(user.email);
-  await page.locator('input[type="password"]').fill(TEST_PASSWORD);
 
-  const loginResponsePromise = page.waitForResponse((response) =>
-    response.url().includes('/api/v1/auth/login')
-  );
-  await page.getByRole('button', { name: /sign in/i }).click();
+  // Retry the UI submission itself on 401, same reasoning as
+  // postLoginWithRetry above: this helper is only ever used with a
+  // fixture-created user's known-correct password, so a 401 here means the
+  // create-user-then-login race is still unresolved, not a real credentials
+  // failure. The earlier API-based attempt already retried once, but under
+  // WebKit's slower request/response timing the race can still be open by
+  // the time we reach this fallback, so retry here too before giving up.
+  const maxUiLoginAttempts = 4;
+  const uiRetryBaseDelayMs = 250;
+  for (let attempt = 1; attempt <= maxUiLoginAttempts; attempt += 1) {
+    await page.locator('input[type="email"]').fill(user.email);
+    await page.locator('input[type="password"]').fill(TEST_PASSWORD);
 
-  const loginResponse = await loginResponsePromise;
-  if (!loginResponse.ok()) {
-    const body = await loginResponse.text();
-    const fallbackMessage = `Login failed: ${loginResponse.status()} - ${body}`;
-    if (apiLoginError) {
-      throw new Error(`${fallbackMessage}; API login bootstrap error: ${apiLoginError.message}`);
+    const loginResponsePromise = page.waitForResponse((response) =>
+      response.url().includes('/api/v1/auth/login')
+    );
+    await page.getByRole('button', { name: /sign in/i }).click();
+
+    const loginResponse = await loginResponsePromise;
+    if (loginResponse.ok()) {
+      break;
     }
-    throw new Error(fallbackMessage);
+
+    if (loginResponse.status() !== 401 || attempt === maxUiLoginAttempts) {
+      const body = await loginResponse.text();
+      const fallbackMessage = `Login failed: ${loginResponse.status()} - ${body}`;
+      if (apiLoginError) {
+        throw new Error(`${fallbackMessage}; API login bootstrap error: ${apiLoginError.message}`);
+      }
+      throw new Error(fallbackMessage);
+    }
+
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.round(uiRetryBaseDelayMs * Math.pow(2, attempt - 1)))
+    );
   }
 
   await page.waitForURL(/\/(?:$|dashboard)/, { timeout: 15000 });
