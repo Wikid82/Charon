@@ -1,7 +1,5 @@
 {
   "$schema": "https://raw.githubusercontent.com/IBM/audit-ci/main/docs/schema.json",
   "high": true,
-  "allowlist": [
-    "GHSA-mh99-v99m-4gvg|eslint-plugin-jsx-a11y>minimatch>brace-expansion"
-  ]
+  "allowlist": []
 }
