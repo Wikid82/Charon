@@ -48,6 +48,20 @@ echo "All Go module dependencies updated successfully."
 # npm modules
 # ---------------------------------------------------------------------------
 
+echo "============================================================================"
+echo "Updating Global npm Environment"
+echo "============================================================================"
+
+echo "Current local versions (npm / npx):"
+npm -v && npx -v
+
+echo -n "Latest available npm version on registry: "
+npm view npm version
+
+echo "Installing latest global npm..."
+npm install -g npm@latest
+echo ""
+
 export PATH="/usr/share/nodejs/corepack/shims:$PATH"
 
 NPM_MODULES=(
@@ -61,6 +75,8 @@ for MODULE in "${NPM_MODULES[@]}"; do
     echo "============================================================================"
 
     cd "$MODULE" || exit 1
+
+
 
     # Update prod, dev, optional, peer, and packageManager dependencies.
     # Exclude typescript: v7 crashes @typescript-eslint until upstream
