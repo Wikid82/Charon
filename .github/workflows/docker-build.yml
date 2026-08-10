@@ -28,6 +28,11 @@ on:
     # `setup` job below (search "trigger-level dedup") — that condition
     # exists specifically to avoid double-building commits covered by both
     # this `push:` trigger and an open PR headed at the same branch.
+    # NOTE: `push` and `pull_request` no longer share a concurrency group
+    # (see the `-${{ github.event_name }}` suffix below) — this `if:` skip
+    # is what stops the `pull_request` side from doing a redundant real
+    # build now that group-based cancellation can no longer do it for us.
+    # See GH #1235 / docs/plans/current_spec.md for the full rationale.
     branches: [main, development]
   workflow_dispatch:
   workflow_run:
@@ -35,7 +40,7 @@ on:
     types: [completed]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.event.workflow_run.head_branch || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.event.workflow_run.head_branch || github.ref_name }}-${{ github.event_name }}
   cancel-in-progress: true
 
 permissions:
