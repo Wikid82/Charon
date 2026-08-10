@@ -15,7 +15,7 @@
  */
 
 import { test, expect, loginUser } from '../../fixtures/auth-fixtures';
-import { waitForLoadingComplete, waitForToast } from '../../utils/wait-helpers';
+import { waitForLoadingComplete } from '../../utils/wait-helpers';
 
 test.describe('Encryption Management', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -185,7 +185,7 @@ test.describe('Encryption Management', () => {
           // Should have warning content
           const warningContent = dialog.getByText(/warning|caution|irreversible/i);
           const hasWarning = await warningContent.first().isVisible().catch(() => false);
-          expect(hasWarning || true).toBeTruthy();
+          expect(hasWarning).toBe(true);
         }
       });
     });
@@ -195,14 +195,21 @@ test.describe('Encryption Management', () => {
      * Priority: P1
      */
     test('should cancel rotation from dialog', async ({ page }) => {
+      // Rotation is only available when a "next" encryption key is
+      // configured (see `rotationDisabled` in
+      // frontend/src/pages/EncryptionManagement.tsx). This check must run
+      // — and skip via `test.skip()` — *before* any `test.step()`, not
+      // inside one: a bare `return` inside a `test.step()` callback only
+      // exits that step's own async function, it does NOT skip the test's
+      // later `test.step()` calls (previously the code assumed it did).
+      // With the button legitimately `disabled`, the subsequent steps'
+      // unconditional `.click()` calls on the button and never-opened
+      // dialog each hung for the full test timeout retrying actionability.
+      const rotateButton = page.getByTestId('rotate-key-btn');
+      const isEnabled = await rotateButton.isEnabled().catch(() => false);
+      test.skip(!isEnabled, 'Rotation disabled: next key not configured');
+
       await test.step('Open rotation confirmation dialog', async () => {
-        const rotateButton = page.getByTestId('rotate-key-btn');
-        const isEnabled = await rotateButton.isEnabled().catch(() => false);
-
-        if (!isEnabled) {
-
-        }
-
         await rotateButton.click();
         await expect(page.getByRole('dialog')).toBeVisible({ timeout: 3000 });
       });
@@ -232,15 +239,13 @@ test.describe('Encryption Management', () => {
      * or mock the API in test environment.
      */
     test('should execute key rotation', async ({ page }) => {
-      await test.step('Check if rotation is available', async () => {
-        const rotateButton = page.getByTestId('rotate-key-btn');
-        const isEnabled = await rotateButton.isEnabled().catch(() => false);
-
-        if (!isEnabled) {
-          // Next key not configured - return
-          return;
-        }
-      });
+      // See the comment in 'should cancel rotation from dialog' above: this
+      // precondition check must gate the whole test via `test.skip()`
+      // before any `test.step()`, since a `return` inside a step callback
+      // does not skip subsequent steps.
+      const rotateButtonCheck = page.getByTestId('rotate-key-btn');
+      const rotationAvailable = await rotateButtonCheck.isEnabled().catch(() => false);
+      test.skip(!rotationAvailable, 'Rotation disabled: next key not configured');
 
       await test.step('Open rotation confirmation dialog', async () => {
         const rotateButton = page.getByTestId('rotate-key-btn');
@@ -274,14 +279,15 @@ test.describe('Encryption Management', () => {
      * Priority: P1
      */
     test('should show rotation progress', async ({ page }) => {
-      await test.step('Check if rotation is available', async () => {
-        const rotateButton = page.getByTestId('rotate-key-btn');
-        const isEnabled = await rotateButton.isEnabled().catch(() => false);
+      // See the comment in 'should cancel rotation from dialog' above: this
+      // precondition check must gate the whole test via `test.skip()`
+      // before any `test.step()`, since a `return` inside a step callback
+      // does not skip subsequent steps.
+      const rotateButtonCheck = page.getByTestId('rotate-key-btn');
+      const rotationAvailable = await rotateButtonCheck.isEnabled().catch(() => false);
+      test.skip(!rotationAvailable, 'Rotation disabled: next key not configured');
 
-        if (!isEnabled) {
-          return;
-        }
-      });
+      let rotationResponse: ReturnType<typeof page.waitForResponse>;
 
       await test.step('Start rotation and observe progress', async () => {
         const rotateButton = page.getByTestId('rotate-key-btn');
@@ -293,6 +299,13 @@ test.describe('Encryption Management', () => {
         const confirmButton = dialog.getByRole('button', { name: /confirm|rotate/i }).filter({
           hasNotText: /cancel/i,
         });
+
+        // Capture the actual rotation request before confirming so the
+        // progress check below can race the indicator's visibility against
+        // the request genuinely completing.
+        rotationResponse = page.waitForResponse(
+          (response) => response.url().includes('/encryption/rotate') && response.request().method() === 'POST',
+        );
         await confirmButton.first().click();
       });
 
@@ -303,14 +316,23 @@ test.describe('Encryption Management', () => {
           .or(page.getByText(/rotating|in.*progress/i))
           .or(page.locator('svg.animate-spin'));
 
-        // Progress may appear briefly - capture if visible
-        const hasProgress = await progressIndicator.first().isVisible({ timeout: 5000 }).catch(() => false);
+        // Race the progress indicator's visibility against the rotation
+        // request actually completing. If the response resolves first, the
+        // rotation was too fast for a progress state to ever render - a
+        // genuine timing race, not a bug - so skip with an accurate reason
+        // instead of faking a pass.
+        const hasProgress = await Promise.race([
+          progressIndicator.first().isVisible({ timeout: 5000 }).catch(() => false),
+          rotationResponse.then(() => false),
+        ]);
 
-        // Either progress was shown or rotation was too fast
-        expect(hasProgress || true).toBeTruthy();
+        test.skip(
+          !hasProgress,
+          'Rotation completed before the progress indicator could be observed (genuine timing race)',
+        );
 
-        // Wait for completion
-        await page.waitForTimeout(5000);
+        // Ensure the rotation request has fully settled before the test ends.
+        await rotationResponse;
       });
     });
 
@@ -377,19 +399,6 @@ test.describe('Encryption Management', () => {
         // Check that the page can display errors
         // This is a passive test - we verify the UI is capable of showing errors
 
-        // Alert component should be available for errors
-        const alertExists = await page.locator('[class*="alert"]')
-          .or(page.locator('[role="alert"]'))
-          .first()
-          .isVisible({ timeout: 1000 })
-          .catch(() => false);
-
-        // Toast notification system should be ready
-        const hasToastContainer = await page.locator('[class*="toast"]')
-          .or(page.locator('[data-testid*="toast"]'))
-          .isVisible({ timeout: 1000 })
-          .catch(() => true); // Toast container may not be visible until triggered
-
         // UI should gracefully handle rotation being disabled
         const rotateButton = page.getByTestId('rotate-key-btn');
         await expect(rotateButton).toBeVisible();
@@ -399,7 +408,7 @@ test.describe('Encryption Management', () => {
         if (isDisabled) {
           const warningAlert = page.getByText(/next.*key.*required|configure.*key|not.*configured/i);
           const hasWarning = await warningAlert.first().isVisible().catch(() => false);
-          expect(hasWarning || true).toBeTruthy();
+          expect(hasWarning).toBe(true);
         }
       });
 
@@ -501,10 +510,12 @@ test.describe('Encryption Management', () => {
         const warningMessage = page.getByText(/warning/i)
           .or(page.locator('[class*="warning"]'));
 
+        // Warnings are optional here (validation may legitimately pass with
+        // zero warnings) - record whether one was shown as a diagnostic
+        // annotation rather than asserting on it, since there is no
+        // deterministic expectation either way.
         const hasWarning = await warningMessage.first().isVisible({ timeout: 2000 }).catch(() => false);
-
-        // Warnings may or may not be present - just verify we can detect them
-        expect(hasWarning || true).toBeTruthy();
+        test.info().annotations.push({ type: 'info', description: `Validation warning present: ${hasWarning}` });
       });
     });
   });
@@ -602,12 +613,12 @@ test.describe('Encryption Management', () => {
             const actionBadge = firstRow.locator('[class*="badge"]')
               .or(firstRow.getByText(/rotate|key_rotation|action/i));
             const hasBadge = await actionBadge.first().isVisible().catch(() => false);
-            expect(hasBadge || true).toBeTruthy();
+            expect(hasBadge).toBe(true);
 
             // Should have version or duration info
             const versionInfo = firstRow.getByText(/v\d+|version|duration|\d+ms/i);
             const hasVersionInfo = await versionInfo.first().isVisible().catch(() => false);
-            expect(hasVersionInfo || true).toBeTruthy();
+            expect(hasVersionInfo).toBe(true);
           }
         }
       });
@@ -687,10 +698,8 @@ test.describe('Encryption Management', () => {
         await page.keyboard.press('Enter');
 
         // Should trigger validation (toast should appear)
-        await page.waitForTimeout(2000);
         const resultToast = page.locator('[role="alert"]');
-        const hasToast = await resultToast.first().isVisible({ timeout: 5000 }).catch(() => false);
-        expect(hasToast || true).toBeTruthy();
+        await expect(resultToast.first()).toBeVisible({ timeout: 5000 });
       });
     });
 
@@ -714,7 +723,7 @@ test.describe('Encryption Management', () => {
                 (el as HTMLElement).innerText?.trim();
             }).catch(() => '');
 
-            expect(accessibleName || true).toBeTruthy();
+            expect(accessibleName).toBeTruthy();
           }
         }
       });

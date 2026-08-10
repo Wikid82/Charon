@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { Link, useLocation } from 'react-router'
 
 import { useMediaQuery } from '../hooks/useMediaQuery'
-
+import WhatsNewModal from './dialogs/WhatsNewModal'
 import FeedbackWidget from './FeedbackWidget'
 import NotificationCenter from './NotificationCenter'
 import SystemStatus from './SystemStatus'
@@ -207,6 +207,7 @@ export default function Layout({ children }: LayoutProps) {
                           : 'text-content-secondary hover:bg-surface-muted hover:text-content-primary'
                       }`}
                       title={item.name}
+                      aria-current={isActive ? 'page' : undefined}
                     >
                       <span className="text-lg">{item.icon}</span>
                     </Link>
@@ -277,6 +278,7 @@ export default function Layout({ children }: LayoutProps) {
                                             ? 'bg-brand-500/10 text-brand-500'
                                             : 'text-content-muted hover:text-content-primary hover:bg-surface-subtle/50'
                                         }`}
+                                        aria-current={location.pathname === sub.path ? 'page' : undefined}
                                       >
                                         {sub.name}
                                       </Link>
@@ -297,6 +299,7 @@ export default function Layout({ children }: LayoutProps) {
                                   ? 'bg-brand-500/10 text-brand-500'
                                   : 'text-content-muted hover:text-content-primary hover:bg-surface-subtle/50'
                               }`}
+                              aria-current={isChildActive ? 'page' : undefined}
                             >
                               {child.name}
                             </Link>
@@ -321,6 +324,7 @@ export default function Layout({ children }: LayoutProps) {
                       : 'text-content-secondary hover:bg-surface-muted hover:text-content-primary'
                   } ${isCollapsed ? 'justify-center' : ''}`}
                   title={isCollapsed ? item.name : ''}
+                  aria-current={isActive ? 'page' : undefined}
                 >
                   <span className="text-lg">{item.icon}</span>
                   {!isCollapsed && item.name}
@@ -414,6 +418,7 @@ export default function Layout({ children }: LayoutProps) {
         </div>
       </main>
       <FeedbackWidget />
+      <WhatsNewModal mode="status" />
     </div>
   )
 }

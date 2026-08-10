@@ -51,6 +51,14 @@ Your credentials are stored securely with encryption and automatic key rotation.
 
 Enterprise-grade protection that "just works." Cerberus bundles multiple security layers into one easy-to-manage system.
 
+### 🔒 How Charon Keeps You Safe
+
+Curious what's actually protecting your server, and why? From automatic HTTPS and encrypted secrets to CrowdSec's neighborhood-watch threat detection and the forward-auth login gateway, this page walks through Charon's security philosophy in plain language — no jargon required.
+
+→ [Learn More](features/security.md)
+
+---
+
 ### 🎛️ Security Dashboard Toggles
 
 Control your security modules with a single click. The Security Dashboard provides instant toggles for each security layer:
@@ -352,6 +360,16 @@ Make Charon look exactly the way you want. Choose from five built-in themes — 
 - **Named Custom Themes** — Build your own color theme from scratch, give it a name, and save it. You can create as many as you like, switch between them, edit them later, or delete ones you no longer need. Find it under Settings > Appearance.
 
 → [Learn More](features/ui-themes.md)
+
+---
+
+### 🆕 What's New
+
+Never wonder what changed after an update. The next time you log in after Charon updates, a "What's New" popup shows you exactly what's new — new features, fixes, and improvements — since you were last here.
+
+- **Automatic** — Content is generated straight from the release history, so there's never any manual changelog writing to fall behind on
+- **Your call** — Don't want the popup? Turn it off anytime in Settings > Appearance
+- **Revisit anytime** — Missed it, or just want to look back? Click the "What's New" link in Settings > Appearance to reopen it whenever you like
 
 ---
 

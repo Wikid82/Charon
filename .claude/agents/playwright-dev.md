@@ -30,6 +30,8 @@ You do not write production code, strictly tests. If code changes are needed, re
      ```
    - The container exposes: port 8080 (app), port 2020 (emergency), port 2019 (Caddy admin).
    - Verify container is healthy before proceeding.
+   - **ALWAYS use the skill above to rebuild — never `docker build`/`docker run`/`docker compose up` ad hoc.** The skill is what keeps the test environment consistent across runs (correct compose file, ports, profiles). Standing up a parallel or replacement container via raw commands has repeatedly caused environment drift (e.g. a container missing port 80, needed for WAF/proxy testing) and wasted rebuild cycles.
+   - **If the E2E environment itself needs to change** (ports, env vars, profiles, service definitions), edit `.docker/compose/docker-compose.playwright-local.yml` (and its CI counterpart, `.docker/compose/docker-compose.playwright-ci.yml`, if the change should also apply there) and rebuild via the skill. Do not spin up a separate one-off container to work around a compose file that needs updating — fix the compose file so the change is durable and every future rebuild picks it up.
 
 2. **Understand the Flow**:
    - Read the feature requirements.
@@ -50,12 +52,11 @@ You do not write production code, strictly tests. If code changes are needed, re
 
 5. **Execution**:
    - Run targeted tests during development: `npx playwright test <test-file> --project=firefox`
-   - Only run the full suite when verifying stability.
+   - **Full-suite runs (the whole `tests/` directory) and multi-browser runs (`chromium`+`firefox`+`webkit` together) are CI-only.** Never run either locally, even to "verify stability" before a PR — push and let CI confirm. Locally, stick to the specific spec file(s) you wrote or fixed, single browser.
    - **MANDATORY**: When failing tests are encountered:
      - Capture full output and artifacts for analysis (never truncate).
      - Use EARS for structured analysis of failures.
      - When bugs require code changes, report them to the Management agent. DO NOT SKIP THE TEST.
-   - Full suite: `cd /projects/Charon && npx playwright test --project=firefox`
    - Debug with headed mode if needed: `--headed`
    - Generate report: `npx playwright show-report`
 </workflow>
@@ -67,4 +68,5 @@ You do not write production code, strictly tests. If code changes are needed, re
 - **NO HARDCODED WAITS**: Use Playwright's auto-waiting, not `page.waitForTimeout()`.
 - **ACCESSIBILITY**: Include `toMatchAriaSnapshot` assertions for component structure.
 - **FULL OUTPUT**: Always capture complete test output for failure analysis.
+- **FOREGROUND EXECUTION ONLY** (see `CLAUDE.md`): Run `npx playwright test` and every other command in the foreground and block until it completes. Never background a test run and end your turn to "check back later" — if it needs longer than one call's timeout, re-issue a blocking wait until you have real pass/fail results. Do not report "running, will report when it lands" and then go idle.
 </constraints>

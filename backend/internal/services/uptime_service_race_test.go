@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -399,4 +401,90 @@ func TestCheckHost_HostMutexPreventsRaceCondition(t *testing.T) {
 	assert.NotEmpty(t, updatedHost.Status, "Host status should be set")
 	assert.Equal(t, "up", updatedHost.Status, "Host should be up")
 	assert.GreaterOrEqual(t, updatedHost.Latency, int64(0), "Latency should be non-negative")
+}
+
+// TestSyncAndCheckForHost_RetriesOnTransientLockError verifies that a
+// transient "database is locked" error from the monitor-create write inside
+// SyncAndCheckForHost is retried with backoff instead of being treated as
+// permanent, mirroring the established convention in
+// credential_service.go's Delete and security_service.go's
+// persistAuditWithRetry.
+//
+// Two independent connections attach to the same named, shared-cache
+// in-memory database (no _busy_timeout DSN param on either, so SQLite's own
+// busy handler is not in play -- a lock conflict surfaces to the Go driver
+// immediately as "database is locked" rather than blocking internally).
+// This deliberately mirrors the locking mechanism confirmed during the
+// investigation behind this fix: SQLite's shared-cache table locking is a
+// pure in-process mechanism enforced by the SQLite library itself, unlike
+// on-disk file locking which depends on OS-level advisory locks that are
+// not reliably enforced on every filesystem this suite may run against.
+// One connection holds a write lock (via an uncommitted transaction) for a
+// short window immediately before SyncAndCheckForHost runs on the other,
+// so this test exercises this package's own retry loop, not SQLite's.
+func TestSyncAndCheckForHost_RetriesOnTransientLockError(t *testing.T) {
+	dsn := "file:" + strings.ReplaceAll(t.Name(), "/", "_") + "?mode=memory&cache=shared"
+
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		if sqlDB, dbErr := db.DB(); dbErr == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	require.NoError(t, db.AutoMigrate(
+		&models.ProxyHost{},
+		&models.UptimeHost{},
+		&models.UptimeMonitor{},
+		&models.UptimeHeartbeat{},
+		&models.Setting{},
+	))
+
+	ns := NewNotificationService(db, nil)
+	svc := NewUptimeService(db, ns)
+
+	host := models.ProxyHost{
+		UUID:        uuid.NewString(),
+		Name:        "Retry Target",
+		DomainNames: "retry-target.example.com",
+		ForwardHost: "retry-upstream",
+		ForwardPort: 8080,
+		Enabled:     true,
+	}
+	require.NoError(t, db.Create(&host).Error)
+
+	lockDB, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		if sqlDB, dbErr := lockDB.DB(); dbErr == nil {
+			_ = sqlDB.Close()
+		}
+	})
+
+	lockAcquired := make(chan struct{})
+	lockReleased := make(chan struct{})
+	go func() {
+		defer close(lockReleased)
+		_ = lockDB.Transaction(func(tx *gorm.DB) error {
+			// Any write statement takes SQLite's shared-cache write lock
+			// (locking is at the database level, not just this table),
+			// which is what blocks the primary connection's later INSERT
+			// into uptime_monitors below.
+			if txErr := tx.Exec("INSERT INTO settings (key, value) VALUES (?, ?)", "lock-holder", "1").Error; txErr != nil {
+				return txErr
+			}
+			close(lockAcquired)
+			time.Sleep(75 * time.Millisecond)
+			return nil
+		})
+	}()
+
+	<-lockAcquired
+	t.Cleanup(func() { <-lockReleased })
+
+	svc.SyncAndCheckForHost(host.ID)
+
+	var monitor models.UptimeMonitor
+	require.NoError(t, db.Where("proxy_host_id = ?", host.ID).First(&monitor).Error,
+		"monitor should eventually be created despite transient lock contention from a concurrent writer")
 }

@@ -1,0 +1,34 @@
+{
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "CodeQL",
+          "rules": [
+            {
+              "id": "go/example-ignorelisted-rule",
+              "defaultConfiguration": { "level": "warning" }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "go/example-ignorelisted-rule",
+          "ruleIndex": 0,
+          "level": "warning",
+          "message": { "text": "Example finding covered by a valid ignore-list entry" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "backend/internal/example_ignorelisted.go" },
+                "region": { "startLine": 30, "endLine": 30 }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1290,13 +1290,21 @@ export async function waitForNavigation(
  * (see commit d537476f): the navigation was interrupted, aborted, or simply
  * never committed within the timeout. These don't indicate a real failure -
  * they mean a fresh navigation was already underway when the timeout fired.
+ *
+ * `NS_BINDING_ABORTED` is Firefox/Gecko's own native spelling of the same
+ * class of error `net::ERR_ABORTED` covers for Chromium — it surfaces when a
+ * navigation (e.g. a reload() racing a still-pending prior goto()) is
+ * cancelled before it commits. Without it, reloadTolerant()/gotoTolerant()
+ * rethrow on Firefox for exactly the race they exist to swallow (see
+ * microsoft/playwright#12912, #13640, #20749).
  */
 function isExpectedNavigationRace(error: unknown): boolean {
   return (
     error instanceof Error &&
     (error.message.includes('Timeout') ||
       error.message.includes('interrupted by another navigation') ||
-      error.message.includes('net::ERR_ABORTED'))
+      error.message.includes('net::ERR_ABORTED') ||
+      error.message.includes('NS_BINDING_ABORTED'))
   );
 }
 
@@ -1352,4 +1360,26 @@ export async function reloadTolerant(
       throw error;
     }
   });
+}
+
+/**
+ * Dismiss the "New Base Domain Detected" dialog in ProxyHostForm if it
+ * appeared. The form (`frontend/src/components/ProxyHostForm.tsx`) shows
+ * this dialog automatically `onBlur` of the Domain Names field whenever the
+ * base domain hasn't been seen before (see `checkNewDomains`) — which is
+ * always true for E2E tests using synthetic `*.local`/`*.test.local`
+ * domains. Its backdrop (`fixed inset-0 ... z-60`) sits on top of the form
+ * and intercepts pointer events on the Save button, so any test that fills
+ * a fresh domain and clicks Save must dismiss it first or the click hangs
+ * until the test timeout. Mirrors the equivalent local helper already used
+ * by `tests/core/proxy-hosts.spec.ts` (`dismissDomainDialog`).
+ *
+ * @param page - Playwright Page instance
+ */
+export async function dismissNewDomainPromptIfPresent(page: Page): Promise<void> {
+  const noThanksBtn = page.getByRole('button', { name: /No, thanks/i });
+  if (await noThanksBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await noThanksBtn.click();
+    await waitForDebounce(page, { delay: 300 });
+  }
 }

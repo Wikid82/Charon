@@ -25,10 +25,8 @@ const mockAuditLog = {
 }
 
 const mockListResponse = {
-  logs: [mockAuditLog],
-  total: 1,
-  page: 1,
-  limit: 50,
+  audit_logs: [mockAuditLog],
+  pagination: { page: 1, limit: 50, total: 1, total_pages: 1 },
 }
 
 function createWrapper() {

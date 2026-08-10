@@ -186,6 +186,29 @@ async function performLoginAndSaveState(
     throw new Error('Login response did not include a token');
   }
 
+  // Suppress the "What's New" changelog modal for this shared admin
+  // session. This storageState is reused as the default authenticated
+  // session across most of the E2E suite (any spec/project that doesn't
+  // create its own user), so a freshly-created admin whose
+  // `last_seen_version` defaults to "" would otherwise be shown a
+  // blocking modal (see `WhatsNewModal.tsx`) the moment any page loads —
+  // stalling unrelated UI interactions suite-wide once the E2E image
+  // embeds real changelog data (see
+  // `tests/fixtures/changelog-fixture.json` injection in CI). Mirrors
+  // `TestDataManager.createUser`'s `suppressChangelog` default for
+  // per-test users. `tests/settings/whats-new-changelog.spec.ts` never
+  // relies on this shared session (it uses its own `regularUser`, which
+  // opts out of the equivalent suppression), so it is unaffected.
+  const ackResponse = await request.post('/api/v1/changelog/ack', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { action: 'dismiss_permanent', opt_out: true },
+  });
+  if (!ackResponse.ok()) {
+    console.warn(
+      `⚠️ Failed to suppress changelog modal for shared admin session: ${ackResponse.status()}`
+    );
+  }
+
   // Store the authentication state (cookies)
   await request.storageState({ path: STORAGE_STATE });
   console.log(`Auth state saved to ${STORAGE_STATE}`);

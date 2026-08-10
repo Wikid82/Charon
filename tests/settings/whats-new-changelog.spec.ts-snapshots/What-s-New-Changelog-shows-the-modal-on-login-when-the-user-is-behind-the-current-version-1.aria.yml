@@ -1,0 +1,31 @@
+- dialog "What's New":
+  - heading "What's New" [level=2]
+  - region "1.2.0":
+    - heading /1\.\d+\.\d+-\d+-\d+/ [level=3]
+    - heading "✨ New Features" [level=4]
+    - list:
+      - listitem: Add the What's New changelog modal
+      - listitem: Add per-user notification preferences
+    - heading "🐛 Fixes" [level=4]
+    - list:
+      - listitem: Fix intermittent session expiry on token refresh
+  - region "1.1.0":
+    - heading /1\.\d+\.\d+-\d+-\d+/ [level=3]
+    - heading "✨ New Features" [level=4]
+    - list:
+      - listitem: Add automated certificate renewal
+    - heading "🐛 Fixes" [level=4]
+    - list:
+      - listitem: Correct proxy timeout handling under load
+    - group: Show maintenance details
+  - region "1.0.0":
+    - heading /1\.\d+\.\d+-\d+-\d+/ [level=3]
+    - heading "✨ New Features" [level=4]
+    - list:
+      - listitem: Add DNS record management
+    - group: Show maintenance details
+  - checkbox "Don't show me update notifications"
+  - text: Don't show me update notifications
+  - button "Remind Me Next Time"
+  - button "Got It, Thanks"
+  - button "Close"

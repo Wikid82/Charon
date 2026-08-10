@@ -1372,7 +1372,7 @@ func (s *UptimeService) SyncAndCheckForHost(hostID uint) {
 			Enabled:      true,
 			Status:       "pending",
 		}
-		if createErr := s.DB.Create(&monitor).Error; createErr != nil {
+		if createErr := s.createMonitorWithRetry(&monitor); createErr != nil {
 			logger.Log().WithError(createErr).WithField("host_id", host.ID).Error("SyncAndCheckForHost: failed to create monitor")
 			return
 		}
@@ -1383,6 +1383,38 @@ func (s *UptimeService) SyncAndCheckForHost(hostID uint) {
 
 	// Run health check immediately
 	s.checkMonitor(monitor)
+}
+
+// createMonitorWithRetry creates an UptimeMonitor row, retrying with backoff
+// on transient SQLite lock errors rather than treating any lock conflict as
+// permanent and silently dropping the monitor. This mirrors the established
+// retry convention used elsewhere in this codebase for the same class of
+// error -- see credential_service.go's Delete and security_service.go's
+// persistAuditWithRetry -- rather than introducing a new pattern.
+//
+// Production's single-connection pool (SetMaxOpenConns(1), see
+// internal/database/database.go's configurePool) makes this error unlikely
+// there, but this still defends against transient contention within a
+// single connection's checkout window.
+func (s *UptimeService) createMonitorWithRetry(monitor *models.UptimeMonitor) error {
+	const maxAttempts = 5
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		lastErr = s.DB.Create(monitor).Error
+		if lastErr == nil {
+			return nil
+		}
+
+		errMsg := strings.ToLower(lastErr.Error())
+		isTransientLock := strings.Contains(errMsg, "database is locked") || strings.Contains(errMsg, "database table is locked") || strings.Contains(errMsg, "busy")
+		if !isTransientLock || attempt == maxAttempts {
+			return lastErr
+		}
+
+		time.Sleep(time.Duration(attempt) * 10 * time.Millisecond)
+	}
+
+	return lastErr
 }
 
 // CleanupStaleFailureCounts resets monitors that are stuck in "down" status

@@ -13,6 +13,7 @@
 import { test, expect } from './fixtures/test';
 import { existsSync } from 'fs';
 import { STORAGE_STATE } from './constants';
+import { gotoTolerant, reloadTolerant } from './utils/wait-helpers';
 
 // ---------------------------------------------------------------------------
 // Shared test data
@@ -50,18 +51,41 @@ async function loginWithStoredState(page: import('@playwright/test').Page): Prom
   if (!existsSync(STORAGE_STATE)) {
     throw new Error(`Auth state not found at ${STORAGE_STATE}. Run auth.setup.ts first.`);
   }
-  await page.goto('/');
-  await page.waitForLoadState('networkidle');
+  // A raw page.goto() fired under a contended CI runner can race Firefox's
+  // navigation-commit event and hang until the test timeout instead of
+  // throwing (see 7503c01a / d537476f). gotoTolerant() tolerates the known
+  // race-condition errors; waitForLoadState below confirms the app settled.
+  // networkidle itself is bounded and non-fatal here (matches
+  // tests/core/admin-onboarding.spec.ts and tests/core/dashboard.spec.ts) —
+  // background polling can otherwise keep the page from ever going idle and
+  // hang until the whole-test timeout instead of just this best-effort wait.
+  await gotoTolerant(page, '/');
+  await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
 }
 
 /**
  * Navigate to /settings/appearance and wait until the theme gallery is visible.
  * This ensures the whole page (including React Query data) has loaded before
  * individual tests begin interacting with sections.
+ *
+ * Several tests call this helper a second time mid-test (e.g. to refresh the
+ * theme list after creating a theme via the API) while already on this page.
+ * A second goto() to the URL you're already on can race Firefox's
+ * navigation-commit event and never produce a Playwright-trackable event
+ * (same root cause as reload() vs. a same-URL goto() in navigateToLogin,
+ * see 7503c01a) — so use reloadTolerant() in that case, matching the
+ * established pattern, instead of gotoTolerant().
  */
 async function goToAppearance(page: import('@playwright/test').Page): Promise<void> {
-  await page.goto('/settings/appearance');
-  await page.waitForLoadState('networkidle');
+  const alreadyOnAppearance = /\/settings\/appearance/.test(page.url());
+  if (alreadyOnAppearance) {
+    await reloadTolerant(page);
+  } else {
+    await gotoTolerant(page, '/settings/appearance');
+  }
+  // Bounded and non-fatal — see loginWithStoredState above for why a bare,
+  // uncaught networkidle wait can hang a whole test instead of just this step.
+  await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
   await page.getByRole('radiogroup').waitFor({ state: 'visible', timeout: 15000 });
 }
 
@@ -172,8 +196,9 @@ test.describe('Banner Customization', () => {
     });
 
     await test.step('Navigate away and back to verify the banner persists in the sidebar', async () => {
-      await page.goto('/');
-      await page.waitForLoadState('networkidle');
+      // Same Firefox navigation-commit race as loginWithStoredState/goToAppearance.
+      await gotoTolerant(page, '/');
+      await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
     });
 
     await test.step('Sidebar contains the uploaded banner image', async () => {

@@ -15,8 +15,7 @@
  * - POST /api/v1/dns-providers/:id/test
  */
 
-import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
-import { generateProxyHost } from '../fixtures/proxy-hosts';
+import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import {
   waitForLoadingComplete,
   waitForAPIResponse,
@@ -77,44 +76,6 @@ async function navigateToCertificates(page: import('@playwright/test').Page): Pr
   await waitForLoadingComplete(page);
 }
 
-/**
- * Selectors for DNS Provider and Proxy Host pages
- */
-const SELECTORS = {
-  // DNS Provider Page
-  dnsPageTitle: 'h1',
-  createDnsButton: 'button:has-text("Create DNS Provider"), button:has-text("Add DNS Provider")',
-  dnsTable: '[data-testid="dns-provider-table"], table',
-  dnsRow: '[data-testid="dns-provider-row"], tbody tr',
-  dnsDeleteBtn: '[data-testid="dns-delete-btn"], button[aria-label*="Delete"]',
-  dnsEditBtn: '[data-testid="dns-edit-btn"], button[aria-label*="Edit"]',
-  dnsTestBtn: '[data-testid="dns-test-btn"], button:has-text("Test")',
-
-  // Proxy Host Page
-  proxyPageTitle: 'h1',
-  createProxyButton: 'button:has-text("Create Proxy Host"), button:has-text("Add Proxy Host")',
-  proxyTable: '[data-testid="proxy-host-table"], table',
-  proxyRow: '[data-testid="proxy-host-row"], tbody tr',
-  proxyEditBtn: '[data-testid="proxy-edit-btn"], button[aria-label*="Edit"]',
-
-  // Form Fields
-  dnsTypeSelect: 'select[name="type"], #dns-type, [data-testid="dns-type-select"]',
-  dnsNameInput: 'input[name="name"], #dns-name',
-  apiTokenInput: 'input[name="api_token"], #api-token',
-  apiKeyInput: 'input[name="api_key"], #api-key',
-  webhookUrlInput: 'input[name="webhook_url"], #webhook-url',
-
-  // Dialog/Modal
-  confirmDialog: '[role="dialog"], [role="alertdialog"]',
-  confirmButton: 'button:has-text("Confirm"), button:has-text("Delete"), button:has-text("Yes")',
-  cancelButton: 'button:has-text("Cancel"), button:has-text("No")',
-  saveButton: 'button:has-text("Save"), button[type="submit"]',
-
-  // Status/State
-  loadingSkeleton: '[data-testid="loading-skeleton"], .loading',
-  statusBadge: '[data-testid="status-badge"], .badge',
-};
-
 test.describe('Proxy + DNS Provider Integration', () => {
   // ===========================================================================
   // Group A: DNS Provider Assignment (3 tests)
@@ -128,7 +89,7 @@ test.describe('Proxy + DNS Provider Integration', () => {
       await loginUser(page, adminUser);
 
       await test.step('Create manual DNS provider via API', async () => {
-        const { id, name } = await testData.createDNSProvider({
+        const { id } = await testData.createDNSProvider({
           providerType: 'manual',
           name: 'Manual-DNS-Test',
           credentials: {},
@@ -153,7 +114,7 @@ test.describe('Proxy + DNS Provider Integration', () => {
       await loginUser(page, adminUser);
 
       await test.step('Create Cloudflare DNS provider via API', async () => {
-        const { id, name } = await testData.createDNSProvider({
+        const { id } = await testData.createDNSProvider({
           providerType: 'cloudflare',
           name: 'Cloudflare-DNS-Test',
           credentials: {

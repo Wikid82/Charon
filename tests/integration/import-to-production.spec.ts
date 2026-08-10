@@ -16,83 +16,9 @@
  * - GET /api/v1/import/preview
  */
 
-import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
+import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { generateProxyHost } from '../fixtures/proxy-hosts';
-import { generateAccessList } from '../fixtures/access-lists';
-import {
-  waitForToast,
-  waitForLoadingComplete,
-  waitForAPIResponse,
-  waitForModal,
-  clickAndWaitForResponse,
-} from '../utils/wait-helpers';
-
-/**
- * Selectors for Import pages
- */
-const SELECTORS = {
-  // Import Page
-  importTitle: 'h1:has-text("Import"), h2:has-text("Import")',
-  importTypeSelect: 'select[name="import_type"], [data-testid="import-type"]',
-  fileUploadInput: 'input[type="file"], #file-upload',
-  textImportArea: 'textarea[name="config"], #config-input',
-
-  // Import Types
-  caddyfileTab: 'button:has-text("Caddyfile"), [data-testid="caddyfile-tab"]',
-  npmTab: 'button:has-text("NPM"), [data-testid="npm-tab"]',
-  jsonTab: 'button:has-text("JSON"), [data-testid="json-tab"]',
-
-  // Preview
-  previewSection: '[data-testid="import-preview"], .preview',
-  previewProxyHosts: '[data-testid="preview-proxy-hosts"], .preview-hosts',
-  previewAccessLists: '[data-testid="preview-access-lists"], .preview-acls',
-  previewCertificates: '[data-testid="preview-certificates"], .preview-certs',
-
-  // Actions
-  importButton: 'button:has-text("Import"), button[type="submit"]',
-  previewButton: 'button:has-text("Preview"), button:has-text("Validate")',
-  cancelButton: 'button:has-text("Cancel")',
-
-  // Status
-  importProgress: '[data-testid="import-progress"], .progress',
-  importStatus: '[data-testid="import-status"], .status',
-  importErrors: '[data-testid="import-errors"], .errors',
-  importWarnings: '[data-testid="import-warnings"], .warnings',
-
-  // Results
-  successMessage: '[data-testid="import-success"], .success',
-  importedCount: '[data-testid="imported-count"], .count',
-  skippedItems: '[data-testid="skipped-items"], .skipped',
-};
-
-/**
- * Sample Caddyfile content for testing
- */
-const SAMPLE_CADDYFILE = `
-example.com {
-    reverse_proxy localhost:8080
-}
-
-api.example.com {
-    reverse_proxy localhost:3000
-    tls internal
-}
-`;
-
-/**
- * Sample NPM export JSON for testing
- */
-const SAMPLE_NPM_EXPORT = {
-  proxy_hosts: [
-    {
-      domain_names: ['test.example.com'],
-      forward_host: '192.168.1.100',
-      forward_port: 80,
-    },
-  ],
-  access_lists: [],
-  certificates: [],
-};
+import { waitForLoadingComplete } from '../utils/wait-helpers';
 
 test.describe('Import to Production E2E', () => {
   // ===========================================================================

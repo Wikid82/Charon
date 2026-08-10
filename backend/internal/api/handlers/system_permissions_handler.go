@@ -55,6 +55,20 @@ type permissionsRepairResult struct {
 	ErrorCode  string `json:"error_code,omitempty"`
 }
 
+// outsideAllowlistResult builds the standard rejection result shared by
+// every allowlist-containment guard in repairPath (both the original
+// filepath.Rel-based check and the CodeQL-recognized strings.HasPrefix
+// guard). No new error code or message shape versus before this helper
+// existed -- purely a shared constructor for an already-identical literal.
+func outsideAllowlistResult(path string) permissionsRepairResult {
+	return permissionsRepairResult{
+		Path:      path,
+		Status:    "error",
+		ErrorCode: "permissions_outside_allowlist",
+		Message:   "path outside allowlist",
+	}
+}
+
 func NewSystemPermissionsHandler(cfg config.Config, securityService *services.SecurityService, checker PermissionChecker) *SystemPermissionsHandler {
 	if checker == nil {
 		checker = OSChecker{}
@@ -137,12 +151,35 @@ func (h *SystemPermissionsHandler) repairPath(rawPath string, groupMode bool, al
 
 	normalizedAllowlist := normalizeAllowlist(allowlist)
 	if !isWithinAllowlist(cleanPath, normalizedAllowlist) {
-		return permissionsRepairResult{
-			Path:      cleanPath,
-			Status:    "error",
-			ErrorCode: "permissions_outside_allowlist",
-			Message:   "path outside allowlist",
-		}
+		return outsideAllowlistResult(cleanPath)
+	}
+
+	// requiredPrefix identifies which allowlist root cleanPath falls under
+	// and pre-resolves the exact prefix string to confirm against; finding
+	// it may use any logic (it is not itself security-load-bearing, since
+	// isWithinAllowlist above already gated cleanPath). The
+	// strings.HasPrefix call immediately below -- on the bare cleanPath
+	// value, unmodified -- is what directly guards cleanPath at the point
+	// of use, in this same function, for every sink that follows; cleanPath
+	// is never reassigned after this point.
+	//
+	// This branch is structurally unreachable via any real call to
+	// repairPath: cleanPath only ever arrives here after already passing
+	// the isWithinAllowlist check above, and firstAllowlistPrefix is a
+	// proven superset of isWithinAllowlist's containment decision for
+	// every absolute, ".."-free path (the only kind normalizePath ever lets
+	// through) -- re-derived and re-verified against every edge case
+	// (root == "/", relative/malformed roots, empty roots, trailing
+	// separators) while closing this coverage gap; see
+	// docs/plans/current_spec.md §1.4/§5.5 for the full proof. It exists
+	// purely to give CodeQL's go/path-injection query a recognizable,
+	// in-function sanitizer directly on the value passed to the sinks
+	// below (§1.4). The shared outsideAllowlistResult call keeps this
+	// dead-in-practice branch to a single line instead of duplicating the
+	// full result literal a second time.
+	requiredPrefix := firstAllowlistPrefix(cleanPath, normalizedAllowlist)
+	if requiredPrefix == "" || !strings.HasPrefix(cleanPath, requiredPrefix) {
+		return outsideAllowlistResult(cleanPath)
 	}
 
 	info, err := os.Lstat(cleanPath)
@@ -172,7 +209,7 @@ func (h *SystemPermissionsHandler) repairPath(rawPath string, groupMode bool, al
 		}
 	}
 
-	hasSymlinkComponent, symlinkErr := pathHasSymlink(cleanPath)
+	hasSymlinkComponent, symlinkErr := pathHasSymlink(cleanPath, normalizedAllowlist)
 	if symlinkErr != nil {
 		if os.IsNotExist(symlinkErr) {
 			return permissionsRepairResult{
@@ -264,6 +301,7 @@ func (h *SystemPermissionsHandler) repairPath(rawPath string, groupMode bool, al
 			Message:   parseErr.Error(),
 		}
 	}
+
 	if err := os.Chmod(cleanPath, parsedMode); err != nil {
 		return permissionsRepairResult{
 			Path:      cleanPath,
@@ -379,10 +417,31 @@ func normalizeAllowlist(allowlist []string) []string {
 	return normalized
 }
 
-func pathHasSymlink(path string) (bool, error) {
+// pathHasSymlink walks path component-by-component from the filesystem
+// root, Lstat-ing every successive prefix, to TOCTOU-safely detect a
+// symlink anywhere in the chain (not just at the leaf). allowlist is the
+// normalized set of admin-configured safe roots. clean (path, normalized)
+// is guarded once against allowlist immediately below via a direct
+// strings.HasPrefix call in this function; every current value used at
+// the Lstat sink is derived exclusively from that already-guarded clean
+// value via filepath.Clean/strings.Split/filepath.Join, so the guard
+// covers the whole walk, not just the final component.
+func pathHasSymlink(path string, allowlist []string) (bool, error) {
 	clean := filepath.Clean(path)
-	parts := strings.Split(clean, string(os.PathSeparator))
-	current := string(os.PathSeparator)
+	pathSep := string(os.PathSeparator)
+
+	// requiredPrefix identifies which allowlist root clean falls under and
+	// pre-resolves the exact prefix string to confirm against; see the
+	// matching comment in repairPath for why the lookup itself need not be
+	// the recognized guard -- the strings.HasPrefix call below, on the
+	// bare clean value, is.
+	requiredPrefix := firstAllowlistPrefix(clean, allowlist)
+	if requiredPrefix == "" || !strings.HasPrefix(clean, requiredPrefix) {
+		return false, fmt.Errorf("%w: %s", errPathEscapesAllowlist, clean)
+	}
+
+	parts := strings.Split(clean, pathSep)
+	current := pathSep
 	for _, part := range parts {
 		if part == "" {
 			continue
@@ -399,6 +458,8 @@ func pathHasSymlink(path string) (bool, error) {
 	return false, nil
 }
 
+var errPathEscapesAllowlist = errors.New("path escapes allowed roots during traversal")
+
 func isWithinAllowlist(path string, allowlist []string) bool {
 	for _, root := range allowlist {
 		rel, err := filepath.Rel(root, path)
@@ -410,6 +471,43 @@ func isWithinAllowlist(path string, allowlist []string) bool {
 		}
 	}
 	return false
+}
+
+// firstAllowlistPrefix returns a prefix p such that strings.HasPrefix(current, p)
+// is true if and only if current is within (or equal to) one of allowlist's
+// roots, or "" if no root matches. When current exactly equals the matching
+// root, p is current itself (any string trivially has itself as a prefix);
+// otherwise p is root+separator, so a real descendant is required (avoiding
+// "/foo" being mistaken for a prefix of "/foobar"). A root of exactly the
+// separator ("/") always matches, since every absolute path starts with "/".
+//
+// This is kept separate from isWithinAllowlist (above) rather than merged
+// into it: isWithinAllowlist is filepath.Rel-based and CodeQL's Go
+// path-injection sanitizer does not recognize that idiom at all, whereas it
+// does recognize a direct strings.HasPrefix(taintedVar, ...) call -- but
+// only when that call sits in the sink's own function, is not itself
+// wrapped behind a helper call, and is not inside a loop. Merging the two
+// would either move the recognized HasPrefix call back behind a function
+// boundary (unrecognized again) or force isWithinAllowlist's existing,
+// separately-tested Rel-error-branch behavior to change; both are exactly
+// what this split avoids.
+func firstAllowlistPrefix(current string, allowlist []string) string {
+	sep := string(os.PathSeparator)
+	for _, root := range allowlist {
+		if root == "" {
+			continue
+		}
+		if root == sep {
+			return sep
+		}
+		if current == root {
+			return current
+		}
+		if strings.HasPrefix(current, root+sep) {
+			return root + sep
+		}
+	}
+	return ""
 }
 
 func targetMode(isDir, groupMode bool) string {

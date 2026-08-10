@@ -52,7 +52,7 @@ jobs:
         run: bash scripts/ci/check-codeql-parity.sh
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
+        uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
         with:
           languages: ${{ matrix.language }}
           queries: security-and-quality
@@ -92,11 +92,11 @@ jobs:
         run: mkdir -p sarif-results
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
+        uses: github/codeql-action/autobuild@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
 
       - name: Perform CodeQL Analysis
         id: codeql_analyze
-        uses: github/codeql-action/analyze@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
+        uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
         with:
           category: "/language:${{ matrix.language }}"
           output: sarif-results/${{ matrix.language }}
@@ -129,70 +129,30 @@ jobs:
             exit 1
           fi
 
-          # shellcheck disable=SC2016
-          EFFECTIVE_LEVELS_JQ='[
-            .runs[] as $run
-            | $run.results[]
-            | . as $result
-            | ($run.tool.driver.rules // []) as $rules
-            | ((
-                $result.level
-                // (if (($result.ruleIndex | type) == "number") then ($rules[$result.ruleIndex].defaultConfiguration.level // empty) else empty end)
-                // ([
-                    $rules[]?
-                    | select((.id // "") == ($result.ruleId // ""))
-                    | (.defaultConfiguration.level // empty)
-                  ][0] // empty)
-                // ""
-              ) | ascii_downcase)
-          ]'
-
           echo "Found SARIF file: $SARIF_FILE"
-          ERROR_COUNT=$(jq -r "${EFFECTIVE_LEVELS_JQ} | map(select(. == \"error\")) | length" "$SARIF_FILE")
-          WARNING_COUNT=$(jq -r "${EFFECTIVE_LEVELS_JQ} | map(select(. == \"warning\")) | length" "$SARIF_FILE")
-          NOTE_COUNT=$(jq -r "${EFFECTIVE_LEVELS_JQ} | map(select(. == \"note\")) | length" "$SARIF_FILE")
 
           {
-            echo "**Findings:**"
-            echo "- 🔴 Errors: $ERROR_COUNT"
-            echo "- 🟡 Warnings: $WARNING_COUNT"
-            echo "- 🔵 Notes: $NOTE_COUNT"
-            echo ""
-
-            if [ "$ERROR_COUNT" -gt 0 ]; then
-              echo "❌ **BLOCKING:** CodeQL error-level security issues found"
-              echo ""
-              echo "### Top Issues:"
-              echo '```'
-              # shellcheck disable=SC2016
-              jq -r '
-                .runs[] as $run
-                | $run.results[]
-                | . as $result
-                | ($run.tool.driver.rules // []) as $rules
-                | ((
-                    $result.level
-                    // (if (($result.ruleIndex | type) == "number") then ($rules[$result.ruleIndex].defaultConfiguration.level // empty) else empty end)
-                    // ([
-                        $rules[]?
-                        | select((.id // "") == ($result.ruleId // ""))
-                        | (.defaultConfiguration.level // empty)
-                      ][0] // empty)
-                    // ""
-                  ) | ascii_downcase) as $effectiveLevel
-                | select($effectiveLevel == "error")
-                | "\($effectiveLevel): \($result.ruleId // \"<unknown-rule>\"): \($result.message.text)"
-              ' "$SARIF_FILE" | head -5
-              echo '```'
+            echo "## 🔒 CodeQL Findings Gate"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          set +e
+          bash scripts/security/codeql-findings-gate.sh "$SARIF_FILE" "${{ matrix.language }}" | tee -a "$GITHUB_STEP_SUMMARY"
+          GATE_EXIT=${PIPESTATUS[0]}
+          set -e
+          {
+            echo '```'
+            if [ "$GATE_EXIT" -gt 0 ]; then
+              echo "❌ **BLOCKING:** see findings above (blocking enforcement happens in the next step)"
             else
               echo "✅ No blocking CodeQL issues found"
             fi
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          {
             echo ""
             echo "View full results in the [Security tab](https://github.com/${{ github.repository }}/security/code-scanning)"
           } >> "$GITHUB_STEP_SUMMARY"
+
+          # Reporting only here — blocking happens in the next step. Do not
+          # fail this step on a non-zero gate exit.
+          exit 0
 
       - name: Fail on High-Severity Findings
         if: always() && steps.codeql_analyze.conclusion != 'skipped'
@@ -212,26 +172,7 @@ jobs:
             exit 1
           fi
 
-          # shellcheck disable=SC2016
-          ERROR_COUNT=$(jq -r '[
-            .runs[] as $run
-            | $run.results[]
-            | . as $result
-            | ($run.tool.driver.rules // []) as $rules
-            | ((
-                $result.level
-                // (if (($result.ruleIndex | type) == "number") then ($rules[$result.ruleIndex].defaultConfiguration.level // empty) else empty end)
-                // ([
-                    $rules[]?
-                    | select((.id // "") == ($result.ruleId // ""))
-                    | (.defaultConfiguration.level // empty)
-                  ][0] // empty)
-                // ""
-              ) | ascii_downcase) as $effectiveLevel
-            | select($effectiveLevel == "error")
-          ] | length' "$SARIF_FILE")
-
-          if [ "$ERROR_COUNT" -gt 0 ]; then
-            echo "::error::CodeQL found $ERROR_COUNT blocking findings (effective-level=error). Fix before merging. Policy: .github/security-severity-policy.yml"
+          if ! bash scripts/security/codeql-findings-gate.sh "$SARIF_FILE" "${{ matrix.language }}" >/dev/null; then
+            echo "::error::CodeQL found blocking findings. Fix before merging, or add a documented exception. Policy: .github/security-severity-policy.yml"
             exit 1
           fi

@@ -1118,16 +1118,18 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 	res, err := h.Hub.Pull(ctx, slug)
 	if err != nil {
 		status := mapCrowdsecStatus(err, http.StatusBadGateway)
-		// codeql[go/log-injection] Safe: User input sanitized via util.SanitizeForLog()
-		// which removes control characters (0x00-0x1F, 0x7F) including CRLF
+		// Safe: User input sanitized via util.SanitizeForLog() which removes
+		// control characters (0x00-0x1F, 0x7F) including CRLF
+		// codeql[go/log-injection]
 		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(slug)).WithField("hub_base_url", util.SanitizeForLog(h.Hub.HubBaseURL)).Warn("crowdsec preset pull failed")
 		c.JSON(status, gin.H{"error": err.Error(), "hub_endpoints": h.hubEndpoints()})
 		return
 	}
 
 	// Verify cache was actually stored
-	// codeql[go/log-injection] Safe: res.Meta fields are system-generated (cache keys, file paths)
+	// Safe: res.Meta fields are system-generated (cache keys, file paths)
 	// not directly derived from untrusted user input
+	// codeql[go/log-injection]
 	logger.Log().Info("preset pulled and cached successfully")
 
 	// Verify files exist on disk
@@ -1232,8 +1234,9 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 	res, err := h.Hub.Apply(ctx, slug)
 	if err != nil {
 		status := mapCrowdsecStatus(err, http.StatusInternalServerError)
-		// codeql[go/log-injection] Safe: User input (slug) sanitized via util.SanitizeForLog();
+		// Safe: User input (slug) sanitized via util.SanitizeForLog();
 		// backup_path and cache_key are system-generated values
+		// codeql[go/log-injection]
 		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(slug)).WithField("hub_base_url", util.SanitizeForLog(h.Hub.HubBaseURL)).WithField("backup_path", util.SanitizeForLog(res.BackupPath)).WithField("cache_key", util.SanitizeForLog(res.CacheKey)).Warn("crowdsec preset apply failed")
 		if h.DB != nil {
 			_ = h.DB.Create(&models.CrowdsecPresetEvent{Slug: slug, Action: "apply", Status: "failed", CacheKey: res.CacheKey, BackupPath: res.BackupPath, Error: err.Error()}).Error

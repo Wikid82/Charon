@@ -23,7 +23,6 @@ describe('accessListsApi', () => {
     it('should fetch all access lists', async () => {
       const mockLists: AccessList[] = [
         {
-          id: 1,
           uuid: 'test-uuid',
           name: 'Test ACL',
           description: 'Test description',
@@ -47,9 +46,8 @@ describe('accessListsApi', () => {
   });
 
   describe('get', () => {
-    it('should fetch access list by ID', async () => {
+    it('should fetch access list by UUID', async () => {
       const mockList: AccessList = {
-        id: 1,
         uuid: 'test-uuid',
         name: 'Test ACL',
         description: 'Test description',
@@ -64,9 +62,9 @@ describe('accessListsApi', () => {
 
       vi.mocked(client.get).mockResolvedValueOnce({ data: mockList });
 
-      const result = await accessListsApi.get(1);
+      const result = await accessListsApi.get('test-uuid');
 
-      expect(client.get).toHaveBeenCalledWith<[string]>('/access-lists/1');
+      expect(client.get).toHaveBeenCalledWith<[string]>('/access-lists/test-uuid');
       expect(result).toEqual(mockList);
     });
   });
@@ -82,7 +80,6 @@ describe('accessListsApi', () => {
       };
 
       const mockResponse: AccessList = {
-        id: 1,
         uuid: 'new-uuid',
         ...newList,
         country_codes: '',
@@ -108,7 +105,6 @@ describe('accessListsApi', () => {
       };
 
       const mockResponse: AccessList = {
-        id: 1,
         uuid: 'test-uuid',
         name: 'Updated ACL',
         description: 'Test description',
@@ -123,9 +119,9 @@ describe('accessListsApi', () => {
 
       vi.mocked(client.put).mockResolvedValueOnce({ data: mockResponse });
 
-      const result = await accessListsApi.update(1, updates);
+      const result = await accessListsApi.update('test-uuid', updates);
 
-      expect(client.put).toHaveBeenCalledWith<[string, typeof updates]>('/access-lists/1', updates);
+      expect(client.put).toHaveBeenCalledWith<[string, typeof updates]>('/access-lists/test-uuid', updates);
       expect(result).toEqual(mockResponse);
     });
   });
@@ -134,9 +130,9 @@ describe('accessListsApi', () => {
     it('should delete an access list', async () => {
       vi.mocked(client.delete).mockResolvedValueOnce({ data: undefined });
 
-      await accessListsApi.delete(1);
+      await accessListsApi.delete('test-uuid');
 
-      expect(client.delete).toHaveBeenCalledWith<[string]>('/access-lists/1');
+      expect(client.delete).toHaveBeenCalledWith<[string]>('/access-lists/test-uuid');
     });
   });
 
@@ -149,9 +145,9 @@ describe('accessListsApi', () => {
 
       vi.mocked(client.post).mockResolvedValueOnce({ data: mockResponse });
 
-      const result = await accessListsApi.testIP(1, '192.168.1.100');
+      const result = await accessListsApi.testIP('test-uuid', '192.168.1.100');
 
-      expect(client.post).toHaveBeenCalledWith<[string, { ip_address: string }]>('/access-lists/1/test', {
+      expect(client.post).toHaveBeenCalledWith<[string, { ip_address: string }]>('/access-lists/test-uuid/test', {
         ip_address: '192.168.1.100',
       });
       expect(result).toEqual(mockResponse);

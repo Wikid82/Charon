@@ -15,7 +15,6 @@
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import {
-  waitForToast,
   waitForLoadingComplete,
   waitForAPIResponse,
 } from '../utils/wait-helpers';

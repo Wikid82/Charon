@@ -202,6 +202,8 @@ graph TB
 │   │   ├── models/             # GORM database models
 │   │   ├── database/           # DB initialization and migrations
 │   │   │   └── pending_restore.go      # Boot-time pending-restore swap consumer
+│   │   ├── changelog/          # "What's New" changelog service (embedded JSON, no runtime network calls)
+│   │   │   └── data/changelog.json     # Build-time generated changelog data (see "Release Workflow")
 │   │   └── utils/              # Helper functions
 │   ├── pkg/                    # Public reusable packages
 │   ├── integration/            # Integration tests
@@ -339,6 +341,10 @@ graph TB
 - **BackupService:** Format-v2 archive creation (manifest + SHA-256 checksums), configurable cron scheduling, the safe-restore pipeline (validate → pre-restore safety backup → apply → reconcile), and optional age/scrypt archive encryption — see "Backup & Restore Subsystem" below
 
 **Design Pattern:** Services contain business logic and call multiple repositories/managers
+
+#### Changelog Subsystem (`internal/changelog/`)
+
+Powers the post-login "What's New" modal. `internal/changelog.Service` reads a `//go:embed`-ed `data/changelog.json` (generated at release build time from conventional-commit history — see "Release Workflow" below) and answers "what's new since version X" against the `User.last_seen_version` / `User.changelog_opt_out` columns, via four authenticated routes under `/api/v1/changelog`. No runtime network calls or external dependencies.
 
 #### Stats Subsystem (`internal/services/stats_*`, `internal/api/handlers/stats_*`)
 
@@ -1469,6 +1475,8 @@ go test ./integration/...
 8. **Publish:** Push to Docker Hub and GHCR
 9. **Release Notes:** Generate changelog from commits
 10. **Notify:** Send release notification (Discord, email)
+
+**In-app changelog data:** Separately from step 9's GitHub release notes, `scripts/generate-changelog.sh` runs during the same `release-goreleaser.yml` workflow to parse conventional-commit history into `backend/internal/changelog/data/changelog.json`, which is `//go:embed`-ed into the binary and powers the in-app "What's New" modal (see "Changelog Subsystem" above). It writes a different file than step 9 and does not affect the GitHub release notes.
 
 **Mandatory rollout gates (sign-off block):**
 

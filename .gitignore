@@ -187,6 +187,7 @@ codeql-results-go.sarif
 codeql-results-js.sarif
 codeql-results-javascript.sarif
 *.sarif
+!scripts/security/testdata/*.sarif
 .codeql/
 .codeql/**
 my-codeql-db/

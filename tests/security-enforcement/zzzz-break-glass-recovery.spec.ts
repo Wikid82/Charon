@@ -34,7 +34,6 @@ import { getSecurityStatus } from '../utils/security-helpers';
 
 test.describe.serial('Break Glass Recovery - Test-Runner Whitelist', () => {
   const EMERGENCY_TOKEN = process.env.CHARON_EMERGENCY_TOKEN;
-  const EMERGENCY_URL = 'http://localhost:2020';
   const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
   const ADMIN_WHITELIST = '127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16';
   let apiContext: APIRequestContext;

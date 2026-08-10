@@ -84,8 +84,7 @@ test.describe('Domain & DNS Management', () => {
       data: { name: domainName },
       headers: getStorageStateAuthHeaders(),
     });
-    const created = await createResponse.json();
-    const domainId = created.uuid || created.id;
+    expect(createResponse.ok()).toBeTruthy();
 
     await test.step('Navigate to domains page', async () => {
       await navigateToDomains(page);

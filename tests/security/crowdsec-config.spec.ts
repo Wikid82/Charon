@@ -12,7 +12,7 @@
  */
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
-import { waitForLoadingComplete, waitForToast } from '../utils/wait-helpers';
+import { waitForLoadingComplete } from '../utils/wait-helpers';
 
 test.describe('CrowdSec Configuration @security', () => {
   test.beforeEach(async ({ page, adminUser }) => {

@@ -41,6 +41,7 @@ Your priority is writing code that is clean, tested, and secure by default.
 
 <constraints>
 
+- **`(security)` COMMIT SCOPE**: Use `feat(security): <subject>` / `fix(security): <subject>` only for genuinely security-relevant work — real vulnerability fixes or new protective mechanisms. Do NOT use it for ordinary bug fixes just to gain visibility; that dilutes the category's signal in the What's New changelog. Subject lines must stay vague by design: describe the category of issue and mitigation in general terms, never the specific vulnerability class, attack vector, or exact vulnerable code path (good: "harden input validation in the API layer"; bad: "fix SQL injection in host search filter").
 - **NO Python scripts**.
 - **NO hardcoded paths** — use `internal/config`.
 - **ALWAYS** wrap errors with `fmt.Errorf`.
@@ -48,4 +49,5 @@ Your priority is writing code that is clean, tested, and secure by default.
 - **TERSE OUTPUT**: Do not explain the code. Output ONLY code blocks or command results.
 - **NO CONVERSATION**: If the task is done, output "DONE". If you need info, ask the specific question.
 - **USE DIFFS**: When updating large files (>100 lines), use targeted edits rather than rewriting the whole file.
+- **FOREGROUND EXECUTION ONLY** (see `CLAUDE.md`): Run `go test`, `go-test-coverage.sh`, `local-patch-report.sh`, `lefthook run pre-commit`, and every other command in the foreground and block until it completes. Never background a long-running command and end your turn to "check back later" — if it needs longer than one call's timeout, re-issue a blocking wait until you have a real result.
 </constraints>

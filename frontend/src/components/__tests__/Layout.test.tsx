@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { type ReactNode } from 'react'
 import { BrowserRouter } from 'react-router'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import * as featureFlagsApi from '../../api/featureFlags'
 import { ThemeProvider } from '../../context/ThemeContext'
@@ -44,6 +44,15 @@ vi.mock('../../api/system', () => ({
   markNotificationRead: vi.fn(),
   markAllNotificationsRead: vi.fn(),
   checkUpdates: vi.fn().mockResolvedValue({ available: false }),
+}))
+
+// Layout mounts WhatsNewModal (mode="status") unconditionally — stub its
+// hooks so the modal self-gates closed (show_changelog: false) and no
+// unmocked network request is made during unrelated Layout tests.
+vi.mock('../../hooks/useChangelog', () => ({
+  useChangelogStatus: vi.fn().mockReturnValue({ data: { show_changelog: false, versions: [] }, isError: false }),
+  useChangelogAll: vi.fn().mockReturnValue({ data: undefined, isError: false }),
+  useAckChangelog: vi.fn().mockReturnValue({ mutate: vi.fn() }),
 }))
 
 const renderWithProviders = (children: ReactNode) => {
@@ -381,6 +390,132 @@ describe('Layout', () => {
       const hecateBtn = await screen.findByRole('button', { name: /hecate/i })
       await userEvent.setup().click(hecateBtn)
       expect(await screen.findByText('Remote Servers')).toBeInTheDocument()
+    })
+  })
+
+  describe('aria-current on nav links', () => {
+    afterEach(() => {
+      // Reset the URL between tests since BrowserRouter reads window.location
+      // at mount time and jsdom's location persists across tests in this file.
+      window.history.pushState({}, '', '/')
+    })
+
+    it('adds aria-current="page" to the collapsed group nav link when its path is active', async () => {
+      localStorage.setItem('sidebarCollapsed', 'true')
+      window.history.pushState({}, '', '/hecate/tunnels')
+
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      const link = await screen.findByTitle('Hecate')
+      expect(link).toHaveAttribute('aria-current', 'page')
+    })
+
+    it('omits aria-current from the collapsed group nav link when its path is not active', async () => {
+      localStorage.setItem('sidebarCollapsed', 'true')
+      window.history.pushState({}, '', '/domains')
+
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      const link = await screen.findByTitle('Hecate')
+      expect(link).not.toHaveAttribute('aria-current')
+    })
+
+    it('adds aria-current="page" to a top-level nav link when its path is active', async () => {
+      localStorage.setItem('sidebarCollapsed', 'false')
+      window.history.pushState({}, '', '/proxy-hosts')
+
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      const link = await screen.findByRole('link', { name: /Proxy Hosts/ })
+      expect(link).toHaveAttribute('aria-current', 'page')
+    })
+
+    it('omits aria-current from a top-level nav link when its path is not active', async () => {
+      localStorage.setItem('sidebarCollapsed', 'false')
+      window.history.pushState({}, '', '/domains')
+
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      const link = await screen.findByRole('link', { name: /Proxy Hosts/ })
+      expect(link).not.toHaveAttribute('aria-current')
+    })
+
+    it('adds aria-current="page" to an expanded child nav link when its path is active', async () => {
+      window.history.pushState({}, '', '/hecate/remote-servers')
+      const user = userEvent.setup()
+
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      await user.click(await screen.findByRole('button', { name: /hecate/i }))
+      const link = await screen.findByRole('link', { name: 'Remote Servers' })
+      expect(link).toHaveAttribute('aria-current', 'page')
+    })
+
+    it('omits aria-current from an expanded child nav link when its path is not active', async () => {
+      window.history.pushState({}, '', '/hecate/tunnels')
+      const user = userEvent.setup()
+
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      await user.click(await screen.findByRole('button', { name: /hecate/i }))
+      const link = await screen.findByRole('link', { name: 'Remote Servers' })
+      expect(link).not.toHaveAttribute('aria-current')
+    })
+
+    it('adds aria-current="page" to a nested sub-item link when its path is active', async () => {
+      window.history.pushState({}, '', '/tasks/import/caddyfile')
+      const user = userEvent.setup()
+
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      await user.click(await screen.findByRole('button', { name: /tasks/i }))
+      await user.click(await screen.findByRole('button', { name: /import/i }))
+      const link = await screen.findByRole('link', { name: 'Caddyfile' })
+      expect(link).toHaveAttribute('aria-current', 'page')
+    })
+
+    it('omits aria-current from a nested sub-item link when its path is not active', async () => {
+      window.history.pushState({}, '', '/tasks/import/npm')
+      const user = userEvent.setup()
+
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      await user.click(await screen.findByRole('button', { name: /tasks/i }))
+      await user.click(await screen.findByRole('button', { name: /import/i }))
+      const link = await screen.findByRole('link', { name: 'Caddyfile' })
+      expect(link).not.toHaveAttribute('aria-current')
     })
   })
 })

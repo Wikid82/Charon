@@ -6,7 +6,12 @@ export interface AccessListRule {
 }
 
 export interface AccessList {
-  id: number;
+  /**
+   * @deprecated The backend omits this field from JSON responses
+   * (`json:"-"` on `models.AccessList.ID`) — UUIDs are the public identifier
+   * convention for this resource. Never read this field; use `uuid` instead.
+   */
+  id?: number;
   uuid: string;
   name: string;
   description: string;
@@ -58,13 +63,13 @@ export const accessListsApi = {
   },
 
   /**
-   * Gets a single access list by ID.
-   * @param id - The access list ID
+   * Gets a single access list by UUID.
+   * @param uuid - The access list UUID
    * @returns Promise resolving to the AccessList object
    * @throws {AxiosError} If the request fails or access list not found
    */
-  async get(id: number): Promise<AccessList> {
-    const response = await client.get<AccessList>(`/access-lists/${id}`);
+  async get(uuid: string): Promise<AccessList> {
+    const response = await client.get<AccessList>(`/access-lists/${uuid}`);
     return response.data;
   },
 
@@ -81,34 +86,34 @@ export const accessListsApi = {
 
   /**
    * Updates an existing access list.
-   * @param id - The access list ID to update
+   * @param uuid - The access list UUID to update
    * @param data - Partial CreateAccessListRequest with fields to update
    * @returns Promise resolving to the updated AccessList
    * @throws {AxiosError} If update fails or access list not found
    */
-  async update(id: number, data: Partial<CreateAccessListRequest>): Promise<AccessList> {
-    const response = await client.put<AccessList>(`/access-lists/${id}`, data);
+  async update(uuid: string, data: Partial<CreateAccessListRequest>): Promise<AccessList> {
+    const response = await client.put<AccessList>(`/access-lists/${uuid}`, data);
     return response.data;
   },
 
   /**
    * Deletes an access list.
-   * @param id - The access list ID to delete
+   * @param uuid - The access list UUID to delete
    * @throws {AxiosError} If deletion fails or access list not found
    */
-  async delete(id: number): Promise<void> {
-    await client.delete(`/access-lists/${id}`);
+  async delete(uuid: string): Promise<void> {
+    await client.delete(`/access-lists/${uuid}`);
   },
 
   /**
    * Tests if an IP address would be allowed or blocked by an access list.
-   * @param id - The access list ID to test against
+   * @param uuid - The access list UUID to test against
    * @param ipAddress - The IP address to test
    * @returns Promise resolving to TestIPResponse with allowed status and reason
    * @throws {AxiosError} If test fails or access list not found
    */
-  async testIP(id: number, ipAddress: string): Promise<TestIPResponse> {
-    const response = await client.post<TestIPResponse>(`/access-lists/${id}/test`, {
+  async testIP(uuid: string, ipAddress: string): Promise<TestIPResponse> {
+    const response = await client.post<TestIPResponse>(`/access-lists/${uuid}/test`, {
       ip_address: ipAddress,
     });
     return response.data;

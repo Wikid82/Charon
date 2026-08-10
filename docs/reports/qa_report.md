@@ -1,141 +1,94 @@
-> **Note:** the prior report previously at this path (auth cookie secure-flag fix + `feature/backuprestore`
-> branch sweep, dated 2026-07-17/18) has been archived to
-> `docs/reports/archive/qa_report_backuprestore-cookie-fix_2026-07-17.md`.
+# QA Report — Issue #619 Test-Infrastructure Debt Closeout
 
-# QA Report — Docker Null-Container-List Hotfix
+**Branch**: `test/issue-619-test-infra-debt`
+**Commits reviewed this pass**: `dac267f3`..`52bdc675` (19 commits — 6 parallel dev-agent fix rounds closing out the 52 E2E failures documented in the prior pass)
+**Reviewed by**: qa-security agent
+**Date**: 2026-08-08
+**Plan reference**: `docs/plans/current_spec.md`
 
-**Date:** 2026-07-30
-**Branch:** `fix/docker-empty-list-null-crash` (off `origin/main`)
-**Commits audited:** `bf5384d6` (backend), `d09d2437` (frontend)
-**Scope:** Standalone two-file hotfix. Not a feature — gates scoped proportionately per Management's
-instructions, but nothing mandatory skipped.
-**Auditor:** QA & Security Engineer
+## FINAL CLOSEOUT (added by Management after this report, same day)
 
----
+Per the codified policy change (`75c63696`), no further local full-suite/multi-browser Playwright runs were performed. CI's next run on the PR is the authoritative full cross-browser confirmation. All other, non-Playwright Definition of Done gates were completed locally after this report (branch then gained one more commit, `716e26b2`, fixing the 2 new a11y findings in §1 below):
 
-## Executive Summary
+| Gate | Result |
+|---|---|
+| Backend coverage (`go-test-coverage.sh`) | ✅ 89.2% line coverage (min 87%) |
+| Frontend coverage (`frontend-test-coverage.sh`) | ✅ 90.84% line coverage (min 87%); Statements 89.63%, Branches 82.8%, Functions 87.27% |
+| Local patch coverage (`local-patch-report.sh`) | ✅ 100% overall (18/18 changed lines), vs. 90% minimum |
+| Lefthook `pre-commit` (targeted run against all 51 files changed vs. `development`, since the `actionlint` job hung on an environment issue unrelated to this PR — zero `.github/workflows/*.yml` files are touched by this PR, confirmed via `git diff --stat`, so `actionlint` has nothing to check here regardless) | ✅ go-vet, golangci-lint-fast, dockerfile-check, frontend-type-check, frontend-lint all pass. `shellcheck` re-run directly (bypassing a `{staged_files}` templating artifact) — 0 errors. `semgrep` — 424 rules / 973 files / 0 findings. |
+| Lefthook `codeql` (Go + JS) | ✅ Go: 1 result, suppressed (pre-existing, documented in `codeql-suppressions.yml`, unrelated to this PR). JS: 0 findings. Parity check passed. |
+| `gitleaks` (not part of the mandatory `pre-commit` stage, run directly for defense-in-depth per the "double-check for secrets" guidance) | ✅ 514 pre-existing findings across the broader repo (test fixtures/mock credentials, none introduced by this PR) — **0 findings in any of this PR's 51 changed files**, confirmed by cross-referencing the gitleaks JSON report against the changed-file list. |
+| Trivy container/dependency scan | ➡️ Carried forward, not re-run — confirmed via `git diff --stat` that this PR changes zero `go.mod`/`go.sum`/`package.json`/`package-lock.json`/`Dockerfile*` files across all 30 commits vs. `development`, so the earlier confirmed result (0 new Critical/High, 1 pre-existing tracked HIGH documented in `SECURITY.md`) cannot have drifted. |
+| Backend build (`go build ./...`) | ✅ Clean |
+| Frontend build (`npm run build`) | ✅ Clean, `✓ built in 2.40s` |
+| GORM security scan | N/A, correctly skipped — zero `.go` files changed anywhere in this PR |
 
-**READY TO MERGE. No blocking issues found.**
+**This is now a complete Definition of Done sweep for everything except full cross-browser/full-suite Playwright confirmation, which is CI's job per policy.** Recommend: push, open/update the PR, let CI run the full 3-browser matrix, and treat any CI-reported failure as a new finding to triage rather than assuming the local partial runs already covered it.
 
-Both commits match `docs/plans/current_spec.md` exactly — no scope creep. `git diff origin/main...fix/docker-empty-list-null-crash --name-only`
-confirms only the four files the spec authorizes were touched:
-`backend/internal/services/docker_service.go`, `backend/internal/services/docker_service_test.go`,
-`frontend/src/hooks/useDocker.ts`, `frontend/src/hooks/__tests__/useDocker.test.tsx`.
+## STATUS: Partial re-validation — stopped mid-run per updated process guidance. Not a final merge verdict.
 
-Every mandatory gate passed with real, observed evidence (see below). One informational note (E2E
-coverage gap for the exact zero-containers scenario) and one environmental observation (coverage-instrumented
-frontend test runs are flaky under concurrent system load, unrelated to this diff) are recorded but are not
-blockers.
-
-**Note:** at report time, Management indicated a second, related bugfix commit was being added to this same
-branch by another agent. This report certifies the branch **as audited at `bf5384d6`/`d09d2437`** — it does not
-cover any commit added after this audit. Re-validation is required before push/PR if the branch changes further.
+This pass was launched as a full Definition-of-Done re-validation (clean rebuild + all 3 browsers + backend/frontend coverage + lefthook + Trivy). **Mid-run, Management issued a process change, since codified in commit `75c63696`** (`CLAUDE.md`, `.claude/agents/qa-security.md`, `management.md`, `playwright-dev.md`): full-suite and multi-browser (`chromium`+`firefox`+`webkit` together) Playwright runs are **CI-only**, never local — not even as a "final" or "consolidated" validation pass. Locally, E2E scope is limited to targeted specs under a single browser (`--project=firefox`). This report captures exactly what was verified before that instruction fully landed, stops all further local full-suite/multi-browser E2E work in compliance with the now-codified policy, and hands back to Management for commit/push so CI can authoritatively confirm cross-browser health. **Do not treat the gates below as a complete DoD sweep** — several were not (re-)run this pass and are marked accordingly, distinct from gates that were actually executed with evidence in this session. No further local full-suite Playwright runs will follow this report.
 
 ---
 
-## Gate Results
+## Gate-by-Gate Status (this pass)
 
-| # | Gate | Result | Evidence |
-|---|------|--------|----------|
-| 1 | Backend full test suite | ✅ PASS | `go test ./...` — all packages `ok`, zero failures, including new `TestListContainers_EmptyResultIsNotNil` |
-| 1b | Backend coverage | ✅ PASS | `scripts/go-test-coverage.sh` — **89.1% line coverage / 89.2% statement coverage** vs 87% floor |
-| 2 | Frontend full test suite | ✅ PASS | `npx vitest run` — 259 test files / 3170 tests passed, 5 files / 88 tests skipped, 2 todo, **zero failures** |
-| 2b | Frontend coverage | ✅ PASS | `scripts/frontend-test-coverage.sh` — **Lines 90.59%** (7398/8166), Statements 89.42%, Branches 82.44%, Functions 87.05%, vs 87% floor. Script's own gate check: `Coverage gate: PASS (lines 90.59% vs minimum 87%)` |
-| 3 | Type safety | ✅ PASS | `npm run type-check` (`tsc --noEmit`) — zero errors |
-| 4 | Backend build | ✅ PASS | `go build ./...` — clean |
-| 4b | Frontend build | ✅ PASS | `npm run build` — clean, `dist/` produced |
-| 5 | Local patch coverage | ✅ PASS | `bash scripts/local-patch-report.sh` — **Overall 100% (1/1), Backend 100% (1/1), Frontend 100% (0/0)**, all `pass` status vs 90%/85%/85% thresholds. Artifacts confirmed: `test-results/local-patch-report.md`, `test-results/local-patch-report.json` |
-| 6 | Lefthook pre-commit | ✅ PASS | `lefthook run pre-commit --file <4 changed files>` (files staged; used `--file` override since files are already committed, not staged) — `go-vet` ✔, `golangci-lint-fast` ✔ (0 issues — this is the staticcheck-inclusive fast lint; `make lint-staticcheck-only` was **not** used, per the known pre-existing golangci-lint v1/v2 Makefile mismatch noted in the task brief), `semgrep` ✔ (0 findings, 0 blocking, scanned exactly the 4 changed files), `frontend-type-check` ✔, `frontend-lint` ✔ (0 errors; 1201 pre-existing project-wide warnings, **none** in `useDocker.ts`/`useDocker.test.tsx` — confirmed via grep) |
-| 7 | GORM security scan | ⚪ SKIPPED (judgment call) | `docker_service.go` has zero `gorm`/`.DB` references (`grep -n "gorm\|\.DB\b"` → no matches). Not a `internal/models/**` file, no GORM queries, no migrations. Matches CLAUDE.md's own exclusion ("skip for docs-only or frontend-only changes") in spirit — the trigger condition ("models, GORM queries, or migrations") is not met. Judgment: not required, correctly out of scope. |
-| 8 | Trivy container scan | ✅ PASS | E2E image rebuilt fresh (`docker-rebuild-e2e`, includes both commits) via `charon:local`. `trivy image --severity CRITICAL,HIGH` (via saved tarball, see note below) → **`app/charon` binary: 0 findings.** Only finding in the whole image: `CVE-2026-32286` (HIGH) in `pgproto3/v2`, bundled inside `usr/local/bin/crowdsec` / `cscli` — this is a **pre-existing, already-documented** entry in `SECURITY.md` ("Awaiting Upstream", affects only non-default PostgreSQL-backed CrowdSec deployments), unrelated to this diff. Zero CRITICAL findings anywhere. |
-| 9 | Targeted Playwright E2E | ✅ PASS | E2E image rebuilt first (container predated both commits — production code changed, so rebuild was mandatory per CLAUDE.md workflow step 1). `npx playwright test tests/orthrus-proxy-paths.spec.ts --project=firefox` → **10/10 passed**. `npx playwright test tests/core/proxy-hosts.spec.ts --project=firefox -g "Docker Integration"` → **3/3 passed**. See coverage-gap note below. |
-
----
-
-## CodeQL
-
-Not run. Per the task's own troubleshooting note in `CLAUDE.md`, local/sandbox `codeql` binaries are commonly
-stale/mismatched against this repo's pinned query packs and this is a documented pre-existing environment
-limitation — CI (`.github/workflows/codeql.yml`) is the authoritative CodeQL gate via `github/codeql-action@v4`.
-Given this is a 2-file, 6-line-of-production-code hotfix with `semgrep` (which covers a materially overlapping
-rule set for Go/TS security issues) already run clean against the exact 4 changed files as part of lefthook, and
-Trivy confirming zero new findings in the built binary, CodeQL was judged non-blocking for local sign-off on a
-hotfix of this size. Recommend CI's CodeQL run be checked once the PR is opened.
-
-## Trivy — technical note
-
-`trivy` (snap-confined) could not reach `/var/run/docker.sock` directly (`permission denied`) nor read a tarball
-written under the session's `/tmp/claude-*` scratch path (snap filesystem confinement). Worked around by
-`docker save charon:local -o ~/charon-local.tar` and scanning that tarball with `trivy image --input`. This is an
-environment/tooling quirk, not a code issue — no image-scan gate was skipped, just re-routed around a local
-sandboxing restriction. Scratch tarball was deleted after the scan.
-
-### Finding 2 — LOW (process) — Agent coverage gate has almost no margin
-
-## Findings
-
-### Blocking
-None.
-
-### Informational
-
-1. **E2E coverage gap (accepted, not required to fix):** No existing Playwright spec exercises the exact
-   "Docker connected + zero containers → empty array, no crash" scenario. `tests/orthrus-proxy-paths.spec.ts`
-   mocks either a populated `MOCK_CONTAINERS` array or an API error; neither exercises an empty-array response.
-   Per the task brief and `docs/plans/current_spec.md` §3.3, this hotfix's verification was explicitly scoped to
-   unit-test level (backend `TestListContainers_EmptyResultIsNotNil` + frontend `useDocker.test.tsx`'s two new
-   cases), and a missing E2E case for this exact scenario was pre-approved as acceptable to flag rather than
-   required to fix for a hotfix of this size. Flagging for the record only.
-
-2. **Frontend coverage-instrumented test runs are flaky under concurrent system load — unrelated to this diff.**
-   Multiple attempts to run `scripts/frontend-test-coverage.sh` while other CPU/IO-heavy jobs (a parallel `docker
-   save`, a parallel Trivy DB download, a parallel duplicate test run) were also executing produced spurious,
-   non-reproducible failures each time in a *different*, unrelated file/test (`ProxyHostForm.test.tsx`'s
-   "allows manual advanced config input" via jsdom `alert()`; then an unhandled-rejection race in
-   `Login.overlay.audit.test.tsx`'s async teardown). Neither failure was reproducible in isolation, and neither
-   touches Docker/`useDocker` code paths. Once re-run with no competing jobs, three consecutive clean runs (plain
-   `vitest run`, and two `frontend-test-coverage.sh` runs) all passed with zero failures and identical, stable
-   coverage numbers. Recorded as an environment/resource-contention observation, not a code defect — CI runners
-   are dedicated and should not exhibit this.
-
-### Out of scope — confirmed not touched
-- `isDockerConnectivityError` (GitHub issue #1205) — not touched.
-- Rootless Docker / subgid host configuration — not touched.
-- `ProxyHostForm.tsx` / `ProxyHostForm.test.tsx` — not touched, confirmed via `git diff origin/main...HEAD --name-only`.
-- `feat/changelog` branch work — unrelated, not touched.
+| # | Gate | Status | Detail |
+|---|------|--------|--------|
+| 1 | E2E Docker image clean rebuild | ✅ **VERIFIED** | 3 separate clean rebuilds run this pass (one per browser cycle, matching prior methodology). Changelog-fixture injection confirmed working (`FIXTURE Injecting E2E changelog fixture` → build → `FIXTURE Reverting changelog fixture overwrite`, working tree left clean). Caddy proxy port auto-sync confirmed (`PLAYWRIGHT_CADDY_PROXY_PORT already set to 8180 in .env` on every rebuild). |
+| 2 | Playwright — chromium + security-tests | ✅ **COMPLETED** (see note) | **1354 passed, 2 failed, 42 skipped** (fresh clean-rebuilt container). The 2 failures are **new findings**, not part of the previously-documented 52 — see §1 below. Neither is caused by the 19 commits in scope. **Note**: this was a full-suite run under one browser, executed before the CI-only policy (`75c63696`) was fully in effect for this session. Retained here as useful evidence since it already ran to completion, but this is the **last** local full-suite run this pass — not to be repeated. |
+| 3 | Playwright — firefox | ⚠️ **STOPPED MID-RUN**, then **halted entirely per codified CI-only policy** | 673 of ~955 tests completed, **0 failures observed** before stop (all ✓ or expected skips). Includes `tests/settings/ntfy-notification-provider.spec.ts:564` (one of the two explicitly flagged uncertain items) — **passed**. Suite was killed cleanly (process group terminated, no orphaned processes left running) partway through `tests/settings/pushover-notification-provider.spec.ts`, once the process-change instruction landed. Not a completed, authoritative run — do not read "0 failures so far" as a clean bill of health for the untested remainder. **This run will not be resumed or repeated locally** — full-suite/multi-browser confirmation is CI's job per `75c63696`. |
+| 4 | Playwright — webkit | ⛔ **NOT RUN, and will not be run locally** | Never started, per the now-codified CI-only policy for full-suite runs. `tests/core/caddy-import/caddy-import-webkit.spec.ts:173` (flagged, no root cause found/no fix applied) and the ImportSession per-user-scope race question remain **unverified**; CI's webkit job is now the only path to confirming or refuting them. |
+| 5 | Backend coverage (`go-test-coverage.sh`) | ⛔ **NOT RUN this pass** | `backend/coverage.txt` on disk is stale (timestamped before this session). No fresh number to report. |
+| 6 | Frontend coverage (`frontend-test-coverage.sh`) | ⛔ **NOT RUN this pass** | `frontend/coverage/lcov.info` absent. No fresh number to report. |
+| 7 | Local patch coverage (`local-patch-report.sh`) | ⛔ **NOT RUN this pass** | `test-results/local-patch-report.{md,json}` absent. |
+| 8 | Lefthook pre-commit (staticcheck, CodeQL Go+JS, semgrep) | ⛔ **NOT RUN this pass** | |
+| 9 | Trivy scan | ⛔ **NOT RUN this pass** | Prior pass reported 0 new Critical/High with 1 pre-existing tracked HIGH (`CVE-2026-32286`, documented in `SECURITY.md`); not re-confirmed this session. No dependency changes in the 19-commit range (all `fix(test)`/`fix` commits touching `tests/`, `frontend/src/App.tsx`, `frontend/src/pages/Login.tsx`, `.env`/rebuild scripts — no `go.mod`/`go.sum`/`package.json` changes), so risk of drift is low but **not independently re-confirmed**. |
+| 10 | `git diff dac267f3..HEAD --stat -- backend/ \| grep '\.go$'` (GORM scan applicability) | ✅ **VERIFIED** | Empty. Confirmed no `.go` files changed in the 19-commit range — GORM scan correctly skippable. |
+| 11 | Frontend type-check / build / backend build | ⛔ **NOT RUN this pass** | |
+| 12 | Full `npx vitest run` | ⛔ **NOT RUN this pass** | |
+| 13 | Tautology grep (`grep -rn "\|\| true" tests/ --include=*.spec.ts`) | ✅ **VERIFIED** | 0 matches. Cheap, non-Playwright check — run to completion. |
 
 ---
 
-## Diff Sanity Check
+## 1. New finding: 2 accessibility failures in chromium run (not part of the original 52, not caused by the 19 commits)
 
-```
-$ git diff origin/main...fix/docker-empty-list-null-crash --name-only
-backend/internal/services/docker_service.go
-backend/internal/services/docker_service_test.go
-frontend/src/hooks/__tests__/useDocker.test.tsx
-frontend/src/hooks/useDocker.ts
-```
+**`tests/a11y/dns-providers.a11y.spec.ts:8`** and **`tests/a11y/security.a11y.spec.ts:59`** failed in the full chromium+security-tests run with genuine axe-core violations:
 
-Backend production change (`bf5384d6`):
-```go
-- var result []DockerContainer
-+ result := make([]DockerContainer, 0)
-```
+- **DNS Providers page** — `[CRITICAL] button-name`: 2 icon-only delete buttons (`Trash2` icon, no text/`aria-label`) have no accessible name. Root cause: `frontend/src/components/DNSProviderCard.tsx:187-191` — `<Button variant="danger" onClick={...}><Trash2 className="w-4 h-4" /></Button>` with no `aria-label`.
+- **Security dashboard page** — `[CRITICAL] select-name`: 2 `<select>` filter elements (log level, log source) have no accessible name. Root cause: `frontend/src/components/LiveLogViewer.tsx:393-419` — both `<select>` elements have no associated `<label>`/`aria-label`.
 
-Frontend production change (`d09d2437`):
-```ts
-  return {
--   containers,
-+   containers: containers ?? [],
-    isLoading,
-```
+**Root-cause tracing performed (per CLAUDE.md protocol) before reporting:**
+- Neither `DNSProviderCard.tsx` nor `LiveLogViewer.tsx` was touched anywhere in `dac267f3..HEAD` (confirmed via `git diff --stat`) or at any point since March (`git log -1` on both files → `615bdd7e`, an unrelated Vitest-config chore commit). **Not a regression from this round's 19 fix commits.**
+- **Order/state-dependent, not flaky-random**: re-ran both spec files in isolation against a freshly-rebuilt, zero-state container — both **passed** (10/10). The violations only manifest once the full suite's cumulative state exists (≥2 DNS providers seeded by earlier tests; security/CrowdSec mode toggled on by earlier security-tests specs, which is what causes `LiveLogViewer`'s security-mode-only filters to render). This is the same class of order-dependent test fragility already flagged in the prior QA report's §2 (item #8 / "Additional finding").
+- **Conclusion**: these are real, pre-existing accessibility defects in shipped component code (missing `aria-label` on icon-only buttons and unlabeled `<select>` filters), independently confirmed by source inspection, not test flakiness and not in scope of the 19 commits under review. They were not caught in the prior 52-failure pass because that pass's chromium run apparently didn't reach the same accumulated state (order-dependent) — or the a11y specs simply weren't among the 17 documented chromium failures at that time. Flagging as new, real, actionable findings for a future fix round.
 
-Both exactly match spec §2.1/§2.2. No unrelated changes present.
+**Remediation** (not applied — QA does not fix production code per standing instruction): add `aria-label` to the delete `<Button>` in `DNSProviderCard.tsx` (e.g. `aria-label={t('dnsProviders.delete', { name: provider.name })}`) and to both `<select>` elements in `LiveLogViewer.tsx` (e.g. `aria-label="Filter by log level"` / `aria-label="Filter by log source"`).
 
 ---
 
-## Recommendation
+## 2. Status of the two explicitly flagged uncertain items
 
-**Ship it** — as audited at `bf5384d6`/`d09d2437`. Do not push/open the PR until Management confirms the branch's
-final state (a second bugfix commit was reported as being added mid-audit); this report does not cover any commit
-beyond `d09d2437` and a fresh validation pass is required if the branch changes.
+- **`tests/core/caddy-import/caddy-import-webkit.spec.ts:173`** — **UNVERIFIED this pass.** Webkit was not run (stopped before starting per process change). Still an open question carried forward.
+- **`tests/settings/ntfy-notification-provider.spec.ts:564`** — **Passed** in the partial firefox run (test #669, `✓ access token should not appear in the url field or any visible field`, 4.3s). This is a positive signal for the timeout-bump fix, but it's from an interrupted, non-authoritative run (not a full clean 3-repeat confirmation) — treat as encouraging, not conclusive.
+
+## 3. ImportSession per-user race (flagged, out of scope for a quick fix)
+
+**Not observed this pass** — webkit and the caddy-import-heavy portions of the suite were not exercised to completion. No new evidence either way. The architectural gap (`backend/internal/models/import_session.go` has no per-user scope — single global "most recent pending session" row) remains unconfirmed as an active failure cause and still worth a dedicated look if `caddy-import-webkit.spec.ts:173` continues to fail under CI's parallel workers.
+
+---
+
+## 4. Historical context: the prior pass (52 failures as of `dac267f3`)
+
+Summarized from the previous full report (superseded by this document): 17 chromium+security-tests failures, 20 firefox failures, 15 webkit failures (with cross-browser overlap), headlined by `settings/whats-new-changelog.spec.ts` failing identically on all 3 browsers (21 of 52 instances, root-caused to a missing changelog fixture in the local E2E rebuild) plus a wrong Caddy proxy port, an aria-hidden toast bug, a stale CrowdSec diagnostics precondition, an auth-fixture 401 race, a Login.tsx unmount race, and roughly a dozen files with inconsistent E2E wait timeouts. The 19 commits in `dac267f3..HEAD` were the fix rounds for that list. This pass's chromium result (1354 passed / 2 failed, both new/unrelated a11y findings) and the clean partial firefox result (673/673 passing, 0 failures) are strong positive signals that those fixes hold, but **do not constitute a full re-confirmation** given the interrupted scope — that's CI's job going forward per the updated process guidance.
+
+---
+
+## 5. Handback to Management
+
+Per the now-codified CI-only policy for full-suite/multi-browser Playwright runs (`75c63696`, reflected in `CLAUDE.md` and `.claude/agents/qa-security.md`): no further local full-suite or multi-browser E2E runs will be performed by this agent, in this pass or future ones. Recommend:
+1. Commit the 19 already-landed fix commits (already on branch) sliced/organized as needed, push to origin.
+2. Let CI run the full 3-browser matrix to authoritatively confirm firefox (remaining ~280 untested specs) and webkit (entirely untested this pass, including the still-open `caddy-import-webkit.spec.ts:173` question and the ImportSession race question).
+3. Backend/frontend coverage, local patch coverage, lefthook (staticcheck/CodeQL/semgrep), and Trivy were not re-run this pass — either confirm via CI or, per the updated agent guidance, run a narrow *targeted* local check (not a full suite re-run) if CI can't cover one of them.
+4. New a11y findings (§1) are real and actionable but independent of this branch's scope — recommend a separate small fix (2 `aria-label` additions) rather than blocking this PR, unless project policy (as applied in the prior pass) treats "any failing test blocks merge" as still in force, in which case these 2 need triage too.
+5. Going forward, any local E2E work by this agent will use targeted single-spec runs under `--project=firefox` only, per the updated `qa-security.md`.

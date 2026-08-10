@@ -82,7 +82,7 @@ on:
   pull_request:
 
 env:
-  NODE_VERSION: '24.18.1'
+  NODE_VERSION: '24.19.0'
   GO_VERSION: '1.26.5'
   GOTOOLCHAIN: local
   DOCKERHUB_REGISTRY: docker.io
@@ -139,6 +139,23 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.sha }}
+
+      # Dev/test-only "What's New" changelog fixture injection. Mirrors the
+      # local docker-rebuild-e2e workflow (see
+      # tests/settings/whats-new-changelog.spec.ts header comment and
+      # docs/reports/qa_report.md §1a for the full mechanism): the committed
+      # backend/internal/changelog/data/changelog.json is a `[]` placeholder
+      # (go:embed'd at build time), so it must be overwritten with the E2E
+      # fixture's content before the Docker image builds, or every
+      # whats-new-changelog.spec.ts scenario fails identically across all
+      # browsers/shards (the modal never has data to render). No revert step
+      # here, unlike local dev — CI runners are ephemeral.
+      - name: Inject E2E changelog fixture
+        if: steps.resolve-image.outputs.image_source == 'build'
+        run: |
+          echo "📋 Injecting E2E changelog fixture into backend/internal/changelog/data/changelog.json..."
+          cp tests/fixtures/changelog-fixture.json backend/internal/changelog/data/changelog.json
+          echo "✅ Fixture injected (will be embedded via go:embed at build time)"
 
       - name: Set up Go
         if: steps.resolve-image.outputs.image_source == 'build'
@@ -328,12 +345,45 @@ jobs:
           SHARD_START=$(date +%s)
           echo "SHARD_START=$SHARD_START" >> "$GITHUB_ENV"
 
-          npx playwright test \
+          # Run multi-feature-workflows.spec.ts BEFORE the security-tests
+          # project below, not after. The `security-tests` project's own
+          # teardown (`security-teardown`) only runs when
+          # PLAYWRIGHT_SKIP_SECURITY_DEPS=0, which this workflow doesn't set,
+          # so ACL/WAF/rate-limit modules that security-enforcement specs
+          # flip on are left ENABLED in this job's shared container after
+          # that invocation - a same-container second invocation would
+          # inherit that state and can 429 on its own auth setup (reproduced
+          # locally while fixing this job: running security-tests first
+          # caused the very next invocation's `GET /api/v1/setup` to fail
+          # with 429 Too Many Requests). Running the plain `chromium` project
+          # first, while the container is still at its clean post-boot
+          # baseline, avoids the contamination entirely.
+          #
+          # multi-feature-workflows.spec.ts is a general integration spec
+          # (not under a security-ignored directory) that IS collected by the
+          # `chromium` project, so it keeps running there - this exercises
+          # the same workflow a second time with Cerberus not yet touched,
+          # complementing the Cerberus-OFF run already covered by
+          # tests/integration in the non-security sharded chromium job.
+          echo "--- chromium project: tests/integration/multi-feature-workflows.spec.ts ---"
+          PLAYWRIGHT_HTML_REPORT=playwright-report/multi-feature-workflows npx playwright test \
             --project=chromium \
-            --output=playwright-output/security-chromium \
-            tests/security-enforcement/ \
-            tests/security/ \
+            --output=playwright-output/security-chromium/multi-feature-workflows \
             tests/integration/multi-feature-workflows.spec.ts || STATUS=$?
+
+          # tests/security-enforcement/ and tests/security/ are ONLY ever
+          # collected by the dedicated `security-tests` project in
+          # playwright.config.js (Chromium-only, sequential, workers:1,
+          # brings up CrowdSec/WAF via security-shard-setup) - the plain
+          # `chromium`/`firefox`/`webkit` projects testIgnore both
+          # directories, so `--project=chromium` here always matched 0 tests
+          # in them. Run them under their correct project, last (see above).
+          echo "--- security-tests project: tests/security-enforcement/, tests/security/ ---"
+          PLAYWRIGHT_HTML_REPORT=playwright-report/security-tests npx playwright test \
+            --project=security-tests \
+            --output=playwright-output/security-chromium/security-tests \
+            tests/security-enforcement/ \
+            tests/security/ || STATUS=$?
 
           SHARD_END=$(date +%s)
           echo "SHARD_END=$SHARD_END" >> "$GITHUB_ENV"
@@ -538,12 +588,48 @@ jobs:
           SHARD_START=$(date +%s)
           echo "SHARD_START=$SHARD_START" >> "$GITHUB_ENV"
 
-          npx playwright test \
+          # Run multi-feature-workflows.spec.ts BEFORE the security-tests
+          # project below, not after. The `security-tests` project's own
+          # teardown (`security-teardown`) only runs when
+          # PLAYWRIGHT_SKIP_SECURITY_DEPS=0, which this workflow doesn't set,
+          # so ACL/WAF/rate-limit modules that security-enforcement specs
+          # flip on are left ENABLED in this job's shared container after
+          # that invocation - a same-container second invocation would
+          # inherit that state and can 429 on its own auth setup (reproduced
+          # locally while fixing this job: running security-tests first
+          # caused the very next invocation's `GET /api/v1/setup` to fail
+          # with 429 Too Many Requests). Running the plain `firefox` project
+          # first, while the container is still at its clean post-boot
+          # baseline, avoids the contamination entirely.
+          #
+          # multi-feature-workflows.spec.ts is a general integration spec
+          # (not under a security-ignored directory) that IS collected by the
+          # `firefox` project, so it keeps running there - this exercises
+          # the same workflow a second time with Cerberus not yet touched,
+          # complementing the Cerberus-OFF run already covered by
+          # tests/integration in the non-security sharded firefox job.
+          echo "--- firefox project: tests/integration/multi-feature-workflows.spec.ts ---"
+          PLAYWRIGHT_HTML_REPORT=playwright-report/multi-feature-workflows npx playwright test \
             --project=firefox \
-            --output=playwright-output/security-firefox \
-            tests/security-enforcement/ \
-            tests/security/ \
+            --output=playwright-output/security-firefox/multi-feature-workflows \
             tests/integration/multi-feature-workflows.spec.ts || STATUS=$?
+
+          # tests/security-enforcement/ and tests/security/ are ONLY ever
+          # collected by the dedicated `security-tests` project in
+          # playwright.config.js (Chromium-only, sequential, workers:1,
+          # brings up CrowdSec/WAF via security-shard-setup) - the plain
+          # `chromium`/`firefox`/`webkit` projects testIgnore both
+          # directories, so `--project=firefox` here always matched 0 tests
+          # in them. Run them under their correct project, last (see above).
+          # (security-tests is Chromium-only regardless of this job's
+          # browser, which is why the earlier "Install Playwright Chromium"
+          # step above already exists.)
+          echo "--- security-tests project: tests/security-enforcement/, tests/security/ ---"
+          PLAYWRIGHT_HTML_REPORT=playwright-report/security-tests npx playwright test \
+            --project=security-tests \
+            --output=playwright-output/security-firefox/security-tests \
+            tests/security-enforcement/ \
+            tests/security/ || STATUS=$?
 
           SHARD_END=$(date +%s)
           echo "SHARD_END=$SHARD_END" >> "$GITHUB_ENV"
@@ -748,12 +834,48 @@ jobs:
           SHARD_START=$(date +%s)
           echo "SHARD_START=$SHARD_START" >> "$GITHUB_ENV"
 
-          npx playwright test \
+          # Run multi-feature-workflows.spec.ts BEFORE the security-tests
+          # project below, not after. The `security-tests` project's own
+          # teardown (`security-teardown`) only runs when
+          # PLAYWRIGHT_SKIP_SECURITY_DEPS=0, which this workflow doesn't set,
+          # so ACL/WAF/rate-limit modules that security-enforcement specs
+          # flip on are left ENABLED in this job's shared container after
+          # that invocation - a same-container second invocation would
+          # inherit that state and can 429 on its own auth setup (reproduced
+          # locally while fixing this job: running security-tests first
+          # caused the very next invocation's `GET /api/v1/setup` to fail
+          # with 429 Too Many Requests). Running the plain `webkit` project
+          # first, while the container is still at its clean post-boot
+          # baseline, avoids the contamination entirely.
+          #
+          # multi-feature-workflows.spec.ts is a general integration spec
+          # (not under a security-ignored directory) that IS collected by the
+          # `webkit` project, so it keeps running there - this exercises
+          # the same workflow a second time with Cerberus not yet touched,
+          # complementing the Cerberus-OFF run already covered by
+          # tests/integration in the non-security sharded webkit job.
+          echo "--- webkit project: tests/integration/multi-feature-workflows.spec.ts ---"
+          PLAYWRIGHT_HTML_REPORT=playwright-report/multi-feature-workflows npx playwright test \
             --project=webkit \
-            --output=playwright-output/security-webkit \
-            tests/security-enforcement/ \
-            tests/security/ \
+            --output=playwright-output/security-webkit/multi-feature-workflows \
             tests/integration/multi-feature-workflows.spec.ts || STATUS=$?
+
+          # tests/security-enforcement/ and tests/security/ are ONLY ever
+          # collected by the dedicated `security-tests` project in
+          # playwright.config.js (Chromium-only, sequential, workers:1,
+          # brings up CrowdSec/WAF via security-shard-setup) - the plain
+          # `chromium`/`firefox`/`webkit` projects testIgnore both
+          # directories, so `--project=webkit` here always matched 0 tests
+          # in them. Run them under their correct project, last (see above).
+          # (security-tests is Chromium-only regardless of this job's
+          # browser, which is why the earlier "Install Playwright Chromium"
+          # step above already exists.)
+          echo "--- security-tests project: tests/security-enforcement/, tests/security/ ---"
+          PLAYWRIGHT_HTML_REPORT=playwright-report/security-tests npx playwright test \
+            --project=security-tests \
+            --output=playwright-output/security-webkit/security-tests \
+            tests/security-enforcement/ \
+            tests/security/ || STATUS=$?
 
           SHARD_END=$(date +%s)
           echo "SHARD_END=$SHARD_END" >> "$GITHUB_ENV"

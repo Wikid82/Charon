@@ -318,6 +318,21 @@ describe('ProxyHostForm', () => {
     expect(screen.getByLabelText(/Domain Names/i)).toHaveValue('my-app.existing.com')
   })
 
+  it('keeps the selected container name displayed in the Containers dropdown after selection', async () => {
+    await renderWithClientAct(
+      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    await selectComboboxOption('Source', 'Local (Docker Socket)')
+    await selectComboboxOption('Containers', 'my-app (nginx:latest)')
+
+    // Regression: the trigger previously reset to the placeholder text
+    // immediately after selection (a hardcoded value="" on the Select),
+    // even though the underlying form fields updated correctly.
+    expect(screen.getByRole('combobox', { name: 'Containers' })).toHaveTextContent('my-app (nginx:latest)')
+    expect(screen.getByRole('combobox', { name: 'Containers' })).not.toHaveTextContent('Select a container')
+  })
+
   // Application Preset Tests
   describe('Application Presets', () => {
     it('renders application preset dropdown with all options', async () => {

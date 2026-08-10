@@ -47,7 +47,7 @@ test.describe('Modal Dropdown Z-Index Triage', () => {
 
     await test.step('Navigate to Proxy Hosts page', async () => {
       await page.goto(`${baseURL}/proxy-hosts`)
-      await page.waitForLoadState('networkidle')
+      await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {})
     })
 
     await test.step('Click "Add Proxy Host" button', async () => {
@@ -211,6 +211,9 @@ test.describe('Modal Dropdown Z-Index Triage', () => {
 
       for (let i = 0; i < selectCount && i < 3; i++) {
         const result = await testDropdownInteraction(page, /role|permission|access/i, `EditPermissions Dropdown ${i + 1}`)
+        if (!result.opened) {
+          console.log(`⚠️ UsersPage: EditPermissions dropdown ${i + 1} may have z-index issue`)
+        }
       }
     })
 
@@ -228,7 +231,7 @@ test.describe('Modal Dropdown Z-Index Triage', () => {
 
     await test.step('Navigate to Uptime page', async () => {
       await page.goto(`${baseURL}/uptime`)
-      await page.waitForLoadState('networkidle')
+      await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {})
     })
 
     await test.step('Click "Create Monitor" button', async () => {
@@ -316,7 +319,7 @@ test.describe('Modal Dropdown Z-Index Triage', () => {
 
     await test.step('Navigate to CrowdSec page', async () => {
       await page.goto(`${baseURL}/security/crowdsec`)
-      await page.waitForLoadState('networkidle')
+      await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {})
     })
 
     await test.step('Find and click Ban IP button', async () => {
@@ -361,7 +364,7 @@ test.describe('Modal Dropdown Z-Index Triage', () => {
   test('Accessibility Verification - Modal 3-Layer Architecture', async ({ page }) => {
     await test.step('Verify 3-layer modal structure in ProxyHostForm', async () => {
       await page.goto(`${baseURL}/proxy-hosts`)
-      await page.waitForLoadState('networkidle')
+      await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {})
 
       const addButton = page.getByRole('button', { name: /^add proxy host$/i }).first()
       if (await addButton.isVisible()) {

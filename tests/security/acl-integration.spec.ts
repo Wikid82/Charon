@@ -17,22 +17,16 @@
  * - PUT /api/v1/proxy-hosts/:uuid
  */
 
-import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
+import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import {
   generateAccessList,
   generateAllowListForIPs,
   generateDenyListForIPs,
-  ipv6AccessList,
-  mixedRulesAccessList,
 } from '../fixtures/access-lists';
 import { generateProxyHost } from '../fixtures/proxy-hosts';
 import {
-  waitForToast,
   waitForLoadingComplete,
-  waitForAPIResponse,
-  clickAndWaitForResponse,
   waitForModal,
-  retryAction,
 } from '../utils/wait-helpers';
 
 /**
@@ -148,8 +142,10 @@ test.describe('Proxy + ACL Integration', () => {
         // Proxy host edits don't show a toast - verify success by waiting for loading to complete
         // and ensuring the edit panel is no longer visible
         await waitForLoadingComplete(page);
-        // Verify the edit panel closed by checking the main table is visible without the edit form
-        await expect(page.locator('[role="dialog"], h2:has-text("Edit")')).not.toBeVisible({ timeout: 5000 });
+        // Verify the edit panel closed by checking the main table is visible without the edit form.
+        // See the "should unassign ACL from proxy host" test below for why this uses
+        // getByRole('dialog') rather than a '[role="dialog"], h2:has-text("Edit")' union locator.
+        await expect(page.getByRole('dialog', { name: /edit proxy host/i })).not.toBeVisible({ timeout: 5000 });
       });
     });
 
@@ -284,7 +280,14 @@ test.describe('Proxy + ACL Integration', () => {
         // Proxy host edits don't show a toast - verify success by waiting for loading to complete
         // and ensuring the edit panel is no longer visible
         await waitForLoadingComplete(page);
-        await expect(page.locator('[role="dialog"], h2:has-text("Edit")')).not.toBeVisible({ timeout: 5000 });
+        // A locator combining '[role="dialog"]' with 'h2:has-text("Edit")'
+        // matches BOTH the dialog wrapper and its own heading whenever the
+        // dialog is still open (the heading is inside it), which throws a
+        // Playwright strict-mode violation ("resolved to 2 elements")
+        // instead of the intended "not visible" assertion - confirmed live
+        // in CI. The dialog role element alone is sufficient and
+        // unambiguous: once it's gone, the heading inside it is too.
+        await expect(page.getByRole('dialog', { name: /edit proxy host/i })).not.toBeVisible({ timeout: 5000 });
       });
     });
 
@@ -296,7 +299,7 @@ test.describe('Proxy + ACL Integration', () => {
       await loginUser(page, adminUser);
 
       const aclConfig = generateAccessList({ name: 'Display-Test-ACL' });
-      const { id: aclId, name: aclName } = await testData.createAccessList(aclConfig);
+      await testData.createAccessList(aclConfig);
 
       const proxyInput = generateProxyHost();
       const createdProxy = await testData.createProxyHost({
@@ -559,7 +562,7 @@ test.describe('Proxy + ACL Integration', () => {
       await loginUser(page, adminUser);
 
       const aclConfig = generateAccessList({ name: 'Toggle-Test-ACL' });
-      const { id: aclId } = await testData.createAccessList(aclConfig);
+      await testData.createAccessList(aclConfig);
 
       await test.step('Navigate to access lists', async () => {
         await page.goto('/access-lists');
@@ -693,11 +696,11 @@ test.describe('Proxy + ACL Integration', () => {
 
       // Create ACL
       const aclConfig = generateAccessList({ name: 'Preserve-ACL-Test' });
-      const { id: aclId } = await testData.createAccessList(aclConfig);
+      await testData.createAccessList(aclConfig);
 
       // Create proxy host
       const proxyConfig = generateProxyHost();
-      const { id: proxyId } = await testData.createProxyHost({
+      await testData.createProxyHost({
         domain: proxyConfig.domain,
         forwardHost: proxyConfig.forwardHost,
         forwardPort: proxyConfig.forwardPort,

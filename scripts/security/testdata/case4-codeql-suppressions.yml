@@ -1,0 +1,11 @@
+# Fixture ignore-list for scripts/security/tests/codeql-findings-gate.bats
+# case 4: a full rule_id+path+line match with review_by in the future.
+suppressions:
+  - rule_id: go/example-ignorelisted-rule
+    path: backend/internal/example_ignorelisted.go
+    line: 30
+    reason: >
+      Fixture entry exercising the valid, non-expired ignore-list match
+      path of scripts/security/codeql-findings-gate.sh.
+    added: "2026-08-04"
+    review_by: "2099-01-01"

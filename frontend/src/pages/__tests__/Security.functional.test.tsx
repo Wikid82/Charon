@@ -675,28 +675,6 @@ describe('Security Page - Functional Tests', () => {
     })
   })
 
-  describe('Notification Settings Modal', () => {
-    // Skip: Modal component uses WebSocket connections internally
-    it.skip('should open notification settings modal when button is clicked', async () => {
-      const user = userEvent.setup()
-      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusAllEnabled)
-
-      await renderSecurityPage()
-
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Notifications/i })).toBeInTheDocument()
-      })
-
-      await user.click(screen.getByRole('button', { name: /Notifications/i }))
-
-      // Modal should open - look for modal content
-      await waitFor(() => {
-        // The modal has a title "Notification Settings"
-        expect(screen.getByRole('dialog')).toBeInTheDocument()
-      })
-    })
-  })
-
   describe('Documentation Link', () => {
     it('should open docs link when Docs button is clicked', async () => {
       const user = userEvent.setup()

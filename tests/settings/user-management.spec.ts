@@ -21,6 +21,7 @@ import {
   gotoTolerant,
 } from '../utils/wait-helpers';
 import { getRowScopedButton, getRowScopedIconButton, clickSwitch } from '../utils/ui-helpers';
+import { suppressChangelogModal } from '../utils/api-helpers';
 
 test.describe('User Management', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -606,7 +607,7 @@ test.describe('User Management', () => {
     // API calls fail with auth errors when base URL doesn't match cookie domain from auth setup.
     // Re-enable once CI environment consistently uses localhost:8080.
     test('should update permission mode', async ({ page, testData }) => {
-      const testUser = await testData.createUser({
+      await testData.createUser({
         name: 'Permission Mode Test',
         email: `perm-mode-${Date.now()}@test.local`,
         password: TEST_PASSWORD,
@@ -850,7 +851,7 @@ test.describe('User Management', () => {
     // Requires PLAYWRIGHT_BASE_URL=http://localhost:8080 to be set for proper auth.
     // See: TestDataManager uses fetch() which needs matching cookie domain.
     test('should enable/disable user', async ({ page, testData }) => {
-      const testUser = await testData.createUser({
+      await testData.createUser({
         name: 'Toggle Enable Test',
         email: `toggle-${Date.now()}@test.local`,
         password: TEST_PASSWORD,
@@ -1201,16 +1202,34 @@ test.describe('User Management', () => {
       });
 
       await test.step('Verify access denied or redirect', async () => {
-        // Should either redirect to home/dashboard or show error
+        // This is NOT a navigation-timing race at all - confirmed live by
+        // instrumenting this test with per-iteration logging of both
+        // page.url() and the actual rendered body text. Routing for a
+        // denied regular user takes two hops (legacy `/users` ->
+        // `/settings/users` `<Navigate>`, then the nested
+        // RequireRole(['admin']) guard for the `users` sub-route redirects
+        // again to `/`), and the *rendered content* reflects the final,
+        // correctly-denied state (Dashboard heading, no Users nav link)
+        // from the very first poll check onward. But `page.url()` stayed
+        // pinned at the intermediate `/settings/users` for the entire poll
+        // window regardless - Firefox/Playwright not promptly reflecting a
+        // React Router `history.replaceState()`-based SPA navigation back
+        // into `page.url()`, independent of and outlasting anything actual
+        // app rendering did. Checking rendered content instead of the URL
+        // sidesteps that unreliable signal entirely: the User Management
+        // page's own heading is a direct, unambiguous marker of whether
+        // access was actually granted.
         await expect.poll(async () => {
-          const currentUrl = page.url();
-          const isRedirected = !currentUrl.includes('/users');
+          const stillShowingUsersPage = await page
+            .getByRole('heading', { name: 'User Management' })
+            .isVisible()
+            .catch(() => false);
           const hasForbiddenResponse = listUsersResponse?.status() === 403;
           const hasError = await page
             .getByText(/admin access required|access.*denied|not.*authorized|forbidden/i)
             .isVisible()
             .catch(() => false);
-          return isRedirected || hasForbiddenResponse || hasError;
+          return !stillShowingUsersPage || hasForbiddenResponse || hasError;
         }, {
           timeout: 15000,
           message: 'Expected regular user to be redirected or denied when accessing /users',
@@ -1252,13 +1271,22 @@ test.describe('User Management', () => {
       });
 
       await test.step('Verify error message or redirect', async () => {
-        // Check for error toast, error page, or redirect
+        // See the "should require admin role for access" test above for the
+        // live-reproduced evidence: page.url() can stay pinned at the
+        // intermediate `/settings/users` for the whole poll window on
+        // Firefox even though the rendered content already correctly
+        // reflects the final, denied state - not a navigation-timing race,
+        // just an unreliable signal. Checking for the User Management
+        // page's own heading instead of the URL sidesteps that.
         await expect.poll(async () => {
           const errorMessage = page.getByText(/admin access required|access.*denied|unauthorized|forbidden|permission/i);
           const hasError = await errorMessage.isVisible().catch(() => false);
-          const isRedirected = !page.url().includes('/users');
+          const stillShowingUsersPage = await page
+            .getByRole('heading', { name: 'User Management' })
+            .isVisible()
+            .catch(() => false);
           const hasForbiddenResponse = listUsersResponse?.status() === 403;
-          return hasError || isRedirected || hasForbiddenResponse;
+          return hasError || !stillShowingUsersPage || hasForbiddenResponse;
         }, {
           timeout: 15000,
           message: 'Expected regular user to see an error or be redirected when accessing /users',
@@ -1435,6 +1463,11 @@ test.describe('User Management', () => {
         expect(resp.ok()).toBe(true);
         const body = await resp.json();
         otherUserId = body.id;
+        // Ad-hoc user created directly via this raw API call (bypassing
+        // the shared TestDataManager pool) gets the real production
+        // changelog defaults, so it's eligible for the blocking "What's
+        // New" modal — see suppressChangelogModal's doc comment.
+        await suppressChangelogModal(page, otherUser.email, otherUser.password);
         await page.reload();
         await waitForLoadingComplete(page);
       });

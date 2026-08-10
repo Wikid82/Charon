@@ -117,7 +117,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.18.1-alpine3.24@sha256:f70403e87646dc51b45295f4b8b70cdad0b63d2297c4c9899119b03f7af7a6b3 AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.19.0-alpine3.24@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43 AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -207,7 +207,7 @@ RUN set -eux; \
 # When dlv IS needed, we build it inside a temporary module that pins
 # golang.org/x/sys to the patched version used by the rest of the project.
 # renovate: datasource=go depName=github.com/go-delve/delve
-ARG DLV_VERSION=1.27.0
+ARG DLV_VERSION=1.27.1
 # hadolint ignore=DL3059,DL4006
 RUN if [ "$BUILD_DEBUG" = "1" ]; then \
         echo "DEBUG build: installing Delve v${DLV_VERSION} with patched golang.org/x/sys..."; \
@@ -688,7 +688,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=d18f139014ff31dd0b005e16a155849c0d26b59c65d9c79168a780da28189364
+ARG GEOLITE2_COUNTRY_SHA256=b4f624e1411c28701d724503b8d15ed4997de70cb6ea05d6f11bf572ea552240
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \

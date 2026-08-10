@@ -12,9 +12,9 @@
  * - Download Backup (2 tests): download trigger, file handling
  */
 
-import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
-import { setupBackupsList, mockBackupJobPolling, pollBackupJobViaAPI, BackupFile, BACKUP_SELECTORS } from '../utils/phase5-helpers';
-import { waitForToast, waitForLoadingComplete, waitForAPIResponse } from '../utils/wait-helpers';
+import { test, expect, loginUser } from '../fixtures/auth-fixtures';
+import { mockBackupJobPolling, pollBackupJobViaAPI, BackupFile } from '../utils/phase5-helpers';
+import { waitForToast, waitForLoadingComplete } from '../utils/wait-helpers';
 import { getStorageStateAuthHeaders } from '../utils/api-helpers';
 
 /**

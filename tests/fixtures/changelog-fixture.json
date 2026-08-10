@@ -1,0 +1,41 @@
+[
+  {
+    "version": "1.0.0",
+    "date": "2026-01-15",
+    "features": [
+      "Add DNS record management"
+    ],
+    "fixes": [],
+    "other": [
+      "Initial release"
+    ]
+  },
+  {
+    "version": "1.1.0",
+    "date": "2026-04-02",
+    "features": [
+      "Add automated certificate renewal"
+    ],
+    "fixes": [
+      "Correct proxy timeout handling under load"
+    ],
+    "other": [
+      "Bump baseline-browser-mapping deps"
+    ]
+  },
+  {
+    "version": "1.2.0",
+    "date": "2026-07-20",
+    "features": [
+      "Add the What's New changelog modal",
+      "Add per-user notification preferences"
+    ],
+    "fixes": [
+      "Fix intermittent session expiry on token refresh"
+    ],
+    "other": [],
+    "security": [
+      { "summary": "Harden input validation in the API layer", "sha": "a1b2c3d1234567890" }
+    ]
+  }
+]

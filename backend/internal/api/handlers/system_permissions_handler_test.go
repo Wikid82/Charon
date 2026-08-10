@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -186,7 +187,7 @@ func TestSystemPermissionsHandler_PathHasSymlink(t *testing.T) {
 	plainPath := filepath.Join(realDir, "file.txt")
 	require.NoError(t, os.WriteFile(plainPath, []byte("ok"), 0o600))
 
-	hasSymlink, err := pathHasSymlink(plainPath)
+	hasSymlink, err := pathHasSymlink(plainPath, []string{root})
 	require.NoError(t, err)
 	require.False(t, hasSymlink)
 
@@ -194,12 +195,39 @@ func TestSystemPermissionsHandler_PathHasSymlink(t *testing.T) {
 	require.NoError(t, os.Symlink(realDir, linkDir))
 
 	symlinkedPath := filepath.Join(linkDir, "file.txt")
-	hasSymlink, err = pathHasSymlink(symlinkedPath)
+	hasSymlink, err = pathHasSymlink(symlinkedPath, []string{root})
 	require.NoError(t, err)
 	require.True(t, hasSymlink)
 
-	_, err = pathHasSymlink(filepath.Join(root, "missing", "file.txt"))
+	_, err = pathHasSymlink(filepath.Join(root, "missing", "file.txt"), []string{root})
 	require.Error(t, err)
+}
+
+func TestPathHasSymlink_AllowlistBounds(t *testing.T) {
+	t.Run("path outside the given allowlist, no symlink involved", func(t *testing.T) {
+		otherRoot := t.TempDir()
+		outsideRoot := t.TempDir()
+		outsidePath := filepath.Join(outsideRoot, "file.txt")
+		require.NoError(t, os.WriteFile(outsidePath, []byte("x"), 0o600))
+
+		hasSymlink, err := pathHasSymlink(outsidePath, []string{otherRoot})
+		require.False(t, hasSymlink)
+		require.Error(t, err)
+		require.True(t, errors.Is(err, errPathEscapesAllowlist))
+		require.False(t, os.IsNotExist(err))
+	})
+
+	t.Run("ancestor of root traversal does not falsely reject", func(t *testing.T) {
+		base := t.TempDir()
+		allowRoot := filepath.Join(base, "a", "b", "c")
+		require.NoError(t, os.MkdirAll(allowRoot, 0o750))
+		target := filepath.Join(allowRoot, "file.txt")
+		require.NoError(t, os.WriteFile(target, []byte("x"), 0o600))
+
+		hasSymlink, err := pathHasSymlink(target, []string{allowRoot})
+		require.NoError(t, err)
+		require.False(t, hasSymlink)
+	})
 }
 
 func TestSystemPermissionsHandler_NewDefaultsCheckerToOSChecker(t *testing.T) {
@@ -500,6 +528,19 @@ func TestSystemPermissionsHandler_RepairPath_Branches(t *testing.T) {
 		require.Equal(t, "permissions_repair_skipped", result.ErrorCode)
 		require.Equal(t, "0600", result.ModeAfter)
 	})
+
+	t.Run("symlink escaping allowlist rejected", func(t *testing.T) {
+		outsideDir := t.TempDir()
+		outsideFile := filepath.Join(outsideDir, "outside.txt")
+		require.NoError(t, os.WriteFile(outsideFile, []byte("x"), 0o600))
+
+		link := filepath.Join(allowRoot, "escape-link")
+		require.NoError(t, os.Symlink(outsideFile, link))
+
+		result := h.repairPath(link, false, allowlist)
+		require.Equal(t, "error", result.Status)
+		require.Equal(t, "permissions_symlink_rejected", result.ErrorCode)
+	})
 }
 
 func TestSystemPermissionsHandler_OSChecker_Check(t *testing.T) {
@@ -549,10 +590,11 @@ func TestSystemPermissionsHandler_RepairPermissions_InvalidRequestBody_Root(t *t
 func TestSystemPermissionsHandler_RepairPath_LstatInvalidArgument(t *testing.T) {
 	h := NewSystemPermissionsHandler(config.Config{}, nil, stubPermissionChecker{})
 	allowRoot := t.TempDir()
+	invalidPath := filepath.Join(allowRoot, "\x00invalid")
 
-	result := h.repairPath("/tmp/\x00invalid", false, []string{allowRoot})
+	result := h.repairPath(invalidPath, false, []string{allowRoot})
 	require.Equal(t, "error", result.Status)
-	require.Equal(t, "permissions_outside_allowlist", result.ErrorCode)
+	require.Equal(t, "permissions_repair_failed", result.ErrorCode)
 }
 
 func TestSystemPermissionsHandler_RepairPath_RepairedBranch(t *testing.T) {
@@ -587,4 +629,33 @@ func TestSystemPermissionsHandler_NormalizePath_ParentRefBranches(t *testing.T) 
 func TestSystemPermissionsHandler_NormalizeAllowlist(t *testing.T) {
 	allowlist := normalizeAllowlist([]string{"", "/tmp/data/..", "/var/log/charon"})
 	require.Equal(t, []string{"/tmp", "/var/log/charon"}, allowlist)
+}
+
+func TestFirstAllowlistPrefix(t *testing.T) {
+	t.Run("contained in root", func(t *testing.T) {
+		require.Equal(t, "/foo/", firstAllowlistPrefix("/foo/bar", []string{"/foo"}))
+	})
+
+	t.Run("exactly equal to root", func(t *testing.T) {
+		require.Equal(t, "/foo", firstAllowlistPrefix("/foo", []string{"/foo"}))
+	})
+
+	t.Run("prefix confusion boundary", func(t *testing.T) {
+		require.Empty(t, firstAllowlistPrefix("/foobar", []string{"/foo"}))
+		require.Equal(t, "/foo/", firstAllowlistPrefix("/foo/bar", []string{"/foo"}))
+		require.Empty(t, firstAllowlistPrefix("/fo", []string{"/foo"}))
+	})
+
+	t.Run("no match", func(t *testing.T) {
+		require.Empty(t, firstAllowlistPrefix("/etc/passwd", []string{"/foo"}))
+	})
+
+	t.Run("empty allowlist entries skipped", func(t *testing.T) {
+		require.Empty(t, firstAllowlistPrefix("/etc/passwd", []string{""}))
+		require.Equal(t, "/foo/", firstAllowlistPrefix("/foo/bar", []string{"", "/foo"}))
+	})
+
+	t.Run("root normalized to exactly slash", func(t *testing.T) {
+		require.Equal(t, "/", firstAllowlistPrefix("/somefile", []string{"/"}))
+	})
 }

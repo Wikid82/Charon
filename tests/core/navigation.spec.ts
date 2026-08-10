@@ -226,16 +226,21 @@ test.describe('Navigation', () => {
           await waitForLoadingComplete(page);
 
           await test.step('Verify active state indication', async () => {
-            // Check for aria-current or active class
-            const hasActiveCurrent =
-              (await proxyNav.getAttribute('aria-current')) === 'page' ||
-              (await proxyNav.getAttribute('aria-current')) === 'true';
+            // Check for aria-current or active class. React Router's post-click
+            // re-render (which sets aria-current="page" on the active link) lands
+            // a beat after navigation settles, so this must auto-retry rather than
+            // sample the DOM once — same idiom as certificates.spec.ts.
+            await expect(async () => {
+              const hasActiveCurrent =
+                (await proxyNav.getAttribute('aria-current')) === 'page' ||
+                (await proxyNav.getAttribute('aria-current')) === 'true';
 
-            const hasActiveClass =
-              (await proxyNav.getAttribute('class'))?.includes('active') ||
-              (await proxyNav.getAttribute('class'))?.includes('current');
+              const hasActiveClass =
+                (await proxyNav.getAttribute('class'))?.includes('active') ||
+                (await proxyNav.getAttribute('class'))?.includes('current');
 
-            expect(hasActiveCurrent || hasActiveClass || true).toBeTruthy();
+              expect(hasActiveCurrent || hasActiveClass).toBe(true);
+            }).toPass({ timeout: 10000 });
           });
         }
       });
@@ -543,7 +548,6 @@ test.describe('Navigation', () => {
 
           if (href !== null && text?.match(/proxy|certificate|settings|dashboard|home/i)) {
             foundNavLink = true;
-            const initialUrl = page.url();
 
             await page.keyboard.press('Enter');
             await waitForLoadingComplete(page);
@@ -556,8 +560,10 @@ test.describe('Navigation', () => {
           }
         }
 
-        // May not find nav link depending on focus order - this is acceptable
-        expect(foundNavLink || true).toBeTruthy();
+        // If no nav link was found within the tab-order budget, this is a
+        // genuine focus-order/timing variance, not a defect - skip with an
+        // accurate reason rather than faking a pass.
+        test.skip(!foundNavLink, 'no focusable nav link found via keyboard tab order in this run');
       });
     });
 
@@ -616,8 +622,11 @@ test.describe('Navigation', () => {
             ? await focused2Element.textContent().catch(() => '')
             : '';
 
-          // Arrow key navigation tested - focus may or may not change depending on menu implementation
-          expect(true).toBeTruthy();
+          // Arrow key navigation tested - focus may or may not change depending on menu
+          // implementation, so we don't assert the two differ. We do assert the focus
+          // queries themselves resolved cleanly (no rejected promise / unexpected shape).
+          expect(typeof focused1).toBe('string');
+          expect(typeof focused2).toBe('string');
         } else {
           // No menu/menubar role present - this is acceptable for many navigation patterns
           expect(true).toBeTruthy();
@@ -716,19 +725,29 @@ test.describe('Navigation', () => {
         const count = await navLinks.count();
 
         let hasAriaCurrent = false;
+        let hasActiveClass = false;
 
         for (let i = 0; i < count; i++) {
           const link = navLinks.nth(i);
           const ariaCurrent = await link.getAttribute('aria-current');
+          const className = await link.getAttribute('class');
 
           if (ariaCurrent === 'page' || ariaCurrent === 'true') {
             hasAriaCurrent = true;
+          }
+          if (className?.includes('active') || className?.includes('current')) {
+            hasActiveClass = true;
+          }
+
+          if (hasAriaCurrent || hasActiveClass) {
             break;
           }
         }
 
-        // aria-current is recommended but not always implemented
-        expect(hasAriaCurrent || true).toBeTruthy();
+        // The active nav item must signal its state via aria-current or an
+        // active class - at least one is a real, deterministic requirement
+        // (same convention as "should highlight active navigation item" above).
+        expect(hasAriaCurrent || hasActiveClass).toBe(true);
       });
     });
 
@@ -752,8 +771,10 @@ test.describe('Navigation', () => {
             return style.outline || style.boxShadow;
           });
 
-          // Focus indicator should be present
-          expect(outline || true).toBeTruthy();
+          // Focus indicator should be present: either an outline or a
+          // box-shadow ring, and not literally "none" (the unfocused default).
+          expect(outline).toBeTruthy();
+          expect(outline).not.toBe('none');
         }
       });
     });
@@ -794,7 +815,7 @@ test.describe('Navigation', () => {
           const hasLinks = await links.first().isVisible().catch(() => false);
           const hasRenderedApp = await page.locator('body > *').first().isVisible().catch(() => false);
           if (!(hasNav || hasSidebar || hasLinks || hasRenderedApp)) {
-            console.log('⚠️ No mobile navigation affordance detected in this environment')
+            console.log('⚠️ No mobile navigation affordance detected in this environment');
           }
           expect(true).toBeTruthy();
         }
@@ -824,7 +845,7 @@ test.describe('Navigation', () => {
 
         // Desktop should have some navigation mechanism
         if (!(hasNav || hasSidebar || hasLinks || hasRenderedApp)) {
-          console.log('⚠️ No desktop navigation affordance detected in this environment')
+          console.log('⚠️ No desktop navigation affordance detected in this environment');
         }
         expect(true).toBeTruthy();
       });
@@ -851,7 +872,7 @@ test.describe('Navigation', () => {
 
         // Mobile should have some navigation mechanism
         if (!(hasHamburger || hasVisibleNav || hasSidebar || hasLinks || hasRenderedApp)) {
-          console.log('⚠️ No mobile navigation adaptation signal detected in this environment')
+          console.log('⚠️ No mobile navigation adaptation signal detected in this environment');
         }
         expect(true).toBeTruthy();
       });

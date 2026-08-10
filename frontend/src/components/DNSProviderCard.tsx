@@ -187,6 +187,7 @@ export default function DNSProviderCard({
               variant="danger"
               size="sm"
               onClick={() => setShowDeleteDialog(true)}
+              aria-label={t('dnsProviders.deleteLabel', { name: provider.name, defaultValue: 'Delete provider {{name}}' })}
             >
               <Trash2 className="w-4 h-4" />
             </Button>

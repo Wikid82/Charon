@@ -13,7 +13,7 @@
  */
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
-import { waitForLoadingComplete, waitForToast, waitForAPIResponse } from '../utils/wait-helpers';
+import { waitForLoadingComplete, waitForAPIResponse } from '../utils/wait-helpers';
 
 /**
  * Helper to generate unique provider names
@@ -1632,7 +1632,6 @@ test.describe('Notification Providers', () => {
       });
 
       await test.step('Verify name input has label', async () => {
-        const nameInput = page.getByTestId('provider-name');
         const hasLabel = await page.evaluate(() => {
           const input = document.querySelector('[data-testid="provider-name"]');
           if (!input) return false;

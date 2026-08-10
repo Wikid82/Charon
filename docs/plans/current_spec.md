@@ -1,575 +1,481 @@
-# Bounded Timeout + Distinguishable Error for Slow Docker Daemon Responses
+# Issue #619 — Phase 3 Technical Debt: Test Infrastructure Cleanup
 
-**Type**: Small, targeted backend hardening fix (not a redesign). Branch: current working branch (`feat/changelog` per repo state at plan time — implementer should create/switch to a dedicated branch, e.g. `fix/docker-list-containers-timeout`, off `main` before starting work, per standard PR flow).
+Status: Planning complete, pending supervisor review.
+Branch: `test/issue-619-test-infra-debt` (tip of `development`, working tree clean at plan time).
+PR base branch: **`development`** (per `gh pr list` convention — `main` only receives weekly `nightly` promotion merges via merge commit; this is a normal feature PR).
+Closes: `#619` ("Phase 3 Technical Debt Issues" — bundles 5 sub-issues, verified below).
 
-![Status: Planned](https://img.shields.io/badge/status-Planned-blue)
+---
 
 ## 1. Introduction
 
-### 1.1 Background (already root-caused — do not re-investigate)
+### 1.1 Objective
 
-A user reported that the local Docker container quick-select list in the Proxy Host form (`frontend/src/components/ProxyHostForm.tsx`) appears blank despite 14 containers running on their host. The maintainer already root-caused this via live investigation (`docker exec`, `docker logs`, `docker inspect`, reading `backend/internal/services/docker_service.go` and `.docker/docker-entrypoint.sh`) and **ruled out permissions**:
+Close out GitHub issue #619 with a single feature PR that:
 
-- The rootless-Docker GID-remapping logic in `.docker/docker-entrypoint.sh` (lines 122-141) is working correctly and is **out of scope**.
-- No `EACCES`/`EPERM`/`ENOENT` ever appears in logs — `DockerService`'s existing `buildLocalDockerUnavailableDetails()` permissions-error path never fires.
-- Captured evidence from container logs:
-  ```
-  duration:30.008511109s → 502 (Caddy's embedded reverse-proxy timeout fired)
-  "error":"failed to list containers: Get \"http://%2Fvar%2Frun%2Fdocker.sock/v1.55/containers/json\": context canceled"
-  ```
-  followed by a request that succeeded but still took 8.22s. `docker ps` on the same host returns in 118ms; the host is not resource-starved.
+1. Un-skips 5 confirmed-stale Vitest suites blocked on a long-fixed `undici`/jsdom WebSocket bug (sub-issue 1), resolves the 6th related skip with a root-cause-appropriate fix (not a blind unskip), and proves no regressions via a full frontend suite run.
+2. Replaces 59 tautological (`expect(x || true).toBeTruthy()`-shaped) Playwright assertions across 11 E2E spec files with real, deterministic assertions or explicit `test.skip()` calls with accurate reasons (sub-issue 2) — the bulk of this PR's work.
+3. Confirms backend coverage for `internal/services` and the relocated `backend/pkg/dnsprovider/builtin` package remains healthy with no code changes required (sub-issue 3).
+4. Confirms the feature-flag async propagation flakiness was already resolved via `waitForFeatureFlagPropagation()` in the reorganized spec file, with no code changes required (sub-issue 4).
+5. Confirms WebKit E2E test discovery/config is healthy and schedules the outstanding full WebKit run as a Definition-of-Done gate (sub-issue 5).
 
-**Confirmed root cause**: `DockerService.ListContainers` (`backend/internal/services/docker_service.go:107`) calls `cli.ContainerList(ctx, ...)` (line 134) using the caller's context directly, with **no bounded timeout of its own**. On a rootless host where 5 containers mount the same Docker socket (charon, charon-e2e, dockhand, homepage, prunemate), the daemon is intermittently slow (8-37s) to respond to `ContainerList` even though `docker ps` is fast. Because Charon has no internal timeout shorter than the front-end embedded Caddy reverse-proxy's timeout, the *request-scoped* context (`c.Request.Context()`, Gin) eventually gets canceled by Caddy giving up on the backend connection — the Go HTTP server cancels the request context with `context.Canceled` (not `context.DeadlineExceeded`), which matches the literal log text `"context canceled"` observed. This generic cancellation bubbles up through the existing generic-error path (`fmt.Errorf("failed to list containers: %w", err)`, `docker_service.go:142`) to a `500` with an unhelpful message — this is what the user perceives as "the list is just blank" (see §2.4 for exact code-path trace confirming this).
+### 1.2 Why one PR
 
-### 1.2 Objective
+Per `CLAUDE.md` "Commit Slicing & PR Strategy" and repo memory (`feedback_one_feature_one_pr.md`): issue #619 is one feature (test-infrastructure debt), closed by one PR with ordered commits. Sub-issues 3 and 4 require **no code changes** — they contribute verification evidence to the PR's DoD run and the closing PR description, not separate commits.
 
-Add a bounded `context.WithTimeout` around the `cli.ContainerList` call in `ListContainers` so a slow daemon fails fast (comfortably before Caddy's proxy timeout) with a new, distinguishable error — instead of hanging until an unrelated upstream timeout hard-cancels the request and surfaces a generic "context canceled" failure.
+### 1.3 Non-goals
 
-### 1.3 Explicitly out of scope
+- No production code changes (backend or frontend application code). This PR touches only test files, test infrastructure, and documentation.
+- No changes to `.gitignore`, `.dockerignore`, `codecov.yml`, or any `Dockerfile` — reviewed explicitly in §3.6, all confirmed already correct for this change (see findings).
+- `CrowdSecBouncerKeyDisplay.test.tsx` (4 `it.skip` at lines 205/209/213/219, unrelated clipboard-API mock issue) is explicitly **out of scope** and must not be touched.
 
-- `.docker/docker-entrypoint.sh` (GID-detection logic) — already correct, do not touch.
-- Any Docker Compose file.
-- Rootless Docker / subgid host configuration.
-- Any redesign of `DockerService`, its constructor, or its remote-host code path beyond the single bounded-timeout addition.
-- Frontend code changes (see §3.4 — analysis shows none are required, contingent on the handler-layer HTTP status choice specified in §2.3).
+---
 
-## 2. Research Findings
+## 2. Research Findings — Ground Truth Verification (2026-08-07)
 
-### 2.1 Current `ListContainers` implementation
+All findings below were re-verified directly against the current working tree (branch `test/issue-619-test-infra-debt`, tip of `development`) — greps, file reads, and non-mutating test/coverage runs. Numbers in the original issue text and the prior same-day investigation summary are corrected where they drifted.
 
-`backend/internal/services/docker_service.go`, lines 107-194 (relevant excerpt):
+### 2.1 Sub-issue 1 — undici/WebSocket jsdom blocker: CONFIRMED STALE, ACTION REQUIRED
 
-```go
-func (s *DockerService) ListContainers(ctx context.Context, host string) ([]DockerContainer, error) {
-    // Check if Docker was available during initialization
-    if s.initErr != nil {
-        var unavailableErr *DockerUnavailableError
-        if errors.As(s.initErr, &unavailableErr) {
-            return nil, unavailableErr
-        }
-        return nil, NewDockerUnavailableError(s.initErr, buildLocalDockerUnavailableDetails(s.initErr, s.localHost))
-    }
+Dependency state confirmed via `npm ls`:
+- `jsdom@30.0.1` (root + deduped under `vitest@4.1.10`)
+- `undici@8.10.0` (transitive, via jsdom only)
 
-    var cli *client.Client
-    var err error
+The upstream bug this blocker cited (`nodejs/undici#1671`, WebSocket mock `InvalidArgumentError`) is long fixed at this version pair.
 
-    if host == "" || host == "local" {
-        cli = s.client
-    } else {
-        cli, err = client.New(client.WithHost(host))
-        if err != nil {
-            return nil, fmt.Errorf("failed to create remote client: %w", err)
-        }
-        defer func() { ... cli.Close() ... }()
-    }
+**Confirmed skip inventory** (exact, re-counted against source, not the prior summary):
 
-    containers, err := cli.ContainerList(ctx, client.ContainerListOptions{All: false})   // <-- line 134, NO bounded timeout
-    if err != nil {
-        if isDockerConnectivityError(err) {
-            if host == "" || host == "local" {
-                return nil, NewDockerUnavailableError(err, buildLocalDockerUnavailableDetails(err, s.localHost))
-            }
-            return nil, NewDockerUnavailableError(err)
-        }
-        return nil, fmt.Errorf("failed to list containers: %w", err)   // <-- line 142, generic error path (what the user hits today)
-    }
-    ... // container-mapping loop, unaffected by this change
-}
+| File | Skip marker | Test count (verified via grep) |
+|---|---|---|
+| `frontend/src/pages/__tests__/Security.test.tsx:35` | `describe.skip('Security', ...)`, comment `// BLOCKER 3: Temporarily skipped due to undici InvalidArgumentError in WebSocket mocks` | 22 |
+| `frontend/src/pages/__tests__/Security.audit.test.tsx:52` | `describe.skip('Security Page - QA Security Audit', ...)` | 18 |
+| `frontend/src/pages/__tests__/Security.errors.test.tsx:68` | `describe.skip('Security Error Handling Tests', ...)` | 13 |
+| `frontend/src/pages/__tests__/Security.loading.test.tsx:59` | `describe.skip('Security Loading Overlay Tests', ...)` | 12 |
+| `frontend/src/pages/__tests__/Security.dashboard.test.tsx:67` | `describe.skip('Security Dashboard - Card Status Tests', ...)` | 18 |
+
+Subtotal: **83 tests** across 5 files. Sum matches exactly.
+
+**The 6th file — `Security.functional.test.tsx:680`, `it.skip('should open notification settings modal when button is clicked', ...)`, comment `// Skip: Modal component uses WebSocket connections internally`:**
+
+This comment is **inaccurate**, and unskipping as-is would produce a real (non-WebSocket) failure. Root-cause trace performed per `CLAUDE.md`'s Root Cause Analysis Protocol:
+
+- `frontend/src/pages/Security.tsx:297-303` — the "Notifications" header button's `onClick` is `() => navigate('/settings/notifications')`. It is a **React Router navigation**, not a modal. There is no `role="dialog"` anywhere in `Security.tsx`.
+- `Security.functional.test.tsx:20-27` mocks `useNavigate` (`mockNavigate = vi.hoisted(() => vi.fn())`) — the file's own test harness already expects navigation, not a modal, elsewhere.
+- **The correct test already exists in the same file**, passing, uncontested: `Security.functional.test.tsx:452-464`, `it('should navigate to notifications settings when Notifications button is clicked', ...)`, which asserts `expect(mockNavigate).toHaveBeenCalledWith('/settings/notifications')`.
+
+Conclusion: the skipped test at line ~680 is **dead, stale test code** describing UI behavior (a modal) that was replaced by a navigation at some prior refactor, and the replacement behavior already has full, correct, passing coverage elsewhere in the same file. Per `CLAUDE.md` "CLEAN: Delete dead code immediately," the correct fix is **deletion of the stale `it.skip` block** (the `describe('Notification Settings Modal', ...)` wrapper at line ~677 becomes empty and should be removed with it), not an unskip and not a comment-only edit. This is a stronger, more correct resolution than either option the investigation brief offered, and it should be called out explicitly in the PR description as the resolution for this file.
+
+**Current full-suite baseline** (`npx vitest run --coverage=false`, non-mutating, run to completion — 635s):
+
+```
+Test Files  263 passed | 5 skipped (268)
+     Tests  3247 passed | 88 skipped | 2 todo (3337)
 ```
 
-There is **no existing `context.WithTimeout` anywhere in `docker_service.go`** — this file has no timeout/context-scoping pattern to reuse. Other services in the repo do have this pattern (used as precedent, §2.5).
+88 skipped = 83 (sub-issue-1, in scope) + 1 (`Security.functional.test.tsx` notification-modal test, in scope, to be deleted not unskipped) + 4 (`CrowdSecBouncerKeyDisplay.test.tsx`, confirmed out of scope). Arithmetic reconciles exactly — no other undici/WebSocket-flavored skips exist anywhere else in `frontend/src` (verified via repo-wide grep for `undici`, `BLOCKER 3`, `WebSocket connections internally`).
 
-### 2.2 `DockerUnavailableError` and `isDockerConnectivityError`
+### 2.2 Sub-issue 2 — Weak/tautological E2E assertions: CONFIRMED, LARGER THAN ORIGINAL ISSUE TEXT, MAJORITY REQUIRE REAL FIXES
 
-`docker_service.go` lines 19-52 define `DockerUnavailableError` (fields `err`, `details`; methods `Error()`, `Unwrap()`, `Details()`). `isDockerConnectivityError` (lines 196-251) classifies an error as a Docker-connectivity failure by checking daemon-not-running message substrings, `errors.Is(err, context.DeadlineExceeded)`, `net.Error.Timeout()`, and specific `syscall.Errno` values (`ENOENT`, `EACCES`, `EPERM`, `ECONNREFUSED`).
+Pattern searched: literal `|| true` immediately preceding `.toBeTruthy()` in `tests/**/*.spec.ts` (the actual pattern in this repo — confirmed not a generic `x` placeholder). Exact current count: **59 occurrences across 11 files**, matching the prior investigation's file list and the prior day's rough counts almost exactly (one file's estimate, `system-settings-feature-toggles.spec.ts`, is 1, not the previously-noted range — reconfirmed by direct grep):
 
-**Critical interaction to design around**: `isDockerConnectivityError` already treats `context.DeadlineExceeded` as a connectivity error (line 210, and covered by test `TestIsDockerConnectivityError` case `"context timeout"`). If the new bounded timeout is added *naively* (i.e., the resulting `context.DeadlineExceeded` error is simply passed into the existing `isDockerConnectivityError(err)` check), it will be misclassified as the same permissions/connectivity failure (`DockerUnavailableError` with `buildLocalDockerUnavailableDetails`), which is exactly the *opposite* of what the ask requires ("DISTINGUISHABLE error ... distinct from the existing `DockerUnavailableError` messaging"). **The new timeout detection must be checked before `isDockerConnectivityError`, using a purpose-built check** (§3.3) that only fires when *our own* bounded timeout expired — not when the daemon is actually unreachable or the caller's context was canceled/expired for an unrelated reason.
+| File | Count | Lines |
+|---|---|---|
+| `tests/security-enforcement/zzz-security-ui/access-lists-crud.spec.ts` | 13 | 156, 200, 339, 465, 545, 623, 825, 845, 862, 949, 985, 1018, 1061 |
+| `tests/core/certificates.spec.ts` | 9 | 204, 229, 718, 759, 1037, 1052, 1118, 1146, 1158 |
+| `tests/security-enforcement/zzz-security-ui/encryption-management.spec.ts` | 8 | 188, 314, 393, 498, 596, 601, 684, 708 |
+| `tests/core/proxy-hosts.spec.ts` | 8 | 209, 255, 461, 523, 547, 643, 969, 1014 |
+| `tests/security-enforcement/zzz-security-ui/system-security-settings.spec.ts` | 7 | 290, 325, 352, 452, 555, 680, 736 |
+| `tests/core/navigation.spec.ts` | 4 | 238, 559, 733, 758 |
+| `tests/settings/smtp-settings.spec.ts` | 4 | 121, 165, 231, 906 |
+| `tests/core/dashboard.spec.ts` | 3 | 232, 370, 491 |
+| `tests/settings/account-settings.spec.ts` | 1 | 875 |
+| `tests/security/system-settings-feature-toggles.spec.ts` | 1 | 317 |
+| `tests/manual-dns-provider.spec.ts` | 1 | 311 |
+| **Total** | **59** | |
 
-### 2.3 Distinguishing "our timeout fired" from "caller canceled" — the `context.Canceled` vs `context.DeadlineExceeded` distinction
+**Decision framework applied to every occurrence** (per task instructions):
 
-This is the key mechanism that makes the fix correct, and it is directly supported by the evidence already in the bug report:
+- **(a) Real conditional assertion** — used when the test's own name or an adjacent comment already states a definite, deterministic expectation ("should show X", "X should appear") that the app can be made to satisfy reliably. Mechanical sub-case: when the expression already has a *real* multi-condition OR (e.g. `hasX || hasY || true`), the fix is simply dropping the trailing `|| true` — the meaningful disjunction underneath is preserved.
+- **(b) Explicit `test.skip()` / early return with accurate comment** — used only where the underlying condition is genuinely environment- or timing-dependent (cross-browser keyboard focus order, network-dependent external reachability *content* — as opposed to "some feedback appeared," which is still deterministic, race conditions in animation/skeleton timing). This repo already has an established, correct convention for this — `tests/proxy-host-drag-drop.spec.ts` (19 call sites) and `tests/certificate-delete.spec.ts` / `tests/certificate-bulk-delete.spec.ts` (1 each) all use `test.skip(true, '<reason>')` mid-test when a precondition isn't met. **Reuse this exact convention** — do not invent a new pattern.
+- **(dead code) Delete** — used when a hard `expect(...).toBeVisible()` (or equivalent) already precedes the tautological line for the *same* condition, making the soft check unreachable/redundant.
 
-- Standard library `net/http` servers cancel `r.Context()` with **`context.Canceled`** when the client (Caddy, acting as reverse-proxy client to the Charon backend) gives up and closes the connection — **not** `context.DeadlineExceeded`. This is exactly why the captured log shows the literal string `"context canceled"`, not `"context deadline exceeded"`.
-- A `context.WithTimeout(parentCtx, d)` child context expires with **`context.DeadlineExceeded`** when *its own* `d` elapses, provided `parentCtx` has not itself been canceled/expired first.
-- Therefore: if the new bounded timeout (`d` = 8s, comfortably less than Caddy's ~30s) fires *before* Caddy ever gives up, `cli.ContainerList` will fail with `context.DeadlineExceeded`, and the original request context (`ctx`, the parameter passed into `ListContainers`) will still be healthy (`ctx.Err() == nil`) at that moment — because Caddy hasn't canceled it yet. This gives a clean, race-free discriminator:
+Classification results by file (full per-line detail for implementers; "(a)", "(b)", "(dead)" tags below are the required fix per line):
 
-  ```go
-  errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil
-  ```
+#### `tests/core/certificates.spec.ts` (9 `|| true` occurrences, plus 1 additional vacuous test with no tautology to grep for) — includes the 3 originally-named tests plus 2 more sharing the same defect
 
-  reliably means "our bounded timeout expired on its own, independent of the caller's context state" — i.e., exactly the slow-daemon case this fix targets. If the caller's context were itself canceled or expired first (e.g., Caddy's timeout actually fires first because someone misconfigures the new timeout to be too long), `ctx.Err()` would be non-nil at that point and the code correctly falls through to existing behavior instead of misreporting.
+- **L204** `hasSortIcon || true` — comment above states "Sort icon should appear" as a definite requirement → **(a)**: `expect(hasSortIcon).toBe(true)`.
+- **L229** `hasAlert || true`, test `'should show SSL info alert'` → **(a)**: test name itself is the requirement.
+- **L718** `hasDelete || true`, test `'should show delete button for staging certificates'` → **(a)**.
+- **L759** `hasToast || true`, test `'should warn if certificate is in use by proxy host'` → **(a), root-cause fix required, see below.**
+- **L1037** `hasSslColumn || true` — comment: "SSL column *may* show certificate info" → checked against the source (`frontend/src/pages/ProxyHosts.tsx:556-557`): the SSL column (`key: 'ssl', header: t('proxyHosts.columnSSL')`) is a **static column definition**, not conditional per-row/per-feature-flag — unlike proxy-hosts.spec.ts L643's `hasWs`/`hasAcl` (which genuinely vary per host's configuration and need a seeded host to be deterministic), this column header renders unconditionally whenever the table itself renders. → **(a), and simpler than L643**: no seeding needed — the `hasTable` check already above this line guarantees the table is rendered, so `expect(hasSslColumn).toBe(true)` is deterministic as-is; verify at implementation time that no feature flag gates the column before finalizing.
+- **L1052** `hasHeading || true` — a **hard** `await expect(heading).toBeVisible({ timeout: 10000 })` already executes immediately above this line for the identical locator → **(dead)**: delete the redundant soft-check (3 lines).
+- **L1118** `hasError || true`, test `'should show error message on API failure'` — **root-cause issue**: the test never injects a failure (no `page.route(...)` interception forcing a 4xx/5xx). It cannot show an error message because no error is ever induced. → **(a) with expanded scope**: add a `page.route('**/api/v1/certificates', route => route.fulfill({ status: 500, ... }))` (or equivalent, matching the mocking convention used elsewhere in this same file's "Error Handling" section if one exists — verify at implementation time) before navigation, then assert the error message is real and visible. This is not a one-line fix; note it in the commit as a slightly larger item.
+- **L1146** `hasDescription || true`, test `'should have PageShell with title and description'` → **(a)**.
+- **L1158** `hasIcon || true` — comment: "Button should have Plus icon" → **(a)**.
 
-### 2.4 Handler-layer error propagation (`backend/internal/api/handlers/docker_handler.go`)
+**The 3 named tests, plus 2 more sharing the identical defect, in detail** (backend root-cause traced via `backend/internal/api/handlers/certificate_handler.go:387-470`, `CertificateHandler.Delete`):
 
-`ListContainers` handler (lines 58-125) calls `h.dockerService.ListContainers(c.Request.Context(), host)` (line 103) and branches only on `*services.DockerUnavailableError` via `errors.As`:
+Note: a 5th test in the same `describe` block, `'should show config reload overlay during deletion'` (~L806-821), was not caught by the initial `|| true` grep sweep because it doesn't end in a tautology — it uses the identical broken `page.once('dialog', dialog => dialog.accept())` pattern against the same non-existent native dialog, then only does `await waitForDebounce(page)` with **no assertion at all** afterward. It is just as vacuous as the other four and requires the identical interaction-model fix, so it is grouped with them below (item 5) and included in the same commit.
 
-```go
-if err != nil {
-    var unavailableErr *services.DockerUnavailableError
-    if errors.As(err, &unavailableErr) {
-        details := unavailableErr.Details()
-        if details == "" {
-            details = "Cannot connect to Docker. Please ensure Docker is running and the socket is accessible (e.g., /var/run/docker.sock is mounted)."
-        }
-        log.Warn(...)
-        c.JSON(http.StatusServiceUnavailable, gin.H{
-            "error":   "Docker daemon unavailable",
-            "details": details,
-        })
-        return
-    }
+Critical finding: **the delete UI does not use a native `window.confirm()` dialog.** `frontend/src/components/dialogs/DeleteCertificateDialog.tsx` is a fully custom React modal (uses the shared `Dialog`/`DialogContent`/`DialogFooter` primitives, `Button` components with `onClick={onCancel}` / `onClick={onConfirm}`, translated via i18n keys `certificates.deleteTitle`/`deleteConfirmCustom`/`deleteButton`/`common.cancel`). It contains **no `confirm()` call and no "backup" text is guaranteed** — the backup-mentioning copy (`certificates.deleteConfirmCustom`: *"This will permanently delete this certificate. A backup will be created first."*, `frontend/src/locales/en/translation.json:234`) is used **only** when `getWarningKey()` falls through to the default case (i.e. the certificate is not `expired`, not `expiring`, and not `letsencrypt-staging`); the other 3 status-specific messages (`deleteConfirmStaging`, `deleteConfirmExpired`, `deleteConfirmExpiring`) never mention backups at all.
 
-    log.Error(...)
-    c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list containers"})
-    return
-}
+All five existing tests (`'should show delete confirmation dialog'` L723, `'should warn if certificate is in use by proxy host'` L741, `'should cancel delete when confirmation dismissed'` L764, `'should create backup before deletion'` L788, `'should show config reload overlay during deletion'` L806) currently drive the flow via `page.once('dialog', ...)` — Playwright's **native browser dialog** handler. Since the app never opens a native dialog for this flow, **that handler callback never fires**; the tests currently click the delete button (opening the *custom* modal, which is left dangling/unclosed) and then either do nothing further or check a `hasX || true` that trivially passes. These tests currently exercise almost none of the real deletion flow. This is a larger, root-cause-level fix, not a one-line assertion swap:
+
+1. **`'should show delete confirmation dialog'` (L723, not currently `|| true` but must be fixed alongside the others for the block to work at all)**: replace `page.once('dialog', ...)` with locating the actual custom modal (`page.getByRole('dialog')` from the shared `Dialog` primitive — verify exact role/testid in `frontend/src/components/ui/Dialog.tsx` at implementation time) and asserting its title (`t('certificates.deleteTitle')` → "Delete Certificate") and Cancel/Delete buttons are visible.
+2. **`'should warn if certificate is in use by proxy host'` (L741/L759)**: backend `Delete()` returns `409 {"error": "certificate is in use by one or more proxy hosts"}` **before** any backup is attempted, when `IsCertificateInUse`/`IsCertificateInUseByUUID` is true. Real fix: select (or seed via API, matching this file's existing seeding convention) a certificate that is actually attached to a proxy host, click delete, click the custom modal's Confirm button, and assert a real error toast/message appears (matching the app's toast convention — `sonner`/`[role="alert"]`, consistent with other files in this PR) rather than the current always-true check. Do not rely on "whichever cert happens to be first in the table."
+3. **`'should cancel delete when confirmation dismissed'` (L764)**: replace `page.once('dialog', dialog => dialog.dismiss())` with clicking the custom modal's **Cancel** button. The existing row-count check (`rowsBefore === rowsAfter`) is real and should be **kept**, but per the task's explicit instruction, **add a backend-state assertion**: `GET /api/v1/certificates/{id}` (via `getCertificateViaAPI` from `tests/utils/api-helpers.ts`, the file's already-established API-verification helper — reuse it, do not invent a new one) returns `200` and the certificate is still present, proving cancellation didn't merely hide a row client-side.
+4. **`'should create backup before deletion'` (L788, currently checks `dialog.message()` contains "backup" via a handler that never fires — the current implementation is not even a tautology, it is dead/vacuous)**: backend confirms `CreateBackup()` (via `BackupServiceInterface`) is called synchronously in the `Delete` handler, for a certificate that is **not** in use, before the delete completes. Correct fix: capture the backup list via `GET /api/v1/backups` (same endpoint mocked/used in `tests/tasks/backups-create.spec.ts`; no existing typed helper for it in `tests/utils/api-helpers.ts` — add one, `getBackupsViaAPI`, following the exact pattern of the file's other `get*ViaAPI` functions) **before** the delete, click Confirm on the custom modal for a certificate guaranteed not in use, wait for the delete to complete, then `GET /api/v1/backups` again and assert a new backup entry exists (by count increase and/or a `created_at`/filename close to "now"). Do **not** assert on dialog text — the text does not reliably mention "backup" depending on certificate status, as shown above.
+5. **`'should show config reload overlay during deletion'` (~L806-821, currently `page.once('dialog', dialog => dialog.accept())` then only `await waitForDebounce(page)` — no assertion at all, silently vacuous)**: replace with clicking the custom modal's **Confirm/Delete** button for a certificate guaranteed not in use, then assert the actual loading/config-reload overlay is real: locate it the same way `tests/security/system-settings-feature-toggles.spec.ts:317`'s `overlayVisible` check does (`.fixed.inset-0.z-50` / `[data-testid="config-reload-overlay"]` — reuse that locator convention rather than inventing a new one) and assert it becomes visible during the delete request and then resolves/disappears once the request completes, rather than the current no-op.
+
+#### `tests/core/proxy-hosts.spec.ts` (8 occurrences)
+
+- **L209** `hasBulkBar || true` — comment: "Should show bulk action bar" → **(a)**.
+- **L255** `isInvalid || true` — comment: "Browser validation or custom validation should prevent submission" → **(a)**; consider also asserting no `POST /api/v1/proxy-hosts` was sent (stronger, matches sub-issue 2's "verify backend state" spirit) if feasible without large rework.
+- **L461** `hostCreated || true` — this is the **creation-verification step of a core CRUD test**. → **(a), strengthen**: assert UI text visible **and** verify via `getProxyHostsViaAPI`/`getProxyHostViaAPI` (already in `tests/utils/api-helpers.ts`) that the host exists server-side with the expected `domain`/`forward_host`/`forward_port` — mirrors the existing convention in this same helper file.
+- **L523** `exists || true` (loop over expected security-option checkboxes: force SSL, HTTP/2, HSTS, block exploits, websocket) → **(a)**: these are static, always-rendered form fields; assert each `expect(exists).toBe(true)`.
+- **L547** `exists || true` (loop over preset dropdown options: plex, jellyfin, homeassistant, nextcloud) → **(a)**, pending a quick implementation-time check that these presets are indeed static/guaranteed (grep the preset source, e.g. `frontend/src/**/presets*`) rather than feature-flagged.
+- **L643** `hasWs || hasAcl || true`, test `'should show feature badges (WebSocket, ACL)'` — comment: "May or may not exist depending on host configuration" → **(a) via test-setup fix**: rather than leaving this permanently unverifiable, seed/select a host in the test's own setup with `websocket_support: true` (via `createProxyHostViaAPI`) so `hasWs` is deterministic; drop `|| true`.
+- **L969** `hasApply || hasRemove || true` — comment: "Should have apply/remove tabs or buttons" (definite) → **(a)**: drop `|| true`.
+- **L1014** `hasFocus || true` (keyboard nav: 3 Tabs inside an open modal, expect something focused) → **(a)** preferred (modals should trap/receive focus deterministically); fall back to **(b)** only if empirically flaky per-browser during implementation (cross-reference with sub-issue 5's WebKit focus-order risk).
+
+#### `tests/security-enforcement/zzz-security-ui/access-lists-crud.spec.ts` (13 occurrences)
+
+- **L156** `hasBadge || true` (allow/deny type badge in first seeded row) → **(a)**, contingent on the `beforeEach` seed fixture guaranteeing a row with a known type — verify at implementation time.
+- **L200** `isInvalid || true` — comment: "HTML5 validation should prevent submission" (definite) → **(a)**.
+- **L339** `hasInfo || true` — "Blacklist should show 'Recommended' info box" (definite, immediately after `selectOption('blacklist')`) → **(a)**.
+- **L465** `hasPresets || true` (preset options after clicking "Show presets") → **(a)**.
+- **L545** `hasUpdated || true` (rename ACL, verify) → **(a)**, strengthen with `getAccessListViaAPI` name check (same convention as certificates §2.2 backup verification).
+- **L623** `hasSuccess || true` (save success toast) → **(a)**.
+- **L825** `hasBulkBar || true` → **(a)** (same pattern as proxy-hosts L209).
+- **L845** `hasBulkDelete || true`, test `'should show bulk delete button when items selected'` → **(a)**.
+- **L862** `hasHeading || true`, test `'should navigate between Access Lists and Proxy Hosts'` — **no** preceding hard assert here (unlike the near-identical certificates.spec.ts:1052 case, which is dead code) → **(a)**: promote to a hard `await expect(heading).toBeVisible({ timeout: 5000 })`.
+- **L949** `hasWarning || true`, test `'should show CGNAT warning when ACLs exist'` → **(a)**, contingent on seeded ACL data guaranteeing the CGNAT condition — verify seed fixture at implementation time.
+- **L985** `hasExternalIcon || true` (external-link icon on "best practices" link) → **(a)**.
+- **L1018** `hasFocus || true` (same keyboard-tab pattern as proxy-hosts L1014) → **(a)** preferred, **(b)** fallback if flaky.
+- **L1061** `isHidden || true` (IP input hidden when "local network only" toggle enabled) → **(a)**: deterministic conditional-field-visibility behavior.
+
+#### `tests/security-enforcement/zzz-security-ui/encryption-management.spec.ts` (8 occurrences)
+
+- **L188** `hasWarning || true` (rotate-key confirm dialog warning content) → **(a)**: dialog title/confirm/cancel are already hard-asserted immediately above; the warning text check should be promoted to match.
+- **L314** `hasProgress || true` — comment: "Progress may appear briefly - capture if visible" → **(b)**: genuinely a timing race (progress indicator can legitimately complete before the 5s poll ever samples it); use `test.skip()`-with-reason or remove if no stronger signal (e.g., a `waitForResponse` on the rotation request) can be substituted.
+- **L393** `hasWarning || true` — inside `if (isDisabled)` guard, checking rotation-disabled warning text → **(a)**: once inside the guard the condition is deterministic (button is confirmed disabled).
+- **L498** `hasWarning || true` — comment: "Warnings may or may not be present - just verify we can detect them" → **(b)**: explicitly optional per comment; convert to non-blocking annotation or remove — it currently asserts nothing meaningful either way.
+- **L596** `hasBadge || true` (action-type badge in first audit-log row) → **(a)**, contingent on seeded rotation-history data.
+- **L601** `hasVersionInfo || true` (version/duration info in same row) → **(a)**, same seeding caveat as L596.
+- **L684** `hasToast || true` (keyboard-activated validate button should trigger a result toast) → **(a)**: deterministic feedback requirement.
+- **L708** `accessibleName || true` (every visible button should have an accessible name) → **(a)**: real, valuable a11y assertion; drop `|| true`.
+
+#### `tests/security-enforcement/zzz-security-ui/system-security-settings.spec.ts` (7 occurrences)
+
+- **L290** `hasValidation || true` — comment: "May not have inline validation" (explicit hedge) → **(b)**: convert to `test.skip()`/annotation.
+- **L325** `toastVisible || true` — the immediately preceding step already hard-asserts `expect(saveResponse.ok()).toBeTruthy()` (a real successful save) → **(a)**: success feedback must follow a confirmed-successful save; drop `|| true`.
+- **L352** `hasSuccess || true` (green-checkmark validation indicator for a valid URL) → **(a)**, pending a quick check that this indicator is unconditionally rendered for the field (verify at implementation time).
+- **L452** `toastVisible || true` — comment: "URL reachability depends on network - just verify test button works" → **(a) for the meta-assertion**: regardless of network outcome (reachable/unreachable), *some* toast must always appear after clicking Test — that part is deterministic. Drop `|| true`; do not assert on toast *content*.
+- **L555** `hasVersion || true` (version string format) → **(a)**: app always renders a build version (semver or `dev`).
+- **L680** `newState !== initialState || true` — this directly overlaps sub-issue 4's feature-flag propagation fix; the test already awaits both the `PUT` and `GET` feature-flags responses via `Promise.all` before reading `newState` → **(a)**: the toggle state change is deterministic once both responses have resolved; drop `|| true`.
+- **L736** `accessibleName || true` — same pattern as encryption-management L708 → **(a)**.
+
+#### `tests/core/navigation.spec.ts` (4 occurrences)
+
+- **L238** `hasActiveCurrent || hasActiveClass || true` → **(a)**, mechanical: drop `|| true`, keep the two-way OR (an active nav item must signal state via `aria-current` or an active class — at least one is a real requirement).
+- **L559** `foundNavLink || true` — comment: "May not find nav link depending on focus order - this is acceptable" → **(b)**: convert to `test.skip(true, 'no focusable nav link found via keyboard tab order in this run')` per the established `test.skip(true, reason)` convention, rather than a fake pass.
+- **L733** `hasAriaCurrent || true` — comment: "aria-current is recommended but not always implemented" → **(a), converge with L238's convention**: check `aria-current` **or** active class (matching the pattern already used at L238 in the same file) instead of `aria-current` alone with a fake fallback — this makes it a real, DRY assertion instead of leaving it permanently soft.
+- **L758** `outline || true` (focus-visible indicator style) → **(a)** preferred: assert `outline` is non-empty/not `'none'`; fall back to **(b)** only if empirically flaky across Chromium/Firefox/WebKit during implementation.
+
+#### `tests/core/dashboard.spec.ts` (3 occurrences)
+
+- **L232** `foundButton || true` (quick-action button reachable via keyboard tab loop) → **(b)**: tab-order flakiness, same pattern as navigation.spec.ts:559; convert to `test.skip()`-with-reason when not found within the loop bound, rather than fake pass. The real assertion (`expect(focused).toBeFocused()`) already fires correctly when found.
+- **L370** `hasEmptyState || hasActualContent || true` — comment: "Dashboard should show either empty state or content, not crash" (a genuine, environment-independent invariant) → **(a)**, mechanical: drop `|| true`.
+- **L491** `reachedCard || focusableElementsFound > 0 || true` — comment: "verify we at least found some focusable elements" → **(a)**, mechanical: drop `|| true`, keep the two-way OR.
+
+#### `tests/settings/smtp-settings.spec.ts` (4 occurrences)
+
+- **L121** `skeletonVisible || true` — comment: "Either skeleton is shown or page loads very fast" → **(b)**: genuine loading-timing race; convert to `test.skip()`-with-reason or remove — a 500ms artificial delay plus a 1000ms visibility timeout should make the skeleton reliably visible, so first try tightening the mock/timeout to make this **(a)** before falling back to **(b)**.
+- **L165** `hasValidation || true` — comment: "Either inline validation or form submission is blocked" (definite requirement, required-field case) → **(a)**.
+- **L231** `hasValidation || true` — comment: "Validation should occur (inline or via toast)" (definite, invalid-email-format case) → **(a)**.
+- **L906** `hasAccessibleError || true` — comment: "Some form of accessible error feedback should exist" (definite a11y requirement) → **(a)**.
+
+#### `tests/settings/account-settings.spec.ts` (1 occurrence)
+
+- **L875** `foundApiButton || true` — comment: "Non-blocking assertion" (explicit hedge, keyboard tab-order search for API key buttons) → **(b)**: convert to `test.skip()`-with-reason, consistent with the tab-order-flakiness cases above.
+
+#### `tests/security/system-settings-feature-toggles.spec.ts` (1 occurrence)
+
+- **L317** `overlayVisible || true` — comment: "Overlay may appear briefly - either is acceptable" → **(b)**: genuine timing race (config-reload overlay can complete before the 1s poll samples it); the `responsePromise` for the `PUT /feature-flags` call is already captured above but never awaited/used to gate this check — first try awaiting that promise before sampling the overlay (would make this **(a)**); fall back to **(b)** if still flaky.
+
+#### `tests/manual-dns-provider.spec.ts` (1 occurrence)
+
+- **L311** `hasVisibleIcon || true` (status icon inside an already-hard-asserted status indicator) → **(a)**: the indicator itself is already hard-asserted visible immediately above; the icon inside it should be deterministic too.
+
+**Summary**: of 59 `|| true` occurrences, **~47 become real assertions (a)**, **~4 are dead code to delete**, and **~8 are genuinely environment/timing-dependent and become explicit `test.skip()` calls (b)** using the repo's existing convention — plus 1 additional vacuous test (certificates.spec.ts's `'should show config reload overlay during deletion'`) that has no `|| true` to count here but requires the identical interaction-model fix (see the certificates.spec.ts breakdown above). Exact per-line final disposition is confirmed during implementation per the guidance above; the DoD gate in §5 enforces that zero bare `|| true`-before-`toBeTruthy()` patterns remain regardless of which bucket each line lands in.
+
+### 2.3 Sub-issue 3 — Backend coverage gaps: CONFIRMED STALE / ALREADY RESOLVED, NO CODE CHANGES
+
+Re-ran directly (non-mutating `go test -cover`):
+
+```
+ok  internal/services                        coverage: 88.4% of statements   (target 85%)
+ok  internal/services/remotestorage           coverage: 90.3% of statements
+ok  backend/pkg/dnsprovider/builtin           coverage: 91.8% of statements   (target 50% incremental)
 ```
 
-Any error that is not a `*DockerUnavailableError` (including today's generic-cancellation error) falls into the `500` branch with **no `details` field** — this is the exact code path the user hit.
+Confirms the prior investigation exactly. `backend/pkg/dnsprovider/builtin` is the correct current location (relocated from `internal/dnsprovider/builtin` as the original issue text said) and is excluded from `codecov.yml` reporting (`ignore:` list, line 136 — "tested via integration tests, not unit tests") but not from `go-test-coverage.sh`'s enforcement; either way, actual coverage is far above both the codecov project target (87%) and the issue's original incremental target (50%). **No regression, no code changes required.** This PR's only obligation here is to capture a coverage run as DoD evidence (§5) and state this explicitly in the PR description (§6).
 
-### 2.5 Existing configurable-timeout precedent in the codebase
+### 2.4 Sub-issue 4 — Feature flag async propagation tests: CONFIRMED STALE / ALREADY RESOLVED, NO CODE CHANGES
 
-Two established patterns exist for per-call timeouts in this repo, both usable as precedent:
+`tests/settings/system-settings.spec.ts` no longer exists (confirmed via `find`); the feature-flag tests were reorganized into `tests/security/system-settings-feature-toggles.spec.ts`, which:
+- Imports and calls `waitForFeatureFlagPropagation` **9 times** (exact count via `grep -c`, correcting the prior investigation's "11" estimate) across all 9 tests in the file.
+- Has **zero** `.skip`/`.fixme` markers (aside from the one tautological assertion at L317, covered under sub-issue 2 above — a different problem, not the async-propagation flakiness this sub-issue was about).
 
-1. Inline `context.WithTimeout(ctx, N*time.Second)` at the call site (most common — e.g. `backend/internal/api/handlers/crowdsec_handler.go:1515`, `backend/internal/caddy/importer.go:28`, `backend/internal/services/manual_challenge_service.go:361`).
-2. A **struct field carrying a configurable `time.Duration`**, defaulted in the constructor but overridable in tests via direct struct-literal construction (same package) — e.g. `backend/internal/services/uptime_service.go:465` (`s.config.CheckTimeout`), `backend/internal/crowdsec/hub_sync.go` (`s.PullTimeout`, `s.ApplyTimeout`).
+**No regression, no code changes required.** This file is already fully in-scope for the mandatory full E2E run in §5 (it was already going to run; no special inclusion action needed).
 
-Pattern 2 is required here (not just pattern 1) because `docker_service_test.go` already constructs `DockerService` directly via struct literal in the same package (e.g. `TestListContainers_ContainerMappingEdgeCases`, `TestListContainers_EmptyResultIsNotNil` — both at lines ~424 and ~460 of `docker_service_test.go`), and the new timeout test needs to shrink the timeout to milliseconds so the test suite doesn't sleep for 8 real seconds. A hardcoded inline constant would make the timeout untestable without an 8-second-plus test.
+### 2.5 Sub-issue 5 — WebKit E2E tests not executing: CONFIG CONFIRMED HEALTHY, ONE REAL RUN STILL OUTSTANDING
 
-### 2.6 Mocking pattern for a slow/hanging `ContainerList` call
+- WebKit `26.5` installed; `npx playwright test --list --project=webkit` discovers **963 tests across 86 files** (re-verified, matches prior investigation exactly).
+- `playwright.config.js` (repo root — the config actually governing `tests/`, distinct from the unrelated minimal `frontend/e2e/playwright.config.ts`) reviewed line-by-line: the `webkit` project (L299-314) has **identical** `dependencies`, `testMatch`, and `testIgnore` patterns to `chromium`/`firefox` — no webkit-specific exclusion, no `browserName`-conditioned `test.skip()` anywhere in `tests/**` (repo-wide grep confirmed zero matches).
+- Note (informational, not a defect): the `webkit` project's `testIgnore` excludes `**/security-enforcement/**` and `**/tests/security/**`, same as chromium/firefox — those specs only run under the dedicated `security-tests` project, which is **Chromium-only by design** (L237-254, "SEQUENTIAL, Chromium only"). This means 29 of this PR's 59 sub-issue-2 fixes (all of `access-lists-crud.spec.ts`, `encryption-management.spec.ts`, `system-security-settings.spec.ts`, `system-settings-feature-toggles.spec.ts`) are **out of WebKit's run scope entirely, by existing design** — not something this PR changes or needs to change.
+- A dedicated `tests/core/caddy-import/caddy-import-webkit.spec.ts` (`@webkit-only` tag) already exists for known WebKit-specific quirks in the Caddyfile-import flow, and `caddy-import-cross-browser.spec.ts` already parameterizes assertions per `browserName` — evidence the team has previously handled real WebKit differences correctly elsewhere; no similar per-browser branching is missing here.
+- **Risk flagged**: none identified in config. The keyboard-focus-order tautologies converted to real assertions in §2.2 (proxy-hosts.spec.ts:1014, access-lists-crud.spec.ts:1018, navigation.spec.ts:758) are the most plausible source of **new** WebKit-specific flakiness once they stop being unconditionally true — this is exactly why §2.2 marks them "(a) preferred, (b) fallback if empirically flaky" rather than a hard mandate, and why the full WebKit run (§5) must happen **after** the sub-issue-2 commits land, not before.
+- **Not run in this planning pass** (explicitly deferred to execution/QA phase per task instructions): the actual full `npx playwright test --project=webkit` execution. This is a mandatory, explicit Definition-of-Done gate (§5) for this PR.
 
-`docker_service_test.go` already has the exact scaffolding needed, in `newContainerListClient` (lines 362-377):
+### 2.6 `.gitignore` / `.dockerignore` / `codecov.yml` / `Dockerfile` review
 
-```go
-func newContainerListClient(t *testing.T, containerJSON string) *client.Client {
-    t.Helper()
-    server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-        w.Header().Set("Content-Type", "application/json")
-        w.WriteHeader(http.StatusOK)
-        _, _ = io.WriteString(w, containerJSON)
-    }))
-    t.Cleanup(server.Close)
-    cli, err := client.New(
-        client.WithHost("tcp://"+server.Listener.Addr().String()),
-        client.WithAPIVersion("1.43"),
-    )
-    require.NoError(t, err)
-    t.Cleanup(func() { _ = cli.Close() })
-    return cli
-}
-```
+All reviewed; **no changes required** for this PR:
 
-This is used to build a `*DockerService` directly via struct literal (e.g. `TestListContainers_EmptyResultIsNotNil`, lines 459-473):
+- `.gitignore`: `frontend/coverage/`, `frontend/test-results/`, `/test-results/`, `/playwright-report/` already cover all artifacts this PR's test runs will produce.
+- `.dockerignore`: `tests/`, `test-results/`, `test-data/` already excluded from the Docker build context; no new test directories are being introduced by this PR (only edits to existing spec/test files).
+- `codecov.yml`: `**/e2e/**`, `**/*.spec.ts`, `**/__tests__/**` already excluded from coverage accounting; `backend/pkg/dnsprovider/builtin/**` already excluded (consistent with §2.3's finding that this package is verified via integration tests). No new source paths are introduced.
+- No `Dockerfile` changes — this PR ships no runtime code.
 
-```go
-svc := &DockerService{
-    client:    newContainerListClient(t, "[]"),
-    initErr:   nil,
-    localHost: "tcp://localhost:2375",
-}
-```
-
-The new timeout test mirrors this exactly, but with an `httptest.Server` handler that **blocks on the request's own context** instead of responding immediately (so the test proves cancellation propagates, and finishes fast regardless of the configured timeout):
-
-```go
-server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-    <-r.Context().Done() // block until the client (moby SDK) cancels on timeout
-}))
-```
-
-paired with a `DockerService` struct literal that sets the new `listContainersTimeout` field to a small value (e.g. `50 * time.Millisecond`), per §2.5's pattern-2 requirement — this is what keeps the new test fast (sub-second) rather than requiring an 8+ second sleep. This mirrors the mocking style used for the existing init-error path test (`TestNewDockerServiceFromLocalHost_ClientInitError`, which exercises `newDockerServiceFromLocalHost` directly) in spirit: construct the smallest possible fake that exercises exactly the new branch, in the same package, with no interface/mock-generation framework needed.
-
-### 2.7 Frontend error-surfacing path — confirmed, NO frontend change required (with one binding constraint)
-
-`frontend/src/hooks/useDocker.ts` (full file, 33 lines):
-
-```ts
-export function useDocker(host?: string | null, serverId?: string | null) {
-  const { data: containers = [], isLoading, error, refetch } = useQuery({
-    queryKey: ['docker-containers', host, serverId],
-    queryFn: async () => {
-      try {
-        return await dockerApi.listContainers(host || undefined, serverId || undefined)
-      } catch (err: unknown) {
-        const error = err as { response?: { status?: number; data?: { details?: string } } }
-        if (error.response?.status === 503) {
-          const details = error.response?.data?.details
-          const message = details || 'Docker service unavailable. Check that Docker is running.'
-          throw new Error(message, { cause: err })
-        }
-        throw err
-      }
-    },
-    enabled: Boolean(host) || Boolean(serverId),
-    retry: 1,
-  })
-  return { containers: containers ?? [], isLoading, error, refetch }
-}
-```
-
-`frontend/src/components/ProxyHostForm.tsx` lines 789-799 render `(dockerError as Error).message` verbatim under a static "Docker Connection Failed" heading — it does not branch on error type/content, so **any** message string reaching it displays correctly with no component changes needed.
-
-**However**, `useDocker.ts` has a hard branch on `error.response?.status === 503` (line above). This is the one place frontend behavior is coupled to a backend contract choice:
-
-- If the handler responds to the new timeout error with **HTTP 503** and a populated `details` field (mirroring the existing `DockerUnavailableError` response shape), `useDocker.ts`'s existing branch already extracts `details` and surfaces it as `error.message` — **zero frontend changes needed**.
-- If the handler instead used a different status code (e.g. `504 Gateway Timeout`, considered in §3.1's alternatives), the `status === 503` check would **not** match, `details` would never be extracted, and the raw axios error (`"Request failed with status code 504"`) would render instead — an unhelpful regression, and it *would* force a frontend change to `useDocker.ts` to also match `504`.
-
-**Decision (binding on the handler design, §3.2/§3.3)**: reuse HTTP `503 Service Unavailable` for the new timeout error, with a distinct `error` and `details` message. This satisfies the ask's own suggested option ("or same 503 with a different message") and is the only choice that requires **zero frontend changes**, which is explicitly preferred by the task and consistent with CLAUDE.md's "small, targeted change" instruction test-independent of frontend behavior. This is confirmed explicitly in §3.4.
-
-### 2.8 Caddy's ~30s proxy timeout — confirmed as empirical, not a repo-configured constant
-
-`backend/internal/caddy/types.go`, `ReverseProxyHandler` (lines 129-220ish) builds the `reverse_proxy` handler JSON for **user-configured proxy hosts** (i.e., this is the code that generates Caddy config for host entries Charon manages) — grepped in full for `timeout`/`transport`/`dial_timeout`/`response_header_timeout`: **no explicit timeout keys are set** anywhere in the generated handler (`flush_interval: -1`, `upstreams`, header manipulation only). The embedded Caddy instance that fronts the Charon web app itself (started by `.docker/docker-entrypoint.sh` line 386, `caddy run --config /config/caddy.json`) likewise has no explicit `dial_timeout`/`response_header_timeout` override checked into the repo (`configs/caddy.json` has none either). This means the ~30s figure is **Caddy's own built-in default reverse-proxy behavior**, not a value pinned anywhere in this repository — the maintainer's empirical log capture (`duration:30.008511109s → 502`, quoted in full in §1.1) is therefore the authoritative source for "~30s," not a Caddyfile setting. **Recommendation validity**: any new internal timeout must stay comfortably under this empirically-observed ~30s ceiling; 8s (§3.1) leaves >20s of margin, which is intentionally generous because this figure is not a value we control or can rely on staying fixed.
-
-### 2.9 `.gitignore` / `.dockerignore` / `.codecov.yml` / `Dockerfile` — confirmed no changes needed
-
-This change adds no new files, directories, build artifacts, or dependencies — only edits to three existing Go files (`docker_service.go`, `docker_service_test.go`, `docker_handler.go`, and `docker_handler_test.go`). None of `.gitignore`, `.dockerignore`, `.codecov.yml`, or `Dockerfile` require updates. Confirmed by inspection — no new paths are introduced by this plan.
+---
 
 ## 3. Technical Specifications
 
-### 3.1 Timeout value and rationale
+This PR is test-infrastructure-only. There is no new API surface, no database schema change, and no new component. The "component design" for this PR is the test-file structure itself.
 
-| Parameter | Value | Rationale |
-|---|---|---|
-| `defaultListContainersTimeout` | `8 * time.Second` | Per task guidance ("5-10 seconds"). Chosen at the upper-middle of that range: long enough that a *briefly* contended rootless socket (observed successful-but-slow requests up to 8.22s in the bug report) still has a fair chance to succeed, short enough to leave >20s of margin under Caddy's empirically observed ~30s proxy timeout (§2.8), so the new bounded timeout **always** wins the race against the upstream cancellation — which is the entire point of the fix. |
+### 3.1 Affected files (exhaustive)
 
-Alternative considered: 5s (tighter, but risks false-positive timeouts on the legitimately-slow-but-succeeding 8.22s request already observed in the bug's own evidence — rejected). 10s (also acceptable, slightly less margin) — 8s chosen as the better balance; not a hard requirement, and the constant is named and centralized (§3.3) so it can be tuned later without touching call sites.
+**Frontend unit tests (sub-issue 1):**
+- `frontend/src/pages/__tests__/Security.test.tsx`
+- `frontend/src/pages/__tests__/Security.audit.test.tsx`
+- `frontend/src/pages/__tests__/Security.errors.test.tsx`
+- `frontend/src/pages/__tests__/Security.loading.test.tsx`
+- `frontend/src/pages/__tests__/Security.dashboard.test.tsx`
+- `frontend/src/pages/__tests__/Security.functional.test.tsx`
 
-### 3.2 New error type: `DockerTimeoutError`
+**E2E specs (sub-issue 2):**
+- `tests/core/certificates.spec.ts` (includes the 5-test "Certificate Deletion" block rewrite — see §2.2)
+- `tests/core/proxy-hosts.spec.ts`
+- `tests/core/navigation.spec.ts`
+- `tests/core/dashboard.spec.ts`
+- `tests/settings/smtp-settings.spec.ts`
+- `tests/settings/account-settings.spec.ts`
+- `tests/security-enforcement/zzz-security-ui/access-lists-crud.spec.ts`
+- `tests/security-enforcement/zzz-security-ui/encryption-management.spec.ts`
+- `tests/security-enforcement/zzz-security-ui/system-security-settings.spec.ts`
+- `tests/security/system-settings-feature-toggles.spec.ts`
+- `tests/manual-dns-provider.spec.ts`
 
-New type in `backend/internal/services/docker_service.go`, placed immediately after the existing `DockerUnavailableError` block (after line 52), mirroring its shape exactly (`Error()`/`Unwrap()`/`Details()`) so handler code can treat both error types uniformly where useful, while remaining a structurally distinct Go type so `errors.As` cleanly discriminates them:
+**Test utility additions (sub-issue 2):**
+- `tests/utils/api-helpers.ts` — add `getBackupsViaAPI(request, token?)`, following the exact signature/error-handling pattern of the file's existing `get*ViaAPI` functions (e.g. `getCertificatesViaAPI`), targeting `GET /api/v1/backups`.
 
-```go
-// DockerTimeoutError indicates the Docker daemon did not respond to an API
-// call within Charon's own bounded timeout. It is intentionally distinct
-// from DockerUnavailableError: DockerUnavailableError means "the daemon is
-// unreachable / permissions are wrong" (a configuration problem), whereas
-// DockerTimeoutError means "the daemon is reachable but responding slowly"
-// (transient — retrying may succeed). Keeping them separate lets callers
-// (and the frontend) surface an accurate, actionable message for each case
-// instead of a single generic "Docker unavailable" message for both.
-type DockerTimeoutError struct {
-    err     error
-    timeout time.Duration
-}
+**No changes**: any `backend/**` file, any `frontend/src` file outside `__tests__/`, `.gitignore`, `.dockerignore`, `codecov.yml`, any `Dockerfile`.
 
-// NewDockerTimeoutError wraps the underlying context-deadline error together
-// with the timeout duration that was configured, so Details() can report it.
-func NewDockerTimeoutError(err error, timeout time.Duration) *DockerTimeoutError {
-    return &DockerTimeoutError{err: err, timeout: timeout}
-}
+### 3.2 API contracts referenced (read-only, no changes)
 
-func (e *DockerTimeoutError) Error() string {
-    if e == nil || e.err == nil {
-        return "docker request timed out"
-    }
-    return fmt.Sprintf("docker request timed out after %s: %v", e.timeout, e.err)
-}
+These existing endpoints are what the strengthened assertions in §2.2 verify against — documented here for implementer reference, not as new contracts:
 
-func (e *DockerTimeoutError) Unwrap() error {
-    if e == nil {
-        return nil
-    }
-    return e.err
-}
+| Endpoint | Method | Used by (test) | Purpose in this PR |
+|---|---|---|---|
+| `/api/v1/certificates/:uuid` | `GET` | `certificates.spec.ts` cancel-delete test | Verify certificate still exists after a dismissed delete |
+| `/api/v1/certificates/:uuid` | `DELETE` | `certificates.spec.ts` in-use/backup tests | Existing delete flow (`certificate_handler.go:387-470`) — unchanged |
+| `/api/v1/backups` | `GET` | `certificates.spec.ts` backup-creation test | Verify a new backup entry appears after a successful cert delete |
+| `/api/v1/access-lists/:id` | `GET` | `access-lists-crud.spec.ts` rename test | Verify renamed ACL persisted server-side |
+| `/api/v1/proxy-hosts` / `/api/v1/proxy-hosts/:id` | `GET` | `proxy-hosts.spec.ts` creation test | Verify created host persisted server-side |
 
-// Details returns a user-facing, actionable message distinct from
-// buildLocalDockerUnavailableDetails' permissions-oriented guidance.
-func (e *DockerTimeoutError) Details() string {
-    if e == nil {
-        return ""
-    }
-    return fmt.Sprintf(
-        "Docker daemon is responding slowly (no response within %s). "+
-            "This can happen when the Docker socket is under heavy load from other "+
-            "tools or containers. Please try again.",
-        e.timeout,
-    )
-}
-```
+### 3.3 Error handling / edge cases to cover in the new assertions
 
-New import required: `"time"` (not currently imported in `docker_service.go` — confirmed by reading the file's import block, §2.1).
+- Certificate delete "in use" path: assert the **specific** 409 error surface (toast/message), not merely "a toast of some kind."
+- Certificate delete "backup" path: must select/seed a certificate guaranteed **not** in use (backend returns 409 before attempting backup if in use — asserting backup creation against an in-use cert would be a false test).
+- ACL/proxy-host rename/creation: API-level verification must tolerate eventual consistency the same way existing passing tests in these files already do (reuse existing `waitFor`/polling helpers, do not add new ad hoc `setTimeout`s).
+- WebKit-sensitive keyboard-focus assertions (§2.2, "(a) preferred, (b) fallback"): implementers must actually run the affected spec under `--project=webkit` (not just chromium/firefox) before finalizing as (a); if flaky, fall back to (b) with an accurate WebKit-specific skip reason, not a silent revert to `|| true`.
 
-### 3.3 `ListContainers` changes
+### 3.4 Data flow notes
 
-`backend/internal/services/docker_service.go`, modify the block starting at (current) line 134:
+No data flow changes. The certificate-deletion backup verification (§2.2) exercises an **existing** synchronous flow: `DELETE /api/v1/certificates/:uuid` → `IsCertificateInUse` check → (if not in use) `backupService.GetAvailableSpace()` → `backupService.CreateBackup()` → `service.DeleteCertificateByID()` → response. All calls are synchronous within the single request; no polling/async job is involved for this specific path (unlike the general `POST /api/v1/backups` flow used elsewhere, which does return `202` + a job id — do not conflate the two; the cert-delete backup call is a direct, blocking `CreateBackup()`).
 
-```go
-const defaultListContainersTimeout = 8 * time.Second   // package-level const, near top of file
-
-func (s *DockerService) ListContainers(ctx context.Context, host string) ([]DockerContainer, error) {
-    // ... unchanged initErr / cli-selection logic (lines 107-132) ...
-
-    timeout := s.listContainersTimeout
-    if timeout <= 0 {
-        timeout = defaultListContainersTimeout
-    }
-    listCtx, cancel := context.WithTimeout(ctx, timeout)
-    defer cancel()
-
-    containers, err := cli.ContainerList(listCtx, client.ContainerListOptions{All: false})
-    if err != nil {
-        if isBoundedListTimeout(ctx, err) {
-            return nil, NewDockerTimeoutError(err, timeout)
-        }
-        if isDockerConnectivityError(err) {
-            if host == "" || host == "local" {
-                return nil, NewDockerUnavailableError(err, buildLocalDockerUnavailableDetails(err, s.localHost))
-            }
-            return nil, NewDockerUnavailableError(err)
-        }
-        return nil, fmt.Errorf("failed to list containers: %w", err)
-    }
-    // ... unchanged container-mapping loop ...
-}
-
-// isBoundedListTimeout reports whether err represents Charon's own bounded
-// ContainerList timeout expiring — as opposed to the caller-supplied parent
-// context (ctx) being canceled/expired for an unrelated reason (e.g. an
-// upstream reverse-proxy giving up on the whole request). It relies on the
-// fact that context.WithTimeout's child context fails with
-// context.DeadlineExceeded when ITS OWN deadline elapses, while the parent
-// ctx remains healthy (ctx.Err() == nil) up to that point. See docs/plans
-// current_spec.md §2.3 for the full reasoning and the context.Canceled vs
-// context.DeadlineExceeded distinction this depends on.
-func isBoundedListTimeout(parent context.Context, listCtx context.Context, err error) bool {
-    if err == nil {
-        return false
-    }
-    // Prefer the child context's own recorded terminal state (listCtx.Err())
-    // over parsing it back out of err's wrapped chain: this is a
-    // dependency-independent source of truth that keeps working even if a
-    // future moby/moby/client upgrade changes how context errors are
-    // wrapped in the returned err (see DEP-003/RISK-001). errors.Is is kept
-    // as a defense-in-depth secondary signal.
-    return (errors.Is(listCtx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded)) && parent.Err() == nil
-}
-```
-
-**Supervisor-review amendment**: the signature now takes both `parent` (the caller's original `ctx`) and `listCtx` (the bounded child context) so the check can read `listCtx.Err()` directly instead of relying solely on parsing `context.DeadlineExceeded` back out of `err`'s wrapped chain via `errors.Is`. This was independently verified as correct against the actual pinned `github.com/moby/moby/client@v0.5.1` source (`request.go`'s `doRequest()` preserves context sentinel errors undecorated), but the extra `listCtx.Err()` check is a cheap, dependency-independent safety net against a future client-library upgrade silently changing that wrapping behavior. Update the call site in `ListContainers` accordingly: `isBoundedListTimeout(ctx, listCtx, err)`.
-
-New unexported struct field on `DockerService` (`backend/internal/services/docker_service.go`, in the type definition at lines 71-75):
-
-```go
-type DockerService struct {
-    client                 *client.Client
-    initErr                error
-    localHost              string
-    listContainersTimeout  time.Duration // 0 = use defaultListContainersTimeout; overridable in tests
-}
-```
-
-No constructor signature changes — `newDockerServiceFromLocalHost` and `NewDockerService` need no edits (zero-value `time.Duration` `0` naturally falls back to `defaultListContainersTimeout` via the `if timeout <= 0` guard above). Tests override the field directly via struct literal (same package), per the existing pattern (§2.5/§2.6).
-
-**Ordering rationale**: `isBoundedListTimeout` is checked *before* `isDockerConnectivityError` specifically because `isDockerConnectivityError` already matches on bare `context.DeadlineExceeded` (§2.2) — checking our specific case first prevents the new timeout from being silently swallowed into the existing (misleading, in this scenario) `DockerUnavailableError` / permissions-message path.
-
-### 3.4 Handler changes — `backend/internal/api/handlers/docker_handler.go`
-
-Add a branch for `*services.DockerTimeoutError` **before** the existing `*services.DockerUnavailableError` branch (lines 104-117), reusing HTTP `503` per the binding decision in §2.7:
-
-```go
-containers, err := h.dockerService.ListContainers(c.Request.Context(), host)
-if err != nil {
-    var timeoutErr *services.DockerTimeoutError
-    if errors.As(err, &timeoutErr) {
-        log.WithFields(map[string]any{
-            "server_id": util.SanitizeForLog(serverID),
-            "host":      util.SanitizeForLog(host),
-            "error":     util.SanitizeForLog(err.Error()),
-        }).Warn("docker daemon responded slowly (bounded timeout fired)")
-        c.JSON(http.StatusServiceUnavailable, gin.H{
-            "error":   "Docker daemon is responding slowly",
-            "details": timeoutErr.Details(),
-        })
-        return
-    }
-
-    var unavailableErr *services.DockerUnavailableError
-    if errors.As(err, &unavailableErr) {
-        // ... unchanged ...
-    }
-
-    // ... unchanged generic 500 fallback ...
-}
-```
-
-**Response contract (new)**:
-
-| Field | Value |
-|---|---|
-| HTTP status | `503 Service Unavailable` (unchanged status family vs. existing `DockerUnavailableError` responses — intentional, see §2.7) |
-| `error` | `"Docker daemon is responding slowly"` (distinct string from existing `"Docker daemon unavailable"`, so logs/tests/clients can tell the two apart even though the HTTP status matches) |
-| `details` | `DockerTimeoutError.Details()` output, e.g. `"Docker daemon is responding slowly (no response within 8s). This can happen when the Docker socket is under heavy load from other tools or containers. Please try again."` |
-
-No new route, no new `dockerContainerLister` interface method — `errors.As` type-switches on the existing single `ListContainers` return value.
-
-### 3.5 API contract summary (before/after)
-
-| Scenario | Before | After |
-|---|---|---|
-| Daemon unreachable / permission denied | `503`, `{"error":"Docker daemon unavailable","details":"..."}` | unchanged |
-| Daemon reachable but slow (>8s to respond) | Hangs up to ~30s, then `500`, `{"error":"Failed to list containers"}` (generic, unhelpful; only reachable if request survives to completion — often the client sees a raw `502`/timeout from Caddy instead and never gets this body at all) | `503` within ~8s, `{"error":"Docker daemon is responding slowly","details":"Docker daemon is responding slowly (no response within 8s)...."}` |
-| Other API error (e.g. 500 from daemon) | `500`, `{"error":"Failed to list containers"}` | unchanged |
-
-### 3.6 Data flow diagram
-
-```
-Frontend (ProxyHostForm.tsx)
-   │  useDocker(host) → React Query
-   ▼
-GET /api/v1/docker/containers?host=local
-   │
-   ▼
-DockerHandler.ListContainers (docker_handler.go:58)
-   │  c.Request.Context() ──────────────────┐  (parent ctx, canceled by Caddy
-   ▼                                        │   only if IT gives up first)
-DockerService.ListContainers (docker_service.go:107)
-   │  listCtx, cancel := context.WithTimeout(ctx, 8s)   [NEW]
-   ▼
-cli.ContainerList(listCtx, ...)
-   │
-   ├── succeeds within 8s ──────────────────────────► 200 OK, []DockerContainer
-   │
-   ├── listCtx expires first, parent ctx still alive ─► isBoundedListTimeout==true
-   │                                                     → DockerTimeoutError
-   │                                                     → 503 "responding slowly" [NEW PATH]
-   │
-   ├── real connectivity error (EACCES/ECONNREFUSED/ENOENT) ─► DockerUnavailableError
-   │                                                            → 503 "unavailable" (unchanged)
-   │
-   └── parent ctx canceled first (e.g. Caddy gave up)  ─► falls through, generic error
-                                                            → 500 (unchanged pre-existing
-                                                              behavior for this edge case —
-                                                              now effectively unreachable in
-                                                              the reported scenario, since
-                                                              8s << 30s guarantees our timeout
-                                                              wins the race)
-```
-
-### 3.7 Error handling / edge cases
-
-| Edge case | Behavior |
-|---|---|
-| `s.listContainersTimeout` unset (zero value) | Falls back to `defaultListContainersTimeout` (8s) via `if timeout <= 0` guard — safe default for all existing production construction paths (`NewDockerService`, `newDockerServiceFromLocalHost`), which are not modified. |
-| Remote host (`host` param is a `tcp://...` URL, e.g. Orthrus-proxied or directly-configured remote server) | Same bounded timeout applies uniformly — `listCtx` wraps the single shared `cli.ContainerList` call regardless of local/remote branch, so remote daemons get the same fail-fast protection. Not explicitly requested by the bug report, but consistent and avoids leaving an identical unbounded-hang bug for remote hosts. |
-| Caller's own context already had a shorter deadline/cancellation than 8s (e.g. test harness, future caller) | `context.WithTimeout(ctx, timeout)` respects `min(parent deadline, now+timeout)` per Go stdlib semantics — no regression, `isBoundedListTimeout`'s `parent.Err() == nil` check correctly attributes the failure to the parent instead of misreporting a `DockerTimeoutError`. |
-| `initErr` already set at construction time (Docker never initialized) | Unaffected — that branch (lines 109-115) returns before the new timeout logic is ever reached. |
-| Container-mapping loop (post-`ContainerList` success) | Entirely unaffected — no changes below the `if err != nil` block. |
+---
 
 ## 4. Implementation Plan
 
-### Phase 1: Playwright E2E Tests — **not applicable, justified explicitly**
+### Phase 1 — E2E specs for new/changed behavior
 
-No new or modified Playwright spec is required for this change:
+No net-new user-facing behavior is being introduced (this is a test-quality fix, not a feature), so there is no `test.fixme()` scaffolding phase in the usual sense. Instead, Phase 1 is: write the `getBackupsViaAPI` helper addition to `tests/utils/api-helpers.ts` (foundation for Commit 2's certificate tests) and confirm it compiles/type-checks against the existing `parseResponse<T>`/`getAuthHeaders` pattern.
 
-- The user-visible surface (the red "Docker Connection Failed" banner in `ProxyHostForm.tsx`) is unchanged — no new component, no new DOM structure, no new interaction. Per §2.7, it already renders whatever message string the backend sends.
-- The only thing that changes is *which message string* appears under a specific, hard-to-reproduce timing condition (Docker daemon slow to respond specifically between 8s and ~30s) that cannot be reliably or deterministically triggered against a real or lightly-mocked Docker daemon in a Playwright/browser E2E environment without introducing artificial delay infrastructure disproportionate to a "small, targeted" fix.
-- This condition **is** deterministically and cheaply reproducible at the Go unit-test level (§4.2, via an `httptest.Server` handler that blocks on request-context cancellation) — that is the correct test layer for this fix, per CLAUDE.md's general principle of testing behavior at the layer closest to where it's implemented.
-- Existing Docker-related regression coverage (none found under `tests/*.spec.ts` referencing Docker container selection specifically — confirmed via repo search) is unaffected; no existing spec asserts on the exact banner text.
-- **Definition of Done step 1 compliance**: run the full relevant Playwright suite (`npx playwright test --project=firefox`, scoped to `tests/core/proxy-hosts.spec.ts` and any suite touching `ProxyHostForm`) as a regression check before merge, expecting **no changes in outcome** — this validates the "no frontend change needed" claim empirically rather than only by static analysis. Include this run's pass/fail as part of Commit 4 validation (§5).
+### Phase 2 — Foundation (no behavior change)
 
-### Phase 2: Backend Implementation
+- Add `getBackupsViaAPI` to `tests/utils/api-helpers.ts`.
+- No other foundation work required — this PR doesn't touch shared fixtures, `global-setup.ts`, or `playwright.config.js`.
 
-**GOAL-001**: Add the bounded timeout, new error type, and handler branch, all covered by unit tests, without altering any existing behavior for the already-covered error paths.
+### Phase 3 — Backend
 
-| Task | File | Description |
-|---|---|---|
-| TASK-001 | `backend/internal/services/docker_service.go` | Add `"time"` import; add `defaultListContainersTimeout` const; add `listContainersTimeout time.Duration` field to `DockerService` struct; add `DockerTimeoutError` type + `NewDockerTimeoutError` + `Error()`/`Unwrap()`/`Details()` (§3.2); add `isBoundedListTimeout` helper (§3.3); wrap `cli.ContainerList` call in `context.WithTimeout` and branch on `isBoundedListTimeout` before `isDockerConnectivityError` (§3.3). |
-| TASK-002 | `backend/internal/services/docker_service_test.go` | Add `TestDockerService_ListContainers_BoundedTimeoutFires` (or similarly named) using an `httptest.Server` handler that blocks on `<-r.Context().Done()`, a `DockerService` struct literal with `listContainersTimeout: 50 * time.Millisecond`, asserting `errors.As(err, &timeoutErr)` succeeds, `timeoutErr.Details()` contains the expected slow-daemon message, and the call returns well within the test's own timeout budget (e.g. assert wall-clock elapsed < 2s to prove no accidental fallback to the 8s default). Also add a companion test asserting the *default* timeout value is used when the field is left zero (e.g. `TestDockerService_ListContainers_DefaultTimeoutUsedWhenUnset`, can assert via a small helper/reflection-free approach — see §6 test list for the concrete minimal set). |
-| TASK-003 | `backend/internal/services/docker_service_test.go` | Add `TestIsBoundedListTimeout` table test covering: nil err → false; `context.DeadlineExceeded` with healthy parent → true; `context.DeadlineExceeded` with already-canceled parent (`parent.Err() != nil`) → false; unrelated error → false. Mirrors the existing `TestIsDockerConnectivityError` table-test style (§2.6 pattern). |
-| TASK-004 | `backend/internal/services/docker_service_test.go` | Add `TestDockerTimeoutError_ErrorMethods` mirroring `TestDockerUnavailableError_ErrorMethods` (nil receiver, nil wrapped err, `Error()`/`Unwrap()`/`Details()` content assertions). |
-| TASK-005 | `backend/internal/api/handlers/docker_handler.go` | Add the `*services.DockerTimeoutError` branch before the existing `*services.DockerUnavailableError` branch (§3.4), returning `503` with the new `error`/`details` message pair. |
-| TASK-006 | `backend/internal/api/handlers/docker_handler_test.go` | Add `TestDockerHandler_ListContainers_TimeoutMappedTo503` using the existing `fakeDockerService{err: services.NewDockerTimeoutError(...)}` pattern (mirrors `TestDockerHandler_ListContainers_DockerUnavailableMappedTo503`, lines 62-81), asserting status `503`, body contains `"Docker daemon is responding slowly"` and the `details` text, and — critically — that it is distinguishable from the existing `"Docker daemon unavailable"` assertion in the sibling test (i.e. assert `NotContains` "Docker daemon unavailable" in the new test, and vice versa, to lock in the distinguishability requirement as an executable test, not just documentation). |
+N/A — confirmed no backend code changes required (§2.3).
 
-**Validation gate for Phase 2**: `cd backend && go build ./... && go test ./internal/services/... ./internal/api/handlers/... -run Docker -v`, plus `make lint-fast` (staticcheck, BLOCKING per CLAUDE.md), plus full `go test ./...` to confirm no regressions elsewhere.
+### Phase 4 — Frontend / test changes (the bulk of the work)
 
-### Phase 3: Frontend Implementation — **not applicable, justified explicitly**
+- Sub-issue 1: unskip 5 files, delete the stale test in the 6th (§2.1).
+- Sub-issue 2: fix all 59 tautologies per the file-by-file disposition in §2.2, including the certificate-deletion flow's larger rewrite (native-dialog → custom-modal interaction).
 
-Per §2.7's analysis: `useDocker.ts`'s existing `error.response?.status === 503` branch already extracts `details` generically for *any* 503 response body shaped `{error, details}`, and `ProxyHostForm.tsx` already renders `dockerError.message` generically. Because §2.7/§3.4 binds the handler design to reuse `503` (rather than introducing a new status code), no frontend file requires modification. **If a future reviewer prefers a distinct `504 Gateway Timeout` status for stronger HTTP semantic correctness, that is a valid alternative (§7, ALT-001) but is NOT this plan's chosen path specifically because it would force a frontend change this task's constraints ask to avoid** — flagged explicitly here so the tradeoff is visible to reviewers, not hidden.
+### Phase 5 — Hardening, full-suite validation, docs
 
-### Phase 4: Integration and Testing
+- Full Vitest suite run (not just the touched files) to catch regressions from unskipping.
+- Full Playwright run across chromium/firefox/webkit, including the security-tests shard.
+- Coverage checks (frontend + backend) at/above enforced thresholds.
+- PR description scaffolding (§6).
 
-| Task | Description |
-|---|---|
-| TASK-007 | Run full backend suite with coverage: `scripts/go-test-coverage.sh` — confirm overall and patch coverage ≥85% (CLAUDE.md DoD step 6). New code (a handful of small functions/methods) is fully covered by TASK-002/003/004/006's unit tests, so this should not be a risk area. |
-| TASK-008 | `bash scripts/local-patch-report.sh` — produce `test-results/local-patch-report.md` / `.json` (DoD step 2, MANDATORY). |
-| TASK-009 | `lefthook run pre-commit` — staticcheck + CodeQL Go/JS scans (DoD steps 3-4). Not expected to flag anything: no new external input parsing, no new file/path handling, no new SQL/GORM usage (so `1.5 GORM Security Scan` in CLAUDE.md's DoD is **not triggered** — this change touches no `backend/internal/models/**`, no GORM queries, no migrations). |
-| TASK-010 | Run the Playwright regression subset named in Phase 1 (`npx playwright test --project=firefox` scoped to proxy-host / Docker-adjacent specs) — expect zero behavioral diff, confirming Phase 3's "no frontend change" claim empirically. |
-| TASK-011 | `cd backend && go build ./...` (DoD step 8) — confirm the package compiles cleanly with the new `"time"` import and new types. |
-
-### Phase 5: Documentation and Deployment
-
-| Task | Description |
-|---|---|
-| TASK-012 | No `ARCHITECTURE.md` update required — this is an internal error-handling refinement within an already-documented component (`DockerService`), not a change to system architecture, tech stack, deployment model, or directory structure (per CLAUDE.md's trigger conditions for that file). |
-| TASK-013 | Optional, low-priority: if `docs/features.md` documents Docker-integration error states/messages for end users, add one sentence noting the new "Docker daemon is responding slowly, please try again" message alongside the existing "Docker daemon unavailable" message, so support/users can recognize it. Skip if `docs/features.md` does not currently enumerate specific Docker error strings (verify before adding — do not invent a new subsection for one message if the file doesn't already itemize these). |
-| TASK-014 | Clean up: no debug prints/`fmt.Println`/commented code anticipated given the small surface area — verify as part of final review (DoD step 10). |
+---
 
 ## 5. Commit Slicing Strategy
 
-**Decision**: Single PR, one feature/fix, ordered logical commits — per CLAUDE.md's "One Feature = One PR" and this task's constraint that a backend-only fix with no frontend or E2E component should have its commit sequence reflect that (no artificial frontend/E2E commit inserted just to match a generic template).
+Single PR, `test/issue-619-test-infra-debt` → `development`, ordered commits. Each commit is independently buildable/testable; later commits depend on earlier ones as noted.
 
-| Commit | Scope | Files | Depends on | Validation gate |
-|---|---|---|---|---|
-| **Commit 1** — Foundation: new error type + timeout scaffolding (no behavior change to existing paths yet, additive only) | Add `DockerTimeoutError` type, `defaultListContainersTimeout` const, `listContainersTimeout` struct field, `isBoundedListTimeout` helper to `docker_service.go`. Do **not** yet wire `ListContainers` to use them (keeps this commit reviewable as pure addition). Add unit tests for the new type/helper in isolation (TASK-003, TASK-004). | `backend/internal/services/docker_service.go`, `backend/internal/services/docker_service_test.go` | none | `go build ./...`; `go test ./internal/services/... -run "DockerTimeoutError|IsBoundedListTimeout"`; `make lint-fast` |
-| **Commit 2** — Backend behavior change: wire the bounded timeout into `ListContainers` | Wrap `cli.ContainerList` call in `context.WithTimeout`; add the `isBoundedListTimeout` branch ahead of `isDockerConnectivityError` (§3.3). Add `TestDockerService_ListContainers_BoundedTimeoutFires` and default-timeout test (TASK-002). | `backend/internal/services/docker_service.go`, `backend/internal/services/docker_service_test.go` | Commit 1 | `go build ./...`; `go test ./internal/services/... -v`; confirm existing `TestListContainers_*` and `TestDockerService_ListContainers_*` tests still pass unmodified (regression proof) |
-| **Commit 3** — Handler layer: map `DockerTimeoutError` to the new `503` response | Add the `*services.DockerTimeoutError` branch in `docker_handler.go` (§3.4); add `TestDockerHandler_ListContainers_TimeoutMappedTo503` (TASK-006). | `backend/internal/api/handlers/docker_handler.go`, `backend/internal/api/handlers/docker_handler_test.go` | Commit 2 | `go build ./...`; `go test ./internal/api/handlers/... -run Docker -v`; assert new test distinguishes the two 503 message strings (§4 TASK-006) |
-| **Commit 4** — Hardening + full DoD sweep (no functional changes; validation-only commit, may be folded into Commit 3 if trivial) | Run full DoD: `scripts/go-test-coverage.sh`, `scripts/local-patch-report.sh`, `lefthook run pre-commit`, Playwright regression subset (Phase 1/TASK-010), `go build ./...` full-repo. Fix any lint/coverage nits surfaced. Optionally update `docs/features.md` (TASK-013) if applicable. | Possibly none (validation-only) or `docs/features.md` | Commits 1-3 | Full CLAUDE.md Definition of Done, all 10 steps |
+### Commit 1 — `test: add getBackupsViaAPI helper for E2E backup verification`
+- **Scope**: Foundation. Add `getBackupsViaAPI(request, token?)` to `tests/utils/api-helpers.ts`, matching the existing `get*ViaAPI` pattern exactly (JSDoc block, `parseResponse<T>`, `getAuthHeaders`).
+- **Files**: `tests/utils/api-helpers.ts`.
+- **Dependencies**: none.
+- **Validation gate**: `cd frontend && npm run type-check` passes (the helper file is TS, checked as part of the frontend project); no test run needed yet (unused until Commit 3).
 
-**Rollback / contingency notes for the PR as a whole**:
+### Commit 2 — `fix: unskip Security.* Vitest suites now that undici/jsdom WebSocket bug is fixed`
+- **Scope**: Sub-issue 1. Remove `describe.skip` → `describe` in the 5 files; delete the stale `it.skip('should open notification settings modal...')` block (and its now-empty `describe('Notification Settings Modal', ...)` wrapper) from `Security.functional.test.tsx`.
+- **Files**: the 6 files listed in §2.1.
+- **Dependencies**: none (independent of Commits 1/3+).
+- **Validation gate**: `npx vitest run src/pages/__tests__/Security.test.tsx src/pages/__tests__/Security.audit.test.tsx src/pages/__tests__/Security.errors.test.tsx src/pages/__tests__/Security.loading.test.tsx src/pages/__tests__/Security.dashboard.test.tsx src/pages/__tests__/Security.functional.test.tsx` — zero failures, zero unexpected skips. Then a **full** `npx vitest run` (not just these files) — zero regressions vs. the §2.1 baseline (263→268 passed test files, 3247→3330 passed tests, 88→4 skipped [only the out-of-scope CrowdSec ones remain]). Frontend coverage (`scripts/frontend-test-coverage.sh`) at/above 85%.
 
-- The change is purely additive at the type level (new error type, new struct field with a safe zero-value fallback) and behavior-narrowing at the call-site level (an unbounded call becomes bounded) — there is no schema migration, no config flag, and no external API contract removal, so rollback is a plain `git revert` of the PR's merge commit with no data-migration concerns.
-- If the 8s default proves too aggressive in production telemetry (e.g. legitimate slow-but-successful responses being cut off more than expected), the fix is a single-constant change (`defaultListContainersTimeout`) — no structural rework needed, confirming the "small, targeted" framing.
-- If a future need arises to expose the timeout as an operator-configurable environment variable (e.g. `CHARON_DOCKER_LIST_TIMEOUT`), the `listContainersTimeout` field is already positioned to accept that without further struct changes — noted as a possible follow-up, explicitly **not** part of this plan's scope (avoid scope creep from a targeted fix).
-- If the handler's `503`-reuse decision (§2.7) is challenged in review in favor of `504`, the required companion frontend change to `useDocker.ts` (add `|| error.response?.status === 504` to the existing condition) is small and isolated — flagged in §7 ALT-001 as the fallback path, but not the default plan.
+### Commit 3 — `fix: replace tautological assertions in certificates.spec.ts with real backend-verified checks`
+- **Scope**: Sub-issue 2, certificates file only (highest-complexity file — isolated to its own commit given the custom-modal rewrite). All 9 `|| true` lines in §2.2's certificates.spec.ts breakdown, plus the native-dialog → custom-modal rewrite for all 5 deletion tests in the "Certificate Deletion" block (`should show delete confirmation dialog`, `should warn if certificate is in use by proxy host`, `should cancel delete when confirmation dismissed`, `should create backup before deletion`, and `should show config reload overlay during deletion` — the last of which has no `|| true` to grep for but shares the identical broken `page.once('dialog', ...)` interaction model and currently asserts nothing).
+- **Files**: `tests/core/certificates.spec.ts` (uses `getBackupsViaAPI` from Commit 1, `getCertificateViaAPI` already present).
+- **Dependencies**: Commit 1.
+- **Validation gate**: `npx playwright test tests/core/certificates.spec.ts --project=chromium` and `--project=firefox` both pass, zero flaky retries. Manual grep confirms zero `|| true).toBeTruthy()` remaining in this file.
 
-## 6. Testing (consolidated list)
+### Commit 4 — `fix: replace tautological assertions in proxy-hosts and access-lists E2E specs`
+- **Scope**: Sub-issue 2, the two largest remaining CRUD-flow files. §2.2's `proxy-hosts.spec.ts` (8 lines) and `access-lists-crud.spec.ts` (13 lines) breakdowns.
+- **Files**: `tests/core/proxy-hosts.spec.ts`, `tests/security-enforcement/zzz-security-ui/access-lists-crud.spec.ts`.
+- **Dependencies**: none (uses `getProxyHostsViaAPI`/`getProxyHostViaAPI`/`getAccessListViaAPI`, all already present in `tests/utils/api-helpers.ts` prior to this PR — does not depend on Commit 1's `getBackupsViaAPI` addition).
+- **Validation gate**: `npx playwright test tests/core/proxy-hosts.spec.ts --project=chromium --project=firefox` and the access-lists spec via the `security-tests` project (`npx playwright test tests/security-enforcement/zzz-security-ui/access-lists-crud.spec.ts --project=chromium` per the config's security-shard routing) both pass. Zero `|| true).toBeTruthy()` remaining in either file.
 
-- **TEST-001**: `TestDockerService_ListContainers_BoundedTimeoutFires` — slow/hanging `ContainerList` (via context-blocking `httptest.Server` handler) with a shrunk `listContainersTimeout` produces `*DockerTimeoutError`, not a generic error and not `*DockerUnavailableError`; asserts on `Details()` content; asserts test wall-clock stays low (proves the shrunk timeout, not the 8s default, governed the test).
-- **TEST-002**: `TestDockerService_ListContainers_DefaultTimeoutUsedWhenUnset` — confirms zero-value `listContainersTimeout` field falls back to `defaultListContainersTimeout` (can be asserted without waiting 8s by checking the constant directly and/or via a fast-failing daemon rather than proving full 8s wall-clock — avoid a slow test here).
-- **TEST-003**: `TestIsBoundedListTimeout` — table test: nil err (false), `context.DeadlineExceeded` + healthy parent (true), `context.DeadlineExceeded` + already-canceled/expired parent (false), unrelated error (false).
-- **TEST-004**: `TestDockerTimeoutError_ErrorMethods` — nil receiver, nil wrapped err, `Error()`, `Unwrap()`, `Details()` content, mirroring `TestDockerUnavailableError_ErrorMethods`.
-- **TEST-005**: `TestDockerHandler_ListContainers_TimeoutMappedTo503` — handler maps `*services.DockerTimeoutError` to `503` with the new `error`/`details` strings; asserts the response body is textually distinguishable from the existing `DockerUnavailableError` 503 response (locks in the "distinguishable" requirement as an executable assertion).
-- **TEST-006 (regression)**: full existing `docker_service_test.go` and `docker_handler_test.go` suites continue to pass unmodified — proves no behavior change to the already-covered connectivity/permissions/generic-error paths.
-- **TEST-007 (regression, E2E)**: Playwright subset (`tests/core/proxy-hosts.spec.ts` and any `ProxyHostForm`-touching specs) run via `npx playwright test --project=firefox`, expected zero diff in outcome — empirical proof that no frontend change was needed (Phase 1/Phase 3 justification).
+### Commit 4b — `fix: correct Access List UUID usage and CGNAT warning i18n keys` (SCOPE ADDITION — real app bugs found during Commit 4)
 
-## 7. Alternatives
+**Why this exists**: Commit 4's strengthened `access-lists-crud.spec.ts` assertions (no longer tautological) surfaced two genuine, previously-invisible production defects, confirmed via curl repro + Playwright network trace + source grep (not test artifacts):
 
-- **ALT-001**: Use HTTP `504 Gateway Timeout` instead of reusing `503` for the new `DockerTimeoutError` response. More semantically precise (504 specifically means "upstream did not respond in time," which is literally what happened), but requires a companion one-line change to `frontend/src/hooks/useDocker.ts`'s status check (`=== 503` → `=== 503 || === 504`) to keep the `details` field surfacing — which the task's constraints explicitly prefer to avoid unless truly necessary. **Not chosen** as the primary plan; documented here so reviewers can request it if HTTP semantic correctness is weighted higher than the zero-frontend-change goal. If chosen instead, Phase 3 would no longer be "not applicable" and the Commit Slicing Strategy would gain a small Commit 3.5/4 frontend commit.
-- **ALT-002**: Reuse the existing `DockerUnavailableError` type with a new optional "reason" field/enum (e.g. `Reason: "timeout"` vs `Reason: "connectivity"`) instead of introducing a wholly new `DockerTimeoutError` type. Rejected because it would require every existing `errors.As(err, &unavailableErr)` call site (handler, tests) to additionally branch on the new field to preserve distinguishability, spreading the "is this a timeout" check across more surface area than a dedicated type with its own `errors.As` target — a dedicated type is more idiomatic Go and keeps the distinguishability guarantee enforced by the type system rather than by convention.
-- **ALT-003**: Make the timeout duration an environment-variable-configurable operator setting from day one (e.g. `CHARON_DOCKER_LIST_TIMEOUT`). Rejected for this iteration as scope creep beyond "a timeout + a distinguishable error message/type" — noted as a natural, low-friction follow-up in §5's rollback/contingency notes given the field is already structured to support it later.
-- **ALT-004**: Apply the bounded timeout only to the local-socket path (`host == "" || host == "local"`), leaving remote/Orthrus-proxied `ContainerList` calls unbounded. Rejected — the shared call site (line 134) makes uniform application essentially free, and leaving remote hosts unbounded would preserve an identical latent bug for remote Docker daemons with no offsetting benefit.
+1. **Access List edit/update/delete/test-IP all 404 in production.** `frontend/src/pages/AccessLists.tsx`, `frontend/src/hooks/useAccessLists.ts`, `frontend/src/api/accessLists.ts`, and the ACL selector in `frontend/src/components/.../ProxyHostForm.tsx` all key mutations off `acl.id`. `backend/internal/models/access_list.go`'s `ID uint` has `json:"-"` — never serialized; only `uuid` is sent. Every edit/delete/rename request currently resolves to `PUT/DELETE /api/v1/access-lists/undefined` → `404`. `rowKey={(acl) => String(acl.id)}` also collides to `"undefined"` for every table row. `ProxyHosts.tsx` already uses the correct `.uuid` pattern — mirror it.
+2. **CGNAT warning banner renders raw i18n keys to every user.** `AccessLists.tsx` calls `t('accessLists.cgnatWarningTitle')` etc. (flat keys) but `frontend/src/locales/en/translation.json` only defines the nested `accessLists.cgnatWarning.title/.message/.solutionsTitle/.solution1-5`. The rendered DOM literally shows concatenated raw key strings to users. Fix: correct the key paths to match the nested structure.
 
-## 8. Dependencies
+This is a deliberate, narrow deviation from this plan's original §1.3 non-goal ("no production code changes") — made because leaving the 3 tests these bugs broke permanently `test.skip()`-ed would directly contradict sub-issue 2's entire purpose (replacing fake-always-pass checks with real ones that actually catch defects). Both fixes are small, isolated, high-confidence, and directly required for `access-lists-crud.spec.ts`'s already-committed real assertions to pass. This addition must be called out explicitly in the PR description as a scope note, separate from the planned test-infra-only work, so reviewers can evaluate it on its own merits.
 
-- **DEP-001**: No new third-party Go modules. `context`, `time`, and `errors` are already imported/available in the Go standard library and (for `context`/`errors`) already imported in `docker_service.go`.
-- **DEP-002**: No new frontend dependencies.
-- **DEP-003**: Relies on existing `github.com/moby/moby/client` behavior that `ContainerList` respects context cancellation/deadlines promptly (implicit assumption already relied upon by the pre-existing `isDockerConnectivityError`'s `context.DeadlineExceeded` handling — not a new dependency, just newly load-bearing in this specific code path).
+- **Scope**: `.id` → `.uuid` swap across the Access List frontend mutation path (param types `number` → `string` to match); i18n key path correction in the CGNAT warning block.
+- **Files**: `frontend/src/pages/AccessLists.tsx`, `frontend/src/hooks/useAccessLists.ts`, `frontend/src/api/accessLists.ts`, and the ACL selector in the proxy-host form component (exact file to be confirmed at implementation time — grep for `.id` usage against access-list objects). No backend changes (backend already correctly omits `ID` from JSON; frontend must conform to the existing contract, not the other way around).
+- **Dependencies**: Commit 4 (the tests that currently fail because of these bugs must already exist).
+- **Validation gate**: `npx playwright test tests/security-enforcement/zzz-security-ui/access-lists-crud.spec.ts --project=security-tests` — full pass, all 45 tests, zero flaky retries (up from 42/45 after Commit 4). `cd frontend && npm run type-check` passes. `cd frontend && npx vitest run` — zero regressions (no unit tests should reference the old `.id` access-list field, but confirm). Manual smoke check: rename an ACL via the UI, confirm no `undefined` appears in any network request URL.
 
-## 9. Risks & Assumptions
+### Commit 5 — `fix: replace tautological assertions in remaining security-UI and settings E2E specs`
+- **Scope**: Sub-issue 2, remainder. §2.2's `encryption-management.spec.ts` (8), `system-security-settings.spec.ts` (7), `navigation.spec.ts` (4), `smtp-settings.spec.ts` (4), `dashboard.spec.ts` (3), `system-settings-feature-toggles.spec.ts` (1), `account-settings.spec.ts` (1), `manual-dns-provider.spec.ts` (1).
+- **Files**: the 8 files above.
+- **Dependencies**: none (none of these 8 files use `getBackupsViaAPI`).
+- **Validation gate**: each file passes under its correct project (security-shard files via `security-tests`/chromium; the rest via chromium + firefox). Zero `|| true).toBeTruthy()` remaining anywhere under `tests/`, verified via `grep -rn "|| true" tests/ --include=*.spec.ts` returning empty.
 
-- **RISK-001**: If the moby client's HTTP transport does not promptly abort the in-flight request when `listCtx` expires (e.g. buffers a large response body ignoring context first), the "fail fast" guarantee could be weaker than assumed. Mitigation: `TEST-001`'s wall-clock assertion (elapsed time bounded well under the 8s default when using a shrunk test timeout) directly validates prompt cancellation in the test suite; if it fails, this is a signal the assumption needs revisiting before merge, not after.
-- **RISK-002**: Reusing HTTP `503` for two semantically different conditions (unavailable vs. slow) could confuse monitoring/alerting that keys off status code alone. Mitigation: the `error` field text differs (`"Docker daemon unavailable"` vs `"Docker daemon is responding slowly"`) and is logged distinctly server-side (`docker_handler.go` log messages differ, §3.4) — any alerting should key off the message/log field, not status code alone; flagged for awareness, not a blocker.
-- **RISK-003**: 8s might still occasionally be exceeded by legitimately slow-but-eventually-successful requests (the bug report's own evidence shows an 8.22s successful request), producing an occasional false "responding slowly" message even when the daemon would have succeeded a fraction of a second later. Mitigation: this is an inherent, explicitly-accepted tradeoff of any bounded timeout (documented in §3.1); the message text says "try again" precisely because a retry is expected to succeed in this borderline case, and this is strictly better than the current unbounded hang.
-- **ASSUMPTION-001**: The maintainer's empirical ~30s Caddy proxy-timeout figure (§1.1, §2.8) remains stable — this is not pinned in repo config, so a future Caddy upgrade or config change could alter it. 8s leaves substantial margin (>20s) specifically to absorb this uncertainty.
-- **ASSUMPTION-002**: `.docker/docker-entrypoint.sh`'s GID-remapping logic and the underlying rootless-Docker permission model are correctly out of scope and require no changes — taken as given per the task's explicit instruction not to re-investigate.
+### Commit 5b — `fix: add aria-current to active navigation links` (SCOPE ADDITION — real app bug found during Commit 5)
 
-## 10. Acceptance Criteria (Definition of Done)
+**Why this exists**: same pattern as Commit 4b. Commit 5's strengthened `navigation.spec.ts` assertions (`hasActiveCurrent || hasActiveClass`, `hasAriaCurrent || <active class>`, both converged onto "must signal active state via aria-current OR a discoverable active class") surfaced that neither exists: `frontend/src/components/Layout.tsx`'s primary sidebar nav `<Link>`s never set `aria-current`, and the active-state Tailwind classes (`bg-brand-700 text-content-primary`, `text-brand-500`, `bg-brand-500/10 text-brand-500`) contain no `"active"`/`"current"` substring an assistive-tech-oriented check (or a screen reader) could key off. Confirmed reproducible 100% across 3 runs, both chromium and firefox, by the implementing agent — not flakiness. This is a genuine, previously-hidden accessibility gap: there is no programmatic way for assistive tech to identify the current page in the primary nav today.
 
-1. `backend/internal/services/docker_service.go` wraps the `cli.ContainerList` call in a `context.WithTimeout` (default 8s, overridable via `listContainersTimeout` field) and returns a new `*DockerTimeoutError` — distinct from `*DockerUnavailableError` — when that bounded timeout (and not the caller's own context) expires.
-2. `backend/internal/api/handlers/docker_handler.go` maps `*DockerTimeoutError` to HTTP `503` with `error: "Docker daemon is responding slowly"` and a populated `details` field, distinguishable in both status-independent text and server logs from the existing `DockerUnavailableError` `503` response.
-3. All new unit tests (§6, TEST-001 through TEST-005) pass; all existing `docker_service_test.go` and `docker_handler_test.go` tests continue to pass unmodified (TEST-006).
-4. `frontend/src/hooks/useDocker.ts` and `frontend/src/components/ProxyHostForm.tsx` are **not modified** — confirmed by the plan's analysis (§2.7) and by the Playwright regression run (TEST-007) showing no behavioral diff.
-5. Full CLAUDE.md Definition of Done passes: Playwright regression subset green; `scripts/local-patch-report.sh` artifacts produced; `lefthook run pre-commit` (staticcheck + CodeQL Go/JS) zero blocking findings; `scripts/go-test-coverage.sh` ≥85% overall and patch coverage; `cd backend && go build ./...` succeeds; no debug prints/dead code left behind.
-6. No changes to `.docker/docker-entrypoint.sh`, any Docker Compose file, `.gitignore`, `.dockerignore`, `.codecov.yml`, or `Dockerfile` (confirmed unnecessary, §2.9).
-7. PR is a single feature/fix PR with the four ordered commits described in §5, each independently building and passing its stated validation gate.
+- **Scope**: Add `aria-current="page"` to the active nav `<Link>` in `Layout.tsx`, conditioned on the existing active-route check already used to apply the active Tailwind classes (do not introduce a new route-matching mechanism — reuse whatever comparison already decides which link gets the active classes).
+- **Files**: `frontend/src/components/Layout.tsx`. No backend changes.
+- **Dependencies**: Commit 5 (the two navigation tests that currently fail because of this gap must already exist).
+- **Validation gate**: `npx playwright test tests/core/navigation.spec.ts --project=chromium --project=firefox` — full pass, including `'should highlight active navigation item'` and `'should indicate current page with aria-current'`, zero flaky retries. `cd frontend && npm run type-check` passes. `cd frontend && npx vitest run` — zero regressions.
 
-## 11. Related Specifications / Further Reading
+### Commit 6 — `docs: close out issue #619 sub-issues 3-5 with coverage/config verification evidence`
+- **Scope**: Hardening + docs. No source changes beyond capturing verification evidence. Update `docs/features.md` only if any test-visible behavior description changed (unlikely — confirm at implementation time; if nothing user-facing changed, skip the `docs/features.md` edit and note that explicitly in the PR description instead of forcing an edit for its own sake).
+- **Files**: none required; optionally `docs/features.md` if applicable.
+- **Dependencies**: Commits 2-5 (needs the final, real test suite to attach real evidence to).
+- **Validation gate**: this commit's job *is* the Definition of Done run — see §5.1 below. All gates must be green before this commit closes the PR.
 
-- `backend/internal/services/docker_service.go` (file under change)
-- `backend/internal/services/docker_service_test.go` (existing test patterns reused)
-- `backend/internal/api/handlers/docker_handler.go` / `docker_handler_test.go` (handler layer under change)
-- `frontend/src/hooks/useDocker.ts`, `frontend/src/components/ProxyHostForm.tsx` (confirmed unaffected)
-- `.docker/docker-entrypoint.sh` (GID-detection logic — read for context, out of scope, not modified)
-- `backend/internal/caddy/types.go` (`ReverseProxyHandler` — read to confirm no repo-configured Caddy timeout exists, §2.8)
-- Prior plan at this same path (now superseded): the previously-merged null-container-list crash fix (`fix/docker-empty-list-null-crash`, PR #1206) — a related but distinct hardening of the same `ListContainers`/`useDocker` code path; this plan's changes are additive and do not conflict with it.
-- **Related, independent work (separate PR, no dependency either direction)**: `docs/plans/docker_permission_denied_classification.md` — a standalone plan fixing a distinct bug in `isDockerConnectivityError` (moby v0.5.1's permission-denied error message evading connectivity-error classification), found via a separate, later investigation of the same file. That plan ships as its own PR; both PRs touch `docker_service.go` and may require a rebase if merged out of order, but each is independently revertable and has no functional dependency on the other.
+### 5.1 Full DoD validation (runs once, after Commit 5, evidence captured in Commit 6 / PR description)
+
+Per `CLAUDE.md`'s Task Completion Protocol, in order:
+
+1. `npx playwright test --project=firefox` (full suite) — must pass.
+2. `npx playwright test --project=chromium` (full suite, includes the `security-tests` shard) — must pass.
+3. `npx playwright test --project=webkit` (full suite) — **this is sub-issue 5's outstanding confirming run.** If it fails in a way traceable to one of this PR's newly-real assertions (most likely candidate: the keyboard-focus-order ones flagged "(a) preferred, (b) fallback" in §2.2/§2.5), fix by falling back to the (b) disposition for that specific line with an accurate WebKit-specific skip reason — do not weaken back to `|| true`. If it fails for an unrelated, pre-existing reason, that is a **new finding** outside this PR's original scope and must be flagged back to the user/issue tracker rather than silently patched.
+4. `bash scripts/local-patch-report.sh` — patch coverage evidence.
+5. `lefthook run pre-commit` (CodeQL Go + JS, staticcheck, etc.) — zero high/critical findings. (No GORM-touching changes in this PR, so §1.5's conditional GORM scan is skipped — confirmed no `backend/internal/models/**` or migration changes.)
+6. `make trivy` (or equivalent Trivy container/dependency scan) — zero Critical/High findings. Per `CLAUDE.md`'s Task Completion Protocol step 3, this is **mandatory, zero-tolerance, with no conditional exception** (unlike the GORM scan above, which is explicitly conditional on model/migration changes). This PR touches no dependencies, `go.mod`/`package.json`, or any `Dockerfile`, so no new findings are expected — run and capture as evidence rather than skipping it.
+7. `scripts/go-test-coverage.sh` — confirm ≥85%, capturing the §2.3 numbers as evidence (no regressions expected since no backend files changed).
+8. `scripts/frontend-test-coverage.sh` — confirm ≥85%, now including the ~84 newly-unskipped tests.
+9. `cd frontend && npm run type-check`.
+10. `cd backend && go build ./...` and `cd frontend && npm run build`.
+11. Full `npx vitest run` — zero failures, zero unexpected skips (only the 4 out-of-scope CrowdSec skips remain).
+
+### 5.2 Rollback / contingency
+
+- Each commit is independently revertable without breaking `development` — none introduce cross-file coupling beyond Commit 1's helper (used only by Commit 3+).
+- If the WebKit run (§5.1 step 3) surfaces a **pre-existing, unrelated** failure (not caused by this PR's changes), the contingency is: do not block this PR on it — capture the failure, note it explicitly in the PR description as a newly-discovered, out-of-scope finding, and open a follow-up issue (matching the precedent set by this same investigation's sibling fix, which filed `#1221` for an out-of-scope race condition rather than scope-creeping the original fix).
+- If any single sub-issue-2 file proves substantially harder than estimated during implementation (most likely: `certificates.spec.ts`'s custom-modal rewrite), it is already isolated to its own commit (Commit 3) specifically so it can be iterated on without blocking Commits 4-5.
+- If full-suite Vitest coverage drops below 85% after unskipping (unlikely, since unskipping only adds passing tests, never removes coverage), do not merge — investigate whether any of the newly-active tests are masking a real component defect (per Root Cause Analysis Protocol) rather than adjusting the threshold.
+
+---
+
+## 6. PR Description Scaffolding
+
+```markdown
+## Summary
+
+Closes #619 (Phase 3 Technical Debt Issues). Verifies and resolves all 5 bundled sub-issues:
+
+- **Sub-issue 1 (undici/WebSocket jsdom blocker)** — FIXED. Confirmed stale on jsdom@30.0.1/undici@8.10.0
+  (upstream nodejs/undici#1671 long resolved). Unskipped 83 tests across 5 Security.*.test.tsx suites.
+  The 6th related skip (Security.functional.test.tsx notification-modal test) was not a WebSocket issue at
+  all — root-caused to stale test code describing a modal that was replaced by a router navigation; deleted
+  as dead code since equivalent, correct, passing coverage already exists in the same file.
+- **Sub-issue 2 (weak/tautological E2E assertions)** — FIXED. 59 `expect(x || true).toBeTruthy()` occurrences
+  across 11 spec files replaced with real deterministic assertions, backend-state-verified checks (certificate
+  deletion in-use/backup/cancel flows, ACL rename, proxy-host creation), or explicit `test.skip()` calls with
+  accurate reasons where genuinely environment-dependent — reusing this repo's existing skip convention.
+  certificates.spec.ts's certificate-deletion tests additionally required a root-cause interaction-model fix:
+  they drove a native `window.confirm()` that the app no longer uses (replaced by a custom React modal),
+  meaning they were exercising almost none of the real delete flow.
+- **Sub-issue 3 (backend coverage gaps)** — STALE, already resolved, no code changes. Re-verified:
+  internal/services 88.4% (target 85%), remotestorage 90.3%, backend/pkg/dnsprovider/builtin 91.8%
+  (target 50% incremental).
+- **Sub-issue 4 (feature flag async propagation tests)** — STALE, already resolved, no code changes.
+  Re-verified: tests/security/system-settings-feature-toggles.spec.ts already uses
+  waitForFeatureFlagPropagation() at 9 call sites, zero .skip/.fixme.
+- **Sub-issue 5 (WebKit E2E not executing)** — Config confirmed healthy (963 tests / 86 files discovered,
+  no webkit-specific exclusions or browserName-conditioned skips). Full passing run captured as this PR's
+  DoD evidence (see Test Plan).
+
+## Test Plan
+- [ ] Full `npx vitest run` — zero failures, only the 4 out-of-scope CrowdSecBouncerKeyDisplay skips remain
+- [ ] `npx playwright test --project=chromium` (incl. security-tests shard) — full pass
+- [ ] `npx playwright test --project=firefox` — full pass
+- [ ] `npx playwright test --project=webkit` — full pass (sub-issue 5 confirming run)
+- [ ] `scripts/go-test-coverage.sh` ≥ 85%
+- [ ] `scripts/frontend-test-coverage.sh` ≥ 85%
+- [ ] `lefthook run pre-commit` — zero high/critical CodeQL findings
+- [ ] `make trivy` (or equivalent) — zero Critical/High findings
+- [ ] `grep -rn "|| true" tests/ --include=*.spec.ts` returns empty
+```
+
+---
+
+## 7. Acceptance Criteria
+
+1. Zero `describe.skip`/`it.skip` remain in the 6 sub-issue-1 files except the intentional deletion (not skip) of the stale notification-modal test.
+2. `grep -rn "|| true).toBeTruthy()" tests/ --include=*.spec.ts` (or equivalent pattern check) returns **zero** matches.
+3. Every occurrence converted to `test.skip()` includes a specific, accurate reason string (no generic "may not apply" left over from the tautology comments).
+4. `certificates.spec.ts`'s 5 deletion tests interact with the real custom `DeleteCertificateDialog` modal, not a native `confirm()`.
+5. `tests/utils/api-helpers.ts` gains exactly one new function (`getBackupsViaAPI`), matching existing conventions.
+6. Full Vitest suite: 0 failures, coverage ≥ 85%.
+7. Full Playwright suite on chromium, firefox, **and** webkit: 0 failures (or any webkit-specific failures are explicitly triaged per §5.2's contingency, not silently skipped).
+8. Backend coverage unchanged and re-confirmed ≥ targets (no backend files touched).
+9. `lefthook run pre-commit` clean.
+10. PR description matches the §6 scaffolding, giving issue #619 a complete, accurate paper trail per sub-issue.
+11. No changes to `.gitignore`, `.dockerignore`, `codecov.yml`, or any `Dockerfile`.

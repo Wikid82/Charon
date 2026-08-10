@@ -16,7 +16,7 @@ on:
 
 env:
   GO_VERSION: '1.26.5'
-  NODE_VERSION: '24.18.1'
+  NODE_VERSION: '24.19.0'
   GOTOOLCHAIN: local
   GHCR_REGISTRY: ghcr.io
   DOCKERHUB_REGISTRY: docker.io
@@ -220,6 +220,9 @@ jobs:
           labels: |
             org.opencontainers.image.title=Charon Nightly
             org.opencontainers.image.description=Nightly build of Charon
+
+      - name: Generate Changelog Data
+        run: bash scripts/generate-changelog.sh
 
       - name: Build and push Docker image
         id: build
@@ -611,11 +614,11 @@ jobs:
           image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}
           format: 'sarif'
           output: 'trivy-nightly.sarif'
-          version: 'v0.72.0'
+          version: 'v0.73.0'
           trivyignores: '.trivyignore'
 
       - name: Upload Trivy results
-        uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38  # v4.37.4
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3  # v4.37.6
         with:
           sarif_file: 'trivy-nightly.sarif'
           category: 'trivy-nightly'

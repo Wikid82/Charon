@@ -6,7 +6,7 @@
  */
 
 import { expect, Page } from '@playwright/test';
-import { waitForAPIResponse, waitForWebSocketConnection } from './wait-helpers';
+import { waitForAPIResponse } from './wait-helpers';
 
 // ============================================================================
 // Type Definitions

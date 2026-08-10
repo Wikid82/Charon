@@ -31,8 +31,7 @@ vi.mock('../../hooks/useSecurity', async (importOriginal) => {
   }
 })
 
-// BLOCKER 3: Temporarily skipped due to undici InvalidArgumentError in WebSocket mocks
-describe.skip('Security', () => {
+describe('Security', () => {
   let queryClient: QueryClient
 
   beforeEach(() => {

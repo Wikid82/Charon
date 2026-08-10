@@ -12,6 +12,7 @@ Every session should improve the codebase, not just add to it. Actively refactor
 - **LEVERAGE**: Use battle-tested packages over custom implementations.
 - **READABLE**: Maintain comments and clear naming for complex logic. Favor clarity over cleverness.
 - **CONVENTIONAL COMMITS**: Write commit messages using `feat:`, `fix:`, `chore:`, `refactor:`, or `docs:` prefixes.
+- **`(security)` SCOPE**: For genuinely security-relevant `feat`/`fix` commits (real vulnerability fixes, new protective mechanisms — not general bug fixes), use `feat(security): <subject>` or `fix(security): <subject>`. This scope feeds a dedicated "Security" category in the What's New changelog, so it's reserved for real security work — overusing it for visibility on ordinary fixes dilutes the category's signal. **Vague by default**: the subject line must describe the *category* of issue and mitigation in general terms, and must NEVER reveal the specific vulnerability class, attack vector, or exact vulnerable code path — the changelog displays it verbatim to every self-hosted user, including ones running un-upgraded, still-vulnerable instances. Good: `fix(security): harden input validation in the API layer`. Bad: `fix(security): fix SQL injection in host search filter`.
 
 ## Governance & Precedence
 
@@ -154,10 +155,11 @@ never affected by this.
 Before marking an implementation task as complete, perform the following in order:
 
 1. **Playwright E2E Tests** (MANDATORY — Run First):
-   - **Run**: `cd /projects/Charon && npx playwright test --project=firefox` from project root
-   - **Scope**: Run tests relevant to modified features
+   - **Run**: `cd /projects/Charon && npx playwright test <specific spec file(s) you touched or that cover the changed feature> --project=firefox` from project root
+   - **Scope**: Targeted only — the specific spec file(s) relevant to what you changed, single browser (firefox). Never run the whole `tests/` directory locally, and never pass more than one `--project` locally.
+   - **Full-suite / cross-browser runs are CI-only.** `--project=chromium --project=firefox --project=webkit` together, or any run of the full suite, is expensive and MUST be deferred to the CI pipeline on the PR — do not run it locally under any circumstance, including as part of a "final validation pass." If a task genuinely requires confirming cross-browser behavior (e.g. investigating a browser-specific bug), run only the specific failing spec(s) under that one browser, not the full suite.
    - **On Failure**: Trace root cause through frontend → backend flow before proceeding
-   - All E2E tests must pass before proceeding to unit tests
+   - All targeted E2E tests must pass before proceeding to unit tests; rely on CI for full-suite confirmation
 
 1.5. **GORM Security Scan** (CONDITIONAL, BLOCKING):
    - **Trigger**: Execute when changes include `backend/internal/models/**`, GORM queries, or migrations
@@ -168,11 +170,13 @@ Before marking an implementation task as complete, perform the following in orde
    - **Run**: `bash scripts/local-patch-report.sh` from repo root
    - **Required Artifacts**: `test-results/local-patch-report.md` and `test-results/local-patch-report.json`
 
-3. **Security Scans** (MANDATORY — Zero Tolerance):
-   - **CodeQL Go Scan**: `lefthook run pre-commit` — zero high/critical findings allowed
-   - **CodeQL JS Scan**: `lefthook run pre-commit` — zero high/critical findings allowed
-   - **Trivy Container Scan**: `make trivy` or equivalent for container/dependency vulnerabilities
-   - Results viewed via `jq '.runs[].results' codeql-results-*.sarif`
+3. **Security Scans** (CodeQL Go/JS + Trivy):
+   - **Run locally when the change adds a new feature** (new code paths, endpoints, components — typically a `feat:`-scoped commit): zero high/critical findings allowed before proceeding.
+     - **CodeQL Go Scan**: `lefthook run pre-commit`
+     - **CodeQL JS Scan**: `lefthook run pre-commit`
+     - **Trivy Container Scan**: `make trivy` or equivalent for container/dependency vulnerabilities
+     - Results viewed via `jq '.runs[].results' codeql-results-*.sarif`
+   - **Defer to CI for `fix:`/`test:`/`chore:`/`refactor:`-scoped changes with no new feature surface** — don't run these locally for pure fixes or test work; CI runs both unconditionally on every PR regardless, so nothing is actually skipped, just not duplicated locally when the risk surface is small.
 
 4. **Lefthook Triage**: Run `lefthook run pre-commit`. Fix all errors immediately.
 
@@ -198,6 +202,19 @@ Before marking an implementation task as complete, perform the following in orde
    - Deep-dive into root causes when failures occur — all issues must be addressed
 
 10. **Clean Up**: Remove debug print statements, commented-out blocks, `console.log`, `fmt.Println`, unused imports.
+
+## Execution Discipline: Foreground-Only Commands (MANDATORY)
+
+**All agents — Management and every subagent — MUST run commands in the foreground and block until they complete. Never background a long-running command (`run_in_background: true`, `&`, `nohup`, or any detached/async invocation) and end your turn to "check back later" or "wait for the notification."**
+
+**Why:** Backgrounding a command and pausing your turn to wait for it does not reliably resume you. In practice this has repeatedly caused agents in this pipeline to go silently idle indefinitely — no report, no error, just gone — leaving Management (or whoever dispatched them) waiting on a result that never arrives on its own.
+
+**Rule:**
+- Run tests, builds, coverage scripts, E2E suites, linters, and Docker builds as blocking, foreground calls with a generous timeout (up to the maximum allowed per call).
+- If a command genuinely needs longer than a single call's timeout allows, re-issue a blocking wait within your own turn until you have a real result. Do not end your turn assuming something else will wake you back up.
+- **If a call auto-backgrounds anyway** (the tool's own timeout forces this, e.g. a 300s/600s cap you didn't choose): that is NOT permission to end your turn and wait for a notification. Immediately re-attach to it — poll or block on it again in the same turn, repeatedly if necessary — until you have a real result. Ending the turn at that point is exactly the disallowed pattern this rule exists to prevent, even though it wasn't your explicit choice to background it.
+- Never report a task as "running, will report when it lands" and then go idle. Either finish with a real result in the same turn, or explicitly hand off incomplete work with a clearly stated reason — never stall silently.
+- Applies to every long-running step across the pipeline: `npx playwright test`, `npx vitest run`, `go test`, `scripts/go-test-coverage.sh`, `scripts/local-patch-report.sh`, Docker image builds, `lefthook run pre-commit`, etc.
 
 ## Subagents
 

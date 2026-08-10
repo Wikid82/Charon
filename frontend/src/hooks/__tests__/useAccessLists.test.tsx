@@ -31,7 +31,6 @@ describe('useAccessLists hooks', () => {
     it('should fetch all access lists', async () => {
       const mockLists: AccessList[] = [
         {
-          id: 1,
           uuid: 'test-uuid',
           name: 'Test ACL',
           description: 'Test',
@@ -59,7 +58,6 @@ describe('useAccessLists hooks', () => {
   describe('useAccessList', () => {
     it('should fetch a single access list', async () => {
       const mockList: AccessList = {
-        id: 1,
         uuid: 'test-uuid',
         name: 'Test ACL',
         description: 'Test',
@@ -74,7 +72,7 @@ describe('useAccessLists hooks', () => {
 
       vi.mocked(accessListsApi.get).mockResolvedValueOnce(mockList);
 
-      const { result } = renderHook(() => useAccessList(1), {
+      const { result } = renderHook(() => useAccessList('test-uuid'), {
         wrapper: createWrapper(),
       });
 
@@ -94,7 +92,6 @@ describe('useAccessLists hooks', () => {
       };
 
       const mockResponse: AccessList = {
-        id: 1,
         uuid: 'new-uuid',
         ...newList,
         country_codes: '',
@@ -120,7 +117,6 @@ describe('useAccessLists hooks', () => {
     it('should update an access list', async () => {
       const updates = { name: 'Updated ACL' };
       const mockResponse: AccessList = {
-        id: 1,
         uuid: 'test-uuid',
         name: 'Updated ACL',
         description: 'Test',
@@ -139,7 +135,7 @@ describe('useAccessLists hooks', () => {
         wrapper: createWrapper(),
       });
 
-      result.current.mutate({ id: 1, data: updates });
+      result.current.mutate({ uuid: 'test-uuid', data: updates });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
       expect(result.current.data).toEqual(mockResponse);
@@ -154,10 +150,10 @@ describe('useAccessLists hooks', () => {
         wrapper: createWrapper(),
       });
 
-      result.current.mutate(1);
+      result.current.mutate('test-uuid');
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(accessListsApi.delete).toHaveBeenCalledWith(1);
+      expect(accessListsApi.delete).toHaveBeenCalledWith('test-uuid');
     });
   });
 
@@ -171,7 +167,7 @@ describe('useAccessLists hooks', () => {
         wrapper: createWrapper(),
       });
 
-      result.current.mutate({ id: 1, ipAddress: '192.168.1.1' });
+      result.current.mutate({ uuid: 'test-uuid', ipAddress: '192.168.1.1' });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
       expect(result.current.data).toEqual(mockResponse);

@@ -69,10 +69,8 @@ describe('<AuditLogs />', () => {
 
   it('renders page title and description', async () => {
     vi.spyOn(auditLogsApi, 'getAuditLogs').mockResolvedValue({
-      logs: [],
-      total: 0,
-      page: 1,
-      limit: 50,
+      audit_logs: [],
+      pagination: { page: 1, limit: 50, total: 0, total_pages: 0 },
     })
 
     renderWithProviders(<AuditLogs />)
@@ -85,10 +83,8 @@ describe('<AuditLogs />', () => {
 
   it('displays audit logs in table', async () => {
     vi.spyOn(auditLogsApi, 'getAuditLogs').mockResolvedValue({
-      logs: mockAuditLogs,
-      total: 2,
-      page: 1,
-      limit: 50,
+      audit_logs: mockAuditLogs,
+      pagination: { page: 1, limit: 50, total: 2, total_pages: 1 },
     })
 
     renderWithProviders(<AuditLogs />)
@@ -113,10 +109,8 @@ describe('<AuditLogs />', () => {
 
   it('shows empty state when no logs', async () => {
     vi.spyOn(auditLogsApi, 'getAuditLogs').mockResolvedValue({
-      logs: [],
-      total: 0,
-      page: 1,
-      limit: 50,
+      audit_logs: [],
+      pagination: { page: 1, limit: 50, total: 0, total_pages: 0 },
     })
 
     renderWithProviders(<AuditLogs />)
@@ -128,10 +122,8 @@ describe('<AuditLogs />', () => {
 
   it('toggles filter panel', async () => {
     vi.spyOn(auditLogsApi, 'getAuditLogs').mockResolvedValue({
-      logs: [],
-      total: 0,
-      page: 1,
-      limit: 50,
+      audit_logs: [],
+      pagination: { page: 1, limit: 50, total: 0, total_pages: 0 },
     })
 
     renderWithProviders(<AuditLogs />)
@@ -154,10 +146,8 @@ describe('<AuditLogs />', () => {
 
   it('applies category filter', async () => {
     vi.spyOn(auditLogsApi, 'getAuditLogs').mockResolvedValue({
-      logs: [],
-      total: 0,
-      page: 1,
-      limit: 50,
+      audit_logs: [],
+      pagination: { page: 1, limit: 50, total: 0, total_pages: 0 },
     })
 
     renderWithProviders(<AuditLogs />)
@@ -176,10 +166,8 @@ describe('<AuditLogs />', () => {
 
   it('clears all filters', async () => {
     vi.spyOn(auditLogsApi, 'getAuditLogs').mockResolvedValue({
-      logs: [],
-      total: 0,
-      page: 1,
-      limit: 50,
+      audit_logs: [],
+      pagination: { page: 1, limit: 50, total: 0, total_pages: 0 },
     })
 
     renderWithProviders(<AuditLogs />)
@@ -202,10 +190,8 @@ describe('<AuditLogs />', () => {
 
   it('opens detail modal when row is clicked', async () => {
     vi.spyOn(auditLogsApi, 'getAuditLogs').mockResolvedValue({
-      logs: mockAuditLogs,
-      total: 2,
-      page: 1,
-      limit: 50,
+      audit_logs: mockAuditLogs,
+      pagination: { page: 1, limit: 50, total: 2, total_pages: 1 },
     })
 
     renderWithProviders(<AuditLogs />)
@@ -228,10 +214,8 @@ describe('<AuditLogs />', () => {
 
   it('closes detail modal', async () => {
     vi.spyOn(auditLogsApi, 'getAuditLogs').mockResolvedValue({
-      logs: mockAuditLogs,
-      total: 2,
-      page: 1,
-      limit: 50,
+      audit_logs: mockAuditLogs,
+      pagination: { page: 1, limit: 50, total: 2, total_pages: 1 },
     })
 
     renderWithProviders(<AuditLogs />)
@@ -264,10 +248,8 @@ describe('<AuditLogs />', () => {
 
   it('handles pagination', async () => {
     vi.spyOn(auditLogsApi, 'getAuditLogs').mockResolvedValue({
-      logs: mockAuditLogs,
-      total: 100,
-      page: 1,
-      limit: 50,
+      audit_logs: mockAuditLogs,
+      pagination: { page: 1, limit: 50, total: 100, total_pages: 2 },
     })
 
     renderWithProviders(<AuditLogs />)
@@ -290,10 +272,8 @@ describe('<AuditLogs />', () => {
   it('exports to CSV', async () => {
     const mockCSV = 'timestamp,actor,action\n2026-01-03,admin,create'
     vi.spyOn(auditLogsApi, 'getAuditLogs').mockResolvedValue({
-      logs: mockAuditLogs,
-      total: 2,
-      page: 1,
-      limit: 50,
+      audit_logs: mockAuditLogs,
+      pagination: { page: 1, limit: 50, total: 2, total_pages: 1 },
     })
     vi.spyOn(auditLogsApi, 'exportAuditLogsCSV').mockResolvedValue(mockCSV)
 
@@ -323,10 +303,8 @@ describe('<AuditLogs />', () => {
 
   it('handles export error', async () => {
     vi.spyOn(auditLogsApi, 'getAuditLogs').mockResolvedValue({
-      logs: mockAuditLogs,
-      total: 2,
-      page: 1,
-      limit: 50,
+      audit_logs: mockAuditLogs,
+      pagination: { page: 1, limit: 50, total: 2, total_pages: 1 },
     })
     vi.spyOn(auditLogsApi, 'exportAuditLogsCSV').mockRejectedValue(
       new Error('Export failed')
@@ -356,10 +334,8 @@ describe('<AuditLogs />', () => {
 
   it('displays parsed JSON details in modal', async () => {
     vi.spyOn(auditLogsApi, 'getAuditLogs').mockResolvedValue({
-      logs: mockAuditLogs,
-      total: 2,
-      page: 1,
-      limit: 50,
+      audit_logs: mockAuditLogs,
+      pagination: { page: 1, limit: 50, total: 2, total_pages: 1 },
     })
 
     renderWithProviders(<AuditLogs />)
@@ -390,10 +366,8 @@ describe('<AuditLogs />', () => {
     }
 
     vi.spyOn(auditLogsApi, 'getAuditLogs').mockResolvedValue({
-      logs: [invalidDetailsLog],
-      total: 1,
-      page: 1,
-      limit: 50,
+      audit_logs: [invalidDetailsLog],
+      pagination: { page: 1, limit: 50, total: 1, total_pages: 1 },
     })
 
     renderWithProviders(<AuditLogs />)
@@ -415,10 +389,8 @@ describe('<AuditLogs />', () => {
 
   it('shows filter count badge', async () => {
     vi.spyOn(auditLogsApi, 'getAuditLogs').mockResolvedValue({
-      logs: [],
-      total: 0,
-      page: 1,
-      limit: 50,
+      audit_logs: [],
+      pagination: { page: 1, limit: 50, total: 0, total_pages: 0 },
     })
 
     renderWithProviders(<AuditLogs />)
@@ -446,7 +418,7 @@ describe('<AuditLogs />', () => {
   it('applies resource_uuid and event_category filters from the URL on mount', async () => {
     const getAuditLogsSpy = vi
       .spyOn(auditLogsApi, 'getAuditLogs')
-      .mockResolvedValue({ logs: [], total: 0, page: 1, limit: 50 })
+      .mockResolvedValue({ audit_logs: [], pagination: { page: 1, limit: 50, total: 0, total_pages: 0 } })
 
     renderWithDeepLink(
       <AuditLogs />,
@@ -467,10 +439,8 @@ describe('<AuditLogs />', () => {
 
   it('auto-expands the filter panel when arriving via a deep link', async () => {
     vi.spyOn(auditLogsApi, 'getAuditLogs').mockResolvedValue({
-      logs: [],
-      total: 0,
-      page: 1,
-      limit: 50,
+      audit_logs: [],
+      pagination: { page: 1, limit: 50, total: 0, total_pages: 0 },
     })
 
     renderWithDeepLink(<AuditLogs />, '?resource_uuid=agent-1')
@@ -483,7 +453,7 @@ describe('<AuditLogs />', () => {
   it('does not pre-apply filters when no query string is present', async () => {
     const getAuditLogsSpy = vi
       .spyOn(auditLogsApi, 'getAuditLogs')
-      .mockResolvedValue({ logs: [], total: 0, page: 1, limit: 50 })
+      .mockResolvedValue({ audit_logs: [], pagination: { page: 1, limit: 50, total: 0, total_pages: 0 } })
 
     renderWithProviders(<AuditLogs />)
 

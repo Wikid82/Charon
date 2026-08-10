@@ -13,7 +13,7 @@
  */
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
-import { waitForLoadingComplete, waitForTableLoad } from '../utils/wait-helpers';
+import { waitForLoadingComplete } from '../utils/wait-helpers';
 
 test.describe('Dashboard', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -228,8 +228,10 @@ test.describe('Dashboard', () => {
           }
         }
 
-        // Quick action buttons may not exist or be reachable - this is acceptable
-        expect(foundButton || true).toBeTruthy();
+        // If no quick-action button was found within the tab-order budget,
+        // this is a genuine focus-order/timing variance, not a defect -
+        // skip with an accurate reason rather than faking a pass.
+        test.skip(!foundButton, 'no quick-action button found via keyboard tab order in this run');
       });
     });
   });
@@ -367,7 +369,7 @@ test.describe('Dashboard', () => {
         const hasActualContent = (await hasContent.count()) > 0;
 
         // Dashboard should show either empty state or content, not crash
-        expect(hasEmptyState || hasActualContent || true).toBeTruthy();
+        expect(hasEmptyState || hasActualContent).toBe(true);
       });
     });
 
@@ -488,7 +490,7 @@ test.describe('Dashboard', () => {
         }
 
         // Cards may not have focusable elements - verify we at least found some focusable elements
-        expect(reachedCard || focusableElementsFound > 0 || true).toBeTruthy();
+        expect(reachedCard || focusableElementsFound > 0).toBe(true);
       });
     });
 

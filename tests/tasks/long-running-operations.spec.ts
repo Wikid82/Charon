@@ -1,6 +1,6 @@
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForToast, waitForLoadingComplete, gotoTolerant } from '../utils/wait-helpers';
-import { getStorageStateAuthHeaders } from '../utils/api-helpers';
+import { getStorageStateAuthHeaders, suppressChangelogModal } from '../utils/api-helpers';
 
 /**
  * Integration: Long-Running Operations
@@ -33,6 +33,12 @@ test.describe('Long-Running Operations', () => {
     });
 
     expect(response.ok()).toBe(true);
+
+    // Ad-hoc user created directly via this raw API call (bypassing the
+    // shared TestDataManager pool) gets the real production changelog
+    // defaults, so it's eligible for the blocking "What's New" modal on
+    // first login — see suppressChangelogModal's doc comment.
+    await suppressChangelogModal(page, testUser.email, testUser.password);
   };
 
   const createProxyViaApi = async (page: import('@playwright/test').Page) => {

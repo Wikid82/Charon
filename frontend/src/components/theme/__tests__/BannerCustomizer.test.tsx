@@ -19,6 +19,7 @@ function renderAdmin(props: Partial<React.ComponentProps<typeof BannerCustomizer
     login: vi.fn(),
     logout: vi.fn(),
     changePassword: vi.fn(),
+    refetchUser: vi.fn(),
     isAuthenticated: true,
     isLoading: false,
   })
@@ -40,6 +41,7 @@ function renderNonAdmin(props: Partial<React.ComponentProps<typeof BannerCustomi
     login: vi.fn(),
     logout: vi.fn(),
     changePassword: vi.fn(),
+    refetchUser: vi.fn(),
     isAuthenticated: true,
     isLoading: false,
   })

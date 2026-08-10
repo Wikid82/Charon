@@ -25,7 +25,6 @@ import {
   captureSecurityState,
   restoreSecurityState,
   CapturedSecurityState,
-  SecurityStatus,
 } from '../utils/security-helpers';
 
 /**

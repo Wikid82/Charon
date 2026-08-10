@@ -128,6 +128,21 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
     }
   }, [invalidateAuthRequests]);
 
+  // Re-fetches /auth/me and updates context state without touching the
+  // token/session lifecycle. Used by settings mutations (e.g. the "What's
+  // New" changelog opt-out toggle) that change a field on the user row and
+  // need the UI to reflect it immediately. A failure here is non-critical —
+  // it's swallowed rather than treated as session expiry, which is already
+  // handled separately by the axios 401 interceptor (handleAuthError).
+  const refetchUser = useCallback(async () => {
+    try {
+      const response = await fetchSessionUser();
+      setUser(response);
+    } catch {
+      // Intentionally silent — see comment above.
+    }
+  }, [fetchSessionUser]);
+
   const changePassword = async (oldPassword: string, newPassword: string) => {
     try {
       await client.post('/auth/change-password', {
@@ -182,7 +197,7 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
   }, [user, logout]);
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, changePassword, isAuthenticated: !!user, isLoading }}>
+    <AuthContext.Provider value={{ user, login, logout, changePassword, refetchUser, isAuthenticated: !!user, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

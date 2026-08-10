@@ -261,8 +261,15 @@ test.describe('CrowdSec IP Whitelist Management', () => {
         });
 
         await test.step('Attempt to add the same IP again', async () => {
+          const responsePromise = page.waitForResponse(
+            (resp) =>
+              resp.url().includes('/api/v1/admin/crowdsec/whitelist') &&
+              resp.request().method() === 'POST'
+          );
           await page.getByTestId('whitelist-ip-input').fill(testIP);
           await page.getByTestId('whitelist-add-btn').click();
+          const response = await responsePromise;
+          expect(response.status()).toBe(409);
         });
 
         await test.step('Verify the conflict error is shown inline', async () => {

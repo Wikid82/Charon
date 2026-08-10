@@ -20,7 +20,7 @@
  * ```
  */
 
-import { generateUniqueId, generateIPAddress, generateCIDR } from './test-data';
+import { generateUniqueId, generateCIDR } from './test-data';
 import type { AccessListData } from '../utils/TestDataManager';
 import * as crypto from 'crypto';
 

@@ -12,51 +12,15 @@
  * These tests verify end-to-end user journeys across features.
  */
 
-import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
+import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { generateProxyHost } from '../fixtures/proxy-hosts';
 import { generateAccessList, generateAllowListForIPs } from '../fixtures/access-lists';
-import { generateCertificate } from '../fixtures/certificates';
 import { generateDnsProvider } from '../fixtures/dns-providers';
 import {
-  waitForToast,
   waitForLoadingComplete,
   waitForAPIResponse,
-  waitForModal,
-  clickAndWaitForResponse,
   waitForResourceInUI,
 } from '../utils/wait-helpers';
-
-/**
- * Selectors for multi-feature workflows
- */
-const SELECTORS = {
-  // Navigation
-  sideNav: '[data-testid="sidebar"], nav, .sidebar',
-  proxyHostsLink: 'a[href*="proxy-hosts"], button:has-text("Proxy Hosts")',
-  accessListsLink: 'a[href*="access-lists"], button:has-text("Access Lists")',
-  certificatesLink: 'a[href*="certificates"], button:has-text("Certificates")',
-  dnsProvidersLink: 'a[href*="dns"], button:has-text("DNS")',
-  securityLink: 'a[href*="security"], button:has-text("Security")',
-  settingsLink: 'a[href*="settings"], button:has-text("Settings")',
-
-  // Common Actions
-  addButton: 'button:has-text("Add"), button:has-text("Create")',
-  saveButton: 'button:has-text("Save"), button[type="submit"]',
-  deleteButton: 'button:has-text("Delete")',
-  editButton: 'button:has-text("Edit")',
-  cancelButton: 'button:has-text("Cancel")',
-
-  // Status Indicators
-  activeStatus: '.badge:has-text("Active"), [data-testid="status-active"]',
-  errorStatus: '.badge:has-text("Error"), [data-testid="status-error"]',
-  pendingStatus: '.badge:has-text("Pending"), [data-testid="status-pending"]',
-
-  // Common Elements
-  table: 'table, [data-testid="data-table"]',
-  modal: '.modal, [data-testid="modal"], [role="dialog"]',
-  toast: '[data-testid="toast"], .toast, [role="alert"]',
-  loadingSpinner: '[data-testid="loading"], .loading, .spinner',
-};
 
 async function navigateToDnsProviders(page: import('@playwright/test').Page): Promise<void> {
   const providersResponse = waitForAPIResponse(page, /\/api\/v1\/dns-providers/);
@@ -397,7 +361,7 @@ test.describe('Multi-Feature Workflows E2E', () => {
 
       // Create some data first
       const proxyInput = generateProxyHost();
-      const proxy = await testData.createProxyHost({
+      await testData.createProxyHost({
         domain: proxyInput.domain,
         forwardHost: proxyInput.forwardHost,
         forwardPort: proxyInput.forwardPort,

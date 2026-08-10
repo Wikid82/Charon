@@ -95,7 +95,7 @@ func normalizeHost(rawHost string) string {
 // IP alone can't distinguish "this admin's own Tailscale mesh" from "another
 // CGNAT tenant." This is an inherent limitation of the address family, not a
 // code defect, and is accepted here as consistent with Charon's self-hosted/
-// LAN/VPN-mesh threat model (see docs/plans/current_spec.md §9.1.5).
+// LAN/VPN-mesh threat model.
 var tailscaleCGNAT = func() *net.IPNet {
 	_, block, err := net.ParseCIDR("100.64.0.0/10")
 	if err != nil {
@@ -188,11 +188,14 @@ func setSecureCookie(c *gin.Context, name, value string, maxAge int, trustedProx
 	domain := ""
 
 	c.SetSameSite(sameSite)
-	c.SetCookie( // codeql[go/cookie-secure-not-set] Safe: secure is false only
-		// when isLocalRequest(c) AND scheme != "https" (loopback/RFC1918/
-		// IPv6-ULA/Tailscale-CGNAT origin over plain HTTP) — every other path
-		// (HTTPS, or plain HTTP from a public host) still gets secure=true.
-		// See the truth table in docs/plans/current_spec.md §9.2.
+
+	// secure is false only when isLocalRequest(c) AND scheme != "https"
+	// (loopback/RFC1918/IPv6-ULA/Tailscale-CGNAT origin over plain HTTP) —
+	// every other path (HTTPS, or plain HTTP from a public host) still
+	// gets secure=true. See the doc comment on setSecureCookie above for
+	// the full truth table and threat-model justification.
+	// codeql[go/cookie-secure-not-set]
+	c.SetCookie(
 		name,   // name
 		value,  // value
 		maxAge, // maxAge in seconds
@@ -318,10 +321,11 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"user_id": userID,
-		"role":    role,
-		"name":    u.Name,
-		"email":   u.Email,
+		"user_id":           userID,
+		"role":              role,
+		"name":              u.Name,
+		"email":             u.Email,
+		"changelog_opt_out": u.ChangelogOptOut,
 	})
 }
 

@@ -530,17 +530,28 @@ export class TestDataManager {
   /**
    * Create a test user with automatic cleanup tracking
    * @param data - User configuration
+   * @param options.useNamespace - Namespace the email to avoid cross-test collisions (default: true)
+   * @param options.suppressChangelog - Opt the new user out of the "What's
+   *   New" changelog modal immediately after creation (default: true). The
+   *   modal is a blocking dialog (see `WhatsNewModal.tsx`) that every fresh
+   *   test user is otherwise eligible to see (`last_seen_version` defaults
+   *   to `""`), which stalls unrelated UI interactions across the whole
+   *   suite once the E2E image embeds real changelog data (see
+   *   `tests/fixtures/changelog-fixture.json` injection in CI). Pass
+   *   `false` only for specs that deliberately test the modal itself
+   *   (`tests/settings/whats-new-changelog.spec.ts`'s `regularUser`).
    * @returns Created user details including auth token
    */
   async createUser(
     data: UserData,
-    options: { useNamespace?: boolean } = {}
+    options: { useNamespace?: boolean; suppressChangelog?: boolean } = {}
   ): Promise<UserResult> {
     if (sqliteInfraFailureMessage) {
       throw new Error(sqliteInfraFailureMessage);
     }
 
     const useNamespace = options.useNamespace !== false;
+    const suppressChangelog = options.suppressChangelog !== false;
     const namespacedEmail = useNamespace ? `${this.namespace}+${data.email}` : data.email;
     const namespaced = {
       name: data.name,
@@ -605,9 +616,24 @@ export class TestDataManager {
     });
 
     try {
-      const loginResponse = await loginContext.post('/api/v1/auth/login', {
+      // Retry on 401 with backoff: the POST /api/v1/users call just above
+      // has already returned successfully, but this fresh, unauthenticated
+      // `loginContext` can occasionally still race the just-created user row
+      // becoming visible to a login query (same eventual-consistency race
+      // documented on postLoginWithRetry in tests/fixtures/auth-fixtures.ts).
+      // Without this retry, a 401 here causes createUser() to silently skip
+      // the changelog-suppression ack below (token stays ''), which lets the
+      // blocking "What's New" modal appear unexpectedly for what call sites
+      // assume is a fully-suppressed fixture user.
+      let loginResponse = await loginContext.post('/api/v1/auth/login', {
         data: { email: namespacedEmail, password: data.password },
       });
+      for (let attempt = 1; loginResponse.status() === 401 && attempt < 4; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, Math.round(250 * Math.pow(2, attempt - 1))));
+        loginResponse = await loginContext.post('/api/v1/auth/login', {
+          data: { email: namespacedEmail, password: data.password },
+        });
+      }
 
       if (!loginResponse.ok()) {
         // User created but login failed - still return user info
@@ -616,6 +642,27 @@ export class TestDataManager {
       }
 
       const { token } = await loginResponse.json();
+
+      if (suppressChangelog && token) {
+        // Best-effort: use the existing self-service ack endpoint to opt
+        // this user out of the changelog modal forever, rather than
+        // seeding the DB directly. A failure here must not fail user
+        // creation — worst case the modal appears for this test user.
+        try {
+          const ackResponse = await loginContext.post('/api/v1/changelog/ack', {
+            headers: { Authorization: `Bearer ${token}` },
+            data: { action: 'dismiss_permanent', opt_out: true },
+          });
+          if (!ackResponse.ok()) {
+            console.warn(
+              `Failed to suppress changelog modal for ${namespacedEmail}: ${ackResponse.status()}`
+            );
+          }
+        } catch (error) {
+          console.warn(`Failed to suppress changelog modal for ${namespacedEmail}:`, error);
+        }
+      }
+
       return { id: result.id, email: namespacedEmail, token };
     } finally {
       await loginContext.dispose();

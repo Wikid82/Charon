@@ -11,27 +11,16 @@
  * @see /projects/Charon/docs/plans/current_spec.md
  */
 
-import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
+import { test, expect, loginUser } from '../fixtures/auth-fixtures';
+import { request as playwrightRequest } from '@playwright/test';
 import {
   waitForLoadingComplete,
-  waitForToast,
-  waitForModal,
   waitForDialog,
-  waitForFormFields,
   waitForDebounce,
-  waitForConfigReload,
-  waitForNavigation,
 } from '../utils/wait-helpers';
-import {
-  letsEncryptCertificate,
-  customCertificateMock,
-  expiredCertificate,
-  expiringCertificate,
-  invalidCertificates,
-  generateCertificate,
-  type CertificateConfig,
-} from '../fixtures/certificates';
+import { getCertificateViaAPI, getBackupsViaAPI } from '../utils/api-helpers';
 import { generateUniqueId } from '../fixtures/test-data';
+import { STORAGE_STATE } from '../constants';
 
 test.describe('SSL Certificates - CRUD Operations', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -54,10 +43,6 @@ test.describe('SSL Certificates - CRUD Operations', () => {
   // Helper to get the Add Certificate button
   const getAddCertButton = (page: import('@playwright/test').Page) =>
     page.getByRole('button', { name: /add.*certificate/i }).first();
-
-  // Helper to get Upload button in form
-  const getUploadButton = (page: import('@playwright/test').Page) =>
-    page.getByRole('button', { name: /upload/i }).first();
 
   // Helper to get Cancel button in form
   const getCancelButton = (page: import('@playwright/test').Page) =>
@@ -219,8 +204,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
 
             // Sort icon should appear
             const sortIcon = nameHeader.locator('svg');
-            const hasSortIcon = await sortIcon.count() > 0;
-            expect(hasSortIcon || true).toBeTruthy();
+            await expect(sortIcon.first()).toBeVisible();
           }
         }
       });
@@ -244,8 +228,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
     test('should show SSL info alert', async ({ page }) => {
       await test.step('Verify SSL info alert is displayed', async () => {
         const alert = page.locator('[role="alert"], .alert').filter({ hasText: /note|ssl|certificate/i });
-        const hasAlert = await alert.isVisible().catch(() => false);
-        expect(hasAlert || true).toBeTruthy();
+        await expect(alert.first()).toBeVisible();
       });
     });
   });
@@ -714,6 +697,199 @@ test.describe('SSL Certificates - CRUD Operations', () => {
   });
 
   test.describe('Delete Certificate', () => {
+    // -------------------------------------------------------------------
+    // The delete UI does NOT use a native window.confirm() dialog — it's a
+    // fully custom React modal (frontend/src/components/dialogs/
+    // DeleteCertificateDialog.tsx, built on the shared Dialog/DialogContent
+    // primitives). The tests below previously drove this flow via
+    // `page.once('dialog', ...)`, Playwright's *native* browser dialog
+    // handler — since the app never opens a native dialog for this flow,
+    // that handler never fired, and the tests exercised almost none of the
+    // real deletion flow. These helpers/tests interact with the actual
+    // custom modal instead, mirroring the already-established, proven
+    // pattern in tests/certificate-delete.spec.ts.
+    //
+    // Root-cause note (frontend/src/components/CertificateList.tsx): a
+    // certificate that is currently in_use has its delete affordance either
+    // hidden entirely or rendered `aria-disabled` with a no-op onClick — the
+    // custom modal can never be opened by clicking a delete button on an
+    // already-in-use certificate. The "in use" 409 path from
+    // backend/internal/api/handlers/certificate_handler.go's Delete handler
+    // is therefore only reachable through the UI via a TOCTOU race: open the
+    // dialog while the certificate is deletable, then have it become in-use
+    // (e.g. attached to a proxy host by another admin) before Confirm is
+    // clicked. The test below reproduces exactly that race.
+    // -------------------------------------------------------------------
+
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
+    const createdCertUUIDs: string[] = [];
+    const createdProxyHostUUIDs: string[] = [];
+
+    /**
+     * Real self-signed certificate and key for upload tests.
+     * Generated via: openssl req -x509 -newkey rsa:2048 -nodes -days 365 -subj "/CN=test.local/O=TestOrg"
+     * The backend parses X.509 data, so placeholder PEM from fixtures won't work.
+     * (Identical to the cert used in tests/certificate-delete.spec.ts.)
+     */
+    const REAL_TEST_CERT = `-----BEGIN CERTIFICATE-----
+MIIDLzCCAhegAwIBAgIUehGqwKI4zLvoZSNHlAuv7cJ0G5AwDQYJKoZIhvcNAQEL
+BQAwJzETMBEGA1UEAwwKdGVzdC5sb2NhbDEQMA4GA1UECgwHVGVzdE9yZzAeFw0y
+NjAzMjIwMzQyMDhaFw0yNzAzMjIwMzQyMDhaMCcxEzARBgNVBAMMCnRlc3QubG9j
+YWwxEDAOBgNVBAoMB1Rlc3RPcmcwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEK
+AoIBAQDdzdQfOkHzG/lZ242xTvFYMVOrd12rUGQVcWhc9NG1LIJGYZKpS0bzNUdo
+ylHhIqbwNq18Dni1znDYsOAlnfZR+gv84U4klRHGE7liNRixBA5ymZ6KI68sOwqx
+bn6wpDZgNLnjD3POwSQoPEx2BAYwIyLPjXFjfnv5nce8Bt99j/zDVwhq24b9YdMR
+BVV/sOBsAtNEuRngajA9+i2rmLVrXJSiSFhA/hR0wX6bICpFTtahYX7JqfzlMHFO
+4lBka9sbC3xujwtFmLtkBovCzf69fA6p2qhJGVNJ9oHeFY3V2CdYq5Q8SZTsG1Yt
+S0O/2A9ZkQmHezeG9DYeg68nLfJDAgMBAAGjUzBRMB0GA1UdDgQWBBRE+2+ss2yl
+0vAmlccEC7MBWX6UmDAfBgNVHSMEGDAWgBRE+2+ss2yl0vAmlccEC7MBWX6UmDAP
+BgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQCvwsnSRYQ5PYtuhJ3v
+YhKmjkg+NsojYItlo+UkJmq09LkIEwRqJwFLcDxhyHWqRL5Bpc1PA1VJAG6Pif8D
+uwwNnXwZZf0P5e7exccSQZnI03OhS0c6/4kfvRSiFiT6BYTYSvQ+OWhpMIIcwhov
+86muij2Y32E3F0aqOPjEB+cm/XauXzmFjXi7ig7cktphHcwT8zQn43yCG/BJfWe2
+bRLWqMy+jdr/x2Ij8eWPSlJD3zDxsQiLiO0hFzpQNHfz2Qe17K3dsuhNQ85h2s0w
+zCLDm4WygKTw2foUXGNtbWG7z6Eq7PI+2fSlJDFgb+xmdIFQdyKDsZeYO5bmdYq5
+0tY8
+-----END CERTIFICATE-----`;
+
+    // nosemgrep: generic.secrets.security.detected-private-key.detected-private-key -- throwaway self-signed test.local key pair generated solely for these X.509 upload/parse tests (see comment above REAL_TEST_CERT); not a real credential, never used outside this test fixture.
+    const REAL_TEST_KEY = `-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDdzdQfOkHzG/lZ
+242xTvFYMVOrd12rUGQVcWhc9NG1LIJGYZKpS0bzNUdoylHhIqbwNq18Dni1znDY
+sOAlnfZR+gv84U4klRHGE7liNRixBA5ymZ6KI68sOwqxbn6wpDZgNLnjD3POwSQo
+PEx2BAYwIyLPjXFjfnv5nce8Bt99j/zDVwhq24b9YdMRBVV/sOBsAtNEuRngajA9
++i2rmLVrXJSiSFhA/hR0wX6bICpFTtahYX7JqfzlMHFO4lBka9sbC3xujwtFmLtk
+BovCzf69fA6p2qhJGVNJ9oHeFY3V2CdYq5Q8SZTsG1YtS0O/2A9ZkQmHezeG9DYe
+g68nLfJDAgMBAAECggEAA8uIcZsBkzNLVOpDcQvfZ+7ldkLt61x4xJUoKqRVt4/c
+usTjSYTsNdps2lzRLH+h85eRPaonDpVLAP97FlRZk+rUrFhT30mzACdI6LvtLDox
+imxudgFI91dwm2Xp7QPM77XMkxdUl+5eEVeBchN84kiiSS2BCdQZiEUsLF9sZi2P
+A5+x6XHImE+Sqfm/xVOZzHjj7ObHxc3bUpDT+RvRDvEBGjtEUlCCWuKvLi3DWIBF
+T9E38f0hqoxKwc7gsZCZs7phoVm9a3xjQ8Xh3ONLa30aBsJii33KHHxSASc7hMy1
+cM6GaGcg4xgqFw3B677KWUMc3Ur5YdLu71Bw7MFc4QKBgQD9FyRoWcTEktPdvH9y
+o7yxRVWcSs5c47h5X9rhcKvUCyEzQ/89Gt1d8e/qMv9JxXmcg3AS8VYeFmzyyMta
+iKTrHYnA8iRgM6CHvgSD4+vc7niW1de7qxW3T6MrGA4AEoQOPUvd6ZljBPIqxV8h
+jw9BW5YREZV6fXqqVOVT4GMrbQKBgQDgWpvmu1FY65TjoDljOPBtO17krwaWzb/D
+jlXQgZgRJVD7kaUPhm7Kb2d7P7t34LgzGH63hF82PlXqtwd5QhB3EZP9mhZTbXxK
+vwLf+H44ANDlcZiyDG9OJBT6ND5/JP0jHEt/KsP9pcd9xbZWNEZZFzddbbcp1G/v
+ue6p18XWbwKBgQCmdm8y10BNToldQVrOKxWzvve1CZq7i+fMpRhQyQurNvrKPkIF
+jcLlxHhZINu6SNFY+TZgry1GMtfLw/fEfzWBkvcE2f7E64/9WCSeHu4GbS8Rfmsb
+e0aYQCAA+xxSPdtvhi99MOT7NMiXCyQr7W1KPpPwfBFF9HwWxinjxiVT7QKBgFAb
+Ch9QMrN1Kiw8QUFUS0Q1NqSgedHOlPHWGH3iR9GXaVrpne31KgnNzT0MfHtJGXvk
++xm7geN0TmkIAPsiw45AEH80TVRsezyVBwnBSA/m+q9x5/tqxTM5XuQXU1lCc7/d
+kndNZb1jO9+EgJ42/AdDatlJG2UsHOuTj8vE5zaxAoGBAPthB+5YZfu3de+vnfpa
+o0oFy++FeeHUTxor2605Lit9ZfEvDTe1/iPQw5TNOLjwx0CdsrCxWk5Tyz50aA30
+KfVperc+m+vEVXIPI1qluI0iTPcHd/lMQYCsu6tKWmFP/hAFTIy7rOHMHfPx3RzK
+yRNV1UrzJGv5ZUVKq2kymBut
+-----END PRIVATE KEY-----`;
+
+    /**
+     * Create a deletable custom certificate directly via the API (multipart
+     * upload, matching the real upload dialog's request shape), bypassing
+     * TestDataManager's narrow CertificateData type which omits `name`.
+     */
+    async function createCustomCertViaAPI(): Promise<{ uuid: string; certName: string }> {
+      const id = generateUniqueId();
+      const certName = `test-cert-${id}`;
+
+      const ctx = await playwrightRequest.newContext({ baseURL, storageState: STORAGE_STATE });
+      try {
+        const response = await ctx.post('/api/v1/certificates', {
+          multipart: {
+            name: certName,
+            certificate_file: {
+              name: 'cert.pem',
+              mimeType: 'application/x-pem-file',
+              buffer: Buffer.from(REAL_TEST_CERT),
+            },
+            key_file: {
+              name: 'key.pem',
+              mimeType: 'application/x-pem-file',
+              buffer: Buffer.from(REAL_TEST_KEY),
+            },
+          },
+        });
+
+        if (!response.ok()) {
+          throw new Error(`Failed to create certificate: ${response.status()} ${await response.text()}`);
+        }
+
+        const result = await response.json();
+        return { uuid: result.uuid, certName };
+      } finally {
+        await ctx.dispose();
+      }
+    }
+
+    /**
+     * Attach a certificate to a newly-created proxy host via direct API.
+     * Returns the host's UUID — ProxyHostHandler.Delete (and the model's
+     * `ID uint `json:"-"``) means the numeric id is never present in the
+     * JSON response and DELETE only accepts the UUID, so UUID is the only
+     * usable identifier for later cleanup.
+     */
+    async function attachCertToProxyHostViaAPI(certificateUUID: string): Promise<{ uuid: string }> {
+      const id = generateUniqueId();
+      const domain = `proxy-${id}.test.local`;
+
+      const ctx = await playwrightRequest.newContext({ baseURL, storageState: STORAGE_STATE });
+      try {
+        const response = await ctx.post('/api/v1/proxy-hosts', {
+          data: {
+            domain_names: domain,
+            forward_host: '127.0.0.1',
+            forward_port: 3000,
+            forward_scheme: 'https',
+            certificate_id: certificateUUID,
+          },
+        });
+
+        if (!response.ok()) {
+          throw new Error(`Failed to create proxy host: ${response.status()} ${await response.text()}`);
+        }
+
+        const result = await response.json();
+        return { uuid: result.uuid };
+      } finally {
+        await ctx.dispose();
+      }
+    }
+
+    async function deleteCertViaAPI(certUUID: string): Promise<void> {
+      const ctx = await playwrightRequest.newContext({ baseURL, storageState: STORAGE_STATE });
+      try {
+        await ctx.delete(`/api/v1/certificates/${certUUID}`);
+      } finally {
+        await ctx.dispose();
+      }
+    }
+
+    async function deleteProxyHostViaAPI(hostUUID: string): Promise<void> {
+      const ctx = await playwrightRequest.newContext({ baseURL, storageState: STORAGE_STATE });
+      try {
+        await ctx.delete(`/api/v1/proxy-hosts/${hostUUID}`);
+      } finally {
+        await ctx.dispose();
+      }
+    }
+
+    /** Locate the delete (Trash2) button for a specific certificate's row by name. */
+    function getDeleteButtonForCert(page: import('@playwright/test').Page, certName: string) {
+      const row = page.getByRole('row').filter({ hasText: certName });
+      return row.getByRole('button', { name: /delete certificate/i });
+    }
+
+    test.afterAll(async () => {
+      // Clean up any proxy hosts/certs created during tests that weren't
+      // removed by the test itself (proxy hosts first, so the certs they
+      // reference aren't blocked as "in use" during cleanup).
+      for (const hostUUID of createdProxyHostUUIDs) {
+        await deleteProxyHostViaAPI(hostUUID).catch(() => {});
+      }
+      for (const certUUID of createdCertUUIDs) {
+        await deleteCertViaAPI(certUUID).catch(() => {});
+      }
+    });
+
     test('should show delete button for custom certificates', async ({ page }) => {
       await test.step('Check for delete buttons', async () => {
         const deleteButtons = page.locator('button[title*="Delete"], button').filter({ has: page.locator('svg.lucide-trash-2') });
@@ -733,111 +909,284 @@ test.describe('SSL Certificates - CRUD Operations', () => {
         if (stagingCount > 0) {
           const firstStagingRow = stagingRows.first();
           const deleteButton = firstStagingRow.locator('button').filter({ has: page.locator('svg.lucide-trash-2') });
-          const hasDelete = await deleteButton.isVisible().catch(() => false);
-          expect(hasDelete || true).toBeTruthy();
+          // Staging certs are always deletable (frontend/src/utils/certificateUtils.ts's
+          // isDeletable() treats provider === 'letsencrypt-staging' as deletable
+          // regardless of in-use state), so a delete affordance — enabled, or
+          // disabled-with-tooltip if in use — is always rendered for a staging row.
+          await expect(deleteButton.first()).toBeVisible();
         }
       });
     });
 
     test('should show delete confirmation dialog', async ({ page }) => {
-      await test.step('Click delete and verify confirmation', async () => {
-        const deleteButtons = page.locator('tbody button').filter({ has: page.locator('svg.lucide-trash-2') });
-        const deleteCount = await deleteButtons.count();
+      let certName: string;
 
-        if (deleteCount > 0) {
-          // Mock the confirm dialog since browser's native confirm is used
-          page.once('dialog', dialog => {
-            expect(dialog.type()).toBe('confirm');
-            expect(dialog.message()).toContain('delete');
-            dialog.dismiss();
-          });
+      await test.step('Seed a deletable custom certificate via API', async () => {
+        const result = await createCustomCertViaAPI();
+        createdCertUUIDs.push(result.uuid);
+        certName = result.certName;
+      });
 
-          await deleteButtons.first().click();
-        }
+      await test.step('Click delete and verify the custom confirmation modal', async () => {
+        await page.reload();
+        await waitForLoadingComplete(page);
+
+        const deleteButton = getDeleteButtonForCert(page, certName);
+        await expect(deleteButton).toBeVisible({ timeout: 10000 });
+        await deleteButton.click();
+
+        const dialog = await waitForDialog(page);
+        await expect(dialog).toBeVisible();
+
+        // Real custom modal (DeleteCertificateDialog), not a native confirm()
+        await expect(dialog.getByText(/delete certificate/i)).toBeVisible();
+        await expect(dialog.getByRole('button', { name: /cancel/i })).toBeVisible();
+        await expect(dialog.getByRole('button', { name: /^delete$/i })).toBeVisible();
+      });
+
+      await test.step('Close the dialog', async () => {
+        const dialog = page.getByRole('dialog');
+        await dialog.getByRole('button', { name: /cancel/i }).click();
+        await expect(dialog).not.toBeVisible({ timeout: 3000 });
       });
     });
 
     test('should warn if certificate is in use by proxy host', async ({ page }) => {
-      await test.step('Try to delete certificate in use', async () => {
-        const deleteButtons = page.locator('tbody button').filter({ has: page.locator('svg.lucide-trash-2') });
-        const deleteCount = await deleteButtons.count();
+      let certName: string;
+      let certUUID: string;
+      let proxyHostUUID: string;
 
-        if (deleteCount > 0) {
-          // If certificate is in use, should show error toast
-          page.once('dialog', dialog => {
-            dialog.accept();
-          });
+      await test.step('Seed a deletable custom certificate via API', async () => {
+        const result = await createCustomCertViaAPI();
+        certUUID = result.uuid;
+        createdCertUUIDs.push(certUUID);
+        certName = result.certName;
+      });
 
-          await deleteButtons.first().click();
-          // Wait for toast notification after deletion attempt
-          await waitForDebounce(page);
+      await test.step('Open the delete confirmation modal while the cert is still unattached', async () => {
+        // The delete button only exists/is enabled for a certificate that is
+        // NOT currently in use (frontend/src/components/CertificateList.tsx)
+        // — an already-attached certificate's delete affordance is either
+        // hidden or aria-disabled with a no-op onClick, so the modal can
+        // never be opened for it directly.
+        await page.reload();
+        await waitForLoadingComplete(page);
 
-          // Either toast error or successful deletion
-          const toast = page.locator('[role="alert"], [role="status"], .toast, .Toastify__toast');
-          const hasToast = await toast.isVisible({ timeout: 3000 }).catch(() => false);
-          expect(hasToast || true).toBeTruthy();
-        }
+        const deleteButton = getDeleteButtonForCert(page, certName);
+        await expect(deleteButton).toBeVisible({ timeout: 10000 });
+        await expect(deleteButton).not.toHaveAttribute('aria-disabled', 'true');
+        await deleteButton.click();
+        await waitForDialog(page);
+      });
+
+      await test.step('Attach the certificate to a proxy host while the modal is open', async () => {
+        const result = await attachCertToProxyHostViaAPI(certUUID);
+        proxyHostUUID = result.uuid;
+        createdProxyHostUUIDs.push(proxyHostUUID);
+      });
+
+      await test.step('Confirm deletion and verify the real in-use error is surfaced', async () => {
+        const dialog = page.getByRole('dialog');
+        const confirmButton = dialog.getByRole('button', { name: /^delete$/i });
+        await expect(confirmButton).toBeEnabled();
+
+        // Backend re-checks in-use status at DELETE time (certificate_handler.go's
+        // Delete handler) and returns 409 with a specific "in use" message —
+        // regardless of what the UI believed when the modal was opened.
+        const [deleteResponse] = await Promise.all([
+          page.waitForResponse(
+            (resp) => resp.url().includes(`/api/v1/certificates/${certUUID}`) && resp.request().method() === 'DELETE',
+            { timeout: 15000 }
+          ),
+          confirmButton.click(),
+        ]);
+        expect(deleteResponse.status()).toBe(409);
+
+        const errorToast = page.getByTestId('toast-error');
+        await expect(errorToast).toBeVisible({ timeout: 5000 });
+        await expect(errorToast).toContainText(/in use by one or more proxy hosts/i);
+      });
+
+      await test.step('Verify the certificate was not deleted', async () => {
+        // getCertificateViaAPI's parseResponse() throws on a non-2xx response,
+        // so a resolved promise here already proves GET /certificates/{uuid}
+        // returned 200 (i.e. the record still exists). Note: tests/utils/api-helpers.ts's
+        // CertificateResponse type declares an `id` field that the actual backend
+        // response never sends (CertificateDetail only has `uuid` — see
+        // backend/internal/services/certificate_service.go) — don't assert on it.
+        await expect(getCertificateViaAPI(page.request, certUUID)).resolves.toBeTruthy();
       });
     });
 
     test('should cancel delete when confirmation dismissed', async ({ page }) => {
-      await test.step('Dismiss delete confirmation', async () => {
-        const deleteButtons = page.locator('tbody button').filter({ has: page.locator('svg.lucide-trash-2') });
-        const deleteCount = await deleteButtons.count();
+      let certName: string;
+      let certUUID: string;
 
-        if (deleteCount > 0) {
-          // Count rows before
-          const rowsBefore = await page.locator('tbody tr').count();
+      await test.step('Seed a deletable custom certificate via API', async () => {
+        const result = await createCustomCertViaAPI();
+        certUUID = result.uuid;
+        createdCertUUIDs.push(certUUID);
+        certName = result.certName;
+      });
 
-          // Dismiss the confirm dialog
-          page.once('dialog', dialog => {
-            dialog.dismiss();
-          });
+      let deleteButton: ReturnType<typeof getDeleteButtonForCert>;
 
-          await deleteButtons.first().click();
-          await waitForDebounce(page); // Wait for confirmation dialog animation
+      await test.step('Open the delete confirmation modal', async () => {
+        await page.reload();
+        await waitForLoadingComplete(page);
 
-          // Rows should remain unchanged
-          const rowsAfter = await page.locator('tbody tr').count();
-          expect(rowsAfter).toBe(rowsBefore);
-        }
+        // waitForLoadingComplete only guarantees the spinner has cleared, not
+        // that this specific seeded row has rendered yet — wait for the row's
+        // delete button directly before treating the table as settled, or the
+        // row-count snapshot below can race the initial render (captured as 0
+        // before the row mounts, then 1 once it does).
+        deleteButton = getDeleteButtonForCert(page, certName);
+        await expect(deleteButton).toBeVisible({ timeout: 10000 });
+      });
+
+      let rowsBefore: number;
+
+      await test.step('Click Cancel on the custom modal', async () => {
+        rowsBefore = await page.locator('tbody tr').count();
+
+        await deleteButton.click();
+        await waitForDialog(page);
+
+        const dialog = page.getByRole('dialog');
+        await dialog.getByRole('button', { name: /cancel/i }).click();
+        await expect(dialog).not.toBeVisible({ timeout: 3000 });
+      });
+
+      await test.step('Verify the row is unchanged client-side', async () => {
+        const rowsAfter = await page.locator('tbody tr').count();
+        expect(rowsAfter).toBe(rowsBefore);
+      });
+
+      await test.step('Verify the certificate still exists server-side', async () => {
+        // Proves cancellation didn't merely hide the row client-side — the
+        // backend record genuinely was never touched. getCertificateViaAPI's
+        // parseResponse() throws on a non-2xx response, so a resolved promise
+        // here already proves the GET returned 200.
+        await expect(getCertificateViaAPI(page.request, certUUID)).resolves.toBeTruthy();
       });
     });
 
     test('should create backup before deletion', async ({ page }) => {
-      await test.step('Verify backup message in confirmation', async () => {
-        const deleteButtons = page.locator('tbody button').filter({ has: page.locator('svg.lucide-trash-2') });
-        const deleteCount = await deleteButtons.count();
+      let certName: string;
+      let certUUID: string;
 
-        if (deleteCount > 0) {
-          page.once('dialog', dialog => {
-            const message = dialog.message();
-            // Confirmation should mention backup
-            expect(message.toLowerCase()).toContain('backup');
-            dialog.dismiss();
-          });
+      await test.step('Seed a deletable custom certificate, guaranteed not in use', async () => {
+        const result = await createCustomCertViaAPI();
+        certUUID = result.uuid;
+        certName = result.certName;
+        // Not pushed to createdCertUUIDs — this test deletes it itself.
+      });
 
-          await deleteButtons.first().click();
-        }
+      let backupsBefore: Awaited<ReturnType<typeof getBackupsViaAPI>>;
+
+      await test.step('Capture the backup list before deletion', async () => {
+        backupsBefore = await getBackupsViaAPI(page.request);
+      });
+
+      await test.step('Confirm deletion via the custom modal', async () => {
+        await page.reload();
+        await waitForLoadingComplete(page);
+
+        const deleteButton = getDeleteButtonForCert(page, certName);
+        await expect(deleteButton).toBeVisible({ timeout: 10000 });
+        await deleteButton.click();
+        await waitForDialog(page);
+
+        const dialog = page.getByRole('dialog');
+        const confirmButton = dialog.getByRole('button', { name: /^delete$/i });
+        await expect(confirmButton).toBeEnabled();
+
+        // backend/internal/api/handlers/certificate_handler.go's Delete handler
+        // calls backupService.CreateBackup() synchronously before deleting —
+        // wait for the DELETE response so the backup is guaranteed to exist by
+        // the time we re-poll GET /api/v1/backups below.
+        const [deleteResponse] = await Promise.all([
+          page.waitForResponse(
+            (resp) => resp.url().includes(`/api/v1/certificates/${certUUID}`) && resp.request().method() === 'DELETE',
+            { timeout: 15000 }
+          ),
+          confirmButton.click(),
+        ]);
+        expect(deleteResponse.ok()).toBe(true);
+      });
+
+      await test.step('Verify a new backup entry was created', async () => {
+        // Do NOT assert on the modal's warning text — it only mentions
+        // "backup" for the default (non-expired/non-staging/non-expiring)
+        // case (certificates.deleteConfirmCustom); the other 3 status-specific
+        // messages never mention backups at all. Verify the real backend
+        // side effect instead.
+        const backupsAfter = await getBackupsViaAPI(page.request);
+        expect(backupsAfter.length).toBeGreaterThan(backupsBefore.length);
+
+        const mostRecent = [...backupsAfter].sort(
+          (a, b) => new Date(b.time).getTime() - new Date(a.time).getTime()
+        )[0];
+        const ageMs = Date.now() - new Date(mostRecent.time).getTime();
+        expect(ageMs).toBeLessThan(2 * 60 * 1000);
       });
     });
 
     test('should show config reload overlay during deletion', async ({ page }) => {
-      await test.step('Verify loading overlay appears', async () => {
-        const deleteButtons = page.locator('tbody button').filter({ has: page.locator('svg.lucide-trash-2') });
-        const deleteCount = await deleteButtons.count();
+      let certName: string;
+      let certUUID: string;
 
-        if (deleteCount > 0) {
-          page.once('dialog', dialog => {
-            dialog.accept();
-          });
+      await test.step('Seed a deletable custom certificate, guaranteed not in use', async () => {
+        const result = await createCustomCertViaAPI();
+        certUUID = result.uuid;
+        certName = result.certName;
+        // Not pushed to createdCertUUIDs — this test deletes it itself.
+      });
 
-          // Start deletion
-          await deleteButtons.first().click();
+      await test.step('Open the custom confirmation modal', async () => {
+        await page.reload();
+        await waitForLoadingComplete(page);
 
-          // Loading overlay may appear briefly
-          await waitForDebounce(page); // Wait for overlay animation
-        }
+        const deleteButton = getDeleteButtonForCert(page, certName);
+        await expect(deleteButton).toBeVisible({ timeout: 10000 });
+        await deleteButton.click();
+        await waitForDialog(page);
+      });
+
+      await test.step('Confirm deletion and verify the config reload overlay appears and resolves', async () => {
+        const dialog = page.getByRole('dialog');
+        const confirmButton = dialog.getByRole('button', { name: /^delete$/i });
+        await expect(confirmButton).toBeEnabled();
+
+        // The real DELETE round trip (SQLite backup copy + row delete) on this
+        // local backend routinely completes in well under Playwright's first
+        // assertion-poll interval, so deleteMutation.isPending's true->false
+        // transition — and therefore the overlay's real mount/unmount — can
+        // come and go between polls. Delay the response (not the request, not
+        // the app logic) just enough to make that already-real state change
+        // reliably observable, rather than asserting against a race.
+        await page.route(`**/api/v1/certificates/${certUUID}`, async (route) => {
+          if (route.request().method() === 'DELETE') {
+            await new Promise((resolve) => setTimeout(resolve, 800));
+          }
+          await route.continue();
+        });
+
+        // CertificateList.tsx renders ConfigReloadOverlay while
+        // deleteMutation.isPending is true (data-testid="config-reload-overlay").
+        const overlay = page.getByTestId('config-reload-overlay');
+
+        await Promise.all([
+          expect(overlay).toBeVisible({ timeout: 5000 }),
+          confirmButton.click(),
+        ]);
+
+        await expect(overlay).not.toBeVisible({ timeout: 10000 });
+      });
+
+      await test.step('Verify the certificate was actually removed', async () => {
+        const certRow = page.getByRole('row').filter({ hasText: certName });
+        await expect(certRow).toHaveCount(0, { timeout: 10000 });
       });
     });
   });
@@ -1050,10 +1399,11 @@ test.describe('SSL Certificates - CRUD Operations', () => {
         const hasTable = await table.isVisible().catch(() => false);
 
         if (hasTable) {
-          // SSL column may show certificate info
+          // SSL column header is a static column definition
+          // (frontend/src/pages/ProxyHosts.tsx) rendered unconditionally
+          // whenever the table renders — not gated by feature flag or data.
           const sslColumn = page.locator('th').filter({ hasText: /ssl/i });
-          const hasSslColumn = await sslColumn.isVisible().catch(() => false);
-          expect(hasSslColumn || true).toBeTruthy();
+          await expect(sslColumn.first()).toBeVisible();
         }
 
         // Navigate back to certificates
@@ -1067,8 +1417,6 @@ test.describe('SSL Certificates - CRUD Operations', () => {
         await page.goto('/proxy-hosts');
         const heading = page.getByRole('heading', { name: /^proxy hosts$/i });
         await expect(heading).toBeVisible({ timeout: 10000 });
-        const hasHeading = await heading.isVisible({ timeout: 5000 }).catch(() => false);
-        expect(hasHeading || true).toBeTruthy();
       });
 
       await test.step('Navigate back to Certificates', async () => {
@@ -1128,13 +1476,27 @@ test.describe('SSL Certificates - CRUD Operations', () => {
 
   test.describe('Error Handling', () => {
     test('should show error message on API failure', async ({ page }) => {
-      await test.step('Verify error handling exists', async () => {
-        // The component should handle loading and error states
-        const errorMessage = page.getByText(/failed.*load|error/i);
-        const hasError = await errorMessage.isVisible().catch(() => false);
+      await test.step('Force a certificates API failure', async () => {
+        await page.route('**/api/v1/certificates', (route) => {
+          if (route.request().method() === 'GET') {
+            return route.fulfill({
+              status: 500,
+              contentType: 'application/json',
+              body: JSON.stringify({ error: 'internal server error' }),
+            });
+          }
+          return route.continue();
+        });
 
-        // Normally there shouldn't be an error, but the component should handle it
-        expect(hasError || true).toBeTruthy();
+        await page.reload();
+        await waitForLoadingComplete(page);
+      });
+
+      await test.step('Verify a real error message is shown', async () => {
+        // CertificateList renders "Failed to load certificates" when the
+        // useCertificates() query errors (frontend/src/components/CertificateList.tsx).
+        const errorMessage = page.getByText(/failed.*load|error/i);
+        await expect(errorMessage.first()).toBeVisible({ timeout: 10000 });
       });
     });
 
@@ -1159,10 +1521,10 @@ test.describe('SSL Certificates - CRUD Operations', () => {
         const heading = page.getByRole('heading', { name: /certificates/i });
         await expect(heading).toBeVisible();
 
-        // Should have description text
+        // Should have description text (PageShell always renders the
+        // `description` prop when provided — see PageShell.tsx)
         const description = page.getByText(/manage.*ssl|certificate/i);
-        const hasDescription = await description.isVisible().catch(() => false);
-        expect(hasDescription || true).toBeTruthy();
+        await expect(description.first()).toBeVisible();
       });
     });
 
@@ -1173,8 +1535,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
 
         // Button should have Plus icon
         const plusIcon = addButton.locator('svg');
-        const hasIcon = await plusIcon.isVisible().catch(() => false);
-        expect(hasIcon || true).toBeTruthy();
+        await expect(plusIcon.first()).toBeVisible();
       });
     });
 

@@ -1,5 +1,6 @@
 import { test, expect, loginUser, logoutUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete, gotoTolerant, reloadTolerant } from '../utils/wait-helpers';
+import { suppressChangelogModal } from '../utils/api-helpers';
 
 async function resetSecurityState(page: import('@playwright/test').Page): Promise<void> {
   const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN;
@@ -177,6 +178,12 @@ async function createUserViaApi(
     id: expect.anything(),
     email: user.email,
   }));
+
+  // Ad-hoc users created directly via this raw API call (bypassing the
+  // shared TestDataManager pool) get the real production changelog
+  // defaults, so they're eligible for the blocking "What's New" modal on
+  // first login — see suppressChangelogModal's doc comment.
+  await suppressChangelogModal(page, user.email, user.password);
 
   return { id: payload.id, email: payload.email };
 }
@@ -759,6 +766,9 @@ test.describe('PR-3: Passthrough User Access Restriction (F4)', () => {
       expect(resp.ok()).toBe(true);
       const body = await resp.json();
       ptUserId = body.id;
+      // Suppress the "What's New" modal for this throwaway user before it
+      // ever logs in — see suppressChangelogModal's doc comment.
+      await suppressChangelogModal(page, ptUser.email, ptUser.password);
     });
 
     await test.step('Admin logs out', async () => {
@@ -841,6 +851,9 @@ test.describe('PR-3: Regular User Has No Admin Navigation Items (F9)', () => {
       expect(resp.ok()).toBe(true);
       const body = await resp.json();
       regularUserId = body.id;
+      // Suppress the "What's New" modal for this throwaway user before it
+      // ever logs in — see suppressChangelogModal's doc comment.
+      await suppressChangelogModal(page, regularUserData.email, regularUserData.password);
     });
 
     await test.step('Admin logs out', async () => {
