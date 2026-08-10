@@ -1424,15 +1424,36 @@ go test ./integration/...
    # Output: charon binary
    ```
 
-3. **Docker Image Build:**
+3. **Docker Image Build (per-platform, then merge):**
+
+   To avoid the native `amd64` build and the QEMU-emulated `arm64`
+   cross-compile competing for one job's CPU/time budget, `docker-build.yml`
+   builds each platform independently and in parallel, then merges the
+   results into a single multi-platform manifest list:
 
    ```bash
-   docker buildx build \
-     --platform linux/amd64,linux/arm64 \
-     --tag wikid82/charon:latest \
-     --tag wikid82/charon:1.2.0 \
-     --push .
+   # build-amd64 job (native, timeout 15m)
+   docker buildx build --platform linux/amd64 --push \
+     --tag ghcr.io/wikid82/charon:build-<run_id>-amd64 \
+     --iidfile /tmp/image-digest-amd64.txt .
+
+   # build-arm64 job (QEMU-emulated, timeout 25m) — runs concurrently with build-amd64
+   docker buildx build --platform linux/arm64 --push \
+     --tag ghcr.io/wikid82/charon:build-<run_id>-arm64 \
+     --iidfile /tmp/image-digest-arm64.txt .
+
+   # merge-and-publish job — composes both digests into one manifest list,
+   # pushed under all real tags (latest, 1.2.0, pr-123, nightly, ...)
+   docker buildx imagetools create \
+     --tag wikid82/charon:latest --tag wikid82/charon:1.2.0 \
+     ghcr.io/wikid82/charon@<amd64-digest> \
+     ghcr.io/wikid82/charon@<arm64-digest>
    ```
+
+   The two throwaway per-arch tags are never exposed to end users; the same
+   `imagetools create` call runs once per registry (GHCR, then Docker Hub),
+   with a digest-parity check between the two verifying they resolve to an
+   identical index digest before the merged image is scanned and signed.
 
 ### Release Workflow
 

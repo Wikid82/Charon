@@ -52,23 +52,30 @@ env:
   TRIGGER_BASE_REF: ${{ github.event_name == 'workflow_run' && '' || github.base_ref }}
 
 jobs:
-  build-and-push:
+  # `setup` centralizes everything the downstream build/publish jobs need to agree on:
+  # the skip-condition gate, the Alpine base digest, branch/PR tag computation, and the
+  # single docker/metadata-action call (run once so amd64/arm64/merge all apply identical
+  # tags/labels — running it per-job risked timestamp/label drift between pushes).
+  setup:
+    # Carried forward VERBATIM from the previous `build-and-push` job-level `if:` — this
+    # is the only place this workflow_run/Docker Lint gate now lives. Every downstream job
+    # checks `needs.setup.result == 'success'` to propagate its effect (GitHub Actions jobs
+    # do not inherit a sibling job's `if:`).
     if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.name == 'Docker Lint' && github.event.workflow_run.path == '.github/workflows/docker-lint.yml') }}
-    env:
-      HAS_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20  # Phase 1: Reduced timeout for faster feedback
+    timeout-minutes: 5
     permissions:
       contents: read
-      packages: write
-      security-events: write
-      id-token: write      # Required for SBOM attestation
-      attestations: write  # Required for SBOM attestation
-
     outputs:
       skip_build: ${{ steps.skip.outputs.skip_build }}
-      digest: ${{ steps.build-and-push.outputs.digest }}
-
+      is_feature_push: ${{ steps.skip.outputs.is_feature_push }}
+      alpine_image: ${{ steps.alpine.outputs.image }}
+      image_tag: ${{ steps.pr_image_ref_output.outputs.image_tag }}
+      image_ref: ${{ steps.pr_image_ref_output.outputs.image_ref }}
+      tags: ${{ steps.meta.outputs.tags }}
+      labels: ${{ steps.meta.outputs.labels }}
+      version: ${{ steps.meta.outputs.version }}
+      created: ${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -166,12 +173,6 @@ jobs:
             echo "force_refresh=$force_refresh"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Set up QEMU
-        if: steps.skip.outputs.skip_build != 'true'
-        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
-      - name: Set up Docker Buildx
-        if: steps.skip.outputs.skip_build != 'true'
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
       - name: Resolve Alpine base image digest
         if: steps.skip.outputs.skip_build != 'true'
         id: alpine
@@ -180,22 +181,6 @@ jobs:
           docker pull "alpine:${ALPINE_TAG}"
           DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "alpine:${ALPINE_TAG}")
           echo "image=$DIGEST" >> "$GITHUB_OUTPUT"
-
-      - name: Log in to GitHub Container Registry
-        if: steps.skip.outputs.skip_build != 'true'
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-        with:
-          registry: ${{ env.GHCR_REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Log in to Docker Hub
-        if: steps.skip.outputs.skip_build != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-        with:
-          registry: docker.io
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Compute branch tags
         if: steps.skip.outputs.skip_build != 'true'
@@ -357,16 +342,154 @@ jobs:
             echo "❌ ERROR: image_ref output contract violated (empty output)"
             exit 1
           fi
-      # Phase 1 Optimization: Build once, test many
-      # - For PRs: Multi-platform (amd64, arm64) + stable security-scan tag (pr-{number})
-      # - For feature branches: Multi-platform (amd64, arm64) + sanitized tags ({branch}-{short-sha})
-      # - For main/dev/nightly: Multi-platform (amd64, arm64) for production
-      # - Always push to registry (enables downstream workflow consumption)
-      # - Retry logic handles transient registry failures (3 attempts, 10s wait)
-      # See: docs/plans/current_spec.md Section 4.1
-      - name: Build and push Docker image (with retry)
-        if: steps.skip.outputs.skip_build != 'true'
-        id: build-and-push
+
+  # `build-amd64` / `build-arm64` build+push a single platform each to a throwaway,
+  # run-scoped tag (never exposed to end users), then `merge-and-publish` composes both
+  # digests into one multi-platform manifest list. This isolates arm64's slow
+  # QEMU-emulated cross-compile from amd64's fast native build so each gets its own
+  # right-sized timeout instead of sharing one 20-minute budget (root cause of the
+  # arm64 timeout flake this restructuring fixes — see docs/plans/current_spec.md §1.1).
+  #
+  # NOTE on retry mechanism: docker/build-push-action cannot be nested inside
+  # nick-fields/retry (retry's `command:` only accepts a shell string, not a `uses:`
+  # step — verified against the action's own inputs). Per docs/plans/current_spec.md
+  # §3.2 point 2, the digest is still captured via the same --iidfile mechanism used
+  # today, which requires the raw `docker buildx build` CLI rather than the JS action.
+  # Retry is therefore implemented the same way as today: raw buildx CLI wrapped in
+  # nick-fields/retry at the step level (same action pin, same 3-attempts/10s-wait
+  # config), with cache-from/cache-to/no-cache-filter passed as native buildx flags
+  # (functionally identical to docker/build-push-action's equivalent inputs).
+  build-amd64:
+    needs: setup
+    # An explicit job-level `if:` REPLACES (does not append to) the implicit
+    # "all `needs:` succeeded" check GitHub Actions would otherwise apply, so
+    # `needs.setup.result == 'success'` must be spelled out explicitly here.
+    if: needs.setup.result == 'success' && needs.setup.outputs.skip_build != 'true'
+    env:
+      HAS_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ env.TRIGGER_HEAD_SHA }}
+      - name: Normalize image name
+        run: |
+          IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_NAME=${IMAGE_NAME}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.GHCR_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: env.HAS_DOCKERHUB_TOKEN == 'true'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push amd64 image (with retry)
+        id: build
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          retry_wait_seconds: 10
+          retry_on: error
+          warning_on_retry: true
+          command: |
+            set -euo pipefail
+
+            echo "🔨 Building linux/amd64 image with retry logic..."
+
+            TAG_ARGS=(--tag "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:build-${{ github.run_id }}-amd64")
+            if [[ "${{ env.HAS_DOCKERHUB_TOKEN }}" == "true" ]]; then
+              TAG_ARGS+=(--tag "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}:build-${{ github.run_id }}-amd64")
+            fi
+
+            BUILD_CMD=(
+              docker buildx build
+              --platform linux/amd64
+              --push
+              "${TAG_ARGS[@]}"
+              --cache-from type=gha,scope=docker-build-amd64
+              --cache-to type=gha,mode=max,scope=docker-build-amd64
+              --no-cache-filter caddy-builder
+              --no-cache-filter crowdsec-builder
+              --pull
+              --build-arg "VERSION=${{ needs.setup.outputs.version }}"
+              --build-arg "BUILD_DATE=${{ needs.setup.outputs.created }}"
+              --build-arg "VCS_REF=${{ env.TRIGGER_HEAD_SHA }}"
+              --build-arg "ALPINE_IMAGE=${{ needs.setup.outputs.alpine_image }}"
+              --iidfile /tmp/image-digest-amd64.txt
+              .
+            )
+
+            echo "Executing: ${BUILD_CMD[*]}"
+            "${BUILD_CMD[@]}"
+
+            DIGEST=$(cat /tmp/image-digest-amd64.txt)
+            echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+            echo "✅ amd64 build complete. Digest: ${DIGEST}"
+
+  build-arm64:
+    needs: setup
+    if: needs.setup.result == 'success' && needs.setup.outputs.skip_build != 'true'
+    env:
+      HAS_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ env.TRIGGER_HEAD_SHA }}
+      - name: Normalize image name
+        run: |
+          IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_NAME=${IMAGE_NAME}" >> "$GITHUB_ENV"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.GHCR_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: env.HAS_DOCKERHUB_TOKEN == 'true'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push arm64 image (with retry)
+        id: build
         uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
         with:
           timeout_minutes: 25
@@ -377,68 +500,221 @@ jobs:
           command: |
             set -euo pipefail
 
-            echo "🔨 Building Docker image with retry logic..."
-            PLATFORMS="linux/amd64,linux/arm64"
-            echo "Platform: ${PLATFORMS}"
+            echo "🔨 Building linux/arm64 image (QEMU) with retry logic..."
 
-            # Build tag arguments array from metadata output (properly quoted)
-            TAG_ARGS_ARRAY=()
-            while IFS= read -r tag; do
-              [[ -n "$tag" ]] && TAG_ARGS_ARRAY+=("--tag" "$tag")
-            done <<< "${{ steps.meta.outputs.tags }}"
+            TAG_ARGS=(--tag "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:build-${{ github.run_id }}-arm64")
+            if [[ "${{ env.HAS_DOCKERHUB_TOKEN }}" == "true" ]]; then
+              TAG_ARGS+=(--tag "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}:build-${{ github.run_id }}-arm64")
+            fi
 
-            # Build label arguments array from metadata output (properly quoted)
-            LABEL_ARGS_ARRAY=()
-            while IFS= read -r label; do
-              [[ -n "$label" ]] && LABEL_ARGS_ARRAY+=("--label" "$label")
-            done <<< "${{ steps.meta.outputs.labels }}"
-
-            # Build the complete command as an array (handles spaces in label values correctly)
             BUILD_CMD=(
               docker buildx build
-              --platform "${PLATFORMS}"
+              --platform linux/arm64
               --push
-              "${TAG_ARGS_ARRAY[@]}"
-              "${LABEL_ARGS_ARRAY[@]}"
-              --no-cache
+              "${TAG_ARGS[@]}"
+              --cache-from type=gha,scope=docker-build-arm64
+              --cache-to type=gha,mode=max,scope=docker-build-arm64
+              --no-cache-filter caddy-builder
+              --no-cache-filter crowdsec-builder
               --pull
-              --build-arg "VERSION=${{ steps.meta.outputs.version }}"
-              --build-arg "BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}"
+              --build-arg "VERSION=${{ needs.setup.outputs.version }}"
+              --build-arg "BUILD_DATE=${{ needs.setup.outputs.created }}"
               --build-arg "VCS_REF=${{ env.TRIGGER_HEAD_SHA }}"
-              --build-arg "ALPINE_IMAGE=${{ steps.alpine.outputs.image }}"
-              --iidfile /tmp/image-digest.txt
+              --build-arg "ALPINE_IMAGE=${{ needs.setup.outputs.alpine_image }}"
+              --iidfile /tmp/image-digest-arm64.txt
               .
             )
 
-            # Execute build
             echo "Executing: ${BUILD_CMD[*]}"
             "${BUILD_CMD[@]}"
 
-            # Extract digest for downstream jobs (format: sha256:xxxxx)
-            DIGEST=$(cat /tmp/image-digest.txt)
+            DIGEST=$(cat /tmp/image-digest-arm64.txt)
             echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
-            echo "✅ Build complete. Digest: ${DIGEST}"
+            echo "✅ arm64 build complete. Digest: ${DIGEST}"
 
-            # For PRs only, pull the image back locally for artifact creation
-            # Feature branches now build multi-platform and cannot be loaded locally
-            # This enables backward compatibility with workflows that use artifacts
-            if [[ "${{ env.TRIGGER_EVENT }}" == "pull_request" ]]; then
-              echo "📥 Pulling image back for artifact creation..."
-              PR_IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
-              if [[ -z "${PR_IMAGE_REF}" ]]; then
-                echo "❌ ERROR: image_ref output contract violated during pull-back"
-                exit 1
-              fi
-              docker pull "${PR_IMAGE_REF}"
-              echo "✅ Image pulled: ${PR_IMAGE_REF}"
+  # Composes the two independently-built per-platform digests into one multi-platform
+  # manifest list (twice — once per registry, since `imagetools create` requires source
+  # and target to live in the same registry), then performs everything the old combined
+  # job did after its build step: PR artifact save, Caddy/CrowdSec CVE verification,
+  # Trivy scan, SBOM generation+attestation, Cosign signing (of the merged digest), and
+  # the step summary.
+  merge-and-publish:
+    needs: [setup, build-amd64, build-arm64]
+    # Requires BOTH platform builds to have succeeded — otherwise a failed arm64 build
+    # (for example) would not prevent this job from attempting to merge a nonexistent
+    # arm64 digest into the manifest list.
+    if: needs.setup.result == 'success' && needs.build-amd64.result == 'success' && needs.build-arm64.result == 'success' && needs.setup.outputs.skip_build != 'true'
+    env:
+      HAS_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+      id-token: write      # Required for SBOM attestation
+      attestations: write  # Required for SBOM attestation
+
+    outputs:
+      # GHCR's index digest is canonical — scan-pr-image only ever scans GHCR.
+      digest: ${{ steps.merge.outputs.digest }}
+      skip_build: ${{ needs.setup.outputs.skip_build }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ env.TRIGGER_HEAD_SHA }}
+      - name: Normalize image name
+        run: |
+          IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_NAME=${IMAGE_NAME}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.GHCR_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: env.HAS_DOCKERHUB_TOKEN == 'true'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create GHCR merged manifest list
+        id: merge
+        run: |
+          set -euo pipefail
+
+          AMD64_DIGEST="${{ needs.build-amd64.outputs.digest }}"
+          ARM64_DIGEST="${{ needs.build-arm64.outputs.digest }}"
+
+          if [[ -z "${AMD64_DIGEST}" || -z "${ARM64_DIGEST}" ]]; then
+            echo "::error::Missing per-platform digest(s) — amd64=${AMD64_DIGEST:-<empty>} arm64=${ARM64_DIGEST:-<empty>}"
+            exit 1
+          fi
+
+          mapfile -t ALL_TAGS <<< "${{ needs.setup.outputs.tags }}"
+          GHCR_TAG_ARGS=()
+          for t in "${ALL_TAGS[@]}"; do
+            [[ -z "${t}" ]] && continue
+            if [[ "${t}" == ${{ env.GHCR_REGISTRY }}/* ]]; then
+              GHCR_TAG_ARGS+=(--tag "${t}")
             fi
+          done
+
+          if [[ "${#GHCR_TAG_ARGS[@]}" -eq 0 ]]; then
+            echo "::error::No GHCR tags resolved from docker/metadata-action output"
+            exit 1
+          fi
+
+          docker buildx imagetools create \
+            "${GHCR_TAG_ARGS[@]}" \
+            "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${AMD64_DIGEST}" \
+            "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${ARM64_DIGEST}"
+
+          # GHCR_TAG_ARGS alternates ("--tag" value "--tag" value ...); index 1 is the
+          # first tag *value*, used here as the stable reference to resolve the merged
+          # index digest.
+          PRIMARY_TAG="${GHCR_TAG_ARGS[1]}"
+          MERGE_DIGEST=$(docker buildx imagetools inspect "${PRIMARY_TAG}" --format '{{json .Manifest}}' | jq -r '.digest')
+
+          if [[ -z "${MERGE_DIGEST}" || "${MERGE_DIGEST}" == "null" ]]; then
+            echo "::error::Failed to resolve merged manifest-list digest from ${PRIMARY_TAG}"
+            exit 1
+          fi
+
+          echo "digest=${MERGE_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "primary_tag=${PRIMARY_TAG}" >> "$GITHUB_OUTPUT"
+          echo "✅ GHCR merged manifest: ${PRIMARY_TAG} -> ${MERGE_DIGEST}"
+
+      - name: Create Docker Hub merged manifest list
+        id: merge-dockerhub
+        if: env.HAS_DOCKERHUB_TOKEN == 'true'
+        run: |
+          set -euo pipefail
+
+          AMD64_DIGEST="${{ needs.build-amd64.outputs.digest }}"
+          ARM64_DIGEST="${{ needs.build-arm64.outputs.digest }}"
+
+          mapfile -t ALL_TAGS <<< "${{ needs.setup.outputs.tags }}"
+          DOCKERHUB_TAG_ARGS=()
+          for t in "${ALL_TAGS[@]}"; do
+            [[ -z "${t}" ]] && continue
+            if [[ "${t}" == ${{ env.DOCKERHUB_REGISTRY }}/* ]]; then
+              DOCKERHUB_TAG_ARGS+=(--tag "${t}")
+            fi
+          done
+
+          if [[ "${#DOCKERHUB_TAG_ARGS[@]}" -eq 0 ]]; then
+            echo "::error::No Docker Hub tags resolved from docker/metadata-action output"
+            exit 1
+          fi
+
+          docker buildx imagetools create \
+            "${DOCKERHUB_TAG_ARGS[@]}" \
+            "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${AMD64_DIGEST}" \
+            "${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${ARM64_DIGEST}"
+
+          PRIMARY_TAG="${DOCKERHUB_TAG_ARGS[1]}"
+          echo "primary_tag=${PRIMARY_TAG}" >> "$GITHUB_OUTPUT"
+          echo "✅ Docker Hub merged manifest: ${PRIMARY_TAG}"
+
+      # Implements ARCHITECTURE.md's "Digest freshness and index digest parity across
+      # GHCR and Docker Hub" / "Per-arch digest parity" rollout gates: both
+      # `imagetools create` calls above are built from the exact same two source
+      # per-platform digests and the exact same tag/label inputs, so their resulting
+      # index digests are expected to be byte-identical. Fail closed on mismatch.
+      - name: Verify GHCR/Docker Hub digest parity
+        if: env.HAS_DOCKERHUB_TOKEN == 'true'
+        run: |
+          set -euo pipefail
+
+          GHCR_DIGEST=$(docker buildx imagetools inspect "${{ steps.merge.outputs.primary_tag }}" --format '{{json .Manifest}}' | jq -r '.digest')
+          DOCKERHUB_DIGEST=$(docker buildx imagetools inspect "${{ steps.merge-dockerhub.outputs.primary_tag }}" --format '{{json .Manifest}}' | jq -r '.digest')
+
+          echo "GHCR digest:       ${GHCR_DIGEST}"
+          echo "Docker Hub digest: ${DOCKERHUB_DIGEST}"
+
+          if [[ "${GHCR_DIGEST}" != "${DOCKERHUB_DIGEST}" ]]; then
+            echo "::error::GHCR/Docker Hub manifest-list digest mismatch: ${GHCR_DIGEST} vs ${DOCKERHUB_DIGEST}"
+            exit 1
+          fi
+          echo "✅ GHCR/Docker Hub digest parity confirmed"
+
+      # Collapses the previously-duplicated (3x) IMAGE_REF-resolution if/else block
+      # (see docs/plans/current_spec.md §2.3) into a single computed step output,
+      # consumed by the Caddy/CrowdSec verification steps below.
+      - name: Resolve merged image reference for verification
+        id: image-ref
+        run: |
+          if [ "${{ env.TRIGGER_EVENT }}" = "pull_request" ]; then
+            IMAGE_REF="${{ needs.setup.outputs.image_ref }}"
+          else
+            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.merge.outputs.digest }}"
+          fi
+
+          if [ -z "${IMAGE_REF}" ]; then
+            echo "❌ ERROR: Unable to resolve merged image reference"
+            exit 1
+          fi
+
+          echo "image_ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
+          echo "Resolved merged image reference: ${IMAGE_REF}"
 
       # Use the stable security scan reference so the saved artifact matches the
       # image that the PR scan job will pull and validate.
       - name: Save Docker Image as Artifact
-        if: success() && steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
+        if: success() && env.TRIGGER_EVENT == 'pull_request'
         run: |
-          IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
+          IMAGE_REF="${{ needs.setup.outputs.image_ref }}"
 
           if [[ -z "${IMAGE_REF}" ]]; then
             echo "❌ ERROR: image_ref output contract violated (empty image ref)"
@@ -447,13 +723,9 @@ jobs:
 
           echo "🔍 Detected image ref: ${IMAGE_REF}"
 
-          # Verify the image exists locally
-          if ! docker image inspect "${IMAGE_REF}" >/dev/null 2>&1; then
-            echo "❌ ERROR: Image ${IMAGE_REF} not found locally"
-            echo "📋 Available images:"
-            docker images
-            exit 1
-          fi
+          # Pull the merged manifest list — docker automatically resolves the
+          # amd64 variant on this (amd64) runner, matching the pre-split behavior.
+          docker pull "${IMAGE_REF}"
 
           # Save the image using the exact tag from metadata
           echo "💾 Saving image: ${IMAGE_REF}"
@@ -464,7 +736,7 @@ jobs:
           ls -lh /tmp/charon-pr-image.tar
 
       - name: Upload Image Artifact
-        if: success() && steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
+        if: success() && env.TRIGGER_EVENT == 'pull_request'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ env.TRIGGER_EVENT == 'pull_request' && format('pr-image-{0}', env.TRIGGER_PR_NUMBER) || 'push-image' }}
@@ -472,29 +744,14 @@ jobs:
           retention-days: 1  # Only needed for workflow duration
 
       - name: Verify Caddy Security Patches (CVE-2025-68156)
-        if: steps.skip.outputs.skip_build != 'true'
         timeout-minutes: 2
         continue-on-error: true
         run: |
           echo "🔍 Verifying Caddy binary contains patched expr-lang/expr@v1.17.7..."
           echo ""
 
-          # Determine the image reference based on event type
-          if [ "${{ env.TRIGGER_EVENT }}" = "pull_request" ]; then
-            IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
-            if [ -z "${IMAGE_REF}" ]; then
-              echo "❌ ERROR: Failed to load PR image reference from image_ref output"
-              exit 1
-            fi
-            echo "Using PR image: $IMAGE_REF"
-          else
-            if [ -z "${{ steps.build-and-push.outputs.digest }}" ]; then
-              echo "❌ ERROR: Build digest is empty"
-              exit 1
-            fi
-            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}"
-            echo "Using digest: $IMAGE_REF"
-          fi
+          IMAGE_REF="${{ steps.image-ref.outputs.image_ref }}"
+          echo "Using image: $IMAGE_REF"
 
           echo ""
           echo "==> Caddy version:"
@@ -505,23 +762,6 @@ jobs:
           CONTAINER_ID=$(docker create --pull=never "$IMAGE_REF")
           docker cp "${CONTAINER_ID}:/usr/bin/caddy" ./caddy_binary
           docker rm "$CONTAINER_ID"
-
-          # Determine the image reference based on event type
-          if [ "${{ env.TRIGGER_EVENT }}" = "pull_request" ]; then
-            IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
-            if [ -z "${IMAGE_REF}" ]; then
-              echo "❌ ERROR: Failed to load PR image reference from image_ref output"
-              exit 1
-            fi
-            echo "Using PR image: $IMAGE_REF"
-          else
-            if [ -z "${{ steps.build-and-push.outputs.digest }}" ]; then
-              echo "❌ ERROR: Build digest is empty"
-              exit 1
-            fi
-            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}"
-            echo "Using digest: $IMAGE_REF"
-          fi
 
           echo ""
           echo "==> Checking if Go toolchain is available locally..."
@@ -573,22 +813,8 @@ jobs:
           echo "🔍 Verifying CrowdSec binaries contain patched expr-lang/expr@v1.17.7..."
           echo ""
 
-          # Determine the image reference based on event type
-          if [ "${{ env.TRIGGER_EVENT }}" = "pull_request" ]; then
-            IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
-            if [ -z "${IMAGE_REF}" ]; then
-              echo "❌ ERROR: Failed to load PR image reference from image_ref output"
-              exit 1
-            fi
-            echo "Using PR image: $IMAGE_REF"
-          else
-            if [ -z "${{ steps.build-and-push.outputs.digest }}" ]; then
-              echo "❌ ERROR: Build digest is empty"
-              exit 1
-            fi
-            IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}"
-            echo "Using digest: $IMAGE_REF"
-          fi
+          IMAGE_REF="${{ steps.image-ref.outputs.image_ref }}"
+          echo "Using image: $IMAGE_REF"
 
           echo ""
           echo "==> CrowdSec cscli version:"
@@ -648,11 +874,19 @@ jobs:
           echo ""
           echo "==> CrowdSec verification complete"
 
+      # Trivy `.cache/`-path empirical sanity check (docs/plans/current_spec.md §3.4):
+      # this is the first commit re-enabling GHA layer caching for these builders since
+      # commit dd9d3433 disabled it to avoid a `.cache/go/pkg/mod/`-style false-positive.
+      # As of commit f6361dc89, the relevant builder stages use BuildKit
+      # `--mount=type=cache` (never committed to an image layer), so this should no
+      # longer reproduce — but per the plan, manually inspect this SARIF output on the
+      # first real triggered run and confirm no findings under `.cache/`-style paths
+      # before treating caching as steady-state (one-time check, not an automated gate).
       - name: Run Trivy scan (table output)
-        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && needs.setup.outputs.is_feature_push != 'true'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+          image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.merge.outputs.digest }}
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
@@ -661,11 +895,11 @@ jobs:
         continue-on-error: true
 
       - name: Run Trivy vulnerability scanner (SARIF)
-        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && needs.setup.outputs.is_feature_push != 'true'
         id: trivy
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+          image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.merge.outputs.digest }}
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
@@ -674,7 +908,7 @@ jobs:
         continue-on-error: true
 
       - name: Check Trivy SARIF exists
-        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && needs.setup.outputs.is_feature_push != 'true'
         id: trivy-check
         run: |
           if [ -f trivy-results.sarif ]; then
@@ -684,7 +918,7 @@ jobs:
           fi
 
       - name: Upload Trivy results
-        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.trivy-check.outputs.exists == 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && steps.trivy-check.outputs.exists == 'true'
         uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
         with:
           sarif_file: 'trivy-results.sarif'
@@ -692,9 +926,9 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Record Trivy scan traceability
-        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.trivy-check.outputs.exists == 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && steps.trivy-check.outputs.exists == 'true'
         env:
-          IMAGE_REF: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+          IMAGE_REF: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.merge.outputs.digest }}
         run: |
           CADDY_VERSION=$(docker run --rm --pull=never "${IMAGE_REF}" caddy version 2>/dev/null || echo "unknown")
           {
@@ -702,7 +936,7 @@ jobs:
             echo ""
             echo "- Category: ${{ env.TRIVY_SARIF_CATEGORY }}"
             echo "- Image: ${IMAGE_REF}"
-            echo "- Digest: ${{ steps.build-and-push.outputs.digest }}"
+            echo "- Digest: ${{ steps.merge.outputs.digest }}"
             echo "- Caddy version: ${CADDY_VERSION}"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -710,9 +944,9 @@ jobs:
       # Only for production builds (main/development) - feature branches use downstream supply-chain-pr.yml
       - name: Generate SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
-        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && needs.setup.outputs.is_feature_push != 'true'
         with:
-          image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+          image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.merge.outputs.digest }}
           format: cyclonedx-json
           output-file: sbom.cyclonedx.json
           syft-version: v1.45.1
@@ -724,11 +958,11 @@ jobs:
       - name: Attest SBOM
         id: attest-sbom
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
-        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && needs.setup.outputs.is_feature_push != 'true'
         continue-on-error: true
         with:
           subject-name: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
-          subject-digest: ${{ steps.build-and-push.outputs.digest }}
+          subject-digest: ${{ steps.merge.outputs.digest }}
           sbom-path: sbom.cyclonedx.json
           push-to-registry: true
 
@@ -737,23 +971,23 @@ jobs:
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
         with:
           subject-name: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
-          subject-digest: ${{ steps.build-and-push.outputs.digest }}
+          subject-digest: ${{ steps.merge.outputs.digest }}
           sbom-path: sbom.cyclonedx.json
           push-to-registry: true
 
       # Install Cosign for keyless signing
       - name: Install Cosign
-        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && needs.setup.outputs.is_feature_push != 'true'
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       # Sign GHCR image with keyless signing (Sigstore/Fulcio)
       # Retry up to 3 times to handle transient Fulcio/Rekor INTERNAL_ERROR (HTTP/2 stream errors)
       - name: Sign GHCR Image
-        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && needs.setup.outputs.is_feature_push != 'true'
         run: |
           echo "Signing GHCR image with keyless signing..."
           for attempt in 1 2 3; do
-            if cosign sign --yes ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}; then
+            if cosign sign --yes ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.merge.outputs.digest }}; then
               echo "✅ GHCR image signed successfully"
               break
             fi
@@ -768,11 +1002,11 @@ jobs:
       # Sign Docker Hub image with keyless signing (Sigstore/Fulcio)
       # Retry up to 3 times to handle transient Fulcio/Rekor INTERNAL_ERROR (HTTP/2 stream errors)
       - name: Sign Docker Hub Image
-        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && needs.setup.outputs.is_feature_push != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
         run: |
           echo "Signing Docker Hub image with keyless signing..."
           for attempt in 1 2 3; do
-            if cosign sign --yes ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}; then
+            if cosign sign --yes ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.merge.outputs.digest }}; then
               echo "✅ Docker Hub image signed successfully"
               break
             fi
@@ -786,14 +1020,13 @@ jobs:
 
       # Attach SBOM to Docker Hub image
       - name: Attach SBOM to Docker Hub
-        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && needs.setup.outputs.is_feature_push != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
         run: |
           echo "Attaching SBOM to Docker Hub image..."
-          cosign attach sbom --sbom sbom.cyclonedx.json ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+          cosign attach sbom --sbom sbom.cyclonedx.json ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.merge.outputs.digest }}
           echo "✅ SBOM attached to Docker Hub image"
 
       - name: Create summary
-        if: steps.skip.outputs.skip_build != 'true'
         run: |
           {
             echo "## 🎉 Docker Image Built Successfully!"
@@ -801,16 +1034,17 @@ jobs:
             echo "### 📦 Image Details"
             echo "- **GHCR**: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}"
             echo "- **Docker Hub**: ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}"
+            echo "- **Merged digest**: ${{ steps.merge.outputs.digest }}"
             echo "- **Tags**: "
             echo '```'
-            echo "${{ steps.meta.outputs.tags }}"
+            echo "${{ needs.setup.outputs.tags }}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
   scan-pr-image:
     name: Security Scan PR Image
-    needs: build-and-push
-    if: needs.build-and-push.outputs.skip_build != 'true' && needs.build-and-push.result == 'success' && github.event_name == 'pull_request'
+    needs: merge-and-publish
+    if: needs.merge-and-publish.outputs.skip_build != 'true' && needs.merge-and-publish.result == 'success' && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -829,10 +1063,10 @@ jobs:
       - name: Load PR image reference
         id: pr-image
         run: |
-          DIGEST="${{ needs.build-and-push.outputs.digest }}"
+          DIGEST="${{ needs.merge-and-publish.outputs.digest }}"
 
           if [[ -z "$DIGEST" ]]; then
-            echo "❌ ERROR: build-and-push digest output is empty; cannot proceed without immutable reference"
+            echo "❌ ERROR: merge-and-publish digest output is empty; cannot proceed without immutable reference"
             exit 1
           fi
 
