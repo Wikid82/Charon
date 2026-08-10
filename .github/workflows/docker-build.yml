@@ -24,6 +24,10 @@ name: Docker Build, Publish & Test
 on:
   pull_request:
   push:
+    # Keep this branch list in sync with the `if:` skip condition on the
+    # `setup` job below (search "trigger-level dedup") — that condition
+    # exists specifically to avoid double-building commits covered by both
+    # this `push:` trigger and an open PR headed at the same branch.
     branches: [main, development]
   workflow_dispatch:
   workflow_run:
@@ -61,7 +65,19 @@ jobs:
     # is the only place this workflow_run/Docker Lint gate now lives. Every downstream job
     # checks `needs.setup.result == 'success'` to propagate its effect (GitHub Actions jobs
     # do not inherit a sibling job's `if:`).
-    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.name == 'Docker Lint' && github.event.workflow_run.path == '.github/workflows/docker-lint.yml') }}
+    #
+    # Second clause (trigger-level dedup): when a commit lands on `main`/`development`
+    # while an open PR's head branch is also `main`/`development` (bot-generated
+    # promotion/sync PRs), both `pull_request` and `push` fire for the identical SHA and
+    # collide in the same `concurrency:` group. Skip the `pull_request` instance here —
+    # the `push` trigger for that commit already covers the build — so it resolves to a
+    # clean `skipped` status instead of racing `push` for the concurrency group's
+    # `cancel-in-progress` slot and surfacing as a misleading `cancelled` red X.
+    # Branches listed here MUST match `push.branches` above exactly (kept manual: GitHub
+    # Actions' `on:` block cannot reference expressions/env, so there is no shared source).
+    # `nightly` is deliberately excluded — it is not in `push.branches`, so a PR headed at
+    # `nightly` never races a `push`-triggered run of this workflow.
+    if: ${{ (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.name == 'Docker Lint' && github.event.workflow_run.path == '.github/workflows/docker-lint.yml')) && (github.event_name != 'pull_request' || !contains(fromJSON('["main","development"]'), github.head_ref)) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
