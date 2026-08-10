@@ -52,23 +52,30 @@ env:
   TRIGGER_BASE_REF: ${{ github.event_name == 'workflow_run' && '' || github.base_ref }}
 
 jobs:
-  build-and-push:
+  # `setup` centralizes everything the downstream build/publish jobs need to agree on:
+  # the skip-condition gate, the Alpine base digest, branch/PR tag computation, and the
+  # single docker/metadata-action call (run once so amd64/arm64/merge all apply identical
+  # tags/labels — running it per-job risked timestamp/label drift between pushes).
+  setup:
+    # Carried forward VERBATIM from the previous `build-and-push` job-level `if:` — this
+    # is the only place this workflow_run/Docker Lint gate now lives. Every downstream job
+    # checks `needs.setup.result == 'success'` to propagate its effect (GitHub Actions jobs
+    # do not inherit a sibling job's `if:`).
     if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.name == 'Docker Lint' && github.event.workflow_run.path == '.github/workflows/docker-lint.yml') }}
-    env:
-      HAS_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20  # Phase 1: Reduced timeout for faster feedback
+    timeout-minutes: 5
     permissions:
       contents: read
-      packages: write
-      security-events: write
-      id-token: write      # Required for SBOM attestation
-      attestations: write  # Required for SBOM attestation
-
     outputs:
       skip_build: ${{ steps.skip.outputs.skip_build }}
-      digest: ${{ steps.build-and-push.outputs.digest }}
-
+      is_feature_push: ${{ steps.skip.outputs.is_feature_push }}
+      alpine_image: ${{ steps.alpine.outputs.image }}
+      image_tag: ${{ steps.pr_image_ref_output.outputs.image_tag }}
+      image_ref: ${{ steps.pr_image_ref_output.outputs.image_ref }}
+      tags: ${{ steps.meta.outputs.tags }}
+      labels: ${{ steps.meta.outputs.labels }}
+      version: ${{ steps.meta.outputs.version }}
+      created: ${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -166,12 +173,6 @@ jobs:
             echo "force_refresh=$force_refresh"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Set up QEMU
-        if: steps.skip.outputs.skip_build != 'true'
-        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
-      - name: Set up Docker Buildx
-        if: steps.skip.outputs.skip_build != 'true'
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
       - name: Resolve Alpine base image digest
         if: steps.skip.outputs.skip_build != 'true'
         id: alpine
@@ -180,22 +181,6 @@ jobs:
           docker pull "alpine:${ALPINE_TAG}"
           DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "alpine:${ALPINE_TAG}")
           echo "image=$DIGEST" >> "$GITHUB_OUTPUT"
-
-      - name: Log in to GitHub Container Registry
-        if: steps.skip.outputs.skip_build != 'true'
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-        with:
-          registry: ${{ env.GHCR_REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Log in to Docker Hub
-        if: steps.skip.outputs.skip_build != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-        with:
-          registry: docker.io
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Compute branch tags
         if: steps.skip.outputs.skip_build != 'true'
@@ -357,6 +342,57 @@ jobs:
             echo "❌ ERROR: image_ref output contract violated (empty output)"
             exit 1
           fi
+
+  build-and-push:
+    needs: setup
+    env:
+      HAS_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20  # Phase 1: Reduced timeout for faster feedback
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+      id-token: write      # Required for SBOM attestation
+      attestations: write  # Required for SBOM attestation
+
+    outputs:
+      skip_build: ${{ needs.setup.outputs.skip_build }}
+      digest: ${{ steps.build-and-push.outputs.digest }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ env.TRIGGER_HEAD_SHA }}
+      - name: Normalize image name
+        run: |
+          IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_NAME=${IMAGE_NAME}" >> "$GITHUB_ENV"
+
+      - name: Set up QEMU
+        if: needs.setup.outputs.skip_build != 'true'
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+      - name: Set up Docker Buildx
+        if: needs.setup.outputs.skip_build != 'true'
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to GitHub Container Registry
+        if: needs.setup.outputs.skip_build != 'true'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.GHCR_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: needs.setup.outputs.skip_build != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       # Phase 1 Optimization: Build once, test many
       # - For PRs: Multi-platform (amd64, arm64) + stable security-scan tag (pr-{number})
       # - For feature branches: Multi-platform (amd64, arm64) + sanitized tags ({branch}-{short-sha})
@@ -365,7 +401,7 @@ jobs:
       # - Retry logic handles transient registry failures (3 attempts, 10s wait)
       # See: docs/plans/current_spec.md Section 4.1
       - name: Build and push Docker image (with retry)
-        if: steps.skip.outputs.skip_build != 'true'
+        if: needs.setup.outputs.skip_build != 'true'
         id: build-and-push
         uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
         with:
@@ -385,13 +421,13 @@ jobs:
             TAG_ARGS_ARRAY=()
             while IFS= read -r tag; do
               [[ -n "$tag" ]] && TAG_ARGS_ARRAY+=("--tag" "$tag")
-            done <<< "${{ steps.meta.outputs.tags }}"
+            done <<< "${{ needs.setup.outputs.tags }}"
 
             # Build label arguments array from metadata output (properly quoted)
             LABEL_ARGS_ARRAY=()
             while IFS= read -r label; do
               [[ -n "$label" ]] && LABEL_ARGS_ARRAY+=("--label" "$label")
-            done <<< "${{ steps.meta.outputs.labels }}"
+            done <<< "${{ needs.setup.outputs.labels }}"
 
             # Build the complete command as an array (handles spaces in label values correctly)
             BUILD_CMD=(
@@ -402,10 +438,10 @@ jobs:
               "${LABEL_ARGS_ARRAY[@]}"
               --no-cache
               --pull
-              --build-arg "VERSION=${{ steps.meta.outputs.version }}"
-              --build-arg "BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}"
+              --build-arg "VERSION=${{ needs.setup.outputs.version }}"
+              --build-arg "BUILD_DATE=${{ needs.setup.outputs.created }}"
               --build-arg "VCS_REF=${{ env.TRIGGER_HEAD_SHA }}"
-              --build-arg "ALPINE_IMAGE=${{ steps.alpine.outputs.image }}"
+              --build-arg "ALPINE_IMAGE=${{ needs.setup.outputs.alpine_image }}"
               --iidfile /tmp/image-digest.txt
               .
             )
@@ -424,7 +460,7 @@ jobs:
             # This enables backward compatibility with workflows that use artifacts
             if [[ "${{ env.TRIGGER_EVENT }}" == "pull_request" ]]; then
               echo "📥 Pulling image back for artifact creation..."
-              PR_IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
+              PR_IMAGE_REF="${{ needs.setup.outputs.image_ref }}"
               if [[ -z "${PR_IMAGE_REF}" ]]; then
                 echo "❌ ERROR: image_ref output contract violated during pull-back"
                 exit 1
@@ -436,9 +472,9 @@ jobs:
       # Use the stable security scan reference so the saved artifact matches the
       # image that the PR scan job will pull and validate.
       - name: Save Docker Image as Artifact
-        if: success() && steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
+        if: success() && needs.setup.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
         run: |
-          IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
+          IMAGE_REF="${{ needs.setup.outputs.image_ref }}"
 
           if [[ -z "${IMAGE_REF}" ]]; then
             echo "❌ ERROR: image_ref output contract violated (empty image ref)"
@@ -464,7 +500,7 @@ jobs:
           ls -lh /tmp/charon-pr-image.tar
 
       - name: Upload Image Artifact
-        if: success() && steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
+        if: success() && needs.setup.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ env.TRIGGER_EVENT == 'pull_request' && format('pr-image-{0}', env.TRIGGER_PR_NUMBER) || 'push-image' }}
@@ -472,7 +508,7 @@ jobs:
           retention-days: 1  # Only needed for workflow duration
 
       - name: Verify Caddy Security Patches (CVE-2025-68156)
-        if: steps.skip.outputs.skip_build != 'true'
+        if: needs.setup.outputs.skip_build != 'true'
         timeout-minutes: 2
         continue-on-error: true
         run: |
@@ -481,7 +517,7 @@ jobs:
 
           # Determine the image reference based on event type
           if [ "${{ env.TRIGGER_EVENT }}" = "pull_request" ]; then
-            IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
+            IMAGE_REF="${{ needs.setup.outputs.image_ref }}"
             if [ -z "${IMAGE_REF}" ]; then
               echo "❌ ERROR: Failed to load PR image reference from image_ref output"
               exit 1
@@ -508,7 +544,7 @@ jobs:
 
           # Determine the image reference based on event type
           if [ "${{ env.TRIGGER_EVENT }}" = "pull_request" ]; then
-            IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
+            IMAGE_REF="${{ needs.setup.outputs.image_ref }}"
             if [ -z "${IMAGE_REF}" ]; then
               echo "❌ ERROR: Failed to load PR image reference from image_ref output"
               exit 1
@@ -575,7 +611,7 @@ jobs:
 
           # Determine the image reference based on event type
           if [ "${{ env.TRIGGER_EVENT }}" = "pull_request" ]; then
-            IMAGE_REF="${{ steps.pr_image_ref_output.outputs.image_ref }}"
+            IMAGE_REF="${{ needs.setup.outputs.image_ref }}"
             if [ -z "${IMAGE_REF}" ]; then
               echo "❌ ERROR: Failed to load PR image reference from image_ref output"
               exit 1
@@ -649,7 +685,7 @@ jobs:
           echo "==> CrowdSec verification complete"
 
       - name: Run Trivy scan (table output)
-        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && needs.setup.outputs.skip_build != 'true' && needs.setup.outputs.is_feature_push != 'true'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
@@ -661,7 +697,7 @@ jobs:
         continue-on-error: true
 
       - name: Run Trivy vulnerability scanner (SARIF)
-        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && needs.setup.outputs.skip_build != 'true' && needs.setup.outputs.is_feature_push != 'true'
         id: trivy
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -674,7 +710,7 @@ jobs:
         continue-on-error: true
 
       - name: Check Trivy SARIF exists
-        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && needs.setup.outputs.skip_build != 'true' && needs.setup.outputs.is_feature_push != 'true'
         id: trivy-check
         run: |
           if [ -f trivy-results.sarif ]; then
@@ -684,7 +720,7 @@ jobs:
           fi
 
       - name: Upload Trivy results
-        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.trivy-check.outputs.exists == 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && needs.setup.outputs.skip_build != 'true' && steps.trivy-check.outputs.exists == 'true'
         uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
         with:
           sarif_file: 'trivy-results.sarif'
@@ -692,7 +728,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Record Trivy scan traceability
-        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.trivy-check.outputs.exists == 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && needs.setup.outputs.skip_build != 'true' && steps.trivy-check.outputs.exists == 'true'
         env:
           IMAGE_REF: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
         run: |
@@ -710,7 +746,7 @@ jobs:
       # Only for production builds (main/development) - feature branches use downstream supply-chain-pr.yml
       - name: Generate SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
-        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && needs.setup.outputs.skip_build != 'true' && needs.setup.outputs.is_feature_push != 'true'
         with:
           image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: cyclonedx-json
@@ -724,7 +760,7 @@ jobs:
       - name: Attest SBOM
         id: attest-sbom
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
-        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && needs.setup.outputs.skip_build != 'true' && needs.setup.outputs.is_feature_push != 'true'
         continue-on-error: true
         with:
           subject-name: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
@@ -743,13 +779,13 @@ jobs:
 
       # Install Cosign for keyless signing
       - name: Install Cosign
-        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && needs.setup.outputs.skip_build != 'true' && needs.setup.outputs.is_feature_push != 'true'
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       # Sign GHCR image with keyless signing (Sigstore/Fulcio)
       # Retry up to 3 times to handle transient Fulcio/Rekor INTERNAL_ERROR (HTTP/2 stream errors)
       - name: Sign GHCR Image
-        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && needs.setup.outputs.skip_build != 'true' && needs.setup.outputs.is_feature_push != 'true'
         run: |
           echo "Signing GHCR image with keyless signing..."
           for attempt in 1 2 3; do
@@ -768,7 +804,7 @@ jobs:
       # Sign Docker Hub image with keyless signing (Sigstore/Fulcio)
       # Retry up to 3 times to handle transient Fulcio/Rekor INTERNAL_ERROR (HTTP/2 stream errors)
       - name: Sign Docker Hub Image
-        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && needs.setup.outputs.skip_build != 'true' && needs.setup.outputs.is_feature_push != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
         run: |
           echo "Signing Docker Hub image with keyless signing..."
           for attempt in 1 2 3; do
@@ -786,14 +822,14 @@ jobs:
 
       # Attach SBOM to Docker Hub image
       - name: Attach SBOM to Docker Hub
-        if: env.TRIGGER_EVENT != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
+        if: env.TRIGGER_EVENT != 'pull_request' && needs.setup.outputs.skip_build != 'true' && needs.setup.outputs.is_feature_push != 'true' && env.HAS_DOCKERHUB_TOKEN == 'true'
         run: |
           echo "Attaching SBOM to Docker Hub image..."
           cosign attach sbom --sbom sbom.cyclonedx.json ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           echo "✅ SBOM attached to Docker Hub image"
 
       - name: Create summary
-        if: steps.skip.outputs.skip_build != 'true'
+        if: needs.setup.outputs.skip_build != 'true'
         run: |
           {
             echo "## 🎉 Docker Image Built Successfully!"
@@ -803,7 +839,7 @@ jobs:
             echo "- **Docker Hub**: ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}"
             echo "- **Tags**: "
             echo '```'
-            echo "${{ steps.meta.outputs.tags }}"
+            echo "${{ needs.setup.outputs.tags }}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
