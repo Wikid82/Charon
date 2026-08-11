@@ -27,7 +27,7 @@ ARG EXPR_LANG_VERSION=1.17.8
 # renovate: datasource=go depName=golang.org/x/net
 ARG XNET_VERSION=0.57.0
 # renovate: datasource=go depName=golang.org/x/crypto
-ARG XCRYPTO_VERSION=0.54.0
+ARG XCRYPTO_VERSION=0.55.0
 # renovate: datasource=npm depName=npm
 ARG NPM_VERSION=12.0.2
 
