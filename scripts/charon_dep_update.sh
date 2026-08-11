@@ -55,7 +55,7 @@ echo "==========================================================================
 echo "Current local versions (npm / npx):"
 npm -v && npx -v
 
-echo -n "Latest available npm version on registry: "
+echo "Latest available npm version on registry: "
 npm view npm version
 
 echo "Installing latest global npm..."
