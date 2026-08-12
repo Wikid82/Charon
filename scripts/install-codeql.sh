@@ -41,7 +41,7 @@ NC='\033[0m'
 # deliberately and re-validate `lefthook run codeql` locally before raising
 # this — an exact pin (not "latest") keeps local scans reproducible, per
 # CLAUDE.md's "use exact dependency versions" convention.
-CODEQL_VERSION="${CODEQL_VERSION:-v2.26.2}"
+CODEQL_VERSION="${CODEQL_VERSION:-v2.26.3}"
 
 # Where to install the `codeql` PATH shim. Defaults to the first writable,
 # user-owned directory already on PATH so no sudo is required.
