@@ -275,11 +275,15 @@
       "description": "Track Syft version in workflows and scripts",
       "managerFilePatterns": [
         "/^\\.github/workflows/nightly-build\\.yml$/",
+        "/^\\.github/workflows/docker-build\\.yml$/",
+        "/^\\.github/workflows/supply-chain-pr\\.yml$/",
+        "/^\\.github/workflows/supply-chain-verify\\.yml$/",
         "/^\\.github/skills/security-scan-docker-image-scripts/run\\.sh$/"
       ],
       "matchStrings": [
         "SYFT_VERSION=\\\"v(?<currentValue>[^\\\"\\s]+)\\\"",
-        "set_default_env \\\"SYFT_VERSION\\\" \\\"v(?<currentValue>[^\\\"]+)\\\""
+        "set_default_env \\\"SYFT_VERSION\\\" \\\"v(?<currentValue>[^\\\"]+)\\\"",
+        "syft-version:\\s*v(?<currentValue>[^\\s]+)"
       ],
       "depNameTemplate": "anchore/syft",
       "datasourceTemplate": "github-releases",
