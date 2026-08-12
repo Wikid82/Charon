@@ -131,7 +131,7 @@ jobs:
           image: ghcr.io/${{ github.repository_owner }}/charon:${{ steps.tag.outputs.tag }}
           format: cyclonedx-json
           output-file: sbom-verify.cyclonedx.json
-          syft-version: v1.45.1
+          syft-version: v1.51.0
 
       - name: Generate SBOM fallback with pinned Syft
         if: steps.image-check.outputs.exists == 'true' && always()
