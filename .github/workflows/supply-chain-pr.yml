@@ -279,7 +279,7 @@ jobs:
           image: ${{ steps.set-target.outputs.image_name }}
           format: cyclonedx-json
           output-file: sbom.cyclonedx.json
-          syft-version: v1.45.1
+          syft-version: v1.51.0
 
       - name: Generate SBOM fallback with pinned Syft
         if: steps.set-target.outputs.image_name != '' && always()
