@@ -25,7 +25,7 @@ ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0b
 # renovate: datasource=github-tags depName=expr-lang/expr extractVersion=^v(?<version>.+)$
 ARG EXPR_LANG_VERSION=1.17.8
 # renovate: datasource=go depName=golang.org/x/net
-ARG XNET_VERSION=0.57.0
+ARG XNET_VERSION=0.58.0
 # renovate: datasource=go depName=golang.org/x/crypto
 ARG XCRYPTO_VERSION=0.55.0
 # renovate: datasource=npm depName=npm
