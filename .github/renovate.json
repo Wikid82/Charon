@@ -246,6 +246,19 @@
     },
     {
       "customType": "regex",
+      "description": "Track pinned Semgrep container image digest in the Semgrep CI workflow",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/semgrep\\.yml$/"
+      ],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=docker\\s+depName=semgrep/semgrep\\s*\\n\\s*image:\\s*semgrep/semgrep:(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"
+      ],
+      "depNameTemplate": "semgrep/semgrep",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
       "description": "Track NODE_VERSION in Actions workflows",
       "managerFilePatterns": [
         "/^\\.github/workflows/.*\\.yml$/"
