@@ -35,6 +35,15 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+// upgradeWebSocket upgrades an HTTP connection to WebSocket using the
+// shared, origin-checked upgrader above. All WS handlers in this package
+// MUST go through this helper rather than calling upgrader.Upgrade
+// directly, so the origin check stays visible to single-file static
+// analysis at every call site.
+func upgradeWebSocket(c *gin.Context) (*websocket.Conn, error) {
+	return upgrader.Upgrade(c.Writer, c.Request, nil)
+}
+
 // LogEntry represents a structured log entry sent over WebSocket.
 type LogEntry struct {
 	Level     string         `json:"level"`
@@ -68,7 +77,7 @@ func (h *LogsWSHandler) HandleWebSocket(c *gin.Context) {
 	logger.Log().Info("WebSocket connection attempt received")
 
 	// Upgrade HTTP connection to WebSocket
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	conn, err := upgradeWebSocket(c)
 	if err != nil {
 		logger.Log().WithError(err).Error("Failed to upgrade WebSocket connection")
 		return
