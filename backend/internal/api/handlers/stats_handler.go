@@ -173,7 +173,7 @@ func (h *StatsHandler) GetStatsHealth(c *gin.Context) {
 // GET /api/stats/ws
 func (h *StatsHandler) StatsWS(c *gin.Context) {
 	// CheckOrigin is enforced on the shared upgrader in logs_ws.go (same package).
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil) // nosemgrep: go.gorilla.security.audit.websocket-missing-origin-check.websocket-missing-origin-check
 	if err != nil {
 		return
 	}

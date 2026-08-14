@@ -38,7 +38,7 @@ func (h *HecateWSHandler) StreamLogs(c *gin.Context) {
 	}
 
 	// CheckOrigin is enforced on the shared upgrader in logs_ws.go (same package).
-	conn, upgradeErr := upgrader.Upgrade(c.Writer, c.Request, nil)
+	conn, upgradeErr := upgrader.Upgrade(c.Writer, c.Request, nil) // nosemgrep: go.gorilla.security.audit.websocket-missing-origin-check.websocket-missing-origin-check
 	if upgradeErr != nil {
 		logger.Log().WithError(upgradeErr).Error("hecate ws: upgrade failed")
 		return
