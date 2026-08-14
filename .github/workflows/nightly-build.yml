@@ -285,7 +285,7 @@ jobs:
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610  # v0.24.0
         with:
           image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.resolve_digest.outputs.digest }}
-          format: cyclonedx-json
+          format: spdx-json
           output-file: sbom-nightly.json
           syft-version: v1.51.0
 
@@ -327,7 +327,7 @@ jobs:
             echo "::error::Digest from resolve_digest step is empty; the digest-resolution step did not complete successfully"
             exit 1
           fi
-          ./syft "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}" -o cyclonedx-json=sbom-nightly.json
+          ./syft "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}" -o spdx-json=sbom-nightly.json
 
       - name: Verify SBOM artifact
         if: always()
@@ -336,11 +336,9 @@ jobs:
           test -s sbom-nightly.json
           jq -e . sbom-nightly.json >/dev/null
           jq -e '
-            .bomFormat == "CycloneDX"
-            and (.specVersion | type == "string" and length > 0)
-            and has("version")
-            and has("metadata")
-            and (.components | type == "array")
+            (.spdxVersion | type == "string" and length > 0)
+            and has("SPDXID")
+            and (.packages | type == "array")
           ' sbom-nightly.json >/dev/null
 
       - name: Upload SBOM artifact
