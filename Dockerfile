@@ -590,6 +590,12 @@ RUN set -e; \
     # GHSA-r277-6w6q-xmqw: kin-openapi ValidationHandler.Load() Fail-Open Authentication Bypass via NoopAuthenticationFunc Default
     # renovate: datasource=go depName=github.com/getkin/kin-openapi
     _retry go get github.com/getkin/kin-openapi@v0.144.0; \
+    # CVE-2026-56864 / CVE-2026-56865: golang.org/x/mod/sumdb GOSUMDB tile-verification bypass
+    # (a colluding GOPROXY+GOSUMDB pair could forge sumdb tiles / serve module content outside
+    # the transparency log). Affects /usr/local/bin/crowdsec and /usr/local/bin/cscli — go mod
+    # tidy's MVS resolution otherwise lands on v0.38.0. Fix available at v0.40.0.
+    # renovate: datasource=go depName=golang.org/x/mod
+    _retry go get golang.org/x/mod@v0.40.0; \
     _retry go mod tidy
 
 # Fix compatibility issues with expr-lang v1.17.7
