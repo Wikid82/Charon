@@ -1331,15 +1331,15 @@ jobs:
                       $result.ruleId
                       // ($result.rule // {} | .id)
                       // (
-                        if ($result.ruleIndex != null and (($run.tool.driver.rules? // null) | type) == \"array\") then
-                          ($run.tool.driver.rules[$result.ruleIndex].id // \"unknown\")
+                        if ($result.ruleIndex != null and (($run.tool.driver.rules? // null) | type) == "array") then
+                          ($run.tool.driver.rules[$result.ruleIndex].id // "unknown")
                         else
-                          \"unknown\"
+                          "unknown"
                         end
                       )
                     )) | package: \((
-                      ($result.message.text // \"\")
-                      | (try capture(\"(?i)(?:Package|PkgName|Pkg|Library)\\\\s*[:=]\\\\s*`?(?<pkg>[A-Za-z0-9._+:+-]+)`?\").pkg catch \"n/a\")
+                      ($result.message.text // "")
+                      | (try capture("(?i)(?:Package|PkgName|Pkg|Library)\\s*[:=]\\s*`?(?<pkg>[A-Za-z0-9._+:/-]+)`?").pkg catch "n/a")
                     ))"
                 ' "${SARIF_PATH}"; then
                   echo "- unable to render parsed findings"
