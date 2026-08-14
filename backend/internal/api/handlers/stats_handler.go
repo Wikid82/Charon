@@ -172,7 +172,8 @@ func (h *StatsHandler) GetStatsHealth(c *gin.Context) {
 // StatsWS upgrades the connection to WebSocket and streams stats push messages.
 // GET /api/stats/ws
 func (h *StatsHandler) StatsWS(c *gin.Context) {
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil) // nosemgrep: go.gorilla.security.audit.websocket-missing-origin-check.websocket-missing-origin-check
+	// CheckOrigin is enforced on the shared upgrader in logs_ws.go (same package).
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		return
 	}
