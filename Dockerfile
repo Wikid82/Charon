@@ -28,6 +28,11 @@ ARG EXPR_LANG_VERSION=1.17.8
 ARG XNET_VERSION=0.58.0
 # renovate: datasource=go depName=golang.org/x/crypto
 ARG XCRYPTO_VERSION=0.55.0
+# klauspost/compress DoS/resource-exhaustion fix, matching how golang.org/x/crypto
+# is patched above: pinned here so the CrowdSec/cscli and Caddy binaries (which
+# pull it in transitively) are patched immediately, ahead of upstream releases.
+# renovate: datasource=go depName=github.com/klauspost/compress
+ARG KLAUSPOST_COMPRESS_VERSION=1.18.7
 # renovate: datasource=npm depName=npm
 ARG NPM_VERSION=12.0.2
 
@@ -299,6 +304,7 @@ ARG XCADDY_VERSION=0.4.6
 ARG EXPR_LANG_VERSION
 ARG XNET_VERSION
 ARG XCRYPTO_VERSION
+ARG KLAUSPOST_COMPRESS_VERSION
 ARG CROWDSEC_VERSION
 
 # hadolint ignore=DL3018
@@ -382,6 +388,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         _retry go get github.com/hslatman/ipstore@v0.4.0; \
         _retry go get golang.org/x/crypto@v${XCRYPTO_VERSION}; \
         _retry go get golang.org/x/net@v${XNET_VERSION}; \
+        # klauspost/compress DoS/resource-exhaustion fix. Affects /usr/bin/caddy
+        # (transitive dependency). Fix available at v1.18.7.
+        _retry go get github.com/klauspost/compress@v${KLAUSPOST_COMPRESS_VERSION}; \
         # GHSA-hrxh-6v49-42gf: grpc-go xDS RBAC and HTTP/2 vulnerabilities
         # Patched in grpc-go v1.82.1. Pin here so the Caddy binary is patched immediately.
         # renovate: datasource=go depName=google.golang.org/grpc
@@ -516,6 +525,7 @@ ARG CROWDSEC_VERSION
 ARG CROWDSEC_RELEASE_SHA256
 ARG EXPR_LANG_VERSION
 ARG XNET_VERSION
+ARG KLAUSPOST_COMPRESS_VERSION
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache git clang lld
@@ -554,6 +564,9 @@ RUN set -e; \
     # renovate: datasource=go depName=golang.org/x/crypto
     _retry go get golang.org/x/crypto@v0.52.0; \
     _retry go get golang.org/x/net@v${XNET_VERSION}; \
+    # klauspost/compress DoS/resource-exhaustion fix. Affects /usr/local/bin/crowdsec
+    # and /usr/local/bin/cscli (transitive dependency). Fix available at v1.18.7.
+    _retry go get github.com/klauspost/compress@v${KLAUSPOST_COMPRESS_VERSION}; \
     # GHSA-hrxh-6v49-42gf: grpc-go xDS RBAC and HTTP/2 vulnerabilities
     # Patched in grpc-go v1.82.1. Pin here so the CrowdSec binary is patched immediately.
     # renovate: datasource=go depName=google.golang.org/grpc

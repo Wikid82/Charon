@@ -415,6 +415,19 @@
     },
     {
       "customType": "regex",
+      "description": "Track github.com/klauspost/compress version ARG in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=go\\s+depName=github\\.com/klauspost/compress\\s*\\nARG KLAUSPOST_COMPRESS_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/klauspost/compress",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
       "description": "Track golang-jwt/jwt v5 in go.mod via github-tags (workaround: Renovate go datasource no-result for /vN module paths)",
       "managerFilePatterns": [
         "/^backend/go\\.mod$/"
