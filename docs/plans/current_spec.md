@@ -1,9 +1,9 @@
-# Issue #619 — Phase 3 Technical Debt: Test Infrastructure Cleanup
+# Semgrep CI Security Scan — Implementation Plan
 
-Status: Planning complete, pending supervisor review.
-Branch: `test/issue-619-test-infra-debt` (tip of `development`, working tree clean at plan time).
-PR base branch: **`development`** (per `gh pr list` convention — `main` only receives weekly `nightly` promotion merges via merge commit; this is a normal feature PR).
-Closes: `#619` ("Phase 3 Technical Debt Issues" — bundles 5 sub-issues, verified below).
+Status: Planning complete, revised per Supervisor review (round 2).
+Owner for implementation: **devops** agent (CI/CD-only change; no backend-dev or frontend-dev involvement — no application code, no models, no UI).
+Branch: current working branch (`development`) per `CLAUDE.md` — no worktree.
+PR base branch: `development` (standard feature PR convention observed in this repo; `main` only receives weekly `nightly` promotion merges).
 
 ---
 
@@ -11,471 +11,495 @@ Closes: `#619` ("Phase 3 Technical Debt Issues" — bundles 5 sub-issues, verifi
 
 ### 1.1 Objective
 
-Close out GitHub issue #619 with a single feature PR that:
+Add an independent Semgrep SAST scan to GitHub Actions CI that reproduces, byte-for-byte, the same scan behavior developers already run locally via `scripts/pre-commit-hooks/semgrep-scan.sh` (wired through `lefthook.yml`'s `pre-commit`/`pre-push`/`security-full` targets and `make security-local`). Today, Semgrep coverage exists **only** on the developer's machine — CI has zero Semgrep footprint (confirmed: no match in `.github/workflows/`, `.github/renovate.json`, or any Dockerfile/compose file). This means:
 
-1. Un-skips 5 confirmed-stale Vitest suites blocked on a long-fixed `undici`/jsdom WebSocket bug (sub-issue 1), resolves the 6th related skip with a root-cause-appropriate fix (not a blind unskip), and proves no regressions via a full frontend suite run.
-2. Replaces 59 tautological (`expect(x || true).toBeTruthy()`-shaped) Playwright assertions across 11 E2E spec files with real, deterministic assertions or explicit `test.skip()` calls with accurate reasons (sub-issue 2) — the bulk of this PR's work.
-3. Confirms backend coverage for `internal/services` and the relocated `backend/pkg/dnsprovider/builtin` package remains healthy with no code changes required (sub-issue 3).
-4. Confirms the feature-flag async propagation flakiness was already resolved via `waitForFeatureFlagPropagation()` in the reorganized spec file, with no code changes required (sub-issue 4).
-5. Confirms WebKit E2E test discovery/config is healthy and schedules the outstanding full WebKit run as a Definition-of-Done gate (sub-issue 5).
+- A developer who bypasses lefthook (`--no-verify`, an emergency hotfix, a machine without semgrep installed) ships code with no Semgrep signal at all.
+- Nobody re-verifies the "clean" local Semgrep run against a controlled, versioned environment — the local binary's version, ruleset revision, and installed registry rules can silently drift per-developer with no CI backstop.
 
-### 1.2 Why one PR
+This plan adds CI-side Semgrep coverage that is authoritative (independent of the developer's local environment) while staying faithful to the existing local invocation.
 
-Per `CLAUDE.md` "Commit Slicing & PR Strategy" and repo memory (`feedback_one_feature_one_pr.md`): issue #619 is one feature (test-infrastructure debt), closed by one PR with ordered commits. Sub-issues 3 and 4 require **no code changes** — they contribute verification evidence to the PR's DoD run and the closing PR description, not separate commits.
+### 1.2 Goals
+
+1. A new CI job runs the **exact same** rule configs, exclusions, and severity/error-gating behavior as `scripts/pre-commit-hooks/semgrep-scan.sh`'s default (no-override) path, scanning the full repo.
+2. Semgrep's version is pinned in CI (image tag + digest) — today there is no version pin anywhere in the repo for Semgrep, local or CI.
+3. Findings are visible in the GitHub Security tab (SARIF upload), consistent with how CodeQL and Trivy results are surfaced today.
+4. A hard-fail gate blocks the PR/branch on ERROR/WARNING findings, mirroring the local script's `--error` behavior — CI is a gate, not just an informational report.
+5. `scripts/pre-commit-hooks/semgrep-scan.sh`'s binary/version resolution logic (the `command -v semgrep` check, §2.1) is **not touched** — that stays developer-local tooling, per the original brief's explicit scope boundary. The script's rule-config/exclude/severity logic, by contrast, **is** extended with one small, additive, backward-compatible hook (§2.7/§3.0) so CI can reuse it directly instead of duplicating it — see §2.7 for why this is a different constraint than "freeze the whole file," and why the narrower reading is the right one.
+6. Documentation (`SECURITY.md` and `ARCHITECTURE.md`) is updated to reflect the new CI coverage.
 
 ### 1.3 Non-goals
 
-- No production code changes (backend or frontend application code). This PR touches only test files, test infrastructure, and documentation.
-- No changes to `.gitignore`, `.dockerignore`, `codecov.yml`, or any `Dockerfile` — reviewed explicitly in §3.6, all confirmed already correct for this change (see findings).
-- `CrowdSecBouncerKeyDisplay.test.tsx` (4 `it.skip` at lines 205/209/213/219, unrelated clipboard-API mock issue) is explicitly **out of scope** and must not be touched.
+- No change to how the local pre-commit/pre-push semgrep **binary** is discovered, installed, or versioned (the `command -v semgrep` / exit-127 block in `scripts/pre-commit-hooks/semgrep-scan.sh` is untouched).
+- No new GitHub Action marketplace dependency requiring npm/JS runtime — Semgrep ships as a self-contained CLI in an official container image, which is used directly.
+- No change to `.gitignore`, `.dockerignore`, `.codecov.yml`, or any `Dockerfile` (see §2.9 — reviewed explicitly, no changes needed).
+- No attempt to unify Trivy's/CodeQL's SARIF-upload plumbing into a shared reusable workflow — out of scope for this feature; each scanner's workflow remains independent, consistent with current repo structure (`codeql.yml`, `security-pr.yml`, `security-weekly-rebuild.yml` are all separate files today).
 
 ---
 
-## 2. Research Findings — Ground Truth Verification (2026-08-07)
+## 2. Research Findings
 
-All findings below were re-verified directly against the current working tree (branch `test/issue-619-test-infra-debt`, tip of `development`) — greps, file reads, and non-mutating test/coverage runs. Numbers in the original issue text and the prior same-day investigation summary are corrected where they drifted.
+### 2.1 Local Semgrep invocation (`scripts/pre-commit-hooks/semgrep-scan.sh`)
 
-### 2.1 Sub-issue 1 — undici/WebSocket jsdom blocker: CONFIRMED STALE, ACTION REQUIRED
+Full script behavior (verified by reading the file):
 
-Dependency state confirmed via `npm ls`:
-- `jsdom@30.0.1` (root + deduped under `vitest@4.1.10`)
-- `undici@8.10.0` (transitive, via jsdom only)
+- Requires `semgrep` on `PATH`; exits 127 if missing (this resolution logic is untouched by this plan — see §1.3).
+- Default rule configs (used unless `SEMGREP_CONFIG` env override is set):
+  ```
+  --config p/golang
+  --config p/javascript
+  --config p/typescript
+  --config p/react
+  --config p/secrets
+  --config p/dockerfile
+  ```
+- Targets: staged files if passed as args (lefthook `pre-commit`), else full-repo default `Dockerfile backend frontend/src scripts .github/workflows` (lefthook `security-full` / manual run).
+- Exact scan flags (current, pre-change):
+  ```
+  semgrep scan \
+    "${SEMGREP_CONFIGS[@]}" \
+    --severity ERROR \
+    --severity WARNING \
+    --error \
+    --exclude "frontend/node_modules" \
+    --exclude "frontend/coverage" \
+    --exclude "frontend/dist" \
+    --exclude-rule "go.secrets.gorm.gorm-empty-password.gorm-empty-password" \
+    "${TARGETS[@]}"
+  ```
+- `--error` makes semgrep exit non-zero if any ERROR/WARNING-severity finding exists — this is the local "hard fail" behavior CI must reproduce.
 
-The upstream bug this blocker cited (`nodejs/undici#1671`, WebSocket mock `InvalidArgumentError`) is long fixed at this version pair.
+Wiring confirmed in `lefthook.yml`:
+- `pre-commit.semgrep` (line ~113-116): glob-scoped, staged-files-only, blocking.
+- `security-full.semgrep` (line ~137-140, manual stage, `lefthook run security-full`): full-repo, no args → this is the invocation CI should mirror most closely (full-repo, not staged-file-scoped).
+- `Makefile:security-local` additionally runs `SEMGREP_CONFIG=p/golang` as a fast pre-push subset — this is a narrower override path, not the target for CI parity (CI should mirror the **full** default ruleset, matching `security-full`).
 
-**Confirmed skip inventory** (exact, re-counted against source, not the prior summary):
+### 2.2 Confirmed: zero Semgrep footprint in CI today
 
-| File | Skip marker | Test count (verified via grep) |
-|---|---|---|
-| `frontend/src/pages/__tests__/Security.test.tsx:35` | `describe.skip('Security', ...)`, comment `// BLOCKER 3: Temporarily skipped due to undici InvalidArgumentError in WebSocket mocks` | 22 |
-| `frontend/src/pages/__tests__/Security.audit.test.tsx:52` | `describe.skip('Security Page - QA Security Audit', ...)` | 18 |
-| `frontend/src/pages/__tests__/Security.errors.test.tsx:68` | `describe.skip('Security Error Handling Tests', ...)` | 13 |
-| `frontend/src/pages/__tests__/Security.loading.test.tsx:59` | `describe.skip('Security Loading Overlay Tests', ...)` | 12 |
-| `frontend/src/pages/__tests__/Security.dashboard.test.tsx:67` | `describe.skip('Security Dashboard - Card Status Tests', ...)` | 18 |
+`grep -rn "semgrep" .github/workflows/ .github/renovate.json` (and Dockerfiles/compose) returns no matches. Semgrep is 100% local-only today. (Note: the repo's Renovate config lives at `.github/renovate.json`, not a root-level `renovate.json` — corrected throughout this plan.)
 
-Subtotal: **83 tests** across 5 files. Sum matches exactly.
+### 2.3 Existing CI patterns to mirror
 
-**The 6th file — `Security.functional.test.tsx:680`, `it.skip('should open notification settings modal when button is clicked', ...)`, comment `// Skip: Modal component uses WebSocket connections internally`:**
+**`.github/workflows/codeql.yml`** (closest pattern for a source-level SAST tool):
+- Triggers: `pull_request`/`push` on `[main, nightly, development]`, `workflow_dispatch`, weekly `schedule` cron (`0 3 * * 1`, Mondays 03:00 UTC).
+- `concurrency` group keyed on workflow/event/ref, `cancel-in-progress: true`.
+- `permissions:` declared at **both** the workflow (top) level and again, identically, at job level (`contents: read`, `security-events: write`, `actions: read`, `pull-requests: read`).
+- All third-party actions pinned by commit SHA with a `# vX.Y.Z` trailing comment, e.g. `github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4`.
+- Has a **parity guard** step ("Verify CodeQL parity guard" → `scripts/ci/check-codeql-parity.sh`) that runs *before* the scan, structurally checking that local pre-commit scripts, `.vscode/tasks.json`, and the CI workflow all agree on query-suite pinning and trigger branches — added specifically because CodeQL's local/CI ruleset previously drifted silently (see `check-codeql-parity.sh` comment referencing a real incident: a suppressed finding rode through PR #1216 unnoticed because local and CI independently duplicated blocking logic).
+- Emits results to `$GITHUB_STEP_SUMMARY`, then a **separate, later step** does the actual hard-fail (`Fail on High-Severity Findings`) — reporting and gating are deliberately split into two steps so the summary always renders even on failure.
 
-This comment is **inaccurate**, and unskipping as-is would produce a real (non-WebSocket) failure. Root-cause trace performed per `CLAUDE.md`'s Root Cause Analysis Protocol:
+**`.github/workflows/security-pr.yml`** (closest pattern for "pinned scanner → SARIF upload → hard-fail gate"):
+- Runs Trivy via `aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25` (SHA-pinned, `# aquasecurity/trivy-action 0.36.0` comment), with an explicit `version: 'v0.73.0'` input additionally pinning the *scanner* version, not just the action wrapper.
+- Runs the scan **twice**: once with `format: 'sarif'` (`continue-on-error: true`, purely for the Security tab), then again with `format: 'table'` + `exit-code: '1'` (no continue-on-error) as the actual blocking gate. It also has an explicit "Check Trivy SARIF output exists" gating step between the SARIF-producing run and the upload step. This two-pass "report, then gate" split, plus the existence check, is the direct template for Semgrep's SARIF-vs-hard-fail split (§3.3).
+- SARIF uploaded via `github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7` (same SHA-pinned action already used elsewhere in this repo for SARIF ingestion — no new third-party dependency needed for the upload step).
+- Trigger shape is materially more complex than needed here (`workflow_run` chaining off `docker-build.yml`, PR-number resolution, artifact download) because Trivy scans a **built container image**. Semgrep scans **source**, so it needs none of that — it can trigger directly on `push`/`pull_request` like CodeQL, with no dependency on a prior Docker build.
 
-- `frontend/src/pages/Security.tsx:297-303` — the "Notifications" header button's `onClick` is `() => navigate('/settings/notifications')`. It is a **React Router navigation**, not a modal. There is no `role="dialog"` anywhere in `Security.tsx`.
-- `Security.functional.test.tsx:20-27` mocks `useNavigate` (`mockNavigate = vi.hoisted(() => vi.fn())`) — the file's own test harness already expects navigation, not a modal, elsewhere.
-- **The correct test already exists in the same file**, passing, uncontested: `Security.functional.test.tsx:452-464`, `it('should navigate to notifications settings when Notifications button is clicked', ...)`, which asserts `expect(mockNavigate).toHaveBeenCalledWith('/settings/notifications')`.
+### 2.4 Repo-wide pinning convention
 
-Conclusion: the skipped test at line ~680 is **dead, stale test code** describing UI behavior (a modal) that was replaced by a navigation at some prior refactor, and the replacement behavior already has full, correct, passing coverage elsewhere in the same file. Per `CLAUDE.md` "CLEAN: Delete dead code immediately," the correct fix is **deletion of the stale `it.skip` block** (the `describe('Notification Settings Modal', ...)` wrapper at line ~677 becomes empty and should be removed with it), not an unskip and not a comment-only edit. This is a stronger, more correct resolution than either option the investigation brief offered, and it should be called out explicitly in the PR description as the resolution for this file.
+Every third-party action in this repo is pinned to an exact commit SHA with a trailing `# vX.Y.Z` comment — never a floating tag, never `@latest`. This is enforced by convention/review, not currently by a lint rule for actions specifically. Any new job must follow this exactly.
 
-**Current full-suite baseline** (`npx vitest run --coverage=false`, non-mutating, run to completion — 635s):
+### 2.5 Semgrep version/mechanism research
 
-```
-Test Files  263 passed | 5 skipped (268)
-     Tests  3247 passed | 88 skipped | 2 todo (3337)
-```
+Options considered:
 
-88 skipped = 83 (sub-issue-1, in scope) + 1 (`Security.functional.test.tsx` notification-modal test, in scope, to be deleted not unskipped) + 4 (`CrowdSecBouncerKeyDisplay.test.tsx`, confirmed out of scope). Arithmetic reconciles exactly — no other undici/WebSocket-flavored skips exist anywhere else in `frontend/src` (verified via repo-wide grep for `undici`, `BLOCKER 3`, `WebSocket connections internally`).
+| Option | Assessment |
+|---|---|
+| `pip install semgrep==<version>` on `ubuntu-latest` | Works, but reintroduces a Python toolchain dependency into a Go+TS repo purely for CI plumbing (`CLAUDE.md`: "No Python — do not introduce Python scripts or requirements"). While this is arguably a tooling install rather than an authored script, it still pulls in `pip`/Python resolution behavior (version solving, transitive dependency drift) that the repo's own conventions steer away from. Rejected. |
+| `semgrep/semgrep-action` (formerly `returntocorp/semgrep-action`) marketplace GitHub Action | Semgrep's own current CI docs no longer lead with this as the primary GitHub Actions pattern; it's a thin wrapper around the same official Docker image. Using it would add an extra layer of indirection (an Action wrapping an image) for no behavioral benefit over using the image directly, and re-pinning *that* action's SHA doesn't pin Semgrep's own version any more precisely than pinning the image does. Rejected in favor of the image directly. |
+| Official `semgrep/semgrep` Docker image, used as a job-level `container:`, pinned by exact tag **and** digest | Matches this repo's SHA-pinning strictness (a digest is the container-image equivalent of an action's commit SHA — both are content-addressed, immutable references). Gives the CLI directly, with the identical `semgrep scan ...` invocation used locally — maximizes behavioral parity with `semgrep-scan.sh`. **Selected.** |
 
-### 2.2 Sub-issue 2 — Weak/tautological E2E assertions: CONFIRMED, LARGER THAN ORIGINAL ISSUE TEXT, MAJORITY REQUIRE REAL FIXES
-
-Pattern searched: literal `|| true` immediately preceding `.toBeTruthy()` in `tests/**/*.spec.ts` (the actual pattern in this repo — confirmed not a generic `x` placeholder). Exact current count: **59 occurrences across 11 files**, matching the prior investigation's file list and the prior day's rough counts almost exactly (one file's estimate, `system-settings-feature-toggles.spec.ts`, is 1, not the previously-noted range — reconfirmed by direct grep):
-
-| File | Count | Lines |
-|---|---|---|
-| `tests/security-enforcement/zzz-security-ui/access-lists-crud.spec.ts` | 13 | 156, 200, 339, 465, 545, 623, 825, 845, 862, 949, 985, 1018, 1061 |
-| `tests/core/certificates.spec.ts` | 9 | 204, 229, 718, 759, 1037, 1052, 1118, 1146, 1158 |
-| `tests/security-enforcement/zzz-security-ui/encryption-management.spec.ts` | 8 | 188, 314, 393, 498, 596, 601, 684, 708 |
-| `tests/core/proxy-hosts.spec.ts` | 8 | 209, 255, 461, 523, 547, 643, 969, 1014 |
-| `tests/security-enforcement/zzz-security-ui/system-security-settings.spec.ts` | 7 | 290, 325, 352, 452, 555, 680, 736 |
-| `tests/core/navigation.spec.ts` | 4 | 238, 559, 733, 758 |
-| `tests/settings/smtp-settings.spec.ts` | 4 | 121, 165, 231, 906 |
-| `tests/core/dashboard.spec.ts` | 3 | 232, 370, 491 |
-| `tests/settings/account-settings.spec.ts` | 1 | 875 |
-| `tests/security/system-settings-feature-toggles.spec.ts` | 1 | 317 |
-| `tests/manual-dns-provider.spec.ts` | 1 | 311 |
-| **Total** | **59** | |
-
-**Decision framework applied to every occurrence** (per task instructions):
-
-- **(a) Real conditional assertion** — used when the test's own name or an adjacent comment already states a definite, deterministic expectation ("should show X", "X should appear") that the app can be made to satisfy reliably. Mechanical sub-case: when the expression already has a *real* multi-condition OR (e.g. `hasX || hasY || true`), the fix is simply dropping the trailing `|| true` — the meaningful disjunction underneath is preserved.
-- **(b) Explicit `test.skip()` / early return with accurate comment** — used only where the underlying condition is genuinely environment- or timing-dependent (cross-browser keyboard focus order, network-dependent external reachability *content* — as opposed to "some feedback appeared," which is still deterministic, race conditions in animation/skeleton timing). This repo already has an established, correct convention for this — `tests/proxy-host-drag-drop.spec.ts` (19 call sites) and `tests/certificate-delete.spec.ts` / `tests/certificate-bulk-delete.spec.ts` (1 each) all use `test.skip(true, '<reason>')` mid-test when a precondition isn't met. **Reuse this exact convention** — do not invent a new pattern.
-- **(dead code) Delete** — used when a hard `expect(...).toBeVisible()` (or equivalent) already precedes the tautological line for the *same* condition, making the soft check unreachable/redundant.
-
-Classification results by file (full per-line detail for implementers; "(a)", "(b)", "(dead)" tags below are the required fix per line):
-
-#### `tests/core/certificates.spec.ts` (9 `|| true` occurrences, plus 1 additional vacuous test with no tautology to grep for) — includes the 3 originally-named tests plus 2 more sharing the same defect
-
-- **L204** `hasSortIcon || true` — comment above states "Sort icon should appear" as a definite requirement → **(a)**: `expect(hasSortIcon).toBe(true)`.
-- **L229** `hasAlert || true`, test `'should show SSL info alert'` → **(a)**: test name itself is the requirement.
-- **L718** `hasDelete || true`, test `'should show delete button for staging certificates'` → **(a)**.
-- **L759** `hasToast || true`, test `'should warn if certificate is in use by proxy host'` → **(a), root-cause fix required, see below.**
-- **L1037** `hasSslColumn || true` — comment: "SSL column *may* show certificate info" → checked against the source (`frontend/src/pages/ProxyHosts.tsx:556-557`): the SSL column (`key: 'ssl', header: t('proxyHosts.columnSSL')`) is a **static column definition**, not conditional per-row/per-feature-flag — unlike proxy-hosts.spec.ts L643's `hasWs`/`hasAcl` (which genuinely vary per host's configuration and need a seeded host to be deterministic), this column header renders unconditionally whenever the table itself renders. → **(a), and simpler than L643**: no seeding needed — the `hasTable` check already above this line guarantees the table is rendered, so `expect(hasSslColumn).toBe(true)` is deterministic as-is; verify at implementation time that no feature flag gates the column before finalizing.
-- **L1052** `hasHeading || true` — a **hard** `await expect(heading).toBeVisible({ timeout: 10000 })` already executes immediately above this line for the identical locator → **(dead)**: delete the redundant soft-check (3 lines).
-- **L1118** `hasError || true`, test `'should show error message on API failure'` — **root-cause issue**: the test never injects a failure (no `page.route(...)` interception forcing a 4xx/5xx). It cannot show an error message because no error is ever induced. → **(a) with expanded scope**: add a `page.route('**/api/v1/certificates', route => route.fulfill({ status: 500, ... }))` (or equivalent, matching the mocking convention used elsewhere in this same file's "Error Handling" section if one exists — verify at implementation time) before navigation, then assert the error message is real and visible. This is not a one-line fix; note it in the commit as a slightly larger item.
-- **L1146** `hasDescription || true`, test `'should have PageShell with title and description'` → **(a)**.
-- **L1158** `hasIcon || true` — comment: "Button should have Plus icon" → **(a)**.
-
-**The 3 named tests, plus 2 more sharing the identical defect, in detail** (backend root-cause traced via `backend/internal/api/handlers/certificate_handler.go:387-470`, `CertificateHandler.Delete`):
-
-Note: a 5th test in the same `describe` block, `'should show config reload overlay during deletion'` (~L806-821), was not caught by the initial `|| true` grep sweep because it doesn't end in a tautology — it uses the identical broken `page.once('dialog', dialog => dialog.accept())` pattern against the same non-existent native dialog, then only does `await waitForDebounce(page)` with **no assertion at all** afterward. It is just as vacuous as the other four and requires the identical interaction-model fix, so it is grouped with them below (item 5) and included in the same commit.
-
-Critical finding: **the delete UI does not use a native `window.confirm()` dialog.** `frontend/src/components/dialogs/DeleteCertificateDialog.tsx` is a fully custom React modal (uses the shared `Dialog`/`DialogContent`/`DialogFooter` primitives, `Button` components with `onClick={onCancel}` / `onClick={onConfirm}`, translated via i18n keys `certificates.deleteTitle`/`deleteConfirmCustom`/`deleteButton`/`common.cancel`). It contains **no `confirm()` call and no "backup" text is guaranteed** — the backup-mentioning copy (`certificates.deleteConfirmCustom`: *"This will permanently delete this certificate. A backup will be created first."*, `frontend/src/locales/en/translation.json:234`) is used **only** when `getWarningKey()` falls through to the default case (i.e. the certificate is not `expired`, not `expiring`, and not `letsencrypt-staging`); the other 3 status-specific messages (`deleteConfirmStaging`, `deleteConfirmExpired`, `deleteConfirmExpiring`) never mention backups at all.
-
-All five existing tests (`'should show delete confirmation dialog'` L723, `'should warn if certificate is in use by proxy host'` L741, `'should cancel delete when confirmation dismissed'` L764, `'should create backup before deletion'` L788, `'should show config reload overlay during deletion'` L806) currently drive the flow via `page.once('dialog', ...)` — Playwright's **native browser dialog** handler. Since the app never opens a native dialog for this flow, **that handler callback never fires**; the tests currently click the delete button (opening the *custom* modal, which is left dangling/unclosed) and then either do nothing further or check a `hasX || true` that trivially passes. These tests currently exercise almost none of the real deletion flow. This is a larger, root-cause-level fix, not a one-line assertion swap:
-
-1. **`'should show delete confirmation dialog'` (L723, not currently `|| true` but must be fixed alongside the others for the block to work at all)**: replace `page.once('dialog', ...)` with locating the actual custom modal (`page.getByRole('dialog')` from the shared `Dialog` primitive — verify exact role/testid in `frontend/src/components/ui/Dialog.tsx` at implementation time) and asserting its title (`t('certificates.deleteTitle')` → "Delete Certificate") and Cancel/Delete buttons are visible.
-2. **`'should warn if certificate is in use by proxy host'` (L741/L759)**: backend `Delete()` returns `409 {"error": "certificate is in use by one or more proxy hosts"}` **before** any backup is attempted, when `IsCertificateInUse`/`IsCertificateInUseByUUID` is true. Real fix: select (or seed via API, matching this file's existing seeding convention) a certificate that is actually attached to a proxy host, click delete, click the custom modal's Confirm button, and assert a real error toast/message appears (matching the app's toast convention — `sonner`/`[role="alert"]`, consistent with other files in this PR) rather than the current always-true check. Do not rely on "whichever cert happens to be first in the table."
-3. **`'should cancel delete when confirmation dismissed'` (L764)**: replace `page.once('dialog', dialog => dialog.dismiss())` with clicking the custom modal's **Cancel** button. The existing row-count check (`rowsBefore === rowsAfter`) is real and should be **kept**, but per the task's explicit instruction, **add a backend-state assertion**: `GET /api/v1/certificates/{id}` (via `getCertificateViaAPI` from `tests/utils/api-helpers.ts`, the file's already-established API-verification helper — reuse it, do not invent a new one) returns `200` and the certificate is still present, proving cancellation didn't merely hide a row client-side.
-4. **`'should create backup before deletion'` (L788, currently checks `dialog.message()` contains "backup" via a handler that never fires — the current implementation is not even a tautology, it is dead/vacuous)**: backend confirms `CreateBackup()` (via `BackupServiceInterface`) is called synchronously in the `Delete` handler, for a certificate that is **not** in use, before the delete completes. Correct fix: capture the backup list via `GET /api/v1/backups` (same endpoint mocked/used in `tests/tasks/backups-create.spec.ts`; no existing typed helper for it in `tests/utils/api-helpers.ts` — add one, `getBackupsViaAPI`, following the exact pattern of the file's other `get*ViaAPI` functions) **before** the delete, click Confirm on the custom modal for a certificate guaranteed not in use, wait for the delete to complete, then `GET /api/v1/backups` again and assert a new backup entry exists (by count increase and/or a `created_at`/filename close to "now"). Do **not** assert on dialog text — the text does not reliably mention "backup" depending on certificate status, as shown above.
-5. **`'should show config reload overlay during deletion'` (~L806-821, currently `page.once('dialog', dialog => dialog.accept())` then only `await waitForDebounce(page)` — no assertion at all, silently vacuous)**: replace with clicking the custom modal's **Confirm/Delete** button for a certificate guaranteed not in use, then assert the actual loading/config-reload overlay is real: locate it the same way `tests/security/system-settings-feature-toggles.spec.ts:317`'s `overlayVisible` check does (`.fixed.inset-0.z-50` / `[data-testid="config-reload-overlay"]` — reuse that locator convention rather than inventing a new one) and assert it becomes visible during the delete request and then resolves/disappears once the request completes, rather than the current no-op.
-
-#### `tests/core/proxy-hosts.spec.ts` (8 occurrences)
-
-- **L209** `hasBulkBar || true` — comment: "Should show bulk action bar" → **(a)**.
-- **L255** `isInvalid || true` — comment: "Browser validation or custom validation should prevent submission" → **(a)**; consider also asserting no `POST /api/v1/proxy-hosts` was sent (stronger, matches sub-issue 2's "verify backend state" spirit) if feasible without large rework.
-- **L461** `hostCreated || true` — this is the **creation-verification step of a core CRUD test**. → **(a), strengthen**: assert UI text visible **and** verify via `getProxyHostsViaAPI`/`getProxyHostViaAPI` (already in `tests/utils/api-helpers.ts`) that the host exists server-side with the expected `domain`/`forward_host`/`forward_port` — mirrors the existing convention in this same helper file.
-- **L523** `exists || true` (loop over expected security-option checkboxes: force SSL, HTTP/2, HSTS, block exploits, websocket) → **(a)**: these are static, always-rendered form fields; assert each `expect(exists).toBe(true)`.
-- **L547** `exists || true` (loop over preset dropdown options: plex, jellyfin, homeassistant, nextcloud) → **(a)**, pending a quick implementation-time check that these presets are indeed static/guaranteed (grep the preset source, e.g. `frontend/src/**/presets*`) rather than feature-flagged.
-- **L643** `hasWs || hasAcl || true`, test `'should show feature badges (WebSocket, ACL)'` — comment: "May or may not exist depending on host configuration" → **(a) via test-setup fix**: rather than leaving this permanently unverifiable, seed/select a host in the test's own setup with `websocket_support: true` (via `createProxyHostViaAPI`) so `hasWs` is deterministic; drop `|| true`.
-- **L969** `hasApply || hasRemove || true` — comment: "Should have apply/remove tabs or buttons" (definite) → **(a)**: drop `|| true`.
-- **L1014** `hasFocus || true` (keyboard nav: 3 Tabs inside an open modal, expect something focused) → **(a)** preferred (modals should trap/receive focus deterministically); fall back to **(b)** only if empirically flaky per-browser during implementation (cross-reference with sub-issue 5's WebKit focus-order risk).
-
-#### `tests/security-enforcement/zzz-security-ui/access-lists-crud.spec.ts` (13 occurrences)
-
-- **L156** `hasBadge || true` (allow/deny type badge in first seeded row) → **(a)**, contingent on the `beforeEach` seed fixture guaranteeing a row with a known type — verify at implementation time.
-- **L200** `isInvalid || true` — comment: "HTML5 validation should prevent submission" (definite) → **(a)**.
-- **L339** `hasInfo || true` — "Blacklist should show 'Recommended' info box" (definite, immediately after `selectOption('blacklist')`) → **(a)**.
-- **L465** `hasPresets || true` (preset options after clicking "Show presets") → **(a)**.
-- **L545** `hasUpdated || true` (rename ACL, verify) → **(a)**, strengthen with `getAccessListViaAPI` name check (same convention as certificates §2.2 backup verification).
-- **L623** `hasSuccess || true` (save success toast) → **(a)**.
-- **L825** `hasBulkBar || true` → **(a)** (same pattern as proxy-hosts L209).
-- **L845** `hasBulkDelete || true`, test `'should show bulk delete button when items selected'` → **(a)**.
-- **L862** `hasHeading || true`, test `'should navigate between Access Lists and Proxy Hosts'` — **no** preceding hard assert here (unlike the near-identical certificates.spec.ts:1052 case, which is dead code) → **(a)**: promote to a hard `await expect(heading).toBeVisible({ timeout: 5000 })`.
-- **L949** `hasWarning || true`, test `'should show CGNAT warning when ACLs exist'` → **(a)**, contingent on seeded ACL data guaranteeing the CGNAT condition — verify seed fixture at implementation time.
-- **L985** `hasExternalIcon || true` (external-link icon on "best practices" link) → **(a)**.
-- **L1018** `hasFocus || true` (same keyboard-tab pattern as proxy-hosts L1014) → **(a)** preferred, **(b)** fallback if flaky.
-- **L1061** `isHidden || true` (IP input hidden when "local network only" toggle enabled) → **(a)**: deterministic conditional-field-visibility behavior.
-
-#### `tests/security-enforcement/zzz-security-ui/encryption-management.spec.ts` (8 occurrences)
-
-- **L188** `hasWarning || true` (rotate-key confirm dialog warning content) → **(a)**: dialog title/confirm/cancel are already hard-asserted immediately above; the warning text check should be promoted to match.
-- **L314** `hasProgress || true` — comment: "Progress may appear briefly - capture if visible" → **(b)**: genuinely a timing race (progress indicator can legitimately complete before the 5s poll ever samples it); use `test.skip()`-with-reason or remove if no stronger signal (e.g., a `waitForResponse` on the rotation request) can be substituted.
-- **L393** `hasWarning || true` — inside `if (isDisabled)` guard, checking rotation-disabled warning text → **(a)**: once inside the guard the condition is deterministic (button is confirmed disabled).
-- **L498** `hasWarning || true` — comment: "Warnings may or may not be present - just verify we can detect them" → **(b)**: explicitly optional per comment; convert to non-blocking annotation or remove — it currently asserts nothing meaningful either way.
-- **L596** `hasBadge || true` (action-type badge in first audit-log row) → **(a)**, contingent on seeded rotation-history data.
-- **L601** `hasVersionInfo || true` (version/duration info in same row) → **(a)**, same seeding caveat as L596.
-- **L684** `hasToast || true` (keyboard-activated validate button should trigger a result toast) → **(a)**: deterministic feedback requirement.
-- **L708** `accessibleName || true` (every visible button should have an accessible name) → **(a)**: real, valuable a11y assertion; drop `|| true`.
-
-#### `tests/security-enforcement/zzz-security-ui/system-security-settings.spec.ts` (7 occurrences)
-
-- **L290** `hasValidation || true` — comment: "May not have inline validation" (explicit hedge) → **(b)**: convert to `test.skip()`/annotation.
-- **L325** `toastVisible || true` — the immediately preceding step already hard-asserts `expect(saveResponse.ok()).toBeTruthy()` (a real successful save) → **(a)**: success feedback must follow a confirmed-successful save; drop `|| true`.
-- **L352** `hasSuccess || true` (green-checkmark validation indicator for a valid URL) → **(a)**, pending a quick check that this indicator is unconditionally rendered for the field (verify at implementation time).
-- **L452** `toastVisible || true` — comment: "URL reachability depends on network - just verify test button works" → **(a) for the meta-assertion**: regardless of network outcome (reachable/unreachable), *some* toast must always appear after clicking Test — that part is deterministic. Drop `|| true`; do not assert on toast *content*.
-- **L555** `hasVersion || true` (version string format) → **(a)**: app always renders a build version (semver or `dev`).
-- **L680** `newState !== initialState || true` — this directly overlaps sub-issue 4's feature-flag propagation fix; the test already awaits both the `PUT` and `GET` feature-flags responses via `Promise.all` before reading `newState` → **(a)**: the toggle state change is deterministic once both responses have resolved; drop `|| true`.
-- **L736** `accessibleName || true` — same pattern as encryption-management L708 → **(a)**.
-
-#### `tests/core/navigation.spec.ts` (4 occurrences)
-
-- **L238** `hasActiveCurrent || hasActiveClass || true` → **(a)**, mechanical: drop `|| true`, keep the two-way OR (an active nav item must signal state via `aria-current` or an active class — at least one is a real requirement).
-- **L559** `foundNavLink || true` — comment: "May not find nav link depending on focus order - this is acceptable" → **(b)**: convert to `test.skip(true, 'no focusable nav link found via keyboard tab order in this run')` per the established `test.skip(true, reason)` convention, rather than a fake pass.
-- **L733** `hasAriaCurrent || true` — comment: "aria-current is recommended but not always implemented" → **(a), converge with L238's convention**: check `aria-current` **or** active class (matching the pattern already used at L238 in the same file) instead of `aria-current` alone with a fake fallback — this makes it a real, DRY assertion instead of leaving it permanently soft.
-- **L758** `outline || true` (focus-visible indicator style) → **(a)** preferred: assert `outline` is non-empty/not `'none'`; fall back to **(b)** only if empirically flaky across Chromium/Firefox/WebKit during implementation.
-
-#### `tests/core/dashboard.spec.ts` (3 occurrences)
-
-- **L232** `foundButton || true` (quick-action button reachable via keyboard tab loop) → **(b)**: tab-order flakiness, same pattern as navigation.spec.ts:559; convert to `test.skip()`-with-reason when not found within the loop bound, rather than fake pass. The real assertion (`expect(focused).toBeFocused()`) already fires correctly when found.
-- **L370** `hasEmptyState || hasActualContent || true` — comment: "Dashboard should show either empty state or content, not crash" (a genuine, environment-independent invariant) → **(a)**, mechanical: drop `|| true`.
-- **L491** `reachedCard || focusableElementsFound > 0 || true` — comment: "verify we at least found some focusable elements" → **(a)**, mechanical: drop `|| true`, keep the two-way OR.
-
-#### `tests/settings/smtp-settings.spec.ts` (4 occurrences)
-
-- **L121** `skeletonVisible || true` — comment: "Either skeleton is shown or page loads very fast" → **(b)**: genuine loading-timing race; convert to `test.skip()`-with-reason or remove — a 500ms artificial delay plus a 1000ms visibility timeout should make the skeleton reliably visible, so first try tightening the mock/timeout to make this **(a)** before falling back to **(b)**.
-- **L165** `hasValidation || true` — comment: "Either inline validation or form submission is blocked" (definite requirement, required-field case) → **(a)**.
-- **L231** `hasValidation || true` — comment: "Validation should occur (inline or via toast)" (definite, invalid-email-format case) → **(a)**.
-- **L906** `hasAccessibleError || true` — comment: "Some form of accessible error feedback should exist" (definite a11y requirement) → **(a)**.
-
-#### `tests/settings/account-settings.spec.ts` (1 occurrence)
-
-- **L875** `foundApiButton || true` — comment: "Non-blocking assertion" (explicit hedge, keyboard tab-order search for API key buttons) → **(b)**: convert to `test.skip()`-with-reason, consistent with the tab-order-flakiness cases above.
-
-#### `tests/security/system-settings-feature-toggles.spec.ts` (1 occurrence)
-
-- **L317** `overlayVisible || true` — comment: "Overlay may appear briefly - either is acceptable" → **(b)**: genuine timing race (config-reload overlay can complete before the 1s poll samples it); the `responsePromise` for the `PUT /feature-flags` call is already captured above but never awaited/used to gate this check — first try awaiting that promise before sampling the overlay (would make this **(a)**); fall back to **(b)** if still flaky.
-
-#### `tests/manual-dns-provider.spec.ts` (1 occurrence)
-
-- **L311** `hasVisibleIcon || true` (status icon inside an already-hard-asserted status indicator) → **(a)**: the indicator itself is already hard-asserted visible immediately above; the icon inside it should be deterministic too.
-
-**Summary**: of 59 `|| true` occurrences, **~47 become real assertions (a)**, **~4 are dead code to delete**, and **~8 are genuinely environment/timing-dependent and become explicit `test.skip()` calls (b)** using the repo's existing convention — plus 1 additional vacuous test (certificates.spec.ts's `'should show config reload overlay during deletion'`) that has no `|| true` to count here but requires the identical interaction-model fix (see the certificates.spec.ts breakdown above). Exact per-line final disposition is confirmed during implementation per the guidance above; the DoD gate in §5 enforces that zero bare `|| true`-before-`toBeTruthy()` patterns remain regardless of which bucket each line lands in.
-
-### 2.3 Sub-issue 3 — Backend coverage gaps: CONFIRMED STALE / ALREADY RESOLVED, NO CODE CHANGES
-
-Re-ran directly (non-mutating `go test -cover`):
+Confirmed via the Semgrep GitHub releases API (`api.github.com/repos/semgrep/semgrep/releases/latest`) and PyPI, current stable version at plan time is **`1.173.0`**. Resolved the corresponding Docker Hub manifest digest for `semgrep/semgrep:1.173.0`:
 
 ```
-ok  internal/services                        coverage: 88.4% of statements   (target 85%)
-ok  internal/services/remotestorage           coverage: 90.3% of statements
-ok  backend/pkg/dnsprovider/builtin           coverage: 91.8% of statements   (target 50% incremental)
+sha256:67319956da3dcb58baf5b322899c15458e3963e7018a86aeeb5cd224e69cb77a
 ```
 
-Confirms the prior investigation exactly. `backend/pkg/dnsprovider/builtin` is the correct current location (relocated from `internal/dnsprovider/builtin` as the original issue text said) and is excluded from `codecov.yml` reporting (`ignore:` list, line 136 — "tested via integration tests, not unit tests") but not from `go-test-coverage.sh`'s enforcement; either way, actual coverage is far above both the codecov project target (87%) and the issue's original incremental target (50%). **No regression, no code changes required.** This PR's only obligation here is to capture a coverage run as DoD evidence (§5) and state this explicitly in the PR description (§6).
+Pinned reference to use in the workflow:
 
-### 2.4 Sub-issue 4 — Feature flag async propagation tests: CONFIRMED STALE / ALREADY RESOLVED, NO CODE CHANGES
+```
+semgrep/semgrep:1.173.0@sha256:67319956da3dcb58baf5b322899c15458e3963e7018a86aeeb5cd224e69cb77a
+```
 
-`tests/settings/system-settings.spec.ts` no longer exists (confirmed via `find`); the feature-flag tests were reorganized into `tests/security/system-settings-feature-toggles.spec.ts`, which:
-- Imports and calls `waitForFeatureFlagPropagation` **9 times** (exact count via `grep -c`, correcting the prior investigation's "11" estimate) across all 9 tests in the file.
-- Has **zero** `.skip`/`.fixme` markers (aside from the one tautological assertion at L317, covered under sub-issue 2 above — a different problem, not the async-propagation flakiness this sub-issue was about).
+**Note for the implementer (devops agent):** re-resolve this digest at implementation time (`docker buildx imagetools inspect semgrep/semgrep:1.173.0` or the registry API) rather than trusting the value transcribed into this plan verbatim, in case the tag's digest has moved between planning and implementation (Docker Hub does not guarantee a tag's digest is immutable the way a Git SHA is — pinning to the *tag+digest pair as observed at merge time* is the achievable guarantee here, and Renovate, already active in this repo via `.github/renovate.json`, will pick up future digest/tag bumps the same way it tracks other pinned SHAs if configured to watch this image — see §3.7 edge case).
 
-**No regression, no code changes required.** This file is already fully in-scope for the mandatory full E2E run in §5 (it was already going to run; no special inclusion action needed).
+**Known gotcha (Semgrep's own docs, `semgrep.dev/docs/kb/semgrep-ci/using-nonroot-docker-image-with-gha`):** running `semgrep/semgrep` as a job-level `container:` against a `actions/checkout`-produced workspace can hit git's "dubious ownership" safety check because the container user doesn't match the checkout's file ownership. Mitigate with an explicit `git config --global --add safe.directory "$GITHUB_WORKSPACE"` step before invoking `semgrep-scan.sh` (§3.3).
 
-### 2.5 Sub-issue 5 — WebKit E2E tests not executing: CONFIG CONFIRMED HEALTHY, ONE REAL RUN STILL OUTSTANDING
+**Correction (Supervisor round 2, required change 1):** the container image reference **cannot** be centralized in a workflow-level `env:` var and referenced as `container.image: ${{ env.SEMGREP_IMAGE }}`. GitHub Actions' documented context-availability rules do not expose the `env` context to `jobs.<job_id>.container` — this is a known, currently-true limitation (not something that needs "verification at implementation time"; treating it as an open question in the prior draft was itself the error). The plan now specifies the pinned string **inlined directly** in `container.image` as the only correct form (§3.2) — no `env` indirection.
 
-- WebKit `26.5` installed; `npx playwright test --list --project=webkit` discovers **963 tests across 86 files** (re-verified, matches prior investigation exactly).
-- `playwright.config.js` (repo root — the config actually governing `tests/`, distinct from the unrelated minimal `frontend/e2e/playwright.config.ts`) reviewed line-by-line: the `webkit` project (L299-314) has **identical** `dependencies`, `testMatch`, and `testIgnore` patterns to `chromium`/`firefox` — no webkit-specific exclusion, no `browserName`-conditioned `test.skip()` anywhere in `tests/**` (repo-wide grep confirmed zero matches).
-- Note (informational, not a defect): the `webkit` project's `testIgnore` excludes `**/security-enforcement/**` and `**/tests/security/**`, same as chromium/firefox — those specs only run under the dedicated `security-tests` project, which is **Chromium-only by design** (L237-254, "SEQUENTIAL, Chromium only"). This means 29 of this PR's 59 sub-issue-2 fixes (all of `access-lists-crud.spec.ts`, `encryption-management.spec.ts`, `system-security-settings.spec.ts`, `system-settings-feature-toggles.spec.ts`) are **out of WebKit's run scope entirely, by existing design** — not something this PR changes or needs to change.
-- A dedicated `tests/core/caddy-import/caddy-import-webkit.spec.ts` (`@webkit-only` tag) already exists for known WebKit-specific quirks in the Caddyfile-import flow, and `caddy-import-cross-browser.spec.ts` already parameterizes assertions per `browserName` — evidence the team has previously handled real WebKit differences correctly elsewhere; no similar per-browser branching is missing here.
-- **Risk flagged**: none identified in config. The keyboard-focus-order tautologies converted to real assertions in §2.2 (proxy-hosts.spec.ts:1014, access-lists-crud.spec.ts:1018, navigation.spec.ts:758) are the most plausible source of **new** WebKit-specific flakiness once they stop being unconditionally true — this is exactly why §2.2 marks them "(a) preferred, (b) fallback if empirically flaky" rather than a hard mandate, and why the full WebKit run (§5) must happen **after** the sub-issue-2 commits land, not before.
-- **Not run in this planning pass** (explicitly deferred to execution/QA phase per task instructions): the actual full `npx playwright test --project=webkit` execution. This is a mandatory, explicit Definition-of-Done gate (§5) for this PR.
+### 2.6 Placement decision: new file vs. an existing workflow
 
-### 2.6 `.gitignore` / `.dockerignore` / `codecov.yml` / `Dockerfile` review
+*(Per mid-task correction from Management: decide the best location and justify it, rather than defaulting to a new file. Approved as-is by Supervisor round 2 — no changes in this revision.)*
 
-All reviewed; **no changes required** for this PR:
+Three placements were evaluated:
 
-- `.gitignore`: `frontend/coverage/`, `frontend/test-results/`, `/test-results/`, `/playwright-report/` already cover all artifacts this PR's test runs will produce.
-- `.dockerignore`: `tests/`, `test-results/`, `test-data/` already excluded from the Docker build context; no new test directories are being introduced by this PR (only edits to existing spec/test files).
-- `codecov.yml`: `**/e2e/**`, `**/*.spec.ts`, `**/__tests__/**` already excluded from coverage accounting; `backend/pkg/dnsprovider/builtin/**` already excluded (consistent with §2.3's finding that this package is verified via integration tests). No new source paths are introduced.
-- No `Dockerfile` changes — this PR ships no runtime code.
+| Placement | Verdict |
+|---|---|
+| **New job added to `codeql.yml`** | Rejected. `codeql.yml`'s entire structure is a `strategy.matrix` over CodeQL *languages* (`go`, `javascript-typescript`), with per-language conditional steps (`if: matrix.language == 'go'`) for Go toolchain setup/build and the CodeQL parity guard. Semgrep is not a CodeQL language variant — it's a different tool with a different container, different config format, and a different (single, non-matrixed) invocation. Bolting it in as a third matrix leg would force awkward `if: matrix.language == 'semgrep'` conditionals across steps that don't apply to it (Autobuild, `codeql-action/init`, Go build verification), degrading the readability of a file whose entire premise is "one job, matrixed by CodeQL language." Also couples Semgrep's schedule/trigger lifecycle to CodeQL's, when they are independent tools that should be able to fail, be disabled, or be re-scheduled independently. |
+| **New job added to `security-pr.yml`** | Rejected. That workflow's trigger shape and majority of its steps exist *solely* to solve "how do I scan a Docker image that was already built by a separate upstream workflow" — PR-number resolution from `workflow_run` payloads, artifact download/load fallback logic, container extraction of the `charon` binary, a trust-boundary validation step for the `workflow_run` event. None of that applies to Semgrep, which scans source text directly on `push`/`pull_request` with no dependency on `docker-build.yml` having run first. Adding a source-scanning job to an image-scanning workflow would mean either (a) it inherits triggers/conditions built for image scanning that don't fit it (e.g. `workflow_dispatch` inputs are `pr_number`-shaped, meaningless for a source scan), or (b) it needs its own parallel `if:` conditions bolted onto an already condition-heavy file, adding complexity for no shared benefit — the two jobs would share a file but no actual logic. |
+| **New file: `.github/workflows/semgrep.yml`** | **Selected.** Semgrep is source-level SAST, triggered directly on `push`/`pull_request`/`schedule`/`workflow_dispatch` — structurally identical in trigger shape to `codeql.yml`, but a distinct tool with its own container, config, and failure/gating semantics. This also matches the repo's existing convention of **one file per scanner**: `codeql.yml` (CodeQL), `security-pr.yml` (Trivy on PR images), `security-weekly-rebuild.yml` (Trivy weekly full scan) are already separate files rather than merged into one "security" workflow, even though they're conceptually related. A dedicated `semgrep.yml` continues that pattern: each scanner is independently triggerable, independently disable-able, and independently readable, at the cost of one more file — a cost the repo has already accepted three times over for its other scanners. |
+
+### 2.7 "Freeze the whole script" reconsidered — design revision (Supervisor round 2, required change 3)
+
+**The original brief's non-goal, re-read precisely:** *"Do NOT touch `scripts/pre-commit-hooks/semgrep-scan.sh`'s binary/version resolution logic itself — that's explicitly out of scope, reserved for the user's own local tooling."* This is a constraint about **binary/version discovery** (the `command -v semgrep` / exit-127 block, §2.1) — not a blanket freeze on every line of the file. The first draft of this plan over-read it into "never touch this file at all," which forced:
+
+- A second, hand-written `semgrep scan ...` invocation inline in the workflow YAML, duplicating all six `--config` flags, all three `--exclude` flags, and the `--exclude-rule` value.
+- A `check-semgrep-parity.sh` script whose primary job was detecting drift between that duplicated invocation and the real script.
+- Pressure to extract shared assertion helpers out of `check-codeql-parity.sh` mainly to support that parity script's config-matching checks.
+
+That is real, avoidable complexity, not an inherent requirement. **Revised design (adopted — option (a) from Supervisor's feedback):** add one small, additive, backward-compatible hook to `semgrep-scan.sh` itself, leaving the binary/version-resolution logic (the actual thing the non-goal protects) completely untouched:
+
+```bash
+# Existing lines (SEMGREP_CONFIGS / TARGETS construction) unchanged above this point.
+
+if [ -n "${SEMGREP_SARIF_OUTPUT:-}" ]; then
+  OUTPUT_FLAGS=(--sarif --output "${SEMGREP_SARIF_OUTPUT}")
+else
+  OUTPUT_FLAGS=(--error)
+fi
+
+semgrep scan \
+  "${SEMGREP_CONFIGS[@]}" \
+  --severity ERROR \
+  --severity WARNING \
+  "${OUTPUT_FLAGS[@]}" \
+  --exclude "frontend/node_modules" \
+  --exclude "frontend/coverage" \
+  --exclude "frontend/dist" \
+  --exclude-rule "go.secrets.gorm.gorm-empty-password.gorm-empty-password" \
+  "${TARGETS[@]}"
+```
+
+Behavior:
+- **`SEMGREP_SARIF_OUTPUT` unset (every existing call site — `pre-commit`, `pre-push`/`security-full`, `make security-local`):** `OUTPUT_FLAGS=(--error)` — byte-identical to today's behavior. Zero change for any existing developer workflow.
+- **`SEMGREP_SARIF_OUTPUT=<path>` set (new — CI only):** swaps `--error` for `--sarif --output <path>`, while every `--config`, `--exclude`, and `--exclude-rule` argument stays exactly as-is, sourced from exactly one place.
+
+This lets CI invoke the **same script** for both the SARIF-producing pass and the hard-fail gate pass (§3.3 steps 5 and 8), varying only an env var. Consequences:
+
+- The duplicated `--config`/`--exclude` list in the workflow YAML is **eliminated entirely** — there is now exactly one place (`semgrep-scan.sh`) that defines what gets scanned, for both local and CI, for both the reporting pass and the gating pass.
+- `check-semgrep-parity.sh` shrinks correspondingly (§3.4) — it no longer needs to compare two independent config lists (nothing to compare; there's only one). It still has a real, narrower job: confirming the additive hook isn't silently removed, confirming the workflow actually delegates to the script for both passes (rather than a future edit reintroducing an inline duplicate), and confirming the image pin and trigger branches stay correct. This is a smaller, more clearly justified guard than the original draft's.
+- The pressure to extract `scripts/ci/lib/workflow-yaml-asserts.sh` out of `check-codeql-parity.sh` is now a plain, optional DRY nicety (the branch-check helper is still needed by both scripts) rather than something load-bearing for the config-parity story — see §3.5.
+
+**Why not stop here and also drop the parity guard entirely?** Because two failure-independent invariants remain worth checking even with zero config duplication: (1) that the additive `SEMGREP_SARIF_OUTPUT` hook stays present in the script (a future refactor of `semgrep-scan.sh` could drop it without realizing CI depends on it), and (2) that the workflow keeps *delegating* to the script for both passes rather than a future edit reintroducing an inline `semgrep scan` call (e.g. someone "simplifying" the SARIF step by hand and accidentally dropping an `--exclude`). Both are cheap, structural, grep-level checks — proportionate, not over-engineering, and much smaller than the original draft's guard (§3.4).
+
+This section supersedes the original §2.7 ("Parity guard: warranted, and why") from the first draft.
+
+### 2.8 Documentation review
+
+- **`SECURITY.md`** (`## Security Audits & Scanning` → `### Automated Scanning` table, lines 992-1020): lists Trivy, CodeQL, govulncheck, golangci-lint (gosec), npm audit, and a `### Scanning Workflows` subsection describing each workflow file's purpose (`docker-build.yml`, `supply-chain-verify.yml`, `security-weekly-rebuild.yml`, PR-specific scanning). **This is the primary file to update** — add a `Semgrep` row to the table and a new `**Semgrep SAST Scan**` paragraph under `### Scanning Workflows` describing `.github/workflows/semgrep.yml`.
+- **`docs/security.md`**: verified by full-text search (`codeql|trivy|scan|pipeline`, no matches) — this file is entirely about the Cerberus runtime security feature (CrowdSec/WAF/access lists), unrelated to the CI/SAST scanning pipeline. **No change needed here.**
+- **`ARCHITECTURE.md` (Supervisor round 2, required change 2 — added to scope):** `CLAUDE.md` requires `ARCHITECTURE.md` updates for changes touching security architecture, and this file already documents the CI security-scanning stack in three places that must be kept current:
+  - Line 166, tech-stack table: `| **Security Scanning** | Trivy + Grype | Latest | Vulnerability detection |` — append Semgrep, e.g. `Trivy + Grype + Semgrep`.
+  - Line 1376, CI Jobs list: `3. **Security:** Trivy, CodeQL, Grype, Govulncheck` — append `, Semgrep`.
+  - Lines 1498-1501, "Container Scanning" components list (`Trivy: ...`, `Grype: ...`, `CodeQL: ...`) — add a fourth line, `Semgrep: Static analysis for security anti-patterns (Go, JS/TS, React, secrets, Dockerfile)`, consistent with the existing one-line-per-tool style.
+  - This is now part of Commit 3's scope (§6) and Acceptance Criteria (§5), alongside `SECURITY.md`.
+
+### 2.9 Ignore-file / build-file review (explicit confirmation per `CLAUDE.md`)
+
+- **`.gitignore`**: already contains a blanket `*.sarif` ignore (line 189) with a narrow `!scripts/security/testdata/*.sarif` carve-out (line 190). A new `semgrep-results.sarif` file in the repo root matches the existing wildcard — **no change needed**.
+- **`.dockerignore`**: already excludes `*.sarif` (line 179) — irrelevant anyway, since this is a CI-only workflow change with no Docker image content change — **no change needed**.
+- **`.codecov.yml`**: workflow-only YAML change, produces no coverage-relevant files — **no change needed**.
+- **Any `Dockerfile`**: not touched; Semgrep runs in its own CI container, never inside the Charon application image — **no change needed**.
+
+(Approved as-is by Supervisor round 2 — no changes in this revision.)
+
+### 2.10 Commit scope: `feat:` vs `feat(security):`
+
+Per `CLAUDE.md`, `feat:`/`fix:`/`perf:` trigger Docker builds; `chore:` skips them, and `feat(security):`/`fix(security):` is reserved for "genuinely security-relevant... real vulnerability fixes, new protective mechanisms." **Decision:** the workflow-adding commit (Commit 2, §6) qualifies as a **new protective mechanism** — it is, definitionally, new automated vulnerability/anti-pattern detection gating merges — so it uses `feat(security):`, not plain `feat:`. Commit 1 (the additive `semgrep-scan.sh` hook + parity guard) also touches genuine security tooling directly and is scoped `feat(security):` for the same reason. Commit 3 (docs) stays `docs:`, matching repo convention for documentation-only changes regardless of what they document. Per `CLAUDE.md`'s vagueness requirement for `(security)` subjects, none of these commit subjects name a vulnerability class or attack vector — they describe the category ("add CI security scanning coverage") only, which is appropriate here since this isn't a vulnerability fix in the first place, just extra coverage.
+
+**Nuance retained from the original draft:** this change touches zero Docker-build-relevant paths (no `Dockerfile`, no backend/frontend source), so the triggered Docker build (a side effect of `feat`/`feat(security)` prefixes repo-wide) is harmless but expected — not a sign something is wrong with a "just workflow files + one shell script" PR.
 
 ---
 
 ## 3. Technical Specifications
 
-This PR is test-infrastructure-only. There is no new API surface, no database schema change, and no new component. The "component design" for this PR is the test-file structure itself.
+### 3.0 Change to `scripts/pre-commit-hooks/semgrep-scan.sh` (additive, in scope per §2.7)
 
-### 3.1 Affected files (exhaustive)
+**File:** `scripts/pre-commit-hooks/semgrep-scan.sh`
+**Change:** insert the `OUTPUT_FLAGS` branch (§2.7) immediately before the existing `semgrep scan \` invocation, and replace the invocation's `--error` line with `"${OUTPUT_FLAGS[@]}"`. No other line in the file changes — the `command -v semgrep` check, the `SEMGREP_CONFIG` override branch, and the `TARGETS` construction are byte-identical to today.
+**Backward compatibility:** every existing call site (`lefthook.yml`'s `pre-commit.semgrep`, `security-full.semgrep`, `Makefile`'s `security-local`) never sets `SEMGREP_SARIF_OUTPUT`, so `OUTPUT_FLAGS=(--error)` unconditionally for all of them — identical exit-code and output behavior to the pre-change script.
+**New behavior (CI-only):** `SEMGREP_SARIF_OUTPUT=<path> bash scripts/pre-commit-hooks/semgrep-scan.sh [targets...]` scans with the same configs/exclusions but emits SARIF to `<path>` instead of hard-failing on findings.
 
-**Frontend unit tests (sub-issue 1):**
-- `frontend/src/pages/__tests__/Security.test.tsx`
-- `frontend/src/pages/__tests__/Security.audit.test.tsx`
-- `frontend/src/pages/__tests__/Security.errors.test.tsx`
-- `frontend/src/pages/__tests__/Security.loading.test.tsx`
-- `frontend/src/pages/__tests__/Security.dashboard.test.tsx`
-- `frontend/src/pages/__tests__/Security.functional.test.tsx`
+### 3.1 New file: `.github/workflows/semgrep.yml`
 
-**E2E specs (sub-issue 2):**
-- `tests/core/certificates.spec.ts` (includes the 5-test "Certificate Deletion" block rewrite — see §2.2)
-- `tests/core/proxy-hosts.spec.ts`
-- `tests/core/navigation.spec.ts`
-- `tests/core/dashboard.spec.ts`
-- `tests/settings/smtp-settings.spec.ts`
-- `tests/settings/account-settings.spec.ts`
-- `tests/security-enforcement/zzz-security-ui/access-lists-crud.spec.ts`
-- `tests/security-enforcement/zzz-security-ui/encryption-management.spec.ts`
-- `tests/security-enforcement/zzz-security-ui/system-security-settings.spec.ts`
-- `tests/security/system-settings-feature-toggles.spec.ts`
-- `tests/manual-dns-provider.spec.ts`
+No API/DB/frontend surface — this is CI/YAML only. Full structural spec below (devops agent should treat this as the authoritative shape; exact YAML syntax is implementer's to finalize, but every element listed must be present).
 
-**Test utility additions (sub-issue 2):**
-- `tests/utils/api-helpers.ts` — add `getBackupsViaAPI(request, token?)`, following the exact signature/error-handling pattern of the file's existing `get*ViaAPI` functions (e.g. `getCertificatesViaAPI`), targeting `GET /api/v1/backups`.
+**Workflow name:** `Semgrep - SAST Scan`
 
-**No changes**: any `backend/**` file, any `frontend/src` file outside `__tests__/`, `.gitignore`, `.dockerignore`, `codecov.yml`, any `Dockerfile`.
+**Triggers:**
+```yaml
+on:
+  pull_request:
+    branches: [main, nightly, development]
+  push:
+    branches: [main, nightly, development]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * 1'  # Mondays 04:00 UTC — offset 1h after CodeQL's 03:00 to avoid runner contention
+```
 
-### 3.2 API contracts referenced (read-only, no changes)
+**Concurrency:**
+```yaml
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+```
+(Identical pattern to `codeql.yml`.)
 
-These existing endpoints are what the strengthened assertions in §2.2 verify against — documented here for implementer reference, not as new contracts:
+**Permissions — declared at both workflow (top) level and job level, identically, matching `codeql.yml`'s style (Supervisor round 2, non-blocking fix):**
+```yaml
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+  pull-requests: read
+```
+This exact block appears twice: once at the workflow top level (sibling of `on:`/`concurrency:`), and again inside `jobs.semgrep-scan.permissions` (§3.2).
 
-| Endpoint | Method | Used by (test) | Purpose in this PR |
-|---|---|---|---|
-| `/api/v1/certificates/:uuid` | `GET` | `certificates.spec.ts` cancel-delete test | Verify certificate still exists after a dismissed delete |
-| `/api/v1/certificates/:uuid` | `DELETE` | `certificates.spec.ts` in-use/backup tests | Existing delete flow (`certificate_handler.go:387-470`) — unchanged |
-| `/api/v1/backups` | `GET` | `certificates.spec.ts` backup-creation test | Verify a new backup entry appears after a successful cert delete |
-| `/api/v1/access-lists/:id` | `GET` | `access-lists-crud.spec.ts` rename test | Verify renamed ACL persisted server-side |
-| `/api/v1/proxy-hosts` / `/api/v1/proxy-hosts/:id` | `GET` | `proxy-hosts.spec.ts` creation test | Verify created host persisted server-side |
+### 3.2 Job: `semgrep-scan`
 
-### 3.3 Error handling / edge cases to cover in the new assertions
+**Correction (Supervisor round 2, required change 1):** the pinned image is inlined directly as a literal string in `container.image` — `jobs.<job_id>.container` does not have access to the `env` context per GitHub Actions' documented context-availability rules, so a workflow-level `env:` indirection (as drafted originally) would not resolve at all. Inlining is the only correct form, not a fallback.
 
-- Certificate delete "in use" path: assert the **specific** 409 error surface (toast/message), not merely "a toast of some kind."
-- Certificate delete "backup" path: must select/seed a certificate guaranteed **not** in use (backend returns 409 before attempting backup if in use — asserting backup creation against an in-use cert would be a false test).
-- ACL/proxy-host rename/creation: API-level verification must tolerate eventual consistency the same way existing passing tests in these files already do (reuse existing `waitFor`/polling helpers, do not add new ad hoc `setTimeout`s).
-- WebKit-sensitive keyboard-focus assertions (§2.2, "(a) preferred, (b) fallback"): implementers must actually run the affected spec under `--project=webkit` (not just chromium/firefox) before finalizing as (a); if flaky, fall back to (b) with an accurate WebKit-specific skip reason, not a silent revert to `|| true`.
+```yaml
+jobs:
+  semgrep-scan:
+    name: Semgrep SAST Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+      pull-requests: read
+    container:
+      image: semgrep/semgrep:1.173.0@sha256:67319956da3dcb58baf5b322899c15458e3963e7018a86aeeb5cd224e69cb77a  # semgrep/semgrep 1.173.0
+```
 
-### 3.4 Data flow notes
+### 3.3 Steps
 
-No data flow changes. The certificate-deletion backup verification (§2.2) exercises an **existing** synchronous flow: `DELETE /api/v1/certificates/:uuid` → `IsCertificateInUse` check → (if not in use) `backupService.GetAvailableSpace()` → `backupService.CreateBackup()` → `service.DeleteCertificateByID()` → response. All calls are synchronous within the single request; no polling/async job is involved for this specific path (unlike the general `POST /api/v1/backups` flow used elsewhere, which does return `202` + a job id — do not conflate the two; the cert-delete backup call is a direct, blocking `CreateBackup()`).
+1. **Checkout repository**
+   ```yaml
+   - name: Checkout repository
+     uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+     with:
+       ref: ${{ github.ref }}
+   ```
+   (Same SHA already pinned and in active use in `codeql.yml` — reuse, don't re-pin a different version.)
+
+2. **Fix git safe.directory for container user** (mitigates the "dubious ownership" issue documented in Semgrep's own GHA KB article, §2.5):
+   ```yaml
+   - name: Configure git safe.directory
+     run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+   ```
+
+3. **Verify Semgrep parity guard** (§3.4):
+   ```yaml
+   - name: Verify Semgrep parity guard
+     run: bash scripts/ci/check-semgrep-parity.sh
+   ```
+
+4. **Print Semgrep version** (cheap sanity check that the pinned image actually resolves to the expected CLI version — catches a bad digest pin immediately and legibly, rather than surfacing as a confusing downstream scan failure):
+   ```yaml
+   - name: Verify Semgrep version
+     run: semgrep --version
+   ```
+
+5. **Run Semgrep (SARIF output, non-blocking)** — calls the real script (§2.7/§3.0) with the new opt-in var; no duplicated config list.
+   ```yaml
+   - name: Run Semgrep (SARIF output)
+     id: semgrep_sarif
+     continue-on-error: true
+     env:
+       SEMGREP_SARIF_OUTPUT: semgrep-results.sarif
+     run: bash scripts/pre-commit-hooks/semgrep-scan.sh
+   ```
+   `continue-on-error: true` because this pass must not block the job even if semgrep itself errors — the SARIF file's presence is checked explicitly next (step 6), and the actual gate is step 8, not this step.
+
+6. **Check Semgrep SARIF output exists** (mirrors `security-pr.yml`'s `Check Trivy SARIF output exists` step — this was an orphaned reference in the first draft of this plan; it is now a real, numbered step):
+   ```yaml
+   - name: Check Semgrep SARIF output exists
+     id: semgrep_sarif_check
+     if: always()
+     run: |
+       if [ -f semgrep-results.sarif ]; then
+         echo "exists=true" >> "$GITHUB_OUTPUT"
+       else
+         echo "exists=false" >> "$GITHUB_OUTPUT"
+         echo "No Semgrep SARIF output found; skipping SARIF upload"
+       fi
+   ```
+
+7. **Upload Semgrep SARIF to GitHub Security** (gated on step 6's output rather than blindly attempting the upload):
+   ```yaml
+   - name: Upload Semgrep SARIF to GitHub Security
+     if: always() && steps.semgrep_sarif_check.outputs.exists == 'true'
+     uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
+     with:
+       sarif_file: semgrep-results.sarif
+       category: semgrep
+     continue-on-error: true
+   ```
+   (Reuses the exact SHA already pinned for this purpose in `security-pr.yml` — no new pin to introduce or maintain.)
+
+8. **Run Semgrep (hard-fail gate)** — calls the same script, this time with the default (unset `SEMGREP_SARIF_OUTPUT`) path, i.e. its normal `--error` behavior:
+   ```yaml
+   - name: Run Semgrep (hard-fail gate)
+     run: bash scripts/pre-commit-hooks/semgrep-scan.sh
+   ```
+   This is the literal `security-full` invocation (§2.1) — same script, same default full-repo targets, same `--error` flag, run a second time (this time without the SARIF env var) so failure here genuinely gates the job. If this step fails, the job fails, blocking the PR/branch — this is the CI-independent reproduction of the local "green" signal the feature exists to deliver. SARIF upload (step 7) has already completed by this point, so a gate failure here does not suppress the informational upload — order matters and is intentional.
+
+9. **Upload SARIF artifact** (retention, matches `security-pr.yml`'s `Upload scan artifacts` step):
+   ```yaml
+   - name: Upload SARIF artifact
+     if: always() && steps.semgrep_sarif_check.outputs.exists == 'true'
+     uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v4.4.3
+     with:
+       name: semgrep-sarif-${{ github.run_id }}
+       path: semgrep-results.sarif
+       retention-days: 14
+     continue-on-error: true
+   ```
+
+10. **Job summary**
+    ```yaml
+    - name: Create job summary
+      if: always()
+      run: |
+        {
+          echo "## Semgrep SAST Scan Results"
+          echo ""
+          echo "**Rulesets**: p/golang, p/javascript, p/typescript, p/react, p/secrets, p/dockerfile"
+          echo "**Severity Gate**: ERROR, WARNING (--error)"
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "PASSED: no blocking Semgrep findings"
+          else
+            echo "FAILED: Semgrep reported blocking findings — see step logs and the Security tab"
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
+    ```
+
+### 3.4 New file: `scripts/ci/check-semgrep-parity.sh`
+
+**Revised, smaller scope (per §2.7's design change)** — modeled on `scripts/ci/check-codeql-parity.sh`'s approach (grep/structural assertions, not full YAML parsing), but no longer needs to compare two independent config lists, because §3.0's design means there's only one config list in the whole repo (in `semgrep-scan.sh`) and the workflow only ever delegates to it. Exits non-zero with an `::error title=Semgrep parity drift::` annotation on any mismatch.
+
+**Checks performed:**
+
+1. Required files exist: `.github/workflows/semgrep.yml`, `scripts/pre-commit-hooks/semgrep-scan.sh`.
+2. Assert `scripts/pre-commit-hooks/semgrep-scan.sh` still contains the string `SEMGREP_SARIF_OUTPUT` — the additive CI hook (§3.0) must not be silently removed by a future edit to the script that forgets CI depends on it.
+3. Assert `.github/workflows/semgrep.yml` contains **two** distinct delegating calls to the real script, not a reimplemented/inlined `semgrep scan ...` invocation:
+   - a call with `SEMGREP_SARIF_OUTPUT` set (the reporting pass, step 5) — e.g. assert both the literal strings `SEMGREP_SARIF_OUTPUT` and `scripts/pre-commit-hooks/semgrep-scan.sh` appear within the same step block;
+   - a bare `bash scripts/pre-commit-hooks/semgrep-scan.sh` call with no env override (the gate pass, step 8).
+   - This is the direct analogue of `check-codeql-parity.sh`'s "shared blocking logic must live in exactly one place" check (that script's lines enforcing `SHARED_GATE_SCRIPT` usage) — applied here to prevent a future edit from "simplifying" either step by inlining `semgrep scan` directly, which would silently reintroduce the duplicated-config problem §2.7 eliminated.
+4. Assert `.github/workflows/semgrep.yml`'s pinned image reference matches the pattern `semgrep/semgrep:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}` (tag + digest both present — catches an accidental un-pin, e.g. someone changing it to `semgrep/semgrep:latest` during a quick edit).
+5. Assert `pull_request`/`push` trigger branches in `semgrep.yml` are `[main, nightly, development]`, reusing `check-codeql-parity.sh`'s existing `ensure_event_branches_semantic` helper pattern (§3.5).
+
+Note what this script **no longer does**, relative to the first draft: it does not enumerate or compare `--config`/`--exclude`/`--exclude-rule` values between two files, because after §3.0's change there is only one file that defines them.
+
+**Where it's invoked:**
+- `.github/workflows/semgrep.yml` step 3 (§3.3), analogous to `codeql.yml`'s "Verify CodeQL parity guard" step.
+- Not wired into `lefthook.yml` in this PR — consistent with existing precedent: `check-codeql-parity.sh` is also CI-only today, invoked directly from `codeql.yml` and not from any lefthook stage. Noted as a possible follow-up, not a gap introduced by this plan.
+
+### 3.5 Shared helper extraction (optional, DRY nicety — from §3.4 item 5)
+
+`check-semgrep-parity.sh` is now the second script needing the branch-list assertion logic (`ensure_event_branches` / `ensure_event_branches_with_yq` / `ensure_event_branches_semantic`) that currently lives only in `check-codeql-parity.sh`. Recommend extracting it into `scripts/ci/lib/workflow-yaml-asserts.sh`, sourced by both scripts via `source "$(dirname "${BASH_SOURCE[0]}")/lib/workflow-yaml-asserts.sh"`, per `CLAUDE.md`'s "consolidate after second occurrence" DRY guideline. This is a pure refactor of existing, already-tested logic — low risk. Unlike the first draft, this extraction is no longer load-bearing for anything (the config-parity story doesn't depend on it, since there's no config duplication left to compare) — it is a legitimate but strictly optional cleanup. If time-boxed out of this PR, note it as a follow-up rather than skipping silently.
+
+### 3.6 SARIF category naming
+
+`category: semgrep` for the `upload-sarif` step (§3.3 step 7) — single, flat category since (unlike CodeQL's per-language matrix) there is only one Semgrep job/run per commit, no need for a parameterized category string.
+
+### 3.7 Error handling / edge cases
+
+| Scenario | Behavior |
+|---|---|
+| Pinned image digest becomes invalid/removed from registry (rare, but Docker Hub retention policies exist) | Job fails at container-pull time with a clear GitHub Actions infra error, not a silent skip. Remediation: re-resolve digest, bump the pin — a normal dependency-bump PR, same as any other pinned SHA bump in this repo. |
+| SARIF step (step 5) itself crashes (e.g. semgrep internal error, not a rule finding) | `continue-on-error: true` on step 5 means the job continues; step 6 explicitly checks for the SARIF file's existence and sets an output consumed by steps 7 and 9, so a missing file cleanly skips upload rather than `upload-sarif` failing opaquely on a missing path. |
+| Hard-fail gate step (step 8) fails legitimately (real findings) | Job fails, PR shows a red check, `$GITHUB_STEP_SUMMARY` still renders (step 10 runs on `if: always()`), SARIF is still uploaded to the Security tab (step 7 already ran before step 8 — order is intentional: SARIF upload must happen *before* the blocking step so a gate failure doesn't skip the informational upload). |
+| Renovate later proposes bumping the pinned `semgrep/semgrep` image tag/digest | Handled like any other Renovate-tracked pin, via `.github/renovate.json` — devops agent should confirm at implementation time whether Renovate's Docker-image datasource already picks up `container: image:` refs in workflow YAML by default, or needs an explicit entry added to `.github/renovate.json`; note as a follow-up if configuration is needed, not a blocker for this PR. |
+| A future edit to `semgrep-scan.sh` removes the `SEMGREP_SARIF_OUTPUT` hook, or an edit to `semgrep.yml` reintroduces an inline `semgrep scan` call instead of delegating | `check-semgrep-parity.sh` fails CI on the very next PR that makes either change, per §3.4 items 2-3. |
 
 ---
 
 ## 4. Implementation Plan
 
-### Phase 1 — E2E specs for new/changed behavior
+This is a CI/DevOps-only change plus one small, additive shell-script change. There is no Playwright/E2E surface (no user-facing behavior changes), no backend implementation, no frontend implementation. The phase structure below is adapted accordingly — **the `devops` agent implements this directly; no handoff to backend-dev, frontend-dev, or playwright-dev is needed.**
 
-No net-new user-facing behavior is being introduced (this is a test-quality fix, not a feature), so there is no `test.fixme()` scaffolding phase in the usual sense. Instead, Phase 1 is: write the `getBackupsViaAPI` helper addition to `tests/utils/api-helpers.ts` (foundation for Commit 2's certificate tests) and confirm it compiles/type-checks against the existing `parseResponse<T>`/`getAuthHeaders` pattern.
+### Phase 1 — Foundation (script hook + parity guard + optional shared lib)
+- Apply the additive `SEMGREP_SARIF_OUTPUT` change to `scripts/pre-commit-hooks/semgrep-scan.sh` (§3.0).
+- Write `scripts/ci/check-semgrep-parity.sh` (§3.4).
+- Optionally extract `scripts/ci/lib/workflow-yaml-asserts.sh` from `check-codeql-parity.sh` (§3.5); if done, refactor `check-codeql-parity.sh` to source it and verify it still passes unchanged.
+- Validation gate: run the existing `semgrep` lefthook hooks locally (`lefthook run pre-commit` touching a Go/JS file, or `lefthook run security-full`) to confirm the script's default (`SEMGREP_SARIF_OUTPUT` unset) behavior is byte-identical to pre-change — this is the regression check for §3.0's edit. `shellcheck scripts/pre-commit-hooks/semgrep-scan.sh scripts/ci/check-semgrep-parity.sh` (+ `scripts/ci/lib/workflow-yaml-asserts.sh` if extracted). If the shared lib was extracted, `bash scripts/ci/check-codeql-parity.sh` still exits 0 (regression check on that refactor).
 
-### Phase 2 — Foundation (no behavior change)
+### Phase 2 — Workflow file
+- Write `.github/workflows/semgrep.yml` per §3.1-§3.3 (10 steps, including the SARIF-existence-check as a first-class step, not an orphaned reference).
+- Validation gate: `actionlint .github/workflows/semgrep.yml` (tool already required per `lefthook.yml`'s `actionlint` hook, §2 header comment listing required tools). `bash scripts/ci/check-semgrep-parity.sh` now passes against the real files. YAML syntax sanity via `yq eval '.' .github/workflows/semgrep.yml >/dev/null` or equivalent.
+- **Live GitHub Actions execution cannot be validated locally** — the actual scan run (image pull, semgrep execution against the real repo, SARIF upload, gate pass/fail) is confirmed only once the PR opens and the workflow triggers on `pull_request`. Note this explicitly in the PR description as a manual verification step, not a local DoD gate.
 
-- Add `getBackupsViaAPI` to `tests/utils/api-helpers.ts`.
-- No other foundation work required — this PR doesn't touch shared fixtures, `global-setup.ts`, or `playwright.config.js`.
+### Phase 3 — Documentation
+- Update `SECURITY.md` per §2.8: add Semgrep row to the `### Automated Scanning` table, add a `**Semgrep SAST Scan**` paragraph to `### Scanning Workflows` describing `.github/workflows/semgrep.yml`'s trigger shape and what it covers.
+- Update `ARCHITECTURE.md` per §2.8: the three call-outs at lines 166, 1376, and 1498-1501.
+- Validation gate: `markdownlint SECURITY.md ARCHITECTURE.md` (tool already required per `lefthook.yml` header comment).
 
-### Phase 3 — Backend
+### Phase 4 — Integration validation
+- `lefthook run pre-commit` (full local hook suite, including the existing `actionlint` and `semgrep` hooks, to confirm nothing in this change breaks existing local gates).
+- `bash scripts/ci/check-codeql-parity.sh` (if refactored) and `bash scripts/ci/check-semgrep-parity.sh` both green.
+- Manual review of the rendered `semgrep.yml` against `codeql.yml`/`security-pr.yml` for pinning-comment consistency (every third-party `uses:` has a SHA + version comment; the container image has tag + digest inlined, not via `env`).
 
-N/A — confirmed no backend code changes required (§2.3).
-
-### Phase 4 — Frontend / test changes (the bulk of the work)
-
-- Sub-issue 1: unskip 5 files, delete the stale test in the 6th (§2.1).
-- Sub-issue 2: fix all 59 tautologies per the file-by-file disposition in §2.2, including the certificate-deletion flow's larger rewrite (native-dialog → custom-modal interaction).
-
-### Phase 5 — Hardening, full-suite validation, docs
-
-- Full Vitest suite run (not just the touched files) to catch regressions from unskipping.
-- Full Playwright run across chromium/firefox/webkit, including the security-tests shard.
-- Coverage checks (frontend + backend) at/above enforced thresholds.
-- PR description scaffolding (§6).
-
----
-
-## 5. Commit Slicing Strategy
-
-Single PR, `test/issue-619-test-infra-debt` → `development`, ordered commits. Each commit is independently buildable/testable; later commits depend on earlier ones as noted.
-
-### Commit 1 — `test: add getBackupsViaAPI helper for E2E backup verification`
-- **Scope**: Foundation. Add `getBackupsViaAPI(request, token?)` to `tests/utils/api-helpers.ts`, matching the existing `get*ViaAPI` pattern exactly (JSDoc block, `parseResponse<T>`, `getAuthHeaders`).
-- **Files**: `tests/utils/api-helpers.ts`.
-- **Dependencies**: none.
-- **Validation gate**: `cd frontend && npm run type-check` passes (the helper file is TS, checked as part of the frontend project); no test run needed yet (unused until Commit 3).
-
-### Commit 2 — `fix: unskip Security.* Vitest suites now that undici/jsdom WebSocket bug is fixed`
-- **Scope**: Sub-issue 1. Remove `describe.skip` → `describe` in the 5 files; delete the stale `it.skip('should open notification settings modal...')` block (and its now-empty `describe('Notification Settings Modal', ...)` wrapper) from `Security.functional.test.tsx`.
-- **Files**: the 6 files listed in §2.1.
-- **Dependencies**: none (independent of Commits 1/3+).
-- **Validation gate**: `npx vitest run src/pages/__tests__/Security.test.tsx src/pages/__tests__/Security.audit.test.tsx src/pages/__tests__/Security.errors.test.tsx src/pages/__tests__/Security.loading.test.tsx src/pages/__tests__/Security.dashboard.test.tsx src/pages/__tests__/Security.functional.test.tsx` — zero failures, zero unexpected skips. Then a **full** `npx vitest run` (not just these files) — zero regressions vs. the §2.1 baseline (263→268 passed test files, 3247→3330 passed tests, 88→4 skipped [only the out-of-scope CrowdSec ones remain]). Frontend coverage (`scripts/frontend-test-coverage.sh`) at/above 85%.
-
-### Commit 3 — `fix: replace tautological assertions in certificates.spec.ts with real backend-verified checks`
-- **Scope**: Sub-issue 2, certificates file only (highest-complexity file — isolated to its own commit given the custom-modal rewrite). All 9 `|| true` lines in §2.2's certificates.spec.ts breakdown, plus the native-dialog → custom-modal rewrite for all 5 deletion tests in the "Certificate Deletion" block (`should show delete confirmation dialog`, `should warn if certificate is in use by proxy host`, `should cancel delete when confirmation dismissed`, `should create backup before deletion`, and `should show config reload overlay during deletion` — the last of which has no `|| true` to grep for but shares the identical broken `page.once('dialog', ...)` interaction model and currently asserts nothing).
-- **Files**: `tests/core/certificates.spec.ts` (uses `getBackupsViaAPI` from Commit 1, `getCertificateViaAPI` already present).
-- **Dependencies**: Commit 1.
-- **Validation gate**: `npx playwright test tests/core/certificates.spec.ts --project=chromium` and `--project=firefox` both pass, zero flaky retries. Manual grep confirms zero `|| true).toBeTruthy()` remaining in this file.
-
-### Commit 4 — `fix: replace tautological assertions in proxy-hosts and access-lists E2E specs`
-- **Scope**: Sub-issue 2, the two largest remaining CRUD-flow files. §2.2's `proxy-hosts.spec.ts` (8 lines) and `access-lists-crud.spec.ts` (13 lines) breakdowns.
-- **Files**: `tests/core/proxy-hosts.spec.ts`, `tests/security-enforcement/zzz-security-ui/access-lists-crud.spec.ts`.
-- **Dependencies**: none (uses `getProxyHostsViaAPI`/`getProxyHostViaAPI`/`getAccessListViaAPI`, all already present in `tests/utils/api-helpers.ts` prior to this PR — does not depend on Commit 1's `getBackupsViaAPI` addition).
-- **Validation gate**: `npx playwright test tests/core/proxy-hosts.spec.ts --project=chromium --project=firefox` and the access-lists spec via the `security-tests` project (`npx playwright test tests/security-enforcement/zzz-security-ui/access-lists-crud.spec.ts --project=chromium` per the config's security-shard routing) both pass. Zero `|| true).toBeTruthy()` remaining in either file.
-
-### Commit 4b — `fix: correct Access List UUID usage and CGNAT warning i18n keys` (SCOPE ADDITION — real app bugs found during Commit 4)
-
-**Why this exists**: Commit 4's strengthened `access-lists-crud.spec.ts` assertions (no longer tautological) surfaced two genuine, previously-invisible production defects, confirmed via curl repro + Playwright network trace + source grep (not test artifacts):
-
-1. **Access List edit/update/delete/test-IP all 404 in production.** `frontend/src/pages/AccessLists.tsx`, `frontend/src/hooks/useAccessLists.ts`, `frontend/src/api/accessLists.ts`, and the ACL selector in `frontend/src/components/.../ProxyHostForm.tsx` all key mutations off `acl.id`. `backend/internal/models/access_list.go`'s `ID uint` has `json:"-"` — never serialized; only `uuid` is sent. Every edit/delete/rename request currently resolves to `PUT/DELETE /api/v1/access-lists/undefined` → `404`. `rowKey={(acl) => String(acl.id)}` also collides to `"undefined"` for every table row. `ProxyHosts.tsx` already uses the correct `.uuid` pattern — mirror it.
-2. **CGNAT warning banner renders raw i18n keys to every user.** `AccessLists.tsx` calls `t('accessLists.cgnatWarningTitle')` etc. (flat keys) but `frontend/src/locales/en/translation.json` only defines the nested `accessLists.cgnatWarning.title/.message/.solutionsTitle/.solution1-5`. The rendered DOM literally shows concatenated raw key strings to users. Fix: correct the key paths to match the nested structure.
-
-This is a deliberate, narrow deviation from this plan's original §1.3 non-goal ("no production code changes") — made because leaving the 3 tests these bugs broke permanently `test.skip()`-ed would directly contradict sub-issue 2's entire purpose (replacing fake-always-pass checks with real ones that actually catch defects). Both fixes are small, isolated, high-confidence, and directly required for `access-lists-crud.spec.ts`'s already-committed real assertions to pass. This addition must be called out explicitly in the PR description as a scope note, separate from the planned test-infra-only work, so reviewers can evaluate it on its own merits.
-
-- **Scope**: `.id` → `.uuid` swap across the Access List frontend mutation path (param types `number` → `string` to match); i18n key path correction in the CGNAT warning block.
-- **Files**: `frontend/src/pages/AccessLists.tsx`, `frontend/src/hooks/useAccessLists.ts`, `frontend/src/api/accessLists.ts`, and the ACL selector in the proxy-host form component (exact file to be confirmed at implementation time — grep for `.id` usage against access-list objects). No backend changes (backend already correctly omits `ID` from JSON; frontend must conform to the existing contract, not the other way around).
-- **Dependencies**: Commit 4 (the tests that currently fail because of these bugs must already exist).
-- **Validation gate**: `npx playwright test tests/security-enforcement/zzz-security-ui/access-lists-crud.spec.ts --project=security-tests` — full pass, all 45 tests, zero flaky retries (up from 42/45 after Commit 4). `cd frontend && npm run type-check` passes. `cd frontend && npx vitest run` — zero regressions (no unit tests should reference the old `.id` access-list field, but confirm). Manual smoke check: rename an ACL via the UI, confirm no `undefined` appears in any network request URL.
-
-### Commit 5 — `fix: replace tautological assertions in remaining security-UI and settings E2E specs`
-- **Scope**: Sub-issue 2, remainder. §2.2's `encryption-management.spec.ts` (8), `system-security-settings.spec.ts` (7), `navigation.spec.ts` (4), `smtp-settings.spec.ts` (4), `dashboard.spec.ts` (3), `system-settings-feature-toggles.spec.ts` (1), `account-settings.spec.ts` (1), `manual-dns-provider.spec.ts` (1).
-- **Files**: the 8 files above.
-- **Dependencies**: none (none of these 8 files use `getBackupsViaAPI`).
-- **Validation gate**: each file passes under its correct project (security-shard files via `security-tests`/chromium; the rest via chromium + firefox). Zero `|| true).toBeTruthy()` remaining anywhere under `tests/`, verified via `grep -rn "|| true" tests/ --include=*.spec.ts` returning empty.
-
-### Commit 5b — `fix: add aria-current to active navigation links` (SCOPE ADDITION — real app bug found during Commit 5)
-
-**Why this exists**: same pattern as Commit 4b. Commit 5's strengthened `navigation.spec.ts` assertions (`hasActiveCurrent || hasActiveClass`, `hasAriaCurrent || <active class>`, both converged onto "must signal active state via aria-current OR a discoverable active class") surfaced that neither exists: `frontend/src/components/Layout.tsx`'s primary sidebar nav `<Link>`s never set `aria-current`, and the active-state Tailwind classes (`bg-brand-700 text-content-primary`, `text-brand-500`, `bg-brand-500/10 text-brand-500`) contain no `"active"`/`"current"` substring an assistive-tech-oriented check (or a screen reader) could key off. Confirmed reproducible 100% across 3 runs, both chromium and firefox, by the implementing agent — not flakiness. This is a genuine, previously-hidden accessibility gap: there is no programmatic way for assistive tech to identify the current page in the primary nav today.
-
-- **Scope**: Add `aria-current="page"` to the active nav `<Link>` in `Layout.tsx`, conditioned on the existing active-route check already used to apply the active Tailwind classes (do not introduce a new route-matching mechanism — reuse whatever comparison already decides which link gets the active classes).
-- **Files**: `frontend/src/components/Layout.tsx`. No backend changes.
-- **Dependencies**: Commit 5 (the two navigation tests that currently fail because of this gap must already exist).
-- **Validation gate**: `npx playwright test tests/core/navigation.spec.ts --project=chromium --project=firefox` — full pass, including `'should highlight active navigation item'` and `'should indicate current page with aria-current'`, zero flaky retries. `cd frontend && npm run type-check` passes. `cd frontend && npx vitest run` — zero regressions.
-
-### Commit 6 — `docs: close out issue #619 sub-issues 3-5 with coverage/config verification evidence`
-- **Scope**: Hardening + docs. No source changes beyond capturing verification evidence. Update `docs/features.md` only if any test-visible behavior description changed (unlikely — confirm at implementation time; if nothing user-facing changed, skip the `docs/features.md` edit and note that explicitly in the PR description instead of forcing an edit for its own sake).
-- **Files**: none required; optionally `docs/features.md` if applicable.
-- **Dependencies**: Commits 2-5 (needs the final, real test suite to attach real evidence to).
-- **Validation gate**: this commit's job *is* the Definition of Done run — see §5.1 below. All gates must be green before this commit closes the PR.
-
-### 5.1 Full DoD validation (runs once, after Commit 5, evidence captured in Commit 6 / PR description)
-
-Per `CLAUDE.md`'s Task Completion Protocol, in order:
-
-1. `npx playwright test --project=firefox` (full suite) — must pass.
-2. `npx playwright test --project=chromium` (full suite, includes the `security-tests` shard) — must pass.
-3. `npx playwright test --project=webkit` (full suite) — **this is sub-issue 5's outstanding confirming run.** If it fails in a way traceable to one of this PR's newly-real assertions (most likely candidate: the keyboard-focus-order ones flagged "(a) preferred, (b) fallback" in §2.2/§2.5), fix by falling back to the (b) disposition for that specific line with an accurate WebKit-specific skip reason — do not weaken back to `|| true`. If it fails for an unrelated, pre-existing reason, that is a **new finding** outside this PR's original scope and must be flagged back to the user/issue tracker rather than silently patched.
-4. `bash scripts/local-patch-report.sh` — patch coverage evidence.
-5. `lefthook run pre-commit` (CodeQL Go + JS, staticcheck, etc.) — zero high/critical findings. (No GORM-touching changes in this PR, so §1.5's conditional GORM scan is skipped — confirmed no `backend/internal/models/**` or migration changes.)
-6. `make trivy` (or equivalent Trivy container/dependency scan) — zero Critical/High findings. Per `CLAUDE.md`'s Task Completion Protocol step 3, this is **mandatory, zero-tolerance, with no conditional exception** (unlike the GORM scan above, which is explicitly conditional on model/migration changes). This PR touches no dependencies, `go.mod`/`package.json`, or any `Dockerfile`, so no new findings are expected — run and capture as evidence rather than skipping it.
-7. `scripts/go-test-coverage.sh` — confirm ≥85%, capturing the §2.3 numbers as evidence (no regressions expected since no backend files changed).
-8. `scripts/frontend-test-coverage.sh` — confirm ≥85%, now including the ~84 newly-unskipped tests.
-9. `cd frontend && npm run type-check`.
-10. `cd backend && go build ./...` and `cd frontend && npm run build`.
-11. Full `npx vitest run` — zero failures, zero unexpected skips (only the 4 out-of-scope CrowdSec skips remain).
-
-### 5.2 Rollback / contingency
-
-- Each commit is independently revertable without breaking `development` — none introduce cross-file coupling beyond Commit 1's helper (used only by Commit 3+).
-- If the WebKit run (§5.1 step 3) surfaces a **pre-existing, unrelated** failure (not caused by this PR's changes), the contingency is: do not block this PR on it — capture the failure, note it explicitly in the PR description as a newly-discovered, out-of-scope finding, and open a follow-up issue (matching the precedent set by this same investigation's sibling fix, which filed `#1221` for an out-of-scope race condition rather than scope-creeping the original fix).
-- If any single sub-issue-2 file proves substantially harder than estimated during implementation (most likely: `certificates.spec.ts`'s custom-modal rewrite), it is already isolated to its own commit (Commit 3) specifically so it can be iterated on without blocking Commits 4-5.
-- If full-suite Vitest coverage drops below 85% after unskipping (unlikely, since unskipping only adds passing tests, never removes coverage), do not merge — investigate whether any of the newly-active tests are masking a real component defect (per Root Cause Analysis Protocol) rather than adjusting the threshold.
+### Phase 5 — PR & CI confirmation
+- Open PR; confirm `semgrep.yml` actually triggers on the PR event, pulls the pinned image successfully, produces a SARIF upload visible under the repo's Security → Code scanning alerts (filtered by tool "Semgrep"), and that the hard-fail gate step correctly reflects the current repo's Semgrep cleanliness (expected: green, since this is the same ruleset the repo already passes locally today).
+- If CI surfaces findings the local run didn't (e.g. a stale local semgrep binary/ruleset that had drifted below the pinned CI version), that is itself the feature working as intended — resolve findings on their merits, not by weakening the pin.
 
 ---
 
-## 6. PR Description Scaffolding
+## 5. Acceptance Criteria
 
-```markdown
-## Summary
-
-Closes #619 (Phase 3 Technical Debt Issues). Verifies and resolves all 5 bundled sub-issues:
-
-- **Sub-issue 1 (undici/WebSocket jsdom blocker)** — FIXED. Confirmed stale on jsdom@30.0.1/undici@8.10.0
-  (upstream nodejs/undici#1671 long resolved). Unskipped 83 tests across 5 Security.*.test.tsx suites.
-  The 6th related skip (Security.functional.test.tsx notification-modal test) was not a WebSocket issue at
-  all — root-caused to stale test code describing a modal that was replaced by a router navigation; deleted
-  as dead code since equivalent, correct, passing coverage already exists in the same file.
-- **Sub-issue 2 (weak/tautological E2E assertions)** — FIXED. 59 `expect(x || true).toBeTruthy()` occurrences
-  across 11 spec files replaced with real deterministic assertions, backend-state-verified checks (certificate
-  deletion in-use/backup/cancel flows, ACL rename, proxy-host creation), or explicit `test.skip()` calls with
-  accurate reasons where genuinely environment-dependent — reusing this repo's existing skip convention.
-  certificates.spec.ts's certificate-deletion tests additionally required a root-cause interaction-model fix:
-  they drove a native `window.confirm()` that the app no longer uses (replaced by a custom React modal),
-  meaning they were exercising almost none of the real delete flow.
-- **Sub-issue 3 (backend coverage gaps)** — STALE, already resolved, no code changes. Re-verified:
-  internal/services 88.4% (target 85%), remotestorage 90.3%, backend/pkg/dnsprovider/builtin 91.8%
-  (target 50% incremental).
-- **Sub-issue 4 (feature flag async propagation tests)** — STALE, already resolved, no code changes.
-  Re-verified: tests/security/system-settings-feature-toggles.spec.ts already uses
-  waitForFeatureFlagPropagation() at 9 call sites, zero .skip/.fixme.
-- **Sub-issue 5 (WebKit E2E not executing)** — Config confirmed healthy (963 tests / 86 files discovered,
-  no webkit-specific exclusions or browserName-conditioned skips). Full passing run captured as this PR's
-  DoD evidence (see Test Plan).
-
-## Test Plan
-- [ ] Full `npx vitest run` — zero failures, only the 4 out-of-scope CrowdSecBouncerKeyDisplay skips remain
-- [ ] `npx playwright test --project=chromium` (incl. security-tests shard) — full pass
-- [ ] `npx playwright test --project=firefox` — full pass
-- [ ] `npx playwright test --project=webkit` — full pass (sub-issue 5 confirming run)
-- [ ] `scripts/go-test-coverage.sh` ≥ 85%
-- [ ] `scripts/frontend-test-coverage.sh` ≥ 85%
-- [ ] `lefthook run pre-commit` — zero high/critical CodeQL findings
-- [ ] `make trivy` (or equivalent) — zero Critical/High findings
-- [ ] `grep -rn "|| true" tests/ --include=*.spec.ts` returns empty
-```
+1. `.github/workflows/semgrep.yml` exists, triggers on `pull_request`/`push` to `[main, nightly, development]`, `workflow_dispatch`, and a weekly `schedule`.
+2. Semgrep runs inside a `container:` whose `image:` is the pinned string `semgrep/semgrep:<version>@sha256:<digest>` inlined directly (no `env:` indirection) — no floating tag, no `@latest`.
+3. `permissions:` is declared identically at both the workflow (top) level and the job level.
+4. `scripts/pre-commit-hooks/semgrep-scan.sh` carries exactly the additive `SEMGREP_SARIF_OUTPUT` change described in §3.0 — its binary/version-resolution logic and its `--config`/`--exclude`/`--exclude-rule` values are otherwise unchanged, and every existing call site's behavior (`SEMGREP_SARIF_OUTPUT` unset) is byte-identical to pre-change.
+5. `.github/workflows/semgrep.yml` invokes `scripts/pre-commit-hooks/semgrep-scan.sh` directly for **both** the SARIF-producing pass (with `SEMGREP_SARIF_OUTPUT` set) and the hard-fail gate pass (unset) — no independent/duplicated `semgrep scan ...` invocation exists anywhere in the workflow YAML.
+6. `scripts/ci/check-semgrep-parity.sh` exists, passes against the merged state, and is invoked as a CI step in `semgrep.yml` before the scan runs.
+7. SARIF results upload to the GitHub Security tab under category `semgrep`, using the same `github/codeql-action/upload-sarif` SHA pin already used in `security-pr.yml`, gated on an explicit SARIF-existence check step.
+8. `SECURITY.md`'s `### Automated Scanning` table and `### Scanning Workflows` section mention Semgrep and `semgrep.yml`.
+9. `ARCHITECTURE.md` mentions Semgrep at all three existing security-scanning call-out locations (tech-stack table, CI Jobs list, Container Scanning components list).
+10. `.gitignore`, `.dockerignore`, `.codecov.yml`, and all Dockerfiles are confirmed unchanged (per §2.9 — no diff expected in this PR).
+11. `actionlint`, `markdownlint`, `shellcheck`, and `lefthook run pre-commit` all pass locally on the final diff.
+12. `docs/plans/current_spec.md` (this file) reflects the implemented state — no divergence between plan and shipped workflow at PR time (devops agent should update this file if implementation deviates from any spec section above, per standard plan-fidelity practice).
 
 ---
 
-## 7. Acceptance Criteria
+## 6. Commit Slicing Strategy
 
-1. Zero `describe.skip`/`it.skip` remain in the 6 sub-issue-1 files except the intentional deletion (not skip) of the stale notification-modal test.
-2. `grep -rn "|| true).toBeTruthy()" tests/ --include=*.spec.ts` (or equivalent pattern check) returns **zero** matches.
-3. Every occurrence converted to `test.skip()` includes a specific, accurate reason string (no generic "may not apply" left over from the tautology comments).
-4. `certificates.spec.ts`'s 5 deletion tests interact with the real custom `DeleteCertificateDialog` modal, not a native `confirm()`.
-5. `tests/utils/api-helpers.ts` gains exactly one new function (`getBackupsViaAPI`), matching existing conventions.
-6. Full Vitest suite: 0 failures, coverage ≥ 85%.
-7. Full Playwright suite on chromium, firefox, **and** webkit: 0 failures (or any webkit-specific failures are explicitly triaged per §5.2's contingency, not silently skipped).
-8. Backend coverage unchanged and re-confirmed ≥ targets (no backend files touched).
-9. `lefthook run pre-commit` clean.
-10. PR description matches the §6 scaffolding, giving issue #619 a complete, accurate paper trail per sub-issue.
-11. No changes to `.gitignore`, `.dockerignore`, `codecov.yml`, or any `Dockerfile`.
+**Decision:** single PR, one feature ("Semgrep CI coverage"), ordered logical commits. No cross-PR splitting per `CLAUDE.md`'s "One Feature = One PR" rule — this is a small, cohesive, CI-only change (plus one additive shell-script hook); splitting it further would violate that rule for no benefit (there's no independently-shippable sub-feature here — a workflow with no parity guard, or a parity guard with no workflow, are both incomplete on their own). Approved as-is by Supervisor round 2 — shape unchanged, contents updated below for §2.7's design revision and the ARCHITECTURE.md addition.
+
+### Commit 1 — Script hook + parity guard foundation
+- **Scope:** Additive-only, no behavior change for any existing call site. Adds the `SEMGREP_SARIF_OUTPUT` hook to `semgrep-scan.sh`, the new (as-yet-unused-by-CI) parity script, and optionally the shared helper extraction.
+- **Files:** `scripts/pre-commit-hooks/semgrep-scan.sh` (modified — additive only, per §3.0), `scripts/ci/check-semgrep-parity.sh` (new — will fail if run now, since `semgrep.yml` doesn't exist yet; not wired into any workflow in this commit), `scripts/ci/lib/workflow-yaml-asserts.sh` (new, optional) and `scripts/ci/check-codeql-parity.sh` (refactored to source it, optional, no behavioral change) if the extraction from §3.5 is included.
+- **Dependencies:** none.
+- **Validation gate:** `shellcheck` on all touched/new scripts; local `lefthook run pre-commit` / `lefthook run security-full` on a sample file confirms `semgrep-scan.sh`'s default behavior is unchanged; `bash scripts/ci/check-codeql-parity.sh` passes unchanged if the refactor is included (regression check).
+- **Commit message:** `feat(security): add opt-in SARIF output mode to local Semgrep script and add CI parity guard`
+
+### Commit 2 — Semgrep CI workflow
+- **Scope:** Adds the new workflow file, delegating both its SARIF and gate passes to the script from Commit 1, and wires the parity guard from Commit 1 into it.
+- **Files:** `.github/workflows/semgrep.yml` (new).
+- **Dependencies:** Commit 1 (the `SEMGREP_SARIF_OUTPUT` hook and the parity guard must exist for this workflow to reference real, working behavior).
+- **Validation gate:** `actionlint .github/workflows/semgrep.yml`; `bash scripts/ci/check-semgrep-parity.sh` now passes (workflow file exists, delegates correctly, image pin format valid); `lefthook run pre-commit` clean on the diff.
+- **Commit message:** `feat(security): add pinned Semgrep SAST scan to CI, mirroring local pre-commit/pre-push scan`
+
+### Commit 3 — Documentation
+- **Scope:** `SECURITY.md` and `ARCHITECTURE.md` updates only, per §4 Phase 3.
+- **Files:** `SECURITY.md`, `ARCHITECTURE.md`.
+- **Dependencies:** Commit 2 (documents the workflow file that now exists).
+- **Validation gate:** `markdownlint SECURITY.md ARCHITECTURE.md`.
+- **Commit message:** `docs: document Semgrep CI scan in SECURITY.md and ARCHITECTURE.md`
+
+### Commit 4 — Hardening / fixups (conditional)
+- **Scope:** Only if Phase 5 (opening the PR and observing the first real workflow run) surfaces something unfixable purely by inspection — e.g. the digest needs re-resolution, `actionlint`/a GitHub Actions schema quirk requires a syntax adjustment not visible from local linting alone, or the container's default shell needs an explicit `shell: bash` on a step.
+- **Files:** `.github/workflows/semgrep.yml` and/or `scripts/ci/check-semgrep-parity.sh`, as needed.
+- **Dependencies:** Commits 1-3, plus one observed CI run on the PR.
+- **Validation gate:** the actual GitHub Actions run on the PR going green.
+- **Commit message:** `fix: address Semgrep CI workflow issues found in first live run` (only created if needed — do not pre-author an empty placeholder commit).
+
+### Rollback / contingency
+
+- **Rollback:** revert the PR's merge commit. The change is additive-only (new files + one additive, backward-compatible shell-script hook + documentation sections); reverting it removes Semgrep CI coverage cleanly with no residual state — no DB migration, no data written, no schema changed. `git revert -m 1 <merge-sha>` is sufficient.
+- **Contingency — pinned image becomes unpullable mid-development-cycle (e.g. registry outage, Docker Hub rate limiting on `ubuntu-latest` runners):** the job fails visibly (container pull failure is unambiguous in the Actions log, distinct from a scan failure), does not block other workflows (independent job, independent file), and does not gate merges any more strictly than any other required-check outage would — same failure mode and same operational response as a transient CodeQL or Trivy Action outage today.
+- **Contingency — CI Semgrep surfaces findings that don't reproduce locally:** expected and desired (§4 Phase 5) — indicates local environment drift, not a CI bug. Do not suppress via `--exclude-rule` additions without documenting rationale (matching the existing precedent set by the one documented `gorm-empty-password` exclusion already in the script).
+- **Contingency — parity guard is judged too strict/noisy after landing** (e.g. flags legitimate divergence that's actually fine): tune the specific assertion in `check-semgrep-parity.sh`, don't delete the guard wholesale — same operating principle already established for `check-codeql-parity.sh`, which has been iterated on rather than removed.
