@@ -1,6 +1,6 @@
 module github.com/Wikid82/charon/backend
 
-go 1.26.5
+go 1.26.6
 
 require (
 	filippo.io/age v1.3.1
@@ -21,7 +21,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/studio-b12/gowebdav v0.13.0
 	golang.org/x/crypto v0.55.0
-	golang.org/x/mod v0.39.0
+	golang.org/x/mod v0.40.0
 	golang.org/x/net v0.58.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/text v0.41.0
