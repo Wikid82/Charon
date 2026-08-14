@@ -111,11 +111,11 @@ environment issue) before assuming the feature itself is broken — see
 
 # Known Follow-Ups (not blockers)
 
-1. **Renovate coverage for the pinned image is not yet configured.** `.github/renovate.json` does
-   not currently have an explicit entry confirmed to track `container: image:` refs in workflow
-   YAML for the `semgrep/semgrep` image. Confirm whether Renovate's default Docker-image datasource
-   already picks this up automatically; if not, add an explicit entry so future version/digest
-   bumps aren't a fully manual chore.
+1. ~~**Renovate coverage for the pinned image is not yet configured.**~~ **Resolved** (commit
+   `9dc2be4e`). Added an explicit custom regex manager in `.github/renovate.json`, anchored on a
+   `# renovate: datasource=docker depName=semgrep/semgrep` comment above the `image:` line in
+   `semgrep.yml`, mirroring the existing Alpine-image digest tracker pattern used elsewhere in this
+   repo. Confirm on the next Semgrep image bump that Renovate actually opens a PR as expected.
 2. **`timeout-minutes` may need adjustment after observing real timing.** Set to 15 based on local
    estimates (~45-48s per full-repo scan pass locally); this was never observed against a cold
    image pull + rule-registry fetch on an actual GitHub Actions runner. See Scenario 3 above —
