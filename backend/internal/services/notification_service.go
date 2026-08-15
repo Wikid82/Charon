@@ -15,6 +15,7 @@ import (
 	"time"
 
 	notify "github.com/Wikid82/go_notify_yourself"
+	"github.com/Wikid82/go_notify_yourself/providers/webhook"
 	"github.com/Wikid82/go_notify_yourself/transport"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -52,6 +53,8 @@ var notifyMigratedProviderTypes = map[string]bool{
 	"pushover": true,
 	"ntfy":     true,
 	"telegram": true,
+	"webhook":  true,
+	"generic":  true,
 }
 
 // NotificationServiceOption configures a NotificationService at construction time.
@@ -972,11 +975,15 @@ func (s *NotificationService) CreateProvider(provider *models.NotificationProvid
 		provider.Token = ""
 	}
 
-	// Validate custom template before creating
+	// Validate custom template before creating. Uses providers/webhook.RenderPreview
+	// (the extracted notify module's template-preview function) rather than the old
+	// RenderTemplate, so preview validation exercises the same TemplateData shape
+	// (Title/Message/Time/EventType/Data) that dispatchViaNotify's actual dispatch
+	// uses — a custom template referencing {{index .Data "..."}} now validates
+	// correctly instead of failing preview with a flat map that had no Data field.
 	if strings.ToLower(strings.TrimSpace(provider.Template)) == "custom" && strings.TrimSpace(provider.Config) != "" {
-		// Provide a minimal preview payload
-		payload := map[string]any{"Title": "Preview", "Message": "Preview", "Time": time.Now().Format(time.RFC3339), "EventType": "preview"}
-		if _, _, err := s.RenderTemplate(*provider, payload); err != nil {
+		previewMsg := notify.Message{Title: "Preview", Body: "Preview", EventType: "preview"}
+		if _, _, err := webhook.RenderPreview(provider.Config, previewMsg); err != nil {
 			return fmt.Errorf("invalid custom template: %w", err)
 		}
 	}
@@ -1018,10 +1025,11 @@ func (s *NotificationService) UpdateProvider(provider *models.NotificationProvid
 		}
 	}
 
-	// Validate custom template before saving
+	// Validate custom template before saving — see the matching comment in
+	// CreateProvider for why this uses providers/webhook.RenderPreview.
 	if strings.ToLower(strings.TrimSpace(provider.Template)) == "custom" && strings.TrimSpace(provider.Config) != "" {
-		payload := map[string]any{"Title": "Preview", "Message": "Preview", "Time": time.Now().Format(time.RFC3339), "EventType": "preview"}
-		if _, _, err := s.RenderTemplate(*provider, payload); err != nil {
+		previewMsg := notify.Message{Title: "Preview", Body: "Preview", EventType: "preview"}
+		if _, _, err := webhook.RenderPreview(provider.Config, previewMsg); err != nil {
 			return fmt.Errorf("invalid custom template: %w", err)
 		}
 	}

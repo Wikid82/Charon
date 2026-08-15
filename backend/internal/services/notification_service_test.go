@@ -2387,6 +2387,10 @@ func TestTestProvider_GotifyWorksWithoutFeatureFlag(t *testing.T) {
 }
 
 func TestTestProvider_WebhookWorksWithoutFeatureFlag(t *testing.T) {
+	// See TestTestProvider_GotifyWorksWithoutFeatureFlag's comment: webhook
+	// is also cut over to the extracted notify module.
+	t.Setenv("CHARON_ENV", "test")
+
 	db := setupNotificationTestDB(t)
 	_ = db.AutoMigrate(&models.Setting{})
 	svc := NewNotificationService(db, nil)
@@ -2434,6 +2438,10 @@ func TestTestProvider_GotifyWorksWhenFlagExplicitlyFalse(t *testing.T) {
 }
 
 func TestTestProvider_WebhookWorksWhenFlagExplicitlyFalse(t *testing.T) {
+	// See TestTestProvider_GotifyWorksWithoutFeatureFlag's comment: webhook
+	// is also cut over to the extracted notify module.
+	t.Setenv("CHARON_ENV", "test")
+
 	db := setupNotificationTestDB(t)
 	_ = db.AutoMigrate(&models.Setting{})
 	svc := NewNotificationService(db, nil)
