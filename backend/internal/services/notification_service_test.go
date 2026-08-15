@@ -2361,6 +2361,12 @@ func TestTestProvider_EmailRejectsJSONTemplateStep(t *testing.T) {
 }
 
 func TestTestProvider_GotifyWorksWithoutFeatureFlag(t *testing.T) {
+	// Gotify is cut over to the extracted notify module, whose transport
+	// wrapper gates plain-HTTP/localhost dispatch on CHARON_ENV=test
+	// explicitly (resolveNotifyAllowHTTP in notify_client_adapter.go)
+	// rather than the old implicit os.Args[0]-".test"-suffix detection.
+	t.Setenv("CHARON_ENV", "test")
+
 	db := setupNotificationTestDB(t)
 	_ = db.AutoMigrate(&models.Setting{})
 	svc := NewNotificationService(db, nil)
@@ -2401,6 +2407,9 @@ func TestTestProvider_WebhookWorksWithoutFeatureFlag(t *testing.T) {
 }
 
 func TestTestProvider_GotifyWorksWhenFlagExplicitlyFalse(t *testing.T) {
+	// See TestTestProvider_GotifyWorksWithoutFeatureFlag's comment.
+	t.Setenv("CHARON_ENV", "test")
+
 	db := setupNotificationTestDB(t)
 	_ = db.AutoMigrate(&models.Setting{})
 	svc := NewNotificationService(db, nil)

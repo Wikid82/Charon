@@ -48,6 +48,7 @@ type NotificationService struct {
 var notifyMigratedProviderTypes = map[string]bool{
 	"discord": true,
 	"slack":   true,
+	"gotify":  true,
 }
 
 // NotificationServiceOption configures a NotificationService at construction time.
