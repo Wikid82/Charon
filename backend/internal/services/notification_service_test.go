@@ -3259,54 +3259,54 @@ func TestNotificationService_UpdateProvider_Slack_PreservesToken(t *testing.T) {
 	assert.Equal(t, "https://hooks.slack.com/services/T00000/B00000/xxxx", update.Token)
 }
 
+// TestNotificationService_TestProvider_Slack verifies TestProvider dispatch
+// after Slack's cutover to the extracted notify module
+// (buildNotifySender). Slack's own webhook validation
+// (providers/slack.ValidateWebhookURL) only accepts hooks.slack.com URLs
+// matching the standard incoming-webhook shape — the same shape Charon's
+// own validateSlackWebhookURL already enforced — so an httptest.Server URL
+// (as used before cutover, via a WithSlackURLValidator override that only
+// gated the old service-level check) can no longer stand in for a Slack
+// webhook. A capturing fake RoundTripper via WithNotifyTransportWrapper
+// replaces it, matching the pattern used for Discord's tests.
 func TestNotificationService_TestProvider_Slack(t *testing.T) {
 	db := setupNotificationTestDB(t)
+	wrapper, rt := newCapturingWrapper()
+	svc := NewNotificationService(db, nil, WithNotifyTransportWrapper(wrapper))
 
-	var capturedBody []byte
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedBody, _ = io.ReadAll(r.Body)
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	}))
-	defer server.Close()
-
-	svc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
-
-	provider := models.NotificationProvider{
+	provider := models.NotificationProvider{ //nolint:gosec // G101: test credential
 		Type:     "slack",
 		URL:      "#test",
-		Token:    server.URL,
+		Token:    "https://hooks.slack.com/services/T000/B000/xxxxxxxxxxxxxxxxxxxxxxxx",
 		Template: "minimal",
 	}
 
 	err := svc.TestProvider(provider)
 	require.NoError(t, err)
 
+	_, body := rt.last()
+	require.NotNil(t, body)
 	var payload map[string]any
-	require.NoError(t, json.Unmarshal(capturedBody, &payload))
+	require.NoError(t, json.Unmarshal(body, &payload))
 	assert.NotEmpty(t, payload["text"])
 }
 
+// TestNotificationService_SendExternal_Slack is the SendExternal
+// counterpart of TestNotificationService_TestProvider_Slack — see its
+// comment for why a capturing fake RoundTripper replaces the old
+// httptest.Server.
 func TestNotificationService_SendExternal_Slack(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	_ = db.AutoMigrate(&models.Setting{})
 
-	received := make(chan []byte, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		received <- body
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	}))
-	defer server.Close()
+	wrapper, rt := newCapturingWrapper()
+	svc := NewNotificationService(db, nil, WithNotifyTransportWrapper(wrapper))
 
-	svc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
-
-	provider := models.NotificationProvider{
+	provider := models.NotificationProvider{ //nolint:gosec // G101: test credential
 		Name:             "Slack E2E",
 		Type:             "slack",
 		URL:              "#alerts",
-		Token:            server.URL,
+		Token:            "https://hooks.slack.com/services/T000/B000/xxxxxxxxxxxxxxxxxxxxxxxx",
 		Enabled:          true,
 		NotifyProxyHosts: true,
 		Template:         "minimal",
@@ -3315,14 +3315,15 @@ func TestNotificationService_SendExternal_Slack(t *testing.T) {
 
 	svc.SendExternal(context.Background(), "proxy_host", "Title", "Message", nil)
 
-	select {
-	case body := <-received:
-		var payload map[string]any
-		require.NoError(t, json.Unmarshal(body, &payload))
-		assert.NotEmpty(t, payload["text"])
-	case <-time.After(2 * time.Second):
-		t.Fatal("Timed out waiting for slack webhook")
-	}
+	require.Eventually(t, func() bool {
+		_, body := rt.last()
+		return body != nil
+	}, 2*time.Second, 10*time.Millisecond, "Timed out waiting for slack webhook")
+
+	_, body := rt.last()
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(body, &payload))
+	assert.NotEmpty(t, payload["text"])
 }
 
 func TestNotificationService_Slack_PayloadNormalizesMessageToText(t *testing.T) {
