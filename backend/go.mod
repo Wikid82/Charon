@@ -4,7 +4,7 @@ go 1.26.6
 
 require (
 	filippo.io/age v1.3.1
-	github.com/Wikid82/go_notify_yourself v0.0.0-00010101000000-000000000000
+	github.com/Wikid82/go_notify_yourself v0.1.0
 	github.com/gin-contrib/gzip v1.2.6
 	github.com/gin-gonic/gin v1.12.0
 	github.com/glebarez/sqlite v1.11.0
@@ -114,8 +114,3 @@ require (
 	modernc.org/memory v1.12.0 // indirect
 	modernc.org/sqlite v1.56.0 // indirect
 )
-
-// TODO: go_notify_yourself has not been pushed to GitHub yet. Remove this replace
-// directive and re-pin the require above to a real published tag once the module
-// is pushed to github.com/Wikid82/go_notify_yourself.
-replace github.com/Wikid82/go_notify_yourself => /projects/go_notify_yourself
