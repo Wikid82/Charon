@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"net"
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -300,18 +299,6 @@ func TestCoverageBoost_HelperFunctions(t *testing.T) {
 	t.Run("hasHeader_EmptyMap", func(t *testing.T) {
 		headers := map[string][]string{}
 		assert.False(t, hasHeader(headers, "Any-Header"))
-	})
-
-	t.Run("isPrivateIP_PrivateRanges", func(t *testing.T) {
-		assert.True(t, isPrivateIP(net.ParseIP("192.168.1.1")))
-		assert.True(t, isPrivateIP(net.ParseIP("10.0.0.1")))
-		assert.True(t, isPrivateIP(net.ParseIP("172.16.0.1")))
-		assert.True(t, isPrivateIP(net.ParseIP("127.0.0.1")))
-	})
-
-	t.Run("isPrivateIP_PublicIP", func(t *testing.T) {
-		assert.False(t, isPrivateIP(net.ParseIP("8.8.8.8")))
-		assert.False(t, isPrivateIP(net.ParseIP("1.1.1.1")))
 	})
 }
 

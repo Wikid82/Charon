@@ -5,12 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -19,9 +17,7 @@ import (
 	"github.com/Wikid82/go_notify_yourself/transport"
 
 	"github.com/Wikid82/charon/backend/internal/models"
-	"github.com/Wikid82/charon/backend/internal/notifications"
 	"github.com/Wikid82/charon/backend/internal/security"
-	"github.com/Wikid82/charon/backend/internal/trace"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -292,181 +288,6 @@ func TestNotificationService_SendExternal_Filtered(t *testing.T) {
 	}
 }
 
-func TestNormalizeURL(t *testing.T) {
-	tests := []struct {
-		name        string
-		serviceType string
-		rawURL      string
-		expected    string
-	}{
-		{
-			name:        "Discord HTTPS",
-			serviceType: "discord",
-			rawURL:      "https://discord.com/api/webhooks/123456789/abcdefg",
-			expected:    "discord://abcdefg@123456789",
-		},
-		{
-			name:        "Discord HTTPS with app",
-			serviceType: "discord",
-			rawURL:      "https://discordapp.com/api/webhooks/123456789/abcdefg",
-			expected:    "discord://abcdefg@123456789",
-		},
-		{
-			name:        "Discord Generic",
-			serviceType: "discord",
-			rawURL:      "discord://token@id",
-			expected:    "discord://token@id",
-		},
-		{
-			name:        "Other Service",
-			serviceType: "slack",
-			rawURL:      "https://hooks.slack.com/services/...",
-			expected:    "https://hooks.slack.com/services/...",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := normalizeURL(tt.serviceType, tt.rawURL)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-
-	t.Run("invalid URL", func(t *testing.T) {
-		provider := models.NotificationProvider{
-			Type: "webhook",
-			URL:  "://invalid-url",
-		}
-		data := map[string]any{"Title": "Test", "Message": "Test Message"}
-		err := svc.sendJSONPayload(context.Background(), provider, data)
-		assert.Error(t, err)
-	})
-
-	t.Run("unreachable host", func(t *testing.T) {
-		provider := models.NotificationProvider{
-			Type: "webhook",
-			URL:  "http://192.0.2.1:9999", // TEST-NET-1, unreachable
-		}
-		data := map[string]any{"Title": "Test", "Message": "Test Message"}
-		// Set short timeout for client if possible, but here we just expect error
-		// Note: http.Client default timeout is 0 (no timeout), but OS might timeout
-		// We can't easily change client timeout here without modifying service
-		// So we might skip this or just check if it returns error eventually
-		// But for unit test speed, we should probably mock or use a closed port on localhost
-		// Using a closed port on localhost is faster
-		provider.URL = "http://127.0.0.1:54321" // Assuming this port is closed
-		err := svc.sendJSONPayload(context.Background(), provider, data)
-		assert.Error(t, err)
-	})
-
-	t.Run("server returns error", func(t *testing.T) {
-		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusInternalServerError)
-		}))
-		defer ts.Close()
-
-		provider := models.NotificationProvider{
-			Type: "webhook",
-			URL:  ts.URL,
-		}
-		data := map[string]any{"Title": "Test", "Message": "Test Message"}
-		err := svc.sendJSONPayload(context.Background(), provider, data)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "500")
-	})
-
-	t.Run("valid custom payload template", func(t *testing.T) {
-		receivedBody := ""
-		received := make(chan struct{})
-		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var body map[string]any
-			_ = json.NewDecoder(r.Body).Decode(&body)
-			if custom, ok := body["custom"]; ok {
-				receivedBody = custom.(string)
-			}
-			w.WriteHeader(http.StatusOK)
-			close(received)
-		}))
-		defer ts.Close()
-
-		provider := models.NotificationProvider{
-			Type:   "webhook",
-			URL:    ts.URL,
-			Config: `{"custom": "Test: {{.Title}}"}`,
-		}
-		data := map[string]any{"Title": "My Title", "Message": "Test Message"}
-		_ = svc.sendJSONPayload(context.Background(), provider, data)
-
-		select {
-		case <-received:
-			assert.Equal(t, "Test: My Title", receivedBody)
-		case <-time.After(500 * time.Millisecond):
-			t.Fatal("Timeout waiting for webhook")
-		}
-	})
-
-	t.Run("default payload without template", func(t *testing.T) {
-		receivedContent := ""
-		received := make(chan struct{})
-		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var body map[string]any
-			_ = json.NewDecoder(r.Body).Decode(&body)
-			if title, ok := body["title"]; ok {
-				receivedContent = title.(string)
-			}
-			w.WriteHeader(http.StatusOK)
-			close(received)
-		}))
-		defer ts.Close()
-
-		provider := models.NotificationProvider{
-			Type: "webhook",
-			URL:  ts.URL,
-			// Config is empty, so default template is used: minimal
-		}
-		data := map[string]any{"Title": "Default Title", "Message": "Test Message"}
-		_ = svc.sendJSONPayload(context.Background(), provider, data)
-
-		select {
-		case <-received:
-			assert.Equal(t, "Default Title", receivedContent)
-		case <-time.After(500 * time.Millisecond):
-			t.Fatal("Timeout waiting for webhook")
-		}
-	})
-}
-
-func TestNotificationService_SendCustomWebhook_PropagatesRequestID(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-
-	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		received <- r.Header.Get("X-Request-ID")
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer ts.Close()
-
-	provider := models.NotificationProvider{Type: "webhook", URL: ts.URL}
-	data := map[string]any{"Title": "Test", "Message": "Test"}
-	// Build context with requestID value
-	ctx := context.WithValue(context.Background(), trace.RequestIDKey, "my-rid")
-	err := svc.sendJSONPayload(ctx, provider, data)
-	require.NoError(t, err)
-
-	select {
-	case rid := <-received:
-		assert.Equal(t, "my-rid", rid)
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("Timed out waiting for webhook request")
-	}
-}
-
 func TestNotificationService_TestProvider_Errors(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	svc := NewNotificationService(db, nil)
@@ -581,48 +402,6 @@ func TestSSRF_URLValidation_ComprehensiveBlocking(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestSSRF_WebhookIntegration(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-
-	t.Run("blocks private IP webhook", func(t *testing.T) {
-		provider := models.NotificationProvider{
-			Type: "webhook",
-			URL:  "http://10.0.0.1/webhook",
-		}
-		data := map[string]any{"Title": "Test", "Message": "Test Message"}
-		err := svc.sendJSONPayload(context.Background(), provider, data)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "destination URL validation failed")
-	})
-
-	t.Run("blocks cloud metadata endpoint", func(t *testing.T) {
-		provider := models.NotificationProvider{
-			Type: "webhook",
-			URL:  "http://169.254.169.254/latest/meta-data/",
-		}
-		data := map[string]any{"Title": "Test", "Message": "Test Message"}
-		err := svc.sendJSONPayload(context.Background(), provider, data)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "destination URL validation failed")
-	})
-
-	t.Run("allows localhost for testing", func(t *testing.T) {
-		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer ts.Close()
-
-		provider := models.NotificationProvider{
-			Type: "webhook",
-			URL:  ts.URL,
-		}
-		data := map[string]any{"Title": "Test", "Message": "Test Message"}
-		err := svc.sendJSONPayload(context.Background(), provider, data)
-		assert.NoError(t, err)
-	})
 }
 
 func TestNotificationService_SendExternal_EdgeCases(t *testing.T) {
@@ -799,40 +578,6 @@ func TestNotificationService_CreateProvider_Validation(t *testing.T) {
 	})
 }
 
-func TestNotificationService_IsPrivateIP(t *testing.T) {
-	tests := []struct {
-		name      string
-		ipStr     string
-		isPrivate bool
-	}{
-		{"loopback ipv4", "127.0.0.1", true},
-		{"loopback ipv6", "::1", true},
-		{"private 10.x", "10.0.0.1", true},
-		{"private 10.x high", "10.255.255.254", true},
-		{"private 172.16-31", "172.16.0.1", true},
-		{"private 172.31", "172.31.255.254", true},
-		{"private 192.168", "192.168.1.1", true},
-		{"public 172.32", "172.32.0.1", false},
-		{"public 172.15", "172.15.0.1", false},
-		{"public ip", "8.8.8.8", false},
-		{"public ipv6", "2001:4860:4860::8888", false},
-		{"link local ipv4", "169.254.1.1", true},
-		{"link local ipv6", "fe80::1", true},
-		{"unique local ipv6 fc", "fc00::1", true},
-		{"unique local ipv6 fc high", "fc12:3456::1", true},
-		{"unique local ipv6 fd", "fd00::1", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ip := net.ParseIP(tt.ipStr)
-			require.NotNil(t, ip, "failed to parse IP: %s", tt.ipStr)
-			got := isPrivateIP(ip)
-			assert.Equal(t, tt.isPrivate, got, "IP %s private check mismatch", tt.ipStr)
-		})
-	}
-}
-
 func TestNotificationService_CreateProvider_InvalidCustomTemplate(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	svc := NewNotificationService(db, nil)
@@ -939,174 +684,6 @@ func TestRenderTemplate_InvalidJSONOutput(t *testing.T) {
 	assert.Nil(t, parsed)
 }
 
-func TestSendCustomWebhook_HTTPStatusCodeErrors(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-
-	errorCodes := []int{400, 404, 500, 502, 503}
-
-	for _, statusCode := range errorCodes {
-		t.Run(fmt.Sprintf("status_%d", statusCode), func(t *testing.T) {
-			// Mock webhook HTTP client to return error status
-			originalDo := webhookDoRequestFunc
-			defer func() { webhookDoRequestFunc = originalDo }()
-			webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
-				return &http.Response{
-					StatusCode: statusCode,
-					Body:       http.NoBody,
-					Header:     make(http.Header),
-				}, nil
-			}
-
-			provider := models.NotificationProvider{
-				Type:     "discord",
-				URL:      "https://discord.com/api/webhooks/123456/test_token",
-				Template: "minimal",
-			}
-
-			data := map[string]any{
-				"Title":     "Test",
-				"Message":   "Test",
-				"Time":      time.Now().Format(time.RFC3339),
-				"EventType": "test",
-			}
-
-			err := svc.sendJSONPayload(context.Background(), provider, data)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), fmt.Sprintf("%d", statusCode))
-		})
-	}
-}
-
-func TestSendCustomWebhook_TemplateSelection(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-
-	tests := []struct {
-		name           string
-		template       string
-		config         string
-		expectedKeys   []string
-		unexpectedKeys []string
-	}{
-		{
-			name:         "minimal template",
-			template:     "minimal",
-			expectedKeys: []string{"title", "message", "time", "event"},
-		},
-		{
-			name:         "detailed template",
-			template:     "detailed",
-			expectedKeys: []string{"title", "message", "time", "event", "host", "host_ip", "service_count", "services"},
-		},
-		{
-			name:         "custom template",
-			template:     "custom",
-			config:       `{"custom_key": "custom_value", "content": {{toJSON .Title}}}`,
-			expectedKeys: []string{"custom_key", "content"},
-		},
-		{
-			name:         "empty template defaults to minimal",
-			template:     "",
-			expectedKeys: []string{"title", "message", "time", "event"},
-		},
-		{
-			name:         "unknown template defaults to minimal",
-			template:     "unknown",
-			expectedKeys: []string{"title", "message", "time", "event"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var receivedBody map[string]any
-
-			// Mock webhook HTTP client to capture request
-			originalDo := webhookDoRequestFunc
-			defer func() { webhookDoRequestFunc = originalDo }()
-			webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
-				body, _ := io.ReadAll(req.Body)
-				_ = json.Unmarshal(body, &receivedBody)
-				return &http.Response{
-					StatusCode: http.StatusOK,
-					Body:       http.NoBody,
-					Header:     make(http.Header),
-				}, nil
-			}
-
-			provider := models.NotificationProvider{
-				Type:     "discord",
-				URL:      "https://discord.com/api/webhooks/123456/test_token",
-				Template: tt.template,
-				Config:   tt.config,
-			}
-
-			data := map[string]any{
-				"Title":        "Test Title",
-				"Message":      "Test Message",
-				"Time":         time.Now().Format(time.RFC3339),
-				"EventType":    "test",
-				"HostName":     "testhost",
-				"HostIP":       "192.168.1.1",
-				"ServiceCount": 3,
-				"Services":     []string{"svc1", "svc2"},
-			}
-
-			err := svc.sendJSONPayload(context.Background(), provider, data)
-			require.NoError(t, err)
-
-			for _, key := range tt.expectedKeys {
-				assert.Contains(t, receivedBody, key, "Expected key %s in response", key)
-			}
-
-			for _, key := range tt.unexpectedKeys {
-				assert.NotContains(t, receivedBody, key, "Unexpected key %s in response", key)
-			}
-		})
-	}
-}
-
-func TestSendCustomWebhook_EmptyCustomTemplateDefaultsToMinimal(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-
-	var receivedBody map[string]any
-
-	// Mock webhook HTTP client
-	originalDo := webhookDoRequestFunc
-	defer func() { webhookDoRequestFunc = originalDo }()
-	webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
-		body, _ := io.ReadAll(req.Body)
-		_ = json.Unmarshal(body, &receivedBody)
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       http.NoBody,
-			Header:     make(http.Header),
-		}, nil
-	}
-
-	provider := models.NotificationProvider{
-		Type:     "discord",
-		URL:      "https://discord.com/api/webhooks/123456/test_token",
-		Template: "custom",
-		Config:   "", // Empty config should default to minimal
-	}
-
-	data := map[string]any{
-		"Title":     "Test",
-		"Message":   "Message",
-		"Time":      time.Now().Format(time.RFC3339),
-		"EventType": "test",
-	}
-
-	err := svc.sendJSONPayload(context.Background(), provider, data)
-	require.NoError(t, err)
-
-	// Should use minimal template
-	assert.Equal(t, "Test", receivedBody["title"])
-	assert.Equal(t, "Message", receivedBody["message"])
-}
-
 func TestCreateProvider_EmptyCustomTemplateAllowed(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	svc := NewNotificationService(db, nil)
@@ -1142,73 +719,6 @@ func TestUpdateProvider_NonCustomTemplateSkipsValidation(t *testing.T) {
 
 	err := svc.UpdateProvider(provider)
 	require.NoError(t, err) // Should succeed because detailed template doesn't use Config
-}
-
-func TestIsPrivateIP_EdgeCases(t *testing.T) {
-	tests := []struct {
-		name      string
-		ip        string
-		isPrivate bool
-	}{
-		// Boundary testing for 172.16-31 range
-		{"172.15.255.255 (just before private)", "172.15.255.255", false},
-		{"172.16.0.0 (start of private)", "172.16.0.0", true},
-		{"172.31.255.255 (end of private)", "172.31.255.255", true},
-		{"172.32.0.0 (just after private)", "172.32.0.0", false},
-
-		// IPv6 unique local address boundaries
-		{"fbff:ffff:ffff:ffff:ffff:ffff:ffff:ffff (before ULA)", "fbff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", false},
-		{"fc00::0 (start of ULA)", "fc00::0", true},
-		{"fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff (end of ULA)", "fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", true},
-		{"fe00::0 (after ULA)", "fe00::0", false},
-
-		// IPv6 link-local boundaries
-		{"fe7f:ffff:ffff:ffff:ffff:ffff:ffff:ffff (before link-local)", "fe7f:ffff:ffff:ffff:ffff:ffff:ffff:ffff", false},
-		{"fe80::0 (start of link-local)", "fe80::0", true},
-		{"febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff (end of link-local)", "febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff", true},
-		{"fec0::0 (after link-local)", "fec0::0", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ip := net.ParseIP(tt.ip)
-			require.NotNil(t, ip, "Failed to parse IP: %s", tt.ip)
-			result := isPrivateIP(ip)
-			assert.Equal(t, tt.isPrivate, result, "IP %s: expected private=%v, got=%v", tt.ip, tt.isPrivate, result)
-		})
-	}
-}
-
-func TestSendCustomWebhook_ContextCancellation(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-
-	// Create a server that delays response
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(500 * time.Millisecond)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	provider := models.NotificationProvider{
-		Type:     "discord",
-		URL:      server.URL,
-		Template: "minimal",
-	}
-
-	data := map[string]any{
-		"Title":     "Test",
-		"Message":   "Test",
-		"Time":      time.Now().Format(time.RFC3339),
-		"EventType": "test",
-	}
-
-	// Create context with immediate cancellation
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	err := svc.sendJSONPayload(ctx, provider, data)
-	require.Error(t, err)
 }
 
 func TestSendExternal_UnknownEventTypeSendsToAll(t *testing.T) {
@@ -1342,212 +852,6 @@ func TestRenderTemplate_MinimalAndDetailedTemplates(t *testing.T) {
 // Phase 3: Service-Specific Validation Tests
 // ============================================
 
-func TestSendJSONPayload_ServiceSpecificValidation(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-
-	t.Run("discord_message_is_normalized_to_content", func(t *testing.T) {
-		originalDo := webhookDoRequestFunc
-		defer func() { webhookDoRequestFunc = originalDo }()
-		webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
-			var payload map[string]any
-			err := json.NewDecoder(req.Body).Decode(&payload)
-			require.NoError(t, err)
-			assert.Equal(t, "Test Message", payload["content"])
-			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Header: make(http.Header)}, nil
-		}
-
-		// Discord payload with message should be normalized to content
-		provider := models.NotificationProvider{
-			Type:     "discord",
-			URL:      "https://discord.com/api/webhooks/123456/token_abc",
-			Template: "custom",
-			Config:   `{"message": {{toJSON .Message}}}`,
-		}
-		data := map[string]any{
-			"Title":     "Test",
-			"Message":   "Test Message",
-			"Time":      time.Now().Format(time.RFC3339),
-			"EventType": "test",
-		}
-
-		err := svc.sendJSONPayload(context.Background(), provider, data)
-		require.NoError(t, err)
-	})
-
-	t.Run("discord_with_content_succeeds", func(t *testing.T) {
-		originalDo := webhookDoRequestFunc
-		defer func() { webhookDoRequestFunc = originalDo }()
-		webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
-			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Header: make(http.Header)}, nil
-		}
-
-		provider := models.NotificationProvider{
-			Type:     "discord",
-			URL:      "https://discord.com/api/webhooks/123456/token_abc",
-			Template: "custom",
-			Config:   `{"content": {{toJSON .Message}}}`,
-		}
-		data := map[string]any{
-			"Title":     "Test",
-			"Message":   "Test Message",
-			"Time":      time.Now().Format(time.RFC3339),
-			"EventType": "test",
-		}
-
-		err := svc.sendJSONPayload(context.Background(), provider, data)
-		require.NoError(t, err)
-	})
-
-	t.Run("discord_with_embeds_succeeds", func(t *testing.T) {
-		originalDo := webhookDoRequestFunc
-		defer func() { webhookDoRequestFunc = originalDo }()
-		webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
-			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Header: make(http.Header)}, nil
-		}
-
-		provider := models.NotificationProvider{
-			Type:     "discord",
-			URL:      "https://discord.com/api/webhooks/123456/token_abc",
-			Template: "custom",
-			Config:   `{"embeds": [{"title": {{toJSON .Title}}}]}`,
-		}
-		data := map[string]any{
-			"Title":     "Test",
-			"Message":   "Test Message",
-			"Time":      time.Now().Format(time.RFC3339),
-			"EventType": "test",
-		}
-
-		err := svc.sendJSONPayload(context.Background(), provider, data)
-		require.NoError(t, err)
-	})
-
-	t.Run("slack_requires_text_or_blocks", func(t *testing.T) {
-		subSvc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
-
-		provider := models.NotificationProvider{ //nolint:gosec // G101: test credential
-			Type:     "slack",
-			URL:      "#test",
-			Token:    "https://hooks.slack.com/services/T00/B00/xxx",
-			Template: "custom",
-			Config:   `{"username": "Charon"}`,
-		}
-		data := map[string]any{
-			"Title":     "Test",
-			"Message":   "Test Message",
-			"Time":      time.Now().Format(time.RFC3339),
-			"EventType": "test",
-		}
-
-		err := subSvc.sendJSONPayload(context.Background(), provider, data)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "slack payload requires 'text' or 'blocks' field")
-	})
-
-	t.Run("slack_with_text_succeeds", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer server.Close()
-		subSvc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
-
-		provider := models.NotificationProvider{
-			Type:     "slack",
-			URL:      "#test",
-			Token:    server.URL,
-			Template: "custom",
-			Config:   `{"text": {{toJSON .Message}}}`,
-		}
-		data := map[string]any{
-			"Title":     "Test",
-			"Message":   "Test Message",
-			"Time":      time.Now().Format(time.RFC3339),
-			"EventType": "test",
-		}
-
-		err := subSvc.sendJSONPayload(context.Background(), provider, data)
-		require.NoError(t, err)
-	})
-
-	t.Run("slack_with_blocks_succeeds", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer server.Close()
-		subSvc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
-
-		provider := models.NotificationProvider{
-			Type:     "slack",
-			URL:      "#test",
-			Token:    server.URL,
-			Template: "custom",
-			Config:   `{"blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": {{toJSON .Message}}}}]}`,
-		}
-		data := map[string]any{
-			"Title":     "Test",
-			"Message":   "Test Message",
-			"Time":      time.Now().Format(time.RFC3339),
-			"EventType": "test",
-		}
-
-		err := subSvc.sendJSONPayload(context.Background(), provider, data)
-		require.NoError(t, err)
-	})
-
-	t.Run("gotify_requires_message", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer server.Close()
-
-		// Gotify without message should fail
-		provider := models.NotificationProvider{
-			Type:     "gotify",
-			URL:      server.URL,
-			Template: "custom",
-			Config:   `{"title": {{toJSON .Title}}}`, // Missing message
-		}
-		data := map[string]any{
-			"Title":     "Test",
-			"Message":   "Test Message",
-			"Time":      time.Now().Format(time.RFC3339),
-			"EventType": "test",
-		}
-
-		err := svc.sendJSONPayload(context.Background(), provider, data)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "gotify payload requires 'message' field")
-	})
-
-	t.Run("gotify_with_message_succeeds", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer server.Close()
-
-		provider := models.NotificationProvider{
-			Type:     "gotify",
-			URL:      server.URL,
-			Template: "custom",
-			Config:   `{"message": {{toJSON .Message}}, "title": {{toJSON .Title}}}`,
-		}
-		data := map[string]any{
-			"Title":     "Test",
-			"Message":   "Test Message",
-			"Time":      time.Now().Format(time.RFC3339),
-			"EventType": "test",
-		}
-
-		err := svc.sendJSONPayload(context.Background(), provider, data)
-		require.NoError(t, err)
-	})
-}
-
-// ============================================
-// Phase 3: SendExternal Event Type Coverage
-// ============================================
-
 func TestSendExternal_AllEventTypes(t *testing.T) {
 	eventTypes := []struct {
 		eventType     string
@@ -1605,35 +909,6 @@ func TestSendExternal_AllEventTypes(t *testing.T) {
 					return body != nil
 				}, time.Second, 10*time.Millisecond, "Event type %s should trigger notification", et.eventType)
 			}
-		})
-	}
-}
-
-// ============================================
-// Phase 3: isValidRedirectURL Coverage
-// ============================================
-
-func TestIsValidRedirectURL(t *testing.T) {
-	tests := []struct {
-		name     string
-		url      string
-		expected bool
-	}{
-		{"valid http", "https://discord.com/api/webhooks/123/abc/webhook", true},
-		{"valid https", "https://example.com/webhook", true},
-		{"invalid scheme ftp", "ftp://example.com", false},
-		{"invalid scheme file", "file:///etc/passwd", false},
-		{"no scheme", "example.com/webhook", false},
-		{"empty hostname", "http:///webhook", false},
-		{"invalid url", "://invalid", false},
-		{"javascript scheme", "javascript:alert(1)", false},
-		{"data scheme", "data:text/html,<h1>test</h1>", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := isValidRedirectURL(tt.url)
-			assert.Equal(t, tt.expected, result, "isValidRedirectURL(%q) = %v, want %v", tt.url, result, tt.expected)
 		})
 	}
 }
@@ -1798,41 +1073,6 @@ func TestTestProvider_NotifyOnlyRejectsUnsupportedProvider(t *testing.T) {
 	}
 }
 
-// TestTestProvider_DiscordUsesNotifyPathInPR1 verifies Discord dispatches
-// through the extracted notify module (buildNotifySender/transport.Wrapper)
-// rather than the legacy sendJSONPayload path — webhookDoRequestFunc (the
-// legacy path's HTTP hook) is deliberately left untouched here and must NOT
-// be invoked.
-func TestTestProvider_DiscordUsesNotifyPathInPR1(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	wrapper, rt := newCapturingWrapper()
-	svc := NewNotificationService(db, nil, WithNotifyTransportWrapper(wrapper))
-
-	legacyPathCalled := atomic.Bool{}
-	originalDo := webhookDoRequestFunc
-	webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
-		legacyPathCalled.Store(true)
-		return client.Do(req)
-	}
-	defer func() { webhookDoRequestFunc = originalDo }()
-
-	provider := models.NotificationProvider{
-		Type:     "discord",
-		URL:      "https://discord.com/api/webhooks/123456789/token_abc",
-		Template: "minimal",
-	}
-
-	err := svc.TestProvider(provider)
-	require.NoError(t, err)
-	assert.False(t, legacyPathCalled.Load(), "discord provider should no longer use the legacy sendJSONPayload path")
-
-	req, body := rt.last()
-	require.NotNil(t, req, "discord provider should dispatch through the notify module")
-	assert.Equal(t, "application/json", req.Header.Get("Content-Type"))
-	var payload map[string]any
-	require.NoError(t, json.Unmarshal(body, &payload))
-}
-
 func TestTestProvider_HTTPURLValidation(t *testing.T) {
 	db := setupNotificationTestDB(t)
 
@@ -1880,90 +1120,6 @@ func TestTestProvider_HTTPURLValidation(t *testing.T) {
 // ============================================
 // Phase 4: Additional Edge Case Coverage
 // ============================================
-
-func TestSendJSONPayload_TemplateExecutionError(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	// Template that calls a method on nil should cause execution error
-	provider := models.NotificationProvider{
-		Type:     "discord",
-		URL:      server.URL,
-		Template: "custom",
-		Config:   `{"result": {{call .NonExistentFunc}}}`, // This will fail during execution
-	}
-
-	data := map[string]any{
-		"Title":     "Test",
-		"Message":   "Test",
-		"Time":      time.Now().Format(time.RFC3339),
-		"EventType": "test",
-	}
-
-	err := svc.sendJSONPayload(context.Background(), provider, data)
-	require.Error(t, err)
-	// The error could be a parse error or execution error depending on Go version
-}
-
-func TestSendJSONPayload_InvalidJSONFromTemplate(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	// Template that produces invalid JSON
-	provider := models.NotificationProvider{
-		Type:     "webhook",
-		URL:      server.URL,
-		Template: "custom",
-		Config:   `{"title": {{.Title}}}`, // Missing toJSON, will produce unquoted string
-	}
-
-	data := map[string]any{
-		"Title":     "Test Value",
-		"Message":   "Test",
-		"Time":      time.Now().Format(time.RFC3339),
-		"EventType": "test",
-	}
-
-	err := svc.sendJSONPayload(context.Background(), provider, data)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid JSON payload")
-}
-
-func TestSendJSONPayload_RequestCreationError(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-
-	// This test verifies request creation doesn't panic on edge cases
-	provider := models.NotificationProvider{
-		Type:     "discord",
-		URL:      "http://localhost:8080/webhook",
-		Template: "minimal",
-	}
-
-	// Use canceled context to trigger early error
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	data := map[string]any{
-		"Title":     "Test",
-		"Message":   "Test",
-		"Time":      time.Now().Format(time.RFC3339),
-		"EventType": "test",
-	}
-
-	err := svc.sendJSONPayload(ctx, provider, data)
-	require.Error(t, err)
-}
 
 func TestRenderTemplate_CustomTemplateWithWhitespace(t *testing.T) {
 	db := setupNotificationTestDB(t)
@@ -2053,44 +1209,6 @@ func TestSendExternal_JSONPayloadError(t *testing.T) {
 	svc.SendExternal(context.Background(), "proxy_host", "Test", "Message", nil)
 	time.Sleep(100 * time.Millisecond)
 }
-
-func TestSendJSONPayload_HTTPScheme(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-
-	// Test both HTTP and HTTPS schemes
-	schemes := []string{"http", "https"}
-
-	for _, scheme := range schemes {
-		t.Run(scheme, func(t *testing.T) {
-			// Create server (note: httptest.Server uses http by default)
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(http.StatusOK)
-			}))
-			defer server.Close()
-
-			provider := models.NotificationProvider{
-				Type:     "webhook",
-				URL:      server.URL, // httptest always uses http
-				Template: "minimal",
-			}
-
-			data := map[string]any{
-				"Title":     "Test",
-				"Message":   "Test",
-				"Time":      time.Now().Format(time.RFC3339),
-				"EventType": "test",
-			}
-
-			err := svc.sendJSONPayload(context.Background(), provider, data)
-			require.NoError(t, err)
-		})
-	}
-}
-
-// ============================================
-// Migration Completeness Tests
-// ============================================
 
 func TestNotificationService_EnsureNotifyOnlyProviderMigration(t *testing.T) {
 	db := setupNotificationTestDB(t)
@@ -2290,7 +1408,7 @@ func TestIsDispatchEnabled_WebhookDefaultTrue(t *testing.T) {
 }
 
 func TestFlagEmailServiceEnabled_ConstantValue(t *testing.T) {
-	assert.Equal(t, "feature.notifications.service.email.enabled", notifications.FlagEmailServiceEnabled)
+	assert.Equal(t, "feature.notifications.service.email.enabled", FlagEmailServiceEnabled)
 }
 
 func TestIsSupportedNotificationProviderType_Email(t *testing.T) {
@@ -2307,7 +1425,7 @@ func TestIsDispatchEnabled_EmailDefaultFalse(t *testing.T) {
 
 	// Explicitly set flag to true — should now return true
 	require.NoError(t, db.Create(&models.Setting{
-		Key:   notifications.FlagEmailServiceEnabled,
+		Key:   FlagEmailServiceEnabled,
 		Value: "true",
 	}).Error)
 	assert.True(t, svc.isDispatchEnabled("email"))
@@ -2316,7 +1434,8 @@ func TestIsDispatchEnabled_EmailDefaultFalse(t *testing.T) {
 // TestSendExternal_EmailProvider_NilMailService_DoesNotPanic verifies that when an
 // email provider is enabled but the mail service is nil, SendExternal dispatches
 // the goroutine which early-returns without panicking. The type == "email" branch
-// calls dispatchEmail and continues — it never reaches supportsJSONTemplates.
+// calls dispatchEmailViaNotify directly and continues — it never reaches
+// supportsJSONTemplates, which only gates the non-email dispatch goroutine.
 func TestSendExternal_EmailProvider_NilMailService_DoesNotPanic(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	_ = db.AutoMigrate(&models.Setting{})
@@ -2324,7 +1443,7 @@ func TestSendExternal_EmailProvider_NilMailService_DoesNotPanic(t *testing.T) {
 
 	// Enable the email feature flag so isDispatchEnabled("email") returns true.
 	require.NoError(t, db.Create(&models.Setting{
-		Key:   notifications.FlagEmailServiceEnabled,
+		Key:   FlagEmailServiceEnabled,
 		Value: "true",
 	}).Error)
 
@@ -2541,7 +1660,7 @@ func TestGetFeatureFlagValue_FoundSetting(t *testing.T) {
 	}
 }
 
-// --- mockMailService for dispatchEmail tests ---
+// --- mockMailService for email dispatch/test-provider tests ---
 
 type mockMailService struct {
 	mu           sync.Mutex
@@ -2586,64 +1705,6 @@ func (m *mockMailService) firstCall() mockSendEmailCall {
 	return m.calls[0]
 }
 
-func TestDispatchEmail_NilMailService(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-
-	p := models.NotificationProvider{Name: "test-email", URL: "a@b.com", Type: "email"}
-	// Must not panic
-	svc.dispatchEmail(context.Background(), p, "alert", "Title", "Message")
-}
-
-func TestDispatchEmail_SMTPNotConfigured(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	mock := &mockMailService{isConfigured: false}
-	svc := NewNotificationService(db, mock)
-
-	p := models.NotificationProvider{Name: "test-email", URL: "a@b.com", Type: "email"}
-	svc.dispatchEmail(context.Background(), p, "alert", "Title", "Message")
-
-	assert.Empty(t, mock.calls)
-}
-
-func TestDispatchEmail_EmptyRecipients(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	mock := &mockMailService{isConfigured: true}
-	svc := NewNotificationService(db, mock)
-
-	p := models.NotificationProvider{Name: "test-email", URL: "   ,  , ", Type: "email"}
-	svc.dispatchEmail(context.Background(), p, "alert", "Title", "Message")
-
-	assert.Empty(t, mock.calls)
-}
-
-func TestDispatchEmail_ValidSend(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	mock := &mockMailService{isConfigured: true}
-	svc := NewNotificationService(db, mock)
-
-	p := models.NotificationProvider{Name: "test-email", URL: "a@b.com, c@d.com", Type: "email"}
-	svc.dispatchEmail(context.Background(), p, "alert", "My Title", "My Message")
-
-	require.Len(t, mock.calls, 1)
-	assert.Equal(t, []string{"a@b.com", "c@d.com"}, mock.calls[0].to)
-	assert.Equal(t, "[Charon Alert] My Title", mock.calls[0].subject)
-	assert.Contains(t, mock.calls[0].body, "<strong>My Title</strong>")
-	assert.Contains(t, mock.calls[0].body, "My Message")
-}
-
-func TestDispatchEmail_SendError_Logged(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	mock := &mockMailService{isConfigured: true, sendEmailErr: fmt.Errorf("smtp failure")}
-	svc := NewNotificationService(db, mock)
-
-	p := models.NotificationProvider{Name: "test-email", URL: "a@b.com", Type: "email"}
-	// Must not panic even when SendEmail returns error
-	svc.dispatchEmail(context.Background(), p, "alert", "Title", "Message")
-
-	assert.Len(t, mock.calls, 1)
-}
-
 func TestSendExternal_EmailProvider_Dispatches(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}))
@@ -2663,7 +1724,7 @@ func TestSendExternal_EmailProvider_Dispatches(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&provider).Error)
 
-	db.Create(&models.Setting{Key: notifications.FlagEmailServiceEnabled, Value: "true"})
+	db.Create(&models.Setting{Key: FlagEmailServiceEnabled, Value: "true"})
 
 	svc.SendExternal(context.Background(), "test", "Title", "Body", nil)
 
@@ -2687,192 +1748,13 @@ func TestSendExternal_EmailProvider_FlagDisabled(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&provider).Error)
 
-	db.Create(&models.Setting{Key: notifications.FlagEmailServiceEnabled, Value: "false"})
+	db.Create(&models.Setting{Key: FlagEmailServiceEnabled, Value: "false"})
 
 	svc.SendExternal(context.Background(), "test", "Title", "Body", nil)
 
 	time.Sleep(50 * time.Millisecond)
 	assert.Zero(t, mock.callCount())
 }
-
-func TestDispatchEmail_InvalidRecipient(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	mock := &mockMailService{isConfigured: true, sendEmailErr: ErrInvalidRecipient}
-	svc := NewNotificationService(db, mock)
-
-	p := models.NotificationProvider{Name: "test-email", URL: "not-an-email", Type: "email"}
-	// dispatchEmail will call SendEmail; the mock returns ErrInvalidRecipient — must not panic
-	svc.dispatchEmail(context.Background(), p, "alert", "Title", "Message")
-
-	// SendEmail was called once (validation happens inside real SendEmail, mock just returns the error)
-	assert.Len(t, mock.calls, 1)
-}
-
-func TestDispatchEmail_TooManyRecipients(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	mock := &mockMailService{isConfigured: true, sendEmailErr: ErrTooManyRecipients}
-	svc := NewNotificationService(db, mock)
-
-	recipients := make([]string, 21)
-	for i := range recipients {
-		recipients[i] = fmt.Sprintf("user%d@example.com", i)
-	}
-	p := models.NotificationProvider{Name: "test-email", URL: strings.Join(recipients, ","), Type: "email"}
-	// dispatchEmail passes all recipients to SendEmail; mock returns ErrTooManyRecipients — must not panic
-	svc.dispatchEmail(context.Background(), p, "alert", "Title", "Message")
-
-	assert.Len(t, mock.calls, 1)
-}
-
-func TestDispatchEmail_HeaderInjectionRecipient(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	mock := &mockMailService{isConfigured: true, sendEmailErr: ErrInvalidRecipient}
-	svc := NewNotificationService(db, mock)
-
-	p := models.NotificationProvider{Name: "test-email", URL: "bad\r\naddr@test.com", Type: "email"}
-	// The recipient contains CR/LF; dispatchEmail trims + splits but passes to SendEmail which rejects — must not panic
-	svc.dispatchEmail(context.Background(), p, "alert", "Title", "Message")
-
-	assert.Len(t, mock.calls, 1)
-}
-
-func TestSendExternal_EmailProviderDoesNotCallSendJSONPayload(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.Setting{}))
-
-	// renderResult must be set — see TestSendExternal_EmailProvider_Dispatches's comment.
-	mock := &mockMailService{isConfigured: true, renderResult: "<p>rendered</p>"}
-	svc := NewNotificationService(db, mock)
-
-	// Track any JSON payload call via the webhook hook
-	jsonPayloadCalled := false
-	origDo := webhookDoRequestFunc
-	defer func() { webhookDoRequestFunc = origDo }()
-	webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
-		jsonPayloadCalled = true
-		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Header: make(http.Header)}, nil
-	}
-
-	provider := models.NotificationProvider{
-		Name:    "email-no-http",
-		Type:    "email",
-		URL:     "notify@example.com",
-		Enabled: true,
-	}
-	require.NoError(t, db.Create(&provider).Error)
-	db.Create(&models.Setting{Key: notifications.FlagEmailServiceEnabled, Value: "true"})
-
-	svc.SendExternal(context.Background(), "test", "Title", "Body", nil)
-	require.Eventually(t, func() bool { return mock.callCount() > 0 }, 2*time.Second, 10*time.Millisecond)
-
-	assert.False(t, jsonPayloadCalled, "email provider must not trigger HTTP JSON payload path")
-}
-
-func TestDispatchEmail_XSSPayload_BodySanitized(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	mock := &mockMailService{isConfigured: true}
-	svc := NewNotificationService(db, mock)
-
-	xssTitle := `<script>alert('xss')</script>`
-	xssMessage := `<img src=x onerror=evil()>`
-
-	p := models.NotificationProvider{Name: "test-email", URL: "a@b.com", Type: "email"}
-	svc.dispatchEmail(context.Background(), p, "alert", xssTitle, xssMessage)
-
-	require.Len(t, mock.calls, 1)
-	body := mock.calls[0].body
-	// Raw script tags must not appear — they must be escaped.
-	assert.NotContains(t, body, "<script>")
-	assert.Contains(t, body, "&lt;script&gt;")
-	// The <img> attack vector tag must be escaped — the literal < must not appear unescaped.
-	assert.NotContains(t, body, "<img ")
-	assert.Contains(t, body, "&lt;img ")
-}
-
-// --- sanitizeForEmail unit tests ---
-
-func TestSanitizeForEmail_EmptyString(t *testing.T) {
-	assert.Equal(t, "", sanitizeForEmail(""))
-}
-
-func TestSanitizeForEmail_CleanString(t *testing.T) {
-	assert.Equal(t, "Hello World", sanitizeForEmail("Hello World"))
-}
-
-func TestSanitizeForEmail_StripsCRLF(t *testing.T) {
-	assert.Equal(t, "HelloWorld", sanitizeForEmail("Hello\r\nWorld"))
-}
-
-func TestSanitizeForEmail_StripsEmbeddedLF(t *testing.T) {
-	assert.Equal(t, "line1line2", sanitizeForEmail("line1\nline2"))
-}
-
-func TestSanitizeForEmail_StripsEmbeddedCR(t *testing.T) {
-	assert.Equal(t, "line1line2", sanitizeForEmail("line1\rline2"))
-}
-
-func TestSanitizeForEmail_MultipleCRLF(t *testing.T) {
-	assert.Equal(t, "abc", sanitizeForEmail("\r\na\r\nb\r\nc\r\n"))
-}
-
-func TestDispatchEmail_CRLFInTitle_StrippedBeforeSubject(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	mock := &mockMailService{isConfigured: true}
-	svc := NewNotificationService(db, mock)
-
-	p := models.NotificationProvider{Name: "test-email", URL: "a@b.com", Type: "email"}
-	svc.dispatchEmail(context.Background(), p, "alert", "Title\r\nBCC: attacker@evil.com", "msg")
-
-	require.Equal(t, 1, mock.callCount())
-	call := mock.firstCall()
-	assert.Equal(t, "[Charon Alert] TitleBCC: attacker@evil.com", call.subject)
-	assert.NotContains(t, call.subject, "\r")
-	assert.NotContains(t, call.subject, "\n")
-}
-
-func TestDispatchEmail_CRLFInMessage_StrippedBeforeBody(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	mock := &mockMailService{isConfigured: true}
-	svc := NewNotificationService(db, mock)
-
-	p := models.NotificationProvider{Name: "test-email", URL: "a@b.com", Type: "email"}
-	svc.dispatchEmail(context.Background(), p, "alert", "Title", "msg\r\n.\r\nMAIL FROM:<attacker>")
-
-	require.Equal(t, 1, mock.callCount())
-	call := mock.firstCall()
-	assert.NotContains(t, call.body, "\r")
-	assert.NotContains(t, call.body, "\n")
-	assert.Contains(t, call.body, "msg.MAIL FROM:&lt;attacker&gt;")
-}
-
-func TestDispatchEmail_UsesTemplate(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	renderedHTML := "<html><body>Rendered template content</body></html>"
-	mock := &mockMailService{isConfigured: true, renderResult: renderedHTML}
-	svc := NewNotificationService(db, mock)
-
-	p := models.NotificationProvider{Name: "test-email", URL: "a@b.com", Type: "email"}
-	svc.dispatchEmail(context.Background(), p, "security_waf", "WAF Alert", "Blocked request")
-
-	require.Len(t, mock.calls, 1)
-	assert.Equal(t, renderedHTML, mock.calls[0].body)
-	assert.NotContains(t, mock.calls[0].body, "<strong>")
-}
-
-func TestDispatchEmail_TemplateFallback(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	mock := &mockMailService{isConfigured: true, renderErr: fmt.Errorf("template parse error")}
-	svc := NewNotificationService(db, mock)
-
-	p := models.NotificationProvider{Name: "test-email", URL: "a@b.com", Type: "email"}
-	svc.dispatchEmail(context.Background(), p, "alert", "Fallback Title", "Fallback Message")
-
-	require.Len(t, mock.calls, 1)
-	assert.Contains(t, mock.calls[0].body, "<strong>Fallback Title</strong>")
-	assert.Contains(t, mock.calls[0].body, "Fallback Message")
-}
-
-// --- TestEmailProvider unit tests ---
 
 func TestEmailProvider_MailServiceNil(t *testing.T) {
 	db := setupNotificationTestDB(t)
@@ -3021,169 +1903,6 @@ func TestIsDispatchEnabled_TelegramDefaultTrue(t *testing.T) {
 
 	// No feature flag row exists — telegram defaults to true
 	assert.True(t, svc.isDispatchEnabled("telegram"))
-}
-
-func TestSendJSONPayload_Telegram_ChatIDInjectionAndDispatch(t *testing.T) {
-	db := setupNotificationTestDB(t)
-
-	var capturedPath string
-	var capturedBody []byte
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedPath = r.URL.Path
-		capturedBody, _ = io.ReadAll(r.Body)
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"ok":true}`))
-	}))
-	defer server.Close()
-
-	svc := NewNotificationService(db, nil)
-	svc.telegramAPIBaseURL = server.URL
-
-	provider := models.NotificationProvider{ //nolint:gosec // G101: test credential
-		Type:     "telegram",
-		URL:      "123456789",      // chat_id
-		Token:    "fake-bot-token", // bot token
-		Template: "minimal",
-	}
-	data := map[string]any{
-		"Title":     "Test",
-		"Message":   "Hello Telegram",
-		"Time":      time.Now().Format(time.RFC3339),
-		"EventType": "test",
-	}
-
-	err := svc.sendJSONPayload(context.Background(), provider, data)
-	require.NoError(t, err)
-	assert.Equal(t, "/botfake-bot-token/sendMessage", capturedPath)
-
-	var payload map[string]any
-	require.NoError(t, json.Unmarshal(capturedBody, &payload))
-	assert.Equal(t, "123456789", payload["chat_id"])
-	assert.Equal(t, "Hello Telegram", payload["text"])
-}
-
-func TestSendJSONPayload_Telegram_NormalizesMessageToText(t *testing.T) {
-	db := setupNotificationTestDB(t)
-
-	var capturedBody []byte
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedBody, _ = io.ReadAll(r.Body)
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"ok":true}`))
-	}))
-	defer server.Close()
-
-	svc := NewNotificationService(db, nil)
-	svc.telegramAPIBaseURL = server.URL
-
-	// Custom template that produces "message" key instead of "text" — exercises normalization.
-	provider := models.NotificationProvider{ //nolint:gosec // G101: test credential
-		Type:     "telegram",
-		URL:      "987654321",
-		Token:    "fake-bot-token",
-		Template: "custom",
-		Config:   `{"message": {{toJSON .Message}}}`,
-	}
-	data := map[string]any{
-		"Title":     "Test",
-		"Message":   "Normalize me",
-		"Time":      time.Now().Format(time.RFC3339),
-		"EventType": "test",
-	}
-
-	err := svc.sendJSONPayload(context.Background(), provider, data)
-	require.NoError(t, err)
-
-	var payload map[string]any
-	require.NoError(t, json.Unmarshal(capturedBody, &payload))
-	// "message" must be promoted to "text" by the normalization path.
-	assert.Equal(t, "Normalize me", payload["text"])
-	assert.Equal(t, "987654321", payload["chat_id"])
-}
-
-func TestSendJSONPayload_Telegram_RequiresTextField(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-
-	// Custom template missing both 'text' and 'message' keys
-	provider := models.NotificationProvider{ //nolint:gosec // G101: test credential
-		Type:     "telegram",
-		URL:      "987654321",
-		Token:    "fake-bot-token",
-		Template: "custom",
-		Config:   `{"title": {{toJSON .Title}}}`,
-	}
-	data := map[string]any{
-		"Title":     "Test",
-		"Message":   "Test Message",
-		"Time":      time.Now().Format(time.RFC3339),
-		"EventType": "test",
-	}
-
-	err := svc.sendJSONPayload(context.Background(), provider, data)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "telegram payload requires 'text' field")
-}
-
-func TestSendJSONPayload_Telegram_HostnameValidationError(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-
-	// Token containing a null byte makes neturl.Parse fail,
-	// triggering the hostname validation error path (line 496).
-	provider := models.NotificationProvider{
-		Type:     "telegram",
-		URL:      "123456789",
-		Token:    "bad\x00token",
-		Template: "minimal",
-	}
-	data := map[string]any{
-		"Title":     "Test",
-		"Message":   "Hello",
-		"Time":      time.Now().Format(time.RFC3339),
-		"EventType": "test",
-	}
-
-	err := svc.sendJSONPayload(context.Background(), provider, data)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "telegram dispatch URL validation failed")
-}
-
-func TestSendJSONPayload_Telegram_MarshalErrorOnChatIDInjection(t *testing.T) {
-	db := setupNotificationTestDB(t)
-
-	var capturedBody []byte
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedBody, _ = io.ReadAll(r.Body)
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"ok":true}`))
-	}))
-	defer server.Close()
-
-	svc := NewNotificationService(db, nil)
-	svc.telegramAPIBaseURL = server.URL
-
-	// Exercises the chat_id injection + marshal + body.Write path.
-	provider := models.NotificationProvider{ //nolint:gosec // G101: test credential
-		Type:     "telegram",
-		URL:      "999888777",
-		Token:    "valid-bot-token",
-		Template: "minimal",
-	}
-	data := map[string]any{
-		"Title":     "Chat ID Test",
-		"Message":   "Verify chat_id injected",
-		"Time":      time.Now().Format(time.RFC3339),
-		"EventType": "test",
-	}
-
-	err := svc.sendJSONPayload(context.Background(), provider, data)
-	require.NoError(t, err)
-
-	var payload map[string]any
-	require.NoError(t, json.Unmarshal(capturedBody, &payload))
-	assert.Equal(t, "999888777", payload["chat_id"])
-	assert.NotEmpty(t, payload["text"])
 }
 
 func TestIsDispatchEnabled_TelegramDisabledByFlag(t *testing.T) {
@@ -3444,67 +2163,8 @@ func TestNotificationService_SendExternal_Slack(t *testing.T) {
 	assert.NotEmpty(t, payload["text"])
 }
 
-func TestNotificationService_Slack_PayloadNormalizesMessageToText(t *testing.T) {
-	db := setupNotificationTestDB(t)
-
-	var capturedBody []byte
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedBody, _ = io.ReadAll(r.Body)
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	}))
-	defer server.Close()
-
-	svc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
-
-	provider := models.NotificationProvider{
-		Type:     "slack",
-		URL:      "#test",
-		Token:    server.URL,
-		Template: "custom",
-		Config:   `{"message": {{toJSON .Message}}}`,
-	}
-	data := map[string]any{
-		"Title":     "Test",
-		"Message":   "Normalize me",
-		"Time":      time.Now().Format(time.RFC3339),
-		"EventType": "test",
-	}
-
-	err := svc.sendJSONPayload(context.Background(), provider, data)
-	require.NoError(t, err)
-
-	var payload map[string]any
-	require.NoError(t, json.Unmarshal(capturedBody, &payload))
-	assert.Equal(t, "Normalize me", payload["text"])
-}
-
-func TestNotificationService_Slack_PayloadRequiresTextOrBlocks(t *testing.T) {
-	db := setupNotificationTestDB(t)
-
-	svc := NewNotificationService(db, nil, WithSlackURLValidator(func(string) error { return nil }))
-
-	provider := models.NotificationProvider{ //nolint:gosec // G101: test credential
-		Type:     "slack",
-		URL:      "#test",
-		Token:    "https://hooks.slack.com/services/T00/B00/xxx",
-		Template: "custom",
-		Config:   `{"title": {{toJSON .Title}}}`,
-	}
-	data := map[string]any{
-		"Title":     "Test",
-		"Message":   "Test Message",
-		"Time":      time.Now().Format(time.RFC3339),
-		"EventType": "test",
-	}
-
-	err := svc.sendJSONPayload(context.Background(), provider, data)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "slack payload requires 'text' or 'blocks' field")
-}
-
 func TestFlagSlackServiceEnabled_ConstantValue(t *testing.T) {
-	assert.Equal(t, "feature.notifications.service.slack.enabled", notifications.FlagSlackServiceEnabled)
+	assert.Equal(t, "feature.notifications.service.slack.enabled", FlagSlackServiceEnabled)
 }
 
 func TestNotificationService_Slack_IsDispatchEnabled(t *testing.T) {
@@ -3538,72 +2198,6 @@ func TestNotificationService_Slack_TokenNotExposedInList(t *testing.T) {
 	providers[0].Token = ""
 	assert.True(t, providers[0].HasToken)
 	assert.Empty(t, providers[0].Token)
-}
-
-func TestSendJSONPayload_Slack_EmptyWebhookURLReturnsError(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-
-	provider := models.NotificationProvider{
-		Type:     "slack",
-		URL:      "#alerts",
-		Token:    "",
-		Template: "minimal",
-	}
-	data := map[string]any{
-		"Title":     "Test",
-		"Message":   "Should fail before dispatch",
-		"Time":      time.Now().Format(time.RFC3339),
-		"EventType": "test",
-	}
-
-	err := svc.sendJSONPayload(context.Background(), provider, data)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "slack webhook URL is not configured")
-}
-
-func TestSendJSONPayload_Slack_WhitespaceOnlyWebhookURLReturnsError(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-
-	provider := models.NotificationProvider{
-		Type:     "slack",
-		URL:      "#alerts",
-		Token:    "   ",
-		Template: "minimal",
-	}
-	data := map[string]any{
-		"Title":     "Test",
-		"Message":   "Should fail before dispatch",
-		"Time":      time.Now().Format(time.RFC3339),
-		"EventType": "test",
-	}
-
-	err := svc.sendJSONPayload(context.Background(), provider, data)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "slack webhook URL is not configured")
-}
-
-func TestSendJSONPayload_Slack_InvalidWebhookURLReturnsValidationError(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-
-	provider := models.NotificationProvider{ //nolint:gosec // G101: test credential
-		Type:     "slack",
-		URL:      "#alerts",
-		Token:    "https://evil.com/not-a-slack-webhook",
-		Template: "minimal",
-	}
-	data := map[string]any{
-		"Title":     "Test",
-		"Message":   "Should fail URL validation",
-		"Time":      time.Now().Format(time.RFC3339),
-		"EventType": "test",
-	}
-
-	err := svc.sendJSONPayload(context.Background(), provider, data)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid Slack webhook URL")
 }
 
 func TestCreateProvider_Slack_EmptyTokenRejected(t *testing.T) {
@@ -3703,174 +2297,6 @@ func TestUpdateProvider_Slack_UnchangedTokenSkipsValidation(t *testing.T) {
 
 // --- Pushover Notification Provider Tests ---
 
-func TestPushoverDispatch_Success(t *testing.T) {
-	db := setupNotificationTestDB(t)
-
-	var capturedBody []byte
-	var capturedURL string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedURL = r.URL.Path
-		capturedBody, _ = io.ReadAll(r.Body)
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{}`))
-	}))
-	defer server.Close()
-
-	svc := NewNotificationService(db, nil)
-	svc.pushoverAPIBaseURL = server.URL
-
-	provider := models.NotificationProvider{
-		Type:     "pushover",
-		Token:    "app-token-abc",
-		URL:      "user-key-xyz",
-		Template: "minimal",
-	}
-	data := map[string]any{
-		"Title":     "Test",
-		"Message":   "Hello Pushover",
-		"Time":      time.Now().Format(time.RFC3339),
-		"EventType": "test",
-	}
-
-	err := svc.sendJSONPayload(context.Background(), provider, data)
-	require.NoError(t, err)
-	assert.Equal(t, "/1/messages.json", capturedURL)
-
-	var payload map[string]any
-	require.NoError(t, json.Unmarshal(capturedBody, &payload))
-	assert.Equal(t, "app-token-abc", payload["token"])
-	assert.Equal(t, "user-key-xyz", payload["user"])
-	assert.NotEmpty(t, payload["message"])
-}
-
-func TestPushoverDispatch_MissingToken(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-
-	provider := models.NotificationProvider{
-		Type:     "pushover",
-		Token:    "",
-		URL:      "user-key-xyz",
-		Template: "minimal",
-	}
-	data := map[string]any{
-		"Title":     "Test",
-		"Message":   "Hello",
-		"Time":      time.Now().Format(time.RFC3339),
-		"EventType": "test",
-	}
-
-	err := svc.sendJSONPayload(context.Background(), provider, data)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "pushover API token is not configured")
-}
-
-func TestPushoverDispatch_MissingUserKey(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-
-	provider := models.NotificationProvider{
-		Type:     "pushover",
-		Token:    "app-token-abc",
-		URL:      "",
-		Template: "minimal",
-	}
-	data := map[string]any{
-		"Title":     "Test",
-		"Message":   "Hello",
-		"Time":      time.Now().Format(time.RFC3339),
-		"EventType": "test",
-	}
-
-	err := svc.sendJSONPayload(context.Background(), provider, data)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "pushover user key is not configured")
-}
-
-func TestPushoverDispatch_MessageFieldRequired(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-
-	provider := models.NotificationProvider{
-		Type:     "pushover",
-		Token:    "app-token-abc",
-		URL:      "user-key-xyz",
-		Template: "custom",
-		Config:   `{"title": {{toJSON .Title}}}`,
-	}
-	data := map[string]any{
-		"Title":     "Test",
-		"Message":   "Hello",
-		"Time":      time.Now().Format(time.RFC3339),
-		"EventType": "test",
-	}
-
-	err := svc.sendJSONPayload(context.Background(), provider, data)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "pushover payload requires 'message' field")
-}
-
-func TestPushoverDispatch_EmergencyPriorityRejected(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-
-	provider := models.NotificationProvider{
-		Type:     "pushover",
-		Token:    "app-token-abc",
-		URL:      "user-key-xyz",
-		Template: "custom",
-		Config:   `{"message": {{toJSON .Message}}, "priority": 2}`,
-	}
-	data := map[string]any{
-		"Title":     "Emergency",
-		"Message":   "Critical alert",
-		"Time":      time.Now().Format(time.RFC3339),
-		"EventType": "test",
-	}
-
-	err := svc.sendJSONPayload(context.Background(), provider, data)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "pushover emergency priority (2) requires retry and expire parameters")
-}
-
-func TestPushoverDispatch_PayloadInjection(t *testing.T) {
-	db := setupNotificationTestDB(t)
-
-	var capturedBody []byte
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedBody, _ = io.ReadAll(r.Body)
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{}`))
-	}))
-	defer server.Close()
-
-	svc := NewNotificationService(db, nil)
-	svc.pushoverAPIBaseURL = server.URL
-
-	// Template tries to set token/user — server-side injection must overwrite them.
-	provider := models.NotificationProvider{
-		Type:     "pushover",
-		Token:    "real-token",
-		URL:      "real-user-key",
-		Template: "custom",
-		Config:   `{"message": "hi", "token": "fake-token", "user": "fake-user"}`,
-	}
-	data := map[string]any{
-		"Title":     "Test",
-		"Message":   "hi",
-		"Time":      time.Now().Format(time.RFC3339),
-		"EventType": "test",
-	}
-
-	err := svc.sendJSONPayload(context.Background(), provider, data)
-	require.NoError(t, err)
-
-	var payload map[string]any
-	require.NoError(t, json.Unmarshal(capturedBody, &payload))
-	assert.Equal(t, "real-token", payload["token"])
-	assert.Equal(t, "real-user-key", payload["user"])
-}
-
 func TestPushoverDispatch_FeatureFlagDisabled(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	_ = db.AutoMigrate(&models.Setting{})
@@ -3878,40 +2304,6 @@ func TestPushoverDispatch_FeatureFlagDisabled(t *testing.T) {
 	svc := NewNotificationService(db, nil)
 
 	assert.False(t, svc.isDispatchEnabled("pushover"))
-}
-
-func TestPushoverDispatch_SSRFValidation(t *testing.T) {
-	db := setupNotificationTestDB(t)
-
-	var capturedHost string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedHost = r.Host
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{}`))
-	}))
-	defer server.Close()
-
-	svc := NewNotificationService(db, nil)
-	svc.pushoverAPIBaseURL = server.URL
-
-	provider := models.NotificationProvider{
-		Type:     "pushover",
-		Token:    "app-token-abc",
-		URL:      "user-key-xyz",
-		Template: "minimal",
-	}
-	data := map[string]any{
-		"Title":     "Test",
-		"Message":   "SSRF check",
-		"Time":      time.Now().Format(time.RFC3339),
-		"EventType": "test",
-	}
-
-	err := svc.sendJSONPayload(context.Background(), provider, data)
-	require.NoError(t, err)
-	// The test server URL is used; production code would enforce api.pushover.net.
-	// Verify dispatch succeeds and path is correct.
-	_ = capturedHost
 }
 
 func TestIsDispatchEnabled_PushoverDefaultTrue(t *testing.T) {
@@ -3994,35 +2386,6 @@ func TestNotificationService_SendExternal_PushoverUsesNotifyPath(t *testing.T) {
 	require.NoError(t, json.Unmarshal(body, &payload))
 	assert.Equal(t, "app-token-abc", payload["token"])
 	assert.Equal(t, "user-key-xyz", payload["user"])
-}
-
-func TestPushoverDispatch_DefaultBaseURL(t *testing.T) {
-	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-	// Reset the test seam to "" so the defensive 'if pushoverBase == ""' path executes,
-	// setting it to the production URL "https://api.pushover.net".
-	svc.pushoverAPIBaseURL = ""
-
-	provider := models.NotificationProvider{
-		Type:     "pushover",
-		Token:    "test-token",
-		URL:      "test-user-key",
-		Template: "minimal",
-	}
-	data := map[string]any{
-		"Title":     "Test",
-		"Message":   "Hello",
-		"Time":      time.Now().Format(time.RFC3339),
-		"EventType": "test",
-	}
-
-	// Pre-cancel the context so the HTTP send fails immediately.
-	// The defensive path (assigning the production base URL) still executes before any I/O.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	err := svc.sendJSONPayload(ctx, provider, data)
-	require.Error(t, err)
 }
 
 func TestIsSupportedNotificationProviderType_Ntfy(t *testing.T) {
