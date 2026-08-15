@@ -24,15 +24,15 @@ import (
 )
 
 // capturingRoundTripper is a fake http.RoundTripper that records every
-// outbound request (method, URL, headers, body) and returns a canned 200 OK
-// response. It lets tests assert on the exact HTTP request a provider
-// package builds without hitting any real network destination — including
-// providers like pushover/telegram whose dispatch URL is hardcoded to a
-// production API host.
+// outbound request (method, URL, headers, body) and returns a canned
+// response (200 OK by default, or statusCode when set) without hitting any
+// real network destination — including providers like pushover/telegram
+// whose dispatch URL is hardcoded to a production API host.
 type capturingRoundTripper struct {
-	mu       sync.Mutex
-	requests []*http.Request
-	bodies   [][]byte
+	mu         sync.Mutex
+	requests   []*http.Request
+	bodies     [][]byte
+	statusCode int
 }
 
 func (c *capturingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -47,8 +47,13 @@ func (c *capturingRoundTripper) RoundTrip(req *http.Request) (*http.Response, er
 	c.requests = append(c.requests, req)
 	c.bodies = append(c.bodies, body)
 
+	status := c.statusCode
+	if status == 0 {
+		status = http.StatusOK
+	}
+
 	return &http.Response{
-		StatusCode: http.StatusOK,
+		StatusCode: status,
 		Body:       io.NopCloser(bytes.NewReader(nil)),
 		Header:     make(http.Header),
 	}, nil

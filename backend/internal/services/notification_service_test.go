@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wikid82/go_notify_yourself/transport"
+
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/notifications"
 	"github.com/Wikid82/charon/backend/internal/security"
@@ -128,65 +130,50 @@ func TestNotificationService_Providers(t *testing.T) {
 	assert.Len(t, list, 0)
 }
 
+// TestNotificationService_TestProvider_Webhook (despite its name, this
+// exercises a Discord provider) verifies TestProvider dispatch after
+// Discord's cutover to the extracted notify module (buildNotifySender).
+// Discord's own webhook validation only accepts discord.com/
+// canary.discord.com hosts, so it can no longer be pointed at an
+// httptest.Server the way pre-cutover tests could — a capturing fake
+// RoundTripper (via WithNotifyTransportWrapper) stands in instead, mirroring
+// notify_provider_adapter_test.go's pattern for testing buildNotifySender.
 func TestNotificationService_TestProvider_Webhook(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-
-	// Mock validation and webhook request for testing
-	origValidateDiscordFunc := validateDiscordProviderURLFunc
-	origWebhookDoReq := webhookDoRequestFunc
-	defer func() {
-		validateDiscordProviderURLFunc = origValidateDiscordFunc
-		webhookDoRequestFunc = origWebhookDoReq
-	}()
-	validateDiscordProviderURLFunc = func(providerType, rawURL string) error { return nil }
-	webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: http.StatusNoContent, Body: http.NoBody}, nil
-	}
-
-	// Start a test server
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		// Minimal template uses lowercase keys: title, message
-		assert.Equal(t, "Test Notification", body["title"])
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer ts.Close()
+	wrapper, rt := newCapturingWrapper()
+	svc := NewNotificationService(db, nil, WithNotifyTransportWrapper(wrapper))
 
 	provider := models.NotificationProvider{
 		Name:     "Test Discord",
 		Type:     "discord",
-		URL:      ts.URL,
+		URL:      "https://discord.com/api/webhooks/123456789/webhook-test-token",
 		Template: "minimal",
-		Config:   `{"Header": "{{.Title}}"}`,
 	}
 
 	err := svc.TestProvider(provider)
 	require.NoError(t, err)
+
+	_, body := rt.last()
+	require.NotNil(t, body)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(body, &payload))
+	// Minimal template uses lowercase keys: title, message
+	assert.Equal(t, "Test Notification", payload["title"])
 }
 
+// TestNotificationService_SendExternal exercises SendExternal's async
+// Discord dispatch after cutover — see
+// TestNotificationService_TestProvider_Webhook's comment for why a
+// capturing fake RoundTripper replaces the old httptest.Server.
 func TestNotificationService_SendExternal(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
-
-	received := make(chan struct{})
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		close(received)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer ts.Close()
-
-	// Mock discord webhook validation to allow test server URLs
-	// Do NOT mock webhookDoRequestFunc - we want real HTTP call to test server
-	origValidateDiscordFunc := validateDiscordProviderURLFunc
-	defer func() { validateDiscordProviderURLFunc = origValidateDiscordFunc }()
-	validateDiscordProviderURLFunc = func(providerType, rawURL string) error { return nil }
+	wrapper, rt := newCapturingWrapper()
+	svc := NewNotificationService(db, nil, WithNotifyTransportWrapper(wrapper))
 
 	provider := models.NotificationProvider{
 		Name:             "Test Discord",
 		Type:             "discord",
-		URL:              ts.URL,
+		URL:              "https://discord.com/api/webhooks/123456789/send-external-token",
 		Enabled:          true,
 		NotifyProxyHosts: true,
 		Template:         "minimal",
@@ -195,94 +182,81 @@ func TestNotificationService_SendExternal(t *testing.T) {
 
 	svc.SendExternal(context.Background(), "proxy_host", "Title", "Message", nil)
 
-	select {
-	case <-received:
-		// Success
-	case <-time.After(1 * time.Second):
-		t.Fatal("Timed out waiting for webhook")
-	}
+	require.Eventually(t, func() bool {
+		_, body := rt.last()
+		return body != nil
+	}, time.Second, 10*time.Millisecond, "Timed out waiting for webhook")
 }
 
+// TestNotificationService_SendExternal_MinimalVsDetailedTemplates verifies
+// both built-in templates render correctly for a cut-over Discord provider.
+// Each phase uses its own capturing wrapper/service instance, and the
+// minimal-template provider is deleted before the detailed phase runs, so
+// SendExternal's per-provider fan-out never dispatches both providers to
+// the same capturing wrapper at once (which would race the "last request"
+// assertions below).
 func TestNotificationService_SendExternal_MinimalVsDetailedTemplates(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
 
-	// Mock validation only - allow real HTTP calls to test servers
-	origValidateDiscordFunc := validateDiscordProviderURLFunc
-	defer func() { validateDiscordProviderURLFunc = origValidateDiscordFunc }()
-	validateDiscordProviderURLFunc = func(providerType, rawURL string) error { return nil }
-
-	// Minimal template
-	rcvMinimal := make(chan map[string]any, 1)
-	tsMin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		rcvMinimal <- body
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer tsMin.Close()
+	// Minimal template phase
+	wrapperMin, rtMin := newCapturingWrapper()
+	svcMin := NewNotificationService(db, nil, WithNotifyTransportWrapper(wrapperMin))
 
 	providerMin := models.NotificationProvider{
 		Name:         "Minimal Discord",
 		Type:         "discord",
-		URL:          tsMin.URL,
+		URL:          "https://discord.com/api/webhooks/1/minimal-token",
 		Enabled:      true,
 		NotifyUptime: true,
 		Template:     "minimal",
 	}
-	_ = svc.CreateProvider(&providerMin)
+	require.NoError(t, svcMin.CreateProvider(&providerMin))
 
 	data := map[string]any{"Title": "Min Title", "Message": "Min Message", "Time": time.Now().Format(time.RFC3339), "EventType": "uptime"}
-	svc.SendExternal(context.Background(), "uptime", "Min Title", "Min Message", data)
+	svcMin.SendExternal(context.Background(), "uptime", "Min Title", "Min Message", data)
 
-	select {
-	case body := <-rcvMinimal:
-		// minimal template should contain 'title' and 'message' keys
-		if title, ok := body["title"].(string); ok {
-			assert.Equal(t, "Min Title", title)
-		} else {
-			t.Fatalf("expected title in minimal body")
-		}
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("Timeout waiting for minimal webhook")
-	}
+	require.Eventually(t, func() bool {
+		_, body := rtMin.last()
+		return body != nil
+	}, 500*time.Millisecond, 10*time.Millisecond, "Timeout waiting for minimal webhook")
 
-	// Detailed template
-	rcvDetailed := make(chan map[string]any, 1)
-	tsDet := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		rcvDetailed <- body
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer tsDet.Close()
+	_, minBody := rtMin.last()
+	var minPayload map[string]any
+	require.NoError(t, json.Unmarshal(minBody, &minPayload))
+	// minimal template should contain 'title' and 'message' keys
+	assert.Equal(t, "Min Title", minPayload["title"])
+
+	require.NoError(t, svcMin.DeleteProvider(providerMin.ID))
+
+	// Detailed template phase
+	wrapperDet, rtDet := newCapturingWrapper()
+	svcDet := NewNotificationService(db, nil, WithNotifyTransportWrapper(wrapperDet))
 
 	providerDet := models.NotificationProvider{
 		Name:         "Detailed Discord",
 		Type:         "discord",
-		URL:          tsDet.URL,
+		URL:          "https://discord.com/api/webhooks/2/detailed-token",
 		Enabled:      true,
 		NotifyUptime: true,
 		Template:     "detailed",
 	}
-	_ = svc.CreateProvider(&providerDet)
+	require.NoError(t, svcDet.CreateProvider(&providerDet))
 
 	dataDet := map[string]any{"Title": "Det Title", "Message": "Det Message", "Time": time.Now().Format(time.RFC3339), "EventType": "uptime", "HostName": "example-host", "HostIP": "1.2.3.4", "ServiceCount": 1, "Services": []map[string]any{{"Name": "svc1"}}}
-	svc.SendExternal(context.Background(), "uptime", "Det Title", "Det Message", dataDet)
+	svcDet.SendExternal(context.Background(), "uptime", "Det Title", "Det Message", dataDet)
 
-	select {
-	case body := <-rcvDetailed:
-		// detailed template should contain 'host' and 'services'
-		if host, ok := body["host"].(string); ok {
-			assert.Equal(t, "example-host", host)
-		} else {
-			t.Fatalf("expected host in detailed body")
-		}
-		if _, ok := body["services"]; !ok {
-			t.Fatalf("expected services in detailed body")
-		}
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("Timeout waiting for detailed webhook")
+	require.Eventually(t, func() bool {
+		_, body := rtDet.last()
+		return body != nil
+	}, 500*time.Millisecond, 10*time.Millisecond, "Timeout waiting for detailed webhook")
+
+	_, detBody := rtDet.last()
+	var detPayload map[string]any
+	require.NoError(t, json.Unmarshal(detBody, &detPayload))
+	// detailed template should contain 'host' and 'services'
+	assert.Equal(t, "example-host", detPayload["host"])
+	if _, ok := detPayload["services"]; !ok {
+		t.Fatalf("expected services in detailed body")
 	}
 }
 
@@ -529,27 +503,17 @@ func TestNotificationService_TestProvider_Errors(t *testing.T) {
 	})
 
 	t.Run("webhook success", func(t *testing.T) {
-		// Mock validation and webhook request for testing
-		origValidateDiscordFunc := validateDiscordProviderURLFunc
-		origWebhookDoReq := webhookDoRequestFunc
-		defer func() {
-			validateDiscordProviderURLFunc = origValidateDiscordFunc
-			webhookDoRequestFunc = origWebhookDoReq
-		}()
-		validateDiscordProviderURLFunc = func(providerType, rawURL string) error { return nil }
-		webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
-			return &http.Response{StatusCode: http.StatusNoContent, Body: http.NoBody}, nil
-		}
-
-		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer ts.Close()
+		// Discord's own webhook validation only accepts discord.com/
+		// canary.discord.com hosts (see TestNotificationService_SendExternal's
+		// comment), so a capturing fake RoundTripper stands in for the old
+		// httptest.Server here.
+		wrapper, _ := newCapturingWrapper()
+		svc := NewNotificationService(db, nil, WithNotifyTransportWrapper(wrapper))
 
 		provider := models.NotificationProvider{
 			Type:     "discord",
-			URL:      ts.URL,
-			Template: "minimal", // Use JSON template path which supports HTTP/HTTPS
+			URL:      "https://discord.com/api/webhooks/1/webhook-success-token",
+			Template: "minimal",
 		}
 		err := svc.TestProvider(provider)
 		assert.NoError(t, err)
@@ -724,45 +688,52 @@ func TestNotificationService_SendExternal_EdgeCases(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	})
 
+	// TestNotificationService_SendExternal_EdgeCases/custom_data_passed_to_webhook
+	// covers a cut-over Discord provider configured with the "detailed"
+	// template, verifying that SendExternal's HostName extra (passed in the
+	// `data` map, same as before cutover) still reaches the rendered
+	// payload via legacyDetailedTemplate's backward-compat translation
+	// (notify_provider_adapter.go). Note a scope change from the
+	// pre-cutover version of this test: sendJSONPayload's old flat data map
+	// exposed ANY caller-supplied key (e.g. an arbitrary "CustomField") to
+	// a *custom* template at its top level. The extracted notify module's
+	// render.TemplateData only exposes Title/Message/Time/EventType/Data,
+	// and dispatchViaNotify (notification_service.go) only populates Data
+	// with the four documented keys — a "custom" template referencing
+	// {{index .Data "HostName"}} would additionally fail CreateProvider's
+	// preview-validation step until the webhook commit (§6 commit 9)
+	// updates RenderTemplate's call sites to the new preview payload shape
+	// — so this test exercises the documented Data contract via the
+	// "detailed" template instead, which bypasses that preview validation.
 	t.Run("custom data passed to webhook", func(t *testing.T) {
 		db := setupNotificationTestDB(t)
-		svc := NewNotificationService(db, nil)
-
-		// Mock validation only - allow real HTTP calls to test server
-		origValidateDiscordFunc := validateDiscordProviderURLFunc
-		defer func() { validateDiscordProviderURLFunc = origValidateDiscordFunc }()
-		validateDiscordProviderURLFunc = func(providerType, rawURL string) error { return nil }
-
-		var receivedCustom atomic.Value
-		receivedCustom.Store("")
-		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var body map[string]any
-			_ = json.NewDecoder(r.Body).Decode(&body)
-			if custom, ok := body["custom"]; ok {
-				receivedCustom.Store(custom.(string))
-			}
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer ts.Close()
+		wrapper, rt := newCapturingWrapper()
+		svc := NewNotificationService(db, nil, WithNotifyTransportWrapper(wrapper))
 
 		provider := models.NotificationProvider{
 			Name:             "Custom Data Discord",
 			Type:             "discord",
-			URL:              ts.URL,
+			URL:              "https://discord.com/api/webhooks/1/custom-data-token",
 			Enabled:          true,
 			NotifyProxyHosts: true,
-			Config:           `{"content": {{toJSON .Message}}, "custom": "{{.CustomField}}"}`,
-			Template:         "custom", // Use custom template to enable Config
+			Template:         "detailed",
 		}
-		_ = svc.CreateProvider(&provider)
+		require.NoError(t, svc.CreateProvider(&provider))
 
 		customData := map[string]any{
-			"CustomField": "test-value",
+			"HostName": "test-value",
 		}
 		svc.SendExternal(context.Background(), "proxy_host", "Title", "Message", customData)
-		time.Sleep(100 * time.Millisecond)
 
-		assert.Equal(t, "test-value", receivedCustom.Load().(string))
+		require.Eventually(t, func() bool {
+			_, body := rt.last()
+			return body != nil
+		}, time.Second, 10*time.Millisecond, "expected webhook to be sent")
+
+		_, body := rt.last()
+		var payload map[string]any
+		require.NoError(t, json.Unmarshal(body, &payload))
+		assert.Equal(t, "test-value", payload["host"])
 	})
 }
 
@@ -1594,24 +1565,13 @@ func TestSendExternal_AllEventTypes(t *testing.T) {
 	for _, et := range eventTypes {
 		t.Run(et.eventType, func(t *testing.T) {
 			db := setupNotificationTestDB(t)
-			svc := NewNotificationService(db, nil)
-
-			// Mock Discord validation to allow test server URL
-			origValidateDiscordFunc := validateDiscordProviderURLFunc
-			defer func() { validateDiscordProviderURLFunc = origValidateDiscordFunc }()
-			validateDiscordProviderURLFunc = func(providerType, rawURL string) error { return nil }
-
-			var callCount atomic.Int32
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				callCount.Add(1)
-				w.WriteHeader(http.StatusOK)
-			}))
-			defer server.Close()
+			wrapper, rt := newCapturingWrapper()
+			svc := NewNotificationService(db, nil, WithNotifyTransportWrapper(wrapper))
 
 			provider := models.NotificationProvider{
 				Name:                "event-test",
 				Type:                "discord",
-				URL:                 server.URL,
+				URL:                 "https://discord.com/api/webhooks/1/event-test-token",
 				Enabled:             true,
 				Template:            "minimal",
 				NotifyProxyHosts:    et.eventType == "proxy_host",
@@ -1632,16 +1592,18 @@ func TestSendExternal_AllEventTypes(t *testing.T) {
 			}).Error)
 
 			svc.SendExternal(context.Background(), et.eventType, "Title", "Message", nil)
-			time.Sleep(100 * time.Millisecond)
 
 			// test always sends; unknown defaults to false (security-first); others only when their flag is true
 			switch et.eventType {
-			case "test":
-				assert.Greater(t, callCount.Load(), int32(0), "Event type %s should trigger notification", et.eventType)
 			case "unknown":
-				assert.Equal(t, int32(0), callCount.Load(), "Unknown event type should not trigger notification (security-first)")
+				time.Sleep(100 * time.Millisecond)
+				_, body := rt.last()
+				assert.Nil(t, body, "Unknown event type should not trigger notification (security-first)")
 			default:
-				assert.Greater(t, callCount.Load(), int32(0), "Event type %s should trigger notification when flag is set", et.eventType)
+				require.Eventually(t, func() bool {
+					_, body := rt.last()
+					return body != nil
+				}, time.Second, 10*time.Millisecond, "Event type %s should trigger notification", et.eventType)
 			}
 		})
 	}
@@ -1715,23 +1677,13 @@ func TestNotificationService_SendExternal_SecurityEventRouting(t *testing.T) {
 	for _, tc := range eventCases {
 		t.Run(tc.name, func(t *testing.T) {
 			db := setupNotificationTestDB(t)
-			svc := NewNotificationService(db, nil)
-
-			origValidate := validateDiscordProviderURLFunc
-			defer func() { validateDiscordProviderURLFunc = origValidate }()
-			validateDiscordProviderURLFunc = func(providerType, rawURL string) error { return nil }
-
-			received := make(chan struct{}, 1)
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				received <- struct{}{}
-				w.WriteHeader(http.StatusOK)
-			}))
-			defer server.Close()
+			wrapper, rt := newCapturingWrapper()
+			svc := NewNotificationService(db, nil, WithNotifyTransportWrapper(wrapper))
 
 			provider := models.NotificationProvider{
 				Name:     "discord-security",
 				Type:     "discord",
-				URL:      server.URL,
+				URL:      "https://discord.com/api/webhooks/1/security-token",
 				Enabled:  true,
 				Template: "minimal",
 			}
@@ -1740,11 +1692,10 @@ func TestNotificationService_SendExternal_SecurityEventRouting(t *testing.T) {
 
 			svc.SendExternal(context.Background(), tc.eventType, "Security Title", "Security Message", nil)
 
-			select {
-			case <-received:
-			case <-time.After(1 * time.Second):
-				t.Fatalf("expected dispatch for event type %s", tc.eventType)
-			}
+			require.Eventually(t, func() bool {
+				_, body := rt.last()
+				return body != nil
+			}, time.Second, 10*time.Millisecond, "expected dispatch for event type %s", tc.eventType)
 		})
 	}
 }
@@ -1847,17 +1798,21 @@ func TestTestProvider_NotifyOnlyRejectsUnsupportedProvider(t *testing.T) {
 	}
 }
 
+// TestTestProvider_DiscordUsesNotifyPathInPR1 verifies Discord dispatches
+// through the extracted notify module (buildNotifySender/transport.Wrapper)
+// rather than the legacy sendJSONPayload path — webhookDoRequestFunc (the
+// legacy path's HTTP hook) is deliberately left untouched here and must NOT
+// be invoked.
 func TestTestProvider_DiscordUsesNotifyPathInPR1(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
+	wrapper, rt := newCapturingWrapper()
+	svc := NewNotificationService(db, nil, WithNotifyTransportWrapper(wrapper))
 
-	serverCalled := atomic.Bool{}
+	legacyPathCalled := atomic.Bool{}
 	originalDo := webhookDoRequestFunc
 	webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
-		serverCalled.Store(true)
-		// Verify it's using JSON payload (not legacy fallback)
-		assert.Equal(t, "application/json", req.Header.Get("Content-Type"))
-		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Header: make(http.Header)}, nil
+		legacyPathCalled.Store(true)
+		return client.Do(req)
 	}
 	defer func() { webhookDoRequestFunc = originalDo }()
 
@@ -1869,39 +1824,44 @@ func TestTestProvider_DiscordUsesNotifyPathInPR1(t *testing.T) {
 
 	err := svc.TestProvider(provider)
 	require.NoError(t, err)
-	assert.True(t, serverCalled.Load(), "discord provider should use JSON webhook path")
+	assert.False(t, legacyPathCalled.Load(), "discord provider should no longer use the legacy sendJSONPayload path")
+
+	req, body := rt.last()
+	require.NotNil(t, req, "discord provider should dispatch through the notify module")
+	assert.Equal(t, "application/json", req.Header.Get("Content-Type"))
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(body, &payload))
 }
 
 func TestTestProvider_HTTPURLValidation(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	svc := NewNotificationService(db, nil)
 
-	t.Run("blocks private IP", func(t *testing.T) {
+	t.Run("blocks failed dispatch", func(t *testing.T) {
+		rt := &capturingRoundTripper{statusCode: http.StatusInternalServerError}
+		wrapper := transport.NewWrapper(
+			transport.WithClientFactory(func(bool, int) *http.Client {
+				return &http.Client{Transport: rt}
+			}),
+			transport.WithURLValidator(func(rawURL string, _ bool) (string, error) {
+				return rawURL, nil
+			}),
+			transport.WithRetryPolicy(transport.RetryPolicy{MaxAttempts: 1}),
+		)
+		svc := NewNotificationService(db, nil, WithNotifyTransportWrapper(wrapper))
+
 		provider := models.NotificationProvider{
 			Type:     "discord",
 			URL:      "https://discord.com/api/webhooks/999/invalidtoken",
-			Template: "",
+			Template: "minimal",
 		}
-
-		// Mock the webhook request to fail on IP validation
-		originalDo := webhookDoRequestFunc
-		webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
-			return nil, fmt.Errorf("private IP blocked")
-		}
-		defer func() { webhookDoRequestFunc = originalDo }()
 
 		err := svc.TestProvider(provider)
 		require.Error(t, err)
 	})
 
 	t.Run("allows valid discord webhook", func(t *testing.T) {
-		serverCalled := atomic.Bool{}
-		originalDo := webhookDoRequestFunc
-		webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
-			serverCalled.Store(true)
-			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Header: make(http.Header)}, nil
-		}
-		defer func() { webhookDoRequestFunc = originalDo }()
+		wrapper, rt := newCapturingWrapper()
+		svc := NewNotificationService(db, nil, WithNotifyTransportWrapper(wrapper))
 
 		provider := models.NotificationProvider{
 			Type:     "discord",
@@ -1911,7 +1871,9 @@ func TestTestProvider_HTTPURLValidation(t *testing.T) {
 
 		err := svc.TestProvider(provider)
 		require.NoError(t, err)
-		assert.True(t, serverCalled.Load())
+
+		_, body := rt.last()
+		require.NotNil(t, body)
 	})
 }
 

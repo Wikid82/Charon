@@ -14,6 +14,9 @@ import (
 	"text/template"
 	"time"
 
+	notify "github.com/Wikid82/go_notify_yourself"
+	"github.com/Wikid82/go_notify_yourself/transport"
+
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/Wikid82/charon/backend/internal/notifications"
@@ -28,10 +31,22 @@ import (
 type NotificationService struct {
 	DB                 *gorm.DB
 	httpWrapper        *notifications.HTTPWrapper
+	notifyWrapper      *transport.Wrapper
 	mailService        MailServiceInterface
 	telegramAPIBaseURL string
 	pushoverAPIBaseURL string
 	validateSlackURL   func(string) error
+}
+
+// notifyMigratedProviderTypes lists the notification provider types whose
+// dispatch has been cut over from the legacy sendJSONPayload path to the
+// extracted notify module (buildNotifySender, notify_provider_adapter.go).
+// It is extended one provider type at a time as each commit in the
+// extraction migration lands (docs/plans/notifications_extraction_spec.md
+// §6). Provider types not yet listed here keep dispatching through the
+// legacy sendJSONPayload/dispatchEmail path unchanged.
+var notifyMigratedProviderTypes = map[string]bool{
+	"discord": true,
 }
 
 // NotificationServiceOption configures a NotificationService at construction time.
@@ -45,10 +60,23 @@ func WithSlackURLValidator(fn func(string) error) NotificationServiceOption {
 	}
 }
 
+// WithNotifyTransportWrapper overrides the *transport.Wrapper used to
+// dispatch notifications for provider types listed in
+// notifyMigratedProviderTypes. Intended for tests that need to intercept
+// outbound requests (e.g. a fake http.RoundTripper) without hitting a real
+// network destination — production code always uses the wrapper built by
+// NewNotifyTransportWrapper.
+func WithNotifyTransportWrapper(w *transport.Wrapper) NotificationServiceOption {
+	return func(s *NotificationService) {
+		s.notifyWrapper = w
+	}
+}
+
 func NewNotificationService(db *gorm.DB, mailService MailServiceInterface, opts ...NotificationServiceOption) *NotificationService {
 	s := &NotificationService{
 		DB:                 db,
 		httpWrapper:        notifications.NewNotifyHTTPWrapper(),
+		notifyWrapper:      NewNotifyTransportWrapper(),
 		mailService:        mailService,
 		telegramAPIBaseURL: "https://api.telegram.org",
 		pushoverAPIBaseURL: "https://api.pushover.net",
@@ -271,6 +299,12 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 			continue
 		}
 		go func(p models.NotificationProvider) {
+			pType := strings.ToLower(strings.TrimSpace(p.Type))
+			if notifyMigratedProviderTypes[pType] {
+				s.dispatchViaNotify(ctx, p, eventType, title, message, data)
+				return
+			}
+
 			if !supportsJSONTemplates(p.Type) {
 				logger.Log().WithField("provider", util.SanitizeForLog(p.Name)).WithField("type", p.Type).Warn("Provider type is not supported by notify-only runtime")
 				return
@@ -280,6 +314,55 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 				logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send JSON notification")
 			}
 		}(provider)
+	}
+}
+
+// notifyMessageDataFromLegacyFlatMap extracts the host/service extras that
+// legacyDetailedTemplate (notify_provider_adapter.go) reads via
+// {{index .Data "HostName"}}/{{index .Data "HostIP"}}/
+// {{index .Data "ServiceCount"}}/{{index .Data "Services"}} from the flat
+// data map SendExternal callers (e.g. uptime_service.go's
+// sendHostDownNotification) pass in, so a provider configured with the old
+// "detailed" template keeps rendering the same host/IP/service-count/
+// services values after cutover to the extracted notify module. Reading a
+// missing key from a nil or incomplete map yields nil (renders as JSON
+// null), matching the old flat-map template's behavior for callers that
+// don't supply these optional fields (e.g. proxy_host/domain/cert/
+// remote_server events).
+func notifyMessageDataFromLegacyFlatMap(data map[string]any) map[string]any {
+	return map[string]any{
+		"HostName":     data["HostName"],
+		"HostIP":       data["HostIP"],
+		"ServiceCount": data["ServiceCount"],
+		"Services":     data["Services"],
+	}
+}
+
+// dispatchViaNotify sends a notification through a provider type that has
+// been cut over from the legacy sendJSONPayload path to the extracted
+// notify module (buildNotifySender, notify_provider_adapter.go). It builds
+// a notify.Message from the same source data sendJSONPayload used
+// (title/message/eventType plus the HostName/HostIP/ServiceCount/Services
+// extras a caller may have supplied), then dispatches it through the
+// provider-specific Sender, which routes through the shared
+// *transport.Wrapper (s.notifyWrapper) — gaining that wrapper's
+// retry/backoff behavior for every dispatch that goes through this path.
+func (s *NotificationService) dispatchViaNotify(ctx context.Context, p models.NotificationProvider, eventType, title, message string, data map[string]any) {
+	sender, err := buildNotifySender(p, s.notifyWrapper)
+	if err != nil {
+		logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to build notify sender")
+		return
+	}
+
+	msg := notify.Message{
+		Title:     title,
+		Body:      message,
+		EventType: eventType,
+		Data:      notifyMessageDataFromLegacyFlatMap(data),
+	}
+
+	if err := sender.Send(ctx, msg); err != nil {
+		logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send notification via notify module")
 	}
 }
 
@@ -710,6 +793,10 @@ func (s *NotificationService) TestProvider(provider models.NotificationProvider)
 		return fmt.Errorf("provider type %q does not support JSON templates", providerType)
 	}
 
+	if notifyMigratedProviderTypes[providerType] {
+		return s.testProviderViaNotify(provider)
+	}
+
 	data := map[string]any{
 		"Title":   "Test Notification",
 		"Message": "This is a test notification from Charon",
@@ -719,6 +806,23 @@ func (s *NotificationService) TestProvider(provider models.NotificationProvider)
 		"Time":    time.Now().Format(time.RFC3339),
 	}
 	return s.sendJSONPayload(context.Background(), provider, data)
+}
+
+// testProviderViaNotify sends a test notification through a provider type
+// that has been cut over from the legacy sendJSONPayload path to the
+// extracted notify module (buildNotifySender, notify_provider_adapter.go).
+func (s *NotificationService) testProviderViaNotify(provider models.NotificationProvider) error {
+	sender, err := buildNotifySender(provider, s.notifyWrapper)
+	if err != nil {
+		return fmt.Errorf("build notify sender: %w", err)
+	}
+
+	msg := notify.Message{
+		Title:     "Test Notification",
+		Body:      "This is a test notification from Charon",
+		EventType: "test",
+	}
+	return sender.Send(context.Background(), msg)
 }
 
 // TestEmailProvider sends a test email to the recipients configured in provider.URL.

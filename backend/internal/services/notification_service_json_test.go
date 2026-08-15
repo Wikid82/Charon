@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -426,29 +425,24 @@ func TestNormalizeURL_DiscordWebhook_ConvertsToDiscordScheme(t *testing.T) {
 	assert.Equal(t, "discord://xyz@456", got2)
 }
 
+// TestSendExternal_UsesJSONForSupportedServices exercises Discord dispatch
+// after its cutover to the extracted notify module (buildNotifySender).
+// Discord's own webhook validation (providers/discord.ValidateWebhookURL)
+// only accepts discord.com/canary.discord.com hosts, so an httptest.Server
+// URL (as used before cutover) can no longer stand in for a Discord
+// webhook — the test instead injects a capturing fake RoundTripper via
+// WithNotifyTransportWrapper, matching the pattern
+// notify_provider_adapter_test.go uses to test buildNotifySender directly.
 func TestSendExternal_UsesJSONForSupportedServices(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}))
 
-	var called atomic.Bool
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called.Store(true)
-		var payload map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&payload)
-		assert.NotNil(t, payload["content"])
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	// Mock Discord validation to allow test server URL
-	origValidateDiscordFunc := validateDiscordProviderURLFunc
-	defer func() { validateDiscordProviderURLFunc = origValidateDiscordFunc }()
-	validateDiscordProviderURLFunc = func(providerType, rawURL string) error { return nil }
+	wrapper, rt := newCapturingWrapper()
 
 	provider := models.NotificationProvider{
 		Type:             "discord",
-		URL:              server.URL,
+		URL:              "https://discord.com/api/webhooks/123456789/notify-json-token",
 		Template:         "custom",
 		Config:           `{"content": {{toJSON .Message}}}`,
 		Enabled:          true,
@@ -456,50 +450,47 @@ func TestSendExternal_UsesJSONForSupportedServices(t *testing.T) {
 	}
 	db.Create(&provider)
 
-	svc := NewNotificationService(db, nil)
+	svc := NewNotificationService(db, nil, WithNotifyTransportWrapper(wrapper))
 	svc.SendExternal(context.Background(), "proxy_host", "Test", "Message", nil)
 
-	// Give goroutine time to execute
-	time.Sleep(100 * time.Millisecond)
-	assert.True(t, called.Load(), "notification should have been sent via JSON")
+	require.Eventually(t, func() bool {
+		_, body := rt.last()
+		return body != nil
+	}, time.Second, 10*time.Millisecond, "notification should have been sent via JSON")
+
+	_, body := rt.last()
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(body, &payload))
+	assert.NotNil(t, payload["content"])
 }
 
+// TestTestProvider_UsesJSONForSupportedServices is the TestProvider
+// (test-send) counterpart of TestSendExternal_UsesJSONForSupportedServices
+// — see its comment for why a capturing fake RoundTripper replaces the old
+// httptest.Server + validateDiscordProviderURLFunc override.
 func TestTestProvider_UsesJSONForSupportedServices(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var payload map[string]any
-		err := json.NewDecoder(r.Body).Decode(&payload)
-		require.NoError(t, err)
-		assert.NotNil(t, payload["content"])
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	// Mock Discord validation to allow test server URL
-	origValidateDiscordFunc := validateDiscordProviderURLFunc
-	origWebhookDoReq := webhookDoRequestFunc
-	defer func() {
-		validateDiscordProviderURLFunc = origValidateDiscordFunc
-		webhookDoRequestFunc = origWebhookDoReq
-	}()
-	validateDiscordProviderURLFunc = func(providerType, rawURL string) error { return nil }
-	webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
-		return client.Do(req) //nolint:gosec // G704: test-controlled httptest server, not user input
-	}
+	wrapper, rt := newCapturingWrapper()
 
 	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	require.NoError(t, err)
 
-	svc := NewNotificationService(db, nil)
+	svc := NewNotificationService(db, nil, WithNotifyTransportWrapper(wrapper))
 
 	provider := models.NotificationProvider{
 		Type:     "discord",
-		URL:      server.URL,
+		URL:      "https://discord.com/api/webhooks/123456789/notify-json-test-token",
 		Template: "custom",
 		Config:   `{"content": {{toJSON .Message}}}`,
 	}
 
 	err = svc.TestProvider(provider)
 	assert.NoError(t, err)
+
+	_, body := rt.last()
+	require.NotNil(t, body)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(body, &payload))
+	assert.NotNil(t, payload["content"])
 }
 
 func TestSendJSONPayload_Telegram_ValidPayload(t *testing.T) {
