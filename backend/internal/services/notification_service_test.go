@@ -1073,6 +1073,34 @@ func TestTestProvider_NotifyOnlyRejectsUnsupportedProvider(t *testing.T) {
 	}
 }
 
+// TestTestProviderViaNotify_BuildSenderError covers testProviderViaNotify's
+// defense-in-depth error branch when buildNotifySender rejects a provider
+// type it doesn't recognize. TestProvider's public entry point can never
+// reach this in practice (isSupportedNotificationProviderType and
+// supportsJSONTemplates both gate to exactly the types buildNotifySender
+// supports), so this calls the unexported method directly to exercise the
+// branch.
+func TestTestProviderViaNotify_BuildSenderError(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	err := svc.testProviderViaNotify(models.NotificationProvider{Type: "not-a-real-provider-type"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "build notify sender")
+}
+
+// TestDispatchViaNotify_BuildSenderError is dispatchViaNotify's counterpart
+// to TestTestProviderViaNotify_BuildSenderError — see that test's comment
+// for why this must call the unexported method directly rather than going
+// through SendExternal.
+func TestDispatchViaNotify_BuildSenderError(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	// Must not panic; buildNotifySender's error is logged and dispatchViaNotify returns.
+	svc.dispatchViaNotify(context.Background(), models.NotificationProvider{Type: "not-a-real-provider-type"}, "test", "Title", "Message", nil)
+}
+
 func TestTestProvider_HTTPURLValidation(t *testing.T) {
 	db := setupNotificationTestDB(t)
 
