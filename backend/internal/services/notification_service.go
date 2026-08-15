@@ -15,6 +15,7 @@ import (
 	"time"
 
 	notify "github.com/Wikid82/go_notify_yourself"
+	"github.com/Wikid82/go_notify_yourself/providers/email"
 	"github.com/Wikid82/go_notify_yourself/providers/webhook"
 	"github.com/Wikid82/go_notify_yourself/transport"
 
@@ -303,7 +304,7 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 			continue
 		}
 		if strings.ToLower(strings.TrimSpace(provider.Type)) == "email" {
-			go s.dispatchEmail(ctx, provider, eventType, title, message)
+			go s.dispatchEmailViaNotify(ctx, provider, eventType, title, message)
 			continue
 		}
 		go func(p models.NotificationProvider) {
@@ -446,6 +447,64 @@ func (s *NotificationService) dispatchEmail(ctx context.Context, p models.Notifi
 	if err := s.mailService.SendEmail(timeoutCtx, recipients, subject, htmlBody); err != nil {
 		logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send email notification")
 	}
+}
+
+// dispatchEmailViaNotify sends an email notification through the extracted
+// notify module's email package (NewNotifyEmailConfig, notify_email_adapter.go)
+// instead of the legacy dispatchEmail path above. It runs in a goroutine;
+// all errors are logged rather than returned.
+//
+// Behavior note: unlike dispatchEmail, which falls back to a manually built
+// plain HTML body when template rendering fails (still sending the
+// notification), the extracted module's email.Client.Send has no such
+// fallback — mailServiceTemplateRendererAdapter.Render (notify_email_adapter.go)
+// returns the render error directly, and Send aborts without calling Mailer.Send
+// at all. A provider with a broken/missing email template now fails closed
+// (the notification is not sent) rather than degrading gracefully. This is a
+// deliberate consequence of the extracted module's design (§3.3.4 of the
+// extraction spec: the module never has its own fallback rendering baked into
+// the dispatch path), not an oversight — see this migration's PR notes for the
+// full rationale.
+func (s *NotificationService) dispatchEmailViaNotify(ctx context.Context, p models.NotificationProvider, eventType, title, message string) {
+	if s.mailService == nil || !s.mailService.IsConfigured() {
+		logger.Log().WithField("provider", util.SanitizeForLog(p.Name)).Warn("Email provider is not configured, skipping dispatch")
+		return
+	}
+
+	recipients := parseEmailRecipients(p.URL)
+	if len(recipients) == 0 {
+		logger.Log().WithField("provider", util.SanitizeForLog(p.Name)).Warn("Email provider has no recipients configured")
+		return
+	}
+
+	client := email.New(NewNotifyEmailConfig(s.mailService, recipients))
+
+	msg := notify.Message{
+		Title:     title,
+		Body:      message,
+		EventType: eventType,
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	if err := client.Send(timeoutCtx, msg); err != nil {
+		logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send email notification")
+	}
+}
+
+// parseEmailRecipients splits a NotificationProvider's comma-separated URL
+// field into a trimmed, non-empty recipient list. Shared by dispatchEmail,
+// dispatchEmailViaNotify, and TestEmailProvider's notify-path counterpart.
+func parseEmailRecipients(rawURL string) []string {
+	rawRecipients := strings.Split(rawURL, ",")
+	recipients := make([]string, 0, len(rawRecipients))
+	for _, r := range rawRecipients {
+		if trimmed := strings.TrimSpace(r); trimmed != "" {
+			recipients = append(recipients, trimmed)
+		}
+	}
+	return recipients
 }
 
 func emailTemplateForEventType(eventType string) string {
@@ -833,35 +892,54 @@ func (s *NotificationService) testProviderViaNotify(provider models.Notification
 	return sender.Send(context.Background(), msg)
 }
 
-// TestEmailProvider sends a test email to the recipients configured in provider.URL.
-// It bypasses the JSON-template path used by TestProvider and uses the SMTP mail service directly.
+// TestEmailProvider sends a test email to the recipients configured in
+// provider.URL, dispatched through the extracted notify module's email
+// package (providers/email) the same way TestEmailProvider's real-dispatch
+// counterpart (dispatchEmailViaNotify) is. It bypasses the JSON-template
+// path used by TestProvider.
+//
+// This uses its own inline email.Config, rather than NewNotifyEmailConfig
+// (notify_email_adapter.go), because the test-send subject prefix
+// ("[Charon Test] ") and forced "email_system_event.html" template differ
+// from NewNotifyEmailConfig's production values ("[Charon Alert] " and
+// emailTemplateForEventType's event-type-based mapping) — matching the old
+// TestEmailProvider's hardcoded subject/template exactly.
+//
+// Behavior note: see dispatchEmailViaNotify's comment — like that path,
+// this no longer falls back to a manually built plain HTML body when
+// template rendering fails; a broken/missing template now fails the test
+// send outright instead of silently succeeding with a generic fallback
+// body.
 func (s *NotificationService) TestEmailProvider(provider models.NotificationProvider) error {
 	if s.mailService == nil || !s.mailService.IsConfigured() {
 		return fmt.Errorf("email service is not configured; configure SMTP settings before testing email providers")
 	}
-	rawRecipients := strings.Split(provider.URL, ",")
-	recipients := make([]string, 0, len(rawRecipients))
-	for _, r := range rawRecipients {
-		if trimmed := strings.TrimSpace(r); trimmed != "" {
-			recipients = append(recipients, trimmed)
-		}
-	}
+
+	recipients := parseEmailRecipients(provider.URL)
 	if len(recipients) == 0 {
 		return fmt.Errorf("no recipients configured; add at least one recipient email address")
 	}
-	data := EmailTemplateData{
-		EventType: "test",
+
+	cfg := email.Config{
+		Recipients:    recipients,
+		SubjectPrefix: "[Charon Test] ",
+		TemplateName: func(notify.Message) string {
+			return "email_system_event.html"
+		},
+		Renderer: &mailServiceTemplateRendererAdapter{mailService: s.mailService},
+		Mailer:   &mailServiceMailerAdapter{mailService: s.mailService},
+	}
+	client := email.New(cfg)
+
+	msg := notify.Message{
 		Title:     "Test Notification",
-		Message:   "This is a test notification from Charon. If you received this email, your email notification provider is configured correctly.",
-		Timestamp: time.Now().Format(time.RFC3339),
+		Body:      "This is a test notification from Charon. If you received this email, your email notification provider is configured correctly.",
+		EventType: "test",
 	}
-	htmlBody, renderErr := s.mailService.RenderNotificationEmail("email_system_event.html", data)
-	if renderErr != nil {
-		htmlBody = "<strong>Test Notification</strong><br>This is a test notification from Charon. If you received this email, your email notification provider is configured correctly."
-	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	return s.mailService.SendEmail(ctx, recipients, "[Charon Test] Test Notification", htmlBody)
+	return client.Send(ctx, msg)
 }
 
 // ListTemplates returns all external notification templates stored in the database.

@@ -2648,7 +2648,11 @@ func TestSendExternal_EmailProvider_Dispatches(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}))
 
-	mock := &mockMailService{isConfigured: true}
+	// renderResult must be set so the notify-module email path's render
+	// step succeeds and reaches Mailer.Send — see TestEmailProvider's doc
+	// comment for why a render failure now aborts dispatch instead of
+	// falling back to a generic body.
+	mock := &mockMailService{isConfigured: true, renderResult: "<p>rendered</p>"}
 	svc := NewNotificationService(db, mock)
 
 	provider := models.NotificationProvider{
@@ -2736,7 +2740,8 @@ func TestSendExternal_EmailProviderDoesNotCallSendJSONPayload(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}))
 
-	mock := &mockMailService{isConfigured: true}
+	// renderResult must be set — see TestSendExternal_EmailProvider_Dispatches's comment.
+	mock := &mockMailService{isConfigured: true, renderResult: "<p>rendered</p>"}
 	svc := NewNotificationService(db, mock)
 
 	// Track any JSON payload call via the webhook hook
@@ -2915,7 +2920,7 @@ func TestEmailProvider_BlankWhitespaceURL(t *testing.T) {
 
 func TestEmailProvider_ValidRecipient(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	mock := &mockMailService{isConfigured: true}
+	mock := &mockMailService{isConfigured: true, renderResult: "<p>rendered</p>"}
 	svc := NewNotificationService(db, mock)
 
 	p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "user@example.com"}
@@ -2929,7 +2934,7 @@ func TestEmailProvider_ValidRecipient(t *testing.T) {
 
 func TestEmailProvider_MultipleRecipients(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	mock := &mockMailService{isConfigured: true}
+	mock := &mockMailService{isConfigured: true, renderResult: "<p>rendered</p>"}
 	svc := NewNotificationService(db, mock)
 
 	p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "a@b.com, c@d.com , e@f.com"}
@@ -2941,7 +2946,7 @@ func TestEmailProvider_MultipleRecipients(t *testing.T) {
 
 func TestEmailProvider_SendError(t *testing.T) {
 	db := setupNotificationTestDB(t)
-	mock := &mockMailService{isConfigured: true, sendEmailErr: fmt.Errorf("smtp: connection refused")}
+	mock := &mockMailService{isConfigured: true, renderResult: "<p>rendered</p>", sendEmailErr: fmt.Errorf("smtp: connection refused")}
 	svc := NewNotificationService(db, mock)
 
 	p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "a@b.com"}
@@ -2951,6 +2956,15 @@ func TestEmailProvider_SendError(t *testing.T) {
 	assert.Equal(t, 1, mock.callCount())
 }
 
+// TestEmailProvider_TemplateFallback previously verified that a template
+// rendering failure fell back to a manually built plain HTML body and still
+// sent the email. Since TestEmailProvider's cutover to the extracted notify
+// module's email package (providers/email), that fallback no longer exists:
+// mailServiceTemplateRendererAdapter.Render (notify_email_adapter.go)
+// returns the render error directly, and email.Client.Send aborts before
+// ever calling Mailer.Send. This test now verifies that fail-closed
+// behavior instead — see TestEmailProvider's doc comment for the full
+// rationale.
 func TestEmailProvider_TemplateFallback(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	mock := &mockMailService{isConfigured: true, renderErr: fmt.Errorf("template not found")}
@@ -2958,9 +2972,9 @@ func TestEmailProvider_TemplateFallback(t *testing.T) {
 
 	p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "a@b.com"}
 	err := svc.TestEmailProvider(p)
-	require.NoError(t, err)
-	require.Equal(t, 1, mock.callCount())
-	assert.Contains(t, mock.firstCall().body, "<strong>Test Notification</strong>")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "template not found")
+	assert.Zero(t, mock.callCount(), "SendEmail must not be called when template rendering fails")
 }
 
 func TestEmailProvider_UsesRenderedTemplate(t *testing.T) {
