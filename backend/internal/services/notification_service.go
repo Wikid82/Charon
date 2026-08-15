@@ -454,17 +454,12 @@ func (s *NotificationService) dispatchEmail(ctx context.Context, p models.Notifi
 // instead of the legacy dispatchEmail path above. It runs in a goroutine;
 // all errors are logged rather than returned.
 //
-// Behavior note: unlike dispatchEmail, which falls back to a manually built
-// plain HTML body when template rendering fails (still sending the
-// notification), the extracted module's email.Client.Send has no such
-// fallback — mailServiceTemplateRendererAdapter.Render (notify_email_adapter.go)
-// returns the render error directly, and Send aborts without calling Mailer.Send
-// at all. A provider with a broken/missing email template now fails closed
-// (the notification is not sent) rather than degrading gracefully. This is a
-// deliberate consequence of the extracted module's design (§3.3.4 of the
-// extraction spec: the module never has its own fallback rendering baked into
-// the dispatch path), not an oversight — see this migration's PR notes for the
-// full rationale.
+// Behavior note: like dispatchEmail, a template-rendering failure still
+// results in the notification being sent, using a manually built plain
+// HTML body — see mailServiceTemplateRendererAdapter.Render's doc comment
+// (notify_email_adapter.go) for where that fallback now lives. Only a real
+// Mailer/SMTP transport failure (mailServiceMailerAdapter.Send) causes this
+// function's error branch to fire.
 func (s *NotificationService) dispatchEmailViaNotify(ctx context.Context, p models.NotificationProvider, eventType, title, message string) {
 	if s.mailService == nil || !s.mailService.IsConfigured() {
 		logger.Log().WithField("provider", util.SanitizeForLog(p.Name)).Warn("Email provider is not configured, skipping dispatch")
@@ -906,10 +901,10 @@ func (s *NotificationService) testProviderViaNotify(provider models.Notification
 // TestEmailProvider's hardcoded subject/template exactly.
 //
 // Behavior note: see dispatchEmailViaNotify's comment — like that path,
-// this no longer falls back to a manually built plain HTML body when
-// template rendering fails; a broken/missing template now fails the test
-// send outright instead of silently succeeding with a generic fallback
-// body.
+// this still falls back to a manually built plain HTML body (via
+// mailServiceTemplateRendererAdapter.Render) when template rendering fails,
+// and still sends/succeeds. Only a real Mailer/SMTP transport failure
+// causes this function to return an error.
 func (s *NotificationService) TestEmailProvider(provider models.NotificationProvider) error {
 	if s.mailService == nil || !s.mailService.IsConfigured() {
 		return fmt.Errorf("email service is not configured; configure SMTP settings before testing email providers")

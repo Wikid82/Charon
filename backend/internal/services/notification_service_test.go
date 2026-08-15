@@ -2956,15 +2956,13 @@ func TestEmailProvider_SendError(t *testing.T) {
 	assert.Equal(t, 1, mock.callCount())
 }
 
-// TestEmailProvider_TemplateFallback previously verified that a template
-// rendering failure fell back to a manually built plain HTML body and still
-// sent the email. Since TestEmailProvider's cutover to the extracted notify
-// module's email package (providers/email), that fallback no longer exists:
-// mailServiceTemplateRendererAdapter.Render (notify_email_adapter.go)
-// returns the render error directly, and email.Client.Send aborts before
-// ever calling Mailer.Send. This test now verifies that fail-closed
-// behavior instead — see TestEmailProvider's doc comment for the full
-// rationale.
+// TestEmailProvider_TemplateFallback verifies that a template rendering
+// failure falls back to a manually built plain HTML body and the email is
+// still sent — matching pre-extraction dispatchEmail behavior. The fallback
+// now lives in mailServiceTemplateRendererAdapter.Render
+// (notify_email_adapter.go), which never propagates a render error to
+// email.Client.Send; it logs a warning and returns a degraded-but-nonempty
+// body instead, so Send proceeds to Mailer.Send as normal.
 func TestEmailProvider_TemplateFallback(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	mock := &mockMailService{isConfigured: true, renderErr: fmt.Errorf("template not found")}
@@ -2972,9 +2970,35 @@ func TestEmailProvider_TemplateFallback(t *testing.T) {
 
 	p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "a@b.com"}
 	err := svc.TestEmailProvider(p)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "template not found")
-	assert.Zero(t, mock.callCount(), "SendEmail must not be called when template rendering fails")
+	require.NoError(t, err, "email must still be sent when template rendering fails")
+	require.Equal(t, 1, mock.callCount(), "SendEmail must still be called with a fallback body")
+
+	call := mock.firstCall()
+	assert.Contains(t, call.body, "<strong>Test Notification</strong>")
+	assert.Contains(t, call.body, "This is a test notification from Charon. If you received this email, your email notification provider is configured correctly.")
+}
+
+// TestEmailProvider_TransportFailureStillErrors confirms that a genuine
+// Mailer/SMTP transport failure (as opposed to a template-render failure)
+// still correctly propagates as an error from TestEmailProvider, and is not
+// silently swallowed by the template-render fallback added to
+// mailServiceTemplateRendererAdapter.Render. Template rendering succeeds
+// here — only SendEmail (the transport step) fails.
+func TestEmailProvider_TransportFailureStillErrors(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	mock := &mockMailService{
+		isConfigured: true,
+		renderResult: "<p>rendered</p>",
+		sendEmailErr: fmt.Errorf("smtp: connection refused"),
+	}
+	svc := NewNotificationService(db, mock)
+
+	p := models.NotificationProvider{Name: "test-email", Type: "email", URL: "a@b.com"}
+	err := svc.TestEmailProvider(p)
+	require.Error(t, err, "a real transport failure must still be reported as an error")
+	assert.Contains(t, err.Error(), "smtp")
+	require.Equal(t, 1, mock.callCount())
+	assert.Equal(t, "<p>rendered</p>", mock.firstCall().body, "transport failure must not be confused with a render failure")
 }
 
 func TestEmailProvider_UsesRenderedTemplate(t *testing.T) {

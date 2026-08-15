@@ -125,13 +125,47 @@ func TestMailServiceTemplateRendererAdapterDelegatesRender(t *testing.T) {
 	}
 }
 
-func TestMailServiceTemplateRendererAdapterPropagatesError(t *testing.T) {
+// TestMailServiceTemplateRendererAdapterFallsBackOnRenderError verifies the
+// regression fix: Render must never propagate a template-rendering error to
+// its caller (email.Client.Send aborts before Mailer.Send if it did — see
+// Render's doc comment). Instead it should log a warning and return a
+// locally-composed plain-HTML fallback body built from msg.Title/msg.Body,
+// preserving pre-extraction dispatchEmail's fail-open behavior.
+func TestMailServiceTemplateRendererAdapterFallsBackOnRenderError(t *testing.T) {
 	fake := &fakeMailServiceForEmailAdapter{renderErr: fmt.Errorf("template missing")}
 	adapter := &mailServiceTemplateRendererAdapter{mailService: fake}
 
-	_, err := adapter.Render("missing.html", notify.Message{})
-	if err == nil {
-		t.Fatal("expected an error to be propagated")
+	msg := notify.Message{Title: "Cert expiring", Body: "example.com expires soon"}
+	got, err := adapter.Render("missing.html", msg)
+	if err != nil {
+		t.Fatalf("Render must not return an error on template-render failure, got: %v", err)
+	}
+	if got != "<strong>Cert expiring</strong><br>example.com expires soon" {
+		t.Fatalf("unexpected fallback body: %q", got)
+	}
+}
+
+// TestFallbackEmailBodyEscapesHTML confirms the fallback body HTML-escapes
+// title/body content, since it bypasses the normal template-rendering path
+// that would otherwise handle escaping.
+func TestFallbackEmailBodyEscapesHTML(t *testing.T) {
+	got := fallbackEmailBody(`<script>alert(1)</script>`, `<img src=x onerror=evil()>`)
+	if got != "<strong>&lt;script&gt;alert(1)&lt;/script&gt;</strong><br>&lt;img src=x onerror=evil()&gt;" {
+		t.Fatalf("unexpected escaped fallback body: %q", got)
+	}
+}
+
+// TestFallbackEmailBodyEmptyFields confirms fallbackEmailBody degrades
+// gracefully (no stray "<br>") when title or body is empty.
+func TestFallbackEmailBodyEmptyFields(t *testing.T) {
+	if got := fallbackEmailBody("", ""); got != "" {
+		t.Fatalf("expected empty fallback body, got %q", got)
+	}
+	if got := fallbackEmailBody("Only Title", ""); got != "<strong>Only Title</strong>" {
+		t.Fatalf("unexpected fallback body: %q", got)
+	}
+	if got := fallbackEmailBody("", "Only body"); got != "Only body" {
+		t.Fatalf("unexpected fallback body: %q", got)
 	}
 }
 
