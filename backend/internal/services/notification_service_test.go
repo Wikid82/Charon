@@ -3922,6 +3922,78 @@ func TestIsSupportedNotificationProviderType_Ntfy(t *testing.T) {
 	assert.True(t, isSupportedNotificationProviderType(" ntfy "))
 }
 
+// TestNotificationService_TestProvider_NtfyUsesNotifyPath verifies Ntfy
+// TestProvider dispatch after cutover to the extracted notify module
+// (buildNotifySender). Unlike Discord/Slack, Ntfy has no provider-side
+// hostname allowlist, so it can still dispatch to a local httptest.Server —
+// but that server is plain HTTP, which the extracted module's transport
+// wrapper only allows when CHARON_ENV=test is set explicitly (see
+// resolveNotifyAllowHTTP in notify_client_adapter.go), replacing the old
+// implicit os.Args[0]-based test-binary detection.
+func TestNotificationService_TestProvider_NtfyUsesNotifyPath(t *testing.T) {
+	t.Setenv("CHARON_ENV", "test")
+
+	var capturedAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	provider := models.NotificationProvider{
+		Type:     "ntfy",
+		URL:      server.URL,
+		Token:    "ntfy-token",
+		Template: "minimal",
+	}
+
+	err := svc.TestProvider(provider)
+	require.NoError(t, err)
+	assert.Equal(t, "Bearer ntfy-token", capturedAuth)
+}
+
+// TestNotificationService_SendExternal_NtfyUsesNotifyPath is the
+// SendExternal counterpart of
+// TestNotificationService_TestProvider_NtfyUsesNotifyPath.
+func TestNotificationService_SendExternal_NtfyUsesNotifyPath(t *testing.T) {
+	t.Setenv("CHARON_ENV", "test")
+
+	received := make(chan []byte, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		received <- body
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db, nil)
+
+	provider := models.NotificationProvider{
+		Name:             "Ntfy E2E",
+		Type:             "ntfy",
+		URL:              server.URL,
+		Enabled:          true,
+		NotifyProxyHosts: true,
+		Template:         "minimal",
+	}
+	require.NoError(t, svc.CreateProvider(&provider))
+
+	svc.SendExternal(context.Background(), "proxy_host", "Title", "Message", nil)
+
+	select {
+	case body := <-received:
+		var payload map[string]any
+		require.NoError(t, json.Unmarshal(body, &payload))
+		assert.NotEmpty(t, payload["message"])
+	case <-time.After(time.Second):
+		t.Fatal("Timed out waiting for ntfy webhook")
+	}
+}
+
 func TestIsDispatchEnabled_NtfyDefaultTrue(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	_ = db.AutoMigrate(&models.Setting{})

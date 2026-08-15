@@ -50,6 +50,7 @@ var notifyMigratedProviderTypes = map[string]bool{
 	"slack":    true,
 	"gotify":   true,
 	"pushover": true,
+	"ntfy":     true,
 }
 
 // NotificationServiceOption configures a NotificationService at construction time.
