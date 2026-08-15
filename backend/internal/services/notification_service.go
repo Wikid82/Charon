@@ -51,6 +51,7 @@ var notifyMigratedProviderTypes = map[string]bool{
 	"gotify":   true,
 	"pushover": true,
 	"ntfy":     true,
+	"telegram": true,
 }
 
 // NotificationServiceOption configures a NotificationService at construction time.

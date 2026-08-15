@@ -3150,6 +3150,69 @@ func TestIsDispatchEnabled_TelegramDisabledByFlag(t *testing.T) {
 	assert.False(t, svc.isDispatchEnabled("telegram"))
 }
 
+// TestNotificationService_TestProvider_TelegramUsesNotifyPath verifies
+// Telegram TestProvider dispatch after cutover to the extracted notify
+// module (buildNotifySender). buildNotifySender leaves telegram.Config's
+// BaseURL empty (notify_provider_adapter.go), so — unlike the old
+// svc.telegramAPIBaseURL test seam — dispatch always targets the real
+// Telegram Bot API; a capturing fake RoundTripper (via
+// WithNotifyTransportWrapper) intercepts before any real network call,
+// same as the Discord/Slack/Pushover notify-path tests.
+func TestNotificationService_TestProvider_TelegramUsesNotifyPath(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	wrapper, rt := newCapturingWrapper()
+	svc := NewNotificationService(db, nil, WithNotifyTransportWrapper(wrapper))
+
+	provider := models.NotificationProvider{ //nolint:gosec // G101: test credential
+		Type:     "telegram",
+		URL:      "123456789",
+		Token:    "fake-bot-token",
+		Template: "minimal",
+	}
+
+	err := svc.TestProvider(provider)
+	require.NoError(t, err)
+
+	req, body := rt.last()
+	require.NotNil(t, req)
+	assert.Equal(t, "https://api.telegram.org/botfake-bot-token/sendMessage", req.URL.String())
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(body, &payload))
+	assert.Equal(t, "123456789", payload["chat_id"])
+}
+
+// TestNotificationService_SendExternal_TelegramUsesNotifyPath is the
+// SendExternal counterpart of
+// TestNotificationService_TestProvider_TelegramUsesNotifyPath.
+func TestNotificationService_SendExternal_TelegramUsesNotifyPath(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	wrapper, rt := newCapturingWrapper()
+	svc := NewNotificationService(db, nil, WithNotifyTransportWrapper(wrapper))
+
+	provider := models.NotificationProvider{ //nolint:gosec // G101: test credential
+		Name:             "Telegram E2E",
+		Type:             "telegram",
+		URL:              "123456789",
+		Token:            "fake-bot-token",
+		Enabled:          true,
+		NotifyProxyHosts: true,
+		Template:         "minimal",
+	}
+	require.NoError(t, svc.CreateProvider(&provider))
+
+	svc.SendExternal(context.Background(), "proxy_host", "Title", "Message", nil)
+
+	require.Eventually(t, func() bool {
+		_, body := rt.last()
+		return body != nil
+	}, time.Second, 10*time.Millisecond, "expected telegram webhook to be sent")
+
+	_, body := rt.last()
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(body, &payload))
+	assert.Equal(t, "123456789", payload["chat_id"])
+}
+
 // --- Slack Notification Provider Tests ---
 
 func TestSlackWebhookURLValidation(t *testing.T) {
