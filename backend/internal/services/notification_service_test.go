@@ -3822,6 +3822,71 @@ func TestIsDispatchEnabled_PushoverDisabledByFlag(t *testing.T) {
 	assert.False(t, svc.isDispatchEnabled("pushover"))
 }
 
+// TestNotificationService_TestProvider_PushoverUsesNotifyPath verifies
+// Pushover TestProvider dispatch after cutover to the extracted notify
+// module (buildNotifySender). buildNotifySender leaves pushover.Config's
+// BaseURL empty (notify_provider_adapter.go), so — unlike the old
+// svc.pushoverAPIBaseURL test seam — dispatch always targets Pushover's
+// real production API; a capturing fake RoundTripper (via
+// WithNotifyTransportWrapper) intercepts before any real network call,
+// same as the Discord/Slack notify-path tests.
+func TestNotificationService_TestProvider_PushoverUsesNotifyPath(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	wrapper, rt := newCapturingWrapper()
+	svc := NewNotificationService(db, nil, WithNotifyTransportWrapper(wrapper))
+
+	provider := models.NotificationProvider{
+		Type:     "pushover",
+		Token:    "app-token-abc",
+		URL:      "user-key-xyz",
+		Template: "minimal",
+	}
+
+	err := svc.TestProvider(provider)
+	require.NoError(t, err)
+
+	req, body := rt.last()
+	require.NotNil(t, req)
+	assert.Equal(t, "https://api.pushover.net/1/messages.json", req.URL.String())
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(body, &payload))
+	assert.Equal(t, "app-token-abc", payload["token"])
+	assert.Equal(t, "user-key-xyz", payload["user"])
+}
+
+// TestNotificationService_SendExternal_PushoverUsesNotifyPath is the
+// SendExternal counterpart of
+// TestNotificationService_TestProvider_PushoverUsesNotifyPath.
+func TestNotificationService_SendExternal_PushoverUsesNotifyPath(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	wrapper, rt := newCapturingWrapper()
+	svc := NewNotificationService(db, nil, WithNotifyTransportWrapper(wrapper))
+
+	provider := models.NotificationProvider{
+		Name:             "Pushover E2E",
+		Type:             "pushover",
+		Token:            "app-token-abc",
+		URL:              "user-key-xyz",
+		Enabled:          true,
+		NotifyProxyHosts: true,
+		Template:         "minimal",
+	}
+	require.NoError(t, svc.CreateProvider(&provider))
+
+	svc.SendExternal(context.Background(), "proxy_host", "Title", "Message", nil)
+
+	require.Eventually(t, func() bool {
+		_, body := rt.last()
+		return body != nil
+	}, time.Second, 10*time.Millisecond, "expected pushover webhook to be sent")
+
+	_, body := rt.last()
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(body, &payload))
+	assert.Equal(t, "app-token-abc", payload["token"])
+	assert.Equal(t, "user-key-xyz", payload["user"])
+}
+
 func TestPushoverDispatch_DefaultBaseURL(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	svc := NewNotificationService(db, nil)

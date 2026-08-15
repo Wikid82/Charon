@@ -46,9 +46,10 @@ type NotificationService struct {
 // §6). Provider types not yet listed here keep dispatching through the
 // legacy sendJSONPayload/dispatchEmail path unchanged.
 var notifyMigratedProviderTypes = map[string]bool{
-	"discord": true,
-	"slack":   true,
-	"gotify":  true,
+	"discord":  true,
+	"slack":    true,
+	"gotify":   true,
+	"pushover": true,
 }
 
 // NotificationServiceOption configures a NotificationService at construction time.
