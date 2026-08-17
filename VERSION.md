@@ -19,47 +19,49 @@ Example: `0.1.0-alpha`, `1.0.0-beta.1`, `2.0.0-rc.2`
 
 ## Creating a Release
 
-### Canonical Release Process (Tag-Derived CI)
+### Canonical Release Process (release-please)
 
-1. **Create and push a release tag**:
+Charon uses [`googleapis/release-please-action`](https://github.com/googleapis/release-please-action)
+to compute versions, maintain a standing release PR, and cut tags +
+GitHub Releases from Conventional Commit history. There is no manual
+tagging step and no in-repo version manifest to hand-edit — `.release-please-manifest.json`
+is the single source of truth for "what version are we at," kept in
+sync by release-please itself.
 
-   ```bash
+1. **Commits land on `main`**: every push to `main` runs `.github/workflows/release-please.yml`,
+   which walks Conventional Commits since the last release and opens
+   or updates a standing `chore(main): release X.Y.Z` pull request.
+   If nothing releasable (`feat:`/`fix:`) has landed since the last
+   release, no PR is opened or updated.
+2. **A human merges the release PR**: merging it is what actually
+   ships a release — nothing goes out automatically before that.
+3. **On merge, release-please**:
+   - Tags the merge commit `vX.Y.Z` (bare, no `charon-` prefix —
+     pinned via `include-component-in-tag: false` in
+     `release-please-config.json`)
+   - Creates the GitHub Release for that tag
+4. **Downstream, independently of release-please**:
+   - `.github/workflows/orthrus-build.yml` triggers on the new `v*`
+     tag and publishes semver-tagged Orthrus agent images
+   - The next `nightly-build.yml` run picks up the new tag via
+     `scripts/generate-changelog.sh`'s `git tag -l 'v*'` scan and
+     regenerates the in-app "What's New" changelog data
 
-  git tag -a v1.0.0 -m "Release v1.0.0"
-  git push origin v1.0.0
-
-   ```
-
-2. **GitHub Actions automatically**:
-  - Runs release workflow from the pushed tag (`.github/workflows/release-goreleaser.yml`)
-  - Builds and publishes release artifacts/images through CI (`.github/workflows/docker-build.yml`)
-  - Creates/updates GitHub Release metadata
-
-3. **Container tags are published**:
+5. **Container tags are published** (via `.github/workflows/docker-build.yml`,
+   triggered on the branch push, not the tag):
   - `v1.0.0` (exact version)
   - `1.0` (minor version)
   - `1` (major version)
   - `latest` (for non-prerelease on main branch)
 
-### Legacy/Optional `.version` Path
+**Do not manually push `v*` tags.** A manually-created tag desyncs
+`.release-please-manifest.json` (which release-please treats as its
+source of truth, not live tag state) from the repo's real tag
+history — let release-please create every release tag going forward.
 
-The `.version` file is optional and not the canonical release trigger.
-
-Use it only when you need local/version-file parity checks:
-
-1. **Set `.version` locally (optional)**:
-
-   ```bash
-  echo "1.0.0" > .version
-   ```
-
-1. **Validate `.version` matches the latest tag**:
-
-   ```bash
-
-  bash scripts/check-version-match-tag.sh
-
-   ```
+`release-please-config.json` sets `skip-changelog: true`, so this
+hand-curated `CHANGELOG.md` is never touched by release-please's PRs
+or Release generation.
 
 ### Deterministic Rollout Verification Gates (Mandatory)
 
@@ -71,7 +73,6 @@ Enforcement points:
 - Release sign-off checklist/process (mandatory): All gates below remain required for release sign-off.
 - CI-supported checks (current): `.github/workflows/docker-build.yml` and `.github/workflows/supply-chain-verify.yml` enforce the subset currently implemented in workflows.
 - Manual validation required until CI parity: Validate any not-yet-implemented workflow gates via VS Code tasks `Security: Full Supply Chain Audit`, `Security: Verify SBOM`, `Security: Generate SLSA Provenance`, and `Security: Sign with Cosign`.
-- Optional version-file parity check: `Utility: Check Version Match Tag` (script: `scripts/check-version-match-tag.sh`).
 
 - [ ] **Digest freshness/parity:** Capture pre-push and post-push index digests
   for the target tag in GHCR and Docker Hub, confirm expected freshness,
@@ -251,7 +252,7 @@ docker build \
 
 ## Changelog Generation
 
-The release workflow automatically generates changelogs from commit messages. Use conventional commit format:
+release-please's standing release PR body is generated from commit messages. Use conventional commit format:
 
 - `feat:` New features
 - `fix:` Bug fixes
@@ -273,7 +274,5 @@ git commit -m "fix: correct proxy timeout handling"
 - CI derives the release `Version` from the Git tag (e.g., `v1.2.3`) and embeds this value into the
   backend binary via Go ldflags; frontend reads the version from the backend's API. This avoids
   automatic commits to `main`.
-- The `.version` file is optional. If present, use the `scripts/check-version-match-tag.sh` script
-  or the included pre-commit hook to validate that `.version` matches the latest Git tag.
-- CI will still generate changelogs automatically using the release-drafter workflow and create
-  GitHub Releases when tags are pushed.
+- release-please creates the tag and the GitHub Release together when its standing release PR is
+  merged — see "Canonical Release Process (release-please)" above.
