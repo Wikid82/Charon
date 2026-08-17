@@ -5,6 +5,7 @@ on:
     workflows: ["Docker Build, Publish & Test"]
     types: [completed]
     branches: [ main, development ]
+  workflow_dispatch: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.ref }}
@@ -24,8 +25,9 @@ jobs:
     runs-on: ubuntu-latest
     if: >-
       github.actor != 'github-actions[bot]' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      (github.event.workflow_run.head_branch == 'main' || github.event.workflow_run.head_branch == 'development')
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        (github.event.workflow_run.head_branch == 'main' || github.event.workflow_run.head_branch == 'development')))
     steps:
       - name: Set up Node (for github-script)
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
