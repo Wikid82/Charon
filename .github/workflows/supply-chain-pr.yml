@@ -266,15 +266,60 @@ jobs:
           fi
 
       # Generate SBOM using official Anchore action (auto-updated by Renovate)
+      # anchore/sbom-action resolves the pinned syft release tag against the GitHub
+      # API at job runtime; transient upstream 5xx/rate-limit errors there fail the
+      # step even though the pin itself is valid, so continue-on-error + a
+      # deterministic pinned-Syft fallback (below) makes this resilient.
       - name: Generate SBOM
         if: steps.set-target.outputs.image_name != ''
+        id: sbom_primary
+        continue-on-error: true
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
-        id: sbom
         with:
           image: ${{ steps.set-target.outputs.image_name }}
           format: cyclonedx-json
           output-file: sbom.cyclonedx.json
-          syft-version: v1.45.1
+          syft-version: v1.51.0
+
+      - name: Generate SBOM fallback with pinned Syft
+        if: steps.set-target.outputs.image_name != '' && always()
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ steps.sbom_primary.outcome }}" == "success" ]] && [[ -s sbom.cyclonedx.json ]] && jq -e . sbom.cyclonedx.json >/dev/null 2>&1; then
+            echo "Primary SBOM generation succeeded with valid JSON; skipping fallback"
+            exit 0
+          fi
+
+          echo "Primary SBOM generation failed or produced missing/invalid output; using deterministic Syft fallback"
+
+          SYFT_VERSION="v1.51.0"
+          OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+          ARCH="$(uname -m)"
+          case "$ARCH" in
+            x86_64) ARCH="amd64" ;;
+            aarch64|arm64) ARCH="arm64" ;;
+            *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+          esac
+
+          TARBALL="syft_${SYFT_VERSION#v}_${OS}_${ARCH}.tar.gz"
+          BASE_URL="https://github.com/anchore/syft/releases/download/${SYFT_VERSION}"
+
+          curl -fsSLo "$TARBALL" "${BASE_URL}/${TARBALL}"
+          curl -fsSLo checksums.txt "${BASE_URL}/syft_${SYFT_VERSION#v}_checksums.txt"
+
+          grep "  ${TARBALL}$" checksums.txt > checksum_line.txt
+          sha256sum -c checksum_line.txt
+
+          tar -xzf "$TARBALL" syft
+          chmod +x syft
+
+          IMAGE_NAME="${{ steps.set-target.outputs.image_name }}"
+          if [[ -z "$IMAGE_NAME" ]]; then
+            echo "::error::image_name from set-target step is empty; the target-selection step did not complete successfully"
+            exit 1
+          fi
+          ./syft "${IMAGE_NAME}" -o cyclonedx-json=sbom.cyclonedx.json
 
       - name: Count SBOM components
         if: steps.set-target.outputs.image_name != ''
@@ -288,7 +333,18 @@ jobs:
       - name: Install Grype
         if: steps.set-target.outputs.image_name != ''
         run: |
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.116.1
+          MAX_ATTEMPTS=3
+          for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
+            if curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.117.0; then
+              break
+            fi
+            if [[ "$attempt" -eq "$MAX_ATTEMPTS" ]]; then
+              echo "::error::Failed to install Grype after ${MAX_ATTEMPTS} attempts"
+              exit 1
+            fi
+            echo "Grype install attempt ${attempt} failed; retrying after backoff..."
+            sleep $((attempt * 5))
+          done
 
       - name: Scan for vulnerabilities
         if: steps.set-target.outputs.image_name != ''
@@ -365,7 +421,7 @@ jobs:
 
       - name: Upload SARIF to GitHub Security
         if: steps.set-target.outputs.image_name != ''
-        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
+        uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4
         continue-on-error: true
         with:
           sarif_file: grype-results.sarif

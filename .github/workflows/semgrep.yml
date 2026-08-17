@@ -1,0 +1,101 @@
+name: Semgrep - SAST Scan
+
+on:
+  pull_request:
+    branches: [main, nightly, development]
+  push:
+    branches: [main, nightly, development]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * 1' # Mondays 04:00 UTC — offset 1h after CodeQL's 03:00 to avoid runner contention
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+  pull-requests: read
+
+jobs:
+  semgrep-scan:
+    name: Semgrep SAST Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+      pull-requests: read
+    container:
+      # renovate: datasource=docker depName=semgrep/semgrep
+      image: semgrep/semgrep:1.173.0@sha256:67319956da3dcb58baf5b322899c15458e3963e7018a86aeeb5cd224e69cb77a # semgrep/semgrep 1.173.0
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Configure git safe.directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Verify Semgrep parity guard
+        run: bash scripts/ci/check-semgrep-parity.sh
+
+      - name: Verify Semgrep version
+        run: semgrep --version
+
+      - name: Run Semgrep (SARIF output)
+        id: semgrep_sarif
+        continue-on-error: true
+        env:
+          SEMGREP_SARIF_OUTPUT: semgrep-results.sarif
+        run: bash scripts/pre-commit-hooks/semgrep-scan.sh
+
+      - name: Check Semgrep SARIF output exists
+        id: semgrep_sarif_check
+        if: always()
+        run: |
+          if [ -f semgrep-results.sarif ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "No Semgrep SARIF output found; skipping SARIF upload"
+          fi
+
+      - name: Upload Semgrep SARIF to GitHub Security
+        if: always() && steps.semgrep_sarif_check.outputs.exists == 'true'
+        uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
+        with:
+          sarif_file: semgrep-results.sarif
+          category: semgrep
+        continue-on-error: true
+
+      - name: Run Semgrep (hard-fail gate)
+        run: bash scripts/pre-commit-hooks/semgrep-scan.sh
+
+      - name: Upload SARIF artifact
+        if: always() && steps.semgrep_sarif_check.outputs.exists == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: semgrep-sarif-${{ github.run_id }}
+          path: semgrep-results.sarif
+          retention-days: 14
+        continue-on-error: true
+
+      - name: Create job summary
+        if: always()
+        run: |
+          {
+            echo "## Semgrep SAST Scan Results"
+            echo ""
+            echo "**Rulesets**: p/golang, p/javascript, p/typescript, p/react, p/secrets, p/dockerfile"
+            echo "**Severity Gate**: ERROR, WARNING (--error)"
+            if [ "${{ job.status }}" == "success" ]; then
+              echo "PASSED: no blocking Semgrep findings"
+            else
+              echo "FAILED: Semgrep reported blocking findings — see step logs and the Security tab"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

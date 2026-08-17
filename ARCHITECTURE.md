@@ -163,7 +163,7 @@ graph TB
 | **Base Image** | Debian Trixie Slim | Latest | Security-hardened base |
 | **CI/CD** | GitHub Actions | N/A | Automated testing and deployment |
 | **Registry** | Docker Hub + GHCR | N/A | Image distribution |
-| **Security Scanning** | Trivy + Grype | Latest | Vulnerability detection |
+| **Security Scanning** | Trivy + Grype + Semgrep | Latest | Vulnerability detection |
 | **SBOM Generation** | Syft | Latest | Software Bill of Materials |
 | **Signature Verification** | Cosign | Latest | Supply chain integrity |
 
@@ -1373,7 +1373,7 @@ go test ./integration/...
 
 1. **Lint:** golangci-lint, ESLint, markdownlint, hadolint
 2. **Test:** Go tests, Vitest, Playwright
-3. **Security:** Trivy, CodeQL, Grype, Govulncheck
+3. **Security:** Trivy, CodeQL, Grype, Govulncheck, Semgrep
 4. **Build:** Docker image build
 5. **Coverage:** Upload to Codecov (85% gate) — `backend`, `frontend`, and
    `agent` each upload under a distinct Codecov flag
@@ -1524,6 +1524,7 @@ as long as release-please continues creating bare `v*` tags.
    - Trivy: Fast vulnerability scanning (filesystem)
    - Grype: Deep image scanning (layers, dependencies)
    - CodeQL: Static analysis (Go, JavaScript)
+   - Semgrep: Static analysis for security anti-patterns (Go, JS/TS, React, secrets, Dockerfile)
 
 3. **Cryptographic Signing:**
    - Cosign signs Docker images with keyless signing (OIDC)

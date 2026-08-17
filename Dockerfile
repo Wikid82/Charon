@@ -10,7 +10,7 @@ ARG BUILD_DEBUG=0
 
 # ---- Pinned Toolchain Versions ----
 # renovate: datasource=docker depName=golang versioning=docker
-ARG GO_VERSION=1.26.5
+ARG GO_VERSION=1.26.6
 
 # renovate: datasource=docker depName=alpine versioning=docker
 ARG ALPINE_IMAGE=alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
@@ -25,9 +25,14 @@ ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0b
 # renovate: datasource=github-tags depName=expr-lang/expr extractVersion=^v(?<version>.+)$
 ARG EXPR_LANG_VERSION=1.17.8
 # renovate: datasource=go depName=golang.org/x/net
-ARG XNET_VERSION=0.57.0
+ARG XNET_VERSION=0.58.0
 # renovate: datasource=go depName=golang.org/x/crypto
-ARG XCRYPTO_VERSION=0.54.0
+ARG XCRYPTO_VERSION=0.55.0
+# klauspost/compress DoS/resource-exhaustion fix, matching how golang.org/x/crypto
+# is patched above: pinned here so the CrowdSec/cscli and Caddy binaries (which
+# pull it in transitively) are patched immediately, ahead of upstream releases.
+# renovate: datasource=go depName=github.com/klauspost/compress
+ARG KLAUSPOST_COMPRESS_VERSION=1.19.2
 # renovate: datasource=npm depName=npm
 ARG NPM_VERSION=12.0.2
 
@@ -299,6 +304,7 @@ ARG XCADDY_VERSION=0.4.6
 ARG EXPR_LANG_VERSION
 ARG XNET_VERSION
 ARG XCRYPTO_VERSION
+ARG KLAUSPOST_COMPRESS_VERSION
 ARG CROWDSEC_VERSION
 
 # hadolint ignore=DL3018
@@ -382,6 +388,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         _retry go get github.com/hslatman/ipstore@v0.4.0; \
         _retry go get golang.org/x/crypto@v${XCRYPTO_VERSION}; \
         _retry go get golang.org/x/net@v${XNET_VERSION}; \
+        # klauspost/compress DoS/resource-exhaustion fix. Affects /usr/bin/caddy
+        # (transitive dependency). Fix available at v1.18.7.
+        _retry go get github.com/klauspost/compress@v${KLAUSPOST_COMPRESS_VERSION}; \
         # GHSA-hrxh-6v49-42gf: grpc-go xDS RBAC and HTTP/2 vulnerabilities
         # Patched in grpc-go v1.82.1. Pin here so the Caddy binary is patched immediately.
         # renovate: datasource=go depName=google.golang.org/grpc
@@ -516,6 +525,7 @@ ARG CROWDSEC_VERSION
 ARG CROWDSEC_RELEASE_SHA256
 ARG EXPR_LANG_VERSION
 ARG XNET_VERSION
+ARG KLAUSPOST_COMPRESS_VERSION
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache git clang lld
@@ -554,6 +564,9 @@ RUN set -e; \
     # renovate: datasource=go depName=golang.org/x/crypto
     _retry go get golang.org/x/crypto@v0.52.0; \
     _retry go get golang.org/x/net@v${XNET_VERSION}; \
+    # klauspost/compress DoS/resource-exhaustion fix. Affects /usr/local/bin/crowdsec
+    # and /usr/local/bin/cscli (transitive dependency). Fix available at v1.18.7.
+    _retry go get github.com/klauspost/compress@v${KLAUSPOST_COMPRESS_VERSION}; \
     # GHSA-hrxh-6v49-42gf: grpc-go xDS RBAC and HTTP/2 vulnerabilities
     # Patched in grpc-go v1.82.1. Pin here so the CrowdSec binary is patched immediately.
     # renovate: datasource=go depName=google.golang.org/grpc
@@ -590,6 +603,12 @@ RUN set -e; \
     # GHSA-r277-6w6q-xmqw: kin-openapi ValidationHandler.Load() Fail-Open Authentication Bypass via NoopAuthenticationFunc Default
     # renovate: datasource=go depName=github.com/getkin/kin-openapi
     _retry go get github.com/getkin/kin-openapi@v0.144.0; \
+    # CVE-2026-56864 / CVE-2026-56865: golang.org/x/mod/sumdb GOSUMDB tile-verification bypass
+    # (a colluding GOPROXY+GOSUMDB pair could forge sumdb tiles / serve module content outside
+    # the transparency log). Affects /usr/local/bin/crowdsec and /usr/local/bin/cscli — go mod
+    # tidy's MVS resolution otherwise lands on v0.38.0. Fix available at v0.40.0.
+    # renovate: datasource=go depName=golang.org/x/mod
+    _retry go get golang.org/x/mod@v0.40.0; \
     _retry go mod tidy
 
 # Fix compatibility issues with expr-lang v1.17.7
@@ -688,7 +707,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=b4f624e1411c28701d724503b8d15ed4997de70cb6ea05d6f11bf572ea552240
+ARG GEOLITE2_COUNTRY_SHA256=8cc00bbcd9734df804acc36196c84abe65c2ef4beb4294c2bf4d25ac356db933
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \

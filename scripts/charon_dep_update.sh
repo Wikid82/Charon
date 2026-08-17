@@ -55,7 +55,7 @@ echo "==========================================================================
 echo "Current local versions (npm / npx):"
 npm -v && npx -v
 
-echo -n "Latest available npm version on registry: "
+echo "Latest available npm version on registry: "
 npm view npm version
 
 echo "Installing latest global npm..."
@@ -100,7 +100,16 @@ for MODULE in "${NPM_MODULES[@]}"; do
     if [ "$MODULE" != "$REPO_ROOT/frontend" ]; then
         # Root package.json has only flat string overrides — safe to update all
         # except js-yaml, which has breaking changes in v6+; keep pinned to ^5.
-        npx --yes npm-check-updates -u --dep overrides --reject js-yaml
+        #
+        # Update one package at a time: ncu throws an unhandled "Overlapping
+        # edit" rejection (a known upstream bug) when --dep overrides is
+        # asked to rewrite more than one entry in the same pass.
+        OVERRIDE_PACKAGES="$(node -e "console.log(Object.keys(require('./package.json').overrides || {}).join('\n'))")"
+        while IFS= read -r PKG; do
+            [ -z "$PKG" ] && continue
+            [ "$PKG" = "js-yaml" ] && continue
+            npx --yes npm-check-updates -u --dep overrides --filter "$PKG"
+        done <<< "$OVERRIDE_PACKAGES"
     fi
 
     rm -rf node_modules package-lock.json

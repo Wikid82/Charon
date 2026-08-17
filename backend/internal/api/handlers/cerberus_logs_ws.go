@@ -41,8 +41,7 @@ func (h *CerberusLogsHandler) LiveLogs(c *gin.Context) {
 	logger.Log().Info("Cerberus logs WebSocket connection attempt")
 
 	// Upgrade HTTP connection to WebSocket
-	// CheckOrigin is enforced on the shared upgrader in logs_ws.go (same package).
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil) // nosemgrep: go.gorilla.security.audit.websocket-missing-origin-check.websocket-missing-origin-check
+	conn, err := upgradeWebSocket(c)
 	if err != nil {
 		logger.Log().WithError(err).Error("Failed to upgrade Cerberus logs WebSocket")
 		return

@@ -997,6 +997,7 @@ for developer iteration. Tag-only overrides MUST NOT be used in CI contexts.
 |------|---------|
 | Trivy | Container image vulnerability scanning |
 | CodeQL | Static analysis for Go and JavaScript |
+| Semgrep | Static analysis for security anti-patterns (Go, JS/TS, React, secrets, Dockerfile) |
 | govulncheck | Go module vulnerability scanning |
 | golangci-lint (gosec) | Go code linting |
 | npm audit | Frontend dependency scanning |
@@ -1018,6 +1019,14 @@ artifacts for 90 days.
 
 **PR-Specific Scanning** — extracts and scans only the Charon application binary on each pull
 request. Fails the PR if CRITICAL or HIGH vulnerabilities are found in application code.
+
+**Semgrep SAST Scan** (`.github/workflows/semgrep.yml`) — runs on every push and pull request to
+`main`, `nightly`, and `development`, on manual dispatch, and weekly on Mondays at 04:00 UTC. Scans
+the full repository inside a pinned `semgrep/semgrep` container using the `p/golang`,
+`p/javascript`, `p/typescript`, `p/react`, `p/secrets`, and `p/dockerfile` rulesets — the same
+rule configs, exclusions, and ERROR/WARNING severity gate developers already run locally via
+`scripts/pre-commit-hooks/semgrep-scan.sh`. Uploads SARIF results to the GitHub Security tab and
+fails the build on any blocking finding.
 
 ### Manual Reviews
 

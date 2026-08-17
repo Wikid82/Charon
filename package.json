@@ -16,12 +16,12 @@
     "type-check": "^0.4.0"
   },
   "overrides": {
-    "smol-toml": "^1.7.1",
+    "smol-toml": "^1.8.0",
     "js-yaml": "^4.3.0",
     "markdown-it": "^15.0.0"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.12.1",
+    "@axe-core/playwright": "^4.13.0",
     "@bgotink/playwright-coverage": "^0.3.2",
     "@playwright/test": "^1.62.1",
     "@types/eslint-plugin-jsx-a11y": "6.10.0",

@@ -39,11 +39,17 @@ else
   TARGETS=(Dockerfile backend frontend/src scripts .github/workflows)
 fi
 
+if [ -n "${SEMGREP_SARIF_OUTPUT:-}" ]; then
+  OUTPUT_FLAGS=(--sarif --output "${SEMGREP_SARIF_OUTPUT}")
+else
+  OUTPUT_FLAGS=(--error)
+fi
+
 semgrep scan \
   "${SEMGREP_CONFIGS[@]}" \
   --severity ERROR \
   --severity WARNING \
-  --error \
+  "${OUTPUT_FLAGS[@]}" \
   --exclude "frontend/node_modules" \
   --exclude "frontend/coverage" \
   --exclude "frontend/dist" \

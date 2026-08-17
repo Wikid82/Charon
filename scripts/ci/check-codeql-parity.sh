@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/workflow-yaml-asserts.sh
+source "${SCRIPT_DIR}/lib/workflow-yaml-asserts.sh"
+
 CODEQL_WORKFLOW=".github/workflows/codeql.yml"
 TASKS_FILE=".vscode/tasks.json"
 GO_PRECOMMIT_SCRIPT="scripts/pre-commit-hooks/codeql-go-scan.sh"
@@ -24,83 +28,6 @@ ensure_task_command() {
     --arg expected_command "$expected_command" \
     '.tasks | type == "array" and any(.[]; .label == $task_label and .command == $expected_command)' \
     "$tasks_file" >/dev/null
-}
-
-ensure_event_branches() {
-  local workflow_file="$1"
-  local event_name="$2"
-  local expected_line="$3"
-
-  awk -v event_name="$event_name" -v expected_line="$expected_line" '
-    /^on:/ {
-      in_on = 1
-      next
-    }
-
-    in_on && $1 == event_name ":" {
-      in_event = 1
-      next
-    }
-
-    in_on && in_event && $1 == "branches:" {
-      line = $0
-      gsub(/^ +/, "", line)
-      if (line == expected_line) {
-        found = 1
-      }
-      in_event = 0
-      next
-    }
-
-    in_on && in_event && $1 ~ /^[a-z_]+:$/ {
-      in_event = 0
-    }
-
-    END {
-      exit found ? 0 : 1
-    }
-  ' "$workflow_file"
-}
-
-ensure_event_branches_with_yq() {
-  local workflow_file="$1"
-  local event_name="$2"
-  shift 2
-  local expected_branches=("$@")
-
-  local expected_json
-  local actual_json
-
-  expected_json="$(printf '%s\n' "${expected_branches[@]}" | jq -R . | jq -s .)"
-
-  if actual_json="$(yq eval -o=json ".on.${event_name}.branches // []" "$workflow_file" 2>/dev/null)"; then
-    :
-  elif actual_json="$(yq -o=json ".on.${event_name}.branches // []" "$workflow_file" 2>/dev/null)"; then
-    :
-  else
-    return 1
-  fi
-
-  jq -e \
-    --argjson expected "$expected_json" \
-    'if type != "array" then false else ((map(tostring) | unique | sort) == ($expected | map(tostring) | unique | sort)) end' \
-    <<<"$actual_json" >/dev/null
-}
-
-ensure_event_branches_semantic() {
-  local workflow_file="$1"
-  local event_name="$2"
-  local fallback_line="$3"
-  shift 3
-  local expected_branches=("$@")
-
-  if command -v yq >/dev/null 2>&1; then
-    if ensure_event_branches_with_yq "$workflow_file" "$event_name" "${expected_branches[@]}"; then
-      return 0
-    fi
-  fi
-
-  ensure_event_branches "$workflow_file" "$event_name" "$fallback_line"
 }
 
 [[ -f "$CODEQL_WORKFLOW" ]] || fail "Missing workflow file: $CODEQL_WORKFLOW"

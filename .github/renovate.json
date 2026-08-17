@@ -246,6 +246,19 @@
     },
     {
       "customType": "regex",
+      "description": "Track pinned Semgrep container image digest in the Semgrep CI workflow",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/semgrep\\.yml$/"
+      ],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=docker\\s+depName=semgrep/semgrep\\s*\\n\\s*image:\\s*semgrep/semgrep:(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"
+      ],
+      "depNameTemplate": "semgrep/semgrep",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
       "description": "Track NODE_VERSION in Actions workflows",
       "managerFilePatterns": [
         "/^\\.github/workflows/.*\\.yml$/"
@@ -275,11 +288,15 @@
       "description": "Track Syft version in workflows and scripts",
       "managerFilePatterns": [
         "/^\\.github/workflows/nightly-build\\.yml$/",
+        "/^\\.github/workflows/docker-build\\.yml$/",
+        "/^\\.github/workflows/supply-chain-pr\\.yml$/",
+        "/^\\.github/workflows/supply-chain-verify\\.yml$/",
         "/^\\.github/skills/security-scan-docker-image-scripts/run\\.sh$/"
       ],
       "matchStrings": [
         "SYFT_VERSION=\\\"v(?<currentValue>[^\\\"\\s]+)\\\"",
-        "set_default_env \\\"SYFT_VERSION\\\" \\\"v(?<currentValue>[^\\\"]+)\\\""
+        "set_default_env \\\"SYFT_VERSION\\\" \\\"v(?<currentValue>[^\\\"]+)\\\"",
+        "syft-version:\\s*v(?<currentValue>[^\\s]+)"
       ],
       "depNameTemplate": "anchore/syft",
       "datasourceTemplate": "github-releases",
@@ -393,6 +410,19 @@
         "#\\s*renovate:\\s*datasource=go\\s+depName=golang\\.org/x/crypto\\s*\\nARG XCRYPTO_VERSION=(?<currentValue>[^\\s]+)"
       ],
       "depNameTemplate": "golang.org/x/crypto",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track github.com/klauspost/compress version ARG in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=go\\s+depName=github\\.com/klauspost/compress\\s*\\nARG KLAUSPOST_COMPRESS_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/klauspost/compress",
       "datasourceTemplate": "go",
       "versioningTemplate": "semver"
     },
