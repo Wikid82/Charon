@@ -154,7 +154,7 @@ docker-compose*.yml
 docs/implementation/
 
 # -----------------------------------------------------------------------------
-# GoReleaser & dist artifacts
+# Build output directories (e.g. frontend/dist/)
 # -----------------------------------------------------------------------------
 dist/
 
