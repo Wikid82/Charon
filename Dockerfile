@@ -439,6 +439,13 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # The source-level incompatibility is patched below via local copy + go.mod replace.
         # Remove once bouncer ships against crowdsec >= v1.7.8.
         _retry go get github.com/crowdsecurity/crowdsec@v${CROWDSEC_VERSION}; \
+        # CVE-2026-56864 / CVE-2026-56865: golang.org/x/mod/sumdb GOSUMDB tile-verification bypass
+        # (a colluding GOPROXY+GOSUMDB pair could forge sumdb tiles / serve module content outside
+        # the transparency log). Affects /usr/bin/caddy — go mod tidy's MVS resolution otherwise
+        # lands on an older, vulnerable version. Fix available at v0.40.0. Same pattern as the
+        # crowdsec-builder pin below.
+        # renovate: datasource=go depName=golang.org/x/mod
+        _retry go get golang.org/x/mod@v0.40.0; \
         if [ "${CADDY_PATCH_SCENARIO}" = "A" ]; then \
             # Rollback scenario: keep explicit nebula pin if upstream compatibility regresses.
             # NOTE: smallstep/certificates (pulled by caddy-security stack) currently
