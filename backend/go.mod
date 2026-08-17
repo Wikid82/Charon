@@ -2,9 +2,15 @@ module github.com/Wikid82/charon/backend
 
 go 1.26.6
 
+// TODO: temporary local-path pin for go_notify_yourself v0.2.0 (branch
+// feature/provider-registry) until that branch/tag is pushed to GitHub and
+// published for real. Once published, remove this replace directive and
+// re-pin the require below to the real published v0.2.0 tag.
+replace github.com/Wikid82/go_notify_yourself => /projects/go_notify_yourself
+
 require (
 	filippo.io/age v1.3.1
-	github.com/Wikid82/go_notify_yourself v0.1.0
+	github.com/Wikid82/go_notify_yourself v0.2.0
 	github.com/gin-contrib/gzip v1.2.6
 	github.com/gin-gonic/gin v1.12.0
 	github.com/glebarez/sqlite v1.11.0
