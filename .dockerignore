@@ -10,7 +10,6 @@
 .gitignore
 .github/
 codecov.yml
-.goreleaser.yaml
 .sourcery.yml
 .claude/
 
@@ -155,7 +154,7 @@ docker-compose*.yml
 docs/implementation/
 
 # -----------------------------------------------------------------------------
-# GoReleaser & dist artifacts
+# Build output directories (e.g. frontend/dist/)
 # -----------------------------------------------------------------------------
 dist/
 

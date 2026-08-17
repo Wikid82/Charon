@@ -92,3 +92,76 @@ Per the now-codified CI-only policy for full-suite/multi-browser Playwright runs
 3. Backend/frontend coverage, local patch coverage, lefthook (staticcheck/CodeQL/semgrep), and Trivy were not re-run this pass — either confirm via CI or, per the updated agent guidance, run a narrow *targeted* local check (not a full suite re-run) if CI can't cover one of them.
 4. New a11y findings (§1) are real and actionable but independent of this branch's scope — recommend a separate small fix (2 `aria-label` additions) rather than blocking this PR, unless project policy (as applied in the prior pass) treats "any failing test blocks merge" as still in force, in which case these 2 need triage too.
 5. Going forward, any local E2E work by this agent will use targeted single-spec runs under `--project=firefox` only, per the updated `qa-security.md`.
+
+---
+
+# QA Report — release-please Migration (CI/CD Config Only)
+
+**Branch**: `chore/release-please-migration`
+**Base**: `origin/main` @ `67b4f2da`
+**Tip reviewed**: `aa7f2135` (6 commits)
+**Reviewed by**: qa-security agent
+**Date**: 2026-08-17
+**Plan reference**: `docs/plans/current_spec.md` ("CLAUDE.md Definition-of-Done Applicability" section)
+
+## Scope confirmation
+
+Verified independently (not just taking the plan's word for it) that this branch touches zero Go/TypeScript/React/database-schema files: `git diff --stat origin/main..HEAD` shows 22 files changed, all `.yml`/`.yaml`/`.json`/`.md`/`.sh`(shell wrapper only)/dotfiles under `.github/`, root config, `.vscode/`, `ARCHITECTURE.md`, `CLAUDE.md`, `VERSION.md`. Per the plan's own DoD-applicability table, this correctly makes Playwright E2E, GORM scan, backend/frontend 85% coverage gates, frontend type-check, and staticcheck all N/A — none were run, per instruction.
+
+## Gate-by-Gate Status
+
+| # | Gate | Status | Detail |
+|---|------|--------|--------|
+| 1 | `bash scripts/local-patch-report.sh` | ✅ **PASS** | Ran cleanly on a code-less diff, no errors. Both `test-results/local-patch-report.md` and `test-results/local-patch-report.json` produced. 0 changed `.go`/`.ts`/`.tsx` lines detected in all four scopes (overall/backend/frontend/agent) → reported as 100% (0/0) "pass" per the script's own convention. Confirms the mandatory-regardless-of-change-type gate is satisfied and doesn't error on this diff shape. |
+| 2 | `lefthook run pre-commit` | ✅ **PASS** | A bare `lefthook run pre-commit` no-ops (nothing staged in the working tree — the branch's changes are already committed). Re-ran explicitly against the branch's actual changed-file list via `lefthook run pre-commit --force --file <each changed, still-existing file>` to get real signal. Exit code 0, no `❌` in output. `actionlint` validated `.github/workflows/release-please.yml` cleanly; `check-yaml` validated all touched YAML/JSON; `shellcheck`, `dockerfile-check`, `muzzle-allowlist-parity`, `go-vet` (backend+agent), `golangci-lint-fast` (0 issues), `frontend-type-check`, and `frontend-lint` all passed. Note: `--force` caused glob-matched hooks to run repo-wide rather than scoped strictly to the branch's files (e.g. `frontend-lint` reported 1188 pre-existing warnings, 0 errors, across the whole frontend tree) — this is a stronger check than required, not a false pass; all relevant hooks reported clean/zero-error results. |
+| 3 | JSON/YAML parse validation | ✅ **PASS** | `jq empty release-please-config.json .release-please-manifest.json` — both valid JSON. `python3 -c "import yaml; yaml.safe_load(...)"` on `.github/workflows/release-please.yml` and `lefthook.yml` — both valid YAML. |
+| 4 | CodeQL / Trivy (local) | ➡️ **Correctly deferred to CI** | `chore:`-scoped, no new application code path — per CLAUDE.md's own rule, not run locally. CI runs both unconditionally on every PR regardless, so nothing is skipped, only not duplicated. |
+| 5 | `cd backend && go build ./...` | ✅ **PASS (sanity only)** | Clean build, exit 0. Not a real gate for this diff (no backend files touched) — confirms the tree wasn't already broken. |
+| 6 | `cd frontend && npm run build` | ✅ **PASS (sanity only)** | Clean build (`✓ built in 10.86s`), exit 0. Not a real gate for this diff (no frontend files touched). |
+| 7 | Dangling-reference sweep for deleted release-pipeline assets | ✅ **PASS** | `git grep` (HEAD, tracked files only) for `utility-version-check`, `check-version-match-tag`, `release-goreleaser`, `goreleaser.yaml`, `auto-versioning.yml`, `release-drafter`, `auto-changelog.yml` returns hits only in `docs/implementation/`, `docs/plans/archive/`, `docs/reports/archive/`, and `docs/superpowers/specs/` — all historical/archived implementation records of past work, not live guidance. The four "blast radius" files the plan calls out as needing updates (`.github/skills/README.md`, `.vscode/tasks.json`, `.github/skills/utility-bump-beta.SKILL.md`, `lefthook.yml`) were individually re-checked post-diff and are clean (no matches). |
+
+## Security Assessment: `googleapis/release-please-action` permissions & supply chain
+
+**File**: `.github/workflows/release-please.yml`
+
+```yaml
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+  pull-requests: write
+```
+
+- **Permission scope — appropriately minimal.** `contents: write` is required to create tags and GitHub Releases; `pull-requests: write` is required to open/update the standing release PR. This is exactly the documented minimal permission set for `release-please-action` (no `packages:`, `actions:`, `id-token:`, or other elevated scopes granted). No blanket/default `permissions: write-all` used.
+- **SHA-pinning convention — consistent with the rest of the repo.** Verified via `git ls-remote --tags` that `45996ed1f6d02564a971a2fa1b5860e934307cf7` resolves directly to the genuine `googleapis/release-please-action` `v5.0.0` tag (same commit object as `refs/tags/v5`, `refs/tags/v5.0`, `refs/tags/v5.0.0`). Spot-checked repo-wide: every `uses:` line across all 35 workflow files (246 total references) is SHA-pinned with a `# vX` trailer comment in the same style (e.g. `actions/checkout@3d3c42e5...# v7`); grepping for any `uses:` line *without* a 40-char SHA turned up zero real matches (one false hit was a comment, not a `uses:` line). The new action reference follows the established convention exactly.
+- **Fork/untrusted-contributor exposure — none.** The workflow triggers only on `push: branches: [main]`, not `pull_request` or `pull_request_target`. An external/untrusted contributor cannot invoke this workflow (with its `contents: write` + `pull-requests: write` grant) directly via a fork PR — it only ever runs after code has already been merged to `main` by a maintainer, which is the standard/expected trust boundary for a release-cutting workflow. Repo-wide grep for `pull_request_target` (the genuinely dangerous pattern for granting write perms to fork-triggered runs) found it only in `codecov-upload.yml` and `quality-checks.yml`, neither touched by this branch — out of scope for this review but noted as already-existing, unrelated surface.
+- **SECURITY.md alignment**: the repo's documented "Digest Pinning Policy" (SECURITY.md, ~line 959) requires digest-pinned refs for `.github/workflows/*.yml`; the new action satisfies this.
+- **No CodeQL/Trivy coverage gap left unaddressed**: as the plan itself notes, neither tool evaluates GitHub Actions permission scopes or third-party Action supply-chain trust — this manual review is the actual mitigation for that gap, not a CI tool. Assessment above stands in for that coverage.
+
+**Verdict: no CRITICAL/HIGH findings on the permissions/supply-chain surface.** Scope is minimal, pinning is consistent and verified genuine, and the trigger surface excludes untrusted fork contributions.
+
+## CLAUDE.md diff verification (independent re-check of governance-sensitive file)
+
+`git diff origin/main..chore/release-please-migration -- CLAUDE.md` shows exactly **one line removed**, at the former Skills-table row:
+
+```diff
+-| `utility-version-check` | Check tool versions |
+```
+
+No other line in `CLAUDE.md` is touched — confirmed by inspecting the full diff output directly (not by re-reading Supervisor's prior conclusion). No governance/precedence text, security requirement, DoD gate, commit-convention rule, or any other policy statement in `CLAUDE.md` is altered by this branch. This independently confirms Supervisor's earlier finding.
+
+## Minor / non-blocking findings
+
+**[LOW] `.dockerignore` retains a stale "GoReleaser" comment label after this PR removes GoReleaser itself.**
+
+- `git diff origin/main..HEAD -- .gitignore .dockerignore` shows `.gitignore` fully removed its `# GoReleaser` section (comment header + the root-level `dist/` rule that was GoReleaser-specific — confirmed redundant, since `frontend/dist/` already has its own explicit ignore rule at `.gitignore:37`).
+- `.dockerignore`, by contrast, only removed the standalone `.goreleaser.yaml` config-file exclusion line, but left an untouched section a few lines down still headed `# GoReleaser & dist artifacts` (`.dockerignore:157-159`) guarding a `dist/` rule.
+- This is **not a functional bug** — the underlying `dist/` pattern is not purely dead weight; unanchored `dist/` in `.dockerignore` also incidentally excludes `frontend/dist/` (and any other `dist` directory) from the Docker build context, which remains legitimately useful independent of GoReleaser. The issue is purely the comment label now name-dropping a tool this very PR retires, which is a minor accuracy/consistency gap against the plan's own acceptance criterion ("`.gitignore` and `.dockerignore` no longer reference GoReleaser artifacts/config" — `.gitignore` fully satisfies this, `.dockerignore` only partially does).
+- **Remediation**: rename the comment to something like `# Build/dist artifacts` (or fold the `dist/` line into the existing generic exclusions block) in a follow-up commit or this PR's next revision. Not blocking — does not affect security, correctness, or CI behavior.
+
+No other findings. No secrets, tokens, or credentials observed in any file touched by this branch (also consistent with this being a pure CI-config/docs change with no logging/API-example surface).
+
+## Summary
+
+All applicable gates pass. The one new risk surface introduced by this PR — third-party Action with `contents: write` + `pull-requests: write` — has appropriately minimal scope, a correctly-verified SHA pin matching the repo-wide convention, and no fork/untrusted-contributor trigger exposure. One LOW/cosmetic finding (stale `.dockerignore` comment label) does not block. Recommend proceeding to PR/merge; per the plan's own residual-risk framing, the remaining verification (does the workflow actually open/merge/tag/release correctly end-to-end) can only be confirmed by a live run on GitHub after merge — tracked in the plan's "Manual Post-Merge Follow-Ups" section.

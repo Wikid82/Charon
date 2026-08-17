@@ -69,7 +69,6 @@ Agent Skills are self-documenting, AI-discoverable task definitions that combine
 
 | Skill Name | Category | Description | Status |
 |------------|----------|-------------|--------|
-| [utility-version-check](./utility-version-check.SKILL.md) | utility | Validate version matches git tag | ✅ Active |
 | [utility-clear-go-cache](./utility-clear-go-cache.SKILL.md) | utility | Clear Go build and module caches | ✅ Active |
 | [utility-bump-beta](./utility-bump-beta.SKILL.md) | utility | Increment beta version number | ✅ Active |
 | [utility-db-recovery](./utility-db-recovery.SKILL.md) | utility | Database integrity check and recovery | ✅ Active |
@@ -264,7 +263,6 @@ python3 .github/skills/scripts/validate-skills.py --single .github/skills/{skill
   - `test-backend-coverage`
   - `integration-test-crowdsec`
   - `security-scan-trivy`
-  - `utility-version-check`
 
 ## Best Practices
 
