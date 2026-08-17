@@ -258,4 +258,3 @@ Available skills (see `.github/skills/*.SKILL.md` for full docs):
 | `security-scan-gorm` | Run GORM security scan |
 | `security-scan-go-vuln` | Run Go vulnerability check |
 | `integration-test-all` | Run all integration tests |
-| `utility-version-check` | Check tool versions |
