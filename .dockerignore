@@ -10,7 +10,6 @@
 .gitignore
 .github/
 codecov.yml
-.goreleaser.yaml
 .sourcery.yml
 .claude/
 
