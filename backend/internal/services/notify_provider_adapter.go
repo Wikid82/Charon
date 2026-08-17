@@ -5,13 +5,6 @@ import (
 	"strings"
 
 	notify "github.com/Wikid82/go_notify_yourself"
-	"github.com/Wikid82/go_notify_yourself/providers/discord"
-	"github.com/Wikid82/go_notify_yourself/providers/gotify"
-	"github.com/Wikid82/go_notify_yourself/providers/ntfy"
-	"github.com/Wikid82/go_notify_yourself/providers/pushover"
-	"github.com/Wikid82/go_notify_yourself/providers/slack"
-	"github.com/Wikid82/go_notify_yourself/providers/telegram"
-	"github.com/Wikid82/go_notify_yourself/providers/webhook"
 	"github.com/Wikid82/go_notify_yourself/transport"
 
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -77,97 +70,109 @@ func resolveTemplateFields(provider models.NotificationProvider) (template strin
 	return provider.Template, provider.Config
 }
 
-// buildNotifySender maps a GORM models.NotificationProvider row into the
-// matching extracted-module provider Config and constructs the
-// corresponding notify.Sender, per §3.6 step 3 of the extraction spec. w is
-// the single shared *transport.Wrapper built by NewNotifyTransportWrapper
-// (notify_client_adapter.go), injected into every HTTP-based provider
-// package.
+// providerConfigMap maps a GORM models.NotificationProvider row's
+// type-specific fields onto the map[string]any key convention every
+// extracted-module HTTP-based provider's Factory expects (per
+// docs/plans/notify_provider_registry_spec.md §3.4: "transport" for the
+// shared *transport.Wrapper, provider-specific fields under the lowercase
+// snake_case name of their typed Config struct field). w is the single
+// shared *transport.Wrapper built by NewNotifyTransportWrapper
+// (notify_client_adapter.go), injected into every HTTP-based provider.
 //
 // Field mappings below were read directly out of the old
 // notification_service.go sendJSONPayload's provider-specific branches (not
-// guessed from the spec's design summary):
-//   - discord: WebhookURL <- provider.URL
-//   - slack: WebhookURL <- provider.Token — Slack's decrypted webhook URL is
-//     stored in the Token column (provider.URL is an unused placeholder for
-//     Slack, matching the old code's `decryptedWebhookURL := p.Token`)
-//   - gotify: URL <- provider.URL, Token <- provider.Token (sent as the
+// guessed from the spec's design summary) and are unchanged from the
+// pre-registry switch that used to live in buildNotifySender:
+//   - discord: webhook_url <- provider.URL
+//   - slack: webhook_url <- provider.Token — Slack's decrypted webhook URL
+//     is stored in the Token column (provider.URL is an unused placeholder
+//     for Slack, matching the old code's `decryptedWebhookURL := p.Token`)
+//   - gotify: url <- provider.URL, token <- provider.Token (sent as the
 //     X-Gotify-Key header when non-empty)
-//   - pushover: UserKey <- provider.URL, APIToken <- provider.Token
+//   - pushover: user_key <- provider.URL, api_token <- provider.Token
 //     (matching the old code's `jsonPayload["user"] = p.URL` /
-//     `decryptedToken := p.Token`); BaseURL left empty, so
+//     `decryptedToken := p.Token`); base_url left unset, so
 //     providers/pushover defaults to the production API
-//   - ntfy: URL <- provider.URL, Token <- provider.Token (sent as an
+//   - ntfy: url <- provider.URL, token <- provider.Token (sent as an
 //     "Authorization: Bearer <token>" header when non-empty)
-//   - telegram: BotToken <- provider.Token, ChatID <- provider.URL (matching
-//     the old code's `decryptedToken := p.Token` /
-//     `jsonPayload["chat_id"] = p.URL`); BaseURL left empty, so
+//   - telegram: bot_token <- provider.Token, chat_id <- provider.URL
+//     (matching the old code's `decryptedToken := p.Token` /
+//     `jsonPayload["chat_id"] = p.URL`); base_url left unset, so
 //     providers/telegram defaults to the production Bot API
-//   - webhook / generic: URL <- provider.URL, generic JSON passthrough, no
+//   - webhook / generic: url <- provider.URL, generic JSON passthrough, no
 //     provider-specific payload shape or host allowlist
 //
-// Returns an error for any provider.Type not supported by the extracted
-// module. Email is handled separately (notify_email_adapter.go /
-// providers/email), not by this function — the module's email package has a
-// different shape (Mailer/TemplateRenderer, not a Wrapper-backed Sender).
-func buildNotifySender(provider models.NotificationProvider, w *transport.Wrapper) (notify.Sender, error) {
-	tmpl, customTemplate := resolveTemplateFields(provider)
+// This per-type field mapping is a Charon persistence-schema fact (which
+// GORM column means what for which provider type), not something the
+// registry can know — collapsing buildNotifySender's dispatch onto
+// notify.New (below) removes the "which Go constructor do I call" branch,
+// not this one (spec §3.6.1).
+func providerConfigMap(provider models.NotificationProvider, w *transport.Wrapper, template, customTemplate string) map[string]any {
+	config := map[string]any{
+		"transport":       w,
+		"template":        template,
+		"custom_template": customTemplate,
+	}
 
 	switch strings.ToLower(strings.TrimSpace(provider.Type)) {
 	case "discord":
-		return discord.New(discord.Config{
-			WebhookURL:     provider.URL,
-			Template:       tmpl,
-			CustomTemplate: customTemplate,
-		}, w), nil
-
+		config["webhook_url"] = provider.URL
 	case "slack":
-		return slack.New(slack.Config{
-			WebhookURL:     provider.Token,
-			Template:       tmpl,
-			CustomTemplate: customTemplate,
-		}, w), nil
-
+		config["webhook_url"] = provider.Token
 	case "gotify":
-		return gotify.New(gotify.Config{
-			URL:            provider.URL,
-			Token:          provider.Token,
-			Template:       tmpl,
-			CustomTemplate: customTemplate,
-		}, w), nil
-
+		config["url"] = provider.URL
+		config["token"] = provider.Token
 	case "pushover":
-		return pushover.New(pushover.Config{
-			UserKey:        provider.URL,
-			APIToken:       provider.Token,
-			Template:       tmpl,
-			CustomTemplate: customTemplate,
-		}, w), nil
-
+		config["user_key"] = provider.URL
+		config["api_token"] = provider.Token
 	case "ntfy":
-		return ntfy.New(ntfy.Config{
-			URL:            provider.URL,
-			Token:          provider.Token,
-			Template:       tmpl,
-			CustomTemplate: customTemplate,
-		}, w), nil
-
+		config["url"] = provider.URL
+		config["token"] = provider.Token
 	case "telegram":
-		return telegram.New(telegram.Config{
-			BotToken:       provider.Token,
-			ChatID:         provider.URL,
-			Template:       tmpl,
-			CustomTemplate: customTemplate,
-		}, w), nil
-
+		config["bot_token"] = provider.Token
+		config["chat_id"] = provider.URL
 	case "webhook", "generic":
-		return webhook.New(webhook.Config{
-			URL:            provider.URL,
-			Template:       tmpl,
-			CustomTemplate: customTemplate,
-		}, w), nil
-
-	default:
-		return nil, fmt.Errorf("notify provider adapter: unsupported provider type %q", provider.Type)
+		config["url"] = provider.URL
 	}
+
+	return config
+}
+
+// registryTypeForProvider resolves a Charon provider.Type discriminator to
+// the name it is registered under in the go_notify_yourself registry.
+// "generic" is Charon's own alias for the module's "webhook" provider (the
+// pre-registry switch handled both cases identically via webhook.New); the
+// registry itself only knows the canonical "webhook" name, so the alias
+// must be resolved here before calling notify.New.
+func registryTypeForProvider(providerType string) string {
+	t := strings.ToLower(strings.TrimSpace(providerType))
+	if t == "generic" {
+		return "webhook"
+	}
+	return t
+}
+
+// buildNotifySender maps a GORM models.NotificationProvider row into the
+// map[string]any config the extracted module's provider registry expects
+// (providerConfigMap, above) and constructs the corresponding notify.Sender
+// via notify.New — replacing the per-type switch/constructor-call dispatch
+// that used to live here (docs/plans/notify_provider_registry_spec.md
+// §3.6.1). notify.New itself returns a descriptive error, never panics, for
+// an unregistered provider type or a missing/invalid required config key
+// (e.g. "transport" absent or nil) — buildNotifySender wraps that error
+// rather than reinterpreting it.
+//
+// Email is handled separately (notify_email_adapter.go / providers/email),
+// not by this function — the module's email package has a different shape
+// (Mailer/TemplateRenderer, not a Wrapper-backed Sender) and Charon's
+// dispatch code never routes an "email" provider.Type through here.
+func buildNotifySender(provider models.NotificationProvider, w *transport.Wrapper) (notify.Sender, error) {
+	tmpl, customTemplate := resolveTemplateFields(provider)
+	config := providerConfigMap(provider, w, tmpl, customTemplate)
+
+	sender, err := notify.New(registryTypeForProvider(provider.Type), config)
+	if err != nil {
+		return nil, fmt.Errorf("notify provider adapter: %w", err)
+	}
+	return sender, nil
 }

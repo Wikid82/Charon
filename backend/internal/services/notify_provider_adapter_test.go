@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -324,7 +325,57 @@ func TestBuildNotifySenderUnsupportedTypeErrors(t *testing.T) {
 
 	_, err := buildNotifySender(provider, w)
 	if err == nil {
-		t.Fatal("expected an error for an unsupported provider type")
+		t.Fatal("expected an error for an unsupported/unregistered provider type")
+	}
+	if !strings.Contains(err.Error(), "no provider registered") {
+		t.Fatalf("expected a registry not-found error, got: %v", err)
+	}
+}
+
+// TestBuildNotifySenderMissingTransportErrors asserts that a nil
+// *transport.Wrapper (which providerConfigMap stores under the
+// config["transport"] key notify.New's per-provider factories require)
+// produces a descriptive error, not a panic — per
+// docs/plans/notify_provider_registry_spec.md §3.10's "missing/wrong-typed
+// required config key" error-handling convention.
+func TestBuildNotifySenderMissingTransportErrors(t *testing.T) {
+	provider := models.NotificationProvider{Type: "discord", URL: "https://discord.com/api/webhooks/123/abc"}
+
+	_, err := buildNotifySender(provider, nil)
+	if err == nil {
+		t.Fatal("expected an error for a nil transport wrapper")
+	}
+	if !strings.Contains(err.Error(), "transport") {
+		t.Fatalf("expected error to mention the missing transport, got: %v", err)
+	}
+}
+
+// TestBuildNotifySenderInvalidTransportInConfigMapErrors exercises
+// providerConfigMap/notify.New's config["transport"] validation directly:
+// a config map whose "transport" key holds something other than a
+// *transport.Wrapper (or is absent) must produce an error from notify.New,
+// never a panic.
+func TestBuildNotifySenderInvalidTransportInConfigMapErrors(t *testing.T) {
+	config := map[string]any{"webhook_url": "https://discord.com/api/webhooks/123/abc"}
+
+	_, err := notify.New("discord", config)
+	if err == nil {
+		t.Fatal("expected an error for a config map missing a valid transport")
+	}
+	if !strings.Contains(err.Error(), "transport") {
+		t.Fatalf("expected error to mention the missing transport, got: %v", err)
+	}
+}
+
+// TestRegistryTypeForProviderResolvesGenericAlias asserts the "generic" ->
+// "webhook" alias translation (registryTypeForProvider) matches the
+// pre-registry switch's `case "webhook", "generic":` behavior exactly.
+func TestRegistryTypeForProviderResolvesGenericAlias(t *testing.T) {
+	if got := registryTypeForProvider("generic"); got != "webhook" {
+		t.Fatalf("registryTypeForProvider(%q) = %q, want %q", "generic", got, "webhook")
+	}
+	if got := registryTypeForProvider("Discord"); got != "discord" {
+		t.Fatalf("registryTypeForProvider(%q) = %q, want %q", "Discord", got, "discord")
 	}
 }
 
