@@ -324,12 +324,17 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Install Playwright Chromium
-        run: |
-          echo "📦 Installing Chromium..."
-          npx playwright install --with-deps chromium
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 10
+          max_attempts: 3
+          retry_wait_seconds: 15
+          retry_on: error
+          warning_on_retry: true
+          command: |
+            set -euo pipefail
+            echo "📦 Installing Chromium..."
+            npx playwright install --with-deps chromium
 
       - name: Run Chromium Security Enforcement Tests
         run: |
@@ -559,20 +564,30 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Install Playwright Chromium (required by security-tests dependency)
-        run: |
-          echo "📦 Installing Chromium (required by security-tests dependency)..."
-          npx playwright install --with-deps chromium
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 10
+          max_attempts: 3
+          retry_wait_seconds: 15
+          retry_on: error
+          warning_on_retry: true
+          command: |
+            set -euo pipefail
+            echo "📦 Installing Chromium (required by security-tests dependency)..."
+            npx playwright install --with-deps chromium
 
       - name: Install Playwright Firefox
-        run: |
-          echo "📦 Installing Firefox..."
-          npx playwright install --with-deps firefox
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 10
+          max_attempts: 3
+          retry_wait_seconds: 15
+          retry_on: error
+          warning_on_retry: true
+          command: |
+            set -euo pipefail
+            echo "📦 Installing Firefox..."
+            npx playwright install --with-deps firefox
 
       - name: Run Firefox Security Enforcement Tests
         run: |
@@ -805,20 +820,30 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Install Playwright Chromium (required by security-tests dependency)
-        run: |
-          echo "📦 Installing Chromium (required by security-tests dependency)..."
-          npx playwright install --with-deps chromium
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 10
+          max_attempts: 3
+          retry_wait_seconds: 15
+          retry_on: error
+          warning_on_retry: true
+          command: |
+            set -euo pipefail
+            echo "📦 Installing Chromium (required by security-tests dependency)..."
+            npx playwright install --with-deps chromium
 
       - name: Install Playwright WebKit
-        run: |
-          echo "📦 Installing WebKit..."
-          npx playwright install --with-deps webkit
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 10
+          max_attempts: 3
+          retry_wait_seconds: 15
+          retry_on: error
+          warning_on_retry: true
+          command: |
+            set -euo pipefail
+            echo "📦 Installing WebKit..."
+            npx playwright install --with-deps webkit
 
       - name: Run WebKit Security Enforcement Tests
         run: |
@@ -1078,12 +1103,17 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Install Playwright Chromium
-        run: |
-          echo "📦 Installing Chromium..."
-          npx playwright install --with-deps chromium
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 10
+          max_attempts: 3
+          retry_wait_seconds: 15
+          retry_on: error
+          warning_on_retry: true
+          command: |
+            set -euo pipefail
+            echo "📦 Installing Chromium..."
+            npx playwright install --with-deps chromium
 
       - name: Run Chromium Non-Security Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
@@ -1316,20 +1346,30 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Install Playwright Chromium (required by security-tests dependency)
-        run: |
-          echo "📦 Installing Chromium (required by security-tests dependency)..."
-          npx playwright install --with-deps chromium
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 10
+          max_attempts: 3
+          retry_wait_seconds: 15
+          retry_on: error
+          warning_on_retry: true
+          command: |
+            set -euo pipefail
+            echo "📦 Installing Chromium (required by security-tests dependency)..."
+            npx playwright install --with-deps chromium
 
       - name: Install Playwright Firefox
-        run: |
-          echo "📦 Installing Firefox..."
-          npx playwright install --with-deps firefox
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 10
+          max_attempts: 3
+          retry_wait_seconds: 15
+          retry_on: error
+          warning_on_retry: true
+          command: |
+            set -euo pipefail
+            echo "📦 Installing Firefox..."
+            npx playwright install --with-deps firefox
 
       - name: Run Firefox Non-Security Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
@@ -1562,20 +1602,30 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Install Playwright Chromium (required by security-tests dependency)
-        run: |
-          echo "📦 Installing Chromium (required by security-tests dependency)..."
-          npx playwright install --with-deps chromium
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 10
+          max_attempts: 3
+          retry_wait_seconds: 15
+          retry_on: error
+          warning_on_retry: true
+          command: |
+            set -euo pipefail
+            echo "📦 Installing Chromium (required by security-tests dependency)..."
+            npx playwright install --with-deps chromium
 
       - name: Install Playwright WebKit
-        run: |
-          echo "📦 Installing WebKit..."
-          npx playwright install --with-deps webkit
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 10
+          max_attempts: 3
+          retry_wait_seconds: 15
+          retry_on: error
+          warning_on_retry: true
+          command: |
+            set -euo pipefail
+            echo "📦 Installing WebKit..."
+            npx playwright install --with-deps webkit
 
       - name: Run WebKit Non-Security Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
