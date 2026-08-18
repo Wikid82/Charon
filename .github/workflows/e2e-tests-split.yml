@@ -324,17 +324,19 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Install Playwright Chromium
-        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
-        with:
-          timeout_minutes: 10
-          max_attempts: 3
-          retry_wait_seconds: 15
-          retry_on: error
-          warning_on_retry: true
-          command: |
-            set -euo pipefail
-            echo "📦 Installing Chromium..."
-            npx playwright install --with-deps chromium
+        run: |
+          set -uo pipefail
+          echo "📦 Installing Chromium..."
+          for attempt in 1 2 3; do
+            timeout 10m npx playwright install --with-deps chromium && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              sleep 15
+            else
+              echo "ERROR: Playwright chromium install failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Run Chromium Security Enforcement Tests
         run: |
@@ -564,30 +566,34 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Install Playwright Chromium (required by security-tests dependency)
-        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
-        with:
-          timeout_minutes: 10
-          max_attempts: 3
-          retry_wait_seconds: 15
-          retry_on: error
-          warning_on_retry: true
-          command: |
-            set -euo pipefail
-            echo "📦 Installing Chromium (required by security-tests dependency)..."
-            npx playwright install --with-deps chromium
+        run: |
+          set -uo pipefail
+          echo "📦 Installing Chromium (required by security-tests dependency)..."
+          for attempt in 1 2 3; do
+            timeout 10m npx playwright install --with-deps chromium && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              sleep 15
+            else
+              echo "ERROR: Playwright chromium install failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Install Playwright Firefox
-        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
-        with:
-          timeout_minutes: 10
-          max_attempts: 3
-          retry_wait_seconds: 15
-          retry_on: error
-          warning_on_retry: true
-          command: |
-            set -euo pipefail
-            echo "📦 Installing Firefox..."
-            npx playwright install --with-deps firefox
+        run: |
+          set -uo pipefail
+          echo "📦 Installing Firefox..."
+          for attempt in 1 2 3; do
+            timeout 10m npx playwright install --with-deps firefox && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              sleep 15
+            else
+              echo "ERROR: Playwright firefox install failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Run Firefox Security Enforcement Tests
         run: |
@@ -820,30 +826,34 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Install Playwright Chromium (required by security-tests dependency)
-        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
-        with:
-          timeout_minutes: 10
-          max_attempts: 3
-          retry_wait_seconds: 15
-          retry_on: error
-          warning_on_retry: true
-          command: |
-            set -euo pipefail
-            echo "📦 Installing Chromium (required by security-tests dependency)..."
-            npx playwright install --with-deps chromium
+        run: |
+          set -uo pipefail
+          echo "📦 Installing Chromium (required by security-tests dependency)..."
+          for attempt in 1 2 3; do
+            timeout 10m npx playwright install --with-deps chromium && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              sleep 15
+            else
+              echo "ERROR: Playwright chromium install failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Install Playwright WebKit
-        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
-        with:
-          timeout_minutes: 10
-          max_attempts: 3
-          retry_wait_seconds: 15
-          retry_on: error
-          warning_on_retry: true
-          command: |
-            set -euo pipefail
-            echo "📦 Installing WebKit..."
-            npx playwright install --with-deps webkit
+        run: |
+          set -uo pipefail
+          echo "📦 Installing WebKit..."
+          for attempt in 1 2 3; do
+            timeout 10m npx playwright install --with-deps webkit && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              sleep 15
+            else
+              echo "ERROR: Playwright webkit install failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Run WebKit Security Enforcement Tests
         run: |
@@ -1103,17 +1113,19 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Install Playwright Chromium
-        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
-        with:
-          timeout_minutes: 10
-          max_attempts: 3
-          retry_wait_seconds: 15
-          retry_on: error
-          warning_on_retry: true
-          command: |
-            set -euo pipefail
-            echo "📦 Installing Chromium..."
-            npx playwright install --with-deps chromium
+        run: |
+          set -uo pipefail
+          echo "📦 Installing Chromium..."
+          for attempt in 1 2 3; do
+            timeout 10m npx playwright install --with-deps chromium && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              sleep 15
+            else
+              echo "ERROR: Playwright chromium install failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Run Chromium Non-Security Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
@@ -1346,30 +1358,34 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Install Playwright Chromium (required by security-tests dependency)
-        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
-        with:
-          timeout_minutes: 10
-          max_attempts: 3
-          retry_wait_seconds: 15
-          retry_on: error
-          warning_on_retry: true
-          command: |
-            set -euo pipefail
-            echo "📦 Installing Chromium (required by security-tests dependency)..."
-            npx playwright install --with-deps chromium
+        run: |
+          set -uo pipefail
+          echo "📦 Installing Chromium (required by security-tests dependency)..."
+          for attempt in 1 2 3; do
+            timeout 10m npx playwright install --with-deps chromium && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              sleep 15
+            else
+              echo "ERROR: Playwright chromium install failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Install Playwright Firefox
-        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
-        with:
-          timeout_minutes: 10
-          max_attempts: 3
-          retry_wait_seconds: 15
-          retry_on: error
-          warning_on_retry: true
-          command: |
-            set -euo pipefail
-            echo "📦 Installing Firefox..."
-            npx playwright install --with-deps firefox
+        run: |
+          set -uo pipefail
+          echo "📦 Installing Firefox..."
+          for attempt in 1 2 3; do
+            timeout 10m npx playwright install --with-deps firefox && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              sleep 15
+            else
+              echo "ERROR: Playwright firefox install failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Run Firefox Non-Security Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
@@ -1602,30 +1618,34 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Install Playwright Chromium (required by security-tests dependency)
-        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
-        with:
-          timeout_minutes: 10
-          max_attempts: 3
-          retry_wait_seconds: 15
-          retry_on: error
-          warning_on_retry: true
-          command: |
-            set -euo pipefail
-            echo "📦 Installing Chromium (required by security-tests dependency)..."
-            npx playwright install --with-deps chromium
+        run: |
+          set -uo pipefail
+          echo "📦 Installing Chromium (required by security-tests dependency)..."
+          for attempt in 1 2 3; do
+            timeout 10m npx playwright install --with-deps chromium && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              sleep 15
+            else
+              echo "ERROR: Playwright chromium install failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Install Playwright WebKit
-        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
-        with:
-          timeout_minutes: 10
-          max_attempts: 3
-          retry_wait_seconds: 15
-          retry_on: error
-          warning_on_retry: true
-          command: |
-            set -euo pipefail
-            echo "📦 Installing WebKit..."
-            npx playwright install --with-deps webkit
+        run: |
+          set -uo pipefail
+          echo "📦 Installing WebKit..."
+          for attempt in 1 2 3; do
+            timeout 10m npx playwright install --with-deps webkit && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              sleep 15
+            else
+              echo "ERROR: Playwright webkit install failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Run WebKit Non-Security Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
