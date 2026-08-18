@@ -4,6 +4,7 @@ on:
   workflow_run:
     workflows: ["Docker Build, Publish & Test"]
     types: [completed]
+    branches: [main]
   workflow_dispatch:   # Allow manual trigger
 
 # Sets permissions to allow deployment to GitHub Pages
