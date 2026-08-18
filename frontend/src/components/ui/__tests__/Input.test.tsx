@@ -24,6 +24,21 @@ describe('Input', () => {
     expect(label).toHaveAttribute('for', 'email-input')
   })
 
+  it('associates label with input via auto-generated id when no id is passed', () => {
+    render(<Input label="Email" />)
+
+    const input = screen.getByLabelText('Email')
+    expect(input).toBeInTheDocument()
+    expect(input.tagName).toBe('INPUT')
+  })
+
+  it('uses the explicit id when provided, not the generated one', () => {
+    render(<Input label="Email" id="custom-email-id" />)
+
+    const input = screen.getByLabelText('Email')
+    expect(input).toHaveAttribute('id', 'custom-email-id')
+  })
+
   it('renders with error state and message', () => {
     render(
       <Input

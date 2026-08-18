@@ -325,11 +325,18 @@ jobs:
 
       - name: Install Playwright Chromium
         run: |
+          set -uo pipefail
           echo "📦 Installing Chromium..."
-          npx playwright install --with-deps chromium
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+          for attempt in 1 2 3; do
+            timeout 10m npx playwright install --with-deps chromium && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              sleep 15
+            else
+              echo "ERROR: Playwright chromium install failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Run Chromium Security Enforcement Tests
         run: |
@@ -560,19 +567,33 @@ jobs:
 
       - name: Install Playwright Chromium (required by security-tests dependency)
         run: |
+          set -uo pipefail
           echo "📦 Installing Chromium (required by security-tests dependency)..."
-          npx playwright install --with-deps chromium
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+          for attempt in 1 2 3; do
+            timeout 10m npx playwright install --with-deps chromium && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              sleep 15
+            else
+              echo "ERROR: Playwright chromium install failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Install Playwright Firefox
         run: |
+          set -uo pipefail
           echo "📦 Installing Firefox..."
-          npx playwright install --with-deps firefox
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+          for attempt in 1 2 3; do
+            timeout 10m npx playwright install --with-deps firefox && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              sleep 15
+            else
+              echo "ERROR: Playwright firefox install failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Run Firefox Security Enforcement Tests
         run: |
@@ -806,19 +827,33 @@ jobs:
 
       - name: Install Playwright Chromium (required by security-tests dependency)
         run: |
+          set -uo pipefail
           echo "📦 Installing Chromium (required by security-tests dependency)..."
-          npx playwright install --with-deps chromium
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+          for attempt in 1 2 3; do
+            timeout 10m npx playwright install --with-deps chromium && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              sleep 15
+            else
+              echo "ERROR: Playwright chromium install failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Install Playwright WebKit
         run: |
+          set -uo pipefail
           echo "📦 Installing WebKit..."
-          npx playwright install --with-deps webkit
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+          for attempt in 1 2 3; do
+            timeout 10m npx playwright install --with-deps webkit && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              sleep 15
+            else
+              echo "ERROR: Playwright webkit install failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Run WebKit Security Enforcement Tests
         run: |
@@ -1079,11 +1114,18 @@ jobs:
 
       - name: Install Playwright Chromium
         run: |
+          set -uo pipefail
           echo "📦 Installing Chromium..."
-          npx playwright install --with-deps chromium
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+          for attempt in 1 2 3; do
+            timeout 10m npx playwright install --with-deps chromium && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              sleep 15
+            else
+              echo "ERROR: Playwright chromium install failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Run Chromium Non-Security Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
@@ -1317,19 +1359,33 @@ jobs:
 
       - name: Install Playwright Chromium (required by security-tests dependency)
         run: |
+          set -uo pipefail
           echo "📦 Installing Chromium (required by security-tests dependency)..."
-          npx playwright install --with-deps chromium
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+          for attempt in 1 2 3; do
+            timeout 10m npx playwright install --with-deps chromium && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              sleep 15
+            else
+              echo "ERROR: Playwright chromium install failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Install Playwright Firefox
         run: |
+          set -uo pipefail
           echo "📦 Installing Firefox..."
-          npx playwright install --with-deps firefox
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+          for attempt in 1 2 3; do
+            timeout 10m npx playwright install --with-deps firefox && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              sleep 15
+            else
+              echo "ERROR: Playwright firefox install failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Run Firefox Non-Security Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
@@ -1563,19 +1619,33 @@ jobs:
 
       - name: Install Playwright Chromium (required by security-tests dependency)
         run: |
+          set -uo pipefail
           echo "📦 Installing Chromium (required by security-tests dependency)..."
-          npx playwright install --with-deps chromium
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+          for attempt in 1 2 3; do
+            timeout 10m npx playwright install --with-deps chromium && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              sleep 15
+            else
+              echo "ERROR: Playwright chromium install failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Install Playwright WebKit
         run: |
+          set -uo pipefail
           echo "📦 Installing WebKit..."
-          npx playwright install --with-deps webkit
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+          for attempt in 1 2 3; do
+            timeout 10m npx playwright install --with-deps webkit && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              sleep 15
+            else
+              echo "ERROR: Playwright webkit install failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Run WebKit Non-Security Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
