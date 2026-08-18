@@ -1330,7 +1330,18 @@ export async function gotoTolerant(
 ): Promise<void> {
   const { timeout = 15000 } = options;
 
-  await page.goto(url, { waitUntil: 'commit', timeout }).catch((error: unknown) => {
+  // waitUntil: 'domcontentloaded', NOT 'commit' — see commit 7503c01a and
+  // docs/reports/qa_report_2026-07-26_shard4-reload-hang.md. 'commit' fires
+  // on Firefox's earliest possible navigation signal, which this repo's own
+  // trace evidence (docs/plans/current_spec.md, PR #1259 RCA) shows Firefox
+  // can fail to emit at all for some goto()/reload() calls, leaving
+  // Playwright's frame-navigation tracker stuck and blocking every
+  // subsequent locator-based wait on the page for a second full timeout.
+  // 'domcontentloaded' is the value already used by 100+ other call sites
+  // in this suite (including tests/settings/navigation-settle-regression.spec.ts,
+  // which codifies this exact failure shape) and is the value this helper's
+  // predecessor code used before it was silently dropped during extraction.
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout }).catch((error: unknown) => {
     if (!isExpectedNavigationRace(error)) {
       throw error;
     }
@@ -1355,7 +1366,9 @@ export async function reloadTolerant(
 ): Promise<void> {
   const { timeout = 15000 } = options;
 
-  await page.reload({ waitUntil: 'commit', timeout }).catch((error: unknown) => {
+  // See gotoTolerant's comment above — same 'commit' → 'domcontentloaded'
+  // fix, for the same reason.
+  await page.reload({ waitUntil: 'domcontentloaded', timeout }).catch((error: unknown) => {
     if (!isExpectedNavigationRace(error)) {
       throw error;
     }
