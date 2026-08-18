@@ -35,6 +35,16 @@ on:
     # See GH #1235 / docs/plans/current_spec.md for the full rationale.
     branches: [main, development]
   workflow_dispatch:
+  # Reviewed as part of a default-branch/workflow_run reliability pass. This
+  # link is dormant in normal operation: docker-lint.yml's only trigger is
+  # workflow_dispatch, so nothing in the repo's day-to-day flow ever causes
+  # Docker Lint to run and chain into this workflow. Left unchanged
+  # deliberately -- this workflow's real, CI-critical triggers are the
+  # direct push/pull_request above, which never route through workflow_run
+  # and are therefore categorically unaffected by that bug class. Making
+  # Docker Lint auto-trigger would be a functional scope change (hadolint
+  # running on every push/PR), not a trigger-reliability fix, so it's out
+  # of scope here.
   workflow_run:
     workflows: ["Docker Lint"]
     types: [completed]
