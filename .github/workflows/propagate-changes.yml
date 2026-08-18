@@ -5,6 +5,19 @@ on:
     workflows: ["Docker Build, Publish & Test"]
     types: [completed]
     branches: [ main, development ]
+  # NOTE for future contributors: do not add a direct `push:` trigger here as
+  # a workflow_run-reliability fallback without ALSO updating the job-level
+  # `if:` below. The CURRENT_BRANCH/CURRENT_SHA env fallbacks (`|| github.ref_name`
+  # / `|| github.sha`) already resolve correctly on a `push` event, but the
+  # `if:` only recognizes `workflow_dispatch` or a matching `workflow_run` —
+  # it has no `github.event_name == 'push'` clause, so a bare `push:` addition
+  # would silently no-op the job on every push (worse than today: it would
+  # show as a registered trigger in the Actions UI while never actually
+  # running). workflow_run is also semantically correct here regardless: this
+  # job should only propagate a commit Docker Build has already validated as
+  # successful, which a raw `push` event can't guarantee. The existing
+  # `workflow_dispatch: {}` below (added in 5245858a) is the intended manual
+  # fallback if workflow_run ever silently fails to fire again.
   workflow_dispatch: {}
 
 concurrency:
