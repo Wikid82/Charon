@@ -189,29 +189,48 @@ async function createUserViaApi(
 }
 
 async function navigateToLogin(page: import('@playwright/test').Page): Promise<void> {
-  await gotoTolerant(page, '/login');
-
-  await page.waitForURL(/\/login/, { timeout: 15000 }).catch(() => undefined);
   const emailInput = page.locator('input[type="email"]').or(page.getByLabel(/email/i)).first();
+  const maxAttempts = 3;
 
-  if (!(await emailInput.isVisible().catch(() => false))) {
-    await page.context().clearCookies();
-    await page.evaluate(() => {
-      localStorage.clear();
-      sessionStorage.clear();
-    });
-    // Use reload(), not a second goto('/login'): the page is already on
-    // /login from the goto() above and may still be mid-hydration. A
-    // same-URL goto() fired this soon after can race that still-settling
-    // navigation and never produce a Playwright-trackable event in Firefox.
-    // reload() always yields a fresh, distinct navigation-commit event, but
-    // under a slow/contended CI runner it can itself fail to settle in time
-    // (observed: 3/3 attempts hitting the full 60s test timeout), so it needs
-    // the same tolerant handling as the goto() above.
-    await reloadTolerant(page);
+  // Up to 3 attempts: an initial goto, then up to 2 reload-based recovery
+  // passes. One recovery attempt is not always enough - gotoTolerant's/
+  // reloadTolerant's 'domcontentloaded' fix (see their doc comments and
+  // docs/reports/qa_report_2026-07-26_shard4-reload-hang.md) reduces but
+  // does not eliminate Firefox's failure to produce a Playwright-trackable
+  // navigation-commit event, which leaves the next auto-waiting locator
+  // call hung on "waiting for navigation to finish" for its own full
+  // timeout even though the page already rendered correctly (reproduced:
+  // both the goto and the one prior reload attempt hit this race in the
+  // same run). Short per-attempt timeouts on the non-final passes let a
+  // stuck navigation fail fast into another reload instead of paying out
+  // a full 15s hang more than once before giving up for good.
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (attempt === 1) {
+      await gotoTolerant(page, '/login');
+    } else {
+      await page.context().clearCookies();
+      await page.evaluate(() => {
+        localStorage.clear();
+        sessionStorage.clear();
+      });
+      await reloadTolerant(page);
+    }
+
+    await page.waitForURL(/\/login/, { timeout: 15000 }).catch(() => undefined);
+
+    if (attempt === maxAttempts) {
+      await expect(emailInput).toBeVisible({ timeout: 15000 });
+      return;
+    }
+
+    const visible = await expect(emailInput)
+      .toBeVisible({ timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
+    if (visible) {
+      return;
+    }
   }
-
-  await expect(emailInput).toBeVisible({ timeout: 15000 });
 }
 
 async function loginWithCredentials(
