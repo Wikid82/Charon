@@ -183,7 +183,6 @@ After running this skill:
 
 ## Related Skills
 
-- [utility-version-check](./utility-version-check.SKILL.md) - Validate version matches tags
 - [build-check-go](../build-check-go.SKILL.md) - Verify build after version bump
 
 ## Notes
