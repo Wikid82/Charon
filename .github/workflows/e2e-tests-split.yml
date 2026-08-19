@@ -339,6 +339,10 @@ jobs:
             timeout 10m npx playwright install --with-deps chromium && break
             if [ "$attempt" -lt 3 ]; then
               echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
+              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
+              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
+              sudo dpkg --configure -a > /dev/null 2>&1 || true
               sleep 15
             else
               echo "ERROR: Playwright chromium install failed after 3 attempts" >&2
@@ -589,6 +593,10 @@ jobs:
             timeout 10m npx playwright install --with-deps chromium && break
             if [ "$attempt" -lt 3 ]; then
               echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
+              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
+              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
+              sudo dpkg --configure -a > /dev/null 2>&1 || true
               sleep 15
             else
               echo "ERROR: Playwright chromium install failed after 3 attempts" >&2
@@ -604,6 +612,10 @@ jobs:
             timeout 10m npx playwright install --with-deps firefox && break
             if [ "$attempt" -lt 3 ]; then
               echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
+              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
+              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
+              sudo dpkg --configure -a > /dev/null 2>&1 || true
               sleep 15
             else
               echo "ERROR: Playwright firefox install failed after 3 attempts" >&2
@@ -857,6 +869,10 @@ jobs:
             timeout 10m npx playwright install --with-deps chromium && break
             if [ "$attempt" -lt 3 ]; then
               echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
+              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
+              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
+              sudo dpkg --configure -a > /dev/null 2>&1 || true
               sleep 15
             else
               echo "ERROR: Playwright chromium install failed after 3 attempts" >&2
@@ -872,6 +888,10 @@ jobs:
             timeout 10m npx playwright install --with-deps webkit && break
             if [ "$attempt" -lt 3 ]; then
               echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
+              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
+              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
+              sudo dpkg --configure -a > /dev/null 2>&1 || true
               sleep 15
             else
               echo "ERROR: Playwright webkit install failed after 3 attempts" >&2
@@ -1152,6 +1172,10 @@ jobs:
             timeout 10m npx playwright install --with-deps chromium && break
             if [ "$attempt" -lt 3 ]; then
               echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
+              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
+              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
+              sudo dpkg --configure -a > /dev/null 2>&1 || true
               sleep 15
             else
               echo "ERROR: Playwright chromium install failed after 3 attempts" >&2
@@ -1405,6 +1429,10 @@ jobs:
             timeout 10m npx playwright install --with-deps chromium && break
             if [ "$attempt" -lt 3 ]; then
               echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
+              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
+              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
+              sudo dpkg --configure -a > /dev/null 2>&1 || true
               sleep 15
             else
               echo "ERROR: Playwright chromium install failed after 3 attempts" >&2
@@ -1420,6 +1448,10 @@ jobs:
             timeout 10m npx playwright install --with-deps firefox && break
             if [ "$attempt" -lt 3 ]; then
               echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
+              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
+              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
+              sudo dpkg --configure -a > /dev/null 2>&1 || true
               sleep 15
             else
               echo "ERROR: Playwright firefox install failed after 3 attempts" >&2
@@ -1673,6 +1705,10 @@ jobs:
             timeout 10m npx playwright install --with-deps chromium && break
             if [ "$attempt" -lt 3 ]; then
               echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
+              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
+              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
+              sudo dpkg --configure -a > /dev/null 2>&1 || true
               sleep 15
             else
               echo "ERROR: Playwright chromium install failed after 3 attempts" >&2
@@ -1688,6 +1724,10 @@ jobs:
             timeout 10m npx playwright install --with-deps webkit && break
             if [ "$attempt" -lt 3 ]; then
               echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
+              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
+              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
+              sudo dpkg --configure -a > /dev/null 2>&1 || true
               sleep 15
             else
               echo "ERROR: Playwright webkit install failed after 3 attempts" >&2
