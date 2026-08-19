@@ -127,6 +127,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Tooling**: Switched to manual Grype installation ensuring usage of latest stable binary
   - **Observability**: Improved debugging visibility for vulnerability scans and SARIF generation
 
+- chore(security): document CVE-2026-14456 (OpenSSL QUIC server unbounded memory allocation) in `libcrypto3`/`libssl3` (Alpine base image) as risk-accepted — no upstream Alpine fix available yet; Charon's Caddy HTTP/3 stack uses pure-Go `quic-go`, so the vulnerable OpenSSL QUIC server code path is never reachable
+
+- chore(security): resolve CVE-2026-2673 (OpenSSL TLS 1.3 key exchange group downgrade) — Alpine base image moved past the affected `libcrypto3`/`libssl3` 3.5.5-r0 package version; suppression entries removed from `.trivyignore` and `.grype.yaml`
+
 ### Performance
 
 - **E2E Tests**: Reduced feature flag API calls by 90% through conditional polling optimization (Phase 2)
