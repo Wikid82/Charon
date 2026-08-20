@@ -27,7 +27,7 @@ public disclosure.
 
 ## Known Vulnerabilities
 
-Last reviewed: 2026-07-16
+Last reviewed: 2026-08-19
 
 ### [RESOLVED] GHSA-rw47-hm26-6wr7 / CVE-2026-44982 · CrowdSec AppSec Drops HTTP Request Body
 
@@ -73,6 +73,105 @@ introduced between v1.6.x and v1.7.8 (`DecisionsListOpts` field types and
 
 ---
 
+### [RESOLVED] CVE-2026-2673 · OpenSSL TLS 1.3 Key Exchange Group Downgrade
+
+| Field        | Value |
+|--------------|-------|
+| **ID**       | CVE-2026-2673 |
+| **Severity** | High · 7.5 |
+| **Status**   | Resolved — superseded by Alpine base image package upgrade |
+
+**What**
+An OpenSSL TLS 1.3 server may fail to negotiate the intended key exchange group when the
+configuration includes the `DEFAULT` keyword, potentially allowing downgrade to weaker cipher
+suites. Affected Alpine packages `libcrypto3` and `libssl3` at version 3.5.5-r0.
+
+**Who**
+
+- Discovered by: Automated scan (Grype)
+- Reported: 2026-03-20
+- Affects: Container runtime environment; Caddy reverse proxy TLS negotiation could be affected
+  if default key group configuration is used
+
+**Where**
+
+- Component: Alpine base image (`libcrypto3`, `libssl3`)
+- Versions affected: `libcrypto3`/`libssl3` 3.5.5-r0
+
+**When**
+
+- Discovered: 2026-03-20
+- Disclosed (if public): 2026-03-13 (OpenSSL advisory)
+- Resolved: 2026-08-19 (confirmed via re-scan; Alpine base image had already moved past the
+  vulnerable package version by this date)
+
+**How**
+When an OpenSSL TLS 1.3 server configuration uses the `DEFAULT` keyword for key exchange groups,
+the negotiation logic may select a weaker group than intended. Charon's Caddy TLS configuration
+does not use the `DEFAULT` keyword, which limited practical exploitability throughout the
+suppression window. The packages were present in the base image regardless of Caddy's
+configuration.
+
+**Resolution**
+The pinned `ALPINE_IMAGE` base moved `libcrypto3`/`libssl3` past 3.5.5-r0 to 3.5.7-r0 via a
+routine Alpine base image digest/package upgrade. Re-verified 2026-08-19: a current Grype scan no
+longer reports CVE-2026-2673 at all. Per the suppression's own removal criteria, the
+CVE-2026-2673 entries were removed from both `.trivyignore` and `.grype.yaml` simultaneously with
+this entry moving to Resolved.
+
+---
+
+### [HIGH] CVE-2026-14456 · OpenSSL QUIC Server Unbounded Memory Allocation
+
+| Field        | Value |
+|--------------|-------|
+| **ID**       | CVE-2026-14456 (affects `libcrypto3` and `libssl3`) |
+| **Severity** | High |
+| **Status**   | Awaiting Upstream |
+
+**What**
+OpenSSL's QUIC SERVER implementation, when processing valid QUIC Initial packets for unknown
+destination connection IDs, allocates and queues new incoming channels with no limit. A remote
+peer can grow memory unboundedly and make the QUIC listener unavailable, causing denial of
+service. Affects OpenSSL 3.5+. Affected Alpine packages `libcrypto3` and `libssl3` at version
+3.5.7-r0.
+
+**Who**
+
+- Discovered by: Automated scan (Grype); real-world discovery credited to Filipe Casal
+  (Trail of Bits) with OpenAI
+- Reported: 2026-08-19 (OpenSSL advisory published 2026-08-13; reported to OpenSSL 2026-06-25)
+- Affects: Container runtime environment; does not affect Charon application code directly
+
+**Where**
+
+- Component: Alpine base image (`libcrypto3`, `libssl3`)
+- Versions affected: `libcrypto3`/`libssl3` 3.5.7-r0 (Alpine v3.24 branch, build date 2026-06-10,
+  predates the advisory)
+
+**When**
+
+- Discovered: 2026-08-19
+- Disclosed (if public): 2026-08-13 (OpenSSL advisory)
+- Target fix: When Alpine Security publishes a patched OpenSSL APK
+
+**How**
+The vulnerable code path is OpenSSL's native QUIC server accepting Initial packets for unknown
+destination connection IDs. None of Charon's own binaries or bundled third-party binaries run an
+OpenSSL-based QUIC server — Caddy's HTTP/3 stack uses `github.com/quic-go/quic-go` (pure Go,
+userspace QUIC), and Charon's Go backend uses Go's native `crypto/tls`, not OpenSSL/cgo. The
+`libcrypto3`/`libssl3` packages are present in the image only as Alpine system-library
+dependencies backing TLS-client tools (wget/curl/busybox-extras); the vulnerable server path is
+never invoked in this deployment.
+
+**Planned Remediation**
+Monitor <https://security.alpinelinux.org/vuln/CVE-2026-14456> for a patched Alpine APK. No
+upstream fix available as of 2026-08-19 (current v3.24-branch package, build date 2026-06-10,
+predates the 2026-08-13 advisory). Once available, update the pinned `ALPINE_IMAGE` digest in the
+Dockerfile.
+
+---
+
 ### [HIGH] CVE-2026-31790 · OpenSSL Vulnerability in Alpine Base Image
 
 | Field        | Value |
@@ -112,50 +211,6 @@ the container runtime environment.
 Monitor <https://security.alpinelinux.org/> for a patched Alpine APK. No upstream fix
 available as of 2026-04-09. Once available, update the pinned `ALPINE_IMAGE` digest in the
 Dockerfile.
-
----
-
-### [HIGH] CVE-2026-2673 · OpenSSL TLS 1.3 Key Exchange Group Downgrade
-
-| Field        | Value |
-|--------------|-------|
-| **ID**       | CVE-2026-2673 (affects `libcrypto3` and `libssl3`) |
-| **Severity** | High · 7.5 |
-| **Status**   | Awaiting Upstream |
-
-**What**
-An OpenSSL TLS 1.3 server may fail to negotiate the intended key exchange group when the
-configuration includes the `DEFAULT` keyword, potentially allowing downgrade to weaker cipher
-suites. Affects Alpine 3.23.3 packages `libcrypto3` and `libssl3` at version 3.5.5-r0.
-
-**Who**
-
-- Discovered by: Automated scan (Grype)
-- Reported: 2026-03-20
-- Affects: Container runtime environment; Caddy reverse proxy TLS negotiation could be affected
-  if default key group configuration is used
-
-**Where**
-
-- Component: Alpine 3.23.3 base image (`libcrypto3` 3.5.5-r0, `libssl3` 3.5.5-r0)
-- Versions affected: Alpine 3.23.3 prior to a patched `openssl` APK release
-
-**When**
-
-- Discovered: 2026-03-20
-- Disclosed (if public): 2026-03-13 (OpenSSL advisory)
-- Target fix: When Alpine Security publishes a patched `openssl` APK
-
-**How**
-When an OpenSSL TLS 1.3 server configuration uses the `DEFAULT` keyword for key exchange groups,
-the negotiation logic may select a weaker group than intended. Charon's Caddy TLS configuration
-does not use the `DEFAULT` keyword, which limits practical exploitability. The packages are
-present in the base image regardless of Caddy's configuration.
-
-**Planned Remediation**
-Monitor <https://security.alpinelinux.org/vuln/CVE-2026-2673> for a patched Alpine APK. Once
-available, update the pinned `ALPINE_IMAGE` digest in the Dockerfile, or add an explicit
-`RUN apk upgrade --no-cache libcrypto3 libssl3` to the runtime stage.
 
 ---
 

@@ -4,6 +4,16 @@ on:
   workflow_run:
     workflows: ["Docker Build, Publish & Test"]
     types: [completed]
+  pull_request:
+    paths:
+      - 'scripts/history-rewrite/**'
+      - '.github/workflows/history-rewrite-tests.yml'
+  push:
+    branches: [main, development]
+    paths:
+      - 'scripts/history-rewrite/**'
+      - '.github/workflows/history-rewrite-tests.yml'
+  workflow_dispatch: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}
@@ -15,7 +25,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: Checkout with full history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

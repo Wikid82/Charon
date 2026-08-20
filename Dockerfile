@@ -10,7 +10,7 @@ ARG BUILD_DEBUG=0
 
 # ---- Pinned Toolchain Versions ----
 # renovate: datasource=docker depName=golang versioning=docker
-ARG GO_VERSION=1.26.6
+ARG GO_VERSION=1.27.0
 
 # renovate: datasource=docker depName=alpine versioning=docker
 ARG ALPINE_IMAGE=alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
@@ -300,7 +300,7 @@ ARG CADDY_PATCH_SCENARIO
 ARG CADDY_SECURITY_VERSION
 ARG CORAZA_CADDY_VERSION
 # renovate: datasource=go depName=github.com/caddyserver/xcaddy
-ARG XCADDY_VERSION=0.4.6
+ARG XCADDY_VERSION=0.4.7
 ARG EXPR_LANG_VERSION
 ARG XNET_VERSION
 ARG XCRYPTO_VERSION
@@ -439,6 +439,13 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # The source-level incompatibility is patched below via local copy + go.mod replace.
         # Remove once bouncer ships against crowdsec >= v1.7.8.
         _retry go get github.com/crowdsecurity/crowdsec@v${CROWDSEC_VERSION}; \
+        # CVE-2026-56864 / CVE-2026-56865: golang.org/x/mod/sumdb GOSUMDB tile-verification bypass
+        # (a colluding GOPROXY+GOSUMDB pair could forge sumdb tiles / serve module content outside
+        # the transparency log). Affects /usr/bin/caddy — go mod tidy's MVS resolution otherwise
+        # lands on an older, vulnerable version. Fix available at v0.40.0. Same pattern as the
+        # crowdsec-builder pin below.
+        # renovate: datasource=go depName=golang.org/x/mod
+        _retry go get golang.org/x/mod@v0.40.0; \
         if [ "${CADDY_PATCH_SCENARIO}" = "A" ]; then \
             # Rollback scenario: keep explicit nebula pin if upstream compatibility regresses.
             # NOTE: smallstep/certificates (pulled by caddy-security stack) currently
@@ -707,7 +714,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=b4f624e1411c28701d724503b8d15ed4997de70cb6ea05d6f11bf572ea552240
+ARG GEOLITE2_COUNTRY_SHA256=8cc00bbcd9734df804acc36196c84abe65c2ef4beb4294c2bf4d25ac356db933
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \

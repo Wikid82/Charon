@@ -2,7 +2,7 @@
 # Regenerates backend/internal/changelog/data/changelog.json from
 # conventional-commit git history, one entry per `v*` tag. Run in CI
 # immediately before the release build so go:embed picks up fresh data —
-# see .github/workflows/release-goreleaser.yml. Never commit the generated
+# see .github/workflows/nightly-build.yml. Never commit the generated
 # output back to the repo; the committed file must stay the `[]` placeholder.
 set -euo pipefail
 

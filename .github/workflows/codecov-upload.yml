@@ -28,9 +28,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.26.6'
+  GO_VERSION: '1.27.0'
   NODE_VERSION: '24.19.0'
-  GOTOOLCHAIN: local
+  GOTOOLCHAIN: auto
 
 permissions:
   contents: read

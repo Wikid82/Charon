@@ -47,8 +47,8 @@ type webdavUploader struct {
 }
 
 // newWebDAVUploader constructs the Uploader for a webdav-type target. The
-// host is SSRF-validated at construction time via the same indirected
-// ssrfValidateHost var s3.go/sftp.go already use (spec §3.5 — "reuse it,
+// host is SSRF-validated at construction time via the same atomic-backed
+// ssrfValidateHost func s3.go/sftp.go already use (spec §3.5 — "reuse it,
 // don't reinvent"), and every subsequent request dials through the
 // SSRF-safe dialContext (defeating DNS-rebinding TOCTOU, spec §3.8)
 // exactly like s3.go's custom http.Transport.

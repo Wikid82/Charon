@@ -24,18 +24,26 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
       className,
       type,
       disabled,
+      id,
       ...props
     },
     ref
   ) => {
     const [showPassword, setShowPassword] = React.useState(false)
     const isPassword = type === 'password'
+    // Auto-generate a stable id when the caller doesn't supply one, so the
+    // label is always programmatically associated with its control (WCAG
+    // 1.3.1 / 3.3.2). `id` is destructured out explicitly above — not left
+    // inside `...props` — so this fallback can't be silently overridden by
+    // a stray `id: undefined` reaching the spread below in prop order.
+    const generatedId = React.useId()
+    const inputId = id ?? generatedId
 
     return (
       <div className="w-full">
         {label && (
           <label
-            htmlFor={props.id}
+            htmlFor={inputId}
             className="block text-sm font-medium text-content-secondary mb-1.5"
           >
             {label}
@@ -49,6 +57,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
           )}
           <input
             ref={ref}
+            id={inputId}
             type={isPassword ? (showPassword ? 'text' : 'password') : type}
             disabled={disabled}
             aria-describedby={error && errorTestId ? errorTestId : undefined}

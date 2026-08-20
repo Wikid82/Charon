@@ -1464,20 +1464,45 @@ go test ./integration/...
 
 ### Release Workflow
 
-**Automated Release (GitHub Actions):**
+Versioning and release publication are handled by
+[`googleapis/release-please-action`](https://github.com/googleapis/release-please-action)
+(`.github/workflows/release-please.yml`), independently of the Docker
+image build pipeline described below. See `VERSION.md` for the full
+user-facing walkthrough; summarized here:
 
-1. **Trigger:** Push tag `v1.2.0`
-2. **Build:** Multi-platform Docker images
-3. **Test:** Run E2E tests against built image
-4. **Security:** Scan for vulnerabilities (block if Critical/High)
-5. **SBOM:** Generate Software Bill of Materials (Syft)
-6. **Sign:** Cryptographic signature with Cosign
-7. **Provenance:** Generate SLSA provenance attestation
-8. **Publish:** Push to Docker Hub and GHCR
-9. **Release Notes:** Generate changelog from commits
-10. **Notify:** Send release notification (Discord, email)
+1. **Trigger:** Push to `main` (any commit)
+2. **`release-please.yml` runs** (independently of the Docker build):
+   computes releasable versions from Conventional Commit history and
+   opens/updates a standing `chore(main): release X.Y.Z` pull request.
+   No release ships yet at this point.
+3. **A human merges that release PR** — this is the only step that
+   actually cuts a release. release-please then tags the merge commit
+   `vX.Y.Z` (bare, no component prefix) and creates the GitHub Release.
+4. **`orthrus-build.yml` fires on the new `v*` tag** and publishes
+   semver-tagged Orthrus agent images — the one workflow with a real,
+   live dependency on the tag release-please creates.
 
-**In-app changelog data:** Separately from step 9's GitHub release notes, `scripts/generate-changelog.sh` runs during the same `release-goreleaser.yml` workflow to parse conventional-commit history into `backend/internal/changelog/data/changelog.json`, which is `//go:embed`-ed into the binary and powers the in-app "What's New" modal (see "Changelog Subsystem" above). It writes a different file than step 9 and does not affect the GitHub release notes.
+**Automated Docker Image Build (GitHub Actions, `docker-build.yml`):**
+
+Triggered independently by every push to `main`/`development` (branch
+push, not the release tag):
+
+1. **Build:** Multi-platform Docker images
+2. **Test:** Run E2E tests against built image
+3. **Security:** Scan for vulnerabilities (block if Critical/High)
+4. **SBOM:** Generate Software Bill of Materials (Syft)
+5. **Sign:** Cryptographic signature with Cosign
+6. **Provenance:** Generate SLSA provenance attestation
+7. **Publish:** Push to Docker Hub and GHCR
+
+**In-app changelog data:** `scripts/generate-changelog.sh` runs during
+`nightly-build.yml` (its one remaining real caller) to parse
+conventional-commit history into `backend/internal/changelog/data/changelog.json`,
+which is `//go:embed`-ed into the binary and powers the in-app "What's
+New" modal (see "Changelog Subsystem" above). It depends only on real
+`v*` tags existing in git history — not on release-please's PR/Release
+mechanism directly — so it keeps working unchanged by this migration
+as long as release-please continues creating bare `v*` tags.
 
 **Mandatory rollout gates (sign-off block):**
 

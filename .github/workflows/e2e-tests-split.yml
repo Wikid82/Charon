@@ -80,11 +80,31 @@ on:
         default: false
         type: boolean
   pull_request:
+    # Only run this ~15-job, 20-30 minute E2E matrix for changes that can
+    # actually affect it. Everything else (CI-only workflow tweaks in other
+    # files, docs, release-please's version-bump-only PRs, skills/templates)
+    # skips it entirely. push/workflow_run/workflow_dispatch triggers above
+    # are deliberately left unfiltered -- see docker-build.yml/orthrus-build.yml
+    # for the same paths-on-pull_request-only convention already used in
+    # this repo.
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'tests/**'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - '.docker/compose/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'playwright.config.js'
+      - 'go.work'
+      - 'go.work.sum'
+      - '.github/workflows/e2e-tests-split.yml'
 
 env:
   NODE_VERSION: '24.19.0'
-  GO_VERSION: '1.26.6'
-  GOTOOLCHAIN: local
+  GO_VERSION: '1.27.0'
+  GOTOOLCHAIN: auto
   DOCKERHUB_REGISTRY: docker.io
   IMAGE_NAME: ${{ github.repository_owner }}/charon
   E2E_BROWSER: ${{ inputs.browser || 'all' }}
@@ -187,7 +207,7 @@ jobs:
 
       - name: Set up Docker Buildx
         if: steps.resolve-image.outputs.image_source == 'build'
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
       - name: Build Docker image
         id: build-image
@@ -294,7 +314,10 @@ jobs:
           docker images | grep charon
 
       - name: Generate ephemeral encryption key
-        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+        run: |
+          key="$(openssl rand -base64 32)"
+          echo "::add-mask::${key}"
+          echo "CHARON_ENCRYPTION_KEY=${key}" >> "$GITHUB_ENV"
 
       - name: Start test environment (Security Tests Profile)
         run: |
@@ -323,13 +346,32 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
+      - name: Harden apt for flaky CI mirrors
+        run: |
+          sudo tee /etc/apt/apt.conf.d/99-charon-ci-reliability > /dev/null <<'APTCONF'
+          Acquire::Retries "3";
+          Acquire::http::Timeout "15";
+          Acquire::https::Timeout "15";
+          APTCONF
+
       - name: Install Playwright Chromium
         run: |
+          set -uo pipefail
           echo "📦 Installing Chromium..."
-          npx playwright install --with-deps chromium
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+          for attempt in 1 2 3 4 5; do
+            timeout 3m npx playwright install --with-deps chromium && break
+            if [ "$attempt" -lt 5 ]; then
+              echo "Attempt ${attempt}/5 failed; retrying in 15s..." >&2
+              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
+              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
+              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
+              sudo dpkg --configure -a > /dev/null 2>&1 || true
+              sleep 15
+            else
+              echo "ERROR: Playwright chromium install failed after 5 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Run Chromium Security Enforcement Tests
         run: |
@@ -529,7 +571,10 @@ jobs:
           docker images | grep charon
 
       - name: Generate ephemeral encryption key
-        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+        run: |
+          key="$(openssl rand -base64 32)"
+          echo "::add-mask::${key}"
+          echo "CHARON_ENCRYPTION_KEY=${key}" >> "$GITHUB_ENV"
 
       - name: Start test environment (Security Tests Profile)
         run: |
@@ -558,21 +603,51 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
+      - name: Harden apt for flaky CI mirrors
+        run: |
+          sudo tee /etc/apt/apt.conf.d/99-charon-ci-reliability > /dev/null <<'APTCONF'
+          Acquire::Retries "3";
+          Acquire::http::Timeout "15";
+          Acquire::https::Timeout "15";
+          APTCONF
+
       - name: Install Playwright Chromium (required by security-tests dependency)
         run: |
+          set -uo pipefail
           echo "📦 Installing Chromium (required by security-tests dependency)..."
-          npx playwright install --with-deps chromium
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+          for attempt in 1 2 3 4 5; do
+            timeout 3m npx playwright install --with-deps chromium && break
+            if [ "$attempt" -lt 5 ]; then
+              echo "Attempt ${attempt}/5 failed; retrying in 15s..." >&2
+              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
+              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
+              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
+              sudo dpkg --configure -a > /dev/null 2>&1 || true
+              sleep 15
+            else
+              echo "ERROR: Playwright chromium install failed after 5 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Install Playwright Firefox
         run: |
+          set -uo pipefail
           echo "📦 Installing Firefox..."
-          npx playwright install --with-deps firefox
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+          for attempt in 1 2 3 4 5; do
+            timeout 3m npx playwright install --with-deps firefox && break
+            if [ "$attempt" -lt 5 ]; then
+              echo "Attempt ${attempt}/5 failed; retrying in 15s..." >&2
+              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
+              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
+              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
+              sudo dpkg --configure -a > /dev/null 2>&1 || true
+              sleep 15
+            else
+              echo "ERROR: Playwright firefox install failed after 5 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Run Firefox Security Enforcement Tests
         run: |
@@ -775,7 +850,10 @@ jobs:
           docker images | grep charon
 
       - name: Generate ephemeral encryption key
-        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+        run: |
+          key="$(openssl rand -base64 32)"
+          echo "::add-mask::${key}"
+          echo "CHARON_ENCRYPTION_KEY=${key}" >> "$GITHUB_ENV"
 
       - name: Start test environment (Security Tests Profile)
         run: |
@@ -804,21 +882,56 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
+      - name: Harden apt for flaky CI mirrors
+        run: |
+          sudo tee /etc/apt/apt.conf.d/99-charon-ci-reliability > /dev/null <<'APTCONF'
+          Acquire::Retries "3";
+          Acquire::http::Timeout "15";
+          Acquire::https::Timeout "15";
+          APTCONF
+
       - name: Install Playwright Chromium (required by security-tests dependency)
         run: |
+          set -uo pipefail
           echo "📦 Installing Chromium (required by security-tests dependency)..."
-          npx playwright install --with-deps chromium
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+          for attempt in 1 2 3 4 5; do
+            timeout 3m npx playwright install --with-deps chromium && break
+            if [ "$attempt" -lt 5 ]; then
+              echo "Attempt ${attempt}/5 failed; retrying in 15s..." >&2
+              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
+              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
+              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
+              sudo dpkg --configure -a > /dev/null 2>&1 || true
+              sleep 15
+            else
+              echo "ERROR: Playwright chromium install failed after 5 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Install Playwright WebKit
         run: |
+          set -uo pipefail
           echo "📦 Installing WebKit..."
-          npx playwright install --with-deps webkit
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+          # WebKit's --with-deps pulls the full GStreamer/media-codec stack
+          # (~170 packages, ~90MB) that Chromium/Firefox don't need, so it
+          # needs a longer per-attempt budget than the 3m used for the
+          # lighter browsers below - 3m was observed killing healthy,
+          # non-stalled WebKit installs mid-download on a slow mirror.
+          for attempt in 1 2 3; do
+            timeout 10m npx playwright install --with-deps webkit && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
+              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
+              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
+              sudo dpkg --configure -a > /dev/null 2>&1 || true
+              sleep 15
+            else
+              echo "ERROR: Playwright webkit install failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Run WebKit Security Enforcement Tests
         run: |
@@ -1048,7 +1161,10 @@ jobs:
           docker images | grep charon
 
       - name: Generate ephemeral encryption key
-        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+        run: |
+          key="$(openssl rand -base64 32)"
+          echo "::add-mask::${key}"
+          echo "CHARON_ENCRYPTION_KEY=${key}" >> "$GITHUB_ENV"
 
       - name: Start test environment (Non-Security Profile)
         run: |
@@ -1077,13 +1193,32 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
+      - name: Harden apt for flaky CI mirrors
+        run: |
+          sudo tee /etc/apt/apt.conf.d/99-charon-ci-reliability > /dev/null <<'APTCONF'
+          Acquire::Retries "3";
+          Acquire::http::Timeout "15";
+          Acquire::https::Timeout "15";
+          APTCONF
+
       - name: Install Playwright Chromium
         run: |
+          set -uo pipefail
           echo "📦 Installing Chromium..."
-          npx playwright install --with-deps chromium
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+          for attempt in 1 2 3 4 5; do
+            timeout 3m npx playwright install --with-deps chromium && break
+            if [ "$attempt" -lt 5 ]; then
+              echo "Attempt ${attempt}/5 failed; retrying in 15s..." >&2
+              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
+              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
+              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
+              sudo dpkg --configure -a > /dev/null 2>&1 || true
+              sleep 15
+            else
+              echo "ERROR: Playwright chromium install failed after 5 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Run Chromium Non-Security Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
@@ -1286,7 +1421,10 @@ jobs:
           docker images | grep charon
 
       - name: Generate ephemeral encryption key
-        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+        run: |
+          key="$(openssl rand -base64 32)"
+          echo "::add-mask::${key}"
+          echo "CHARON_ENCRYPTION_KEY=${key}" >> "$GITHUB_ENV"
 
       - name: Start test environment (Non-Security Profile)
         run: |
@@ -1315,21 +1453,51 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
+      - name: Harden apt for flaky CI mirrors
+        run: |
+          sudo tee /etc/apt/apt.conf.d/99-charon-ci-reliability > /dev/null <<'APTCONF'
+          Acquire::Retries "3";
+          Acquire::http::Timeout "15";
+          Acquire::https::Timeout "15";
+          APTCONF
+
       - name: Install Playwright Chromium (required by security-tests dependency)
         run: |
+          set -uo pipefail
           echo "📦 Installing Chromium (required by security-tests dependency)..."
-          npx playwright install --with-deps chromium
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+          for attempt in 1 2 3 4 5; do
+            timeout 3m npx playwright install --with-deps chromium && break
+            if [ "$attempt" -lt 5 ]; then
+              echo "Attempt ${attempt}/5 failed; retrying in 15s..." >&2
+              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
+              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
+              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
+              sudo dpkg --configure -a > /dev/null 2>&1 || true
+              sleep 15
+            else
+              echo "ERROR: Playwright chromium install failed after 5 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Install Playwright Firefox
         run: |
+          set -uo pipefail
           echo "📦 Installing Firefox..."
-          npx playwright install --with-deps firefox
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+          for attempt in 1 2 3 4 5; do
+            timeout 3m npx playwright install --with-deps firefox && break
+            if [ "$attempt" -lt 5 ]; then
+              echo "Attempt ${attempt}/5 failed; retrying in 15s..." >&2
+              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
+              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
+              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
+              sudo dpkg --configure -a > /dev/null 2>&1 || true
+              sleep 15
+            else
+              echo "ERROR: Playwright firefox install failed after 5 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Run Firefox Non-Security Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
@@ -1532,7 +1700,10 @@ jobs:
           docker images | grep charon
 
       - name: Generate ephemeral encryption key
-        run: echo "CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+        run: |
+          key="$(openssl rand -base64 32)"
+          echo "::add-mask::${key}"
+          echo "CHARON_ENCRYPTION_KEY=${key}" >> "$GITHUB_ENV"
 
       - name: Start test environment (Non-Security Profile)
         run: |
@@ -1561,21 +1732,56 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
+      - name: Harden apt for flaky CI mirrors
+        run: |
+          sudo tee /etc/apt/apt.conf.d/99-charon-ci-reliability > /dev/null <<'APTCONF'
+          Acquire::Retries "3";
+          Acquire::http::Timeout "15";
+          Acquire::https::Timeout "15";
+          APTCONF
+
       - name: Install Playwright Chromium (required by security-tests dependency)
         run: |
+          set -uo pipefail
           echo "📦 Installing Chromium (required by security-tests dependency)..."
-          npx playwright install --with-deps chromium
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+          for attempt in 1 2 3 4 5; do
+            timeout 3m npx playwright install --with-deps chromium && break
+            if [ "$attempt" -lt 5 ]; then
+              echo "Attempt ${attempt}/5 failed; retrying in 15s..." >&2
+              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
+              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
+              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
+              sudo dpkg --configure -a > /dev/null 2>&1 || true
+              sleep 15
+            else
+              echo "ERROR: Playwright chromium install failed after 5 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Install Playwright WebKit
         run: |
+          set -uo pipefail
           echo "📦 Installing WebKit..."
-          npx playwright install --with-deps webkit
-          EXIT_CODE=$?
-          echo "✅ Install command completed (exit code: $EXIT_CODE)"
-          exit "$EXIT_CODE"
+          # WebKit's --with-deps pulls the full GStreamer/media-codec stack
+          # (~170 packages, ~90MB) that Chromium/Firefox don't need, so it
+          # needs a longer per-attempt budget than the 3m used for the
+          # lighter browsers below - 3m was observed killing healthy,
+          # non-stalled WebKit installs mid-download on a slow mirror.
+          for attempt in 1 2 3; do
+            timeout 10m npx playwright install --with-deps webkit && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
+              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
+              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
+              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
+              sudo dpkg --configure -a > /dev/null 2>&1 || true
+              sleep 15
+            else
+              echo "ERROR: Playwright webkit install failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
 
       - name: Run WebKit Non-Security Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
