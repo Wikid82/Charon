@@ -1,8 +1,8 @@
 #!/bin/bash
 #
 # Usage: charon_dep_update.sh [go|npm|all]
-#   go   - update Go modules only (backend, agent)
-#   npm  - update npm modules only (root, frontend)
+#   go   - /bin/bash "/projects/Charon/scripts/charon_dep_update.sh" go
+#   npm  - /bin/bash "/projects/Charon/scripts/charon_dep_update.sh" npm
 #   all  - update both (default)
 
 set -euo pipefail
