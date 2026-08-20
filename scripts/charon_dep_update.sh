@@ -45,6 +45,15 @@ update_go() {
         go get -u -t ./...
         go mod tidy
         go mod verify
+
+        # Always (re)install after the toolchain bump above, not just when missing:
+        # a staticcheck/govulncheck binary built with the old toolchain can fail to
+        # parse export data from a newer one (e.g. "export data version N is greater
+        # than maximum supported version"). Installing here picks up the just-bumped
+        # go directive so the tool is built with a matching toolchain.
+        go install honnef.co/go/tools/cmd/staticcheck@latest
+        go install golang.org/x/vuln/cmd/govulncheck@latest
+
         go vet ./...
         go build ./...
         go test ./...
