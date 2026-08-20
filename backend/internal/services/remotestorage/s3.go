@@ -60,8 +60,9 @@ func newS3Uploader(cfg S3Config, secrets S3Secrets) (Uploader, error) {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
-	// ssrfValidateHost defaults to ValidateHostSSRF; see ssrf.go for why it
-	// is indirected through a var.
+	// ssrfValidateHost defaults to ValidateHostSSRF; see ssrf.go — it is a
+	// func backed by an atomic function pointer so tests can substitute it
+	// without racing.
 	if err := ssrfValidateHost(host); err != nil {
 		return nil, fmt.Errorf("s3 endpoint failed SSRF validation: %w", err)
 	}
