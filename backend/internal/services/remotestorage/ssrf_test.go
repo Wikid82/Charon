@@ -3,6 +3,7 @@ package remotestorage
 import (
 	"context"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -94,4 +95,62 @@ func TestSafeDialer_RejectsLoopbackAtDialTime(t *testing.T) {
 	conn, dialErr := dialContext(ctx, "tcp", listener.Addr().String(), time.Second)
 	require.Error(t, dialErr, "dial-time SSRF check must reject a loopback destination")
 	assert.Nil(t, conn)
+}
+
+// TestSwapSSRFValidators_ConcurrentAccess_NoRace is a deterministic
+// regression guard for the data race fixed by backing ssrfValidateHost /
+// ssrfValidateDialAddress with atomic.Pointer rather than plain package-level
+// vars: one goroutine repeatedly reads via ssrfValidateHost/
+// ssrfValidateDialAddress while another concurrently swaps and restores via
+// swapSSRFValidators, mirroring the swap/restore pattern
+// withPermissiveSSRFForLocalTest and WithPermissiveSSRFForTesting use in
+// production tests. The only pass/fail signal is whether `go test -race`
+// reports a DATA RACE; no other assertion is meaningful here since either
+// the production default or a swapped-in permissive result is a valid
+// outcome on any given iteration.
+func TestSwapSSRFValidators_ConcurrentAccess_NoRace(t *testing.T) {
+	const iterations = 1000
+
+	permissiveHost := func(string) error { return nil }
+	permissiveDial := func(net.IP) error { return nil }
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			_ = ssrfValidateHost("127.0.0.1")
+			_ = ssrfValidateDialAddress(net.ParseIP("127.0.0.1"))
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			restore := swapSSRFValidators(permissiveHost, permissiveDial)
+			restore()
+		}
+	}()
+
+	wg.Wait()
+}
+
+// TestWithPermissiveSSRFForTesting_SwapsAndRestores proves the exported
+// cross-package test seam (used by backup_remote_service_regression_test.go
+// in the sibling `services` package) actually swaps both validators to
+// permissive no-ops and restores the production defaults afterward. The
+// cross-package caller already exercises this behaviorally, but this
+// in-package test gives it direct, same-package coverage as well.
+func TestWithPermissiveSSRFForTesting_SwapsAndRestores(t *testing.T) {
+	require.Error(t, ssrfValidateHost("127.0.0.1"), "production default must reject loopback before swap")
+	require.Error(t, ssrfValidateDialAddress(net.ParseIP("127.0.0.1")), "production default must reject loopback before swap")
+
+	restore := WithPermissiveSSRFForTesting()
+	assert.NoError(t, ssrfValidateHost("127.0.0.1"), "swapped-in host validator must be permissive")
+	assert.NoError(t, ssrfValidateDialAddress(net.ParseIP("127.0.0.1")), "swapped-in dial validator must be permissive")
+
+	restore()
+	assert.Error(t, ssrfValidateHost("127.0.0.1"), "restore must reinstate the production default")
+	assert.Error(t, ssrfValidateDialAddress(net.ParseIP("127.0.0.1")), "restore must reinstate the production default")
 }

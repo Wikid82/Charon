@@ -4,23 +4,49 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/network"
 )
 
-// ssrfValidateHost / ssrfValidateDialAddress are indirected through
-// package-level vars (rather than called directly) purely so white-box
-// tests in this package can substitute a permissive check when exercising
-// dial logic against a local test fixture (e.g. the SFTP host-key discovery
+// ssrfValidateHost / ssrfValidateDialAddress are backed by atomic function
+// pointers (rather than plain package-level vars) purely so white-box tests
+// in this package can substitute a permissive check when exercising dial
+// logic against a local test fixture (e.g. the SFTP host-key discovery
 // test, which must dial 127.0.0.1) without weakening the default policy
-// every production code path in this file uses. Tests restore the original
-// via t.Cleanup; production code never reassigns these.
+// every production code path in this file uses, AND without racing
+// concurrent readers: safeDialer's net.Dialer.Control hook (below) can run
+// on a background net/http.Transport dial goroutine that outlives the
+// synchronous test call that spawned it, so a plain unsynchronized var
+// swap/restore in t.Cleanup is a genuine data race (caught by
+// `go test -race`) against that goroutine's read. Tests restore the
+// original via t.Cleanup; production code never reassigns these.
 var (
-	ssrfValidateHost        = ValidateHostSSRF
-	ssrfValidateDialAddress = validateIPSSRF
+	ssrfValidateHostFn        atomic.Pointer[func(string) error]
+	ssrfValidateDialAddressFn atomic.Pointer[func(net.IP) error]
 )
+
+func init() {
+	defaultHost := ValidateHostSSRF
+	ssrfValidateHostFn.Store(&defaultHost)
+	defaultDial := validateIPSSRF
+	ssrfValidateDialAddressFn.Store(&defaultDial)
+}
+
+// ssrfValidateHost calls the currently-active host-validation func (the
+// production default, or a test override installed via
+// swapSSRFValidators/withPermissiveSSRFForLocalTest/WithPermissiveSSRFForTesting).
+func ssrfValidateHost(host string) error {
+	return (*ssrfValidateHostFn.Load())(host)
+}
+
+// ssrfValidateDialAddress calls the currently-active dial-address-validation
+// func. See ssrfValidateHost.
+func ssrfValidateDialAddress(ip net.IP) error {
+	return (*ssrfValidateDialAddressFn.Load())(ip)
+}
 
 // ValidateHostSSRF resolves host and rejects it unless every resolved IP is
 // permitted by spec §3.7's rules: RFC1918 private ranges are allowed (the
@@ -97,11 +123,26 @@ func dialContext(ctx context.Context, dialNetwork, address string, timeout time.
 // keep using that helper instead; this exported wrapper is for cross-package
 // test use only. Production code never calls this.
 func WithPermissiveSSRFForTesting() (restore func()) {
-	origHost, origDial := ssrfValidateHost, ssrfValidateDialAddress
-	ssrfValidateHost = func(string) error { return nil }
-	ssrfValidateDialAddress = func(net.IP) error { return nil }
+	return swapSSRFValidators(
+		func(string) error { return nil },
+		func(net.IP) error { return nil },
+	)
+}
+
+// swapSSRFValidators atomically replaces both the host- and
+// dial-address-validation funcs and returns a restore func that atomically
+// puts back whatever was active before the swap (not necessarily the
+// production default — swaps may nest across helpers). Both
+// withPermissiveSSRFForLocalTest (in-package tests) and
+// WithPermissiveSSRFForTesting (cross-package tests) are thin wrappers
+// around this so the swap-and-restore logic exists in exactly one place.
+func swapSSRFValidators(host func(string) error, dial func(net.IP) error) (restore func()) {
+	origHost := ssrfValidateHostFn.Load()
+	origDial := ssrfValidateDialAddressFn.Load()
+	ssrfValidateHostFn.Store(&host)
+	ssrfValidateDialAddressFn.Store(&dial)
 	return func() {
-		ssrfValidateHost = origHost
-		ssrfValidateDialAddress = origDial
+		ssrfValidateHostFn.Store(origHost)
+		ssrfValidateDialAddressFn.Store(origDial)
 	}
 }
