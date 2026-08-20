@@ -80,6 +80,26 @@ on:
         default: false
         type: boolean
   pull_request:
+    # Only run this ~15-job, 20-30 minute E2E matrix for changes that can
+    # actually affect it. Everything else (CI-only workflow tweaks in other
+    # files, docs, release-please's version-bump-only PRs, skills/templates)
+    # skips it entirely. push/workflow_run/workflow_dispatch triggers above
+    # are deliberately left unfiltered -- see docker-build.yml/orthrus-build.yml
+    # for the same paths-on-pull_request-only convention already used in
+    # this repo.
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'tests/**'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - '.docker/compose/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'playwright.config.js'
+      - 'go.work'
+      - 'go.work.sum'
+      - '.github/workflows/e2e-tests-split.yml'
 
 env:
   NODE_VERSION: '24.19.0'
