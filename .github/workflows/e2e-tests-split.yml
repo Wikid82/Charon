@@ -104,7 +104,7 @@ on:
 env:
   NODE_VERSION: '24.19.0'
   GO_VERSION: '1.26.6'
-  GOTOOLCHAIN: local
+  GOTOOLCHAIN: auto
   DOCKERHUB_REGISTRY: docker.io
   IMAGE_NAME: ${{ github.repository_owner }}/charon
   E2E_BROWSER: ${{ inputs.browser || 'all' }}

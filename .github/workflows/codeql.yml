@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GOTOOLCHAIN: local
+  GOTOOLCHAIN: auto
   GO_VERSION: '1.26.6'
 
 permissions:

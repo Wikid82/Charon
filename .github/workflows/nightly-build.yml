@@ -17,7 +17,7 @@ on:
 env:
   GO_VERSION: '1.26.6'
   NODE_VERSION: '24.19.0'
-  GOTOOLCHAIN: local
+  GOTOOLCHAIN: auto
   GHCR_REGISTRY: ghcr.io
   DOCKERHUB_REGISTRY: docker.io
   IMAGE_NAME: wikid82/charon

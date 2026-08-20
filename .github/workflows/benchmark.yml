@@ -13,7 +13,7 @@ concurrency:
 
 env:
   GO_VERSION: '1.26.6'
-  GOTOOLCHAIN: local
+  GOTOOLCHAIN: auto
 
 # Minimal permissions at workflow level; write permissions granted at job level for push only
 permissions:
