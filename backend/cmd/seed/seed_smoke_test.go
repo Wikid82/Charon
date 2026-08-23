@@ -64,6 +64,11 @@ func TestSeedMain_ForceAdminUpdatesExistingUserPassword(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("access sql db: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	if err := db.AutoMigrate(&models.User{}); err != nil {
 		t.Fatalf("automigrate: %v", err)
 	}
@@ -126,6 +131,11 @@ func TestSeedMain_ForceAdminWithoutPasswordUpdatesMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("access sql db: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	if err := db.AutoMigrate(&models.User{}); err != nil {
 		t.Fatalf("automigrate: %v", err)
 	}
