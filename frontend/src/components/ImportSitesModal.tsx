@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 
 import { uploadCaddyfilesMulti, type CaddyFile } from '../api/import'
 
@@ -17,6 +17,19 @@ export default function ImportSitesModal({ visible, onClose, onUploaded }: Props
   const [sites, setSites] = useState<SiteEntry[]>([{ filename: 'Caddyfile-1', content: '' }])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Close the modal on Escape — the backdrop below is aria-hidden (click-to-dismiss
+  // only), so keyboard users need this listener to dismiss it too.
+  useEffect(() => {
+    if (!visible) return
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [visible, onClose])
 
   if (!visible) return null
 
@@ -79,7 +92,7 @@ export default function ImportSitesModal({ visible, onClose, onUploaded }: Props
       aria-labelledby="multi-site-modal-title"
       data-testid="multi-site-modal"
     >
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/60" aria-hidden="true" onClick={onClose} />
       <div className="relative bg-dark-card rounded-lg p-6 w-[900px] max-w-full">
         <h3 id="multi-site-modal-title" className="text-xl font-semibold text-white mb-4">Multi-site Import</h3>
         <p className="text-gray-400 text-sm mb-4">Add each site's Caddyfile content separately, then parse them together.</p>
