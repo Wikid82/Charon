@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+import client from './client'
 import {
   getStatsSummary,
   getTopHosts,
@@ -17,7 +18,6 @@ import {
   type StatsHealth,
   type StatsPushMessage,
 } from './stats'
-import client from './client'
 
 vi.mock('./client', () => ({
   default: {
@@ -351,7 +351,7 @@ describe('stats api', () => {
     it('invokes onError callback and logs on WebSocket error', () => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'localhost' })
       const onError = vi.fn()
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
       connectStatsWebSocket(vi.fn(), undefined, onError)
       const event = new Event('error')
@@ -364,7 +364,7 @@ describe('stats api', () => {
     it('invokes onClose callback when connection closes', () => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'localhost' })
       const onClose = vi.fn()
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
       connectStatsWebSocket(vi.fn(), undefined, undefined, onClose)
       const event = new CloseEvent('close', { code: 1000, reason: 'Normal closure', wasClean: true })
@@ -407,7 +407,7 @@ describe('stats api', () => {
     it('does not invoke onMessage for malformed JSON', () => {
       vi.stubGlobal('location', { protocol: 'http:', host: 'localhost' })
       const onMessage = vi.fn()
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
       connectStatsWebSocket(onMessage)
 
