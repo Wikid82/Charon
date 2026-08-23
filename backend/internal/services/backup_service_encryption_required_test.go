@@ -29,6 +29,9 @@ func newRemoteStorageTestService(t *testing.T) *BackupService {
 
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
 	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	require.NoError(t, db.AutoMigrate(&models.User{}, &models.ProxyHost{}, &models.BackupRecord{}, &models.RemoteStorageTarget{}))
 
 	require.NoError(t, db.Create(&models.User{

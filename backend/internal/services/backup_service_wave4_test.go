@@ -60,11 +60,17 @@ func setupRehydrateDBPair(t *testing.T) (db *gorm.DB, activeDataDir, restoreDBPa
 	activeDBPath := filepath.Join(tmpDir, "active.db")
 	activeDB, err := gorm.Open(sqlite.Open(activeDBPath), &gorm.Config{})
 	require.NoError(t, err)
+	activeSQLDB, err := activeDB.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = activeSQLDB.Close() })
 	require.NoError(t, activeDB.Exec(`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)`).Error)
 
 	restoreDBPath = filepath.Join(tmpDir, "restore.db")
 	restoreDB, err := gorm.Open(sqlite.Open(restoreDBPath), &gorm.Config{})
 	require.NoError(t, err)
+	restoreSQLDB, err := restoreDB.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = restoreSQLDB.Close() })
 	require.NoError(t, restoreDB.Exec(`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)`).Error)
 	require.NoError(t, restoreDB.Exec(`INSERT INTO users (name) VALUES ('alice')`).Error)
 
@@ -79,6 +85,9 @@ func TestBackupServiceWave4_Rehydrate_CheckpointWarningPath(t *testing.T) {
 	activeDBPath := filepath.Join(tmpDir, "active.db")
 	activeDB, err := gorm.Open(sqlite.Open(activeDBPath), &gorm.Config{})
 	require.NoError(t, err)
+	activeSQLDB, err := activeDB.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = activeSQLDB.Close() })
 
 	// Place an invalid database file at DataDir/DatabaseName so checkpointSQLiteDatabase fails
 	restoredDBPath := filepath.Join(dataDir, "charon.db")
@@ -99,6 +108,9 @@ func TestBackupServiceWave4_Rehydrate_CreateTempFailure(t *testing.T) {
 
 	activeDB, err := gorm.Open(sqlite.Open(filepath.Join(tmpDir, "active.db")), &gorm.Config{})
 	require.NoError(t, err)
+	activeSQLDB, err := activeDB.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = activeSQLDB.Close() })
 
 	t.Setenv("TMPDIR", filepath.Join(tmpDir, "missing-temp-dir"))
 	svc := &BackupService{DataDir: dataDir, DatabaseName: "charon.db"}
@@ -114,6 +126,9 @@ func TestBackupServiceWave4_Rehydrate_CopyErrorFromDirectorySource(t *testing.T)
 
 	activeDB, err := gorm.Open(sqlite.Open(filepath.Join(tmpDir, "active.db")), &gorm.Config{})
 	require.NoError(t, err)
+	activeSQLDB, err := activeDB.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = activeSQLDB.Close() })
 
 	// Use a directory as restore source path so io.Copy fails deterministically.
 	badSourceDir := filepath.Join(tmpDir, "restore-source-dir")
@@ -133,11 +148,17 @@ func TestBackupServiceWave4_Rehydrate_CopyTableErrorOnSchemaMismatch(t *testing.
 	activeDBPath := filepath.Join(tmpDir, "active.db")
 	activeDB, err := gorm.Open(sqlite.Open(activeDBPath), &gorm.Config{})
 	require.NoError(t, err)
+	activeSQLDB, err := activeDB.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = activeSQLDB.Close() })
 	require.NoError(t, activeDB.Exec(`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)`).Error)
 
 	restoreDBPath := filepath.Join(tmpDir, "restore.db")
 	restoreDB, err := gorm.Open(sqlite.Open(restoreDBPath), &gorm.Config{})
 	require.NoError(t, err)
+	restoreSQLDB, err := restoreDB.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = restoreSQLDB.Close() })
 	require.NoError(t, restoreDB.Exec(`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, extra TEXT)`).Error)
 	require.NoError(t, restoreDB.Exec(`INSERT INTO users (name, extra) VALUES ('alice', 'x')`).Error)
 
@@ -197,11 +218,17 @@ func TestBackupServiceWave4_Rehydrate_ClearSQLiteSequenceError(t *testing.T) {
 
 	activeDB, err := gorm.Open(sqlite.Open(filepath.Join(tmpDir, "active.db")), &gorm.Config{})
 	require.NoError(t, err)
+	activeSQLDB, err := activeDB.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = activeSQLDB.Close() })
 	require.NoError(t, activeDB.Exec(`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)`).Error)
 
 	restoreDBPath := filepath.Join(tmpDir, "restore.db")
 	restoreDB, err := gorm.Open(sqlite.Open(restoreDBPath), &gorm.Config{})
 	require.NoError(t, err)
+	restoreSQLDB, err := restoreDB.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = restoreSQLDB.Close() })
 	require.NoError(t, restoreDB.Exec(`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)`).Error)
 	require.NoError(t, restoreDB.Exec(`INSERT INTO users (name) VALUES ('alice')`).Error)
 
@@ -222,11 +249,17 @@ func TestBackupServiceWave4_Rehydrate_CopySQLiteSequenceError(t *testing.T) {
 
 	activeDB, err := gorm.Open(sqlite.Open(filepath.Join(tmpDir, "active.db")), &gorm.Config{})
 	require.NoError(t, err)
+	activeSQLDB, err := activeDB.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = activeSQLDB.Close() })
 	require.NoError(t, activeDB.Exec(`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)`).Error)
 
 	restoreDBPath := filepath.Join(tmpDir, "restore.db")
 	restoreDB, err := gorm.Open(sqlite.Open(restoreDBPath), &gorm.Config{})
 	require.NoError(t, err)
+	restoreSQLDB, err := restoreDB.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = restoreSQLDB.Close() })
 	require.NoError(t, restoreDB.Exec(`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)`).Error)
 	require.NoError(t, restoreDB.Exec(`INSERT INTO users (name) VALUES ('alice')`).Error)
 
