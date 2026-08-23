@@ -1716,7 +1716,7 @@ func (h *CrowdsecHandler) testKeyAgainstLAPI(ctx context.Context, apiKey string)
 
 		// Create request with 5s timeout per attempt
 		testCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		req, err := http.NewRequestWithContext(testCtx, http.MethodGet, endpoint, nil)
+		req, err := http.NewRequestWithContext(testCtx, http.MethodGet, endpoint, http.NoBody)
 		if err != nil {
 			cancel()
 			logger.Log().WithError(err).Debug("Failed to create LAPI test request")

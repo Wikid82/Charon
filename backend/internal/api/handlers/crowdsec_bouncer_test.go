@@ -90,7 +90,7 @@ func TestSaveAndReadKeyFromFile(t *testing.T) {
 	}
 
 	// Verify permissions (0600)
-	if perm := info.Mode().Perm(); perm != 0600 {
+	if perm := info.Mode().Perm(); perm != 0o600 {
 		t.Errorf("saveKeyToFile() file permissions = %o, want 0600", perm)
 	}
 
@@ -134,7 +134,7 @@ func TestReadKeyFromFile_WhitespaceHandling(t *testing.T) {
 	testKey := "  key-with-whitespace  \n"
 
 	// Write key with whitespace directly
-	if err := os.WriteFile(keyFile, []byte(testKey), 0600); err != nil {
+	if err := os.WriteFile(keyFile, []byte(testKey), 0o600); err != nil {
 		t.Fatalf("failed to write key file: %v", err)
 	}
 
