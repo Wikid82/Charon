@@ -45,6 +45,14 @@ func setupSecurityTestRouterWithExtras(t *testing.T) (*gin.Engine, *gorm.DB) {
 	api := r.Group("/api/v1")
 	cfg := config.SecurityConfig{}
 	h := NewSecurityHandler(cfg, db, nil)
+	// NewSecurityHandler starts a background audit-processing goroutine
+	// (via NewSecurityService) that shares this same *gorm.DB. Registered
+	// after sqlDB's own t.Cleanup above, so — per t.Cleanup's LIFO order —
+	// this runs FIRST: the goroutine is drained and stopped before sqlDB is
+	// closed, which in turn runs before t.TempDir() removes the directory.
+	// Without this, a still-running audit write can race the directory
+	// removal even though the primary connection is closed correctly.
+	t.Cleanup(h.Close)
 	api.POST("/security/decisions", h.CreateDecision)
 	api.GET("/security/decisions", h.ListDecisions)
 	api.POST("/security/rulesets", h.UpsertRuleSet)
@@ -167,6 +175,10 @@ func TestSecurityHandler_UpsertDeleteTriggersApplyConfig(t *testing.T) {
 	api := r.Group("/api/v1")
 	cfg := config.SecurityConfig{}
 	h := NewSecurityHandler(cfg, db, m)
+	// Same background-goroutine concern as setupSecurityTestRouterWithExtras
+	// above: stop it before sqlDB.Close() (registered earlier in this test)
+	// so it can't race t.TempDir()'s directory removal.
+	t.Cleanup(h.Close)
 	api.POST("/security/rulesets", h.UpsertRuleSet)
 	api.DELETE("/security/rulesets/:id", h.DeleteRuleSet)
 
