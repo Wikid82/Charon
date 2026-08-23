@@ -439,6 +439,11 @@ func TestEnhancedService_UpdateManagedProviders_SaveError(t *testing.T) {
 
 	roDB, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=ro", dbPath)), &gorm.Config{})
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		if roSQLDB, sqlErr := roDB.DB(); sqlErr == nil {
+			_ = roSQLDB.Close()
+		}
+	})
 	service := NewEnhancedSecurityNotificationService(roDB)
 
 	err = service.updateManagedProviders(&models.NotificationConfig{
@@ -539,6 +544,11 @@ func TestEnhancedService_MigrateFromLegacyConfig_TransactionWriteErrors(t *testi
 
 		roDB, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=ro", dbPath)), &gorm.Config{})
 		require.NoError(t, err)
+		t.Cleanup(func() {
+			if roSQLDB, sqlErr := roDB.DB(); sqlErr == nil {
+				_ = roSQLDB.Close()
+			}
+		})
 		service := NewEnhancedSecurityNotificationService(roDB)
 
 		err = service.MigrateFromLegacyConfig()
@@ -561,6 +571,11 @@ func TestEnhancedService_MigrateFromLegacyConfig_TransactionWriteErrors(t *testi
 
 		roDB, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=ro", dbPath)), &gorm.Config{})
 		require.NoError(t, err)
+		t.Cleanup(func() {
+			if roSQLDB, sqlErr := roDB.DB(); sqlErr == nil {
+				_ = roSQLDB.Close()
+			}
+		})
 		service := NewEnhancedSecurityNotificationService(roDB)
 
 		err = service.MigrateFromLegacyConfig()
@@ -573,6 +588,11 @@ func TestEnhancedService_IsFeatureEnabled_CreateAndRequeryPath(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "feature-flag-requery.db")
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		if sqlDB, sqlErr := db.DB(); sqlErr == nil {
+			_ = sqlDB.Close()
+		}
+	})
 	require.NoError(t, db.AutoMigrate(&models.Setting{}))
 
 	raceDB, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
@@ -717,6 +737,11 @@ func TestEnhancedService_IsFeatureEnabled_CreateAndRequeryErrorPath(t *testing.T
 
 	readonlyDB, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=ro", dbPath)), &gorm.Config{})
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		if roSQLDB, sqlErr := readonlyDB.DB(); sqlErr == nil {
+			_ = roSQLDB.Close()
+		}
+	})
 	readonlyService := NewEnhancedSecurityNotificationService(readonlyDB)
 
 	_, err = readonlyService.isFeatureEnabled()
