@@ -57,6 +57,11 @@ func setupBackupTestWithDB(t *testing.T) (*gin.Engine, *services.BackupService, 
 
 	gdb, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
 	require.NoError(t, err)
+
+	sqlDB, err := gdb.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
 	require.NoError(t, gdb.AutoMigrate(&models.BackupRecord{}, &models.BackupRemoteCopy{}, &models.RemoteStorageTarget{}, &models.Setting{}, &models.BackupJob{}))
 
 	cfg := &config.Config{DatabasePath: dbPath}

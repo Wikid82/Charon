@@ -27,6 +27,14 @@ func setupSecurityTestRouterWithExtras(t *testing.T) (*gin.Engine, *gorm.DB) {
 	dsn := filepath.Join(t.TempDir(), "test.db")
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
+
+	// Registered immediately after a successful Open so the connection (and
+	// its WAL/-shm sidecar files) is always released before t.TempDir()'s own
+	// cleanup runs — t.Cleanup fires in LIFO order, so this runs first.
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
 	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.AccessList{}, &models.SecurityConfig{}, &models.SecurityDecision{}, &models.SecurityAudit{}, &models.SecurityRuleSet{}))
 
 	r := gin.New()
