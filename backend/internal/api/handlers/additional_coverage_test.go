@@ -136,6 +136,7 @@ func TestSecurityHandler_GetConfig_InternalError(t *testing.T) {
 	db := setupSecurityCoverageDB3(t)
 
 	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(h.Close)
 
 	// Drop table to cause internal error (not ErrSecurityConfigNotFound)
 	_ = db.Migrator().DropTable(&models.SecurityConfig{})
@@ -156,6 +157,7 @@ func TestSecurityHandler_UpdateConfig_ApplyCaddyError(t *testing.T) {
 
 	// Create handler with nil caddy manager (ApplyConfig will be called but is nil)
 	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(h.Close)
 
 	body, _ := json.Marshal(map[string]any{
 		"name":     "test",
@@ -178,6 +180,7 @@ func TestSecurityHandler_GenerateBreakGlass_Error(t *testing.T) {
 	db := setupSecurityCoverageDB3(t)
 
 	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(h.Close)
 
 	// Drop the config table so generate fails
 	_ = db.Migrator().DropTable(&models.SecurityConfig{})
@@ -197,6 +200,7 @@ func TestSecurityHandler_ListDecisions_Error(t *testing.T) {
 	db := setupSecurityCoverageDB3(t)
 
 	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(h.Close)
 
 	// Drop decisions table
 	_ = db.Migrator().DropTable(&models.SecurityDecision{})
@@ -215,6 +219,7 @@ func TestSecurityHandler_ListRuleSets_Error(t *testing.T) {
 	db := setupSecurityCoverageDB3(t)
 
 	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(h.Close)
 
 	// Drop rulesets table
 	_ = db.Migrator().DropTable(&models.SecurityRuleSet{})
@@ -233,6 +238,7 @@ func TestSecurityHandler_UpsertRuleSet_Error(t *testing.T) {
 	db := setupSecurityCoverageDB3(t)
 
 	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(h.Close)
 
 	// Drop table to cause upsert to fail
 	_ = db.Migrator().DropTable(&models.SecurityRuleSet{})
@@ -258,6 +264,7 @@ func TestSecurityHandler_CreateDecision_LogError(t *testing.T) {
 	db := setupSecurityCoverageDB3(t)
 
 	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(h.Close)
 
 	// Drop decisions table to cause log to fail
 	_ = db.Migrator().DropTable(&models.SecurityDecision{})
@@ -283,6 +290,7 @@ func TestSecurityHandler_DeleteRuleSet_Error(t *testing.T) {
 	db := setupSecurityCoverageDB3(t)
 
 	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(h.Close)
 
 	// Drop table to cause delete to fail (not NotFound but table error)
 	_ = db.Migrator().DropTable(&models.SecurityRuleSet{})

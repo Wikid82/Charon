@@ -48,6 +48,10 @@ func TestIsTransientSQLiteError(t *testing.T) {
 func TestUpsertSettingWithRetry_ReturnsErrorForClosedDB(t *testing.T) {
 	db := setupEmergencyTestDB(t)
 	handler := NewEmergencyHandler(db)
+	// NewEmergencyHandler starts a background audit-processing goroutine (via
+	// NewSecurityService) sharing this shared-cache *gorm.DB. Same concern as
+	// b9a46963: stop it via t.Cleanup so it can't race the DB/connection close.
+	t.Cleanup(handler.Close)
 
 	stdDB, err := db.DB()
 	require.NoError(t, err)
@@ -114,6 +118,7 @@ func TestEmergencySecurityReset_Success(t *testing.T) {
 	// Setup
 	db := setupEmergencyTestDB(t)
 	handler := NewEmergencyHandler(db)
+	t.Cleanup(handler.Close)
 	router := setupEmergencyRouter(handler)
 
 	// Configure valid token
@@ -189,6 +194,7 @@ func TestEmergencySecurityReset_InvalidToken(t *testing.T) {
 	// Setup
 	db := setupEmergencyTestDB(t)
 	handler := NewEmergencyHandler(db)
+	t.Cleanup(handler.Close)
 	router := setupEmergencyRouter(handler)
 
 	// Configure valid token
@@ -219,6 +225,7 @@ func TestEmergencySecurityReset_MissingToken(t *testing.T) {
 	// Setup
 	db := setupEmergencyTestDB(t)
 	handler := NewEmergencyHandler(db)
+	t.Cleanup(handler.Close)
 	router := setupEmergencyRouter(handler)
 
 	// Configure valid token
@@ -249,6 +256,7 @@ func TestEmergencySecurityReset_NotConfigured(t *testing.T) {
 	// Setup
 	db := setupEmergencyTestDB(t)
 	handler := NewEmergencyHandler(db)
+	t.Cleanup(handler.Close)
 	router := setupEmergencyRouter(handler)
 
 	// Ensure token is not configured
@@ -278,6 +286,7 @@ func TestEmergencySecurityReset_TokenTooShort(t *testing.T) {
 	// Setup
 	db := setupEmergencyTestDB(t)
 	handler := NewEmergencyHandler(db)
+	t.Cleanup(handler.Close)
 	router := setupEmergencyRouter(handler)
 
 	// Configure token that is too short
@@ -307,6 +316,7 @@ func TestEmergencySecurityReset_NoRateLimit(t *testing.T) {
 	// Setup
 	db := setupEmergencyTestDB(t)
 	handler := NewEmergencyHandler(db)
+	t.Cleanup(handler.Close)
 	router := setupEmergencyRouter(handler)
 
 	validToken := "this-is-a-valid-emergency-token-with-32-chars-minimum"
@@ -337,6 +347,7 @@ func TestEmergencySecurityReset_TriggersReloadAndCacheInvalidate(t *testing.T) {
 	mockCaddy := &mockCaddyManager{}
 	mockCache := &mockCacheInvalidator{}
 	handler := NewEmergencyHandlerWithDeps(db, mockCaddy, mockCache)
+	t.Cleanup(handler.Close)
 	router := setupEmergencyRouter(handler)
 
 	validToken := "this-is-a-valid-emergency-token-with-32-chars-minimum"
@@ -358,6 +369,7 @@ func TestEmergencySecurityReset_TriggersReloadAndCacheInvalidate(t *testing.T) {
 func TestEmergencySecurityReset_ClearsBlockDecisions(t *testing.T) {
 	db := setupEmergencyTestDB(t)
 	handler := NewEmergencyHandler(db)
+	t.Cleanup(handler.Close)
 	router := setupEmergencyRouter(handler)
 
 	validToken := "this-is-a-valid-emergency-token-with-32-chars-minimum"
@@ -383,6 +395,7 @@ func TestEmergencySecurityReset_ClearsBlockDecisions(t *testing.T) {
 func TestEmergencySecurityReset_MiddlewarePrevalidatedBypass(t *testing.T) {
 	db := setupEmergencyTestDB(t)
 	handler := NewEmergencyHandler(db)
+	t.Cleanup(handler.Close)
 
 	router := gin.New()
 	router.POST("/api/v1/emergency/security-reset", func(c *gin.Context) {
@@ -400,6 +413,7 @@ func TestEmergencySecurityReset_MiddlewarePrevalidatedBypass(t *testing.T) {
 func TestEmergencySecurityReset_MiddlewareBypass_ResetFailure(t *testing.T) {
 	db := setupEmergencyTestDB(t)
 	handler := NewEmergencyHandler(db)
+	t.Cleanup(handler.Close)
 
 	stdDB, err := db.DB()
 	require.NoError(t, err)

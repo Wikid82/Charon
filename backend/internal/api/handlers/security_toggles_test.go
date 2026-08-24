@@ -25,6 +25,10 @@ func setupToggleTest(t *testing.T) (*SecurityHandler, *gorm.DB) {
 
 	cfg := config.SecurityConfig{}
 	h := NewSecurityHandler(cfg, db, nil) // caddyManager nil to avoid reload logic
+	// NewSecurityHandler starts a background audit-processing goroutine (via
+	// NewSecurityService) that shares this shared-cache *gorm.DB. Same
+	// concern as b9a46963: stop it via t.Cleanup so it can't outlive the test.
+	t.Cleanup(h.Close)
 	return h, db
 }
 
@@ -226,6 +230,7 @@ func TestSecurityToggles_RollbackSettingWhenApplyFails(t *testing.T) {
 		config.SecurityConfig{},
 	)
 	h := NewSecurityHandler(config.SecurityConfig{}, db, manager)
+	t.Cleanup(h.Close)
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("PATCH", "/api/v1/security/waf", strings.NewReader(`{"enabled":true}`))

@@ -26,6 +26,10 @@ func TestSecurityEventIntakeCompileSuccess(t *testing.T) {
 	notificationService := services.NewNotificationService(db, nil)
 	service := services.NewEnhancedSecurityNotificationService(db)
 	securityService := services.NewSecurityService(db)
+	// NewSecurityService starts a background audit-processing goroutine that
+	// shares this *gorm.DB. Same concern as b9a46963: stop it via t.Cleanup
+	// so it doesn't outlive the test.
+	t.Cleanup(securityService.Close)
 	managementCIDRs := []string{"127.0.0.0/8"}
 
 	handler := NewSecurityNotificationHandlerWithDeps(

@@ -62,6 +62,7 @@ func TestSecurityHandler_Cerberus_DBOverride(t *testing.T) {
 
 	cfg := config.SecurityConfig{CerberusEnabled: false}
 	handler := NewSecurityHandler(cfg, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.GET("/security/status", handler.GetStatus)
 
@@ -97,6 +98,7 @@ func TestSecurityHandler_ACL_DBOverride(t *testing.T) {
 	// Ensure Cerberus is enabled so ACL can be active
 	cfg := config.SecurityConfig{ACLMode: "disabled", CerberusEnabled: true}
 	handler := NewSecurityHandler(cfg, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.GET("/security/status", handler.GetStatus)
 
@@ -115,6 +117,7 @@ func TestSecurityHandler_ACL_DBOverride(t *testing.T) {
 func TestSecurityHandler_GenerateBreakGlass_ReturnsToken(t *testing.T) {
 	db := setupTestDB(t)
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -147,6 +150,7 @@ func TestSecurityHandler_ACL_DisabledWhenCerberusOff(t *testing.T) {
 
 	cfg := config.SecurityConfig{ACLMode: "enabled", CerberusEnabled: true}
 	handler := NewSecurityHandler(cfg, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.GET("/security/status", handler.GetStatus)
 
@@ -175,6 +179,7 @@ func TestSecurityHandler_CrowdSec_Mode_DBOverride(t *testing.T) {
 
 	cfg := config.SecurityConfig{CerberusEnabled: true, CrowdSecMode: "disabled"}
 	handler := NewSecurityHandler(cfg, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.GET("/security/status", handler.GetStatus)
 
@@ -198,6 +203,7 @@ func TestSecurityHandler_CrowdSec_ExternalMappedToDisabled_DBOverride(t *testing
 	}
 	cfg := config.SecurityConfig{CrowdSecMode: "local"}
 	handler := NewSecurityHandler(cfg, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.GET("/security/status", handler.GetStatus)
 
@@ -245,6 +251,7 @@ func TestSecurityHandler_Enable_Disable_WithAdminWhitelistAndToken(t *testing.T)
 	}
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")

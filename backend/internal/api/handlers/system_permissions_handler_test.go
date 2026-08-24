@@ -418,6 +418,10 @@ func TestSystemPermissionsHandler_LogAudit_PersistsAuditWithUserID(t *testing.T)
 	require.NoError(t, db.AutoMigrate(&models.SecurityAudit{}))
 
 	securitySvc := services.NewSecurityService(db)
+	// NewSecurityService starts a background audit-processing goroutine that
+	// shares this shared-cache *gorm.DB. Same concern as b9a46963: stop it
+	// via t.Cleanup so it can't outlive the test.
+	t.Cleanup(securitySvc.Close)
 	h := NewSystemPermissionsHandler(config.Config{}, securitySvc, stubPermissionChecker{})
 
 	w := httptest.NewRecorder()
@@ -438,6 +442,7 @@ func TestSystemPermissionsHandler_LogAudit_PersistsAuditWithUnknownActor(t *test
 	require.NoError(t, db.AutoMigrate(&models.SecurityAudit{}))
 
 	securitySvc := services.NewSecurityService(db)
+	t.Cleanup(securitySvc.Close)
 	h := NewSystemPermissionsHandler(config.Config{}, securitySvc, stubPermissionChecker{})
 
 	w := httptest.NewRecorder()

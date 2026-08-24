@@ -89,6 +89,7 @@ func TestSecurityHandler_Priority_SettingsOverSecurityConfig(t *testing.T) {
 			}
 
 			handler := NewSecurityHandler(tt.staticCfg, db, nil)
+			t.Cleanup(handler.Close)
 			router := gin.New()
 			router.GET("/security/status", handler.GetStatus)
 
@@ -145,6 +146,7 @@ func TestSecurityHandler_Priority_AllModules(t *testing.T) {
 	}
 
 	handler := NewSecurityHandler(staticCfg, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.GET("/security/status", handler.GetStatus)
 
