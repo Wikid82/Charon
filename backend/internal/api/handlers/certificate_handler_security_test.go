@@ -160,6 +160,7 @@ func TestCertificateHandler_Delete_NotificationRateLimiting(t *testing.T) {
 	}
 	sqlDB.SetMaxOpenConns(1)
 	sqlDB.SetMaxIdleConns(1)
+	t.Cleanup(func() { _ = sqlDB.Close() })
 
 	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)

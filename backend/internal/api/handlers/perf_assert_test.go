@@ -90,6 +90,11 @@ func TestPerf_GetStatus_AssertThreshold(t *testing.T) {
 	_ = db.Create(&models.Setting{Key: "security.waf.enabled", Value: "true", Category: "security"})
 	cfg := config.SecurityConfig{CerberusEnabled: true}
 	h := NewSecurityHandler(cfg, db, nil)
+	// NewSecurityHandler starts a background audit-processing goroutine (via
+	// NewSecurityService) that shares this shared-cache *gorm.DB. Same concern
+	// as b9a46963: stop it via t.Cleanup before the connection can be reused
+	// or closed by another test sharing the process.
+	t.Cleanup(h.Close)
 
 	router := gin.New()
 	router.GET("/api/v1/security/status", h.GetStatus)
@@ -117,6 +122,7 @@ func TestPerf_GetStatus_Parallel_AssertThreshold(t *testing.T) {
 	db := setupPerfDB(t)
 	cfg := config.SecurityConfig{CerberusEnabled: true}
 	h := NewSecurityHandler(cfg, db, nil)
+	t.Cleanup(h.Close)
 
 	router := gin.New()
 	router.GET("/api/v1/security/status", h.GetStatus)
@@ -164,6 +170,7 @@ func TestPerf_ListDecisions_AssertThreshold(t *testing.T) {
 	}
 	cfg := config.SecurityConfig{}
 	h := NewSecurityHandler(cfg, db, nil)
+	t.Cleanup(h.Close)
 
 	router := gin.New()
 	router.GET("/api/v1/security/decisions", h.ListDecisions)

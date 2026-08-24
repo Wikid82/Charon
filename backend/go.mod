@@ -1,6 +1,6 @@
 module github.com/Wikid82/charon/backend
 
-go 1.26.6
+go 1.27.0
 
 require (
 	filippo.io/age v1.3.1
@@ -11,14 +11,14 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/hashicorp/yamux v0.1.2
-	github.com/minio/minio-go/v7 v7.2.1
+	github.com/minio/minio-go/v7 v7.3.0
 	github.com/moby/moby/client v0.5.1
 	github.com/oschwald/geoip2-golang/v2 v2.3.0
 	github.com/pkg/sftp v1.13.11
 	github.com/prometheus/client_golang v1.24.1
 	github.com/robfig/cron/v3 v3.0.1
-	github.com/sirupsen/logrus v1.10.0
-	github.com/stretchr/testify v1.11.1
+	github.com/sirupsen/logrus v1.10.1
+	github.com/stretchr/testify v1.12.1
 	github.com/studio-b12/gowebdav v0.13.0
 	golang.org/x/crypto v0.55.0
 	golang.org/x/mod v0.40.0
@@ -44,7 +44,6 @@ require (
 	github.com/cloudwego/base64x v0.1.7 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
-	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/go-connections v0.8.1 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
@@ -70,7 +69,7 @@ require (
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/leodido/go-urn v1.5.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
-	github.com/mattn/go-sqlite3 v1.14.49 // indirect
+	github.com/mattn/go-sqlite3 v1.14.50 // indirect
 	github.com/minio/crc64nvme v1.1.1 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
@@ -84,7 +83,6 @@ require (
 	github.com/oschwald/maxminddb-golang/v2 v2.5.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
-	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.70.1 // indirect
 	github.com/prometheus/procfs v0.21.1 // indirect
@@ -108,8 +106,8 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/ini.v1 v1.67.3 // indirect
-	modernc.org/libc v1.75.3 // indirect
+	modernc.org/libc v1.75.4 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
-	modernc.org/memory v1.12.0 // indirect
-	modernc.org/sqlite v1.56.0 // indirect
+	modernc.org/memory v1.12.1 // indirect
+	modernc.org/sqlite v1.57.0 // indirect
 )

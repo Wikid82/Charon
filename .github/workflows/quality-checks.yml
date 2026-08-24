@@ -16,9 +16,9 @@ permissions:
   checks: write
 
 env:
-  GO_VERSION: '1.26.6'
+  GO_VERSION: '1.27.0'
   NODE_VERSION: '24.19.0'
-  GOTOOLCHAIN: local
+  GOTOOLCHAIN: auto
 
 jobs:
   auth-route-protection-contract:
@@ -56,6 +56,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
 
       - name: Run structural allowlist parity checker
         run: |
@@ -223,7 +224,7 @@ jobs:
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           # renovate: datasource=github-releases depName=golangci/golangci-lint
-          version: v2.12.2
+          version: v2.13.1
           working-directory: backend
           args: --timeout=5m
         continue-on-error: true
@@ -309,7 +310,7 @@ jobs:
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           # renovate: datasource=github-releases depName=golangci/golangci-lint
-          version: v2.12.2
+          version: v2.13.1
           working-directory: agent
           args: --config ../.golangci-fast.yml --timeout=5m
 

@@ -199,10 +199,10 @@ func TestBackupHandler_Validate_NotFound(t *testing.T) {
 // current and historical caller uploads under that field name, matching
 // the backup handler's own c.FormFile("file") lookup), so the field name
 // isn't parameterized.
-func buildMultipartUpload(t *testing.T, filename string, content []byte, extraFields map[string]string) (*bytes.Buffer, string) {
+func buildMultipartUpload(t *testing.T, filename string, content []byte, extraFields map[string]string) (body *bytes.Buffer, contentType string) {
 	t.Helper()
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
+	buf := &bytes.Buffer{}
+	writer := multipart.NewWriter(buf)
 	part, err := writer.CreateFormFile("file", filename)
 	require.NoError(t, err)
 	_, err = part.Write(content)
@@ -211,7 +211,7 @@ func buildMultipartUpload(t *testing.T, filename string, content []byte, extraFi
 		require.NoError(t, writer.WriteField(k, v))
 	}
 	require.NoError(t, writer.Close())
-	return body, writer.FormDataContentType()
+	return buf, writer.FormDataContentType()
 }
 
 func TestBackupHandler_Upload_RawSQLite_Success(t *testing.T) {

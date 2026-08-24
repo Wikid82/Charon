@@ -110,7 +110,7 @@ func TestAuditLogHandler_List(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
-			c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/audit-logs"+tt.queryParams, nil)
+			c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/audit-logs"+tt.queryParams, http.NoBody)
 
 			handler.List(c)
 
@@ -178,7 +178,7 @@ func TestAuditLogHandler_Get(t *testing.T) {
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
 			c.Params = gin.Params{gin.Param{Key: "uuid", Value: tt.uuid}}
-			c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/audit-logs/"+tt.uuid, nil)
+			c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/audit-logs/"+tt.uuid, http.NoBody)
 
 			handler.Get(c)
 

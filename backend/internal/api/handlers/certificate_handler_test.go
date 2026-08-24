@@ -12,6 +12,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -43,6 +44,29 @@ func setupCertTestRouter(t *testing.T, db *gorm.DB) *gin.Engine {
 	h := NewCertificateHandler(svc, nil, nil)
 	r.DELETE("/api/certificates/:uuid", h.Delete)
 	return r
+}
+
+// openCertHandlerTestDB opens a file-backed, single-connection SQLite DB
+// under a fresh t.TempDir() (this handler's async backup/disk-space sync
+// requires real file-backing, not an in-memory shared-cache DSN — see
+// setupSecurityTestRouterWithExtras for the same constraint in this
+// package) and registers cleanup to close it before t.TempDir() removes
+// the directory.
+func openCertHandlerTestDB(t *testing.T, filename string) *gorm.DB {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), filename)
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1", dbPath)), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("failed to access sql db: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	return db
 }
 
 func TestDeleteCertificate_InUse(t *testing.T) {
@@ -87,25 +111,15 @@ func toStr(id uint) string {
 func TestDeleteCertificate_CreatesBackup(t *testing.T) {
 	// Use a file-backed DB with busy timeout and single connection to avoid
 	// lock contention with CertificateService background sync.
-	dbPath := t.TempDir() + "/cert_create_backup.db"
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1", dbPath)), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("failed to open db: %v", err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("failed to access sql db: %v", err)
-	}
-	sqlDB.SetMaxOpenConns(1)
-	sqlDB.SetMaxIdleConns(1)
+	db := openCertHandlerTestDB(t, "cert_create_backup.db")
 
-	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
 	// Create certificate
 	cert := models.SSLCertificate{UUID: "test-cert-backup-success", Name: "deletable-cert", Provider: "custom", Domains: "delete.example.com"}
-	if err = db.Create(&cert).Error; err != nil {
+	if err := db.Create(&cert).Error; err != nil {
 		t.Fatalf("failed to create cert: %v", err)
 	}
 
@@ -139,8 +153,7 @@ func TestDeleteCertificate_CreatesBackup(t *testing.T) {
 
 	// Verify certificate was deleted
 	var found models.SSLCertificate
-	err = db.First(&found, cert.ID).Error
-	if err == nil {
+	if err := db.First(&found, cert.ID).Error; err == nil {
 		t.Fatal("expected certificate to be deleted")
 	}
 }
@@ -641,18 +654,8 @@ func TestDeleteCertificate_LowDiskSpace(t *testing.T) {
 func TestDeleteCertificate_DiskSpaceCheckError(t *testing.T) {
 	// Use isolated file-backed DB to avoid lock flakiness from shared in-memory
 	// connections and background sync.
-	dbPath := t.TempDir() + "/cert_disk_space_error.db"
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1", dbPath)), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("failed to open db: %v", err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("failed to access sql db: %v", err)
-	}
-	sqlDB.SetMaxOpenConns(1)
-	sqlDB.SetMaxIdleConns(1)
-	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	db := openCertHandlerTestDB(t, "cert_disk_space_error.db")
+	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -692,19 +695,9 @@ func TestDeleteCertificate_DiskSpaceCheckError(t *testing.T) {
 // Test that an expired Let's Encrypt certificate not in use can be deleted.
 // The backend has no provider-based restrictions; deletion policy is frontend-only.
 func TestDeleteCertificate_ExpiredLetsEncrypt_NotInUse(t *testing.T) {
-	dbPath := t.TempDir() + "/cert_expired_le.db"
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1", dbPath)), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("failed to open db: %v", err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("failed to access sql db: %v", err)
-	}
-	sqlDB.SetMaxOpenConns(1)
-	sqlDB.SetMaxIdleConns(1)
+	db := openCertHandlerTestDB(t, "cert_expired_le.db")
 
-	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -716,7 +709,7 @@ func TestDeleteCertificate_ExpiredLetsEncrypt_NotInUse(t *testing.T) {
 		Domains:   "expired.example.com",
 		ExpiresAt: &expired,
 	}
-	if err = db.Create(&cert).Error; err != nil {
+	if err := db.Create(&cert).Error; err != nil {
 		t.Fatalf("failed to create cert: %v", err)
 	}
 
@@ -742,7 +735,7 @@ func TestDeleteCertificate_ExpiredLetsEncrypt_NotInUse(t *testing.T) {
 	}
 
 	var found models.SSLCertificate
-	if err = db.First(&found, cert.ID).Error; err == nil {
+	if err := db.First(&found, cert.ID).Error; err == nil {
 		t.Fatal("expected expired LE certificate to be deleted")
 	}
 }
@@ -750,19 +743,9 @@ func TestDeleteCertificate_ExpiredLetsEncrypt_NotInUse(t *testing.T) {
 // Test that a valid (non-expired) Let's Encrypt certificate not in use can be deleted.
 // Confirms the backend imposes no provider-based restrictions on deletion.
 func TestDeleteCertificate_ValidLetsEncrypt_NotInUse(t *testing.T) {
-	dbPath := t.TempDir() + "/cert_valid_le.db"
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1", dbPath)), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("failed to open db: %v", err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("failed to access sql db: %v", err)
-	}
-	sqlDB.SetMaxOpenConns(1)
-	sqlDB.SetMaxIdleConns(1)
+	db := openCertHandlerTestDB(t, "cert_valid_le.db")
 
-	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -774,7 +757,7 @@ func TestDeleteCertificate_ValidLetsEncrypt_NotInUse(t *testing.T) {
 		Domains:   "valid.example.com",
 		ExpiresAt: &future,
 	}
-	if err = db.Create(&cert).Error; err != nil {
+	if err := db.Create(&cert).Error; err != nil {
 		t.Fatalf("failed to create cert: %v", err)
 	}
 
@@ -800,7 +783,7 @@ func TestDeleteCertificate_ValidLetsEncrypt_NotInUse(t *testing.T) {
 	}
 
 	var found models.SSLCertificate
-	if err = db.First(&found, cert.ID).Error; err == nil {
+	if err := db.First(&found, cert.ID).Error; err == nil {
 		t.Fatal("expected valid LE certificate to be deleted")
 	}
 }
@@ -846,6 +829,11 @@ func TestDeleteCertificate_NotificationRateLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("failed to access sql db: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	if err = db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}, &models.NotificationProvider{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}

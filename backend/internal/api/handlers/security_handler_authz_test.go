@@ -19,6 +19,7 @@ func TestSecurityHandler_MutatorsRequireAdmin(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityRuleSet{}, &models.SecurityDecision{}, &models.SecurityAudit{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("userID", uint(123))

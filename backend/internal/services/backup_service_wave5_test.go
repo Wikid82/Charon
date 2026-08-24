@@ -19,6 +19,9 @@ func TestBackupServiceWave5_Rehydrate_FallbackWhenRestorePathMissing(t *testing.
 
 	activeDB, err := gorm.Open(sqlite.Open(filepath.Join(tmpDir, "active.db")), &gorm.Config{})
 	require.NoError(t, err)
+	activeSQLDB, err := activeDB.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = activeSQLDB.Close() })
 	require.NoError(t, activeDB.Exec(`CREATE TABLE healthcheck (id INTEGER PRIMARY KEY, value TEXT)`).Error)
 
 	svc := &BackupService{

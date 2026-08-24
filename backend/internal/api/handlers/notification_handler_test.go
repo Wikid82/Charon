@@ -24,6 +24,16 @@ func setupNotificationTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		panic("failed to connect to test database")
 	}
+
+	// Registered immediately after a successful Open so the connection (and
+	// its WAL/-shm sidecar files) is always released before t.TempDir()'s own
+	// cleanup runs — t.Cleanup fires in LIFO order, so this runs first.
+	sqlDB, err := db.DB()
+	if err != nil {
+		panic("failed to access underlying sql.DB")
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
 	_ = db.AutoMigrate(&models.Notification{}, &models.NotificationProvider{})
 	return db
 }

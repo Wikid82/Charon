@@ -111,7 +111,7 @@ func TestCalculateUncompressedSize(t *testing.T) {
 	// Add a file to the archive
 	hdr := &tar.Header{
 		Name:     "test.txt",
-		Mode:     0644,
+		Mode:     0o644,
 		Size:     int64(len(testContent)),
 		Typeflag: tar.TypeReg,
 	}
@@ -126,7 +126,7 @@ func TestCalculateUncompressedSize(t *testing.T) {
 	content2 := "Second file content."
 	hdr2 := &tar.Header{
 		Name:     "test2.txt",
-		Mode:     0644,
+		Mode:     0o644,
 		Size:     int64(len(content2)),
 		Typeflag: tar.TypeReg,
 	}
@@ -202,7 +202,7 @@ func TestListArchiveContents(t *testing.T) {
 	for _, file := range files {
 		hdr := &tar.Header{
 			Name:     file.name,
-			Mode:     0644,
+			Mode:     0o644,
 			Size:     int64(len(file.content)),
 			Typeflag: tar.TypeReg,
 		}

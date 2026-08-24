@@ -96,7 +96,10 @@ func TestLogsWSHandler_StreamWithFiltersAndTracker(t *testing.T) {
 	defer srv.Close()
 
 	wsURL := toWebSocketURL(srv.URL) + "/logs?level=error&source=api"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 	require.NoError(t, err)
 
 	waitFor(t, func() bool {

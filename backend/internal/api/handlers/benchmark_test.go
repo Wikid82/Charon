@@ -62,6 +62,7 @@ func BenchmarkSecurityHandler_GetStatus(b *testing.B) {
 
 	cfg := config.SecurityConfig{CerberusEnabled: true}
 	h := NewSecurityHandler(cfg, db, nil)
+	b.Cleanup(h.Close)
 
 	router := gin.New()
 	router.GET("/api/v1/security/status", h.GetStatus)
@@ -85,6 +86,7 @@ func BenchmarkSecurityHandler_GetStatus_NoSettings(b *testing.B) {
 
 	cfg := config.SecurityConfig{CerberusEnabled: true}
 	h := NewSecurityHandler(cfg, db, nil)
+	b.Cleanup(h.Close)
 
 	router := gin.New()
 	router.GET("/api/v1/security/status", h.GetStatus)
@@ -118,6 +120,7 @@ func BenchmarkSecurityHandler_ListDecisions(b *testing.B) {
 
 	cfg := config.SecurityConfig{}
 	h := NewSecurityHandler(cfg, db, nil)
+	b.Cleanup(h.Close)
 
 	router := gin.New()
 	router.GET("/api/v1/security/decisions", h.ListDecisions)
@@ -151,6 +154,7 @@ func BenchmarkSecurityHandler_ListRuleSets(b *testing.B) {
 
 	cfg := config.SecurityConfig{}
 	h := NewSecurityHandler(cfg, db, nil)
+	b.Cleanup(h.Close)
 
 	router := gin.New()
 	router.GET("/api/v1/security/rulesets", h.ListRuleSets)
@@ -174,6 +178,7 @@ func BenchmarkSecurityHandler_UpsertRuleSet(b *testing.B) {
 
 	cfg := config.SecurityConfig{}
 	h := NewSecurityHandler(cfg, db, nil)
+	b.Cleanup(h.Close)
 
 	router := gin.New()
 	router.POST("/api/v1/security/rulesets", h.UpsertRuleSet)
@@ -205,6 +210,7 @@ func BenchmarkSecurityHandler_CreateDecision(b *testing.B) {
 
 	cfg := config.SecurityConfig{}
 	h := NewSecurityHandler(cfg, db, nil)
+	b.Cleanup(h.Close)
 
 	router := gin.New()
 	router.POST("/api/v1/security/decisions", h.CreateDecision)
@@ -246,6 +252,7 @@ func BenchmarkSecurityHandler_GetConfig(b *testing.B) {
 
 	cfg := config.SecurityConfig{}
 	h := NewSecurityHandler(cfg, db, nil)
+	b.Cleanup(h.Close)
 
 	router := gin.New()
 	router.GET("/api/v1/security/config", h.GetConfig)
@@ -269,6 +276,7 @@ func BenchmarkSecurityHandler_UpdateConfig(b *testing.B) {
 
 	cfg := config.SecurityConfig{}
 	h := NewSecurityHandler(cfg, db, nil)
+	b.Cleanup(h.Close)
 
 	router := gin.New()
 	router.PUT("/api/v1/security/config", h.UpdateConfig)
@@ -314,6 +322,7 @@ func BenchmarkSecurityHandler_GetStatus_Parallel(b *testing.B) {
 
 	cfg := config.SecurityConfig{CerberusEnabled: true}
 	h := NewSecurityHandler(cfg, db, nil)
+	b.Cleanup(h.Close)
 
 	router := gin.New()
 	router.GET("/api/v1/security/status", h.GetStatus)
@@ -357,6 +366,7 @@ func BenchmarkSecurityHandler_ListDecisions_Parallel(b *testing.B) {
 
 	cfg := config.SecurityConfig{}
 	h := NewSecurityHandler(cfg, db, nil)
+	b.Cleanup(h.Close)
 
 	router := gin.New()
 	router.GET("/api/v1/security/decisions", h.ListDecisions)
@@ -386,6 +396,7 @@ func BenchmarkSecurityHandler_LargeRuleSetContent(b *testing.B) {
 
 	cfg := config.SecurityConfig{}
 	h := NewSecurityHandler(cfg, db, nil)
+	b.Cleanup(h.Close)
 
 	router := gin.New()
 	router.POST("/api/v1/security/rulesets", h.UpsertRuleSet)
@@ -445,6 +456,7 @@ func BenchmarkSecurityHandler_ManySettingsLookups(b *testing.B) {
 
 	cfg := config.SecurityConfig{}
 	h := NewSecurityHandler(cfg, db, nil)
+	b.Cleanup(h.Close)
 
 	router := gin.New()
 	router.GET("/api/v1/security/status", h.GetStatus)

@@ -23,9 +23,6 @@
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License">
   </a>
-  <a href="https://discord.gg/Tvzg6BQx">
-    <img src="https://img.shields.io/badge/Community-Discord-5865F2?logo=discord&logoColor=white">
-  </a>
 </p>
 
 ---
@@ -199,7 +196,7 @@ No premium tiers. No feature paywalls. No usage limits. Everything you see is yo
 💬 Support
 <p align="center">   <a href="https://github.com/Wikid82/Charon/issues">
     <img alt="GitHub issues"
-         src="https://img.shields.io/github/issues/Wikid82/Charon"><a href="https://github.com/Wikid82/Charon/issues/new/choose"> <img src="https://img.shields.io/badge/Support-Open%20Issue-blue?logo=github"> </a> <a href="https://discord.gg/Tvzg6BQx"> <img src="https://img.shields.io/badge/Community-Discord-5865F2?logo=discord&logoColor=white"> </a> </p>
+         src="https://img.shields.io/github/issues/Wikid82/Charon"><a href="https://github.com/Wikid82/Charon/issues/new/choose"> <img src="https://img.shields.io/badge/Support-Open%20Issue-blue?logo=github"></a> </p>
 
 ---
 

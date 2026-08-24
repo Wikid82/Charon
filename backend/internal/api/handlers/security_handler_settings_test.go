@@ -135,6 +135,7 @@ func TestSecurityHandler_GetStatus_RespectsSettingsTable(t *testing.T) {
 			}
 
 			handler := NewSecurityHandler(tt.cfg, db, nil)
+			t.Cleanup(handler.Close)
 			router := gin.New()
 			router.GET("/security/status", handler.GetStatus)
 
@@ -177,6 +178,7 @@ func TestSecurityHandler_GetStatus_WAFModeFromSettings(t *testing.T) {
 	db.Create(&models.Setting{Key: "security.waf.enabled", Value: "true"})
 
 	handler := NewSecurityHandler(cfg, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.GET("/security/status", handler.GetStatus)
 
@@ -209,6 +211,7 @@ func TestSecurityHandler_GetStatus_RateLimitModeFromSettings(t *testing.T) {
 	db.Create(&models.Setting{Key: "security.rate_limit.enabled", Value: "true"})
 
 	handler := NewSecurityHandler(cfg, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.GET("/security/status", handler.GetStatus)
 
@@ -237,6 +240,7 @@ func TestSecurityHandler_GetStatus_IncludesLatestConfigApplyState(t *testing.T) 
 	require.NoError(t, db.Create(&models.CaddyConfig{Success: true, ErrorMsg: ""}).Error)
 
 	handler := NewSecurityHandler(config.SecurityConfig{CerberusEnabled: true}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.GET("/security/status", handler.GetStatus)
 
@@ -261,6 +265,7 @@ func TestSecurityHandler_PatchACL_RequiresAdminWhitelist(t *testing.T) {
 	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", AdminWhitelist: "192.0.2.1/32"}).Error)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -282,6 +287,7 @@ func TestSecurityHandler_PatchACL_AllowsWhitelistedIP(t *testing.T) {
 	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", AdminWhitelist: "203.0.113.0/24"}).Error)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -316,6 +322,7 @@ func TestSecurityHandler_PatchACL_SetsACLAndCerberusSettings(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
 	ctx.Set("role", "admin")
@@ -349,6 +356,7 @@ func TestSecurityHandler_EnsureSecurityConfigEnabled_CreatesWhenMissing(t *testi
 	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 
 	err := handler.ensureSecurityConfigEnabled()
 	require.NoError(t, err)
@@ -365,6 +373,7 @@ func TestSecurityHandler_PatchACL_AllowsEmergencyBypass(t *testing.T) {
 	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", AdminWhitelist: "192.0.2.1/32"}).Error)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")

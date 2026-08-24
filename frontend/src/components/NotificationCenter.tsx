@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Bell, X, Info, AlertTriangle, AlertCircle, CheckCircle, ExternalLink } from 'lucide-react';
-import { useState, type FC } from 'react';
+import { useEffect, useState, type FC } from 'react';
 
 import { getNotifications, markNotificationRead, markAllNotificationsRead, checkUpdates } from '../api/system';
 
@@ -33,6 +33,19 @@ const NotificationCenter: FC = () => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
     },
   });
+
+  // Close the dropdown on Escape — the backdrop below is aria-hidden (click-to-dismiss
+  // only), so keyboard users need this document-level listener to dismiss it too.
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isOpen]);
 
   const unreadCount = notifications.length + (updateInfo?.available ? 1 : 0);
   const hasCritical = notifications.some(n => n.type === 'error');
@@ -73,6 +86,7 @@ const NotificationCenter: FC = () => {
           <div
             data-testid="notification-backdrop"
             className="fixed inset-0 z-10"
+            aria-hidden="true"
             onClick={() => setIsOpen(false)}
           ></div>
           <div className="absolute right-0 z-20 w-80 mt-2 overflow-hidden bg-white rounded-md shadow-lg dark:bg-gray-800 ring-1 ring-black ring-opacity-5">

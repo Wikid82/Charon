@@ -84,13 +84,11 @@ func startFakeSSHServer(t *testing.T) (addr string, authAttempted func() bool) {
 // production defaults on cleanup. Production code never touches these vars.
 func withPermissiveSSRFForLocalTest(t *testing.T) {
 	t.Helper()
-	origHost, origDial := ssrfValidateHost, ssrfValidateDialAddress
-	ssrfValidateHost = func(string) error { return nil }
-	ssrfValidateDialAddress = func(net.IP) error { return nil }
-	t.Cleanup(func() {
-		ssrfValidateHost = origHost
-		ssrfValidateDialAddress = origDial
-	})
+	restore := swapSSRFValidators(
+		func(string) error { return nil },
+		func(net.IP) error { return nil },
+	)
+	t.Cleanup(restore)
 }
 
 // TestDiscoverSFTPHostKey_NeverAuthenticates is required test #8 from the
