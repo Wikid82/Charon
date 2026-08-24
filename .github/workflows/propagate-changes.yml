@@ -97,6 +97,7 @@ jobs:
               }
 
               // Compare commits to see if src is ahead of base
+              let sensitiveFiles = [];
               try {
                 const compare = await github.rest.repos.compareCommits({
                   owner: context.repo.owner,
@@ -112,19 +113,28 @@ jobs:
                 }
 
                 // If files changed include history-rewrite or other sensitive scripts,
-                // avoid automatic propagation. This prevents bypassing checklist validation
-                // and manual review for potentially destructive changes.
-                let files = (compare.data.files || []).map(f => (f.filename || '').toLowerCase());
+                // flag them for manual review below rather than skipping PR creation
+                // outright. A single unrelated sensitive-path file used to block the
+                // *entire* diff from propagating, even when it was bundled with
+                // otherwise-safe changes (CI/dependency fixes) — that already caused a
+                // dropped propagation once (PR #1261: 4 unrelated .github/skills/ files
+                // blocked the auto-PR, a human had to manually recreate it, and that
+                // manual PR was later closed unmerged). A blocked auto-PR is silent and
+                // fragile; an annotated one at least surfaces for review.
+                let originalFiles = (compare.data.files || []).map(f => f.filename || '');
+                let files = originalFiles.map(f => f.toLowerCase());
 
                 // Fallback: if compare.files is empty/truncated, aggregate files from the commit list
                 if (files.length === 0 && Array.isArray(compare.data.commits) && compare.data.commits.length > 0) {
+                  originalFiles = [];
                   for (const commit of compare.data.commits) {
                     const commitData = await github.rest.repos.getCommit({ owner: context.repo.owner, repo: context.repo.repo, ref: commit.sha });
                     for (const f of (commitData.data.files || [])) {
-                      files.push((f.filename || '').toLowerCase());
+                      originalFiles.push(f.filename || '');
                     }
                   }
-                  files = Array.from(new Set(files));
+                  originalFiles = Array.from(new Set(originalFiles));
+                  files = originalFiles.map(f => f.toLowerCase());
                 }
 
                 // Load propagation config (list of sensitive paths) from .github/propagate-config.yml when available
@@ -148,12 +158,14 @@ jobs:
                   if (parsedPaths.length > 0) configPaths = parsedPaths.map(p => p.toLowerCase());
                 } catch (err) { core.info('No .github/propagate-config.yml or parse failure; using defaults.'); }
 
-                const sensitive = files.some(fn => configPaths.some(sp => fn.startsWith(sp) || fn.includes(sp)));
-                if (sensitive) {
-                  const preview = files.slice(0, 25).join(', ');
-                  const suffix = files.length > 25 ? ` …(+${files.length - 25} more)` : '';
-                  core.info(`${src} -> ${base} contains sensitive changes (${preview}${suffix}). Skipping automatic propagation.`);
-                  return;
+                sensitiveFiles = files
+                  .map((fn, idx) => (configPaths.some(sp => fn.startsWith(sp) || fn.includes(sp)) ? originalFiles[idx] : null))
+                  .filter(Boolean);
+
+                if (sensitiveFiles.length > 0) {
+                  const preview = sensitiveFiles.slice(0, 25).join(', ');
+                  const suffix = sensitiveFiles.length > 25 ? ` …(+${sensitiveFiles.length - 25} more)` : '';
+                  core.info(`${src} -> ${base} touches sensitive paths (${preview}${suffix}). PR will still be created, flagged for manual review.`);
                 }
               } catch (error) {
                 // If base branch doesn't exist, etc.
@@ -161,18 +173,27 @@ jobs:
                 return;
               }
 
-              // Create PR
+              // Create PR. A sensitive-path match no longer blocks creation (see above) —
+              // it only prepends a review warning to the PR body.
               try {
+                const isSensitive = sensitiveFiles.length > 0;
+                let body = `Automated PR to propagate changes from ${src} into ${base}.\n\nTriggered by push to ${currentBranch}.`;
+                if (isSensitive) {
+                  const preview = sensitiveFiles.slice(0, 25).join(', ');
+                  const suffix = sensitiveFiles.length > 25 ? ` …(+${sensitiveFiles.length - 25} more)` : '';
+                  body = `⚠️ This propagation touches sensitive paths that need manual review before merging: \`${preview}${suffix}\`\n\n${body}`;
+                }
+
                 const pr = await github.rest.pulls.create({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   title: `Propagate changes from ${src} into ${base}`,
                   head: src,
                   base: base,
-                  body: `Automated PR to propagate changes from ${src} into ${base}.\n\nTriggered by push to ${currentBranch}.`,
+                  body,
                   draft: true,
                 });
-                core.info(`Created PR #${pr.data.number} to merge ${src} into ${base}`);
+                core.info(`Created PR #${pr.data.number} to merge ${src} into ${base}${isSensitive ? ' (flagged for manual review)' : ''}`);
                 // Add an 'auto-propagate' label to the created PR and create the label if missing
                 try {
                   try {
