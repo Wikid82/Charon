@@ -191,9 +191,12 @@ jobs:
                   head: src,
                   base: base,
                   body,
-                  draft: true,
+                  // Sensitive-path PRs stay draft for a human to review and merge
+                  // manually. Safe PRs are opened ready-for-review and we attempt to
+                  // enable native auto-merge on them below.
+                  draft: isSensitive,
                 });
-                core.info(`Created PR #${pr.data.number} to merge ${src} into ${base}${isSensitive ? ' (flagged for manual review)' : ''}`);
+                core.info(`Created PR #${pr.data.number} to merge ${src} into ${base}${isSensitive ? ' (draft, flagged for manual review)' : ''}`);
                 // Add an 'auto-propagate' label to the created PR and create the label if missing
                 try {
                   try {
@@ -204,6 +207,35 @@ jobs:
                   await github.rest.issues.addLabels({ owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.data.number, labels: ['auto-propagate'] });
                 } catch (labelErr) {
                   core.warning('Failed to ensure or add auto-propagate label: ' + labelErr.message);
+                }
+
+                // Attempt to enable GitHub's native auto-merge for safe (non-sensitive)
+                // propagation PRs, so they don't require a human to notice and click
+                // merge. This repo only allows merge commits (allow_squash_merge and
+                // allow_rebase_merge are both false), matching the existing nightly ->
+                // main weekly promotion policy of always using "Create a merge commit",
+                // so we request MERGE here too — never SQUASH or REBASE.
+                //
+                // NOTE: as of this change, the repo-level "Allow auto-merge" setting
+                // (Settings > General > Pull Requests > Allow auto-merge) is OFF, so
+                // this mutation will fail (as a caught, non-fatal warning) until that
+                // setting is turned on. Flipping that setting is a deliberate, separate
+                // repo-administration decision — this code is written to be correct and
+                // inert until then, not to attempt it itself.
+                if (!isSensitive) {
+                  try {
+                    await github.graphql(
+                      `mutation($pullRequestId: ID!) {
+                        enablePullRequestAutoMerge(input: { pullRequestId: $pullRequestId, mergeMethod: MERGE }) {
+                          pullRequest { autoMergeRequest { enabledAt } }
+                        }
+                      }`,
+                      { pullRequestId: pr.data.node_id }
+                    );
+                    core.info(`Auto-merge enabled for PR #${pr.data.number}`);
+                  } catch (mergeErr) {
+                    core.warning(`Could not enable auto-merge for PR #${pr.data.number} — check repo Settings > Pull Requests > Allow auto-merge. (${mergeErr.message})`);
+                  }
                 }
               } catch (error) {
                 core.warning(`Failed to create PR from ${src} to ${base}: ${error.message}`);
