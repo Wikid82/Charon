@@ -198,5 +198,15 @@ jobs:
                 core.info('Push originated from development (excluded). Skipping propagation back to development.');
               }
             } else if (currentBranch === 'development') {
-              core.info('Push to development detected. No downstream propagation configured.');
+              // development -> nightly is intentionally NOT handled here. That hop
+              // is already covered by the `sync-development-to-nightly` job in
+              // .github/workflows/nightly-build.yml, which runs on a daily cron
+              // (09:00 UTC) and fast-forwards (or force-resets) `nightly` to match
+              // `development` directly, bypassing PRs entirely. Opening a
+              // PR-based development -> nightly leg here would race that cron: if
+              // this leg's PR is still open when the next scheduled run fires, the
+              // cron's force-push would collapse the PR's diff to zero, leaving a
+              // dangling, unmergeable PR behind. See ARCHITECTURE.md's "Branch
+              // Promotion Chain" section for the full picture.
+              core.info('Push to development detected. Propagation to nightly is handled by the daily sync-development-to-nightly cron in nightly-build.yml, not this workflow.');
             }
