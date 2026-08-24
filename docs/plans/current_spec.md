@@ -1,446 +1,1216 @@
 ---
-goal: Migrate Charon's release/versioning pipeline from custom auto-tagging (paulhatch/semantic-version + GoReleaser) to release-please
+goal: Fix flaky Go backend tests caused by unclosed SQLite *sql.DB handles racing t.TempDir() cleanup
 version: 1.0
-date_created: 2026-08-17
+date_created: 2026-08-23
 status: 'Planned'
-tags: [chore, infrastructure, migration, ci-cd]
+tags: [fix, testing, flaky-test, backend, sqlite]
 ---
 
 # Introduction
 
 ![Status: Planned](https://img.shields.io/badge/status-Planned-blue)
 
-Charon's release pipeline currently computes the next semantic version with `paulhatch/semantic-version` inside `.github/workflows/auto-versioning.yml`, then hand-rolls a changelog body with shell/grep and publishes a GitHub Release via `softprops/action-gh-release`. A second workflow, `.github/workflows/release-goreleaser.yml`, listens for the resulting `v*` tag push and runs GoReleaser — but this workflow has never once succeeded (every run since `v0.3.0` fails at an "Enforce PR-2 release promotion guard" step because the gating repo variable was never set), so GoReleaser has never built or published any binary/archive/deb/rpm asset for this repo.
+## Objective
 
-This plan replaces both workflows with `googleapis/release-please-action`, following the pattern already validated in the sibling project `/projects/go_notify_yourself`. Release-please computes versions from Conventional Commits by walking real git history, opens/maintains a standing "release PR," and tags + publishes the GitHub Release itself when that PR is merged — eliminating the hand-rolled changelog script and the custom semver-calculation action in one move.
+A nightly CI run failed `TestSecurityHandler_CreateAndListDecisionAndRulesets` in
+`backend/internal/api/handlers/security_handler_rules_decisions_test.go`. Every
+assertion in the test passed — the failure happened afterward, during Go's
+automatic `t.TempDir()` cleanup, with:
 
-This is a standalone, CI/CD-configuration-only chore. It touches no Go or TypeScript application code, no database schema, no API surface, and is entirely unrelated to the in-progress `feature/notifications-engine-extraction` work. It targets a **new branch cut from `main`**, not `development` — see [Branching Note](#branching-note-deviation-from-normal-development-first-flow) below for why.
+```
+unlinkat ... directory not empty
+```
 
-**Recommended branch name**: `chore/release-please-migration` (from `main`).
+**Confirmed root cause** (already investigated; not re-derived by this plan):
+`setupSecurityTestRouterWithExtras` opens a file-backed SQLite database inside
+`t.TempDir()` via `gorm.io/driver/sqlite` and never closes the underlying
+`*sql.DB`. SQLite's WAL/journal sidecar files (`-wal`, `-shm`) for that
+connection are still live when the test function returns. `t.TempDir()`'s
+registered cleanup (`os.RemoveAll`) lists the directory, starts removing
+entries, and can race a filesystem write against those still-open sidecar
+files, causing `os.RemoveAll` to see a "new" entry appear mid-removal and
+fail with `ENOTEMPTY`. This is load-dependent and non-deterministic — it does
+not reproduce reliably locally, which is why it only surfaces under nightly
+CI's heavier scheduling pressure.
 
-**Merge strategy for this PR itself**: `chore/release-please-migration` → `main` should be merged via **squash merge** (the repo's default for ordinary feature/chore PRs; the "merge commit only" rule in CLAUDE.md applies specifically and only to the weekly `nightly` → `main` promotion PR — see Decision 3). Squashing this PR's six commits into one `chore:`-prefixed commit on `main` is fine either way for release-please's own purposes, since none of this PR's commits are themselves releasable (`feat:`/`fix:`) and release-please's manifest is being explicitly seeded rather than derived from this PR's commit history.
+**Precedent fix** — commit `35695250` ("fix: apply busy-timeout/WAL pragma to
+uptime test DB to resolve SQLite lock flake") fixed a related-but-distinct
+flake (`SQLITE_LOCKED_SHAREDCACHE` lock contention, not a TempDir cleanup
+race) in `setupTestRouterWithUptime` by swapping a bare `gorm.Open` for the
+shared `OpenTestDB(t)` helper, which:
 
-## User Decisions Required Before Implementation
+1. Opens SQLite with `_journal_mode=WAL&_busy_timeout=5000` DSN params, and
+2. Registers `t.Cleanup(func() { sqlDB, _ := db.DB(); sqlDB.Close() })`
+   immediately after `gorm.Open` succeeds.
 
-Two behavior changes were load-bearing enough that they should not be discovered after the fact — surfaced here for explicit sign-off before implementation starts, in addition to their mentions later in Edge Cases / Manual Post-Merge Follow-Ups. **Both have since been resolved by explicit user sign-off; recorded below for the record.**
+Point 2 (registering `t.Cleanup` to close the `*sql.DB` immediately after a
+successful `Open`) is the mechanism this plan reuses — but note precisely
+what `35695250` does and doesn't prove: `setupTestRouterWithUptime`'s DSN was
+an **in-memory** shared-cache DSN both before and after that fix, so that
+function never had an on-disk file for a `t.TempDir()`-cleanup race to occur
+against in the first place. `35695250` fixed a different flake
+(`SQLITE_LOCKED_SHAREDCACHE` lock contention) and simply happens to use the
+same `t.Cleanup(Close)` idiom as part of adopting the shared `OpenTestDB(t)`
+helper — it is precedent for the *code shape*, not empirical proof that this
+shape resolves a TempDir race.
 
-1. **Release cadence changes from fully-automatic to manually-gated.** Today, any non-`chore:` push to `main` is *immediately* followed by `auto-versioning.yml` cutting a tag and publishing a GitHub Release — no human action required. Under release-please, a push to `main` only updates a *standing draft PR*; nothing ships (no tag, no Release, no `orthrus-build.yml` trigger) until a human explicitly merges that PR. (Release-please does support auto-merging its own PR via a label + a second small workflow, but this plan does not implement that — see Manual Post-Merge Follow-Up #7 — so the default behavior after this migration is manual-gate-by-default.) **RESOLVED — user sign-off: APPROVED, proceed as planned (manual-gate-by-default, no auto-merge configured in this PR).**
-2. **Chore-only pushes no longer cut a release**, and **`perf:` commits stop being patch-worthy.** Today, a week where only `chore:`/`docs:`/`test:`/`ci:`/`build:`/`style:`/`refactor:` commits land on `main` still gets a patch-bumped release (since `auto-versioning.yml` treats "anything that isn't `feat:`" as patch-worthy, and its changelog-categorization step explicitly buckets `perf:` alongside `fix:`). Under release-please's default releasable-type set (`feat`, `fix`, `deps`), a chore-only period produces **no** release PR at all, and `perf:` commits — not in that default set — likewise stop triggering a release/changelog entry on their own. **RESOLVED — user sign-off: ACCEPT release-please's defaults as-is. Do not add `perf:` (or any other type) to `changelog-sections`/releasable types as a special-case override; `perf:` commits behave like `chore:`/`docs:`/`test:` under release-please's out-of-the-box config** — no config change proposed for this. This is treated as an accepted, disclosed behavior change (arguably a correctness improvement — no more empty "dependency updates and maintenance" releases), not an oversight.
+The actual reason closing the connection via `t.Cleanup` resolves *our* root
+cause is a property of Go's own documented `testing.T.Cleanup` semantics,
+independent of `35695250`: cleanup functions registered on a `*testing.T`
+run in LIFO order. A `t.Cleanup` registered inside the test body — after
+`t.TempDir()` was called earlier in that same test, which itself registers
+an implicit `os.RemoveAll` cleanup — therefore always runs *before*
+`t.TempDir()`'s own removal. Closing the connection there (triggering a WAL
+checkpoint and releasing the `-wal`/`-shm` handles) is consequently always
+complete before `os.RemoveAll` runs. Several of the "cleared" files below
+already use this exact idiom successfully against real file-backed DSNs
+inside `t.TempDir()` (e.g. `orthrus/server_test.go`, `hecate/manager_test.go`),
+which is the actual in-repo evidence that the pattern works for this root
+cause — not `35695250` itself.
 
-## Branching Note: Deviation from Normal Development-First Flow
+This plan's job is **only** to find every other test in the repo with the
+same structural defect (file-backed SQLite DSN sourced from `t.TempDir()`,
+no matching close) and apply the same class of fix, consistently. It does
+not re-litigate the root-cause mechanism above.
 
-The repo's normal convention (see the Semgrep CI plan previously in this file, and the "Merge Soak Before Main" project memory) is feature branches off `development`, PR into `development`, then a weekly `nightly` → `main` promotion carries validated work to `main` roughly a week later. This plan deliberately breaks that pattern: `auto-versioning.yml`, `release-goreleaser.yml`, and the new `release-please.yml` all trigger specifically on `main` (`workflow_run` on the main-branch Docker build, or `push: branches: [main]`), and the live release state (existing `v*` tags, the `CHARON_PR2_GATES_PASSED` variable, the next real release cut) only exists on `main`. A `development`-first path would leave the repo running two parallel, half-migrated release mechanisms for up to a week, which is worse than a direct, carefully-gated `main` PR. **Recommendation for the user**: apply extra manual review scrutiny before merging this PR, since it bypasses the usual nightly soak period by design, not by oversight.
+## Goals
+
+- Enumerate the complete, verified set of test files exhibiting this defect.
+- Apply the minimal, precedent-consistent fix (`t.Cleanup` closing the
+  underlying `*sql.DB`) to each.
+- Prove the fix actually resolves the race (not just "looks right") via
+  repeated `-race -count=N` runs, both targeted and full-package.
+- Ship as a single `fix:`-scoped PR with small, ordered, independently
+  buildable commits — no behavior change, no new code paths.
 
 # Research Findings
 
-## Existing Architecture Summary
+## Methodology
 
-| File | Role | Status found |
-|---|---|---|
-| `.github/workflows/auto-versioning.yml` | Computes next semver via `paulhatch/semantic-version@v6.0.3` from `workflow_run` of "Docker Build, Publish & Test" on `main`; hand-greps `feat:`/`fix:`/`perf:` commit-body bullets into a release note; creates tag + GitHub Release via `softprops/action-gh-release@v3`. | Working, but hand-rolled and duplicative of what release-please does natively. |
-| `.github/workflows/release-goreleaser.yml` | Triggers on `push: tags: ['v*']`; runs `goreleaser release --clean` (builds linux amd64/arm64 binary, tar.gz archive, deb/rpm via nfpm). | **Never succeeded.** Every run since `v0.3.0` fails at "Enforce PR-2 release promotion guard" (repo variable `CHARON_PR2_GATES_PASSED` has never been set — confirmed via `gh api repos/Wikid82/charon/actions/workflows/release-goreleaser.yml/runs`, `REPO_VARS_JSON: {}` on every run). `gh release view` on `v0.36.3`–`v0.36.5` shows zero attached assets. |
-| `.goreleaser.yaml` | GoReleaser config: builds linux/amd64+arm64 binary, tar.gz archive, deb/rpm packages, changelog section. Its own header comment: *"used exclusively for changelog generation... builds/archives/nfpms kept for potential future use but not currently utilized."* | Dead weight — see Decision 5. |
-| `.github/workflows/docker-build.yml` | Builds/publishes the actual Charon Docker images. Triggers: `pull_request`, `push: branches: [main, development]`, `workflow_dispatch`, `workflow_run` (Docker Lint). **Does NOT trigger on tag push** (`on:` block has no `tags:` key — confirmed by reading the full trigger block). | This is the sole real distribution channel for Charon (100% Docker). Its `docker/metadata-action` step (line ~334-345) includes `type=semver,pattern={{version}}` tag patterns, but since the workflow never runs on a tag ref, `TRIGGER_REF` is always `refs/heads/*` and those semver patterns never actually resolve to anything — they are inert/vestigial in the current design, not a live tag consumer. |
-| `.github/workflows/orthrus-build.yml` | Builds the separate Orthrus agent image. Triggers: `push: branches: [main, development], tags: ['v*']`. Its `docker/metadata-action` step (`type=semver,pattern={{version}}` etc.) **does** fire off tag pushes. | **This is the one real, live downstream consumer of the `v*` tag** that this migration must not break — release-please's created tag must still be a bare `v<semver>` (see Decision 1 / tag-naming risk below) for this workflow's `tags: ['v*']` trigger and semver Docker-tag derivation to keep working identically. |
-| `.github/workflows/auto-changelog.yml` ("Auto Changelog (Release Drafter)") | Triggers on `workflow_run` (Docker Build success on `main`) and `release: types: [published]`; runs `release-drafter/release-drafter@v7` against `.github/release-drafter.yml`. | **Not mentioned in the task brief but discovered during research — see "Additional Finding" below.** Redundant with release-please's own standing-PR/changelog mechanism; its own tag-template (`v$NEXT_PATCH_VERSION`) always increments patch regardless of PR label, so it's already partially broken (a PR labeled `feature` would still only bump patch). |
-| `.github/release-drafter.yml` | release-drafter config: label-based categorization (`feature`/`feat`, `bug`/`fix`, `chore`, `test`), `tag-template: 'v$NEXT_PATCH_VERSION'`. | Retire alongside `auto-changelog.yml` — see Additional Finding. |
-| `VERSION.md` | Documents the "canonical" release process. References `.version` as optional/non-canonical (still accurate). Also references a "release-drafter workflow" for changelog generation — **this turned out to be real** (`auto-changelog.yml`), not stale as originally suspected; the doc's inaccuracy is instead that it describes `release-goreleaser.yml`/`docker-build.yml` as if they jointly "build and publish release artifacts/images through CI" from the tag, which is false per the findings above. | Needs a full rewrite (Phase 5 / Commit 6). |
-| `.version` | Currently `v0.27.0` (stale — real latest tag is `v0.36.5`). Already documented in `VERSION.md` as "optional... not the canonical release trigger." | Recommend removal — see Decision 4. |
-| `scripts/check-version-match-tag.sh` | Compares `.version` to the latest git tag; **already self-deprecating** — prints a warning telling callers to use `.github/skills/scripts/skill-runner.sh utility-version-check` instead, then runs its own logic anyway. `.github/skills/utility-version-check-scripts/run.sh` just `exec`s this same script — the "migration" to the skill runner is circular and never actually happened. | Recommend removal — see Decision 4. |
-| `lefthook.yml` (line ~99) | `check-version-match: { glob: ".version", run: "bash scripts/check-version-match-tag.sh" }` | Remove this hook entry alongside `.version` deletion (Commit 5). |
-| `backend/internal/version/version.go` | `Version`, `BuildTime`, `GitCommit` vars, defaulted to `"dev"`/`"unknown"`, set via `-ldflags -X ...` at build time. No in-repo manifest file to bump — confirms release-please needs a manifest-less strategy (Decision 1). | Untouched by this migration. |
-| `Dockerfile` (lines ~250-286) | Injects `VERSION`/`GIT_COMMIT`/`BUILD_DATE` into the Go binary via `-ldflags -X github.com/Wikid82/charon/backend/internal/version.*=...`, **identically** to what `.goreleaser.yaml`'s `builds.ldflags` does. Also sets `VITE_APP_VERSION` for the frontend build (line ~133-134). | Confirms version injection already happens independently of GoReleaser in the real (Docker) build path — removing GoReleaser does not touch actual version injection at all. |
-| `scripts/generate-changelog.sh` | Regenerates `backend/internal/changelog/data/changelog.json` (the in-app "What's New" popup's data source, `go:embed`-ed at build time) by walking `git tag -l 'v*' --sort=v:refname` and categorizing commit subjects between each pair of tags via conventional-commit regex (feat/fix/security-scoped/other). **Depends only on real `v*` tags existing in git history** — it does not read `auto-versioning.yml`'s or `release-goreleaser.yml`'s output, the GitHub Releases API, or any state those workflows produce. | **Fully decoupled from this migration** as long as release-please still creates real, plain-`v*`-prefixed git tags (Decision 1's tag-naming requirement is what makes this true). Called from `nightly-build.yml` (line 225) and the dead `release-goreleaser.yml` (line 77) — **not** from `docker-build.yml`, meaning stable/`latest`-tagged production images currently always ship the placeholder `[]` changelog while nightly images get real data. This is a **pre-existing gap in `docker-build.yml`, out of scope for this CI/CD-versioning-only migration**, flagged here only so it isn't mistaken for something this migration caused or should fix. |
-| `backend/internal/services/update_service.go` (line 40) | Self-update checker hits `https://api.github.com/repos/Wikid82/charon/releases/latest` for `tag_name`/`html_url` only — does not need release assets. | Unaffected: release-please still publishes a `releases/latest`-eligible GitHub Release with those fields. |
-| `backend/internal/services/orthrus_service.go` (line ~222) | Orthrus agent "Tarball" install method's `curl` command points at `.../releases/latest/download/charon-agent-linux-amd64.tar.gz`. | **This asset has never existed** (GoReleaser never ran successfully, and even if it had, `.goreleaser.yaml` builds `charon`, not `charon-agent`). This is a pre-existing, already-broken feature, unrelated to and unmade-worse by this migration — flagged for the user's awareness only; fixing it is out of scope (would require actually building/publishing an agent binary, a feature-level change). |
-| `CHANGELOG.md` (repo root, 600 lines) | Hand-curated, Keep-a-Changelog-format, rich multi-line entries with issue references. Not written by any current CI workflow. | **Conflicts with release-please's default "go" strategy**, which manages `CHANGELOG.md` by prepending auto-generated entries. See Additional Finding / Decision below — resolved via `skip-changelog: true`. |
-| `renovate.json` | No references to `goreleaser`/`release-goreleaser`/`release-drafter` by name — Renovate discovers pinned actions generically by scanning workflow YAML. | No Renovate config changes needed; removing `release-goreleaser.yml` and `auto-changelog.yml` simply removes those pinned actions from Renovate's future PRs. |
-| `.gitignore` (line ~163-167) | Dedicated `# GoReleaser` section ignoring `dist/`. | Remove alongside `.goreleaser.yaml` (Commit 5). |
-| `.dockerignore` (line 13) | Lists `.goreleaser.yaml`. | Remove alongside `.goreleaser.yaml` (Commit 5). |
-| `codecov.yml` | No workflow-file or release-artifact references in `ignore:`. | No changes needed. |
+The task description named a "prior partial spot-check" of at least 14 files
+as a starting point, including `security_handler_rules_decisions_test.go`,
+`certificate_handler_security_test.go`, `backup_remote_handler_coverage_test.go`,
+`system_permissions_handler_test.go`, `import_handler_test.go`, and "several"
+in `internal/services`. Every one of those names was individually
+re-verified against the actual code rather than taken on faith, because the
+task explicitly requires confirming the pattern, not just the filename.
 
-## Reference Implementation (`/projects/go_notify_yourself`)
+Verification steps performed:
 
-- `.release-please-manifest.json`: `{".": "0.2.0"}`.
-- `.github/workflows/release-please.yml`: `googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5`, `on: push: branches: [main]`, `permissions: contents: write, pull-requests: write`, `config-file`/`manifest-file` inputs.
-- `release-please-config.json`: **as of this session, corrected to `"release-type": "go"`** (it was `"node"` earlier in the session, before the sibling repo's own config was independently fixed — this happened to land on the exact same conclusion this plan's research below reaches independently via release-please's own docs, which is reassuring cross-validation, not something to blindly trust as "already proven correct"). The repo has no `package.json`, so `"node"` would have been wrong (release-please would look for a manifest file that doesn't exist).
+1. `git show 35695250` — read the exact precedent diff (summarized above).
+2. `grep -rn "sqlite\.Open(" backend/ --include="*_test.go"` — 601 raw call
+   sites across the repo. Far too many to eyeball individually, so:
+3. Narrowed to call sites whose DSN is actually **derived from
+   `t.TempDir()`** (as opposed to `:memory:`, `file::memory:`,
+   `file:X?mode=memory&cache=shared`, or a `t.Name()`-keyed shared-cache
+   DSN) via
+   `grep -rnE "(dsn|dbPath|dbFile)\s*:?=.*(filepath\.Join\(t\.TempDir\(\)|t\.TempDir\(\)\s*\+)"`.
+   This is the only DSN shape that can leave a real file (and real
+   `-wal`/`-shm` sidecars) sitting inside the directory `t.TempDir()` will
+   later `os.RemoveAll` — an in-memory or named-shared-cache DSN has no
+   on-disk file for that race to happen to, so it is **not** an instance of
+   this specific root cause even if the same test also calls `t.TempDir()`
+   for an unrelated purpose (e.g. a certificate/backup storage directory).
+   Also checked for any inline `sqlite.Open(t.TempDir()...)` call with no
+   intermediate variable, and any `path :=`/`dbFile :=` variant — none
+   found beyond the `dsn`/`dbPath` cases already captured.
+4. For every remaining candidate file, read the actual function body (not
+   just grep proximity) to determine whether the specific `*sql.DB` behind
+   that DSN is closed — via `t.Cleanup`, a `defer`, or an explicit
+   mid-test `Close()` — before the function returns. A first-pass grep for
+   "does `sqlDB`/`t.Cleanup` appear anywhere in the file" was **not**
+   trusted on its own: it produced two false "safe" verdicts on first pass
+   (`certificate_handler_test.go`, where `sqlDB, err := db.DB()` is used
+   only to call `SetMaxOpenConns`/`SetMaxIdleConns`, never `Close()`; and
+   `notification_handler_test.go`, where the only `Close()` calls belong to
+   *different* tests that deliberately close the DB early to force a
+   500 error, not to a cleanup covering the shared setup helper). Every
+   file below was confirmed by reading the actual source, and cross-checked
+   by comparing the count of TempDir-derived `gorm.Open` sites in the file
+   against the count of genuine `t.Cleanup(...Close...)` blocks.
 
-# Six Required Decisions
+5. **Correction round**: after this plan's first draft, an independent
+   supervisor re-verification found that step 3's regex was incomplete — it
+   only matched literal `gorm.Open(sqlite.Open(` call sites and missed
+   `database.Connect(dbPath)` (`backend/internal/database/database.go:51`),
+   a production helper that wraps `gorm.Open(sqlite.Open(...))` internally
+   but doesn't contain that literal string at any *call* site, so step 3's
+   grep never surfaced tests that open their DB through it. Re-ran step 3
+   with `database.Connect(` added as a second search pattern, across the
+   entire `backend/` tree (not limited to previously-named candidates), via
+   `grep -rn "database\.Connect(" backend/ --include="*_test.go"`. This
+   surfaced 3 additional call sites across 2 files, one of them (`internal/server`)
+   an entirely new package not previously considered, plus one additional
+   site in an already-known file
+   (`certificate_handler_test.go`) that the original `gorm.Open` sweep had
+   correctly found the file for but undercounted the sites in. It also
+   surfaced `backend/cmd/api/main_test.go` (8 `database.Connect` sites) —
+   read in full and confirmed **already correct**: every site registers
+   `t.Cleanup` closing the connection, and the file's own `TestMain` doc
+   comment explicitly names this exact bug class, indicating this file was
+   already hardened against it previously. Also swept the whole
+   non-test backend tree for any *other* production wrapper around
+   `gorm.Open(sqlite.Open(`/`sql.Open(sqlite.DriverName,` beyond
+   `database.Connect` (`grep -rn "gorm\.Open(sqlite\.Open\|sql\.Open(" backend/ --include="*.go" | grep -v _test.go`) —
+   the only other wrappers found (`backup_restore_safe.go`,
+   `backup_service.go`, `database/errors.go`, `database/pending_restore.go`,
+   `database/database.go:114`) are production functions that open **and**
+   close their own connection internally within a single call, not
+   test-side setup helpers that hand a live connection back to the caller —
+   so they cannot exhibit this defect the way a test setup helper can, and
+   were not enumerated further. This second pass was believed exhaustive at
+   the time — it was not (see step 6).
 
-## Decision 1 — `release-type` for `release-please-config.json`
+6. **Second correction round — methodology change, not another regex
+   patch.** A second supervisor re-verification found that step 3's regex
+   had a deeper structural flaw than step 5 fixed: it required the
+   `t.TempDir()` call to appear **on the same line** as the
+   `dsn`/`dbPath`/`dbFile` assignment, so it could not see multi-hop
+   derivation, e.g.:
+   ```go
+   tmpDir := t.TempDir()
+   dataDir := filepath.Join(tmpDir, "data")      // hop 1 — no TempDir() on this line
+   dbPath := filepath.Join(dataDir, "charon.db") // hop 2 — no TempDir() on this line either
+   db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{}) // never matched by step 3's regex
+   ```
+   Two regex passes in a row had now under-counted, so this pass abandoned
+   line-level regex matching entirely rather than patching it a third time.
+   New method:
+   - Enumerated every `backend/` test file containing **any** of
+     `gorm.Open(sqlite.Open(`, `database.Connect(`, `sql.Open("sqlite3"`,
+     `sql.Open("sqlite"`, `sql.Open(sqlite.DriverName`,
+     `sql.Open(glebarezsqlite.DriverName` — 162 files total (154 for the
+     first pattern alone).
+   - Narrowed to the 71 of those 162 that contain `t.TempDir()`
+     **anywhere in the file** (a file-level, not line-level, filter — a
+     file with zero `t.TempDir()` calls cannot exhibit this root cause
+     regardless of how its DSN is constructed, since there is no temp
+     directory for a WAL/-shm sidecar race to happen against; this is not
+     the same mistake as steps 3/5, which required line- or call-level
+     proximity between the DSN and `t.TempDir()`, not mere file-level
+     co-occurrence).
+   - Read **every one of those 71 files in full**, manually traced each
+     DSN argument back to its origin through however many `filepath.Join`/
+     string-concatenation hops, and applied the same close/`t.Cleanup`
+     rigor as step 4 to every site that terminated at `t.TempDir()`.
+   - This surfaced 8 more affected files (23 more call sites) beyond the
+     step-5 total, all inside the already-in-scope `internal/api/handlers`
+     and `internal/services` packages — see the affected table below,
+     rows 9-16. One of these (`backend/internal/services/backup_service_test.go`,
+     line 1663) was not named by the supervisor's own re-verification
+     either — it surfaced only from this pass's full-file read, which is
+     itself evidence the "full read, not regex" approach was the right
+     call.
+   - This pass also caught a **false positive** in the supervisor's
+     report: `backend/internal/services/backup_restore_safe_error_paths_test.go`'s
+     `newLiveDBRestoreErrorTestService` (line 45) was flagged as a leak,
+     but reading both of its call sites
+     (`TestRestoreBackupSafe_RehydrateFails_NonTransient_WritesPendingFileAndWarns`
+     line 75-82, `TestRestoreBackupSafe_RehydrateFails_AndPendingFileWriteFails_ReturnsUnrecoverableError`
+     line 106-113) shows both explicitly call
+     `sqlDB.Close()` on the returned connection as part of the test's own
+     error-forcing logic (deliberately closing the DB to make the
+     subsequent `RestoreBackupSafe` call hit a "database is closed" error)
+     — the same already-established "deliberate mid-test close" pattern as
+     several files in the cleared table below (e.g.
+     `hecate_service_test.go`, `notification_service_test.go`). This file
+     is **not** added to the affected list; it is listed in the cleared
+     table instead, with this reasoning, so a future reader doesn't
+     re-flag it from the supervisor message alone without re-checking.
+   - **Empirical backstop**: per the management directive, before
+     finalizing this list, ran `cd backend && go test ./... -race -count=3`
+     against the current, still-unfixed tree (not the plan's proposed
+     fixes) specifically watching for `unlinkat`/`ENOTEMPTY`/"directory not
+     empty" output, as an independent signal alongside the manual read.
+     Results and any further findings from that run are recorded in the
+     Verification Plan section. This is inherently non-exhaustive on any
+     single run (the task's own confirmed root cause is load-dependent and
+     non-deterministic — this is precisely why it was never caught by
+     ordinary local test runs before now), so it is a backstop, not a
+     replacement for the manual read above.
 
-**Decision: `"release-type": "go"`.**
+   This enumeration was believed exhaustive for the `gorm.Open(sqlite.Open(`
+   / `database.Connect(` / `sql.Open(` universe sourced from `t.TempDir()`
+   specifically — see step 7 for one further correction.
 
-Verified directly against release-please's documented strategy table (`docs/customizing.md` release-type list, fetched this session):
+7. **Third correction — `os.MkdirTemp()` is an equivalent trigger to
+   `t.TempDir()`.** A third supervisor re-verification pass checked whether
+   the file-level `t.TempDir()`-anywhere filter in step 6 could itself drop
+   a genuine candidate whose temp-directory trigger isn't `t.TempDir()` at
+   all. It found one: `backend/internal/api/handlers/backup_handler_coverage_test.go`'s
+   `setupBackupTestWithDB` (lines 40-79) opens `gdb` via
+   `gorm.Open(sqlite.Open(dbPath), &gorm.Config{})` (line 58) against a
+   `dbPath` that traces back to `os.MkdirTemp("", "cpm-backup-db-test")`
+   (line 43), not `t.TempDir()` — so it fell outside step 6's literal scope
+   even though the file itself is in the 71-file `t.TempDir()`-containing
+   set (for unrelated, already-correctly-cleared fixtures elsewhere in the
+   same file) and was read in full. The race mechanism is identical: each
+   of `setupBackupTestWithDB`'s 4 callers runs `defer os.RemoveAll(tmpDir)`
+   in place of `t.TempDir()`'s implicit cleanup, and an unclosed
+   connection's live WAL/-shm sidecars can race that removal exactly as
+   they race `t.TempDir()`'s. Every other `os.MkdirTemp(` test file in the
+   repo (8 total: `backup_handler_coverage_test.go`, `backup_handler_test.go`,
+   `crowdsec_bouncer_test.go`, `logs_handler_test.go`, `backup_service_test.go`,
+   `certificate_service_test.go`, `crowdsec_startup_test.go`,
+   `log_service_test.go`) was checked and this is the only additional leak —
+   the rest either don't open a DB near their `MkdirTemp` call, already
+   close it (`backup_handler_test.go`'s `setupBackupTest`,
+   `backup_service_test.go`'s `createSQLiteTestDB`), or use an
+   in-memory/shared-cache DSN unrelated to the temp dir
+   (`certificate_service_test.go`, `crowdsec_startup_test.go`). This
+   enumeration is now believed exhaustive for both trigger shapes
+   (`t.TempDir()` and `os.MkdirTemp()` + `defer os.RemoveAll`). The
+   corrected complete enumeration — **17 files, 41 sites** — is reflected in
+   the tables below.
 
-| release-type | Description (verbatim from docs) |
+### Files investigated and cleared (do NOT need this fix)
+
+| File | Why it doesn't match |
 |---|---|
-| `go` | "A repository with a CHANGELOG.md" |
-| `simple` | "A repository with a version.txt and a CHANGELOG.md" |
-| `node` | "A Node.js repository, with a package.json and CHANGELOG.md" |
+| `backend/internal/api/handlers/backup_remote_handler_coverage_test.go` | DB is `gorm.Open(sqlite.Open("file::memory:"), ...)` — pure in-memory, no on-disk file. `t.TempDir()` there backs `NewBackupRemoteService`'s storage dir, unrelated to the DB connection. |
+| `backend/internal/api/handlers/system_permissions_handler_test.go` | DB is `gorm.Open(sqlite.Open("file::memory:?cache=shared"), ...)` (two sites) — named shared-cache in-memory, no on-disk file. All `t.TempDir()` calls in this file back filesystem-permission test fixtures, unrelated to the DB. |
+| `backend/internal/api/handlers/import_handler_test.go` | DB is `gorm.Open(sqlite.Open(":memory:"), ...)` — pure in-memory. `t.TempDir()` calls back import mount-point fixtures, unrelated to the DB. |
+| `backend/internal/caddy/manager_test.go`, `manager_patch_coverage_test.go`, `manager_additional_test.go`, `manager_ssl_provider_test.go`, `manager_multicred*_test.go` | DSNs are `file:%s?mode=memory&cache=shared` (keyed by `t.Name()`) or bare `:memory:`. `t.TempDir()` backs Caddyfile output directories, unrelated to the DB connection. |
+| `backend/internal/orthrus/server_test.go` | File-backed DSN in `t.TempDir()`, **but already has** `t.Cleanup(func() { _ = sqlDB.Close() })` immediately after `db.DB()` (line 37). Already precedent-correct. |
+| `backend/internal/hecate/manager_test.go` | Same — file-backed, already has `t.Cleanup(func() { _ = sqlDB.Close() })` (line 33). |
+| `backend/internal/services/credential_service_test.go` | File-backed, already has `t.Cleanup(func() { _ = sqlDB.Close() ... })` (lines 34-36). |
+| `backend/internal/services/security_service_test.go` | File-backed, already has `t.Cleanup` closing `sqlDB` with a nil-guard (lines 30-33). |
+| `backend/internal/services/stats_ingester_test.go` | File-backed, already has `t.Cleanup` closing `sqlDB` (lines 28-32). |
+| `backend/internal/services/uptime_service_test.go` | File-backed, already has `t.Cleanup` closing `sqlDB` (lines 41-45). |
+| `backend/internal/services/hecate_service_test.go` | File-backed, already has `t.Cleanup(func() { _ = sqlDB.Close() })` (line 31); extra mid-test `Close()` calls elsewhere in the file are deliberate error-forcing closes on already-cleanup-registered connections, not leaks. |
+| `backend/internal/services/stats_service_test.go` | File-backed, already has `t.Cleanup` closing `sqlDB` (lines 29-33). |
+| `backend/internal/services/orthrus_service_test.go` | File-backed, already has `t.Cleanup(func() { _ = sqlDB.Close() })` (line 27). |
+| `backend/internal/services/backup_service_driver_test.go` | Uses raw `database/sql` + `github.com/glebarez/sqlite` (not GORM) with `t.Cleanup`/`defer` closes on every connection (lines 24-25, 63, 90). Already correct. |
+| `backend/internal/services/notification_service_test.go` | The one TempDir-derived site (`TestNotificationService_EnsureNotifyOnlyProviderMigration_UpdateError`, ~line 1777) explicitly closes both the rw and ro connections it opens (lines 1791, 1810-1812) as part of the test's own logic. Already correct. |
+| `backend/internal/database/errors_test.go`, `backend/internal/database/pending_restore_test.go`, `backend/internal/services/backup_restore_safe_integrity_test.go` | Use raw `database/sql` (`sql.Open("sqlite3", ...)`) with `defer`/explicit `Close()` on every connection, or exercise error paths where the DB is intentionally never opened (e.g. `missing-parent/missing.db`). Already correct / not applicable. |
+| `backend/internal/api/handlers/backup_handler_coverage_test.go`, `backup_handler_v2_test.go` | The `t.TempDir()`-backed `.db` files here are built via `createValidSQLiteDBWithCharonTables`, which uses raw `sql.Open("sqlite3", path)` with `defer db.Close()` — never GORM, always closed. Already correct. |
+| `backend/internal/services/backup_service_async_create_test.go` | `t.TempDir()`-backed `.db` paths (`healthy.db`, `not-a-db.db`) are passed to `checkDatabaseIntegrity(dbPath)` / `os.WriteFile`, never opened via `gorm.Open`. Not applicable. |
+| `backend/cmd/api/main_test.go` | 8 `database.Connect(dbPath)` sites, all `t.TempDir()`-derived — but every single one already registers `t.Cleanup` closing `sqlDB` (verified by reading all 8 call sites, lines ~46-52, 98-104, 131-137, 164-188 (closes an earlier connection at 180 before reconnecting at 182, then cleans up the new one at 186-188), 233-239, 255-261, 287-293). `TestMain`'s own doc comment (lines 19-23) explicitly names this exact "TempDir RemoveAll cleanup: directory not empty" failure mode, indicating this file was already hardened against it in a prior pass. Already correct. |
+| `backend/internal/services/backup_restore_safe_error_paths_test.go` | **Supervisor-flagged false positive (Methodology step 6).** `newLiveDBRestoreErrorTestService` (line 45) is multi-hop `t.TempDir()`-derived and its returned `db` is not closed *inside the helper* — but both of its 2 callers (lines 75, 106) explicitly call `sqlDB.Close()` on it as part of their own error-forcing test logic before the function returns, the same deliberate-mid-test-close pattern already established as safe elsewhere in this table. Not affected. |
+| `backend/internal/services/backup_service_v2_hardening_test.go` | Its `createCharonLikeTestDB`/`newHardeningTestService` helpers (2 `t.TempDir()`-derived sites) use raw `database/sql` (`sql.Open("sqlite3", ...)`) with `t.Cleanup(func(){ db.Close() })` (line 32); `newHardeningTestService` passes `nil` as the service's `*gorm.DB` (only `DatabaseName`/`DataDir` are used), so there is no separate leaked GORM connection either. Already correct. |
+| `backend/internal/api/handlers/coverage_quick_test.go`, `import_handler_coverage_test.go`, `security_handler_waf_test.go` | Each has 1-2 `t.TempDir()`-derived `gorm.Open`/paired rw+ro sites; each already closes every connection it opens (`coverage_quick_test.go` lines 29 `defer` + 60-64 `t.Cleanup`; `import_handler_coverage_test.go` lines 40-42/49-53 and 483-485/490-492, both rw-then-ro pairs fully closed; `security_handler_waf_test.go` lines 565-573, closes the DB and removes the `-wal`/`-shm` siblings too — this file is actually a good in-repo model of the target fix pattern). Already correct. |
+| `backend/internal/database/pending_restore_coverage_test.go`, `pending_restore_process_test.go` | Raw `sql.Open("sqlite3", path)` helpers (`buildIntegrityCheckFailingSQLiteFile`, `createMarkerSQLiteFile`, `readMarkerValue`), each with an explicit `require.NoError(t, db.Close())` or `defer db.Close()`. Already correct. |
+| `backend/internal/services/uptime_service_pr1_test.go` | 2 `t.TempDir()`-derived sites (`setupPR1TestDB`, `setupPR1ConcurrentDB`), both already register `t.Cleanup` closing `sqlDB` (lines 41-46, 451-457). Already correct. |
+| `backend/internal/api/handlers/certificate_handler_patch_coverage_test.go`, `certificate_handler_upload_export_test.go`, `handlers_blackbox_test.go`, `logo_handler_test.go`, `banner_handler_test.go`, `backup_remote_handler_test.go`, `orthrus_handler_test.go`; `backend/internal/api/routes/routes_test.go`; `backend/internal/crowdsec/console_enroll_test.go`; `backend/internal/services/backup_service_options_test.go`, `backup_restore_safe_async_test.go` (its one `gorm.Open` site, line 139 — the file's other site, line 30, is the already-cleared raw-`sql.Open` `rawDB`), `backup_remote_service_test.go`, `backup_service_v1_compat_test.go`, `backup_settings_v2_test.go`, `crowdsec_whitelist_service_test.go`, `certificate_service_checkexpiry_test.go`, `certificate_service_coverage_test.go`, `certificate_service_extra_coverage_test.go`, `certificate_service_patch_coverage_test.go`, `certificate_service_sync_coverage_test.go`, `certificate_service_test.go` | All DSNs in these files trace back to `t.Name()`-keyed shared-cache in-memory DSNs (`file:%s?mode=memory&cache=shared`, sometimes with a fixed prefix) or bare `:memory:`/`file::memory:` — never to `t.TempDir()`, even where the same file separately calls `t.TempDir()` for unrelated on-disk fixtures (uploaded files, cert/backup storage dirs, mount points). Confirmed by reading every `dsn`/`dbPath` assignment in each file. Not applicable. |
 
-`simple` was the task brief's suggested candidate to verify — it is **not** correct: it manages a `version.txt` manifest file, which Charon does not have and does not want (per the pre-verified finding: no in-repo version manifest exists, version comes from git tag → Docker build-arg → Go ldflags only). `go` is the only listed strategy requiring **zero** manifest file — exactly Charon's situation, and it still manages `CHANGELOG.md` (mitigated via `skip-changelog: true`, see Additional Finding below) and still creates git tags + GitHub Releases from Conventional Commits.
+### Files confirmed AFFECTED (need the fix)
 
-`node` (the sibling repo's original, now-corrected choice) would have required release-please to manage a `package.json` that doesn't exist in either repo — confirmed by direct filesystem check of `/projects/go_notify_yourself` (no `package.json` present). Not applicable to Charon either.
+**17 files, 41 distinct unclosed-connection call sites** (corrected three
+times: first by a supervisor re-verification pass — Methodology step 5 —
+from an initial draft of 6 files / 14 sites to 8 files / 17 sites; then by a
+second, methodology-changing pass — step 6 — to 16 files / 40 sites; then by
+a third, narrowly-scoped pass — step 7 — to the current 17 files / 41
+sites). Rows 1-8 are unchanged from the step-5 correction; rows 9-16 are new
+in step 6; row 17 is new in step 7:
 
-## Decision 2 — Downstream consumers of the tag/Release that `auto-versioning.yml` currently produces
+| # | File | Function(s) | Lines (approx.) | Shape |
+|---|---|---|---|---|
+| 1 | `backend/internal/api/handlers/security_handler_rules_decisions_test.go` | `setupSecurityTestRouterWithExtras` | 24-30 (func), dsn L27, `gorm.Open` L28 | Shared setup helper, used by multiple tests incl. the originally-reported `TestSecurityHandler_CreateAndListDecisionAndRulesets` |
+| 2 | `backend/internal/api/handlers/certificate_handler_security_test.go` | `TestCertificateHandler_Delete_NotificationRateLimiting` | 150-166 (func), dbPath L151, `gorm.Open` L152 | Inline, single site |
+| 3 | `backend/internal/api/handlers/certificate_handler_test.go` | `TestDeleteCertificate_CreatesBackup` | 87-91 | Inline, 4 near-identical duplicated blocks with `_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1` + pool tuning |
+| 3 | (same file) | `TestDeleteCertificate_DiskSpaceCheckError` | 641-645 | " |
+| 3 | (same file) | `TestDeleteCertificate_ExpiredLetsEncrypt_NotInUse` | 694-696 | " |
+| 3 | (same file) | `TestDeleteCertificate_ValidLetsEncrypt_NotInUse` | 752-754 | " |
+| 3 | (same file) | `TestDeleteCertificate_NotificationRateLimit` | 842-886 (func), tmpFile L843, `gorm.Open(sqlite.Open(tmpFile), ...)` L844 | **5th site, found in the correction round.** Bare DSN (no WAL/busy-timeout/foreign_keys params, no pool tuning) — structurally distinct from the other 4 in this file, so it is *not* folded into the same helper (see Technical Specifications). |
+| 4 | `backend/internal/api/handlers/notification_handler_test.go` | `setupNotificationTestDB` | 20-28 (func), dsn L22, `gorm.Open` L23 | Shared setup helper, used by `TestNotificationHandler_List` and others (two *other* tests in this file deliberately close the DB mid-test to force a 500 — those are fine as-is; the helper itself is the leak) |
+| 5 | `backend/internal/services/enhanced_security_notification_service_patch_coverage_test.go` | `TestEnhancedService_UpdateManagedProviders_SaveError` | 421-450ish, dbPath L422, `roDB` opened ~L440, never closed (the paired `rwDB` on the same path *is* closed at ~L438) | Inline, rw closed / ro leaked pair |
+| 5 | (same file) | `TestEnhancedService_MigrateFromLegacyConfig_TransactionWriteErrors/create_managed_provider_error` (subtest) | dbPath L529, `roDB` opened ~L541, never closed | " |
+| 5 | (same file) | `TestEnhancedService_MigrateFromLegacyConfig_TransactionWriteErrors/update_managed_provider_error` (subtest) | dbPath L550, `roDB` opened ~L562, never closed | " |
+| 5 | (same file) | `TestEnhancedService_IsFeatureEnabled_CreateAndRequeryPath` | dbPath L573, primary `db` never closed (only the second `raceDB` connection is closed, ~L629) | Inverse of above: primary leaked, secondary closed |
+| 5 | (same file) | `TestEnhancedService_IsFeatureEnabled_CreateAndRequeryErrorPath` | dbPath L713, `readonlyDB` opened ~L718, never closed (only the primary `db` is closed, ~L728) | rw closed / ro leaked pair |
+| 6 | `backend/cmd/seed/seed_smoke_test.go` | `TestSeedMain_ForceAdminUpdatesExistingUserPassword` | 42-65ish, dbPath ~L63, `gorm.Open` ~L64 | Inline, package `main`, plain `t.Fatalf` idiom (no testify) |
+| 6 | (same file) | `TestSeedMain_ForceAdminWithoutPasswordUpdatesMetadata` | 104-125ish, dbPath ~L123, `gorm.Open` ~L124 | " |
+| 7 | `backend/internal/api/handlers/db_health_handler_test.go` | `TestDBHealthHandler_Check_CorruptedDatabase` | 207-256 (func), dbPath L211, `db2` opened via `database.Connect(dbPath)` L227, never closed | **Found in the correction round — entire file previously missed** (uses `database.Connect`, not a literal `gorm.Open(sqlite.Open(` string). The *first* connection in this function (opened L214) is correctly closed at L220-221 before the file is deliberately corrupted; the *second*, reconnected `db2` (L227) is what leaks. All 9 other `database.Connect` sites in this file (lines 42, 90, 124, 152, 182, 271, 278, 317, 359) were individually checked and are either in-memory DSNs (`file::memory:?cache=shared`, not applicable) or already properly closed (L128 `defer`, L282-284 explicit close) — this is the file's only leak. |
+| 8 | `backend/internal/server/emergency_server_test.go` | `setupTestDB` | 21-37 (func), tmpFile L26, `database.Connect(tmpFile)` L27 | **Found in the correction round — entire file and package previously missed** (uses `database.Connect`; also `internal/server` was not among the packages the original candidate search touched at all). Shared setup helper used by every test in the file; the only other `Close()` calls in the file are unrelated `resp.Body.Close()` (HTTP response bodies), not the DB. |
+| 9 | `backend/internal/services/backup_service_rehydrate_test.go` | `TestBackupService_RehydrateLiveDatabase` | `tmpDir`(34)→`dataDir`(35)→`dbPath`(38), `gorm.Open` L39, never closed | **All 6 sites in this file found in the second correction round (step 6) — multi-hop `t.TempDir()`→`filepath.Join`→`filepath.Join` chains step 3/5's line-level regex could never match.** |
+| 9 | (same file) | `TestBackupService_RehydrateLiveDatabase_FromBackupWithWAL` | same chain shape, `gorm.Open` L81, never closed | " |
+| 9 | (same file) | `TestBackupService_RehydrateLiveDatabase_InvalidRestoreDB` | `activeDB` L171, never closed | " |
+| 9 | (same file) | `TestBackupService_RehydrateLiveDatabase_InvalidTableIdentifier` | `activeDB` L195 **and** `restoreDB` L200, both never closed | " |
+| 9 | (same file) | `TestBackupService_RehydrateLiveDatabase_MidLoopFailure_RollsBackAtomically` | `activeDB` L256, never closed (this test's *other* connection, `restoreDB` L268, is a raw `sql.Open("sqlite3", ...)` correctly closed at L280 — not a leak) | " |
+| 10 | `backend/internal/services/backup_service_wave4_test.go` | `setupRehydrateDBPair` | `activeDB` L61 **and** `restoreDB` L66, both never closed | Shared helper used by 2 tests (`TestBackupServiceWave4_Rehydrate_DetachErrorNotBusyOrLocked`, `..._WALCheckpointErrorNotBusyOrLocked`) — fixing this one function fixes both callers |
+| 10 | (same file) | `TestBackupServiceWave4_Rehydrate_CheckpointWarningPath` | `activeDB` L80, never closed | Inline |
+| 10 | (same file) | `TestBackupServiceWave4_Rehydrate_CreateTempFailure` | `activeDB` L100, never closed | Inline |
+| 10 | (same file) | `TestBackupServiceWave4_Rehydrate_CopyErrorFromDirectorySource` | `activeDB` L115, never closed | Inline |
+| 10 | (same file) | `TestBackupServiceWave4_Rehydrate_CopyTableErrorOnSchemaMismatch` | `activeDB` L134 **and** `restoreDB` L139, both never closed | Inline |
+| 10 | (same file) | `TestBackupServiceWave4_Rehydrate_ClearSQLiteSequenceError` | `activeDB` L198 **and** `restoreDB` L203, both never closed | Inline |
+| 10 | (same file) | `TestBackupServiceWave4_Rehydrate_CopySQLiteSequenceError` | `activeDB` L223 **and** `restoreDB` L228, both never closed | Inline (11 sites total in this file) |
+| 11 | `backend/internal/services/backup_service_wave5_test.go` | `TestBackupServiceWave5_Rehydrate_FallbackWhenRestorePathMissing` | `activeDB` L20, never closed | Inline. (This file's 2 other rehydrate tests call the already-affected `setupRehydrateDBPair` from `backup_service_wave4_test.go`, row 10 — fixed there, not double-counted here.) |
+| 12 | `backend/internal/services/backup_service_cleanup_db_test.go` | `TestCleanupOldBackups_ExcludesPreRestoreRecordsFromRetention` | `db` L33, never closed | Inline |
+| 13 | `backend/internal/services/backup_service_encryption_required_test.go` | `newRemoteStorageTestService` | `db` L30, never closed (`t.Cleanup(svc.Stop)` L44 stops the service's background scheduler, not the DB) | Shared helper used by 2 subtests of `TestComputeEncryptionKeyRequired_PositiveAndNegative` |
+| 14 | `backend/internal/services/backup_restore_safe_coverage_test.go` | `newLiveDBHardeningTestService` | `db` L288, never closed (same `t.Cleanup(svc.Stop)`-but-not-DB pattern as row 13) | Shared helper used by 2 tests. (This file's *other* TempDir-derived site, `rawDB` L139, was already correctly closed and is in the cleared table — not affected.) |
+| 15 | `backend/internal/services/backup_service_test.go` | `TestBackupService_RehydrateLiveDatabase_MissingSource` | `tmpDir`(1656)→`dataDir`(1657)→`dbPath`(1660), `gorm.Open` L1663, never closed | **Not named by the supervisor's own re-verification — surfaced only from this pass's full-file read of the package's other files.** `db.DB()`/`Close()` is never called; `os.Remove(dbPath)` (L1672) removes the file but not the open connection. (This file's `createSQLiteTestDB` helper, L21-33, used by many other tests in the same file and package, is already correct — the package's own safe shared fixture helper.) |
+| 16 | `backend/internal/api/handlers/crowdsec_wave7_test.go` | `TestCrowdsecWave7_Start_CreateSecurityConfigFailsOnReadOnlyDB` | `roDB` L43, never closed (paired `rwDB` L35 *is* closed at L41, deliberately, to force the read-only failure the test exercises) | Inline, rw closed / ro leaked pair — same shape as row 5's sites |
+| 17 | `backend/internal/api/handlers/backup_handler_coverage_test.go` | `setupBackupTestWithDB` | 40-79 (func), `os.MkdirTemp` L43, `gdb` opened via `gorm.Open(sqlite.Open(dbPath), ...)` L58, never closed | **Found in the third correction round (step 7) — trigger is `os.MkdirTemp()` + each of the 4 callers' `defer os.RemoveAll(tmpDir)`, not `t.TempDir()`, but the same unclosed-WAL-sidecar-races-directory-removal mechanism applies.** Shared setup helper used by 4 callers (lines 88, 139, 157, 187), none of which close `gdb` either — only `t.Cleanup(svc.Stop)` (L63, stops the service) and each caller's own `defer os.RemoveAll` run. |
 
-Read in full: `docker-build.yml`, `orthrus-build.yml`, `auto-changelog.yml`, `nightly-build.yml`, `update_service.go`, `orthrus_service.go`, `generate-changelog.sh`.
+Cross-check: for every affected file, `grep -c "gorm.Open(sqlite.Open"` vs.
+`grep -c "t.Cleanup"` was compared to the TempDir-derived-site count above —
+`certificate_handler_security_test.go` (5 opens, 0 t.Cleanup),
+`certificate_handler_test.go` (19 `gorm.Open` occurrences — most in-memory
+and irrelevant, 0 t.Cleanup total, 5 TempDir-derived sites),
+`notification_handler_test.go` (1 open, 0 t.Cleanup),
+`enhanced_security_notification_service_patch_coverage_test.go` (35 opens —
+most in-memory and irrelevant, 0 t.Cleanup total), `seed_smoke_test.go` (2
+opens, 3 t.Cleanup — all 3 restore `os.Chdir`, none close the DB),
+`db_health_handler_test.go` (10 `database.Connect` sites, 1 leak — read in
+full, table above), `emergency_server_test.go` (1 `database.Connect` site,
+0 DB-related `t.Cleanup`/`Close`). This matches the per-function reading
+above.
 
-| Consumer | Trigger | Depends on |
-|---|---|---|
-| `orthrus-build.yml` | `push: tags: ['v*']` | **Real dependency.** Must keep firing on the same bare `v<semver>` tag pattern; its `docker/metadata-action` step derives `type=semver` Docker tags directly from the pushed tag ref. |
-| `docker-build.yml` | Branch push only, never tags | **No dependency** — confirmed dead/inert `type=semver` patterns in its own `docker/metadata-action` config (never actually reached because `TRIGGER_REF` is always a branch ref). Nothing to preserve here beyond not breaking branch-push behavior, which this migration doesn't touch. |
-| `release-goreleaser.yml` | `push: tags: ['v*']` | **No real dependency** — never succeeded, produces nothing (Decision 5). |
-| `auto-changelog.yml` | `workflow_run` + `release: types: [published]` | Redundant, not load-bearing for anything else — see Additional Finding. |
-| `update_service.go` | Polls `releases/latest` REST endpoint | Needs *a* GitHub Release to exist with `tag_name`/`html_url` — release-please provides this natively. |
-| `generate-changelog.sh` (via `nightly-build.yml`) | Reads `git tag -l 'v*'` directly | Needs real `v*` tags in git history — release-please provides this as long as tag-naming is kept bare (Decision 1's `include-component-in-tag: false`, see risk below). |
+Rows 9-16 cross-check: `backup_service_rehydrate_test.go` (6 `gorm.Open`
+occurrences in the file, all 6 TempDir-derived, 0 t.Cleanup — every one
+affected), `backup_service_wave4_test.go` (11 TempDir-derived
+`gorm.Open`/pair sites, 0 t.Cleanup), `backup_service_wave5_test.go` (1
+direct site + 2 calls into wave4's already-counted helper), `backup_service_cleanup_db_test.go`
+(1 site, 0 t.Cleanup), `backup_service_encryption_required_test.go` (1
+site, `t.Cleanup(svc.Stop)` present but not DB-closing),
+`backup_restore_safe_coverage_test.go` (2 TempDir-derived sites total — 1
+already-correct raw `sql.Open`, 1 leaked `gorm.Open`), `backup_service_test.go`
+(2 `gorm.Open` occurrences in the whole 1700+-line file: 1 the package's
+already-correct shared helper, 1 leaked), `crowdsec_wave7_test.go` (2
+`gorm.Open` sites, 1 closed deliberately, 1 leaked).
 
-**Conclusion**: the only workflow with a genuine, live functional dependency on the tag is `orthrus-build.yml`, and it only needs the tag to (a) exist, (b) match glob `v*`, (c) parse as semver for the `docker/metadata-action` `type=semver` patterns. Release-please satisfies all three by default, provided tag-naming is pinned explicitly (see risk callout in Technical Specifications).
+**Note on the task's "at least 14 files" figure and the plan's own revision
+history**: the enumeration has now been corrected three times. First draft:
+6 files / 14 sites. After a supervisor re-verification (Methodology step 5,
+which added `database.Connect` to the search): 8 files / 17 sites. After a
+second supervisor re-verification that changed the methodology itself
+rather than patching the search pattern again (step 6, full manual read of
+all 71 `t.TempDir()`-containing candidate files regardless of DSN-line
+shape): 16 files / 40 call sites. After a third, narrowly-scoped supervisor
+pass that checked whether the `t.TempDir()`-anywhere file filter itself
+could drop a genuine candidate using a different temp-directory trigger
+(step 7, `os.MkdirTemp()` + `defer os.RemoveAll`): the current, believed-final
+**17 files / 41 call sites**. Three of the originally-named files
+(`backup_remote_handler_coverage_test.go`, `system_permissions_handler_test.go`,
+`import_handler_test.go`) never exhibited this root cause at all (in-memory
+DSNs — see cleared table above); one supervisor-flagged site
+(`backup_restore_safe_error_paths_test.go`) was a false positive, corrected
+in step 6 with evidence (see above) and independently re-confirmed as a
+true false-positive in the step-7 review round; one site
+(`backup_service_test.go` line 1663) was found by neither the original
+spot-check nor either of the first two supervisor passes — only by this
+plan's own full-file read in step 6; and one file
+(`backup_handler_coverage_test.go`) was found only in the step-7 pass by
+checking every `os.MkdirTemp(` test file in the repo (8 total) for the same
+missing-cleanup defect under a different trigger shape. Reviewers should
+still feel free to re-run the verification independently before
+implementation starts — this enumeration has now been corrected three
+times in a row, so it is deliberately documented as a re-checkable process
+(162 candidate files → 71 containing `t.TempDir()` → 16 confirmed affected
+via step 6, plus 1 more via step 7's `os.MkdirTemp()` sweep → 17 total, all
+reproducible from the commands in Methodology steps 6-7) rather than
+asserted as simply final.
 
-## Decision 3 — Interaction with the nightly→main "merge commit only" rule
+## Existing shared test-DB helpers (why we are NOT adding a new one)
 
-**Decision: keep the CLAUDE.md rule unchanged. Do not relax it, and do not propose editing CLAUDE.md.**
-
-Investigated directly against release-please's docs (`docs/design.md`, GitHub README commit-conventions section, fetched this session):
-
-- Release-please's own docs state it **"highly recommends"** squash-merging *feature* PRs into a linear history, and that it discovers releasable commits by **iterating backwards through actual git commits** (not by re-parsing PR bodies or bullet-ized squash-commit text) until it hits a known prior release SHA.
-- This is superficially the opposite of Charon's current constraint (which exists specifically to keep bullet-per-commit squash bodies parseable by `paulhatch/semantic-version`'s regex). But the underlying *mechanism* that makes the constraint necessary is unchanged: the weekly `nightly` → `main` promotion PR itself accumulates a full week of already-individually-squashed feature commits. If that promotion PR were **squash-merged** into `main`, all of that week's discrete `feat:`/`fix:` commits would collapse into a single commit on `main` whose own subject line is whatever GitHub picks for the squash (typically the PR title, not necessarily a clean Conventional Commit type) — release-please's per-commit git-log walk would then see **one** commit for the entire week, not one-per-change, and lose the same granularity that currently breaks `paulhatch`. Using **"Create a merge commit"** for the promotion PR preserves each week's individual squashed-per-feature commits as distinct commits in `main`'s history, which is exactly what release-please's commit-by-commit walk needs to correctly attribute each `feat:`/`fix:` to the right release.
-- **Conclusion**: the rule's *justification* text in CLAUDE.md ("squash merging collapses all commits into bullet lines that the auto-versioning workflow cannot parse") becomes slightly inaccurate wording once `paulhatch` is gone, but the *rule itself* remains equally necessary under release-please, for an adjacent reason. This plan does **not** propose editing CLAUDE.md's rule or its wording — flagging the wording-vs-mechanism nuance here is for the user's own future reference only, per the task's instruction not to propose CLAUDE.md edits.
-
-## Decision 4 — Fate of `.version` and `scripts/check-version-match-tag.sh`
-
-**Decision: remove both, plus the `check-version-match` lefthook hook entry (`lefthook.yml` line ~99) and the now-pointless `.github/skills/utility-version-check*` skill wrapper.**
-
-Reasoning:
-- `.version` is already stale (`v0.27.0` vs. real latest tag `v0.36.5`) and already documented in `VERSION.md` as "optional... not the canonical release trigger" — it carries no functional weight today.
-- `scripts/check-version-match-tag.sh` is **already self-deprecated in its own source** (prints a warning telling callers to use the skill-runner instead) — but `.github/skills/utility-version-check-scripts/run.sh` just `exec`s this same script, so the "recommended" migration path is circular dead code, not an actual alternative implementation.
-- Release-please replaces the entire concept this check exists for: `.release-please-manifest.json` becomes the single source of truth for "what version are we at," continuously kept in sync with tags by release-please itself. A hand-run parity check between a stale flat-text file and `git tag` adds no safety release-please doesn't already provide, and having *two* "canonical" version records (`.release-please-manifest.json` and `.version`) invites exactly the kind of drift the check script exists to catch.
-- The check is non-blocking today (`exit 0` when `.version` is absent, per the script's own logic), so removing the file cannot regress any currently-enforced gate.
-
-**Full blast radius** (repo-wide `grep -rln "utility-version-check\|check-version-match-tag"`, re-verified against Supervisor's independent review):
-
-| Reference | Action |
-|---|---|
-| `.github/skills/utility-version-check-scripts/run.sh`, `.github/skills/utility-version-check.SKILL.md`, `scripts/check-version-match-tag.sh`, `.version`, `lefthook.yml`'s `check-version-match` hook | Delete/remove — already in original Deleted/Modified Files scope. |
-| `.github/skills/README.md:72` (Utility Skills table row) and `:267` (kebab-case naming example, `utility-version-check` bullet) | **Now added to this plan's scope**: remove both — assigned to Commit 5. |
-| `.vscode/tasks.json:694-698` ("Utility: Check Version Match Tag" task, shells out to `skill-runner.sh utility-version-check`) | **Now added to this plan's scope**: remove this task block — assigned to Commit 5. Left in place, it would error every time it's run post-deletion. |
-| `.github/skills/utility-bump-beta.SKILL.md:186` ("Related Skills" cross-link to `utility-version-check.SKILL.md`) | **Now added to this plan's scope**: remove the dead link (keep the rest of that skill's "Related Skills" list intact) — assigned to Commit 5. |
-| `CLAUDE.md:261` (Skills table row: `utility-version-check \| Check tool versions`) | **Amended after explicit user sign-off**: the user has explicitly authorized editing this governance row as part of this PR ("include the edit in claude.md. no need to make it a follow-up when it can be done now"), satisfying this plan's own constraint against silently touching CLAUDE.md. **Decision: remove the `utility-version-check` row from CLAUDE.md's Skills table (line 261) in this PR**, folded into Commit 5 alongside the rest of this skill's deletion (contingent on that deletion actually happening in this same commit, which it does — see Commit 5 scope). No longer deferred as a Manual Post-Merge Follow-Up. |
-
-## Decision 5 — Fate of `.goreleaser.yaml` and `release-goreleaser.yml`
-
-**Decision: remove both entirely.**
-
-Confirmed via full reads of `docker-build.yml` and `orthrus-build.yml` (Decision 2) that neither depends on GoReleaser's build/archive/nfpm output — Charon's Docker images are built directly by `docker-build.yml`'s own multi-stage `Dockerfile`, with version injected via ldflags independently and identically to what `.goreleaser.yaml`'s `builds.ldflags` section does (Dockerfile lines ~250-286 vs. `.goreleaser.yaml`'s `builds[0].ldflags`). `.goreleaser.yaml`'s own header comment already self-documents as unused: *"builds, archives, and nfpms... kept for potential future use but are not currently utilized."*
-
-The only *other* thing `release-goreleaser.yml` does is call `scripts/generate-changelog.sh` (line 77) — but that script is independently invoked by `nightly-build.yml` too, and depends only on git tags, not on GoReleaser itself, so removing the workflow does not remove changelog-generation capability from anywhere it currently actually runs.
-
-**No nfpm/package-distribution consumer exists** — grep across `docs/`, `.github/workflows/`, and `Dockerfile` for `nfpm`/`.deb`/`.rpm` distribution steps outside `.goreleaser.yaml` itself returns nothing; Charon ships exclusively as Docker images per `ARCHITECTURE.md`'s stated deployment model.
-
-## Decision 6 — Fate of the "PR-2 release promotion guard"
-
-**Decision: the gate is a deliberate, purpose-built temporary safety mechanism (not a misconfigured accident), whose guarded purpose has since been satisfied and whose host workflow is being retired anyway — so it is removed as a natural consequence of Decision 5, not silently dropped on its own merits.**
-
-Evidence trail:
-- `git log -S"Enforce PR-2 release promotion guard"` traces the gate's introduction to commit `834b27f2` / `45458df1`, `"chore: Add Caddy compatibility gate workflow and related scripts; enhance SMTP settings tests"`, dated 2026-02-23. That same commit also adds `.github/workflows/caddy-pr1-compat.yml` and `docs/reports/caddy-pr1-compatibility-matrix.md`.
-- `docs/reports/caddy-security-posture.md`, also dated 2026-02-23, is explicitly titled **"PR-2 Security Patch Posture and Advisory Disposition"** — a Caddy 2.11.x upgrade security review (patch retention/retirement decisions for `expr`, `ipstore`, `nebula`; CVE/GHSA disposition table) that is **unrelated to any numbered pull request in this repo's PR history** — "PR-2" here names a phase of a specific historical security workstream (Caddy version-bump security review), not a generic or accidental label.
-- That doc's own closure statement: *"PR-2 posture decisions are review-ready: patch disposition is explicit, admin API assumptions are enforced, and rollback remains deterministic."* — i.e., the gate's guarded condition (finish the Caddy PR-2 security review before letting GoReleaser cut a publishable release) **was satisfied the same day the gate was added.**
-- Nobody ever flipped `CHARON_PR2_GATES_PASSED=true` afterward — confirmed via `REPO_VARS_JSON: {}` on every subsequent `release-goreleaser.yml` run. This is most plausibly an oversight (the review closed, but the repo-variable flip was a separate manual step nobody circled back to) rather than a deliberate ongoing hold, since the closure doc gives no indication the gate was meant to stay engaged indefinitely.
-
-**Recommendation for the user**: this is not evidence of a security requirement that needs to be re-implemented elsewhere — it was scoped to one specific, already-closed security review. Removing it alongside the rest of `release-goreleaser.yml` is safe. If the user wants a similar "hold releases pending a security sign-off" mechanism for *future* security reviews, that would be a new, forward-looking control to design separately — explicitly flagged here as a possible follow-up, not something this plan implements.
-
-**A second, independent argument for removal, stronger than the intent-inference above**: even setting aside whether the Caddy-review closure was "meant" to release the gate, Decision 5 establishes that GoReleaser will **never again attempt to publish anything** — the workflow it lives in is being deleted outright, not merely disabled. A gate that guards an action which no longer exists has nothing left to guard, independent of any judgment call about the gate's original intent or whether it was ever properly released. This makes the removal safe on structural grounds alone, not just on the historical-intent grounds argued above.
-
-# Additional Findings Beyond the Six Required Points
-
-These surfaced during the mandated research and materially affect the design, so they're resolved here rather than left implicit.
-
-## A. `auto-changelog.yml` / `.github/release-drafter.yml` are redundant with release-please
-
-Not named in the original task brief, but directly in-scope: it's a `.github/workflows/*` file in the exact pipeline being migrated, and it will actively conflict with release-please if left running (both listen on `release: types: [published]`-adjacent events and both try to own "the changelog for this release"). `release-drafter`'s own tag-template (`v$NEXT_PATCH_VERSION`) already never bumps minor/major regardless of label — a pre-existing bug, further weakening the case for keeping it.
-
-**Decision: remove `.github/workflows/auto-changelog.yml` and `.github/release-drafter.yml` in this PR.** Release-please's standing release PR (with its auto-updated body) replaces the "always-fresh draft changelog" function these two files provide.
-
-## B. `CHANGELOG.md` conflict
-
-Charon's root `CHANGELOG.md` is hand-curated (Keep a Changelog format, multi-line rich entries, issue cross-references, 600 lines of history). Release-please's `go` release-type, by default, prepends its own auto-generated entries to whatever file `changelog-path` points at (default `CHANGELOG.md`).
-
-**Decision**: set `"skip-changelog": true` on the `"."` package in `release-please-config.json`. Per the release-please JSON schema (`schemas/config.json`, fetched this session): *"Skip generating a changelog for this package. Defaults to `false`."* This stops release-please from touching `CHANGELOG.md` at all, preserving the existing hand-curated file untouched. GitHub Release notes generation is understood to be independent of the changelog-file-write path (the Release body is built from the same underlying commit grouping, separately from whether it's also written to a file) — **this exact interaction is not explicitly documented** in the pages fetched this session, so it is flagged in Manual Post-Merge Follow-Ups as something to positively confirm on the first real release-please run (does the created GitHub Release still get a populated body with `skip-changelog: true`?).
-
-## C. Tag-naming default is a real breakage risk — must be pinned explicitly
-
-Per the release-please JSON schema (fetched this session): `include-component-in-tag` **defaults to `true`** ("When tagging a release, include the component name as part of the tag"). For a single non-monorepo package at `"."`, this risks producing a tag like `charon-v0.37.0` instead of the bare `v0.37.0` every existing consumer expects (`orthrus-build.yml`'s `tags: ['v*']` trigger, `generate-changelog.sh`'s `git tag -l 'v*'` scan, `update_service.go`'s expectations, and every pre-existing tag in the repo's own history back to `v0.1.0`-style tags).
-
-**Decision**: explicitly set `"include-component-in-tag": false` in `release-please-config.json`. Do not rely on whatever component-name-derivation-for-an-unnamed-root-package default behavior release-please falls back to — pin it. Flagged as a **must-verify-on-first-live-run** item (see Manual Post-Merge Follow-Ups): confirm the first release-please-created tag is exactly `v<semver>`, no prefix/suffix.
-
-## D. Pre-1.0 major-version-bump behavior must be pinned explicitly
-
-`auto-versioning.yml`'s current design deliberately disables automatic major-version bumps ("Major version bumps are intentionally disabled in automation to prevent accidents" — its own header comment; `major_pattern` is set to a regex that can never match). Release-please instead supports major bumps automatically via `!` suffix or `BREAKING CHANGE:` footer conventions, gated pre-1.0 by two schema options (`bump-minor-pre-major`, `bump-patch-for-minor-pre-major`) whose **schema definitions carry no explicit documented default** (confirmed by direct inspection of `schemas/config.json` this session — both properties have a `description` but no `default` key shown).
-
-**Decision**: set both `"bump-minor-pre-major": true` and `"bump-patch-for-minor-pre-major": true` explicitly in `release-please-config.json`, regardless of what the undocumented actual default turns out to be. This guarantees a `feat!:`/`BREAKING CHANGE:` commit at the current `v0.36.5` bumps to `v0.37.0` (matching the existing "major bumps require a deliberate manual tag, never automatic" philosophy) rather than silently jumping to `v1.0.0`. This is materially safer than trusting an unconfirmed default and is worth the two explicit lines.
-
-## E. `chore:`-scoped commits will not trigger a Docker build on `main`
-
-`docker-build.yml`'s `setup` job (lines ~170-173) already skips the real build when the head commit or PR title matches `^chore:` or `^chore\(deps`. Since every commit in this PR is `chore:`-scoped (pure CI/CD config), merging it to `main` will not trigger a Docker build — expected and desired, not a gap to fix.
+- `backend/internal/api/handlers/testdb.go` already exports `OpenTestDB(t)`
+  and `OpenTestDBWithMigrations(t)`: both open an **in-memory**, shared-cache
+  SQLite DB (`file:<name>_<random>?mode=memory&cache=shared&_journal_mode=WAL&_busy_timeout=5000`)
+  and already register `t.Cleanup` closing the underlying `*sql.DB` (lines
+  75-97). These are correct and unaffected — not touched by this plan.
+- `backend/internal/testutil` exists (`WithTx`, `GetTestTx`) but is
+  transaction-scoped helper logic, not a DB-open helper, and is unrelated to
+  this defect.
+- `backend/internal/services` (package `services`) has its own existing,
+  already-correct shared fixture helper: `createSQLiteTestDB(t, dbPath)`
+  in `backup_service_test.go` (lines 21-33) opens a raw `database/sql`
+  connection via `sql.Open("sqlite3", dbPath)` and registers
+  `t.Cleanup(func(){ db.Close() })`. It is used by many other tests across
+  this package's files (e.g. `TestBackupService_CreateSQLiteSnapshot_TempDirInvalid`
+  in `backup_service_rehydrate_test.go`, `TestBackupServiceWave4_Rehydrate_CreateTempFailure`
+  in `backup_service_wave4_test.go`) and is correctly unaffected — not
+  touched by this plan. It was considered as a possible reuse target for
+  some of the 8 newly-found `internal/services` sites (row 9-15 above),
+  but most of those sites need a live `*gorm.DB` handle back (for
+  `AutoMigrate`, `db.Create`, GORM callbacks, etc.), which `createSQLiteTestDB`
+  deliberately doesn't return (it returns nothing — it only seeds a file on
+  disk for something else to open) — so it isn't a drop-in fit for any of
+  them, and each site keeps its own `gorm.Open` call with cleanup added,
+  same as every other row in the affected table.
+- Every one of the 17 affected files uses a **file-backed** DSN specifically
+  (several with an explicit comment: *"Use a file-backed sqlite DB to avoid
+  shared memory connection issues in tests"* in
+  `security_handler_rules_decisions_test.go`, and *"Use isolated file-backed
+  DB to avoid lock flakiness from shared in-memory connections and
+  background sync"* in `certificate_handler_test.go`). These comments
+  indicate a real, prior functional reason for file-backing (background
+  goroutines — e.g. `CertificateService`'s async disk-space/backup sync, or
+  `caddy.Manager.ApplyConfig` — opening their own additional connections to
+  the same on-disk path). Silently swapping these to the existing in-memory
+  `OpenTestDB(t)` helper would be a **behavior change**, not a pure flake
+  fix, and is out of scope for a `fix:`-scoped commit. The correct minimal
+  fix is to keep each site file-backed and simply close the connection it
+  already opens.
+- Given that, and given the affected sites span four different Go packages
+  (`handlers`, `services`, `server`, and `main` in `cmd/seed`) with no
+  existing common import point, introducing a brand-new shared cross-package
+  `testutil` helper purely to close a `*sql.DB` would be the kind of "large
+  unrelated refactor" CLAUDE.md's DRY guidance explicitly says not to force.
+  Instead:
+  - Where duplication is **within the same file** (certificate_handler_test.go's
+    4 identical blocks — its 5th, structurally different site is fixed
+    inline instead, see Technical Specifications; the two near-duplicate
+    rw/ro pairs pattern in
+    `enhanced_security_notification_service_patch_coverage_test.go`), extract
+    a small **file-local, unexported** helper — a same-file, same-package,
+    zero-risk DRY win, per CLAUDE.md's "consolidate after the second
+    occurrence" rule.
+  - Where a site is a shared setup helper already used by multiple tests in
+    its file (`setupSecurityTestRouterWithExtras`,
+    `setupNotificationTestDB`, `emergency_server_test.go`'s `setupTestDB`,
+    `db_health_handler_test.go`'s single site, `backup_service_wave4_test.go`'s
+    `setupRehydrateDBPair`, `backup_service_encryption_required_test.go`'s
+    `newRemoteStorageTestService`, `backup_restore_safe_coverage_test.go`'s
+    `newLiveDBHardeningTestService`), fix that one function/site — every
+    caller in the file is fixed for free where applicable.
+  - Everywhere else, apply the same 3-line `t.Cleanup` fix inline, matching
+    each file's existing idiom (`require.NoError` vs. `t.Fatalf`).
 
 # Technical Specifications
 
-## New Files
+## Chosen fix pattern
 
-### `release-please-config.json` (repo root)
+The applicable half of the `35695250` precedent (grab `*sql.DB`, register
+`t.Cleanup` to close it — **not** the `SetMaxOpenConns(1)` half, which
+solved a different, lock-contention flake and is not needed for this
+TempDir-cleanup-race root cause; where a site already calls
+`SetMaxOpenConns`/`SetMaxIdleConns` for its own pre-existing reasons, that is
+left untouched):
 
-```json
-{
-  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
-  "release-type": "go",
-  "include-component-in-tag": false,
-  "bump-minor-pre-major": true,
-  "bump-patch-for-minor-pre-major": true,
-  "pull-request-header": "Here's what's new in Charon",
-  "pull-request-footer": "Merge this PR to cut the release.",
-  "packages": {
-    ".": {
-      "skip-changelog": true
+### Pattern A — testify (`require`) idiom (all `internal/api/handlers` and `internal/services` sites)
+
+```go
+db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+require.NoError(t, err)
+
+// Registered immediately after a successful Open so the connection (and
+// its WAL/-shm sidecar files) is always released before t.TempDir()'s own
+// cleanup runs — t.Cleanup fires in LIFO order, so this runs first.
+sqlDB, err := db.DB()
+require.NoError(t, err)
+t.Cleanup(func() { _ = sqlDB.Close() })
+```
+
+### Pattern B — plain `t.Fatalf` idiom (`backend/cmd/seed/seed_smoke_test.go`, package `main`, no testify import)
+
+```go
+db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+if err != nil {
+    t.Fatalf("open db: %v", err)
+}
+sqlDB, err := db.DB()
+if err != nil {
+    t.Fatalf("access sql db: %v", err)
+}
+t.Cleanup(func() { _ = sqlDB.Close() })
+```
+
+### Pattern C — file-local helper (certificate_handler_test.go's 4 duplicated blocks)
+
+Add one unexported helper near the top of the file, alongside the existing
+tests, and replace each of the 4 identical ~10-line open blocks with a
+1-line call:
+
+```go
+// openCertHandlerTestDB opens a file-backed, single-connection SQLite DB
+// under a fresh t.TempDir() (this handler's async backup/disk-space sync
+// requires real file-backing, not an in-memory shared-cache DSN — see
+// setupSecurityTestRouterWithExtras for the same constraint in this
+// package) and registers cleanup to close it before t.TempDir() removes
+// the directory.
+func openCertHandlerTestDB(t *testing.T, filename string) *gorm.DB {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), filename)
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1", dbPath)), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("failed to access sql db: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	return db
+}
+```
+Each of the 4 call sites becomes `db := openCertHandlerTestDB(t, "cert_create_backup.db")` (etc.), dropping the duplicated boilerplate while keeping every site's existing `filepath.Join(t.TempDir(), ...)` — i.e. still one fresh isolated DB file per test, just via a shared local function. Requires adding `"path/filepath"` to this file's import block (not currently imported there).
+
+**`TestDeleteCertificate_NotificationRateLimit` (the file's 5th site, lines
+842-886) is deliberately NOT folded into `openCertHandlerTestDB`.** Its
+existing DSN is a bare `sqlite.Open(tmpFile)` with no
+`_journal_mode`/`_busy_timeout`/`_foreign_keys` query params and no
+`SetMaxOpenConns`/`SetMaxIdleConns` pool tuning — routing it through the
+helper would silently change its connection behavior, which is out of scope
+for a pure flake fix. Instead apply a minimal Pattern-A-style inline fix
+that touches nothing but adds the missing cleanup:
+
+```go
+tmpFile := t.TempDir() + "/rate_limit_test.db"
+db, err := gorm.Open(sqlite.Open(tmpFile), &gorm.Config{})
+if err != nil {
+	t.Fatalf("failed to open db: %v", err)
+}
+sqlDB, err := db.DB()
+if err != nil {
+	t.Fatalf("failed to access sql db: %v", err)
+}
+t.Cleanup(func() { _ = sqlDB.Close() })
+```
+
+### Pattern E — `database.Connect` sites (`db_health_handler_test.go`, `emergency_server_test.go`)
+
+Same fix, same idiom as Pattern A — `database.Connect` returns a `*gorm.DB`
+exactly like `gorm.Open(sqlite.Open(...))` does (it's a thin wrapper, see
+`backend/internal/database/database.go:51`), so no new pattern shape is
+needed, only the addition of the missing cleanup at each site:
+
+`db_health_handler_test.go`, `TestDBHealthHandler_Check_CorruptedDatabase`
+(only `db2` needs it — `db`, the first connection, already closes correctly
+at lines 220-221):
+```go
+db2, err := database.Connect(dbPath)
+if err != nil {
+	t.Skip("Database connection failed immediately on corruption")
+}
+t.Cleanup(func() {
+	if sqlDB2, sqlErr := db2.DB(); sqlErr == nil {
+		_ = sqlDB2.Close()
+	}
+})
+```
+(Registered after the existing `if err != nil { t.Skip(...) }` guard, since
+`t.Skip` exits before `db2` is usable — no point registering a cleanup for a
+connection the test already gave up on.)
+
+`emergency_server_test.go`, `setupTestDB` (fixes every caller in the file):
+```go
+func setupTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+
+	tmpFile := t.TempDir() + "/test.db"
+	db, err := database.Connect(tmpFile)
+	require.NoError(t, err, "Failed to create test database")
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err, "Failed to access underlying sql.DB")
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
+	err = db.AutoMigrate(
+		&models.Setting{},
+		&models.SecurityConfig{},
+		&models.SecurityAudit{},
+	)
+	require.NoError(t, err, "Failed to run migrations")
+
+	return db
+}
+```
+
+### Pattern D — paired rw/ro connections (`enhanced_security_notification_service_patch_coverage_test.go`, 5 sites)
+
+Each of the 5 sites already closes *one* of its two connections as part of
+the test's own logic (to force a read-only/locked-DB error path); only the
+*other*, previously-unclosed connection needs a cleanup added, matching the
+file's existing nil-guard style already used elsewhere in the same file
+(e.g. line ~727: `sqlDB, sqlErr := db.DB(); if sqlErr == nil { _ = sqlDB.Close() }`):
+
+```go
+roDB, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=ro", dbPath)), &gorm.Config{})
+require.NoError(t, err)
+t.Cleanup(func() {
+    if roSQLDB, sqlErr := roDB.DB(); sqlErr == nil {
+        _ = roSQLDB.Close()
     }
-  }
+})
+```
+(For `TestEnhancedService_IsFeatureEnabled_CreateAndRequeryPath`, the leaked
+connection is the *primary* `db`, not a `roDB` — same fix, applied to `db`
+right after its `gorm.Open` instead.)
+
+### Pattern F — multi-hop `t.TempDir()` sites (affected table rows 9, 11, 12, 15)
+
+These are structurally identical to Pattern A — the only difference is the
+DSN is reached through 2-3 `filepath.Join` hops instead of one, which is
+exactly what step 6's methodology change was needed to see in the first
+place. The fix doesn't care how many hops there were; it only needs the
+resulting `*gorm.DB`:
+
+```go
+tmpDir := t.TempDir()
+dataDir := filepath.Join(tmpDir, "data")
+require.NoError(t, os.MkdirAll(dataDir, 0o700))
+
+dbPath := filepath.Join(dataDir, "charon.db")
+db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+require.NoError(t, err)
+
+sqlDB, err := db.DB()
+require.NoError(t, err)
+t.Cleanup(func() { _ = sqlDB.Close() })
+```
+Applies as-is to `backup_service_rehydrate_test.go`'s 4 single-connection
+sites (rows 9: `TestBackupService_RehydrateLiveDatabase`,
+`..._FromBackupWithWAL`, `..._InvalidRestoreDB`,
+`..._MidLoopFailure_RollsBackAtomically`'s `activeDB`),
+`backup_service_wave5_test.go` (row 11), `backup_service_cleanup_db_test.go`
+(row 12), and `backup_service_test.go`'s `TestBackupService_RehydrateLiveDatabase_MissingSource`
+(row 15). Where a test opens **two** independent connections this way in
+the same function with neither closed (`backup_service_rehydrate_test.go`'s
+`TestBackupService_RehydrateLiveDatabase_InvalidTableIdentifier`, row 9 —
+`activeDB` **and** `restoreDB`), apply the pattern twice, once per
+connection, each with its own `t.Cleanup`.
+
+### Pattern G — shared helpers returning one connection to multiple callers (affected table rows 10, 13, 14, 16)
+
+Same underlying fix as Pattern A/D, applied once at the helper definition
+so every caller is fixed for free — the shape differs per helper only in
+how many connections it opens and what it returns:
+
+**`backup_service_wave4_test.go`'s `setupRehydrateDBPair`** (row 10) opens
+*two* connections and returns only one of them (`activeDB`) plus two path
+strings — the second connection (`restoreDB`) is deliberately never
+returned to the caller (it's only used to seed the restore-source fixture
+file before the function returns), so its cleanup must be registered
+*inside* the helper, not left to the caller:
+```go
+func setupRehydrateDBPair(t *testing.T) (db *gorm.DB, activeDataDir, restoreDBPath string) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	require.NoError(t, os.MkdirAll(dataDir, 0o700))
+
+	activeDBPath := filepath.Join(tmpDir, "active.db")
+	activeDB, err := gorm.Open(sqlite.Open(activeDBPath), &gorm.Config{})
+	require.NoError(t, err)
+	activeSQLDB, err := activeDB.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = activeSQLDB.Close() })
+	require.NoError(t, activeDB.Exec(`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)`).Error)
+
+	restoreDBPath = filepath.Join(tmpDir, "restore.db")
+	restoreDB, err := gorm.Open(sqlite.Open(restoreDBPath), &gorm.Config{})
+	require.NoError(t, err)
+	restoreSQLDB, err := restoreDB.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = restoreSQLDB.Close() })
+	require.NoError(t, restoreDB.Exec(`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)`).Error)
+	require.NoError(t, restoreDB.Exec(`INSERT INTO users (name) VALUES ('alice')`).Error)
+
+	return activeDB, dataDir, restoreDBPath
 }
 ```
+This same per-connection `t.Cleanup` is also applied inline to the file's 6
+other, non-helper sites in the same file (row 10's remaining entries) —
+each is a standalone Pattern F/A-style fix, not routed through this helper.
 
-### `.release-please-manifest.json` (repo root)
+**`backup_service_encryption_required_test.go`'s `newRemoteStorageTestService`**
+(row 13) and **`backup_restore_safe_coverage_test.go`'s
+`newLiveDBHardeningTestService`** (row 14) share one shape: both already
+call `t.Cleanup(svc.Stop)` to stop the `BackupService`'s background
+scheduler, but neither closes the `*gorm.DB` they construct and hand to
+`NewBackupService`. Add the missing `*sql.DB` cleanup alongside the
+existing one (do not remove `t.Cleanup(svc.Stop)` — both are needed, for
+different resources):
+```go
+db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+require.NoError(t, err)
+// ... AutoMigrate / seed data as before ...
 
-```json
-{
-  ".": "0.36.5"
-}
+sqlDB, err := db.DB()
+require.NoError(t, err)
+t.Cleanup(func() { _ = sqlDB.Close() })
+
+cfg := &config.Config{DatabasePath: dbPath}
+svc := NewBackupService(cfg, db, nil)
+t.Cleanup(svc.Stop)
+return svc
 ```
 
-Seeded to the real latest tag at plan-authoring time (`git tag --sort=-v:refname | head -1` → `v0.36.5`). **Implementer note**: re-run that command immediately before implementation and use whatever the actual latest tag is at that time — do not blindly copy `0.36.5` if additional tags have landed on `main` since this plan was written.
+**`crowdsec_wave7_test.go`'s `TestCrowdsecWave7_Start_CreateSecurityConfigFailsOnReadOnlyDB`**
+(row 16) is a single inline test, not a shared helper, but structurally
+identical to Pattern D's rw-closed/ro-leaked shape — apply Pattern D's
+exact fix to its `roDB` (line 43).
 
-### `.github/workflows/release-please.yml`
+**`backup_handler_coverage_test.go`'s `setupBackupTestWithDB`** (row 17) is
+a shared helper fixing all 4 of its callers at once, same shape as Pattern
+A/G — the only difference from the rest of this plan is that its temp
+directory comes from `os.MkdirTemp()` + each caller's own
+`defer os.RemoveAll(tmpDir)` rather than `t.TempDir()`'s implicit cleanup
+(see Methodology step 7); the fix itself is unchanged:
+```go
+gdb, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+require.NoError(t, err)
 
-```yaml
-name: release-please
-
-on:
-  push:
-    branches: [main]
-
-permissions:
-  contents: write
-  pull-requests: write
-
-jobs:
-  release-please:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
-        with:
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
+sqlDB, err := gdb.DB()
+require.NoError(t, err)
+t.Cleanup(func() { _ = sqlDB.Close() })
 ```
+(Registered immediately after line 58's existing `require.NoError(t, err)`,
+alongside the helper's existing `t.Cleanup(svc.Stop)` at line 63 — both are
+needed, for different resources, same as Pattern G's row 13/14 helpers.)
 
-Mirrors `/projects/go_notify_yourself/.github/workflows/release-please.yml` exactly, including the same pinned SHA. **Implementer note**: verify this SHA still resolves to `v5` (or a newer tag) immediately before implementation — supply-chain pins should reflect the current best-available release, not be copied stale.
+## Non-goals / explicit exclusions
 
-## Modified Files
+- No changes to `backend/internal/api/handlers/testdb.go`'s `OpenTestDB` /
+  `OpenTestDBWithMigrations` — already correct.
+- No changes to any of the "cleared" files in the Research Findings table.
+- No new shared cross-package `testutil` DB-open helper.
+- No behavior change to any handler, service, or model — this PR touches
+  only `_test.go` files.
+- No CI/CD, Dockerfile, `.gitignore`, `.dockerignore`, or `.codecov.yml`
+  changes — confirmed not needed (see below).
 
-| File | Change |
-|---|---|
-| `VERSION.md` | Full rewrite: remove "Canonical Release Process (Tag-Derived CI)" section describing `release-goreleaser.yml`/`docker-build.yml` as jointly building release artifacts from the tag (false, per Decision 2/5). Replace with a description of the release-please PR-based flow: commits land on `main` → release-please maintains a standing `chore(main): release X.Y.Z` PR → merging that PR tags + publishes the GitHub Release → `orthrus-build.yml` picks up the tag independently. Remove the "Legacy/Optional `.version` Path" section (Decision 4). Remove the "release-drafter workflow" changelog-generation mention (Additional Finding A). Keep the Container Image Tags / Nightly Versioning Format sections unchanged (still accurate, untouched by this migration). |
-| `lefthook.yml` | Remove the `check-version-match: { glob: ".version", run: "bash scripts/check-version-match-tag.sh" }` hook entry (~line 99). |
-| `.gitignore` | Remove the `# GoReleaser` section (`dist/` ignore rule, ~lines 163-167). |
-| `.dockerignore` | Remove the `.goreleaser.yaml` line (~line 13). |
-| `ARCHITECTURE.md` | **Was missing from the first draft of this plan — added per Supervisor review.** Per CLAUDE.md's own rule ("update `ARCHITECTURE.md` when making changes to... deployment model... integration points"), and because it explicitly names a file this plan deletes: the "Release Workflow" section (~lines 1464-1479) opens with a 10-step "Automated Release (GitHub Actions)" list whose step 1 is `"Trigger: Push tag v1.2.0"` — this describes the tag-push-triggers-everything model this migration retires (steps 2-8 describe `docker-build.yml`'s real, still-accurate build/scan/sign/publish pipeline, which is **not** actually tag-triggered per Decision 2's finding — this section conflates `docker-build.yml`'s branch-push pipeline with a tag-triggered release flow that doesn't exist as described). Line 1479 states `scripts/generate-changelog.sh` "runs during the same `release-goreleaser.yml` workflow" — that workflow is deleted by this PR (the script also independently runs from `nightly-build.yml`, per Research Findings, so this line is doubly inaccurate even before this migration). **Rewrite scope**: replace the "Trigger: Push tag" framing with the release-please push-to-main → standing-PR → merge-to-tag flow (mirror the Data Flow diagram below); correct the `generate-changelog.sh` sentence to name `nightly-build.yml` (its one remaining real caller) instead of the deleted workflow; leave steps 2-8's description of `docker-build.yml`'s actual build/scan/sign/publish pipeline untouched (still accurate, just re-anchor which trigger kicks it off). Assigned to Commit 6. |
+## `.gitignore` / `.dockerignore` / `.codecov.yml` check
 
-## Deleted Files
-
-| File | Reason |
-|---|---|
-| `.github/workflows/auto-versioning.yml` | Replaced by `release-please.yml` (Decision 1-3). |
-| `.github/workflows/release-goreleaser.yml` | Never succeeded; no downstream consumer (Decision 5). |
-| `.goreleaser.yaml` | Unused build/archive/nfpm config; version injection already duplicated in `Dockerfile` directly (Decision 5). |
-| `.github/workflows/auto-changelog.yml` | Redundant with release-please's own PR/changelog mechanism (Additional Finding A). |
-| `.github/release-drafter.yml` | Config for the file above; removed alongside it. |
-| `.version` | Stale, non-canonical, superseded by `.release-please-manifest.json` (Decision 4). |
-| `scripts/check-version-match-tag.sh` | Self-deprecated, circularly "replaced" by a wrapper that calls it, superseded by release-please's manifest (Decision 4). |
-| `.github/skills/utility-version-check-scripts/run.sh` | Wraps the script above; dead once its target is gone. |
-| `.github/skills/utility-version-check.SKILL.md` | Documents the now-removed skill. |
-
-**Partial edits (file kept, dead reference removed)** — full detail and reasoning in Decision 4 and the Commit Slicing Strategy's Commit 5 row; listed here only as a pointer so this table isn't mistaken for the complete blast radius:
-
-| File | Edit |
-|---|---|
-| `.github/skills/README.md` | Remove the `utility-version-check` row (~line 72) and naming-example bullet (~line 267). |
-| `.vscode/tasks.json` | Remove the "Utility: Check Version Match Tag" task block (~lines 694-698). |
-| `.github/skills/utility-bump-beta.SKILL.md` | Remove the dead `utility-version-check` cross-link (~line 186). |
-| `scripts/generate-changelog.sh` | Fix the stale header-comment reference to `release-goreleaser.yml` (line 5) — points at `nightly-build.yml` instead. |
-| `CLAUDE.md` | **Edited by this PR, per explicit user authorization** — remove the `utility-version-check` Skills-table row (line 261). Folded into Commit 5. |
-
-## Data Flow: Before vs. After
-
-**Before:**
-```
-push to main (non-chore commit)
-  -> docker-build.yml runs (branch push trigger)
-    -> auto-versioning.yml runs (workflow_run: on docker-build.yml completion)
-      -> paulhatch/semantic-version computes next tag
-      -> shell/grep builds release body from commit messages
-      -> softprops/action-gh-release creates tag + GitHub Release
-        -> release-goreleaser.yml runs (tag push trigger) -> FAILS at PR-2 gate, publishes nothing
-        -> orthrus-build.yml runs (tag push trigger) -> builds + publishes semver-tagged orthrus image
-        -> auto-changelog.yml runs (release published trigger) -> release-drafter updates a draft release
-```
-
-**After:**
-```
-push to main (any commit)
-  -> docker-build.yml runs (branch push trigger, skips build body if chore:) [unchanged]
-  -> release-please.yml runs (push trigger, independent of docker-build.yml)
-      -> release-please-action opens/updates a standing "chore(main): release X.Y.Z" PR
-         (accumulates all releasable commits since the last tag; no PR yet if nothing releasable)
-
-[separately, whenever a human/bot merges that standing release PR]
-  -> release-please-action creates the git tag (v<version>, bare per include-component-in-tag:false)
-  -> release-please-action creates the GitHub Release (skip-changelog:true, so CHANGELOG.md untouched)
-    -> orthrus-build.yml runs (tag push trigger) -> builds + publishes semver-tagged orthrus image [unchanged]
-    -> generate-changelog.sh (next nightly-build.yml run) picks up the new tag via `git tag -l 'v*'` [unchanged]
-```
-
-## Error Handling / Edge Cases
-
-| Scenario | Behavior |
-|---|---|
-| No releasable commits since last tag (only `chore:`/`docs:`/`test:`/`ci:`/`build:`/`style:`/`refactor:` land on `main`) | Release-please does not open/update a release PR at all. **Behavior change from today**: `auto-versioning.yml` currently bumps patch for *any* non-`feat:` commit, so today a `chore:`-only week still cuts a release; under release-please, it won't. This is a deliberate, disclosed change (arguably a correctness improvement — no more "no-op" patch releases), not an oversight. Flagged for user sign-off. |
-| `feat!:`/`BREAKING CHANGE:` commit lands pre-1.0 | Bumps minor, not major, per Decision/Additional-Finding D's explicit config. |
-| Release PR sits open for a long time while more commits land | Release-please updates the existing PR's body/diff in place (its documented standard behavior) — no duplicate PRs. |
-| Someone merges the release PR via squash instead of the "Create a merge commit"/default GitHub merge release-please expects | Not explicitly tested in this plan (CI-config-only, no live GitHub run possible locally) — flagged in Manual Post-Merge Follow-Ups as the first thing to verify by watching the first real release PR merge. |
-| `.release-please-manifest.json` drifts from the real latest tag (e.g., someone force-pushes a tag manually) | Release-please reads the manifest as its source of truth for "last released version," not live tag state — a manual tag push outside release-please's flow would desync them. Document this in `VERSION.md`'s rewrite as "don't manually tag `v*` releases going forward; let release-please do it." |
+Explicitly confirmed: **no changes needed**. `.gitignore` and
+`.dockerignore` already ignore `*.db` and `backend/test-output*.txt`
+broadly (lines checked: `.gitignore:93` `*.db`, `.dockerignore:63-73` test
+output patterns), which already covers anything a fixed or unfixed test
+might transiently write. `.codecov.yml` has no per-file exclusions relevant
+to the 17 touched files, and this change adds no new files, only edits
+existing `_test.go` files in place — patch coverage is unaffected in any
+way that requires config changes.
 
 # Implementation Plan
 
-This is a CI/CD-configuration-only change: no Go code, no TypeScript/React code, no database migrations, no API surface. Phases below are adapted accordingly from the standard template.
+## Phase 1: N/A — no new behavior, no Playwright coverage needed
 
-## Phase 1: Playwright Tests (spec behavior) — N/A
+This is a Go backend test-code-only flakiness fix with zero product-facing
+or API-facing behavior change. Per CLAUDE.md's Definition of Done, Playwright
+E2E coverage exists for user-facing behavior; there is none to add or run
+here. Skip Phase 1 (E2E specs) entirely — do not write or run Playwright
+tests for this change.
 
-No user-facing behavior changes; nothing to spec as `test.fixme`. Explicitly out of scope — see "CLAUDE.md Definition-of-Done Applicability" below.
+## Phase 2: Backend fix — `internal/api/handlers` package
 
-## Phase 2: Backend Implementation — N/A
+Apply Patterns A, C, D, and E to the 7 files in this package (11 of the 41
+sites: 1 + 1 + 5 + 1 + 1 + 1 + 1 across
+`security_handler_rules_decisions_test.go`,
+`certificate_handler_security_test.go`, `certificate_handler_test.go`,
+`notification_handler_test.go`, `db_health_handler_test.go`,
+`crowdsec_wave7_test.go`, and `backup_handler_coverage_test.go`). See
+Commit Slicing Strategy, Commit 1.
 
-No `backend/` changes.
+## Phase 3a: Backend fix — `internal/services` package, notifications sub-area
 
-## Phase 3: Frontend Implementation — N/A
+Apply Pattern D to `enhanced_security_notification_service_patch_coverage_test.go`
+(5 of the 41 sites). See Commit Slicing Strategy, Commit 2.
 
-No `frontend/` changes.
+## Phase 3b: Backend fix — `internal/services` package, backup/restore sub-area
 
-## Phase 4: CI/CD Configuration Changes (replaces "Integration and Testing" for this chore)
+Apply Patterns F and G to the 7 `backup_service_*`/`backup_restore_safe_*`
+files (22 of the 41 sites: `backup_service_rehydrate_test.go` (6),
+`backup_service_wave4_test.go` (11), `backup_service_wave5_test.go` (1),
+`backup_service_cleanup_db_test.go` (1),
+`backup_service_encryption_required_test.go` (1),
+`backup_restore_safe_coverage_test.go` (1), `backup_service_test.go` (1)).
+Split from Phase 3a into its own phase/commit for reviewability — see
+Commit Slicing Strategy, Commit 3, for the rationale.
 
-- GOAL-001: Stand up the release-please config/manifest/workflow and validate every JSON/YAML file for syntactic correctness and internal consistency (manifest version matches real latest tag; config's package key matches manifest's package key).
+## Phase 4: Backend fix — stragglers (`cmd/seed`)
 
-| Task | Description | Completed | Date |
-|------|-------------|-----------|------|
-| TASK-001 | Create `release-please-config.json` per Technical Specifications, with `include-component-in-tag: false`, `bump-minor-pre-major: true`, `bump-patch-for-minor-pre-major: true`, `skip-changelog: true` all set explicitly. | | |
-| TASK-002 | Create `.release-please-manifest.json`, seeded to the actual latest `v*` tag at implementation time (re-verify, don't copy `0.36.5` blindly). | | |
-| TASK-003 | Create `.github/workflows/release-please.yml`, pinned-SHA `googleapis/release-please-action`, `push: branches: [main]` trigger, `contents: write` + `pull-requests: write` permissions. | | |
-| TASK-004 | Validate all three new/changed files with `jq empty` (JSON) / a YAML parser (`yamllint` or `python -c "import yaml,sys; yaml.safe_load(open(sys.argv[1]))"`) before commit. | | |
+Apply Pattern B to `backend/cmd/seed/seed_smoke_test.go` (2 of the 41
+sites). See Commit Slicing Strategy, Commit 4.
 
-## Phase 5: Retirement + Documentation
+## Phase 5: Backend fix — `internal/server` package
 
-- GOAL-002: Remove the superseded workflows/config/scripts and rewrite `VERSION.md` to describe the new flow accurately.
+Apply Pattern E to `backend/internal/server/emergency_server_test.go`'s
+`setupTestDB` helper (1 of the 41 sites). New package, found in the first
+correction round — see Commit Slicing Strategy, Commit 5.
 
-| Task | Description | Completed | Date |
-|------|-------------|-----------|------|
-| TASK-005 | Delete `.github/workflows/auto-versioning.yml`, `.github/workflows/release-goreleaser.yml`, `.goreleaser.yaml`. | | |
-| TASK-006 | Delete `.github/workflows/auto-changelog.yml`, `.github/release-drafter.yml`. | | |
-| TASK-007 | Delete `.version`, `scripts/check-version-match-tag.sh`, `.github/skills/utility-version-check-scripts/run.sh`, `.github/skills/utility-version-check.SKILL.md`; remove the `check-version-match` entry from `lefthook.yml`. | | |
-| TASK-008 | Remove the `# GoReleaser` section from `.gitignore`; remove the `.goreleaser.yaml` line from `.dockerignore`. | | |
-| TASK-009 | Rewrite `VERSION.md` per Technical Specifications. | | |
-| TASK-010 | Run `lefthook run pre-commit` to confirm no hook references a now-deleted file/glob and everything still passes. | | |
+## Phase 6: Verification and documentation
 
-# CLAUDE.md Definition-of-Done Applicability
-
-This PR is CI-config/YAML/JSON/Markdown-only. Mapped explicitly against the standard DoD:
-
-| DoD Item | Applies? | Notes |
-|---|---|---|
-| 1. Playwright E2E Tests | **N/A** | No user-facing behavior; no frontend/backend code path changes. |
-| 1.5. GORM Security Scan | **N/A** | No `backend/internal/models/**`, no GORM queries/migrations touched. |
-| 2. Local Patch Coverage Preflight (`scripts/local-patch-report.sh`) | **Run it anyway** | It's mandatory regardless of change type per CLAUDE.md; expect it to report ~0% "patch" surface since no `.go`/`.ts`/`.tsx` lines are touched — confirm it doesn't error out on a code-less diff rather than skip it. |
-| 3. Security Scans (CodeQL/Trivy) | **Defer to CI** | This is a `chore:`-scoped change with no new application code path — per CLAUDE.md's own rule ("Defer to CI for fix/test/chore/refactor-scoped changes with no new feature surface"), do not run these locally; CI runs both unconditionally regardless. **Caveat**: neither CodeQL nor Trivy actually provides coverage for this PR's one genuinely new risk surface — `googleapis/release-please-action` is a new third-party Action granted `contents: write` + `pull-requests: write` on this repo. CodeQL scans Go/JS source; Trivy scans container images/dependencies; neither evaluates GitHub Actions permission scopes or third-party Action supply-chain trust. "Defer to CI" is accurate for what those two tools actually check, but should not be read as "this PR's permissions posture is covered" — the mitigation here is the existing pinned-SHA convention (matching every other Action reference in this repo) plus the fact that the sibling repo already runs the identical Action/permissions combination without incident, not CodeQL/Trivy. |
-| 4. Lefthook Triage | **Applies** | Run `lefthook run pre-commit` — should no-op past YAML/JSON formatting-class hooks (no `.go`/`.ts` glob matches), but must still pass cleanly, especially after removing the `check-version-match` hook entry (verify lefthook config itself is still valid YAML). |
-| 5. Staticcheck | **N/A** (no-op) | No `.go` files touched; hook glob won't match anything. |
-| 6. Coverage Testing (85% backend/frontend) | **N/A** | No code touched; nothing for `go-test-coverage.sh`/`frontend-test-coverage.sh` to measure against this diff. |
-| 7. Type Safety (`npm run type-check`) | **N/A** | No `.ts`/`.tsx` files touched. |
-| 8. Verify Build (`go build`, `npm run build`) | **Recommended as a sanity check, not a real gate** | Neither build path is touched by this diff; running them just confirms the repo wasn't already broken. Not blocking for this PR specifically. |
-| 9. Fixed/New Code Testing | **N/A** | No unit-testable code changed. |
-| 10. Clean Up (debug prints, dead code) | **Applies in spirit** | The primary output of this PR *is* dead-code removal (Decisions 4-6, Additional Finding A) — this is effectively the main content of the PR, not a final pass. |
-
-**The real gates for this PR** (called out explicitly per the task brief, since the standard DoD doesn't fit a CI-config change well):
-- Every new/modified JSON file parses (`jq empty release-please-config.json .release-please-manifest.json`).
-- Every new/modified YAML file parses (`.github/workflows/release-please.yml`, and re-validate `lefthook.yml` after the hook-entry removal).
-- `lefthook run pre-commit` passes cleanly end-to-end.
-- **GitHub Actions workflow behavior (does `release-please.yml` actually open a correct PR, does merging it actually tag+release correctly, does `orthrus-build.yml` actually still fire on that tag) can only be fully verified by a live run on GitHub after merge — not locally, not in this plan.** This is the single biggest residual-risk category for this PR and is why the Manual Post-Merge Follow-Ups section below exists.
-
-# Manual Post-Merge Follow-Ups (cannot be validated without a live push to GitHub)
-
-1. **Confirm repo-level permissions**: verify `pull-requests: write` is actually honored for the `GITHUB_TOKEN` used by Actions in this repo (Settings → Actions → General → Workflow permissions). If the repo/org default is read-only, the `release-please.yml` workflow's explicit `permissions:` block should override it, but confirm on the first run rather than assume.
-2. **Watch the first `release-please.yml` run on `main`** after this PR merges: confirm it either (a) opens a `chore(main): release X.Y.Z` PR if there are releasable commits since `v0.36.5`, or (b) does nothing cleanly if there aren't — don't assume silence means broken.
-3. **Verify tag format on the first real release**: confirm the tag release-please creates is exactly `v<semver>` (no `charon-` prefix) — this is the `include-component-in-tag: false` risk called out in Additional Finding C. If it's wrong, `orthrus-build.yml`'s `tags: ['v*']` trigger and `generate-changelog.sh`'s `git tag -l 'v*'` scan both silently stop matching.
-4. **Verify `CHANGELOG.md` is untouched** by the first release-please PR (confirms `skip-changelog: true` behaves as expected) **and** verify the resulting GitHub Release still gets a populated body (confirms release-notes generation is independent of the changelog-file write path — this exact interaction wasn't found explicitly documented during this session's research).
-5. **Verify `orthrus-build.yml` still fires** on the first release-please-created tag and produces the expected `type=semver` Docker tags.
-6. **Branch protection interaction**: check whether `main`'s branch protection rules (required reviews, required status checks) block release-please's own bot-authored release PR from being merged, and if so, decide whether to exempt it or just merge manually each time (release-please doesn't require any special exemption to function — it just opens a normal PR).
-7. **Decide who merges the release PR and how** (manual click each time vs. some auto-merge label) — this plan does not configure auto-merge; that's a deliberate choice left to the user, since it directly controls when a real release goes out. This is the operational follow-through on the "User Decisions Required Before Implementation" #1 go/no-go above: if the user decides fully-automatic cadence is a hard requirement, a follow-up PR adding a release-please auto-merge label + workflow would be needed — not something this plan implements.
-8. **Clean up historical run records** (optional): the deleted workflows' historical Action run logs remain visible under "Actions" until manually deleted/archived if desired — cosmetic only, not required.
-9. **Sibling-repo note**: `/projects/go_notify_yourself/release-please-config.json` was independently corrected to `"release-type": "go"` during this session (see Reference Implementation section) — no action needed here, noted only so the user isn't surprised by the diff if they look at that repo later.
-
-# Acceptance Criteria
-
-- [ ] `release-please-config.json`, `.release-please-manifest.json`, and `.github/workflows/release-please.yml` exist, are valid JSON/YAML, and match the Technical Specifications section (including the explicit `include-component-in-tag`, `bump-minor-pre-major`, `bump-patch-for-minor-pre-major`, `skip-changelog` settings).
-- [ ] `.github/workflows/auto-versioning.yml`, `.github/workflows/release-goreleaser.yml`, `.goreleaser.yaml`, `.github/workflows/auto-changelog.yml`, `.github/release-drafter.yml`, `.version`, `scripts/check-version-match-tag.sh`, and the two `utility-version-check` skill files are all deleted.
-- [ ] `.github/skills/README.md`, `.vscode/tasks.json`, and `.github/skills/utility-bump-beta.SKILL.md` no longer reference the deleted `utility-version-check` skill (Decision 4 blast-radius items).
-- [ ] `CLAUDE.md:261`'s `utility-version-check` Skills-table row is removed in this PR (Commit 5), per the user's explicit authorization to edit CLAUDE.md as part of this migration.
-- [ ] `lefthook.yml` no longer references `check-version-match-tag.sh`; `lefthook run pre-commit` passes.
-- [ ] `.gitignore` and `.dockerignore` no longer reference GoReleaser artifacts/config.
-- [ ] `scripts/generate-changelog.sh`'s header comment no longer references the deleted `release-goreleaser.yml`.
-- [ ] `VERSION.md` accurately describes the release-please PR-based flow and no longer references `release-goreleaser.yml`, `.version` as a release trigger, or the release-drafter workflow.
-- [ ] `ARCHITECTURE.md`'s "Release Workflow" section accurately describes the release-please push-to-main → standing-PR → merge-to-tag flow and no longer references `release-goreleaser.yml` or a tag-push trigger as step 1.
-- [ ] `orthrus-build.yml` and `docker-build.yml` are **not modified** by this PR (both confirmed to need no changes per Decision 2).
-- [ ] No Go, TypeScript, or database-schema files are touched.
-- [ ] PR is opened from `chore/release-please-migration` against `main` (not `development`), with the branching deviation explicitly called out in the PR description per the Branching Note above, and merged via squash merge (per the Merge Strategy note in the Introduction).
-- [ ] All commits use `chore:` (or `chore(ci):`) Conventional Commit prefixes, matching CLAUDE.md's CI-trigger convention (so this PR's own merge does not trigger a Docker build).
-- [x] The user has explicitly signed off on both items in "User Decisions Required Before Implementation" (manual release-cadence gating: APPROVED; chore-only-weeks/`perf:`-no-longer-releasable: ACCEPT release-please defaults, no special-case override) — see that section for the recorded decisions.
-- [x] The user has explicitly authorized editing `CLAUDE.md` as part of this PR to remove the stale `utility-version-check` Skills-table row (line 261), folded into Commit 5 — see Decision 4's blast-radius table.
+No user-facing docs change (test-only fix). Verification plan below stands
+in for "Phase 6" in this case — see Verification Plan section.
 
 # Commit Slicing Strategy
 
-**Decision: single PR, `chore/release-please-migration` → `main`, with ordered logical commits.** Per CLAUDE.md's "One Feature = One PR" rule — this is one cohesive infrastructure change and must not be split across multiple PRs (e.g., "add release-please" in one PR and "remove old workflows" in another would leave the repo running two competing release mechanisms simultaneously in the gap between merges, which is strictly worse than doing it atomically).
+**Decision**: single PR (`fix:`-scoped — flaky test infrastructure, no new
+behavior or code paths), with 5 ordered, independently-buildable commits,
+grouped by Go package boundary (and, within `internal/services`, by
+sub-area — see Commit 3's rationale) as the natural, lowest-risk seam (each
+commit's `go test ./...` blast radius is fully contained to one package,
+and Commit 3 is further scoped to one functional area within it).
 
-| Commit | Scope | Files | Depends on | Validation gate |
-|---|---|---|---|---|
-| **1** | Add release-please config + manifest (no workflow yet — inert until Commit 2) | `release-please-config.json`, `.release-please-manifest.json` | — | `jq empty release-please-config.json .release-please-manifest.json`; manually diff the manifest's seed version against `git tag --sort=-v:refname \| head -1` to confirm it's current. |
-| **2** | Add the release-please workflow | `.github/workflows/release-please.yml` | Commit 1 | YAML parses; `lefthook run pre-commit` passes; manual read-through confirming the pinned action SHA/tag comment matches the sibling repo's convention and is a real, current release. |
-| **3** | Retire the superseded auto-versioning/GoReleaser pipeline | `.github/workflows/auto-versioning.yml` (delete), `.github/workflows/release-goreleaser.yml` (delete), `.goreleaser.yaml` (delete), `.gitignore` (remove GoReleaser section), `.dockerignore` (remove `.goreleaser.yaml` line), `scripts/generate-changelog.sh` (fix stale header-comment reference at line 5 from `release-goreleaser.yml` to `nightly-build.yml`, its one remaining real caller) | Commits 1-2 (don't remove the old path until the new one exists) | `lefthook run pre-commit` passes; confirm no remaining reference to `.goreleaser.yaml` anywhere (`grep -rn goreleaser --include=*.yml --include=*.md .` minus this plan file itself); confirm `generate-changelog.sh` still runs correctly after the comment-only edit (no functional change, but re-run it locally against a small tag range as a sanity check). |
-| **4** | Retire the redundant release-drafter changelog automation | `.github/workflows/auto-changelog.yml` (delete), `.github/release-drafter.yml` (delete) | Commit 2 (release-please must exist as the replacement before removing this) | `lefthook run pre-commit` passes. |
-| **5** | Retire the legacy `.version` parity check and its full reference surface | `.version` (delete), `scripts/check-version-match-tag.sh` (delete), `.github/skills/utility-version-check-scripts/run.sh` (delete), `.github/skills/utility-version-check.SKILL.md` (delete), `lefthook.yml` (remove `check-version-match` hook entry), `.github/skills/README.md` (remove the `utility-version-check` row from the Utility Skills table at ~line 72, and the `utility-version-check` bullet from the naming-convention examples at ~line 267), `.vscode/tasks.json` (remove the "Utility: Check Version Match Tag" task block, ~lines 694-698), `.github/skills/utility-bump-beta.SKILL.md` (remove the dead `utility-version-check` cross-link from its "Related Skills" section, ~line 186, keep the rest of that list), `CLAUDE.md` (remove the `utility-version-check` row from the Skills table at ~line 261 — per explicit user authorization to edit CLAUDE.md as part of this PR) | Commit 1 (manifest is the intended replacement source of truth) | `lefthook run pre-commit` passes with no dangling glob/hook referencing a deleted script; confirm `lefthook.yml` and `.vscode/tasks.json` are still valid YAML/JSON respectively; confirm `CLAUDE.md` remains valid Markdown with only the one table row removed, no other governance text touched; `grep -rn "utility-version-check\|check-version-match-tag" .` (excluding this plan file and `.git/`) returns **zero** hits anywhere, including `CLAUDE.md`. |
-| **6** | Documentation rewrite | `VERSION.md` (full rewrite per Technical Specifications), `ARCHITECTURE.md` (rewrite the "Release Workflow" section per Modified Files above: replace tag-push-triggers-everything framing with the release-please flow, fix the `generate-changelog.sh`/`release-goreleaser.yml` reference) | Commits 1-5 (must describe the end state, not the transition) | Manual proofread against the final state of every file above; confirm no reference to any deleted file/workflow remains in either doc. |
+No separate "shared helper / foundation" commit is needed ahead of these
+five — per the Research Findings above, no new shared helper is being
+introduced; each commit is self-contained (its own inline/file-local fix).
 
-**Rollback / contingency for the PR as a whole**: since this is entirely additive-then-subtractive CI configuration with no code or schema changes, rollback is a plain `git revert` of the merge commit (or of the whole PR range) — no data migrations, no forward-only state changes are introduced. The one piece of *external* (not-in-git) state this PR's downstream behavior touches is the standing release-please PR itself and any tag it creates after merge; if the migration needs to be rolled back after a real release-please release has already gone out, `.release-please-manifest.json` should be re-seeded to match whatever the real latest tag is at rollback time (not blindly reverted to the pre-migration value), and the old `auto-versioning.yml`/`release-goreleaser.yml` files restored via revert will resume exactly their prior (partially broken) behavior with no additional cleanup needed, since neither of them depended on anything release-please would have introduced.
+### Commit 1 — `fix: close leaked SQLite test connections in internal/api/handlers`
 
-# Dependencies
+- **Scope**: Apply Pattern A to `security_handler_rules_decisions_test.go`
+  (`setupSecurityTestRouterWithExtras`, lines 24-30) and
+  `notification_handler_test.go` (`setupNotificationTestDB`, lines 20-28).
+  Apply Pattern A to `certificate_handler_security_test.go`
+  (`TestCertificateHandler_Delete_NotificationRateLimiting`, lines
+  150-166). Apply Pattern C to `certificate_handler_test.go` (add
+  `openCertHandlerTestDB` helper + `"path/filepath"` import; replace the 4
+  duplicated blocks at lines ~87-100, ~641-655, ~694-708, ~752-766) **and**
+  the inline fix for its 5th, structurally-different site,
+  `TestDeleteCertificate_NotificationRateLimit` (lines 842-886 — not folded
+  into the helper, see Technical Specifications). Apply Pattern E to
+  `db_health_handler_test.go`'s single leak,
+  `TestDBHealthHandler_Check_CorruptedDatabase` (lines 207-256, the `db2`
+  reconnect at line 227). Apply Pattern D to `crowdsec_wave7_test.go`'s
+  single leak, `TestCrowdsecWave7_Start_CreateSecurityConfigFailsOnReadOnlyDB`
+  (lines 30-56, the `roDB` at line 43). Apply Pattern A/G to
+  `backup_handler_coverage_test.go`'s `setupBackupTestWithDB` (lines 40-79,
+  the `gdb` at line 58), fixing its 4 callers for free.
+- **Files**:
+  - `backend/internal/api/handlers/security_handler_rules_decisions_test.go`
+  - `backend/internal/api/handlers/notification_handler_test.go`
+  - `backend/internal/api/handlers/certificate_handler_security_test.go`
+  - `backend/internal/api/handlers/certificate_handler_test.go`
+  - `backend/internal/api/handlers/db_health_handler_test.go`
+  - `backend/internal/api/handlers/crowdsec_wave7_test.go`
+  - `backend/internal/api/handlers/backup_handler_coverage_test.go`
+- **Dependencies**: none (first commit).
+- **Validation gate**:
+  ```bash
+  cd backend
+  go build ./...
+  go vet ./internal/api/handlers/...
+  go test ./internal/api/handlers/... -race -count=1
+  go test ./internal/api/handlers/... -run TestSecurityHandler_CreateAndListDecisionAndRulesets -count=10 -race
+  go test ./internal/api/handlers/... -run 'TestNotificationHandler_List|TestNotificationHandler_MarkAllAsRead_Error|TestNotificationHandler_DBError' -count=10 -race
+  go test ./internal/api/handlers/... -run TestCertificateHandler_Delete_NotificationRateLimiting -count=10 -race
+  go test ./internal/api/handlers/... -run 'TestDeleteCertificate_CreatesBackup|TestDeleteCertificate_DiskSpaceCheckError|TestDeleteCertificate_ExpiredLetsEncrypt_NotInUse|TestDeleteCertificate_ValidLetsEncrypt_NotInUse|TestDeleteCertificate_NotificationRateLimit' -count=10 -race
+  go test ./internal/api/handlers/... -run TestDBHealthHandler_Check_CorruptedDatabase -count=10 -race
+  go test ./internal/api/handlers/... -run TestCrowdsecWave7_Start_CreateSecurityConfigFailsOnReadOnlyDB -count=10 -race
+  go test ./internal/api/handlers/... -run TestBackupHandler -count=10 -race  # backend-dev: verify/adjust this -run regex against setupBackupTestWithDB's 4 actual caller test names (lines ~88, 139, 157, 187) before relying on it — name not independently confirmed during planning
+  make lint-fast   # staticcheck, blocking per CLAUDE.md
+  ```
+  All must pass with zero failures and zero `unlinkat`/`ENOTEMPTY` output.
 
-- **DEP-001**: `googleapis/release-please-action` (pinned by SHA, `# v5` comment) — new external GitHub Action dependency, matching the pattern already trusted in `/projects/go_notify_yourself`.
-- **DEP-002**: No new npm/Go module dependencies. No `package.json`/`go.mod` changes.
+### Commit 2 — `fix: close leaked SQLite test connections in internal/services (notifications)`
 
-# Risks & Assumptions
+- **Scope**: Apply Pattern D to all 5 sites in
+  `enhanced_security_notification_service_patch_coverage_test.go`
+  (`TestEnhancedService_UpdateManagedProviders_SaveError`,
+  `TestEnhancedService_MigrateFromLegacyConfig_TransactionWriteErrors`'s two
+  subtests, `TestEnhancedService_IsFeatureEnabled_CreateAndRequeryPath`,
+  `TestEnhancedService_IsFeatureEnabled_CreateAndRequeryErrorPath`).
+- **Files**:
+  - `backend/internal/services/enhanced_security_notification_service_patch_coverage_test.go`
+- **Dependencies**: none — independent of Commit 1 (different package,
+  could be reordered or cherry-picked separately if needed), but ordered
+  second to keep the PR's diff grouped by package for reviewability.
+- **Validation gate**:
+  ```bash
+  cd backend
+  go build ./...
+  go vet ./internal/services/...
+  go test ./internal/services/... -race -count=1
+  go test ./internal/services/... -run TestEnhancedService_UpdateManagedProviders_SaveError -count=10 -race
+  go test ./internal/services/... -run TestEnhancedService_MigrateFromLegacyConfig_TransactionWriteErrors -count=10 -race
+  go test ./internal/services/... -run TestEnhancedService_IsFeatureEnabled_CreateAndRequeryPath -count=10 -race
+  go test ./internal/services/... -run TestEnhancedService_IsFeatureEnabled_CreateAndRequeryErrorPath -count=10 -race
+  make lint-fast
+  ```
 
-- **RISK-001**: `include-component-in-tag` default-vs-explicit-`false` mismatch could produce a wrongly-prefixed tag on the first real release, silently breaking `orthrus-build.yml`'s trigger and `generate-changelog.sh`'s tag scan until noticed. Mitigated by explicit config (Additional Finding C) and flagged as the #1 manual-verification item post-merge.
-- **RISK-002**: `skip-changelog: true`'s interaction with GitHub Release notes generation is not fully documented in the sources available this session — small chance the Release body comes out empty rather than independently populated. Flagged in Manual Post-Merge Follow-Ups.
-- **RISK-003**: Branch protection on `main` could block release-please's bot-authored release PR from merging cleanly (required reviewers, required status checks that don't apply to a docs/manifest-only PR). Flagged in Manual Post-Merge Follow-Ups; no code change can pre-empt this, it must be checked live.
-- **RISK-004**: This PR targets `main` directly, bypassing the normal `development` → `nightly` → `main` soak cycle by design (see Branching Note). Slightly higher blast-radius-per-mistake than the repo's usual flow, mitigated by the fact that the change is inert until the *next* real release-worthy commit lands on `main` (release-please won't retroactively do anything to already-tagged history).
-- **ASSUMPTION-001**: The latest tag at plan-authoring time (`v0.36.5`) is still the latest tag at implementation time. Re-verify before seeding `.release-please-manifest.json` (explicitly called out as an implementer task, not assumed).
-- **ASSUMPTION-002** (revised — the original wording overclaimed completeness; corrected per Supervisor's independent re-run of the same grep, which surfaced two more references this plan now accounts for rather than leaves implicit): a repo-wide grep for `auto-versioning`, `release-goreleaser`, `CHARON_PR2_GATES_PASSED`, `softprops/action-gh-release`, and `paulhatch` does **not** guarantee full coverage of every reference to the files this plan deletes — it only checked those specific literal strings, and it missed `ARCHITECTURE.md` (now added to Modified Files above) and a stale header comment in `scripts/generate-changelog.sh:5` (`"see .github/workflows/release-goreleaser.yml"` — functionally harmless, since the script's actual behavior doesn't depend on GoReleaser, but a dead pointer once that workflow is deleted; corrected as part of Commit 3, since it's tied directly to the GoReleaser removal). Grep-based "nothing else references this" claims in this plan should be read as "no hits for the specific strings searched," not as an exhaustive guarantee — the actual assumption being made is that the Research Findings section's enumerated consumer list is complete, which was cross-checked by Supervisor's independent review and found to need these two additions plus the Decision 4 blast-radius additions above, and no others.
+### Commit 3 — `fix: close leaked SQLite test connections in internal/services (backup/restore)`
 
-# Related Specifications / Further Reading
+- **Rationale for splitting from Commit 2**: after the second correction
+  round, `internal/services` grew to 8 affected files / 27 sites — too
+  large and functionally mixed (notifications vs. backup/restore
+  internals) for one reviewable commit. Split by sub-area, per the
+  management directive: `enhanced_security_notification_service_patch_coverage_test.go`
+  stays in Commit 2 (notifications); the `backup_service_*`/
+  `backup_restore_safe_*` family — a natural, self-contained functional
+  cluster that already share fixtures and helpers with each other (e.g.
+  `createSQLiteTestDB`, `setupRehydrateDBPair`) — becomes this commit.
+- **Scope**: Apply Pattern F to the single/multi-connection inline sites
+  and Pattern G to the 3 shared helpers, across:
+  - `backup_service_rehydrate_test.go` — 6 sites (`TestBackupService_RehydrateLiveDatabase`,
+    `..._FromBackupWithWAL`, `..._InvalidRestoreDB`,
+    `..._InvalidTableIdentifier` (2 connections),
+    `..._MidLoopFailure_RollsBackAtomically`)
+  - `backup_service_wave4_test.go` — 11 sites (`setupRehydrateDBPair` helper
+    fixing 2 callers, plus 5 standalone tests, one with 2 connections)
+  - `backup_service_wave5_test.go` — 1 site (`TestBackupServiceWave5_Rehydrate_FallbackWhenRestorePathMissing`)
+  - `backup_service_cleanup_db_test.go` — 1 site (`TestCleanupOldBackups_ExcludesPreRestoreRecordsFromRetention`)
+  - `backup_service_encryption_required_test.go` — 1 site (`newRemoteStorageTestService` helper)
+  - `backup_restore_safe_coverage_test.go` — 1 site (`newLiveDBHardeningTestService` helper)
+  - `backup_service_test.go` — 1 site (`TestBackupService_RehydrateLiveDatabase_MissingSource`)
+- **Files**:
+  - `backend/internal/services/backup_service_rehydrate_test.go`
+  - `backend/internal/services/backup_service_wave4_test.go`
+  - `backend/internal/services/backup_service_wave5_test.go`
+  - `backend/internal/services/backup_service_cleanup_db_test.go`
+  - `backend/internal/services/backup_service_encryption_required_test.go`
+  - `backend/internal/services/backup_restore_safe_coverage_test.go`
+  - `backend/internal/services/backup_service_test.go`
+- **Dependencies**: none — independent of Commit 2 (disjoint files within
+  the same package); ordered directly after it since both are
+  `internal/services`.
+- **Validation gate**:
+  ```bash
+  cd backend
+  go build ./...
+  go vet ./internal/services/...
+  go test ./internal/services/... -race -count=1
+  go test ./internal/services/... -run 'TestBackupService_RehydrateLiveDatabase|TestBackupService_RehydrateLiveDatabase_FromBackupWithWAL|TestBackupService_RehydrateLiveDatabase_InvalidRestoreDB|TestBackupService_RehydrateLiveDatabase_InvalidTableIdentifier|TestBackupService_RehydrateLiveDatabase_MidLoopFailure_RollsBackAtomically' -count=10 -race
+  go test ./internal/services/... -run 'TestBackupServiceWave4_Rehydrate_DetachErrorNotBusyOrLocked|TestBackupServiceWave4_Rehydrate_WALCheckpointErrorNotBusyOrLocked|TestBackupServiceWave4_Rehydrate_CheckpointWarningPath|TestBackupServiceWave4_Rehydrate_CreateTempFailure|TestBackupServiceWave4_Rehydrate_CopyErrorFromDirectorySource|TestBackupServiceWave4_Rehydrate_CopyTableErrorOnSchemaMismatch|TestBackupServiceWave4_Rehydrate_ClearSQLiteSequenceError|TestBackupServiceWave4_Rehydrate_CopySQLiteSequenceError' -count=10 -race
+  go test ./internal/services/... -run TestBackupServiceWave5_Rehydrate_FallbackWhenRestorePathMissing -count=10 -race
+  go test ./internal/services/... -run TestCleanupOldBackups_ExcludesPreRestoreRecordsFromRetention -count=10 -race
+  go test ./internal/services/... -run TestComputeEncryptionKeyRequired_PositiveAndNegative -count=10 -race
+  go test ./internal/services/... -run 'TestRestoreBackupSafe_LiveDBAttached_RehydratesAndReloadsCaddy' -count=10 -race
+  go test ./internal/services/... -run TestBackupService_RehydrateLiveDatabase_MissingSource -count=10 -race
+  make lint-fast
+  ```
+  All must pass with zero failures and zero `unlinkat`/`ENOTEMPTY` output.
+  Note the first `-run` regex above intentionally also matches
+  `TestBackupService_RehydrateLiveDatabase_MissingSource` and
+  `..._FromBackupWithWAL` as substring matches of the base name — harmless
+  (it just runs a superset), but if tightened, ensure
+  `TestBackupService_RehydrateLiveDatabase_MissingSource` (row 15, a
+  different file) is still covered by its own explicit run above.
 
-- `/projects/go_notify_yourself/release-please-config.json`, `.release-please-manifest.json`, `.github/workflows/release-please.yml` — reference implementation.
-- `docs/reports/caddy-security-posture.md` — origin/closure evidence for the "PR-2" gate (Decision 6).
-- release-please documentation: `docs/customizing.md`, `docs/design.md`, `schemas/config.json` in `googleapis/release-please` (all fetched and cited directly in this plan).
+### Commit 4 — `fix: close leaked SQLite test connections in cmd/seed`
+
+- **Scope**: Apply Pattern B to `TestSeedMain_ForceAdminUpdatesExistingUserPassword`
+  and `TestSeedMain_ForceAdminWithoutPasswordUpdatesMetadata`.
+- **Files**:
+  - `backend/cmd/seed/seed_smoke_test.go`
+- **Dependencies**: none — independent of Commits 1-3; ordered next as
+  the "straggler" grouping (single small file, different package again,
+  package `main`).
+- **Validation gate**:
+  ```bash
+  cd backend
+  go build ./...
+  go vet ./cmd/seed/...
+  go test ./cmd/seed/... -race -count=1
+  go test ./cmd/seed/... -run 'TestSeedMain_ForceAdminUpdatesExistingUserPassword|TestSeedMain_ForceAdminWithoutPasswordUpdatesMetadata' -count=10 -race
+  make lint-fast
+  ```
+
+### Commit 5 — `fix: close leaked SQLite test connection in internal/server`
+
+- **Scope**: Apply Pattern E to `setupTestDB` (lines 21-37), fixing every
+  test in the file that calls it.
+- **Files**:
+  - `backend/internal/server/emergency_server_test.go`
+- **Dependencies**: none — independent of Commits 1-4; a distinct package,
+  found only in the first correction round (see Methodology step 5).
+  Ordered last for the same reason as CLAUDE.md's own package-boundary-first
+  commit-slicing guidance: it's the smallest, most isolated grouping,
+  consistent with treating it as its own seam rather than folding it into
+  an unrelated commit.
+- **Validation gate**:
+  ```bash
+  cd backend
+  go build ./...
+  go vet ./internal/server/...
+  go test ./internal/server/... -race -count=1
+  go test ./internal/server/... -run TestEmergencyServer -count=10 -race
+  make lint-fast
+  ```
+
+### PR-level rollback and contingency notes
+
+- Every commit is additive-only within existing test functions (adds a
+  `t.Cleanup`/helper call; changes zero assertions, zero production code).
+  If any commit's validation gate fails, the fix is isolated to that one
+  commit/package (or, for Commits 2/3, sub-area) and can be reverted
+  independently without affecting the other four.
+- If a `-count=10 -race` run for a given site still intermittently fails
+  post-fix, that is a signal the site has a **second, distinct** flake
+  (e.g. genuine lock contention, closer to the `35695250` precedent's
+  original bug) layered on top of the TempDir-cleanup race — do not
+  broaden this PR to chase it; file a follow-up issue and note it in the PR
+  description instead, since that would be a different root cause than the
+  one this plan is scoped to.
+- Because no production code changes, rollback of the entire PR (via
+  `git revert`) is always safe and carries zero functional risk — worst
+  case reintroduces the pre-existing flake, nothing else.
+- Per CLAUDE.md Definition of Done step 3: this is a `fix:`-scoped change
+  with **no new code paths** (pure test-code edits). Local CodeQL
+  Go/JS scans, Trivy, and the GORM security scan may all be **deferred to
+  CI** — do not run them locally for this PR; CI runs them unconditionally
+  regardless. `backend-dev` should not spend time on step 3 locally for
+  this task.
+- Step 1.5 (GORM Security Scan) trigger is `backend/internal/models/**`,
+  GORM queries, or migrations — this PR touches none of those (it edits
+  test-setup DSN handling, not queries or schema), so it is also skipped
+  per its own stated trigger condition, independent of the `fix:` deferral
+  above.
+
+# Verification Plan
+
+## Pre-implementation empirical backstop (already run — results below)
+
+Per the management directive accompanying Methodology step 6, before
+finalizing the affected-file list this plan ran an independent empirical
+check against the **current, unfixed** tree (not a hypothetical — this was
+actually executed during planning, not merely specified for later):
+
+```bash
+cd backend && go test ./... -race -count=3 2>&1 | tee /tmp/stress_run.log
+```
+
+**Result: zero occurrences of `unlinkat`, `ENOTEMPTY`, or "directory not
+empty" anywhere in the full output.** (This backstop ran at the point the
+manual enumeration stood at 16 files / 40 sites, before Methodology step 7's
+further correction to 17/41 — it was not re-run after step 7, since step
+7's finding was reachable and reasoned about directly from source, not
+dependent on this empirical signal.) This neither confirms nor contradicts
+the manual enumeration above — the task's own
+confirmed root cause is explicitly load/scheduling-dependent and
+non-deterministic (that's why it survived undetected through ordinary
+local runs and only surfaced once, under nightly CI's heavier scheduling
+pressure), so a clean 3x run is expected regardless of whether the 40
+sites are real leaks. Its value is as an independent second signal
+alongside the manual read, per the management directive, not as a
+replacement for it — and it did not surface any additional site the manual
+read missed (rerun it after implementing this plan's fixes, and it should
+remain clean at higher `-count`, per item 2 below).
+
+The same run surfaced a large volume of **unrelated pre-existing
+failures** that are explicitly out of scope for this plan and must not be
+conflated with the TempDir-cleanup-race flake under investigation:
+- `internal/crowdsec` package tests failed on network access to
+  `hub-data.crowdsec.net` being blocked in this sandbox (403/HTML-instead-
+  of-JSON responses) — an environment/connectivity limitation, not a code
+  defect.
+- A large number of `internal/api/handlers`, `internal/api/routes`,
+  `internal/api/middleware`, `internal/caddy`, and `internal/models` tests
+  failed with `UNIQUE constraint failed` or similar collisions, consistent
+  with `-count=3` replaying the same test functions 3x within one process.
+  These collisions were observed but their exact per-test mechanism was not
+  individually traced for every failure — the repo is known to contain
+  `t.Name()`-keyed shared-cache in-memory DSNs (e.g.
+  `file:%s?mode=memory&cache=shared` patterns documented elsewhere in this
+  plan's cleared table) which cache by test name at the process level and
+  are a plausible source of exactly this kind of same-process-replay
+  collision, but that has not been confirmed as the specific cause for
+  every failure in this run. (An earlier draft of this section attributed
+  the collisions to a `sync.Once`-cached template DB; that claim was
+  checked and found to be unsupported — `sync.Once` appears in exactly one
+  file in the entire backend test tree, `internal/services/mail_service_test.go`,
+  which is not one of the packages where these collisions occurred and is
+  not in scope for this plan. That specific mechanism is retracted.) CI
+  does not run with `-count>1` for the full suite, so this replay-induced
+  collision class does not affect normal CI runs regardless of its exact
+  cause; it's an artifact of this specific backstop methodology, not a
+  product bug, and is explicitly **not** part of this plan's scope.
+- None of these unrelated failures should be fixed as part of this PR —
+  doing so would violate the `fix:`-scoped, single-root-cause discipline
+  this plan is following. If any of them are still a concern, they belong
+  in a separate, independently-scoped issue.
+
+Beyond each commit's own validation gate (above), before marking the PR
+ready:
+
+1. **Full affected-package runs, repeated, with the race detector**, to
+   confirm no regression and no residual flake anywhere in the touched
+   packages (not just the specific fixed functions):
+   ```bash
+   cd backend
+   go test ./internal/api/handlers/... -race -count=5
+   go test ./internal/services/... -race -count=5
+   go test ./cmd/seed/... -race -count=5
+   go test ./internal/server/... -race -count=5
+   ```
+2. **Targeted stress run on the originally-reported flaky test**, at higher
+   count to build real confidence (the nightly failure was
+   load/scheduling-dependent, so a single passing run proves little):
+   ```bash
+   cd backend
+   go test ./internal/api/handlers/... -run TestSecurityHandler_CreateAndListDecisionAndRulesets -count=20 -race -v
+   ```
+   Zero failures, and specifically zero `unlinkat`/`ENOTEMPTY` output in
+   `go test`'s cleanup-phase log lines, across all 20 runs.
+3. **Whole-module regression run** to confirm nothing outside the 4 touched
+   packages was affected (it shouldn't be — no shared code changed) and
+   that overall coverage has not regressed:
+   ```bash
+   cd backend
+   go test ./... -count=1
+   bash scripts/go-test-coverage.sh
+   ```
+4. **`bash scripts/local-patch-report.sh`** from repo root (CLAUDE.md
+   Definition of Done step 2, mandatory regardless of `fix:` scope) —
+   confirm `test-results/local-patch-report.md` and `.json` are produced
+   and patch coverage does not regress (trivial for this change since every
+   line touched is itself test code already exercised by the tests it's
+   inside).
+5. **`lefthook run pre-commit`** (step 4, mandatory) and
+   **`make lint-fast`** (step 5, mandatory, staticcheck-blocking) on the
+   full diff.
+6. **`cd backend && go build ./...`** (step 8) — confirm the build is
+   unaffected (it should be; no non-test file changes).
+
+No Playwright/E2E run is required (Phase 1 note above) and no
+CodeQL/Trivy/GORM local run is required (Commit Slicing Strategy's
+rollback/contingency note above) — both explicitly waived per CLAUDE.md's
+own stated trigger conditions for a `fix:`-scoped, test-code-only,
+non-model, non-query change.
+
+# Acceptance Criteria
+
+- [ ] All 41 identified call sites across the 17 files close their
+      underlying `*sql.DB` via `t.Cleanup` (or an equally-deterministic
+      explicit close before the function returns) before the enclosing
+      test function returns.
+- [ ] `certificate_handler_test.go`'s 4 duplicated open blocks are
+      consolidated into one file-local `openCertHandlerTestDB` helper; its
+      5th, structurally-different site (`TestDeleteCertificate_NotificationRateLimit`)
+      gets its own minimal inline fix, not folded into the helper.
+- [ ] `db_health_handler_test.go`'s `db2` reconnect in
+      `TestDBHealthHandler_Check_CorruptedDatabase` (line 227) is closed.
+- [ ] `emergency_server_test.go`'s `setupTestDB` helper (`internal/server`
+      package) closes its connection via `t.Cleanup`.
+- [ ] `crowdsec_wave7_test.go`'s `roDB` in
+      `TestCrowdsecWave7_Start_CreateSecurityConfigFailsOnReadOnlyDB`
+      (line 43) is closed.
+- [ ] `backup_service_wave4_test.go`'s `setupRehydrateDBPair` helper
+      closes both connections it opens (`activeDB` and `restoreDB`), even
+      though it only returns one of them.
+- [ ] `backup_service_encryption_required_test.go`'s `newRemoteStorageTestService`
+      and `backup_restore_safe_coverage_test.go`'s `newLiveDBHardeningTestService`
+      each close their `*gorm.DB` via `t.Cleanup`, in addition to (not
+      instead of) their existing `t.Cleanup(svc.Stop)`.
+- [ ] `backup_service_test.go`'s `TestBackupService_RehydrateLiveDatabase_MissingSource`
+      closes its `db` (line 1663).
+- [ ] `backup_handler_coverage_test.go`'s `setupBackupTestWithDB` closes its
+      `gdb` (line 58) via `t.Cleanup`, in addition to (not instead of) its
+      existing `t.Cleanup(svc.Stop)`.
+- [ ] `TestSecurityHandler_CreateAndListDecisionAndRulesets` passes
+      cleanly at `-count=20 -race` with no `unlinkat`/`ENOTEMPTY` output.
+- [ ] `go test ./internal/api/handlers/... ./internal/services/... ./cmd/seed/... ./internal/server/... -race -count=5` is 100% green.
+- [ ] `go test ./... -count=1` (whole module) is green — no regression
+      outside the 4 touched packages.
+- [ ] `scripts/go-test-coverage.sh` reports no coverage regression.
+- [ ] `bash scripts/local-patch-report.sh` produces both required
+      artifacts with acceptable patch coverage.
+- [ ] `lefthook run pre-commit` and `make lint-fast` are clean
+      (staticcheck-blocking, zero errors).
+- [ ] `cd backend && go build ./...` succeeds.
+- [ ] No production code, models, migrations, CI/CD config, Dockerfile,
+      `.gitignore`, `.dockerignore`, or `.codecov.yml` files are touched —
+      confirmed by `git diff --stat` against `development` showing only
+      the 17 `_test.go` files listed above.
+- [ ] Definition of Done steps 1 (Playwright) and 3 (local security scans)
+      are explicitly and correctly skipped per their own stated trigger
+      conditions, not silently forgotten — call this out in the PR
+      description.
+- [ ] `backup_restore_safe_error_paths_test.go` is left untouched (it was
+      investigated and cleared, not affected — see Research Findings), and
+      the PR description or commit message should not re-flag it, since a
+      future reader without this plan's context could otherwise "fix" a
+      site that was never broken.
+
+# Handoff
+
+Once this plan is reviewed and approved, delegate implementation to
+`backend-dev` (strict TDD is not really applicable here since these are
+pre-existing tests being made deterministic, not new behavior — but
+`backend-dev` should still run each commit's validation gate red→green:
+i.e., first confirm the *unfixed* site can be observed leaking a handle
+— e.g. via a quick local `-race -count=20` loop or manual inspection that
+`t.Cleanup` is absent — before applying the fix, to avoid "fixing" a site
+that was already fine). Route to `supervisor` for review before merge,
+referencing this file and commit `35695250` for precedent comparison.
