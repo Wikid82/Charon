@@ -1125,9 +1125,13 @@ services:
 **Branch Strategy:**
 
 - `main`: Stable production branch
+- `development`: Integration branch; aggregates changes promoted from `main` plus ongoing work before they reach `nightly`
+- `nightly`: Nightly build/package branch; promoted weekly to `main` via a manual, merge-commit-only promotion PR
 - `feature/*`: New feature development
 - `fix/*`: Bug fixes
 - `chore/*`: Maintenance tasks
+
+See "Branch Promotion Chain" below for how changes flow `main` → `development` → `nightly` → `main` — note that each hop uses a *different* mechanism, not one uniform pipeline.
 
 **Commit Convention:**
 
@@ -1148,6 +1152,55 @@ provisioning via Let's Encrypt DNS-01 challenge.
 
 Closes #123
 ```
+
+### Branch Promotion Chain
+
+Charon promotes changes downstream through three long-lived branches:
+`main` (stable/production) → `development` (integration) → `nightly`
+(nightly builds) → back to `main` weekly. Each hop is driven by a
+**different mechanism**, with a different trust/automation level — this is
+deliberate, not an inconsistency to "fix" into one uniform pipeline:
+
+1. **`main` → `development`** (`.github/workflows/propagate-changes.yml`):
+   fires on every successful `Docker Build, Publish & Test` run on `main`
+   and opens an automated PR (labeled `auto-propagate`) into `development`.
+   - Diffs that touch a path listed under `sensitive_paths` in
+     `.github/propagate-config.yml` (e.g. `docs/plans/`, `.github/skills/`)
+     still get a PR, but it stays in draft with a warning in the PR body
+     naming the matched files, and does not get auto-merge — a human must
+     review and merge it.
+   - Diffs with no sensitive-path matches are opened ready-for-review and
+     the workflow attempts to enable GitHub's native auto-merge
+     (`mergeMethod: MERGE`, since this repo only allows merge commits).
+     Auto-merge only actually takes effect once the repo-level **Settings
+     → General → Pull Requests → Allow auto-merge** setting is turned on;
+     until then the mutation fails safely and just logs a warning.
+   - Loop prevention: the leg checks whether the triggering commit came
+     from a PR sourced in `development` and skips propagating back into it
+     (e.g. a `development` → `main`-sourced merge does not immediately
+     reopen a `main` → `development` PR).
+   - This workflow does **not** handle `development` → `nightly` — pushes
+     to `development` are deliberately a no-op here (see next item).
+
+2. **`development` → `nightly`**
+   (`.github/workflows/nightly-build.yml`, job `sync-development-to-nightly`):
+   a separate, pre-existing daily cron (09:00 UTC, plus `workflow_dispatch`)
+   that fast-forwards `nightly` to match `origin/development`, or, if a
+   fast-forward isn't possible, force-resets it (`git reset --hard
+   origin/development` + force-push). This bypasses PRs entirely — it is
+   not related to `propagate-changes.yml` above. An earlier draft of this
+   fix added a second, PR-based `development` → `nightly` leg to
+   `propagate-changes.yml`; that was dropped because it raced this cron —
+   the cron's next force-reset would silently collapse the PR's diff to
+   zero, leaving a dangling, unmergeable PR. `development` → `nightly`
+   therefore has exactly one mechanism: this cron.
+
+3. **`nightly` → `main`** (the weekly release,
+   `.github/workflows/weekly-nightly-promotion.yml`): a separate, manual
+   promotion PR, unrelated to either mechanism above. Always merged by hand
+   using **"Create a merge commit"** (never squash/rebase) — see the
+   "Weekly Promotion PRs" note in `CLAUDE.md`; squashing collapses commit
+   history the `auto-versioning` workflow needs to parse for version bumps.
 
 ### Code Review Process
 

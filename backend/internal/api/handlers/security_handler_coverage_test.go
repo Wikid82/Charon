@@ -25,6 +25,7 @@ func TestSecurityHandler_UpdateConfig_Success(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityRuleSet{}, &models.SecurityDecision{}, &models.SecurityAudit{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -56,6 +57,7 @@ func TestSecurityHandler_UpdateConfig_DefaultName(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityRuleSet{}, &models.SecurityDecision{}, &models.SecurityAudit{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -82,6 +84,7 @@ func TestSecurityHandler_UpdateConfig_InvalidPayload(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -107,6 +110,7 @@ func TestSecurityHandler_GetConfig_Success(t *testing.T) {
 	db.Create(&cfg)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.GET("/security/config", handler.GetConfig)
 
@@ -126,6 +130,7 @@ func TestSecurityHandler_GetConfig_NotFound(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.GET("/security/config", handler.GetConfig)
 
@@ -150,6 +155,7 @@ func TestSecurityHandler_ListDecisions_Success(t *testing.T) {
 	db.Create(&models.SecurityDecision{UUID: uuid.New().String(), IP: "5.6.7.8", Action: "allow", Source: "acl"})
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.GET("/security/decisions", handler.ListDecisions)
 
@@ -175,6 +181,7 @@ func TestSecurityHandler_ListDecisions_WithLimit(t *testing.T) {
 	}
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.GET("/security/decisions", handler.ListDecisions)
 
@@ -196,6 +203,7 @@ func TestSecurityHandler_CreateDecision_Success(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityAudit{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -224,6 +232,7 @@ func TestSecurityHandler_CreateDecision_MissingIP(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -249,6 +258,7 @@ func TestSecurityHandler_CreateDecision_MissingAction(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -274,6 +284,7 @@ func TestSecurityHandler_CreateDecision_InvalidPayload(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -299,6 +310,7 @@ func TestSecurityHandler_ListRuleSets_Success(t *testing.T) {
 	db.Create(&models.SecurityRuleSet{UUID: uuid.New().String(), Name: "custom", Mode: "detection", Content: "# Custom rules"})
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.GET("/security/rulesets", handler.ListRuleSets)
 
@@ -320,6 +332,7 @@ func TestSecurityHandler_UpsertRuleSet_Success(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityRuleSet{}, &models.SecurityAudit{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -347,6 +360,7 @@ func TestSecurityHandler_UpsertRuleSet_MissingName(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityRuleSet{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -373,6 +387,7 @@ func TestSecurityHandler_UpsertRuleSet_InvalidPayload(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityRuleSet{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -398,6 +413,7 @@ func TestSecurityHandler_DeleteRuleSet_Success(t *testing.T) {
 	db.Create(&ruleset)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -421,6 +437,7 @@ func TestSecurityHandler_DeleteRuleSet_NotFound(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityRuleSet{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -440,6 +457,7 @@ func TestSecurityHandler_DeleteRuleSet_InvalidID(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityRuleSet{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -459,6 +477,7 @@ func TestSecurityHandler_DeleteRuleSet_EmptyID(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityRuleSet{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -482,6 +501,7 @@ func TestSecurityHandler_Enable_NoConfigNoWhitelist(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.POST("/security/enable", handler.Enable)
 
@@ -503,6 +523,7 @@ func TestSecurityHandler_Enable_WithWhitelist(t *testing.T) {
 	db.Create(&cfg)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.POST("/security/enable", handler.Enable)
 
@@ -524,6 +545,7 @@ func TestSecurityHandler_Enable_IPNotInWhitelist(t *testing.T) {
 	db.Create(&cfg)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.POST("/security/enable", handler.Enable)
 
@@ -541,6 +563,7 @@ func TestSecurityHandler_Enable_WithValidBreakGlassToken(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -585,6 +608,7 @@ func TestSecurityHandler_Enable_WithInvalidBreakGlassToken(t *testing.T) {
 	db.Create(&cfg)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.POST("/security/enable", handler.Enable)
 
@@ -609,6 +633,7 @@ func TestSecurityHandler_Disable_FromLocalhost(t *testing.T) {
 	db.Create(&cfg)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.POST("/security/disable", func(c *gin.Context) {
 		// Simulate localhost request
@@ -633,6 +658,7 @@ func TestSecurityHandler_Disable_FromRemoteWithToken(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -677,6 +703,7 @@ func TestSecurityHandler_Disable_FromRemoteNoToken(t *testing.T) {
 	db.Create(&cfg)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.POST("/security/disable", func(c *gin.Context) {
 		c.Request.RemoteAddr = "192.168.1.100:12345" // Remote IP
@@ -700,6 +727,7 @@ func TestSecurityHandler_Disable_FromRemoteInvalidToken(t *testing.T) {
 	db.Create(&cfg)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.POST("/security/disable", func(c *gin.Context) {
 		c.Request.RemoteAddr = "192.168.1.100:12345" // Remote IP
@@ -723,6 +751,7 @@ func TestSecurityHandler_GenerateBreakGlass_NoConfig(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -752,6 +781,7 @@ func TestSecurityHandler_Disable_FromIPv6Localhost(t *testing.T) {
 	db.Create(&cfg)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.POST("/security/disable", func(c *gin.Context) {
 		c.Request.RemoteAddr = "[::1]:12345" // IPv6 localhost
@@ -776,6 +806,7 @@ func TestSecurityHandler_Enable_WithCIDRWhitelist(t *testing.T) {
 	db.Create(&cfg)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.POST("/security/enable", handler.Enable)
 
@@ -798,6 +829,7 @@ func TestSecurityHandler_Enable_WithExactIPWhitelist(t *testing.T) {
 	db.Create(&cfg)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.POST("/security/enable", handler.Enable)
 
@@ -834,6 +866,7 @@ func TestSecurityHandler_GetStatus_BackwardCompatibilityOverrides(t *testing.T) 
 	}
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.GET("/security/status", handler.GetStatus)
 
@@ -859,6 +892,7 @@ func TestSecurityHandler_AddWAFExclusion_InvalidExistingJSONStillAdds(t *testing
 	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", WAFExclusions: "{"}).Error)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -884,6 +918,7 @@ func TestSecurityHandler_ToggleSecurityModule_SnapshotSettingsError(t *testing.T
 	require.NoError(t, sqlDB.Close())
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -905,6 +940,7 @@ func TestSecurityHandler_ToggleSecurityModule_SnapshotSecurityConfigError(t *tes
 	require.NoError(t, db.Exec("DROP TABLE security_configs").Error)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -925,6 +961,7 @@ func TestSecurityHandler_SnapshotAndRestoreHelpers(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	require.NoError(t, db.Create(&models.Setting{Key: "k1", Value: "v1", Category: "security", Type: "string"}).Error)
 
 	snapshots, err := handler.snapshotSettings([]string{"k1", "k1", "k2"})
@@ -950,6 +987,7 @@ func TestSecurityHandler_DefaultSecurityConfigStateHelpers(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 
 	exists, enabled, err := handler.snapshotDefaultSecurityConfigState()
 	require.NoError(t, err)
@@ -983,6 +1021,7 @@ func TestSecurityHandler_EnsureSecurityConfigEnabled_Helper(t *testing.T) {
 	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", Enabled: false}).Error)
 
 	handler = NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	require.NoError(t, handler.ensureSecurityConfigEnabled())
 
 	var cfg models.SecurityConfig
@@ -1014,6 +1053,7 @@ func TestSecurityHandler_CreateDecision_StripsEnrichmentFields(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityAudit{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")

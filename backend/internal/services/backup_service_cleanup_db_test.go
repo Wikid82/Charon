@@ -32,6 +32,9 @@ func TestCleanupOldBackups_ExcludesPreRestoreRecordsFromRetention(t *testing.T) 
 	dbPath := filepath.Join(dataDir, "charon.db")
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
 	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	require.NoError(t, db.AutoMigrate(&models.BackupRecord{}))
 
 	svc := &BackupService{DataDir: dataDir, BackupDir: backupDir, db: db}

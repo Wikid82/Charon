@@ -42,6 +42,11 @@ func TestCrowdsecWave7_Start_CreateSecurityConfigFailsOnReadOnlyDB(t *testing.T)
 
 	roDB, err := gorm.Open(sqlite.Open("file:"+dbPath+"?mode=ro"), &gorm.Config{})
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		if roSQLDB, sqlErr := roDB.DB(); sqlErr == nil {
+			_ = roSQLDB.Close()
+		}
+	})
 
 	h := newTestCrowdsecHandler(t, roDB, &fakeExec{}, "/bin/false", t.TempDir())
 

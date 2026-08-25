@@ -230,6 +230,11 @@ func TestDBHealthHandler_Check_CorruptedDatabase(t *testing.T) {
 		// If connection fails immediately, skip this test
 		t.Skip("Database connection failed immediately on corruption")
 	}
+	t.Cleanup(func() {
+		if sqlDB2, sqlErr := db2.DB(); sqlErr == nil {
+			_ = sqlDB2.Close()
+		}
+	})
 
 	handler := NewDBHealthHandler(db2, nil, dbPath)
 

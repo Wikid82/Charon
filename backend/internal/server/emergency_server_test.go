@@ -27,6 +27,10 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	db, err := database.Connect(tmpFile)
 	require.NoError(t, err, "Failed to create test database")
 
+	sqlDB, err := db.DB()
+	require.NoError(t, err, "Failed to access underlying sql.DB")
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
 	// Run migrations
 	err = db.AutoMigrate(
 		&models.Setting{},

@@ -39,6 +39,9 @@ func TestHandleSecurityEvent_TimestampZero(t *testing.T) {
 
 	enhancedService := services.NewEnhancedSecurityNotificationService(db)
 	securityService := services.NewSecurityService(db)
+	// NewSecurityService starts a background audit-processing goroutine that
+	// shares this *gorm.DB. Same concern as b9a46963: stop it via t.Cleanup.
+	t.Cleanup(securityService.Close)
 	notificationService := services.NewNotificationService(db, nil)
 	h := NewSecurityNotificationHandlerWithDeps(enhancedService, securityService, "/tmp", notificationService, []string{"127.0.0.0/8"})
 
@@ -83,6 +86,7 @@ func TestHandleSecurityEvent_SendViaProvidersError(t *testing.T) {
 	assert.NoError(t, err)
 
 	securityService := services.NewSecurityService(db)
+	t.Cleanup(securityService.Close)
 	notificationService := services.NewNotificationService(db, nil)
 	mockService := &mockFailingService{}
 	h := NewSecurityNotificationHandlerWithDeps(mockService, securityService, "/tmp", notificationService, []string{"127.0.0.0/8"})

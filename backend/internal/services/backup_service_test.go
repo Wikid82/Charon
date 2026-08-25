@@ -1662,6 +1662,9 @@ func TestBackupService_RehydrateLiveDatabase_MissingSource(t *testing.T) {
 
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
 	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
 
 	svc := &BackupService{
 		DataDir:       dataDir,

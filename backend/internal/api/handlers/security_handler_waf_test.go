@@ -29,6 +29,7 @@ func TestSecurityHandler_GetWAFExclusions_Empty(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.GET("/security/waf/exclusions", handler.GetWAFExclusions)
 
@@ -54,6 +55,7 @@ func TestSecurityHandler_GetWAFExclusions_WithExclusions(t *testing.T) {
 	db.Create(&cfg)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.GET("/security/waf/exclusions", handler.GetWAFExclusions)
 
@@ -83,6 +85,7 @@ func TestSecurityHandler_GetWAFExclusions_InvalidJSON(t *testing.T) {
 	db.Create(&cfg)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.GET("/security/waf/exclusions", handler.GetWAFExclusions)
 
@@ -105,6 +108,7 @@ func TestSecurityHandler_AddWAFExclusion_Success(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -138,6 +142,7 @@ func TestSecurityHandler_AddWAFExclusion_WithTarget(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -176,6 +181,7 @@ func TestSecurityHandler_AddWAFExclusion_ToExistingConfig(t *testing.T) {
 	db.Create(&cfg)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -219,6 +225,7 @@ func TestSecurityHandler_AddWAFExclusion_Duplicate(t *testing.T) {
 	db.Create(&cfg)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -251,6 +258,7 @@ func TestSecurityHandler_AddWAFExclusion_DuplicateWithDifferentTarget(t *testing
 	db.Create(&cfg)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -278,6 +286,7 @@ func TestSecurityHandler_AddWAFExclusion_MissingRuleID(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -303,6 +312,7 @@ func TestSecurityHandler_AddWAFExclusion_InvalidRuleID(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -329,6 +339,7 @@ func TestSecurityHandler_AddWAFExclusion_NegativeRuleID(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -354,6 +365,7 @@ func TestSecurityHandler_AddWAFExclusion_InvalidPayload(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -380,6 +392,7 @@ func TestSecurityHandler_DeleteWAFExclusion_Success(t *testing.T) {
 	db.Create(&cfg)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -419,6 +432,7 @@ func TestSecurityHandler_DeleteWAFExclusion_WithTarget(t *testing.T) {
 	db.Create(&cfg)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -458,6 +472,7 @@ func TestSecurityHandler_DeleteWAFExclusion_NotFound(t *testing.T) {
 	db.Create(&cfg)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -477,6 +492,7 @@ func TestSecurityHandler_DeleteWAFExclusion_NoConfig(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -496,6 +512,7 @@ func TestSecurityHandler_DeleteWAFExclusion_InvalidRuleID(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -515,6 +532,7 @@ func TestSecurityHandler_DeleteWAFExclusion_ZeroRuleID(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -534,6 +552,7 @@ func TestSecurityHandler_DeleteWAFExclusion_NegativeRuleID(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -576,6 +595,7 @@ func TestSecurityHandler_WAFExclusion_FullWorkflow(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(handler.Close)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")

@@ -44,6 +44,19 @@ export default function Layout({ children }: LayoutProps) {
     localStorage.setItem('sidebarCollapsed', JSON.stringify(isCollapsed))
   }, [isCollapsed])
 
+  // Close the mobile sidebar on Escape — the overlay below is aria-hidden
+  // (click-to-dismiss only), so keyboard users need this listener to dismiss it too.
+  useEffect(() => {
+    if (!mobileSidebarOpen) return
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMobileSidebarOpen(false)
+      }
+    }
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [mobileSidebarOpen])
+
   const toggleMenu = (name: string) => {
     setExpandedMenus(prev =>
       prev.includes(name)
@@ -378,6 +391,7 @@ export default function Layout({ children }: LayoutProps) {
       {mobileSidebarOpen && (
         <div
           className="fixed inset-0 bg-gray-900/50 z-20 lg:hidden"
+          aria-hidden="true"
           onClick={() => setMobileSidebarOpen(false)}
         />
       )}
