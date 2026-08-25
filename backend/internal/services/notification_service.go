@@ -5,20 +5,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html"
 	"net"
-	"net/http"
 	neturl "net/url"
 	"regexp"
 	"strings"
 	"text/template"
 	"time"
 
+	notify "github.com/Wikid82/go_notify_yourself"
+	"github.com/Wikid82/go_notify_yourself/providers/email"
+	"github.com/Wikid82/go_notify_yourself/providers/webhook"
+	"github.com/Wikid82/go_notify_yourself/transport"
+
 	"github.com/Wikid82/charon/backend/internal/logger"
-	"github.com/Wikid82/charon/backend/internal/network"
-	"github.com/Wikid82/charon/backend/internal/notifications"
-	"github.com/Wikid82/charon/backend/internal/security"
-	"github.com/Wikid82/charon/backend/internal/trace"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/util"
@@ -27,7 +26,7 @@ import (
 
 type NotificationService struct {
 	DB                 *gorm.DB
-	httpWrapper        *notifications.HTTPWrapper
+	notifyWrapper      *transport.Wrapper
 	mailService        MailServiceInterface
 	telegramAPIBaseURL string
 	pushoverAPIBaseURL string
@@ -45,10 +44,22 @@ func WithSlackURLValidator(fn func(string) error) NotificationServiceOption {
 	}
 }
 
+// WithNotifyTransportWrapper overrides the *transport.Wrapper used to
+// dispatch notifications through the extracted notify module's provider
+// packages (buildNotifySender, notify_provider_adapter.go). Intended for
+// tests that need to intercept outbound requests (e.g. a fake
+// http.RoundTripper) without hitting a real network destination —
+// production code always uses the wrapper built by NewNotifyTransportWrapper.
+func WithNotifyTransportWrapper(w *transport.Wrapper) NotificationServiceOption {
+	return func(s *NotificationService) {
+		s.notifyWrapper = w
+	}
+}
+
 func NewNotificationService(db *gorm.DB, mailService MailServiceInterface, opts ...NotificationServiceOption) *NotificationService {
 	s := &NotificationService{
 		DB:                 db,
-		httpWrapper:        notifications.NewNotifyHTTPWrapper(),
+		notifyWrapper:      NewNotifyTransportWrapper(),
 		mailService:        mailService,
 		telegramAPIBaseURL: "https://api.telegram.org",
 		pushoverAPIBaseURL: "https://api.pushover.net",
@@ -59,8 +70,6 @@ func NewNotificationService(db *gorm.DB, mailService MailServiceInterface, opts 
 	}
 	return s
 }
-
-var discordWebhookRegex = regexp.MustCompile(`^https://discord(?:app)?\.com/api/webhooks/(\d+)/([a-zA-Z0-9_-]+)`)
 
 var allowedDiscordWebhookHosts = map[string]struct{}{
 	"discord.com":        {},
@@ -74,18 +83,6 @@ func validateSlackWebhookURL(rawURL string) error {
 		return fmt.Errorf("invalid Slack webhook URL: must match https://hooks.slack.com/services/T.../B.../xxx")
 	}
 	return nil
-}
-
-func normalizeURL(serviceType, rawURL string) string {
-	if serviceType == "discord" {
-		matches := discordWebhookRegex.FindStringSubmatch(rawURL)
-		if len(matches) == 3 {
-			id := matches[1]
-			token := matches[2]
-			return fmt.Sprintf("discord://%s@%s", token, id)
-		}
-	}
-	return rawURL
 }
 
 func validateDiscordWebhookURL(rawURL string) error {
@@ -150,19 +147,19 @@ func (s *NotificationService) isDispatchEnabled(providerType string) bool {
 	case "discord":
 		return true
 	case "email":
-		return s.getFeatureFlagValue(notifications.FlagEmailServiceEnabled, false)
+		return s.getFeatureFlagValue(FlagEmailServiceEnabled, false)
 	case "gotify":
-		return s.getFeatureFlagValue(notifications.FlagGotifyServiceEnabled, true)
+		return s.getFeatureFlagValue(FlagGotifyServiceEnabled, true)
 	case "webhook":
-		return s.getFeatureFlagValue(notifications.FlagWebhookServiceEnabled, true)
+		return s.getFeatureFlagValue(FlagWebhookServiceEnabled, true)
 	case "telegram":
-		return s.getFeatureFlagValue(notifications.FlagTelegramServiceEnabled, true)
+		return s.getFeatureFlagValue(FlagTelegramServiceEnabled, true)
 	case "slack":
-		return s.getFeatureFlagValue(notifications.FlagSlackServiceEnabled, true)
+		return s.getFeatureFlagValue(FlagSlackServiceEnabled, true)
 	case "pushover":
-		return s.getFeatureFlagValue(notifications.FlagPushoverServiceEnabled, true)
+		return s.getFeatureFlagValue(FlagPushoverServiceEnabled, true)
 	case "ntfy":
-		return s.getFeatureFlagValue(notifications.FlagNtfyServiceEnabled, true)
+		return s.getFeatureFlagValue(FlagNtfyServiceEnabled, true)
 	default:
 		return false
 	}
@@ -267,7 +264,7 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 			continue
 		}
 		if strings.ToLower(strings.TrimSpace(provider.Type)) == "email" {
-			go s.dispatchEmail(ctx, provider, eventType, title, message)
+			go s.dispatchEmailViaNotify(ctx, provider, eventType, title, message)
 			continue
 		}
 		go func(p models.NotificationProvider) {
@@ -275,86 +272,109 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 				logger.Log().WithField("provider", util.SanitizeForLog(p.Name)).WithField("type", p.Type).Warn("Provider type is not supported by notify-only runtime")
 				return
 			}
-
-			if err := s.sendJSONPayload(ctx, p, data); err != nil {
-				logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send JSON notification")
-			}
+			s.dispatchViaNotify(ctx, p, eventType, title, message, data)
 		}(provider)
 	}
 }
 
-// sanitizeForEmail strips ASCII control characters (0x00–0x1F and 0x7F DEL)
-// and trims leading/trailing whitespace from untrusted strings before they
-// enter the email pipeline. The result is a normalized, single-line string.
-// This provides defense-in-depth alongside rejectCRLF() validation in
-// SendEmail/buildEmail.
-func sanitizeForEmail(s string) string {
-	stripped := strings.Map(func(r rune) rune {
-		if r < 0x20 || r == 0x7F {
-			return -1
-		}
-		return r
-	}, s)
-	return strings.TrimSpace(stripped)
+// notifyMessageDataFromLegacyFlatMap extracts the host/service extras that
+// legacyDetailedTemplate (notify_provider_adapter.go) reads via
+// {{index .Data "HostName"}}/{{index .Data "HostIP"}}/
+// {{index .Data "ServiceCount"}}/{{index .Data "Services"}} from the flat
+// data map SendExternal callers (e.g. uptime_service.go's
+// sendHostDownNotification) pass in, so a provider configured with the old
+// "detailed" template keeps rendering the same host/IP/service-count/
+// services values after cutover to the extracted notify module. Reading a
+// missing key from a nil or incomplete map yields nil (renders as JSON
+// null), matching the old flat-map template's behavior for callers that
+// don't supply these optional fields (e.g. proxy_host/domain/cert/
+// remote_server events).
+func notifyMessageDataFromLegacyFlatMap(data map[string]any) map[string]any {
+	return map[string]any{
+		"HostName":     data["HostName"],
+		"HostIP":       data["HostIP"],
+		"ServiceCount": data["ServiceCount"],
+		"Services":     data["Services"],
+	}
 }
 
-// dispatchEmail sends an email notification for the given provider.
+// dispatchViaNotify sends a notification through the extracted notify
+// module (buildNotifySender, notify_provider_adapter.go). It builds
+// a notify.Message from the caller-supplied source data
+// (title/message/eventType plus the HostName/HostIP/ServiceCount/Services
+// extras a caller may have supplied), then dispatches it through the
+// provider-specific Sender, which routes through the shared
+// *transport.Wrapper (s.notifyWrapper) — gaining that wrapper's
+// retry/backoff behavior for every dispatch that goes through this path.
+func (s *NotificationService) dispatchViaNotify(ctx context.Context, p models.NotificationProvider, eventType, title, message string, data map[string]any) {
+	sender, err := buildNotifySender(p, s.notifyWrapper)
+	if err != nil {
+		logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to build notify sender")
+		return
+	}
+
+	msg := notify.Message{
+		Title:     title,
+		Body:      message,
+		EventType: eventType,
+		Data:      notifyMessageDataFromLegacyFlatMap(data),
+	}
+
+	if err := sender.Send(ctx, msg); err != nil {
+		logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send notification via notify module")
+	}
+}
+
+// dispatchEmailViaNotify sends an email notification through the extracted
+// notify module's email package (NewNotifyEmailConfig, notify_email_adapter.go).
 // It runs in a goroutine; all errors are logged rather than returned.
-func (s *NotificationService) dispatchEmail(ctx context.Context, p models.NotificationProvider, eventType, title, message string) {
+//
+// Behavior note: a template-rendering failure still
+// results in the notification being sent, using a manually built plain
+// HTML body — see mailServiceTemplateRendererAdapter.Render's doc comment
+// (notify_email_adapter.go) for where that fallback now lives. Only a real
+// Mailer/SMTP transport failure (mailServiceMailerAdapter.Send) causes this
+// function's error branch to fire.
+func (s *NotificationService) dispatchEmailViaNotify(ctx context.Context, p models.NotificationProvider, eventType, title, message string) {
 	if s.mailService == nil || !s.mailService.IsConfigured() {
 		logger.Log().WithField("provider", util.SanitizeForLog(p.Name)).Warn("Email provider is not configured, skipping dispatch")
 		return
 	}
 
-	rawRecipients := strings.Split(p.URL, ",")
+	recipients := parseEmailRecipients(p.URL)
+	if len(recipients) == 0 {
+		logger.Log().WithField("provider", util.SanitizeForLog(p.Name)).Warn("Email provider has no recipients configured")
+		return
+	}
+
+	client := email.New(NewNotifyEmailConfig(s.mailService, recipients))
+
+	msg := notify.Message{
+		Title:     title,
+		Body:      message,
+		EventType: eventType,
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	if err := client.Send(timeoutCtx, msg); err != nil {
+		logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send email notification")
+	}
+}
+
+// parseEmailRecipients splits a NotificationProvider's comma-separated URL
+// field into a trimmed, non-empty recipient list. Shared by
+// dispatchEmailViaNotify and TestEmailProvider's notify-path counterpart.
+func parseEmailRecipients(rawURL string) []string {
+	rawRecipients := strings.Split(rawURL, ",")
 	recipients := make([]string, 0, len(rawRecipients))
 	for _, r := range rawRecipients {
 		if trimmed := strings.TrimSpace(r); trimmed != "" {
 			recipients = append(recipients, trimmed)
 		}
 	}
-
-	if len(recipients) == 0 {
-		logger.Log().WithField("provider", util.SanitizeForLog(p.Name)).Warn("Email provider has no recipients configured")
-		return
-	}
-
-	safeTitle := sanitizeForEmail(title)
-	safeMessage := sanitizeForEmail(message)
-	subject := fmt.Sprintf("[Charon Alert] %s", safeTitle)
-
-	templateName := emailTemplateForEventType(eventType)
-	data := EmailTemplateData{
-		EventType: eventType,
-		Title:     safeTitle,
-		Message:   safeMessage,
-		Timestamp: time.Now().Format(time.RFC3339),
-	}
-
-	htmlBody, renderErr := s.mailService.RenderNotificationEmail(templateName, data)
-	if renderErr != nil {
-		logger.Log().WithError(renderErr).WithField("template", templateName).Warn("Email template rendering failed, using fallback")
-		var bodyBuilder strings.Builder
-		if safeTitle != "" {
-			bodyBuilder.WriteString("<strong>")
-			bodyBuilder.WriteString(html.EscapeString(safeTitle))
-			bodyBuilder.WriteString("</strong>")
-		}
-		if safeMessage != "" {
-			if bodyBuilder.Len() > 0 {
-				bodyBuilder.WriteString("<br>")
-			}
-			bodyBuilder.WriteString(html.EscapeString(safeMessage))
-		}
-		htmlBody = bodyBuilder.String()
-	}
-
-	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	if err := s.mailService.SendEmail(timeoutCtx, recipients, subject, htmlBody); err != nil {
-		logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send email notification")
-	}
+	return recipients
 }
 
 func emailTemplateForEventType(eventType string) string {
@@ -370,331 +390,9 @@ func emailTemplateForEventType(eventType string) string {
 	}
 }
 
-// webhookDoRequestFunc is a test hook for outbound JSON webhook requests.
-// In production it defaults to (*http.Client).Do.
-var webhookDoRequestFunc = func(client *http.Client, req *http.Request) (*http.Response, error) {
-	return client.Do(req)
-}
-
 // validateDiscordProviderURLFunc is a test hook for Discord webhook URL validation.
 // In tests, you can override this to bypass strict hostname checks for localhost testing.
 var validateDiscordProviderURLFunc = validateDiscordProviderURL
-
-func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.NotificationProvider, data map[string]any) error {
-	// Built-in templates
-	const minimalTemplate = `{"message": {{toJSON .Message}}, "title": {{toJSON .Title}}, "time": {{toJSON .Time}}, "event": {{toJSON .EventType}}}`
-	const detailedTemplate = `{"title": {{toJSON .Title}}, "message": {{toJSON .Message}}, "time": {{toJSON .Time}}, "event": {{toJSON .EventType}}, "host": {{toJSON .HostName}}, "host_ip": {{toJSON .HostIP}}, "service_count": {{toJSON .ServiceCount}}, "services": {{toJSON .Services}}, "data": {{toJSON .}}}`
-
-	// Select template based on provider.Template; if 'custom' use Config; else builtin.
-	tmplStr := p.Config
-	switch strings.ToLower(strings.TrimSpace(p.Template)) {
-	case "detailed":
-		tmplStr = detailedTemplate
-	case "minimal":
-		tmplStr = minimalTemplate
-	case "custom":
-		if tmplStr == "" {
-			tmplStr = minimalTemplate
-		}
-	default:
-		if tmplStr == "" {
-			tmplStr = minimalTemplate
-		}
-	}
-
-	// Template size limit validation (10KB max)
-	const maxTemplateSize = 10 * 1024
-	if len(tmplStr) > maxTemplateSize {
-		return fmt.Errorf("template size exceeds maximum limit of %d bytes", maxTemplateSize)
-	}
-
-	providerType := strings.ToLower(strings.TrimSpace(p.Type))
-	if providerType == "discord" {
-		if err := validateDiscordProviderURLFunc(p.Type, p.URL); err != nil {
-			return err
-		}
-
-		if !isValidRedirectURL(p.URL) {
-			return fmt.Errorf("invalid webhook url")
-		}
-	}
-
-	// Parse template and add helper funcs
-	tmpl, err := template.New("webhook").Funcs(template.FuncMap{
-		"toJSON": func(v any) string {
-			b, _ := json.Marshal(v)
-			return string(b)
-		},
-	}).Parse(tmplStr)
-	if err != nil {
-		return fmt.Errorf("failed to parse webhook template: %w", err)
-	}
-
-	// Template execution with timeout (5 seconds)
-	var body bytes.Buffer
-	execDone := make(chan error, 1)
-	go func() {
-		execDone <- tmpl.Execute(&body, data)
-	}()
-
-	select {
-	case execErr := <-execDone:
-		if execErr != nil {
-			return fmt.Errorf("failed to execute webhook template: %w", execErr)
-		}
-	case <-time.After(5 * time.Second):
-		return fmt.Errorf("template execution timeout after 5 seconds")
-	}
-
-	// Service-specific JSON validation
-	var jsonPayload map[string]any
-	if unmarshalErr := json.Unmarshal(body.Bytes(), &jsonPayload); unmarshalErr != nil {
-		return fmt.Errorf("invalid JSON payload: %w", unmarshalErr)
-	}
-
-	// Validate service-specific requirements
-	switch strings.ToLower(p.Type) {
-	case "discord":
-		// Discord requires either 'content' or 'embeds'
-		if _, hasContent := jsonPayload["content"]; !hasContent {
-			if _, hasEmbeds := jsonPayload["embeds"]; !hasEmbeds {
-				if messageValue, hasMessage := jsonPayload["message"]; hasMessage {
-					jsonPayload["content"] = messageValue
-					normalizedBody, marshalErr := json.Marshal(jsonPayload)
-					if marshalErr != nil {
-						return fmt.Errorf("failed to normalize discord payload: %w", marshalErr)
-					}
-					body.Reset()
-					if _, writeErr := body.Write(normalizedBody); writeErr != nil {
-						return fmt.Errorf("failed to write normalized discord payload: %w", writeErr)
-					}
-				} else {
-					return fmt.Errorf("discord payload requires 'content' or 'embeds' field")
-				}
-			}
-		}
-	case "slack":
-		if _, hasText := jsonPayload["text"]; !hasText {
-			if _, hasBlocks := jsonPayload["blocks"]; !hasBlocks {
-				if messageValue, hasMessage := jsonPayload["message"]; hasMessage {
-					jsonPayload["text"] = messageValue
-					normalizedBody, marshalErr := json.Marshal(jsonPayload)
-					if marshalErr != nil {
-						return fmt.Errorf("failed to normalize slack payload: %w", marshalErr)
-					}
-					body.Reset()
-					if _, writeErr := body.Write(normalizedBody); writeErr != nil {
-						return fmt.Errorf("failed to write normalized slack payload: %w", writeErr)
-					}
-				} else {
-					return fmt.Errorf("slack payload requires 'text' or 'blocks' field")
-				}
-			}
-		}
-	case "gotify":
-		// Gotify requires 'message' field
-		if _, hasMessage := jsonPayload["message"]; !hasMessage {
-			return fmt.Errorf("gotify payload requires 'message' field")
-		}
-	case "telegram":
-		// Telegram requires 'text' field for the message body
-		if _, hasText := jsonPayload["text"]; !hasText {
-			if messageValue, hasMessage := jsonPayload["message"]; hasMessage {
-				jsonPayload["text"] = messageValue
-				normalizedBody, marshalErr := json.Marshal(jsonPayload)
-				if marshalErr != nil {
-					return fmt.Errorf("failed to normalize telegram payload: %w", marshalErr)
-				}
-				body.Reset()
-				if _, writeErr := body.Write(normalizedBody); writeErr != nil {
-					return fmt.Errorf("failed to write normalized telegram payload: %w", writeErr)
-				}
-			} else {
-				return fmt.Errorf("telegram payload requires 'text' field")
-			}
-		}
-	case "pushover":
-		if _, hasMessage := jsonPayload["message"]; !hasMessage {
-			return fmt.Errorf("pushover payload requires 'message' field")
-		}
-		if priority, ok := jsonPayload["priority"]; ok {
-			if p, isFloat := priority.(float64); isFloat && p == 2 {
-				return fmt.Errorf("pushover emergency priority (2) requires retry and expire parameters; not yet supported")
-			}
-		}
-	case "ntfy":
-		if _, hasMessage := jsonPayload["message"]; !hasMessage {
-			return fmt.Errorf("ntfy payload must include a 'message' field")
-		}
-	}
-
-	if providerType == "gotify" || providerType == "webhook" || providerType == "telegram" || providerType == "slack" || providerType == "pushover" || providerType == "ntfy" {
-		headers := map[string]string{
-			"Content-Type": "application/json",
-			"User-Agent":   "Charon-Notify/1.0",
-		}
-		if rid := ctx.Value(trace.RequestIDKey); rid != nil {
-			if ridStr, ok := rid.(string); ok {
-				headers["X-Request-ID"] = ridStr
-			}
-		}
-
-		dispatchURL := p.URL
-
-		if providerType == "gotify" {
-			if strings.TrimSpace(p.Token) != "" {
-				headers["X-Gotify-Key"] = strings.TrimSpace(p.Token)
-			}
-		}
-
-		if providerType == "telegram" {
-			decryptedToken := p.Token
-			telegramBase := s.telegramAPIBaseURL
-			if telegramBase == "" {
-				telegramBase = "https://api.telegram.org"
-			}
-			dispatchURL = telegramBase + "/bot" + decryptedToken + "/sendMessage"
-
-			parsedURL, parseErr := neturl.Parse(dispatchURL)
-			expectedHost := "api.telegram.org"
-			if parsedURL != nil && parsedURL.Hostname() != "" && telegramBase != "https://api.telegram.org" {
-				// In test overrides, skip the hostname pin check.
-				expectedHost = parsedURL.Hostname()
-			}
-			if parseErr != nil || parsedURL.Hostname() != expectedHost {
-				return fmt.Errorf("telegram dispatch URL validation failed: invalid hostname")
-			}
-
-			jsonPayload["chat_id"] = p.URL
-			updatedBody, marshalErr := json.Marshal(jsonPayload)
-			if marshalErr != nil {
-				return fmt.Errorf("failed to marshal telegram payload with chat_id: %w", marshalErr)
-			}
-			body.Reset()
-			body.Write(updatedBody)
-		}
-
-		if providerType == "slack" {
-			decryptedWebhookURL := p.Token
-			if strings.TrimSpace(decryptedWebhookURL) == "" {
-				return fmt.Errorf("slack webhook URL is not configured")
-			}
-			if validateErr := s.validateSlackURL(decryptedWebhookURL); validateErr != nil {
-				return validateErr
-			}
-			dispatchURL = decryptedWebhookURL
-		}
-
-		if providerType == "ntfy" {
-			if strings.TrimSpace(p.Token) != "" {
-				headers["Authorization"] = "Bearer " + strings.TrimSpace(p.Token)
-			}
-		}
-
-		if providerType == "pushover" {
-			decryptedToken := p.Token
-			if strings.TrimSpace(decryptedToken) == "" {
-				return fmt.Errorf("pushover API token is not configured")
-			}
-			if strings.TrimSpace(p.URL) == "" {
-				return fmt.Errorf("pushover user key is not configured")
-			}
-
-			pushoverBase := s.pushoverAPIBaseURL
-			if pushoverBase == "" {
-				pushoverBase = "https://api.pushover.net"
-			}
-			dispatchURL = pushoverBase + "/1/messages.json"
-
-			parsedURL, parseErr := neturl.Parse(dispatchURL)
-			expectedHost := "api.pushover.net"
-			if parsedURL != nil && parsedURL.Hostname() != "" && pushoverBase != "https://api.pushover.net" {
-				expectedHost = parsedURL.Hostname()
-			}
-			if parseErr != nil || parsedURL.Hostname() != expectedHost {
-				return fmt.Errorf("pushover dispatch URL validation failed: invalid hostname")
-			}
-
-			jsonPayload["token"] = decryptedToken
-			jsonPayload["user"] = p.URL
-
-			updatedBody, marshalErr := json.Marshal(jsonPayload)
-			if marshalErr != nil {
-				return fmt.Errorf("failed to marshal pushover payload: %w", marshalErr)
-			}
-			body.Reset()
-			body.Write(updatedBody)
-		}
-
-		if _, sendErr := s.httpWrapper.Send(ctx, notifications.HTTPWrapperRequest{
-			URL:     dispatchURL,
-			Headers: headers,
-			Body:    body.Bytes(),
-		}); sendErr != nil {
-			return fmt.Errorf("failed to send webhook: %w", sendErr)
-		}
-		return nil
-	}
-
-	validatedURLStr, err := security.ValidateExternalURL(p.URL,
-		security.WithAllowHTTP(),
-		security.WithAllowLocalhost(),
-	)
-	if err != nil {
-		return fmt.Errorf("invalid webhook url: %w", err)
-	}
-
-	client := network.NewSafeHTTPClient(
-		network.WithTimeout(10*time.Second),
-		network.WithAllowLocalhost(),
-	)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", validatedURLStr, &body)
-	if err != nil {
-		return fmt.Errorf("failed to create webhook request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if rid := ctx.Value(trace.RequestIDKey); rid != nil {
-		if ridStr, ok := rid.(string); ok {
-			req.Header.Set("X-Request-ID", ridStr)
-		}
-	}
-
-	resp, err := webhookDoRequestFunc(client, req)
-	if err != nil {
-		return fmt.Errorf("failed to send webhook: %w", err)
-	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			logger.Log().WithError(err).Warn("failed to close webhook response body")
-		}
-	}()
-
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("webhook returned status: %d", resp.StatusCode)
-	}
-	return nil
-}
-
-// isPrivateIP returns true for RFC1918, loopback and link-local addresses.
-// This wraps network.IsPrivateIP for backward compatibility and local use.
-func isPrivateIP(ip net.IP) bool {
-	return network.IsPrivateIP(ip)
-}
-
-func isValidRedirectURL(rawURL string) bool {
-	u, err := neturl.Parse(rawURL)
-	if err != nil {
-		return false
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return false
-	}
-	if u.Hostname() == "" {
-		return false
-	}
-	return true
-}
 
 func (s *NotificationService) TestProvider(provider models.NotificationProvider) error {
 	providerType := strings.ToLower(strings.TrimSpace(provider.Type))
@@ -710,46 +408,73 @@ func (s *NotificationService) TestProvider(provider models.NotificationProvider)
 		return fmt.Errorf("provider type %q does not support JSON templates", providerType)
 	}
 
-	data := map[string]any{
-		"Title":   "Test Notification",
-		"Message": "This is a test notification from Charon",
-		"Status":  "TEST",
-		"Name":    "Test Monitor",
-		"Latency": 123,
-		"Time":    time.Now().Format(time.RFC3339),
-	}
-	return s.sendJSONPayload(context.Background(), provider, data)
+	return s.testProviderViaNotify(provider)
 }
 
-// TestEmailProvider sends a test email to the recipients configured in provider.URL.
-// It bypasses the JSON-template path used by TestProvider and uses the SMTP mail service directly.
+// testProviderViaNotify sends a test notification through the extracted
+// notify module (buildNotifySender, notify_provider_adapter.go).
+func (s *NotificationService) testProviderViaNotify(provider models.NotificationProvider) error {
+	sender, err := buildNotifySender(provider, s.notifyWrapper)
+	if err != nil {
+		return fmt.Errorf("build notify sender: %w", err)
+	}
+
+	msg := notify.Message{
+		Title:     "Test Notification",
+		Body:      "This is a test notification from Charon",
+		EventType: "test",
+	}
+	return sender.Send(context.Background(), msg)
+}
+
+// TestEmailProvider sends a test email to the recipients configured in
+// provider.URL, dispatched through the extracted notify module's email
+// package (providers/email) the same way TestEmailProvider's real-dispatch
+// counterpart (dispatchEmailViaNotify) is. It bypasses the JSON-template
+// path used by TestProvider.
+//
+// This uses its own inline email.Config, rather than NewNotifyEmailConfig
+// (notify_email_adapter.go), because the test-send subject prefix
+// ("[Charon Test] ") and forced "email_system_event.html" template differ
+// from NewNotifyEmailConfig's production values ("[Charon Alert] " and
+// emailTemplateForEventType's event-type-based mapping) — matching the old
+// TestEmailProvider's hardcoded subject/template exactly.
+//
+// Behavior note: see dispatchEmailViaNotify's comment — like that path,
+// this still falls back to a manually built plain HTML body (via
+// mailServiceTemplateRendererAdapter.Render) when template rendering fails,
+// and still sends/succeeds. Only a real Mailer/SMTP transport failure
+// causes this function to return an error.
 func (s *NotificationService) TestEmailProvider(provider models.NotificationProvider) error {
 	if s.mailService == nil || !s.mailService.IsConfigured() {
 		return fmt.Errorf("email service is not configured; configure SMTP settings before testing email providers")
 	}
-	rawRecipients := strings.Split(provider.URL, ",")
-	recipients := make([]string, 0, len(rawRecipients))
-	for _, r := range rawRecipients {
-		if trimmed := strings.TrimSpace(r); trimmed != "" {
-			recipients = append(recipients, trimmed)
-		}
-	}
+
+	recipients := parseEmailRecipients(provider.URL)
 	if len(recipients) == 0 {
 		return fmt.Errorf("no recipients configured; add at least one recipient email address")
 	}
-	data := EmailTemplateData{
-		EventType: "test",
+
+	cfg := email.Config{
+		Recipients:    recipients,
+		SubjectPrefix: "[Charon Test] ",
+		TemplateName: func(notify.Message) string {
+			return "email_system_event.html"
+		},
+		Renderer: &mailServiceTemplateRendererAdapter{mailService: s.mailService},
+		Mailer:   &mailServiceMailerAdapter{mailService: s.mailService},
+	}
+	client := email.New(cfg)
+
+	msg := notify.Message{
 		Title:     "Test Notification",
-		Message:   "This is a test notification from Charon. If you received this email, your email notification provider is configured correctly.",
-		Timestamp: time.Now().Format(time.RFC3339),
+		Body:      "This is a test notification from Charon. If you received this email, your email notification provider is configured correctly.",
+		EventType: "test",
 	}
-	htmlBody, renderErr := s.mailService.RenderNotificationEmail("email_system_event.html", data)
-	if renderErr != nil {
-		htmlBody = "<strong>Test Notification</strong><br>This is a test notification from Charon. If you received this email, your email notification provider is configured correctly."
-	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	return s.mailService.SendEmail(ctx, recipients, "[Charon Test] Test Notification", htmlBody)
+	return client.Send(ctx, msg)
 }
 
 // ListTemplates returns all external notification templates stored in the database.
@@ -863,11 +588,15 @@ func (s *NotificationService) CreateProvider(provider *models.NotificationProvid
 		provider.Token = ""
 	}
 
-	// Validate custom template before creating
+	// Validate custom template before creating. Uses providers/webhook.RenderPreview
+	// (the extracted notify module's template-preview function) rather than the old
+	// RenderTemplate, so preview validation exercises the same TemplateData shape
+	// (Title/Message/Time/EventType/Data) that dispatchViaNotify's actual dispatch
+	// uses — a custom template referencing {{index .Data "..."}} now validates
+	// correctly instead of failing preview with a flat map that had no Data field.
 	if strings.ToLower(strings.TrimSpace(provider.Template)) == "custom" && strings.TrimSpace(provider.Config) != "" {
-		// Provide a minimal preview payload
-		payload := map[string]any{"Title": "Preview", "Message": "Preview", "Time": time.Now().Format(time.RFC3339), "EventType": "preview"}
-		if _, _, err := s.RenderTemplate(*provider, payload); err != nil {
+		previewMsg := notify.Message{Title: "Preview", Body: "Preview", EventType: "preview"}
+		if _, _, err := webhook.RenderPreview(provider.Config, previewMsg); err != nil {
 			return fmt.Errorf("invalid custom template: %w", err)
 		}
 	}
@@ -909,10 +638,11 @@ func (s *NotificationService) UpdateProvider(provider *models.NotificationProvid
 		}
 	}
 
-	// Validate custom template before saving
+	// Validate custom template before saving — see the matching comment in
+	// CreateProvider for why this uses providers/webhook.RenderPreview.
 	if strings.ToLower(strings.TrimSpace(provider.Template)) == "custom" && strings.TrimSpace(provider.Config) != "" {
-		payload := map[string]any{"Title": "Preview", "Message": "Preview", "Time": time.Now().Format(time.RFC3339), "EventType": "preview"}
-		if _, _, err := s.RenderTemplate(*provider, payload); err != nil {
+		previewMsg := notify.Message{Title: "Preview", Body: "Preview", EventType: "preview"}
+		if _, _, err := webhook.RenderPreview(provider.Config, previewMsg); err != nil {
 			return fmt.Errorf("invalid custom template: %w", err)
 		}
 	}

@@ -103,4 +103,106 @@ Running `go test ./internal/api/handlers/... ./internal/services/... ./cmd/seed/
 - No security-relevant surface risk; no assertions weakened; no secrets exposed.
 - Two pre-existing, unrelated flaky-test findings were discovered and root-caused during deliberate stress testing beyond what this PR touches — both confirmed to reproduce identically on the pre-fix baseline, confirming they are not caused by this PR. Documented above as a follow-up recommendation, not a blocker.
 
-No blocking issues found.
+## Final Overall Verdict: **PASS — ready to be marked done.**
+
+---
+---
+
+# QA/Security Audit — Notify Provider Registry (Self-Registering Factory) (Independent Verification)
+
+**Branch**: `feature/notifications-engine-extraction`
+**Commit range reviewed**: `a28f0db9..HEAD` (`e3e971ec`, `326d28e9`, `14421c06`, `567de4e7`, `7c48f009`)
+**Reviewed by**: qa-security agent
+**Date**: 2026-08-17
+**Scope**: Backend-only. Replaces a hardcoded `switch p.Type { case "discord": ... }` provider-construction dispatch in `backend/internal/services/notify_provider_adapter.go` with a call into a new self-registering factory registry (`notify.New`) shipped by a companion module, `github.com/Wikid82/go_notify_yourself` (pinned `v0.2.0` via a local-path `replace` directive to `/projects/go_notify_yourself`, branch `feature/provider-registry`, not yet pushed to GitHub — expected/tracked, not a defect).
+**Prior reviews**: `backend-dev` implementation pass + `supervisor` code review — **APPROVED WITH MINOR NOTES** (no blocking issues; email construction path and the local-path `replace` directive both flagged as known, non-blocking).
+**Purpose**: Independent re-verification of all Definition of Done gates plus a dedicated security review of the new `map[string]any` config-boundary and provider registry, per `docs/plans/notify_provider_registry_spec.md` §3 and §5.
+
+## Summary Verdict: **READY TO MERGE** — no blocking issues found. All Definition of Done gates independently re-run and passed with real, non-cached numbers where applicable.
+
+---
+
+## 1. Definition of Done Gates (all independently re-run from repo root / `backend/`)
+
+| Gate | Command | Result |
+|---|---|---|
+| Backend build | `cd backend && go build ./...` | **PASS** — clean, zero errors |
+| Static vet | `cd backend && go vet ./...` | **PASS** — zero findings |
+| Staticcheck | `make lint-staticcheck-only` | **PASS** — `0 issues.` (backend), `0 issues.` (agent) |
+| Full backend test suite | `cd backend && go test ./...` | **PASS** — all packages `ok`, zero failures. `internal/services` (the touched package) ran uncached, 111.308s, all green. |
+| Backend coverage gate | `bash scripts/go-test-coverage.sh` (`CHARON_MIN_COVERAGE` default 87%) | **PASS** — Statement coverage **89.3%**, line coverage **89.2%** (gate: line coverage ≥ 87%). Console: `Coverage gate (line coverage): minimum required 87% / Coverage requirement met`. |
+| Local patch coverage preflight | `bash scripts/local-patch-report.sh` | **PASS** — Backend: 235/235 changed lines covered = **100.0%** patch coverage (threshold 85%). Overall/Frontend/Agent all 100.0% (0 changed lines outside backend). Artifacts confirmed at `test-results/local-patch-report.md` and `test-results/local-patch-report.json`. |
+| GORM security scan | `./scripts/scan-gorm-security.sh --check` | **PASS** — `CRITICAL: 0`, `HIGH: 0`, `MEDIUM: 0`, `INFO: 2` (both pre-existing, in `backend/internal/models/user.go`'s `UserPermittedHost` struct — unrelated to this change; 61 files / 3675 lines scanned). |
+| Lefthook pre-commit | `lefthook run pre-commit` | **N/A / clean** — working tree is clean (no staged changes; this is an audit pass on already-committed code, `git status` confirmed clean at session start), so every hook reported `(skip) no matching staged files`. The equivalent checks (`go vet`, staticcheck) were independently re-run directly above and passed. |
+
+Playwright E2E: **not run**, per task scope. Verified during the security review (§3 below) that provider dispatch behavior is byte-for-byte unchanged — `notify_provider_adapter_test.go`'s existing per-provider tests assert the exact same dispatch URL, headers, and JSON payload shape as the pre-registry switch (e.g. Gotify's `X-Gotify-Key` header, Pushover's hardcoded production URL + `user`/`token` payload fields, Telegram's `bot<token>/sendMessage` URL). No new HTTP payload/header/URL behavior was introduced for any provider type, so the Playwright skip condition in the task brief is satisfied.
+
+---
+
+## 2. Commit-Range Diff Verification
+
+- `git diff --stat a28f0db9..HEAD`: 7 files changed, 223 insertions(+), 84 deletions(-) — `ARCHITECTURE.md`, `backend/go.mod`, `backend/go.sum`, `notification_service_registry_consistency_test.go` (new), `notify_provider_adapter.go`, `notify_provider_adapter_test.go`, `notify_providers_import.go` (new).
+- `git diff a28f0db9..HEAD -- backend/internal/models/notification_provider.go` → **empty**. Confirms the `Token` field's `json:"-"` GORM protection is untouched.
+- `git diff a28f0db9..HEAD -- backend/internal/services/notification_service.go` → **empty**. Confirms `isSupportedNotificationProviderType`, `supportsJSONTemplates`, `isDispatchEnabled` are byte-for-byte unchanged, per the spec's hard design requirement (§3.6.2 Option A).
+- `grep -rn "providers/all" backend/` → only 2 matches, both inside a comment in `notify_providers_import.go` explicitly explaining *why* `providers/all` is deliberately **not** imported. No actual import anywhere in `backend/`.
+
+---
+
+## 3. Security-Specific Findings
+
+### 3.1 No token/secret leakage into logs or errors — **PASS**
+
+Read `backend/internal/services/notify_provider_adapter.go` and `notify_providers_import.go` in full, plus every `providers/*/register.go` in `/projects/go_notify_yourself` (discord, slack, gotify, pushover, ntfy, telegram, webhook, email) and `factory.go`.
+
+- The only error-wrapping call site in `notify_provider_adapter.go` is `fmt.Errorf("notify provider adapter: %w", err)` (line 175) — wraps, never re-formats field values.
+- Every registry-level error (`notify.New`'s "no provider registered for type %q", each factory's `config["transport"] must be a non-nil *transport.Wrapper` / `config["mailer"] must be a non-nil Mailer`) references only **field/key names and the provider type discriminator** — never `provider.URL`, `provider.Token`, or any config map value.
+- Log call sites that consume `buildNotifySender`'s error (`notification_service.go:312`, `:324`) log only `util.SanitizeForLog(p.Name)` plus the wrapped error — never `p.URL`/`p.Token`.
+- No `fmt.Println`, `log.Print`, or debug statements were introduced anywhere in the diff.
+
+**Conclusion**: no Gotify token, webhook URL-as-secret, or any provider credential can reach logs, error messages, or test artifacts through this code path. SECURITY.md's "Gotify Token Hygiene" requirement is satisfied.
+
+### 3.2 `Token` field GORM protection untouched — **PASS**
+
+Confirmed via the empty diff above (§2). `Token string \`json:"-"\`` is unchanged in `backend/internal/models/notification_provider.go`.
+
+### 3.3 `map[string]any` config-boundary type-confusion risk — **PASS, verified independently, not just re-trusted**
+
+Read `/projects/go_notify_yourself/factory.go` and all eight `providers/*/register.go` files directly (not assumed from the spec). Every factory:
+
+- Type-asserts `config["transport"].(*transport.Wrapper)` (or `config["mailer"].(Mailer)` for email) with the two-value `ok` form and an explicit nil check — **never a bare/panicking assertion**.
+- Returns a descriptive `fmt.Errorf` (never panics) when the assertion fails or the value is nil.
+- Delegates all scalar/slice field extraction to `providers/internal/regconfig.StringField`/`StringSliceField`, both of which are deliberately lenient: a wrong-typed or missing key produces the zero value (`""`/`nil`), never a panic. Verified via `regconfig`'s own test table, which explicitly covers `wrong type int`, `wrong type nil value`, `any slice with non-string element`, and `wrong type entirely` — all resolve to zero values, not panics.
+- `Register` itself panics only on programmer misuse (`nil` factory, empty name, duplicate registration) at `init()` time — never on caller-supplied runtime data, matching the `database/sql`/`image` prior-art convention the spec cites.
+
+Charon's own tests (`notify_provider_adapter_test.go`) independently exercise this boundary: `TestBuildNotifySenderMissingTransportErrors` and `TestBuildNotifySenderInvalidTransportInConfigMapErrors` both assert a nil/invalid transport produces an error containing "transport", not a panic. `TestBuildNotifySenderUnsupportedTypeErrors` asserts an unregistered type ("carrier-pigeon") produces a "no provider registered" error, not a panic.
+
+**Conclusion**: no type-confusion panic path exists at the registry boundary. Supervisor's prior claim is independently confirmed, not merely re-trusted.
+
+### 3.4 `isSupportedNotificationProviderType` / `supportsJSONTemplates` / `isDispatchEnabled` unchanged — **PASS** (see §2, empty diff)
+
+### 3.5 `providers/all` not imported anywhere in `backend/` — **PASS** (see §2)
+
+`notify_providers_import.go` hand-picks exactly Charon's eight supported types (`discord`, `email`, `gotify`, `ntfy`, `pushover`, `slack`, `telegram`, `webhook`), matching `isSupportedNotificationProviderType`'s allowlist. A new consistency test, `TestSupportedProviderAllowlistIsSubsetOfRegisteredTypes` (`notification_service_registry_consistency_test.go`), asserts this allowlist is a subset of `notify.RegisteredTypes()` — guarding against future drift between the hand-picked imports and the allowlist.
+
+### 3.6 `go.mod` local-path replace directive — tracked, not a defect
+
+```
+replace github.com/Wikid82/go_notify_yourself => /projects/go_notify_yourself
+```
+
+Annotated in `go.mod` with a `TODO` explaining it must be removed once `go_notify_yourself v0.2.0` is pushed/tagged upstream. This is a real, temporary condition (confirmed: `/projects/go_notify_yourself` is on local branch `feature/provider-registry`, not yet on GitHub) and matches what the task brief and supervisor's prior review both already flagged as expected. Not a merge blocker for the Charon-side PR per the spec's own commit-slicing sequencing, but **must** be resolved before this local-path pin would work in CI or for any other contributor — flagged below as a required follow-up.
+
+---
+
+## 4. Non-Blocking Follow-Ups (tracked, not blocking this PR)
+
+1. **`go.mod` local-path `replace` directive** (`backend/go.mod:9`) must be removed and re-pinned to the real published `go_notify_yourself v0.2.0` tag once `/projects/go_notify_yourself`'s `feature/provider-registry` branch is pushed and tagged on GitHub. Already tracked via the in-file `TODO` comment; CI/other contributors cannot build this branch until resolved.
+2. Email's construction (`notification_service.go:350`, `dispatchEmailViaNotify`) still calls `email.New(...)` directly rather than routing through `notify.New` — consistent with pre-existing architecture (email's `Mailer`/`TemplateRenderer` DI seam predates this work) and not a regression, per supervisor's prior note. No action required by this PR.
+
+## Blocking Issues
+
+**None.**
+
+## Final Overall Verdict: **READY TO MERGE**
+
+All seven independently re-run Definition of Done gates pass with real numbers (89.3%/89.2% overall backend coverage against an 87% gate; 100% patch coverage on the 235 changed lines against an 85% gate; 0 CRITICAL/HIGH/MEDIUM GORM findings; 0 staticcheck/vet findings; full backend suite green). The security-specific review independently verified — by reading the actual factory/register code in `/projects/go_notify_yourself`, not by re-trusting the prior supervisor review — that no token/secret can reach logs or error messages, that the `map[string]any` registry boundary cannot panic on caller-controlled input, that the `Token` field's `json:"-"` protection and Charon's three provider allowlists are byte-for-byte unchanged from before this work, and that `providers/all` is never imported in `backend/`. The one open item (local-path `go.mod` replace directive) is already tracked and does not block merging this Charon-side PR per the spec's own two-repo commit-slicing sequencing.

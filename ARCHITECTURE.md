@@ -130,7 +130,7 @@ graph TB
 | **WebSocket** | gorilla/websocket | Latest | Real-time log streaming |
 | **Crypto** | golang.org/x/crypto | Latest | Password hashing, encryption |
 | **Metrics** | Prometheus Client | Latest | Application metrics |
-| **Notifications** | Notify (Discord-first) | Current | Discord notifications now; additional services in phased rollout |
+| **Notifications** | github.com/Wikid82/go_notify_yourself | Current | External delivery-engine module (Discord, Slack, Gotify, Pushover, Ntfy, Telegram, generic webhook, and email) consumed via Charon-supplied SSRF/SMTP/template adapters — see Service Layer below |
 | **Docker Client** | Docker SDK | Latest | Container discovery |
 | **Logging** | Logrus + Lumberjack | Latest | Structured logging with rotation |
 | **Backup Archive Encryption** | filippo.io/age | Latest | Passphrase (scrypt) encryption of backup archives; audited, pure Go, streaming AEAD — avoids buffering whole archives in RAM or hand-rolling chunked AES-GCM |
@@ -336,7 +336,8 @@ graph TB
 - **ProxyService:** CRUD operations for proxy hosts, validation logic
 - **CertificateService:** ACME certificate provisioning and renewal
 - **DockerService:** Container discovery and monitoring
-- **MailService:** Email notifications for certificate expiry
+- **MailService:** SMTP transport and branded HTML templates for certificate-expiry and other system emails
+- **NotificationService:** GORM CRUD for providers/templates, event-type-to-provider routing, and feature-flag gating (`internal/services/notification_service.go`); outbound dispatch for all seven provider types (Discord, Slack, Gotify, Pushover, Ntfy, Telegram, generic webhook) plus email is delegated to the external `github.com/Wikid82/go_notify_yourself` module (`v0.2.0+`) through three Charon-supplied adapters — `notify_client_adapter.go` (SSRF-safe HTTP client/URL validation, wired to `internal/network`/`internal/security`), `notify_provider_adapter.go`, and `notify_email_adapter.go` (wraps `MailService` behind the module's `Mailer`/`TemplateRenderer` interfaces). `notify_provider_adapter.go`'s `buildNotifySender` maps a `NotificationProvider` row into a `map[string]any` config (`providerConfigMap`) and constructs the `Sender` by calling the module's self-registering provider factory registry (`notify.New(provider.Type, config)`) rather than a hardcoded per-provider switch/constructor call — `notify_providers_import.go` hand-picks the blank imports (`providers/discord`, `providers/slack`, `providers/gotify`, `providers/pushover`, `providers/ntfy`, `providers/telegram`, `providers/webhook`, `providers/email`) that register those factories at `init()` time, deliberately not importing `providers/all`. Charon's own supported-provider allowlist (`isSupportedNotificationProviderType`, `notification_service.go`) remains independently hardcoded and is not derived from the registry; a unit test asserts it stays a subset of `notify.RegisteredTypes()`. The formerly in-repo delivery engine (`internal/notifications/`) has been removed.
 - **SettingsService:** Application settings management
 - **BackupService:** Format-v2 archive creation (manifest + SHA-256 checksums), configurable cron scheduling, the safe-restore pipeline (validate → pre-restore safety backup → apply → reconcile), and optional age/scrypt archive encryption — see "Backup & Restore Subsystem" below
 

@@ -4,6 +4,7 @@ go 1.27.0
 
 require (
 	filippo.io/age v1.3.1
+	github.com/Wikid82/go_notify_yourself v0.2.0
 	github.com/gin-contrib/gzip v1.2.6
 	github.com/gin-gonic/gin v1.12.0
 	github.com/glebarez/sqlite v1.11.0

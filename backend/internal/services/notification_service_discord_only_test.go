@@ -181,6 +181,12 @@ func TestDiscordOnly_UpdateProviderAllowsWebhookUpdates(t *testing.T) {
 // TestDiscordOnly_TestProviderAllowsWebhookWithoutFeatureFlag tests that webhook TestProvider
 // works without explicit feature flag (bypasses dispatch gate).
 func TestDiscordOnly_TestProviderAllowsWebhookWithoutFeatureFlag(t *testing.T) {
+	// Webhook is cut over to the extracted notify module, whose transport
+	// wrapper gates plain-HTTP/localhost dispatch on CHARON_ENV=test
+	// explicitly (resolveNotifyAllowHTTP in notify_client_adapter.go)
+	// rather than the old implicit os.Args[0]-".test"-suffix detection.
+	t.Setenv("CHARON_ENV", "test")
+
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}, &models.Setting{}))
