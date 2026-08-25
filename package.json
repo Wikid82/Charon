@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@typescript/analyze-trace": "^0.11.1",
-    "tldts": "^7.4.10",
+    "tldts": "^7.4.11",
     "type-check": "^0.4.0"
   },
   "overrides": {
@@ -25,7 +25,7 @@
     "@bgotink/playwright-coverage": "^0.3.2",
     "@playwright/test": "^1.62.1",
     "@types/eslint-plugin-jsx-a11y": "6.10.0",
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.3.0",
     "audit-ci": "^7.1.0",
     "dotenv": "^17.4.2",
     "markdownlint-cli2": "^0.23.2",
