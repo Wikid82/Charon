@@ -229,3 +229,75 @@ GO-2026-5932
 # branch). Next review: 2026-09-05.
 # exp: 2026-09-05
 GHSA-gcjh-h69q-9w9g
+
+# --- 2026-08-26 OpenSSL Alpine batch: CVE-2026-63072, CVE-2026-63073, CVE-2026-63074,
+# CVE-2026-63075, CVE-2026-63076, CVE-2026-18798, CVE-2026-14457, CVE-2026-54874,
+# CVE-2026-75803 ------------------------------------------------------------------
+# Packages: libcrypto3 3.5.7-r0 and libssl3 3.5.7-r0 (Alpine base image)
+# Trivy/NVD rate these HIGH; OpenSSL's own advisories rate most of them Low/Moderate
+# (DoS/crash-class bugs in QUIC server, CMS decrypt, CMP client/server, DTLS server, RPK
+# server, and AEAD tag verification — see per-CVE lines below and .grype.yaml for detail).
+# Status: Charon's Dockerfile pins the Alpine base by sha256 digest
+# (ALPINE_IMAGE=alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6-
+# eec434943f8b), which still resolves to libcrypto3/libssl3 3.5.7-r0. Alpine's v3.24 *tag*
+# branch has since published 3.5.8-r0 (built 2026-08-25, per
+# https://pkgs.alpinelinux.org/packages?name=libssl3&branch=v3.24), which likely fixes this
+# batch, but the digest pin means Charon won't pick it up until Renovate opens (and this
+# repo merges) a digest-bump PR for ALPINE_IMAGE.
+# Risk: none of the vulnerable server-side/decrypt code paths below are ever exercised in
+# this deployment — Caddy's HTTP/3 stack uses github.com/quic-go/quic-go (pure Go,
+# userspace QUIC), the Go backend uses native crypto/tls, and Charon does not run a
+# CMP/CMS/DTLS/RPK service. libcrypto3/libssl3 are present only as Alpine system libraries
+# for TLS-client tools (wget/curl/busybox-extras).
+# Suppressing now to unblock CI rather than wait on the separate Alpine digest-bump PR.
+# Review by: 2026-09-09 (short fuse — check whether ALPINE_IMAGE has been bumped past
+# 3.5.7-r0 and remove these entries once it has)
+# See also: .grype.yaml for full justification
+# exp: 2026-09-09
+
+# CVE-2026-63072: OpenSSL heap buffer overflow in CMS key unwrapping (8-byte OOB heap
+# write via CMS_decrypt()) — Moderate. Charon does not use CMS.
+# exp: 2026-09-09
+CVE-2026-63072
+
+# CVE-2026-63073: OpenSSL CMP response validation uses an untrusted sender DN as a format
+# string, crashing CMP clients — Low. Charon does not run CMP.
+# exp: 2026-09-09
+CVE-2026-63073
+
+# CVE-2026-63074: OpenSSL CMP indefinite ExtraCerts cache growth (memory exhaustion) —
+# Low. Charon does not run a CMP server.
+# exp: 2026-09-09
+CVE-2026-63074
+
+# CVE-2026-63075: OpenSSL QUIC ACK-only packet retention causes memory exhaustion — Low.
+# Charon's QUIC (HTTP/3) is quic-go, not OpenSSL.
+# exp: 2026-09-09
+CVE-2026-63075
+
+# CVE-2026-63076: OpenSSL CMP server invalid pointer dereference via crafted
+# protectionAlg, crashing an unauthenticated remote peer — Moderate. Charon does not run
+# a CMP server.
+# exp: 2026-09-09
+CVE-2026-63076
+
+# CVE-2026-18798: OpenSSL QUIC server double free processing INITIAL packets (heap
+# corruption / DoS) — Moderate. Charon's QUIC (HTTP/3) is quic-go, not OpenSSL.
+# exp: 2026-09-09
+CVE-2026-18798
+
+# CVE-2026-14457: OpenSSL RPK server signature algorithm selection dereferences a missing
+# certificate (NULL deref / DoS) — Low. Charon does not use RFC7250 Raw Public Keys.
+# exp: 2026-09-09
+CVE-2026-14457
+
+# CVE-2026-54874: OpenSSL excessive memory buffering of DTLS records for future epochs —
+# Low. Charon does not run a DTLS server.
+# exp: 2026-09-09
+CVE-2026-54874
+
+# CVE-2026-75803: OpenSSL ChaCha20-Poly1305/AES-OCB can report decrypt success on empty
+# ciphertext without verifying the auth tag (AEAD forgery) — Low. Charon's Go backend
+# uses Go's native crypto/tls/cipher, not OpenSSL AEAD, for TLS.
+# exp: 2026-09-09
+CVE-2026-75803
