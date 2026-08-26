@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { Menu, ChevronDown, ChevronRight } from 'lucide-react'
+import { Menu, ChevronDown, ChevronRight, Coffee, Heart } from 'lucide-react'
 import { type ReactNode, useState, useEffect, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation } from 'react-router'
@@ -354,6 +354,26 @@ export default function Layout({ children }: LayoutProps) {
                   ({health.git_commit.substring(0, 7)})
                 </span>
               )}
+            </div>
+            <div className="flex items-center justify-center gap-3 text-content-muted">
+              <a
+                href="https://buymeacoffee.com/Wikid82"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Support Charon on Buy Me a Coffee"
+                className="hover:text-content-primary transition-colors"
+              >
+                <Coffee className="w-4 h-4" />
+              </a>
+              <a
+                href="https://github.com/sponsors/Wikid82"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Sponsor Charon on GitHub"
+                className="hover:text-content-primary transition-colors"
+              >
+                <Heart className="w-4 h-4" />
+              </a>
             </div>
             <button
               onClick={() => {

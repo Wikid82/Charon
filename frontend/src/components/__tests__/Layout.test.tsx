@@ -186,6 +186,28 @@ describe('Layout', () => {
     expect(await screen.findByText('Version 0.1.0')).toBeInTheDocument()
   })
 
+  it('renders support/donation links in the sidebar footer', async () => {
+    renderWithProviders(
+      <Layout>
+        <div>Test Content</div>
+      </Layout>
+    )
+
+    const coffeeLink = await screen.findByRole('link', {
+      name: 'Support Charon on Buy Me a Coffee',
+    })
+    expect(coffeeLink).toHaveAttribute('href', 'https://buymeacoffee.com/Wikid82')
+    expect(coffeeLink).toHaveAttribute('target', '_blank')
+    expect(coffeeLink).toHaveAttribute('rel', 'noopener noreferrer')
+
+    const sponsorLink = await screen.findByRole('link', {
+      name: 'Sponsor Charon on GitHub',
+    })
+    expect(sponsorLink).toHaveAttribute('href', 'https://github.com/sponsors/Wikid82')
+    expect(sponsorLink).toHaveAttribute('target', '_blank')
+    expect(sponsorLink).toHaveAttribute('rel', 'noopener noreferrer')
+  })
+
   it('calls logout when logout button is clicked', async () => {
     renderWithProviders(
       <Layout>
