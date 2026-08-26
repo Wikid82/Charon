@@ -102,7 +102,7 @@ on:
       - '.github/workflows/e2e-tests-split.yml'
 
 env:
-  NODE_VERSION: '24.19.0'
+  NODE_VERSION: '24.20.0'
   GO_VERSION: '1.27.0'
   GOTOOLCHAIN: auto
   DOCKERHUB_REGISTRY: docker.io
