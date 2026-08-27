@@ -155,7 +155,9 @@ test.describe('Security Headers Configuration @security', () => {
 
   test.describe('Profile Management', () => {
     test('should have create profile button', async ({ page }) => {
-      const createButton = page.getByRole('button', { name: /create|new|add.*profile/i });
+      const createButton = page
+        .getByRole('main')
+        .getByRole('button', { name: /(?:create|new|add)[\s\w]*profile/i });
       const createVisible = await createButton.isVisible().catch(() => false);
 
       if (createVisible) {
@@ -164,7 +166,9 @@ test.describe('Security Headers Configuration @security', () => {
     });
 
     test('should open profile creation modal', async ({ page }) => {
-      const createButton = page.getByRole('button', { name: /create|new.*profile/i });
+      const createButton = page
+        .getByRole('main')
+        .getByRole('button', { name: /(?:create|new|add)[\s\w]*profile/i });
       const createVisible = await createButton.isVisible().catch(() => false);
 
       if (createVisible) {
