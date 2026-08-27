@@ -488,3 +488,89 @@ func TestSyncAndCheckForHost_RetriesOnTransientLockError(t *testing.T) {
 	require.NoError(t, db.Where("proxy_host_id = ?", host.ID).First(&monitor).Error,
 		"monitor should eventually be created despite transient lock contention from a concurrent writer")
 }
+
+// newPinnedUptimeDB opens an in-memory SQLite DB pinned to a single connection
+// (SetMaxOpenConns(1)), mirroring production's configurePool. A single shared
+// connection means all goroutines see the same in-memory database and SQLite
+// writes serialise, so the only race left to exercise is the Go-level
+// check-then-act interleaving inside ensureUptimeHost.
+func newPinnedUptimeDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, db.AutoMigrate(
+		&models.UptimeHost{},
+		&models.UptimeMonitor{},
+		&models.UptimeHeartbeat{},
+		&models.NotificationProvider{},
+		&models.Notification{},
+	))
+	return db
+}
+
+// TestEnsureUptimeHost_ConcurrentSameHost is the regression test for GitHub
+// issue #1221: a check-then-act race in ensureUptimeHost. Before the fix, two
+// goroutines could both observe gorm.ErrRecordNotFound for the same host and
+// both attempt an INSERT; the loser hit "UNIQUE constraint failed:
+// uptime_hosts.host", logged an error, and returned "" — silently dropping its
+// monitor out of host-level notification grouping.
+//
+// Must pass under -race.
+func TestEnsureUptimeHost_ConcurrentSameHost(t *testing.T) {
+	db := newPinnedUptimeDB(t)
+	ns := NewNotificationService(db, nil)
+	svc := NewUptimeService(db, ns)
+
+	const goroutines = 12
+	const sharedHost = "shared-upstream.internal"
+
+	var wg sync.WaitGroup
+	ids := make([]string, goroutines)
+	start := make(chan struct{})
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start // release all goroutines at once to maximise interleaving
+			ids[i] = svc.ensureUptimeHost(sharedHost, fmt.Sprintf("caller-%d", i))
+		}(i)
+	}
+
+	close(start)
+	wg.Wait()
+
+	// Exactly one row exists for the shared host.
+	var count int64
+	require.NoError(t, db.Model(&models.UptimeHost{}).Where("host = ?", sharedHost).Count(&count).Error)
+	assert.Equal(t, int64(1), count, "exactly one UptimeHost row must exist for the shared host")
+
+	var winner models.UptimeHost
+	require.NoError(t, db.Where("host = ?", sharedHost).First(&winner).Error)
+	require.NotEmpty(t, winner.ID)
+
+	// Every caller returned the same, non-empty ID — nobody lost the race.
+	for i, id := range ids {
+		assert.NotEmptyf(t, id, "goroutine %d returned an empty UptimeHost ID", i)
+		assert.Equalf(t, winner.ID, id, "goroutine %d returned a different UptimeHost ID", i)
+	}
+}
+
+// TestEnsureUptimeHost_UnexpectedQueryError_ReturnsEmpty verifies the
+// unexpected-error branch: a non-ErrRecordNotFound failure from the initial
+// lookup must be logged and return "" explicitly rather than falling through
+// to return an empty uptimeHost.ID.
+func TestEnsureUptimeHost_UnexpectedQueryError_ReturnsEmpty(t *testing.T) {
+	db := newPinnedUptimeDB(t)
+	ns := NewNotificationService(db, nil)
+	svc := NewUptimeService(db, ns)
+
+	// Drop the table so the SELECT fails with "no such table: uptime_hosts".
+	require.NoError(t, db.Migrator().DropTable(&models.UptimeHost{}))
+
+	got := svc.ensureUptimeHost("some-host.internal", "Some Host")
+	assert.Empty(t, got, "unexpected query error must return an empty ID, not fall through")
+}

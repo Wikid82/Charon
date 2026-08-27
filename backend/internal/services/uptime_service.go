@@ -20,6 +20,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/util"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // orthrusStatusChecker allows UptimeService to query Orthrus session liveness
@@ -363,24 +364,54 @@ func (s *UptimeService) SyncMonitors() error {
 	return nil
 }
 
-// ensureUptimeHost finds or creates an UptimeHost for the given host string
+// ensureUptimeHost finds or creates an UptimeHost for the given host string and
+// returns its ID (or "" on failure).
+//
+// Host resolution is atomic: rather than a check-then-act (SELECT, then INSERT
+// if missing) that races two concurrent callers into a "UNIQUE constraint
+// failed: uptime_hosts.host" on the loser (GitHub issue #1221), the create is
+// an upsert on the `host` unique index with DoNothing. When the insert is a
+// no-op because another caller won the race, the winning row is re-fetched so
+// every caller returns the same non-empty ID.
 func (s *UptimeService) ensureUptimeHost(host, defaultName string) string {
 	var uptimeHost models.UptimeHost
 	err := s.DB.Where("host = ?", host).First(&uptimeHost).Error
-
-	if err == gorm.ErrRecordNotFound {
-		uptimeHost = models.UptimeHost{
-			Host:   host,
-			Name:   defaultName,
-			Status: "pending",
-		}
-		if err := s.DB.Create(&uptimeHost).Error; err != nil {
-			logger.Log().WithError(err).WithField("host", util.SanitizeForLog(host)).Error("Failed to create UptimeHost")
-			return ""
-		}
-		logger.Log().WithField("host_id", uptimeHost.ID).WithField("host", util.SanitizeForLog(uptimeHost.Host)).Info("Created UptimeHost")
+	if err == nil {
+		return uptimeHost.ID
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		logger.Log().WithError(err).WithField("host", util.SanitizeForLog(host)).Error("Failed to query UptimeHost")
+		return ""
 	}
 
+	uptimeHost = models.UptimeHost{
+		Host:   host,
+		Name:   defaultName,
+		Status: "pending",
+	}
+	result := s.DB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "host"}},
+		DoNothing: true,
+	}).Create(&uptimeHost)
+	if result.Error != nil {
+		logger.Log().WithError(result.Error).WithField("host", util.SanitizeForLog(host)).Error("Failed to create UptimeHost")
+		return ""
+	}
+
+	if result.RowsAffected == 0 {
+		// Lost the race: another caller inserted this host between our lookup
+		// and our insert. Load the winning row into a fresh struct — reusing
+		// uptimeHost would leak its BeforeCreate-assigned (never persisted) ID
+		// into the query as an extra primary-key predicate.
+		var winner models.UptimeHost
+		if err := s.DB.Where("host = ?", host).First(&winner).Error; err != nil {
+			logger.Log().WithError(err).WithField("host", util.SanitizeForLog(host)).Error("Failed to load UptimeHost after insert conflict")
+			return ""
+		}
+		return winner.ID
+	}
+
+	logger.Log().WithField("host_id", uptimeHost.ID).WithField("host", util.SanitizeForLog(uptimeHost.Host)).Info("Created UptimeHost")
 	return uptimeHost.ID
 }
 
