@@ -107,6 +107,7 @@ const baseSummary: Omit<MonitorSummary, 'id' | 'name'> = {
   remote_server_id: null,
   uptime_24h: null,
   recent_beats: [],
+  max_retries: 3,
 }
 
 const mockProxyHostMonitor: MonitorSummary = {

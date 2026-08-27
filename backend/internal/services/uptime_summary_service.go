@@ -53,6 +53,7 @@ type MonitorSummary struct {
 	Latency        int64      `json:"latency"`
 	LastCheck      *time.Time `json:"last_check"`
 	Interval       int        `json:"interval"`
+	MaxRetries     int        `json:"max_retries"`
 	ProxyHostID    *uint      `json:"proxy_host_id"`
 	RemoteServerID *uint      `json:"remote_server_id"`
 	Uptime24h      *float64   `json:"uptime_24h"`
@@ -256,6 +257,15 @@ func assembleSummaries(
 			beats = []BeatDTO{}
 		}
 
+		// Legacy rows persisted before max_retries existed carry 0; surface the
+		// effective default (mirrors uptime_service.go's maxRetries <= 0 -> 3)
+		// so the Edit-monitor modal round-trips the value the checker actually
+		// uses instead of silently resetting it on save.
+		maxRetries := m.MaxRetries
+		if maxRetries <= 0 {
+			maxRetries = 3
+		}
+
 		out = append(out, MonitorSummary{
 			ID:             m.ID,
 			Name:           m.Name,
@@ -266,6 +276,7 @@ func assembleSummaries(
 			Latency:        m.Latency,
 			LastCheck:      lastCheck,
 			Interval:       m.Interval,
+			MaxRetries:     maxRetries,
 			ProxyHostID:    m.ProxyHostID,
 			RemoteServerID: m.RemoteServerID,
 			Uptime24h:      uptime24h,

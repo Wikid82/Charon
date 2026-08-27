@@ -178,6 +178,33 @@ func TestUptimeSummary_ExcludesBeatsOlderThan24h(t *testing.T) {
 	assert.InDelta(t, 100.0, *res[0].Uptime24h, 0.0001, "24h math only counts in-window beats")
 }
 
+// TestUptimeSummary_MaxRetries proves the summary payload carries max_retries so
+// the Edit-monitor modal (now sourced from this endpoint) round-trips a
+// customized value instead of falling back to 3 and resetting it on save.
+func TestUptimeSummary_MaxRetries(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	svc := NewUptimeSummaryService(db)
+
+	custom := smMonitor(t, db, "mon-mr-custom", "Custom Retries", "up")
+	require.NoError(t, db.Model(&models.UptimeMonitor{}).
+		Where("id = ?", custom.ID).Update("max_retries", 5).Error)
+
+	legacy := smMonitor(t, db, "mon-mr-legacy", "Legacy Retries", "up")
+	require.NoError(t, db.Model(&models.UptimeMonitor{}).
+		Where("id = ?", legacy.ID).Update("max_retries", 0).Error)
+
+	res, err := svc.GetSummary(context.Background(), 30)
+	require.NoError(t, err)
+	require.Len(t, res, 2)
+
+	byID := make(map[string]MonitorSummary, len(res))
+	for _, r := range res {
+		byID[r.ID] = r
+	}
+	assert.Equal(t, 5, byID["mon-mr-custom"].MaxRetries, "customized max_retries is carried through")
+	assert.Equal(t, 3, byID["mon-mr-legacy"].MaxRetries, "legacy 0 maps to the effective default 3")
+}
+
 func TestUptimeSummary_OrderedByNameASC(t *testing.T) {
 	db := setupUptimeTestDB(t)
 	svc := NewUptimeSummaryService(db)

@@ -43,9 +43,9 @@ export interface BeatDTO {
  *
  * `proxy_host_id` / `remote_server_id` are always present but nullable (UI
  * grouping only). `uptime_24h` is always present, null when there is no
- * heartbeat data in the 24h window. `max_retries` is NOT part of the summary
- * contract (see §3.5.2) — kept optional here so the edit modal can consume it
- * if a future revision adds it; today it resolves to `undefined`.
+ * heartbeat data in the 24h window. `max_retries` is always present (legacy
+ * rows with an unset value resolve to the effective default 3) so the
+ * Edit-monitor modal round-trips it instead of resetting it on save.
  */
 export interface MonitorSummary {
   id: string;
@@ -61,7 +61,7 @@ export interface MonitorSummary {
   remote_server_id?: number | null;
   uptime_24h: number | null;
   recent_beats: BeatDTO[];
-  max_retries?: number;
+  max_retries: number;
 }
 
 /** `GET /uptime/health` ingester + worker-pool health signal. (§3.5.5) */

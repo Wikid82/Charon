@@ -94,6 +94,7 @@ describe('uptime API', () => {
           remote_server_id: null,
           uptime_24h: 99.9,
           recent_beats: [{ status: 'up', latency: 40, created_at: '2026-08-27T11:59:30Z' }],
+          max_retries: 5,
         },
       ]
       vi.mocked(client.get).mockResolvedValue({ data: mockData })
