@@ -279,7 +279,7 @@ Real-time applications like chat servers, live dashboards, and collaborative too
 
 ### 📊 Uptime Monitoring
 
-Know immediately when something goes wrong. Charon continuously monitors your applications and alerts you when a service becomes unavailable. View uptime history, response times, and availability statistics at a glance.
+Know immediately when something goes wrong. Charon continuously monitors your applications and alerts you when a service becomes unavailable. Give each monitor its own check interval, view uptime history and response times at a glance, and let old check history clean itself up automatically on a retention window you choose.
 
 → [Learn More](features/uptime-monitoring.md)
 
