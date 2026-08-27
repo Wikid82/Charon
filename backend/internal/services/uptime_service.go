@@ -47,6 +47,13 @@ type UptimeService struct {
 	// with the scheduler/pruner in later commits; used here for write-time
 	// interval resolution. Named to avoid colliding with the config field above.
 	uptimeCfg *uptimeConfig
+
+	// Ingester is the buffered, batched write path for check results (spec
+	// §3.3). Constructed here so later commits (worker pool, /uptime/health)
+	// can hold a stable reference. Its Run loop is NOT started yet — nothing
+	// sends to it until the scheduler commit wires the worker pool — so it is
+	// inert: DroppedCount() returns 0 and no goroutine is spawned.
+	Ingester *UptimeIngester
 }
 
 // ErrIntervalTooLow is returned by UpdateMonitor when a caller tries to set a
@@ -86,6 +93,7 @@ func NewUptimeService(db *gorm.DB, ns *NotificationService) *UptimeService {
 		batchWindow:          30 * time.Second, // Wait 30 seconds to batch notifications
 		hostMutexes:          make(map[string]*sync.Mutex),
 		uptimeCfg:            newUptimeConfig(db),
+		Ingester:             newUptimeIngester(db),
 		config: UptimeConfig{
 			TCPTimeout:       10 * time.Second,
 			MaxRetries:       2,

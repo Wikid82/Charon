@@ -314,7 +314,11 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	// mutated. Do not add auth middleware to this route.
 	api.GET("/backups/remote-targets/oauth/:provider/callback", backupRemoteHandler.OAuthCallback)
 
-	// Uptime Service - define early so it can be used during route registration
+	// Uptime Service - define early so it can be used during route registration.
+	// NewUptimeService also constructs uptimeService.Ingester (the buffered
+	// heartbeat write path, spec §3.3) so later commits can hold a stable
+	// reference for GET /api/v1/uptime/health. Its Run loop is not started here
+	// — nothing sends to it until the scheduler commit — so it stays inert.
 	uptimeService := services.NewUptimeService(db, notificationService)
 
 	protected := api.Group("/")
