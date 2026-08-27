@@ -48,9 +48,7 @@ suppressions:
 
   - rule_id: go/log-injection
     path: backend/internal/api/handlers/remote_server_handler.go
-    line_range:
-      start: 142
-      end: 144
+    line: 142
     reason: >
       False positive. The logged value is the goroutine's `id uint`
       parameter (bound from `server.ID`, a GORM-assigned numeric primary
@@ -63,24 +61,18 @@ suppressions:
       finding appears twice for the same location. The identical
       `.WithField("host_id", host.ID)` uint logging in
       proxy_host_handler.go is not flagged. Introduced by the per-monitor
-      uptime scheduler work — see docs/plans/current_spec.md.
-      Code also hardened in chore(security): sanitize remote_server_id
-      before logging (branch feat/uptime-monitoring-scale): the value is
-      now strconv-formatted and passed through util.SanitizeForLog (a
-      modeled CWE-117 sanitizer per .github/codeql-custom-model.yml), so
-      the taint is neutralized at the source. Entry retained as a
-      fallback pending confirmation the native PR-diff annotation clears
-      (the pinned CodeQL CLI does not convert the in-source
-      `// codeql[go/log-injection]` comment to a SARIF suppression — see
-      docs/issues/codeql-cookie-suppression-not-honored.md).
+      uptime scheduler work — see docs/plans/current_spec.md. The
+      in-source `// codeql[go/log-injection]` comment (standalone line,
+      exactly startLine-1, no preceding code) is the primary annotation;
+      this entry is the documented fallback for when a local SARIF scan
+      does not populate `result.suppressions` (see the
+      go/cookie-secure-not-set entry above for the same limitation).
     added: "2026-08-27"
     review_by: "2026-11-27"
 
   - rule_id: go/log-injection
     path: backend/internal/services/uptime_service.go
-    line_range:
-      start: 1473
-      end: 1475
+    line: 1475
     reason: >
       False positive. `UptimeService.SyncAndCheckForRemoteServer` logs its
       `remoteServerID uint` argument as the structured field
@@ -91,16 +83,11 @@ suppressions:
       log forgery is possible. CodeQL flags it only because
       `RemoteServerHandler.Create` calls `c.ShouldBindJSON`, marking the
       `server` struct request-derived. Introduced by the per-monitor
-      uptime scheduler work — see docs/plans/current_spec.md.
-      Code also hardened in chore(security): sanitize remote_server_id
-      before logging (branch feat/uptime-monitoring-scale): the value is
-      now strconv-formatted and passed through util.SanitizeForLog (a
-      modeled CWE-117 sanitizer per .github/codeql-custom-model.yml), so
-      the taint is neutralized at the source. Entry retained as a
-      fallback pending confirmation the native PR-diff annotation clears
-      (the pinned CodeQL CLI does not convert the in-source
-      `// codeql[go/log-injection]` comment to a SARIF suppression — see
-      docs/issues/codeql-cookie-suppression-not-honored.md).
+      uptime scheduler work — see docs/plans/current_spec.md. The
+      in-source `// codeql[go/log-injection]` comment (standalone line,
+      exactly startLine-1, no preceding code) is the primary annotation;
+      this entry is the documented fallback for when a local SARIF scan
+      does not populate `result.suppressions`.
     added: "2026-08-27"
     review_by: "2026-11-27"
 

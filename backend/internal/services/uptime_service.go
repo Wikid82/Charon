@@ -363,7 +363,7 @@ func (s *UptimeService) SyncMonitors() error {
 				Status:         "pending",
 			}
 			if err := s.DB.Create(&monitor).Error; err != nil {
-				logger.Log().WithError(err).WithField("remote_server_id", util.SanitizeForLog(strconv.FormatUint(uint64(server.ID), 10))).Error("Failed to create monitor for remote server")
+				logger.Log().WithError(err).WithField("remote_server_id", server.ID).Error("Failed to create monitor for remote server")
 			}
 		case nil:
 			needsSave := false
@@ -1470,8 +1470,9 @@ func (s *UptimeService) SyncAndCheckForRemoteServer(remoteServerID uint) {
 
 	var server models.RemoteServer
 	if err := s.DB.Where("id = ?", remoteServerID).First(&server).Error; err != nil {
-		// remote_server_id sanitized for logging (CWE-117).
-		logger.Log().WithField("remote_server_id", util.SanitizeForLog(strconv.FormatUint(uint64(remoteServerID), 10))).
+		// Safe: remote_server_id is a uint (DB/route numeric ID), not an injectable string.
+		// codeql[go/log-injection]
+		logger.Log().WithField("remote_server_id", remoteServerID).
 			Debug("SyncAndCheckForRemoteServer: remote server not found (may have been deleted)")
 		return
 	}
@@ -1497,12 +1498,12 @@ func (s *UptimeService) SyncAndCheckForRemoteServer(remoteServerID uint) {
 			Status:         "pending",
 		}
 		if createErr := s.createMonitorWithRetry(&monitor); createErr != nil {
-			logger.Log().WithError(createErr).WithField("remote_server_id", util.SanitizeForLog(strconv.FormatUint(uint64(server.ID), 10))).
+			logger.Log().WithError(createErr).WithField("remote_server_id", server.ID).
 				Error("SyncAndCheckForRemoteServer: failed to create monitor")
 			return
 		}
 	} else if err != nil {
-		logger.Log().WithError(err).WithField("remote_server_id", util.SanitizeForLog(strconv.FormatUint(uint64(server.ID), 10))).
+		logger.Log().WithError(err).WithField("remote_server_id", server.ID).
 			Error("SyncAndCheckForRemoteServer: failed to query monitor")
 		return
 	}
