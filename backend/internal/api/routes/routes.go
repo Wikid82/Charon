@@ -694,6 +694,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		// 5-minute loop.
 		uptimeScheduler := services.NewUptimeScheduler(uptimeService.Pool)
 		uptimeSyncLoop := services.NewUptimeSyncLoop(uptimeService)
+		uptimePruner := services.NewUptimePruner(uptimeService.Pool)
 
 		// Boot-time reconcile: CleanupStaleFailureCounts + one SyncMonitors,
 		// after a short delay so Caddy/DB settle. No initial CheckAll.
@@ -725,8 +726,10 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		go uptimeService.Pool.Run(ctx)
 		go uptimeScheduler.Run(ctx)
 		go uptimeSyncLoop.Run(ctx)
-		// Pruner is started in C6; its insertion point is right here, before the
-		// shutdown waiter, so it aborts on the same ctx.
+		// The retention pruner (spec §3.4) is an independent goroutine: it aborts
+		// on the same ctx between chunks and is safe to cut at any chunk boundary,
+		// so it is deliberately NOT part of the ordered ingester-drain chain above.
+		go uptimePruner.Run(ctx)
 
 		uptimeShutdown = func(waitCtx context.Context) error {
 			select {

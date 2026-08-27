@@ -156,6 +156,19 @@ func main() {
 				log.Fatalf("migration failed: %v", err)
 			}
 
+			// Deferred composite index the uptime summary endpoint needs
+			// (spec §3.5.6). At runtime the retention pruner builds this
+			// prune-first, after trimming the table; the migrate CLI is an
+			// operator-initiated maintenance window, so it builds unconditionally
+			// against the full table with the cost made visible up front (S7).
+			logger.Log().Warn("building index idx_heartbeat_monitor_created on uptime_heartbeats; " +
+				"on a large database this can take several minutes and holds a write lock for the duration")
+			if err := db.Exec(
+				"CREATE INDEX IF NOT EXISTS idx_heartbeat_monitor_created ON uptime_heartbeats (monitor_id, created_at)",
+			).Error; err != nil {
+				log.Fatalf("migration failed: create idx_heartbeat_monitor_created: %v", err)
+			}
+
 			logger.Log().Info("Migration completed successfully")
 			return
 
