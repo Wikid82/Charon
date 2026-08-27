@@ -360,8 +360,9 @@ jobs:
   deploy:
     name: Deploy to GitHub Pages
     if: >-
-      (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main') ||
-      (github.event_name != 'workflow_run' && github.ref == 'refs/heads/main')
+      needs.build.result == 'success' &&
+      ((github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main') ||
+      (github.event_name != 'workflow_run' && github.ref == 'refs/heads/main'))
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
