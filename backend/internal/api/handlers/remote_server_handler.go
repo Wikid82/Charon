@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -137,9 +138,9 @@ func (h *RemoteServerHandler) Update(c *gin.Context) {
 	if h.uptimeService != nil {
 		go func(id uint) {
 			if syncErr := h.uptimeService.SyncMonitorForRemoteServer(id); syncErr != nil {
-				// Safe: remote_server_id is a uint (DB/route numeric ID), not an injectable string.
-				// codeql[go/log-injection]
-				logger.Log().WithError(syncErr).WithField("remote_server_id", id).
+				// remote_server_id sanitized for logging (CWE-117).
+				logger.Log().WithError(syncErr).
+					WithField("remote_server_id", util.SanitizeForLog(strconv.FormatUint(uint64(id), 10))).
 					Warn("failed to sync uptime monitor after remote server update")
 			}
 		}(server.ID)
