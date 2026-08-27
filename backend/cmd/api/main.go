@@ -326,8 +326,15 @@ func main() {
 
 	// Wait out the ordered uptime teardown (scheduler stops enqueuing → worker
 	// pool drains in-flight checks → ingester final flush) so an in-flight
-	// check's heartbeat is not lost on shutdown (spec §3.1.4 / S4). Grace is
-	// hardCap (20s) + margin.
+	// check's heartbeat is not lost on shutdown (spec §3.1.4 / S4).
+	//
+	// Grace is hardCap (20s) + margin. A worker that reaches shutdown mid-check
+	// could in theory add the C1 notification dispatch's notifyTimeout (10s) on
+	// top of hardCap, exceeding 25s — but it cannot here: appCancel() above has
+	// already cancelled the pool's base ctx, so both the probe ctx and the
+	// dispatch ctx are born already-done and unwind immediately. The only real
+	// bound left is the HTTP client's own 20s timeout on a socket already
+	// reading a slow body, which fits inside 25s.
 	if uptimeShutdown != nil {
 		drainCtx, drainCancel := context.WithTimeout(context.Background(), 25*time.Second)
 		if drainErr := uptimeShutdown(drainCtx); drainErr != nil {

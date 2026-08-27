@@ -54,9 +54,9 @@ type uptimeNotifier interface {
 // uptime_monitors / uptime_hosts / uptime_heartbeats and never touches the
 // pool's debounce maps.
 //
-// N3: the http/https/tcp/orthrus switch here is a deliberate transient
-// duplicate of uptime_service.go:checkMonitor for the length of this commit —
-// C5 collapses the legacy path onto this one.
+// N3 (resolved): the http/https/tcp/orthrus switch here is the single probe
+// path. The legacy inline fallback (UptimeService.checkMonitor) no longer
+// carries its own switch — it calls probe() directly.
 type uptimeChecker struct {
 	httpClient     *http.Client
 	hostDialer     *net.Dialer
@@ -88,11 +88,12 @@ func newUptimeChecker(svc *UptimeService) *uptimeChecker {
 	}
 }
 
-// probe runs the monitor's configured check and returns the raw outcome. It
-// mirrors uptime_service.go:checkMonitor's switch exactly — same
-// ValidateExternalURL Layer-1 call with the same options (double-DNS accepted,
-// spec §3.2.4), same "401/403 == up but protected" allowance — but constructs
-// nothing (the client is shared) and writes nothing.
+// probe runs the monitor's configured check and returns the raw outcome. It is
+// the sole probe switch — the Layer-1 ValidateExternalURL call keeps its
+// options (double-DNS accepted, spec §3.2.4) and the "401/403 == up but
+// protected" allowance — but it constructs nothing (the client is shared) and
+// writes nothing. Both the worker pool and the legacy inline
+// UptimeService.checkMonitor fallback call straight into here.
 func (c *uptimeChecker) probe(ctx context.Context, monitor models.UptimeMonitor) rawCheckResult {
 	start := time.Now()
 	success := false

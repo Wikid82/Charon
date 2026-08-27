@@ -264,10 +264,13 @@ func TestUptimeSummary_CorrectWithAndWithoutIndex(t *testing.T) {
 // TestUptimeSummary_PerfBudget is the S5 gate: with the index built, a batch
 // summary over a large-ish heartbeat table must complete well under a
 // CI-stable 2s ceiling. Seed note: 500 monitors x 120 beats over 24h = 60k
-// rows. This is a lean subset of the §3.5.3 production profile (500 x ~720 =
-// ~360k). The <2s ceiling is a regression guard (it trips instantly if the
-// 3-query strategy regresses to a per-monitor loop); the <300ms p95 at the
-// full 360k profile is tracked in the QA run, not gated here (runner variance).
+// rows. That is a deliberately lean fraction of the real steady-state profile
+// — at the 30s interval floor a 24h window is 500 x 2880 ≈ 1.44M rows — kept
+// small so the test stays fast in CI. The <2s ceiling is therefore only a
+// coarse regression guard: it trips instantly if the 3-query strategy
+// regresses to a per-monitor loop, but it will NOT catch index-not-used or
+// O(n²) slippage at production scale. The <300ms p95 at the full profile is
+// tracked from the QA timing run, not gated here (runner variance).
 func TestUptimeSummary_PerfBudget(t *testing.T) {
 	if testing.Short() {
 		t.Skip("perf budget seed is too heavy for -short")
