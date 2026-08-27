@@ -42,7 +42,16 @@ type UptimeService struct {
 	hostMutexLock sync.Mutex
 	// Configuration
 	config UptimeConfig
+	// uptimeCfg is the hot-reloading snapshot of the uptime.* Settings rows
+	// (default interval, worker pool size, retention days). Shared read-only
+	// with the scheduler/pruner in later commits; used here for write-time
+	// interval resolution. Named to avoid colliding with the config field above.
+	uptimeCfg *uptimeConfig
 }
+
+// ErrIntervalTooLow is returned by UpdateMonitor when a caller tries to set a
+// check interval below the 30-second hard floor. Handlers map it to HTTP 400.
+var ErrIntervalTooLow = errors.New("interval must be at least 30 seconds")
 
 // UptimeConfig holds configurable timeouts and thresholds
 type UptimeConfig struct {
@@ -76,6 +85,7 @@ func NewUptimeService(db *gorm.DB, ns *NotificationService) *UptimeService {
 		pendingNotifications: make(map[string]*pendingHostNotification),
 		batchWindow:          30 * time.Second, // Wait 30 seconds to batch notifications
 		hostMutexes:          make(map[string]*sync.Mutex),
+		uptimeCfg:            newUptimeConfig(db),
 		config: UptimeConfig{
 			TCPTimeout:       10 * time.Second,
 			MaxRetries:       2,
@@ -95,7 +105,7 @@ func (s *UptimeService) SetOrthrusResolver(r orthrusStatusChecker) {
 	}
 
 	rv := reflect.ValueOf(r)
-	if (rv.Kind() == reflect.Ptr || rv.Kind() == reflect.Interface) && rv.IsNil() {
+	if (rv.Kind() == reflect.Pointer || rv.Kind() == reflect.Interface) && rv.IsNil() {
 		s.orthrusResolver = nil
 		return
 	}
@@ -220,7 +230,7 @@ func (s *UptimeService) SyncMonitors() error {
 				Type:         "http", // Check public access
 				URL:          publicURL,
 				UpstreamHost: upstreamHost,
-				Interval:     60,
+				Interval:     clampInterval(0, s.uptimeCfg), // honour uptime.default_interval_seconds (S3)
 				Enabled:      true,
 				Status:       "pending",
 			}
@@ -317,7 +327,7 @@ func (s *UptimeService) SyncMonitors() error {
 				Type:           targetType,
 				URL:            targetURL,
 				UpstreamHost:   upstreamHost,
-				Interval:       60,
+				Interval:       clampInterval(0, s.uptimeCfg), // honour uptime.default_interval_seconds (S3)
 				Enabled:        server.Enabled,
 				Status:         "pending",
 			}
@@ -1236,10 +1246,10 @@ func (s *UptimeService) CreateMonitor(name, urlStr, monitorType string, interval
 		}
 	}
 
-	// Set defaults
-	if interval <= 0 {
-		interval = 60 // Default 60 seconds
-	}
+	// Resolve the interval at write time so the stored value is always
+	// concrete and >= the 30s floor: <=0 becomes uptime.default_interval_seconds,
+	// then anything below 30 is raised to 30 (spec §3.6.3 / S3).
+	interval = clampInterval(interval, s.uptimeCfg)
 	if maxRetries <= 0 {
 		maxRetries = 3 // Default 3 retries
 	}
@@ -1293,6 +1303,12 @@ func (s *UptimeService) UpdateMonitor(id string, updates map[string]any) (*model
 		allowedUpdates["max_retries"] = val
 	}
 	if val, ok := updates["interval"]; ok {
+		// Enforce the 30s hard floor. A positive but sub-floor value is a
+		// client error (rejected); a non-positive value is left for the
+		// scheduler's clampInterval to resolve to the configured default.
+		if secs, parsed := coerceIntervalSeconds(val); parsed && secs > 0 && secs < minUptimeIntervalSeconds {
+			return nil, ErrIntervalTooLow
+		}
 		allowedUpdates["interval"] = val
 	}
 	if val, ok := updates["enabled"]; ok {
@@ -1399,7 +1415,7 @@ func (s *UptimeService) SyncAndCheckForHost(hostID uint) {
 			Type:         "http",
 			URL:          publicURL,
 			UpstreamHost: upstreamHost,
-			Interval:     60,
+			Interval:     clampInterval(0, s.uptimeCfg), // honour uptime.default_interval_seconds (S3)
 			Enabled:      true,
 			Status:       "pending",
 		}

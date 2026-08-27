@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -8,6 +9,10 @@ import (
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
 )
+
+// minMonitorIntervalSeconds mirrors the service-side hard floor
+// (services.clampInterval); requests below it are rejected at the edge.
+const minMonitorIntervalSeconds = 30
 
 type UptimeHandler struct {
 	service *services.UptimeService
@@ -45,6 +50,13 @@ func (h *UptimeHandler) Create(c *gin.Context) {
 		return
 	}
 
+	// A positive but sub-floor interval is a client error. Zero is allowed —
+	// CreateMonitor resolves it to the configured default at write time.
+	if req.Interval > 0 && req.Interval < minMonitorIntervalSeconds {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "interval must be at least 30 seconds"})
+		return
+	}
+
 	monitor, err := h.service.CreateMonitor(req.Name, req.URL, req.Type, req.Interval, req.MaxRetries)
 	if err != nil {
 		logger.Log().WithError(err).Error("Failed to create uptime monitor")
@@ -79,6 +91,10 @@ func (h *UptimeHandler) Update(c *gin.Context) {
 
 	monitor, err := h.service.UpdateMonitor(id, updates)
 	if err != nil {
+		if errors.Is(err, services.ErrIntervalTooLow) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		logger.Log().WithField("error", sanitizeForLog(err.Error())).WithField("monitor_id", sanitizeForLog(id)).Error("Failed to update monitor")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

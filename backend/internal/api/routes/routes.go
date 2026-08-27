@@ -644,6 +644,20 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 			logger.Log().WithError(err).Warn("Failed to ensure uptime feature flag default")
 		}
 
+		// Seed the uptime.* tuning defaults (spec §3.6.1). These feed the
+		// hot-reloading uptimeConfig snapshot; bounds are enforced in
+		// SettingsHandler.UpdateSetting.
+		for _, s := range []models.Setting{
+			{Key: "uptime.default_interval_seconds", Value: "60", Type: "int", Category: "uptime"},
+			{Key: "uptime.worker_pool_size", Value: "30", Type: "int", Category: "uptime"},
+			{Key: "uptime.heartbeat_retention_days", Value: "90", Type: "int", Category: "uptime"},
+		} {
+			seed := s
+			if err := db.Where(models.Setting{Key: seed.Key}).Attrs(seed).FirstOrCreate(&seed).Error; err != nil {
+				logger.Log().WithError(err).WithField("key", seed.Key).Warn("Failed to ensure uptime setting default")
+			}
+		}
+
 		// Ensure security header presets exist
 		secHeadersSvc := services.NewSecurityHeadersService(db)
 		if err := secHeadersSvc.EnsurePresetsExist(); err != nil {

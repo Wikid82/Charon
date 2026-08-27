@@ -476,3 +476,67 @@ func TestUptimeHandler_GetHistory_Error(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
+
+// --- interval floor validation (Commit 2 / §3.6.3) ------------------------
+
+func TestUptimeHandler_Create_IntervalFloor(t *testing.T) {
+	postMonitor := func(r http.Handler, interval int) *httptest.ResponseRecorder {
+		payload := map[string]any{
+			"name":     "floor-test",
+			"url":      "https://floor.example.com",
+			"type":     "http",
+			"interval": interval,
+		}
+		body, _ := json.Marshal(payload)
+		req, _ := http.NewRequest("POST", "/api/v1/uptime", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+
+	t.Run("sub_floor_rejected", func(t *testing.T) {
+		r, _ := setupUptimeHandlerTest(t)
+		w := postMonitor(r, 10)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "at least 30 seconds")
+	})
+
+	t.Run("at_floor_accepted", func(t *testing.T) {
+		r, _ := setupUptimeHandlerTest(t)
+		w := postMonitor(r, 45)
+		require.Equal(t, http.StatusCreated, w.Code)
+		var m models.UptimeMonitor
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &m))
+		assert.Equal(t, 45, m.Interval)
+	})
+
+	t.Run("zero_stored_as_default", func(t *testing.T) {
+		r, _ := setupUptimeHandlerTest(t)
+		w := postMonitor(r, 0)
+		require.Equal(t, http.StatusCreated, w.Code)
+		var m models.UptimeMonitor
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &m))
+		assert.Equal(t, 60, m.Interval)
+	})
+}
+
+func TestUptimeHandler_Update_IntervalFloor(t *testing.T) {
+	r, db := setupUptimeHandlerTest(t)
+	monitor := models.UptimeMonitor{ID: "mon-floor", Name: "m", Interval: 60, MaxRetries: 3}
+	require.NoError(t, db.Create(&monitor).Error)
+
+	body, _ := json.Marshal(map[string]any{"interval": 5})
+	req, _ := http.NewRequest("PUT", "/api/v1/uptime/mon-floor", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "at least 30 seconds")
+
+	// Unchanged in the DB.
+	var after models.UptimeMonitor
+	require.NoError(t, db.First(&after, "id = ?", "mon-floor").Error)
+	assert.Equal(t, 60, after.Interval)
+}
