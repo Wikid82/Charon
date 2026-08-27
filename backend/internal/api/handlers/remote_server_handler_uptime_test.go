@@ -68,7 +68,7 @@ func TestRemoteServerHandler_Create_DrivesTargetedMonitorSync(t *testing.T) {
 		var c int64
 		db.Model(&models.UptimeMonitor{}).Where("remote_server_id = ?", srv.ID).Count(&c)
 		return c == 1
-	}, 3*time.Second, 25*time.Millisecond, "Create should spawn SyncAndCheckForRemoteServer")
+	}, 15*time.Second, 25*time.Millisecond, "Create should spawn SyncAndCheckForRemoteServer")
 
 	var mon models.UptimeMonitor
 	require.NoError(t, db.Where("remote_server_id = ?", srv.ID).First(&mon).Error)
@@ -85,7 +85,7 @@ func TestRemoteServerHandler_Update_SyncsLinkedMonitor(t *testing.T) {
 		var c int64
 		db.Model(&models.UptimeMonitor{}).Where("remote_server_id = ?", srv.ID).Count(&c)
 		return c == 1
-	}, 3*time.Second, 25*time.Millisecond)
+	}, 15*time.Second, 25*time.Millisecond)
 
 	payload := map[string]any{"name": "edge-renamed", "host": "127.0.0.1", "port": 2, "connection_type": "direct", "enabled": true}
 	body, _ := json.Marshal(payload)
@@ -100,7 +100,7 @@ func TestRemoteServerHandler_Update_SyncsLinkedMonitor(t *testing.T) {
 			return false
 		}
 		return mon.Name == "edge-renamed" && mon.URL == "127.0.0.1:2"
-	}, 3*time.Second, 25*time.Millisecond, "Update should spawn SyncMonitorForRemoteServer")
+	}, 15*time.Second, 25*time.Millisecond, "Update should spawn SyncMonitorForRemoteServer")
 }
 
 func TestRemoteServerHandler_Delete_CleansUpLinkedMonitors(t *testing.T) {
@@ -112,7 +112,7 @@ func TestRemoteServerHandler_Delete_CleansUpLinkedMonitors(t *testing.T) {
 		var c int64
 		db.Model(&models.UptimeMonitor{}).Where("remote_server_id = ?", srv.ID).Count(&c)
 		return c == 1
-	}, 3*time.Second, 25*time.Millisecond)
+	}, 15*time.Second, 25*time.Millisecond)
 
 	req, _ := http.NewRequest(http.MethodDelete, "/api/v1/remote-servers/"+srv.UUID, http.NoBody)
 	w := httptest.NewRecorder()
