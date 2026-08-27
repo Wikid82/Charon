@@ -270,7 +270,8 @@ func main() {
 	appCtx, appCancel := context.WithCancel(context.Background())
 	defer appCancel()
 
-	if err := routes.RegisterWithDeps(appCtx, router, db, cfg, caddyManager, cerb); err != nil {
+	uptimeShutdown, err := routes.RegisterWithDeps(appCtx, router, db, cfg, caddyManager, cerb)
+	if err != nil {
 		appCancel()
 		log.Fatalf("register routes: %v", err) //nolint:gocritic // exitAfterDefer: appCancel called explicitly above
 	}
@@ -309,6 +310,18 @@ func main() {
 
 	// Cancel the app-wide context to stop background goroutines (e.g. cert expiry checker)
 	appCancel()
+
+	// Wait out the ordered uptime teardown (scheduler stops enqueuing → worker
+	// pool drains in-flight checks → ingester final flush) so an in-flight
+	// check's heartbeat is not lost on shutdown (spec §3.1.4 / S4). Grace is
+	// hardCap (20s) + margin.
+	if uptimeShutdown != nil {
+		drainCtx, drainCancel := context.WithTimeout(context.Background(), 25*time.Second)
+		if drainErr := uptimeShutdown(drainCtx); drainErr != nil {
+			logger.Log().WithError(drainErr).Warn("uptime pipeline did not drain within grace period")
+		}
+		drainCancel()
+	}
 
 	// Graceful shutdown with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/Wikid82/charon/backend/internal/security"
 	"gorm.io/gorm"
 )
@@ -61,6 +62,30 @@ type uptimeChecker struct {
 	hostDialer     *net.Dialer
 	resolveOrthrus func() orthrusStatusChecker // may be nil; may return nil
 	notifier       uptimeNotifier
+}
+
+// newUptimeChecker builds the one shared checker for a service: a single
+// SSRF-safe keep-alive HTTP client (idleTimeout 30s — spec §3.2.2 / N2), one
+// shared host dialer, a lazy Orthrus-resolver accessor (bound after
+// construction via SetOrthrusResolver) and the notification sink. Both the
+// legacy inline check path (UptimeService.checkMonitor / checkHost) and the
+// worker pool use this same instance so there is exactly one connection pool
+// and one copy of the probe switch (spec §3.1.5 / N3).
+func newUptimeChecker(svc *UptimeService) *uptimeChecker {
+	client := network.NewSafeHTTPClient(
+		network.WithTimeout(20*time.Second),
+		network.WithDialTimeout(3*time.Second),
+		network.WithMaxRedirects(0),
+		network.WithAllowLocalhost(),
+		network.WithAllowRFC1918(),
+		network.WithKeepAlive(100, 4, 30*time.Second),
+	)
+	return &uptimeChecker{
+		httpClient:     client,
+		hostDialer:     &net.Dialer{Timeout: 3 * time.Second},
+		resolveOrthrus: func() orthrusStatusChecker { return svc.orthrusResolver },
+		notifier:       svc,
+	}
 }
 
 // probe runs the monitor's configured check and returns the raw outcome. It

@@ -123,13 +123,29 @@ func (h *UptimeHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Monitor deleted"})
 }
 
-// CheckMonitor triggers an immediate check for a specific monitor
+// CheckMonitor triggers an immediate check for a specific monitor. With a live
+// worker pool it enqueues the job with a short block, returning 503 if the queue
+// stays full (spec §3.1.2 / N5); without a pool it falls back to a background
+// inline check.
 func (h *UptimeHandler) CheckMonitor(c *gin.Context) {
 	id := c.Param("id")
 	monitor, err := h.service.GetMonitorByID(id)
 	if err != nil {
 		logger.Log().WithField("error", sanitizeForLog(err.Error())).WithField("monitor_id", sanitizeForLog(id)).Warn("Monitor not found for check")
 		c.JSON(http.StatusNotFound, gin.H{"error": "Monitor not found"})
+		return
+	}
+
+	if h.service.Pool != nil {
+		if enqErr := h.service.Pool.Enqueue(c.Request.Context(), services.UptimeJob{
+			Kind:    services.JobMonitorCheck,
+			Monitor: *monitor,
+			Manual:  true,
+		}); enqErr != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "check queue is full, try again"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "Check enqueued"})
 		return
 	}
 

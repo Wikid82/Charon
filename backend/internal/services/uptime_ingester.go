@@ -182,6 +182,24 @@ func (i *UptimeIngester) Run(ctx context.Context) {
 	}
 }
 
+// FlushResults synchronously persists results outside the Run loop, through the
+// one ingester write path (i.flush -> single transaction). It is used by the
+// legacy inline check path (UptimeService.checkMonitor / checkHost) so a check
+// run without a live worker pool still writes exactly the columns the buffered
+// path would, and no direct s.DB.Create(&heartbeat) / s.DB.Save(&monitor) lives
+// in the check code any more (spec §3.1.5 / N3). Safe to call concurrently with
+// Run: both funnel into i.db.Transaction and SQLite serialises them; the
+// failedFlushes retry counter is touched only by Run's doFlush, never here.
+func (i *UptimeIngester) FlushResults(results ...any) error {
+	if len(results) == 0 {
+		return nil
+	}
+	if err := i.flush(results); err != nil {
+		return fmt.Errorf("flush results: %w", err)
+	}
+	return nil
+}
+
 // Stop drains any results still buffered and flushes them. Intended for tests
 // and post-Run cleanup where the pool-closes-results handshake did not run.
 func (i *UptimeIngester) Stop() {

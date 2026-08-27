@@ -3,14 +3,12 @@ package services
 import (
 	"context"
 	"fmt"
-	"net"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
-	"github.com/Wikid82/charon/backend/internal/network"
 	"gorm.io/gorm"
 )
 
@@ -125,18 +123,6 @@ func NewUptimeWorkerPool(svc *UptimeService) *UptimeWorkerPool {
 		}
 	}
 
-	// One shared client for every HTTP check: same safeDialer / no-redirect /
-	// localhost+RFC1918 policy as the former per-check client, plus a bounded
-	// keep-alive pool (idleTimeout 30s — spec §3.2.2 / N2).
-	client := network.NewSafeHTTPClient(
-		network.WithTimeout(20*time.Second),
-		network.WithDialTimeout(3*time.Second),
-		network.WithMaxRedirects(0),
-		network.WithAllowLocalhost(),
-		network.WithAllowRFC1918(),
-		network.WithKeepAlive(100, 4, 30*time.Second),
-	)
-
 	p := &UptimeWorkerPool{
 		db:            svc.DB,
 		svc:           svc,
@@ -149,11 +135,13 @@ func NewUptimeWorkerPool(svc *UptimeService) *UptimeWorkerPool {
 		now:           time.Now,
 		notifyTimeout: uptimeNotifyDispatchTimeout,
 	}
-	p.checker = &uptimeChecker{
-		httpClient:     client,
-		hostDialer:     &net.Dialer{Timeout: 3 * time.Second},
-		resolveOrthrus: func() orthrusStatusChecker { return svc.orthrusResolver },
-		notifier:       svc,
+	// Reuse the service's shared checker (one keep-alive client + one copy of
+	// the probe switch). Fall back to a fresh one only if a caller built the
+	// pool from a service that has none (defensive; production always does).
+	if svc.checker != nil {
+		p.checker = svc.checker
+	} else {
+		p.checker = newUptimeChecker(svc)
 	}
 	return p
 }

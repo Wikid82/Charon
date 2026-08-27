@@ -40,7 +40,6 @@ import (
 type uptimeBootstrapService interface {
 	CleanupStaleFailureCounts() error
 	SyncMonitors() error
-	CheckAll()
 }
 
 func runInitialUptimeBootstrap(enabled bool, uptimeService uptimeBootstrapService, logWarn func(error, string), logError func(error, string)) {
@@ -56,8 +55,9 @@ func runInitialUptimeBootstrap(enabled bool, uptimeService uptimeBootstrapServic
 		logError(err, "Failed to sync monitors")
 	}
 
-	// Run initial check immediately after sync to avoid the 90s blind window.
-	uptimeService.CheckAll()
+	// No initial CheckAll() — the per-monitor scheduler's jittered cold-start
+	// backfill (60s window) covers the "no blind window on boot" goal
+	// (spec §3.1.5).
 }
 
 // migrateViewerToPassthrough renames any legacy "viewer" roles to "passthrough".
@@ -77,11 +77,21 @@ func Register(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg config.C
 	// Cerberus middleware applies the optional security suite checks (WAF, ACL, CrowdSec)
 	cerb := cerberus.New(cfg.Security, db)
 
-	return RegisterWithDeps(ctx, router, db, cfg, caddyManager, cerb)
+	_, err := RegisterWithDeps(ctx, router, db, cfg, caddyManager, cerb)
+	return err
 }
 
-// RegisterWithDeps wires up API routes and performs automatic migrations with prebuilt dependencies.
-func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg config.Config, caddyManager *caddy.Manager, cerb *cerberus.Cerberus) error {
+// UptimeShutdownFunc blocks until the uptime execution pipeline (scheduler →
+// worker pool → ingester) has drained and done its final flush after the app
+// context is cancelled, or the passed grace context expires (spec §3.1.4 / S4).
+// It is a no-op when the pipeline was never started.
+type UptimeShutdownFunc func(graceCtx context.Context) error
+
+// RegisterWithDeps wires up API routes and performs automatic migrations with
+// prebuilt dependencies. It returns an UptimeShutdownFunc the caller invokes
+// (after cancelling ctx) to wait out the ordered uptime teardown.
+func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg config.Config, caddyManager *caddy.Manager, cerb *cerberus.Cerberus) (UptimeShutdownFunc, error) {
+	uptimeShutdown := UptimeShutdownFunc(func(context.Context) error { return nil })
 	// Emergency bypass must be registered FIRST.
 	// When a valid X-Emergency-Token is present from an authorized source,
 	// it sets an emergency context flag and strips the token header so downstream
@@ -141,7 +151,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		&models.BackupRemoteCopy{},      // Issue #32: per-target remote upload status
 		&models.BackupJob{},             // Async Backup/Restore Jobs: tracks in-flight create/restore jobs
 	); err != nil {
-		return fmt.Errorf("auto migrate: %w", err)
+		return uptimeShutdown, fmt.Errorf("auto migrate: %w", err)
 	}
 
 	migrateViewerToPassthrough(db)
@@ -257,7 +267,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 	// Ensure notify-only provider migration reconciliation at boot
 	if err := notificationService.EnsureNotifyOnlyProviderMigration(context.Background()); err != nil {
-		return fmt.Errorf("notify-only provider migration: %w", err)
+		return uptimeShutdown, fmt.Errorf("notify-only provider migration: %w", err)
 	}
 
 	// Remote Server Service (needed for Docker handler)
@@ -677,44 +687,63 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 			logger.Log().WithError(err).Warn("Failed to initialize security header presets")
 		}
 
-		// Start background checker (every 1 minute)
-		go func() {
-			// Wait a bit for server to start
-			time.Sleep(30 * time.Second)
+		// --- Uptime execution pipeline (spec §3.1) -------------------------
+		// The legacy 60s ticker go-func is gone. Checks are now driven by the
+		// per-monitor scheduler; writes flow through the buffered ingester; the
+		// bounded worker pool runs the probes. SyncMonitors moves to its own
+		// 5-minute loop.
+		uptimeScheduler := services.NewUptimeScheduler(uptimeService.Pool)
+		uptimeSyncLoop := services.NewUptimeSyncLoop(uptimeService)
 
-			// Initial sync if enabled
-			var s models.Setting
+		// Boot-time reconcile: CleanupStaleFailureCounts + one SyncMonitors,
+		// after a short delay so Caddy/DB settle. No initial CheckAll.
+		go func() {
+			time.Sleep(30 * time.Second)
 			enabled := true
+			var s models.Setting
 			if err := db.Where("key = ?", "feature.uptime.enabled").First(&s).Error; err == nil {
 				enabled = s.Value == "true"
 			}
-
 			runInitialUptimeBootstrap(
 				enabled,
 				uptimeService,
 				func(err error, msg string) { logger.Log().WithError(err).Warn(msg) },
 				func(err error, msg string) { logger.Log().WithError(err).Error(msg) },
 			)
-
-			ticker := time.NewTicker(1 * time.Minute)
-			for range ticker.C {
-				// Check feature flag each tick
-				s = models.Setting{} // Reset to prevent ID leakage from previous query
-				enabled := true
-				if err := db.Where("key = ?", "feature.uptime.enabled").First(&s).Error; err == nil {
-					enabled = s.Value == "true"
-				}
-
-				if enabled {
-					_ = uptimeService.SyncMonitors()
-					uptimeService.CheckAll()
-				}
-			}
 		}()
 
+		// Ordered teardown chain (S4 / spec §3.1.4): on ctx cancel the
+		// scheduler stops enqueuing first, the pool then drains its workers and
+		// closes the ingester's results channel (it is the sole sender), and
+		// the ingester does a final flush before Run returns. uptimeShutdown
+		// blocks until that final flush completes (or a grace deadline).
+		uptimeIngesterDone := make(chan struct{})
+		go func() {
+			uptimeService.Ingester.Run(ctx)
+			close(uptimeIngesterDone)
+		}()
+		go uptimeService.Pool.Run(ctx)
+		go uptimeScheduler.Run(ctx)
+		go uptimeSyncLoop.Run(ctx)
+		// Pruner is started in C6; its insertion point is right here, before the
+		// shutdown waiter, so it aborts on the same ctx.
+
+		uptimeShutdown = func(waitCtx context.Context) error {
+			select {
+			case <-uptimeIngesterDone:
+				return nil
+			case <-waitCtx.Done():
+				return fmt.Errorf("uptime pipeline drain timed out: %w", waitCtx.Err())
+			}
+		}
+
+		// Re-seed the in-memory schedule immediately after a live backup
+		// restore instead of waiting for the ~30s rescan self-heal (S6).
+		backupService.SetUptimeRehydrator(uptimeScheduler)
+
 		management.POST("/system/uptime/check", func(c *gin.Context) {
-			go uptimeService.CheckAll()
-			c.JSON(200, gin.H{"message": "Uptime check started"})
+			enqueued, dropped := uptimeService.CheckAll()
+			c.JSON(200, gin.H{"enqueued": enqueued, "dropped": dropped})
 		})
 
 		// caddyManager is already created early in Register() for use by settingsHandler
@@ -922,6 +951,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		proxyGroupHandler.RegisterRoutes(management)
 
 		remoteServerHandler := handlers.NewRemoteServerHandler(remoteServerService, notificationService)
+		remoteServerHandler.SetUptimeService(uptimeService) // targeted monitor sync on CRUD (spec §3.1.3)
 		remoteServerHandler.RegisterRoutes(management)
 	}
 
@@ -960,7 +990,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		}
 	}()
 
-	return nil
+	return uptimeShutdown, nil
 }
 
 // RegisterImportHandler wires up import routes with config dependencies.
