@@ -6,6 +6,176 @@
 
 ---
 
+## Implementation review 2026-08-27 (`development...feat/uptime-monitoring-scale`, 13 impl commits, +11354 / −1307) — Verdict: APPROVE
+
+**Reviewer:** Supervisor (Code Review Lead). **Scope:** implementation vs. the approved
+plan (`docs/plans/current_spec.md`) and the four APPROVE-WITH-CHANGES items from the
+plan re-review below. Read-only; DoD artifacts spot-checked, not re-run.
+
+The code delivers the design. All five original bottlenecks are addressed as planned,
+the three Blocking plan items (B1/B2/B3) are implemented with concrete, non-vacuous
+tests, and the four "changes required" (C1–C4) each landed. No blocking or should-fix
+defects. Six nice-to-haves below, all closeable by a small follow-up or `qa-security`;
+none is structural.
+
+### Verified delivered
+
+- **B1 — per-host scheduling.** `UptimeScheduler` carries `monSchedule` + `hostSchedule`
+  + `hostMinInt`; cold-start hydrates hosts via `SELECT uptime_host_id, MIN(interval)
+  … WHERE enabled AND uptime_host_id IS NOT NULL GROUP BY uptime_host_id`
+  (`uptime_scheduler.go:184-202`); `runTick` runs `hostPass` then `monitorPass`
+  (`:206-218`); host jobs go on the same bounded queue as `UptimeJob{Kind:
+  JobHostCheck}`; `rescan()` recomputes `hostMinInt`/`hostSchedule` (`:368-381`). Host
+  due-times are in-memory only (no schema change). Hosts with zero enabled children get
+  no host check — the harmless behaviour delta already noted in the plan re-review.
+  Tests: `TestUptimeScheduler_RunTick_HostPassBeforeMonitorPass`,
+  `..._MonitorPass_SkipsTCPMonitorOfDownHostButNotHTTP`, `loadHostSchedules` coverage.
+- **B2 — host-down short-circuit, single owner = worker.** `handleHostCheck`
+  (`uptime_worker_pool.go:509-553`) detects up→down under `hostMu`, releases the lock,
+  then `fanOutHostDown` synthesises `down` results for the host's not-already-down TCP
+  children through the same `monMu` debounce and fires one `NotifyMonitorDown` per
+  transitioning child (the real 30 s batch window consolidates). Scheduler reads
+  `pool.HostState(hid)` in `hostDownSkips` (`uptime_scheduler.go:294-303`) and neither
+  enqueues nor emits for those monitors while the host is down. The ingester has **no**
+  transition logic / no fan-out — `flush()` is a pure column mirror
+  (`uptime_ingester.go:257-319`). Tests: `TestUptimeWorkerPool_B2_HostDownFanout`,
+  `..._AlreadyDownChildIsSkipped`, `..._ConcurrentHostStateReadsDoNotDeadlock`.
+- **B3 — authoritative in-memory debounce.** `pool.monState` seeded once from the DB
+  (`SeedState`), read-modify-written synchronously under `monMu` **before** `emit`
+  (`uptime_worker_pool.go:391-419`); transition detection + notification read/write the
+  map, never the DB snapshot; the ingester write is persistence-only and droppable.
+  Traced: a saturated ingester channel that drops every `CheckResult` still produces the
+  down transition and the alert — `TestUptimeWorkerPool_B3_DownTransitionDetectedDespiteEveryResultDropped`
+  asserts exactly this. Manual `POST /:id/check` runs through the same `handleMonitorCheck`
+  RMW — `TestUptimeWorkerPool_ManualJob_SharesMonState` kills the old both-read-N
+  undercount.
+- **C1 — deadline-bounded notification dispatch.** `dispatch()`
+  (`uptime_worker_pool.go:488-505`) derives `context.WithTimeout(p.baseCtx(),
+  notifyTimeout=10s)` and returns on `done` **or** `nctx.Done()`, so a hook that ignores
+  ctx cannot wedge the worker or the `workerWG.Wait()` teardown link. `context.Background()`
+  is gone from the worker notification path. Test:
+  `TestUptimeWorkerPool_Dispatch_SlowHookDoesNotExceedDeadline` (3 s hook, worker returns
+  in < 1 s).
+- **C2 — narrowed `hostMu`.** `handleHostCheck` flips the `hostState` entry under
+  `hostMu` then `Unlock()`s at `:537` *before* `fanOutHostDown`; the fan-out does its
+  child DB read with no lock held and takes `monMu` only per-child for a ~5-field RMW.
+- **C3 — documented lock order.** `hostMu → monMu` invariant is a struct-level comment
+  block (`uptime_worker_pool.go:83-86`); in practice the two locks are never held
+  simultaneously.
+- **C4 — maps built outside locks.** `SeedState`/`loadMonState`/`loadHostState` run the
+  SELECTs first, then swap under `monMu`/`hostMu` (`:154-174`); workers re-read
+  `p.monState` after acquiring `monMu`.
+- **S4 teardown.** Ordered chain wired in `routes.go:690-712` and `main.go:283-338`:
+  scheduler stops enqueuing on `ctx` → `Pool.Run` does `workerWG.Wait()` then
+  `ingester.closeResults()` (sole sender/closer, `sync.Once`-guarded,
+  `uptime_ingester.go:144-146`) → ingester `Run` ranges the closed channel, final
+  `doFlush`, returns → `main.go` blocks on `uptimeShutdown` up to 25 s. Every worker
+  `handle()` is bounded (probe ctx + `dispatch` deadline), so `close(results)` is always
+  reached — no hang. Test: `TestUptimeWorkerPool_Run_DrainsWorkersAndClosesResultsOnCancel`.
+- **Pruner + deferred index.** Chunked subquery `DELETE … WHERE id IN (SELECT id …
+  ORDER BY id LIMIT ?)` (`uptime_pruner.go:178-185`, fully parameterised), `time.Sleep`
+  between chunks with a wider first-pass pause, `PRAGMA wal_checkpoint(TRUNCATE)` after a
+  ≥ 50 k-row prune. `ensureIndex` uses `CREATE INDEX IF NOT EXISTS`, an `atomic.Bool`
+  short-circuit set **only after success**, and is retried every caught-up pass — no
+  `sync.Once`, so a transient early failure never permanently strands it
+  (`:213-228`). `charon migrate` builds it eagerly with the WARN log (`main.go:159-171`).
+- **Summary endpoint.** Exactly three queries regardless of monitor count
+  (`GetSummary` → `loadMonitors` / `loadRecentBeats` / `loadUptime24h`), `ROW_NUMBER()`
+  windowed + grouped 24 h, 30 s TTL cache, `beats` default 30 / cap 60 (handler +
+  `clampBeats`), snake_case tags, `max_retries` present with the legacy `<=0 → 3`
+  default. Both raw SQL blocks are `?`-parameterised on the window edge and row cap with
+  no interpolation. `TestUptimeSummary_CorrectWithAndWithoutIndex` covers both plans.
+- **Shared keep-alive SSRF client.** `WithKeepAlive(100, 4, 30s)` flips only
+  `DisableKeepAlives` / `MaxIdleConns` / `MaxIdleConnsPerHost` / `IdleConnTimeout`
+  (`safeclient.go:466-471`); `safeDialer` still re-validates every new connection and
+  redirect policy is untouched. Tests assert link-local/metadata still blocked, an
+  idle conn past `idleTimeout` is not reused, and redirects still not followed
+  (`safeclient_test.go:1329-1383`).
+- **Security.** Auth: `/uptime/monitors/summary` and `/uptime/health` sit in the
+  `management` group behind `RequireManagementAccess()` (`routes.go:641-650`).
+  Interval floor enforced on every write path — `SettingsHandler.UpdateSetting` via
+  `validateUptimeSetting` bounds `[30, 86400]`; `UptimeHandler.Create` rejects
+  `0 < n < 30`; `UptimeService.UpdateMonitor` rejects a positive sub-floor;
+  `CreateMonitor` + all auto-create paths (`SyncMonitors`, `SyncAndCheckForHost`,
+  `SyncAndCheckForRemoteServer`) use `clampInterval(0, cfg)`; the scheduler re-clamps
+  every interval at scheduling time. `remote_server_handler.go` sync hooks are
+  `h.uptimeService != nil`-guarded on Create/Update/Delete. The two `go/log-injection`
+  suppressions in `3c9ac3bd` are legitimate — both sinks log a `uint` GORM primary key
+  (`remote_server_id`) that cannot carry CR/LF; the taint is only the enclosing
+  handler's `ShouldBindJSON`.
+- **CLAUDE.md.** Explicit `json:"snake_case"` on `MonitorSummary` / `BeatDTO` /
+  `NextCheckAt`; UUID string IDs unchanged; `fmt.Errorf("…: %w", err)` wrapping
+  throughout the new services; all `Run` loops return on `ctx.Done()`;
+  `feature.uptime.enabled` still a working kill switch (scheduler no-ops per tick,
+  pool/ingester idle, sync loop gated, pruner deliberately keeps running). The N3
+  `checkMonitor` probe-switch duplication is collapsed — `checkMonitor` now delegates
+  to `s.checker.probe` and writes only through `Ingester.FlushResults`. No dead code,
+  debug prints, or commented blocks in the new files.
+- **Deviations from the spec's literal file lists** (config self-built in
+  `NewUptimeService`; ingester owns its channel + `closeResults()`; pool hangs off
+  `UptimeService.Pool`; `SetUptimeService` / `SetUptimeRehydrator` setters;
+  `RegisterWithDeps` returns an `UptimeShutdownFunc`; `probe`/`probeHost` split with
+  debounce in the pool) — all sound; none loses a property the spec depended on. The
+  setters are nil-guarded and keep ~20 existing call sites stable; the shutdown func is
+  threaded through `main.go` correctly.
+
+### Nice-to-have (non-blocking; small follow-up or QA)
+
+- **NI-1 — `last_notified_down` is carried but never persisted for monitors.**
+  `uptime_ingester.go` `flush()` (`~:287-300`) writes `status` / `last_check` /
+  `latency` / `failure_count` / `last_status_change` but not `last_notified_down`, yet
+  the worker maintains `monDebounce.lastNotifiedDown` (`uptime_worker_pool.go:398, 612`)
+  and `loadMonState` reads the column back (`:206`). No monitor-level code consumes it
+  today (only the host-level `host.LastNotifiedDown` re-notify damper at
+  `uptime_service.go:828` is live), and it was already unused pre-PR, so this is not a
+  regression — but the in-memory field now looks authoritative while resetting to a
+  never-written value on every restart. Fix: drop `lastNotifiedDown` from `monDebounce`
+  / `loadMonState`, or thread it onto `CheckResult` and persist it if a monitor
+  re-notify damper is ever wanted.
+- **NI-2 — shutdown-grace arithmetic vs. change C1.** `main.go:328` uses a 25 s drain
+  ctx; `handleMonitorCheck` can in principle take `uptimeCheckHardCap` (20 s) + a
+  synchronous `dispatch` bounded by `notifyTimeout` (10 s) = 30 s on the `workerWG`
+  path, now that C1 put notification dispatch there. No real hang — on `ctx` cancel
+  `p.baseCtx()` is already-done, so both sub-contexts are born cancelled and unwind
+  immediately; the only true bound is `http.Client.Timeout` (20 s) for a connection
+  already reading a slow body, which fits inside 25 s. Either bump the drain ctx to
+  ~35 s (`hardCap + notifyTimeout + margin`) or add a comment at `drainCtx` noting the
+  cancelled-ctx fast-unwind is what keeps 25 s sufficient.
+- **NI-3 — `TestUptimeSummary_PerfBudget` seed is light and its comment's math is
+  wrong.** `uptime_summary_service_test.go:271` seeds 500 × 120 ≈ 60 k rows over 24 h;
+  the header comment cites a "500 × ~720 ≈ 360 k" production profile, but at the 30 s
+  interval floor a 24 h window is 500 × 2880 ≈ 1.44 M rows — ~24× the seed. The `< 2 s`
+  ceiling trips only on a per-monitor-loop regression, not on index-not-used or O(n²)
+  slippage. Raise `beatsPerMon` toward 2880 and correct the comment so the guard
+  exercises the windowed `ROW_NUMBER()` at a realistic size. (The plan re-review's S5
+  already downgraded the p95 gate to "QA timing output, not hard-gated", so this is
+  polish, not a broken gate.)
+- **NI-4 — stale "transient duplicate" comment.** `uptime_check.go:56-59` still says the
+  http/tcp/orthrus switch is "a deliberate transient duplicate … for the length of this
+  commit — C5 collapses the legacy path onto this one." C5 did collapse it; trim the
+  comment to describe the switch as the sole probe path.
+- **NI-5 — perpetually-due rows when a snapshot load returns fewer rows than
+  requested.** `hostPass` / `monitorPass` (`uptime_scheduler.go:237-246, 277-288`) only
+  advance the schedule entry for IDs returned by `loadHostSnapshots` /
+  `loadJobSnapshots`. A row deleted between the due-scan and the snapshot load is never
+  advanced and is re-selected every tick until the next `rescan()` prunes it (≤ 30 s).
+  Harmless churn; if desired, advance-or-drop any due ID absent from the snapshot.
+- **NI-6 — `dispatch()` goroutine for the non-blocking down path.**
+  `uptime_worker_pool.go:488` wraps `NotifyMonitorDown` (documented fast: map insert +
+  `AfterFunc`) in the same goroutine + select deadline harness as the external-send
+  `NotifyMonitorUp`. Bounded by worker count, so cosmetic — consider calling the down
+  path inline and reserving `dispatch()` for the recovery path.
+
+### DoD spot-check
+
+Not re-run (per dispatch). Cross-checked that the artifacts the orchestrator reported
+are consistent with the tree: the B1/B2/B3/C1/S4 tests named above exist and assert the
+right invariants; `codeql-suppressions.yml` entries are dated with `review_by`; the N4
+route-resolution smoke test (`routes_test.go:TestRegister_UptimeSummaryAndHistoryRoutesResolve`)
+is present. Nothing observed that contradicts the reported green state.
+
+---
+
 ## Re-review 2026-08-27 (revision +1213 / −670) — Verdict: APPROVE WITH CHANGES
 
 The three Blocking items are **genuinely closed**. The fixes are complete, internally
