@@ -46,6 +46,51 @@ suppressions:
     added: "2026-08-04"
     review_by: "2026-11-04"
 
+  - rule_id: go/log-injection
+    path: backend/internal/api/handlers/remote_server_handler.go
+    line: 142
+    reason: >
+      False positive. The logged value is the goroutine's `id uint`
+      parameter (bound from `server.ID`, a GORM-assigned numeric primary
+      key) written as the structured field `remote_server_id` — a Go
+      `uint` cannot carry newline/CR/control-char payloads, so no log
+      forgery is possible. CodeQL's taint tracker flags it only because
+      the enclosing `RemoteServerHandler.Update` also calls
+      `c.ShouldBindJSON`, marking the whole `server` struct request-
+      derived; two taint paths reach this one sink line, hence the
+      finding appears twice for the same location. The identical
+      `.WithField("host_id", host.ID)` uint logging in
+      proxy_host_handler.go is not flagged. Introduced by the per-monitor
+      uptime scheduler work — see docs/plans/current_spec.md. The
+      in-source `// codeql[go/log-injection]` comment (standalone line,
+      exactly startLine-1, no preceding code) is the primary annotation;
+      this entry is the documented fallback for when a local SARIF scan
+      does not populate `result.suppressions` (see the
+      go/cookie-secure-not-set entry above for the same limitation).
+    added: "2026-08-27"
+    review_by: "2026-11-27"
+
+  - rule_id: go/log-injection
+    path: backend/internal/services/uptime_service.go
+    line: 1475
+    reason: >
+      False positive. `UptimeService.SyncAndCheckForRemoteServer` logs its
+      `remoteServerID uint` argument as the structured field
+      `remote_server_id`; the value originates from `server.ID` at the
+      `go h.uptimeService.SyncAndCheckForRemoteServer(server.ID)` call
+      site in RemoteServerHandler.Create. A Go `uint` (GORM numeric
+      primary key) cannot carry newline/CR/control-char payloads, so no
+      log forgery is possible. CodeQL flags it only because
+      `RemoteServerHandler.Create` calls `c.ShouldBindJSON`, marking the
+      `server` struct request-derived. Introduced by the per-monitor
+      uptime scheduler work — see docs/plans/current_spec.md. The
+      in-source `// codeql[go/log-injection]` comment (standalone line,
+      exactly startLine-1, no preceding code) is the primary annotation;
+      this entry is the documented fallback for when a local SARIF scan
+      does not populate `result.suppressions`.
+    added: "2026-08-27"
+    review_by: "2026-11-27"
+
   # Example entry (uncomment/copy when a new exception is needed):
   # - rule_id: go/example-rule-id
   #   path: backend/internal/example.go

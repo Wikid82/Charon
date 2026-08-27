@@ -1470,6 +1470,8 @@ func (s *UptimeService) SyncAndCheckForRemoteServer(remoteServerID uint) {
 
 	var server models.RemoteServer
 	if err := s.DB.Where("id = ?", remoteServerID).First(&server).Error; err != nil {
+		// Safe: remote_server_id is a uint (DB/route numeric ID), not an injectable string.
+		// codeql[go/log-injection]
 		logger.Log().WithField("remote_server_id", remoteServerID).
 			Debug("SyncAndCheckForRemoteServer: remote server not found (may have been deleted)")
 		return
