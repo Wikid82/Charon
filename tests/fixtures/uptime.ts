@@ -25,7 +25,9 @@ export interface BeatDTO {
  *
  * `proxy_host_id` / `remote_server_id` are always present but nullable
  * (used only for UI grouping). `uptime_24h` is always present, null when
- * there is no heartbeat data in the window.
+ * there is no heartbeat data in the window. `max_retries` is always present
+ * (commit 49b5318b added it to the payload so the Edit-monitor modal
+ * round-trips it); legacy rows with an unset value resolve to 3.
  */
 export interface MonitorSummary {
   id: string;
@@ -41,6 +43,7 @@ export interface MonitorSummary {
   remote_server_id: number | null;
   uptime_24h: number | null;
   recent_beats: BeatDTO[];
+  max_retries: number;
 }
 
 /** The `GET /api/v1/uptime/health` shape. (§3.5.5) */
@@ -142,6 +145,7 @@ export function makeSummaryFixture(n: number, options: SummaryFixtureOptions = {
       latency: isDown ? 0 : 40 + (i % 25),
       last_check: endAt.toISOString(),
       interval: 30,
+      max_retries: 3,
       proxy_host_id: bucket === 0 ? 1000 + i : null,
       remote_server_id: bucket === 1 ? 2000 + i : null,
       uptime_24h: isDown ? 87.5 : 99.9,
