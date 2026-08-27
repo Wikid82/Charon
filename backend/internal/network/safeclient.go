@@ -197,6 +197,16 @@ type ClientOptions struct {
 	// targeting internal hosts). All other restricted ranges — loopback, link-local,
 	// cloud metadata (169.254.x.x), and reserved — remain blocked regardless.
 	AllowRFC1918 bool
+
+	// keepAlive, when true, enables HTTP connection pooling on the SSRF-safe
+	// client. When false (the default) the client keeps its historical
+	// behaviour byte-for-byte: DisableKeepAlives=true, MaxIdleConns=1,
+	// MaxIdleConnsPerHost=0 (net/http default), IdleConnTimeout=Timeout.
+	// Only WithKeepAlive sets this; every other option path is unaffected.
+	keepAlive           bool
+	maxIdleConns        int
+	maxIdleConnsPerHost int
+	idleConnTimeout     time.Duration
 }
 
 // Option is a functional option for configuring ClientOptions.
@@ -259,6 +269,33 @@ func WithDialTimeout(timeout time.Duration) Option {
 func WithAllowRFC1918() Option {
 	return func(opts *ClientOptions) {
 		opts.AllowRFC1918 = true
+	}
+}
+
+// WithKeepAlive enables connection pooling (HTTP keep-alives) on the SSRF-safe
+// client. Without this option the client's transport is byte-for-byte identical
+// to today: keep-alives disabled, a single idle connection, IdleConnTimeout
+// equal to the request timeout.
+//
+//   - maxIdle:      total idle connections retained across all hosts (Transport.MaxIdleConns)
+//   - perHost:      idle connections retained per host (Transport.MaxIdleConnsPerHost)
+//   - idleTimeout:  how long an idle pooled connection is kept before it is closed
+//     and dropped from the pool (Transport.IdleConnTimeout)
+//
+// SECURITY NOTE: only DisableKeepAlives / MaxIdleConns / MaxIdleConnsPerHost /
+// IdleConnTimeout change. safeDialer (which re-validates the resolved IP against
+// the SSRF policy on every *new* connection), the redirect policy, and every
+// timeout are untouched. A pooled connection skips dial-time re-resolution for
+// its idle lifetime, so idleTimeout bounds that staleness window — an
+// established TCP connection cannot be re-bound to a different IP, so this is
+// not an SSRF vector, but keep idleTimeout tight (the uptime worker pool uses
+// 30s).
+func WithKeepAlive(maxIdle, perHost int, idleTimeout time.Duration) Option {
+	return func(opts *ClientOptions) {
+		opts.keepAlive = true
+		opts.maxIdleConns = maxIdle
+		opts.maxIdleConnsPerHost = perHost
+		opts.idleConnTimeout = idleTimeout
 	}
 }
 
@@ -413,18 +450,29 @@ func NewSafeHTTPClient(opts ...Option) *http.Client {
 		opt(&cfg)
 	}
 
+	transport := &http.Transport{
+		// Explicitly ignore proxy environment variables for SSRF-sensitive requests.
+		Proxy:                 nil,
+		DialContext:           safeDialer(&cfg),
+		DisableKeepAlives:     true,
+		MaxIdleConns:          1,
+		IdleConnTimeout:       cfg.Timeout,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: cfg.Timeout,
+	}
+
+	// Only WithKeepAlive flips these four fields; the default path above is
+	// unchanged, so existing callers get exactly the transport they had before.
+	if cfg.keepAlive {
+		transport.DisableKeepAlives = false
+		transport.MaxIdleConns = cfg.maxIdleConns
+		transport.MaxIdleConnsPerHost = cfg.maxIdleConnsPerHost
+		transport.IdleConnTimeout = cfg.idleConnTimeout
+	}
+
 	return &http.Client{
-		Timeout: cfg.Timeout,
-		Transport: &http.Transport{
-			// Explicitly ignore proxy environment variables for SSRF-sensitive requests.
-			Proxy:                 nil,
-			DialContext:           safeDialer(&cfg),
-			DisableKeepAlives:     true,
-			MaxIdleConns:          1,
-			IdleConnTimeout:       cfg.Timeout,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ResponseHeaderTimeout: cfg.Timeout,
-		},
+		Timeout:   cfg.Timeout,
+		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			// No redirects allowed by default
 			if cfg.MaxRedirects == 0 {

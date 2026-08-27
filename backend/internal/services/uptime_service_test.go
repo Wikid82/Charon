@@ -2349,3 +2349,35 @@ func TestCheckHost_NonOrthrusMonitorNoPort_SkipsTCPDial(t *testing.T) {
 	assert.Equal(t, "pending", refreshed.Status,
 		"host status must not change when no TCP dial was attempted")
 }
+
+// TestCheckHost_NoSleepRetryLoop_OnRefusedDial is the C4 de-blocking assertion
+// (spec §3.2.3): the inner `for retry { ... time.Sleep(2s) ... }` loop is gone,
+// so a host whose only port refuses the connection completes in well under a
+// second instead of the previous ~4s (2s x MaxRetries). The cross-cycle
+// FailureThreshold/FailureCount debounce is unchanged — a single failed cycle
+// still just increments the counter.
+func TestCheckHost_NoSleepRetryLoop_OnRefusedDial(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db, nil)
+	us := NewUptimeService(db, ns) // default config: MaxRetries=2, FailureThreshold=2, TCPTimeout=10s
+	t.Cleanup(func() { us.FlushPendingNotifications() })
+
+	host := models.UptimeHost{Host: "127.0.0.1", Name: "Refused Host", Status: "up"}
+	require.NoError(t, db.Create(&host).Error)
+	require.NoError(t, db.Create(&models.UptimeMonitor{
+		ID: "refused-mon", Name: "Refused", Type: "tcp", URL: "127.0.0.1:9", // discard port: connection refused
+		Enabled: true, Status: "up", UptimeHostID: &host.ID,
+	}).Error)
+
+	start := time.Now()
+	us.checkHost(context.Background(), &host)
+	elapsed := time.Since(start)
+
+	assert.Less(t, elapsed, time.Second,
+		"a refused dial must return promptly — no 2s x MaxRetries sleep-retry loop")
+
+	var refreshed models.UptimeHost
+	require.NoError(t, db.Where("id = ?", host.ID).First(&refreshed).Error)
+	assert.Equal(t, 1, refreshed.FailureCount, "one failed cycle increments the counter by exactly one")
+	assert.Equal(t, "up", refreshed.Status, "still up after a single failure (FailureThreshold=2)")
+}

@@ -54,6 +54,15 @@ type UptimeService struct {
 	// sends to it until the scheduler commit wires the worker pool — so it is
 	// inert: DroppedCount() returns 0 and no goroutine is spawned.
 	Ingester *UptimeIngester
+
+	// Pool is the bounded worker pool that owns the authoritative in-memory
+	// debounce maps (monState/hostState) and the shared keep-alive SSRF client
+	// (spec §3.2). Constructed in routes.go this commit and hung here as a
+	// stable reference for GET /api/v1/uptime/health (C7); its Run loop is NOT
+	// started until the scheduler commit (C5), so it is inert — QueueDepth()
+	// and EnqueueDropped() return 0 and no goroutines are spawned. nil in the
+	// legacy code path and in tests that do not construct it.
+	Pool *UptimeWorkerPool
 }
 
 // ErrIntervalTooLow is returned by UpdateMonitor when a caller tries to set a
@@ -584,81 +593,62 @@ func (s *UptimeService) checkHost(ctx context.Context, host *models.UptimeHost) 
 
 	// Track whether any non-Orthrus monitor with a valid port was attempted.
 	attempted := false
-
-	// Try to connect to any of the monitor ports with retry logic
 	success := false
 	var msg string
 	var lastErr error
 
-	for retry := 0; retry <= s.config.MaxRetries && !success; retry++ {
-		if retry > 0 {
-			logger.Log().WithFields(map[string]any{
-				"host_name": host.Name,
-				"retry":     retry,
-				"max":       s.config.MaxRetries,
-			}).Info("Retrying TCP check")
-			time.Sleep(2 * time.Second) // Brief delay between retries
+	// Single non-blocking dial per candidate port — no in-call sleep-retry loop
+	// (spec §3.2.3 de-blocking). The cross-cycle FailureThreshold/FailureCount
+	// debounce below is unchanged: a host still needs FailureThreshold
+	// consecutive failed check cycles to flip to "down". Removing the retry loop
+	// only drops up to ~4s (2s x MaxRetries) of blocked goroutine time per down
+	// host per cycle.
+	select {
+	case <-ctx.Done():
+		logger.Log().WithField("host_name", host.Name).Warn("TCP check cancelled")
+		return
+	default:
+	}
+
+	// Connect timeout: 3s in production; honour a smaller test-configured
+	// TCPTimeout so unit tests stay fast.
+	dialTimeout := s.config.TCPTimeout
+	if dialTimeout <= 0 || dialTimeout > 3*time.Second {
+		dialTimeout = 3 * time.Second
+	}
+
+	for _, monitor := range monitors {
+		// Orthrus liveness is checked per-monitor via session state, not TCP pre-check.
+		if strings.ToLower(monitor.Type) == "orthrus" {
+			continue
 		}
 
-		// Check if context is cancelled
-		select {
-		case <-ctx.Done():
-			logger.Log().WithField("host_name", host.Name).Warn("TCP check cancelled")
-			return
-		default:
+		var port string
+		if monitor.ProxyHost != nil {
+			// Use actual backend port from ProxyHost if available.
+			port = fmt.Sprintf("%d", monitor.ProxyHost.ForwardPort)
+		} else {
+			// Fallback to extracting from URL for standalone monitors.
+			port = extractPort(monitor.URL)
+		}
+		if port == "" {
+			continue
 		}
 
-		for _, monitor := range monitors {
-			// Orthrus liveness is checked per-monitor via session state, not TCP pre-check.
-			if strings.ToLower(monitor.Type) == "orthrus" {
-				continue
+		attempted = true
+		addr := net.JoinHostPort(host.Host, port) // net.JoinHostPort for IPv6 compatibility
+		dialer := net.Dialer{Timeout: dialTimeout}
+		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		if err == nil {
+			if closeErr := conn.Close(); closeErr != nil {
+				logger.Log().WithError(closeErr).Warn("failed to close tcp connection")
 			}
-
-			var port string
-
-			// Use actual backend port from ProxyHost if available
-			if monitor.ProxyHost != nil {
-				port = fmt.Sprintf("%d", monitor.ProxyHost.ForwardPort)
-			} else {
-				// Fallback to extracting from URL for standalone monitors
-				port = extractPort(monitor.URL)
-			}
-
-			if port == "" {
-				continue
-			}
-
-			attempted = true
-			logger.Log().WithFields(map[string]any{
-				"monitor":        monitor.Name,
-				"extracted_port": extractPort(monitor.URL),
-				"actual_port":    port,
-				"host":           host.Host,
-				"retry":          retry,
-			}).Debug("TCP check port resolution")
-
-			// Use net.JoinHostPort for IPv6 compatibility
-			addr := net.JoinHostPort(host.Host, port)
-
-			// Create dialer with timeout from context
-			dialer := net.Dialer{Timeout: s.config.TCPTimeout}
-			conn, err := dialer.DialContext(ctx, "tcp", addr)
-			if err == nil {
-				if closeErr := conn.Close(); closeErr != nil {
-					logger.Log().WithError(closeErr).Warn("failed to close tcp connection")
-				}
-				success = true
-				msg = fmt.Sprintf("TCP connection to %s successful (retry %d)", addr, retry)
-				logger.Log().WithFields(map[string]any{
-					"host_name": host.Name,
-					"addr":      addr,
-					"retry":     retry,
-				}).Debug("TCP connection successful")
-				break
-			}
-			lastErr = err
-			msg = fmt.Sprintf("TCP check failed: %v", err)
+			success = true
+			msg = fmt.Sprintf("TCP connection to %s successful", addr)
+			break
 		}
+		lastErr = err
+		msg = fmt.Sprintf("TCP check failed: %v", err)
 	}
 
 	// If every monitor for this host is Orthrus-type, there are no dialable ports.
@@ -1137,8 +1127,30 @@ func (s *UptimeService) flushPendingNotification(hostID string) {
 	logger.Log().WithField("count", len(pending.downMonitors)).WithField("host", util.SanitizeForLog(pending.hostName)).Info("Sent batched DOWN notification")
 }
 
-// sendRecoveryNotification sends a notification when a service recovers
+// NotifyMonitorDown queues a batched "service down" alert for a monitor whose
+// status transition was detected synchronously by the worker pool (spec
+// §3.3.3). It is fast and non-blocking (map insert + AfterFunc timer); ctx is
+// accepted only for interface symmetry with NotifyMonitorUp.
+func (s *UptimeService) NotifyMonitorDown(_ context.Context, monitor models.UptimeMonitor, reason, previousUptime string) {
+	s.queueDownNotification(monitor, reason, previousUptime)
+}
+
+// NotifyMonitorUp sends a recovery alert. The external webhook send is bounded
+// by ctx so a hung notification provider cannot wedge the calling worker — and,
+// at shutdown, cannot block the teardown chain past the pool's dispatch
+// deadline (supervisor change #1 / spec §3.1.4).
+func (s *UptimeService) NotifyMonitorUp(ctx context.Context, monitor models.UptimeMonitor, downtime string) {
+	s.sendRecoveryNotificationCtx(ctx, monitor, downtime)
+}
+
+// sendRecoveryNotification sends a notification when a service recovers. Legacy
+// callers (checkMonitor, this commit) use the background-context wrapper; the
+// worker pool calls sendRecoveryNotificationCtx directly with a bounded ctx.
 func (s *UptimeService) sendRecoveryNotification(monitor models.UptimeMonitor, downtime string) {
+	s.sendRecoveryNotificationCtx(context.Background(), monitor, downtime)
+}
+
+func (s *UptimeService) sendRecoveryNotificationCtx(ctx context.Context, monitor models.UptimeMonitor, downtime string) {
 	title := fmt.Sprintf("🟢 %s is UP", monitor.Name)
 
 	var sb strings.Builder
@@ -1162,7 +1174,7 @@ func (s *UptimeService) sendRecoveryNotification(monitor models.UptimeMonitor, d
 		"Time":     time.Now().Format(time.RFC1123),
 		"URL":      monitor.URL,
 	}
-	s.NotificationService.SendExternal(context.Background(), "uptime", title, sb.String(), data)
+	s.NotificationService.SendExternal(ctx, "uptime", title, sb.String(), data)
 }
 
 // FlushPendingNotifications flushes all pending batched notifications immediately.

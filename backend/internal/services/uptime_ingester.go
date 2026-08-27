@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -83,6 +84,7 @@ type HostCheckResult struct {
 type UptimeIngester struct {
 	db           *gorm.DB
 	results      chan any // CheckResult | HostCheckResult
+	closeOnce    sync.Once // guards the single close of results (S4: pool is sole closer)
 	droppedCount atomic.Int64
 	lastDropLog  atomic.Int64 // unix-nanos of the last emitted drop warning
 
@@ -134,6 +136,14 @@ func (i *UptimeIngester) noteDropped(n int64) {
 // batch discarded after repeated flush failures. Surfaced at
 // GET /api/v1/uptime/health.
 func (i *UptimeIngester) DroppedCount() int64 { return i.droppedCount.Load() }
+
+// closeResults closes the results channel. Per the S4 teardown contract (spec
+// §3.1.4) the worker pool is the SOLE sender and the SOLE closer, and calls
+// this only after workerWG.Wait() — so no send can race the close. Guarded by
+// closeOnce so a defensive double-call (e.g. in tests) is a no-op.
+func (i *UptimeIngester) closeResults() {
+	i.closeOnce.Do(func() { close(i.results) })
+}
 
 // Run consumes results, batching writes to SQLite. Per spec §3.1.4 (S4) it
 // terminates ONLY when the results channel is closed by the worker pool (the

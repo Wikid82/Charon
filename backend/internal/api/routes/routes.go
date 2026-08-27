@@ -321,6 +321,15 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	// — nothing sends to it until the scheduler commit — so it stays inert.
 	uptimeService := services.NewUptimeService(db, notificationService)
 
+	// Bounded worker pool + one shared keep-alive SSRF-safe HTTP client (spec
+	// §3.2). Constructed here and hung on uptimeService so C7's
+	// GET /api/v1/uptime/health can hold a stable reference. Its Run loop is NOT
+	// started until the scheduler commit (C5), so it stays inert: QueueDepth()
+	// and EnqueueDropped() return 0 and no goroutines are spawned. Constructed
+	// after NewUptimeService (needs uptimeService.Ingester + uptimeCfg) and
+	// before SetOrthrusResolver — the pool reads the resolver lazily per check.
+	uptimeService.Pool = services.NewUptimeWorkerPool(uptimeService)
+
 	protected := api.Group("/")
 	protected.Use(authMiddleware)
 	{
