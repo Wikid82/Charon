@@ -346,25 +346,8 @@ export default function Layout({ children }: LayoutProps) {
             })}
           </nav>
 
-          <div className={`mt-2 border-t border-border pt-4 shrink-0 ${isCollapsed ? 'hidden' : ''}`}>
-            <div className="text-xs text-content-muted text-center mb-2 flex flex-col gap-0.5">
-              <span>Version {health?.version || 'dev'}</span>
-              {health?.git_commit && health.git_commit !== 'unknown' && (
-                <span className="text-[10px] opacity-75 font-mono">
-                  ({health.git_commit.substring(0, 7)})
-                </span>
-              )}
-            </div>
+          <div className={`mt-2 border-t border-border pt-6 pb-3 shrink-0 ${isCollapsed ? 'hidden' : ''}`}>
             <div className="flex items-center justify-center gap-3 text-content-muted">
-              <a
-                href="https://buymeacoffee.com/Wikid82"
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Support Charon on Buy Me a Coffee"
-                className="hover:text-content-primary transition-colors"
-              >
-                <Coffee className="w-4 h-4" />
-              </a>
               <a
                 href="https://github.com/sponsors/Wikid82"
                 target="_blank"
@@ -374,6 +357,23 @@ export default function Layout({ children }: LayoutProps) {
               >
                 <Heart className="w-4 h-4" />
               </a>
+              <a
+                href="https://buymeacoffee.com/Wikid82"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Support Charon on Buy Me a Coffee"
+                className="hover:text-content-primary transition-colors"
+              >
+                <Coffee className="w-4 h-4" />
+              </a>
+            </div>
+            <div className="text-xs text-content-muted text-center mt-2 mb-2 flex flex-col gap-0.5">
+              <span>Version {health?.version || 'dev'}</span>
+              {health?.git_commit && health.git_commit !== 'unknown' && (
+                <span className="text-[10px] opacity-75 font-mono">
+                  ({health.git_commit.substring(0, 7)})
+                </span>
+              )}
             </div>
             <button
               onClick={() => {

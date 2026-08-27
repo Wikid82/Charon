@@ -201,11 +201,11 @@ No premium tiers. No feature paywalls. No usage limits. Everything you see is yo
 ---
 ☕ Support This Project
 <p align="center">
-  <a href="https://buymeacoffee.com/Wikid82">
-    <img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-donate-yellow?logo=buy-me-a-coffee&logoColor=white">
-  </a>
   <a href="https://github.com/sponsors/Wikid82">
     <img src="https://img.shields.io/badge/GitHub%20Sponsors-sponsor-EA4AAA?logo=github-sponsors&logoColor=white">
+  </a>
+  <a href="https://buymeacoffee.com/Wikid82">
+    <img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-donate-yellow?logo=buy-me-a-coffee&logoColor=white">
   </a>
 </p>
 
