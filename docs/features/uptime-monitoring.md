@@ -72,19 +72,18 @@ This timeout determines how long Charon waits for a TCP connection before consid
 
 ### Retry Behavior
 
-When a check fails, Charon automatically retries:
+A single check is one attempt. Rather than retrying in a tight loop, Charon
+waits for the next scheduled check and only changes a monitor's status once
+the result has been consistent:
 
-- **Max retries:** 2 attempts
-- **Retry delay:** 2 seconds between attempts
-- **Timeout per attempt:** 10 seconds (configurable)
+- **Consecutive failures before "down":** 2 (a monitor must fail 2 checks in a
+  row before it is reported down; one recovery check flips it back to "up")
+- **Timeout per check:** capped at the monitor's interval, up to 20 seconds
+- **Connection timeout:** 3 seconds
 
-**Total check time calculation:**
-
-```
-Max time = (timeout × max_retries) + (retry_delay × (max_retries - 1))
-         = (10s × 2) + (2s × 1)
-         = 22 seconds worst case
-```
+Because failures are counted across scheduled checks instead of retried
+back-to-back, a monitor on a 30-second interval is reported down roughly
+60 seconds after it actually goes down.
 
 ### Check Interval (Per Monitor)
 
