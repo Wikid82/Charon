@@ -65,6 +65,69 @@ describe('uptime API', () => {
       expect(client.get).toHaveBeenCalledWith('/uptime/monitors/mon-1/history?limit=100')
       expect(result).toEqual(mockData)
     })
+
+    it('should append the before cursor when provided', async () => {
+      vi.mocked(client.get).mockResolvedValue({ data: [] })
+
+      await uptime.getMonitorHistory('mon-1', 60, '2026-08-27T12:00:00Z')
+
+      expect(client.get).toHaveBeenCalledWith(
+        '/uptime/monitors/mon-1/history?limit=60&before=2026-08-27T12%3A00%3A00Z'
+      )
+    })
+  })
+
+  describe('getMonitorsSummary', () => {
+    it('should call GET /uptime/monitors/summary with the default beats window', async () => {
+      const mockData: uptime.MonitorSummary[] = [
+        {
+          id: 'mon-1',
+          name: 'Test Monitor',
+          type: 'http',
+          url: 'https://example.com',
+          enabled: true,
+          status: 'up',
+          latency: 40,
+          last_check: '2026-08-27T12:00:00Z',
+          interval: 30,
+          proxy_host_id: 12,
+          remote_server_id: null,
+          uptime_24h: 99.9,
+          recent_beats: [{ status: 'up', latency: 40, created_at: '2026-08-27T11:59:30Z' }],
+        },
+      ]
+      vi.mocked(client.get).mockResolvedValue({ data: mockData })
+
+      const result = await uptime.getMonitorsSummary()
+
+      expect(client.get).toHaveBeenCalledWith('/uptime/monitors/summary?beats=30')
+      expect(result).toEqual(mockData)
+    })
+
+    it('should forward a custom beats window', async () => {
+      vi.mocked(client.get).mockResolvedValue({ data: [] })
+
+      await uptime.getMonitorsSummary(60)
+
+      expect(client.get).toHaveBeenCalledWith('/uptime/monitors/summary?beats=60')
+    })
+  })
+
+  describe('getUptimeHealth', () => {
+    it('should call GET /uptime/health', async () => {
+      const mockData: uptime.UptimeHealth = {
+        heartbeats_dropped: 0,
+        checks_enqueue_dropped: 0,
+        queue_depth: 3,
+        worker_pool_size: 30,
+      }
+      vi.mocked(client.get).mockResolvedValue({ data: mockData })
+
+      const result = await uptime.getUptimeHealth()
+
+      expect(client.get).toHaveBeenCalledWith('/uptime/health')
+      expect(result).toEqual(mockData)
+    })
   })
 
   describe('updateMonitor', () => {

@@ -69,6 +69,8 @@ vi.mock('react-i18next', () => ({
 // Mock uptime API
 vi.mock('../../api/uptime', () => ({
   getMonitors: vi.fn(),
+  getMonitorsSummary: vi.fn(),
+  getUptimeHealth: vi.fn(),
   getMonitorHistory: vi.fn(),
   updateMonitor: vi.fn(),
   deleteMonitor: vi.fn(),
@@ -78,8 +80,8 @@ vi.mock('../../api/uptime', () => ({
 }))
 
 async function openCreateModal() {
-  const { getMonitors } = await import('../../api/uptime')
-  vi.mocked(getMonitors).mockResolvedValue([])
+  const { getMonitorsSummary } = await import('../../api/uptime')
+  vi.mocked(getMonitorsSummary).mockResolvedValue([])
 
   renderWithQueryClient(<Uptime />)
 
