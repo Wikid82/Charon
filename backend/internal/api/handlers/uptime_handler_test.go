@@ -32,6 +32,8 @@ func setupUptimeHandlerTest(t *testing.T) (*gin.Engine, *gorm.DB) {
 	uptime := api.Group("/uptime")
 	uptime.GET("", handler.List)
 	uptime.POST("", handler.Create)
+	uptime.GET("/monitors/summary", handler.Summary)
+	uptime.GET("/health", handler.Health)
 	uptime.GET(":id/history", handler.GetHistory)
 	uptime.PUT(":id", handler.Update)
 	uptime.DELETE(":id", handler.Delete)
@@ -539,4 +541,228 @@ func TestUptimeHandler_Update_IntervalFloor(t *testing.T) {
 	var after models.UptimeMonitor
 	require.NoError(t, db.First(&after, "id = ?", "mon-floor").Error)
 	assert.Equal(t, 60, after.Interval)
+}
+
+// --- Commit 7: batch summary, /uptime/health, history paging ----------------
+
+func TestUptimeHandler_Summary(t *testing.T) {
+	r, db := setupUptimeHandlerTest(t)
+
+	m1 := models.UptimeMonitor{ID: "sum-b", Name: "Beta", Type: "http", URL: "http://b.example", Enabled: true, Interval: 30, Status: "up", Latency: 12}
+	m2 := models.UptimeMonitor{ID: "sum-a", Name: "Alpha", Type: "tcp", URL: "tcp://a.example", Enabled: true, Interval: 60, Status: "down", Latency: 0}
+	require.NoError(t, db.Create(&m1).Error)
+	require.NoError(t, db.Create(&m2).Error)
+
+	base := time.Now().Add(-1 * time.Hour)
+	for i := 0; i < 4; i++ {
+		status := "up"
+		if i == 3 {
+			status = "down"
+		}
+		require.NoError(t, db.Create(&models.UptimeHeartbeat{
+			MonitorID: "sum-b", Status: status, Latency: int64(i), CreatedAt: base.Add(time.Duration(i) * time.Minute),
+		}).Error)
+	}
+
+	req, _ := http.NewRequest("GET", "/api/v1/uptime/monitors/summary", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var got []services.MonitorSummary
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	require.Len(t, got, 2)
+
+	// Ordered by name ASC.
+	assert.Equal(t, "Alpha", got[0].Name)
+	assert.Equal(t, "Beta", got[1].Name)
+
+	// Alpha has no heartbeats -> [] and nil uptime, status from the row.
+	assert.Equal(t, "down", got[0].Status)
+	assert.NotNil(t, got[0].RecentBeats)
+	assert.Len(t, got[0].RecentBeats, 0)
+	assert.Nil(t, got[0].Uptime24h)
+
+	// Beta: 4 beats, chronological ASC, 75% uptime.
+	require.Len(t, got[1].RecentBeats, 4)
+	assert.True(t, got[1].RecentBeats[0].CreatedAt.Before(got[1].RecentBeats[3].CreatedAt))
+	require.NotNil(t, got[1].Uptime24h)
+	assert.InDelta(t, 75.0, *got[1].Uptime24h, 0.0001)
+}
+
+func TestUptimeHandler_Summary_BeatsClamp(t *testing.T) {
+	base := time.Now().Add(-3 * time.Hour)
+
+	cases := []struct {
+		name  string
+		id    string
+		query string
+		want  int
+	}{
+		{"above_cap", "clamp-cap", "?beats=999", 60},   // capped
+		{"below_floor", "clamp-floor", "?beats=0", 1},  // floored
+		{"unparseable", "clamp-nan", "?beats=abc", 30}, // unparseable -> default
+		{"omitted", "clamp-omit", "", 30},              // omitted -> default
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Fresh handler per sub-test so the 30s cache from a prior call
+			// cannot serve a stale series (the cache stores 60-wide and slices,
+			// so this is belt-and-braces). The shared in-memory DB persists
+			// across sub-tests, hence a distinct monitor id per case.
+			r, db := setupUptimeHandlerTest(t)
+			require.NoError(t, db.Create(&models.UptimeMonitor{ID: tc.id, Name: "Clamp", Type: "http", URL: "http://c.example", Enabled: true, Status: "up"}).Error)
+			bb := make([]models.UptimeHeartbeat, 0, 70)
+			for i := 0; i < 70; i++ {
+				bb = append(bb, models.UptimeHeartbeat{MonitorID: tc.id, Status: "up", Latency: int64(i), CreatedAt: base.Add(time.Duration(i) * time.Minute)})
+			}
+			require.NoError(t, db.CreateInBatches(&bb, 50).Error)
+
+			req, _ := http.NewRequest("GET", "/api/v1/uptime/monitors/summary"+tc.query, http.NoBody)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			require.Equal(t, http.StatusOK, w.Code)
+
+			var got []services.MonitorSummary
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+			require.Len(t, got, 1)
+			assert.Len(t, got[0].RecentBeats, tc.want)
+		})
+	}
+}
+
+func TestUptimeHandler_Health(t *testing.T) {
+	r, _ := setupUptimeHandlerTest(t)
+
+	req, _ := http.NewRequest("GET", "/api/v1/uptime/health", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+
+	for _, k := range []string{"heartbeats_dropped", "checks_enqueue_dropped", "queue_depth", "worker_pool_size"} {
+		v, ok := body[k]
+		require.Truef(t, ok, "missing key %q", k)
+		assert.EqualValuesf(t, 0, v, "nil pool/ingester -> %q is 0", k)
+	}
+}
+
+func TestUptimeHandler_GetHistory_LimitCap(t *testing.T) {
+	r, db := setupUptimeHandlerTest(t)
+	require.NoError(t, db.Create(&models.UptimeMonitor{ID: "hist-cap", Name: "Cap"}).Error)
+
+	base := time.Now().Add(-10 * time.Hour)
+	rows := make([]models.UptimeHeartbeat, 0, 600)
+	for i := 0; i < 600; i++ {
+		rows = append(rows, models.UptimeHeartbeat{MonitorID: "hist-cap", Status: "up", Latency: int64(i), CreatedAt: base.Add(time.Duration(i) * time.Second)})
+	}
+	require.NoError(t, db.CreateInBatches(&rows, 200).Error)
+
+	req, _ := http.NewRequest("GET", "/api/v1/uptime/hist-cap/history?limit=99999", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var history []models.UptimeHeartbeat
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &history))
+	assert.Len(t, history, 500, "limit is hard-capped at 500")
+}
+
+func TestUptimeHandler_GetHistory_LimitDefaultAndNonPositive(t *testing.T) {
+	r, db := setupUptimeHandlerTest(t)
+	require.NoError(t, db.Create(&models.UptimeMonitor{ID: "hist-def", Name: "Def"}).Error)
+
+	base := time.Now().Add(-5 * time.Hour)
+	rows := make([]models.UptimeHeartbeat, 0, 80)
+	for i := 0; i < 80; i++ {
+		rows = append(rows, models.UptimeHeartbeat{MonitorID: "hist-def", Status: "up", Latency: int64(i), CreatedAt: base.Add(time.Duration(i) * time.Second)})
+	}
+	require.NoError(t, db.CreateInBatches(&rows, 40).Error)
+
+	for _, q := range []string{"", "?limit=0", "?limit=-5", "?limit=abc"} {
+		req, _ := http.NewRequest("GET", "/api/v1/uptime/hist-def/history"+q, http.NoBody)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		require.Equalf(t, http.StatusOK, w.Code, "query %q", q)
+		var history []models.UptimeHeartbeat
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &history))
+		assert.Lenf(t, history, 60, "query %q -> default limit 60", q)
+	}
+}
+
+func TestUptimeHandler_GetHistory_BeforeCursor(t *testing.T) {
+	r, db := setupUptimeHandlerTest(t)
+	require.NoError(t, db.Create(&models.UptimeMonitor{ID: "hist-cur", Name: "Cur"}).Error)
+
+	anchor := time.Now().Add(-1 * time.Hour).UTC().Truncate(time.Second)
+	// 5 older, 5 newer than the anchor.
+	for i := 1; i <= 5; i++ {
+		require.NoError(t, db.Create(&models.UptimeHeartbeat{MonitorID: "hist-cur", Status: "up", CreatedAt: anchor.Add(-time.Duration(i) * time.Minute)}).Error)
+		require.NoError(t, db.Create(&models.UptimeHeartbeat{MonitorID: "hist-cur", Status: "up", CreatedAt: anchor.Add(time.Duration(i) * time.Minute)}).Error)
+	}
+
+	req, _ := http.NewRequest("GET", "/api/v1/uptime/hist-cur/history?before="+anchor.Format(time.RFC3339), http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var history []models.UptimeHeartbeat
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &history))
+	require.Len(t, history, 5, "only rows older than the cursor")
+	for _, h := range history {
+		assert.True(t, h.CreatedAt.Before(anchor), "row %s must be < cursor", h.CreatedAt)
+	}
+}
+
+func TestUptimeHandler_GetHistory_BadBefore(t *testing.T) {
+	r, db := setupUptimeHandlerTest(t)
+	require.NoError(t, db.Create(&models.UptimeMonitor{ID: "hist-bad", Name: "Bad"}).Error)
+
+	req, _ := http.NewRequest("GET", "/api/v1/uptime/hist-bad/history?before=not-a-timestamp", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "RFC3339")
+}
+
+func TestUptimeHandler_Summary_DBError(t *testing.T) {
+	r, db := setupUptimeHandlerTest(t)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	req, _ := http.NewRequest("GET", "/api/v1/uptime/monitors/summary", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "Failed to build summary")
+}
+
+func TestUptimeHandler_Health_WithLivePool(t *testing.T) {
+	db := handlers.OpenTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.UptimeMonitor{}, &models.UptimeHeartbeat{}, &models.UptimeHost{}, &models.RemoteServer{}, &models.NotificationProvider{}, &models.Notification{}))
+
+	svc := services.NewUptimeService(db, services.NewNotificationService(db, nil))
+	svc.Pool = services.NewUptimeWorkerPool(svc)
+	h := handlers.NewUptimeHandler(svc)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/uptime/health", h.Health)
+
+	req := httptest.NewRequest(http.MethodGet, "/uptime/health", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.EqualValues(t, 30, body["worker_pool_size"], "live pool reports its construction size")
+	assert.EqualValues(t, 0, body["queue_depth"])
+	assert.EqualValues(t, 0, body["checks_enqueue_dropped"])
+	assert.EqualValues(t, 0, body["heartbeats_dropped"])
 }

@@ -1349,3 +1349,57 @@ func TestRegister_CleansLetsEncryptCertAssignments(t *testing.T) {
 	require.NoError(t, db.First(&reloaded, host.ID).Error)
 	assert.Nil(t, reloaded.CertificateID, "letsencrypt cert assignment must be cleared")
 }
+
+// TestRegister_UptimeSummaryAndHistoryRoutesResolve is the N4 smoke test: the
+// static /uptime/monitors/summary route and the /uptime/monitors/:id/history
+// param route share a path segment; assert both register to distinct handlers
+// and neither collapses into a 404 at dispatch time.
+func TestRegister_UptimeSummaryAndHistoryRoutesResolve(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_uptime_n4"), &gorm.Config{})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	require.NoError(t, Register(ctx, router, db, config.Config{JWTSecret: "test-secret"}))
+
+	const (
+		summaryPath = "/api/v1/uptime/monitors/summary"
+		historyPath = "/api/v1/uptime/monitors/:id/history"
+	)
+
+	var summaryHandler, historyHandler string
+	for _, r := range router.Routes() {
+		if r.Method != http.MethodGet {
+			continue
+		}
+		switch r.Path {
+		case summaryPath:
+			summaryHandler = r.Handler
+		case historyPath:
+			historyHandler = r.Handler
+		}
+	}
+
+	require.NotEmpty(t, summaryHandler, "GET %s must be registered", summaryPath)
+	require.NotEmpty(t, historyHandler, "GET %s must be registered", historyPath)
+	assert.NotEqual(t, summaryHandler, historyHandler,
+		"summary and history must resolve to different handlers")
+	assert.Contains(t, summaryHandler, "(*UptimeHandler).Summary")
+	assert.Contains(t, historyHandler, "(*UptimeHandler).GetHistory")
+
+	// Dispatch check: an unauthenticated request is rejected by the JWT
+	// middleware (401), never misrouted (404).
+	for _, path := range []string{
+		"/api/v1/uptime/monitors/summary",
+		"/api/v1/uptime/monitors/abc123/history",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		assert.NotEqualf(t, http.StatusNotFound, w.Code, "%s must resolve to a handler", path)
+	}
+}

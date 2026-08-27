@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/services"
@@ -14,12 +15,25 @@ import (
 // (services.clampInterval); requests below it are rejected at the edge.
 const minMonitorIntervalSeconds = 30
 
+// Summary endpoint sparkline bounds (spec §3.5.1, user decision: default 30,
+// cap 60). The service clamps too; the handler clamps first for a predictable
+// response shape.
+const (
+	summaryDefaultBeats = 30
+	summaryMaxBeats     = 60
+)
+
 type UptimeHandler struct {
 	service *services.UptimeService
+	summary *services.UptimeSummaryService
 }
 
 func NewUptimeHandler(service *services.UptimeService) *UptimeHandler {
-	return &UptimeHandler{service: service}
+	var summary *services.UptimeSummaryService
+	if service != nil {
+		summary = services.NewUptimeSummaryService(service.DB)
+	}
+	return &UptimeHandler{service: service, summary: summary}
 }
 
 func (h *UptimeHandler) List(c *gin.Context) {
@@ -69,15 +83,84 @@ func (h *UptimeHandler) Create(c *gin.Context) {
 
 func (h *UptimeHandler) GetHistory(c *gin.Context) {
 	id := c.Param("id")
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
 
-	history, err := h.service.GetMonitorHistory(id, limit)
+	// limit: non-positive / unparseable -> service default (60); the service
+	// also enforces the 500 hard cap (spec §3.5.4).
+	limit, err := strconv.Atoi(c.DefaultQuery("limit", "0"))
+	if err != nil {
+		limit = 0
+	}
+
+	// before: optional RFC3339 "load older" cursor -> created_at < before.
+	var before time.Time
+	if raw := c.Query("before"); raw != "" {
+		parsed, perr := time.Parse(time.RFC3339, raw)
+		if perr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "before must be an RFC3339 timestamp"})
+			return
+		}
+		before = parsed
+	}
+
+	history, err := h.service.GetMonitorHistory(id, limit, before)
 	if err != nil {
 		logger.Log().WithField("error", sanitizeForLog(err.Error())).WithField("monitor_id", sanitizeForLog(id)).Error("Failed to get monitor history")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get history"})
 		return
 	}
 	c.JSON(http.StatusOK, history)
+}
+
+// Summary returns the batch per-monitor dashboard payload (status, latency,
+// last check, 24h uptime %, and a recent-beat sparkline) for every monitor in
+// one response, from three cached windowed queries (spec §3.5).
+// GET /api/v1/uptime/monitors/summary?beats=<1..60>
+func (h *UptimeHandler) Summary(c *gin.Context) {
+	beats, err := strconv.Atoi(c.DefaultQuery("beats", strconv.Itoa(summaryDefaultBeats)))
+	if err != nil {
+		beats = summaryDefaultBeats
+	}
+	if beats < 1 {
+		beats = 1
+	}
+	if beats > summaryMaxBeats {
+		beats = summaryMaxBeats
+	}
+
+	summaries, err := h.summary.GetSummary(c.Request.Context(), beats)
+	if err != nil {
+		logger.Log().WithError(err).Error("Failed to build uptime summary")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to build summary"})
+		return
+	}
+	c.JSON(http.StatusOK, summaries)
+}
+
+// Health exposes the uptime write/execution pipeline back-pressure counters
+// (spec §3.5.5). Safe to call before the pool/ingester Run loops start, and in
+// unit-test construction where either may be nil -> the field reports 0.
+// GET /api/v1/uptime/health
+func (h *UptimeHandler) Health(c *gin.Context) {
+	var heartbeatsDropped, checksEnqueueDropped int64
+	var queueDepth, workerPoolSize int
+
+	if h.service != nil {
+		if h.service.Ingester != nil {
+			heartbeatsDropped = h.service.Ingester.DroppedCount()
+		}
+		if h.service.Pool != nil {
+			checksEnqueueDropped = h.service.Pool.EnqueueDropped()
+			queueDepth = h.service.Pool.QueueDepth()
+			workerPoolSize = h.service.Pool.WorkerPoolSize()
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"heartbeats_dropped":     heartbeatsDropped,
+		"checks_enqueue_dropped": checksEnqueueDropped,
+		"queue_depth":            queueDepth,
+		"worker_pool_size":       workerPoolSize,
+	})
 }
 
 func (h *UptimeHandler) Update(c *gin.Context) {

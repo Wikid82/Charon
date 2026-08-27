@@ -1257,9 +1257,33 @@ func (s *UptimeService) GetMonitorByID(id string) (*models.UptimeMonitor, error)
 	return &monitor, nil
 }
 
-func (s *UptimeService) GetMonitorHistory(id string, limit int) ([]models.UptimeHeartbeat, error) {
+// uptimeHistoryDefaultLimit / uptimeHistoryMaxLimit bound the detail-view
+// history query. A non-positive limit falls back to the default; anything above
+// the cap is clamped (spec §3.5.4).
+const (
+	uptimeHistoryDefaultLimit = 60
+	uptimeHistoryMaxLimit     = 500
+)
+
+// GetMonitorHistory returns a monitor's heartbeats newest-first. limit is
+// clamped to (0, uptimeHistoryMaxLimit]; a non-positive limit uses
+// uptimeHistoryDefaultLimit. A non-zero before acts as a "load older" cursor:
+// only heartbeats with created_at < before are returned.
+func (s *UptimeService) GetMonitorHistory(id string, limit int, before time.Time) ([]models.UptimeHeartbeat, error) {
+	switch {
+	case limit <= 0:
+		limit = uptimeHistoryDefaultLimit
+	case limit > uptimeHistoryMaxLimit:
+		limit = uptimeHistoryMaxLimit
+	}
+
+	query := s.DB.Where("monitor_id = ?", id)
+	if !before.IsZero() {
+		query = query.Where("created_at < ?", before)
+	}
+
 	var heartbeats []models.UptimeHeartbeat
-	result := s.DB.Where("monitor_id = ?", id).Order("created_at desc").Limit(limit).Find(&heartbeats)
+	result := query.Order("created_at desc").Limit(limit).Find(&heartbeats)
 	return heartbeats, result.Error
 }
 

@@ -283,6 +283,13 @@ func (p *UptimeWorkerPool) QueueDepth() int { return len(p.jobs) }
 // EnqueueDropped is the running count of jobs dropped on a full queue.
 func (p *UptimeWorkerPool) EnqueueDropped() int64 { return p.enqDropped.Load() }
 
+// WorkerPoolSize is the active worker count. The pool is sized once at
+// construction from uptime.worker_pool_size; changing that setting needs a
+// restart to take effect, and GET /api/v1/uptime/health surfaces this live
+// value so operators can confirm a restart landed (spec §3.5.5, resolved
+// decision #1).
+func (p *UptimeWorkerPool) WorkerPoolSize() int { return p.size }
+
 // HostState returns the authoritative connectivity state for a host (RLock).
 // Consumed by the scheduler's host-down short-circuit (spec §3.1.2).
 func (p *UptimeWorkerPool) HostState(hostID string) (hostDebounce, bool) {
@@ -315,7 +322,7 @@ func (p *UptimeWorkerPool) Run(ctx context.Context) {
 	}
 
 	<-ctx.Done()
-	p.workerWG.Wait()      // every in-flight handle() is bounded by uptimeCheckHardCap
+	p.workerWG.Wait()         // every in-flight handle() is bounded by uptimeCheckHardCap
 	p.ingester.closeResults() // pool is the sole sender — safe to close now
 }
 

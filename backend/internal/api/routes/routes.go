@@ -637,11 +637,17 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		uptimeHandler := handlers.NewUptimeHandler(uptimeService)
 		management.GET("/uptime/monitors", uptimeHandler.List)
 		management.POST("/uptime/monitors", uptimeHandler.Create)
+		// Static /summary is registered alongside the /:id/history param route
+		// on the same segment; gin resolves the literal first (N4 smoke test).
+		management.GET("/uptime/monitors/summary", uptimeHandler.Summary)
 		management.GET("/uptime/monitors/:id/history", uptimeHandler.GetHistory)
 		management.PUT("/uptime/monitors/:id", uptimeHandler.Update)
 		management.DELETE("/uptime/monitors/:id", uptimeHandler.Delete)
 		management.POST("/uptime/monitors/:id/check", uptimeHandler.CheckMonitor)
 		management.POST("/uptime/sync", uptimeHandler.Sync)
+		// Pipeline back-pressure counters (ingester drops, pool enqueue drops,
+		// queue depth, active worker count). Refs live on uptimeService.
+		management.GET("/uptime/health", uptimeHandler.Health)
 
 		// Notification Providers
 		notificationProviderHandler := handlers.NewNotificationProviderHandlerWithDeps(notificationService, securityService, dataRoot)

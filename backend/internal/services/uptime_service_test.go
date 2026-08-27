@@ -276,10 +276,54 @@ func TestUptimeService_GetMonitorHistory(t *testing.T) {
 		CreatedAt: time.Now(),
 	}).Error)
 
-	history, err := us.GetMonitorHistory(monitor.ID, 100)
+	history, err := us.GetMonitorHistory(monitor.ID, 100, time.Time{})
 	assert.NoError(t, err)
 	assert.Len(t, history, 2)
 	assert.Equal(t, "down", history[0].Status)
+}
+
+func TestUptimeService_GetMonitorHistory_LimitCapAndBeforeCursor(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db, nil)
+	us := newTestUptimeService(t, db, ns)
+
+	require.NoError(t, db.Create(&models.UptimeMonitor{ID: "hist-svc", Name: "Hist"}).Error)
+
+	anchor := time.Now().Add(-2 * time.Hour).UTC().Truncate(time.Second)
+	rows := make([]models.UptimeHeartbeat, 0, 700)
+	// 600 before the anchor, 100 after it.
+	for i := 1; i <= 600; i++ {
+		rows = append(rows, models.UptimeHeartbeat{MonitorID: "hist-svc", Status: "up", CreatedAt: anchor.Add(-time.Duration(i) * time.Second)})
+	}
+	for i := 1; i <= 100; i++ {
+		rows = append(rows, models.UptimeHeartbeat{MonitorID: "hist-svc", Status: "up", CreatedAt: anchor.Add(time.Duration(i) * time.Second)})
+	}
+	require.NoError(t, db.CreateInBatches(&rows, 200).Error)
+
+	t.Run("limit is hard-capped at 500", func(t *testing.T) {
+		got, err := us.GetMonitorHistory("hist-svc", 99999, time.Time{})
+		require.NoError(t, err)
+		assert.Len(t, got, 500)
+	})
+
+	t.Run("non-positive limit falls back to default 60", func(t *testing.T) {
+		got, err := us.GetMonitorHistory("hist-svc", 0, time.Time{})
+		require.NoError(t, err)
+		assert.Len(t, got, 60)
+
+		got, err = us.GetMonitorHistory("hist-svc", -5, time.Time{})
+		require.NoError(t, err)
+		assert.Len(t, got, 60)
+	})
+
+	t.Run("before cursor returns only older rows", func(t *testing.T) {
+		got, err := us.GetMonitorHistory("hist-svc", 500, anchor)
+		require.NoError(t, err)
+		require.NotEmpty(t, got)
+		for _, h := range got {
+			assert.True(t, h.CreatedAt.Before(anchor), "row %s must predate the cursor", h.CreatedAt)
+		}
+	})
 }
 
 func TestUptimeService_SyncMonitors_Errors(t *testing.T) {
@@ -1196,7 +1240,7 @@ func TestUptimeService_GetMonitorHistory_EdgeCases(t *testing.T) {
 		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
-		history, err := us.GetMonitorHistory("non-existent", 100)
+		history, err := us.GetMonitorHistory("non-existent", 100, time.Time{})
 		assert.NoError(t, err)
 		assert.Len(t, history, 0)
 	})
@@ -1219,7 +1263,7 @@ func TestUptimeService_GetMonitorHistory_EdgeCases(t *testing.T) {
 			}).Error)
 		}
 
-		history, err := us.GetMonitorHistory(monitor.ID, 5)
+		history, err := us.GetMonitorHistory(monitor.ID, 5, time.Time{})
 		assert.NoError(t, err)
 		assert.Len(t, history, 5)
 	})
