@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Charon - Documentation</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <style>
+    :root {
+      --primary: #1d4ed8;
+      --primary-hover: #1e40af;
+    }
+    body {
+      background-color: #0f172a;
+      color: #e2e8f0;
+    }
+    header {
+      background: linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 100%);
+      padding: 3rem 0;
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+    header h1 {
+      color: white;
+      font-size: 2.5rem;
+      margin-bottom: 0.5rem;
+    }
+    header p {
+      color: #e0e7ff;
+      font-size: 1.25rem;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+    }
+    .card h3 {
+      color: #60a5fa;
+      margin-top: 0;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .card p {
+      color: #cbd5e1;
+      margin-bottom: 1rem;
+    }
+    .card a {
+      color: #60a5fa;
+      text-decoration: none;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .card a:hover {
+      color: #93c5fd;
+    }
+    .badge {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      margin-left: 0.5rem;
+    }
+    .badge-beginner {
+      background: #10b981;
+      color: white;
+    }
+    .badge-advanced {
+      background: #f59e0b;
+      color: white;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.5rem;
+    }
+    footer {
+      text-align: center;
+      padding: 3rem 0;
+      color: #64748b;
+      border-top: 1px solid #334155;
+      margin-top: 4rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🚀 Charon</h1>
+    <p>Make your websites easy to reach - No coding required!</p>
+  </header>
+
+  <div class="container">
+    <section>
+      <h2>👋 Welcome!</h2>
+      <p style="font-size: 1.1rem; color: #cbd5e1;">
+        This documentation will help you get started with Charon.
+        Whether you're a complete beginner or an experienced developer, we've got you covered!
+      </p>
+    </section>
+
+    <h2 style="margin-top: 3rem;">📚 Getting Started</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>🏠 Getting Started Guide <span class="badge badge-beginner">Start Here</span></h3>
+        <p>Your first setup in just 5 minutes! We'll walk you through everything step by step.</p>
+        <a href="docs/getting-started.html">Read the Guide →</a>
+      </div>
+
+      <div class="card">
+        <h3>📖 README <span class="badge badge-beginner">Essential</span></h3>
+        <p>Learn what the app does, how to install it, and see examples of what you can build.</p>
+        <a href="README.html">Read More →</a>
+      </div>
+
+      <div class="card">
+        <h3>📥 Import Guide</h3>
+        <p>Already using Caddy? Learn how to bring your existing configuration into the app.</p>
+        <a href="docs/import-guide.html">Import Your Configs →</a>
+      </div>
+    </div>
+
+    <h2 style="margin-top: 3rem;">🔧 Developer Documentation</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>🔌 API Reference <span class="badge badge-advanced">Advanced</span></h3>
+        <p>Complete REST API documentation with examples in JavaScript and Python.</p>
+        <a href="docs/api.html">View API Docs →</a>
+      </div>
+
+      <div class="card">
+        <h3>💾 Database Schema <span class="badge badge-advanced">Advanced</span></h3>
+        <p>Understand how data is stored, relationships, and backup strategies.</p>
+        <a href="docs/database-schema.html">View Schema →</a>
+      </div>
+
+      <div class="card">
+        <h3>✨ Contributing Guide</h3>
+        <p>Want to help make this better? Learn how to contribute code, docs, or ideas.</p>
+        <a href="CONTRIBUTING.html">Start Contributing →</a>
+      </div>
+    </div>
+
+    <h2 style="margin-top: 3rem;">📋 All Documentation</h2>
+    <div class="card">
+      <h3>📚 Documentation Index</h3>
+      <p>Browse all available documentation organized by topic and skill level.</p>
+      <a href="docs/index.html">View Full Index →</a>
+    </div>
+
+    <h2 style="margin-top: 3rem;">🆘 Need Help?</h2>
+    <div class="card" style="background: #1e3a8a; border-color: #1e40af;">
+      <h3 style="color: #dbeafe;">Get Support</h3>
+      <p style="color: #bfdbfe;">
+        Stuck? Have questions? We're here to help!
+      </p>
+      <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1rem;">
+        <a href="https://github.com/Wikid82/charon/discussions"
+           style="background: white; color: #1e40af; padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none;">
+          💬 Ask a Question
+        </a>
+        <a href="https://github.com/Wikid82/charon/issues"
+           style="background: white; color: #1e40af; padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none;">
+          🐛 Report a Bug
+        </a>
+        <a href="https://github.com/Wikid82/charon"
+           style="background: white; color: #1e40af; padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none;">
+          ⭐ View on GitHub
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <p>Built with ❤️ by <a href="https://github.com/Wikid82" style="color: #60a5fa;">@Wikid82</a></p>
+    <p>Made for humans, not just techies!</p>
+  </footer>
+</body>
+</html>
