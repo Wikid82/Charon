@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Wikid82/Charon/refs/heads/main/frontend/public/banner.webp" alt="Charon" width="350">
+  <img src="https://raw.githubusercontent.com/Wikid82/Charon/refs/heads/main/frontend/public/banner.webp" alt="Charon — self-hosted reverse proxy manager and web UI for Caddy" width="350">
 </p>
 
 <h1 align="center">Charon</h1>
@@ -11,6 +11,11 @@
 <p align="center">
   Manage reverse proxies with a clean web interface.<br>
   No config files. No cryptic syntax. No networking degree required.
+</p>
+
+<p align="center">
+  A self-hosted, open-source alternative to Nginx Proxy Manager, Traefik, and hand-written Caddyfiles.<br>
+  The friendly web UI for Caddy—automatic HTTPS and built-in security, zero config files.
 </p>
 
 <p align="center">
