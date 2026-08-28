@@ -335,7 +335,7 @@ jobs:
         run: |
           MAX_ATTEMPTS=3
           for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
-            if curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.117.0; then
+            if curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.118.0; then
               break
             fi
             if [[ "$attempt" -eq "$MAX_ATTEMPTS" ]]; then
