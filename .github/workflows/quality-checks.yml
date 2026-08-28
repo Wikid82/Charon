@@ -224,7 +224,7 @@ jobs:
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           # renovate: datasource=github-releases depName=golangci/golangci-lint
-          version: v2.13.1
+          version: v2.13.2
           working-directory: backend
           args: --timeout=5m
         continue-on-error: true
@@ -310,7 +310,7 @@ jobs:
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           # renovate: datasource=github-releases depName=golangci/golangci-lint
-          version: v2.13.1
+          version: v2.13.2
           working-directory: agent
           args: --config ../.golangci-fast.yml --timeout=5m
 
