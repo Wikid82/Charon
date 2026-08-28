@@ -279,7 +279,7 @@ jobs:
           image: ${{ steps.set-target.outputs.image_name }}
           format: cyclonedx-json
           output-file: sbom.cyclonedx.json
-          syft-version: v1.51.0
+          syft-version: v1.51.1
 
       - name: Generate SBOM fallback with pinned Syft
         if: steps.set-target.outputs.image_name != '' && always()
@@ -293,7 +293,7 @@ jobs:
 
           echo "Primary SBOM generation failed or produced missing/invalid output; using deterministic Syft fallback"
 
-          SYFT_VERSION="v1.51.0"
+          SYFT_VERSION="v1.51.1"
           OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
           ARCH="$(uname -m)"
           case "$ARCH" in
