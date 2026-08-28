@@ -48,8 +48,8 @@ jobs:
       # path fixes, sitemap + robots) lives in .github/pages/build-docs.sh —
       # extracted out of this step because a large inline heredoc here hangs
       # actionlint's shellcheck integration (same reason docs-index.html was
-      # extracted). Inputs are passed via env: REPO_NAME (job-level env, below)
-      # and GITHUB_REPOSITORY (provided automatically by the runner).
+      # extracted). Inputs are passed via env: REPO_NAME (from the job-level
+      # env block above) and GITHUB_REPOSITORY (provided by the runner).
       - name: 📝 Build documentation site
         run: |
           npm install -g marked
