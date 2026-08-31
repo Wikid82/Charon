@@ -1872,3 +1872,66 @@ func TestUpdateSetting_MissingKeyRejected(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
+
+// --- uptime.* bounds validation (Commit 2 / §3.6.1) ----------------------
+
+func TestSettingsHandler_UpdateSetting_UptimeBounds(t *testing.T) {
+	cases := []struct {
+		name   string
+		key    string
+		value  string
+		wantOK bool
+	}{
+		{"interval_in_bounds", "uptime.default_interval_seconds", "60", true},
+		{"interval_min_edge", "uptime.default_interval_seconds", "30", true},
+		{"interval_max_edge", "uptime.default_interval_seconds", "86400", true},
+		{"interval_below_min", "uptime.default_interval_seconds", "29", false},
+		{"interval_above_max", "uptime.default_interval_seconds", "86401", false},
+		{"interval_non_integer", "uptime.default_interval_seconds", "abc", false},
+		{"pool_in_bounds", "uptime.worker_pool_size", "30", true},
+		{"pool_min_edge", "uptime.worker_pool_size", "1", true},
+		{"pool_max_edge", "uptime.worker_pool_size", "200", true},
+		{"pool_below_min", "uptime.worker_pool_size", "0", false},
+		{"pool_above_max", "uptime.worker_pool_size", "201", false},
+		{"retention_in_bounds", "uptime.heartbeat_retention_days", "90", true},
+		{"retention_min_edge", "uptime.heartbeat_retention_days", "1", true},
+		{"retention_max_edge", "uptime.heartbeat_retention_days", "3650", true},
+		{"retention_below_min", "uptime.heartbeat_retention_days", "0", false},
+		{"retention_above_max", "uptime.heartbeat_retention_days", "3651", false},
+		{"unknown_uptime_key", "uptime.bogus", "5", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupSettingsTestDB(t)
+			handler := handlers.NewSettingsHandler(db)
+			router := newAdminRouter()
+			router.POST("/settings", handler.UpdateSetting)
+
+			body, _ := json.Marshal(map[string]string{
+				"key": tc.key, "value": tc.value, "category": "uptime", "type": "int",
+			})
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest("POST", "/settings", bytes.NewBuffer(body))
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(w, req)
+
+			if tc.wantOK {
+				assert.Equal(t, http.StatusOK, w.Code)
+				var s models.Setting
+				require.NoError(t, db.Where("key = ?", tc.key).First(&s).Error)
+				assert.Equal(t, tc.value, s.Value)
+				return
+			}
+
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+			assert.Equal(t, "invalid_uptime_setting", resp["error_code"])
+
+			var count int64
+			db.Model(&models.Setting{}).Where("key = ?", tc.key).Count(&count)
+			assert.Equal(t, int64(0), count, "a rejected uptime.* write must not persist")
+		})
+	}
+}

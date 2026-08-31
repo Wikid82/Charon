@@ -375,6 +375,17 @@ func (s *BackupService) restoreBackupSafeLockedWithProgress(filename, passphrase
 		cancel()
 	}
 
+	// R1b: re-seed the uptime scheduler from the restored DB so per-monitor
+	// scheduling + debounce state match the restored rows immediately, rather
+	// than waiting ~30s for the rescan self-heal (spec §3.9 / S6). Only
+	// meaningful when the live DB was actually swapped in (rehydrated); a
+	// restart-required restore re-seeds naturally on the next boot.
+	if s.uptimeRehydrator != nil && rehydrated {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		s.uptimeRehydrator.Rehydrate(ctx)
+		cancel()
+	}
+
 	// C1 fix: never return (result, nil) for the double-failure condition.
 	if unrecoverableErr != nil {
 		return nil, unrecoverableErr

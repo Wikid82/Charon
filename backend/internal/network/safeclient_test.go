@@ -2,9 +2,11 @@ package network
 
 import (
 	"context"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 )
@@ -1148,5 +1150,236 @@ func TestNewSafeHTTPClient_WithAllowRFC1918_OptionApplied(t *testing.T) {
 	WithAllowRFC1918()(&opts)
 	if !opts.AllowRFC1918 {
 		t.Error("WithAllowRFC1918() should set AllowRFC1918=true")
+	}
+}
+
+// --- WithKeepAlive (uptime worker pool shared client, spec §3.2.2 / N2) ---
+
+// countingListener wraps a net.Listener and counts accepted connections, so a
+// test can assert whether a second HTTP request reused a pooled TCP connection
+// (accepts stays 1) or opened a fresh one (accepts == 2).
+type countingListener struct {
+	net.Listener
+	mu      sync.Mutex
+	accepts int
+}
+
+func (l *countingListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err == nil {
+		l.mu.Lock()
+		l.accepts++
+		l.mu.Unlock()
+	}
+	return c, err
+}
+
+func (l *countingListener) count() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.accepts
+}
+
+func newCountingHTTPServer(t *testing.T, h http.Handler) (*httptest.Server, *countingListener) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	cl := &countingListener{Listener: ln}
+	srv := &httptest.Server{
+		Listener: cl,
+		Config:   &http.Server{Handler: h},
+	}
+	srv.Start()
+	return srv, cl
+}
+
+func TestWithKeepAlive_OptionApplied(t *testing.T) {
+	t.Parallel()
+	opts := defaultOptions()
+	// Default: keep-alives OFF, byte-for-byte historical behaviour.
+	if opts.keepAlive {
+		t.Fatal("keepAlive must default to false")
+	}
+
+	WithKeepAlive(100, 4, 30*time.Second)(&opts)
+	if !opts.keepAlive {
+		t.Error("WithKeepAlive should set keepAlive=true")
+	}
+	if opts.maxIdleConns != 100 || opts.maxIdleConnsPerHost != 4 {
+		t.Errorf("idle conn counts not applied: %+v", opts)
+	}
+	if opts.idleConnTimeout != 30*time.Second {
+		t.Errorf("idleConnTimeout: want 30s (N2), got %v", opts.idleConnTimeout)
+	}
+}
+
+func TestNewSafeHTTPClient_DefaultTransport_KeepAlivesDisabled(t *testing.T) {
+	t.Parallel()
+	// Absent WithKeepAlive the transport must be unchanged from historical behaviour.
+	tr, ok := NewSafeHTTPClient().Transport.(*http.Transport)
+	if !ok {
+		t.Fatal("transport is not *http.Transport")
+	}
+	if !tr.DisableKeepAlives {
+		t.Error("DisableKeepAlives must stay true by default")
+	}
+	if tr.MaxIdleConns != 1 {
+		t.Errorf("MaxIdleConns: want 1 by default, got %d", tr.MaxIdleConns)
+	}
+	if tr.MaxIdleConnsPerHost != 0 {
+		t.Errorf("MaxIdleConnsPerHost: want 0 (net/http default) by default, got %d", tr.MaxIdleConnsPerHost)
+	}
+	if tr.IdleConnTimeout != 10*time.Second {
+		t.Errorf("IdleConnTimeout: want == Timeout (10s) by default, got %v", tr.IdleConnTimeout)
+	}
+}
+
+func TestNewSafeHTTPClient_WithKeepAlive_TransportFields(t *testing.T) {
+	t.Parallel()
+	tr, ok := NewSafeHTTPClient(WithKeepAlive(100, 4, 30*time.Second)).Transport.(*http.Transport)
+	if !ok {
+		t.Fatal("transport is not *http.Transport")
+	}
+	if tr.DisableKeepAlives {
+		t.Error("DisableKeepAlives must be false with WithKeepAlive")
+	}
+	if tr.MaxIdleConns != 100 || tr.MaxIdleConnsPerHost != 4 {
+		t.Errorf("idle conn counts: got MaxIdleConns=%d MaxIdleConnsPerHost=%d", tr.MaxIdleConns, tr.MaxIdleConnsPerHost)
+	}
+	if tr.IdleConnTimeout != 30*time.Second {
+		t.Errorf("IdleConnTimeout: want 30s (N2), got %v", tr.IdleConnTimeout)
+	}
+}
+
+func TestWithKeepAlive_ReusesConnectionAcrossRequests(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping network I/O test in short mode")
+	}
+	t.Parallel()
+	srv, cl := newCountingHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	client := NewSafeHTTPClient(
+		WithTimeout(5*time.Second),
+		WithAllowLocalhost(),
+		WithKeepAlive(10, 4, 30*time.Second),
+	)
+
+	for i := 0; i < 2; i++ {
+		resp, err := client.Get(srv.URL)
+		if err != nil {
+			t.Fatalf("request %d: %v", i, err)
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}
+
+	if got := cl.count(); got != 1 {
+		t.Errorf("keep-alive: expected the 2nd request to reuse the pooled connection (1 accept), got %d accepts", got)
+	}
+}
+
+func TestWithKeepAlive_IdleConnectionPastTimeoutNotReused(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping network I/O test in short mode")
+	}
+	t.Parallel()
+	srv, cl := newCountingHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	// The production pool uses idleTimeout=30s (N2). Asserting that literally
+	// would make the test sleep 30s; instead use a short idleTimeout here to
+	// exercise the *mechanism* — an idle connection older than idleTimeout is
+	// dropped from the pool and a fresh one is dialed — and rely on
+	// TestNewSafeHTTPClient_WithKeepAlive_TransportFields to pin the 30s value.
+	const idleTimeout = 120 * time.Millisecond
+	client := NewSafeHTTPClient(
+		WithTimeout(5*time.Second),
+		WithAllowLocalhost(),
+		WithKeepAlive(10, 4, idleTimeout),
+	)
+
+	resp, err := client.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("first request: %v", err)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
+
+	time.Sleep(idleTimeout + 200*time.Millisecond) // let the idle conn age out
+
+	resp, err = client.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("second request: %v", err)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
+
+	if got := cl.count(); got != 2 {
+		t.Errorf("expected a fresh connection after the idle timeout (2 accepts), got %d", got)
+	}
+}
+
+func TestWithKeepAlive_StillBlocksLinkLocalAndMetadata(t *testing.T) {
+	t.Parallel()
+	client := NewSafeHTTPClient(
+		WithTimeout(500*time.Millisecond),
+		WithDialTimeout(500*time.Millisecond),
+		WithAllowLocalhost(),
+		WithAllowRFC1918(),
+		WithKeepAlive(100, 4, 30*time.Second),
+	)
+
+	for _, target := range []string{
+		"http://169.254.169.254/latest/meta-data/", // cloud metadata
+		"http://169.254.0.1/",                       // link-local
+	} {
+		resp, err := client.Get(target)
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		if err == nil {
+			t.Fatalf("%s: expected SSRF block even with keep-alive enabled, got nil error", target)
+		}
+		if !contains(err.Error(), "connection to private IP blocked") {
+			t.Errorf("%s: expected private-IP block error, got: %v", target, err)
+		}
+	}
+}
+
+func TestWithKeepAlive_StillDoesNotFollowRedirects(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping network I/O test in short mode")
+	}
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/redirect" {
+			http.Redirect(w, r, "/target", http.StatusFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := NewSafeHTTPClient(
+		WithTimeout(5*time.Second),
+		WithAllowLocalhost(),
+		WithKeepAlive(10, 4, 30*time.Second),
+	)
+
+	resp, err := client.Get(server.URL + "/redirect")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusFound {
+		t.Errorf("expected 302 (redirect NOT followed) with keep-alive on, got %d", resp.StatusCode)
 	}
 }

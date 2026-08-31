@@ -19,6 +19,7 @@ import (
 type RemoteServerHandler struct {
 	service             *services.RemoteServerService
 	notificationService *services.NotificationService
+	uptimeService       *services.UptimeService // nil-guarded; wired via SetUptimeService
 }
 
 // NewRemoteServerHandler creates a new remote server handler.
@@ -27,6 +28,14 @@ func NewRemoteServerHandler(service *services.RemoteServerService, ns *services.
 		service:             service,
 		notificationService: ns,
 	}
+}
+
+// SetUptimeService wires the uptime service so remote-server CRUD drives an
+// immediate targeted monitor sync (spec §3.1.3, user decision #4). Mirrors
+// ProxyHostHandler.SetCertificateService — a setter rather than a constructor
+// arg keeps the ~20 existing NewRemoteServerHandler call sites unchanged.
+func (h *RemoteServerHandler) SetUptimeService(u *services.UptimeService) {
+	h.uptimeService = u
 }
 
 // RegisterRoutes registers remote server routes.
@@ -66,6 +75,11 @@ func (h *RemoteServerHandler) Create(c *gin.Context) {
 	if err := h.service.Create(&server); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Immediate targeted uptime-monitor sync + check (spec §3.1.3).
+	if h.uptimeService != nil {
+		go h.uptimeService.SyncAndCheckForRemoteServer(server.ID)
 	}
 
 	// Send Notification
@@ -119,6 +133,18 @@ func (h *RemoteServerHandler) Update(c *gin.Context) {
 		return
 	}
 
+	// Keep the linked uptime monitor in sync with the edited fields.
+	if h.uptimeService != nil {
+		go func(id uint) {
+			if syncErr := h.uptimeService.SyncMonitorForRemoteServer(id); syncErr != nil {
+				// Safe: remote_server_id is a uint (DB/route numeric ID), not an injectable string.
+				// codeql[go/log-injection]
+				logger.Log().WithError(syncErr).WithField("remote_server_id", id).
+					Warn("failed to sync uptime monitor after remote server update")
+			}
+		}(server.ID)
+	}
+
 	c.JSON(http.StatusOK, server)
 }
 
@@ -132,8 +158,24 @@ func (h *RemoteServerHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.Delete(server.ID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	// Purge linked uptime monitors, THEN delete the RemoteServer row, both under
+	// the per-server "remote-<id>" lock RemoveForRemoteServer holds internally.
+	// Create fires `go SyncAndCheckForRemoteServer(id)`, so a monitor sync may
+	// be in flight: the lock waits out any sync already running (the purge then
+	// removes the monitor it created), and a sync that takes the lock after the
+	// row is gone hits its "remote server not found" guard and creates nothing.
+	// Purge-before-parent-delete keeps the two delete paths identical to the
+	// proxy-host one, where that order is required by a real FK.
+	var delErr error
+	if h.uptimeService != nil {
+		delErr = h.uptimeService.RemoveForRemoteServer(server.ID, func() error {
+			return h.service.Delete(server.ID)
+		})
+	} else {
+		delErr = h.service.Delete(server.ID)
+	}
+	if delErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": delErr.Error()})
 		return
 	}
 

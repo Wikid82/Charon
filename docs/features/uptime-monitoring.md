@@ -15,7 +15,7 @@ Uptime monitoring performs automated health checks on your proxy hosts at regula
 
 ### Check Cycle
 
-1. **Scheduled Checks**: Every 60 seconds (default), Charon checks all enabled hosts
+1. **Scheduled Checks**: Each monitor runs on its own interval (60 seconds by default, minimum 30 seconds)
 2. **Port Detection**: Uses the proxy host's `ForwardPort` for TCP checks
 3. **Connection Test**: Attempts TCP connection with configurable timeout
 4. **Status Update**: Records success/failure in database
@@ -72,31 +72,57 @@ This timeout determines how long Charon waits for a TCP connection before consid
 
 ### Retry Behavior
 
-When a check fails, Charon automatically retries:
+A single check is one attempt. Rather than retrying in a tight loop, Charon
+waits for the next scheduled check and only changes a monitor's status once
+the result has been consistent:
 
-- **Max retries:** 2 attempts
-- **Retry delay:** 2 seconds between attempts
-- **Timeout per attempt:** 10 seconds (configurable)
+- **Consecutive failures before "down":** 2 (a monitor must fail 2 checks in a
+  row before it is reported down; one recovery check flips it back to "up")
+- **Timeout per check:** capped at the monitor's interval, up to 20 seconds
+- **Connection timeout:** 3 seconds
 
-**Total check time calculation:**
+Because failures are counted across scheduled checks instead of retried
+back-to-back, a monitor on a 30-second interval is reported down roughly
+60 seconds after it actually goes down.
 
-```
-Max time = (timeout × max_retries) + (retry_delay × (max_retries - 1))
-         = (10s × 2) + (2s × 1)
-         = 22 seconds worst case
-```
+### Check Interval (Per Monitor)
 
-### Check Interval
+**Default:** 60 seconds  **Minimum:** 30 seconds
 
-**Default:** 60 seconds
+Every monitor has its own check interval. You set it in the monitor's **Add** or
+**Edit** form, so a critical service can be checked every 30 seconds while a
+less important one is checked every few minutes.
 
-The interval between check cycles for all hosts.
+**What to expect:**
 
-**Performance considerations:**
+- Monitors created before this update keep checking every 60 seconds until you
+  open them, change the interval, and save.
+- Shorter intervals catch problems sooner but do a little more work.
+- Longer intervals are lighter but tell you about an outage later.
+- Anything below 30 seconds is rounded up to 30.
 
-- Shorter intervals = faster detection but higher CPU/network usage
-- Longer intervals = lower overhead but slower failure detection
-- Recommended: 30-120 seconds depending on criticality
+### Uptime Monitoring Engine Settings
+
+Three settings under **System Settings → Uptime Monitoring** tune the whole
+engine. Most people never need to touch them.
+
+| Setting | What it does | Range | When it applies |
+| --- | --- | --- | --- |
+| **Default check interval** | The interval a brand-new monitor starts with | 30 – 86400 seconds | Within about a minute, no restart |
+| **Worker pool size** | How many checks Charon runs at the same time | 1 – 200 | After you restart Charon |
+| **Heartbeat retention** | Days of per-check history to keep before automatic cleanup | 1 – 3650 days (default 90) | Within about an hour, no restart |
+
+If you monitor many services and some of them are often slow or down, raising
+the **Worker pool size** (to around 60–90) gives Charon more room to keep every
+check on schedule.
+
+### History Retention
+
+Charon records one "heartbeat" for every check it runs, and uses that history
+to draw your uptime graphs and percentages. To keep the database tidy, a cleanup
+job runs once an hour and permanently deletes heartbeats older than your
+**Heartbeat retention** setting (90 days by default). Pick a window that matches
+how far back you like to look.
 
 ## Enabling Uptime Monitoring
 
@@ -137,6 +163,25 @@ View all monitored hosts at a glance:
 2. See real-time status of all hosts
 3. Click any host for detailed history
 4. Filter by status (up/down/all)
+
+## Performance & Scale
+
+### Running Hundreds of Monitors
+
+The uptime engine is built to run hundreds of monitors on a single Charon
+instance without the dashboard slowing down. The Uptime page loads the current
+state of every monitor in one request, so adding more monitors does not pile on
+more page-load work.
+
+### The First Start After This Update
+
+The first time this version starts on a Charon instance that already has a large
+check history, Charon does two one-time housekeeping jobs in the background: it
+clears out history that is past your retention window, and it builds a database
+index that keeps the Uptime page fast. On instances with a very large history
+this can take a few minutes, and during that time the Uptime page may respond a
+little more slowly than usual. It returns to normal on its own once the
+housekeeping finishes. There is nothing you need to do.
 
 ## Troubleshooting
 
@@ -295,6 +340,12 @@ docker logs charon 2>&1 | grep "Failed to send notification"
 
    Slow DNS or network problems can cause checks to hang
 
+5. **Check the engine health counters**
+
+   Open `GET /api/v1/uptime/health` (see API Integration below). If `queue_depth`
+   stays high or the dropped counters keep rising, raise the **Worker pool size**
+   setting and restart Charon.
+
 **Monitor check performance:**
 
 ```bash
@@ -366,11 +417,11 @@ Uptime data is stored efficiently:
 - Stores check configuration
 - Tracks enabled state
 
-**Heartbeat records** (future):
+**Heartbeat records:**
 
-- Detailed history of each check
-- Used for uptime percentage calculations
-- Queryable for historical analysis
+- One record per check, kept for the number of days set by **Heartbeat retention** (default 90)
+- Used for uptime percentage calculations and history graphs
+- Cleaned up automatically once an hour; records older than the retention window are permanently deleted
 
 ## Best Practices
 
@@ -438,7 +489,6 @@ Future enhancements under consideration:
 
 - [ ] **HTTP health check support** - Check specific endpoints with status code validation
 - [ ] **Configurable failure threshold** - Adjust consecutive failure count via UI
-- [ ] **Custom check intervals per host** - Different intervals for different criticality levels
 - [ ] **Response time alerts** - Notify on degraded performance, not just failures
 - [ ] **Notification batching** - Group multiple alerts to reduce noise
 - [ ] **Maintenance windows** - Disable alerts during scheduled maintenance
@@ -504,6 +554,19 @@ Authorization: Bearer <token>
   ]
 }
 ```
+
+**Check the engine's own health:**
+
+```bash
+GET /api/v1/uptime/health
+Authorization: Bearer <token>
+```
+
+This returns simple counters for the monitoring engine itself: how many checks
+are waiting in the queue, the current worker-pool size, and whether any check
+results or history writes have been dropped because the system was briefly
+overloaded. All zeros is the healthy state. If the dropped counters climb, raise
+the **Worker pool size** setting and restart Charon.
 
 **Programmatic monitoring:**
 
