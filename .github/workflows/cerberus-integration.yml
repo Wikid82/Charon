@@ -1,7 +1,6 @@
 name: Cerberus Integration
 
-# Phase 2-3: Build Once, Test Many - Use registry image instead of building
-# This workflow now waits for docker-build.yml to complete and pulls the built image
+# Builds the Charon image locally via the shared build-charon-image composite action (GHA layer cache), then runs the Cerberus integration tests.
 on:
   workflow_dispatch:
     inputs:
@@ -32,10 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build Docker image (Local)
-        run: |
-          echo "Building image locally for integration tests..."
-          docker build -t charon:local --build-arg CI="${CI:-false}" .
-          echo "✅ Successfully built charon:local"
+        uses: ./.github/actions/build-charon-image
 
       - name: Run Cerberus integration tests
         id: cerberus-test

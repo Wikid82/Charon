@@ -3,7 +3,6 @@
   "release-type": "go",
   "include-component-in-tag": false,
   "bump-minor-pre-major": true,
-  "bump-patch-for-minor-pre-major": true,
   "pull-request-header": "Here's what's new in Charon",
   "pull-request-footer": "Merge this PR to cut the release.",
   "packages": {
