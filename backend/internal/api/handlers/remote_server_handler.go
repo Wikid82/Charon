@@ -158,27 +158,25 @@ func (h *RemoteServerHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Delete the RemoteServer row FIRST, then purge its uptime monitors. Order
-	// matters: Create fires `go SyncAndCheckForRemoteServer(id)`, so a monitor
-	// sync for this server may still be in flight. Once the row is gone, any
-	// such sync that acquires the per-server lock afterwards hits its "remote
-	// server not found" guard and creates nothing; RemoveForRemoteServer takes
-	// that SAME lock, so it also waits out any sync already past that guard and
-	// then removes the monitor it created. Doing the cleanup first (the old
-	// ordering) left a window where the in-flight sync recreated the monitor
-	// after cleanup ran, orphaning it against a deleted server.
-	if err := h.service.Delete(server.ID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
+	// Purge linked uptime monitors, THEN delete the RemoteServer row, both under
+	// the per-server "remote-<id>" lock RemoveForRemoteServer holds internally.
+	// Create fires `go SyncAndCheckForRemoteServer(id)`, so a monitor sync may
+	// be in flight: the lock waits out any sync already running (the purge then
+	// removes the monitor it created), and a sync that takes the lock after the
+	// row is gone hits its "remote server not found" guard and creates nothing.
+	// Purge-before-parent-delete keeps the two delete paths identical to the
+	// proxy-host one, where that order is required by a real FK.
+	var delErr error
 	if h.uptimeService != nil {
-		if cleanupErr := h.uptimeService.RemoveForRemoteServer(server.ID); cleanupErr != nil {
-			// Safe: remote_server_id is a uint (DB/route numeric ID), not an injectable string.
-			// codeql[go/log-injection]
-			logger.Log().WithError(cleanupErr).WithField("remote_server_id", server.ID).
-				Warn("failed to clean up linked uptime monitors after remote server delete")
-		}
+		delErr = h.uptimeService.RemoveForRemoteServer(server.ID, func() error {
+			return h.service.Delete(server.ID)
+		})
+	} else {
+		delErr = h.service.Delete(server.ID)
+	}
+	if delErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": delErr.Error()})
+		return
 	}
 
 	// Send Notification

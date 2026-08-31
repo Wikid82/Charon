@@ -749,26 +749,30 @@ func (h *ProxyHostHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Delete the ProxyHost row FIRST, then purge its uptime monitors. Order
-	// matters: Create fires `go SyncAndCheckForHost(id)`, so a monitor sync for
-	// this host may still be in flight. Once the row is gone, any such sync that
-	// acquires the per-host lock afterwards hits its "proxy host not found"
-	// guard and creates nothing; RemoveForHost takes that SAME lock, so it also
-	// waits out any sync already past that guard and removes the monitor it
-	// created. Doing the cleanup first (the old ordering) left a window where
-	// the in-flight sync recreated the monitor after cleanup ran, orphaning it.
+	// Purge linked uptime monitors, THEN delete the ProxyHost row, both under the
+	// per-host "proxy-<id>" lock RemoveForHost holds internally. Two things this
+	// buys us:
+	//   1. FK safety — uptime_monitors.proxy_host_id has a real foreign key to
+	//      proxy_hosts.id (ON DELETE NO ACTION), so the monitor rows MUST be
+	//      gone before the parent row is deleted or SQLite raises FOREIGN KEY
+	//      constraint failed.
+	//   2. Race safety — Create fires `go SyncAndCheckForHost(id)`; the lock
+	//      waits out any in-flight sync (the purge then removes the monitor it
+	//      created), and a sync that takes the lock after the row is gone hits
+	//      its "proxy host not found" guard and creates nothing.
 	// The legacy delete_uptime=true query param is ignored — cleanup is
 	// unconditional.
-	if err := h.service.Delete(host.ID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
+	var delErr error
 	if h.uptimeService != nil {
-		if cleanupErr := h.uptimeService.RemoveForHost(host.ID); cleanupErr != nil {
-			middleware.GetRequestLogger(c).WithError(cleanupErr).WithField("host_id", host.ID).
-				Warn("failed to clean up linked uptime monitors after proxy host delete")
-		}
+		delErr = h.uptimeService.RemoveForHost(host.ID, func() error {
+			return h.service.Delete(host.ID)
+		})
+	} else {
+		delErr = h.service.Delete(host.ID)
+	}
+	if delErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": delErr.Error()})
+		return
 	}
 
 	if h.caddyManager != nil {

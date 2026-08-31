@@ -1360,27 +1360,51 @@ func (s *UptimeService) DeleteMonitor(id string) error {
 	return nil
 }
 
-// RemoveForRemoteServer deletes the uptime monitor(s) linked to a remote server
-// together with their heartbeat rows. It takes the SAME per-server lock
-// ("remote-<id>") that SyncAndCheckForRemoteServer uses, so it cannot race an
-// in-flight targeted sync: a sync already running
-// finishes first (and the monitor it created is then purged here), and — once
-// the caller has deleted the RemoteServer row — any sync that starts afterwards
-// hits its "remote server not found" guard and creates nothing.
+// RemoveForRemoteServer purges the uptime monitor(s) linked to a remote server
+// (plus their heartbeat rows) and then runs deleteParent — the caller's delete
+// of the RemoteServer row itself — with the per-server "remote-<id>" lock held
+// across both steps. Ordering and locking together close the create/delete
+// race that SyncAndCheckForRemoteServer's fire-and-forget goroutine opens:
 //
-// Callers MUST delete the RemoteServer row before calling this.
-func (s *UptimeService) RemoveForRemoteServer(remoteServerID uint) error {
+//   - The lock is the SAME one SyncAndCheckForRemoteServer takes, so a sync
+//     already mid-flight is waited out here; the subsequent purge removes the
+//     monitor it created.
+//   - A sync that acquires the lock only after deleteParent has run finds no
+//     RemoteServer row and bails on its existing "not found" guard.
+//   - Purge runs BEFORE deleteParent, so a linked uptime_monitors row never
+//     outlives its parent — required because uptime_monitors.proxy_host_id has
+//     a real FK, and for symmetry the remote path deletes in the same order.
+//
+// deleteParent may be nil (purge only). Any error from either step is returned
+// unwrapped enough for the handler to surface as a 500.
+func (s *UptimeService) RemoveForRemoteServer(remoteServerID uint, deleteParent func() error) error {
 	defer s.lockHostKey(fmt.Sprintf("remote-%d", remoteServerID))()
-	return s.purgeLinkedMonitors("remote_server_id = ?", remoteServerID)
+	if err := s.purgeLinkedMonitors("remote_server_id = ?", remoteServerID); err != nil {
+		return err
+	}
+	if deleteParent != nil {
+		return deleteParent()
+	}
+	return nil
 }
 
 // RemoveForHost is the proxy-host equivalent of RemoveForRemoteServer: it takes
-// the "proxy-<id>" lock that SyncAndCheckForHost uses, then deletes the linked
-// monitor(s) and their heartbeats. Callers MUST delete the ProxyHost row before
-// calling this.
-func (s *UptimeService) RemoveForHost(proxyHostID uint) error {
+// the "proxy-<id>" lock that SyncAndCheckForHost uses, purges the linked
+// monitor(s) and their heartbeats, then runs deleteParent (the ProxyHost row
+// delete) — all under that lock. Purge-before-parent-delete is mandatory here:
+// uptime_monitors.proxy_host_id carries an ON DELETE NO ACTION foreign key to
+// proxy_hosts.id (created by AutoMigrate from the UptimeMonitor.ProxyHost
+// association), so deleting the ProxyHost row while a linked monitor still
+// exists trips a FOREIGN KEY constraint failure.
+func (s *UptimeService) RemoveForHost(proxyHostID uint, deleteParent func() error) error {
 	defer s.lockHostKey(fmt.Sprintf("proxy-%d", proxyHostID))()
-	return s.purgeLinkedMonitors("proxy_host_id = ?", proxyHostID)
+	if err := s.purgeLinkedMonitors("proxy_host_id = ?", proxyHostID); err != nil {
+		return err
+	}
+	if deleteParent != nil {
+		return deleteParent()
+	}
+	return nil
 }
 
 // purgeLinkedMonitors deletes every UptimeMonitor matched by the parameterised

@@ -22,7 +22,9 @@ func remoteServerUptimeRouter(t *testing.T, wireUptime bool) (*gin.Engine, *gorm
 	t.Helper()
 	db := handlers.OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(
-		&models.RemoteServer{}, &models.UptimeMonitor{}, &models.UptimeHeartbeat{},
+		// ProxyHost is migrated too so the uptime_monitors.proxy_host_id FK
+		// target table exists under PRAGMA foreign_keys = ON below.
+		&models.ProxyHost{}, &models.RemoteServer{}, &models.UptimeMonitor{}, &models.UptimeHeartbeat{},
 		&models.UptimeHost{}, &models.Setting{}, &models.Notification{}, &models.NotificationProvider{},
 	))
 
@@ -36,6 +38,11 @@ func remoteServerUptimeRouter(t *testing.T, wireUptime bool) (*gin.Engine, *gorm
 	sqlDB, sqlErr := db.DB()
 	require.NoError(t, sqlErr)
 	sqlDB.SetMaxOpenConns(1)
+
+	// Enforce foreign keys like production (glebarez/modernc sqlite defaults
+	// them ON; the mattn-backed OpenTestDB driver defaults them OFF). Safe with
+	// the single connection above — the PRAGMA is per-connection and sticks.
+	require.NoError(t, db.Exec("PRAGMA foreign_keys = ON").Error)
 
 	ns := services.NewNotificationService(db, nil)
 	h := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
