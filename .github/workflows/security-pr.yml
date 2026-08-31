@@ -154,10 +154,7 @@ jobs:
 
       - name: Build Docker image (Local)
         if: github.event_name == 'push' || github.event_name == 'pull_request'
-        run: |
-          echo "Building image locally for security scan..."
-          docker build -t charon:local .
-          echo "✅ Successfully built charon:local"
+        uses: ./.github/actions/build-charon-image
 
       - name: Check for PR image artifact
         id: check-artifact

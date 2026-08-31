@@ -1,7 +1,6 @@
 name: Rate Limit integration
 
-# Phase 2-3: Build Once, Test Many - Use registry image instead of building
-# This workflow now waits for docker-build.yml to complete and pulls the built image
+# Builds the Charon image locally via the shared build-charon-image composite action (GHA layer cache), then runs the rate limiting integration tests.
 on:
   workflow_dispatch:
     inputs:
@@ -27,15 +26,12 @@ jobs:
   rate-limit-integration:
     name: Rate Limiting Integration
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20 # 20m: warm GHA cache builds in ~8-12m; first run on a fresh branch / after cache eviction is still a full cold build.
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build Docker image (Local)
-        run: |
-          echo "Building image locally for integration tests..."
-          docker build -t charon:local --build-arg CI="${CI:-false}" .
-          echo "✅ Successfully built charon:local"
+        uses: ./.github/actions/build-charon-image
 
       - name: Run rate limit integration tests
         id: ratelimit-test
