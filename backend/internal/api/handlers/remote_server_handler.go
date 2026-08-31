@@ -158,20 +158,27 @@ func (h *RemoteServerHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Clean up any linked uptime monitors before the server row goes away
-	// (mirrors ProxyHostHandler.Delete).
-	if h.uptimeService != nil {
-		var monitors []models.UptimeMonitor
-		if findErr := h.uptimeService.DB.Where("remote_server_id = ?", server.ID).Find(&monitors).Error; findErr == nil {
-			for _, m := range monitors {
-				_ = h.uptimeService.DeleteMonitor(m.ID)
-			}
-		}
-	}
-
+	// Delete the RemoteServer row FIRST, then purge its uptime monitors. Order
+	// matters: Create fires `go SyncAndCheckForRemoteServer(id)`, so a monitor
+	// sync for this server may still be in flight. Once the row is gone, any
+	// such sync that acquires the per-server lock afterwards hits its "remote
+	// server not found" guard and creates nothing; RemoveForRemoteServer takes
+	// that SAME lock, so it also waits out any sync already past that guard and
+	// then removes the monitor it created. Doing the cleanup first (the old
+	// ordering) left a window where the in-flight sync recreated the monitor
+	// after cleanup ran, orphaning it against a deleted server.
 	if err := h.service.Delete(server.ID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	if h.uptimeService != nil {
+		if cleanupErr := h.uptimeService.RemoveForRemoteServer(server.ID); cleanupErr != nil {
+			// Safe: remote_server_id is a uint (DB/route numeric ID), not an injectable string.
+			// codeql[go/log-injection]
+			logger.Log().WithError(cleanupErr).WithField("remote_server_id", server.ID).
+				Warn("failed to clean up linked uptime monitors after remote server delete")
+		}
 	}
 
 	// Send Notification

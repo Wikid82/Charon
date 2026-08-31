@@ -749,21 +749,26 @@ func (h *ProxyHostHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Always clean up associated uptime monitors when deleting a proxy host.
-	// The query param delete_uptime=true is kept for backward compatibility but
-	// cleanup now runs unconditionally to prevent orphaned monitors.
-	if h.uptimeService != nil {
-		var monitors []models.UptimeMonitor
-		if err := h.uptimeService.DB.Where("proxy_host_id = ?", host.ID).Find(&monitors).Error; err == nil {
-			for _, m := range monitors {
-				_ = h.uptimeService.DeleteMonitor(m.ID)
-			}
-		}
-	}
-
+	// Delete the ProxyHost row FIRST, then purge its uptime monitors. Order
+	// matters: Create fires `go SyncAndCheckForHost(id)`, so a monitor sync for
+	// this host may still be in flight. Once the row is gone, any such sync that
+	// acquires the per-host lock afterwards hits its "proxy host not found"
+	// guard and creates nothing; RemoveForHost takes that SAME lock, so it also
+	// waits out any sync already past that guard and removes the monitor it
+	// created. Doing the cleanup first (the old ordering) left a window where
+	// the in-flight sync recreated the monitor after cleanup ran, orphaning it.
+	// The legacy delete_uptime=true query param is ignored — cleanup is
+	// unconditional.
 	if err := h.service.Delete(host.ID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	if h.uptimeService != nil {
+		if cleanupErr := h.uptimeService.RemoveForHost(host.ID); cleanupErr != nil {
+			middleware.GetRequestLogger(c).WithError(cleanupErr).WithField("host_id", host.ID).
+				Warn("failed to clean up linked uptime monitors after proxy host delete")
+		}
 	}
 
 	if h.caddyManager != nil {

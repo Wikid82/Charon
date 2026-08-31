@@ -597,18 +597,35 @@ func (s *UptimeService) checkAllHosts() {
 	logger.Log().WithField("host_count", len(hosts)).Info("All host checks completed")
 }
 
+// lockHostKey acquires the per-key mutex used to serialise all targeted uptime
+// work for one subject and returns its unlock func (call it, typically via
+// `defer s.lockHostKey(key)()`). The key namespaces are shared across call
+// sites so they genuinely exclude one another:
+//
+//   - "proxy-<id>"     — SyncAndCheckForHost / RemoveForHost
+//   - "remote-<id>"    — SyncAndCheckForRemoteServer / RemoveForRemoteServer
+//   - "<uptimeHostID>" — checkHost
+//
+// Teardown (RemoveForHost / RemoveForRemoteServer) taking the SAME lock as the
+// create-and-check path is what closes the create/delete race: a sync already
+// running finishes before teardown proceeds, and a sync that starts afterwards
+// finds its parent row already gone and creates nothing.
+func (s *UptimeService) lockHostKey(key string) func() {
+	s.hostMutexLock.Lock()
+	if s.hostMutexes[key] == nil {
+		s.hostMutexes[key] = &sync.Mutex{}
+	}
+	mu := s.hostMutexes[key]
+	s.hostMutexLock.Unlock()
+
+	mu.Lock()
+	return mu.Unlock
+}
+
 // checkHost performs a basic TCP connectivity check to determine if the host is reachable
 func (s *UptimeService) checkHost(ctx context.Context, host *models.UptimeHost) {
 	// Get host-specific mutex to prevent concurrent database updates
-	s.hostMutexLock.Lock()
-	if s.hostMutexes[host.ID] == nil {
-		s.hostMutexes[host.ID] = &sync.Mutex{}
-	}
-	mutex := s.hostMutexes[host.ID]
-	s.hostMutexLock.Unlock()
-
-	mutex.Lock()
-	defer mutex.Unlock()
+	defer s.lockHostKey(host.ID)()
 
 	start := time.Now()
 
@@ -1343,6 +1360,56 @@ func (s *UptimeService) DeleteMonitor(id string) error {
 	return nil
 }
 
+// RemoveForRemoteServer deletes the uptime monitor(s) linked to a remote server
+// together with their heartbeat rows. It takes the SAME per-server lock
+// ("remote-<id>") that SyncAndCheckForRemoteServer uses, so it cannot race an
+// in-flight targeted sync: a sync already running
+// finishes first (and the monitor it created is then purged here), and — once
+// the caller has deleted the RemoteServer row — any sync that starts afterwards
+// hits its "remote server not found" guard and creates nothing.
+//
+// Callers MUST delete the RemoteServer row before calling this.
+func (s *UptimeService) RemoveForRemoteServer(remoteServerID uint) error {
+	defer s.lockHostKey(fmt.Sprintf("remote-%d", remoteServerID))()
+	return s.purgeLinkedMonitors("remote_server_id = ?", remoteServerID)
+}
+
+// RemoveForHost is the proxy-host equivalent of RemoveForRemoteServer: it takes
+// the "proxy-<id>" lock that SyncAndCheckForHost uses, then deletes the linked
+// monitor(s) and their heartbeats. Callers MUST delete the ProxyHost row before
+// calling this.
+func (s *UptimeService) RemoveForHost(proxyHostID uint) error {
+	defer s.lockHostKey(fmt.Sprintf("proxy-%d", proxyHostID))()
+	return s.purgeLinkedMonitors("proxy_host_id = ?", proxyHostID)
+}
+
+// purgeLinkedMonitors deletes every UptimeMonitor matched by the parameterised
+// whereClause plus its UptimeHeartbeat rows, in one transaction. whereClause is
+// always a constant literal supplied by a sibling method (never user input) and
+// is parameterised with a single placeholder. Parent UptimeHost rows are left
+// in place, mirroring DeleteMonitor.
+func (s *UptimeService) purgeLinkedMonitors(whereClause string, arg any) error {
+	return s.DB.Transaction(func(tx *gorm.DB) error {
+		var ids []string
+		if err := tx.Model(&models.UptimeMonitor{}).
+			Where(whereClause, arg).Pluck("id", &ids).Error; err != nil {
+			return fmt.Errorf("list linked monitors: %w", err)
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		if err := tx.Where("monitor_id IN ?", ids).
+			Delete(&models.UptimeHeartbeat{}).Error; err != nil {
+			return fmt.Errorf("delete linked heartbeats: %w", err)
+		}
+		if err := tx.Where("id IN ?", ids).
+			Delete(&models.UptimeMonitor{}).Error; err != nil {
+			return fmt.Errorf("delete linked monitors: %w", err)
+		}
+		return nil
+	})
+}
+
 // SyncAndCheckForHost creates a monitor for the given proxy host (if one
 // doesn't already exist) and immediately triggers a health check in a
 // background goroutine. It is safe to call from any goroutine.
@@ -1356,17 +1423,9 @@ func (s *UptimeService) SyncAndCheckForHost(hostID uint) {
 	}
 
 	// Per-host lock prevents duplicate monitors when multiple goroutines
-	// call SyncAndCheckForHost for the same hostID concurrently.
-	hostKey := fmt.Sprintf("proxy-%d", hostID)
-	s.hostMutexLock.Lock()
-	if s.hostMutexes[hostKey] == nil {
-		s.hostMutexes[hostKey] = &sync.Mutex{}
-	}
-	mu := s.hostMutexes[hostKey]
-	s.hostMutexLock.Unlock()
-
-	mu.Lock()
-	defer mu.Unlock()
+	// call SyncAndCheckForHost for the same hostID concurrently, and excludes
+	// RemoveForHost so a concurrent delete cannot race this create+check.
+	defer s.lockHostKey(fmt.Sprintf("proxy-%d", hostID))()
 
 	// Look up the proxy host; it may have been deleted between the API
 	// response and this goroutine executing.
@@ -1457,16 +1516,9 @@ func (s *UptimeService) SyncAndCheckForRemoteServer(remoteServerID uint) {
 		return
 	}
 
-	key := fmt.Sprintf("remote-%d", remoteServerID)
-	s.hostMutexLock.Lock()
-	if s.hostMutexes[key] == nil {
-		s.hostMutexes[key] = &sync.Mutex{}
-	}
-	mu := s.hostMutexes[key]
-	s.hostMutexLock.Unlock()
-
-	mu.Lock()
-	defer mu.Unlock()
+	// Per-server lock excludes a concurrent RemoveForRemoteServer so a fast
+	// create-then-delete cannot race this create+check into an orphan monitor.
+	defer s.lockHostKey(fmt.Sprintf("remote-%d", remoteServerID))()
 
 	var server models.RemoteServer
 	if err := s.DB.Where("id = ?", remoteServerID).First(&server).Error; err != nil {

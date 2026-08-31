@@ -427,6 +427,52 @@ func TestProxyHostDelete_WithUptimeCleanup(t *testing.T) {
 	require.Equal(t, int64(0), count)
 }
 
+// TestProxyHostDelete_RaceWithInFlightUptimeCheck is the proxy-host parity
+// regression for the remote-server create/delete race: Create fires
+// `go SyncAndCheckForHost`, and deleting the host the instant its monitor row
+// appears used to let the in-flight check resurrect the monitor after Delete's
+// cleanup ran. Delete now removes the ProxyHost row first and purges monitors
+// under the same per-host lock the sync uses, so the monitor stays gone.
+func TestProxyHostDelete_RaceWithInFlightUptimeCheck(t *testing.T) {
+	t.Parallel()
+
+	router, db := setupTestRouterWithUptime(t)
+
+	for i := 0; i < 20; i++ {
+		domain := fmt.Sprintf("race-%d.del.test", i)
+		body := fmt.Sprintf(`{"name":"Race %d","domain_names":"%s","forward_scheme":"http","forward_host":"127.0.0.1","forward_port":1,"enabled":true}`, i, domain)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-hosts", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+		require.Equal(t, http.StatusCreated, resp.Code)
+
+		var created models.ProxyHost
+		require.NoError(t, db.Where("domain_names = ?", domain).First(&created).Error)
+
+		require.Eventuallyf(t, func() bool {
+			var c int64
+			db.Model(&models.UptimeMonitor{}).Where("proxy_host_id = ?", created.ID).Count(&c)
+			return c == 1
+		}, 15*time.Second, 2*time.Millisecond, "iteration %d: Create should spawn the monitor sync", i)
+
+		delReq := httptest.NewRequest(http.MethodDelete, "/api/v1/proxy-hosts/"+created.UUID, http.NoBody)
+		delResp := httptest.NewRecorder()
+		router.ServeHTTP(delResp, delReq)
+		require.Equal(t, http.StatusOK, delResp.Code)
+
+		var monitors int64
+		require.NoError(t, db.Model(&models.UptimeMonitor{}).Where("proxy_host_id = ?", created.ID).Count(&monitors).Error)
+		require.Equalf(t, int64(0), monitors, "iteration %d: linked monitor survived / was resurrected by the in-flight check", i)
+
+		require.Neverf(t, func() bool {
+			var c int64
+			db.Model(&models.UptimeMonitor{}).Where("proxy_host_id = ?", created.ID).Count(&c)
+			return c != 0
+		}, 150*time.Millisecond, 10*time.Millisecond, "iteration %d: monitor reappeared after delete returned", i)
+	}
+}
+
 func TestProxyHostErrors(t *testing.T) {
 	t.Parallel()
 	// Mock Caddy Admin API that fails
