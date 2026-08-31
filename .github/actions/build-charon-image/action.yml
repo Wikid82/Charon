@@ -1,0 +1,44 @@
+name: Build Charon image
+description: >-
+  Build the Charon Docker image locally for integration / security-scan jobs,
+  with GitHub Actions layer caching (type=gha) so the multi-stage build is not
+  rebuilt cold on every run. Loads the image into the local Docker daemon.
+inputs:
+  tag:
+    description: Image tag to load locally.
+    required: false
+    default: charon:local
+  ci:
+    description: Value passed as the CI build-arg.
+    required: false
+    default: 'false'
+  no-cache-filters:
+    description: >-
+      Comma-separated Dockerfile stages to always rebuild (never restore from
+      cache). Defaults to the two security-critical builder stages, matching
+      docker-build.yml and e2e-tests-split.yml: these stages resolve CVE-patched
+      dependency versions (and a couple of unpinned xcaddy plugins), so a stale
+      cached layer could mask a fix or pin an old plugin — unacceptable for the
+      images that security-pr.yml / supply-chain-pr.yml then scan. All other
+      stages (base pulls, backend-builder, frontend-builder, gosu, delve) ARE
+      layer-cached, which is where the time is recovered.
+    required: false
+    default: caddy-builder,crowdsec-builder
+runs:
+  using: composite
+  steps:
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+    - name: Build image
+      uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+      with:
+        context: .
+        file: ./Dockerfile
+        push: false
+        load: true
+        tags: ${{ inputs.tag }}
+        build-args: |
+          CI=${{ inputs.ci }}
+        cache-from: type=gha,scope=charon-integration-image
+        cache-to: type=gha,mode=max,scope=charon-integration-image
+        no-cache-filters: ${{ inputs.no-cache-filters }}
