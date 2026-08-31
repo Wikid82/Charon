@@ -31,7 +31,7 @@ jobs:
   verify-supply-chain:
     name: Verify Supply Chain
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20 # 20m: cold GHA cache (first run / post-eviction) is a full ~10-14m image build; warm-cache builds are far quicker.
     # Run for: manual dispatch, or successful workflow_run triggered by push/PR
     if: >
       github.event_name == 'workflow_dispatch' ||

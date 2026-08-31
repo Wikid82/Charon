@@ -29,7 +29,7 @@ jobs:
   security-scan:
     name: Trivy Binary Scan
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20 # 20m: cold GHA cache (first run / post-eviction) is a full ~10-14m image build; warm-cache builds are far quicker.
     # Run for manual dispatch, direct PR/push, or successful upstream workflow_run
     if: >-
       github.event_name == 'workflow_dispatch' ||
