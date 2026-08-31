@@ -344,7 +344,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
       });
 
       await test.step('Enter invalid port (too high)', async () => {
-        const portInput = page.getByRole('dialog').locator('#forward-port');
+        const portInput = page.locator('#forward-port');
         await portInput.fill('70000');
 
         // HTML5 validation should mark this as invalid (max=65535)
@@ -356,7 +356,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
       });
 
       await test.step('Enter valid port', async () => {
-        const portInput = page.getByRole('dialog').locator('#forward-port');
+        const portInput = page.locator('#forward-port');
         await portInput.fill('8080');
 
         const isValid = await portInput.evaluate((el: HTMLInputElement) =>
