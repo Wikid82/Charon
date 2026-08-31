@@ -293,9 +293,11 @@ func TestProxyHostCreate_TriggersAsyncUptimeSyncWhenServiceConfigured_Concurrent
 
 			// forward_host is deliberately unique per goroutine (app-service-<i>) so this
 			// test isolates the SQLite table-lock contention it targets (§4 of the plan)
-			// from the unrelated check-then-act race in UptimeService.ensureUptimeHost,
-			// which would otherwise spuriously fail concurrent requests that share a
-			// forward_host via a UNIQUE constraint violation on uptime_hosts.host.
+			// from UptimeService.ensureUptimeHost's host-resolution path. That path is now
+			// race-safe — an atomic upsert on the uptime_hosts.host unique index (GitHub
+			// issue #1221, regression-tested in services/uptime_service_race_test.go) —
+			// but keeping forward_host distinct here keeps this test narrowly scoped to
+			// lock contention rather than host-row contention.
 			body := fmt.Sprintf(`{"name":"Concurrent Load %d","domain_names":"%s","forward_scheme":"http","forward_host":"app-service-%d","forward_port":8080,"enabled":true}`, i, domains[i], i)
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-hosts", strings.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")

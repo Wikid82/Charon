@@ -186,6 +186,48 @@ describe('Layout', () => {
     expect(await screen.findByText('Version 0.1.0')).toBeInTheDocument()
   })
 
+  it('renders support/donation links in the sidebar footer', async () => {
+    renderWithProviders(
+      <Layout>
+        <div>Test Content</div>
+      </Layout>
+    )
+
+    const sponsorLink = await screen.findByRole('link', {
+      name: 'Sponsor Charon on GitHub',
+    })
+    expect(sponsorLink).toHaveAttribute('href', 'https://github.com/sponsors/Wikid82')
+    expect(sponsorLink).toHaveAttribute('target', '_blank')
+    expect(sponsorLink).toHaveAttribute('rel', 'noopener noreferrer')
+
+    const coffeeLink = await screen.findByRole('link', {
+      name: 'Support Charon on Buy Me a Coffee',
+    })
+    expect(coffeeLink).toHaveAttribute('href', 'https://buymeacoffee.com/Wikid82')
+    expect(coffeeLink).toHaveAttribute('target', '_blank')
+    expect(coffeeLink).toHaveAttribute('rel', 'noopener noreferrer')
+  })
+
+  it('orders the sidebar footer as icon row, then version block, then logout button, with GitHub Sponsors before Buy Me a Coffee', async () => {
+    renderWithProviders(
+      <Layout>
+        <div>Test Content</div>
+      </Layout>
+    )
+
+    const sponsorLink = await screen.findByRole('link', { name: 'Sponsor Charon on GitHub' })
+    const coffeeLink = await screen.findByRole('link', { name: 'Support Charon on Buy Me a Coffee' })
+    const versionText = await screen.findByText('Version 0.1.0')
+    const logoutButton = await screen.findByRole('button', { name: /logout/i })
+
+    // Sponsors icon precedes Coffee icon in the DOM.
+    expect(sponsorLink.compareDocumentPosition(coffeeLink) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    // Icon row precedes the version block, which precedes the logout button.
+    expect(coffeeLink.compareDocumentPosition(versionText) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(versionText.compareDocumentPosition(logoutButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('calls logout when logout button is clicked', async () => {
     renderWithProviders(
       <Layout>

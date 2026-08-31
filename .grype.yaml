@@ -945,6 +945,324 @@ ignore:
     # 2. Re-run `go list -deps ./...` in backend to confirm openpgp is still not imported
     # 3. If neither changes: extend expiry by 30 days
 
+  # --- 2026-08-26 OpenSSL Alpine batch (9 CVEs, libcrypto3 + libssl3 3.5.7-r0) ---
+  # CVE-2026-63072: OpenSSL heap buffer overflow in CMS key unwrapping
+  # Severity: Trivy/NVD rate HIGH; OpenSSL's own advisory rates this Moderate
+  # Packages: libcrypto3 3.5.7-r0 and libssl3 3.5.7-r0 (Alpine apk)
+  #
+  # Vulnerability Details:
+  # - An 8-byte out-of-bounds heap write occurs when the victim decrypts a maliciously
+  #   crafted message with CMS_decrypt(), corrupting the heap and typically resulting in
+  #   denial of service.
+  #
+  # Status (differs from other entries in this file — a fix likely already exists):
+  # - Charon's Dockerfile pins the Alpine base by sha256 digest
+  #   (ALPINE_IMAGE=alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916-
+  #   198a6eec434943f8b), which resolves to libcrypto3/libssl3 3.5.7-r0.
+  # - Checked 2026-08-26: https://pkgs.alpinelinux.org/packages?name=libssl3&branch=v3.24
+  #   shows libssl3 3.5.8-r0 was built 2026-08-25 for the v3.24 *tag* branch — one day
+  #   before this CVE batch's disclosure window — and likely already contains the fix.
+  # - Because the Dockerfile pins by digest rather than tag, Charon will not pick up
+  #   3.5.8-r0 automatically; it requires Renovate to open (and this repo to merge) a
+  #   digest-bump PR for ALPINE_IMAGE, then a rebuild.
+  # - Suppressing now (2026-08-26) to unblock CI ahead of that digest bump, rather than
+  #   claiming no fix exists.
+  #
+  # Risk Assessment: ACCEPTED (fix pending a digest bump; not exploitable in Charon context)
+  # - Charon does not use CMS anywhere in its own code or bundled third-party binaries.
+  # - libcrypto3/libssl3 are present in the final image purely as Alpine system-library
+  #   dependencies (e.g. for wget/curl/busybox-extras TLS CLIENT use), not as a CMS
+  #   processor.
+  #
+  # Mitigation (active while suppression is in effect):
+  # - Monitor for a Renovate PR bumping ALPINE_IMAGE's digest past the current
+  #   sha256:28bd5fe8...943f8b pin.
+  # - Weekly CI security rebuild (security-weekly-rebuild.yml) flags any new CVEs in the
+  #   full image.
+  #
+  # Review:
+  # - Reviewed 2026-08-26 (initial suppression). Short 14-day review given a fix likely
+  #   already exists upstream.
+  # - Next review: 2026-09-09. Remove suppression as soon as ALPINE_IMAGE is bumped past
+  #   3.5.7-r0 and a rebuild confirms these CVEs are gone.
+  #
+  # Removal Criteria:
+  # - Renovate's ALPINE_IMAGE digest-bump PR merges (or the digest is bumped manually)
+  # - Rebuild Docker image and verify none of this batch's CVEs appear in
+  #   grype-results.json
+  # - Remove all entries in this batch (both .grype.yaml and .trivyignore) simultaneously
+  #
+  # References:
+  # - CVE-2026-63072: https://nvd.nist.gov/vuln/detail/CVE-2026-63072
+  # - OpenSSL advisories: https://openssl-library.org/news/vulnerabilities/
+  # - Alpine package tracker: https://pkgs.alpinelinux.org/packages?name=libssl3&branch=v3.24
+  - vulnerability: CVE-2026-63072
+    package:
+      name: libcrypto3
+      version: "3.5.7-r0"
+      type: apk
+    reason: |
+      Trivy/NVD: HIGH; OpenSSL advisory: Moderate — heap buffer overflow in CMS key
+      unwrapping (8-byte OOB heap write via CMS_decrypt()) in libcrypto3 3.5.7-r0 (Alpine
+      base image, pinned by digest in Dockerfile). Alpine's v3.24 tag branch published
+      3.5.8-r0 on 2026-08-25 which likely fixes this, but the digest pin means Charon needs
+      a Renovate digest-bump PR before it picks up the fix. Charon does not use CMS. Risk
+      accepted pending the digest bump.
+    expiry: "2026-09-09"  # Review: Initial suppression 2026-08-26. Next review: 2026-09-09.
+
+  - vulnerability: CVE-2026-63072
+    package:
+      name: libssl3
+      version: "3.5.7-r0"
+      type: apk
+    reason: |
+      Trivy/NVD: HIGH; OpenSSL advisory: Moderate — heap buffer overflow in CMS key
+      unwrapping (8-byte OOB heap write via CMS_decrypt()) in libssl3 3.5.7-r0 (Alpine
+      base image, pinned by digest in Dockerfile). Alpine's v3.24 tag branch published
+      3.5.8-r0 on 2026-08-25 which likely fixes this, but the digest pin means Charon needs
+      a Renovate digest-bump PR before it picks up the fix. Charon does not use CMS. Risk
+      accepted pending the digest bump.
+    expiry: "2026-09-09"  # Review: Initial suppression 2026-08-26. Next review: 2026-09-09.
+
+  # CVE-2026-63073: OpenSSL CMP response validation uses untrusted sender DN as a format
+  # string, crashing CMP clients. Severity: Trivy/NVD HIGH; OpenSSL Low. Same batch/status
+  # as CVE-2026-63072 above (digest-pinned Alpine, 3.5.8-r0 likely fixes it, pending
+  # Renovate digest bump). Charon does not run CMP.
+  - vulnerability: CVE-2026-63073
+    package:
+      name: libcrypto3
+      version: "3.5.7-r0"
+      type: apk
+    reason: |
+      Trivy/NVD: HIGH; OpenSSL advisory: Low — CMP response validation uses an untrusted
+      sender DN as a format string, crashing CMP clients that enforce an expected sender.
+      Same batch/status as CVE-2026-63072 (see that entry above). Charon does not run CMP.
+      Risk accepted pending the ALPINE_IMAGE digest bump.
+    expiry: "2026-09-09"  # Review: Initial suppression 2026-08-26. Next review: 2026-09-09.
+
+  - vulnerability: CVE-2026-63073
+    package:
+      name: libssl3
+      version: "3.5.7-r0"
+      type: apk
+    reason: |
+      Trivy/NVD: HIGH; OpenSSL advisory: Low — CMP response validation uses an untrusted
+      sender DN as a format string, crashing CMP clients that enforce an expected sender.
+      Same batch/status as CVE-2026-63072 (see that entry above). Charon does not run CMP.
+      Risk accepted pending the ALPINE_IMAGE digest bump.
+    expiry: "2026-09-09"  # Review: Initial suppression 2026-08-26. Next review: 2026-09-09.
+
+  # CVE-2026-63074: OpenSSL CMP indefinite ExtraCerts cache growth (memory exhaustion).
+  # Severity: Trivy/NVD HIGH; OpenSSL Low. Same batch/status as CVE-2026-63072 above.
+  # Charon does not run a CMP server.
+  - vulnerability: CVE-2026-63074
+    package:
+      name: libcrypto3
+      version: "3.5.7-r0"
+      type: apk
+    reason: |
+      Trivy/NVD: HIGH; OpenSSL advisory: Low — CMP indefinite ExtraCerts cache growth
+      lets malicious clients flood a CMP server into unbounded memory expansion. Same
+      batch/status as CVE-2026-63072 (see that entry above). Charon does not run a CMP
+      server. Risk accepted pending the ALPINE_IMAGE digest bump.
+    expiry: "2026-09-09"  # Review: Initial suppression 2026-08-26. Next review: 2026-09-09.
+
+  - vulnerability: CVE-2026-63074
+    package:
+      name: libssl3
+      version: "3.5.7-r0"
+      type: apk
+    reason: |
+      Trivy/NVD: HIGH; OpenSSL advisory: Low — CMP indefinite ExtraCerts cache growth
+      lets malicious clients flood a CMP server into unbounded memory expansion. Same
+      batch/status as CVE-2026-63072 (see that entry above). Charon does not run a CMP
+      server. Risk accepted pending the ALPINE_IMAGE digest bump.
+    expiry: "2026-09-09"  # Review: Initial suppression 2026-08-26. Next review: 2026-09-09.
+
+  # CVE-2026-63075: OpenSSL QUIC ACK-only packet retention causes memory exhaustion.
+  # Severity: Trivy/NVD HIGH; OpenSSL Low. Same batch/status as CVE-2026-63072 above.
+  # Charon's HTTP/3 stack is quic-go (pure Go), not OpenSSL QUIC.
+  - vulnerability: CVE-2026-63075
+    package:
+      name: libcrypto3
+      version: "3.5.7-r0"
+      type: apk
+    reason: |
+      Trivy/NVD: HIGH; OpenSSL advisory: Low — remote peers can force connection-scoped
+      memory growth by retaining ACK-only QUIC packets. Same batch/status as
+      CVE-2026-63072 (see that entry above). Charon's Caddy HTTP/3 stack uses
+      github.com/quic-go/quic-go (pure Go, userspace QUIC), not OpenSSL's QUIC
+      implementation. Risk accepted pending the ALPINE_IMAGE digest bump.
+    expiry: "2026-09-09"  # Review: Initial suppression 2026-08-26. Next review: 2026-09-09.
+
+  - vulnerability: CVE-2026-63075
+    package:
+      name: libssl3
+      version: "3.5.7-r0"
+      type: apk
+    reason: |
+      Trivy/NVD: HIGH; OpenSSL advisory: Low — remote peers can force connection-scoped
+      memory growth by retaining ACK-only QUIC packets. Same batch/status as
+      CVE-2026-63072 (see that entry above). Charon's Caddy HTTP/3 stack uses
+      github.com/quic-go/quic-go (pure Go, userspace QUIC), not OpenSSL's QUIC
+      implementation. Risk accepted pending the ALPINE_IMAGE digest bump.
+    expiry: "2026-09-09"  # Review: Initial suppression 2026-08-26. Next review: 2026-09-09.
+
+  # CVE-2026-63076: OpenSSL CMP server invalid pointer dereference via crafted
+  # protectionAlg, crashing an unauthenticated remote peer. Severity: Trivy/NVD HIGH;
+  # OpenSSL Moderate. Same batch/status as CVE-2026-63072 above. Charon does not run a
+  # CMP server.
+  - vulnerability: CVE-2026-63076
+    package:
+      name: libcrypto3
+      version: "3.5.7-r0"
+      type: apk
+    reason: |
+      Trivy/NVD: HIGH; OpenSSL advisory: Moderate — a remote, unauthenticated attacker
+      can crash an application acting as a CMP server via a crafted protectionAlg. Same
+      batch/status as CVE-2026-63072 (see that entry above). Charon does not run a CMP
+      server. Risk accepted pending the ALPINE_IMAGE digest bump.
+    expiry: "2026-09-09"  # Review: Initial suppression 2026-08-26. Next review: 2026-09-09.
+
+  - vulnerability: CVE-2026-63076
+    package:
+      name: libssl3
+      version: "3.5.7-r0"
+      type: apk
+    reason: |
+      Trivy/NVD: HIGH; OpenSSL advisory: Moderate — a remote, unauthenticated attacker
+      can crash an application acting as a CMP server via a crafted protectionAlg. Same
+      batch/status as CVE-2026-63072 (see that entry above). Charon does not run a CMP
+      server. Risk accepted pending the ALPINE_IMAGE digest bump.
+    expiry: "2026-09-09"  # Review: Initial suppression 2026-08-26. Next review: 2026-09-09.
+
+  # CVE-2026-18798: OpenSSL QUIC server double free processing INITIAL packets (heap
+  # corruption / DoS). Severity: Trivy/NVD HIGH; OpenSSL Moderate. Same batch/status as
+  # CVE-2026-63072 above. Charon's HTTP/3 stack is quic-go (pure Go), not OpenSSL QUIC.
+  - vulnerability: CVE-2026-18798
+    package:
+      name: libcrypto3
+      version: "3.5.7-r0"
+      type: apk
+    reason: |
+      Trivy/NVD: HIGH; OpenSSL advisory: Moderate — double free when a QUIC server
+      processes crafted INITIAL packets, leading to heap corruption and typically DoS.
+      Same batch/status as CVE-2026-63072 (see that entry above). Charon's Caddy HTTP/3
+      stack uses github.com/quic-go/quic-go (pure Go, userspace QUIC), not OpenSSL's QUIC
+      implementation. Risk accepted pending the ALPINE_IMAGE digest bump.
+    expiry: "2026-09-09"  # Review: Initial suppression 2026-08-26. Next review: 2026-09-09.
+
+  - vulnerability: CVE-2026-18798
+    package:
+      name: libssl3
+      version: "3.5.7-r0"
+      type: apk
+    reason: |
+      Trivy/NVD: HIGH; OpenSSL advisory: Moderate — double free when a QUIC server
+      processes crafted INITIAL packets, leading to heap corruption and typically DoS.
+      Same batch/status as CVE-2026-63072 (see that entry above). Charon's Caddy HTTP/3
+      stack uses github.com/quic-go/quic-go (pure Go, userspace QUIC), not OpenSSL's QUIC
+      implementation. Risk accepted pending the ALPINE_IMAGE digest bump.
+    expiry: "2026-09-09"  # Review: Initial suppression 2026-08-26. Next review: 2026-09-09.
+
+  # CVE-2026-14457: OpenSSL RPK server signature algorithm selection dereferences a
+  # missing certificate (NULL deref / DoS). Severity: Trivy/NVD HIGH; OpenSSL Low. Same
+  # batch/status as CVE-2026-63072 above. Charon does not use RFC7250 Raw Public Keys.
+  - vulnerability: CVE-2026-14457
+    package:
+      name: libcrypto3
+      version: "3.5.7-r0"
+      type: apk
+    reason: |
+      Trivy/NVD: HIGH; OpenSSL advisory: Low — RPK server signature algorithm selection
+      can dereference a missing certificate, causing a NULL pointer dereference and DoS.
+      Only affects configurations using RFC7250 Raw Public Keys without associated
+      certificates. Same batch/status as CVE-2026-63072 (see that entry above). Charon
+      does not configure RFC7250 Raw Public Keys. Risk accepted pending the ALPINE_IMAGE
+      digest bump.
+    expiry: "2026-09-09"  # Review: Initial suppression 2026-08-26. Next review: 2026-09-09.
+
+  - vulnerability: CVE-2026-14457
+    package:
+      name: libssl3
+      version: "3.5.7-r0"
+      type: apk
+    reason: |
+      Trivy/NVD: HIGH; OpenSSL advisory: Low — RPK server signature algorithm selection
+      can dereference a missing certificate, causing a NULL pointer dereference and DoS.
+      Only affects configurations using RFC7250 Raw Public Keys without associated
+      certificates. Same batch/status as CVE-2026-63072 (see that entry above). Charon
+      does not configure RFC7250 Raw Public Keys. Risk accepted pending the ALPINE_IMAGE
+      digest bump.
+    expiry: "2026-09-09"  # Review: Initial suppression 2026-08-26. Next review: 2026-09-09.
+
+  # CVE-2026-54874: OpenSSL excessive memory buffering of DTLS records for future epochs.
+  # Severity: Trivy/NVD HIGH; OpenSSL Low. Same batch/status as CVE-2026-63072 above.
+  # Charon does not run a DTLS server.
+  - vulnerability: CVE-2026-54874
+    package:
+      name: libcrypto3
+      version: "3.5.7-r0"
+      type: apk
+    reason: |
+      Trivy/NVD: HIGH; OpenSSL advisory: Low — a DTLS peer can force excessive memory
+      consumption by exploiting future-epoch record buffering, retaining
+      disproportionately large memory amounts. Same batch/status as CVE-2026-63072 (see
+      that entry above). Charon does not run a DTLS server. Risk accepted pending the
+      ALPINE_IMAGE digest bump.
+    expiry: "2026-09-09"  # Review: Initial suppression 2026-08-26. Next review: 2026-09-09.
+
+  - vulnerability: CVE-2026-54874
+    package:
+      name: libssl3
+      version: "3.5.7-r0"
+      type: apk
+    reason: |
+      Trivy/NVD: HIGH; OpenSSL advisory: Low — a DTLS peer can force excessive memory
+      consumption by exploiting future-epoch record buffering, retaining
+      disproportionately large memory amounts. Same batch/status as CVE-2026-63072 (see
+      that entry above). Charon does not run a DTLS server. Risk accepted pending the
+      ALPINE_IMAGE digest bump.
+    expiry: "2026-09-09"  # Review: Initial suppression 2026-08-26. Next review: 2026-09-09.
+
+  # CVE-2026-75803: OpenSSL ChaCha20-Poly1305/AES-OCB can report decrypt success on empty
+  # ciphertext without verifying the auth tag (AEAD forgery). Severity: Trivy/NVD HIGH;
+  # OpenSSL Low. Same batch/status as CVE-2026-63072 above. Charon's Go backend uses Go's
+  # native crypto/tls/cipher, not OpenSSL AEAD, for TLS.
+  - vulnerability: CVE-2026-75803
+    package:
+      name: libcrypto3
+      version: "3.5.7-r0"
+      type: apk
+    reason: |
+      Trivy/NVD: HIGH; OpenSSL advisory: Low — ChaCha20-Poly1305 and AES-OCB decryption
+      with an empty ciphertext can report success without verifying the supplied
+      authentication tag (AEAD forgery). Same batch/status as CVE-2026-63072 (see that
+      entry above). Charon's Go backend uses Go's native crypto/tls/cipher, not OpenSSL
+      AEAD, for TLS. Risk accepted pending the ALPINE_IMAGE digest bump.
+    expiry: "2026-09-09"  # Review: Initial suppression 2026-08-26. Next review: 2026-09-09.
+
+  - vulnerability: CVE-2026-75803
+    package:
+      name: libssl3
+      version: "3.5.7-r0"
+      type: apk
+    reason: |
+      Trivy/NVD: HIGH; OpenSSL advisory: Low — ChaCha20-Poly1305 and AES-OCB decryption
+      with an empty ciphertext can report success without verifying the supplied
+      authentication tag (AEAD forgery). Same batch/status as CVE-2026-63072 (see that
+      entry above). Charon's Go backend uses Go's native crypto/tls/cipher, not OpenSSL
+      AEAD, for TLS. Risk accepted pending the ALPINE_IMAGE digest bump.
+    expiry: "2026-09-09"  # Review: Initial suppression 2026-08-26. Next review: 2026-09-09.
+
+    # Action items when this suppression batch expires:
+    # 1. Check https://pkgs.alpinelinux.org/packages?name=libssl3&branch=v3.24 and the
+    #    Dockerfile's ALPINE_IMAGE digest for whether Renovate has bumped past 3.5.7-r0.
+    # 2. If bumped: rebuild the image, confirm this batch no longer appears in
+    #    grype-results.json / trivy-pr-results.sarif, then remove all entries in this
+    #    batch from both .grype.yaml and .trivyignore.
+    # 3. If not yet bumped: extend expiry by 14 days and note the check date above.
+
 # Match exclusions (patterns to ignore during scanning)
 # Use sparingly - prefer specific CVE suppressions above
 match:

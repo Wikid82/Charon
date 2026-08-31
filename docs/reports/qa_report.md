@@ -1,31 +1,82 @@
-# QA Report — Flaky Test Root-Cause Fix (Leaked SQLite Test Connections)
+# QA Report — Sidebar Footer & README Support/Donation Links
 
 **Branch**: `development`
-**Commits reviewed**: `5e38d2c5`, `25143838`, `2a9d7321`, `b073519a`, `b1b8463c`, `b9a46963` (6 commits, `62107fc0..b9a46963`)
-**Reviewed by**: qa-security agent (final sign-off pass)
-**Date**: 2026-08-24
-**Plan reference**: `docs/plans/current_spec.md`
+**Commits reviewed**: `298b8b3d` ("chore: add support links to sidebar footer"), `7202b3d0` ("chore: add support/donation section to README")
+**Reviewed by**: qa-security agent (scaled-down DoD validation pass)
+**Date**: 2026-08-26
+**Plan reference**: `docs/plans/current_spec.md` (§6 Phase 5, §7 Acceptance Criteria)
 
 ## Summary
 
-This PR fixes a confirmed root cause of intermittent CI failures: 41 call sites across 17 Go test files opened a file-backed SQLite connection under a `t.TempDir()`/`os.MkdirTemp()` without closing it, letting live WAL/-shm sidecar files race `os.RemoveAll` during Go's temp-dir cleanup (`unlinkat ... directory not empty`). The fix registers `t.Cleanup` to close each connection immediately after open, relying on `t.Cleanup`'s LIFO ordering to guarantee the close runs before directory removal. A 6th commit additionally stops a leaked background goroutine (`SecurityHandler`'s internal `processAuditEvents`) by calling the handler's pre-existing `Close()` from two test sites that weren't calling it.
+This is a frontend + docs **chore**: two small, always-on external links (Buy Me a
+Coffee, GitHub Sponsors) added to the app's sidebar footer, plus a matching README
+section. No backend/Go changes, no new settings/config/DB, no toggle. Both commits
+already passed a supervisor code review (APPROVED, no blocking issues). This report
+independently RUNS the scaled-down Definition of Done gates called for by the plan
+and confirms they pass, plus a security spot-check on the two new external links.
 
-**Verdict: READY TO MERGE.** All applicable Definition of Done gates pass. Two pre-existing, unrelated flaky-test findings were surfaced during stress testing and are documented below as follow-up recommendations — neither blocks this PR.
+**Verdict: PASS**, for the two commits as actually committed (`298b8b3d`,
+`7202b3d0`). See **important caveat** below — a live, uncommitted, unreviewed
+modification to the same three files was discovered mid-session in the shared
+working tree; it is *not* part of what was reviewed/approved and is called out
+separately so it isn't silently folded into this sign-off.
 
 ---
 
-## Scope Verification (independently confirmed, not taken on faith)
+## Important Caveat: Concurrent Uncommitted Drift Detected Mid-Session
+
+While running checks, `git status` revealed the working tree had gone dirty
+**after** several of my checks had already run, with fresh timestamps
+(`Layout.tsx` 23:10:19, `Layout.test.tsx` 23:10:57, `README.md` 23:10:34 — all
+within minutes of my QA session, and after the two commits under review had
+already landed cleanly). An untracked `verify-footer.mjs` (a scratch Playwright
+script driving a live dev server) also appeared at 23:15:08. This strongly
+indicates another agent/process was concurrently editing these exact files while
+this QA pass was running.
+
+The uncommitted diff (confirmed via `git diff`) reorders the two footer links
+(Sponsor before Coffee instead of the committed Coffee-before-Sponsor), adjusts
+spacing classes (`pt-4`→`pt-6 pb-3`, restructures `mb-2`→`mt-2 mb-2`), adds a new,
+**unreviewed** test (`'orders the sidebar footer as icon row, then version
+block...'`), and reorders the two README badges. None of this went through the
+supervisor review that approved the two commits I was asked to validate.
+
+**Action taken**: None. Per the Git Safety Protocol, I did not stash, revert, or
+otherwise touch this in-flight, uncommitted work — doing so risked destroying
+another process's active edits. I instead validated the actual approved commits
+directly via `git show <sha>:<path>` (bypassing the dirty working tree) wherever
+a check could have been contaminated by it (see Check 7 below).
+
+**Recommendation for whoever dispatched this QA pass**: this drift needs to be
+triaged before the branch is considered final — either finish it, get it
+reviewed, and land it as a proper follow-up commit (a legitimate visual-order
+tweak is fine, but it needs review + a real test, not silent inclusion), or
+discard it if it was exploratory. The untracked `verify-footer.mjs` at the repo
+root should not be committed as-is (it's a scratch script hardcoding a
+scratchpad output path and test credentials, and lives outside `tests/`).
+
+**Impact on this report's checks**: Checks 1–3, 4, 5, 6, 8 all completed *before*
+23:10 (the drift's first timestamp) and are unaffected. Check 7 (security
+spot-check) was initially run against the by-then-dirty working tree and has been
+re-run against the authoritative committed blobs (`git show`) below — result
+unchanged (still PASS), just re-verified against the correct source.
+
+---
+
+## Scope Verification
 
 ```
-git diff --stat 62107fc0 HEAD
+git diff --stat 298b8b3d~1..7202b3d0
 ```
-→ exactly 17 `_test.go` files, 194 insertions / 55 deletions, **zero** non-Go files, **zero** production code, **zero** frontend files, **zero** `backend/internal/models/**` or migration files.
-
-Every hunk in the diff was read in full. Every change is one of:
-- A new `t.Cleanup(func() { _ = sqlDB.Close() })` (or the goroutine-stopping `t.Cleanup(h.Close)`) inserted immediately after a successful `gorm.Open`/`.DB()` call.
-- In `certificate_handler_test.go` only: four duplicated open/migrate blocks consolidated into a shared `openCertHandlerTestDB` helper (mechanical extraction, same behavior) plus `err :=` shadowing cleanups (`if err = ...` → `if err := ...`) required by the refactor.
-
-No `assert`/`require`/`t.Fatal` assertion line was removed anywhere across the 41 sites — confirmed by diffing all removed (`-`) lines and manually filtering out only the boilerplate DB-setup lines subsumed by the new helper.
+```
+ README.md                                         | 13 ++++++++++++-
+ frontend/src/components/Layout.tsx                | 22 +++++++++++++++++++++-
+ frontend/src/components/__tests__/Layout.test.tsx | 22 ++++++++++++++++++++++
+ 3 files changed, 55 insertions(+), 2 deletions(-)
+```
+Exactly the three files the plan calls for. **Zero** backend/Go files, **zero**
+`.github/FUNDING.yml` changes, **zero** settings/config/migration files. Matches
+plan Acceptance Criteria and CON-001/CON-002/CON-004. ✅ PASS
 
 ---
 
@@ -33,74 +84,176 @@ No `assert`/`require`/`t.Fatal` assertion line was removed anywhere across the 4
 
 | # | Gate | Status | Detail |
 |---|------|--------|--------|
-| 1 | Targeted Playwright E2E | **N/A — confirmed** | `git diff --stat 62107fc0 HEAD -- frontend/` → 0 files. No user-facing behavior changed. |
-| 1.5 | GORM security scan | **N/A — confirmed** | `git diff --name-only` contains no `backend/internal/models/**`, no GORM query/migration changes. Trigger not met; skipped per CLAUDE.md. |
-| 2 | Local Patch Coverage Preflight | ✅ **PASS** (backend scope) / ⚠️ pre-existing unrelated warning | `bash scripts/local-patch-report.sh` run directly. Both `test-results/local-patch-report.md` and `.json` produced. Backend patch coverage: **100.0%** (25/25 changed lines covered) — the only scope this PR touches. Overall: 92.2%. The script's non-zero exit is caused solely by **Frontend 84.6%** (below 85% threshold), traced to `frontend/src/components/ImportSitesModal.tsx` / `Layout.tsx` — both changed by an unrelated, already-committed commit `bbf64f31` ("fix: support Escape-key dismissal on click-to-close overlay backdrops") that predates this PR's baseline and is not part of the 6 commits under review. Not a blocker for this sign-off; flagged as a pre-existing gap for a separate follow-up. |
-| 3 | Security scans (CodeQL/Trivy) | **Correctly deferred to CI** | `fix:`-scoped, no new code paths/endpoints/components. Per CLAUDE.md's own deferral rule, not run locally; CI runs both unconditionally on every PR. |
-| 4 | Lefthook Triage | ✅ **PASS** | `lefthook run pre-commit` run — all hooks report "skip, no matching staged files" (commits are already committed, nothing staged). Static analysis instead verified directly (see #5). |
-| 5 | Staticcheck (BLOCKING) | ✅ **PASS** | `make lint-staticcheck-only` → **0 issues** (backend + agent). `make lint-fast` (full fast linter set incl. govet) surfaced 3 pre-existing `govet` findings (`reflect.Ptr` inline suggestion) in `docker_handler.go`, `orthrus_handler.go`, `uptime_service.go` — confirmed byte-identical between baseline `62107fc0` and HEAD (not touched by this PR, not introduced by it, and not the blocking staticcheck gate CLAUDE.md calls out). `go vet ./...` also clean (exit 0). `gofmt -l` on all 17 touched files → clean. |
-| 6 | Coverage Testing | ✅ **PASS** | `.github/skills/scripts/skill-runner.sh test-backend-coverage` (wraps `scripts/go-test-coverage.sh`, run to completion in foreground): **Statement coverage 91.7%, Line coverage 88.4%** (min required 87%) → `Coverage requirement met`. Full `./...` race run embedded in this script passed with zero failures. |
-| 8 | Verify Build | ✅ **PASS** | `cd backend && go build ./...` → clean, no output. Frontend build not re-verified (zero frontend files changed; N/A consistent with #1). |
-| 9 | Fixed/new code testing | ✅ **PASS** | See "Stress-Test Re-Verification" below — this **is** the fixed code (test files), and it was re-run directly under multiple conditions. |
-| 10 | Clean up | ✅ **PASS** | Grepped all 17 touched files' added (`+`) lines for `fmt.Println`, `console.log`, `TODO`, `FIXME`, `DEBUG` comments — zero matches. |
+| 1 | `npx vitest run src/components/__tests__/Layout.test.tsx` | ✅ **PASS** | `Test Files 1 passed (1)`, `Tests 26 passed (26)`. Verbose run confirms the new test explicitly: `✓ Layout > renders support/donation links in the sidebar footer`. |
+| 2 | `npm run type-check` | ✅ **PASS** | `tsc --noEmit` — zero errors. |
+| 3 | `npm run build` | ✅ **PASS** | Vite production build completed (`✓ built in 1.83s`), no errors. |
+| 4 | `bash scripts/local-patch-report.sh` | ✅ **PASS (artifacts + scope)** / ⚠️ pre-existing unrelated overall warning | Both `test-results/local-patch-report.md` and `.json` produced. See coverage detail below. |
+| 5 | `lefthook run pre-commit` | ✅ **PASS** | See detail below. |
+| 6 | Frontend coverage (`scripts/frontend-test-coverage.sh`) | ✅ **PASS** | Project-wide lines coverage 90.8% (7551/8316), gate is 87% minimum → `Coverage gate: PASS`. See detail below for `Layout.tsx`-specific note. |
+| 7 | Security spot-check on new links | ✅ **PASS** | See detail below, re-verified via `git show` against the actual committed blobs. |
+| 8 | Combined diff scope | ✅ **PASS** | Confirmed above — only the 3 expected files. |
+
+### Check 4 detail — Local Patch Coverage Preflight
+
+First run used a stale `frontend/coverage/lcov.info` (dated Aug 18, predating
+these commits), which produced a misleading `Frontend patch coverage 0.0%`
+warning purely because the coverage snapshot was 8 days old. After regenerating
+fresh frontend coverage (Check 6) and re-running:
+
+```
+| Scope    | Changed Lines | Covered Lines | Patch Coverage (%) | Status |
+|----------|--------------:|---------------:|--------------------:|--------|
+| Overall  | 105           | 94              | 89.5                 | warn   |
+| Backend  | 105           | 94              | 89.5                 | pass   |
+| Frontend | 0             | 0               | 100.0                | pass   |
+| Agent    | 0             | 0               | 100.0                | pass   |
+```
+
+- **Frontend: 0 changed instrumentable lines, 100% / PASS.** The new JSX
+  attribute lines (`href`, `target`, `rel`, `aria-label`) in `Layout.tsx` carry
+  no separate Istanbul instrumentation markers (they're not independently
+  executable statements), so the tool correctly counts 0 coverable changed
+  lines for the frontend scope of this chore — nothing uncovered.
+- **Overall: 89.5%, WARN (just under the 90% default threshold).** The single
+  file driving this is `backend/internal/services/notification_service.go`
+  (11 uncovered lines: 275, 418-419, 430-431, 443-444, 446, 465, 469-470).
+  Confirmed via `git log -- backend/internal/services/notification_service.go`
+  that these changes come from commits `8bb9553b`, `e83b563a`, `c073f4b2`, etc.
+  — **all predate and are unrelated to** the two chore commits under review
+  (unmerged "Notification Engine Roadmap" work already on `development` before
+  this task started). The report's baseline (`origin/main...HEAD`) naturally
+  includes all of `development`'s divergence from `main`, not just this chore's
+  two commits — this WARN is pre-existing branch drift, not something
+  introduced by `298b8b3d`/`7202b3d0`. Not a blocker for this chore's sign-off.
+
+### Check 5 detail — Lefthook
+
+Since the two commits are already committed (nothing staged), a plain
+`lefthook run pre-commit` reports all hooks as `(skip) no matching staged
+files`. Re-ran targeted at the three changed files with `--force`:
+
+```
+lefthook run pre-commit --file frontend/src/components/Layout.tsx \
+  --file frontend/src/components/__tests__/Layout.test.tsx --file README.md --force
+```
+
+Result: **all hooks ✔️**, including `frontend-lint`, `frontend-type-check`,
+`golangci-lint-fast` (`0 issues.` for backend and agent — expected, no Go files
+in scope), `semgrep`, `shellcheck`, `dockerfile-check`, `actionlint`,
+`muzzle-allowlist-parity`. ESLint reported `1188 problems (0 errors, 1188
+warnings)` — **zero errors**, and a targeted grep of the full lint output for
+`Layout.tsx`/`Layout.test.tsx` returned **zero matches** — i.e. none of the
+1188 pre-existing warnings originate from either file touched by this chore.
+
+### Check 6 detail — Frontend coverage regression check
+
+`bash scripts/frontend-test-coverage.sh` (deprecated wrapper, still functional)
+ran the full frontend suite with coverage:
+
+```
+Statements   : 89.6% ( 8031/8963 )
+Branches     : 82.88% ( 5554/6701 )
+Functions    : 87.2% ( 2577/2955 )
+Lines        : 90.8% ( 7551/8316 )
+Coverage gate: PASS (lines 90.8% vs minimum 87%)
+```
+
+No regression: the new lines in `Layout.tsx` are exercised by the new
+`'renders support/donation links in the sidebar footer'` test (Check 1), and
+project-wide coverage remains well above the 87% gate this script enforces.
+
+### Check 7 detail — Security spot-check (re-verified against committed blobs)
+
+```
+git show 298b8b3d:frontend/src/components/Layout.tsx | sed -n '349,375p'
+```
+Confirmed both anchors, exactly as committed:
+
+```tsx
+<a
+  href="https://buymeacoffee.com/Wikid82"
+  target="_blank"
+  rel="noopener noreferrer"
+  aria-label="Support Charon on Buy Me a Coffee"
+  className="hover:text-content-primary transition-colors"
+>
+  <Coffee className="w-4 h-4" />
+</a>
+<a
+  href="https://github.com/sponsors/Wikid82"
+  target="_blank"
+  rel="noopener noreferrer"
+  aria-label="Sponsor Charon on GitHub"
+  className="hover:text-content-primary transition-colors"
+>
+  <Heart className="w-4 h-4" />
+</a>
+```
+
+- Both `<a>` tags carry `target="_blank"` **together with**
+  `rel="noopener noreferrer"` — correct reverse-tabnabbing mitigation
+  (`window.opener` cannot be used by the destination page to navigate the
+  opener). SEC-001 satisfied.
+- URLs match `.github/FUNDING.yml` exactly: `buy_me_a_coffee: Wikid82` →
+  `https://buymeacoffee.com/Wikid82`; `github: Wikid82` →
+  `https://github.com/sponsors/Wikid82`. No typos, no open-redirect risk (both
+  are static, hardcoded, non-user-controlled strings — no injection surface).
+- `.github/FUNDING.yml` itself: confirmed unchanged by `git diff --stat`
+  (Check 8) — CON-004 satisfied.
+- README (`git show 7202b3d0:README.md`) confirms the matching badge links,
+  same two URLs, well-formed `<p align="center"><a href="..."><img
+  src="..."></a></p>` markup, consistent with the existing badge convention
+  elsewhere in the file.
+
+No CRITICAL/HIGH/MEDIUM findings. This is static, outbound-only markup with no
+user input, no dynamic URL construction, and no new attack surface.
 
 ---
 
-## Security-Specific Review
+## Explicitly Skipped (per plan's scaled-down DoD, justified)
 
-- **No credentials/secrets touched.** Grepped the full diff for `gotify|token|secret|password|apikey|api_key|credential` — the only matches are pre-existing test function names (`TestSeedMain_ForceAdminUpdatesExistingUserPassword`), not new secret values. SECURITY.md's Gotify Token Hygiene section (no token values in logs/artifacts/URLs) is not implicated — no Gotify code paths are touched.
-- **No test fixture data changed** that could leak anything — all changes are pure `t.Cleanup` registrations plus one mechanical setup-helper extraction.
-- **No assertion silently weakened.** Confirmed by diffing every removed line across all 41 sites — none is an `assert`/`require`/`t.Fatal` call; all are boilerplate DB-open code subsumed by the new shared helper.
-- **Security-relevant test components (SecurityHandler, CrowdSec) specifically spot-checked**: `security_handler_rules_decisions_test.go` (`setupSecurityTestRouterWithExtras`, `TestSecurityHandler_UpsertDeleteTriggersApplyConfig`) and `crowdsec_wave7_test.go` (`TestCrowdsecWave7_Start_CreateSecurityConfigFailsOnReadOnlyDB`) — both diffs are purely additive `t.Cleanup` registrations after existing assertions; no test logic, request/response expectations, or coverage of security-decision/ruleset/CrowdSec code paths was altered or reduced. The `security_handler_rules_decisions_test.go` change additionally *improves* test-cleanup correctness by draining `SecurityHandler`'s background audit goroutine before connection close, which was previously a source of racy, potentially-silent test flakiness of its own.
-- Commit 6's goroutine fix (`h.Close()`) uses the handler's **pre-existing, documented** production `Close()` method ("Required for test cleanup") — no new production code, no new attack surface.
-
-**Conclusion**: no security-relevant surface risk identified in this PR.
+- CodeQL Go/JS, Trivy, GORM scans — no new feature surface, no Go changes, no
+  model/GORM changes. `fix:`/`chore:`-scoped deferral rule applies; CI runs
+  both unconditionally regardless.
+- Backend coverage (`scripts/go-test-coverage.sh`) — no backend files changed.
+- New/modified Playwright E2E — none exist for this area, plan's Research 2.4
+  confirms no existing spec touches the footer/version block; none required.
 
 ---
 
-## Stress-Test Re-Verification (independently re-run, raw output inspected directly)
+## Acceptance Criteria Cross-Check (plan §7)
 
-Per the explicit instruction not to trust self-reports, every command below was run by me in the foreground, output inspected directly (not summarized by a subagent).
-
-### 1. Targeted flagged-test stress run
-```
-go test ./internal/api/handlers/... -run 'TestSecurityHandler_CreateAndListDecisionAndRulesets|TestSecurityHandler_UpsertDeleteTriggersApplyConfig' -count=40 -race -v
-```
-Result: **80/80 PASS** (2 tests × 40 iterations), **0 FAIL**, **0 DATA RACE**, **0 unlinkat/ENOTEMPTY** — grepped across the full raw log, not just the tail. `ok github.com/Wikid82/charon/backend/internal/api/handlers 13.533s`.
-
-### 2. Full-module single-count run
-```
-go test ./... -count=1
-```
-Result: **every package `ok`**, zero failures, including `internal/api/handlers` (79.1s), `internal/services` (110.4s), `internal/server`, `cmd/seed`, `internal/crowdsec` (94.2s). This is the realistic CI-equivalent check.
-
-### 3. Broader `-race -count=5` stress run — two pre-existing, unrelated findings surfaced
-
-Running `go test ./internal/api/handlers/... ./internal/services/... ./cmd/seed/... ./internal/server/... -race -count=5` (and isolated re-runs) surfaced test failures **outside** the 17 files this PR touches:
-
-- **`TestAuthHandler_GetAccessibleHosts_PermittedHosts`** (and related `TestAuthHandler_CheckHostAccess_*` / `TestAuthHandler_GetAccessibleHosts_*` tests) in `auth_handler_test.go` — failed with 404s and a nil-interface panic under `-count=5`.
-- **~20 tests in `internal/services`** (`TestAuthService_*`, `TestCertificateService_*`, `TestProxyHostService_*`) — failed with `UNIQUE constraint failed: users.email` and a nil-pointer panic under `-count=5`.
-
-**Root cause traced and confirmed pre-existing, not caused by this PR**:
-- Both failing test helpers (`setupAuthHandlerWithDB` in `auth_handler_test.go`; 101 call sites across `internal/services/*.go`, e.g. `auth_service_test.go`) use a **shared-cache in-memory SQLite DSN keyed only by `t.Name()`** (`file:<TestName>?mode=memory&cache=shared`). Under `-count=N` combined with `t.Parallel()`, repeated iterations of the same test name can collide on the same shared in-memory database, causing `UNIQUE constraint` violations and nil-record races. This is a **different, pre-existing anti-pattern**, structurally unrelated to the WAL/file-backed-`t.TempDir()` leak this PR fixes.
-- **Verified by direct reproduction on the pre-fix baseline**: stashed the working tree, checked out `62107fc0` (pre-fix), re-ran `go test ./internal/api/handlers/... -race -count=5` — the identical `TestAuthHandler_*` failure signature (`UNIQUE constraint failed`, 404s, nil-interface panic) reproduced on baseline, proving this is not introduced or exposed by any of the 6 commits under review. Working tree was cleanly restored afterward (`git checkout development && git stash pop`; confirmed `git log -1` back at `b9a46963` and only the pre-existing unrelated `docs/plans/current_spec.md` local edit remained).
-- None of `auth_handler_test.go`, `auth_service_test.go`, `certificate_service_test.go`, `proxyhost_service_validation_test.go` (or any file with these failing tests) are among the 17 files in this PR's diff.
-- One run also hit Go's default 10-minute per-package test timeout when 3 packages ran concurrently with `-race -count=5` on this sandbox — consistent with CPU/IO contention from race-instrumented bcrypt/cert-crypto-heavy tests fanned out 5x simultaneously across multiple test binaries, not a deadlock (isolating `internal/services` alone with a 20-minute timeout let it run to completion and reproduce the same pre-existing collision failures rather than hang).
-
-**Recommendation (follow-up, not blocking this PR)**: file a tracking issue for the shared-cache-DSN-keyed-by-`t.Name()` anti-pattern (101+ call sites in `internal/services`, plus `auth_handler_test.go`) — it is a second, independent source of test flakiness under high-concurrency/`-count>1` conditions, conceptually similar in spirit to the WAL/tempdir issue this PR fixes but with a different mechanism (in-memory DSN collision vs. file-cleanup race) and a much larger footprint. Standard CI runs (`-count=1`, no artificial `-count=5` stress) are not exposed to this, which is why it hasn't caused the CI flakiness this PR was created to fix — but it is a latent risk worth tracking separately.
+- [x] Coffee icon link → `https://buymeacoffee.com/Wikid82`, Heart icon link →
+      `https://github.com/sponsors/Wikid82`, both `target="_blank" rel="noopener
+      noreferrer"`, correct `aria-label`s.
+- [x] Muted styling only (`text-content-muted` / hover `text-content-primary`),
+      inside the same collapse-hiding parent as the version text.
+- [x] Unconditionally rendered — no settings/feature-flag/auth gate (confirmed
+      by reading the committed JSX — no conditional wraps the two `<a>` tags).
+- [x] `Layout.test.tsx` has a new passing test asserting `href`, `aria-label`
+      accessible name, and `target`.
+- [x] README "🐛 Get Help" rename + new "☕ Support This Project" section,
+      badges well-formed.
+- [x] No Discord edits, no edits to other docs files.
+- [x] Only the 3 expected files changed; `.github/FUNDING.yml` unchanged; no
+      settings/config/DB/migration code anywhere.
+- [x] vitest / type-check / build / lefthook all pass.
+- [x] Frontend coverage confirms no regression.
+- [x] Both commit messages use the `chore:` prefix.
 
 ---
 
 ## Final Verdict
 
-**READY TO MERGE.**
+**PASS** for commits `298b8b3d` and `7202b3d0` as committed. All required gates
+(1–8 above) pass; the one WARN surfaced by the patch-coverage preflight (overall
+89.5% vs 90%) is fully attributable to pre-existing, unrelated backend work
+already on `development` before this chore, not to these two commits, whose own
+frontend scope shows 0 uncovered changed lines.
 
-- All applicable Definition of Done gates pass (Playwright and GORM scan correctly N/A; CodeQL/Trivy correctly deferred to CI per CLAUDE.md's own `fix:`-scope rule).
-- Staticcheck (the blocking gate), `go vet`, `gofmt`, and `go build` are all clean.
-- Backend coverage 88.4% line / 91.7% statement, both above the 87% minimum.
-- Backend patch coverage on this PR's actual changed lines: 100%.
-- The specific flagged flaky test is proven fixed: 80/80 PASS across 40 stress iterations with `-race`, and the full module passes cleanly at `-count=1`.
-- No security-relevant surface risk; no assertions weakened; no secrets exposed.
-- Two pre-existing, unrelated flaky-test findings were discovered and root-caused during deliberate stress testing beyond what this PR touches — both confirmed to reproduce identically on the pre-fix baseline, confirming they are not caused by this PR. Documented above as a follow-up recommendation, not a blocker.
-
-No blocking issues found.
+**Separate, non-blocking-for-this-verdict flag**: uncommitted, unreviewed
+working-tree drift on the same three files (plus an untracked scratch script)
+was detected live during this QA pass — see "Important Caveat" above. This
+should be resolved (committed via review, or discarded) before the branch is
+treated as fully done, since it currently sits un-reviewed on top of an
+otherwise-approved, otherwise-clean chore.

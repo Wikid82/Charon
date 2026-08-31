@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Wikid82/Charon/refs/heads/main/frontend/public/banner.webp" alt="Charon" width="350">
+  <img src="https://raw.githubusercontent.com/Wikid82/Charon/refs/heads/main/frontend/public/banner.webp" alt="Charon — self-hosted reverse proxy manager and web UI for Caddy" width="350">
 </p>
 
 <h1 align="center">Charon</h1>
@@ -11,6 +11,11 @@
 <p align="center">
   Manage reverse proxies with a clean web interface.<br>
   No config files. No cryptic syntax. No networking degree required.
+</p>
+
+<p align="center">
+  A self-hosted, open-source alternative to Nginx Proxy Manager, Traefik, and hand-written Caddyfiles.<br>
+  The friendly web UI for Caddy—automatic HTTPS and built-in security, zero config files.
 </p>
 
 <p align="center">
@@ -193,10 +198,21 @@ No premium tiers. No feature paywalls. No usage limits. Everything you see is yo
 [Explore All Features →](https://github.com/Wikid82/Charon/blob/main/docs/features.md)**
 
 ---
-💬 Support
+🐛 Get Help
 <p align="center">   <a href="https://github.com/Wikid82/Charon/issues">
     <img alt="GitHub issues"
          src="https://img.shields.io/github/issues/Wikid82/Charon"><a href="https://github.com/Wikid82/Charon/issues/new/choose"> <img src="https://img.shields.io/badge/Support-Open%20Issue-blue?logo=github"></a> </p>
+
+---
+☕ Support This Project
+<p align="center">
+  <a href="https://github.com/sponsors/Wikid82">
+    <img src="https://img.shields.io/badge/GitHub%20Sponsors-sponsor-EA4AAA?logo=github-sponsors&logoColor=white">
+  </a>
+  <a href="https://buymeacoffee.com/Wikid82">
+    <img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-donate-yellow?logo=buy-me-a-coffee&logoColor=white">
+  </a>
+</p>
 
 ---
 

@@ -1,5 +1,12 @@
-package notifications
+package services
 
+// Notification feature-flag keys (models.Setting table). These gate
+// per-provider dispatch via NotificationService.isDispatchEnabled /
+// getFeatureFlagValue. Moved here from the now-removed internal/notifications
+// package (docs/plans/notifications_extraction_spec.md §3.6 step 2) — this is
+// Charon policy (which provider types are enabled), not delivery-engine
+// logic, so it stays in Charon rather than moving to the extracted
+// go_notify_yourself module.
 const (
 	FlagNotifyEngineEnabled           = "feature.notifications.engine.notify_v1.enabled"
 	FlagDiscordServiceEnabled         = "feature.notifications.service.discord.enabled"

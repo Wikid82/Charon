@@ -216,21 +216,37 @@ Before marking an implementation task as complete, perform the following in orde
 - Never report a task as "running, will report when it lands" and then go idle. Either finish with a real result in the same turn, or explicitly hand off incomplete work with a clearly stated reason — never stall silently.
 - Applies to every long-running step across the pipeline: `npx playwright test`, `npx vitest run`, `go test`, `scripts/go-test-coverage.sh`, `scripts/local-patch-report.sh`, Docker image builds, `lefthook run pre-commit`, etc.
 
-## Subagents
+## Orchestration Model
 
-**MANDATORY**: All work performed in this repository — features, bug fixes, refactors, and investigations alike — MUST go through the **management** agent pipeline. Do not implement changes directly in the main session; dispatch to the `management` agent, which orchestrates planning, implementation, review, and QA via the other subagents below.
+There is no separate "management" wrapper agent. **The main Claude Code session IS the orchestrator** — it delegates directly to the specialized agents below, reviews their output, and enforces the Definition of Done, rather than dispatching to an intermediate "management" agent that then does the same thing one hop removed. This exists so long-running subagent work reports straight back to the session that already holds full conversation context, instead of bouncing through an orchestrator that can itself go idle waiting on its own children.
 
-Use the specialized agents in `.claude/agents/` for complex tasks:
+Unlike the retired Management agent, the orchestrating session is **not** banned from reading source (`.go`/`.tsx`/`.ts`/`.css`) directly — read whatever you need for scoping, verification, or a bounded fix. What still always gets delegated is implementation: never hand-edit application code yourself:
 
-- **management** — Engineering Director; orchestrates all other agents for large features
+- **Bounded work** (a well-scoped fix, chore, or CI/docs change to an existing flow — no written spec needed): read what you need, then dispatch straight to the one specialist agent that owns it (`backend-dev`, `frontend-dev`, `devops`, `docs-writer`, `playwright-dev`) with a self-contained prompt. No planning-agent detour required.
+- **Feature-scale work** (new functionality, anything that warrants a written spec per the brainstorming/writing-plans skills): run the full pipeline —
+  1. Delegate to `planning` to research and write `docs/plans/current_spec.md` (with a Commit Slicing Strategy, per "Commit Slicing & PR Strategy" above).
+  2. Delegate to `supervisor` to review the plan; iterate with `planning` until approved.
+  3. Present the plan to the user and get explicit approval before implementation begins.
+  4. Delegate implementation commit-by-commit to `backend-dev`/`frontend-dev`/`devops` in dependency order; each commit must pass its own validation gate before the next starts.
+  5. Delegate to `supervisor` again to review the implementation against the plan.
+  6. Delegate to `qa-security` last — after every other change has landed — to audit against `SECURITY.md` and the Definition of Done, writing `docs/reports/qa_report.md`. Loop back to step 1 if it finds blocking issues.
+  7. Delegate to `docs-writer` for user-facing docs, then summarize the work and provide the final conventional-commit message.
+
+**Team roster** (`.claude/agents/`):
+
 - **planning** — Principal Architect; creates `docs/plans/current_spec.md`
-- **supervisor** — Code Review Lead; reviews plans and implementations
+- **supervisor** — Code Review Lead; reviews plans and implementations (read-only)
 - **backend-dev** — Senior Go Engineer; implements backend tasks (TDD)
 - **frontend-dev** — Senior React/TypeScript Engineer; implements frontend tasks
-- **qa-security** — QA & Security Engineer; testing and vulnerability assessment
+- **qa-security** — QA & Security Engineer; testing and vulnerability assessment. Always runs last — never in parallel with other in-flight work on the same files (see the concurrency note below).
 - **devops** — CI/CD specialist; deployment debugging and GitOps
 - **docs-writer** — Technical Writer; user-facing documentation
-- **playwright-dev** — E2E Testing Specialist; Playwright test automation
+- **playwright-dev** — E2E Testing Specialist; Playwright test automation only — writes tests, reports code bugs back to the orchestrating session rather than fixing them itself
+
+**Rules carried over from the retired Management agent:**
+- When multiple implementation options exist, prefer the long-term fix over a quick patch.
+- Parallelize independent delegations freely. Never dispatch a second implementation pass onto files that a previous delegation's `qa-security` review is still validating — two orchestration layers editing the same working tree concurrently is what caused a real stash/reset incident (2026-08-26: a second dispatch's edits got mistaken for external drift and stashed mid-QA). Wait for one delegation, including its QA, to fully land before starting the next one on the same files.
+- Every subagent prompt that involves running tests, builds, or other commands must explicitly instruct it to run them in the foreground/blocking per "Execution Discipline: Foreground-Only Commands" below — say so in the dispatch prompt itself, don't assume the subagent already knows.
 
 ## Skills (Common Tasks)
 

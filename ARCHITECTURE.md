@@ -130,7 +130,7 @@ graph TB
 | **WebSocket** | gorilla/websocket | Latest | Real-time log streaming |
 | **Crypto** | golang.org/x/crypto | Latest | Password hashing, encryption |
 | **Metrics** | Prometheus Client | Latest | Application metrics |
-| **Notifications** | Notify (Discord-first) | Current | Discord notifications now; additional services in phased rollout |
+| **Notifications** | github.com/Wikid82/go_notify_yourself | Current | External delivery-engine module (Discord, Slack, Gotify, Pushover, Ntfy, Telegram, generic webhook, and email) consumed via Charon-supplied SSRF/SMTP/template adapters — see Service Layer below |
 | **Docker Client** | Docker SDK | Latest | Container discovery |
 | **Logging** | Logrus + Lumberjack | Latest | Structured logging with rotation |
 | **Backup Archive Encryption** | filippo.io/age | Latest | Passphrase (scrypt) encryption of backup archives; audited, pure Go, streaming AEAD — avoids buffering whole archives in RAM or hand-rolling chunked AES-GCM |
@@ -336,7 +336,8 @@ graph TB
 - **ProxyService:** CRUD operations for proxy hosts, validation logic
 - **CertificateService:** ACME certificate provisioning and renewal
 - **DockerService:** Container discovery and monitoring
-- **MailService:** Email notifications for certificate expiry
+- **MailService:** SMTP transport and branded HTML templates for certificate-expiry and other system emails
+- **NotificationService:** GORM CRUD for providers/templates, event-type-to-provider routing, and feature-flag gating (`internal/services/notification_service.go`); outbound dispatch for all seven provider types (Discord, Slack, Gotify, Pushover, Ntfy, Telegram, generic webhook) plus email is delegated to the external `github.com/Wikid82/go_notify_yourself` module (`v0.2.0+`) through three Charon-supplied adapters — `notify_client_adapter.go` (SSRF-safe HTTP client/URL validation, wired to `internal/network`/`internal/security`), `notify_provider_adapter.go`, and `notify_email_adapter.go` (wraps `MailService` behind the module's `Mailer`/`TemplateRenderer` interfaces). `notify_provider_adapter.go`'s `buildNotifySender` maps a `NotificationProvider` row into a `map[string]any` config (`providerConfigMap`) and constructs the `Sender` by calling the module's self-registering provider factory registry (`notify.New(provider.Type, config)`) rather than a hardcoded per-provider switch/constructor call — `notify_providers_import.go` hand-picks the blank imports (`providers/discord`, `providers/slack`, `providers/gotify`, `providers/pushover`, `providers/ntfy`, `providers/telegram`, `providers/webhook`, `providers/email`) that register those factories at `init()` time, deliberately not importing `providers/all`. Charon's own supported-provider allowlist (`isSupportedNotificationProviderType`, `notification_service.go`) remains independently hardcoded and is not derived from the registry; a unit test asserts it stays a subset of `notify.RegisteredTypes()`. The formerly in-repo delivery engine (`internal/notifications/`) has been removed.
 - **SettingsService:** Application settings management
 - **BackupService:** Format-v2 archive creation (manifest + SHA-256 checksums), configurable cron scheduling, the safe-restore pipeline (validate → pre-restore safety backup → apply → reconcile), and optional age/scrypt archive encryption — see "Backup & Restore Subsystem" below
 
@@ -1124,9 +1125,13 @@ services:
 **Branch Strategy:**
 
 - `main`: Stable production branch
+- `development`: Integration branch; aggregates changes promoted from `main` plus ongoing work before they reach `nightly`
+- `nightly`: Nightly build/package branch; promoted weekly to `main` via a manual, merge-commit-only promotion PR
 - `feature/*`: New feature development
 - `fix/*`: Bug fixes
 - `chore/*`: Maintenance tasks
+
+See "Branch Promotion Chain" below for how changes flow `main` → `development` → `nightly` → `main` — note that each hop uses a *different* mechanism, not one uniform pipeline.
 
 **Commit Convention:**
 
@@ -1147,6 +1152,55 @@ provisioning via Let's Encrypt DNS-01 challenge.
 
 Closes #123
 ```
+
+### Branch Promotion Chain
+
+Charon promotes changes downstream through three long-lived branches:
+`main` (stable/production) → `development` (integration) → `nightly`
+(nightly builds) → back to `main` weekly. Each hop is driven by a
+**different mechanism**, with a different trust/automation level — this is
+deliberate, not an inconsistency to "fix" into one uniform pipeline:
+
+1. **`main` → `development`** (`.github/workflows/propagate-changes.yml`):
+   fires on every successful `Docker Build, Publish & Test` run on `main`
+   and opens an automated PR (labeled `auto-propagate`) into `development`.
+   - Diffs that touch a path listed under `sensitive_paths` in
+     `.github/propagate-config.yml` (e.g. `docs/plans/`, `.github/skills/`)
+     still get a PR, but it stays in draft with a warning in the PR body
+     naming the matched files, and does not get auto-merge — a human must
+     review and merge it.
+   - Diffs with no sensitive-path matches are opened ready-for-review and
+     the workflow attempts to enable GitHub's native auto-merge
+     (`mergeMethod: MERGE`, since this repo only allows merge commits).
+     Auto-merge only actually takes effect once the repo-level **Settings
+     → General → Pull Requests → Allow auto-merge** setting is turned on;
+     until then the mutation fails safely and just logs a warning.
+   - Loop prevention: the leg checks whether the triggering commit came
+     from a PR sourced in `development` and skips propagating back into it
+     (e.g. a `development` → `main`-sourced merge does not immediately
+     reopen a `main` → `development` PR).
+   - This workflow does **not** handle `development` → `nightly` — pushes
+     to `development` are deliberately a no-op here (see next item).
+
+2. **`development` → `nightly`**
+   (`.github/workflows/nightly-build.yml`, job `sync-development-to-nightly`):
+   a separate, pre-existing daily cron (09:00 UTC, plus `workflow_dispatch`)
+   that fast-forwards `nightly` to match `origin/development`, or, if a
+   fast-forward isn't possible, force-resets it (`git reset --hard
+   origin/development` + force-push). This bypasses PRs entirely — it is
+   not related to `propagate-changes.yml` above. An earlier draft of this
+   fix added a second, PR-based `development` → `nightly` leg to
+   `propagate-changes.yml`; that was dropped because it raced this cron —
+   the cron's next force-reset would silently collapse the PR's diff to
+   zero, leaving a dangling, unmergeable PR. `development` → `nightly`
+   therefore has exactly one mechanism: this cron.
+
+3. **`nightly` → `main`** (the weekly release,
+   `.github/workflows/weekly-nightly-promotion.yml`): a separate, manual
+   promotion PR, unrelated to either mechanism above. Always merged by hand
+   using **"Create a merge commit"** (never squash/rebase) — see the
+   "Weekly Promotion PRs" note in `CLAUDE.md`; squashing collapses commit
+   history the `auto-versioning` workflow needs to parse for version bumps.
 
 ### Code Review Process
 
