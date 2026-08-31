@@ -23,9 +23,33 @@ coverage:
 require_ci_to_pass: yes
 
 # -----------------------------------------------------------------------------
+# Notification gating
+# -----------------------------------------------------------------------------
+# Coverage is uploaded by three independent, parallel jobs in
+# .github/workflows/codecov-upload.yml (flags: backend, frontend, agent).
+# Without this, Codecov re-evaluates the project/patch commit statuses after
+# EACH upload lands, so the first upload produces a partial report that fails
+# the 87% gate — the status shows red, then flips green once the remaining
+# uploads arrive. after_n_builds makes Codecov hold the status as pending
+# until all 3 uploads are in, then post a single pass/fail.
+#
+# NOTE: on manual workflow_dispatch runs that disable a job (run_frontend=false
+# etc.) fewer than 3 uploads arrive and the status stays pending. Normal
+# pull_request runs always execute all 3 jobs, so this only affects ad-hoc
+# manual runs.
+codecov:
+  notify:
+    after_n_builds: 3
+    wait_for_ci: yes
+
+# -----------------------------------------------------------------------------
 # PR Comment Configuration
 # -----------------------------------------------------------------------------
 comment:
+  # Hold the PR comment until all 3 coverage uploads land, matching
+  # codecov.notify.after_n_builds — avoids posting partial numbers that
+  # get edited moments later.
+  after_n_builds: 3
   # Post coverage report as PR comment
   require_changes: false
   require_base: false
