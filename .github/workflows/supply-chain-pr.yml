@@ -31,7 +31,7 @@ jobs:
   verify-supply-chain:
     name: Verify Supply Chain
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20 # 20m: cold GHA cache (first run / post-eviction) is a full ~10-14m image build; warm-cache builds are far quicker.
     # Run for: manual dispatch, or successful workflow_run triggered by push/PR
     if: >
       github.event_name == 'workflow_dispatch' ||
@@ -249,12 +249,12 @@ jobs:
 
       - name: Build Docker image (Local)
         if: github.event_name != 'workflow_run'
+        uses: ./.github/actions/build-charon-image
+
+      - name: Expose local image name
+        if: github.event_name != 'workflow_run'
         id: build-image-local
-        run: |
-          echo "🐳 Building Docker image locally..."
-          docker build -t charon:local .
-          echo "image_name=charon:local" >> "$GITHUB_OUTPUT"
-          echo "✅ Built image: charon:local"
+        run: echo "image_name=charon:local" >> "$GITHUB_OUTPUT"
 
       - name: Set Target Image
         id: set-target
