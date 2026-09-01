@@ -43,7 +43,7 @@
     "date-fns": "^4.4.0",
     "i18next": "^26.4.1",
     "i18next-browser-languagedetector": "^8.2.1",
-    "lucide-react": "^1.38.0",
+    "lucide-react": "^1.39.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-hook-form": "^7.87.0",
@@ -57,7 +57,7 @@
   "devDependencies": {
     "@eslint/css": "^1.4.0",
     "@eslint/js": "^10.0.1",
-    "@eslint/json": "^2.0.1",
+    "@eslint/json": "^2.1.0",
     "@eslint/markdown": "^8.0.3",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4.3.3",
