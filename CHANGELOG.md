@@ -99,6 +99,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Bumped the Dockerfile's defensive `kin-openapi` pin to `v0.147.0` to match CrowdSec v1.8.0's native baseline
   - Full analysis: `docs/security/vulnerability-analysis-2026-09-02.md`
 
+- **GHSA-gcjh-h69q-9w9g**: Fixed a MEDIUM information-exposure issue in `github.com/google/cel-go` v0.28.1 embedded in the bundled Caddy binary (`/usr/bin/caddy`), where struct fields tagged `json:"-"` were reachable from CEL expressions instead of being skipped
+  - Previously risk-accepted via a `.trivyignore` suppression because the upstream fix (cel-go v0.29) was source-incompatible with Caddy v2.11.4's `celmatcher.go` and no tagged Caddy release carried the adjustment
+  - Now resolved outright: the `caddy-builder` stage pins `cel-go v0.29.2` and source-patches Caddy v2.11.4's `celmatcher.go` in the module cache (the 2-line `interpreter.NewCall` signature change), replicating upstream Caddy commit `b2693fb` / PR #7872, with build-time assertions that the patch applied and that `/usr/bin/caddy` embeds cel-go v0.29.x
+  - The `.trivyignore` suppression is removed; revert the pin and source patch once `CADDY_VERSION` >= 2.11.5
+  - Real-world exploitability for Charon was ~zero: Caddy's CEL matcher only evaluates admin-authored static config expressions and never registers attacker-controlled native struct types at runtime
+  - Full analysis: `docs/security/vulnerability-analysis-2026-09-02.md`
+
 - **Orthrus Muzzle Normalization Order (GH #1160)**: Fixed a divergence
   between the backend and agent-side Docker API allowlist filters where the
   agent normalized a request path (version-prefix strip, then
