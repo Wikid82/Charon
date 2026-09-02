@@ -27,7 +27,65 @@ public disclosure.
 
 ## Known Vulnerabilities
 
-Last reviewed: 2026-08-19
+Last reviewed: 2026-09-02
+
+### [RESOLVED] GHSA-r277-6w6q-xmqw · kin-openapi Fail-Open Authentication Bypass (bundled CrowdSec)
+
+| Field        | Value |
+|--------------|-------|
+| **ID**       | GHSA-r277-6w6q-xmqw (CVSS 9.1); related GHSA-jpcw-4wr7-c3vq / CVE-2026-73502 (CVSS 5.3) |
+| **Severity** | Critical |
+| **Status**   | Resolved — nightly build realigned to CrowdSec v1.8.0 (ships patched `kin-openapi`) |
+
+**What**
+`github.com/getkin/kin-openapi` before v0.144.0 has a fail-open flaw: when request-validation
+middleware is built via `ValidationHandler.Load()` without an explicit `AuthenticationFunc`, the
+handler falls back to a no-op authenticator that approves every security requirement in the
+OpenAPI spec, so routes marked as authenticated are validated as authenticated regardless of the
+credentials presented. The same version also has a DoS panic on crafted input
+(GHSA-jpcw-4wr7-c3vq / CVE-2026-73502). Both were flagged by the nightly Trivy/Grype supply-chain
+scan against the bundled CrowdSec binaries.
+
+**Who**
+
+- Detected by: Charon nightly `verify-nightly-supply-chain` scan (Trivy + Grype)
+- Affects: Nightly container images only — the PR/`main` image was already built against the
+  patched CrowdSec and never carried the vulnerable version
+
+**Where**
+
+- Component: `github.com/getkin/kin-openapi`, embedded in `/usr/local/bin/crowdsec` and
+  `/usr/local/bin/cscli` (CrowdSec's Local API)
+- Version found: v0.137.0 (required by CrowdSec v1.7.8's `go.mod`)
+- Fixed version: v0.144.0; CrowdSec v1.8.0 ships v0.147.0 natively
+
+**When**
+
+- Detected in Charon: 2026-09-02
+- Fixed upstream: kin-openapi v0.144.0
+- Resolved in Charon: 2026-09-02
+
+**How**
+A stale `CROWDSEC_VERSION=1.7.8` `build-args` override hard-coded in
+`.github/workflows/nightly-build.yml` shadowed the Dockerfile's `ARG CROWDSEC_VERSION=1.8.0`
+(bumped in commit `f7aafb52`). A `build-args` value always wins over the `ARG` default, so the
+nightly image kept building EOL CrowdSec v1.7.8 — whose module graph pulls the vulnerable
+`kin-openapi v0.137.0` — while `docker-build.yml` sets no such override and built v1.8.0
+(`kin-openapi v0.147.0`, patched). The `crowdsec-builder` stage's defensive
+`go get kin-openapi@v0.144.0` pin had not been taking effect in the nightly binary for weeks and
+was not relied on for the fix.
+
+**Resolution**
+Removed the `CROWDSEC_VERSION=1.7.8` line from the `build-and-push-nightly` job's build step so
+the nightly build inherits `ARG CROWDSEC_VERSION=1.8.0` from the Dockerfile (now the single
+source of truth for the CrowdSec version). Bumped the Dockerfile's defensive `kin-openapi` pin
+from v0.144.0 to v0.147.0 to match CrowdSec v1.8.0's native baseline and keep it as a
+defense-in-depth floor / Renovate anchor. Real-world exposure was limited because CrowdSec's LAPI
+is not network-exposed in a standard Charon deployment, but the fix is a straight version
+alignment so it is remediated outright. Definitive re-scan is the next `nightly-build.yml` run.
+Full analysis: `docs/security/vulnerability-analysis-2026-09-02.md`.
+
+---
 
 ### [RESOLVED] GHSA-rw47-hm26-6wr7 / CVE-2026-44982 · CrowdSec AppSec Drops HTTP Request Body
 
@@ -1159,4 +1217,4 @@ We recognize security researchers who help improve Charon:
 
 ---
 
-**Last Updated**: 2026-05-18
+**Last Updated**: 2026-09-02

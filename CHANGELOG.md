@@ -93,6 +93,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **GHSA-r277-6w6q-xmqw / GHSA-jpcw-4wr7-c3vq (CVE-2026-73502)**: Fixed a CRITICAL (CVSS 9.1) fail-open authentication bypass and a related DoS panic in `github.com/getkin/kin-openapi` embedded in the bundled CrowdSec binaries (`/usr/local/bin/crowdsec`, `/usr/local/bin/cscli`)
+  - Root cause: a stale `CROWDSEC_VERSION=1.7.8` build-arg override in `nightly-build.yml` shadowed the Dockerfile's `ARG CROWDSEC_VERSION=1.8.0`, so nightly kept building EOL CrowdSec v1.7.8 (→ `kin-openapi v0.137.0`) while the PR/`main` image already built v1.8.0 (→ `kin-openapi v0.147.0`, patched)
+  - Removed the workflow override so the nightly build inherits the Dockerfile's CrowdSec v1.8.0 default (Dockerfile `ARG` is now the single source of truth)
+  - Bumped the Dockerfile's defensive `kin-openapi` pin to `v0.147.0` to match CrowdSec v1.8.0's native baseline
+  - Full analysis: `docs/security/vulnerability-analysis-2026-09-02.md`
+
 - **Orthrus Muzzle Normalization Order (GH #1160)**: Fixed a divergence
   between the backend and agent-side Docker API allowlist filters where the
   agent normalized a request path (version-prefix strip, then

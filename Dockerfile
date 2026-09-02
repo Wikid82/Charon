@@ -607,9 +607,13 @@ RUN set -e; \
     # Fix available at v1.2.0.
     # renovate: datasource=go depName=github.com/buger/jsonparser
     _retry go get github.com/buger/jsonparser@v1.2.0; \
-    # GHSA-r277-6w6q-xmqw: kin-openapi ValidationHandler.Load() Fail-Open Authentication Bypass via NoopAuthenticationFunc Default
+    # kin-openapi: CrowdSec v1.8.0 already ships v0.147.0 natively (its go.mod baseline),
+    # which is past the GHSA-r277-6w6q-xmqw (ValidationHandler.Load() fail-open auth bypass,
+    # fixed v0.144.0) and GHSA-jpcw-4wr7-c3vq / CVE-2026-73502 (DoS panic) fixes. This explicit
+    # pin is a defense-in-depth floor and a Renovate anchor so an accidental MVS downgrade or a
+    # CrowdSec version regression cannot reintroduce a pre-v0.147.0 (vulnerable) resolution.
     # renovate: datasource=go depName=github.com/getkin/kin-openapi
-    _retry go get github.com/getkin/kin-openapi@v0.144.0; \
+    _retry go get github.com/getkin/kin-openapi@v0.147.0; \
     # CVE-2026-56864 / CVE-2026-56865: golang.org/x/mod/sumdb GOSUMDB tile-verification bypass
     # (a colluding GOPROXY+GOSUMDB pair could forge sumdb tiles / serve module content outside
     # the transparency log). Affects /usr/local/bin/crowdsec and /usr/local/bin/cscli — go mod
