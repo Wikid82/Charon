@@ -16,7 +16,7 @@ permissions:
   checks: write
 
 env:
-  GO_VERSION: '1.27.0'
+  GO_VERSION: '1.27.1'
   NODE_VERSION: '24.20.0'
   GOTOOLCHAIN: auto
 
