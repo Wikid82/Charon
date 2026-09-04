@@ -33,6 +33,12 @@ ARG XCRYPTO_VERSION=0.56.0
 # pull it in transitively) are patched immediately, ahead of upstream releases.
 # renovate: datasource=go depName=github.com/klauspost/compress
 ARG KLAUSPOST_COMPRESS_VERSION=1.20.0
+# grpc-go HTTP/2 DATA-frame memory-exhaustion DoS fix (CVE-2026-84304), matching how
+# golang.org/x/crypto and klauspost/compress are patched above: pinned here so the Caddy
+# and CrowdSec/cscli binaries (which pull it in transitively) are patched immediately,
+# ahead of upstream releases.
+# renovate: datasource=go depName=google.golang.org/grpc
+ARG GRPC_VERSION=1.83.1
 # renovate: datasource=npm depName=npm
 ARG NPM_VERSION=12.0.2
 
@@ -305,6 +311,7 @@ ARG EXPR_LANG_VERSION
 ARG XNET_VERSION
 ARG XCRYPTO_VERSION
 ARG KLAUSPOST_COMPRESS_VERSION
+ARG GRPC_VERSION
 ARG CROWDSEC_VERSION
 
 # hadolint ignore=DL3018
@@ -401,10 +408,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # klauspost/compress DoS/resource-exhaustion fix. Affects /usr/bin/caddy
         # (transitive dependency). Fix available at v1.18.7.
         _retry go get github.com/klauspost/compress@v${KLAUSPOST_COMPRESS_VERSION}; \
-        # GHSA-hrxh-6v49-42gf: grpc-go xDS RBAC and HTTP/2 vulnerabilities
-        # Patched in grpc-go v1.82.1. Pin here so the Caddy binary is patched immediately.
-        # renovate: datasource=go depName=google.golang.org/grpc
-        _retry go get google.golang.org/grpc@v1.82.1; \
+        # grpc-go HTTP/2 DATA-frame memory-exhaustion DoS (CVE-2026-84304), plus the
+        # earlier GHSA-hrxh-6v49-42gf xDS RBAC / HTTP/2 fixes. Affects /usr/bin/caddy
+        # (transitive dependency). Fixed at v1.83.1.
+        _retry go get google.golang.org/grpc@v${GRPC_VERSION}; \
         # CVE-2026-34986: go-jose JOSE/JWT validation bypass
         # renovate: datasource=go depName=github.com/go-jose/go-jose/v3
         _retry go get github.com/go-jose/go-jose/v3@v3.0.5; \
@@ -563,6 +570,7 @@ ARG CROWDSEC_RELEASE_SHA256
 ARG EXPR_LANG_VERSION
 ARG XNET_VERSION
 ARG KLAUSPOST_COMPRESS_VERSION
+ARG GRPC_VERSION
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache git clang lld
@@ -604,10 +612,10 @@ RUN set -e; \
     # klauspost/compress DoS/resource-exhaustion fix. Affects /usr/local/bin/crowdsec
     # and /usr/local/bin/cscli (transitive dependency). Fix available at v1.18.7.
     _retry go get github.com/klauspost/compress@v${KLAUSPOST_COMPRESS_VERSION}; \
-    # GHSA-hrxh-6v49-42gf: grpc-go xDS RBAC and HTTP/2 vulnerabilities
-    # Patched in grpc-go v1.82.1. Pin here so the CrowdSec binary is patched immediately.
-    # renovate: datasource=go depName=google.golang.org/grpc
-    _retry go get google.golang.org/grpc@v1.82.1; \
+    # grpc-go HTTP/2 DATA-frame memory-exhaustion DoS (CVE-2026-84304), plus the earlier
+    # GHSA-hrxh-6v49-42gf xDS RBAC / HTTP/2 fixes. Affects /usr/local/bin/crowdsec and
+    # /usr/local/bin/cscli (transitive dependency). Fixed at v1.83.1.
+    _retry go get google.golang.org/grpc@v${GRPC_VERSION}; \
     # CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
     # renovate: datasource=github-tags depName=jackc/pgx
     _retry go get github.com/jackc/pgx/v4@v4.18.3; \

@@ -428,6 +428,19 @@
     },
     {
       "customType": "regex",
+      "description": "Track google.golang.org/grpc version ARG in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=go\\s+depName=google\\.golang\\.org/grpc\\s*\\nARG GRPC_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "google.golang.org/grpc",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
       "description": "Track golang-jwt/jwt v5 in go.mod via github-tags (workaround: Renovate go datasource no-result for /vN module paths)",
       "managerFilePatterns": [
         "/^backend/go\\.mod$/"
