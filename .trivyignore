@@ -271,3 +271,16 @@ CVE-2026-54874
 # uses Go's native crypto/tls/cipher, not OpenSSL AEAD, for TLS.
 # exp: 2026-09-09
 CVE-2026-75803
+
+# CVE-2025-60876: BusyBox wget accepts raw CR/LF/C0 control bytes in the HTTP request-target
+# → request-line splitting / header injection (CWE-284)
+# Severity: MEDIUM (CVSS 6.5) — Packages: busybox / busybox-binsh / busybox-extras /
+# ssl_client 1.37.0-r31 in the Alpine 3.24.1 base image. No upstream fix: Alpine v3.24 still
+# ships busybox 1.37.0-r31. The flaw is in the wget applet acting as an HTTP client; Charon
+# invokes busybox wget only from the Dockerfile HEALTHCHECK and the build-time GeoIP
+# download, both with static, non-attacker-controlled URLs. No runtime path passes user
+# input to busybox wget. EPSS 0.29% (21st pct).
+# Review by: 2026-12-04
+# See also: .grype.yaml for full justification; SECURITY.md "[MEDIUM] CVE-2025-60876".
+# exp: 2026-12-04
+CVE-2025-60876

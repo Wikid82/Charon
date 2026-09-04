@@ -26,6 +26,9 @@ ARG CROWDSEC_RELEASE_SHA256=deae1f43ddf1118339dc4f774289d745c957802423d0310ad1d2
 ARG EXPR_LANG_VERSION=1.17.8
 # renovate: datasource=go depName=golang.org/x/net
 ARG XNET_VERSION=0.58.0
+# Shared golang.org/x/crypto pin — consumed by BOTH the caddy-builder and the
+# crowdsec-builder stages so the two never drift. v0.56.0 also carries the
+# golang.org/x/crypto/ssh channel-flood deadlock DoS fixes (GO-2026-6354, GO-2026-6355).
 # renovate: datasource=go depName=golang.org/x/crypto
 ARG XCRYPTO_VERSION=0.56.0
 # klauspost/compress DoS/resource-exhaustion fix, matching how golang.org/x/crypto
@@ -569,6 +572,7 @@ ARG CROWDSEC_VERSION
 ARG CROWDSEC_RELEASE_SHA256
 ARG EXPR_LANG_VERSION
 ARG XNET_VERSION
+ARG XCRYPTO_VERSION
 ARG KLAUSPOST_COMPRESS_VERSION
 ARG GRPC_VERSION
 
@@ -606,8 +610,13 @@ RUN set -e; \
         return 1; \
     }; \
     _retry go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION}; \
+    # golang.org/x/crypto/ssh channel-flood deadlock DoS (GO-2026-6354 / CVE-2026-78662
+    # and GO-2026-6355 / CVE-2026-56855). Affects /usr/local/bin/crowdsec and
+    # /usr/local/bin/cscli (transitive dependency). Fixed at v0.56.0. Pinned via the
+    # shared XCRYPTO_VERSION build-arg so this stays aligned with the caddy-builder pin
+    # instead of drifting behind on a hard-coded literal.
     # renovate: datasource=go depName=golang.org/x/crypto
-    _retry go get golang.org/x/crypto@v0.52.0; \
+    _retry go get golang.org/x/crypto@v${XCRYPTO_VERSION}; \
     _retry go get golang.org/x/net@v${XNET_VERSION}; \
     # klauspost/compress DoS/resource-exhaustion fix. Affects /usr/local/bin/crowdsec
     # and /usr/local/bin/cscli (transitive dependency). Fix available at v1.18.7.

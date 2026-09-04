@@ -320,7 +320,7 @@ Moby dependency paths.
 |--------------|-------|
 | **ID**       | CVE-2025-60876 |
 | **Severity** | Medium · 6.5 |
-| **Status**   | Awaiting Upstream |
+| **Status**   | Awaiting Upstream (suppressed in `.trivyignore` + `.grype.yaml`) |
 
 **What**
 BusyBox wget through 1.37 accepts raw CR/LF and other C0 control bytes in the HTTP
@@ -329,28 +329,33 @@ request-target, allowing request line splitting and header injection (CWE-284).
 **Who**
 
 - Discovered by: Automated scan (Grype)
-- Reported: 2026-03-24
+- Reported: 2026-03-24; re-surfaced on the 2026-09-04 nightly scan against the Alpine 3.24.1 base
 - Affects: Container runtime environment; Charon does not invoke busybox wget in application logic
 
 **Where**
 
-- Component: Alpine 3.23.3 base image (`busybox` 1.37.0-r30)
-- Versions affected: All Charon images using Alpine 3.23.3 with busybox < patched version
+- Component: Alpine 3.24.1 base image (`busybox` / `busybox-binsh` / `busybox-extras` /
+  `ssl_client` 1.37.0-r31)
+- Versions affected: All Charon images using an Alpine base with busybox ≤ 1.37.0 (no patched
+  APK published yet)
 
 **When**
 
 - Discovered: 2026-03-24
-- Disclosed (if public): Not yet publicly disclosed with fix
-- Target fix: When Alpine Security publishes a patched busybox APK
+- Disclosed (if public): Public (NVD, 2026-08)
+- Target fix: When Alpine Security publishes a patched busybox APK for the v3.24 branch
 
 **How**
-The vulnerable wget applet would need to be manually invoked inside the container with
-attacker-controlled URLs. Charon's application logic does not use busybox wget. EPSS score is
-0.00064 (0.20 percentile), indicating extremely low exploitation probability.
+The flaw is in the `wget` applet acting as an HTTP *client*. Charon invokes busybox wget in
+exactly two places, both with static, non-attacker-controlled URLs: the Dockerfile
+`HEALTHCHECK` (`wget … http://localhost:8080/api/v1/health`) and the build-time GeoLite2
+download. No runtime code path passes user input to busybox wget — Charon's own outbound HTTP
+goes through the Go backend's `net/http`. EPSS 0.29% (21st percentile).
 
 **Planned Remediation**
-Monitor Alpine 3.23 for a patched busybox APK. No immediate action required. Practical risk to
-Charon users is negligible since the vulnerable code path is not exercised.
+Monitor Alpine v3.24 for a patched busybox APK. No immediate action required — the vulnerable
+code path is not exercised. Suppressed in `.trivyignore` and `.grype.yaml`; review 2026-12-04,
+remove both entries once a patched APK ships and a rebuild scans clean.
 
 ---
 
@@ -501,10 +506,12 @@ present in bundled components.
 | **Status**   | Awaiting Upstream (no fixed version exists) |
 
 **What**
-`golang.org/x/crypto/openpgp` v0.53.0 is flagged by the Go vulnerability database as
-unmaintained and unsafe by design — this is not a specific patchable bug, it is Go's standing
-recommendation to migrate off the openpgp subpackage entirely (superseded by
-`github.com/ProtonMail/go-crypto`). No fixed `golang.org/x/crypto` version resolves this.
+`golang.org/x/crypto/openpgp` (v0.53.0 when first flagged; v0.55.0 in crowdsec/cscli and
+v0.56.0 in `app/charon` and `usr/bin/caddy` as of the 2026-09-04 scan) is flagged by the Go
+vulnerability database as unmaintained and unsafe by design — this is not a specific patchable
+bug, it is Go's standing recommendation to migrate off the openpgp subpackage entirely
+(superseded by `github.com/ProtonMail/go-crypto`). No fixed `golang.org/x/crypto` version
+resolves this.
 
 **Who**
 
@@ -535,7 +542,9 @@ dependency of theirs that Charon does not control.
 **Planned Remediation**
 No remediation path exists upstream. Monitor whether caddy/crowdsec/cscli drop their dependency
 on `x/crypto/openpgp`, and periodically re-run `govulncheck` to confirm Charon's own code stays
-clean. Suppressed in `.trivyignore` and `.grype.yaml`; review 2026-08-08.
+clean. Suppressed in `.trivyignore` and `.grype.yaml`; the `.grype.yaml` entry was broadened on
+2026-09-04 to drop its `version:` pin (newer builds moved the flagged version and re-surfaced
+it). Review 2026-12-04.
 
 ---
 
@@ -595,6 +604,102 @@ not suppress any other high/critical finding, only this exact chain.
 ---
 
 ## Patched Vulnerabilities
+
+### ✅ [HIGH] CVE-2026-84304 / GHSA-vp52-pcj8-j9qc · gRPC-Go HTTP/2 DATA-Frame Heap Exhaustion (bundled Caddy)
+
+| Field        | Value |
+|--------------|-------|
+| **ID**       | CVE-2026-84304 / GHSA-vp52-pcj8-j9qc |
+| **Severity** | High · 8.7 (CVSS 4.0) |
+| **Patched**  | 2026-09-03 (Dockerfile pin); image rebuild pending |
+
+**What**
+`google.golang.org/grpc` before v1.83.1 stores each fragmented HTTP/2 DATA frame as a separate
+`recvMsg` in `recvBuffer`, so millions of one-byte frames can consume disproportionate heap
+memory while staying within flow-control windows. An unauthenticated remote attacker using
+concurrent multiplexed streams can drive the process to OOM / panic (CWE-400).
+
+**Who**
+
+- Discovered by: Automated scan (Grype), 2026-09-04 nightly
+- Advisory published: 2026-09-02
+- Affects: `google.golang.org/grpc` v1.83.0 embedded in the bundled Caddy binary
+  (`/usr/bin/caddy`); Charon's own backend does not link grpc
+
+**Where**
+
+- Component: `google.golang.org/grpc` (transitive dep of `xcaddy`-built Caddy and of the
+  from-source CrowdSec binaries)
+- Versions affected: grpc-go ≤ 1.83.0
+
+**When**
+
+- Discovered: 2026-09-04
+- Patched: 2026-09-03 (commit `761e37fd` — `ARG GRPC_VERSION` bumped to `1.83.1`)
+
+**How**
+The Dockerfile already patches grpc-go ahead of upstream Caddy/CrowdSec releases: both the
+`caddy-builder` and `crowdsec-builder` stages run `go get google.golang.org/grpc@v${GRPC_VERSION}`
+with `GRPC_VERSION=1.83.1`. The 2026-09-04 scan flagged v1.83.0 only because it ran against an
+image built before commit `761e37fd`.
+
+**Resolution**
+No further code change required. The finding clears on the next image build. In a standard
+Charon deployment neither Caddy's nor CrowdSec's gRPC listeners are exposed to untrusted
+network input, bounding pre-rebuild exposure. Full analysis:
+[vulnerability-analysis-2026-09-04.md](docs/security/vulnerability-analysis-2026-09-04.md).
+
+---
+
+### ✅ [UNKNOWN] GO-2026-6354 / CVE-2026-78662 + GO-2026-6355 / CVE-2026-56855 · golang.org/x/crypto/ssh Channel-Flood Deadlock (bundled CrowdSec)
+
+| Field        | Value |
+|--------------|-------|
+| **ID**       | GO-2026-6354 / CVE-2026-78662 · GO-2026-6355 / CVE-2026-56855 |
+| **Severity** | Unknown (Go vulndb); DoS class |
+| **Patched**  | 2026-09-04 (Dockerfile pin); image rebuild pending |
+
+**What**
+Two `golang.org/x/crypto/ssh` server-side deadlock bugs, both fixed in **v0.56.0**:
+
+- **GO-2026-6354** — a channel registered in the mux's `chanList` is usable before it is
+  established; a malicious peer could flood its `incomingRequests` and deadlock the whole
+  connection.
+- **GO-2026-6355** — after a channel is established, a malicious peer could send crafted
+  messages that deadlock the connection instead of being rejected as a protocol error.
+
+**Who**
+
+- Discovered by: Automated scan (Grype), 2026-09-04 nightly
+- Advisory published: 2026-09-02
+- Affects: `golang.org/x/crypto` v0.55.0 embedded in `/usr/local/bin/crowdsec` and
+  `/usr/local/bin/cscli`. `/app/charon` and `/usr/bin/caddy` already shipped v0.56.0 and were
+  never affected.
+
+**Where**
+
+- Component: `golang.org/x/crypto/ssh` (transitive dep of the from-source CrowdSec build)
+- Versions affected: `golang.org/x/crypto` < v0.56.0
+
+**When**
+
+- Discovered: 2026-09-04
+- Patched: 2026-09-04
+
+**How**
+The `crowdsec-builder` Dockerfile stage carried a hard-coded `go get golang.org/x/crypto@v0.52.0`
+floor that had drifted behind the `caddy-builder` stage's shared `XCRYPTO_VERSION=0.56.0` pin;
+MVS resolved the CrowdSec binaries to v0.55.0. CrowdSec runs no SSH server, so `x/crypto/ssh` is
+only a transitive link and real-world exposure is negligible — but the fix is a one-line pin
+alignment.
+
+**Resolution**
+`crowdsec-builder` now consumes the shared `XCRYPTO_VERSION` build-arg
+(`go get golang.org/x/crypto@v${XCRYPTO_VERSION}`, v0.56.0), so both builder stages stay aligned
+and cannot silently diverge again. The finding clears on the next image build. Full analysis:
+[vulnerability-analysis-2026-09-04.md](docs/security/vulnerability-analysis-2026-09-04.md).
+
+---
 
 ### ✅ [LOW] GO-2026-5024 / CVE-2026-39824 · golang.org/x/sys in gosu Build Stage
 
