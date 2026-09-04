@@ -17,15 +17,19 @@ inputs:
       Comma-separated Dockerfile stages to force-rebuild (never restore from the
       layer cache). Empty by default: every stage, including the expensive
       caddy-builder xcaddy step, is GHA layer-cached — that is where the build
-      time is recovered. None of this action's callers publish a released
-      artifact; the release image is built by docker-build.yml, which runs its
-      own clean rebuild of caddy-builder / crowdsec-builder. The PR-gate scan
-      jobs that use this action (security-pr.yml, supply-chain-pr.yml) scan the
-      resulting binary / filesystem / SBOM against a scan-time vulnerability DB,
-      so a cached layer cannot hide a CVE in a pinned dependency; the only
-      staleness is the two unpinned xcaddy plugins (caddy-geoip2,
-      caddy-ratelimit), which refresh whenever the Dockerfile or a build-arg
-      changes or the cache is evicted. Pass a value to override.
+      time is recovered. Suitable for the integration-test callers
+      (waf/crowdsec/rate-limit/cerberus), which exercise runtime behaviour and
+      do not care about dependency freshness.
+
+      CVE-scan-gate callers (security-pr.yml, supply-chain-pr.yml) MUST override
+      this with `caddy-builder,crowdsec-builder`. The caddy-builder and
+      crowdsec-builder stages patch pinned transitive dependencies in-place
+      (`go get pkg@fixed` in their Stage 2 blocks). A global build-arg bump does
+      not reliably invalidate the GHA layer-cache key for a stage that only
+      *consumes* that arg (the same edge case that produced CVE-2026-45135 and
+      the 2026-09-04 grpc-go v1.83.0 recurrence), so a restored stale layer keeps
+      shipping the superseded, still-vulnerable version. The release image
+      (docker-build.yml) already force-rebuilds caddy-builder for this reason.
     required: false
     default: ''
 runs:

@@ -611,7 +611,7 @@ not suppress any other high/critical finding, only this exact chain.
 |--------------|-------|
 | **ID**       | CVE-2026-84304 / GHSA-vp52-pcj8-j9qc |
 | **Severity** | High · 8.7 (CVSS 4.0) |
-| **Patched**  | 2026-09-03 (Dockerfile pin); image rebuild pending |
+| **Patched**  | 2026-09-03 (Dockerfile pin) + 2026-09-04 (CI layer-cache fix) |
 
 **What**
 `google.golang.org/grpc` before v1.83.1 stores each fragmented HTTP/2 DATA frame as a separate
@@ -640,13 +640,22 @@ concurrent multiplexed streams can drive the process to OOM / panic (CWE-400).
 **How**
 The Dockerfile already patches grpc-go ahead of upstream Caddy/CrowdSec releases: both the
 `caddy-builder` and `crowdsec-builder` stages run `go get google.golang.org/grpc@v${GRPC_VERSION}`
-with `GRPC_VERSION=1.83.1`. The 2026-09-04 scan flagged v1.83.0 only because it ran against an
-image built before commit `761e37fd`.
+with `GRPC_VERSION=1.83.1` (commit `761e37fd`). The finding nonetheless recurred on the
+2026-09-04 `supply-chain-verify` run: the CI SBOM showed grpc **v1.83.1** in the CrowdSec
+binaries but **v1.83.0** in `/usr/bin/caddy` — the same image, two versions. The PR scan-gate
+builds the image via the shared `build-charon-image` composite action with a GHA layer cache
+and (by its old default) no forced stage rebuilds. A global build-arg bump does not reliably
+invalidate the layer-cache key of a stage that only *consumes* that arg (the same BuildKit
+`type=gha` edge case as CVE-2026-45135), so `caddy-builder` was restored from a cache entry
+predating `761e37fd` and the `go get grpc@…` patch inside that skipped stage never re-ran.
 
 **Resolution**
-No further code change required. The finding clears on the next image build. In a standard
-Charon deployment neither Caddy's nor CrowdSec's gRPC listeners are exposed to untrusted
-network input, bounding pre-rebuild exposure. Full analysis:
+`supply-chain-pr.yml` and `security-pr.yml` now pass
+`no-cache-filters: caddy-builder,crowdsec-builder` to the `build-charon-image` composite
+action, matching the release build (`docker-build.yml`, `--no-cache-filter caddy-builder`)
+and the nightly / e2e builds. The two from-source stages are always rebuilt for CVE-scan
+gates; integration-test callers keep the fast cached path. The **published release image was
+never affected** — its build already force-rebuilds `caddy-builder`. Full analysis:
 [vulnerability-analysis-2026-09-04.md](docs/security/vulnerability-analysis-2026-09-04.md).
 
 ---
