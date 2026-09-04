@@ -32,7 +32,7 @@ ARG XCRYPTO_VERSION=0.56.0
 # is patched above: pinned here so the CrowdSec/cscli and Caddy binaries (which
 # pull it in transitively) are patched immediately, ahead of upstream releases.
 # renovate: datasource=go depName=github.com/klauspost/compress
-ARG KLAUSPOST_COMPRESS_VERSION=1.19.2
+ARG KLAUSPOST_COMPRESS_VERSION=1.20.0
 # renovate: datasource=npm depName=npm
 ARG NPM_VERSION=12.0.2
 
