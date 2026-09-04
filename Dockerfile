@@ -484,6 +484,15 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         fi; \
         # Final re-pin: enforce requested Caddy core version after plugin/security updates.
         _retry go get github.com/caddyserver/caddy/v2@v${CADDY_TARGET_VERSION}; \
+        # Final re-pin: grpc-go (CVE-2026-84304). MUST come after the OpenTelemetry
+        # go.get block above: `go get .../otlp*http@v0.19.0 / v1.43.0` is a *downgrade*,
+        # and go get's downgrade cascade drags google.golang.org/grpc back down to the
+        # v1.83.0-dev that otel v1.43.0 requires (v1.83.1 => v1.83.0-dev => v1.83.0 in
+        # the build log), silently undoing the earlier pin. Re-pinning here — with grpc
+        # named on the command line so it is held fixed — and letting `go mod tidy`
+        # settle MVS keeps the shipped /usr/bin/caddy on the fixed v1.83.1. Same
+        # "final re-pin after plugin updates" pattern as the Caddy-core line above.
+        _retry go get google.golang.org/grpc@v${GRPC_VERSION}; \
         # Clean up go.mod and ensure all dependencies are resolved
         _retry go mod tidy; \
         # Patch DecisionsListOpts API: crowdsec v1.7.8 changed fields (IPEquals, ScopeEquals,
@@ -554,6 +563,11 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Assert the shipped binary embeds the fixed cel-go (GHSA-gcjh-h69q-9w9g).
         go version -m /usr/bin/caddy | grep -E "github.com/google/cel-go[[:space:]]+v0\.29\." || { echo "ERROR: /usr/bin/caddy did not embed cel-go v0.29.x"; exit 1; }; \
         echo "Verified /usr/bin/caddy embeds cel-go v0.29.x"; \
+        # Assert the shipped binary embeds the fixed grpc-go (CVE-2026-84304). The
+        # OpenTelemetry downgrade block is prone to dragging grpc back to v1.83.0; fail
+        # the build loudly rather than ship a silently-regressed binary.
+        go version -m /usr/bin/caddy | grep -E "google\.golang\.org/grpc[[:space:]]+v${GRPC_VERSION}[[:space:]]" || { echo "ERROR: /usr/bin/caddy did not embed grpc-go v${GRPC_VERSION} (CVE-2026-84304)"; go version -m /usr/bin/caddy | grep "google.golang.org/grpc" || true; exit 1; }; \
+        echo "Verified /usr/bin/caddy embeds grpc-go v${GRPC_VERSION}"; \
         # Clean up temporary build directories
         rm -rf /tmp/buildenv_* /tmp/caddy-initial'
 

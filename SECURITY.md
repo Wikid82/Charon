@@ -611,7 +611,7 @@ not suppress any other high/critical finding, only this exact chain.
 |--------------|-------|
 | **ID**       | CVE-2026-84304 / GHSA-vp52-pcj8-j9qc |
 | **Severity** | High · 8.7 (CVSS 4.0) |
-| **Patched**  | 2026-09-03 (Dockerfile pin) + 2026-09-04 (CI layer-cache fix) |
+| **Patched**  | 2026-09-03 (Dockerfile pin) + 2026-09-04 (caddy-builder re-pin + build assertion) |
 
 **What**
 `google.golang.org/grpc` before v1.83.1 stores each fragmented HTTP/2 DATA frame as a separate
@@ -635,27 +635,38 @@ concurrent multiplexed streams can drive the process to OOM / panic (CWE-400).
 **When**
 
 - Discovered: 2026-09-04
-- Patched: 2026-09-03 (commit `761e37fd` — `ARG GRPC_VERSION` bumped to `1.83.1`)
+- Patched: 2026-09-03 (`ARG GRPC_VERSION=1.83.1`, commit `761e37fd`) + 2026-09-04
+  (`caddy-builder` final re-pin + build assertion)
 
 **How**
-The Dockerfile already patches grpc-go ahead of upstream Caddy/CrowdSec releases: both the
-`caddy-builder` and `crowdsec-builder` stages run `go get google.golang.org/grpc@v${GRPC_VERSION}`
-with `GRPC_VERSION=1.83.1` (commit `761e37fd`). The finding nonetheless recurred on the
-2026-09-04 `supply-chain-verify` run: the CI SBOM showed grpc **v1.83.1** in the CrowdSec
-binaries but **v1.83.0** in `/usr/bin/caddy` — the same image, two versions. The PR scan-gate
-builds the image via the shared `build-charon-image` composite action with a GHA layer cache
-and (by its old default) no forced stage rebuilds. A global build-arg bump does not reliably
-invalidate the layer-cache key of a stage that only *consumes* that arg (the same BuildKit
-`type=gha` edge case as CVE-2026-45135), so `caddy-builder` was restored from a cache entry
-predating `761e37fd` and the `go get grpc@…` patch inside that skipped stage never re-ran.
+`GRPC_VERSION=1.83.1` was already pinned and both builder stages run
+`go get google.golang.org/grpc@v${GRPC_VERSION}`. The CrowdSec binaries came out on v1.83.1;
+`/usr/bin/caddy` kept coming out on v1.83.0 across three commits — including a run confirmed
+(from the buildx log) to have force-rebuilt `caddy-builder` from scratch. Not a cache
+problem. The `caddy-builder` Stage 2 log shows an MVS **downgrade cascade**: `go get grpc@…`
+sets v1.83.1 early, then the OpenTelemetry block downgrades
+`go.opentelemetry.io/otel/...@v1.43.0` / `otlp*http@v0.19.0`, and because `otel v1.43.0`
+requires `google.golang.org/grpc v1.83.0-dev`, `go get`'s downgrade walk — which is free to
+move any module *not* named on the current command line — drags grpc from v1.83.1 down to
+v1.83.0-dev and then to the tagged v1.83.0. The CrowdSec builder pins otel *up* and never
+downgrades the exporters, so it was unaffected.
 
 **Resolution**
-`supply-chain-pr.yml` and `security-pr.yml` now pass
-`no-cache-filters: caddy-builder,crowdsec-builder` to the `build-charon-image` composite
-action, matching the release build (`docker-build.yml`, `--no-cache-filter caddy-builder`)
-and the nightly / e2e builds. The two from-source stages are always rebuilt for CVE-scan
-gates; integration-test callers keep the fast cached path. The **published release image was
-never affected** — its build already force-rebuilds `caddy-builder`. Full analysis:
+Two changes in `caddy-builder` Stage 2, mirroring the Dockerfile's existing "final re-pin of
+the Caddy core version after plugin updates" pattern:
+
+1. A **final `go get google.golang.org/grpc@v${GRPC_VERSION}`** immediately before
+   `go mod tidy`, after the OpenTelemetry block — grpc is named on that command line, so it
+   is held fixed, and `go mod tidy` then keeps `require … grpc v1.83.1` (> the v1.83.0-dev
+   otel wants).
+2. A **post-build assertion**: `go version -m /usr/bin/caddy` must embed grpc
+   `v${GRPC_VERSION}` or the build fails — same guard style as the existing cel-go v0.29.x
+   assertion.
+
+The `no-cache-filters: caddy-builder,crowdsec-builder` change to `supply-chain-pr.yml` /
+`security-pr.yml` (commit `5c046238`) is kept as defence-in-depth but was not the cause.
+The published release image was built from the same `caddy-builder` and shipped grpc
+v1.83.0 until this fix; the build assertion now guarantees v1.83.1. Full analysis:
 [vulnerability-analysis-2026-09-04.md](docs/security/vulnerability-analysis-2026-09-04.md).
 
 ---
