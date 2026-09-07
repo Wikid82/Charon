@@ -57,6 +57,10 @@ permissions:
 
 env:
   TOOLCHAIN_IMAGE: ghcr.io/wikid82/charon-toolchain
+  # Fixed epoch for `rewrite-timestamp`: fully decouples the manifest-list digest
+  # from git history / build time, so an unchanged recipe (same toolchain key)
+  # always reproduces the SAME digest. Only bump if a global rebuild is wanted.
+  SOURCE_DATE_EPOCH: '1700000000'
 
 jobs:
   build-toolchain:
@@ -107,46 +111,86 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Decide cache flags
-        id: flags
+      - name: Decide build plan
+        id: plan
         env:
           EVENT_NAME: ${{ github.event_name }}
           FORCE_REBUILD: ${{ inputs.force_rebuild }}
+          SAME_REPO: ${{ steps.trust.outputs.same_repo }}
+          KEY: ${{ steps.key.outputs.key }}
         run: |
           set -euo pipefail
-          no_cache=""
-          if [[ "$EVENT_NAME" == "schedule" || "$FORCE_REBUILD" == "true" ]]; then
-            no_cache="--no-cache --pull"
-          fi
-          echo "no_cache=$no_cache" >> "$GITHUB_OUTPUT"
-          echo "cache flags: '${no_cache:-<layer cache>}'"
 
-      - name: Build toolchain image (multi-arch $BUILDPLATFORM cross-compile, no QEMU)
+          # Forced rebuild: schedule, or an explicit force_rebuild=true input
+          # (workflow_dispatch / workflow_call). PR / plain paths never force.
+          forced=false
+          if [[ "$EVENT_NAME" == "schedule" || "$FORCE_REBUILD" == "true" ]]; then
+            forced=true
+          fi
+          no_cache=""
+          [[ "$forced" == "true" ]] && no_cache="--no-cache --pull"
+
+          # Skip-if-already-published: on a non-forced run, if :$KEY already
+          # resolves in GHCR there is nothing to do — reuse the existing digest.
+          # This is a deterministic image (see the build step), so :$KEY for a
+          # given recipe is a single stable digest; rebuilding would be a no-op.
+          should_build=true
+          existing_digest=""
+          if [[ "$forced" != "true" && "$SAME_REPO" == "true" ]]; then
+            if existing_digest="$(docker buildx imagetools inspect "${TOOLCHAIN_IMAGE}:${KEY}" \
+                 --format '{{json .Manifest}}' 2>/dev/null | jq -r '.digest')" \
+               && [[ -n "$existing_digest" && "$existing_digest" != "null" ]]; then
+              should_build=false
+              echo "::notice::${TOOLCHAIN_IMAGE}:${KEY} already published (${existing_digest}) — skipping rebuild."
+            else
+              existing_digest=""
+            fi
+          fi
+
+          {
+            echo "forced=$forced"
+            echo "no_cache=$no_cache"
+            echo "should_build=$should_build"
+            echo "existing_digest=$existing_digest"
+          } >> "$GITHUB_OUTPUT"
+          echo "plan: forced=$forced should_build=$should_build cache='${no_cache:-<layer cache>}'"
+
+      - name: Build toolchain image (deterministic multi-arch, no QEMU)
         id: build
+        if: steps.plan.outputs.should_build == 'true'
         env:
           SAME_REPO: ${{ steps.trust.outputs.same_repo }}
           KEY: ${{ steps.key.outputs.key }}
-          NO_CACHE: ${{ steps.flags.outputs.no_cache }}
+          NO_CACHE: ${{ steps.plan.outputs.no_cache }}
         run: |
           set -euo pipefail
           DATE_TAG="$(date -u +%Y%m%d)"
-          TAGS=(-t "${TOOLCHAIN_IMAGE}:${KEY}" -t "${TOOLCHAIN_IMAGE}:${DATE_TAG}")
-          OUT="--output=type=cacheonly"
+          NAMES="${TOOLCHAIN_IMAGE}:${KEY},${TOOLCHAIN_IMAGE}:${DATE_TAG}"
           if [[ "$SAME_REPO" == "true" ]]; then
-            TAGS+=(-t "${TOOLCHAIN_IMAGE}:latest")
-            OUT="--push"
+            NAMES="${NAMES},${TOOLCHAIN_IMAGE}:latest"
+            OUT="type=image,\"name=${NAMES}\",push=true,rewrite-timestamp=true"
+          else
+            OUT="type=cacheonly"
           fi
 
+          # Deterministic: no provenance / SBOM attestation manifests (their
+          # content embeds per-run timestamps + builder identity, which would
+          # change the OCI-index digest on every build for identical layers).
+          # This image is an internal build INPUT, not a released artifact — the
+          # app image's own provenance/SBOM is generated separately and is
+          # unaffected. rewrite-timestamp + SOURCE_DATE_EPOCH stabilise layer
+          # mtimes. Result: identical key => identical manifest-list digest.
           # shellcheck disable=SC2086  # NO_CACHE is an intentional word-split flag list
           docker buildx build \
             --target toolchain-runtime \
             --platform linux/amd64,linux/arm64 \
             $NO_CACHE \
+            --provenance=false \
+            --sbom=false \
             --cache-from type=gha,scope=toolchain \
             --cache-to type=gha,mode=max,scope=toolchain \
             --build-arg "CHARON_TOOLCHAIN_TAG=${KEY}" \
-            "${TAGS[@]}" \
-            $OUT \
+            --output "${OUT}" \
             .
 
       - name: Resolve published manifest-list digest
@@ -154,16 +198,21 @@ jobs:
         if: steps.trust.outputs.same_repo == 'true'
         env:
           KEY: ${{ steps.key.outputs.key }}
+          EXISTING: ${{ steps.plan.outputs.existing_digest }}
         run: |
           set -euo pipefail
-          DIGEST="$(docker buildx imagetools inspect "${TOOLCHAIN_IMAGE}:${KEY}" \
-            --format '{{json .Manifest}}' | jq -r '.digest')"
+          if [[ -n "$EXISTING" ]]; then
+            DIGEST="$EXISTING"
+          else
+            DIGEST="$(docker buildx imagetools inspect "${TOOLCHAIN_IMAGE}:${KEY}" \
+              --format '{{json .Manifest}}' | jq -r '.digest')"
+          fi
           if [[ -z "$DIGEST" || "$DIGEST" == "null" ]]; then
             echo "::error::Could not resolve manifest-list digest for ${TOOLCHAIN_IMAGE}:${KEY}"
             exit 1
           fi
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
-          echo "Published ${TOOLCHAIN_IMAGE}:${KEY} @ ${DIGEST}"
+          echo "Toolchain ${TOOLCHAIN_IMAGE}:${KEY} @ ${DIGEST}"
 
       - name: Assert multi-arch manifest (linux/amd64 + linux/arm64)
         if: steps.trust.outputs.same_repo == 'true'
@@ -247,3 +296,164 @@ jobs:
         with:
           sarif_file: 'trivy-toolchain.sarif'
           category: '.github/workflows/toolchain-image.yml:trivy-toolchain'
+
+  # On a same-repo PR that legitimately moved a tracked pin, the recomputed key
+  # no longer matches the Dockerfile ARG. This job pushes the two-line
+  # TAG/DIGEST bump onto the PR head branch so verify-toolchain-pin goes green.
+  sync-pin-on-pr:
+    name: Sync toolchain pin onto the PR branch
+    needs: build-toolchain
+    # Idempotent + self-trigger-safe: never act on the bot's own commits, only
+    # commit when the Dockerfile pin genuinely changes. With the deterministic
+    # build above (same key => same digest) this essentially never fires unless a
+    # tracked pin actually moved on the PR.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'github-actions[bot]' &&
+      needs.build-toolchain.outputs.digest != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync ARG CHARON_TOOLCHAIN_TAG / DIGEST if stale
+        env:
+          KEY: ${{ needs.build-toolchain.outputs.key }}
+          DIGEST: ${{ needs.build-toolchain.outputs.digest }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          cur_tag="$(grep -E '^ARG CHARON_TOOLCHAIN_TAG=' Dockerfile | cut -d= -f2)"
+          cur_digest="$(grep -E '^ARG CHARON_TOOLCHAIN_DIGEST=' Dockerfile | cut -d= -f2)"
+          if [[ "$cur_tag" == "$KEY" && "$cur_digest" == "$DIGEST" ]]; then
+            echo "Toolchain pin already fresh ($KEY @ $DIGEST) — nothing to sync."
+            exit 0
+          fi
+          sed -i "s|^ARG CHARON_TOOLCHAIN_TAG=.*|ARG CHARON_TOOLCHAIN_TAG=${KEY}|" Dockerfile
+          sed -i "s|^ARG CHARON_TOOLCHAIN_DIGEST=.*|ARG CHARON_TOOLCHAIN_DIGEST=${DIGEST}|" Dockerfile
+          if git diff --quiet -- Dockerfile; then
+            echo "sed produced no net change — nothing to commit."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Dockerfile
+          git commit -m "chore(docker): sync toolchain image pin to ${KEY}"
+          git push origin "HEAD:${HEAD_REF}"
+          echo "::notice::Toolchain pin synced to ${KEY} @ ${DIGEST}. Re-run the 'Toolchain pin freshness' check (GITHUB_TOKEN pushes do not auto-retrigger PR checks)."
+
+  # Off the PR path only: if the rebuilt digest differs from the Dockerfile pin,
+  # open a bot PR bumping it (modelled on update-geolite2.yml). Keeps base
+  # `development` per spec §3.3/§3.4.
+  open-bump-pr:
+    name: Open toolchain digest-bump PR
+    needs: [build-toolchain, trivy-scan]
+    if: >-
+      needs.build-toolchain.outputs.same_repo == 'true' &&
+      needs.build-toolchain.outputs.digest != '' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Decide whether the pin moved
+        id: moved
+        env:
+          KEY: ${{ needs.build-toolchain.outputs.key }}
+          DIGEST: ${{ needs.build-toolchain.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cur_tag="$(grep -E '^ARG CHARON_TOOLCHAIN_TAG=' Dockerfile | cut -d= -f2)"
+          cur_digest="$(grep -E '^ARG CHARON_TOOLCHAIN_DIGEST=' Dockerfile | cut -d= -f2)"
+          echo "old_tag=$cur_tag" >> "$GITHUB_OUTPUT"
+          echo "old_digest=$cur_digest" >> "$GITHUB_OUTPUT"
+          if [[ "$cur_tag" == "$KEY" && "$cur_digest" == "$DIGEST" ]]; then
+            echo "moved=false" >> "$GITHUB_OUTPUT"
+            echo "Toolchain pin unchanged ($KEY @ $DIGEST) — no bot PR."
+          else
+            echo "moved=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update the ARG lines
+        if: steps.moved.outputs.moved == 'true'
+        env:
+          KEY: ${{ needs.build-toolchain.outputs.key }}
+          DIGEST: ${{ needs.build-toolchain.outputs.digest }}
+        run: |
+          set -euo pipefail
+          sed -i "s|^ARG CHARON_TOOLCHAIN_TAG=.*|ARG CHARON_TOOLCHAIN_TAG=${KEY}|" Dockerfile
+          sed -i "s|^ARG CHARON_TOOLCHAIN_DIGEST=.*|ARG CHARON_TOOLCHAIN_DIGEST=${DIGEST}|" Dockerfile
+          DOCKER_BUILDKIT=1 docker build --check -f Dockerfile .
+
+      - name: Create Pull Request
+        if: steps.moved.outputs.moved == 'true'
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          base: development
+          branch: bot/bump-toolchain-image
+          delete-branch: true
+          title: "feat(security): refresh bundled proxy toolchain image"
+          labels: |
+            dependencies
+            automated
+            docker
+            security
+          commit-message: |
+            feat(security): refresh bundled proxy toolchain image
+
+            Rebuilds the prebuilt Caddy/CrowdSec toolchain image so the shipped
+            binaries pick up upstream fixes, and bumps the digest pin in the
+            Dockerfile.
+          body: |
+            🤖 **Automated bundled-toolchain refresh**
+
+            The prebuilt Caddy/CrowdSec toolchain image was rebuilt (daily
+            `--no-cache --pull`, or a tracked-pin change) and produced a new
+            digest.
+
+            | | Tag | Digest |
+            |---|---|---|
+            | Old | `${{ steps.moved.outputs.old_tag }}` | `${{ steps.moved.outputs.old_digest }}` |
+            | New | `${{ needs.build-toolchain.outputs.key }}` | `${{ needs.build-toolchain.outputs.digest }}` |
+
+            The Trivy CRITICAL/HIGH gate on the new image passed on the rebuild
+            run. Merging updates the shipped Caddy/CrowdSec binaries.
+
+            ### Verification
+            - [ ] CI green (`verify-toolchain-pin`, Docker Build, integration)
+            - [ ] Trivy diff on the final app image shows no new CRITICAL/HIGH
+
+            Auto-generated by `.github/workflows/toolchain-image.yml`.
+
+      - name: Report failure via GitHub issue
+        if: failure()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Toolchain image rebuild / digest-bump failed',
+              body: [
+                'The `.github/workflows/toolchain-image.yml` rebuild or its digest-bump PR step failed.',
+                '',
+                `- Run: ${runUrl}`,
+                `- Trigger: ${context.eventName}`,
+                '',
+                'The shipped Caddy/CrowdSec binaries may be missing an upstream fix until this is resolved.',
+                'Re-run via `workflow_dispatch` once fixed.',
+              ].join('\n'),
+              labels: ['bug', 'automated', 'ci-cd', 'docker', 'security'],
+            });

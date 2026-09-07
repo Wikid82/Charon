@@ -851,10 +851,38 @@ COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 # Allow non-root to bind privileged ports (80/443) securely
 RUN setcap 'cap_net_bind_service=+ep' /usr/bin/caddy
 
+# N5 — app-side sanity check on the toolchain-provided Caddy binary. On the
+# prebuilt path the "does it embed the fixed cel-go / grpc-go" assertions ran
+# only when the toolchain image was built, so a wrong / rolled-back
+# CHARON_TOOLCHAIN_DIGEST (or a hand-edited pin) would sail through silently.
+# The final stage has no Go toolchain, so instead assert the binary loads and
+# exposes the four custom plugins the recipe adds — a wrong-arch or stale-recipe
+# image fails here immediately. The authoritative embed-version checks remain in
+# caddy-inline (run by toolchain-image.yml) and docker-build.yml's post-build step.
+RUN set -e; \
+    mods="$(/usr/bin/caddy list-modules 2>/dev/null)"; \
+    for m in http.handlers.rate_limit http.handlers.crowdsec http.handlers.geoip2 http.handlers.waf; do \
+        printf '%s\n' "$mods" | grep -qx "$m" \
+            || { echo "ERROR: toolchain caddy binary missing expected module: $m"; printf '%s\n' "$mods"; exit 1; }; \
+    done; \
+    echo "Verified toolchain caddy binary exposes rate_limit / crowdsec / geoip2 / waf(coraza)"
+
 # Copy CrowdSec binaries from the crowdsec-builder stage (built with Go 1.26.3+)
 # This ensures we don't have stdlib vulnerabilities from older Go versions
 COPY --from=crowdsec-builder /crowdsec-out/crowdsec /usr/local/bin/crowdsec
 COPY --from=crowdsec-builder /crowdsec-out/cscli /usr/local/bin/cscli
+
+# N5 — app-side sanity check on the toolchain-provided cscli binary: it must run
+# and emit its recognisable version block. (CrowdSec 1.8.x prints an empty
+# `version:` field here regardless of the -X ldflag, so match a stable field
+# instead.) A wrong-arch / stale-recipe image fails this immediately.
+RUN set -e; \
+    /usr/local/bin/cscli version >/tmp/cscli-v.txt 2>&1 \
+        || { echo "ERROR: toolchain cscli is not runnable"; cat /tmp/cscli-v.txt; exit 1; }; \
+    grep -q 'Constraint_api' /tmp/cscli-v.txt \
+        || { echo "ERROR: toolchain cscli version output not recognised"; cat /tmp/cscli-v.txt; exit 1; }; \
+    rm -f /tmp/cscli-v.txt; \
+    echo "Verified toolchain cscli runs (GoVersion: $(/usr/local/bin/cscli version 2>&1 | sed -n 's/^GoVersion: //p'))"
 # Copy CrowdSec configuration files to .dist directory (will be used at runtime)
 COPY --from=crowdsec-builder /crowdsec-out/config /etc/crowdsec.dist
 # Verify config files were copied successfully

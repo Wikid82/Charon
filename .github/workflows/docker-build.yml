@@ -785,6 +785,23 @@ jobs:
           path: /tmp/charon-pr-image.tar
           retention-days: 1  # Only needed for workflow duration
 
+      - name: Verify pinned toolchain image matches the recipe (N5)
+        run: |
+          set -euo pipefail
+          KEY="$(bash scripts/toolchain-key.sh)"
+          PIN_IMG="$(grep -E '^ARG CHARON_TOOLCHAIN_IMAGE=' Dockerfile | cut -d= -f2)"
+          PIN_DIGEST="$(grep -E '^ARG CHARON_TOOLCHAIN_DIGEST=' Dockerfile | cut -d= -f2)"
+          echo "recomputed recipe key : $KEY"
+          echo "pinned image          : ${PIN_IMG}@${PIN_DIGEST}"
+          docker pull "${PIN_IMG}@${PIN_DIGEST}"
+          LABEL_KEY="$(docker inspect --format '{{ index .Config.Labels "io.charon.toolchain.key" }}' "${PIN_IMG}@${PIN_DIGEST}")"
+          echo "toolchain image label : ${LABEL_KEY:-<none>}"
+          if [ "$LABEL_KEY" != "$KEY" ]; then
+            echo "::error::Pinned toolchain image label ('${LABEL_KEY}') != recomputed recipe key ('${KEY}') — the Dockerfile digest pin is stale or hand-edited."
+            exit 1
+          fi
+          echo "✅ Pinned toolchain image matches the current recipe."
+
       - name: Verify Caddy Security Patches (CVE-2025-68156)
         timeout-minutes: 2
         continue-on-error: true

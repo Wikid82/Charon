@@ -502,26 +502,50 @@ fi
 
 #### 3.4.3 Jobs
 
+> **Amendment (Rev 2.1, post-approval — flagged for supervisor re-review).**
+> BuildKit's default provenance / SBOM attestation manifests embed per-run
+> timestamps + builder identity, so the OCI-index (manifest-list) digest of an
+> otherwise byte-identical build changes on every run. Combined with
+> `sync-pin-on-pr` + the path-filtered `pull_request` trigger this produced a
+> self-perpetuating bot-commit loop on the feature PR. Fixes, all in this PR:
+>
+> 1. **Deterministic build.** `--provenance=false --sbom=false`, a **fixed**
+>    `SOURCE_DATE_EPOCH` (`1700000000`), and
+>    `--output type=image,"name=…:KEY,…:DATE,…:latest",push=true,rewrite-timestamp=true`.
+>    The toolchain image is an internal build *input*; the app image's own
+>    provenance/SBOM (in `docker-build.yml`) is separate and unaffected. Result:
+>    identical toolchain key ⇒ identical manifest-list digest (verified by two
+>    independent builds producing the same digest).
+> 2. **Skip-if-already-published.** On any non-forced event (`pull_request`,
+>    plain path trigger) the job first `imagetools inspect`s `:${KEY}`; if it
+>    resolves, it SKIPS the build/push entirely and emits that existing digest.
+>    Only `schedule` / `workflow_dispatch force_rebuild=true` / `workflow_call`
+>    actually rebuild + repush. This also removes the ~30-min rebuild from
+>    unrelated Dockerfile PRs.
+> 3. **`sync-pin-on-pr` is idempotent + self-trigger-safe:** guarded
+>    `github.actor != 'github-actions[bot]'` and no-ops unless
+>    `git diff --quiet Dockerfile` shows a real change after the sed.
+
 ```
 build-toolchain:
   - checkout
   - KEY=$(scripts/toolchain-key.sh); echo to $GITHUB_OUTPUT
   - Set up QEMU? NO. Set up Buildx.
   - login GHCR (skip on fork)
-  - docker buildx build
+  - PLAN: forced = (schedule || force_rebuild); if !forced && same-repo &&
+    `imagetools inspect :${KEY}` resolves -> should_build=false, reuse that digest
+  - if should_build:  SOURCE_DATE_EPOCH=1700000000 docker buildx build
       --target toolchain-runtime
       --platform linux/amd64,linux/arm64
-      $( [[ force_rebuild || schedule ]] && echo --no-cache --pull )
+      $( forced && echo --no-cache --pull )
+      --provenance=false --sbom=false
       --cache-from type=gha,scope=toolchain
       --cache-to   type=gha,mode=max,scope=toolchain
-      -t ghcr.io/wikid82/charon-toolchain:${KEY}
-      $( same-repo && echo -t ghcr.io/wikid82/charon-toolchain:latest )
-      -t ghcr.io/wikid82/charon-toolchain:$(date +%Y%m%d)
-      $( same-repo && echo --push || echo --output=type=cacheonly )
-      --iidfile /tmp/toolchain-iid.txt
+      --output type=image,"name=…:KEY,…:$(date +%Y%m%d)$( same-repo && echo ,…:latest )",push=$( same-repo && echo true || echo false via type=cacheonly ),rewrite-timestamp=true
       .
-  - DIGEST=$(regctl image digest ghcr.io/wikid82/charon-toolchain:${KEY})
-  - outputs: key, digest
+  - DIGEST = existing_digest (if skipped) else
+    $(docker buildx imagetools inspect …:${KEY} --format '{{json .Manifest}}' | jq -r .digest)
+  - outputs: key, digest, same_repo
 
 trivy-scan:
   needs: build-toolchain
@@ -531,11 +555,13 @@ trivy-scan:
   - continue-on-error on the gate step is FALSE on schedule/dispatch (must be clean),
     TRUE on PR (report-only; the app-image Trivy gates still run downstream)
 
-sync-pin-on-pr:              # only when event == pull_request && same-repo && pins moved
+sync-pin-on-pr:              # pull_request && same-repo && actor != github-actions[bot]
   needs: [build-toolchain]
   - sed -i "s|^ARG CHARON_TOOLCHAIN_TAG=.*|ARG CHARON_TOOLCHAIN_TAG=${KEY}|" Dockerfile
   - sed -i "s|^ARG CHARON_TOOLCHAIN_DIGEST=.*|ARG CHARON_TOOLCHAIN_DIGEST=${DIGEST}|" Dockerfile
+  - if `git diff --quiet Dockerfile`: exit 0 (no commit — idempotent)
   - git commit -m "chore(docker): sync toolchain image pin to ${KEY}" && git push (to PR head branch)
+  - ::notice:: re-run the freshness check (GITHUB_TOKEN pushes don't re-trigger PR checks)
 
 open-bump-pr:                # event == schedule | workflow_dispatch | workflow_call ; NEVER on pull_request
   needs: [build-toolchain, trivy-scan]
